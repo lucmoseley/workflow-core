@@ -19,7 +19,7 @@ const REPLY_BUDGET_USD = 15;
 
 /**
  * The headroom for one more run on `run`'s seat, gated as the dispatcher gates
- * a launch (scripts/dispatch-sessions.sh): nothing past it. A key the seat file
+ * a launch (scripts/dispatch-sessions.js): nothing past it. A key the seat file
  * now gives another seat is refused, as that seat's config dir holds no record
  * of the session.
  * @param {RunRecord} run

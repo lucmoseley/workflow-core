@@ -207,7 +207,7 @@ describe("loading code-review", () => {
 		expect(b).toContain("review-spec-22222222.md");
 	});
 
-	// Must match inject-tracker-docs.sh and concision-backstop.sh, which strip
+	// Must match inject-tracker-docs.js and concision-backstop.sh, which strip
 	// before truncating.
 	it("sanitises the session id before truncating it", () => {
 		expect(context("code-review", { session_id: "ab/cd.efgh-99" })).toContain(

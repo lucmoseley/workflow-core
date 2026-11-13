@@ -1,8 +1,9 @@
 // @vitest-environment node
 /*
- * Pins that scripts/dispatch-sessions.sh still launches where the interop-probe
- * library will not load (mantahostels#3111). Loosen it and a broken library
- * refuses every dispatch rather than failing open.
+ * Pins that the dispatcher still launches where the interop-probe library
+ * will not load (mantahostels#3111): a §N5 fail-open, so a program case
+ * (§X11 (4)). Loosen it and a broken library refuses every dispatch rather
+ * than failing open.
  *
  * Its own file because the shadow `scripts/` it builds links every file in
  * scripts/lib through installLib, which makes this file a reader of each one
@@ -22,10 +23,11 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 	it("fails open where the probe library will not load", () => {
 		fx.stubClaude({});
 		// A library the shell cannot parse leaves `claude_interop_wedged`
-		// undefined. Driven through a shadow `scripts/` whose every entry but
-		// `lib/` is a symlink to the real one, and whose `lib/` is a real
-		// directory of symlinks to every non-`.ts` file but the probe library,
-		// so `dirname "$0"` still resolves the node scripts this one shells out to.
+		// undefined, on a bridge that would otherwise read wedged. Driven
+		// through a shadow `scripts/` whose every entry but `lib/` links to the
+		// real one, and whose `lib/` links every non-`.ts` file but the probe
+		// library; --preserve-symlinks keeps the host resolving its library
+		// from the shadow.
 		const shadow = path.join(fx.dir, "scripts");
 		const realScripts = path.dirname(SCRIPT);
 		fs.mkdirSync(shadow, { recursive: true });
@@ -40,16 +42,23 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		});
 		fs.writeFileSync(path.join(shadowLib, "interop-probe.sh"), "if then fi\n");
 
+		// spawn-kept: a §N5 fail-open, crossed through the entry from a shadow scripts tree
 		const r = spawnSync(
-			"bash",
-			[path.join(shadow, "dispatch-sessions.sh"), "sonnet", "/implement 341"],
+			process.execPath,
+			[
+				"--preserve-symlinks",
+				"--preserve-symlinks-main",
+				path.join(shadow, "dispatch-sessions.js"),
+				"sonnet",
+				"/implement 341",
+			],
 			{
 				cwd: fx.dir,
 				encoding: "utf8",
 				env: fx.baseEnv({ CLAUDE_INTEROP_REG: fx.regWedged() }),
 			},
 		);
-		expect(r.status).toBe(0);
+		expect(r.status, r.stderr).toBe(0);
 		expect(fx.launchArgv()).toContain("--bg");
 	});
 });

@@ -101,7 +101,7 @@ const ROUTES = [
 		secondVar: /\bWFC_\w+_CLAUDE(?:_BIN)?\b/,
 		calls: "`claudeBin()`",
 		exemplar: "scripts/run-mod-tests.js",
-		shellExemplar: "scripts/dispatch-sessions.sh",
+		shellExemplar: "scripts/start-session.sh",
 	}),
 ];
 

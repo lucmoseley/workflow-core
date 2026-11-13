@@ -45,11 +45,10 @@
  * A `skillOverrides` entry is not an edit — it lives in settings and survives the
  * pull — so it zeroes a vendored description as readily as an own one (mantahostels#1786).
  *
- * INJECTION fails the FIRST limb — scripts/inject-tracker-docs.sh fires on seven
+ * INJECTION fails the FIRST limb — scripts/inject-tracker-docs.js fires on seven
  * commands, ~41% of sessions, not all (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/tracker-injection-frequency.md,
- * mantahostels#1083). Capped separately rather than left ungoverned. Measured as the payload the
- * script actually emits — its own header prose, plus its DOCS array and the markers
- * around each document should one ever return there (mantahostels#1284, mantahostels#1870).
+ * mantahostels#1083). Capped separately rather than left ungoverned. Measured as a union of
+ * the payload parts lib/tracker-inject-text.js holds (mantahostels#1284, mantahostels#1870).
  *
  * Severity turns on DIRECTION, not on level (mantahostels#1224). An over-cap total this commit
  * did not increase is a WARN: the caps are ratchets against drift rather than
@@ -71,16 +70,16 @@
  * charged to this commit.
  *
  * WHAT --against MEANS FOR A CORE FILE (#36). CAP_SOURCE is a core file
- * (lib/hook-limits.sh) read off rule-emission.js's own CAP_FILE default, not off
+ * (lib/hook-limits.js) read off rule-emission.js's own CAP_FILE default, not off
  * `--root`, so a HOST revision comparison never varies it — the read no
- * longer depends on which tree `--root` names. The injector is different:
- * THIS repo's `--against` runs are self-hosted (the core's history is the
- * host's), so lib/context-budget-pathspecs.js's materialisePathspecs() still
- * tries `git show <rev>:...` first and reads the REVISION's own copy, preserving growth-detection on the
- * injector's own bytes; only where that fails (a plugin install, whose host
- * git never tracked the file) does it fall back to the live core copy
- * (INJECTOR_FILE), which is then constant across whatever is compared. See
- * its header for the injector limb in full.
+ * longer depends on which tree `--root` names. The injector's text module is
+ * different: THIS repo's `--against` runs are self-hosted (the core's history
+ * is the host's), so lib/context-budget-pathspecs.js lists INJECTOR among the
+ * paths materialised at the revision, preserving growth-detection on the
+ * injector's own bytes; only where the root carries none (a plugin install,
+ * whose host git never tracked the file) does readInjection() fall back to the
+ * live core copy (INJECTOR_FILE), which is then constant across whatever is
+ * compared.
  *
  * lib/fault-profiles.js's `context-budget` profile is what names the over-cap
  * tags gate material despite being WARN. Their `total` rides in the
@@ -99,16 +98,14 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
+const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { runCheck, errMessage, isBaselineSide } = require("./lib/check");
-const { requiredGroup } = require("./lib/regex-group");
 const { SELF_PLUGIN_COST } = require("./lib/core-context-cost.js");
 const {
 	SETTINGS_FILE,
 	PLUGIN_COST_TABLE,
 	INJECTOR,
 	INJECTOR_FILE,
-	bashArray,
-	docsArray,
 	SHED_REGISTERS,
 	materialisePathspecs,
 } = require("./lib/context-budget-pathspecs");
@@ -237,7 +234,14 @@ const { RULES_DIR, CORE_RULES } = require("./lib/rule-text");
 const { caught } = require("./lib/caught.js");
 const { trimEndRun } = require("./lib/trim-run.js");
 const { readImportedFiles } = require("./lib/pool-imports.js");
-const { renderedPayloads } = require("./lib/rendered-injection.js");
+const {
+	INJECTOR_ENTRY,
+	PROBE_SESSION_ID,
+	renderedPayloads,
+} = require("./lib/rendered-injection.js");
+const { loadTextModule } = require("./lib/load-text-module.js");
+const { reviewSuffix } = require("./lib/review-suffix.js");
+const { standardsBase, standardsShown } = require("./lib/review-standards.js");
 const { readConfig, resolveKey } = require("./lib/workflow-core-config.js");
 const { ghJson } = require("./lib/gh.js");
 const {
@@ -273,22 +277,6 @@ const poolRows = (file, bytes, doubleLoaded) =>
 				{ path: file, bytes, note: "second copy, the active output style" },
 			]
 		: [{ path: file, bytes }];
-
-/**
- * Bytes on disk, or BROKEN — a tracked file that will not read is apparatus.
- *
- * @param {Ctx} ctx
- * @param {string} root
- * @param {string} rel
- * @returns {number}
- */
-function readSize(ctx, root, rel) {
-	try {
-		return fs.statSync(path.join(root, rel)).size;
-	} catch (e) {
-		return ctx.broken(`cannot read ${rel}: ${errMessage(e)}`);
-	}
-}
 
 /**
  * Bytes of a POOL member, or `null` where this revision does not carry the file
@@ -730,17 +718,17 @@ function readAgentDefinitions(root) {
 }
 
 /**
- * The docs the injector pastes, read out of its own `DOCS=(...)` array, and
- * whether the script read was the core's because `root` carries none — an
+ * The injector's union, read off the tracker-inject-text.js at `root`, and
+ * whether the copy read was the core's because `root` carries none — an
  * adopter, whose real payloads renderedPayloads() measures instead (#1956).
  *
  * @param {Ctx} ctx
  * @param {string} root
- * @returns {{ files: FileEntry[], fromCore: boolean, script: string }}
+ * @returns {{ files: FileEntry[], fromCore: boolean, text: TextModule }}
  */
-function readInjectedDocs(ctx, root) {
+function readInjection(ctx, root) {
 	/** @type {string} */
-	let script;
+	let source;
 	let fromCore = false;
 	try {
 		/* Prefers the copy already at `root`: self-hosted live runs and every
@@ -749,28 +737,32 @@ function readInjectedDocs(ctx, root) {
 		 * staged growth of the injector's own bytes still FAIL the gate). Only a
 		 * plugin install's host root lacks it, where INJECTOR_FILE — the core's own
 		 * disk copy, constant across revisions — is the fallback (#36). */
-		script = fs.readFileSync(path.join(root, INJECTOR), "utf8");
+		source = fs.readFileSync(path.join(root, INJECTOR), "utf8");
 	} catch (e) {
 		if (caught(e).code === "ENOENT") {
 			try {
-				script = fs.readFileSync(INJECTOR_FILE, "utf8");
+				source = fs.readFileSync(INJECTOR_FILE, "utf8");
 				fromCore = true;
 			} catch (e2) {
 				return ctx.broken(`cannot read ${INJECTOR_FILE}: ${errMessage(e2)}`);
 			}
 		} else return ctx.broken(`cannot read ${INJECTOR}: ${errMessage(e)}`);
 	}
-	const docs = docsArray(ctx, script);
-	const files = docs.map((rel) => ({
-		path: rel,
-		bytes: readSize(ctx, root, rel),
-	}));
-	files.push({
-		path: `${INJECTOR} (header + markers)`,
-		bytes: injectorBytes(ctx, script, docs, (id) => readRuleFragment(root, id)),
-		...(fromCore && { note: "the core's union, capped there" }),
-	});
-	return { files, fromCore, script };
+	/** @type {TextModule} */
+	let text;
+	try {
+		text = /** @type {TextModule} */ (loadTextModule(source, INJECTOR));
+	} catch (e) {
+		return ctx.broken(`${INJECTOR} will not evaluate: ${errMessage(e)}`);
+	}
+	const files = [
+		{
+			path: INJECTOR,
+			bytes: injectorBytes(ctx, text, (id) => readRuleFragment(root, id)),
+			...(fromCore && { note: "the core's union, capped there" }),
+		},
+	];
+	return { files, fromCore, text };
 }
 
 /* ------------------------------------------------------------------ *
@@ -778,222 +770,116 @@ function readInjectedDocs(ctx, root) {
  * ------------------------------------------------------------------ */
 
 /*
- * The cap counts the injector's own prose as well as its documents: a span
- * relocated out of a document and into a header variable is the same bytes in the
- * same payload, and must not read as a shed (mantahostels#1284). Since mantahostels#1870 there are no
- * documents, so the prose is the whole of it.
- *
- * The cap measures a UNION, not a variant: every payload string the injector
- * emits plus whatever its DOCS array names. A union binding the largest binds
- * them all, where a per-variant cap would need re-deriving on every narrowing.
- * ONE EXCEPTION: `priced_options` is read as its Core voice pointer, the form
- * this repo's sessions get, and `priced_options_whole` is in no sum (#2039).
+ * The cap measures a UNION, not a variant: one string per payload part, each
+ * at its largest variant, summed. A union binding the largest binds them all,
+ * where a per-variant cap would need re-deriving on every narrowing. ONE
+ * EXCEPTION: the priced-options part is read as its Core voice pointer, the
+ * form this repo's sessions get, and the whole shape is in no sum (#2039).
  * Residual: this cap never sees the whole shape grow, which only
- * inject-tracker-docs.test.ts's per-command persistence test bounds. The
- * pointer is read because its assignment is the last one at column zero;
- * POINTER_VARS turns an assignment from the whole shape into BROKEN.
+ * check-injector-margin.sh's per-command figures bound.
  *
- * DOCS IS EMPTY, so the union is the injector's prose alone. The two tracker
- * documents are pointed at rather than pasted, which is what keeps
- * every command's payload under the harness's 10,000-CHARACTER persistence
- * threshold and so landing inline instead of behind a link the session opened
- * roughly a tenth of the time.
+ * The two tracker documents are pointed at rather than pasted, which is what
+ * keeps every command's payload under the harness's 10,000-CHARACTER
+ * persistence threshold and so landing inline instead of behind a link the
+ * session opened roughly a tenth of the time.
  *
- * THE BINDING LIMIT IS PER COMMAND, and this cap cannot read it: /implement's
- * payload is 9,891 characters of the harness's 10,000 (29 Aug 2026), leaving 109
- * to spend. This checker parses the injector rather than running it and sums
- * PAYLOAD_VARS flat, with no model of which command takes which string.
- * scripts/inject-tracker-docs.test.ts executes it and asserts each command under
- * the threshold; the other six figures and the repro are on mantahostels#1915.
+ * THE BINDING LIMIT IS PER COMMAND, and this cap cannot read it: it sums the
+ * parts flat, with no model of which command takes which.
+ * check-injector-margin.sh composes each command's payload through the text
+ * module's own composers and gates it at the threshold (mantahostels#1915), so a
+ * string this union does not count is still priced there.
  *
- * MEASURED_COMMAND seeds `${matched}` in the header, so the union is 2 B short
- * of /code-review's own interpolation — immaterial against that variant's
- * ~5 KB payload, and in the wrong direction to matter for any other.
- *
- * Parsed, never executed. --against reads the injector out of git, so running it
- * would both defeat that and run whatever was half-saved to disk.
+ * EVALUATED, NOT RUN: lib/load-text-module.js evaluates the text with no
+ * `require`, so `--against` measures a revision's blob, and nothing else of
+ * the working tree is executed.
  */
 
-/* Only these are added up. The five review strings are named directly: since
- * mantahostels#3451 only /code-review's own `emit` line reaches them, and the RESIDUAL
- * below reads that line as zero. A name reached only as a ref of a listed one
- * is not named: `counted` already expands this list transitively, so naming it
- * too double-counts its bytes, which the tripwire does not catch.
- *
- * MAINTAINED BY HAND — the `uncounted` tripwire below is what catches a string
- * that bypasses this list. It reads `emit "..."` and a whole-line
- * bare `emit "$context"` too (mantahostels#1853), then expands transitively through `refs` on both
- * sides of the comparison and checks each name's OWN bytes (refs zeroed out),
- * so a string reached only through the `context=` assignment still surfaces
- * there rather than counting as zero, and a pure container like `context`
- * itself — which self-references its own prior value — is not flagged for
- * bytes that are really its already-counted children's. RESIDUAL: a bare
- * `$var` embedded amid other text on an `emit` line — `emit "prefix $var"` —
- * still reads as zero, the injector having no such line today. */
-const PAYLOAD_VARS = [
-	"takes_line",
-	"header",
-	"wayfinder_clauses",
-	"tracker_index",
-	"closing_steps",
-	"priced_options",
-	"standards",
-	"dispatch",
-	"deviations_read",
-	"ultra",
-	"disposition",
-];
+/** @typedef {typeof import("./lib/tracker-inject-text.js")} TextModule */
 
-/* Each payload variable measured as the pointer form, mapped to the whole
- * form it must not be assigned from (#2039). */
-const POINTER_VARS = { priced_options: "priced_options_whole" };
+/* What the union reads off the text module. A copy lacking one is BROKEN,
+ * never a part read as zero. */
+const UNION_EXPORTS = {
+	COMMANDS: "array",
+	TAKES_READ: "array",
+	takesLine: "function",
+	header: "function",
+	WAYFINDER_CLAUSES: "string",
+	INDEX: "object",
+	trackerIndex: "function",
+	CLOSING_STEPS: "object",
+	PRICED_OPTIONS_POINTER: "string",
+	standardsText: "function",
+	withGlossary: "function",
+	dispatchText: "function",
+	DISPATCH_SHAPE_FALLBACK: "string",
+	DEVIATIONS_READ_FALLBACK: "string",
+	DISPOSITION_FALLBACK: "string",
+	ULTRA: "string",
+};
+
+/* The inputs a part interpolates, each at the value that makes it longest
+ * where it varies: an issue number is the probe's one digit, the session id is
+ * rendered-injection.js's probe, and the reviewer type is the plugin spelling,
+ * longer than a host's own `code-reviewer`. */
+const MEASURED_ISSUE = "1";
+const MEASURED_REVIEW_TYPE = "workflow-core:code-reviewer";
+const STANDARDS_STATES = /** @type {const} */ ([
+	"base",
+	"local",
+	"neither",
+	"both",
+]);
+const CORE_DIR = require("./lib/script-path.js").coreRoot();
+const STANDARDS_SHOWN = standardsShown(standardsBase(CORE_DIR), CORE_DIR);
+const GLOSSARY_SHOWN = "GLOSSARY.md";
 
 /**
- * Why the cap would measure a POINTER_VARS name as its whole form, or null.
- * @param {Map<string, string[]>} refs
- * @returns {string | null}
+ * The longest of `xs` in bytes, or "" for none.
+ * @param {string[]} xs
  */
-function pointerAssignedWhole(refs) {
-	for (const [pointer, whole] of Object.entries(POINTER_VARS))
-		if (refs.get(pointer)?.includes(whole))
-			return (
-				`${INJECTOR}'s last ${pointer}= line assigns ${whole}, so this cap ` +
-				"would measure the whole shape rather than the Core voice pointer. " +
-				`Keep the pointer assignment last and assign ${whole} only off column zero (#2039).`
-			);
-	return null;
-}
-
-/* `header` interpolates the command that matched; the injector's other strings
- * are read at their last, longest assignment, whatever variant that is. */
-const MEASURED_COMMAND = "implement";
-
-/* An assignment longer than this is prose. It separates "the parser missed a
- * rule" from "the parser skipped a control variable"; only the first is BROKEN. */
-const PROSE_BYTES = 100;
+const longest = (xs) =>
+	xs.reduce((a, b) => (bytesIn(b) > bytesIn(a) ? b : a), "");
 
 /**
- * One assignment's right-hand side, as the string bash would build.
- *
- * Handles exactly what the injector uses: `"..."` and `$'...'` literals
- * concatenated with no separator, `${name}` interpolation, and the escapes each
- * quoting form takes. Everything else — a command substitution, an unbraced
- * `$var`, a parameter expansion with an operator — returns null, which the caller
- * turns into BROKEN rather than a silent short count.
- *
- * @param {string} rhs
- * @param {Record<string, string>} vars
- * @returns {string | null}
+ * Each part of the union, in payload order.
+ * @param {TextModule} t
+ * @param {(id: string) => string | null} fragment a rule fragment's text
+ * @returns {string[]}
  */
-function shellString(rhs, vars) {
-	let out = "";
-	let at = 0;
-	while (at < rhs.length) {
-		let part;
-		if (rhs.startsWith("$'", at)) part = ansiCQuoted(rhs, at + 2);
-		else if (rhs[at] === '"') part = doubleQuoted(rhs, at + 1, vars);
-		else return null;
-		if (part === null) return null;
-		out += part.text;
-		at = part.at;
-	}
-	return out;
+function injectorParts(t, fragment) {
+	/** @type {string[]} */
+	const commands = t.COMMANDS;
+	/** @type {string[]} */
+	const takesRead = t.TAKES_READ;
+	return [
+		longest(
+			takesRead.flatMap((m) =>
+				commands
+					.filter((o) => o !== m)
+					.map((o) => t.takesLine(MEASURED_ISSUE, o, m)),
+			),
+		),
+		longest(
+			commands.map((c) => t.header(c, buildArbiterCommand`claim-issue <n>`)),
+		),
+		t.WAYFINDER_CLAUSES,
+		longest(Object.keys(t.INDEX).map((c) => t.trackerIndex(c))),
+		longest(Object.values(t.CLOSING_STEPS)),
+		t.PRICED_OPTIONS_POINTER,
+		t.withGlossary(
+			longest(STANDARDS_STATES.map((s) => t.standardsText(s, STANDARDS_SHOWN))),
+			GLOSSARY_SHOWN,
+		),
+		t.dispatchText(
+			MEASURED_REVIEW_TYPE,
+			reviewSuffix(PROBE_SESSION_ID),
+			fragment("review-dispatch-shape") ?? t.DISPATCH_SHAPE_FALLBACK,
+		),
+		fragment("review-deviations-read") ?? t.DEVIATIONS_READ_FALLBACK,
+		t.ULTRA,
+		fragment("review-finding-destination") ?? t.DISPOSITION_FALLBACK,
+	];
 }
-
-/**
- * A `$'...'` literal whose body starts at `start`: its text and the index past
- * its closing quote, or null where it never closes.
- *
- * @param {string} rhs
- * @param {number} start
- */
-function ansiCQuoted(rhs, start) {
-	let out = "";
-	let at = start;
-	while (at < rhs.length && rhs[at] !== "'") {
-		if (rhs[at] !== "\\") {
-			out += rhs[at++];
-			continue;
-		}
-		const c = rhs[at + 1];
-		if (c === "n") out += "\n";
-		else if (c === "t") out += "\t";
-		else out += c;
-		at += 2;
-	}
-	if (rhs[at] !== "'") return null;
-	return { text: out, at: at + 1 };
-}
-
-/**
- * A `"..."` literal whose body starts at `start`: its text and the index past
- * its closing quote, or null where it never closes or holds a `$` form other
- * than `${name}`.
- *
- * @param {string} rhs
- * @param {number} start
- * @param {Record<string, string>} vars
- */
-function doubleQuoted(rhs, start, vars) {
-	let out = "";
-	let at = start;
-	while (at < rhs.length && rhs[at] !== '"') {
-		if (rhs[at] === "\\") {
-			out += rhs[at + 1];
-			at += 2;
-			continue;
-		}
-		if (rhs.startsWith("${", at)) {
-			const ref = interpolation(rhs, at, vars);
-			if (ref === null) return null;
-			out += ref.text;
-			at = ref.at;
-			continue;
-		}
-		if (rhs[at] === "$") return null;
-		out += rhs[at++];
-	}
-	if (rhs[at] !== '"') return null;
-	return { text: out, at: at + 1 };
-}
-
-/**
- * A `${name}` interpolation starting at `at`: the variable's value and the
- * index past its `}`, or null where the name is malformed or unassigned.
- *
- * @param {string} rhs
- * @param {number} at
- * @param {Record<string, string>} vars
- */
-function interpolation(rhs, at, vars) {
-	const end = rhs.indexOf("}", at);
-	if (end === -1) return null;
-	const name = rhs.slice(at + 2, end);
-	if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) return null;
-	if (!(name in vars)) return null;
-	return { text: vars[name], at: end + 1 };
-}
-
-const REFS = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
-const namesIn = (/** @type {string} */ s) =>
-	[...s.matchAll(REFS)].map((m) => requiredGroup(m, 1, REFS));
-
-const BARE_REF = /^\$([A-Za-z_][A-Za-z0-9_]*)$/;
-
-/**
- * @param {string} payload
- * @param {Set<string>} emitted accumulator: each name the payload emits is added
- */
-function addEmitted(payload, emitted) {
-	const bare = payload.match(BARE_REF);
-	if (bare) emitted.add(requiredGroup(bare, 1, BARE_REF));
-	for (const n of namesIn(payload)) emitted.add(n);
-}
-
-/* `name="$(rule_text <id> 2>/dev/null)"`, the one spelling by which the injector
- * reads a rule fragment (#1697): its value is the fragment, as a command
- * substitution strips its trailing newlines. */
-const RULE_TEXT_RHS = /^"\$\(rule_text ([a-z0-9-]+) 2>\/dev\/null\)"$/;
 
 /**
  * A rule fragment's text at `root`, or the core's own where `root` holds no
@@ -1020,143 +906,38 @@ function readRuleFragment(root, id) {
 }
 
 /**
- * The injector's string variables, with a later assignment overwriting an earlier
- * one exactly as bash does — `closing_steps` is assigned empty, then reassigned
- * inside each command's branch.
- *
- * `unparsed` is the tripwire: a long assignment this cannot evaluate is a header
- * string written in a spelling the parser reads as zero. `emitted` is the second
- * one — names handed straight to `emit`, either by a braced `${name}`
- * interpolation or (the caller expands this transitively via `refs`) a bare
- * `$name` line such as the real injector's `emit "$context"` — without passing
- * through PAYLOAD_VARS, which is how a tenth string could be injected into a
- * variant this cap does not measure.
- *
- * @param {string} script
- * @param {(id: string) => string | null} fragment a rule fragment's text, for RULE_TEXT_RHS
- * @returns {{ vars: Record<string, string>, refs: Map<string, string[]>, rhsByName: Map<string, string>, unparsed: string[], emitted: Set<string> }}
- */
-function injectorStrings(script, fragment) {
-	/** @type {Record<string, string>} */
-	const vars = { matched: MEASURED_COMMAND };
-	/** @type {Map<string, string[]>} */
-	const refs = new Map();
-	/** @type {Map<string, string>} */
-	const rhsByName = new Map();
-	/** @type {string[]} */
-	const unparsed = [];
-	/** @type {Set<string>} */
-	const emitted = new Set();
-
-	const emitRe = /^\s*emit\s+"(.*)"\s*$/;
-	const assignRe = /^\s*([A-Za-z_][A-Za-z0-9_]*)=(["$].*)$/;
-	for (const line of script.split("\n")) {
-		const emit = line.match(emitRe);
-		if (emit) {
-			addEmitted(requiredGroup(emit, 1, emitRe), emitted);
-			continue;
-		}
-		const m = line.trimEnd().match(assignRe);
-		if (!m) continue;
-		const name = requiredGroup(m, 1, assignRe);
-		const rhs = requiredGroup(m, 2, assignRe);
-		/* `matched` is the command that fired, seeded above with the variant this
-		 * cap measures. The script's own `matched=""` initialiser must not
-		 * overwrite it, or the header's `/${matched}` counts nine bytes short. */
-		if (name === "matched") continue;
-		const ruleId = rhs.match(RULE_TEXT_RHS)?.[1];
-		const value = ruleId ? fragment(ruleId) : shellString(rhs, vars);
-		if (value === null) {
-			/* An unreadable fragment would count as zero, however short its spelling. */
-			if (ruleId || rhs.length > PROSE_BYTES) unparsed.push(name);
-			continue;
-		}
-		vars[name] = value;
-		refs.set(name, namesIn(rhs));
-		rhsByName.set(name, rhs);
-	}
-	return { vars, refs, rhsByName, unparsed, emitted };
-}
-
-/**
- * The bytes the injector adds beyond the documents' own content: the /implement
- * header strings, the marker pair wrapped around each document, and the blank
- * line joining the two halves — less one byte per document, because
- * `body="$(cat "$f")"` strips the trailing newline every one of them ends with.
+ * The union's bytes.
  *
  * @param {Ctx} ctx
- * @param {string} script
- * @param {string[]} docs
+ * @param {TextModule} t
  * @param {(id: string) => string | null} fragment
  * @returns {number}
  */
-function injectorBytes(ctx, script, docs, fragment) {
-	const { vars, refs, rhsByName, unparsed, emitted } = injectorStrings(
-		script,
-		fragment,
-	);
-
-	if (unparsed.length > 0)
-		return ctx.broken(
-			`${INJECTOR} assigns ${unparsed.join(", ")} in a form this checker cannot ` +
-				"evaluate, so those bytes would be counted as zero. Teach shellString() " +
-				"the spelling rather than leaving the injection short-counted (mantahostels#1284).",
+function injectorBytes(ctx, t, fragment) {
+	const loose = /** @type {Record<string, unknown>} */ (t);
+	const missing = Object.entries(UNION_EXPORTS)
+		.filter(([name, kind]) =>
+			kind === "array"
+				? !Array.isArray(loose[name])
+				: typeof loose[name] !== kind || loose[name] === null,
+		)
+		.map(
+			([name, kind]) =>
+				`${name} (${kind === "object" ? "an object" : `a ${kind}`})`,
 		);
-
-	if (!("header" in vars))
-		return ctx.broken(`no header=... assignment in ${INJECTOR}`);
-
-	const wholeRead = pointerAssignedWhole(refs);
-	if (wholeRead) return ctx.broken(wholeRead);
-
-	/* Every name the capped variant actually concatenates, transitively. */
-	const counted = new Set(PAYLOAD_VARS);
-	for (const name of counted)
-		for (const ref of refs.get(name) ?? []) counted.add(ref);
-
-	/* `emitted` names a top-level variable such as `context`, not the leaf
-	 * strings concatenated into it — expand through `refs` the same way
-	 * `counted` does, so a string reached only via `context=` still surfaces
-	 * here rather than passing this check by naming a var nobody has to count. */
-	const reached = new Set(emitted);
-	for (const name of reached)
-		for (const ref of refs.get(name) ?? []) reached.add(ref);
-
-	/* A container's OWN bytes, not the total it resolves to: `context` self-
-	 * references its own prior value and otherwise only concatenates already-
-	 * counted names, so checking `vars[n]` directly would flag it for bytes that
-	 * are really its children's — already caught, if uncounted, at the ref
-	 * itself. Re-run shellString with every name zeroed, so what is left is
-	 * exactly the literal text `n`'s own assignment typed outside a `${...}`. A
-	 * name with no rhs on record (only `matched`) has no interpolation to strip. */
-	const ownBytes = (/** @type {string} */ n) => {
-		const rhs = rhsByName.get(n);
-		if (rhs === undefined) return bytesIn(vars[n] ?? "");
-		/** @type {Record<string, string>} */
-		const zeroed = {};
-		for (const k of Object.keys(vars)) zeroed[k] = "";
-		return bytesIn(shellString(rhs, zeroed) ?? "");
-	};
-
-	const uncounted = [...reached].filter(
-		(n) => !counted.has(n) && ownBytes(n) > PROSE_BYTES,
-	);
-	if (uncounted.length > 0)
-		return ctx.broken(
-			`${INJECTOR} injects ${uncounted.join(", ")} into a payload this cap does ` +
-				"not measure — PAYLOAD_VARS is the counted set. Either add the string " +
-				"to it or move the cap deliberately " +
-				"(docs/doc-map.md §Capture and placement §4, the scope trigger).",
-		);
-
-	let bytes = bytesIn("\n\n");
-	for (const name of PAYLOAD_VARS) bytes += bytesIn(vars[name] ?? "");
-	for (const rel of docs)
-		bytes +=
-			bytesIn(`--- BEGIN ${rel} ---\n`) +
-			bytesIn(`\n--- END ${rel} ---\n\n`) -
-			1;
-	return bytes;
+	if (missing.length > 0)
+		return ctx.broken(`${INJECTOR} exports no ${missing.join(", ")}`);
+	/** @type {string[]} */
+	let parts;
+	try {
+		parts = injectorParts(t, fragment);
+	} catch (e) {
+		return ctx.broken(`${INJECTOR}'s exports threw: ${errMessage(e)}`);
+	}
+	const bad = parts.findIndex((p) => typeof p !== "string");
+	if (bad !== -1)
+		return ctx.broken(`${INJECTOR}'s union part ${bad + 1} is not a string`);
+	return sum(parts, bytesIn);
 }
 
 /**
@@ -1223,13 +1004,13 @@ function reachOptions(settings, root) {
 	return {
 		settings,
 		root,
-		/* CAP_SOURCE names a file that ships WITH the core (hook-limits.sh), so a
+		/* CAP_SOURCE names a file that ships WITH the core (hook-limits.js), so a
 		 * plugin install's host root has none — joining it onto `root` was the
 		 * HOST-ROOTED-CORE fault #34 found (#36). Omitted, the reach functions
 		 * default to rule-emission.js's own `CAP_FILE`, read off that module's
 		 * `__dirname`, which finds the core's copy wherever it is installed.
 		 * `WFC_CAP_FILE` is the test-injection seam (`lib/host-root.js`'s header
-		 * convention): the suite plants a fake hook-limits.sh and points this at
+		 * convention): the suite plants a fake hook-limits.js and points this at
 		 * it rather than at a file under --root. */
 		capFile: process.env.WFC_CAP_FILE,
 		/* RULES_DIR is the fragment store the host's own guards write to
@@ -1799,17 +1580,14 @@ function afterCallSection(after) {
 /**
  * The core injector's payload per command, rendered for a host carrying none
  * of its own (#1956).
- * @param {string} script the injector's text, already read
+ * @param {TextModule} text the core's text module, already evaluated
  * @param {string} root
  * @returns {RenderedPayloads}
  */
-function renderedFor(script, root) {
-	const commands = bashArray(script, "COMMANDS");
-	if (!commands)
-		return { error: `no COMMANDS=(...) array in ${INJECTOR_FILE}` };
+function renderedFor(text, root) {
 	return {
-		script: INJECTOR_FILE,
-		commands: renderedPayloads(INJECTOR_FILE, commands, root),
+		script: INJECTOR_ENTRY,
+		commands: renderedPayloads(text.COMMANDS, root),
 	};
 }
 
@@ -2079,12 +1857,12 @@ const SPEC = {
 		const total = sum(pool, (f) => f.bytes);
 		const headroom = CAP_BYTES - total;
 
-		const { files: injected, fromCore, script } = readInjectedDocs(ctx, root);
+		const { files: injected, fromCore, text } = readInjection(ctx, root);
 		/* The rendering runs the injector once per command, and only the table
 		 * and the index side's envelope show it: the baseline side is silent and
 		 * its profile compares no rendered figure (#4296). */
 		const rendered =
-			fromCore && !isBaselineSide() ? renderedFor(script, root) : null;
+			fromCore && !isBaselineSide() ? renderedFor(text, root) : null;
 		const injTotal = sum(injected, (f) => f.bytes);
 		const injHeadroom = INJECTION_CAP_BYTES - injTotal;
 

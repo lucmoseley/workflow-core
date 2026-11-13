@@ -94,7 +94,7 @@ The floor is every gate in the plugin's own `.husky/pre-commit` that judges code
 | `scripts/check-cli-args.js` | a program reading its command line without a strict parser | a `scripts/*.js` the commit adds or edits; an inherited one only warns |
 | `scripts/check-jsonl-reads.js` | a hand split-and-parse of JSONL rather than `scripts/lib/jsonl.js` | a commit staging a `scripts/` program, judging the whole repo |
 | `scripts/check-arbiter-commands.js` | a printed `session-arbiter.js` command, or a `scriptPath()` of the arbiter, spelt by hand rather than through `buildArbiterCommand` in `scripts/lib/build-arbiter-command.js` | a commit staging a `scripts/` program, judging the whole repo |
-| `scripts/check-clock-copies.js` | a program reading `WFC_NOW` itself rather than `now()` in `scripts/lib/check.js`, with no `clock-kept: <why>` comment | a commit staging a `scripts/` program, judging the whole repo |
+| `scripts/check-clock-copies.js` | a program reading `WFC_NOW` itself rather than `now()` in `scripts/lib/clock.js`, with no `clock-kept: <why>` comment | a commit staging a `scripts/` program, judging the whole repo |
 | `scripts/check-report-programs.js` | a `report-*` program building its own `gh issue create` rather than `createIssue` | a commit staging a `scripts/report-*` program, judging the whole repo |
 | `scripts/check-program-output.js` | a program calling `process.exit`, or any `report-*`, writing through `console` or `process.stdout.write` / `process.stderr.write` rather than `writeFd`, with no `console-kept: <why>` comment (§N6) | a commit staging a `scripts/` or `.claude/skills/*/scripts/` program, judging the whole repo |
 | `scripts/check-gh-route.js` | a `gh` call off `scripts/lib/gh.js` and `WFC_GH`, or a `claude` call off `scripts/lib/claude-bin.js` and `WFC_CLAUDE_BIN`: a second var, a Node program's own spawn, a bare shell call, or a test's stub on `PATH` (§X2, §N7) | a commit staging `scripts/`, `.claude/skills/`, `.husky/` or `hooks/`, judging the whole repo |
@@ -129,9 +129,9 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | Reading a program's command line | `scripts/lib/cli-args.js`, or `node:util`'s strict `parseArgs` | `scripts/check-plugin-gap.js` | §0, its floor table | `scripts/check-cli-args.js` |
 | Reading a JSONL file or text | `readJsonl`, `parseJsonl` or, for a streamed line, `parseJsonlRow` in `scripts/lib/jsonl.js` | `scripts/lib/dispatch-ledger.js` | §0, its floor table | `scripts/check-jsonl-reads.js` |
 | Printing a `session-arbiter.js` command | `buildArbiterCommand` in `scripts/lib/build-arbiter-command.js` | `scripts/lib/tracker-ops.js` | §0, its floor table | `scripts/check-arbiter-commands.js` |
-| Reading the clock | `now()` in `scripts/lib/check.js`, pinned by `WFC_NOW`; for a guard core, a host port's `now(env)` handed its `ctx.env` | `scripts/check-history-trim.js`, `scripts/lib/sweep-fire-host.js` | §0, its floor table | `scripts/check-clock-copies.js` |
+| Reading the clock | `now()` in `scripts/lib/clock.js` (re-exported by `scripts/lib/check.js`), pinned by `WFC_NOW`; for a guard core, a host port's `now(env)` handed its `ctx.env` | `scripts/check-history-trim.js`, `scripts/lib/sweep-fire-host.js` | §0, its floor table | `scripts/check-clock-copies.js` |
 | Invoking `gh`, and stubbing it in a test | `gh`, `ghJson` and their kin in `scripts/lib/gh.js`, reading `WFC_GH`; `"${WFC_GH:-gh}"` in shell; a test's stub at `WFC_GH`, in the core from `scripts/lib/gh-stub.ts`, which the release does not ship | `scripts/check-issue-orphans.js`, `scripts/park-blocked.sh` | §X2, §N7 | `scripts/check-gh-route.js` |
-| Invoking `claude`, and stubbing it in a test | `claudeBin()` in `scripts/lib/claude-bin.js`, reading `WFC_CLAUDE_BIN`, or `claudeBin(env)` where the child runs under an `env` of its own; `"${WFC_CLAUDE_BIN:-claude}"` in shell; a test's stub at `WFC_CLAUDE_BIN` | `scripts/run-mod-tests.js`, `scripts/dispatch-sessions.sh` | §X2, §N7 | `scripts/check-gh-route.js` |
+| Invoking `claude`, and stubbing it in a test | `claudeBin()` in `scripts/lib/claude-bin.js`, reading `WFC_CLAUDE_BIN`, or `claudeBin(env)` where the child runs under an `env` of its own; `"${WFC_CLAUDE_BIN:-claude}"` in shell; a test's stub at `WFC_CLAUDE_BIN` | `scripts/run-mod-tests.js`, `scripts/start-session.sh` | §X2, §N7 | `scripts/check-gh-route.js` |
 | Reading all of a program's stdin | `readFdAll` in `scripts/lib/read-fd.js` | `scripts/write-secret.js` | §N6 | Standards axis criterion |
 | Writing a program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/check-plugin-gap.js` | §N6 | `scripts/check-program-output.js` |
 | A `report-*` program filing an issue | `createIssue` in `scripts/lib/tracking-issue.js`, or its `fileOrRefresh` | `scripts/report-remeasure-due.js` | §N3 | `scripts/check-report-programs.js` |
@@ -142,7 +142,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | Reading or writing an arbiter record | `paths`, `readRecord` and `writeRecord` and their kin in `scripts/lib/arbiter-core.js` | `scripts/lib/arbiter-issue-claims.js` | §N10 | Standards axis criterion |
 | Holding a lock for a program's whole run, which a crashed holder cannot wedge | `pidLock` in `scripts/lib/pid-lock.js`, stale only once its holder has gone | `scripts/file-morning-review.js` | §G1 | Standards axis criterion |
 | Asking whether a pid is alive | `pidAlive` in `scripts/lib/arbiter-proc.js`, which reads EPERM as alive | `scripts/lib/pid-lock.js` | §G1 | Standards axis criterion |
-| Printing a rule the rule-text store holds | `rule_text` in `scripts/lib/rule-text.sh`; `readRuleText` or `readRuleTextOr` in `scripts/lib/rule-text.js`; a guard core's `ruleOrFallback` in `scripts/lib/guard-verdict.js` | `scripts/review-hold-gate.sh`, `scripts/check-weakens-line.js` | §G11 | Standards axis criterion |
+| Printing a rule the rule-text store holds | `rule_text` in `scripts/lib/rule-text.sh`; `readRuleText` or `readRuleTextOr` in `scripts/lib/rule-text.js`; a guard core's `ruleOrFallback` in `scripts/lib/guard-verdict.js` | `scripts/check-commit-subject.sh`, `scripts/check-weakens-line.js` | §G11 | Standards axis criterion |
 
 ---
 
@@ -253,7 +253,7 @@ The fixes, best first: return the value, so the caller holds it; pass it in, so 
 
 *House*: a shell caller sources `scripts/lib/rule-text.sh` and calls `rule_text <id>`; a Node caller calls `readRuleText` from `scripts/lib/rule-text.js`, or, where it must not crash, `readRuleTextOr` there or a guard core's `ruleOrFallback` in `scripts/lib/guard-verdict.js`. Their fallback for an unreadable store, one clause naming the rule and then the fragment's path, is no copy.
 
-**The good reason to differ is a place the fragment cannot be printed from**: a byte cap it does not fit, or a measuring tool that reads the text literally, as `scripts/check-context-budget.js` reads `scripts/inject-tracker-docs.sh`'s payload. A shortened copy stays there only where a comment beside it names the fragment and the reason, as `ultra`, `gh_empty_result_rule` and the `standards` texts in that file do. A copy a test pins word for word to the fragment, or to such a shortened copy, cannot drift unseen, and stays where a comment names the test, as `STANDING_LINE` in `scripts/lib/vitest-wrapper.js` and `standards_line` in `scripts/concision-backstop.sh` do.
+**The good reason to differ is a place the fragment cannot be printed from**: a byte cap it does not fit, or a measuring tool that reads the text literally, as `scripts/check-context-budget.js` reads `scripts/lib/tracker-inject-text.js`'s payload. A shortened copy stays there only where a comment beside it names the fragment and the reason, as `GH_EMPTY_RESULT_RULE` and the `standardsText` texts in that file do. A copy a test pins word for word to the fragment, or to such a shortened copy, cannot drift unseen, and stays where a comment names the test, as `STANDING_LINE` in `scripts/lib/vitest-wrapper.js` and `standards_line` in `scripts/concision-backstop.sh` do.
 
 ### §G12 · A hook's JSON output is built by one builder, never an object literal of its own — **hard**
 
@@ -261,7 +261,7 @@ The fixes, best first: return the value, so the caller holds it; pass it in, so 
 
 *House, Node programs only*: that builder is `envelope` in `scripts/lib/hook-envelope.js` (#4025).
 
-**Outside the rule:** a shell hook, which builds the shape with one `jq` expression, as `scripts/inject-tracker-docs.sh` does, since a Node process per run would cost more than the copy.
+**Outside the rule:** a shell hook, which builds the shape with one `jq` expression, as `scripts/place-new-issue.sh` does, since a Node process per run would cost more than the copy.
 
 ---
 

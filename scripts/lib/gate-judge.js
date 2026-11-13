@@ -161,15 +161,24 @@ const lastLine = (stderr) =>
 	(stderr.trim().split("\n").at(-1) ?? "").replace(/^claude-child: /, "");
 
 /**
- * The model's reply for `body`, unchecked against it, or why there is none.
- *
- * @param {string} body
- * @param {{boundMs: number, env?: NodeJS.ProcessEnv}} opts `boundMs`: the
- *   child is killed once it has passed
- * @returns {{reading: Reading}|{why: string}}
+ * @typedef {{status: number|null, signal: NodeJS.Signals|null, error?: Error,
+ *   stdout: string, stderr: string}} JudgeRun the launcher's run, as
+ *   spawnSync gives it
+ * @typedef {(prompt: string, opts: {boundMs: number, env: NodeJS.ProcessEnv})
+ *   => JudgeRun} JudgePort one model call; lib/gate-judge-fake.ts's
+ *   `judgeServe` in the suites
+ * @typedef {import("./basis-cited-read.js").GhRun} GhRun
+ * @typedef {{judge?: JudgePort, cited?: GhRun}} GatePorts `cited`: the
+ *   cited read's gh call (lib/gh.js `gh`)
  */
-function readJudge(body, { boundMs, env = process.env }) {
-	const r = spawnSync(
+
+/**
+ * The production `judge` port: the launcher.
+ *
+ * @type {JudgePort}
+ */
+const launchJudge = (prompt, { boundMs, env }) =>
+	spawnSync(
 		process.execPath,
 		[
 			LAUNCHER,
@@ -180,7 +189,7 @@ function readJudge(body, { boundMs, env = process.env }) {
 			String(boundMs),
 		],
 		{
-			input: buildPrompt(body),
+			input: prompt,
 			encoding: "utf8",
 			env,
 			maxBuffer: CHILD_MAX_BUFFER,
@@ -188,6 +197,17 @@ function readJudge(body, { boundMs, env = process.env }) {
 			killSignal: "SIGKILL",
 		},
 	);
+
+/**
+ * The model's reply for `body`, unchecked against it, or why there is none.
+ *
+ * @param {string} body
+ * @param {{boundMs: number, env?: NodeJS.ProcessEnv, judge?: JudgePort}} opts
+ *   `boundMs`: the child is killed once it has passed
+ * @returns {{reading: Reading}|{why: string}}
+ */
+function readJudge(body, { boundMs, env = process.env, judge = launchJudge }) {
+	const r = judge(buildPrompt(body), { boundMs, env });
 	const bound = `${Math.round(boundMs / 100) / 10} s`;
 	if (r.error && caught(r.error).code !== "ETIMEDOUT")
 		return { why: `the launcher did not run: ${caught(r.error).message}` };
@@ -368,10 +388,10 @@ function judgedFaultsAdded(patterns, model, write) {
  *
  * @param {string} body the body written
  * @param {{own?: number, before?: string, boundMs?: number, env?: NodeJS.ProcessEnv,
- *   patterns?: WordedFault[]}} opts
+ *   patterns?: WordedFault[], judge?: JudgePort}} opts
  *   `boundMs`: the child is killed once it has passed, JUDGE_BOUND_MS by
  *   default; `patterns`, the whole body's pattern faults where the caller
- *   read them with the cited issues followed
+ *   read them with the cited issues followed; `judge`, the launcher by default
  * @returns {{faults: JudgedFault[], fallback: string|null, reading: Reading|null,
  *   dropped: number, ms: number}} `reading` as the model gave it, null with
  *   `fallback`; `dropped`, its quotes the code dropped; `ms`, the call's wall
@@ -379,13 +399,13 @@ function judgedFaultsAdded(patterns, model, write) {
  */
 function judgedBasisFaults(
 	body,
-	{ own, before, boundMs = JUDGE_BOUND_MS, env, patterns: given } = {},
+	{ own, before, boundMs = JUDGE_BOUND_MS, env, patterns: given, judge } = {},
 ) {
 	const text = String(body || "");
 	const write = { body: text, before };
 	const patterns = given ?? wordedBasisFaults(text, own);
 	const startedAt = Date.now();
-	const read = readJudge(text, { boundMs, env });
+	const read = readJudge(text, { boundMs, env, judge });
 	const ms = Date.now() - startedAt;
 	if ("why" in read)
 		return {
@@ -478,13 +498,14 @@ const MIN_BOUND_MS = 5000;
  *
  * @param {string} body
  * @param {{own?: number, before?: string, timeoutMs: number,
- *   env: NodeJS.ProcessEnv}} opts
+ *   env: NodeJS.ProcessEnv, gh?: GhRun}} opts
  */
-function readCitedPatterns(body, { own, before, timeoutMs, env }) {
+function readCitedPatterns(body, { own, before, timeoutMs, env, gh }) {
 	const read = readBasisFaults([{ body, own, before }], {
 		timeoutMs,
 		root: env.CLAUDE_PROJECT_DIR,
 		env,
+		gh,
 	});
 	const trace = read.traces[0] ?? [];
 	const unread = read.unread.map((w) => w.ref);
@@ -575,11 +596,13 @@ function answer(patterns, read, override, citedNote = "") {
  *   `leftMs`, what the reading may spend, WRITE_BOUND_MS by default: the
  *   cited read takes up to CITED_BOUND_MS of it, the model reading what is
  *   left, up to JUDGE_BOUND_MS
+ * @param {GatePorts} [ports] the production adapters by default
  * @returns {{refusal: string|null, advice: string}}
  */
 function readGateWrite(
 	body,
 	{ route, own, before, leftMs = WRITE_BOUND_MS, env = process.env },
+	{ judge, cited: gh } = {},
 ) {
 	if (before !== undefined && before === body)
 		return { refusal: null, advice: "" };
@@ -589,6 +612,7 @@ function readGateWrite(
 		before,
 		timeoutMs: Math.min(CITED_BOUND_MS, leftMs),
 		env,
+		gh,
 	});
 	const { patterns } = cited;
 	const patternsAdded = faultsAdded(patterns, { body, before });
@@ -620,6 +644,7 @@ function readGateWrite(
 		boundMs,
 		env,
 		patterns,
+		judge,
 	});
 	const judged = r.faults.filter((f) => f.by === "patterns").map(unmarked);
 	const model = r.faults.filter((f) => f.by === "model");

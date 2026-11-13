@@ -41,7 +41,7 @@ describe("the interop-bridge probe's shipped budget (mantahostels#3111)", () => 
 		const log = path.join(fx.dir, "probe-calls");
 		const bin = path.join(fx.dir, "timeout-bin");
 		fs.mkdirSync(bin, { recursive: true });
-		/* `timeout` and `sleep` on PATH, as the testkit's stubSleep: #146 forbids
+		/* `timeout` and `sleep` on PATH: #146 forbids
 		 * a seam added to the dispatcher for a test, and the shell's command
 		 * resolution is one already there. Each probe call counts with its
 		 * `-k` grace, the wait a TERM-ignoring reg.exe adds; every `sleep` counts

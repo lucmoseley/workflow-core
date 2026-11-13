@@ -37,7 +37,7 @@ const emission = require("./lib/rule-emission") as any;
 const { CAP_SOURCE, WIRED_SCRIPT_RE, readSourcedClosure } = emission;
 /* Resolved, so an entry spelled as a named constant is checked as well as a
  * literal one (#1120). */
-const { materialisePathspecs } =
+const { INJECTOR, materialisePathspecs } =
 	// biome-ignore lint/suspicious/noExplicitAny: CommonJS module, as above
 	require("./lib/context-budget-pathspecs") as any;
 /* Materialised but moving no capped total, so the gate need not fire on it:
@@ -191,24 +191,16 @@ describe("the pre-commit context-budget gate", () => {
 			);
 	});
 
-	/*
-	 * The injection cap covers whatever the injector's DOCS array names, so a doc
-	 * moved out of the grep's reach uncaps it silently rather than loudly.
-	 */
-	it("triggers on every doc the live injector actually injects", () => {
-		const script = fs.readFileSync(
-			path.join(ROOT, "scripts", "inject-tracker-docs.sh"),
-			"utf8",
-		);
-		const docs = /^DOCS=\(([^)]*)\)/m.exec(script);
-		expect(docs, "DOCS no longer parses out of the injector").toBeTruthy();
-		const paths = (docs?.[1] ?? "").trim().split(/\s+/).filter(Boolean);
-		// DOCS stays empty by design (mantahostels#1870) — the injector points at docs
-		// rather than pasting them. The loop below still enforces coverage
-		// the moment a doc is pasted again.
-
+	/* The injection cap reads the text module and the rule fragments its
+	 * review strings take, so a commit touching any of them must fire. */
+	it("triggers on the text module and every rule fragment the injection union reads", () => {
 		const alternation = armingRegex();
-		for (const rel of paths)
+		for (const rel of [
+			INJECTOR,
+			"docs/agents/rules/review-dispatch-shape.txt",
+			"docs/agents/rules/review-deviations-read.txt",
+			"docs/agents/rules/review-finding-destination.txt",
+		])
 			expect(alternation.test(rel), `the gate does not fire on ${rel}`).toBe(
 				true,
 			);
@@ -275,7 +267,7 @@ describe("the pre-commit context-budget gate", () => {
 		".claude/skills/thing/SKILL.md",
 		".claude/commands/thing.md",
 		".claude/agents/scout.md",
-		"scripts/inject-tracker-docs.sh",
+		"scripts/lib/tracker-inject-text.js",
 	]) {
 		it(`fires on a commit staging ${rel}`, () => {
 			const root = fixture({ [rel]: "x\n" });

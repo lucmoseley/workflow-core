@@ -4,21 +4,25 @@
  * `/proc`, and the holder's transcript. Each suite still writes its own holder
  * and its own assertions.
  *
- * The fake `claude` counts its `agents` calls per config dir and, on a plan's
- * second call — the probe's second sample — runs that plan's `between.sh`. A
- * `fail` file makes the listing fail. On `stop` it runs the caller's `onStop`
- * lines, fails where `stop-fails` exists, swaps in `agents-after-stop.json`,
- * then runs `on-stop.sh`.
+ * The fake `claude` lists a plan's `agents.json`, its rows held to the
+ * harness's field names (lib/agents-stop-fake.ts); a `fail` file makes the
+ * listing fail. On `stop` it runs the caller's `onStop` lines, fails where
+ * `stop-fails` exists, swaps in `agents-after-stop.json`, then answers with
+ * the harness's recorded stop.
  *
  * The fake `gh` serves ticket <n> open, or closed where `closed-<n>` exists in
  * the sandbox; `gh-fails` there fails every call.
  */
 
-import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { buildStopBranch } from "./agents-stop-fake";
 import type { Sandbox } from "./arbiter-testkit";
+import { writeClaudeStub } from "./claude-stub";
 import { stubGhScript } from "./gh-stub";
+import { buildStatLine } from "./proc-fake";
+import { listed } from "./rescue-ports-fake";
+import { runInProcessAsync } from "./run-in-process";
 import { shellQuote } from "./sh-quote.js";
 
 export const SCRIPT = path.join(__dirname, "..", "rescue-sessions.js");
@@ -66,10 +70,6 @@ export const holderRow = (over: Partial<Row> = {}): Row => ({
 	...over,
 });
 
-/** A `/proc/<pid>/stat` line; `ticks` is utime, the only CPU field set. */
-export const buildStatLine = (pid: number, ppid: number, ticks: number) =>
-	`${pid} (x y) S ${ppid} 0 0 0 0 0 0 0 0 0 ${ticks} 0 0 0 0 0 0 0 ${pid}00\n`;
-
 const assistant = (content: object[]) =>
 	JSON.stringify({ type: "assistant", message: { content } });
 export const said = (text: string) => assistant([{ type: "text", text }]);
@@ -96,47 +96,47 @@ export function rescueKit(sb: Sandbox) {
 	const transcript = (dir = plan()) =>
 		path.join(dir, "projects", "p", `${SID}.jsonl`);
 
-	const fakeClaude = (onStop: string[] = []) => {
-		const bin = path.join(sb.dir, "claude");
-		fs.writeFileSync(
-			bin,
-			[
-				"#!/bin/sh",
-				'd="$CLAUDE_CONFIG_DIR"',
-				'if [ "$1" = stop ]; then',
-				...onStop.map((l) => `  ${l}`),
-				'  [ -f "$d/stop-fails" ] && { echo "no such job" >&2; exit 1; }',
-				'  [ -f "$d/agents-after-stop.json" ] && cp "$d/agents-after-stop.json" "$d/agents.json"',
-				'  [ -f "$d/on-stop.sh" ] && sh "$d/on-stop.sh"',
-				"  echo stopped; exit 0",
-				"fi",
-				'n=$(cat "$d/oracle-calls" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$d/oracle-calls"',
-				'[ -f "$d/fail" ] && { echo down >&2; exit 1; }',
-				'[ "$n" = 2 ] && [ -f "$d/between.sh" ] && sh "$d/between.sh"',
-				'cat "$d/agents.json"',
-			].join("\n"),
-		);
-		fs.chmodSync(bin, 0o755);
-		return bin;
-	};
+	/* The `agents` branch is hand-written, not buildAgentsBranch's: a takeover
+	 * case needs the listing to change once a stop takes, so it is read off
+	 * disk each call. Its rows still pass through `listed`. */
+	const fakeClaude = (onStop: string[] = []) =>
+		writeClaudeStub(path.join(sb.dir, "claude"), [
+			'd="$CLAUDE_CONFIG_DIR"',
+			'if [ "$1" = stop ]; then',
+			...onStop.map((l) => `  ${l}`),
+			'  [ -f "$d/stop-fails" ] && { echo "no such job" >&2; exit 1; }',
+			'  [ -f "$d/agents-after-stop.json" ] && cp "$d/agents-after-stop.json" "$d/agents.json"',
+			"fi",
+			buildStopBranch(path.join(sb.dir, "stops")),
+			'if [ "$1" = agents ]; then',
+			'  [ -f "$d/fail" ] && { echo down >&2; exit 1; }',
+			'  cat "$d/agents.json"; exit 0',
+			"fi",
+		]);
 
 	/** What `dir` lists; this session ("sandbox") always, for the self-test. */
 	const lists = (rows: Row[], dir = plan(), file = "agents.json") => {
 		fs.mkdirSync(dir, { recursive: true });
 		fs.writeFileSync(
 			path.join(dir, file),
-			JSON.stringify([{ sessionId: "sandbox", state: "working" }, ...rows]),
+			JSON.stringify(
+				[{ sessionId: "sandbox", state: "working" }, ...rows].map(listed),
+			),
 		);
 	};
-
-	/** A shell line the fake `claude` runs between the probe's two samples. */
-	const between = (sh: string, dir = plan()) =>
-		fs.writeFileSync(path.join(dir, "between.sh"), `${sh}\n`);
 
 	const proc = (pid: number, ppid: number, ticks: number, argv: string) => {
 		const d = path.join(procRoot(), String(pid));
 		fs.mkdirSync(d, { recursive: true });
-		fs.writeFileSync(path.join(d, "stat"), buildStatLine(pid, ppid, ticks));
+		fs.writeFileSync(
+			path.join(d, "stat"),
+			buildStatLine(pid, {
+				comm: "x y",
+				ppid,
+				utime: ticks,
+				startTicks: pid * 100,
+			}),
+		);
 		fs.writeFileSync(
 			path.join(d, "cmdline"),
 			`${argv.split(" ").join("\0")}\0`,
@@ -170,6 +170,7 @@ export function rescueKit(sb: Sandbox) {
 	const ghostJob = (
 		intent: string,
 		rows: Row[] = [holderRow({ pid: undefined })],
+		now = Date.now(),
 	) => {
 		lists([
 			...rows,
@@ -179,14 +180,10 @@ export function rescueKit(sb: Sandbox) {
 			state: "working",
 			detail: "starting…",
 			intent,
-			updatedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+			updatedAt: new Date(now - 60 * 60_000).toISOString(),
 			respawnFlags: ["--advisor", "opus", "--model", "opus"],
 		});
 	};
-
-	/** How many times the fake oracle has listed `dir`. */
-	const readOracleCalls = (dir = plan()) =>
-		Number(fs.readFileSync(path.join(dir, "oracle-calls"), "utf8"));
 
 	/** `before`: shell lines run ahead of the serving, e.g. to log a call. */
 	const fakeGh = (before: string[] = []) =>
@@ -207,8 +204,7 @@ export function rescueKit(sb: Sandbox) {
 
 	/**
 	 * `rescue-sessions.js <sub> …args` at a 0.05 s probe interval, against the
-	 * fake oracle, /proc and `gh`. SPAWNED, not runInProcess (§X3): the script
-	 * exports no `main` to await.
+	 * fake oracle, /proc and `gh`, through `runInProcessAsync`.
 	 */
 	const run = (
 		sub: string,
@@ -218,23 +214,14 @@ export function rescueKit(sb: Sandbox) {
 			ghBefore = [],
 		}: { onStop?: string[]; ghBefore?: string[] } = {},
 	): Promise<Run> =>
-		new Promise((resolve) => {
-			execFile(
-				process.execPath,
-				[SCRIPT, sub, ...args, "--interval", "0.05"],
-				{
-					env: {
-						...process.env,
-						...fakeGh(ghBefore),
-						CLAUDE_PROJECT_DIR: sb.repo,
-						WFC_CLAUDE_BIN: fakeClaude(onStop),
-						WFC_PROC: procRoot(),
-					},
-					encoding: "utf8",
-				},
-				(err, stdout, stderr) =>
-					resolve({ status: err ? Number(err.code) : 0, stdout, stderr }),
-			);
+		runInProcessAsync(SCRIPT, [sub, ...args, "--interval", "0.05"], {
+			env: {
+				...process.env,
+				...fakeGh(ghBefore),
+				CLAUDE_PROJECT_DIR: sb.repo,
+				WFC_CLAUDE_BIN: fakeClaude(onStop),
+				WFC_PROC: procRoot(),
+			},
 		});
 
 	return {
@@ -242,12 +229,10 @@ export function rescueKit(sb: Sandbox) {
 		procRoot,
 		transcript,
 		lists,
-		between,
 		proc,
 		writeTranscript,
 		jobState,
 		ghostJob,
-		readOracleCalls,
 		run,
 	};
 }

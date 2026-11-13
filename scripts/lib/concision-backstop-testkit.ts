@@ -15,7 +15,7 @@ import { withStubbedEnv } from "./scoped-env";
 
 export const BACKSTOP = path.resolve(__dirname, "..", "concision-backstop.sh");
 const ARBITER = path.resolve(__dirname, "..", "session-arbiter.js");
-export const INJECTOR = path.resolve(__dirname, "..", "inject-tracker-docs.sh");
+export const INJECTOR = path.resolve(__dirname, "..", "inject-tracker-docs.js");
 
 export const ME = "session-under-test";
 export const OTHER = "parallel-session";
@@ -41,7 +41,7 @@ export const env = () => ({
 });
 
 /**
- * Reserve the marker inject-tracker-docs.sh writes when `/implement` fires, at
+ * Reserve the marker inject-tracker-docs.js writes when `/implement` fires, at
  * the path and with the sanitising the backstop reads back.
  */
 export const implementRan = (sid = ME) => {

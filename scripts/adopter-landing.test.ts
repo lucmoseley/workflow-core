@@ -48,6 +48,7 @@ import { runQueueLander } from "./lib/queue-lander.js";
 import { buildLanderDeps } from "./lib/queue-lander-deps.js";
 import { queueLogFile } from "./lib/queue-log.js";
 import { readRuleText } from "./lib/rule-text.js";
+import { runInProcess } from "./lib/run-in-process.js";
 import { readStopGuardBlock } from "./lib/stop-guard-testkit";
 import { admitted, peakHeld } from "./lib/suite-slot-fake";
 import { readConfig } from "./lib/workflow-core-config.js";
@@ -364,10 +365,11 @@ describe("with the landing module off", () => {
 			}),
 		);
 		for (const prompt of ["/implement 1", "/code-review"]) {
-			const started = spawnSync(
-				path.join(ROOT, "scripts", "inject-tracker-docs.sh"),
+			const started = runInProcess(
+				path.join(ROOT, "scripts", "inject-tracker-docs.js"),
+				[],
 				{
-					input: JSON.stringify({
+					stdin: JSON.stringify({
 						session_id: `s-${prompt}`,
 						hook_event_name: "SessionStart",
 						prompt,
@@ -383,7 +385,6 @@ describe("with the landing module off", () => {
 						WFC_GH: "false",
 						WFC_MODULES: undefined,
 					},
-					encoding: "utf8",
 				},
 			);
 			expect(started.status, started.stderr).toBe(0);

@@ -13,7 +13,7 @@
  * that is absent unless a case supplies lib/wevtutil-fake.ts's stub.
  *
  * It is a SessionStart `--notify` hook in .claude/settings.json, and
- * scripts/dispatch-sessions.sh refuses a launch on its plain run: loosen a case
+ * scripts/dispatch-sessions.js refuses a launch on its plain run: loosen a case
  * and sessions start on a boot about to take the VM down, or a blind reader
  * holds every launch up.
  */
@@ -143,7 +143,7 @@ describe("at session start (--notify)", () => {
 	});
 });
 
-describe("a plain run, which scripts/dispatch-sessions.sh refuses on", () => {
+describe("a plain run, which scripts/dispatch-sessions.js refuses on", () => {
 	it("exits 1 on a stall, naming the first stall's time, its count and the recovery", () => {
 		const r = run([], { WFC_KERNEL_LOG: logFile(STALLED) });
 		expect(r.status).toBe(1);

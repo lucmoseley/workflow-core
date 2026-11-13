@@ -639,7 +639,7 @@
 			},
 			{
 				"kind": "path",
-				"ref": "scripts/dispatch-sessions.sh",
+				"ref": "scripts/dispatch-sessions.js",
 				"gloss": "how the successor sessions are launched"
 			}
 		],
@@ -1729,7 +1729,7 @@
 		"section": "Evidence & data",
 		"class": "source-of-truth",
 		"classQualifier": null,
-		"role": "#500's similar-title sample: the 30 query titles, each with its known overlap and the issues the measured ranking showed, which `scripts/file-issue.test.ts` asserts `file-issue --check` reproduces.",
+		"role": "#500's similar-title sample: the 30 query titles, each with its known overlap and the issues the measured ranking showed, which `scripts/lib/file-issue-core.test.ts` asserts `file-issue --check` reproduces.",
 		"route": null,
 		"consumes": null
 	},
@@ -1737,7 +1737,7 @@
 		"section": "Evidence & data",
 		"class": "source-of-truth",
 		"classQualifier": null,
-		"role": "#500's similar-title sample: the 520 issue titles and their states, the frequencies and candidates `scripts/file-issue.test.ts` re-runs `file-issue --check` against, holding the threshold 6 and the top-3 cut in `scripts/lib/similar-titles.js`.",
+		"role": "#500's similar-title sample: the 520 issue titles and their states, the frequencies and candidates `scripts/lib/file-issue-core.test.ts` re-runs `file-issue --check` against, holding the threshold 6 and the top-3 cut in `scripts/lib/similar-titles.js`.",
 		"route": null,
 		"consumes": null
 	},
@@ -2104,7 +2104,7 @@
 			},
 			{
 				"kind": "path",
-				"ref": "scripts/inject-tracker-docs.sh",
+				"ref": "scripts/lib/tracker-inject-text.js",
 				"gloss": "the subject"
 			},
 			{

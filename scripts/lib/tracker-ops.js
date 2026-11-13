@@ -47,6 +47,80 @@ const { shellQuote } = require("./sh-quote.js");
 /** The tracker, as `owner/name`. */
 const tracker = () => requireKey("tracker");
 
+/** What a buffered io's `exit` throws, for `collectIo` to read. */
+class IoExit extends Error {
+	/** @param {number} code */
+	constructor(code) {
+		super(`exit ${code}`);
+		this.code = code;
+	}
+}
+
+/**
+ * @typedef {ScriptIo & {err: (text: string) => void,
+ *   exit: (code: number) => never,
+ *   result: (status: number) => {status: number, stdout: string, stderr: string}}} BufferedIo
+ */
+
+/**
+ * scriptIo for a core (§X11): the same lines, held until the core returns,
+ * with `err` a raw stderr write and `exit` and `fail` throwing for
+ * `collectIo`, which answers the outcome a shell writes and exits on.
+ * @param {string} name
+ * @returns {BufferedIo}
+ */
+function bufferedIo(name) {
+	let stdout = "";
+	let stderr = "";
+	/** @param {string} text */
+	const err = (text) => {
+		stderr += text;
+	};
+	/** @param {string} text */
+	const warn = (text) => err(`${name}: ${text}\n`);
+	/** @type {(code: number) => never} */
+	const exit = (code) => {
+		throw new IoExit(code);
+	};
+	/** @type {(text: string, code: number) => never} */
+	const fail = (text, code) => {
+		warn(text);
+		return exit(code);
+	};
+	return {
+		out: (text) => {
+			stdout += text;
+		},
+		err,
+		warn,
+		fail,
+		exit,
+		trackerOrFail: () => {
+			try {
+				return tracker();
+			} catch (e) {
+				return fail(caught(e).message, 2);
+			}
+		},
+		result: (status) => ({ status, stdout, stderr }),
+	};
+}
+
+/**
+ * `body`'s outcome on `io`: the status it returns, 0 where it returns none,
+ * or the code its `exit` or `fail` threw. Any other throw passes through.
+ * @param {BufferedIo} io
+ * @param {() => Promise<number | void> | number | void} body
+ */
+async function collectIo(io, body) {
+	try {
+		return io.result((await body()) ?? 0);
+	} catch (e) {
+		if (e instanceof IoExit) return io.result(e.code);
+		throw e;
+	}
+}
+
 /**
  * What every tracker script opens with: stdout, a `<name>: <text>` line on
  * stderr, a refusal that writes one and exits `code`, and the tracker read
@@ -92,10 +166,11 @@ const labelNames = (raw) =>
  * One issue off the REST API, which carries `parent_issue_url` where
  * `gh issue view --json` does not.
  * @param {string} apiPath
+ * @param {import("./gh.js").GhRun} [run]
  * @returns {Issue}
  */
-function readIssueAt(apiPath) {
-	const raw = ghJson(["api", apiPath]);
+function readIssueAt(apiPath, run = gh) {
+	const raw = ghJson(["api", apiPath], {}, run);
 	return {
 		number: raw.number,
 		title: raw.title,
@@ -112,14 +187,17 @@ function readIssueAt(apiPath) {
 /**
  * @param {string} repo
  * @param {number} n
+ * @param {import("./gh.js").GhRun} [run]
  */
-const readIssue = (repo, n) => readIssueAt(`repos/${repo}/issues/${n}`);
+const readIssue = (repo, n, run = gh) =>
+	readIssueAt(`repos/${repo}/issues/${n}`, run);
 
 /**
  * @param {Issue} issue
+ * @param {import("./gh.js").GhRun} [run]
  */
-const readParent = (issue) =>
-	issue.parentPath ? readIssueAt(issue.parentPath) : null;
+const readParent = (issue, run = gh) =>
+	issue.parentPath ? readIssueAt(issue.parentPath, run) : null;
 
 /**
  * A roadmap card's own issue, by the guard-issue-close core's discriminator: a
@@ -290,10 +368,12 @@ function readOwnFilings(repo) {
  * here. What each status means: claimIssueExclusive in arbiter-issue-claims.js.
  * @param {number} n
  * @param {string} sessionId
+ * @param {import("./agent-liveness.js").Opts} [oracle]  the liveness read's
+ *   options: a core's `run` port, where it answers the oracle in-process
  */
-function claimIfFree(n, sessionId) {
+function claimIfFree(n, sessionId, oracle) {
 	const listedAt = Date.now();
-	const listed = listedSessionIds();
+	const listed = listedSessionIds(oracle);
 	const result = issueClaims.claimIssueExclusive(
 		n,
 		{ sessionId },
@@ -307,10 +387,11 @@ function claimIfFree(n, sessionId) {
  * Assign `n` to the caller. Null on success, else gh's reason.
  * @param {string} repo
  * @param {number} n
+ * @param {import("./gh.js").GhRun} [run]
  */
-function assignSelf(repo, n) {
+function assignSelf(repo, n, run = gh) {
 	try {
-		gh(["issue", "edit", String(n), "--repo", repo, "--add-assignee", "@me"]);
+		run(["issue", "edit", String(n), "--repo", repo, "--add-assignee", "@me"]);
 		return null;
 	} catch (e) {
 		return parseErrLine(e);
@@ -323,9 +404,10 @@ function assignSelf(repo, n) {
  * where the open issues cannot be read, or the whole tracker with no cache.
  * @param {string} repo
  * @param {string} query
+ * @param {import("./gh.js").GhRun} [run]
  */
-function similarTitles(repo, query) {
-	const found = similarOpen(query, readTrackerTitles(repo));
+function similarTitles(repo, query, run = gh) {
+	const found = similarOpen(query, readTrackerTitles(repo, {}, run));
 	const text =
 		found.length > 0
 			? `Open issues whose titles resemble this one — a duplicate, or its natural parent?\n${found
@@ -338,6 +420,8 @@ function similarTitles(repo, query) {
 module.exports = {
 	alreadyCommented,
 	assignSelf,
+	bufferedIo,
+	collectIo,
 	claimIfFree,
 	isCardOwnIssue,
 	labelNames,

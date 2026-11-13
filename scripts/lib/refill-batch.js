@@ -13,9 +13,15 @@ const {
 } = require("./refill-block-core.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
 const { seatIdOf } = require("./refill-seats.js");
+const {
+	DEFAULT_STAGGER_SECONDS,
+	MEMBER_REFUSED_TAIL,
+	memberDropped,
+	memberRefused,
+} = require("./dispatch-sessions.js");
 
 /* Untraced: the dispatcher call's one-off gates and a `claude --bg` that hangs
- * up to dispatch-sessions.sh's own launch ceiling. */
+ * up to dispatch-sessions.js's own launch ceiling. */
 const DISPATCH_FIXED_MS = 10 * 60 * 1000;
 /* Untraced: a member's 120 s launch ceiling, about 9 s of admission and the
  * 2 s stagger, rounded up (#2196). A member's worktree cut is a fetch and a
@@ -23,9 +29,6 @@ const DISPATCH_FIXED_MS = 10 * 60 * 1000;
  * finding no dependency store refuses rather than run `npm ci`, and the tick's
  * warm pass builds the store outside this budget (#4318). */
 const DISPATCH_MEMBER_MS = 150 * 1000;
-/* dispatch-sessions.sh's STAGGER_SECONDS default, which a test holds equal,
- * and whose measurement it is (mantahostels#2588). */
-const STAGGER_SECONDS = 2;
 /* The slack covers the clock read before the spawn. */
 const LEDGER_SLACK_MS = 1000;
 
@@ -36,8 +39,10 @@ const LEDGER_SLACK_MS = 1000;
  * @param {NodeJS.ProcessEnv} [env]
  */
 function readStaggerMs(env = process.env) {
-	const seconds = Number(env.WFC_DISPATCH_STAGGER_SECONDS || STAGGER_SECONDS);
-	return (Number.isNaN(seconds) ? STAGGER_SECONDS : seconds) * 1000;
+	const seconds = Number(
+		env.WFC_DISPATCH_STAGGER_SECONDS || DEFAULT_STAGGER_SECONDS,
+	);
+	return (Number.isNaN(seconds) ? DEFAULT_STAGGER_SECONDS : seconds) * 1000;
 }
 
 /**
@@ -62,7 +67,7 @@ function batchesOf(launches) {
  * memory re-read apply, and on the batch's seat. The loop is no session, so
  * no session id rides along to be recorded as the launcher.
  * @param {import("./refill-decide.js").Launch[]} batch one of batchesOf's
- * @param {string} dispatcher path to dispatch-sessions.sh
+ * @param {string} dispatcher path to dispatch-sessions.js
  * @param {NodeJS.ProcessEnv} env the loop's own
  */
 function dispatchCall(batch, dispatcher, env) {
@@ -79,8 +84,8 @@ function dispatchCall(batch, dispatcher, env) {
 	};
 	delete childEnv.CLAUDE_CODE_SESSION_ID;
 	return {
-		file: "bash",
-		args: [dispatcher, ...batch.flatMap((l) => [l.model, l.prompt])],
+		file: dispatcher,
+		args: batch.flatMap((l) => [l.model, l.prompt]),
 		cwd: root,
 		env: childEnv,
 		timeout: DISPATCH_FIXED_MS + DISPATCH_MEMBER_MS * batch.length,
@@ -114,13 +119,6 @@ function buildWouldRunLine(call) {
  *   log: (line: string) => void, now: () => number}} ResumeIo
  */
 
-/* The dispatcher's per-member lines parseRefusalReason keys on, which a test
- * pins to dispatch-sessions.sh's printf formats through launchBatch. */
-const MEMBER_REFUSED_TAIL = "— not launching this member.";
-const buildMemberRefused = (/** @type {string} */ prompt) =>
-	`REFUSED: ${prompt} ${MEMBER_REFUSED_TAIL}`;
-const buildMemberDropped = (/** @type {string} */ prompt) =>
-	`dropped: ${prompt}`;
 /* A set-level refusal or cut: the duplicate gate's REFUSED or DROPPING
  * header, the allowance cap's CAPPED, the launch timeout's REFUSED. */
 const SET_HEADER = /^\s*(REFUSED: |DROPPING |CAPPED: )/;
@@ -146,7 +144,7 @@ function parseRefusalReason(out, prompt, failed) {
 	const lines = out.split("\n");
 	const isSetHeader = (/** @type {string} */ l) =>
 		SET_HEADER.test(l) && !l.endsWith(MEMBER_REFUSED_TAIL);
-	const at = lines.indexOf(buildMemberRefused(prompt));
+	const at = lines.indexOf(memberRefused(prompt));
 	if (at !== -1) {
 		const end = lines.findIndex((l, i) => i > at && !l.startsWith("  "));
 		const block = lines
@@ -156,16 +154,14 @@ function parseRefusalReason(out, prompt, failed) {
 		return (
 			block.find((l) => l.startsWith("slots ")) ??
 			block[0] ??
-			buildMemberRefused(prompt)
+			memberRefused(prompt)
 		);
 	}
-	const dropped = lines.findIndex(
-		(l) => l.trim() === buildMemberDropped(prompt),
-	);
+	const dropped = lines.findIndex((l) => l.trim() === memberDropped(prompt));
 	if (dropped !== -1)
 		return (
 			lines.slice(0, dropped).findLast(isSetHeader)?.trim() ??
-			buildMemberDropped(prompt)
+			memberDropped(prompt)
 		);
 	if (failed)
 		return lines.findLast(isSetHeader)?.trim() ?? `dispatcher ${failed}`;

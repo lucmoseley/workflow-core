@@ -117,7 +117,7 @@ const buildReviewSkip = ({ due, root, lastRunOn, today }) =>
 
 /**
  * The `admission.js` arguments the loop's free-slot count passes:
- * dispatch-sessions.sh's per-member re-read's, so a slot counted is one that
+ * dispatch-sessions.js's per-member re-read's, so a slot counted is one that
  * re-read admits (#2500), with the allowance limb left to the cap; its test
  * pins them to the script's.
  */

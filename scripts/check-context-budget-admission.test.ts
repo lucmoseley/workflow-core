@@ -15,25 +15,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
+import { textModuleSource, writeTextModule } from "./lib/tracker-text-fixture";
 
 const SCRIPT = path.resolve(__dirname, "check-context-budget.js");
 const LEDGER = "docs/pool-admission-ledger.json";
-const INJECTED = "docs/agents/issue-tracker.md";
 
 let dir: string;
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "ctxbudget-admission-"));
-	fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
-	fs.mkdirSync(path.join(dir, "docs", "agents"), { recursive: true });
-	fs.writeFileSync(
-		path.join(dir, "scripts", "inject-tracker-docs.sh"),
-		`#!/usr/bin/env bash\nDOCS=(${INJECTED})\nheader="fixture"\n`,
-	);
-	fs.writeFileSync(path.join(dir, INJECTED), "x");
 	vi.stubEnv(
 		"WFC_INJECTOR_FILE",
-		path.join(dir, "scripts", "inject-tracker-docs.sh"),
+		writeTextModule(dir, textModuleSource("fixture")),
 	);
 	vi.stubEnv(
 		"WFC_RULES_FALLBACK_DIR",

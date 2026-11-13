@@ -6,9 +6,10 @@
  *
  * Loosen a test here and a set launches into a wedged bridge, and hangs.
  *
- * Over the run-cost budget (base §X8 (5)): each case runs the real dispatcher,
- * about 0.9 s of node starts, and the wedge cases a real 1 s probe expiry on
- * top (#4299's profile).
+ * Over the run-cost budget (base §X8 (5)): the wedge cases each wait out a
+ * real 1 s probe expiry in the interop adapter (#4299's profile), and the
+ * launch-ceiling case spawns the dispatcher, the entry's timeout and signal
+ * path, and waits out its 1 s ceiling.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -27,7 +28,15 @@ import { buildUsageBranch } from "./lib/usage-probe-fake";
 const JOB = "0b5e55ed";
 
 const fx = dispatchFixture();
-const { stubClaude, stubPath, launchArgv, readArgvLines, regWedged, run } = fx;
+const {
+	stubClaude,
+	stubPath,
+	launchArgv,
+	readArgvLines,
+	regWedged,
+	run,
+	runCore,
+} = fx;
 
 /* One 1 s attempt for a wedge case: what it pins is the verdict, and the
  * three-attempt loop is pinned by the transient-stall case here and the
@@ -39,12 +48,15 @@ const ONE_SHORT_ATTEMPT = {
 
 describe("the interop-bridge probe (mantahostels#3111)", () => {
 	/** A reg.exe that never answers. */
-	it("refuses the whole call, with the recovery text, and launches nothing", () => {
+	it("refuses the whole call, with the recovery text, and launches nothing", async () => {
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341", "opus", "/wayfinder 1114"], {
-			CLAUDE_INTEROP_REG: regWedged(),
-			...ONE_SHORT_ATTEMPT,
-		});
+		const r = await runCore(
+			["sonnet", "/implement 341", "opus", "/wayfinder 1114"],
+			{
+				CLAUDE_INTEROP_REG: regWedged(),
+				...ONE_SHORT_ATTEMPT,
+			},
+		);
 		expect(r.code).toBe(5);
 		expect(r.stderr).toContain("interop bridge is wedged");
 		expect(r.stderr).toContain("wsl --shutdown");
@@ -53,9 +65,9 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		expect(readArgvLines()).toEqual([]);
 	});
 
-	it("records nothing to the dispatch ledger", () => {
+	it("records nothing to the dispatch ledger", async () => {
 		stubClaude({});
-		run(["sonnet", "/implement 341"], {
+		await runCore(["sonnet", "/implement 341"], {
 			CLAUDE_INTEROP_REG: regWedged(),
 			...ONE_SHORT_ATTEMPT,
 		});
@@ -70,7 +82,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		expect(fs.existsSync(ledger)).toBe(false);
 	});
 
-	it("re-probes before each member, catching a bridge that wedges mid-set", () => {
+	it("re-probes before each member, catching a bridge that wedges mid-set", async () => {
 		stubClaude({});
 		// Healthy for the run's opening probe, wedged from the next call on.
 		const at = path.join(fx.dir, "reg-wedges-later");
@@ -86,7 +98,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 			].join("\n"),
 			{ mode: 0o755 },
 		);
-		const r = run(["sonnet", "/implement 341"], {
+		const r = await runCore(["sonnet", "/implement 341"], {
 			CLAUDE_INTEROP_REG: at,
 			...ONE_SHORT_ATTEMPT,
 		});
@@ -106,7 +118,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 
 	// The fault mantahostels#3306 fixed: the bridge's vsock accept times out per call at
 	// about 10s and the NEXT call answers normally.
-	it("launches through a transient stall rather than calling it a wedge", () => {
+	it("launches through a transient stall rather than calling it a wedge", async () => {
 		stubClaude({});
 		const at = path.join(fx.dir, "reg-stalls-once");
 		const counter = path.join(fx.dir, "reg-stall-calls");
@@ -122,7 +134,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 			].join("\n"),
 			{ mode: 0o755 },
 		);
-		const r = run(["sonnet", "/implement 341"], {
+		const r = await runCore(["sonnet", "/implement 341"], {
 			CLAUDE_INTEROP_REG: at,
 			CLAUDE_INTEROP_PROBE_TIMEOUT: "1",
 		});
@@ -131,14 +143,14 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		expect(launchArgv()).toContain("--bg");
 	});
 
-	it("launches as before on a healthy bridge, saying nothing extra", () => {
+	it("launches as before on a healthy bridge, saying nothing extra", async () => {
 		stubClaude({ jobId: JOB });
 		// A fresh allowance cache, so the per-spawn re-read (#294) has nothing
 		// to warn about here — this case pins what the interop probe adds, not
 		// the allowance warning line, which has its own coverage above.
 		const configDir = path.join(fx.dir, "fresh-config");
 		writeCache(configDir, { session: 12, weeklyAll: 3 });
-		const r = run(["haiku", "/implement 341"], {
+		const r = await runCore(["haiku", "/implement 341"], {
 			CLAUDE_CONFIG_DIR: configDir,
 		});
 		expect(r.code).toBe(0);
@@ -156,9 +168,9 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		expect(r.stderr).toBe("OK: no issue in this set is already dispatched\n");
 	});
 
-	it("fails open where the probe cannot run at all", () => {
+	it("fails open where the probe cannot run at all", async () => {
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341"], {
+		const r = await runCore(["sonnet", "/implement 341"], {
 			// No such file — a non-WSL machine.
 			CLAUDE_INTEROP_REG: path.join(fx.dir, "no-such-reg"),
 		});
@@ -166,7 +178,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		expect(launchArgv()).toContain("--bg");
 	});
 
-	it("reads a TERM-ignoring wedge as a wedge, not as a healthy answer", () => {
+	it("reads a TERM-ignoring wedge as a wedge, not as a healthy answer", async () => {
 		stubClaude({});
 		// `timeout -k` escalates to KILL when the target ignores the TERM, and
 		// that exits 137 rather than 124 — the shape a wedged bridge takes if it
@@ -175,7 +187,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		fs.writeFileSync(at, '#!/bin/bash\ntrap "" TERM\nsleep 600\n', {
 			mode: 0o755,
 		});
-		const r = run(["sonnet", "/implement 341"], {
+		const r = await runCore(["sonnet", "/implement 341"], {
 			CLAUDE_INTEROP_REG: at,
 			...ONE_SHORT_ATTEMPT,
 		});
@@ -184,7 +196,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		expect(readArgvLines()).toEqual([]);
 	});
 
-	it("names the members already launched when the bridge wedges mid-set", () => {
+	it("names the members already launched when the bridge wedges mid-set", async () => {
 		stubClaude({});
 		// Healthy for the opening probe and the first member's, wedged from the
 		// third call on. The first member is launched AND recorded, so telling the
@@ -203,10 +215,13 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 			].join("\n"),
 			{ mode: 0o755 },
 		);
-		const r = run(["sonnet", "/implement 341", "opus", "/wayfinder 1114"], {
-			CLAUDE_INTEROP_REG: at,
-			...ONE_SHORT_ATTEMPT,
-		});
+		const r = await runCore(
+			["sonnet", "/implement 341", "opus", "/wayfinder 1114"],
+			{
+				CLAUDE_INTEROP_REG: at,
+				...ONE_SHORT_ATTEMPT,
+			},
+		);
 		expect(r.code).toBe(5);
 		expect(r.stderr).toContain("1 member(s) HAD already launched");
 		expect(r.stderr).toContain("/implement 341");
@@ -222,11 +237,13 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		expect(fs.readFileSync(ledger, "utf8")).toContain("/implement 341");
 	});
 
-	it("fails open where reg.exe exists but is not executable", () => {
+	it("fails open where reg.exe exists but is not executable", async () => {
 		stubClaude({});
 		const at = path.join(fx.dir, "reg-not-executable");
 		fs.writeFileSync(at, "#!/bin/bash\nsleep 600\n", { mode: 0o644 });
-		const r = run(["sonnet", "/implement 341"], { CLAUDE_INTEROP_REG: at });
+		const r = await runCore(["sonnet", "/implement 341"], {
+			CLAUDE_INTEROP_REG: at,
+		});
 		expect(r.code).toBe(0);
 		expect(launchArgv()).toContain("--bg");
 	});
@@ -268,6 +285,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		expect(r.stdout).toContain("real binary ran");
 	});
 
+	// spawn-kept: a timeout and a signal — the launch ceiling TERMs, then KILLs, the launch's process group
 	it("kills and reports a launch that hangs past the ceiling", () => {
 		// Answers the `/usage` probe normally and hangs only on the spawn, so the
 		// case exercises the launch ceiling rather than the 120s usage timeout.

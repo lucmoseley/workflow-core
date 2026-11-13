@@ -1,6 +1,6 @@
 /*
  * dispatch-ledger.js — `.pick-next/dispatched.jsonl`, the record
- * scripts/dispatch-sessions.sh appends to as each session launches, and the
+ * scripts/dispatch-sessions.js appends to as each session launches, and the
  * refill loop appends to as it resumes a parked one (#3704), as it stops one on
  * its seat's limit, a row holding past the window until released (#3785), and,
  * as it hands one off or a limit hold ends, a release row (#2744).
@@ -144,7 +144,7 @@ function entryHolds(rec, command) {
 /**
  * One launch line of `.pick-next/dispatched.jsonl`.
  *
- * `session` is the LAUNCHING session — the one that ran dispatch-sessions.sh —
+ * `session` is the LAUNCHING session — the one that ran dispatch-sessions.js —
  * never the launched job's own session (mantahostels#3488). On a refill-loop
  * resume (#3704) it is null: the loop forgets its session id at start.
  * `jobId` is that job's own short id, the one `claude --bg` prints and
@@ -154,7 +154,7 @@ function entryHolds(rec, command) {
  *            seatReason?: string, heldUntil?: string}} DispatchRecord
  *   `seatReason` is why the launch went on its seat: the refill loop's pick
  *   (lib/refill-decide.js's SeatReason), or `own seat` for a direct
- *   dispatch-sessions.sh run (#3732). `heldUntil` holds its issues to that time
+ *   dispatch-sessions.js run (#3732). `heldUntil` holds its issues to that time
  *   for a session stopped with no loop left running (#3785)
  */
 
@@ -202,9 +202,10 @@ const isKeptPastWindow = (rec, now) =>
  * ledger is append-only and a torn write must not disarm every later check.
  * @param {string|undefined} root
  * @param {number} windowHours
+ * @param {number} [now] epoch ms the window ends at
  * @returns {{ok: boolean, rows: (DispatchRecord|ReleaseRecord)[], error?: string}}
  */
-function readCountedRows(root, windowHours) {
+function readCountedRows(root, windowHours, now = Date.now()) {
 	let read;
 	try {
 		read = readJsonl(ledgerPath(root));
@@ -212,7 +213,6 @@ function readCountedRows(root, windowHours) {
 		return { ok: false, rows: [], error: String(err) };
 	}
 	if (!read) return { ok: true, rows: [] }; // never launched from here: not a failure
-	const now = Date.now();
 	const cutoff = now - windowHours * 3600 * 1000;
 	const rows = /** @type {(DispatchRecord|ReleaseRecord)[]} */ ([]);
 	for (const rec of read.rows) {
@@ -237,10 +237,11 @@ const isLaunch = (rec) => !("released" in rec);
  * that keeps a released job's id holds again (#3722).
  * @param {string|undefined} root
  * @param {number} windowHours
+ * @param {number} [now] epoch ms the window ends at
  * @returns {{ok: boolean, entries: DispatchRecord[], error?: string}}
  */
-function readRecentEntries(root, windowHours) {
-	const { rows, ...read } = readCountedRows(root, windowHours);
+function readRecentEntries(root, windowHours, now = Date.now()) {
+	const { rows, ...read } = readCountedRows(root, windowHours, now);
 	/** @type {Map<string, number>} each job's last release, by line */
 	const lastRelease = new Map();
 	rows.forEach((r, i) => {

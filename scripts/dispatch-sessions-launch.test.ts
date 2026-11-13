@@ -24,7 +24,7 @@
  * the dispatcher against a real origin and a stub `npm`, seam 1's fixture
  * (#4229), which no in-process call reaches.
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -52,6 +52,7 @@ const {
 	launchArgv,
 	launchCwds,
 	readArgvLines,
+	runCore,
 	run,
 } = fx;
 
@@ -59,12 +60,15 @@ describe("the session's directory (#4245)", () => {
 	const git = (cwd: string, ...args: string[]) =>
 		execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 
-	it("starts each member in a fresh worktree detached at origin/main", () => {
+	it("starts each member in a fresh worktree detached at origin/main", async () => {
 		const main = seedLandingCheckout(fx.dir);
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341", "opus", "/wayfinder 1114"], {
-			WFC_MODULES: LANDING_MODULES,
-		});
+		const r = await runCore(
+			["sonnet", "/implement 341", "opus", "/wayfinder 1114"],
+			{
+				WFC_MODULES: LANDING_MODULES,
+			},
+		);
 		expect(r.code).toBe(0);
 		const cwds = launchCwds();
 		expect(cwds).toHaveLength(2);
@@ -84,7 +88,7 @@ describe("the session's directory (#4245)", () => {
 		expect(git(fx.dir, "status", "--porcelain", "-uno")).toBe("");
 	});
 
-	it("starts a one-member set --into an existing session worktree, cutting none (#4385)", () => {
+	it("starts a one-member set --into an existing session worktree, cutting none (#4385)", async () => {
 		seedLandingCheckout(fx.dir);
 		stubClaude({});
 		const env = { WFC_MODULES: LANDING_MODULES };
@@ -96,7 +100,7 @@ describe("the session's directory (#4245)", () => {
 		expect(cut.status, cut.stderr).toBe(0);
 		const dead = cut.stdout.trim();
 
-		const r = run(["--into", dead, "opus", "/implement 343"], env);
+		const r = await runCore(["--into", dead, "opus", "/implement 343"], env);
 
 		expect(r.code, r.stderr).toBe(0);
 		expect(launchCwds()).toEqual([dead]);
@@ -107,9 +111,9 @@ describe("the session's directory (#4245)", () => {
 		).toEqual([path.basename(dead)]);
 	});
 
-	it("refuses --into for a set of more than one member, naming the member count", () => {
+	it("refuses --into for a set of more than one member, naming the member count", async () => {
 		stubClaude({});
-		const r = run([
+		const r = await runCore([
 			"--into",
 			fx.dir,
 			"sonnet",
@@ -124,7 +128,7 @@ describe("the session's directory (#4245)", () => {
 		expect(launchCwds()).toEqual([]);
 	});
 
-	it("refuses a refill-loop member whose lockfile has no store at once, running no install, then launches it once warmed (#4318)", () => {
+	it("refuses a refill-loop member whose lockfile has no store at once, running no install, then launches it once warmed (#4318)", async () => {
 		seedLandingCheckout(fx.dir);
 		git(fx.dir, "checkout", "-q", "--detach", "origin/main");
 		fs.writeFileSync(path.join(fx.dir, "package-lock.json"), "lock-1\n");
@@ -146,7 +150,7 @@ describe("the session's directory (#4245)", () => {
 		const readInstalls = () => readArgvLines(installs);
 		stubClaude({});
 
-		const cold = run(["sonnet", "/implement 341"], env);
+		const cold = await runCore(["sonnet", "/implement 341"], env);
 
 		expect(cold.code).toBe(0);
 		expect(cold.stderr).toContain(
@@ -163,26 +167,26 @@ describe("the session's directory (#4245)", () => {
 		expect(warm.status, warm.stderr).toBe(0);
 		expect(readInstalls()).toHaveLength(1);
 
-		const warmed = run(["sonnet", "/implement 341"], env);
+		const warmed = await runCore(["sonnet", "/implement 341"], env);
 
 		expect(warmed.code).toBe(0);
 		expect(launchCwds()).toHaveLength(1);
 		expect(readInstalls()).toHaveLength(1);
 	});
 
-	it("leaves the loop's no-build switch out of a launched session's environment (#4318)", () => {
+	it("leaves the loop's no-build switch out of a launched session's environment (#4318)", async () => {
 		const envLog = path.join(fx.dir, "launch-env");
 		stubClaude({ envLog });
-		run(["sonnet", "/implement 342"], { WFC_DISPATCH_NO_BUILD: "1" });
+		await runCore(["sonnet", "/implement 342"], { WFC_DISPATCH_NO_BUILD: "1" });
 		const env = fs.readFileSync(envLog, "utf8");
 		expect(env).toContain("WFC_CLAUDE_BIN=");
 		expect(env).not.toContain("WFC_DISPATCH_NO_BUILD");
 	});
 
-	it("leaves the dispatcher's root out of a launched session's environment, so a daemon it starts cannot hand that root to jobs in other repositories (#4595)", () => {
+	it("leaves the dispatcher's root out of a launched session's environment, so a daemon it starts cannot hand that root to jobs in other repositories (#4595)", async () => {
 		const envLog = path.join(fx.dir, "launch-env");
 		stubClaude({ envLog });
-		run(["sonnet", "/implement 342"], {
+		await runCore(["sonnet", "/implement 342"], {
 			WFC_REPO_ROOT: fx.dir,
 			CLAUDE_PROJECT_DIR: fx.dir,
 			WFC_DISPATCH_ROOT: fx.dir,
@@ -197,22 +201,21 @@ describe("the session's directory (#4245)", () => {
 			expect(env).not.toMatch(new RegExp(`^${v}=`, "m"));
 	});
 
-	it("starts the member in the checkout itself where the repository has no landing module", () => {
+	it("starts the member in the checkout itself where the repository has no landing module", async () => {
 		stubClaude({});
-		expect(run(["sonnet", "/implement 341"]).code).toBe(0);
+		expect((await runCore(["sonnet", "/implement 341"])).code).toBe(0);
 		expect(launchCwds()).toEqual([fs.realpathSync(fx.dir)]);
 	});
 
-	it("refuses a member it finds no directory for, naming why", () => {
+	it("refuses a member it finds no directory for, naming why", async () => {
 		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "not-a-repo-"));
 		stubClaude({});
-		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
+		const r = await fx.runCoreUnder(["sonnet", "/implement 341"], {
 			cwd: outside,
-			encoding: "utf8",
 			env: baseEnv(),
 		});
 		fs.rmSync(outside, { recursive: true });
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		expect(r.stderr).toContain(
 			`REFUSED: /implement 341 — not launching this member.\n  session checkout: ${outside} is in no main checkout git can name — run this from inside the repository\n`,
 		);
@@ -223,19 +226,19 @@ describe("the session's directory (#4245)", () => {
 describe("the model table (lib/model-table.js, #4919), on the fixture routing file", () => {
 	const burnOn = () => fs.writeFileSync(path.join(fx.dir, "burn-mode"), "");
 
-	it("launches a member the standard row moves as the target's id with [1m], naming the remap", () => {
+	it("launches a member the standard row moves as the target's id with [1m], naming the remap", async () => {
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341"], ROUTING);
+		const r = await runCore(["sonnet", "/implement 341"], ROUTING);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("model table: sonnet -> test-opus-2[1m]");
 		expect(r.stderr).not.toContain("burn mode");
 		expect(launchArgv()).toContain("--model test-opus-2[1m]");
 	});
 
-	it("launches a member by the burn row under burn mode", () => {
+	it("launches a member by the burn row under burn mode", async () => {
 		stubClaude({});
 		burnOn();
-		const r = run(["haiku", "/implement 341"], ROUTING);
+		const r = await runCore(["haiku", "/implement 341"], ROUTING);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("burn mode: haiku -> test-fable-1[1m]");
 		const launch = launchArgv();
@@ -243,35 +246,40 @@ describe("the model table (lib/model-table.js, #4919), on the fixture routing fi
 		expect(launch).not.toContain("--advisor");
 	});
 
-	it.each(["opus", "opus[1m]"])("moves %s under burn mode", (spelling) => {
-		stubClaude({});
-		burnOn();
-		const r = run([spelling, "/wayfinder 341"], ROUTING);
-		expect(r.stderr).toContain(`burn mode: ${spelling} -> test-sonnet-1[1m]`);
-		expect(launchArgv()).toContain("--model test-sonnet-1[1m]");
-	});
+	it.each(["opus", "opus[1m]"])(
+		"moves %s under burn mode",
+		async (spelling) => {
+			stubClaude({});
+			burnOn();
+			const r = await runCore([spelling, "/wayfinder 341"], ROUTING);
+			expect(r.stderr).toContain(`burn mode: ${spelling} -> test-sonnet-1[1m]`);
+			expect(launchArgv()).toContain("--model test-sonnet-1[1m]");
+		},
+	);
 
-	it("launches a spelling the routing file does not know as written, naming no remap", () => {
+	it("launches a spelling the routing file does not know as written, naming no remap", async () => {
 		stubClaude({});
 		burnOn();
-		const r = run(["claude-sonnet-4-5", "/implement 341"], ROUTING);
+		const r = await runCore(["claude-sonnet-4-5", "/implement 341"], ROUTING);
 		expect(r.stderr).not.toContain("claude-sonnet-4-5 ->");
 		expect(launchArgv()).toContain("--model claude-sonnet-4-5");
 	});
 
-	it("launches a spelling its row keeps on its own alias as written", () => {
+	it("launches a spelling its row keeps on its own alias as written", async () => {
 		stubClaude({});
-		const r = run(["opus[1m]", "/wayfinder 341"], ROUTING);
+		const r = await runCore(["opus[1m]", "/wayfinder 341"], ROUTING);
 		expect(r.stderr).not.toContain("burn mode");
 		expect(r.stderr).not.toContain("model table");
 		expect(launchArgv()).toContain("--model opus[1m]");
 	});
 
-	it("refuses every launch where the routing file will not load", () => {
+	it("refuses every launch where the routing file will not load", async () => {
 		stubClaude({});
 		const broken = path.join(fx.dir, "routing.json");
 		fs.writeFileSync(broken, "{");
-		const r = run(["haiku", "/implement 341"], { WFC_MODEL_ROUTING: broken });
+		const r = await runCore(["haiku", "/implement 341"], {
+			WFC_MODEL_ROUTING: broken,
+		});
 		expect(r.code).toBe(2);
 		expect(r.stderr).toContain("cannot read the routing file");
 		expect(launchArgv()).toBe(undefined);
@@ -290,17 +298,16 @@ describe("the WFC_CLAUDE_BIN fallback (mantahostels#1401)", () => {
 		return shadow;
 	}
 
-	it("resolves the bare `claude` default through PATH, never the founder's real CLI", () => {
+	it("resolves the bare `claude` default through PATH, never the founder's real CLI", async () => {
 		const env = baseEnv({ PATH: `${shadowDir()}:${process.env.PATH}` });
 		delete env.WFC_CLAUDE_BIN;
 
-		const r = spawnSync(
-			"bash",
-			[SCRIPT, "--dry-run", "sonnet", "/implement 341"],
-			{ encoding: "utf8", env },
-		);
+		const r = await fx.runCoreUnder(["--dry-run", "sonnet", "/implement 341"], {
+			cwd: process.cwd(),
+			env,
+		});
 
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		expect(r.stdout).toContain(
 			"would launch: env -u WFC_REPO_ROOT -u CLAUDE_PROJECT_DIR -u WFC_DISPATCH_ROOT claude ",
 		);
@@ -312,14 +319,40 @@ describe("the WFC_CLAUDE_BIN fallback (mantahostels#1401)", () => {
 	});
 });
 
-describe("the WFC_CLAUDE_BIN seam (mantahostels#1374)", () => {
-	it("launches through the binary WFC_CLAUDE_BIN names", () => {
+describe("a launch killed from outside (#5145)", () => {
+	/* 137 is also what the ceiling's KILL leaves, but only the ceiling's own
+	 * expiry refuses the call: a launch an outside SIGKILL took, the OOM
+	 * killer's say, fails alone, and admission re-reads memory before the next
+	 * member. */
+	it("reports the kill, records nothing for it, and goes on to the next member", async () => {
 		stubClaude({});
-		expect(run(["sonnet", "/implement 341"]).code).toBe(0);
+		const killed = path.join(fx.dir, "killed-claude");
+		fs.writeFileSync(
+			killed,
+			`#!/bin/bash\n[[ " $* " == *" --bg "* ]] && [[ "$*" == *"/implement 341"* ]] && kill -9 $$\nexec ${shellQuote(stubPath())} "$@"\n`,
+			{ mode: 0o755 },
+		);
+		const r = await runCore(
+			["sonnet", "/implement 341", "opus", "/wayfinder 1114"],
+			{ WFC_CLAUDE_BIN: killed },
+		);
+		expect(r.code).toBe(0);
+		expect(r.stderr).toContain(
+			"(claude exited 137; not recorded as launched.)",
+		);
+		expect(r.stderr).not.toContain("did not return within");
+		expect(launchArgv()).toContain("/wayfinder 1114");
+	});
+});
+
+describe("the WFC_CLAUDE_BIN seam (mantahostels#1374)", () => {
+	it("launches through the binary WFC_CLAUDE_BIN names", async () => {
+		stubClaude({});
+		expect((await runCore(["sonnet", "/implement 341"])).code).toBe(0);
 		expect(launchArgv()).toContain("--bg");
 	});
 
-	it("ignores a `claude` found on PATH when WFC_CLAUDE_BIN names another", () => {
+	it("ignores a `claude` found on PATH when WFC_CLAUDE_BIN names another", async () => {
 		stubClaude({});
 		/* A launcher still resolving the bare name would record to this stub
 		 * instead. Under `fx.dir`, so afterEach takes it even when an expectation
@@ -332,25 +365,24 @@ describe("the WFC_CLAUDE_BIN seam (mantahostels#1374)", () => {
 			`#!/bin/bash\nprintf '%s\\n' "$*" >> ${shellQuote(shadowArgv)}\nprintf 'launched\\n'\n`,
 			{ mode: 0o755 },
 		);
-		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
-			cwd: fx.dir,
-			encoding: "utf8",
+		const r = await fx.runCore(
+			["sonnet", "/implement 341"],
 			// claude-route-exempt: asserts a bare `claude` on PATH goes unread
-			env: baseEnv({ PATH: `${shadowDir}:${process.env.PATH}` }),
-		});
-		expect(r.status).toBe(0);
+			{ PATH: `${shadowDir}:${process.env.PATH}` },
+		);
+		expect(r.code).toBe(0);
 		expect(fs.existsSync(shadowArgv)).toBe(false);
 		expect(launchArgv()).toContain("--bg");
 	});
 
-	it("passes the seam down to the duplicate check it shells out to", () => {
+	it("passes the seam down to the duplicate check it shells out to", async () => {
 		// Non-JSON here, on purpose: that is what makes the duplicate check's
 		// warning echo the binary it called, which is what this case proves
 		// reached the stub rather than a real `claude` (mantahostels#2553's per-member
 		// re-read needs a real self-listing, so every OTHER case in this file
 		// gets one from stubClaude()'s default instead).
 		stubClaude({ agentsJson: "" });
-		const r = run(["sonnet", "/implement 341"]);
+		const r = await runCore(["sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);
 		expect(readArgvLines().some((l) => l.includes("agents --json"))).toBe(true);
 		expect(r.stderr).toContain(`${stubPath()} agents --json`);
@@ -358,16 +390,16 @@ describe("the WFC_CLAUDE_BIN seam (mantahostels#1374)", () => {
 });
 
 describe("the model flag", () => {
-	it("passes no --model for a bare opus, keeping the configured default (mantahostels#1093)", () => {
+	it("passes no --model for a bare opus, keeping the configured default (mantahostels#1093)", async () => {
 		stubClaude({});
-		run(["opus", "/wayfinder 1114"]);
+		await runCore(["opus", "/wayfinder 1114"]);
 		const launch = launchArgv();
 		expect(launch).not.toContain("--model");
 	});
 
-	it("passes an explicit opus[1m] through verbatim", () => {
+	it("passes an explicit opus[1m] through verbatim", async () => {
 		stubClaude({});
-		run(["opus[1m]", "/wayfinder 1114"]);
+		await runCore(["opus[1m]", "/wayfinder 1114"]);
 		const launch = launchArgv();
 		expect(launch).toContain("--model opus[1m]");
 	});
@@ -379,10 +411,10 @@ describe("the seat kind (#2605)", () => {
 		fs.writeFileSync(path.join(fx.dir, ".claude", "refill-seats"), text);
 	};
 
-	it("refuses a malformed overflow line, naming it, even on a plan seat", () => {
+	it("refuses a malformed overflow line, naming it, even on a plan seat", async () => {
 		stubClaude({ session: "10" });
 		seatFile("~/.claude2\n~/.claude2 api key=K grant=200\n");
-		const r = run(["sonnet", "/implement 341"], {
+		const r = await runCore(["sonnet", "/implement 341"], {
 			CLAUDE_CONFIG_DIR: path.join(fx.dir, ".claude2"),
 		});
 		expect(r.code).toBe(2);
@@ -397,28 +429,33 @@ describe("the seat kind (#2605)", () => {
 describe("the launch's auth (#2236)", () => {
 	const launchedBg = () => readArgvLines().some((l) => l.includes("--bg"));
 
-	it.each(REFUSED_AUTH)("refuses under %s, launching nothing", (name, env) => {
-		stubClaude({});
-		const r = run(["sonnet", "/implement 341"], env);
-		expect(r.code).toBe(2);
-		expect(r.stderr).toContain(`${name} is set`);
-		expect(r.stderr).toContain("#2236");
-		expect(launchedBg()).toBe(false);
-	});
+	it.each(REFUSED_AUTH)(
+		"refuses under %s, launching nothing",
+		async (name, env) => {
+			stubClaude({});
+			const r = await runCore(["sonnet", "/implement 341"], env);
+			expect(r.code).toBe(2);
+			expect(r.stderr).toContain(`${name} is set`);
+			expect(r.stderr).toContain("#2236");
+			expect(launchedBg()).toBe(false);
+		},
+	);
 
-	it("refuses an apiKeyHelper in the seat's settings", () => {
+	it("refuses an apiKeyHelper in the seat's settings", async () => {
 		stubClaude({});
 		const seat = path.join(fx.dir, "helped-seat");
 		writeSeatHelper(seat);
-		const r = run(["sonnet", "/implement 341"], { CLAUDE_CONFIG_DIR: seat });
+		const r = await runCore(["sonnet", "/implement 341"], {
+			CLAUDE_CONFIG_DIR: seat,
+		});
 		expect(r.code).toBe(2);
 		expect(r.stderr).toContain("apiKeyHelper");
 		expect(launchedBg()).toBe(false);
 	});
 
-	it.each(ADMITTED_AUTH)("launches on %s", (_name, env) => {
+	it.each(ADMITTED_AUTH)("launches on %s", async (_name, env) => {
 		stubClaude({});
-		expect(run(["sonnet", "/implement 341"], env).code).toBe(0);
+		expect((await runCore(["sonnet", "/implement 341"], env)).code).toBe(0);
 		expect(launchedBg()).toBe(true);
 	});
 });

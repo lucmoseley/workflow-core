@@ -47,8 +47,8 @@
  * each run until the line is corrected or something answers for it.
  *
  * A COMMIT CARRYING A `Review-Tier:` TRAILER, whose value the review hold
- * builds from its marker (scripts/review-hold-gate.sh) and
- * .husky/prepare-commit-msg writes (scripts/review-tier-trailer.sh), is
+ * builds from its marker (scripts/review-hold-gate.js) and
+ * .husky/prepare-commit-msg writes (scripts/review-tier-trailer.js), is
  * counted by it where no counted record covers it, and once where one does (#3664).
  * Its trailer names no defect, so it counts only once an `**Escaped defect:**`
  * line names it, and its tree is the one the commit was made with, which a
@@ -236,7 +236,7 @@ const SEARCH = `query($q: String!, $after: String) {
     nodes { ... on Issue { number comments(first: ${PAGE}) { totalCount nodes { body createdAt } } } }
   }
 }`;
-/* review-hold-gate.sh's value: the hold's tier, areas, base, tree and paths. */
+/* review-hold-gate.js's value: the hold's tier, areas, base, tree and paths. */
 const TRAILER =
 	/^(escalated|mission-critical);\s*areas=[^;]*;\s*base=([0-9a-f]{40});\s*tree=([0-9a-f]{40});\s*paths=(.+)$/;
 /* `git revert`'s own message line, which names the full sha. */
@@ -600,7 +600,7 @@ function parseTrailerLog(repo, out, declared, judge) {
 		if (trailer !== "") {
 			unseen.push({
 				tag: "UNPARSEABLE",
-				fault: `${repo}@${sha} has a Review-Tier: trailer not in scripts/review-hold-gate.sh's form, so it is not counted by it: ${trailer}`,
+				fault: `${repo}@${sha} has a Review-Tier: trailer not in scripts/review-hold-gate.js's form, so it is not counted by it: ${trailer}`,
 			});
 			continue;
 		}

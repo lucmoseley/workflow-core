@@ -122,8 +122,8 @@ cmd=""
 arg=""
 for entry in "${COMMANDS[@]}"; do
   c="${entry%%:*}"
-  # THE PLUGIN NAMESPACE IS OPTIONAL (#201). inject-tracker-docs.sh carries a
-  # copy of this regex and must stay in step with it.
+  # THE PLUGIN NAMESPACE IS OPTIONAL (#201). lib/inject-tracker-docs.js's
+  # matchCommand carries a copy of this regex and must stay in step with it.
   #
   # The prefix is matched as any word rather than the literal `workflow-core`,
   # which is the PLUGIN's name — set in plugin.json by whoever ships the
@@ -253,8 +253,9 @@ while true; do
   token="${token%[.,;:]}"
 
   # The URL form keeps whatever GitHub's "copy permalink" appends — a
-  # `#issuecomment-…` fragment or a query string. inject-tracker-docs.sh reads
-  # the first reference with a copy of this parse (#1164): keep the two in step.
+  # `#issuecomment-…` fragment or a query string. lib/inject-tracker-docs.js's
+  # takesReference reads the first reference with a copy of this parse (#1164):
+  # keep the two in step.
   if [[ "$token" =~ ^https?://github\.com/([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)/issues/([0-9]+)([/?#].*)?$ ]]; then
     [[ -z "$repo" ]] && repo="${BASH_REMATCH[1]}"
     numbers+=("${BASH_REMATCH[2]}")

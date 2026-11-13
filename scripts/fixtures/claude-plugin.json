@@ -1,0 +1,41 @@
+{
+	"recordedBy": "node scripts/record-claude-plugin.js",
+	"harness": "2.1.323",
+	"responses": {
+		"marketplaceAdd": {
+			"status": 0
+		},
+		"install": {
+			"status": 0
+		},
+		"update": {
+			"status": 0
+		},
+		"details": {
+			"status": 0,
+			"alwaysOn": "  Always-on:   ~1,322 tok   added to every session"
+		},
+		"refusal": {
+			"status": 1,
+			"stderr": "✘ Path does not exist: /synthetic/absent"
+		}
+	},
+	"sideEffects": {
+		"marketplaceSource": {
+			"source": "directory",
+			"path": "/synthetic/plugin-root"
+		},
+		"installedPlugins": {
+			"version": 2,
+			"row": {
+				"scope": "project",
+				"installPath": "/synthetic/config/plugins/cache/workflow-core/workflow-core/1.0.0",
+				"version": "1.0.0",
+				"installedAt": "2026-01-01T00:00:00.000Z",
+				"lastUpdated": "2026-01-01T00:00:00.000Z",
+				"gitCommitSha": "0000000000000000000000000000000000000000",
+				"projectPath": "/synthetic/project"
+			}
+		}
+	}
+}

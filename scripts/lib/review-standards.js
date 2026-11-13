@@ -4,8 +4,7 @@
  * (#886, #965) — plus the host's GLOSSARY.md, where it has one (#1373).
  *
  * lib/review-standards.sh is the bash twin, still sourced by
- * inject-tracker-docs.sh and concision-backstop.sh until #2802 deletes it;
- * keep the two in step.
+ * concision-backstop.sh until #2802 deletes it; keep the two in step.
  * review-standards.test.ts runs both on one host and holds them to one
  * answer.
  *

@@ -75,12 +75,14 @@ export interface ProcSpec {
 	argv?: string | string[];
 	/** Seconds since it started. A guess at a typical orphan's: an hour. */
 	ageS?: number;
+	/** CPU ticks spent in user mode, stat's utime. */
+	utime?: number;
 	/** A stat line written as given, in place of the built one. */
 	stat?: string;
 }
 
-/** One stat line: `pid (comm)`, its state, parent, group and start time, and
- * zeros for every other field. */
+/** One stat line: `pid (comm)`, its state, parent, group, user CPU ticks and
+ * start time, and zeros for every other field. */
 export function buildStatLine(
 	pid: number,
 	{
@@ -88,12 +90,14 @@ export function buildStatLine(
 		state = "S",
 		ppid = 1,
 		pgid = pid,
+		utime = 0,
 		startTicks,
 	}: {
 		comm?: string;
 		state?: string;
 		ppid?: number;
 		pgid?: number;
+		utime?: number;
 		startTicks: number;
 	},
 ) {
@@ -101,6 +105,7 @@ export function buildStatLine(
 	tail[FIELD.state] = state;
 	tail[FIELD.ppid] = ppid;
 	tail[FIELD.pgrp] = pgid;
+	tail[FIELD.utime] = utime;
 	tail[FIELD.start] = startTicks;
 	return `${pid} (${comm}) ${tail.join(" ")}\n`;
 }

@@ -24,7 +24,7 @@
  * a run (#4308's profile), and the logic under test is bash with no in-process seam.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -58,6 +58,7 @@ import {
 import { cutWorktree, mkDirOutsideRepo, mkScratchDir } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { installLib } from "./lib/lib-install-testkit";
+import { runInProcess } from "./lib/run-in-process.js";
 
 backstopFixture();
 
@@ -152,7 +153,7 @@ describe("attribution — the mantahostels#114 regression", () => {
 	/*
 	 * mantahostels#1011 — the nag is the only route to the standards files for a
 	 * session that ran neither /code-review nor /implement, so
-	 * inject-tracker-docs.sh never reached it. Asserted here rather than by
+	 * inject-tracker-docs.js never reached it. Asserted here rather than by
 	 * grepping this hook's source from the injector's suite: the text surviving
 	 * in a comment while dropping out of the emitted nag is exactly the
 	 * regression, and only running the hook can tell the two apart (§X3).
@@ -171,7 +172,7 @@ describe("attribution — the mantahostels#114 regression", () => {
 		};
 		const readLog = () => readGuardErrorsLog(cfg);
 		/*
-		 * #2097: inject-tracker-docs.sh hands a typed /code-review the same
+		 * #2097: inject-tracker-docs.js hands a typed /code-review the same
 		 * Standards-axis text, which each case below pins this hook's to. Run
 		 * after nag(), under another session id, so its markers decide nothing.
 		 */
@@ -179,10 +180,9 @@ describe("attribution — the mantahostels#114 regression", () => {
 			const opener =
 				"You invoked /code-review, whose vendored skill file cannot carry project rules. ";
 			const ctx = JSON.parse(
-				execFileSync(INJECTOR, {
+				runInProcess(INJECTOR, [], {
 					cwd: repo,
-					encoding: "utf8",
-					input: JSON.stringify({
+					stdin: JSON.stringify({
 						prompt: "/code-review",
 						hook_event_name: "UserPromptSubmit",
 						session_id: "injector-twin",
@@ -194,7 +194,7 @@ describe("attribution — the mantahostels#114 regression", () => {
 						WFC_GH: "false",
 						WFC_REVIEW_TIER_HOOK: path.join(dir, "no-tier-hook"),
 					},
-				}),
+				}).stdout,
 			).hookSpecificOutput.additionalContext as string;
 			const at = ctx.indexOf(opener) + opener.length;
 			return ctx.slice(at, ctx.indexOf(" Reviewer type", at));

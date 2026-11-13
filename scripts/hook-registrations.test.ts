@@ -213,7 +213,7 @@ const REGISTRATIONS: Registration[] = [
 	},
 	{
 		event: "UserPromptSubmit",
-		id: "scripts/inject-tracker-docs.sh",
+		id: "scripts/inject-tracker-docs.js",
 		matcher: null,
 		covers: [],
 	},
@@ -368,7 +368,7 @@ const REGISTRATIONS: Registration[] = [
 	},
 	{
 		event: "SessionStart",
-		id: "scripts/inject-tracker-docs.sh",
+		id: "scripts/inject-tracker-docs.js",
 		matcher: null,
 		covers: [],
 	},

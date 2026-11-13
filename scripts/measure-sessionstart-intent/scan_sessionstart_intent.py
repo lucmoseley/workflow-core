@@ -16,7 +16,7 @@ a compact, a fork and a clear are all excluded. Two markers are looked for in
 the attachment's stdout/content:
 
   "Session named "   scripts/name-issue-session.sh emitted a name
-  "You invoked /"    scripts/inject-tracker-docs.sh injected the tracker docs
+  "You invoked /"    scripts/inject-tracker-docs.js injected the tracker docs
 
 EVERY config dir is scanned, not just the live one: this machine sets
 CLAUDE_CONFIG_DIR=~/.claude2, and the ~/.claude it left behind holds a disjoint
@@ -42,7 +42,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
 
-# Commands scripts/inject-tracker-docs.sh injects for. `pick-next` is named by
+# Commands scripts/inject-tracker-docs.js injects for. `pick-next` is named by
 # the naming hook but never injected, so counting it would understate injection.
 INJECTED_COMMANDS = {
     "wayfinder",

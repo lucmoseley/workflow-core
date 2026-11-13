@@ -1,19 +1,21 @@
 // @vitest-environment node
 /*
  * lib/gate-judge.js's judgedBasisFaults and readGateWrite, the three write
- * routes' one entry, driven with a body and a fake in place of the `claude`
- * binary (lib/gate-judge-fake.ts), through the real launcher (#4964). Broken,
- * a wait or basis the model faults files unrefused, or a write the model
- * cannot read is refused.
+ * routes' one entry, driven with a body and the in-process `judge` fake
+ * (lib/gate-judge-fake.ts `judgeServe`). Broken, a wait or basis the model faults
+ * files unrefused, or a write the model cannot read is refused.
  *
- * spawn-kept: a real fd (§X3) — the judge pipes its prompt to the launcher,
- * which hands the child its own stdin.
+ * spawn-kept: the boundary set runs the fake `claude` binary through the real
+ * launcher — a real fd (§X3), the judge piping its prompt to the launcher,
+ * which hands the child its own stdin; the launcher's kill of a hang (a
+ * timeout); and its refusal to launch on an API key.
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { GhRun } from "./basis-cited-read.js";
 import {
 	judgedBasisFaults,
 	LAUNCHER_GRACE_MS,
@@ -24,6 +26,8 @@ import {
 	callLogPath,
 	FALLBACK_LEAD,
 	type JudgeFakePlan,
+	judgeServe,
+	LAUNCHED_BOUND_MS,
 	MODEL_LEAD,
 	OVERRIDE_LEAD,
 	OVERRIDE_LINE,
@@ -31,25 +35,39 @@ import {
 	readJudgeCalls,
 	writeJudgeFake,
 } from "./gate-judge-fake";
-import { type CitedFixture, stubGhRoutes, stubGhScript } from "./gh-stub";
+import { answerCited, GH_LOGGED_OUT, ghServe } from "./gh-fake";
+import { type CitedFixture, stubGhRoutes } from "./gh-stub";
 import { basisFaults, basisRefusal } from "./issue-gate.js";
 import { readJsonl } from "./jsonl.js";
 
-/* Far over a faked call, which is three Node starts. */
-const BOUND_MS = 60_000;
+type Plan = Exclude<JudgeFakePlan, { hang: true }>;
 
 let dir = "";
 let log = "";
+/* Each prompt the in-process fake was sent. */
+let prompts: string[] = [];
 
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "gate-judge-"));
 	fs.mkdirSync(path.join(dir, ".claude"));
 	log = path.join(dir, "calls.jsonl");
+	prompts = [];
 });
 
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 function judge(
+	body: string,
+	plan: Plan,
+	opts: { own?: number; before?: string } = {},
+) {
+	return judgedBasisFaults(body, {
+		...opts,
+		judge: judgeServe(plan, prompts),
+	});
+}
+
+function launch(
 	body: string,
 	plan: JudgeFakePlan,
 	opts: { own?: number; before?: string; boundMs?: number } = {},
@@ -65,7 +83,7 @@ function judge(
 		WFC_CLAUDE_BIN: writeJudgeFake(path.join(dir, "claude"), log, plan),
 		...extraEnv,
 	};
-	return judgedBasisFaults(body, { boundMs: BOUND_MS, ...opts, env });
+	return judgedBasisFaults(body, { boundMs: LAUNCHED_BOUND_MS, ...opts, env });
 }
 
 const reading = (
@@ -84,8 +102,8 @@ const WAIT = "Re-measure once those records hold 500 ticks.";
 const NOTHING = reading();
 
 describe("a judged wait", () => {
-	it("in a body with no basis is a missing-basis fault, marked as the model's", () => {
-		const r = judge(
+	it("in a body with no basis is a missing-basis fault, marked as the model's, through the real launcher", () => {
+		const r = launch(
 			`Build it.\n\n${WAIT}\n`,
 			reading([wait(WAIT, "500 ticks")]),
 		);
@@ -93,6 +111,9 @@ describe("a judged wait", () => {
 			{ kind: "no-basis", text: WAIT, by: "model", on: "data" },
 		]);
 		expect(r.fallback).toBeNull();
+		expect(readJudgeCalls(log).map((c) => c.stdin)).toEqual([
+			expect.stringContaining(WAIT),
+		]);
 	});
 
 	it("whose window the basis does not name is an unnamed-window fault", () => {
@@ -278,7 +299,7 @@ describe("a failed call leaves the pattern faults alone, with a reason", () => {
 	const Body = `Read the counters a week after landing.\n\n${WAIT}\n`;
 	const Patterns = [{ kind: "no-basis", text: "a week after", by: "patterns" }];
 
-	it.each<[string, JudgeFakePlan, string]>([
+	it.each<[string, Plan, string]>([
 		["a non-zero exit", { exit: 3 }, "the judge exited 3"],
 		[
 			"a reply that is not JSON",
@@ -316,7 +337,7 @@ describe("a failed call leaves the pattern faults alone, with a reason", () => {
 	it("falls back on a hang past the bound", () => {
 		/* The launcher's real kill, not a faked one: the fallback reason is read
 		 * off its timeout exit. */
-		const r = judge(Body, { hang: true }, { boundMs: 500 });
+		const r = launch(Body, { hang: true }, { boundMs: 500 });
 		expect(r.faults).toEqual(Patterns);
 		expect(r.fallback).toBe("the judge did not answer within 0.5 s");
 	});
@@ -333,7 +354,7 @@ describe("a failed call leaves the pattern faults alone, with a reason", () => {
 	});
 
 	it("a launch that would not bill the subscription, launching nothing", () => {
-		const r = judge(
+		const r = launch(
 			Body,
 			reading([wait(WAIT, "500 ticks")]),
 			{},
@@ -440,9 +461,9 @@ describe("an edit", () => {
 
 	it("never sends the body before it to the model", () => {
 		judge("The new body.\n", NOTHING, { before: "The old body, kept back.\n" });
-		const [call] = readJudgeCalls(log);
-		expect(call?.stdin).toContain("The new body.");
-		expect(call?.stdin).not.toContain("kept back");
+		const [prompt] = prompts;
+		expect(prompt).toContain("The new body.");
+		expect(prompt).not.toContain("kept back");
 	});
 
 	it("with no body before it is judged whole", () => {
@@ -582,22 +603,19 @@ describe("the edit rule, one for both readings (#5080)", () => {
 describe("a write route's reading", () => {
 	const write = (
 		body: string,
-		plan: JudgeFakePlan,
+		plan: Plan,
 		opts: { before?: string; own?: number; leftMs?: number } = {},
 		extraEnv: Record<string, string> = {},
 	) =>
-		readGateWrite(body, {
-			route: "file-issue",
-			...opts,
-			env: {
-				...process.env,
-				CLAUDE_CONFIG_DIR: path.join(dir, ".claude"),
-				WFC_CLAUDE_CONFIG_A: path.join(dir, ".claude"),
-				WFC_CLAUDE_BIN: writeJudgeFake(path.join(dir, "claude"), log, plan),
-				WFC_GATE_JUDGE: "",
-				...extraEnv,
+		readGateWrite(
+			body,
+			{
+				route: "file-issue",
+				...opts,
+				env: { ...process.env, WFC_GATE_JUDGE: "", ...extraEnv },
 			},
-		});
+			{ judge: judgeServe(plan, prompts) },
+		);
 	const Gate = "**Gated until:** 2026-10-05 — a week live";
 	const PatternSays = [
 		"with no `**Gate basis:**` line",
@@ -714,7 +732,7 @@ describe("a write route's reading", () => {
 		expect(r.advice).toContain(
 			`${FALLBACK_LEAD} (too little of the hook's time was left for it)`,
 		);
-		expect(readJudgeCalls(log)).toEqual([]);
+		expect(prompts).toEqual([]);
 	});
 
 	it("appends one record a call to the log", () => {
@@ -745,7 +763,7 @@ describe("a write route's reading", () => {
 			refusal: basisRefusal(basisFaults(`${Gate}\n`), "the wording patterns"),
 			advice: "",
 		});
-		expect(readJudgeCalls(log)).toEqual([]);
+		expect(prompts).toEqual([]);
 	});
 
 	it("reads the body with the judge switched off outside a test worker", () => {
@@ -756,70 +774,88 @@ describe("a write route's reading", () => {
 			{ WFC_GATE_JUDGE: "off", VITEST_WORKER_ID: "" },
 		);
 		expect(r.refusal).toContain(MODEL_LEAD);
-		expect(readJudgeCalls(log)).toHaveLength(1);
+		expect(prompts).toHaveLength(1);
 	});
 });
 
 describe("a write route words the cited follow (#5007)", () => {
 	const Week = "**Gated until:** 2099-01-01 — a week after it lands";
 	const cites = (basis: string) => `${Week}\n**Gate basis:** ${basis}\n`;
-	let ghLog = "";
+	let ghCalls: string[][] = [];
 
 	beforeEach(() => {
 		fs.writeFileSync(
 			path.join(dir, ".claude", "workflow-core.json"),
 			JSON.stringify({ contract: 1, tracker: "o/r" }),
 		);
-		ghLog = path.join(dir, "gh.log");
+		ghCalls = [];
 	});
 	afterEach(() => vi.unstubAllEnvs());
 
-	const serving = (cited: Record<string, Record<number, CitedFixture>>) =>
-		vi.stubEnv("WFC_GH", stubGhRoutes(dir, {}, { log: ghLog, cited }).gh);
+	const serving =
+		(cited: Record<string, Record<number, CitedFixture>>) =>
+		(args: string[]) => {
+			ghCalls.push(args);
+			return ghServe(answerCited(args, cited))(args);
+		};
 	const graphqlCalls = () =>
-		fs.existsSync(ghLog)
-			? fs
-					.readFileSync(ghLog, "utf8")
-					.split("\n")
-					.filter((l) => l.startsWith("api graphql")).length
-			: 0;
+		ghCalls.filter(([cmd, sub]) => cmd === "api" && sub === "graphql").length;
+	/* `cited` omitted, the read is lib/gh.js's own, for the boundary case. */
 	const write = (
 		body: string,
+		cited: GhRun | undefined,
 		opts: { before?: string; own?: number; leftMs?: number } = {},
-		extraEnv: Record<string, string> = {},
 	) =>
-		readGateWrite(body, {
-			route: "file-issue",
-			...opts,
-			env: {
-				...process.env,
-				CLAUDE_PROJECT_DIR: dir,
-				WFC_GATE_CITED: "",
-				WFC_GATE_JUDGE: "off",
-				...extraEnv,
+		readGateWrite(
+			body,
+			{
+				route: "file-issue",
+				...opts,
+				env: {
+					...process.env,
+					CLAUDE_PROJECT_DIR: dir,
+					WFC_GATE_CITED: "",
+					WFC_GATE_JUDGE: "off",
+				},
 			},
-		});
+			{ cited },
+		);
 
-	it("refuses a basis whose cited issue has no basis, quoting it, naming the issue and its reason, then the rule", () => {
-		serving({ "o/r": { 4884: { body: "A baseline, read over 24 h." } } });
-		const r = write(cites("#4884 read the baseline over a week"));
+	it("refuses a basis whose cited issue has no basis, quoting it, naming the issue and its reason, then the rule, through the gh stub", () => {
+		const ghLog = path.join(dir, "gh.log");
+		vi.stubEnv(
+			"WFC_GH",
+			stubGhRoutes(
+				dir,
+				{},
+				{
+					log: ghLog,
+					cited: { "o/r": { 4884: { body: "A baseline, read over 24 h." } } },
+				},
+			).gh,
+		);
+		const r = write(cites("#4884 read the baseline over a week"), undefined);
 		expect(r.refusal).toContain(
 			'"#4884 read the baseline over a week" (it cites #4884, which has no `**Gate basis:**` line), which carries no warrant, as the wording patterns read it.',
 		);
 		expect(r.refusal).toContain("Rule: ");
-		expect(graphqlCalls()).toBe(1);
+		expect(
+			fs
+				.readFileSync(ghLog, "utf8")
+				.split("\n")
+				.filter((l) => l.startsWith("api graphql")),
+		).toHaveLength(1);
 	});
 
 	it("words a cited question round it cannot find", () => {
-		serving({ "o/r": { 1556: { body: "x" } } });
-		expect(write(cites("a week is #1556 Q9 (A)'s ruling")).refusal).toContain(
-			"(it cites #1556 Q9, where that question round is not found)",
-		);
+		const cited = serving({ "o/r": { 1556: { body: "x" } } });
+		expect(
+			write(cites("a week is #1556 Q9 (A)'s ruling"), cited).refusal,
+		).toContain("(it cites #1556 Q9, where that question round is not found)");
 	});
 
 	it("judges on form, with one note naming the unread issues, where the read fails", () => {
-		vi.stubEnv("WFC_GH", stubGhScript(dir, "", { failing: true }).gh);
-		const r = write(cites("#12 and #13 set a week"));
+		const r = write(cites("#12 and #13 set a week"), ghServe(GH_LOGGED_OUT));
 		expect(r.refusal).toBeNull();
 		expect(
 			r.advice.startsWith("The issues a basis cites were not read ("),
@@ -830,8 +866,13 @@ describe("a write route words the cited follow (#5007)", () => {
 	});
 
 	it("judges on form, with the same note, where too little of the write's bound is left for the cited read", () => {
-		serving({ "o/r": { 12: { body: "x" } } });
-		const r = write(cites("#12 set a week"), { leftMs: 1000 });
+		const r = write(
+			cites("#12 set a week"),
+			serving({ "o/r": { 12: { body: "x" } } }),
+			{
+				leftMs: 1000,
+			},
+		);
 		expect(r.refusal).toBeNull();
 		expect(r.advice).toBe(
 			`The issues a basis cites were not read (too little of the hook's time was left for it): #12, so a basis whose only warrant is one of them was judged on its form alone.`,
@@ -840,9 +881,11 @@ describe("a write route words the cited follow (#5007)", () => {
 	});
 
 	it("follows no basis an edit leaves untouched, and every basis on a re-gate or rewrite", () => {
-		serving({ "o/r": { 12: { body: "x" } } });
+		const cited = serving({ "o/r": { 12: { body: "x" } } });
 		const legacy = cites("#12 set a week");
-		expect(write(`${legacy}\nnote\n`, { before: legacy, own: 1 })).toEqual({
+		expect(
+			write(`${legacy}\nnote\n`, cited, { before: legacy, own: 1 }),
+		).toEqual({
 			refusal: null,
 			advice: "",
 		});
@@ -852,25 +895,30 @@ describe("a write route words the cited follow (#5007)", () => {
 			legacy.replace("2099-01-01", "2099-02-01"),
 			legacy.replace("set a week", "set the week, a week"),
 		])
-			expect(write(after, { before: legacy, own: 1 }).refusal).toContain(Says);
+			expect(write(after, cited, { before: legacy, own: 1 }).refusal).toContain(
+				Says,
+			);
 		expect(graphqlCalls()).toBe(2);
 	});
 
 	it("logs the cited issues, their verdicts, the read's wall time and any fallback", () => {
-		serving({ "o/r": { 12: { body: "x" } } });
 		fs.rmSync(callLogPath(), { force: true });
-		const r = readGateWrite(cites("#12 set a week"), {
-			route: "file-issue",
-			env: {
-				...process.env,
-				CLAUDE_PROJECT_DIR: dir,
-				CLAUDE_CONFIG_DIR: path.join(dir, ".claude"),
-				WFC_CLAUDE_CONFIG_A: path.join(dir, ".claude"),
-				WFC_CLAUDE_BIN: writeJudgeFake(path.join(dir, "claude"), log, NOTHING),
-				WFC_GATE_CITED: "",
-				WFC_GATE_JUDGE: "",
+		const r = readGateWrite(
+			cites("#12 set a week"),
+			{
+				route: "file-issue",
+				env: {
+					...process.env,
+					CLAUDE_PROJECT_DIR: dir,
+					WFC_GATE_CITED: "",
+					WFC_GATE_JUDGE: "",
+				},
 			},
-		});
+			{
+				judge: judgeServe(NOTHING, prompts),
+				cited: serving({ "o/r": { 12: { body: "x" } } }),
+			},
+		);
 		expect(r.refusal).toContain(
 			"(it cites #12, which has no `**Gate basis:**` line)",
 		);

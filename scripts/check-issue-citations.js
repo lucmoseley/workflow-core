@@ -20,7 +20,7 @@
  * sessions a ticket's blocked-by list carries "the numbers/titles", silent on
  * order. A correction made in place is reverted on the next re-vendor unless it
  * is declared in .agents/vendored-skill-edits.json (mantahostels#1826), so
- * scripts/inject-tracker-docs.sh overrides it per session instead, and this
+ * scripts/inject-tracker-docs.js overrides it per session instead, and this
  * script catches what slips through anyway.
  *
  * THIS SCRIPT NEVER WRITES. Rewriting a citation means resolving a description

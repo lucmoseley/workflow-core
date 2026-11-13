@@ -9,10 +9,12 @@
  * declared path is refused with no way out, a land's merge of neighbours'
  * reviewed commits among them.
  *
- * Driven through real `git commit`s in a throwaway repo whose pre-commit hook
- * runs the live script, because the hold reads the index git builds for the
- * commit, which no stub reproduces; its wiring into `.husky/pre-commit` and the
- * adopter skeleton is read off those files.
+ * Its branch cases stage paths in a throwaway repo and run the hold's and the
+ * trailer's cores in-process on their production ports, so every git read
+ * crosses real git without a hook's spawns (#5153, §X11). The boundary set
+ * stays real `git commit`s, merges and cherry-picks through hooks running the
+ * live entries, because the hook routes and the index git builds for a
+ * pathspec, --patch or linked-worktree commit no in-process call reproduces.
  * `tree=` comes from `commit-paths.js --tree`, or mid-merge from the index, as
  * write-review-marker.js takes it for a session, so a drift between that
  * computation and the hook's fails here; the Stop backstop and push guard read
@@ -21,17 +23,22 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ledgerHead } from "./lib/arbiter-testkit";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { ENTRY_BUDGET_MS } from "./lib/hook-deadline.js";
 import { coreCall, HOOK } from "./lib/precommit-gate-testkit";
+import { runHold } from "./lib/review-hold.js";
+import { buildHoldPorts } from "./lib/review-hold-host.js";
 import { reviewSuffix } from "./lib/review-suffix";
+import { reviewTierStamp } from "./lib/review-tier-stamp.js";
+import { runTrailer as trailerCore } from "./lib/review-tier-trailer.js";
+import { buildTrailerPorts } from "./lib/review-tier-trailer-host.js";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import { readShellConst } from "./lib/shell-const-testkit";
 
-const GATE = path.resolve(__dirname, "review-hold-gate.sh");
+const GATE = path.resolve(__dirname, "review-hold-gate.js");
 const HOOK_ROOT = path.resolve(__dirname, "lib", "hook-root.sh");
 const COMMIT_PATHS = path.resolve(__dirname, "commit-paths.js");
 const MARKER_LIB = path.resolve(__dirname, "lib", "concision-marker.sh");
@@ -39,7 +46,7 @@ const BACKSTOP = path.resolve(__dirname, "concision-backstop.sh");
 const DISPATCH = path.resolve(__dirname, "guard-dispatch.js");
 const ARBITER = path.resolve(__dirname, "session-arbiter.js");
 const WRITE_MARKER = path.resolve(__dirname, "write-review-marker.js");
-const WIRING = `${coreCall("bash", "scripts/review-hold-gate.sh")} || exit "$?"`;
+const WIRING = `${coreCall("node", "scripts/review-hold-gate.js")} || exit "$?"`;
 const SID = "session-under-test";
 /** code-signal.sh's review floor: a change over it owes a review. */
 const CODE_THRESHOLD = readShellConst(
@@ -141,6 +148,45 @@ const commit = (paths: string[], opts: Parameters<typeof hookedGit>[1] = {}) =>
 		["commit", "-qm", "land", ...(paths.length > 0 ? ["--", ...paths] : [])],
 		opts,
 	);
+
+/**
+ * `call` with the process environment a hook would hand this repo: hostRoot()
+ * reads the process's CLAUDE_PROJECT_DIR, `projectDir` or unset, and the
+ * fail-open log its CLAUDE_CONFIG_DIR, so both are stubbed for the call.
+ */
+const inProcess = <T>(call: () => T, projectDir?: string): T => {
+	vi.stubEnv("CLAUDE_PROJECT_DIR", projectDir);
+	vi.stubEnv("CLAUDE_CONFIG_DIR", scratch);
+	try {
+		return call();
+	} finally {
+		vi.unstubAllEnvs();
+	}
+};
+
+/**
+ * The hold over `paths`, staged, in-process over the checkout `cwd`.
+ * `projectDir` is the harness's CLAUDE_PROJECT_DIR, unset where absent.
+ */
+const hold = (
+	paths: string[],
+	{
+		sid = SID,
+		cwd = repo,
+		projectDir = undefined as string | undefined,
+		env: extra = {} as Record<string, string>,
+	} = {},
+) => {
+	if (paths.length > 0) git("-C", cwd, "add", "-A", "--", ...paths);
+	const env: Record<string, string | undefined> = {
+		...quietEnv(),
+		CLAUDE_CODE_SESSION_ID: sid,
+		...(projectDir ? { CLAUDE_PROJECT_DIR: projectDir } : {}),
+	};
+	delete env.GIT_REFLOG_ACTION;
+	Object.assign(env, extra);
+	return inProcess(() => runHold(buildHoldPorts({ cwd, env })), projectDir);
+};
 
 /** What `commit-paths.js --tree` prints, the tree review-hold.txt names. */
 const treeOf = (args: string[], cwd = repo) => {
@@ -244,7 +290,7 @@ const leaveArtefacts = (dir = path.join(repo, ".claude", "tmp")) => {
 
 /** A refusal in `cwd` naming `areas`, its HEAD still `before` commits deep. */
 const refusedIn = (
-	r: ReturnType<typeof hookedGit>,
+	r: { status: number | null; stderr: string },
 	cwd: string,
 	before: string,
 	areas = "secrets",
@@ -256,7 +302,7 @@ const refusedIn = (
 };
 
 const expectRefused = (
-	r: ReturnType<typeof commit>,
+	r: { status: number | null; stderr: string },
 	fault: string,
 	commits = "1",
 ) => {
@@ -265,6 +311,51 @@ const expectRefused = (
 	expect(r.stderr).toContain("A COMMIT ON A DECLARED SENSITIVE PATH IS HELD");
 	expect(r.stderr).toContain("rule:review-hold");
 	expect(commitCount()).toBe(commits);
+};
+
+/** The hold rule's text, as the refusal prints it between blank lines. */
+const RULE = fs
+	.readFileSync(
+		path.resolve(__dirname, "..", "docs/agents/rules/review-hold.txt"),
+		"utf8",
+	)
+	.replace(/\n+$/, "");
+
+/**
+ * The refusal is built here from its parts, never by the core's own
+ * refusal().
+ */
+const expectHeld = (
+	r: { status: number | null; stderr: string },
+	{
+		fault,
+		areas = "secrets",
+		offSides = "",
+		stagedFault = "",
+	}: { fault: string; areas?: string; offSides?: string; stagedFault?: string },
+) => {
+	expect(r).toEqual({
+		status: 1,
+		stderr: [
+			"pre-commit: this commit changes a declared sensitive path, and no escalated review of exactly this change is recorded (#1622).",
+			`  Areas touched: ${areas}.`,
+			...(offSides
+				? [
+						`  This merge's paths no merged-in side carries, the ones to review: ${offSides}.`,
+					]
+				: []),
+			`  The marker ${marker()} does not clear it: ${fault}.`,
+			...(stagedFault
+				? [
+						`  The staged .claude/workflow-core.json will not read, and a review would land it broken, so correct it first: ${stagedFault}`,
+					]
+				: []),
+			"",
+			RULE,
+			"",
+			"pre-commit: the review hold refused this commit (rule:review-hold). Nothing was committed.\n",
+		].join("\n"),
+	});
 };
 
 /** The seeded repo and its hooks directory, built once and copied per case. */
@@ -301,7 +392,7 @@ const fixture = defineTemplate((root) => {
 	fs.mkdirSync(path.join(root, "hooks"));
 	fs.writeFileSync(
 		path.join(root, "hooks", "pre-commit"),
-		`#!/bin/sh\nexec bash ${shellQuote(GATE)}\n`,
+		`#!/bin/sh\nexec node ${shellQuote(GATE)}\n`,
 		{ mode: 0o755 },
 	);
 });
@@ -317,13 +408,21 @@ afterEach(() => {
 	fs.rmSync(scratch, { recursive: true, force: true });
 });
 
-describe("review-hold-gate.sh — wiring", () => {
+describe("review-hold-gate.js — wiring", () => {
 	it("is wired into .husky/pre-commit, through the plugin root an adopter's shim sets", () => {
 		expect(HOOK.split("\n")).toContain(WIRING);
 	});
 });
 
-describe("review-hold-gate.sh — refusals", () => {
+describe("review-hold-gate.js — usage", () => {
+	it("exits 2 with its usage on an argument", () => {
+		const r = runInProcess(GATE, ["x"], { cwd: repo, env: quietEnv() });
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("usage: review-hold-gate.js");
+	});
+});
+
+describe("review-hold-gate.js — refusals", () => {
 	it("refuses a staged sensitive glob with no marker, naming the area and the rule", () => {
 		write(SECRET, "new\n");
 		const r = commit([SECRET]);
@@ -343,13 +442,16 @@ describe("review-hold-gate.sh — refusals", () => {
 	it("refuses a standard tier, naming it", () => {
 		write(SECRET, "new\n");
 		mark({ tier: "standard", areas: "secrets", tree: treeOf(["--", SECRET]) });
-		expectRefused(commit([SECRET]), "its tier= is 'standard'");
+		expectHeld(hold([SECRET]), {
+			fault:
+				"its tier= is 'standard', and only escalated or mission-critical covers a declared sensitive path",
+		});
 	});
 
 	it("refuses a marker with no tier= line, as a standard review's marker has", () => {
 		write(SECRET, "new\n");
 		mark({});
-		expectRefused(commit([SECRET]), "it has no tier= line");
+		expectHeld(hold([SECRET]), { fault: "it has no tier= line" });
 	});
 
 	it("refuses a marker whose areas= misses a matched area, naming the missing one", () => {
@@ -360,25 +462,27 @@ describe("review-hold-gate.sh — refusals", () => {
 			areas: "secrets",
 			tree: treeOf(["--", SECRET, PRICE]),
 		});
-		const r = commit([SECRET, PRICE]);
-		expectRefused(r, "its areas= does not name money.");
-		expect(r.stderr).toContain("Areas touched: money, secrets.");
+		const r = hold([SECRET, PRICE]);
+		expectHeld(r, {
+			areas: "money, secrets",
+			fault: "its areas= does not name money",
+		});
 	});
 
 	it("refuses a stale tree= after an edit made once the marker was written", () => {
 		write(SECRET, "reviewed\n");
 		mark({ tier: "escalated", areas: "secrets", tree: treeOf(["--", SECRET]) });
 		write(SECRET, "edited after review\n");
-		expectRefused(
-			commit([SECRET]),
-			"its tree= is not the tree this commit carries",
-		);
+		expectHeld(hold([SECRET]), {
+			fault:
+				"its tree= is not the tree this commit carries, so something changed after it was written",
+		});
 	});
 
 	it("refuses a marker with no paths= line, which the Stop nag would read as a review of every path", () => {
 		write(SECRET, "new\n");
 		mark({ tier: "escalated", areas: "secrets", tree: treeOf(["--", SECRET]) });
-		expectRefused(commit([SECRET]), "it has no paths= line");
+		expectHeld(hold([SECRET]), { fault: "it has no paths= line" });
 	});
 
 	it("refuses a marker whose paths= line names nothing, saying so", () => {
@@ -389,7 +493,7 @@ describe("review-hold-gate.sh — refusals", () => {
 			tree: treeOf(["--", SECRET]),
 			paths: " , ",
 		});
-		expectRefused(commit([SECRET]), "its paths= names no path");
+		expectHeld(hold([SECRET]), { fault: "its paths= names no path" });
 	});
 
 	it("refuses a marker whose paths= misses a path the commit changes, naming it", () => {
@@ -401,10 +505,9 @@ describe("review-hold-gate.sh — refusals", () => {
 			tree: treeOf(["--", SECRET, PLAIN]),
 			paths: SECRET,
 		});
-		expectRefused(
-			commit([SECRET, PLAIN]),
-			`its paths= does not name ${PLAIN}.`,
-		);
+		expectHeld(hold([SECRET, PLAIN]), {
+			fault: `its paths= does not name ${PLAIN}`,
+		});
 	});
 
 	it("refuses a --patch commit whose whole path changed after write-review-marker.js wrote its marker", () => {
@@ -420,7 +523,7 @@ describe("review-hold-gate.sh — refusals", () => {
 	});
 });
 
-describe("review-hold-gate.sh — the declaration it reads", () => {
+describe("review-hold-gate.js — the declaration it reads", () => {
 	const readDeclared = () =>
 		JSON.parse(
 			fs.readFileSync(path.join(repo, ".claude/workflow-core.json"), "utf8"),
@@ -429,13 +532,13 @@ describe("review-hold-gate.sh — the declaration it reads", () => {
 	it("still holds when the working-tree declaration drops the area unstaged", () => {
 		write(".claude/workflow-core.json", JSON.stringify({ sensitivePaths: [] }));
 		write(SECRET, "new\n");
-		expectRefused(commit([SECRET]), "there is no marker");
+		expectHeld(hold([SECRET]), { fault: "there is no marker" });
 	});
 
 	it("still holds when the working-tree declaration is broken unstaged", () => {
 		write(".claude/workflow-core.json", "{ not json");
 		write(SECRET, "new\n");
-		expectRefused(commit([SECRET]), "there is no marker");
+		expectHeld(hold([SECRET]), { fault: "there is no marker" });
 	});
 
 	it("holds an area the staged declaration adds", () => {
@@ -449,9 +552,10 @@ describe("review-hold-gate.sh — the declaration it reads", () => {
 			}),
 		);
 		write(PLAIN, "new\n");
-		const r = commit([PLAIN, ".claude/workflow-core.json"]);
-		expectRefused(r, "there is no marker");
-		expect(r.stderr).toContain("Areas touched: pages.");
+		expectHeld(hold([PLAIN, ".claude/workflow-core.json"]), {
+			areas: "pages",
+			fault: "there is no marker",
+		});
 	});
 
 	const Config = ".claude/workflow-core.json";
@@ -494,15 +598,24 @@ describe("review-hold-gate.sh — the declaration it reads", () => {
 		"holds a commit whose declaration %s, under what it drops (#3905)",
 		(_, edit, areas) => {
 			edit();
-			const r = commit([Config]);
-			expectRefused(r, "there is no marker");
-			expect(r.stderr).toContain(`Areas touched: ${areas}.`);
+			const r = hold([Config]);
+			expectHeld(r, {
+				areas,
+				fault: "there is no marker",
+				stagedFault: stagedFaultOf(r.stderr),
+			});
 		},
 	);
 
+	/** The staged declaration's read fault the refusal names. */
+	const stagedFaultOf = (stderr: string) =>
+		/^ {2}The staged \.claude\/workflow-core\.json will not read, and a review would land it broken, so correct it first: (.*)$/m.exec(
+			stderr,
+		)?.[1] ?? "";
+
 	it("names the fault of a staged declaration that will not parse (#3905)", () => {
 		write(Config, "{ not json");
-		expect(commit([Config]).stderr).toContain(
+		expect(hold([Config]).stderr).toContain(
 			"The staged .claude/workflow-core.json will not read",
 		);
 	});
@@ -515,12 +628,12 @@ describe("review-hold-gate.sh — the declaration it reads", () => {
 			tree: treeOf(["--", Config]),
 			paths: Config,
 		});
-		expect(commit([Config]).status).toBe(0);
+		expect(hold([Config]).status).toBe(0);
 	});
 
 	it("leaves alone a commit that only widens a glob list", () => {
 		write(Config, withMoney(["lib/pricing/**", "lib/quotes/**"]));
-		expect(commit([Config]).status).toBe(0);
+		expect(hold([Config]).status).toBe(0);
 	});
 
 	it("does not take a reordering of the declaration for a narrowing", () => {
@@ -532,11 +645,11 @@ describe("review-hold-gate.sh — the declaration it reads", () => {
 				sensitivePaths: [...cfg.sensitivePaths].reverse(),
 			}),
 		);
-		expect(commit([Config]).status).toBe(0);
+		expect(hold([Config]).status).toBe(0);
 	});
 });
 
-describe("review-hold-gate.sh — a replay's own bytes pass, anything added is held (#3905)", () => {
+describe("review-hold-gate.js — a replay's own bytes pass, anything added is held (#3905)", () => {
 	const hookEnv = () => {
 		const env: Record<string, string | undefined> = {
 			...quietEnv(),
@@ -584,45 +697,45 @@ describe("review-hold-gate.sh — a replay's own bytes pass, anything added is h
 		write(rel, text);
 		git("add", "--", rel);
 	};
-	const held = (r: ReturnType<typeof commit>, before: string) =>
+	const held = (r: { status: number | null; stderr: string }, before: string) =>
 		expectRefused(r, "there is no marker", before);
+	const heldInProcess = (r: { status: number | null; stderr: string }) =>
+		expectHeld(r, { fault: "there is no marker" });
 
-	it.each([
-		["git commit", ["commit", "-qm", "land"]],
-		["git cherry-pick --continue", ["cherry-pick", "--continue"]],
-	])(
-		"holds a conflict on a glob resolved with new bytes, through %s",
-		(_, args) => {
-			stopOnConflict(divergedPick([SECRET], [SECRET]));
-			resolve(SECRET, "SNEAK\n");
-			const before = commitCount();
-			held(hooked(...args), before);
-			expect(fs.existsSync(path.join(repo, ".git", "CHERRY_PICK_HEAD"))).toBe(
-				true,
-			);
-		},
-	);
+	it("holds a conflict on a glob resolved with new bytes", () => {
+		stopOnConflict(divergedPick([SECRET], [SECRET]));
+		resolve(SECRET, "SNEAK\n");
+		heldInProcess(hold([]));
+	});
+
+	it("holds a conflict on a glob resolved with new bytes, through git cherry-pick --continue", () => {
+		stopOnConflict(divergedPick([SECRET], [SECRET]));
+		resolve(SECRET, "SNEAK\n");
+		const before = commitCount();
+		held(hooked("cherry-pick", "--continue"), before);
+		expect(fs.existsSync(path.join(repo, ".git", "CHERRY_PICK_HEAD"))).toBe(
+			true,
+		);
+	});
 
 	it("holds bytes added on a glob the picked commit never touched", () => {
 		stopOnConflict(divergedPick([PLAIN], [PLAIN]));
 		resolve(PLAIN, "resolved\n");
 		resolve(SECRET, "SNEAK\n");
-		const before = commitCount();
-		held(hooked("commit", "-qm", "land"), before);
+		heldInProcess(hold([]));
 	});
 
 	it("holds an extra edit to a glob the picked commit changed cleanly", () => {
 		stopOnConflict(divergedPick([PLAIN, SECRET], [PLAIN]));
 		resolve(PLAIN, "resolved\n");
 		resolve(SECRET, "theirs\nSNEAK\n");
-		const before = commitCount();
-		held(hooked("commit", "-qm", "land"), before);
+		heldInProcess(hold([]));
 	});
 
 	it("passes a conflict off the globs, its glob change as the picked commit made it", () => {
 		stopOnConflict(divergedPick([PLAIN, SECRET], [PLAIN]));
 		resolve(PLAIN, "resolved\n");
-		const r = hooked("commit", "-qm", "land");
+		const r = hold([]);
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 	});
@@ -646,7 +759,7 @@ describe("review-hold-gate.sh — a replay's own bytes pass, anything added is h
 			env: quietEnv(),
 		});
 		fs.writeFileSync(path.join(repo, ".git", "CHERRY_PICK_HEAD"), `${pick}\n`);
-		const r = hooked("commit", "-qm", "land");
+		const r = hold([]);
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 	});
@@ -663,7 +776,7 @@ describe("review-hold-gate.sh — a replay's own bytes pass, anything added is h
 			fs.rmSync(path.join(hooks, "pre-commit"));
 			fs.writeFileSync(
 				path.join(hooks, "prepare-commit-msg"),
-				`#!/bin/sh\nexec bash ${shellQuote(GATE)}\n`,
+				`#!/bin/sh\nexec node ${shellQuote(GATE)}\n`,
 				{ mode: 0o755 },
 			);
 		});
@@ -707,7 +820,7 @@ describe("review-hold-gate.sh — a replay's own bytes pass, anything added is h
 			{ cwd: repo, env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: SID } },
 		);
 		expect(w.stderr).toBe("");
-		const r = hooked("commit", "-qm", "land");
+		const r = hold([]);
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 	});
@@ -718,8 +831,7 @@ describe("review-hold-gate.sh — a replay's own bytes pass, anything added is h
 			fs.mkdirSync(path.join(repo, ".git", dir));
 			write(SECRET, "new\n");
 			git("add", "--", SECRET);
-			const before = commitCount();
-			held(hooked("commit", "-qm", "land"), before);
+			heldInProcess(hold([]));
 		},
 	);
 
@@ -742,12 +854,14 @@ describe("review-hold-gate.sh — a replay's own bytes pass, anything added is h
 	});
 });
 
-describe("review-hold-gate.sh — a merge's landed bytes pass, anything added is held (#4383)", () => {
+describe("review-hold-gate.js — a merge's landed bytes pass, anything added is held (#4383)", () => {
 	let wt: string;
 	/** A git command in the worktree, under the fixture's hooks, the shared tree its markers' host as the harness sets it. */
 	const inWt = (args: string[], env: Record<string, string> = {}) =>
 		hookedGit(args, { cwd: wt, projectDir: repo, env });
 	const wtCount = () => git("-C", wt, "rev-list", "--count", "HEAD");
+	const holdInWt = (env: Record<string, string> = {}) =>
+		hold([], { cwd: wt, projectDir: repo, env });
 	const stageInWt = (rel: string, text: string) => {
 		write(rel, text, wt);
 		git("-C", wt, "add", "--", rel);
@@ -775,7 +889,7 @@ describe("review-hold-gate.sh — a merge's landed bytes pass, anything added is
 		wt = path.join(scratch, "wt");
 		fs.writeFileSync(
 			path.join(hooks, "pre-merge-commit"),
-			`#!/bin/sh\nexec bash ${shellQuote(GATE)}\n`,
+			`#!/bin/sh\nexec node ${shellQuote(GATE)}\n`,
 			{ mode: 0o755 },
 		);
 	});
@@ -827,7 +941,7 @@ describe("review-hold-gate.sh — a merge's landed bytes pass, anything added is
 		diverge([SECRET], [SECRET]);
 		inWt(["merge", "--no-edit", "origin/landing"]);
 		stageInWt(SECRET, text);
-		const r = inWt(["commit", "--no-edit"]);
+		const r = holdInWt();
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 	});
@@ -836,12 +950,7 @@ describe("review-hold-gate.sh — a merge's landed bytes pass, anything added is
 		diverge([SECRET], [SECRET]);
 		inWt(["merge", "--no-edit", "origin/landing"]);
 		stageInWt(SECRET, "SNEAK\n");
-		const before = wtCount();
-		const r = inWt(["commit", "--no-edit"]);
-		refusedIn(r, wt, before);
-		expect(r.stderr).toContain(
-			`This merge's paths no merged-in side carries, the ones to review: ${SECRET}.`,
-		);
+		expectHeld(holdInWt(), { offSides: SECRET, fault: "there is no marker" });
 	});
 
 	it("holds a glob both sides changed, git combining them cleanly, until the marker names it (#4426)", () => {
@@ -864,16 +973,15 @@ describe("review-hold-gate.sh — a merge's landed bytes pass, anything added is
 
 	it("holds a clean merge carrying new bytes on a glob neither side wrote", () => {
 		diverge([PLAIN], [PRICE]);
-		const before = wtCount();
 		expect(inWt(["merge", "--no-commit", "origin/landing"]).status).toBe(0);
 		stageInWt(SECRET, "SNEAK\n");
-		refusedIn(inWt(["commit", "--no-edit"]), wt, before);
+		expectHeld(holdInWt(), { offSides: SECRET, fault: "there is no marker" });
 	});
 
 	it("clears a held merge on the marker review-hold.txt says to write, paths= naming the held path alone (#4426)", () => {
 		heldMerge();
 		expect(writeMarkerInWt(SECRET).stderr).toBe("");
-		const r = inWt(["commit", "--no-edit"]);
+		const r = holdInWt();
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 	});
@@ -881,10 +989,10 @@ describe("review-hold-gate.sh — a merge's landed bytes pass, anything added is
 	it("holds a merge whose marker's paths= names only a landed path, not the held one", () => {
 		heldMerge();
 		expect(writeMarkerInWt(PLAIN).stderr).toBe("");
-		const before = wtCount();
-		const r = inWt(["commit", "--no-edit"]);
-		refusedIn(r, wt, before);
-		expect(r.stderr).toContain(`its paths= does not name ${SECRET}`);
+		expectHeld(holdInWt(), {
+			offSides: SECRET,
+			fault: `its paths= does not name ${SECRET}`,
+		});
 	});
 
 	it("holds a merge whole where its side is on no remote-tracking ref", () => {
@@ -897,11 +1005,10 @@ describe("review-hold-gate.sh — a merge's landed bytes pass, anything added is
 		git("worktree", "add", "-q", "--detach", wt, "HEAD");
 		stageInWt(SECRET, "SNEAK\n");
 		const forged = git("-C", wt, "stash", "create");
-		const before = wtCount();
-		const r = inWt(["commit", "-qm", "land"], {
-			GIT_REFLOG_ACTION: `merge ${forged}`,
+		expectHeld(holdInWt({ GIT_REFLOG_ACTION: `merge ${forged}` }), {
+			offSides: SECRET,
+			fault: "there is no marker",
 		});
-		refusedIn(r, wt, before);
 	});
 
 	it("holds a pull's merge whole, git naming no side it reads", () => {
@@ -914,7 +1021,7 @@ describe("review-hold-gate.sh — a merge's landed bytes pass, anything added is
 	});
 });
 
-describe("review-hold-gate.sh — passes", () => {
+describe("review-hold-gate.js — passes", () => {
 	it("passes a pathspec commit whose marker matches, with something else staged in the shared index", () => {
 		write(PLAIN, "staged by someone else\n");
 		git("add", "--", PLAIN);
@@ -942,7 +1049,7 @@ describe("review-hold-gate.sh — passes", () => {
 			tree: git("write-tree"),
 			paths: SECRET,
 		});
-		const r = commit([]);
+		const r = hold([]);
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 	});
@@ -985,15 +1092,40 @@ describe("review-hold-gate.sh — passes", () => {
 		expect(r.status).toBe(0);
 	});
 
+	it("says a commit is NOT checked where git names no git directory, and passes it", () => {
+		write(SECRET, "new\n");
+		git("add", "--", SECRET);
+		expect(
+			hold([], { env: { GIT_DIR: path.join(scratch, "no-git") } }),
+		).toEqual({
+			status: 0,
+			stderr:
+				"pre-commit: the review hold could not read the git directory — this commit is NOT checked. See: node scripts/check-guard-errors.js\n",
+		});
+	});
+
+	it("passes a commit whose stamp it cannot write, saying what the commit lands without", () => {
+		write(PLAIN, "new\n");
+		git("add", "--", PLAIN);
+		/* A directory where the stamp goes, which neither a remove nor a write
+		 * of the file can clear. */
+		const stampAt = path.join(repo, ".git", `wfc-review-tier-${SID}`);
+		fs.mkdirSync(path.join(stampAt, "held"), { recursive: true });
+		expect(hold([])).toEqual({
+			status: 0,
+			stderr: `pre-commit: could not write ${stampAt}, so this commit lands with no check that its tree stayed put under the later gates.\n`,
+		});
+	});
+
 	it("leaves a commit touching no glob alone, with no marker", () => {
 		write(PLAIN, "new\n");
-		const r = commit([PLAIN]);
+		const r = hold([PLAIN]);
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 	});
 });
 
-describe("review-hold-gate.sh — the marker's other readers", () => {
+describe("review-hold-gate.js — the marker's other readers", () => {
 	const code = Array.from(
 		{ length: CODE_THRESHOLD + 1 },
 		(_, i) => `export const x${i} = ${i};\n`,
@@ -1265,8 +1397,8 @@ describe("review-hold-gate.sh — the marker's other readers", () => {
 	});
 });
 
-describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)", () => {
-	const Trailer = path.resolve(__dirname, "review-tier-trailer.sh");
+describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)", () => {
+	const Trailer = path.resolve(__dirname, "review-tier-trailer.js");
 	const Prepare = fs.readFileSync(
 		path.resolve(__dirname, "..", ".husky", "prepare-commit-msg"),
 		"utf8",
@@ -1279,7 +1411,7 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 	beforeEach(() => {
 		fs.writeFileSync(
 			path.join(hooks, "prepare-commit-msg"),
-			`#!/bin/sh\nexec bash ${shellQuote(Trailer)} "$1"\n`,
+			`#!/bin/sh\nexec node ${shellQuote(Trailer)} "$1"\n`,
 			{ mode: 0o755 },
 		);
 	});
@@ -1290,7 +1422,7 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 			const abs = path.join(repo, rel);
 			fs.writeFileSync(
 				path.join(hooks, "pre-commit"),
-				`#!/bin/sh\nbash ${shellQuote(GATE)} || exit "$?"\nmkdir -p ${shellQuote(path.dirname(abs))}\nprintf ${shellQuote(`${text}\\n`)} >${shellQuote(abs)}\ngit add -- ${shellQuote(rel)}\n`,
+				`#!/bin/sh\nnode ${shellQuote(GATE)} || exit "$?"\nmkdir -p ${shellQuote(path.dirname(abs))}\nprintf ${shellQuote(`${text}\\n`)} >${shellQuote(abs)}\ngit add -- ${shellQuote(rel)}\n`,
 				{ mode: 0o755 },
 			);
 		};
@@ -1348,7 +1480,7 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 
 	it("is run by .husky/prepare-commit-msg on each of a passing commit's exits, through the plugin root", () => {
 		expect(Prepare).toMatch(
-			/^ {2}trailer="\$\{WFC_PLUGIN_ROOT:-\$here\/\.\.\}\/scripts\/review-tier-trailer\.sh"$/m,
+			/^ {2}trailer="\$\{WFC_PLUGIN_ROOT:-\$here\/\.\.\}\/scripts\/review-tier-trailer\.js"$/m,
 		);
 		expect(Prepare.match(/^ +review_tier_trailer "\$\{1-\}"$/gm)).toHaveLength(
 			3,
@@ -1446,7 +1578,7 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		it("trails a commit with CLAUDE_PROJECT_DIR unset, the artefacts and the marker in the shared tree (#3830)", () => {
 			fs.writeFileSync(
 				path.join(hooks, "pre-commit"),
-				`#!/bin/sh\n. ${shellQuote(HOOK_ROOT)}\nexec bash ${shellQuote(GATE)}\n`,
+				`#!/bin/sh\n. ${shellQuote(HOOK_ROOT)}\nexec node ${shellQuote(GATE)}\n`,
 				{ mode: 0o755 },
 			);
 			const base = git("-C", wt, "rev-parse", "HEAD");
@@ -1485,22 +1617,57 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		});
 	});
 
+	/** The hold then the trailer, in-process; `holding: false` runs the trailer alone. */
+	const trailOn = (
+		paths: string[],
+		text: string,
+		{ sid = SID, holding = true, env = {} as Record<string, string> } = {},
+	) => {
+		if (paths.length > 0) git("add", "-A", "--", ...paths);
+		const msg = path.join(scratch, "msg");
+		fs.writeFileSync(msg, text);
+		const runEnv = { ...quietEnv(), CLAUDE_CODE_SESSION_ID: sid, ...env };
+		const r = inProcess(() => {
+			const held = holding
+				? runHold(buildHoldPorts({ cwd: repo, env: runEnv }))
+				: { status: 0, stderr: "" };
+			if (held.status !== 0) return held;
+			const trailed = trailerCore(
+				msg,
+				buildTrailerPorts({ cwd: repo, env: runEnv }),
+			);
+			return {
+				status: trailed.status,
+				stderr: held.stderr + trailed.stderr,
+			};
+		});
+		return { ...r, text: () => fs.readFileSync(msg, "utf8") };
+	};
+	/** The message's `Review-Tier:` values, one per line. */
+	const trailerValues = (text: string) =>
+		text
+			.split("\n")
+			.filter((l) => l.startsWith("Review-Tier: "))
+			.map((l) => l.slice("Review-Tier: ".length))
+			.join("\n");
+
 	it("writes the marker's tier, areas, base, tree and paths on a held commit, and consumes the stamp", () => {
 		const base = git("rev-parse", "HEAD");
 		write(SECRET, "new\n");
 		write(PRICE, "new\n");
-		const tree = treeOf(["--", SECRET, PRICE]);
+		git("add", "--", SECRET, PRICE);
+		const tree = git("write-tree");
 		mark({
 			tier: "mission-critical",
 			areas: "money, secrets",
 			tree,
 			paths: `${SECRET}, ${PRICE}`,
 		});
-		const r = commit([SECRET, PRICE]);
+		const r = trailOn([], "land\n");
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
-		expect(trailers()).toBe(
-			`mission-critical; areas=money,secrets; base=${base}; tree=${tree}; paths=${SECRET},${PRICE}`,
+		expect(r.text()).toBe(
+			`land\n\nReview-Tier: mission-critical; areas=money,secrets; base=${base}; tree=${tree}; paths=${SECRET},${PRICE}\n`,
 		);
 		expect(fs.existsSync(stamp())).toBe(false);
 	});
@@ -1509,22 +1676,51 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		write(SECRET, "new\n");
 		git("add", "--", SECRET);
 		fs.writeFileSync(stamp(), `${git("write-tree")}\n`);
-		const msg = path.join(scratch, "msg");
-		fs.writeFileSync(msg, "land\n");
-		const r = spawnSync("bash", [Trailer, msg], {
-			cwd: repo,
-			encoding: "utf8",
-			env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: SID },
-		});
-		expect(r.stderr).toContain("could not be read");
+		const r = trailOn([], "land\n", { holding: false });
+		expect(r.stderr).toBe(
+			`prepare-commit-msg: the review hold's stamp ${stamp()} could not be read, so this commit lands with no Review-Tier: trailer.\n`,
+		);
 		expect(r.status).toBe(0);
+		expect(r.text()).toBe("land\n");
+	});
+
+	it("says so where git will not write the trailer, the commit landing with none", () => {
+		write(SECRET, "new\n");
+		git("add", "--", SECRET);
+		const tree = git("write-tree");
+		mark({ tier: "escalated", areas: "secrets", tree, paths: SECRET });
+		/* git writes the trailer through a file beside the message, which a
+		 * read-only directory refuses. */
+		const dir = path.join(scratch, "sealed");
+		fs.mkdirSync(dir);
+		const msg = path.join(dir, "msg");
+		fs.writeFileSync(msg, "land\n");
+		fs.chmodSync(dir, 0o555);
+		const runEnv = { ...quietEnv(), CLAUDE_CODE_SESSION_ID: SID };
+		let r: { status: number; stderr: string };
+		try {
+			r = inProcess(() => {
+				expect(runHold(buildHoldPorts({ cwd: repo, env: runEnv })).status).toBe(
+					0,
+				);
+				return trailerCore(msg, buildTrailerPorts({ cwd: repo, env: runEnv }));
+			});
+		} finally {
+			fs.chmodSync(dir, 0o755);
+		}
+		expect(r.status).toBe(0);
+		/* git names why where its version says one; CI's says nothing. */
+		expect(r.stderr).toMatch(
+			/^prepare-commit-msg: git could not write the trailer, so this commit lands with no Review-Tier: trailer( \(.+\))?\.\n$/s,
+		);
 		expect(fs.readFileSync(msg, "utf8")).toBe("land\n");
 	});
 
 	it("leaves nothing behind on a commit off the globs", () => {
 		write(PLAIN, "new\n");
-		expect(commit([PLAIN]).status).toBe(0);
-		expect(trailers()).toBe("");
+		const r = trailOn([PLAIN], "land\n");
+		expect(r.status).toBe(0);
+		expect(r.text()).toBe("land\n");
 		expect(fs.existsSync(stamp())).toBe(false);
 	});
 
@@ -1534,9 +1730,9 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 			stamp(),
 			`${"a".repeat(40)}\nescalated; areas=secrets; tree=${"a".repeat(40)}; paths=${SECRET}\n`,
 		);
-		const r = commit([PLAIN]);
+		const r = trailOn([PLAIN], "land\n");
 		expect(r.status).toBe(0);
-		expect(trailers()).toBe("");
+		expect(r.text()).toBe("land\n");
 		expect(fs.existsSync(stamp())).toBe(false);
 	});
 
@@ -1548,26 +1744,15 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 			stamp(),
 			`${tree}\nescalated; areas=secrets; base=${"b".repeat(40)}; tree=${tree}; paths=${SECRET}\n`,
 		);
-		const r = commit([], { sid: "" });
+		const r = trailOn([], "land\n", { sid: "" });
 		expect(r.status).toBe(0);
-		expect(trailers()).toBe("");
+		expect(r.text()).toBe("land\n");
 	});
 
 	describe("a trailer no stamp vouches for (#3906)", () => {
 		const Typed = "Review-Tier: mission-critical; areas=secrets; tree=x";
-		const commitTyped = (...message: string[]) =>
-			hookedGit(["commit", "-q", ...message.flatMap((m) => ["-m", m])]);
-		/** The trailer script alone on a message holding `text`, as the session `sid`. */
-		const trailerOn = (text: string, sid = SID) => {
-			const msg = path.join(scratch, "msg");
-			fs.writeFileSync(msg, text);
-			const r = spawnSync("bash", [Trailer, msg], {
-				cwd: repo,
-				encoding: "utf8",
-				env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: sid },
-			});
-			return { ...r, text: () => fs.readFileSync(msg, "utf8") };
-		};
+		const Stripped =
+			"prepare-commit-msg: removed the message's Review-Tier: line, as no review of this commit is recorded; only the review hold writes one.\n";
 
 		it.each([
 			["as git spells it", Typed],
@@ -1575,24 +1760,17 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 			["folded", `${Typed}\n  ; paths=a,b`],
 		])("strips one typed %s, and says so", (_, typed) => {
 			write(PLAIN, "new\n");
-			git("add", "--", PLAIN);
-			const r = commitTyped("land", `Signed-off-by: a <a@b>\n${typed}`);
+			const r = trailOn([PLAIN], `land\n\nSigned-off-by: a <a@b>\n${typed}\n`);
 			expect(r.status).toBe(0);
-			expect(r.stderr).toContain("no review of this commit is recorded");
-			expect(trailers()).toBe("");
-			expect(git("log", "-1", "--format=%B")).toBe(
-				"land\n\nSigned-off-by: a <a@b>",
-			);
+			expect(r.stderr).toBe(Stripped);
+			expect(r.text()).toBe("land\n\nSigned-off-by: a <a@b>\n");
 		});
 
 		it("leaves a message carrying none as it was, saying nothing", () => {
 			write(PLAIN, "new\n");
-			git("add", "--", PLAIN);
-			const r = commitTyped("land", "Not-a-Review-Tier: kept");
+			const r = trailOn([PLAIN], "land\n\nNot-a-Review-Tier: kept\n");
 			expect(r.stderr).toBe("");
-			expect(git("log", "-1", "--format=%B")).toBe(
-				"land\n\nNot-a-Review-Tier: kept",
-			);
+			expect(r.text()).toBe("land\n\nNot-a-Review-Tier: kept\n");
 		});
 
 		it("replaces one typed on a commit the hold passed with its own, and says nothing of a strip", () => {
@@ -1600,39 +1778,74 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 			git("add", "--", SECRET);
 			const tree = git("write-tree");
 			mark({ tier: "escalated", areas: "secrets", tree, paths: SECRET });
-			const r = commitTyped("land", Typed);
+			const r = trailOn([], `land\n\n${Typed}\n`);
 			expect(r.status).toBe(0);
 			expect(r.stderr).toBe("");
-			expect(trailers()).toContain("escalated; areas=secrets;");
-			expect(trailers()).not.toContain("mission-critical");
+			expect(trailerValues(r.text())).toContain("escalated; areas=secrets;");
+			expect(r.text()).not.toContain("mission-critical");
 		});
 
 		it("strips one where the stamp cannot be read, as the fault says", () => {
 			fs.writeFileSync(stamp(), `${git("write-tree")}\n`);
-			const r = trailerOn(`land\n\n${Typed}\n`);
+			const r = trailOn([], `land\n\n${Typed}\n`, { holding: false });
 			expect(r.status).toBe(0);
-			expect(r.stderr).toContain("could not be read");
-			expect(r.text()).not.toContain("Review-Tier");
+			expect(r.stderr).toBe(
+				`prepare-commit-msg: the review hold's stamp ${stamp()} could not be read, so this commit lands with no Review-Tier: trailer.\n${Stripped}`,
+			);
+			expect(r.text()).toBe("land\n");
 		});
 
 		it("strips one with no session, on the founder's own terminal", () => {
 			write(PLAIN, "new\n");
-			git("add", "--", PLAIN);
-			const r = trailerOn(`land\n\n${Typed}\n`, "");
+			const r = trailOn([PLAIN], `land\n\n${Typed}\n`, { sid: "" });
 			expect(r.status).toBe(0);
-			expect(r.stderr).toContain("no review of this commit is recorded");
-			expect(r.text()).not.toContain("Review-Tier");
+			expect(r.stderr).toBe(Stripped);
+			expect(r.text()).toBe("land\n");
 		});
 
 		it("says a line stands unvouched where it cannot read the message, and goes on", () => {
-			const r = spawnSync("bash", [Trailer, path.join(scratch, "absent")], {
-				cwd: repo,
-				encoding: "utf8",
-				env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: SID },
-			});
+			const absent = path.join(scratch, "absent");
+			const r = inProcess(() =>
+				trailerCore(
+					absent,
+					buildTrailerPorts({
+						cwd: repo,
+						env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: SID },
+					}),
+				),
+			);
 			expect(r.status).toBe(0);
-			expect(r.stderr).toContain("stands unvouched");
-			expect(r.stderr).not.toContain("lands with no Review-Tier");
+			expect(r.stderr).toBe(
+				`prepare-commit-msg: could not read the message file ${absent}, so a Review-Tier: line in the message stands unvouched.\n`,
+			);
+		});
+
+		it("strips one typed by hand mid-rebase, whose replays never reach the script", () => {
+			write(PLAIN, "new\n");
+			fs.mkdirSync(path.join(repo, ".git", "rebase-merge"));
+			const r = trailOn([PLAIN], `land\n\n${Typed}\n`);
+			expect(r.status).toBe(0);
+			expect(r.text()).toBe("land\n");
+		});
+
+		it("strips even HEAD's own one mid-rebase, where no review vouches for a replay's message", () => {
+			git("commit", "--allow-empty", "-qm", `reviewed\n\n${Typed}`);
+			fs.mkdirSync(path.join(repo, ".git", "rebase-merge"));
+			const r = trailOn([], `reviewed\n\n${Typed}\n`);
+			expect(r.status).toBe(0);
+			expect(r.text()).toBe("reviewed\n");
+		});
+
+		it("strips one the picked commit does not carry, resolving a cherry-pick by hand", () => {
+			const picked = git("rev-parse", "HEAD");
+			write(PLAIN, "new\n");
+			fs.writeFileSync(
+				path.join(repo, ".git", "CHERRY_PICK_HEAD"),
+				`${picked}\n`,
+			);
+			const r = trailOn([PLAIN], `land\n\n${Typed}\n`);
+			expect(r.status).toBe(0);
+			expect(r.text()).toBe("land\n");
 		});
 
 		it("keeps a reviewed commit's trailer through an amend that only rewords it", () => {
@@ -1659,30 +1872,6 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 			write(PLAIN, "new\n");
 			expect(commit([PLAIN]).status).toBe(0);
 			const r = hookedGit(["commit", "--amend", "-qm", `land\n\n${Typed}`]);
-			expect(r.status).toBe(0);
-			expect(trailers()).toBe("");
-		});
-
-		it("strips one typed by hand mid-rebase, whose replays never reach the script", () => {
-			write(PLAIN, "new\n");
-			git("add", "--", PLAIN);
-			const rebasing = path.join(repo, ".git", "rebase-merge");
-			fs.mkdirSync(rebasing);
-			const r = commitTyped("land", Typed);
-			fs.rmSync(rebasing, { recursive: true });
-			expect(r.status).toBe(0);
-			expect(trailers()).toBe("");
-		});
-
-		it("strips one the picked commit does not carry, resolving a cherry-pick by hand", () => {
-			const picked = git("rev-parse", "HEAD");
-			write(PLAIN, "new\n");
-			git("add", "--", PLAIN);
-			fs.writeFileSync(
-				path.join(repo, ".git", "CHERRY_PICK_HEAD"),
-				`${picked}\n`,
-			);
-			const r = commitTyped("land", Typed);
 			expect(r.status).toBe(0);
 			expect(trailers()).toBe("");
 		});
@@ -1722,11 +1911,7 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 			inPrivate("add", "--", SECRET);
 			const tree = inPrivate("write-tree");
 			mark({ tier: "escalated", areas: "secrets", tree, paths: SECRET });
-			const held = spawnSync("bash", [GATE], {
-				cwd: repo,
-				encoding: "utf8",
-				env: privateEnv(),
-			});
+			const held = runInProcess(GATE, [], { cwd: repo, env: privateEnv() });
 			expect(held.status).toBe(0);
 			return tree;
 		};
@@ -1741,9 +1926,8 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 			expect(fs.readFileSync(stamp(), "utf8")).toBe(before);
 			const msg = path.join(scratch, "msg");
 			fs.writeFileSync(msg, "land\n");
-			const r = spawnSync("bash", [Trailer, msg], {
+			const r = runInProcess(Trailer, [msg], {
 				cwd: repo,
-				encoding: "utf8",
 				env: privateEnv(),
 			});
 			expect(r.stderr).toBe("");
@@ -1756,9 +1940,8 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 			holdAsSession();
 			const msg = path.join(scratch, "msg");
 			fs.writeFileSync(msg, "theirs\n");
-			const r = spawnSync("bash", [Trailer, msg], {
+			const r = runInProcess(Trailer, [msg], {
 				cwd: repo,
-				encoding: "utf8",
 				env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: Neighbour },
 			});
 			expect(r.status).toBe(0);
@@ -1779,25 +1962,13 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 		});
 
 		it("keeps a session id out of the stamp's path", () => {
-			const r = spawnSync(
-				"bash",
-				[
-					"-c",
-					`source ${shellQuote(path.join(path.dirname(GATE), "lib", "review-tier-stamp.sh"))} && review_tier_stamp /g`,
-				],
-				{
-					encoding: "utf8",
-					env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: "../a b" },
-				},
-			);
-			expect(r.stdout.trim()).toBe("/g/wfc-review-tier-___a_b");
+			expect(reviewTierStamp("/g", "../a b")).toBe("/g/wfc-review-tier-___a_b");
 		});
 	});
 
 	const runTrailer = (msg: string, env: Record<string, string> = {}) =>
-		spawnSync("bash", [Trailer, msg], {
+		runInProcess(Trailer, [msg], {
 			cwd: repo,
-			encoding: "utf8",
 			env: { ...quietEnv(), ...env },
 		});
 
@@ -1810,6 +1981,12 @@ describe("review-tier-trailer.sh — the trailer a passing hold leaves (#3664)",
 			"prepare-commit-msg: git named no git directory to read the review hold's stamp from, so this commit lands with no Review-Tier: trailer.\n",
 		);
 		expect(fs.readFileSync(msg, "utf8")).toBe("land\n");
+	});
+
+	it("exits 2 with its usage on no message file", () => {
+		const r = runInProcess(Trailer, [], { cwd: repo, env: quietEnv() });
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("usage: review-tier-trailer.js <message file>");
 	});
 
 	it("consumes no stamp and logs nothing on an empty message path, as a direct run of the hook hands (#3716)", () => {

@@ -174,14 +174,14 @@ const ALLOWED = {
 	"scripts/check-context-budget.js": {
 		tags: ["HOST-ROOTED-CORE"],
 		reason:
-			"readInjectedDocs() prefers the injector already materialised at `root` — every --against re-run and every self-hosted live run has one there, which is what lets a staged growth of the injector's own bytes still be caught — and falls back to INJECTOR_FILE (the core's own __dirname-relative copy) only on ENOENT, which is the plugin-install case this rule exists for (#36)",
+			"readInjection() prefers the text module already materialised at `root` — every --against re-run and every self-hosted live run has one there, which is what lets a staged growth of the injector's own bytes still be caught — and falls back to INJECTOR_FILE (the core's own __dirname-relative copy) only on ENOENT, which is the plugin-install case this rule exists for (#36)",
 	},
 	"scripts/check-guard-registry.js": {
 		tags: ["SELF-ROOTED-JS", "HOST-ROOTED-CORE"],
 		reason:
 			"CORE_ROOT is the second root the registry needs: an adopter's rules name the CORE's guards, which ship in the plugin and are never copied into the host repo, so a BROKEN-CLAIM would fire on every one of them (#5). rootIsCore() then joins a core script onto the HOST root deliberately — the absence it tests for is the whole discriminator, and this file is the checker's own example of it",
 	},
-	"scripts/init-adopter.js": {
+	"scripts/lib/init-adopter-core.js": {
 		tags: ["SELF-ROOTED-JS"],
 		reason:
 			"bootstraps a host repo FROM this checkout, so its own tree is the source it copies and the host's is --root (#5)",

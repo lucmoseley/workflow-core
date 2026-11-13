@@ -49,7 +49,7 @@ const temps = registerTempCleanup();
 
 /** Where a stubbed hook appends the line proving it ran. */
 // isolation-exempt: every fixture holds a stub at this path, which logs nothing.
-const HOLD = "scripts/review-hold-gate.sh";
+const HOLD = "scripts/review-hold-gate.js";
 const LOG = "fired.log";
 
 /**
@@ -158,8 +158,6 @@ const buildTemplate = (root: string) => {
 		"scripts/lib/commit-route.sh",
 		"scripts/check-commit-message-closes.sh",
 		"scripts/check-commit-subject.sh",
-		"scripts/review-tier-trailer.sh",
-		"scripts/lib/review-tier-stamp.sh",
 		"scripts/lib/rule-text.sh",
 		"docs/agents/rules/commit-closes-keyword.txt",
 		"docs/agents/rules/commit-message.txt",
@@ -173,19 +171,21 @@ const buildTemplate = (root: string) => {
 		0o755,
 	);
 	// The scanner the launcher runs, commit-msg's Weakens: gate (#2235) and the
-	// message reader the subject check spawns (#3075), linked rather than
+	// message reader the subject check spawns (#3075) and the review-tier
+	// trailer (#3664), linked rather than
 	// copied: node resolves their requires from the link's target, so their lib
 	// closure comes with them.
 	for (const rel of [
 		"scripts/check-commit-message-closes.js",
 		"scripts/check-weakens-line.js",
 		"scripts/lib/commit-message.js",
+		"scripts/review-tier-trailer.js",
 	])
 		fs.symlinkSync(path.join(ROOT, rel), path.join(root, rel));
 
 	const log = path.join(root, LOG);
 	fs.writeFileSync(path.join(husky, "pre-commit"), precommitStub(log, 0));
-	fs.writeFileSync(path.join(root, HOLD), "exit 0\n");
+	fs.writeFileSync(path.join(root, HOLD), "process.exit(0);\n");
 
 	fs.writeFileSync(path.join(root, "base.txt"), "base\n");
 	git("add", "--", "base.txt");
@@ -1101,7 +1101,7 @@ describe("the review hold on a cherry-pick's replay path (#3905)", () => {
 	const refusing = (p: Probe) =>
 		fs.writeFileSync(
 			path.join(p.root, HOLD),
-			'echo "the hold refused this pick" >&2\nexit 1\n',
+			'process.stderr.write("the hold refused this pick\\n");\nprocess.exit(1);\n',
 		);
 	/** A commit on a side branch, the probe back where it started. */
 	const sideCommit = (p: Probe, rel: string) => {
@@ -1151,13 +1151,13 @@ describe("the review hold on a cherry-pick's replay path (#3905)", () => {
 		expect(r.code).toBe(0);
 		expect(r.output).toContain("this cherry-pick went unchecked");
 		expect(readGuardErrorsLog(config)).toMatch(
-			/\tprepare-commit-msg\treview-hold-gate\.sh is missing — this cherry-pick went unchecked for a sensitive-path review\n$/,
+			/\tprepare-commit-msg\treview-hold-gate\.js is missing — this cherry-pick went unchecked for a sensitive-path review\n$/,
 		);
 	});
 
 	it("passes where the trailer script is missing, saying so and logging it (#4051)", () => {
 		const p = probe();
-		fs.rmSync(path.join(p.root, "scripts", "review-tier-trailer.sh"));
+		fs.rmSync(path.join(p.root, "scripts", "review-tier-trailer.js"));
 		const config = loggingTo(p);
 		fs.writeFileSync(path.join(p.root, "f.txt"), "new\n");
 		p.git("add", "--", "f.txt");
@@ -1165,7 +1165,7 @@ describe("the review hold on a cherry-pick's replay path (#3905)", () => {
 		expect(r.code).toBe(0);
 		expect(r.output).toContain("lands with no Review-Tier: trailer");
 		expect(readGuardErrorsLog(config)).toMatch(
-			/\tprepare-commit-msg\treview-tier-trailer\.sh is missing — this commit lands with no Review-Tier: trailer and no check that its tree stayed put\n$/,
+			/\tprepare-commit-msg\treview-tier-trailer\.js is missing — this commit lands with no Review-Tier: trailer and no check that its tree stayed put\n$/,
 		);
 	});
 
@@ -1188,6 +1188,30 @@ describe("the review hold's Review-Tier: trailer (#3664)", () => {
 		vi.unstubAllEnvs();
 	});
 
+	/** Replaces the trailer with one that refuses every commit it sees. */
+	const refusingTrailer = (p: Probe) => {
+		const trailer = path.join(p.root, "scripts", "review-tier-trailer.js");
+		fs.rmSync(trailer);
+		fs.writeFileSync(
+			trailer,
+			'process.stderr.write("the hold refused the moved tree\\n");\nprocess.exit(1);\n',
+		);
+	};
+	/** A stamp of `sid`'s in the git directory, named as review-tier-stamp.js names it. */
+	const stampFor = (p: Probe, name: string) =>
+		fs.writeFileSync(
+			path.join(p.root, ".git", `wfc-review-tier-${name}`),
+			"t\nescalated\n",
+		);
+	/** Commits `f.txt` under `message`; the exit, output and whether HEAD moved. */
+	const commitHeld = (p: Probe, message: string, flags: string[] = []) => {
+		fs.writeFileSync(path.join(p.root, "f.txt"), "held\n");
+		p.git("add", "--", "f.txt");
+		const before = gitLog(p, "-1", "--format=%H");
+		const r = attempt(p.root, "commit", "-qm", message, ...flags);
+		return { ...r, moved: gitLog(p, "-1", "--format=%H") !== before };
+	};
+
 	it.each([
 		["standing down on pre-commit's stamp", []],
 		["running pre-commit itself under --no-verify", ["--no-verify"]],
@@ -1196,19 +1220,45 @@ describe("the review hold's Review-Tier: trailer (#3664)", () => {
 		(_, flags) => {
 			const p = probe();
 			p.precommitBody(precommitStub(path.join(p.root, LOG), 0));
-			fs.writeFileSync(
-				path.join(p.root, "scripts", "review-tier-trailer.sh"),
-				'echo "the hold refused the moved tree" >&2\nexit 1\n',
-			);
-			fs.writeFileSync(path.join(p.root, "f.txt"), "held\n");
-			p.git("add", "--", "f.txt");
-			const before = gitLog(p, "-1", "--format=%H");
-			const r = attempt(p.root, "commit", "-qm", "land it", ...flags);
+			refusingTrailer(p);
+			stampFor(p, "session-under-test");
+			const r = commitHeld(p, "land it", flags);
 			expect(r.code).toBe(1);
 			expect(r.output).toContain("the hold refused the moved tree");
-			expect(gitLog(p, "-1", "--format=%H")).toBe(before);
+			expect(r.moved).toBe(false);
 		},
 	);
+
+	it("starts no trailer on a commit with no stamp of this session's and no Review-Tier: line, which it would leave as it is (#5153)", () => {
+		const p = probe();
+		refusingTrailer(p);
+		stampFor(p, "another-session");
+		const r = commitHeld(p, "land it");
+		expect(r.code).toBe(0);
+		expect(r.output).not.toContain("the hold refused the moved tree");
+		expect(r.moved).toBe(true);
+	});
+
+	it.each([["Review-Tier: escalated"], ["review-tier : escalated"]])(
+		"starts the trailer on a message carrying %s, which it may strip (#5153)",
+		(line) => {
+			const p = probe();
+			refusingTrailer(p);
+			const r = commitHeld(p, `land it\n\n${line}`);
+			expect(r.code).toBe(1);
+			expect(r.output).toContain("the hold refused the moved tree");
+		},
+	);
+
+	it("starts the trailer on this session's stamp, the id's other characters read as _ (#5153)", () => {
+		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "a.b/c");
+		const p = probe();
+		refusingTrailer(p);
+		stampFor(p, "a_b_c");
+		const r = commitHeld(p, "land it");
+		expect(r.code).toBe(1);
+		expect(r.output).toContain("the hold refused the moved tree");
+	});
 
 	/** A pre-commit that leaves the stamp the review hold leaves on a pass. */
 	const holding = (p: Probe) =>

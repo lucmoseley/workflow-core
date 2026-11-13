@@ -2,7 +2,7 @@
 /*
  * The priced-options rule is written twice: the guard-registry rule in
  * .claude/output-styles/core-voice.md, and the founder-worded paste
- * scripts/inject-tracker-docs.sh hands the tracker commands, worded differently
+ * scripts/inject-tracker-docs.js hands the tracker commands, worded differently
  * on purpose (#51). A shared clause dropped or reworded in one copy fails here;
  * a clause added to one alone does not. The working contract's adopter copies
  * are pinned in adopter-rule-copies.test.ts.
@@ -16,7 +16,6 @@
  * a round shape the `Stop` guard then refuses, spending its block budget.
  */
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -29,7 +28,7 @@ const ROOT = path.resolve(__dirname, "..");
 const STYLE = path.join(ROOT, ".claude", "output-styles", "core-voice.md");
 const CONTRACT = path.join(ROOT, "docs", "working-contract.md");
 const GUARD = path.join(ROOT, "scripts", "guard-priced-options.js");
-const HOOK = path.join(ROOT, "scripts", "inject-tracker-docs.sh");
+const HOOK = path.join(ROOT, "scripts", "inject-tracker-docs.js");
 
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), "priced-copies-"));
 afterAll(() => fs.rmSync(SCRATCH, { recursive: true, force: true }));
@@ -55,17 +54,16 @@ const houseRule = readContractLine(
 	"- **Only a house decision reaches the founder",
 );
 
-/* Each variable is pinned for the reason scripts/inject-tracker-docs.test.ts's
- * `run` gives beside it. The project and config dirs are an empty scratch dir,
+/* Each variable is pinned for the reason scripts/lib/inject-tracker-docs.test.ts's
+ * `runRaw` gives beside it. The project and config dirs are an empty scratch dir,
  * a host naming no output style, so the whole shape is pasted rather than Core
  * voice's pointer (#2039). */
 const injected = (() => {
-	const out = execFileSync(HOOK, {
-		input: JSON.stringify({
+	const { stdout: out } = runInProcess(HOOK, [], {
+		stdin: JSON.stringify({
 			prompt: "/implement 51",
 			hook_event_name: "UserPromptSubmit",
 		}),
-		encoding: "utf8",
 		env: {
 			...process.env,
 			CLAUDE_PROJECT_DIR: SCRATCH,

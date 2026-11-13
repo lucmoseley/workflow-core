@@ -1375,7 +1375,7 @@
 				}
 			]
 		},
-		"inject-tracker-docs.sh": {
+		"inject-tracker-docs.js": {
 			"needles": [
 				{
 					"id": "injected",

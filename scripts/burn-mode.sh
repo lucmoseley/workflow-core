@@ -7,7 +7,7 @@
 #
 # The marker at `~/.claude/.burn-mode` — one per machine, beside the settings
 # files below (#127) — is what scripts/lib/dispatch-rewrite.js and
-# scripts/dispatch-sessions.sh read; its presence is the state. And EVERY
+# scripts/dispatch-sessions.js read; its presence is the state. And EVERY
 # plan's settings.json — ~/.claude and each ~/.claude<digits>, by
 # lib/plan-dirs.js, because the plans are one machine — takes the mode's
 # writes from the model table's `settings` mode: its `model`, and the effort

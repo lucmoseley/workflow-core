@@ -47,11 +47,11 @@ CS_MATCHER="$_cs_dir/sensitive-paths.js"
 CS_ARBITER="${_cs_dir%/*}/session-arbiter.js"
 unset _cs_dir
 
-# Did /implement run in this session? inject-tracker-docs.sh reserves one marker
-# per session per command before it emits, under a uid-suffixed scratch
-# directory. THE PATH IS SPELLED TWICE — here and at inject-tracker-docs.sh's
-# state_dir and marker — and nothing but concision-backstop-floor.test.ts's "reads the
-# marker inject-tracker-docs.sh actually writes", which runs the injector for
+# Did /implement run in this session? lib/inject-tracker-docs.js reserves one
+# marker per session per command before it emits, under a uid-suffixed scratch
+# directory. THE PATH IS SPELLED TWICE — here and at lib/inject-tracker-docs.js's
+# markerFor — and nothing but concision-backstop-floor.test.ts's "reads the
+# marker inject-tracker-docs.js actually writes", which runs the injector for
 # real, holds the two in step. A drift returns every /implement session to the
 # CODE_THRESHOLD floor, silently.
 #
@@ -70,7 +70,7 @@ unset _cs_dir
 #
 # OVER-DETECTION IS POSSIBLE ONCE: two session ids differing only in a character
 # the sanitiser strips share one marker, so a neighbour's /implement lowers this
-# session's floor (inject-tracker-docs.sh's residual (1)). Unobserved: the ids
+# session's floor (lib/inject-tracker-docs.js's residual (1)). Unobserved: the ids
 # in this corpus are uuids.
 #
 # code_signal_floor <sid> — sets cs_threshold, and cs_implement to 1 where

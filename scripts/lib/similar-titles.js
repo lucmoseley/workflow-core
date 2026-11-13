@@ -3,7 +3,7 @@
  * (#536), as #500's research measured it. The stopwords, the stem, the
  * threshold and the cut are that measurement's; changing any of them
  * invalidates it, and docs/data/issue-title-search-2026-09-27/ is the
- * dataset file-issue.test.ts re-checks it against.
+ * dataset lib/file-issue-core.test.ts re-checks it against.
  */
 
 const STOPWORDS = new Set(

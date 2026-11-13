@@ -63,6 +63,7 @@ const { hostRoot } = require("./host-root.js");
 const { moduleOn } = require("./workflow-core-config");
 const { requiredGroup } = require("./regex-group.js");
 const { caught } = require("./caught.js");
+const { limitIn } = require("./hook-limits.js");
 const {
 	MatcherError,
 	isToolCovered,
@@ -86,19 +87,19 @@ const {
 } = require("./rule-emission-calls.js");
 
 /*
- * CAP_FILE names hook-limits.sh, which ships beside this file, so it is reached
+ * CAP_FILE names hook-limits.js, which ships beside this file, so it is reached
  * from THIS DIRECTORY and a plugin install still finds it (#1). Every other root
  * below — the hook wiring, and the guard sources its commands point at — is
  * host content and reads through hostRoot().
  */
-const CAP_FILE = path.join(__dirname, "hook-limits.sh");
+const CAP_FILE = path.join(__dirname, "hook-limits.js");
 
 /** The event a pre-emptive emission rides, and the only one route (f)'s caps price (spec
  * mantahostels#1932). */
 const EVENT = "PreToolUse";
 
 /** Where RULE_CAP is assigned, relative to the repo root. */
-const CAP_SOURCE = path.join("scripts", "lib", "hook-limits.sh");
+const CAP_SOURCE = path.join("scripts", "lib", "hook-limits.js");
 
 /**
  * The bound on a direct call: a Node core's `ctx.told("<id>")`, which asks
@@ -222,17 +223,17 @@ class RuleEmissionError extends Error {
 }
 
 /**
- * A bare `NAME=<digits>` assignment at column zero of a bash library, the
- * shape the limits are read in rather than restated.
+ * A `const NAME = <n>;` line in a hook-limits.js copy, read by line rather
+ * than run, so a planted or revision copy is measured as written.
  *
  * @param {string} file absolute path of the assigning file
  * @param {string} name
  * @returns {number}
  * @throws {RuleEmissionError} where the file cannot be read, or holds no
- *   anchored assignment — never a default, which would pass a group that will
- *   really be truncated.
+ *   such line — never a default, which would pass a group that will really
+ *   be truncated.
  */
-function readShellInt(file, name) {
+function readLimitLine(file, name) {
 	let text;
 	try {
 		text = fs.readFileSync(file, "utf8");
@@ -242,33 +243,33 @@ function readShellInt(file, name) {
 			{ cause: e },
 		);
 	}
-	const m = new RegExp(`^[ \\t]*${name}=(\\d+)[ \\t]*$`, "m").exec(text);
-	if (!m)
+	const n = limitIn(text, name);
+	if (n === null)
 		throw new RuleEmissionError(
-			`rule-emission: no anchored ${name}=<digits> assignment in ${file}, ` +
+			`rule-emission: no \`const ${name} = <n>;\` line in ${file}, ` +
 				"and the ceiling is read rather than restated here, so there is no fallback.",
 		);
-	return Number(m[1]);
+	return n;
 }
 
 /**
- * RULE_CAP, read out of lib/hook-limits.sh.
+ * RULE_CAP, read out of lib/hook-limits.js.
  *
  * @param {string} [file] absolute path of the assigning file
  * @returns {number} the ceiling in bytes
  */
 function readRuleCap(file = CAP_FILE) {
-	return readShellInt(file, "RULE_CAP");
+	return readLimitLine(file, "RULE_CAP");
 }
 
 /**
  * HOOK_PERSIST_CHARS: the characters of additionalContext the harness keeps
- * inline per hook entry, read out of lib/hook-limits.sh.
+ * inline per hook entry, read out of lib/hook-limits.js.
  *
  * @returns {number}
  */
 function readHookPersistChars() {
-	return readShellInt(CAP_FILE, "HOOK_PERSIST_CHARS");
+	return readLimitLine(CAP_FILE, "HOOK_PERSIST_CHARS");
 }
 
 /**
@@ -1374,7 +1375,7 @@ function reachableAfterCall(options = {}) {
 	const wired = AFTER_EVENTS.flatMap((event) =>
 		registrationsOn(settings, event, manifest).map((r) => ({ ...r, event })),
 	);
-	/* Nothing wired reads no RULE_CAP: a host need not ship hook-limits.sh
+	/* Nothing wired reads no RULE_CAP: a host need not ship hook-limits.js
 	 * to have no hooks. */
 	if (wired.length === 0)
 		return {
