@@ -149,11 +149,11 @@ const commit = (paths: string[], opts: Parameters<typeof hookedGit>[1] = {}) =>
 
 /**
  * `call` with the process environment a hook would hand this repo: hostRoot()
- * reads the process's CLAUDE_PROJECT_DIR and the fail-open log its
- * CLAUDE_CONFIG_DIR, so both are stubbed for the call.
+ * reads the process's CLAUDE_PROJECT_DIR, `projectDir` or unset, and the
+ * fail-open log its CLAUDE_CONFIG_DIR, so both are stubbed for the call.
  */
-const inProcess = <T>(call: () => T): T => {
-	vi.stubEnv("CLAUDE_PROJECT_DIR", undefined);
+const inProcess = <T>(call: () => T, projectDir?: string): T => {
+	vi.stubEnv("CLAUDE_PROJECT_DIR", projectDir);
 	vi.stubEnv("CLAUDE_CONFIG_DIR", scratch);
 	try {
 		return call();
@@ -164,18 +164,28 @@ const inProcess = <T>(call: () => T): T => {
 
 /**
  * The hold over `paths`, staged into the index, run in-process on its
- * production ports over this repo: a module case (§X11), crossing no hook.
+ * production ports over the checkout `cwd`: a module case (§X11), crossing
+ * no hook. `projectDir` is the harness's CLAUDE_PROJECT_DIR, unset where
+ * absent; `env` is laid over the rest, after GIT_REFLOG_ACTION is cleared.
  */
-const hold = (paths: string[], { sid = SID } = {}) => {
-	if (paths.length > 0) git("add", "-A", "--", ...paths);
-	return inProcess(() =>
-		runHold(
-			buildHoldPorts({
-				cwd: repo,
-				env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: sid },
-			}),
-		),
-	);
+const hold = (
+	paths: string[],
+	{
+		sid = SID,
+		cwd = repo,
+		projectDir = undefined as string | undefined,
+		env: extra = {} as Record<string, string>,
+	} = {},
+) => {
+	if (paths.length > 0) git("-C", cwd, "add", "-A", "--", ...paths);
+	const env: Record<string, string | undefined> = {
+		...quietEnv(),
+		CLAUDE_CODE_SESSION_ID: sid,
+		...(projectDir ? { CLAUDE_PROJECT_DIR: projectDir } : {}),
+	};
+	delete env.GIT_REFLOG_ACTION;
+	Object.assign(env, extra);
+	return inProcess(() => runHold(buildHoldPorts({ cwd, env })), projectDir);
 };
 
 /** What `commit-paths.js --tree` prints, the tree review-hold.txt names. */
@@ -617,31 +627,32 @@ describe("review-hold-gate.js — a replay's own bytes pass, anything added is h
 		write(rel, text);
 		git("add", "--", rel);
 	};
-	const held = (r: ReturnType<typeof commit>, before: string) =>
+	const held = (r: { status: number | null; stderr: string }, before: string) =>
 		expectRefused(r, "there is no marker", before);
 
-	it.each([
-		["git commit", ["commit", "-qm", "land"]],
-		["git cherry-pick --continue", ["cherry-pick", "--continue"]],
-	])(
-		"holds a conflict on a glob resolved with new bytes, through %s",
-		(_, args) => {
-			stopOnConflict(divergedPick([SECRET], [SECRET]));
-			resolve(SECRET, "SNEAK\n");
-			const before = commitCount();
-			held(hooked(...args), before);
-			expect(fs.existsSync(path.join(repo, ".git", "CHERRY_PICK_HEAD"))).toBe(
-				true,
-			);
-		},
-	);
+	it("holds a conflict on a glob resolved with new bytes", () => {
+		stopOnConflict(divergedPick([SECRET], [SECRET]));
+		resolve(SECRET, "SNEAK\n");
+		const before = commitCount();
+		held(hold([]), before);
+	});
+
+	it("holds a conflict on a glob resolved with new bytes, through git cherry-pick --continue", () => {
+		stopOnConflict(divergedPick([SECRET], [SECRET]));
+		resolve(SECRET, "SNEAK\n");
+		const before = commitCount();
+		held(hooked("cherry-pick", "--continue"), before);
+		expect(fs.existsSync(path.join(repo, ".git", "CHERRY_PICK_HEAD"))).toBe(
+			true,
+		);
+	});
 
 	it("holds bytes added on a glob the picked commit never touched", () => {
 		stopOnConflict(divergedPick([PLAIN], [PLAIN]));
 		resolve(PLAIN, "resolved\n");
 		resolve(SECRET, "SNEAK\n");
 		const before = commitCount();
-		held(hooked("commit", "-qm", "land"), before);
+		held(hold([]), before);
 	});
 
 	it("holds an extra edit to a glob the picked commit changed cleanly", () => {
@@ -649,13 +660,13 @@ describe("review-hold-gate.js — a replay's own bytes pass, anything added is h
 		resolve(PLAIN, "resolved\n");
 		resolve(SECRET, "theirs\nSNEAK\n");
 		const before = commitCount();
-		held(hooked("commit", "-qm", "land"), before);
+		held(hold([]), before);
 	});
 
 	it("passes a conflict off the globs, its glob change as the picked commit made it", () => {
 		stopOnConflict(divergedPick([PLAIN, SECRET], [PLAIN]));
 		resolve(PLAIN, "resolved\n");
-		const r = hooked("commit", "-qm", "land");
+		const r = hold([]);
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 	});
@@ -679,7 +690,7 @@ describe("review-hold-gate.js — a replay's own bytes pass, anything added is h
 			env: quietEnv(),
 		});
 		fs.writeFileSync(path.join(repo, ".git", "CHERRY_PICK_HEAD"), `${pick}\n`);
-		const r = hooked("commit", "-qm", "land");
+		const r = hold([]);
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 	});
@@ -740,7 +751,7 @@ describe("review-hold-gate.js — a replay's own bytes pass, anything added is h
 			{ cwd: repo, env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: SID } },
 		);
 		expect(w.stderr).toBe("");
-		const r = hooked("commit", "-qm", "land");
+		const r = hold([]);
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 	});
@@ -752,7 +763,7 @@ describe("review-hold-gate.js — a replay's own bytes pass, anything added is h
 			write(SECRET, "new\n");
 			git("add", "--", SECRET);
 			const before = commitCount();
-			held(hooked("commit", "-qm", "land"), before);
+			held(hold([]), before);
 		},
 	);
 
@@ -781,6 +792,9 @@ describe("review-hold-gate.js — a merge's landed bytes pass, anything added is
 	const inWt = (args: string[], env: Record<string, string> = {}) =>
 		hookedGit(args, { cwd: wt, projectDir: repo, env });
 	const wtCount = () => git("-C", wt, "rev-list", "--count", "HEAD");
+	/** The hold in the worktree, in-process, the shared tree its markers' host. */
+	const holdInWt = (env: Record<string, string> = {}) =>
+		hold([], { cwd: wt, projectDir: repo, env });
 	const stageInWt = (rel: string, text: string) => {
 		write(rel, text, wt);
 		git("-C", wt, "add", "--", rel);
@@ -860,7 +874,7 @@ describe("review-hold-gate.js — a merge's landed bytes pass, anything added is
 		diverge([SECRET], [SECRET]);
 		inWt(["merge", "--no-edit", "origin/landing"]);
 		stageInWt(SECRET, text);
-		const r = inWt(["commit", "--no-edit"]);
+		const r = holdInWt();
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 	});
@@ -870,7 +884,7 @@ describe("review-hold-gate.js — a merge's landed bytes pass, anything added is
 		inWt(["merge", "--no-edit", "origin/landing"]);
 		stageInWt(SECRET, "SNEAK\n");
 		const before = wtCount();
-		const r = inWt(["commit", "--no-edit"]);
+		const r = holdInWt();
 		refusedIn(r, wt, before);
 		expect(r.stderr).toContain(
 			`This merge's paths no merged-in side carries, the ones to review: ${SECRET}.`,
@@ -900,13 +914,13 @@ describe("review-hold-gate.js — a merge's landed bytes pass, anything added is
 		const before = wtCount();
 		expect(inWt(["merge", "--no-commit", "origin/landing"]).status).toBe(0);
 		stageInWt(SECRET, "SNEAK\n");
-		refusedIn(inWt(["commit", "--no-edit"]), wt, before);
+		refusedIn(holdInWt(), wt, before);
 	});
 
 	it("clears a held merge on the marker review-hold.txt says to write, paths= naming the held path alone (#4426)", () => {
 		heldMerge();
 		expect(writeMarkerInWt(SECRET).stderr).toBe("");
-		const r = inWt(["commit", "--no-edit"]);
+		const r = holdInWt();
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 	});
@@ -915,7 +929,7 @@ describe("review-hold-gate.js — a merge's landed bytes pass, anything added is
 		heldMerge();
 		expect(writeMarkerInWt(PLAIN).stderr).toBe("");
 		const before = wtCount();
-		const r = inWt(["commit", "--no-edit"]);
+		const r = holdInWt();
 		refusedIn(r, wt, before);
 		expect(r.stderr).toContain(`its paths= does not name ${SECRET}`);
 	});
@@ -931,9 +945,7 @@ describe("review-hold-gate.js — a merge's landed bytes pass, anything added is
 		stageInWt(SECRET, "SNEAK\n");
 		const forged = git("-C", wt, "stash", "create");
 		const before = wtCount();
-		const r = inWt(["commit", "-qm", "land"], {
-			GIT_REFLOG_ACTION: `merge ${forged}`,
-		});
+		const r = holdInWt({ GIT_REFLOG_ACTION: `merge ${forged}` });
 		refusedIn(r, wt, before);
 	});
 
