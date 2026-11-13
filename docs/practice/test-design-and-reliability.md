@@ -66,6 +66,13 @@ Researched: 2026-10-21
 - Find order dependence with a shuffle. Vitest `sequence.shuffle` "may be useful to track tests that accidentally depend on another test run previously"; pin `sequence.seed` to replay one order. pytest gives `pytest-randomly`. vitest.dev/config/sequence [standard or field body]; docs.pytest.org/en/stable/explanation/flaky.html [named expert]
 - pytest-xdist runs each worker in its own process. It "does not have a builtin support for ensuring a session-scoped fixture is executed exactly once"; use a `FileLock` and the `worker_id` fixture to share or split resources. pytest-xdist.readthedocs.io/en/stable/how-to.html [standard or field body]
 
+## Removing redundant tests
+
+- Reduce to a set that still kills every killed mutant, never to one that keeps coverage. Shi et al., FSE 2014 (mir.cs.illinois.edu/gyori/pubs/fse14reduction.pdf), 18 Java projects: keeping statement coverage cut suites 62.9% and lost up to 20.5% of killed mutants; keeping killed mutants cut about 51% and lost none. Rothermel et al., STVR 2002, lost about 48% of fault detection keeping edge coverage (the figure is from a secondary source). [named expert]
+- A full test×mutant matrix in StrykerJS needs `disableBail: true` and the `json` reporter, which lists `killedBy` per mutant. A `Timeout` mutant names no killer. stryker-mutator.io/docs/stryker-js/configuration [standard or field body]
+- Google, Microsoft and Meta run tests less often instead of deleting them, and none publishes a deletion with its measured catch loss (Memon et al., ICSE-SEIP 2017; Herzig et al., ICSE 2015; Machalica et al., ICSE-SEIP 2019). [named expert]
+- Mutation-gated admission: Meta's ACH admits a generated test only if it catches "faults that no existing test can catch" (arXiv 2501.12862). It is the only source, so it sets no default. [named expert]
+
 ## Tools
 
 - Runner features, Vitest 5.0.5, read 2026-10-26, and Jest 30.5.2, read 2026-10-25. Vitest: `vi.useFakeTimers`, `vi.setSystemTime`, `vi.stubEnv`, `sequence.shuffle` with `sequence.seed`, the `forks` pool. Jest: `jest.useFakeTimers`, `runOnlyPendingTimers`, `--runInBand`. vitest.dev/api/vi; vitest.dev/config/sequence; jestjs.io/docs/timer-mocks [standard or field body]
