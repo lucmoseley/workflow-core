@@ -79,10 +79,10 @@ beforeEach(() => {
 	fs.mkdirSync(path.join(dir, ".claude", "skills"), { recursive: true });
 	fs.mkdirSync(path.join(dir, ".claude", "commands"), { recursive: true });
 	/* Where `--root` carries no text module, check-context-budget.js reads the
-	 * core's own (#36); the WFC_INJECTOR_FILE test-injection seam
+	 * core's own (#36); the WFC_TRACKER_TEXT_FILE test-injection seam
 	 * (`lib/host-root.js`'s header convention) points that at the fixture too,
 	 * so no case can measure the live module by accident. */
-	vi.stubEnv("WFC_INJECTOR_FILE", path.join(dir, TEXT_MODULE));
+	vi.stubEnv("WFC_TRACKER_TEXT_FILE", path.join(dir, TEXT_MODULE));
 	/* Pinned to a fresh, empty throwaway store by default, so no fixture in this
 	 * file can resolve an injected id against the LIVE core store beneath
 	 * `docs/agents/rules` by accident, colliding silently instead of throwing
@@ -769,7 +769,7 @@ describe("an adopter's rendered tracker payload (#1956)", () => {
 			].join("\n"),
 		);
 		fs.rmSync(path.join(dir, TEXT_MODULE));
-		vi.stubEnv("WFC_INJECTOR_FILE", text);
+		vi.stubEnv("WFC_TRACKER_TEXT_FILE", text);
 		vi.stubEnv("WFC_INJECTOR_ENTRY", entry);
 		return entry;
 	}

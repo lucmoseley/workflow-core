@@ -174,7 +174,7 @@ const ALLOWED = {
 	"scripts/check-context-budget.js": {
 		tags: ["HOST-ROOTED-CORE"],
 		reason:
-			"readInjection() prefers the text module already materialised at `root` — every --against re-run and every self-hosted live run has one there, which is what lets a staged growth of the injector's own bytes still be caught — and falls back to INJECTOR_FILE (the core's own __dirname-relative copy) only on ENOENT, which is the plugin-install case this rule exists for (#36)",
+			"readInjection() prefers the text module already materialised at `root` — every --against re-run and every self-hosted live run has one there, which is what lets a staged growth of the injector's own bytes still be caught — and falls back to TRACKER_TEXT_FILE (the core's own __dirname-relative copy) only on ENOENT, which is the plugin-install case this rule exists for (#36)",
 	},
 	"scripts/check-guard-registry.js": {
 		tags: ["SELF-ROOTED-JS", "HOST-ROOTED-CORE"],

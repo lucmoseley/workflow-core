@@ -269,7 +269,7 @@ const GATE_SOURCES: Record<string, string[]> = {
 	primitives: ["scripts/check-primitives.js"],
 	"doc-map": [".husky/pre-commit", "scripts/lib/precommit-gate.sh"],
 	"context-budget": ["scripts/check-context-budget.js"],
-	"injector-margin": ["scripts/check-injector-margin.sh"],
+	"injector-margin": ["scripts/check-injector-margin.js"],
 	"superseded-needle": [".husky/pre-commit", "scripts/lib/precommit-gate.sh"],
 	eslint: [".husky/pre-commit"],
 	shellcheck: [".husky/pre-commit", "scripts/lib/precommit-gate.sh"],
@@ -280,6 +280,7 @@ const GATE_SOURCES: Record<string, string[]> = {
 	test: [".husky/pre-commit"],
 	"mutation-hold": ["scripts/mutation-hold-gate.js"],
 	"pre-commit-local": [".husky/pre-commit"],
+	"commit-msg-local": [".husky/commit-msg"],
 	"staged-paths": ["scripts/lib/precommit-gate.sh"],
 };
 /** Each source's text, with a JS template literal's escaped backticks read as printed. */

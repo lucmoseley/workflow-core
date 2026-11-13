@@ -74,11 +74,11 @@
  * `--root`, so a HOST revision comparison never varies it — the read no
  * longer depends on which tree `--root` names. The injector's text module is
  * different: THIS repo's `--against` runs are self-hosted (the core's history
- * is the host's), so lib/context-budget-pathspecs.js lists INJECTOR among the
+ * is the host's), so lib/context-budget-pathspecs.js lists TRACKER_TEXT among the
  * paths materialised at the revision, preserving growth-detection on the
  * injector's own bytes; only where the root carries none (a plugin install,
  * whose host git never tracked the file) does readInjection() fall back to the
- * live core copy (INJECTOR_FILE), which is then constant across whatever is
+ * live core copy (TRACKER_TEXT_FILE), which is then constant across whatever is
  * compared.
  *
  * lib/fault-profiles.js's `context-budget` profile is what names the over-cap
@@ -104,8 +104,8 @@ const { SELF_PLUGIN_COST } = require("./lib/core-context-cost.js");
 const {
 	SETTINGS_FILE,
 	PLUGIN_COST_TABLE,
-	INJECTOR,
-	INJECTOR_FILE,
+	TRACKER_TEXT,
+	TRACKER_TEXT_FILE,
 	SHED_REGISTERS,
 	materialisePathspecs,
 } = require("./lib/context-budget-pathspecs");
@@ -246,6 +246,7 @@ const { readConfig, resolveKey } = require("./lib/workflow-core-config.js");
 const { ghJson } = require("./lib/gh.js");
 const {
 	LEDGER_PATH,
+	keyOf,
 	readPoolItems,
 	readLedger,
 	admit,
@@ -733,31 +734,33 @@ function readInjection(ctx, root) {
 	try {
 		/* Prefers the copy already at `root`: self-hosted live runs and every
 		 * `--against` re-run have one (lib/context-budget-pathspecs.js's list names
-		 * INJECTOR, so a materialised tree carries the REVISION's own blob — this is what lets a
+		 * TRACKER_TEXT, so a materialised tree carries the REVISION's own blob — this is what lets a
 		 * staged growth of the injector's own bytes still FAIL the gate). Only a
-		 * plugin install's host root lacks it, where INJECTOR_FILE — the core's own
+		 * plugin install's host root lacks it, where TRACKER_TEXT_FILE — the core's own
 		 * disk copy, constant across revisions — is the fallback (#36). */
-		source = fs.readFileSync(path.join(root, INJECTOR), "utf8");
+		source = fs.readFileSync(path.join(root, TRACKER_TEXT), "utf8");
 	} catch (e) {
 		if (caught(e).code === "ENOENT") {
 			try {
-				source = fs.readFileSync(INJECTOR_FILE, "utf8");
+				source = fs.readFileSync(TRACKER_TEXT_FILE, "utf8");
 				fromCore = true;
 			} catch (e2) {
-				return ctx.broken(`cannot read ${INJECTOR_FILE}: ${errMessage(e2)}`);
+				return ctx.broken(
+					`cannot read ${TRACKER_TEXT_FILE}: ${errMessage(e2)}`,
+				);
 			}
-		} else return ctx.broken(`cannot read ${INJECTOR}: ${errMessage(e)}`);
+		} else return ctx.broken(`cannot read ${TRACKER_TEXT}: ${errMessage(e)}`);
 	}
 	/** @type {TextModule} */
 	let text;
 	try {
-		text = /** @type {TextModule} */ (loadTextModule(source, INJECTOR));
+		text = /** @type {TextModule} */ (loadTextModule(source, TRACKER_TEXT));
 	} catch (e) {
-		return ctx.broken(`${INJECTOR} will not evaluate: ${errMessage(e)}`);
+		return ctx.broken(`${TRACKER_TEXT} will not evaluate: ${errMessage(e)}`);
 	}
 	const files = [
 		{
-			path: INJECTOR,
+			path: TRACKER_TEXT,
 			bytes: injectorBytes(ctx, text, (id) => readRuleFragment(root, id)),
 			...(fromCore && { note: "the core's union, capped there" }),
 		},
@@ -776,7 +779,7 @@ function readInjection(ctx, root) {
  * EXCEPTION: the priced-options part is read as its Core voice pointer, the
  * form this repo's sessions get, and the whole shape is in no sum (#2039).
  * Residual: this cap never sees the whole shape grow, which only
- * check-injector-margin.sh's per-command figures bound.
+ * check-injector-margin.js's per-command figures bound.
  *
  * The two tracker documents are pointed at rather than pasted, which is what
  * keeps every command's payload under the harness's 10,000-CHARACTER
@@ -785,7 +788,7 @@ function readInjection(ctx, root) {
  *
  * THE BINDING LIMIT IS PER COMMAND, and this cap cannot read it: it sums the
  * parts flat, with no model of which command takes which.
- * check-injector-margin.sh composes each command's payload through the text
+ * check-injector-margin.js composes each command's payload through the text
  * module's own composers and gates it at the threshold (mantahostels#1915), so a
  * string this union does not count is still priced there.
  *
@@ -926,17 +929,19 @@ function injectorBytes(ctx, t, fragment) {
 				`${name} (${kind === "object" ? "an object" : `a ${kind}`})`,
 		);
 	if (missing.length > 0)
-		return ctx.broken(`${INJECTOR} exports no ${missing.join(", ")}`);
+		return ctx.broken(`${TRACKER_TEXT} exports no ${missing.join(", ")}`);
 	/** @type {string[]} */
 	let parts;
 	try {
 		parts = injectorParts(t, fragment);
 	} catch (e) {
-		return ctx.broken(`${INJECTOR}'s exports threw: ${errMessage(e)}`);
+		return ctx.broken(`${TRACKER_TEXT}'s exports threw: ${errMessage(e)}`);
 	}
 	const bad = parts.findIndex((p) => typeof p !== "string");
 	if (bad !== -1)
-		return ctx.broken(`${INJECTOR}'s union part ${bad + 1} is not a string`);
+		return ctx.broken(
+			`${TRACKER_TEXT}'s union part ${bad + 1} is not a string`,
+		);
 	return sum(parts, bytesIn);
 }
 
@@ -1312,7 +1317,7 @@ function reportInjectionBreach(ctx, root, { injTotal, injHeadroom, injected }) {
 	ctx.say(
 		`INJECTED TRACKER DOCS ${capHeading(injHeadroom)} — ${kb(injTotal)} against ${kb(INJECTION_CAP_BYTES)}, ${capClause(injHeadroom)}.\n` +
 			rows(injected) +
-			`\n  Pasted into ${INJECTOR}'s seven commands; the same shed rule applies\n` +
+			`\n  Pasted into ${TRACKER_TEXT}'s seven commands; the same shed rule applies\n` +
 			"  (docs/doc-map.md §Capture and placement §4).\n" +
 			buildShedCandidatesLine(
 				root,
@@ -1721,7 +1726,8 @@ const isTicketedTrigger = (e) =>
  * `trigger` entries whose ticket has closed (#2033).
  *
  * The unadmitted rules are the envelope's `unadmitted` key, which the
- * direction gate refuses only as this commit's addition (checker-new-faults.js).
+ * direction gate refuses only as this commit's addition (checker-new-faults.js),
+ * each matched across the two sides by its ledger `key` (#5140).
  *
  * @param {Ctx} ctx
  * @param {string} root
@@ -1774,6 +1780,7 @@ function poolRuleAdmission(ctx, root) {
 		unadmitted: unadmitted.map((i) => ({
 			file: i.file,
 			headline: i.headline,
+			key: keyOf(i),
 			message:
 				`${i.file}:${i.line} adds the pool rule "${i.headline}", which ${LEDGER_PATH} does not admit. ` +
 				"Add its entry in this commit — file, headline exactly as quoted, claim (the wrong act a session " +

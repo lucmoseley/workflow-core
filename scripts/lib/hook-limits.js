@@ -2,9 +2,8 @@
  * hook-limits.js — the harness's limits on what a hook hands the session
  * (#1746).
  *
- * READ BY LINE TOO: check-injector-margin.sh, check-context-budget.js and
- * lib/rule-emission.js read a revision's or a planted copy without running
- * it: the two Node readers through limitIn(), the shell one through sed. Keep
+ * READ BY LINE TOO: lib/injector-margin.js and lib/rule-emission.js read a
+ * revision's or a planted copy without running it, through limitIn(). Keep
  * each a `const NAME = <n>;` line at column zero.
  */
 

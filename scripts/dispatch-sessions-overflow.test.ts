@@ -25,6 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { holderAlive } from "./lib/arbiter-proc.js";
+import { appendConsoleRow } from "./lib/console-credit.js";
 import { writeCostTable } from "./lib/cost-table-testkit";
 import {
 	readOverflowLookup,
@@ -192,6 +193,25 @@ afterEach(() => {
 		throw err;
 	}
 });
+
+/* A Console reading of the key's live grant, `remainingUsd` left on it. */
+function writeConsoleReading(remainingUsd: number, at: number) {
+	readFixtureStore();
+	appendConsoleRow(
+		{ keyVar: KEY_VAR } as Parameters<typeof appendConsoleRow>[0],
+		{
+			at,
+			credits: [
+				{
+					remainingUsd,
+					grantUsd: 200,
+					grantedOn: "2026-10-28",
+					expiresOn: "2099-12-01",
+				},
+			],
+		},
+	);
+}
 
 const readStoredJobIds = () => {
 	const store = path.join(refill(), ".headless-runs");
@@ -397,6 +417,24 @@ describe("an overflow seat (#2610)", () => {
 		expect(budgetsOf(readHeadlessLaunches(2))).toEqual(["25", "15"]);
 	});
 
+	it("refuses a member its own re-read fits none of, launching the one before it (#5167)", async () => {
+		stub({ headless: "hold" });
+		const env = { ...overflowEnv(200), WFC_PROC: "/proc" };
+		/* In the stagger after the first launch, a Console reading leaves the
+		 * key $15: the first member, listed running, holds $10 of it. */
+		const sleep = async () => writeConsoleReading(15, Date.now());
+		const call = dispatchCall(batchOf(2), SCRIPT, baseEnv(env));
+		const r = await fx.runCoreUnder(call.args, call, { sleep });
+		expect(r.code).toBe(0);
+		expect(r.stderr).toContain(
+			`REFUSED: /implement 353 — not launching this member.\n  overflow seat ${label()} fits no session: headroom $5.00 against $10.00 a session ($10.00 held by 1 running).\n`,
+		);
+		expect(readStoredJobIds()).toHaveLength(1);
+		expect(readHeadlessLaunches().map((c) => c.flags["--name"])).toEqual([
+			"Overflow · /implement 341",
+		]);
+	});
+
 	it("refuses a set the budget fits none of, exit 3, in the REFUSED shape", () => {
 		stub();
 		const r = throughLoop(2, overflowEnv(5));
@@ -524,12 +562,7 @@ describe("an overflow seat (#2610)", () => {
 			path.join(projects, `${sessionId}.jsonl`),
 			`${JSON.stringify({ type: "assistant", isApiErrorMessage: true, error: "billing_error", message: { model: "<synthetic>", content: [{ type: "text", text: "Credit balance is too low" }] } })}\n`,
 		);
-		const ledgerDir = path.join(fx.dir, "refill", ".overflow-ledger");
-		fs.mkdirSync(ledgerDir, { recursive: true });
-		fs.writeFileSync(
-			path.join(ledgerDir, `${KEY_VAR}.console.jsonl`),
-			`${JSON.stringify({ at: Date.now() - 3_600_000, credits: [{ remainingUsd: 150, grantUsd: 200, grantedOn: "2026-10-28", expiresOn: "2099-12-01" }] })}\n`,
-		);
+		writeConsoleReading(150, Date.now() - 3_600_000);
 		const r = throughLoop(1, env);
 		expect(r.failed).toBe("exit 3");
 		expect(r.refused[0]?.reason).toMatch(

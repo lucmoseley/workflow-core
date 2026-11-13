@@ -17,7 +17,14 @@
  */
 
 const fs = require("node:fs");
+const path = require("node:path");
 const { relativeUnder } = require("./is-under.js");
+
+/* Each file's path under its root. Joined, as the base is a shipped doc a
+ * hook's printed text must name through docPath (script-path-scan.test.ts). */
+const BASE_REL = path.posix.join("docs", "code-standards-base.md");
+const LOCAL_REL = "docs/code-standards.md";
+const GLOSSARY_REL = "GLOSSARY.md";
 
 /** @param {string} p a regular file, symlinks followed, as `[[ -f ]]` reads */
 const isFile = (p) =>
@@ -28,7 +35,7 @@ const isFile = (p) =>
  * bash twin's printf is.
  * @param {string} coreRoot
  */
-const standardsBase = (coreRoot) => `${coreRoot}/docs/code-standards-base.md`;
+const standardsBase = (coreRoot) => `${coreRoot}/${BASE_REL}`;
 
 /**
  * The host's GLOSSARY.md, whose terms base §G8 binds names to; null where the
@@ -37,7 +44,7 @@ const standardsBase = (coreRoot) => `${coreRoot}/docs/code-standards-base.md`;
  * @returns {string | null}
  */
 function standardsGlossary(hostRoot) {
-	const glossary = `${hostRoot}/GLOSSARY.md`;
+	const glossary = `${hostRoot}/${GLOSSARY_REL}`;
 	return isFile(glossary) ? glossary : null;
 }
 
@@ -71,7 +78,7 @@ function standardsGlossaryLine(hostRoot) {
  */
 function standardsState(coreRoot, hostRoot) {
 	const base = isFile(standardsBase(coreRoot));
-	const local = isFile(`${hostRoot}/docs/code-standards.md`);
+	const local = isFile(`${hostRoot}/${LOCAL_REL}`);
 	if (base) return local ? "both" : "base";
 	return local ? "local" : "neither";
 }
@@ -93,6 +100,9 @@ function missingBase(coreRoot) {
 }
 
 module.exports = {
+	BASE_REL,
+	LOCAL_REL,
+	GLOSSARY_REL,
 	missingBase,
 	standardsBase,
 	standardsGlossary,

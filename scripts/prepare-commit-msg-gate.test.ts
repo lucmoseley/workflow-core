@@ -150,12 +150,14 @@ const buildTemplate = (root: string) => {
 	for (const f of ["prepare-commit-msg", "pre-merge-commit", "commit-msg"])
 		fs.copyFileSync(path.join(ROOT, ".husky", f), path.join(husky, f));
 
-	// The closing-keyword scanner's launcher (#138) and the route module
-	// (#1503): both hooks FAIL CLOSED when either is absent, so without these copies every commit
+	// The closing-keyword scanner's launcher (#138), the route module (#1503)
+	// and commit-msg's local-file check (#5142): the hooks FAIL CLOSED when
+	// one is absent, so without these copies every commit
 	// in this fixture is refused. commit-msg alone also fails closed without
 	// the subject check (#2332), and prints commit-message.txt on its refusal.
 	for (const rel of [
 		"scripts/lib/commit-route.sh",
+		"scripts/lib/local-hook.sh",
 		"scripts/check-commit-message-closes.sh",
 		"scripts/check-commit-subject.sh",
 		"scripts/lib/rule-text.sh",

@@ -71,7 +71,7 @@ function figures(root: string) {
 			WFC_MODULES: undefined,
 			/* The live-core fallback would stand in for a missing text module, read
 			 * off the working tree. */
-			WFC_INJECTOR_FILE: path.join(root, "no-such-text-module.js"),
+			WFC_TRACKER_TEXT_FILE: path.join(root, "no-such-text-module.js"),
 			/* The ledger's closed-ticket lookup would reach the live tracker. */
 			WFC_GH: path.join(root, "no-such-gh"),
 		},

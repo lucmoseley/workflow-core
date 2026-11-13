@@ -40,6 +40,7 @@ const {
 	CORE_OWNED,
 	PROVENANCE_HEADING,
 	HOOKS,
+	LOCAL_HOOKS,
 	HELPERS,
 } = require("./adopter-skeleton.js");
 const {
@@ -162,7 +163,8 @@ function readIfPresent(at) {
  * The seven husky hook shims, executable. A hook written before #1839, which
  * names the plugin on a `WFC_PLUGIN_ROOT` line, becomes its shim here. An
  * adopter's own hook under a shipped name, neither shim nor root-line hook, is
- * left alone, with a line saying the core's gate does not run there.
+ * left alone, with a line saying the core's gate does not run there and,
+ * where the core sources a `.local` for that hook, the way to the shim.
  * @param {Context} ctx
  */
 function bringHooks(ctx) {
@@ -174,8 +176,11 @@ function bringHooks(ctx) {
 			!isHookShim(existing) &&
 			hookRootOf(existing) === null
 		) {
+			const wayOut = LOCAL_HOOKS.includes(hook)
+				? `; move its own gates to ${rel}.local and delete it, and the next upgrade writes the shim`
+				: "";
 			ctx.out(
-				`skipped ${rel} — the adopter's own hook (no shim marker or WFC_PLUGIN_ROOT line), so the core's ${hook} gate does not run there`,
+				`skipped ${rel} — the adopter's own hook (no shim marker or WFC_PLUGIN_ROOT line), so the core's ${hook} gate does not run there${wayOut}`,
 			);
 			return [];
 		}

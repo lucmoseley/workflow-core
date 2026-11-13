@@ -91,6 +91,7 @@ const {
 const { COST_TABLE, measurerFor } = require("./core-context-cost.js");
 const { ghBinary } = require("./gh.js");
 const { worktreeRoot } = require("./host-root.js");
+const { realKey } = require("./deref.js");
 const {
 	ciStatusCommand,
 	describePluginRecord,
@@ -460,10 +461,12 @@ function installedRoot({ root, marketplace, ref, fallback, configDir, out }) {
 		marketplace,
 		root,
 	);
+	/* The row holds the path of the seat that installed it, which a seat
+	 * sharing `plugins/` through a symlink spells differently (#5140). */
 	const chosen =
 		row &&
 		fs.statSync(row.installPath, { throwIfNoEntry: false })?.isDirectory()
-			? row.installPath
+			? realKey(row.installPath)
 			: fallback;
 	const off = offPin(chosen, ref);
 	if (off)

@@ -1900,7 +1900,8 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 			cwd: dir,
 			env,
 		});
-	/** The cache copy an install lands, standing in as a link to this checkout. */
+	/** The cache copy an install lands: a real directory, as an install's is,
+	 * whose entries link to this checkout. */
 	function cacheCopy(configDir: string, version: string) {
 		const at = installPathFor(
 			configDir,
@@ -1908,19 +1909,12 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 			"workflow-core",
 			version,
 		);
-		fs.mkdirSync(path.dirname(at), { recursive: true });
-		fs.symlinkSync(CORE, at);
+		fs.mkdirSync(at, { recursive: true });
+		for (const entry of fs.readdirSync(CORE))
+			fs.symlinkSync(path.join(CORE, entry), path.join(at, entry));
 		return at;
 	}
-	const hooks = (dir: string) =>
-		HOOKS.map((h) => fs.readFileSync(path.join(dir, ".husky", h), "utf8"));
-	const readRules = (dir: string) =>
-		fs.readFileSync(path.join(dir, ".claude/workflow-core.md"), "utf8");
-
-	it("runs the rules file from this repo's install row, not the code running, and writes hook shims naming neither", () => {
-		const { dir } = repo();
-		const { configDir, env } = pinEnv();
-		const installPath = cacheCopy(configDir, "1.2.3");
+	const installRow = (configDir: string, dir: string, installPath: string) =>
 		fs.writeFileSync(
 			path.join(configDir, "plugins/installed_plugins.json"),
 			JSON.stringify({
@@ -1937,6 +1931,16 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 				},
 			}),
 		);
+	const hooks = (dir: string) =>
+		HOOKS.map((h) => fs.readFileSync(path.join(dir, ".husky", h), "utf8"));
+	const readRules = (dir: string) =>
+		fs.readFileSync(path.join(dir, ".claude/workflow-core.md"), "utf8");
+
+	it("runs the rules file from this repo's install row, not the code running, and writes hook shims naming neither", () => {
+		const { dir } = repo();
+		const { configDir, env } = pinEnv();
+		const installPath = cacheCopy(configDir, "1.2.3");
+		installRow(configDir, dir, installPath);
 		const r = bare(
 			env,
 			dir,
@@ -1950,6 +1954,36 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 		);
 		expect(readRules(dir)).not.toContain(`${CORE}/scripts/`);
 		expect(hooks(dir)).toEqual(HOOKS.map((h) => renderHookShim(h)));
+	});
+
+	it("renders the install's real path where the row names it through another seat's symlinked plugins dir (#5140)", () => {
+		const { dir } = repo();
+		const { configDir, env } = pinEnv();
+		const installPath = cacheCopy(configDir, "1.2.3");
+		const seat = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-seat-"));
+		made.push(seat);
+		fs.symlinkSync(path.join(configDir, "plugins"), path.join(seat, "plugins"));
+		installRow(
+			configDir,
+			dir,
+			path.join(seat, path.relative(configDir, installPath)),
+		);
+		const r = bare(
+			env,
+			dir,
+			"--no-plugin-install",
+			"--marketplace-ref",
+			"v1.2.3",
+		);
+		expect(r.status, r.stderr).toBe(0);
+		const reference = fs.readFileSync(
+			path.join(dir, ".claude/workflow-core.reference.md"),
+			"utf8",
+		);
+		for (const text of [readRules(dir), reference]) {
+			expect(text).toContain(`${installPath}/scripts/`);
+			expect(text).not.toContain(seat);
+		}
 	});
 
 	it("falls back to the code running only with no install row, warning that it is off the pin", () => {

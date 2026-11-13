@@ -17,3 +17,5 @@ The repo-health checkers — stranded claims, stale queue markers and git locks,
 ## Page checks under `site`
 
 The core's one page check is `check-website-copy.js`, which refuses a commit staging `app/` that adds a banned tell from the brand sheet's §11. Add any other to `.husky/pre-commit.local`.
+
+A commit-message refusal of this repo's own goes in `.husky/commit-msg.local`, which the core's commit-msg hook sources last, on every route, with the message file as `$1` and the route as `$route`.

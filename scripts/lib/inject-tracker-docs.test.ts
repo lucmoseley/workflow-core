@@ -29,7 +29,6 @@ import { initGitRepo } from "./git-fixture";
 import { readGuardErrorsLog } from "./guard-errors-log";
 import { takesPort, tierPort } from "./inject-tracker-docs-testkit";
 import { runInProcess } from "./run-in-process.js";
-import { readShellConst } from "./shell-const-testkit";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const { injectTrackerDocs } =
@@ -50,10 +49,8 @@ const { HOOK_PERSIST_CHARS: PERSIST_CHARS } =
 /* The tight-headroom margin the margin checker prices, read from where it is
  * spelled. Module scope, not local to one describe block: it is reused by an
  * unrelated block below. */
-const TIGHT_HEADROOM_CHARS = readShellConst(
-	path.join(__dirname, "..", "check-injector-margin.sh"),
-	"TIGHT_HEADROOM_CHARS",
-);
+const { TIGHT_HEADROOM_CHARS } =
+	require("./injector-margin.js") as typeof import("./injector-margin.js");
 
 /**
  * Where the hook keeps its per-session de-duplication markers. Pinned to a
@@ -888,8 +885,8 @@ describe("the review dispatch sentence (#1618, #1697)", () => {
 	});
 
 	it.each([
-		["lib/inject-tracker-docs.js", /\brule\("review-dispatch-shape"\)/],
-		["lib/tracker-inject-text.js", /review-dispatch-shape\.txt/],
+		["lib/inject-tracker-docs.js", /\bfragmentLookup\(host\)/],
+		["lib/tracker-inject-text.js", /\bfragment\("review-dispatch-shape"\)/],
 		[
 			"concision-backstop.sh",
 			/\brule_(?:text|or_path) review-dispatch-shape\b/,
@@ -1697,7 +1694,7 @@ describe("the residue index replaces both full-document pointers (mantahostels#2
 	});
 
 	/* The margin gate's own binding case — asserted here too, in units
-	 * scripts/check-injector-margin.sh already prices, so a regression on this
+	 * scripts/check-injector-margin.js already prices, so a regression on this
 	 * one command fails a test rather than only a pre-commit hook. */
 	it("keeps /implement's payload the margin gate's tight headroom under the threshold", () => {
 		expect(injected("implement").length).toBeLessThan(
