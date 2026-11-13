@@ -140,4 +140,4 @@ function judge(sweeps) {
 	return { judged: true, runs, over, unjudged };
 }
 
-module.exports = { SWEEPS_JUDGED, collect, judge };
+module.exports = { SWEEPS_JUDGED, collect, judge, median, readingsByFile };

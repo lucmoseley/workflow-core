@@ -27,15 +27,22 @@
  * that a whole run times under the target, and a slow file seen only in
  * green part-suites is never named.
  *
+ * IT NAMES THE RUN THAT ARMS THE GROWTH BUDGET (#5137): the latest lone whole
+ * suite, green under the target, while BUDGET_ARMED_BY is unset.
+ *
  * WARN-ONLY, ALWAYS (#1797).
  *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), says when the latest green whole vitest suite, or any of its latest green shards, took the target scripts/lib/suite-ceiling.js sets or longer, or was killed at the ceiling since, with its sha, machine reading and slowest files; names a file at the target in a red run since, with its sha; and names a suite or shard with no run to judge. It refuses nothing.
+ * IMPLICIT:  on `npm run status` (scripts/status-report.js), says when the latest green whole vitest suite, or any of its latest green shards, took the target scripts/lib/suite-ceiling.js sets or longer, or was killed at the ceiling since, with its sha, machine reading and slowest files; names a file at the target in a red run since, with its sha; names a suite or shard with no run to judge; and names the lone whole suite under the target that arms the growth budget. It refuses nothing.
  * JUSTIFIED: fail-safe — a suite over its target is otherwise silent until a push gate is killed at the ceiling.
  * DEFEAT:    convenience — --store and --fail-store read other marker files on a hand run.
  */
 
 const { runCheck } = require("./lib/check.js");
-const { CEILING_MS, TARGET_MS } = require("./lib/suite-ceiling.js");
+const {
+	BUDGET_ARMED_BY,
+	CEILING_MS,
+	TARGET_MS,
+} = require("./lib/suite-ceiling.js");
 const {
 	DEFAULT_SUITE,
 	isFullRun,
@@ -50,6 +57,7 @@ const {
 	isFullShard,
 	isGreenFull,
 	isWholeKill,
+	latestLoneSuite,
 	shardOf,
 } = require("./lib/whole-suite-runs.js");
 
@@ -262,6 +270,21 @@ function reportSlowFile(ctx, f, target) {
 	);
 }
 
+/**
+ * Names the latest lone whole suite where it is green, under the target and
+ * the growth budget is not yet armed: the run BUDGET_ARMED_BY is to record
+ * (#5137). Every whole suite is cold, the pass store being off for full runs.
+ * @param {Marker[]} markers
+ * @param {Marker[]} failures
+ * @returns {string} the sentence, or "" where there is none
+ */
+function armText(markers, failures) {
+	if (BUDGET_ARMED_BY !== null) return "";
+	const m = latestLoneSuite(markers, failures);
+	if (!m || m.ceilingKill || m.durationMs >= TARGET_MS) return "";
+	return `The lone whole suite at ${shortSha(m.sha)} passed in ${secs(m.durationMs)}, under the target: arm the growth budget by setting BUDGET_ARMED_BY in scripts/lib/suite-ceiling.js to "${m.sha}" (#5137).`;
+}
+
 runCheck({
 	name: "suite-margin",
 	usage:
@@ -291,10 +314,11 @@ runCheck({
 			runs.length > 0 && over.length === 0
 				? `${runs.map((m) => `${subjectOf(m)}, took ${secs(m.durationMs)}`).join("; ")}: inside ${target}.`
 				: null;
+		const lead = `${inside ?? ""} ${armText(markers, failures)}`.trim();
 		if (inside && slowFiles.length === 0 && unjudged.length === 0)
-			return { okLine: inside };
+			return { okLine: lead };
 
-		if (inside) ctx.say(inside);
+		if (lead) ctx.say(lead);
 		const records = over.map((m) => reportBreach(ctx, m, target));
 		for (const f of slowFiles) reportSlowFile(ctx, f, target);
 		for (const line of unjudgedLines) ctx.say(line);

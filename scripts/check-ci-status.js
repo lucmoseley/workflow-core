@@ -156,10 +156,16 @@ const { scriptPath } = require("./lib/script-path");
 /* scheduled-checks.yml's aggregate that `main`'s ruleset requires (#2414). It
  * goes red only where another job did, so it owes no ticket of its own. */
 const VERDICT_JOB = "Suite passed";
-/* scheduled-checks.yml's per-file CI time job, which turns the sweep red once
- * #4293 makes it a need of `Suite passed`. */
+/* scheduled-checks.yml's jobs that judge medians over three sweeps, which no
+ * single commit causes, each with where its red is answered: the per-file CI
+ * time job, red once #4293 makes it a need of `Suite passed`, and the suite's
+ * growth budget, red once armed (#5137). */
 const FILE_TIMES_JOB = "Test file CI times";
-const FILE_TIMES_ROUTE = `each file over the limit is cut under its own profiled ticket (a sub-issue of #2729) — \`node ${scriptPath("check-file-ci-time.js")}\` names the files`;
+/** @type {Record<string, string>} */
+const MEDIAN_JOB_ROUTES = {
+	[FILE_TIMES_JOB]: `each file over the limit is cut under its own profiled ticket (a sub-issue of #2729) — \`node ${scriptPath("check-file-ci-time.js")}\` names the files`,
+	"Suite growth budget": `the slowest files are cut by measured cost (a sub-issue of #2729) — \`node ${scriptPath("check-suite-budget.js")}\` names them`,
+};
 
 // The red-suite filer's own spellings (#532).
 const redSuite = require("./report-red-suite");
@@ -739,7 +745,7 @@ function buildTicketLines(isSweep, failures, ticket, indent) {
 		.filter((name) => !filerOwns(name) && !(isSweep && name === VERDICT_JOB))
 		.map(
 			(name) =>
-				`${indent}Ticket for ${name}: ${isSweep && name === FILE_TIMES_JOB ? FILE_TIMES_ROUTE : "no filer covers this job"}`,
+				`${indent}Ticket for ${name}: ${(isSweep && MEDIAN_JOB_ROUTES[name]) || "no filer covers this job"}`,
 		);
 	if (!isSweep) return lines;
 	if (redSuite.filesFor(failures.rows))
@@ -1505,15 +1511,15 @@ function sayFailedRun(ctx, r, { deadline, ticket }) {
 }
 
 /**
- * Whether a sweep's red is the per-file CI time gate's alone.
+ * Whether a sweep's red is the median-judged jobs' alone.
  *
  * @param {Run} r
  * @param {RunFailures|null|undefined} failures
  */
-function isFileTimesRedAlone(r, failures) {
+function isMedianRedAlone(r, failures) {
 	if (r.workflowName !== redSuite.SWEEP_NAME || !failures) return false;
 	const jobs = failures.jobs.filter((name) => name !== VERDICT_JOB);
-	return jobs.length > 0 && jobs.every((name) => name === FILE_TIMES_JOB);
+	return jobs.length > 0 && jobs.every((name) => name in MEDIAN_JOB_ROUTES);
 }
 
 /**
@@ -1549,12 +1555,12 @@ function buildNoGreenAdvice(branch, name) {
  */
 function sayBisectRange(ctx, branch, broken, { keyed, failuresOf }) {
 	const bisectable = broken.filter(
-		(r) => !isFileTimesRedAlone(r, failuresOf.get(r)),
+		(r) => !isMedianRedAlone(r, failuresOf.get(r)),
 	);
 	const culprit = bisectable[0];
 	if (!culprit && broken.length > 0) {
 		ctx.say(
-			`\nNo bisect: ${FILE_TIMES_JOB} judges a median over three sweeps, which no single commit caused.`,
+			"\nNo bisect: each red job judges medians over three sweeps, which no single commit caused.",
 		);
 		return;
 	}
