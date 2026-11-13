@@ -17,7 +17,8 @@
  * A doc the plugin ships is named the same way, through docPath() (#1010,
  * #1452).
  *
- * WFC_SCRIPT_ROOT stands in for the location, for tests only.
+ * WFC_SCRIPT_ROOT stands in for the location: in tests, and for a baseline
+ * checker lib/check.js runs from a partial tree (#5178).
  *
  * scripts/lib/script-path.sh is the bash twin; keep the two in step.
  * expandPastePaths() is expand_paste_paths there, docPath() doc_path.

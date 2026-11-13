@@ -35,9 +35,11 @@
  * STRYKER'S OPTIONS: the host's own config, the first the commit's tree holds
  * at its root in Stryker's discovery order, or the core default; over either,
  * the hold sets `mutate`, incremental mode and file, the JSON reporter and its
- * path, concurrency and no thresholds, through a generated wrapper, since
- * the report path and thresholds have no CLI form and passing a config turns
- * discovery off (#1901). The host's file is never written (#1907).
+ * path, concurrency and no thresholds; and, each where the host names none,
+ * the forks pool and `disableTypeChecks` off (#5180). It does so through a
+ * generated wrapper, since the report path and thresholds have no CLI form
+ * and passing a config turns discovery off (#1901). The host's file is never
+ * written (#1907).
  *
  * THE CACHE is Stryker's incremental file, at CACHE_NAME in the git common
  * directory, shared by every worktree. A run seeds its own copy and, whatever
@@ -68,9 +70,9 @@
  *
  * MISSING TOOLS refuse, never pass (#1911): either Stryker package, or vitest,
  * absent from the checkout's own `node_modules`, the one the run's worktree
- * links. The refusal prints the install line at STRYKER_VERSION. Residual: a
- * Stryker at another version passes the check, and refuses only where it will
- * not run.
+ * links, or a Stryker package older than STRYKER_VERSION (#5180). The refusal
+ * prints the install line. Residual: a later Stryker passes the check, and
+ * refuses only where it will not run.
  *
  * SKIPPED, silently: during a rebase, a cherry-pick or `git am`, and on a merge
  * commit, as scripts/lib/commit-route.sh reads the route — replayed and merged
@@ -116,6 +118,8 @@ const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { caught } = require("./lib/caught.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
+const { readText } = require("./lib/file-read.js");
+const { compareVersions } = require("./lib/compare-versions.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { failOpenLogger } = require("./lib/fail-open-logger.js");
 const { parseErrorFirstLine, parseFirstLine } = require("./lib/first-line.js");
@@ -204,6 +208,14 @@ const CONFIG_NAMES = ["", "."].flatMap((dot) =>
 /* The one runner the hold supports (#1871 §Missing tool). */
 const TEST_RUNNER = "vitest";
 const CORE_DEFAULT = { testRunner: TEST_RUNNER, coverageAnalysis: "perTest" };
+/* What the run gets where the host's config names no value of its own (#5180).
+ * The runner's default pool, threads, fails every test calling
+ * `process.chdir()`, and kills its workers under a vitest `execArgv` heap flag.
+ * Stryker's default `disableTypeChecks` rewrites each matching file into the
+ * sandbox with no mode, so none can run as an executable; vitest never
+ * type-checks, so the rewrite buys the run nothing. */
+const POOL = "forks";
+const DISABLE_TYPE_CHECKS = false;
 
 /* Stryker 10's own directive parser, matched against a comment's text
  * (instrumenter `directive-bookkeeper.js`): group 4 is the reason. Every
@@ -228,8 +240,9 @@ const COMMENTS_TIMEOUT_MS = 30_000;
 
 const CACHE_NAME = "wfc-mutation-incremental.json";
 
-/* The version #1901 verified the hold's command-line contract against. */
-const STRYKER_VERSION = "10.0.0";
+/* The version the hold's command-line contract is verified against (#1901),
+ * the first whose vitest runner takes a `vitest.pool` (#5180). */
+const STRYKER_VERSION = "10.1.1";
 const STRYKER_PACKAGES = [
 	"@stryker-mutator/core",
 	`@stryker-mutator/${TEST_RUNNER}-runner`,
@@ -768,8 +781,9 @@ function unreasonedDisables(root, strykerConfig, hunks) {
 	const read = readCommentsInChild(root, strykerConfig, entries);
 	if ("error" in read) {
 		// Fails open, logged: the tools the missing-tool check reads are
-		// installed, so only a Stryker laid out unlike 10.0.0's, a host config
-		// that hangs, or a child that will not run, gets here (#2366, #2727).
+		// installed, so only a Stryker laid out unlike STRYKER_VERSION's, a host
+		// config that hangs, or a child that will not run, gets here (#2366,
+		// #2727).
 		reportUnread(files.join(", "), read.error);
 		return [];
 	}
@@ -879,7 +893,12 @@ function buildWrapperConfig(strykerConfig, controlled) {
 			: `import { loadStrykerConfig } from ${JSON.stringify(pathToFileURL(STRYKER_COMMENTS).href)};
 const base = await loadStrykerConfig(${JSON.stringify(strykerConfig)});`;
 	return `${base}
-export default { ...base, ...${JSON.stringify(controlled, null, 2)} };
+export default {
+  disableTypeChecks: ${JSON.stringify(DISABLE_TYPE_CHECKS)},
+  ...base,
+  vitest: { pool: ${JSON.stringify(POOL)}, ...base.vitest },
+  ...${JSON.stringify(controlled, null, 2)}
+};
 `;
 }
 
@@ -1181,22 +1200,78 @@ function buildUnjudgedRunText(run, voice) {
 		: `${tail(run.failed)}\n${voice.prefix}: Stryker did not finish, so ${voice.unjudged}.\n  Fix what its output above names — a Stryker that will not start, or a config it refuses — and ${voice.again}.\n`;
 }
 
+const VERSION_PARTS = /^(\d+)\.(\d+)\.(\d+)/;
+const VERIFIED_PARTS = STRYKER_VERSION.split(".").map(Number);
+
+/**
+ * The `version` a package.json's text names where it orders before
+ * STRYKER_VERSION, or null. Text that will not parse, or names no
+ * `major.minor.patch`, is left to Stryker's own run to refuse, out loud
+ * (#5180).
+ * @param {string} text
+ */
+function parseOlderVersion(text) {
+	let version;
+	try {
+		({ version } = JSON.parse(text));
+	} catch {
+		return null;
+	}
+	if (typeof version !== "string") return null;
+	const got = VERSION_PARTS.exec(version)?.slice(1).map(Number);
+	return got !== undefined && compareVersions(got, VERIFIED_PARTS) < 0
+		? version
+		: null;
+}
+
+/**
+ * The Stryker packages whose package.json is absent, and those it names at a
+ * version older than STRYKER_VERSION, each as `name version`.
+ * @param {(name: string) => import("./lib/file-read.js").FileRead<string>} manifest
+ */
+function readStrykerInstalls(manifest) {
+	/** @type {string[]} */
+	const absent = [];
+	/** @type {string[]} */
+	const old = [];
+	for (const name of STRYKER_PACKAGES) {
+		const read = manifest(name);
+		if (read.state === "absent") absent.push(name);
+		else if (read.state === "read") {
+			const version = parseOlderVersion(read.data);
+			if (version !== null) old.push(`${name} ${version}`);
+		}
+	}
+	return { absent, old };
+}
+
 /**
  * The refusal for the tools the run needs and `root`'s `node_modules` lacks,
- * every one in one refusal, or null. Read off each package.json, so no
- * `exports` map hides an install.
+ * or holds at a Stryker older than STRYKER_VERSION (#5180), every one in one
+ * refusal, or null. Read off each package.json, so no `exports` map hides an
+ * install; one that will not read counts as installed, left to Stryker's own
+ * run to refuse (#5180).
  * @param {string} root
  * @param {Voice} voice
  */
 function missingToolRefusal(root, voice) {
 	const modules = path.join(root, "node_modules");
+	const manifest = (/** @type {string} */ name) =>
+		readText(path.join(modules, name, "package.json"));
 	const isMissing = (/** @type {string} */ name) =>
-		!fs.existsSync(path.join(modules, name, "package.json"));
-	const absent = STRYKER_PACKAGES.filter(isMissing);
+		manifest(name).state === "absent";
+	const { absent, old } = readStrykerInstalls(manifest);
 	const lines = [];
 	if (absent.length > 0)
 		lines.push(
 			`${voice.prefix}: the mutation hold runs StrykerJS, and ${absent.join(" and ")} ${absent.length > 1 ? "are" : "is"} not installed in ${modules}, so ${voice.refused}.`,
+		);
+	if (old.length > 0)
+		lines.push(
+			`${voice.prefix}: the mutation hold needs StrykerJS ${STRYKER_VERSION} or later, and ${modules} holds ${old.join(" and ")}, so ${voice.refused}.`,
+		);
+	if (absent.length > 0 || old.length > 0)
+		lines.push(
 			`  Install both at the version the hold is verified against, and ${voice.again}:`,
 			`    npm install --save-dev ${STRYKER_PACKAGES.map((p) => `${p}@${STRYKER_VERSION}`).join(" ")}`,
 		);

@@ -3522,6 +3522,9 @@
 		"migrations/v2.3.0.md": [
 			"scripts/lib/migration-note.test.ts"
 		],
+		"migrations/v2.3.1.md": [
+			"scripts/lib/migration-note.test.ts"
+		],
 		"package-lock.json": [
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
@@ -14701,6 +14704,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/code-edges.js": [
+			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -14715,6 +14719,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/check-in-process.contract.test.ts",
 			"scripts/lib/code-edges.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",

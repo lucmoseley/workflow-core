@@ -1816,6 +1816,12 @@ const SPEC = {
 		 * — would silence it on exactly the commits it exists for. Affordable only
 		 * because this is a blob fetch: a few hundred KB a side, not 19 MB. */
 		baseline: "always",
+		/* The baseline's text module in the old shape is measured by the
+		 * checker that knew that shape: the working one reads an export it
+		 * lacks as BROKEN (#5178). */
+		/* Its run reach, ~430 files under scripts/, is fetched with it: about
+		 * 1 s more a baseline. */
+		baselineCode: "rev",
 	},
 	/** @returns {CheckResult} */
 	run(/** @type {Ctx} */ ctx) {

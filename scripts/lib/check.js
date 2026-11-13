@@ -73,7 +73,10 @@
  * instead, where that tree carries one at this checker's path: a checker whose
  * findings hash its own definition (check-guard-registry.js's digests) would
  * otherwise read a change to that definition as faulting both sides alike, and
- * pass the commit that made them (#4807).
+ * pass the commit that made them (#4807); one that reads its revision's code
+ * (check-context-budget.js's text module) would read a baseline in the old
+ * shape as BROKEN, so a commit changing the code and its reader together could
+ * not land as one merge (#5178).
  *
  * FAIL-CLOSED ON THE BASELINE. A <rev> reading that cannot answer —
  * unreadable, unparseable, BROKEN or SKIP — is BROKEN here, never "inherited",
@@ -86,7 +89,7 @@ const { spawnGitSync } = require("./git.js");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-/* PERSIST MODE (mantahostels#1974, the seam mantahostels#1949's persist-and-replay hangs off) — the
+/* PERSIST MODE (mantahostels#1974) — the
  * `WFC_NOTIFY_PERSIST` gate, shared with `reap-finished-sessions.js` since
  * mantahostels#2252 so the two cannot drift. What the mode is and why the gate is spelled
  * as it is: lib/persist-mode.js's header. */
@@ -731,39 +734,65 @@ const MATERIALISERS = {
 			throw brokenError(
 				`a blob fetch at ${rev} was asked for and the spec named no pathspec.`,
 			);
-		const entries = listTree(rev, pathspecs);
-
-		/* A pathspec that resolved and matched nothing is NOT the refusal above
-		 * (mantahostels#1940). An empty spec is a fault in the spec — apparatus, and this
-		 * library's to judge. An empty listing is a fact about the REVISION,
-		 * which both sides read the same way, and what it means is the checker's
-		 * to say. */
-		if (entries.length === 0) return;
-
-		/* One `cat-file --batch` for the lot: the per-blob alternative is a process
-		 * per file. */
-		const bodies = readObjectBatch(
-			entries.map((e) => e.sha),
-			`${rev}'s blobs`,
-		);
-
-		for (const [i, e] of entries.entries()) {
-			/* cat-file rightly says a gitlink is missing. Nothing downstream
-			 * measures a submodule, so it is skipped rather than refused. */
-			if (e.mode === GIT_MODE.gitlink) continue;
-			const body = bodies[i]?.body;
-			/* git listed the entry and then would not hand it over, so the tree we
-			 * are about to judge is incomplete. Counting the path 0 B would read as
-			 * a SHED to a cap gate and pass the very commit that broke it (mantahostels#1834). */
-			if (!body)
-				throw brokenError(
-					`git cat-file would not return ${rev}'s blob for ${e.path}, ` +
-						"which ls-tree had listed.",
-				);
-			writeEntry(e, body, { rev, dir });
-		}
+		writeBlobs(rev, dir, pathspecs);
 	},
 };
+
+/**
+ * The blobs `pathspecs` match at `rev`, written under `dir` at their paths.
+ * A path already written there is kept, not written twice.
+ *
+ * @param {string} rev
+ * @param {string} dir
+ * @param {string[]} pathspecs
+ */
+function writeBlobs(rev, dir, pathspecs) {
+	const entries = listTree(rev, pathspecs).filter(
+		/* cat-file rightly says a gitlink is missing. Nothing downstream
+		 * measures a submodule, so it is skipped rather than refused. */
+		(e) => e.mode !== GIT_MODE.gitlink && !isPresent(path.join(dir, e.path)),
+	);
+
+	/* A pathspec that resolved and matched nothing is NOT the refusal above
+	 * (mantahostels#1940). An empty spec is a fault in the spec — apparatus, and this
+	 * library's to judge. An empty listing is a fact about the REVISION,
+	 * which both sides read the same way, and what it means is the checker's
+	 * to say. */
+	if (entries.length === 0) return;
+
+	/* One `cat-file --batch` for the lot: the per-blob alternative is a process
+	 * per file. */
+	const bodies = readObjectBatch(
+		entries.map((e) => e.sha),
+		`${rev}'s blobs`,
+	);
+
+	for (const [i, e] of entries.entries()) {
+		const body = bodies[i]?.body;
+		/* git listed the entry and then would not hand it over, so the tree we
+		 * are about to judge is incomplete. Counting the path 0 B would read as
+		 * a SHED to a cap gate and pass the very commit that broke it (mantahostels#1834). */
+		if (!body)
+			throw brokenError(
+				`git cat-file would not return ${rev}'s blob for ${e.path}, ` +
+					"which ls-tree had listed.",
+			);
+		writeEntry(e, body, { rev, dir });
+	}
+}
+
+/**
+ * Whether `file` stands, a symlink by its own entry rather than its target.
+ * @param {string} file
+ */
+function isPresent(file) {
+	try {
+		fs.lstatSync(file);
+		return true;
+	} catch {
+		return false;
+	}
+}
 
 /**
  * @param {{ mode: string, path: string }} e
@@ -812,12 +841,13 @@ function writeEntry(e, body, { rev, dir }) {
  * @param {string} dir
  * @param {string} label
  * @param {{ stream: boolean, side: "index" | "baseline", code?: string,
- *   sink: Sink }} opts the streamed report goes to `sink`: inherited where
- *   that is the real fds, so it streams live, else read whole and written
+ *   sink: Sink, env?: NodeJS.ProcessEnv }} opts the streamed report goes to
+ *   `sink`: inherited where that is the real fds, so it streams live, else
+ *   read whole and written
  * @param {string[]} args
  * @returns {{ outcome: Outcome, summary: string, envelope: Record<string, unknown> }}
  */
-function reread(dir, label, { stream, side, code, sink }, args) {
+function reread(dir, label, { stream, side, code, sink, env }, args) {
 	const self = code;
 	if (self === undefined)
 		throw brokenError(`no checker script is named to re-run over ${label}.`);
@@ -831,6 +861,7 @@ function reread(dir, label, { stream, side, code, sink }, args) {
 			stdio: ["ignore", "pipe", sideStderr(stream, live)],
 			env: {
 				...process.env,
+				...env,
 				[SIDE_ENV]: side,
 				...(stream && { [SAY_FD_ENV]: "2" }),
 			},
@@ -1126,13 +1157,13 @@ function readSide(ctx, { against, materialise, work }, rev, { label, which }) {
 	/* A rev's own code is a file in that rev, so only a spawn can run it. */
 	if (ctx.sides === "in-process" && !revCode && ctx._spec)
 		return readInProcess(ctx, ctx._spec, dir, { label, which, stream });
-	const code = revCode
-		? (checkerCopyIn(dir, ctx.script) ?? ctx.script)
-		: ctx.script;
+	const checker = revCode
+		? baselineChecker(rev, dir, against, ctx.script)
+		: undefined;
 	return reread(
 		dir,
 		label,
-		{ stream, side: which, code, sink: ctx.sink },
+		{ stream, side: which, code: ctx.script, sink: ctx.sink, ...checker },
 		ctx.args,
 	);
 }
@@ -1173,20 +1204,73 @@ function readInProcess(ctx, spec, dir, { label, which, stream }) {
 }
 
 /**
- * The copy of the checker at `self` that the tree materialised at `dir`
+ * The copy of the checker at `script` that `rev`, materialised at `dir`,
  * carries at the same path, else undefined.
+ *
+ * A `blobs` tree holds only its pathspecs, so the checker and every file its
+ * run reaches are fetched at `rev` beside them first (#5178). The reach is
+ * lib/code-edges.js's `readRunReach`, seeded from this process's own copy and
+ * then walked over the fetched tree until it names nothing more `rev`
+ * carries: a file only the rev's checker reaches is fetched too, where a
+ * seed alone would leave the rev's copy to crash and read BROKEN.
+ *
+ * That copy runs with this process's core root as its own (lib/script-path.js's
+ * WFC_SCRIPT_ROOT): a `blobs` tree is no whole core, and the root decides how
+ * a message spells a script path, so a copy rooted in the tree would render
+ * the text it measures longer than the index side does. Every other file the
+ * copy finds through coreRoot(), corePath() or docPath() is therefore read off
+ * this process's core too.
+ *
+ * @param {string} rev
  * @param {string} dir
- * @param {string | undefined} self
+ * @param {AgainstSpec} against
+ * @param {string | undefined} script
+ * @returns {{ code: string, env?: NodeJS.ProcessEnv } | undefined}
  */
-function checkerCopyIn(dir, self) {
-	if (self === undefined) return;
-	const abs = path.resolve(self);
-	const copy = path.join(
-		dir,
-		path.basename(path.dirname(abs)),
-		path.basename(abs),
-	);
-	return fs.existsSync(copy) ? copy : undefined;
+function baselineChecker(rev, dir, against, script) {
+	const self = checkerPath(script);
+	if (!self) return;
+	const blobs = against.materialise === "blobs";
+	if (blobs) fetchRunReach(rev, dir, self);
+	const code = path.join(dir, self.rel);
+	if (!isPresent(code)) return;
+	return blobs ? { code, env: { WFC_SCRIPT_ROOT: self.root } } : { code };
+}
+
+/**
+ * The checker at `script`: its path relative to the root above its
+ * directory, and that root.
+ * @param {string | undefined} script
+ * @returns {{ rel: string, root: string } | undefined}
+ */
+function checkerPath(script) {
+	if (script === undefined) return;
+	const abs = path.resolve(script);
+	const root = path.dirname(path.dirname(abs));
+	return { rel: path.relative(root, abs).split(path.sep).join("/"), root };
+}
+
+/**
+ * @param {string} rev
+ * @param {string} dir
+ * @param {{ rel: string, root: string }} self
+ */
+function fetchRunReach(rev, dir, self) {
+	if (listTree(rev, [self.rel]).length === 0) return;
+	/* Required here, not at the top: only a blobs baseline under
+	 * `baselineCode: "rev"` walks a reach, and every other checker would pay
+	 * code-edges.js's load for nothing. */
+	const { readRunReach } = require("./code-edges.js");
+	/** @type {Set<string>} */
+	const asked = new Set();
+	let want = readRunReach(self.root)(self.rel).files;
+	for (;;) {
+		const todo = want.filter((p) => !asked.has(p));
+		if (todo.length === 0) return;
+		for (const p of todo) asked.add(p);
+		writeBlobs(rev, dir, todo);
+		want = readRunReach(dir)(self.rel).missing.map((m) => m.file);
+	}
 }
 
 /**

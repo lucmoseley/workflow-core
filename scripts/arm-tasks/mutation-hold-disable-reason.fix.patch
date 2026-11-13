@@ -976,7 +976,7 @@ index a538d07a98e363a00ce25eaaaed6e8d7dea9da8f..2a26a56eb43459477daa09f75e7fa4b3
  });
 -
 diff --git a/scripts/mutation-hold-gate.js b/scripts/mutation-hold-gate.js
-index 2950aa6f397f6a9b96b76b9c4ee1d94639c7e599..4e03415c8006129df05ef8fbfbb1120e21f474e7 100644
+index ffc6a4d7c1f287acc9a4bae4a259c1a461215745..da2b21005e1183b9ef42e9b32f6b0cd5a0b4ff00 100644
 --- a/scripts/mutation-hold-gate.js
 +++ b/scripts/mutation-hold-gate.js
 @@ -4,9 +4,9 @@
@@ -991,7 +991,7 @@ index 2950aa6f397f6a9b96b76b9c4ee1d94639c7e599..4e03415c8006129df05ef8fbfbb1120e
   *
   *   node scripts/mutation-hold-gate.js             from .husky/pre-commit
   *   node scripts/mutation-hold-gate.js --due       from commit-paths
-@@ -57,6 +57,15 @@
+@@ -59,6 +59,15 @@
   * report carries cached results from other ranges (#1901). A failed initial
   * test run refuses as red tests.
   *
@@ -1006,12 +1006,14 @@ index 2950aa6f397f6a9b96b76b9c4ee1d94639c7e599..4e03415c8006129df05ef8fbfbb1120e
 + *
   * MISSING TOOLS refuse, never pass (#1911): either Stryker package, or vitest,
   * absent from the checkout's own `node_modules`, the one the run's worktree
-  * links. The refusal prints the install line at STRYKER_VERSION. Residual: a
-@@ -106,16 +115,18 @@ const { pathToFileURL } = require("node:url");
+  * links, or a Stryker package older than STRYKER_VERSION (#5180). The refusal
+@@ -108,18 +117,20 @@
  const { writeFileAtomic } = require("./lib/atomic-write.js");
  const { parseOrCode } = require("./lib/cli-args.js");
  const { caught } = require("./lib/caught.js");
 +const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
+ const { readText } = require("./lib/file-read.js");
+ const { compareVersions } = require("./lib/compare-versions.js");
  const { shellQuote } = require("./lib/sh-quote.js");
  const { failOpenLogger } = require("./lib/fail-open-logger.js");
 -const { parseErrorFirstLine } = require("./lib/first-line.js");
@@ -1028,7 +1030,7 @@ index 2950aa6f397f6a9b96b76b9c4ee1d94639c7e599..4e03415c8006129df05ef8fbfbb1120e
  const { CONFIG_PATH, readConfig } = require("./lib/workflow-core-config.js");
  const { writeFd } = require("./lib/write-fd.js");
  
-@@ -139,7 +150,12 @@ const isMutable = (p) => MUTABLE.test(p) && !TEST_NAME.test(p);
+@@ -143,7 +154,12 @@
  const RED_INITIAL = "There were failed tests in the initial test run";
  
  /** @typedef {{start: number, end: number}} LineRange 1-based, inclusive */
@@ -1041,9 +1043,9 @@ index 2950aa6f397f6a9b96b76b9c4ee1d94639c7e599..4e03415c8006129df05ef8fbfbb1120e
  
  const REFUSING = new Set(["Survived", "NoCoverage"]);
  const PASSING = new Set(["Killed", "Timeout", "Ignored"]);
-@@ -189,7 +205,26 @@ const CONFIG_NAMES = ["", "."].flatMap((dot) =>
- const TEST_RUNNER = "vitest";
- const CORE_DEFAULT = { testRunner: TEST_RUNNER, coverageAnalysis: "perTest" };
+@@ -201,7 +217,26 @@
+ const POOL = "forks";
+ const DISABLE_TYPE_CHECKS = false;
  
 +/* Stryker 10's own directive parser, matched against a comment's text
 + * (instrumenter `directive-bookkeeper.js`): group 4 is the reason. Every
@@ -1068,11 +1070,10 @@ index 2950aa6f397f6a9b96b76b9c4ee1d94639c7e599..4e03415c8006129df05ef8fbfbb1120e
  
  const CACHE_NAME = "wfc-mutation-incremental.json";
  
-@@ -374,6 +409,24 @@ const addedRanges = (hunks) =>
- 		.filter((h) => h.newCount > 0)
+@@ -388,6 +423,24 @@
  		.map((h) => ({ start: h.newStart, end: h.newStart + h.newCount - 1 }));
  
-+/**
+ /**
 + * The line HEAD holds where the staged file holds `line`, or null where the
 + * commit adds it.
 + * @param {HunkHeader[]} hunks the file's, from a zero-context diff
@@ -1090,14 +1091,14 @@ index 2950aa6f397f6a9b96b76b9c4ee1d94639c7e599..4e03415c8006129df05ef8fbfbb1120e
 +	return line + shift;
 +}
 +
- /**
++/**
   * Says a fail-open on stderr and writes it to the fail-open log.
   * @param {string} stderrLine after its `pre-commit: ` prefix
-@@ -384,6 +437,375 @@ function reportFailOpen(stderrLine, logLine) {
- 	failOpenLogger("mutation-hold-gate.js")?.(logLine);
+  * @param {string} logLine
+@@ -398,6 +451,376 @@
  }
  
-+/**
+ /**
 + * Says on stderr and in the fail-open log that the disable comments `where`
 + * names went unread, and `why`.
 + * @param {string} where
@@ -1428,8 +1429,9 @@ index 2950aa6f397f6a9b96b76b9c4ee1d94639c7e599..4e03415c8006129df05ef8fbfbb1120e
 +	const read = readCommentsInChild(root, strykerConfig, entries);
 +	if ("error" in read) {
 +		// Fails open, logged: the tools the missing-tool check reads are
-+		// installed, so only a Stryker laid out unlike 10.0.0's, a host config
-+		// that hangs, or a child that will not run, gets here (#2366, #2727).
++		// installed, so only a Stryker laid out unlike STRYKER_VERSION's, a host
++		// config that hangs, or a child that will not run, gets here (#2366,
++		// #2727).
 +		reportUnread(files.join(", "), read.error);
 +		return [];
 +	}
@@ -1466,10 +1468,11 @@ index 2950aa6f397f6a9b96b76b9c4ee1d94639c7e599..4e03415c8006129df05ef8fbfbb1120e
 +	});
 +}
 +
- /**
++/**
   * The mutated span's source text. A location outside the source is a report
   * that will not read, so the hold fails open on it (#2078, #1871 §Faults).
-@@ -702,7 +1124,8 @@ function judge(report, ranges) {
+  * @param {string[]} lines
+@@ -720,7 +1143,8 @@
  
  /**
   * The areas the staged paths touch, under the declaration at HEAD or as
@@ -1479,7 +1482,7 @@ index 2950aa6f397f6a9b96b76b9c4ee1d94639c7e599..4e03415c8006129df05ef8fbfbb1120e
   * @param {ConfigCopy[]} copies
   * @param {string[]} staged
   */
-@@ -719,11 +1142,16 @@ function readHeldRanges(copies, staged) {
+@@ -737,11 +1161,16 @@
  		}
  	/** @type {Map<string, LineRange[]>} */
  	const ranges = new Map();
@@ -1499,7 +1502,7 @@ index 2950aa6f397f6a9b96b76b9c4ee1d94639c7e599..4e03415c8006129df05ef8fbfbb1120e
  }
  
  /**
-@@ -799,6 +1227,16 @@ function readRuleOrPointer() {
+@@ -873,6 +1302,16 @@
  	);
  }
  
@@ -1516,7 +1519,7 @@ index 2950aa6f397f6a9b96b76b9c4ee1d94639c7e599..4e03415c8006129df05ef8fbfbb1120e
  /**
   * The refusal for a run's outcome, or null where it passes.
   * @param {ReturnType<typeof runStryker>} run
-@@ -852,6 +1290,12 @@ function hold(mode) {
+@@ -926,6 +1365,12 @@
  		const missing = missingToolRefusal(root, HOOK_VOICE);
  		if (missing !== null) return refuse(missing);
  		const tree = gitOr(["write-tree"], "could not read the staged tree").trim();

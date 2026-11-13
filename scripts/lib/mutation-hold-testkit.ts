@@ -160,23 +160,34 @@ const TOOLS = [
 	"@stryker-mutator/vitest-runner",
 	"vitest",
 ];
+/** The Stryker version the hold verifies against, and its install line. */
+export const STRYKER_AT = "10.1.1";
+export const INSTALL = `npm install --save-dev @stryker-mutator/core@${STRYKER_AT} @stryker-mutator/vitest-runner@${STRYKER_AT}`;
 /**
- * Install each named package, empty, in `root`'s node_modules; with Stryker's
- * core, its instrumenter beside it, whose Babel core is the core's own.
+ * Install each named package, empty, in `root`'s node_modules, a Stryker one at
+ * `version`; with Stryker's core, its instrumenter beside it, whose Babel core
+ * is the core's own.
  */
-export const install = (names: string[], root = repo) => {
-	for (const n of names) write(`node_modules/${n}/package.json`, "{}\n", root);
+export const install = (names: string[], root = repo, version = STRYKER_AT) => {
+	for (const n of names)
+		write(
+			`node_modules/${n}/package.json`,
+			n.startsWith("@stryker-mutator/")
+				? `${JSON.stringify({ version })}\n`
+				: "{}\n",
+			root,
+		);
 	if (!names.includes("@stryker-mutator/core")) return;
 	write(
 		"node_modules/@stryker-mutator/instrumenter/package.json",
 		"{}\n",
 		root,
 	);
-	fs.mkdirSync(path.join(root, "node_modules/@babel"), { recursive: true });
-	fs.symlinkSync(
-		path.join(ROOT, "node_modules/@babel/core"),
-		path.join(root, "node_modules/@babel/core"),
-	);
+	const babel = path.join(root, "node_modules/@babel/core");
+	fs.mkdirSync(path.dirname(babel), { recursive: true });
+	// Reinstalling over a fixture's own install re-links it.
+	fs.rmSync(babel, { force: true });
+	fs.symlinkSync(path.join(ROOT, "node_modules/@babel/core"), babel);
 };
 
 /** A linked worktree on a branch of its own, holding the line-2 change. */
@@ -337,9 +348,6 @@ export const expectRuleAppended = (r: ReturnType<typeof commit>) => {
 		`${RULE.trim()}\n\npre-commit: the mutation hold refused this commit (rule:mutation-hold). Nothing was committed.`,
 	);
 };
-
-export const INSTALL =
-	"npm install --save-dev @stryker-mutator/core@10.0.0 @stryker-mutator/vitest-runner@10.0.0";
 
 export const changeLine2 = () =>
 	write(MONEY, SEED.replace("amount > 100", "amount >= 100"));

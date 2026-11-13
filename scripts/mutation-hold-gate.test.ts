@@ -40,6 +40,7 @@ import {
 	HOLD_BLOCK,
 	hooks,
 	INSTALL,
+	install,
 	landHostConfig,
 	linkedTree,
 	MONEY,
@@ -199,6 +200,35 @@ describe("mutation-hold-gate.js — a missing tool (#1911)", () => {
 		},
 	);
 
+	it("refuses with the install line a Stryker older than the verified one, whose runner takes no pool (#5180)", () => {
+		install(
+			["@stryker-mutator/core", "@stryker-mutator/vitest-runner"],
+			repo,
+			"10.0.0",
+		);
+		changeLine2();
+		const r = commit([MONEY]);
+		expectHeld(r);
+		expect(r.stderr).toContain(
+			"holds @stryker-mutator/core 10.0.0 and @stryker-mutator/vitest-runner 10.0.0",
+		);
+		expect(r.stderr).toContain(INSTALL);
+		expect(r.stderr).not.toMatch(/(is|are) not installed in/);
+		expectRuleAppended(r);
+		expect(readRuns()).toEqual([]);
+	});
+
+	it("runs a Stryker later than the verified one", () => {
+		install(
+			["@stryker-mutator/core", "@stryker-mutator/vitest-runner"],
+			repo,
+			"11.0.0",
+		);
+		changeLine2();
+		report([]);
+		expectLanded(commit([MONEY]));
+	});
+
 	it("refuses a host with no vitest, saying only vitest is supported", () => {
 		fs.rmSync(path.join(repo, "node_modules", "vitest"), { recursive: true });
 		changeLine2();
@@ -297,7 +327,8 @@ describe("mutation-hold-gate.js — what the run is given", () => {
 			expect(run.config).toMatchObject({
 				testRunner: "vitest",
 				coverageAnalysis: "all",
-				vitest: { configFile: "vitest.mutation.ts" },
+				vitest: { configFile: "vitest.mutation.ts", pool: "forks" },
+				disableTypeChecks: false,
 				mutate: ["lib/money.js:2-2"],
 				concurrency: 2,
 				reporters: ["json"],
@@ -308,6 +339,35 @@ describe("mutation-hold-gate.js — what the run is given", () => {
 			expect(git("status", "--porcelain")).toBe("");
 		},
 	);
+
+	it("runs vitest's forks pool with no type-check rewrite by default, as a test calling process.chdir() or running an executable needs (#5180)", () => {
+		changeLine2();
+		report([]);
+		expectLanded(commit([MONEY]));
+		expect(readRuns()[0].config).toMatchObject({
+			vitest: { pool: "forks" },
+			disableTypeChecks: false,
+		});
+	});
+
+	it("keeps the pool and type-check rewrite a host config names (#5180)", () => {
+		write(
+			"stryker.config.json",
+			JSON.stringify({
+				testRunner: "vitest",
+				vitest: { pool: "threads" },
+				disableTypeChecks: "lib/**/*.js",
+			}),
+		);
+		landHostConfig();
+		changeLine2();
+		report([]);
+		expect(commit([MONEY]).status).toBe(0);
+		expect(readRuns()[0].config).toMatchObject({
+			vitest: { pool: "threads" },
+			disableTypeChecks: "lib/**/*.js",
+		});
+	});
 
 	it("reads no host config the commit's tree lacks", () => {
 		write("stryker.config.json", JSON.stringify({ coverageAnalysis: "off" }));
@@ -1024,9 +1084,7 @@ describe("mutation-hold-gate.js — seeding the cache (#1912)", () => {
 		});
 		const r = seed();
 		expect(r.status).toBe(1);
-		expect(r.stderr).toContain(
-			"npm install --save-dev @stryker-mutator/core@10.0.0",
-		);
+		expect(r.stderr).toContain(INSTALL);
 		expect(r.stderr).toContain("nothing was seeded");
 		expect(readRuns()).toEqual([]);
 	});
@@ -1065,12 +1123,14 @@ describe("mutation-hold-gate.js — seeding the cache (#1912)", () => {
 	it("prints a fault of no gate's own as 'failed', so nothing was seeded (#2250)", () => {
 		// A spy, as no fixture or stub reaches a plain error inside seed's run:
 		// every fault its own reads raise is a HoldFaultError.
-		const tool = path.join("@stryker-mutator", "core");
-		const real = fs.existsSync;
-		const spy = vi.spyOn(fs, "existsSync").mockImplementation((p) => {
-			if (String(p).includes(tool)) throw new TypeError("planted");
-			return real(p);
-		});
+		const real = fs.writeFileSync;
+		const spy = vi
+			.spyOn(fs, "writeFileSync")
+			.mockImplementation((p, ...rest) => {
+				if (String(p).endsWith("stryker.wfc-hold.mjs"))
+					throw new TypeError("planted");
+				return real(p, ...rest);
+			});
 		try {
 			const r = seed();
 			expect(r.status).toBe(1);
