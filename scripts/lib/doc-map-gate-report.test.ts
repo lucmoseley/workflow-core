@@ -17,14 +17,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-	addedItems,
-	greenReport,
-	itemsOf,
-	REPLAY_MARKERS,
-	sliceBlock,
-	UNTRACKED_BLOCKS,
-} from "./doc-map-gate-report.js";
+import { REPLAY_MARKERS, UNTRACKED_BLOCKS } from "./doc-map-gate-markers.js";
+import { greenReport } from "./doc-map-gate-report.js";
 import {
 	syntheticDocMap as buildDocMap,
 	emptyDataFile,
@@ -184,17 +178,6 @@ describe("the WARN blocks a green run replays", () => {
 	it("says nothing on a green run that reports no WARN block", () => {
 		expect(greenReport(OK_REPORT, "")).toEqual({ text: "", exit: 0 });
 	});
-
-	it("loses each replay when its marker stops matching", () => {
-		for (const [i, report] of [
-			GREW_REPORT,
-			MALFORMED_REPORT,
-			DROPPED_REPORT,
-		].entries()) {
-			expect(sliceBlock(report, REPLAY_MARKERS[i])).not.toBe("");
-			expect(sliceBlock(report, /zzz-never-matches/)).toBe("");
-		}
-	});
 });
 
 describe("the untracked blocks a green run replays and judges", () => {
@@ -216,13 +199,6 @@ describe("the untracked blocks a green run replays and judges", () => {
 		expect(text).not.toContain("unreached-noise.md");
 		expect(text).not.toContain("Files no Section C route reaches");
 		expect(text).not.toContain("WARN: 0 doc-map problem(s)");
-	});
-
-	it("leaks the report-only section when the slice loses its end bound", () => {
-		const block = sliceBlock(UNTRACKED_REPORT, UNTRACKED_BLOCKS[0].marker);
-		expect(block.split("\n")).toHaveLength(5);
-		expect(UNTRACKED_REPORT.startsWith(block)).toBe(true);
-		expect(UNTRACKED_REPORT.length).toBeGreaterThan(block.length);
 	});
 
 	/* The half of mantahostels#1300 the replay does not close: the session that ADDS the
@@ -330,11 +306,11 @@ describe("the untracked blocks a green run replays and judges", () => {
 	});
 
 	it("refuses an inherited row when the HEAD comparison is dropped", () => {
-		const items = itemsOf(
-			sliceBlock(UNTRACKED_REPORT, UNTRACKED_BLOCKS[0].marker),
-		);
-		expect(addedItems(items, headWithRows())).toEqual([]);
-		expect(addedItems(items, "# Section A")).toEqual(UNTRACKED_ENTRIES);
+		expect(greenReport(UNTRACKED_REPORT, headWithRows()).exit).toBe(0);
+		const { text, exit } = greenReport(UNTRACKED_REPORT, "# Section A");
+		expect(exit).toBe(1);
+		for (const entry of UNTRACKED_ENTRIES)
+			expect(text).toContain(`  ${entry}\n`);
 	});
 
 	it("stays silent on a green run whose report holds no untracked entry", () => {
@@ -489,7 +465,13 @@ describe("the slice against the real checker's wording and shape", () => {
 			"the real checker did not raise the untracked entry",
 		).toContain(scratch);
 
-		const sliced = sliceBlock(report, UNTRACKED_BLOCKS[0].marker);
+		// Against a HEAD map that lacks the entry, the gate refuses: the replayed
+		// block, then the refusal heading and the items it cut back out.
+		const { text, exit } = greenReport(report, "# Section A");
+		expect(exit).toBe(1);
+		const [sliced, refusal] = text.split(
+			"\npre-commit: this commit adds the doc-map Section A row(s) below",
+		);
 		// Both halves, per §X3: the offending thing, and the way out.
 		expect(sliced).toContain("not yet tracked by git:");
 		expect(sliced).toContain(scratch);
@@ -497,18 +479,20 @@ describe("the slice against the real checker's wording and shape", () => {
 		// The entry comes back OUT of the slice: the refusal compares these paths
 		// against HEAD's map, so a change to reportFault's indent would leave the
 		// gate with nothing to judge (mantahostels#1300).
-		expect(itemsOf(sliced)).toEqual([scratch]);
+		expect(refusal.split("\n").filter((l) => l.startsWith("  docs/"))).toEqual([
+			`  ${scratch}`,
+		]);
 		// And nothing past the advice line — the report-only section stays held.
 		expect(sliced).not.toContain("Section C route");
 		expect(sliced.split("\n").length).toBe(4);
 
 		// Reword the heading and the slice goes silent.
 		expect(
-			sliceBlock(
+			greenReport(
 				report.replace("not yet tracked by git:", "not yet tracked by git —"),
-				UNTRACKED_BLOCKS[0].marker,
-			),
-		).toBe("");
+				"# Section A",
+			).text,
+		).not.toContain(scratch);
 	});
 
 	/* Assertion 23's marker (mantahostels#2124, mantahostels#2268). The fault is a line in the map
@@ -538,7 +522,8 @@ describe("the slice against the real checker's wording and shape", () => {
 			"the real checker did not raise the malformed marker",
 		).toContain("do not parse as one:");
 
-		const sliced = sliceBlock(report, REPLAY_MARKERS[1]);
+		// A green run replays the block, alone, with a newline after it.
+		const sliced = greenReport(report, "").text.replace(/\n$/, "");
 		expect(sliced).toContain("do not parse as one:");
 		expect(sliced).toContain(`${id} — ${nearMiss}`);
 		expect(sliced).toContain("Respell the bullet exactly");
@@ -546,10 +531,10 @@ describe("the slice against the real checker's wording and shape", () => {
 		expect(sliced.split("\n").length).toBe(4);
 
 		expect(
-			sliceBlock(
+			greenReport(
 				report.replace("do not parse as one:", "do not parse as one —"),
-				REPLAY_MARKERS[1],
-			),
+				"",
+			).text,
 		).toBe("");
 	});
 

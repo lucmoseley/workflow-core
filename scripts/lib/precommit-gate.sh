@@ -4,11 +4,11 @@
 # SOURCED, NEVER RUN.
 #
 # Every gate that stages blobs out of the index, bar one, is a single
-# staged_gate declaration. The doc-map gate (.husky/pre-commit) stays spelled
-# out, using these pieces without staged_gate — it holds a `--map-dirty` flag,
-# a temp index its baseline needs, and an untracked-entry replay that no other
-# gate has, and folding those in would make them three more parameters nothing
-# else turns.
+# staged_gate declaration. The doc-map gate is its own Node entry
+# (scripts/precommit-doc-map-gate.js) — it holds a `--map-dirty` flag, a temp
+# index its baseline needs, and an untracked-entry replay that no other gate
+# has — and prints these functions' skip and deletion lines through
+# lib/precommit-gate-verdicts.js.
 #
 # POSIX sh, not bash: every hook sourcing it runs as `sh`, under `set -e`.
 #
@@ -345,9 +345,6 @@ gate_refuse_deleted() {
 # The escape is named because retiring a gated document is legitimate if rare,
 # and without one the only way through is HUSKY=0, which turns off gitleaks and
 # the whole stack with it.
-#
-# Separate from staged_gate so the doc-map gate, which .husky/pre-commit spells
-# out rather than declaring, reaches the refusal too (mantahostels#2902).
 gate_check_deleted() {
   [ -n "$GATE_DELETED" ] || return 0
   if [ -z "${WFC_ALLOW_GATE_INPUT_DELETE:-}" ]; then

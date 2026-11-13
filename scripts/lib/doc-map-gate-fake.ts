@@ -92,7 +92,7 @@ export function fakeGatePorts(scene: GateScene): {
 				stdout: "dead: docs/new-fault.md\n",
 				stderr: "",
 			},
-		headMap: () => {
+		readHeadMap: () => {
 			headMapReads++;
 			return scene.headMap ?? "";
 		},

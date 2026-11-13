@@ -19,38 +19,18 @@
  * Each is replayed as its block alone, never the whole report, and the WARNs
  * never refuse.
  *
- * THE MARKERS MATCH check-doc-map.js's OWN WORDING, and the slice cuts on
- * reportFault's shape after it: message, indented items, a blank line, one
- * advice line. precommit-doc-map-gate.test.ts pins both against the real
- * checker. Each untracked block has its own marker: one matching both would
- * slice whichever came first and judge a route's `C36 → path` item against
- * Section A's wording.
+ * The slice cuts on reportFault's shape after the marker
+ * (lib/doc-map-gate-markers.js): message, indented items, a blank line, one
+ * advice line. doc-map-gate-report.test.ts pins it against the real checker.
  *
  * A CORE (base §T7): it performs no I/O. HEAD's map is handed in.
  */
 
+const {
+	REPLAY_MARKERS,
+	UNTRACKED_BLOCKS,
+} = require("./doc-map-gate-markers.js");
 const { substituted } = require("./precommit-gate-verdicts.js");
-
-/** The WARN blocks replayed alone, in replay order: assertions 22, 23, 24. */
-const REPLAY_MARKERS = [
-	/marked over cap by ruling grew in/,
-	/look like an over-cap marker but do not parse as one:$/,
-	/lost the marker the baseline carried:$/,
-];
-
-/** The untracked blocks, Section A's first. */
-const UNTRACKED_BLOCKS = [
-	{
-		marker: /register entr.* not yet tracked by git:$/,
-		noun: "Section A row(s)",
-		fix: "name the file in this commit's pathspec too, or drop the row until it lands.",
-	},
-	{
-		marker: /Section C route path.* not yet tracked by git:$/,
-		noun: "Section C route(s)",
-		fix: "name the file in this commit's pathspec too, or drop the route until it lands.",
-	},
-];
 
 /**
  * The block of `report` opening on the first line matching `marker`, through
@@ -152,16 +132,7 @@ function greenReport(report, headMap) {
  * to judge: a report without one costs no HEAD read.
  * @param {string} report
  */
-const readsHeadMap = (report) =>
+const hasUntrackedBlock = (report) =>
 	UNTRACKED_BLOCKS.some((block) => sliceBlock(report, block.marker) !== "");
 
-module.exports = {
-	addedItems,
-	greenReport,
-	readsHeadMap,
-	itemsOf,
-	REPLAY_MARKERS,
-	sliceBlock,
-	UNTRACKED_BLOCKS,
-	untrackedVerdict,
-};
+module.exports = { greenReport, hasUntrackedBlock };

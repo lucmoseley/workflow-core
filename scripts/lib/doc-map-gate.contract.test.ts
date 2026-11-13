@@ -19,6 +19,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { runDocMapGate } from "./doc-map-gate.js";
 import { fakeGatePorts, type GateScene } from "./doc-map-gate-fake";
 import { realPorts } from "./doc-map-gate-ports.js";
+import { readText } from "./file-read.js";
 import { defineTemplate, mkScratchDir } from "./git-fixture";
 
 const MAP = "docs/doc-map.md";
@@ -98,13 +99,13 @@ function overRealPorts(real: RealScene, allowDelete = false) {
 			allowDelete,
 		});
 		const log = path.join(root, "calls.log");
-		const calls = fs.existsSync(log)
-			? fs
-					.readFileSync(log, "utf8")
-					.trim()
-					.split("\n")
-					.map((l) => JSON.parse(l))
-			: [];
+		const logged = readText(log);
+		if (logged.state === "unreadable") throw new Error(logged.message);
+		// No log is a run that called no checker.
+		const calls = (logged.state === "read" ? logged.data : "")
+			.split("\n")
+			.filter(Boolean)
+			.map((l) => JSON.parse(l));
 		return { verdict, calls };
 	} finally {
 		process.chdir(cwd);
@@ -127,14 +128,14 @@ function overFake(scene: GateScene, allowDelete = false) {
 }
 
 const SCENES: Record<string, RealScene> = {
-	"a passing check over a staged note": {
+	"passes silently, building no baseline, when the check passes": {
 		arrange: (git, root) => {
 			fs.writeFileSync(path.join(root, "docs", "note.md"), "edited\n");
 			git("add", "--", "docs/note.md");
 		},
 		scene: { check: check(0, "OK: doc map covers everything\n") },
 	},
-	"a failing check whose faults are all inherited": {
+	"passes on inheritance, comparing against HEAD's baseline": {
 		arrange: (git, root) => {
 			fs.writeFileSync(path.join(root, "docs", "note.md"), "edited\n");
 			git("add", "--", "docs/note.md");
@@ -144,7 +145,7 @@ const SCENES: Record<string, RealScene> = {
 			newFaults: faults(0, ""),
 		},
 	},
-	"a failing check adding a fault, its comparison writing diagnostics": {
+	"refuses an added fault, replaying the comparison's stderr as diagnostics": {
 		arrange: (git, root) => {
 			fs.writeFileSync(path.join(root, "docs", "note.md"), "edited\n");
 			git("add", "--", "docs/note.md");
@@ -154,14 +155,14 @@ const SCENES: Record<string, RealScene> = {
 			newFaults: faults(1, "dead: docs/x.md\n", "a warning\n"),
 		},
 	},
-	"a dirty map": {
+	"flags a map that differs from HEAD as dirty to the staged runs": {
 		arrange: (git, root) => {
 			fs.writeFileSync(path.join(root, MAP), "map, mid-edit\n");
 			git("add", "--", MAP);
 		},
 		scene: { mapDiffStatus: 1, check: check(1, "FAIL\n") },
 	},
-	"a map staged but not in HEAD": {
+	"refuses with no baseline when HEAD's tree lacks the map": {
 		arrange: (git) => {
 			git("rm", "-q", "--cached", "--", MAP);
 			git("commit", "-qm", "drop the map");
@@ -173,15 +174,15 @@ const SCENES: Record<string, RealScene> = {
 			check: check(1, "FAIL\n"),
 		},
 	},
-	"a first commit, HEAD unborn": {
+	"refuses with no baseline when HEAD is unborn": {
 		arrange: (git) => git("update-ref", "-d", "HEAD"),
 		scene: { headUnborn: true, mapDiffStatus: 128, check: check(1, "FAIL\n") },
 	},
-	"a staged deletion of the map": {
+	"refuses a staged deletion of the map before any check": {
 		arrange: (git) => git("rm", "-q", "--cached", "--", MAP),
 		scene: { mapInIndex: false, deletion: { ok: true, deleted: true } },
 	},
-	"a map never in the index": {
+	"skips with a warning when the map was never in the index": {
 		arrange: (git, root) => {
 			git("rm", "-q", "--cached", "--", MAP);
 			git("commit", "-qm", "drop the map");
@@ -191,12 +192,12 @@ const SCENES: Record<string, RealScene> = {
 		},
 		scene: { mapInIndex: false },
 	},
-	"an index naming a blob the store lacks": {
+	"skips with a warning when the index will not extract": {
 		arrange: (git) =>
 			git("update-index", "--cacheinfo", `100644,${"1".repeat(40)},${MAP}`),
 		scene: { extracts: false },
 	},
-	"a green report holding an untracked row this commit adds": {
+	"refuses an untracked row this commit adds, reading HEAD's map": {
 		arrange: (git, root) => {
 			fs.writeFileSync(path.join(root, "docs", "note.md"), "edited\n");
 			git("add", "--", "docs/note.md");
@@ -220,8 +221,9 @@ describe("the doc-map gate's fake answers as its production ports do", () => {
 			expect(got.calls).toEqual(want.calls);
 		});
 
-	it("a staged deletion of the map, with the escape set", () => {
-		const real = SCENES["a staged deletion of the map"];
+	it("lets a staged deletion of the map through when the escape is set", () => {
+		const real =
+			SCENES["refuses a staged deletion of the map before any check"];
 		const got = overRealPorts(real, true);
 		expect(got.verdict).toEqual(overFake(real.scene, true).verdict);
 	});

@@ -267,6 +267,7 @@ const GATE_SOURCES: Record<string, string[]> = {
 	"doc-map": [
 		"scripts/lib/precommit-gate-verdicts.js",
 		"scripts/lib/doc-map-gate-report.js",
+		"scripts/lib/doc-map-gate.js",
 	],
 	"context-budget": ["scripts/check-context-budget.js"],
 	"injector-margin": ["scripts/check-injector-margin.sh"],
@@ -313,10 +314,17 @@ describe("the commit-gate refusal table against the gates it copies (#2298)", ()
 				expect(found, `${spelt} in ${GATE_SOURCES[id]}`).toBe(row.sites ?? 1);
 				if (!row.from) continue;
 				expect(row.from.replace(/\$(?:\w+|\{\w+\})/, id)).toBe(row.text);
-				if (!row.via) continue;
-				expect(PRE_COMMIT).toMatch(
-					new RegExp(`^\\s*${row.via} ${id}(\\s|$)`, "m"),
-				);
+				// The placeholder's value is bound at a shell call site (`via`), or
+				// as the id's own string literal in a Node gate's sources.
+				if (row.via)
+					expect(PRE_COMMIT).toMatch(
+						new RegExp(`^\\s*${row.via} ${id}(\\s|$)`, "m"),
+					);
+				else
+					expect(
+						sources.some((src) => src.includes(JSON.stringify(id))),
+						`${id} bound in ${GATE_SOURCES[id]}`,
+					).toBe(true);
 			}
 		},
 	);

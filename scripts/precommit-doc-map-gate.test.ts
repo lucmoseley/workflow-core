@@ -22,7 +22,7 @@
  * the authority map every session checks before an edit stops telling the truth.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -582,6 +582,43 @@ describe("the entry's exits and input channels", () => {
 		expect(output).toBe(
 			"usage: node precommit-doc-map-gate.js (takes no arguments)\n",
 		);
+	});
+
+	/* An interrupt reaches the whole process group, as a terminal's Ctrl-C does:
+	 * the checker dies at once, and the gate, deferring the signal to the end of
+	 * its synchronous run, removes its scratch and exits 128 + the signal. */
+	it("exits 143 on SIGTERM, leaving no scratch behind", async () => {
+		const repo = fixture({
+			staged: { "docs/research/note.md": "x\n" },
+			checkerExit: 1,
+			newFaultsExit: 0,
+		});
+		fs.writeFileSync(
+			path.join(repo, "scripts", "check-doc-map.js"),
+			'if (!process.argv.includes("--json")) {\n' +
+				'  require("node:fs").writeFileSync("started", "");\n' +
+				"  setTimeout(() => {}, 30000);\n" +
+				"} else console.log('{}');\n",
+		);
+		const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "doc-map-sig-"));
+		temps.push(scratch);
+		// spawn-kept: a signal, sent to a live process group.
+		const child = spawn(process.execPath, [path.join(ROOT, ENTRY)], {
+			cwd: repo,
+			detached: true,
+			stdio: "ignore",
+			env: { ...NO_ANNOTATIONS, TMPDIR: scratch },
+		});
+		const code = await new Promise<number | null>((resolve) => {
+			child.on("exit", (c) => resolve(c));
+			const poll = setInterval(() => {
+				if (!fs.existsSync(path.join(repo, "started"))) return;
+				clearInterval(poll);
+				process.kill(-(child.pid as number), "SIGTERM");
+			}, 10);
+		});
+		expect(code).toBe(143);
+		expect(fs.readdirSync(scratch)).toEqual([]);
 	});
 
 	// An adopter's shim sets WFC_PLUGIN_ROOT so the plugin's scripts run (#1839).

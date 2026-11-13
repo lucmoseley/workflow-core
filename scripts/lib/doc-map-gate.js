@@ -53,7 +53,7 @@ const {
 	skipLine,
 	substituted,
 } = require("./precommit-gate-verdicts.js");
-const { greenReport, readsHeadMap } = require("./doc-map-gate-report.js");
+const { greenReport, hasUntrackedBlock } = require("./doc-map-gate-report.js");
 
 const MAP = "docs/doc-map.md";
 const LABEL = "doc-map";
@@ -79,7 +79,7 @@ const LABEL = "doc-map";
  * @property {(out: string) => string} read a file the gate wrote
  * @property {(staged: string, baseline: string) => { status: number, stdout: string, stderr: string }} newFaults
  *   checker-new-faults.js's doc-map comparison
- * @property {() => string} headMap HEAD's docs/doc-map.md, or "" where unreadable
+ * @property {() => string} readHeadMap HEAD's docs/doc-map.md, or "" where unreadable
  */
 
 /**
@@ -163,7 +163,7 @@ function runDocMapGate(ports, env) {
 
 	const green = greenReport(
 		report,
-		readsHeadMap(report) ? ports.headMap() : "",
+		hasUntrackedBlock(report) ? ports.readHeadMap() : "",
 	);
 	return { exit: green.exit, stderr: stderr + green.text };
 }
