@@ -1047,6 +1047,7 @@ module.exports = {
 	admissionSessionIds,
 	oracleCacheKey,
 	readSeatListing,
+	runOracle,
 	sharedSessionIds,
 	sweepSessionIds,
 	TERMINAL_STATES,

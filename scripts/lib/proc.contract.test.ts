@@ -10,7 +10,8 @@
  * the fields the real /proc gives it, reads back through lib/proc-table.js
  * exactly as it reads from /proc — and those fields are checked against what
  * Node knows of this process, so a field the parser and the fake both
- * misplace still fails.
+ * misplace still fails. For the rescue probe (#5157), user CPU ticks land in
+ * the field this process's own CPU time fills.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
@@ -27,8 +28,13 @@ import {
 	writeCwd,
 	writeEnviron,
 } from "./proc-fake";
-import { parseStatFields } from "./proc-stat.js";
-import { ageSeconds, readProcTable, readUptime } from "./proc-table.js";
+import { FIELD, parseStatFields } from "./proc-stat.js";
+import {
+	ageSeconds,
+	readProcTable,
+	readUptime,
+	USER_HZ,
+} from "./proc-table.js";
 
 const { readCarriedWeight } = require("./suite-handoff.js") as {
 	readCarriedWeight: (
@@ -151,6 +157,22 @@ describe.skipIf(!hasProc)("a fake /proc entry for this process", () => {
 			/^\d+\.\d\d \d+\.\d\d\n$/,
 		);
 		expect(realUptime).toMatch(/^\d+\.\d\d \d+\.\d\d\n$/);
+	});
+
+	it("writes user CPU ticks in the field the kernel spends them in", () => {
+		const fields = parseStatFields(
+			fs.readFileSync(`/proc/${process.pid}/stat`, "utf8"),
+		);
+		const ticks = (process.cpuUsage().user / 1e6) * USER_HZ;
+		const real = Number(fields?.[FIELD.utime]);
+
+		/* Both read the same moment, a few ticks apart at most. */
+		expect(Math.abs(real - ticks)).toBeLessThan(Math.max(5, ticks * 0.05));
+		const built = parseStatFields(
+			buildStatLine(process.pid, { comm, utime: real, startTicks: 1 }),
+		);
+		expect(Number(built?.[FIELD.utime])).toBe(real);
+		expect(Number(built?.[FIELD.stime])).toBe(0);
 	});
 
 	it("reads back through readProcTable as it reads from /proc", () => {
