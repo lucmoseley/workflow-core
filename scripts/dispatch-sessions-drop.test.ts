@@ -25,7 +25,7 @@ import { describe, expect, it } from "vitest";
 import { dispatchFixture } from "./lib/dispatch-sessions-testkit";
 
 const fx = dispatchFixture();
-const { stubClaude, readArgvLines, run } = fx;
+const { stubClaude, readArgvLines, runCore, run } = fx;
 
 /* Refusal is per member, not per set — the follow-up to mantahostels#1337. */
 describe("a set with one member already dispatched", () => {
@@ -43,27 +43,37 @@ describe("a set with one member already dispatched", () => {
 		return readArgvLines().filter((l) => l.includes("--bg"));
 	}
 
-	it("launches the clean members instead of refusing the whole set", () => {
+	it("launches the clean members instead of refusing the whole set", async () => {
 		stubClaude({});
-		run(["sonnet", "/implement 341"]);
-		const second = run(["sonnet", "/implement 341", "opus", "/wayfinder 1114"]);
+		await runCore(["sonnet", "/implement 341"]);
+		const second = await runCore([
+			"sonnet",
+			"/implement 341",
+			"opus",
+			"/wayfinder 1114",
+		]);
 		expect(second.code).toBe(0);
 		expect(readBgLaunches().filter((l) => l.includes("1114"))).toHaveLength(1);
 		expect(readBgLaunches().filter((l) => l.includes("341"))).toHaveLength(1);
 	});
 
-	it("names the member it dropped, so a quieter launch is still visible", () => {
+	it("names the member it dropped, so a quieter launch is still visible", async () => {
 		stubClaude({});
-		run(["sonnet", "/implement 341"]);
-		const second = run(["sonnet", "/implement 341", "opus", "/wayfinder 1114"]);
+		await runCore(["sonnet", "/implement 341"]);
+		const second = await runCore([
+			"sonnet",
+			"/implement 341",
+			"opus",
+			"/wayfinder 1114",
+		]);
 		expect(second.stderr).toContain("dropped: /implement 341");
 		expect(second.stdout).toContain("Launching 1 of 2 set(s)");
 	});
 
-	it("records only the members it actually launched", () => {
+	it("records only the members it actually launched", async () => {
 		stubClaude({});
-		run(["sonnet", "/implement 341"]);
-		run(["sonnet", "/implement 341", "opus", "/wayfinder 1114"]);
+		await runCore(["sonnet", "/implement 341"]);
+		await runCore(["sonnet", "/implement 341", "opus", "/wayfinder 1114"]);
 		const issues = fs
 			.readFileSync(ledgerFile(), "utf8")
 			.trim()
@@ -72,10 +82,10 @@ describe("a set with one member already dispatched", () => {
 		expect(issues).toEqual([[341], [1114]]);
 	});
 
-	it("drops by member, so an unrelated issue in the same prompt goes too", () => {
+	it("drops by member, so an unrelated issue in the same prompt goes too", async () => {
 		stubClaude({});
-		run(["sonnet", "/implement 341"]);
-		const second = run([
+		await runCore(["sonnet", "/implement 341"]);
+		const second = await runCore([
 			"sonnet",
 			"/implement 341 353",
 			"opus",
@@ -93,9 +103,9 @@ describe("a set with one member already dispatched", () => {
 		expect(again.stderr).toContain("every member of this set");
 	});
 
-	it("refuses a launch prompt containing a newline, which would desync the drop list", () => {
+	it("refuses a launch prompt containing a newline, which would desync the drop list", async () => {
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341\n/wayfinder 1114"]);
+		const r = await runCore(["sonnet", "/implement 341\n/wayfinder 1114"]);
 		expect(r.code).toBe(2);
 		expect(r.stderr).toContain("may not contain a newline");
 	});
