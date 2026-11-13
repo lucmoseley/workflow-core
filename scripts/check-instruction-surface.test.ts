@@ -29,6 +29,7 @@ import {
 	it,
 } from "vitest";
 import { writeFaultyGit } from "./lib/git-fault-fake";
+import { defineTemplate } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "check-instruction-surface.js");
@@ -1377,12 +1378,25 @@ describe("reading git rather than the working tree", () => {
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 
+	/* The default tree committed once, built once and copied (#5144). */
+	const committedTree = defineTemplate((at) => {
+		const own = dir;
+		dir = at;
+		try {
+			buildTree();
+			git("init", "-q");
+			git("config", "user.email", "t@t");
+			git("config", "user.name", "t");
+			git("add", "-A");
+			git("commit", "-q", "-m", "fixture");
+		} finally {
+			dir = own;
+		}
+	});
+
 	beforeEach(() => {
-		git("init", "-q");
-		git("config", "user.email", "t@t");
-		git("config", "user.name", "t");
-		git("add", "-A");
-		git("commit", "-q", "-m", "fixture");
+		fs.rmSync(dir, { recursive: true, force: true });
+		committedTree.instantiate(dir);
 	});
 
 	it("counts the core's self-plugin and settings hooks at HEAD, not its working tree (#2442, #2572)", () => {

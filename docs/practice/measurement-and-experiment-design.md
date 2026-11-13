@@ -25,4 +25,6 @@ Researched: 2026-11-10
 ## Controls and the stated plan
 
 - Compare against a control in the same period where one exists; a before/after window is weaker, because "time is one of the biggest sources of change in observed metrics". SRE Workbook, "Canarying Releases"; Spinnaker (baseline deployed at the same time) [named expert]
+- On a shared, loaded host, time the two versions at the same moment rather than one after the other, and judge them by the paired ratio: both runs meet the same interference, which the pairing filters out. It gives a relative figure only, never an absolute time. Bulej, Horký and Tůma, "Initial Experiments with Duet Benchmarking" (ICPE 2019 companion) and "Duet Benchmarking: Improving Measurement Accuracy in the Cloud", arXiv 2001.05811 (ICPE 2020) [named expert]
+- The two concurrent runs contend with each other, CPU scheduling included, so alternate which starts first and keep each to the smallest unit compared. "Investigating the Impact of Isolation on Synchronized Benchmarks", arXiv 2511.03533 (2025) [named expert]
 - A defended window states the question, the baseline as k/N with its source, the target bound, the confidence, the method, the resulting n with its expected time at the observed rate, and the stopping rule. Full survey: #4926.

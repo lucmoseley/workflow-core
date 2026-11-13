@@ -20,10 +20,10 @@
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import vitestConfig from "../vitest.config";
+import { defineTemplate, mkDirOutsideRepo } from "./lib/git-fixture";
 import { isUnder } from "./lib/is-under.js";
 import {
 	buildBashPayload,
@@ -76,6 +76,14 @@ const ENV = () => ({
 
 const run = (cwd: string, ...args: string[]) =>
 	runInProcess(SCRIPT, args, { cwd, env: ENV() });
+
+/** A cut worktree's directory. Asserted first: a failed cut prints nothing, and
+ * a write joined onto "" lands in the test's own working directory. */
+const cutDir = (name: string) => {
+	const r = run(main, "cut", name);
+	expect(r.status, r.stderr).toBe(0);
+	return r.stdout.trim();
+};
 
 const readInstalls = () =>
 	fs.existsSync(npmCalls)
@@ -131,8 +139,34 @@ const holdLanderLock = () => {
 	return landerHolder.pid;
 };
 
+/* The bare origin and its clone, one commit behind origin's `main`, are the
+ * same tree in every case, so they are built once and copied (#5144).
+ * git-identity-exempt: the bare origin takes no commit; the clone sets one. */
+const template = defineTemplate((dir) => {
+	const bare = path.join(dir, "origin.git");
+	const clone = path.join(dir, "main");
+	git(dir, "init", "-q", "--bare", "-b", "main", bare);
+	git(dir, "clone", "-q", bare, clone);
+	git(clone, "config", "user.email", "t@t");
+	git(clone, "config", "user.name", "t");
+	commitIn(
+		clone,
+		{
+			".gitignore": "/node_modules\n.claude/worktrees/\n",
+			"package.json": "{}\n",
+			"package-lock.json": "lock-1\n",
+		},
+		"seed",
+	);
+	git(clone, "push", "-q", "origin", "HEAD:main");
+	commitIn(clone, { "landed.txt": "x" }, "landed");
+	git(clone, "push", "-q", "origin", "HEAD:main");
+	git(clone, "reset", "-q", "--hard", "HEAD~1");
+});
+
 beforeEach(() => {
-	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "checkout-")));
+	tmp = mkDirOutsideRepo("checkout-");
+	template.instantiate(tmp);
 	origin = path.join(tmp, "origin.git");
 	main = path.join(tmp, "main");
 	npmCalls = path.join(tmp, "npm-calls");
@@ -142,23 +176,6 @@ beforeEach(() => {
 		`#!/bin/sh\nmkdir node_modules && cp package-lock.json node_modules/lock && pwd >> ${shellQuote(npmCalls)}\n`,
 	);
 	fs.chmodSync(npmStub, 0o755);
-	git(tmp, "init", "-q", "--bare", "-b", "main", origin);
-	git(tmp, "clone", "-q", origin, main);
-	git(main, "config", "user.email", "t@t");
-	git(main, "config", "user.name", "t");
-	commitIn(
-		main,
-		{
-			".gitignore": "/node_modules\n.claude/worktrees/\n",
-			"package.json": "{}\n",
-			"package-lock.json": "lock-1\n",
-		},
-		"seed",
-	);
-	git(main, "push", "-q", "origin", "HEAD:main");
-	commitIn(main, { "landed.txt": "x" }, "landed");
-	git(main, "push", "-q", "origin", "HEAD:main");
-	git(main, "reset", "-q", "--hard", "HEAD~1");
 	holdLanderLock();
 });
 
@@ -202,7 +219,7 @@ it("gives a launch a worktree named for its prompt where the repository lands th
 });
 
 it("gives a launch --into an existing session worktree that worktree, uncut and its work kept (#4385)", () => {
-	const dead = run(main, "cut", "dead-one").stdout.trim();
+	const dead = cutDir("dead-one");
 	fs.writeFileSync(path.join(dead, "half-done.txt"), "uncommitted");
 
 	const r = run(main, "launch-dir", "--into", dead, "/implement 4385");
@@ -216,7 +233,7 @@ it("gives a launch --into an existing session worktree that worktree, uncut and 
 });
 
 it("refuses a launch --into a worktree a live process still works in, naming its pid (#4385)", () => {
-	const dead = run(main, "cut", "still-held").stdout.trim();
+	const dead = cutDir("still-held");
 	/* 60 s outlives the case; `finally` kills it. */
 	const holder = spawn("sh", ["-c", "sleep 60"], {
 		cwd: dead,
@@ -240,7 +257,7 @@ it("refuses a launch --into a worktree whose own canary line cannot start, namin
 	git(main, "add", ...seedCanary(main));
 	git(main, "commit", "-qm", "canary");
 	git(main, "push", "-q", "origin", "HEAD:main");
-	const dead = run(main, "cut", "broke-its-canary").stdout.trim();
+	const dead = cutDir("broke-its-canary");
 	editSettings(dead, breakCanaryPath);
 
 	const r = run(main, "launch-dir", "--into", dead, "/implement 4752");
