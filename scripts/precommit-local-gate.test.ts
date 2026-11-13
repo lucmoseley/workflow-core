@@ -23,7 +23,14 @@ import {
 	HOOK,
 	LIB,
 	LOCAL_GATE_OPEN,
+	ROOT,
 } from "./lib/precommit-gate-testkit";
+
+/** The missing-script check the block calls (#5142). */
+const LOCAL_LIB = fs.readFileSync(
+	path.join(ROOT, "scripts", "lib", "local-hook.sh"),
+	"utf8",
+);
 
 const temps = registerTempCleanup();
 
@@ -48,7 +55,7 @@ function fixture(opts: {
 }
 
 function run(root: string) {
-	const script = `${LIB}\n\n${cutLocalGateBlock()}\necho REACHED-END\n`;
+	const script = `${LIB}\n${LOCAL_LIB}\n\n${cutLocalGateBlock()}\necho REACHED-END\n`;
 	const r = spawnSync("sh", ["-e", "-c", script], {
 		cwd: root,
 		encoding: "utf8",
