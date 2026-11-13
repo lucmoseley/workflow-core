@@ -1394,7 +1394,10 @@ describe("reading git rather than the working tree", () => {
 		}
 	});
 
-	beforeEach(() => committedTree.instantiate(dir));
+	beforeEach(() => {
+		fs.rmSync(dir, { recursive: true, force: true });
+		committedTree.instantiate(dir);
+	});
 
 	it("counts the core's self-plugin and settings hooks at HEAD, not its working tree (#2442, #2572)", () => {
 		/* WFC_SCRIPT_ROOT makes `dir` the core, as the real checkout is to its

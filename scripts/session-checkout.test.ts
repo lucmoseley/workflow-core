@@ -20,11 +20,10 @@
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import vitestConfig from "../vitest.config";
-import { defineTemplate } from "./lib/git-fixture";
+import { defineTemplate, mkDirOutsideRepo } from "./lib/git-fixture";
 import { isUnder } from "./lib/is-under.js";
 import {
 	buildBashPayload,
@@ -166,7 +165,7 @@ const template = defineTemplate((dir) => {
 });
 
 beforeEach(() => {
-	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "checkout-")));
+	tmp = mkDirOutsideRepo("checkout-");
 	template.instantiate(tmp);
 	origin = path.join(tmp, "origin.git");
 	main = path.join(tmp, "main");
