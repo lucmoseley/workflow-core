@@ -18,7 +18,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
 	commitAll,
 	freshSandbox,
@@ -28,7 +28,7 @@ import {
 	store,
 } from "./lib/arbiter-testkit";
 import { GRAPHQL_FAKE } from "./lib/gh-fake";
-import { stubGhScript } from "./lib/gh-stub";
+import { type GhStubServer, serveGhStub, stubGhScript } from "./lib/gh-stub";
 import { hexShaCommit } from "./lib/hex-sha-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -57,29 +57,31 @@ const read = (name: string) => fs.readFileSync(state(name), "utf8");
 
 /**
  * `gh` over one ticket (#534) and its parent (#528), kept in files under
- * STUB_DIR. Levers: `close-fails` and `edit-fails` make that write fail;
+ * STUB_DIR, answered by one long-lived server for the whole file (#5189).
+ * Levers: `close-fails` and `edit-fails` make that write fail;
  * `comments-fail` makes reading the comments fail;
  * `subs.json` is the ticket's sub-issues, none where it is absent;
  * `clobber` is written over the map right after the first map edit — a rival
  * writing from a base older than the neighbour's line.
  */
-const STUB = `#!/usr/bin/env node
-${GRAPHQL_FAKE}
+const HANDLER = `${GRAPHQL_FAKE}
 const fs = require("node:fs");
 const path = require("node:path");
-const S = process.env.STUB_DIR;
+const S = env.STUB_DIR;
 const f = (n) => path.join(S, n);
-const a = process.argv.slice(2);
+const a = argv;
 fs.appendFileSync(f("calls"), a.join(" ") + "\\n");
-const say = (o) => { process.stdout.write(typeof o === "string" ? o : JSON.stringify(o)); process.exit(0); };
-const no = (m) => { process.stderr.write(m + "\\n"); process.exit(1); };
+const say = (o) => { out(typeof o === "string" ? o : JSON.stringify(o)); exit(0); };
+const no = (m) => { err(m + "\\n"); exit(1); };
 const issue = () => JSON.parse(fs.readFileSync(f("issue.json"), "utf8"));
 const comments = () => JSON.parse(fs.readFileSync(f("comments.json"), "utf8"));
 if (a[0] === "api") {
 	if (a[1] === "user") say({ login: "me" });
-	if (a[1] === "graphql")
+	if (a[1] === "graphql") {
 		// Every cited number open, unless the gql-closed file lists it (#984).
-		serveAnswer(answerGraphql(a, fs.existsSync(f("gql-closed")) ? fs.readFileSync(f("gql-closed"), "utf8").split(" ") : [], []));
+		const g = answerGraphql(a, fs.existsSync(f("gql-closed")) ? fs.readFileSync(f("gql-closed"), "utf8").split(" ") : [], []);
+		out(g.stdout); err(g.stderr); exit(g.status);
+	}
 	if (a[1] === "repos/acme/widgets/issues/534") say(issue());
 	if (a[1] === "repos/acme/widgets/issues/534/sub_issues")
 		say([fs.existsSync(f("subs.json")) ? JSON.parse(fs.readFileSync(f("subs.json"), "utf8")) : []]);
@@ -92,7 +94,7 @@ if (a[0] === "api") {
 	no("HTTP 404: Not Found");
 }
 if (a[0] === "issue" && a[1] === "comment") {
-	fs.writeFileSync(f("comments.json"), JSON.stringify([...comments(), { user: { login: "me" }, body: fs.readFileSync(0, "utf8") }]));
+	fs.writeFileSync(f("comments.json"), JSON.stringify([...comments(), { user: { login: "me" }, body: stdin }]));
 	say("https://github.com/acme/widgets/issues/534#issuecomment-1\\n");
 }
 if (a[0] === "issue" && a[1] === "close") {
@@ -103,12 +105,18 @@ if (a[0] === "issue" && a[1] === "close") {
 if (a[0] === "issue" && a[1] === "view" && a[2] === "528") say({ body: fs.readFileSync(f("map.md"), "utf8") });
 if (a[0] === "issue" && a[1] === "edit" && a[2] === "528") {
 	if (fs.existsSync(f("edit-fails"))) no("HTTP 502: Bad Gateway");
-	fs.writeFileSync(f("map.md"), fs.readFileSync(a[a.indexOf("--body-file") + 1], "utf8"));
+	fs.writeFileSync(f("map.md"), fs.readFileSync(path.resolve(cwd, a[a.indexOf("--body-file") + 1]), "utf8"));
 	if (fs.existsSync(f("clobber"))) { fs.copyFileSync(f("clobber"), f("map.md")); fs.rmSync(f("clobber")); }
 	say("");
 }
 no("gh stub: unsupported: " + a.join(" "));
 `;
+
+let server: GhStubServer;
+beforeAll(async () => {
+	server = await serveGhStub(HANDLER);
+});
+afterAll(() => server.close());
 
 const MAP =
 	"## Decisions so far\n\n- #530 — neighbour's line\n\n## Not yet specified\n\nfog\n";
@@ -161,7 +169,7 @@ const run = (args: string[], comment = COMMENT, cwd?: string) => {
 			cwd,
 			env: {
 				...process.env,
-				...stubGhScript(sb.dir, STUB).env,
+				...stubGhScript(sb.dir, server.script).env,
 				CLAUDE_CODE_SESSION_ID: ME,
 				CLAUDE_JOB_DIR: sb.dir,
 				STUB_DIR: path.join(sb.dir, "gh"),
