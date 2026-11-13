@@ -145,45 +145,6 @@ describe("the model reading (#4969)", () => {
 		]);
 	});
 
-	it("refuses a body whose override gives no reason", () => {
-		setUp();
-		const r = judged(
-			`Build it.\n\n${Wait}\n**Gate judge override:**\n`,
-			waitFound,
-		);
-		expect(r.status).toBe(2);
-		expect(r.stderr).toContain("gives no reason, so it clears nothing");
-		expect(readGhCalls()).toEqual([]);
-	});
-
-	it("refuses a body the patterns fault, an override line present", () => {
-		setUp();
-		const r = judged(
-			`**Gated until:** 2026-10-05 — a week live\n\n${Wait}\n${OVERRIDE_LINE}\n`,
-			waitFound,
-		);
-		expect(r.status).toBe(2);
-		expect(r.stderr).toContain("as the wording patterns read it");
-		expect(readGhCalls()).toEqual([]);
-	});
-
-	it("refuses a body the patterns fault as before, the model's finding in the same message", () => {
-		setUp();
-		const r = judged(
-			`**Gated until:** 2026-10-05 — a week live\n\n${Wait}\n`,
-			waitFound,
-		);
-		expect(r.status).toBe(2);
-		expect(r.stderr).toContain("Nothing filed: the body carries");
-		const refusal = r.stderr.slice(r.stderr.indexOf("Nothing filed:"));
-		expect(refusal).toContain(
-			"no `**Gate basis:**` line, as the wording patterns read it.",
-		);
-		expect(refusal).toContain(`It also carries ${MODEL_LEAD}:`);
-		expect(refusal).toContain(`"${Wait}"`);
-		expect(readGhCalls()).toEqual([]);
-	});
-
 	it("files on the patterns alone where the model cannot be had, saying so once", () => {
 		setUp();
 		const r = judged(`Build it.\n\n${Wait}\n`, { exit: 1 });
@@ -192,23 +153,6 @@ describe("the model reading (#4969)", () => {
 		expect(r.stderr.split(FALLBACK_LEAD)).toHaveLength(2);
 		expect(r.stderr).toContain("the judge exited 1");
 		expect(r.stderr).not.toContain(MODEL_LEAD);
-	});
-
-	it("logs the call: route, faults by reading, wall time, fallback", () => {
-		setUp();
-		fs.rmSync(callLogPath(), { force: true });
-		judged(`Build it.\n\n${Wait}\n`, waitFound);
-		const rows = readJsonl(callLogPath())?.rows ?? [];
-		expect(rows).toEqual([
-			expect.objectContaining({
-				route: "file-issue",
-				issue: null,
-				patterns: [],
-				model: [{ kind: "no-basis", text: Wait, on: "data" }],
-				ms: expect.any(Number),
-				fallback: null,
-			}),
-		]);
 	});
 });
 
