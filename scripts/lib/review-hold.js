@@ -43,7 +43,8 @@ const DETAIL_MAX = 300;
  * @property {(stamp: string, text: string) => void} writeStamp throws on a
  *   failed write
  * @property {(stamp: string) => void} dropStamp removes it, never throwing
- * @property {(id: string) => string | null} ruleText null where unreadable
+ * @property {() => string} ruleText the review-hold rule, or the line saying
+ *   how to restore it
  * @property {(what: string, detail?: string) => void} log the fail-open log
  */
 
@@ -170,7 +171,7 @@ function judge(ports, said) {
 			marker,
 			fault,
 			stagedFault: read.fault,
-			rule: ports.ruleText("review-hold"),
+			rule: ports.ruleText(),
 		}),
 	);
 	return { status: 1, stderr: said.join("") };

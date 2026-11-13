@@ -101,7 +101,7 @@ const stampValue = (text, tree) =>
  * @param {string} r.marker
  * @param {string} r.fault
  * @param {string} r.stagedFault the staged declaration's read fault, or ""
- * @param {string | null} r.rule the rule's text, null where unreadable
+ * @param {string} r.rule
  */
 function refusal({ areas, offSides, marker, fault, stagedFault, rule }) {
 	const lines = [
@@ -117,12 +117,10 @@ function refusal({ areas, offSides, marker, fault, stagedFault, rule }) {
 		lines.push(
 			`  The staged .claude/workflow-core.json will not read, and a review would land it broken, so correct it first: ${stagedFault}`,
 		);
-	if (rule === null)
-		lines.push(
-			"  The rule itself could not be read from docs/agents/rules/review-hold.txt. Restore that file from origin/main, or revert the change that removed it, then read it before going on.",
-		);
-	else lines.push("", stripNewlines(rule), "");
 	lines.push(
+		"",
+		stripNewlines(rule),
+		"",
 		"pre-commit: the review hold refused this commit (rule:review-hold). Nothing was committed.",
 	);
 	return `${lines.join("\n")}\n`;

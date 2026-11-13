@@ -173,14 +173,4 @@ describe("refusal", () => {
 				"pre-commit: the review hold refused this commit (rule:review-hold). Nothing was committed.\n",
 		);
 	});
-
-	it("says how to restore the rule where it cannot be read", () => {
-		expect(refusal({ ...base, rule: null })).toBe(
-			"pre-commit: this commit changes a declared sensitive path, and no escalated review of exactly this change is recorded (#1622).\n" +
-				"  Areas touched: money, secrets.\n" +
-				"  The marker /m/.codereview-pass-s does not clear it: there is no marker.\n" +
-				"  The rule itself could not be read from docs/agents/rules/review-hold.txt. Restore that file from origin/main, or revert the change that removed it, then read it before going on.\n" +
-				"pre-commit: the review hold refused this commit (rule:review-hold). Nothing was committed.\n",
-		);
-	});
 });
