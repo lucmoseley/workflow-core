@@ -55,7 +55,12 @@ import {
 	live as liveSession,
 } from "./lib/arbiter-testkit";
 import { stubGhScript } from "./lib/gh-stub";
-import { defineTemplate, initGitRepo, mkScratchDir } from "./lib/git-fixture";
+import {
+	defineTemplate,
+	initGitRepo,
+	mkDirOutsideRepo,
+	mkScratchDir,
+} from "./lib/git-fixture";
 import { writeEnviron } from "./lib/proc-fake";
 import { isDead } from "./lib/process-fixture";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -90,20 +95,22 @@ const renderFails = () => {
 	throw new Error("render failed");
 };
 
-/** A git repo with one commit, so `readHeadSha` and `repoRoot` both answer. */
-function repo() {
-	const dir = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), "runvitest-")),
-	);
-	dirs.push(dir);
+/* The one-commit repo every `repo()` hands out, built once and copied (#5144). */
+const repoTemplate = defineTemplate((dir) => {
 	for (const args of [
 		["init", "-q"],
 		["config", "user.email", "t@example.com"],
 		["config", "user.name", "t"],
 		["commit", "-q", "--allow-empty", "-m", "root"],
 	])
-		require("node:child_process").spawnSync("git", args, { cwd: dir });
-	return dir;
+		require("node:child_process").execFileSync("git", args, { cwd: dir });
+});
+
+/** A git repo with one commit, so `readHeadSha` and `repoRoot` both answer. */
+function repo() {
+	const dir = mkDirOutsideRepo("runvitest-");
+	dirs.push(dir);
+	return repoTemplate.instantiate(dir);
 }
 
 /** `dir` declaring `commands`, which a message naming one reads off the root
@@ -7028,6 +7035,33 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			return { base, mine, theirs, loose };
 		}
 
+		/* `ownRange` over a fresh `repo()` or `repoWithDeps()` is the same
+		 * history in every case, so each is built once and copied, its shas
+		 * recorded at build (#5144). */
+		const ranges: Record<string, ReturnType<typeof ownRange>> = {};
+		const ownRangeTemplate = defineTemplate({
+			plain: (at) => {
+				repoTemplate.instantiate(at);
+				ranges.plain = ownRange(at);
+			},
+			deps: (at) => {
+				repoWithDepsTemplate.instantiate(at);
+				ranges.deps = ownRange(path.join(at, "repo"));
+			},
+		});
+
+		/** A `repo()` (`plain`) or `repoWithDeps()` (`deps`) past `ownRange`. */
+		function withOwnRange(variant: "plain" | "deps") {
+			const at =
+				variant === "plain"
+					? mkDirOutsideRepo("runvitest-")
+					: mkScratchDir("runvitest-deps-");
+			dirs.push(at);
+			ownRangeTemplate.instantiate(at, variant);
+			const dir = variant === "plain" ? at : path.join(at, "repo");
+			return { dir, r: ranges[variant] };
+		}
+
 		const commitLedgerOf = (ledgers: Record<string, string[] | null>) => ({
 			ledgerRoot: () => "/main",
 			readCommitsBy: (id: string) => (id in ledgers ? ledgers[id] : []),
@@ -7097,8 +7131,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		}
 
 		it("selects none of the readers only a neighbour's commit reaches, and keeps an unledgered commit's", async () => {
-			const dir = repo();
-			const r = ownRange(dir);
+			const { dir, r } = withOwnRange("plain");
 			const run = await runSeeing(dir, [SHARED_FLAG], {
 				sessionId: "me",
 				commitLedger: commitLedgerOf({ me: [r.mine], them: [r.theirs] }),
@@ -7115,8 +7148,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		});
 
 		it("meets the gate, and composes with the neighbour's own certificate at the push", async () => {
-			const dir = repo();
-			const r = ownRange(dir);
+			const { dir, r } = withOwnRange("plain");
 			const run = await runSeeing(dir, [SHARED_FLAG], {
 				sessionId: "me",
 				commitLedger: commitLedgerOf({ me: [r.mine], them: [r.theirs] }),
@@ -7165,8 +7197,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 					commitLedger: commitLedgerOf({ me: null }),
 				}),
 			]) {
-				const dir = repo();
-				const r = ownRange(dir);
+				const { dir, r } = withOwnRange("plain");
 				const run = await runSeeing(dir, [SHARED_FLAG], extraFor(r));
 				expect(run.args).toContain("theirs.test.js");
 				expect(readLaunch(run.env).changedPaths).toEqual([
@@ -7179,8 +7210,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		});
 
 		it("leaves an explicit `--changed <ref>` unnarrowed, the route for taking a neighbour's commit on", async () => {
-			const dir = repo();
-			const r = ownRange(dir);
+			const { dir, r } = withOwnRange("plain");
 			const run = await runSeeing(dir, ["--changed", r.base], {
 				sessionId: "me",
 				commitLedger: commitLedgerOf({ me: [r.mine], them: [r.theirs] }),
@@ -7205,8 +7235,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		});
 
 		it("says nothing of neighbours where the range holds none of theirs", async () => {
-			const dir = repo();
-			const r = ownRange(dir);
+			const { dir, r } = withOwnRange("plain");
 			const run = await runSeeing(dir, ["--changed", r.base], {
 				sessionId: "me",
 				commitLedger: commitLedgerOf({ me: [r.mine] }),
@@ -7233,8 +7262,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			});
 
 			it("names the own-work run on the shared tree too", async () => {
-				const dir = repo();
-				const r = ownRange(dir);
+				const { dir, r } = withOwnRange("plain");
 				const run = await runSeeing(dir, [SHARED_FLAG, "--changed"], {
 					sessionId: "me",
 					commitLedger: commitLedgerOf({ me: [r.mine], them: [r.theirs] }),
@@ -7243,8 +7271,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			});
 
 			it("not where it selects a test, nor with no unpushed commit of its own", async () => {
-				const dir = repo();
-				const r = ownRange(dir);
+				const { dir, r } = withOwnRange("plain");
 				fs.writeFileSync(path.join(dir, "mine.js"), "dirty\n");
 				const selecting = await runSeeing(dir, [SHARED_FLAG, "--changed"], {
 					sessionId: "me",
@@ -7283,8 +7310,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 		});
 
 		it("reads the range inside the overlay worktree too (#812)", async () => {
-			const dir = repoWithDeps();
-			const r = ownRange(dir);
+			const { dir, r } = withOwnRange("deps");
 			const run = await runSeeing(dir, [], {
 				sessionId: "me",
 				ledger: ledgerOf([]),
@@ -7308,8 +7334,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			}
 
 			it("with nothing of its own uncommitted, beside a neighbour's half-written file", async () => {
-				const dir = repoWithDeps();
-				const r = ownRange(dir);
+				const { dir, r } = withOwnRange("deps");
 				/* The overlay leaves it out, so the guard, reading the shared
 				 * tree, must too. */
 				fs.writeFileSync(path.join(dir, "theirs.js"), "half-written\n");
@@ -7329,8 +7354,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			});
 
 			it("with a file an inline program quoted, which the overlay carries (#1220)", async () => {
-				const dir = repoWithDeps();
-				const r = ownRange(dir);
+				const { dir, r } = withOwnRange("deps");
 				fs.writeFileSync(path.join(dir, "quoted.js"), "new\n");
 				const { run, guard } = await bothOver(dir, {
 					ledger: {
@@ -7344,8 +7368,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			});
 
 			it("with a new file of its own the overlay carries", async () => {
-				const dir = repoWithDeps();
-				const r = ownRange(dir);
+				const { dir, r } = withOwnRange("deps");
 				fs.writeFileSync(path.join(dir, "fresh.js"), "new\n");
 				const { run, guard } = await bothOver(dir, {
 					ledger: ledgerOf(["fresh.js"]),
@@ -7546,8 +7569,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			});
 		});
 		it("leaves the neighbour's commit out of an explicit --isolated run the overlay fell back from", async () => {
-			const dir = repoWithDeps();
-			const r = ownRange(dir);
+			const { dir, r } = withOwnRange("deps");
 			let adds = 0;
 			const run = await runSeeing(dir, ["--isolated"], {
 				sessionId: "me",
@@ -7574,8 +7596,7 @@ describe("`--isolated`, which runs against a frozen tree (mantahostels#2169)", (
 			"records the merge-base on %s, and no base on the HEAD fallback (#3660, #3678)",
 			async (_route, argv, failedAdds) => {
 				const based = async (pushed: boolean) => {
-					const dir = repoWithDeps();
-					const r = ownRange(dir);
+					const { dir, r } = withOwnRange("deps");
 					if (!pushed)
 						gitIn(dir, ["update-ref", "-d", "refs/remotes/origin/main"]);
 					let adds = 0;
