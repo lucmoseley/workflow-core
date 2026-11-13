@@ -60,7 +60,11 @@
  * append-only JSONL shard per test file, a line per run that ran it. A
  * lookup reads only the selected files' shards (#4792).
  * Each shard is appended, pruned and swept under its lock
- * (lib/retained-jsonl.js), on the pass-marker archive's retention. The lander's tester neither reads nor writes it.
+ * (lib/retained-jsonl.js), on the pass-marker archive's retention.
+ *
+ * A ROWLESS RUN neither reads nor writes it, nor is audited (`rowless`): the
+ * lander's tester's, and ci.yml's, whose store goes with the runner unread
+ * (#5138).
  */
 
 const crypto = require("node:crypto");
@@ -150,7 +154,7 @@ const CACHED_ENV = "WFC_PASS_STORE_CACHED";
  *   `reads` the row's input paths, the file's own and the shared ones
  * @typedef {{cached: Cached[], run: string[], refused: string[],
  *   notice: string|null}} Lookup
- * @typedef {{values?: Record<string, string>, lander?: boolean}} Seams
+ * @typedef {{values?: Record<string, string>, rowless?: boolean}} Seams
  *   `values` today's, python3's read off the machine where it names none
  * @typedef {{base: Record<string, string>, python: () => string|null}} Values
  *   today's: the node and arch every row rests on, and python3's version,
@@ -830,6 +834,18 @@ function buildRows(inputs, seams) {
 	return [...known, ...buildVoidingRows(failed, inputs, seams)];
 }
 
+/* Set by ci.yml's Vitest job. */
+const ROWLESS_RUN = "WFC_ROWLESS_RUN";
+
+/**
+ * Whether this run keeps no rows: the lander or ci.yml started it.
+ * @param {Record<string, string|undefined>} [env]
+ * @returns {boolean}
+ */
+function rowless(env = process.env) {
+	return idSeam.isLanderRun(env) || env[ROWLESS_RUN] === "1";
+}
+
 /**
  * Append one row per file `run` ran. A run that was not clean — filtered,
  * bailed, interrupted, or erred outside its files — records its failures
@@ -846,7 +862,7 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		? run.files
 		: run.files.filter((f) => f.outcome === "fail");
 	if (!storeRoot || files.length === 0) return 0;
-	if (seams.lander ?? idSeam.isLanderRun()) return 0;
+	if (seams.rowless ?? rowless()) return 0;
 	/** @type {RunInputs|null} */
 	let inputs = null;
 	try {
@@ -944,7 +960,7 @@ function lookup(files, { root, storeRoot, ...seams }) {
 	/** @type {Lookup} */
 	const none = { cached: [], run: [...files], refused: [], notice: null };
 	if (files.length === 0 || !storeRoot) return none;
-	if (seams.lander ?? idSeam.isLanderRun()) return none;
+	if (seams.rowless ?? rowless()) return none;
 	const pragmas = new Map(files.map((f) => [f, readPragma(root, f)]));
 	const refused = files.filter((f) => pragmas.get(f) === "bare");
 	if (refused.length > 0) return { ...none, refused };
@@ -1440,6 +1456,8 @@ function heldRow(file, entries, { sha, before, git, values }) {
 }
 
 module.exports = {
+	ROWLESS_RUN,
+	rowless,
 	heldAtSha,
 	CACHED_ENV,
 	foldCached,

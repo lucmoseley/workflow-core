@@ -40,9 +40,10 @@ const { GIT_DIR_VARS } = createRequire(import.meta.url)(
 for (const name of GIT_DIR_VARS) delete process.env[name];
 
 /* A run a case starts is no lander's, though the lander started the suite
- * (#4757). Deleted in the worker, so vitest's own process still marks the
- * suite's marker. */
+ * (#4757), nor ci.yml's rowless one (#5138). Deleted in the worker, so
+ * vitest's own process still marks the suite's marker. */
 delete process.env.WFC_LANDER_RUN;
+delete process.env.WFC_ROWLESS_RUN;
 
 /* The files the suite's own launch cached (#4790) are its reporter's, not a
  * case's: a reporter a case drives would fold them into its certificate.
