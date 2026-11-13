@@ -324,10 +324,11 @@ function parseListing(raw, call) {
  * run, as `runOracle` does.
  * @param {string} dir
  * @param {number} timeoutMs
+ * @param {RunOracle} [run]  a core's port, where it answers in-process
  * @returns {ReturnType<typeof parseListing>}
  */
-function readSeatListing(dir, timeoutMs) {
-	const [raw] = runOracle(claudeBin(), timeoutMs, [dir]);
+function readSeatListing(dir, timeoutMs, run = runOracle) {
+	const [raw] = run(claudeBin(), timeoutMs, [dir]);
 	if (raw === undefined)
 		throw new Error(`runOracle answered no stdout for its one dir, ${dir}`);
 	return parseListing(raw, oracleCall());

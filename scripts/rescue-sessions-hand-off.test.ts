@@ -33,7 +33,7 @@ import {
 	said,
 	withTracker,
 } from "./lib/rescue-testkit";
-import { runInProcess } from "./lib/run-in-process.js";
+import { runInProcessAsync } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const N = 621;
@@ -49,7 +49,7 @@ const handOff = (extra: string[] = [], issues = [N]) => {
 		sb.dir,
 		`#!/bin/sh\n[ "$1 $2" = "issue comment" ] && { echo "$3" >> ${shellQuote(commentedFile())}; cat > ${shellQuote(commentFile())}; }\nexit 0\n`,
 	);
-	return runInProcess(
+	return runInProcessAsync(
 		SCRIPT,
 		[
 			"hand-off",
@@ -90,9 +90,9 @@ const stoppedSession = () => {
 };
 
 describe("hand-off (#2659)", () => {
-	it("posts a well-formed hand-off carrying the session's own diff, and releases its claim", () => {
+	it("posts a well-formed hand-off carrying the session's own diff, and releases its claim", async () => {
 		stoppedSession();
-		const r = handOff();
+		const r = await handOff();
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 		const body = fs.readFileSync(commentFile(), "utf8");
@@ -124,7 +124,7 @@ describe("hand-off (#2659)", () => {
 		).toBe(true);
 	});
 
-	it("tells the fresh session to build nothing past a question the narration ends on, reading past the loop's own prompts (#3980)", () => {
+	it("tells the fresh session to build nothing past a question the narration ends on, reading past the loop's own prompts (#3980)", async () => {
 		stoppedSession();
 		writeTranscript([
 			said("Shall we ship it?"),
@@ -134,7 +134,7 @@ describe("hand-off (#2659)", () => {
 				message: { content: scriptPrompt("carry on") },
 			}),
 		]);
-		handOff();
+		await handOff();
 		const body = fs.readFileSync(commentFile(), "utf8");
 		expect(parseHandOff(body)?.fields.Left).toContain(
 			"unless they end on a question to the founder that this ticket does not show answered",
@@ -144,20 +144,20 @@ describe("hand-off (#2659)", () => {
 		expect(body).not.toContain(scriptPrompt("carry on"));
 	});
 
-	it("tells it to ask first where no narration was read (#3980)", () => {
+	it("tells it to ask first where no narration was read (#3980)", async () => {
 		stoppedSession();
 		writeTranscript([]);
-		handOff();
+		await handOff();
 		const body = fs.readFileSync(commentFile(), "utf8");
 		expect(parseHandOff(body)?.fields.Left).toContain(
 			"so first ask by round anything this ticket leaves open for the founder",
 		);
 	});
 
-	it("carries the same step where the diff is too long for a block (#3980)", () => {
+	it("carries the same step where the diff is too long for a block (#3980)", async () => {
 		stoppedSession();
 		fs.writeFileSync(path.join(sb.repo, "x.js"), "new\n".repeat(20_000));
-		handOff();
+		await handOff();
 		const body = fs.readFileSync(commentFile(), "utf8");
 		expect(parseHandOff(body)).toBeNull();
 		expect(body).toContain(
@@ -165,9 +165,9 @@ describe("hand-off (#2659)", () => {
 		);
 	});
 
-	it("leaves the session's files as it left them", () => {
+	it("leaves the session's files as it left them", async () => {
 		stoppedSession();
-		handOff();
+		await handOff();
 		expect(fs.readFileSync(path.join(sb.repo, "x.js"), "utf8")).toBe("new\n");
 		expect(fs.readFileSync(path.join(sb.repo, "y.js"), "utf8")).toBe("fresh\n");
 	});
@@ -175,11 +175,11 @@ describe("hand-off (#2659)", () => {
 	describe("of a job with no record (#3988)", () => {
 		const jobDir = () => path.join(plan(), "jobs", SHORT);
 
-		it("warns the fresh session on each issue, carrying the session's diff and releasing its claim", () => {
+		it("warns the fresh session on each issue, carrying the session's diff and releasing its claim", async () => {
 			stoppedSession();
 			fs.rmSync(jobDir(), { recursive: true });
 			issueClaims.claimIssue(622, { sessionId: SID });
-			const r = handOff(["--session", SID], [N, 622]);
+			const r = await handOff(["--session", SID], [N, 622]);
 			expect(r.stderr).toBe("");
 			expect(r.status).toBe(0);
 			expect(fs.readFileSync(commentedFile(), "utf8")).toBe(`${N}\n622\n`);
@@ -199,10 +199,10 @@ describe("hand-off (#2659)", () => {
 			expect(issueClaims.readIssueClaims(622)).toEqual([]);
 		});
 
-		it("still warns with no session id, promising no release", () => {
+		it("still warns with no session id, promising no release", async () => {
 			stoppedSession();
 			fs.rmSync(jobDir(), { recursive: true });
-			const r = handOff();
+			const r = await handOff();
 			expect(r.stderr).toBe("");
 			expect(r.status).toBe(0);
 			const body = fs.readFileSync(commentFile(), "utf8");
@@ -213,19 +213,19 @@ describe("hand-off (#2659)", () => {
 			expect(r.stdout).toContain(`left: any claim on #${N}`);
 		});
 
-		it("refuses a record that will not read, writing nothing, so a torn write is retried", () => {
+		it("refuses a record that will not read, writing nothing, so a torn write is retried", async () => {
 			stoppedSession();
 			fs.writeFileSync(path.join(jobDir(), "state.json"), "{ torn");
-			const r = handOff(["--session", SID]);
+			const r = await handOff(["--session", SID]);
 			expect(r.status).toBe(2);
 			expect(fs.existsSync(commentFile())).toBe(false);
 			expect(issueClaims.readIssueClaims(N)).toHaveLength(1);
 		});
 
-		it("refuses a config dir with no job store", () => {
+		it("refuses a config dir with no job store", async () => {
 			stoppedSession();
 			fs.rmSync(path.join(plan(), "jobs"), { recursive: true });
-			const r = handOff(["--session", SID]);
+			const r = await handOff(["--session", SID]);
 			expect(r.status).toBe(2);
 			expect(fs.existsSync(commentFile())).toBe(false);
 		});

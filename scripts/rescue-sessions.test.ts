@@ -5,7 +5,7 @@
  * skill hands to the session that takes its work over on another Claude plan
  * (mantahostels#2605).
  *
- * Everything runs the CLI through `runInProcess`, over temp config dirs in the
+ * Everything runs the CLI through `runInProcessAsync`, over temp config dirs in the
  * daemon's own layout: the transcript reducers are read back from what
  * `snapshot` writes, the job reads from what `list` prints, and the landed
  * commits over a throwaway git repo. Loosen a case and the successor session
@@ -35,7 +35,7 @@ import {
 	SESSION_LIMIT_LINE,
 	WEEKLY_LIMIT_LINE,
 } from "./lib/rescue-testkit";
-import { runInProcess } from "./lib/run-in-process";
+import { runInProcessAsync } from "./lib/run-in-process";
 import { buildBashCall } from "./lib/transcript-testkit";
 
 const SCRIPT = join(__dirname, "rescue-sessions.js");
@@ -96,7 +96,7 @@ interface Snapshot {
  * `snapshot` over one job whose transcript is `lines`: the narration file it
  * wrote, the job's index entry, and what it printed.
  */
-function snapshotOf(
+async function snapshotOf(
 	lines: string[],
 	state: Record<string, unknown> = {},
 	env?: NodeJS.ProcessEnv,
@@ -108,7 +108,7 @@ function snapshotOf(
 		aaaa1111: { state: "blocked", linkScanPath: transcript, ...state },
 	});
 	const out = join(work, "out");
-	const res = runInProcess(
+	const res = await runInProcessAsync(
 		SCRIPT,
 		["snapshot", "--from", cfg, `--out=${out}`, "--ids", "aaaa1111"],
 		env ? { env } : {},
@@ -123,8 +123,8 @@ function snapshotOf(
 }
 
 describe("the narration snapshot writes", () => {
-	it("keeps assistant prose and drops the tool results that dwarf it", () => {
-		const { narration } = snapshotOf([
+	it("keeps assistant prose and drops the tool results that dwarf it", async () => {
+		const { narration } = await snapshotOf([
 			said("Claiming and editing."),
 			line({
 				type: "user",
@@ -136,14 +136,14 @@ describe("the narration snapshot writes", () => {
 		expect(narration).toBe("A: Claiming and editing.");
 	});
 
-	it("signs a Bash call with its command, flattened to one line", () => {
-		expect(snapshotOf([bash("npm run test\n--changed")]).narration).toBe(
-			"  [Bash] npm run test --changed",
-		);
+	it("signs a Bash call with its command, flattened to one line", async () => {
+		expect(
+			(await snapshotOf([bash("npm run test\n--changed")])).narration,
+		).toBe("  [Bash] npm run test --changed");
 	});
 
-	it("signs a file-touching call with its path, not its content", () => {
-		const { narration } = snapshotOf([
+	it("signs a file-touching call with its path, not its content", async () => {
+		const { narration } = await snapshotOf([
 			called("Write", {
 				file_path: "scripts/x.js",
 				content: "secret".repeat(999),
@@ -152,8 +152,8 @@ describe("the narration snapshot writes", () => {
 		expect(narration).toBe("  [Write] scripts/x.js");
 	});
 
-	it("keeps a real user turn but drops an injected system-reminder", () => {
-		const { narration } = snapshotOf([
+	it("keeps a real user turn but drops an injected system-reminder", async () => {
+		const { narration } = await snapshotOf([
 			line({ type: "user", message: { content: "Accept recommendation" } }),
 			line({
 				type: "user",
@@ -163,8 +163,8 @@ describe("the narration snapshot writes", () => {
 		expect(narration).toBe("USER: Accept recommendation");
 	});
 
-	it("preserves the order prose and calls actually happened in", () => {
-		const { narration } = snapshotOf([
+	it("preserves the order prose and calls actually happened in", async () => {
+		const { narration } = await snapshotOf([
 			line(
 				assistant([
 					{ type: "text", text: "First." },
@@ -180,16 +180,16 @@ describe("the narration snapshot writes", () => {
 		]);
 	});
 
-	it("skips a malformed line rather than throwing", () => {
-		expect(snapshotOf(["{not json", said("Survived.")]).narration).toBe(
+	it("skips a malformed line rather than throwing", async () => {
+		expect((await snapshotOf(["{not json", said("Survived.")])).narration).toBe(
 			"A: Survived.",
 		);
 	});
 });
 
 describe("where snapshot says a session died", () => {
-	it("drops the rate-limit spam that ends every stuck session, a model limit's included (#2380)", () => {
-		const { entry, res } = snapshotOf([
+	it("drops the rate-limit spam that ends every stuck session, a model limit's included (#2380)", async () => {
+		const { entry, res } = await snapshotOf([
 			said("Now the guard tests."),
 			said(SESSION_LIMIT_LINE),
 			said(WEEKLY_LIMIT_LINE),
@@ -199,8 +199,8 @@ describe("where snapshot says a session died", () => {
 		expect(res.stdout).toContain("═══ aaaa1111");
 	});
 
-	it("ignores tool-call signatures", () => {
-		const { entry } = snapshotOf([
+	it("ignores tool-call signatures", async () => {
+		const { entry } = await snapshotOf([
 			said("Committing."),
 			bash("git commit -m x"),
 		]);
@@ -209,70 +209,78 @@ describe("where snapshot says a session died", () => {
 });
 
 describe("argument parsing", () => {
-	it("reads both --k v and --k=v", () => {
+	it("reads both --k v and --k=v", async () => {
 		// snapshotOf passes `--from <dir>` and `--out=<dir>`; it fails on any
 		// other exit.
-		snapshotOf([said("Read.")]);
+		await snapshotOf([said("Read.")]);
 	});
 
-	it("refuses a flag its subcommand does not declare, naming it (#920)", () => {
-		const res = runInProcess(SCRIPT, ["probe", "--from", "/a"]);
+	it("refuses a flag its subcommand does not declare, naming it (#920)", async () => {
+		const res = await runInProcessAsync(SCRIPT, ["probe", "--from", "/a"]);
 		expect(res.status).toBe(2);
 		expect(res.stderr).toContain("unknown flag: --from");
 	});
 
-	it("refuses a --from ~/ it cannot expand, where HOME is not absolute (#4611)", () => {
-		const res = runInProcess(SCRIPT, ["snapshot", "--from", "~/.claude3"], {
-			env: { ...process.env, HOME: "rel/home" },
-		});
+	it("refuses a --from ~/ it cannot expand, where HOME is not absolute (#4611)", async () => {
+		const res = await runInProcessAsync(
+			SCRIPT,
+			["snapshot", "--from", "~/.claude3"],
+			{
+				env: { ...process.env, HOME: "rel/home" },
+			},
+		);
 		expect(res.status).toBe(2);
 		expect(res.stderr).toContain("unset or not absolute");
 	});
 
-	it("refuses a value flag with nothing after it, naming the flag", () => {
-		const res = runInProcess(SCRIPT, ["snapshot", "--out"]);
+	it("refuses a value flag with nothing after it, naming the flag", async () => {
+		const res = await runInProcessAsync(SCRIPT, ["snapshot", "--out"]);
 		expect(res.status).toBe(2);
 		expect(res.stderr).toContain("--out needs a value");
 	});
 });
 
 /** `list` over the jobs described. */
-function listOf(jobs: Record<string, unknown>, extra: string[] = []) {
+async function listOf(jobs: Record<string, unknown>, extra: string[] = []) {
 	const cfg = configDirOf(jobs);
-	const res = runInProcess(SCRIPT, ["list", "--from", cfg, ...extra], {
-		env: NO_CLAUDE,
-	});
+	const res = await runInProcessAsync(
+		SCRIPT,
+		["list", "--from", cfg, ...extra],
+		{
+			env: NO_CLAUDE,
+		},
+	);
 	expect(res.status, res.stderr).toBe(0);
 	return res.stdout;
 }
 
-const modelListed = (respawnFlags: string[]) =>
+const modelListed = async (respawnFlags: string[]) =>
 	/model (\S+)/.exec(
-		listOf({ aaaaaaaa: { state: "blocked", respawnFlags } }),
+		await listOf({ aaaaaaaa: { state: "blocked", respawnFlags } }),
 	)?.[1];
 
 describe("the model list reads off respawnFlags", () => {
-	it("reads the model by flag name, not by position", () => {
-		expect(modelListed(["--model", "opus[1m]", "--name", "x"])).toBe(
+	it("reads the model by flag name, not by position", async () => {
+		expect(await modelListed(["--model", "opus[1m]", "--name", "x"])).toBe(
 			"opus[1m]",
 		);
 	});
 
-	it("does not mistake the advisor for the model — the shape dispatch-sessions.js launches", () => {
-		expect(modelListed(["--advisor", "opus", "--model", "sonnet"])).toBe(
+	it("does not mistake the advisor for the model — the shape dispatch-sessions.js launches", async () => {
+		expect(await modelListed(["--advisor", "opus", "--model", "sonnet"])).toBe(
 			"sonnet",
 		);
 	});
 
-	it("answers unknown rather than guessing when no --model is present", () => {
-		expect(modelListed(["--name", "claude"])).toBe("?");
-		expect(modelListed(["--model"])).toBe("?");
+	it("answers unknown rather than guessing when no --model is present", async () => {
+		expect(await modelListed(["--name", "claude"])).toBe("?");
+		expect(await modelListed(["--model"])).toBe("?");
 	});
 });
 
 describe("the jobs list reads", () => {
-	it("counts an unparseable state file rather than swallowing it", () => {
-		const out = listOf({
+	it("counts an unparseable state file rather than swallowing it", async () => {
+		const out = await listOf({
 			aaaaaaaa: { state: "blocked", updatedAt: "2026-09-02T10:00:00Z" },
 			bbbbbbbb: "{not json",
 		});
@@ -280,26 +288,26 @@ describe("the jobs list reads", () => {
 		expect(out).toContain("1 state file(s) would not parse");
 	});
 
-	it("skips a job directory holding no state file, as a leftover tmp/ is not a job (#1146)", () => {
+	it("skips a job directory holding no state file, as a leftover tmp/ is not a job (#1146)", async () => {
 		const cfg = configDirOf({
 			aaaaaaaa: { state: "blocked", updatedAt: "2026-09-02T10:00:00Z" },
 		});
 		mkdirSync(join(cfg, "jobs", "cccccccc", "tmp"), { recursive: true });
-		const res = runInProcess(SCRIPT, ["list", "--from", cfg], {
+		const res = await runInProcessAsync(SCRIPT, ["list", "--from", cfg], {
 			env: NO_CLAUDE,
 		});
 		expect(res.stdout).toContain("1 job(s) in");
 		expect(res.stdout).not.toContain("would not parse");
 	});
 
-	it("asks the daemon of the source plan's own config dir", () => {
+	it("asks the daemon of the source plan's own config dir", async () => {
 		const cfg = configDirOf({ aaaaaaaa: { state: "blocked" } });
 		const bin = writeClaudeStub(join(cfg, "claude"), [
 			buildAgentsBranch(null, {
 				[cfg]: [buildListedRow({ id: "aaaaaaaa-1" })],
 			}),
 		]);
-		const res = runInProcess(SCRIPT, ["list", "--from", cfg], {
+		const res = await runInProcessAsync(SCRIPT, ["list", "--from", cfg], {
 			env: { ...process.env, WFC_CLAUDE_BIN: bin },
 		});
 		expect(res.status, res.stderr).toBe(0);
@@ -314,7 +322,7 @@ describe("the jobs list reads", () => {
 		const bin = writeClaudeStub(join(cfg, "claude"), [
 			buildAgentsBranch({ hangsWithChildren: pids }),
 		]);
-		const res = runInProcess(SCRIPT, ["list", "--from", cfg], {
+		const res = await runInProcessAsync(SCRIPT, ["list", "--from", cfg], {
 			env: {
 				...process.env,
 				WFC_CLAUDE_BIN: bin,
@@ -341,8 +349,8 @@ describe("the jobs list reads", () => {
 		expect(children.filter(isRunning)).toEqual([]);
 	});
 
-	it("sorts newest first", () => {
-		const out = listOf({
+	it("sorts newest first", async () => {
+		const out = await listOf({
 			older: { state: "blocked", updatedAt: "2026-09-01T00:00:00Z" },
 			newer: { state: "blocked", updatedAt: "2026-09-02T00:00:00Z" },
 		});
@@ -351,12 +359,12 @@ describe("the jobs list reads", () => {
 });
 
 describe("--ids", () => {
-	it("splits and trims a comma list", () => {
+	it("splits and trims a comma list", async () => {
 		const cfg = configDirOf({});
 		const bin = writeClaudeStub(join(cfg, "claude"), [
 			buildStopBranch(join(cfg, "stops")),
 		]);
-		const res = runInProcess(
+		const res = await runInProcessAsync(
 			SCRIPT,
 			["stop", "--from", cfg, "--ids", "a, b ,c"],
 			{ env: { ...process.env, WFC_CLAUDE_BIN: bin } },
@@ -367,8 +375,12 @@ describe("--ids", () => {
 		);
 	});
 
-	it("is required by stop, which will not guess", () => {
-		const res = runInProcess(SCRIPT, ["stop", "--from", configDirOf({})]);
+	it("is required by stop, which will not guess", async () => {
+		const res = await runInProcessAsync(SCRIPT, [
+			"stop",
+			"--from",
+			configDirOf({}),
+		]);
 		expect(res.status).toBe(2);
 		expect(res.stderr).toContain("stop needs --ids");
 	});
@@ -380,9 +392,9 @@ describe("the artefacts snapshot says survived", () => {
 		dir = tempDir("rescue-artefacts-");
 	});
 
-	it("keeps only the paths that still exist, resolved against the job's cwd", () => {
+	it("keeps only the paths that still exist, resolved against the job's cwd", async () => {
 		writeFileSync(join(dir, "kept.txt"), "x");
-		const { entry, res } = snapshotOf(
+		const { entry, res } = await snapshotOf(
 			[
 				said("Writing."),
 				called("Write", { file_path: "kept.txt" }),
@@ -394,18 +406,18 @@ describe("the artefacts snapshot says survived", () => {
 		expect(res.stdout).toContain("artefacts survived: kept.txt");
 	});
 
-	it("resolves an absolute path directly, ignoring cwd", () => {
+	it("resolves an absolute path directly, ignoring cwd", async () => {
 		const abs = join(dir, "kept.txt");
 		writeFileSync(abs, "x");
-		const { entry } = snapshotOf([called("Write", { file_path: abs })], {
+		const { entry } = await snapshotOf([called("Write", { file_path: abs })], {
 			cwd: "/nonexistent",
 		});
 		expect(entry.artefactsSurvived).toEqual([abs]);
 	});
 
-	it("ignores every tool call that is not a Write or an Edit", () => {
+	it("ignores every tool call that is not a Write or an Edit", async () => {
 		writeFileSync(join(dir, "kept.txt"), "x");
-		const { entry } = snapshotOf(
+		const { entry } = await snapshotOf(
 			[called("Read", { file_path: "kept.txt" }), bash("git status")],
 			{ cwd: dir },
 		);
@@ -415,8 +427,8 @@ describe("the artefacts snapshot says survived", () => {
 	// mantahostels#2628: package.json genuinely exists at the repo root, the cwd
 	// runInProcess gives the script here — the case that would otherwise pass
 	// by accident.
-	it("never resolves a relative path against its own process cwd when the job has none", () => {
-		const { entry } = snapshotOf([
+	it("never resolves a relative path against its own process cwd when the job has none", async () => {
+		const { entry } = await snapshotOf([
 			called("Write", { file_path: "package.json" }),
 		]);
 		expect(entry.artefactsSurvived).toEqual([]);
@@ -444,8 +456,8 @@ describe("the commits snapshot says were attempted and landed", () => {
 			updatedAt: new Date().toISOString(),
 		});
 
-	it("lists the session's own git commit calls, ignoring every other line", () => {
-		const { entry } = snapshotOf([
+	it("lists the session's own git commit calls, ignoring every other line", async () => {
+		const { entry } = await snapshotOf([
 			said("Committing."),
 			bash("git commit -m x -- scripts/y.js"),
 			bash("npm run test"),
@@ -454,9 +466,9 @@ describe("the commits snapshot says were attempted and landed", () => {
 		expect(entry.commitsAttempted).toEqual(["git commit -m x -- scripts/y.js"]);
 	});
 
-	it("lists commit-paths.js calls by repo or plugin-cache path behind a prefix (#1714)", () => {
+	it("lists commit-paths.js calls by repo or plugin-cache path behind a prefix (#1714)", async () => {
 		const cached = `node /home/u/.claude2/plugins/cache/workflow-core/workflow-core/1.0.0/scripts/commit-paths.js -m "fix b" -- b.js`;
-		const { entry } = snapshotOf([
+		const { entry } = await snapshotOf([
 			bash('node scripts/commit-paths.js -m "fix a" -- a.js'),
 			bash(
 				`timeout 900 bash -c 'while [ -e .git/index.lock ]; do sleep 1; done'; ${cached}`,
@@ -472,23 +484,25 @@ describe("the commits snapshot says were attempted and landed", () => {
 		]);
 	});
 
-	it("does not count a commit-paths.js --tree pin as an attempt (#2383)", () => {
-		const { entry } = snapshotOf([
+	it("does not count a commit-paths.js --tree pin as an attempt (#2383)", async () => {
+		const { entry } = await snapshotOf([
 			bash("t=$(node scripts/commit-paths.js --tree -- a.js) && git diff $t"),
 		]);
 		expect(entry.commitsAttempted).toEqual([]);
 	});
 
-	it("does not count a commit-paths.js call it would refuse for its message (#2383)", () => {
-		const { entry } = snapshotOf([
+	it("does not count a commit-paths.js call it would refuse for its message (#2383)", async () => {
+		const { entry } = await snapshotOf([
 			bash("node scripts/commit-paths.js -m a -m b -- a.js"),
 			bash("node scripts/commit-paths.js -- a.js"),
 		]);
 		expect(entry.commitsAttempted).toEqual([]);
 	});
 
-	it("does not count a commit-paths.js --help call as an attempt (#2383)", () => {
-		const { entry } = snapshotOf([bash("node scripts/commit-paths.js --help")]);
+	it("does not count a commit-paths.js --help call as an attempt (#2383)", async () => {
+		const { entry } = await snapshotOf([
+			bash("node scripts/commit-paths.js --help"),
+		]);
 		expect(entry.commitsAttempted).toEqual([]);
 	});
 
@@ -516,9 +530,9 @@ describe("the commits snapshot says were attempted and landed", () => {
 		],
 	])(
 		"counts a commit behind %s, with its message (#2383)",
-		(_, call, subject) => {
+		async (_, call, subject) => {
 			commit(subject);
-			const { entry } = landed([call]);
+			const { entry } = await landed([call]);
 			expect(entry.commitsAttempted).toEqual([call]);
 			expect(entry.commitsLanded).toEqual([
 				expect.stringMatching(new RegExp(` ${subject}$`)),
@@ -526,9 +540,9 @@ describe("the commits snapshot says were attempted and landed", () => {
 		},
 	);
 
-	it("counts each commit of a command, a message-less one with no subject, and no merge (#2383)", () => {
+	it("counts each commit of a command, a message-less one with no subject, and no merge (#2383)", async () => {
 		commit("first of two");
-		const { entry } = landed([
+		const { entry } = await landed([
 			'git commit -m "first of two" -- a.js && git commit -m "second" -- b.js',
 			'git commit --amend --no-edit && git merge -m "merge subject" x',
 		]);
@@ -542,30 +556,30 @@ describe("the commits snapshot says were attempted and landed", () => {
 		]);
 	});
 
-	it("matches a commit-paths.js message longer than the narration keeps (#1714)", () => {
+	it("matches a commit-paths.js message longer than the narration keeps (#1714)", async () => {
 		const subject = `Make the rescue snapshot see commits made through commit-paths.js, ${"so nothing is missed ".repeat(4).trim()}`;
 		commit(subject);
-		const { entry } = landed([
+		const { entry } = await landed([
 			`node scripts/commit-paths.js -m "${subject}" -- scripts/rescue-sessions.js`,
 		]);
 		expect(entry.commitsLanded).toEqual([expect.stringContaining(subject)]);
 	});
 
-	it("matches the subject of a message given by -F file or heredoc (#1714)", () => {
+	it("matches the subject of a message given by -F file or heredoc (#1714)", async () => {
 		writeFileSync(join(repo, "msg.txt"), "subject from a file\n\nbody\n");
 		commit("subject from a file");
 		commit("subject from a heredoc");
-		const { entry } = landed([
+		const { entry } = await landed([
 			"node scripts/commit-paths.js -F msg.txt -- a.js",
 			`node scripts/commit-paths.js -m "$(cat <<'EOF'\nsubject from a heredoc\n\nbody\nEOF\n)" -- b.js`,
 		]);
 		expect(entry.commitsLanded).toHaveLength(2);
 	});
 
-	it("matches a message carrying an apostrophe whole (#1714)", () => {
+	it("matches a message carrying an apostrophe whole (#1714)", async () => {
 		commit("the session's own fix");
 		commit("the session");
-		const { entry } = landed([
+		const { entry } = await landed([
 			`node scripts/commit-paths.js -m "the session's own fix" -- a.js`,
 		]);
 		expect(entry.commitsLanded).toEqual([
@@ -573,30 +587,32 @@ describe("the commits snapshot says were attempted and landed", () => {
 		]);
 	});
 
-	it("matches a commit whose quoted -m message it finds in the log", () => {
+	it("matches a commit whose quoted -m message it finds in the log", async () => {
 		commit("landed the fix");
-		const { entry, res } = landed(['git commit -m "landed the fix" -- a.js']);
+		const { entry, res } = await landed([
+			'git commit -m "landed the fix" -- a.js',
+		]);
 		expect(entry.commitsLanded).toHaveLength(1);
 		expect(entry.commitsLanded?.[0]).toContain("landed the fix");
 		expect(res.stdout).toContain("commits landed (matched against");
 	});
 
-	it("does not credit a neighbour's Revert of the message, or a longer subject holding it (#2373)", () => {
+	it("does not credit a neighbour's Revert of the message, or a longer subject holding it (#2373)", async () => {
 		commit('Revert "landed the fix"');
 		commit("Follow up on landed the fix");
 		commit("landed the fix, and more");
 		commit("landed the fix");
-		const { entry } = landed(['git commit -m "landed the fix" -- a.js']);
+		const { entry } = await landed(['git commit -m "landed the fix" -- a.js']);
 		expect(entry.commitsLanded).toEqual([
 			expect.stringMatching(/^\w+ landed the fix$/),
 		]);
 	});
 
-	it("reads a message's shell quoting and escapes as bash does (#2373)", () => {
+	it("reads a message's shell quoting and escapes as bash does (#2373)", async () => {
 		commit("the session's fix");
 		commit('Read "x" now');
 		commit("Use `foo` for $5");
-		const { entry } = landed([
+		const { entry } = await landed([
 			"git commit -m 'the session'\\''s fix' -- a.js",
 			'git commit -m "Read \\"x\\" now" -- a.js',
 			'git commit -m "Use \\`foo\\` for \\$5" -- a.js',
@@ -604,11 +620,11 @@ describe("the commits snapshot says were attempted and landed", () => {
 		expect(entry.commitsLanded).toHaveLength(3);
 	});
 
-	it("reads a heredoc closed on its terminator's own line, and a <<- heredoc's tabs (#2373)", () => {
+	it("reads a heredoc closed on its terminator's own line, and a <<- heredoc's tabs (#2373)", async () => {
 		commit("same line term");
 		commit("tabbed subj tabbed two");
 		commit("  spaced subj");
-		const { entry } = landed([
+		const { entry } = await landed([
 			`git commit -m "$(cat <<'EOF'\nsame line term\nEOF)" -- a.js`,
 			`git commit -m "$(cat <<-'EOF'\n\ttabbed subj\n\ttabbed two\n\tEOF\n)" -- a.js`,
 			`git commit -m "  spaced subj" -- a.js`,
@@ -616,9 +632,9 @@ describe("the commits snapshot says were attempted and landed", () => {
 		expect(entry.commitsLanded).toHaveLength(3);
 	});
 
-	it("matches a first paragraph spanning lines as git's one-line subject (#2373)", () => {
+	it("matches a first paragraph spanning lines as git's one-line subject (#2373)", async () => {
 		commit("first line\nsecond line\n\nbody");
-		const { entry } = landed([
+		const { entry } = await landed([
 			`git commit -m "$(cat <<'EOF'\nfirst line\nsecond line\n\nbody\nEOF\n)" -- a.js`,
 		]);
 		expect(entry.commitsLanded).toEqual([
@@ -626,49 +642,51 @@ describe("the commits snapshot says were attempted and landed", () => {
 		]);
 	});
 
-	it("matches a message under six characters on its exact subject (#2373)", () => {
+	it("matches a message under six characters on its exact subject (#2373)", async () => {
 		commit("fix x");
 		commit("fix xy");
-		const { entry } = landed(['git commit -m "fix x" -- a.js']);
+		const { entry } = await landed(['git commit -m "fix x" -- a.js']);
 		expect(entry.commitsLanded).toEqual([expect.stringMatching(/ fix x$/)]);
 	});
 
-	it("reads a heredoc message whose terminator line is missing (#2373)", () => {
+	it("reads a heredoc message whose terminator line is missing (#2373)", async () => {
 		commit("no terminator");
-		const { entry } = landed([
+		const { entry } = await landed([
 			`git commit -m "$(cat <<'EOF'\nno terminator\n\nbody`,
 		]);
 		expect(entry.commitsLanded).toHaveLength(1);
 	});
 
-	it("matches a bare -m message", () => {
+	it("matches a bare -m message", async () => {
 		commit("fix-the-thing");
-		const { entry } = landed(["git commit -m fix-the-thing -- a.js"]);
+		const { entry } = await landed(["git commit -m fix-the-thing -- a.js"]);
 		expect(entry.commitsLanded?.[0]).toContain("fix-the-thing");
 	});
 
-	it("matches nothing for an attempt with no -m to read", () => {
+	it("matches nothing for an attempt with no -m to read", async () => {
 		commit("whatever it was");
-		expect(landed(["git commit --amend"]).entry.commitsLanded).toEqual([]);
+		expect((await landed(["git commit --amend"])).entry.commitsLanded).toEqual(
+			[],
+		);
 	});
 
 	// mantahostels#2628: a bare time window would attribute ANY commit in the window to
 	// this job, including a concurrent neighbour's.
-	it("does not attribute a neighbour's commit this job never attempted", () => {
+	it("does not attribute a neighbour's commit this job never attempted", async () => {
 		commit("a neighbour's unrelated commit");
-		const { entry } = landed(['git commit -m "landed the fix" -- a.js']);
+		const { entry } = await landed(['git commit -m "landed the fix" -- a.js']);
 		expect(entry.commitsLanded).toEqual([]);
 	});
 
-	it("answers empty, not unreadable, where nothing was attempted to match", () => {
+	it("answers empty, not unreadable, where nothing was attempted to match", async () => {
 		commit("whatever");
-		const { entry, res } = landed(["npm run lint"]);
+		const { entry, res } = await landed(["npm run lint"]);
 		expect(entry.commitsLanded).toEqual([]);
 		expect(res.stdout).not.toContain("commits landed");
 	});
 
-	it("says unreadable rather than throwing where the job's dir is gone", () => {
-		const { entry, res } = landed(
+	it("says unreadable rather than throwing where the job's dir is gone", async () => {
+		const { entry, res } = await landed(
 			['git commit -m "landed the fix" -- a.js'],
 			join(repo, "gone"),
 		);
@@ -700,13 +718,13 @@ describe("the CLI entry points: list, snapshot, stop", () => {
 	}
 
 	describe("list", () => {
-		it("names a stuck job, with liveness unreadable off a dead daemon", () => {
+		it("names a stuck job, with liveness unreadable off a dead daemon", async () => {
 			writeJob("aaaa1111", {
 				state: "blocked",
 				intent: "fix the thing",
 				updatedAt: "2026-09-01T00:00:00Z",
 			});
-			const res = runInProcess(SCRIPT, ["list", "--from", cfg], {
+			const res = await runInProcessAsync(SCRIPT, ["list", "--from", cfg], {
 				env: { ...process.env, WFC_CLAUDE_BIN: "/nonexistent/claude" },
 			});
 			expect(res.status).toBe(0);
@@ -714,16 +732,16 @@ describe("the CLI entry points: list, snapshot, stop", () => {
 			expect(res.stdout).toContain("liveness unreadable");
 		});
 
-		it("reports nothing stuck when every job is settled", () => {
+		it("reports nothing stuck when every job is settled", async () => {
 			writeJob("aaaa1111", { state: "done" });
-			const res = runInProcess(SCRIPT, ["list", "--from", cfg]);
+			const res = await runInProcessAsync(SCRIPT, ["list", "--from", cfg]);
 			expect(res.status).toBe(0);
 			expect(res.stdout).toContain("No jobs in");
 		});
 	});
 
 	describe("snapshot", () => {
-		it("copies state and transcript, and writes an index the death report reads back", () => {
+		it("copies state and transcript, and writes an index the death report reads back", async () => {
 			const t = join(cfg, "t.jsonl");
 			writeFileSync(
 				`${t}`,
@@ -740,7 +758,7 @@ describe("the CLI entry points: list, snapshot, stop", () => {
 			});
 			const out = mkdtempSync(join(tmpdir(), "rescue-out-"));
 			made.push(out);
-			const res = runInProcess(SCRIPT, [
+			const res = await runInProcessAsync(SCRIPT, [
 				"snapshot",
 				"--from",
 				cfg,
@@ -754,20 +772,20 @@ describe("the CLI entry points: list, snapshot, stop", () => {
 			expect(res.stdout).toContain("Snapshot in");
 		});
 
-		it("dies when --out is missing, rather than guessing one", () => {
+		it("dies when --out is missing, rather than guessing one", async () => {
 			writeJob("cccc3333", { state: "blocked" });
-			const res = runInProcess(SCRIPT, ["snapshot", "--from", cfg]);
+			const res = await runInProcessAsync(SCRIPT, ["snapshot", "--from", cfg]);
 			expect(res.status).toBe(2);
 			expect(res.stderr).toContain("snapshot needs --out");
 		});
 	});
 
 	describe("stop", () => {
-		it("calls `claude stop` per id and reports what it said", () => {
+		it("calls `claude stop` per id and reports what it said", async () => {
 			const bin = writeClaudeStub(join(cfg, "claude"), [
 				buildStopBranch(join(cfg, "stops")),
 			]);
-			const res = runInProcess(
+			const res = await runInProcessAsync(
 				SCRIPT,
 				["stop", "--from", cfg, "--ids", "aaaa1111"],
 				{ env: { ...process.env, WFC_CLAUDE_BIN: bin } },
@@ -776,8 +794,13 @@ describe("the CLI entry points: list, snapshot, stop", () => {
 			expect(res.stdout).toContain("aaaa1111 -> stopped aaaa1111");
 		});
 
-		it("rejects a bare --ids rather than guessing which job", () => {
-			const res = runInProcess(SCRIPT, ["stop", "--from", cfg, "--ids"]);
+		it("rejects a bare --ids rather than guessing which job", async () => {
+			const res = await runInProcessAsync(SCRIPT, [
+				"stop",
+				"--from",
+				cfg,
+				"--ids",
+			]);
 			expect(res.status).toBe(2);
 			expect(res.stderr).toContain("--ids needs a value");
 		});
@@ -786,8 +809,13 @@ describe("the CLI entry points: list, snapshot, stop", () => {
 		// has to refuse it.
 		it.each([[["--ids=--force"]], [["--ids", "--force"]]])(
 			"rejects a flag-shaped id given as %j, naming it, rather than passing it to claude stop",
-			(ids) => {
-				const res = runInProcess(SCRIPT, ["stop", "--from", cfg, ...ids]);
+			async (ids) => {
+				const res = await runInProcessAsync(SCRIPT, [
+					"stop",
+					"--from",
+					cfg,
+					...ids,
+				]);
 				expect(res.status).toBe(2);
 				expect(res.stderr).toContain('got "--force"');
 			},
