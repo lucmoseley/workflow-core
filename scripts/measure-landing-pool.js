@@ -5,11 +5,10 @@
  * runs it, not workflow-core alone (#5159).
  *
  * Usage:
- *   node scripts/measure-landing-pool.js batches --since <ISO> --carrying <sha> [--json]
  *   node scripts/measure-landing-pool.js stays --since <ISO> --carrying <sha> [--json]
  *   node scripts/measure-landing-pool.js reaps --since <ISO> [--json]
  *
- * THE POOL (`batches`, `stays`): each main checkout under $HOME whose
+ * THE POOL (`stays`): each main checkout under $HOME whose
  * `.claude/workflow-core.json` lists `landing` and that runs `<sha>`:
  * workflow-core where `<sha>` is on its `origin/main`, an adopter where its
  * pin is a release tag carrying it (release-contains.js's test). An adopter
@@ -20,7 +19,8 @@
  * runs the loop's own code, so an adopter pinned below `<sha>` may run it
  * too; it is left out.
  *
- * `batches`: `take-batch` lines in each checkout's lander log after its start.
+ * Pool only what adopters' own runs can show: a gate on a workflow-core
+ * test file reads workflow-core's batches alone, as no adopter suite holds it.
  *
  * `stays`: each checkout's stays judged against its own target, 3 times its
  * own green suite's p50 (lib/time-to-land.js judgeTimeToLand), then pooled as
@@ -70,8 +70,7 @@ const PLUGIN = "workflow-core";
 const SETTINGS = ".claude/settings.json";
 
 const USAGE = [
-	"usage: node scripts/measure-landing-pool.js batches --since <ISO> --carrying <sha> [--json]",
-	"       node scripts/measure-landing-pool.js stays --since <ISO> --carrying <sha> [--json]",
+	"usage: node scripts/measure-landing-pool.js stays --since <ISO> --carrying <sha> [--json]",
 	"       node scripts/measure-landing-pool.js reaps --since <ISO> [--json]",
 ].join("\n");
 const POOLED = { "--carrying": /** @type {"value"} */ ("value") };
@@ -80,7 +79,6 @@ const CLI = {
 	usage: USAGE,
 	flags: { "--since": "value", "--json": "boolean" },
 	commands: {
-		batches: { usage: USAGE, flags: POOLED },
 		stays: { usage: USAGE, flags: POOLED },
 		reaps: { usage: USAGE },
 	},
@@ -260,31 +258,6 @@ const leftLine = (left) =>
 
 /**
  * @param {{members: Member[], left: LeftOut[]}} pool
- * @param {number} since
- * @param {string} sha
- */
-function countBatches(pool, since, sha) {
-	const repos = pool.members.map((m) => {
-		const from = startOf(m, since);
-		const count = parseLanderLog(readLogSince(landerLog(m.root), from)).filter(
-			(e) => e.kind === "take-batch" && e.t > from,
-		).length;
-		return { name: m.name, from: iso(from), count, line: fromLine(m, since) };
-	});
-	const total = repos.reduce((n, r) => n + r.count, 0);
-	return {
-		data: { since: iso(since), carrying: sha, total, repos, left: pool.left },
-		lines: [
-			`lander batches taken since ${iso(since)}, every landing checkout running ${sha.slice(0, 9)}:`,
-			...repos.map((r) => `  ${r.name}: ${r.count} (${r.line})`),
-			...leftLine(pool.left),
-			`total: ${total} batch(es) across ${repos.length} checkout(s)`,
-		],
-	};
-}
-
-/**
- * @param {{members: Member[], left: LeftOut[]}} pool
  * @param {{since: number, until: number}} w
  * @param {string} sha
  */
@@ -372,7 +345,7 @@ const refuse = (text) => {
 };
 
 /**
- * A `batches` or `stays` reading over the pool running `ref`, or why there
+ * A `stays` reading over the pool running `ref`, or why there
  * is none.
  * @param {string|undefined} command
  * @param {string|true|undefined} ref
@@ -388,10 +361,7 @@ function readPooled(command, ref, home, w) {
 		return `${command} needs --carrying <sha>\n\n${USAGE}`;
 	const sha = commitSha(core, ref);
 	if (sha === null) return `${ref} names no commit in ${core}`;
-	const pool = readPool(home, core, sha);
-	return command === "batches"
-		? countBatches(pool, w.since, sha)
-		: poolStays(pool, w, sha);
+	return poolStays(readPool(home, core, sha), w, sha);
 }
 
 /** @param {string[]} argv @returns {number} */

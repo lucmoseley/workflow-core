@@ -5,7 +5,7 @@
  * to the carrying tag partway through its logs, one pinned below it and one
  * with `landing` off.
  *
- * Loosen it and a gate counts an adopter's batches from before its pin ran
+ * Loosen it and a gate counts an adopter's stays from before its pin ran
  * the measured code, counts a repo that does not run it, or judges an
  * adopter's stays against workflow-core's suite time.
  */
@@ -92,9 +92,6 @@ const release = (tag: string, source: string) => {
 	git(core, ["tag", tag, commit]);
 };
 
-const batch = (t: number, k: number) =>
-	`${iso(t)} take-batch onto m as lander/batch-0: queue/r${k}@${String(k).padStart(9, "0")}`;
-
 /** A green run of `secs` seconds ending at `end`. */
 const green = (end: number, secs: number, sha: string) => [
 	`${iso(end - secs * S)} test-sha ${sha}`,
@@ -134,18 +131,11 @@ beforeAll(() => {
 	release("v2.2.0", before);
 	release("v2.3.0", measured);
 
-	/* workflow-core: 3 batches in the window, 1 before it; a 100 s green run,
-	 * so a 300 s target, and 10 stays, 1 of them over it. */
+	/* workflow-core: a 100 s green run, so a 300 s target, and 10 stays, 1 of
+	 * them over it. */
 	write(
 		path.join(markers(core), ".lander.log"),
-		[
-			batch(SINCE - 60 * S, 0),
-			batch(NOW - 3 * 3600 * S, 1),
-			batch(NOW - 2 * 3600 * S, 2),
-			...green(NOW - 2 * 3600 * S, 100, "c1"),
-			batch(NOW - 3600 * S, 3),
-			"",
-		].join("\n"),
+		`${green(NOW - 2 * 3600 * S, 100, "c1").join("\n")}\n`,
 	);
 	write(
 		path.join(markers(core), ".queue-log.jsonl"),
@@ -153,32 +143,21 @@ beforeAll(() => {
 	);
 
 	/* lodge: pinned below the code until CARRIED. A 10 s green run, so a 30 s
-	 * target: its 2 stays of 40 s are over it though under workflow-core's. A
-	 * batch and a stay before CARRIED are another release's. */
+	 * target: its 2 stays of 40 s are over it though under workflow-core's. Its
+	 * 900 s stay before CARRIED is another release's. */
 	const lodge = checkout("lodge", ["landing"]);
 	pin(lodge, "v2.2.0", SINCE - 3600 * S);
 	pin(lodge, "v2.3.0", CARRIED);
 	write(
 		path.join(markers(lodge), ".lander.log"),
-		[
-			batch(CARRIED - 3600 * S, 0),
-			batch(NOW - 2 * 3600 * S, 1),
-			...green(NOW - 2 * 3600 * S, 10, "l1"),
-			batch(NOW - 3600 * S, 2),
-			"",
-		].join("\n"),
+		`${green(NOW - 2 * 3600 * S, 10, "l1").join("\n")}\n`,
 	);
 	write(
 		path.join(markers(lodge), ".queue-log.jsonl"),
 		`${stays(CARRIED - 600 * S, [900])}\n${stays(NOW - 300 * S, [40, 40, 5, 5, 5])}\n`,
 	);
 
-	const behind = checkout("behind", ["landing"]);
-	pin(behind, "v2.2.0", SINCE - 3600 * S);
-	write(
-		path.join(markers(behind), ".lander.log"),
-		`${batch(NOW - 60 * S, 0)}\n`,
-	);
+	pin(checkout("behind", ["landing"]), "v2.2.0", SINCE - 3600 * S);
 
 	checkout("quiet", []);
 
@@ -211,14 +190,12 @@ const json = (args: string[]) => {
 	return JSON.parse(r.stdout);
 };
 
-it("counts batches in every landing checkout running the sha, an adopter only from when its pin carried it", () => {
-	const d = json(["batches", "--since", iso(SINCE), "--carrying", measured]);
-	expect(
-		Object.fromEntries(
-			d.repos.map((r: { name: string; count: number }) => [r.name, r.count]),
-		),
-	).toEqual({ "workflow-core": 3, lodge: 2 });
-	expect(d.total).toBe(5);
+it("pools every landing checkout running the sha, an adopter only from when its pin carried it", () => {
+	const d = json(["stays", "--since", iso(SINCE), "--carrying", measured]);
+	expect(d.repos.map((r: { name: string }) => r.name)).toEqual([
+		"lodge",
+		"workflow-core",
+	]);
 	expect(d.repos.find((r: { name: string }) => r.name === "lodge").from).toBe(
 		iso(Math.floor(CARRIED / S) * S),
 	);
@@ -250,11 +227,13 @@ it("judges each checkout's stays against its own target and pools the counts", (
 });
 
 it("prints each checkout's count and the left-out ones in its text reading", () => {
-	const r = run(["batches", "--since", iso(SINCE), "--carrying", measured]);
-	expect(r.stdout).toContain("  lodge: 2 (from ");
+	const r = run(["stays", "--since", iso(SINCE), "--carrying", measured]);
+	expect(r.stdout).toContain("  lodge: 5 stay(s), 2 over its target of 30 s");
 	expect(r.stdout).toContain("when its pin v2.3.0 first carried it");
 	expect(r.stdout).toContain("quiet (landing is off)");
-	expect(r.stdout).toContain("total: 5 batch(es) across 2 checkout(s)");
+	expect(r.stdout).toContain(
+		"pooled: 3 of 15 stay(s) over their checkout's target",
+	);
 });
 
 it("counts reaps in every checkout's record, naming one with none", () => {
@@ -267,7 +246,7 @@ it("counts reaps in every checkout's record, naming one with none", () => {
 
 it("refuses a pooled reading outside workflow-core, and one with no --carrying", () => {
 	const outside = run(
-		["batches", "--since", iso(SINCE), "--carrying", measured],
+		["stays", "--since", iso(SINCE), "--carrying", measured],
 		path.join(home, "lodge"),
 	);
 	expect(outside.status).toBe(2);
