@@ -32,12 +32,12 @@ const { execGit } = require("./lib/git.js");
 const HTML = "docs/reference-roadmap.html";
 const DIGEST = "docs/roadmap-digest.md";
 /* The skill ships in the plugin, so an adopter has no .claude/skills/ of its
- * own to run it from (#2234). */
-const GENERATOR = corePath(
-	".claude/skills/roadmap-edit/scripts/gen-roadmap-digest.js",
-);
+ * own to run it from (#2234). Resolved at run time, against that run's cwd. */
+const generator = () =>
+	corePath(".claude/skills/roadmap-edit/scripts/gen-roadmap-digest.js");
 
-runCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = {
 	name: "roadmap-pair",
 	module: "roadmap",
 	usage: "node check-roadmap-pair.js",
@@ -65,7 +65,7 @@ runCheck({
 			ctx.say("The digest is derived from the HTML and the two are only ever");
 			ctx.say("correct together. Regenerate it and commit both:");
 			ctx.say("");
-			ctx.say(`  node ${GENERATOR} \\`);
+			ctx.say(`  node ${generator()} \\`);
 			ctx.say(`    ${HTML} --out ${DIGEST}`);
 			ctx.say(`  git commit -m "<what changed> (vX.YY)" -- ${HTML} ${DIGEST}`);
 			ctx.say("");
@@ -91,4 +91,7 @@ runCheck({
 
 		return { okLine: "the roadmap and its digest are staged together." };
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

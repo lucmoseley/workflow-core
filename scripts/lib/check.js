@@ -194,6 +194,9 @@ const { caught } = require("./caught.js");
 const { writeFd } = require("./write-fd.js");
 const { envelope: hookEnvelope } = require("./hook-envelope.js");
 
+const { FD_SINK, BufferSink } = require("./check-sink.js");
+/** @typedef {import("./check-sink.js").Sink} Sink */
+
 const OUTCOMES = {
 	OK: { rank: 0, exit: 0 },
 	SKIP: { rank: 0, exit: 0 },
@@ -271,10 +274,15 @@ class CheckContext {
 	/**
 	 * @param {string[]} argv
 	 * @param {{ usage: string, valueFlags?: string[], capture?: string[],
-	 *   screen?: string[], persisting?: boolean }} opts
+	 *   screen?: string[], persisting?: boolean, sink?: Sink,
+	 *   script?: string }} opts `script` is the checker's own file, which an
+	 *   `--against`/`--index` side re-runs; `sink` takes every byte the run
+	 *   writes
 	 */
 	constructor(argv, opts) {
 		this.argv = argv;
+		this.sink = opts.sink ?? FD_SINK;
+		this.script = opts.script;
 		this.warnOnly = argv.includes("--warn");
 		this.asJson = argv.includes("--json");
 		/* Whether the envelope also carries say()'s text, as `text` — opt-in,
@@ -388,7 +396,7 @@ class CheckContext {
 			return;
 		}
 		if (this._sayFd !== null) {
-			writeFd(this._sayFd, `${message}\n`);
+			this.sink.write(this._sayFd, `${message}\n`);
 			return;
 		}
 		/* Under --json-text the human report is KEPT rather than dropped (mantahostels#2490),
@@ -398,7 +406,7 @@ class CheckContext {
 			if (this.jsonText) this._jsonLines.push(message);
 			return;
 		}
-		writeFd(this.notify ? 1 : 2, `${message}\n`);
+		this.sink.write(this.notify ? 1 : 2, `${message}\n`);
 	}
 
 	/**
@@ -422,7 +430,7 @@ class CheckContext {
 		const context = (this._capture ?? []).join("\n");
 		const screen = this._screen.join("\n");
 		if (!context) return;
-		writeFd(
+		this.sink.write(
 			1,
 			screen
 				? JSON.stringify({
@@ -768,21 +776,24 @@ function writeEntry(e, body, { rev, dir }) {
  *
  * @param {string} dir
  * @param {string} label
- * @param {{ stream: boolean, side: "index" | "baseline", code?: string }} opts
+ * @param {{ stream: boolean, side: "index" | "baseline", code?: string,
+ *   sink: Sink }} opts the streamed report goes to `sink`: inherited where
+ *   that is the real fds, so it streams live, else read whole and written
  * @param {string[]} args
  * @returns {{ outcome: Outcome, summary: string, envelope: Record<string, unknown> }}
  */
-function reread(dir, label, { stream, side, code }, args) {
-	const self = code ?? process.argv[1];
+function reread(dir, label, { stream, side, code, sink }, args) {
+	const self = code;
 	if (self === undefined)
-		throw brokenError(`process.argv names no script to re-run over ${label}.`);
+		throw brokenError(`no checker script is named to re-run over ${label}.`);
+	const live = sink === FD_SINK;
 	const r = spawnSync(
 		process.execPath,
 		[self, "--root", dir, "--json", ...args],
 		{
 			encoding: "utf8",
 			maxBuffer: MAX_BUFFER,
-			stdio: ["ignore", "pipe", stream ? "inherit" : "ignore"],
+			stdio: ["ignore", "pipe", sideStderr(stream, live)],
 			env: {
 				...process.env,
 				[SIDE_ENV]: side,
@@ -790,6 +801,7 @@ function reread(dir, label, { stream, side, code }, args) {
 			},
 		},
 	);
+	if (stream && !live && r.stderr) sink.write(2, r.stderr);
 	if (r.error)
 		throw brokenError(
 			`could not re-run this check over ${label}: ${r.error.message}`,
@@ -807,6 +819,18 @@ function reread(dir, label, { stream, side, code }, args) {
 	if (!OUTCOMES[outcome])
 		throw brokenError(`this check's envelope over ${label} names no outcome.`);
 	return { outcome, summary: String(envelope.summary ?? ""), envelope };
+}
+
+/**
+ * A side's stderr: dropped unless streamed, inherited where the sink is the
+ * real fds so it streams live, else piped and written to the sink whole.
+ * @param {boolean} stream
+ * @param {boolean} live
+ * @returns {"ignore" | "inherit" | "pipe"}
+ */
+function sideStderr(stream, live) {
+	if (!stream) return "ignore";
+	return live ? "inherit" : "pipe";
 }
 
 /**
@@ -1053,23 +1077,28 @@ function readSide(ctx, { against, materialise, work }, rev, { label, which }) {
 	materialise(rev, dir, against.pathspecs?.(ctx, rev) ?? []);
 	const code =
 		which === "baseline" && against.baselineCode === "rev"
-			? checkerCopyIn(dir)
-			: undefined;
+			? (checkerCopyIn(dir, ctx.script) ?? ctx.script)
+			: ctx.script;
 	return reread(
 		dir,
 		label,
-		{ stream: which === "index" && !ctx.asJson, side: which, code },
+		{
+			stream: which === "index" && !ctx.asJson,
+			side: which,
+			code,
+			sink: ctx.sink,
+		},
 		ctx.args,
 	);
 }
 
 /**
- * The copy of this process's checker that the tree materialised at `dir`
+ * The copy of the checker at `self` that the tree materialised at `dir`
  * carries at the same path, else undefined.
  * @param {string} dir
+ * @param {string | undefined} self
  */
-function checkerCopyIn(dir) {
-	const self = process.argv[1];
+function checkerCopyIn(dir, self) {
 	if (self === undefined) return;
 	const abs = path.resolve(self);
 	const copy = path.join(
@@ -1552,27 +1581,87 @@ process.on("unhandledRejection", reportCrash);
  * exported `main` to hand runInProcessAsync (#3616). A real process exits
  * inside the tail, so there it never settles.
  *
+ * The process shell over startRun(): it reads `process.argv`, writes the real
+ * fds and exits. checkInProcess() is the same run with none of those.
+ *
  * @param {CheckSpec} spec
  * @returns {Promise<never> | undefined}
  */
 function runCheck(spec) {
 	const argv = process.argv.slice(2);
-	/* Before any work, as lib/cli-args.js answers it (#920). */
-	const ownArgs = argv.includes("--")
-		? argv.slice(0, argv.indexOf("--"))
-		: argv;
-	exitOnHelp(ownArgs, spec.usage);
 	/* Persist mode routes say() into an array instead of a fd, so the decision
 	 * is taken here — before the ctx exists — and the captured lines become the
 	 * report file's text in finish(). `capture`'s in-process user builds its own ctx
 	 * (mantahostels#2062), so the two never contend. */
-	const persist = persisting(argv)
-		? {
-				lines: /** @type {string[]} */ ([]),
-				notify: loadNotify(),
-				startedAtMono: performance.now(),
-			}
-		: null;
+	const persist =
+		persisting(argv) && !helpAsked(argv)
+			? {
+					lines: /** @type {string[]} */ ([]),
+					notify: loadNotify(),
+					startedAtMono: performance.now(),
+				}
+			: null;
+	/* Opened before any work and closed in finish(), so a run cut off midway
+	 * leaves the record standing — which is the whole signal a reader has that
+	 * a producer was cancelled rather than merely quiet (mantahostels#1949). */
+	if (persist) openedKey = spec.name;
+	const started = startRun(spec, argv, {
+		sink: FD_SINK,
+		script: process.argv[1],
+		persist,
+	});
+	if (started.help) return exitFinished(0);
+	const { ctx, run } = started;
+	if (run instanceof Promise) return finishWhenSettled(ctx, spec, run, persist);
+	exitFinished(finish(ctx, spec, run, persist));
+}
+
+/**
+ * Run a checker inside this process: `argv` in, its exit code and both
+ * streams out, byte for byte as runCheck's process would have written them.
+ * It reads no `process.argv`, sets no exit code and never exits; `script` is
+ * the checker's own file, which an `--against`/`--index` side re-runs.
+ * Persist mode is a process run's alone.
+ *
+ * @param {CheckSpec} spec
+ * @param {string[]} argv
+ * @param {{ script: string, sink?: InstanceType<typeof BufferSink> }} opts
+ * @returns {Promise<{ exit: number, stdout: string, stderr: string }>}
+ */
+async function checkInProcess(spec, argv, { script, sink = new BufferSink() }) {
+	const started = startRun(spec, argv, { sink, script, persist: null });
+	const exit = started.help
+		? 0
+		: finish(started.ctx, spec, await started.run, null);
+	return { exit, stdout: sink.stdout, stderr: sink.stderr };
+}
+
+/** @param {string[]} argv */
+const ownArgsOf = (argv) =>
+	argv.includes("--") ? argv.slice(0, argv.indexOf("--")) : argv;
+
+/** @param {string[]} argv */
+const helpAsked = (argv) => {
+	const own = ownArgsOf(argv);
+	return own.includes("--help") || own.includes("-h");
+};
+
+/**
+ * The run both shells share, up to its outcome: the usage on `--help`, else
+ * the ctx and the checker's run folded into an outcome, or the Promise of one.
+ *
+ * @param {CheckSpec} spec
+ * @param {string[]} argv
+ * @param {{ sink: Sink, script: string | undefined, persist: Persist | null }} opts
+ * @returns {{ help: true } | { help: false, ctx: CheckContext, run: Ran | Promise<Ran> }}
+ */
+function startRun(spec, argv, { sink, script, persist }) {
+	/* Before any work, as lib/cli-args.js answers it (#920). */
+	if (helpAsked(argv)) {
+		sink.write(1, `usage: ${spec.usage}\n`);
+		return { help: true };
+	}
+	const ownArgs = ownArgsOf(argv);
 	const buffering =
 		spec.screenNotices &&
 		argv.includes("--notify") &&
@@ -1598,19 +1687,14 @@ function runCheck(spec) {
 		capture: persist?.lines ?? (buffering ? [] : undefined),
 		screen: buffering ? [] : undefined,
 		persisting: Boolean(persist),
+		sink,
+		script,
 	});
-	/* Opened before any work and closed in finish(), so a run cut off midway
-	 * leaves the record standing — which is the whole signal a reader has that
-	 * a producer was cancelled rather than merely quiet (mantahostels#1949). */
-	if (persist) {
-		openedKey = spec.name;
-		persist.notify.openRun(spec.name);
-	}
+	if (persist) persist.notify.openRun(spec.name);
 	const run = runBody(spec, ctx, () =>
 		flagRefusal(ownArgs, valueFlags, accepted),
 	);
-	if (run instanceof Promise) return finishWhenSettled(ctx, spec, run, persist);
-	finish(ctx, spec, run, persist);
+	return { help: false, ctx, run };
 }
 
 /**
@@ -1627,42 +1711,33 @@ function finishWhenSettled(ctx, spec, run, persist) {
 	 * reads, failing while the first is awaited — misses run's own Promise.
 	 * Ahead of reportCrash, so it folds as a throw would. */
 	process.prependOnceListener("unhandledRejection", (e) =>
-		finish(ctx, spec, fromThrow(spec, e), persist),
+		exitFinished(finish(ctx, spec, fromThrow(spec, e), persist)),
 	);
 	/* A run() awaiting something that can never settle leaves node an empty
 	 * loop, and node then exits 0 having printed nothing. finish() exits, so
 	 * this fires only if it never ran. */
 	process.once("beforeExit", () =>
-		finish(
-			ctx,
-			spec,
-			{
-				outcome: "BROKEN",
-				result: {},
-				message:
-					`${spec.name}'s run() returned a Promise that never settled — ` +
-					"every await in run() must resolve or reject.",
-			},
-			persist,
+		exitFinished(
+			finish(
+				ctx,
+				spec,
+				{
+					outcome: "BROKEN",
+					result: {},
+					message:
+						`${spec.name}'s run() returned a Promise that never settled — ` +
+						"every await in run() must resolve or reject.",
+				},
+				persist,
+			),
 		),
 	);
 	return run
-		.then((ran) => finish(ctx, spec, ran, persist))
+		.then((ran) => exitFinished(finish(ctx, spec, ran, persist)))
 		.catch((e) => {
 			if (finished) throw e;
 			return reportCrash(e);
 		});
-}
-
-/**
- * @param {string[]} ownArgs
- * @param {string} usage
- */
-function exitOnHelp(ownArgs, usage) {
-	if (ownArgs.includes("--help") || ownArgs.includes("-h")) {
-		writeFd(1, `usage: ${usage}\n`);
-		process.exit(0);
-	}
 }
 
 /**
@@ -1779,7 +1854,7 @@ function fromThrow(spec, e) {
  * @param {Ran} ran
  * @param {Persist | null} persist present under persist mode alone — see
  *   lib/persist-mode.js
- * @returns {never}
+ * @returns {number} the run's exit code
  */
 function finish(ctx, spec, { outcome, result, message }, persist) {
 	const gating = ctx.findings.filter((f) => f.severity === "FAIL");
@@ -1816,7 +1891,7 @@ function finish(ctx, spec, { outcome, result, message }, persist) {
 
 	if (ctx.asJson) {
 		writeEnvelope(ctx, spec, { outcome, result, count, keys, noun, summary });
-		exitFinished(exitFor(ctx, outcome));
+		return exitFor(ctx, outcome);
 	}
 
 	annotate(ctx, outcome, message);
@@ -1836,9 +1911,12 @@ function finish(ctx, spec, { outcome, result, message }, persist) {
 		result.afterReport?.();
 	} catch (e) {
 		/* The report is out, so a failed stamp only repeats it (#3776). */
-		writeFd(2, `${spec.name}: afterReport failed: ${caught(e).message}\n`);
+		ctx.sink.write(
+			2,
+			`${spec.name}: afterReport failed: ${caught(e).message}\n`,
+		);
 	}
-	exitFinished(exitFor(ctx, outcome));
+	return exitFor(ctx, outcome);
 }
 
 /**
@@ -1899,7 +1977,7 @@ function writeEnvelope(
 	/* writeFd for the same reason say() uses it: node buffers writes to a
 	 * pipe and drops what is still buffered at process.exit, which truncates a
 	 * large envelope mid-string and hands the reader invalid JSON. */
-	writeFd(
+	ctx.sink.write(
 		1,
 		`${JSON.stringify(
 			{
@@ -1928,14 +2006,14 @@ function writeEnvelope(
 function annotate(ctx, outcome, message) {
 	if (!ctx.inActions) return;
 	if (outcome === "BROKEN") {
-		writeFd(1, `::error::${toOneLine(message)}\n`);
+		ctx.sink.write(1, `::error::${toOneLine(message)}\n`);
 		return;
 	}
 	if (outcome !== "FAIL" && outcome !== "WARN") return;
 	for (const f of ctx.findings) {
 		// A FAIL demoted by --warn annotates as a warning, matching its exit.
 		const level = f.severity === "FAIL" && !ctx.warnOnly ? "error" : "warning";
-		writeFd(1, `::${level}::${toOneLine(f.message)}\n`);
+		ctx.sink.write(1, `::${level}::${toOneLine(f.message)}\n`);
 	}
 }
 
@@ -2039,6 +2117,8 @@ const { now } = require("./clock.js");
 // (mantahostels#1315).
 module.exports = {
 	runCheck,
+	checkInProcess,
+	BufferSink,
 	now,
 	skipError,
 	brokenError,
