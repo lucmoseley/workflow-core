@@ -186,6 +186,59 @@ def test_stop_rules_are_not_read_with_no_hold_in_force(tmp_path):
     )
 
 
+def test_a_restart_inside_a_holds_washout_keeps_its_stop_rules(tmp_path):
+    # The runner died at a hold's end; restarted in the washout after it, the
+    # breach there is still the hold's harm.
+    p = ms.paths(str(tmp_path))
+    Path(p["schedule"]).parent.mkdir(parents=True)
+    sched = {
+        "start": T0,
+        "hold_mb": 668,
+        "blocks": [
+            {"i": 0, "pair": 0, "arm": "hold", "mb": 334},
+            {"i": 1, "pair": 0, "arm": "none", "mb": 0},
+        ],
+    }
+    Path(p["schedule"]).write_text(json.dumps(sched))
+    Path(p["events"]).write_text(
+        json.dumps({"ts": T0, "event": "block", "i": 0, "arm": "hold", "mb": 334})
+        + "\n"
+    )
+    why = walk(p, Clock(T0 + ms.BLOCK_S + 60), reading=calm(swap_mb=1900))
+    assert why.startswith("stop rule: swap used 1900 MB")
+
+
+def test_a_block_whose_runner_died_in_it_is_not_read():
+    sched = {
+        "start": T0,
+        "hold_mb": 668,
+        "blocks": [{"i": 0, "pair": 1, "arm": "hold", "mb": 668}],
+    }
+    lo, hi = T0 + ms.WASHOUT_S, T0 + ms.BLOCK_S
+    kw = {
+        "minute_rows": {
+            lo + 60 * k: {"bash": [2.0] * 3, "hto": 0, "active": 4} for k in range(10)
+        },
+        "mem": [],
+        "ticks": [lo + 30],
+        "close_ts": [],
+        "until": hi,
+    }
+    began = {"ts": T0 + 1, "event": "block", "i": 0}
+    died = [began, {"ts": hi + 60, "event": "start"}]
+    lived = [began, {"ts": hi, "event": "pair", "pair": 1}]
+    assert ms.blocks_read(sched, died, **kw) == []
+    assert len(ms.blocks_read(sched, lived, **kw)) == 1
+
+
+def test_report_counts_blocks_the_usable_mask_drops_per_arm():
+    rows = block_rows(5, 1.0, seed=2)
+    rows[2]["usable"] = False  # pair 1's first block
+    out = ms.report(rows, "done")
+    arm = rows[2]["arm"]
+    assert f"drops (balance), {arm} arm | 1 of 4 |" in out
+
+
 def test_a_stale_schedule_is_refused(tmp_path):
     p, _ = setup(tmp_path)
     why = walk(p, Clock(T0 + ms.WASHOUT_S))
@@ -303,7 +356,10 @@ def test_blocks_read_marks_usability_and_reads_the_last_ten_minutes():
         "hold_mb": 668,
         "blocks": [{"i": 0, "pair": 1, "arm": "hold", "mb": 668}],
     }
-    evs = [{"ts": T0 + 1, "event": "block", "i": 0}]
+    evs = [
+        {"ts": T0 + 1, "event": "block", "i": 0},
+        {"ts": T0 + ms.BLOCK_S, "event": "pair", "pair": 1},
+    ]
     lo = T0 + ms.WASHOUT_S
     minute_rows = {
         lo + 60 * k: {"bash": [2.0, 4.0], "hto": 1, "active": 4} for k in range(10)
