@@ -1,16 +1,17 @@
 #!/usr/bin/env node
 /*
  * check-suite-budget.js — is the whole suite's summed per-file CI time, each
- * file at its median over the last three sweeps, over the budget a 180 s
- * cold lone whole suite allows (#5137)?
+ * file at its median over the last three sweeps, over the budget a cold lone
+ * whole suite at its target allows (#5137)?
  *
  * Usage:
  *   node check-suite-budget.js [--reports <dir>] [--json]
  *
  * Reads each sweep's vitest reports (`scripts/lib/sweep-reports.js`, where
- * `--reports <dir>` names sweeps already downloaded). The sum is
- * `scripts/lib/suite-budget.js`'s; the budget and the record that arms it are
- * SUITE_BUDGET_MS and BUDGET_ARMED_BY in `scripts/lib/suite-ceiling.js`.
+ * `--reports <dir>` names sweeps already downloaded). What is summed, and what
+ * refuses, is `scripts/lib/suite-budget.js`'s; the budget and the record that
+ * arms it are SUITE_BUDGET_MS and BUDGET_ARMED_BY in
+ * `scripts/lib/suite-ceiling.js`.
  *
  * IT REFUSES IN THE SCHEDULED SWEEP ALONE, on recorded medians: a commit has
  * no median for the file it adds, and one run's wall time judges the machine
@@ -25,13 +26,28 @@
  */
 
 const { runCheck } = require("./lib/check.js");
-const { SWEEPS_JUDGED } = require("./lib/file-ci-time.js");
-const { judgeBudget } = require("./lib/suite-budget.js");
-const { BUDGET_ARMED_BY } = require("./lib/suite-ceiling.js");
+const { SWEEPS_JUDGED, judgedNothing } = require("./lib/file-ci-time.js");
+const { armedBy, judgeBudget } = require("./lib/suite-budget.js");
+const { TARGET_MS } = require("./lib/suite-ceiling.js");
 const { readSweeps } = require("./lib/sweep-reports.js");
 
 /** @param {number} s */
 const secs = (s) => `${Math.round(s)} s`;
+
+const TARGET = secs(TARGET_MS / 1000);
+
+/**
+ * @param {boolean} refuses
+ * @param {number} judgedSeconds
+ */
+function nextStep(refuses, judgedSeconds) {
+	const armed = armedBy();
+	if (refuses)
+		return `  Armed by ${armed}: cut the slowest files by measured cost (#2729) before adding more.`;
+	if (armed)
+		return `  Not refused: the files timed in all ${SWEEPS_JUDGED} sweeps sum to ${secs(judgedSeconds)}, inside the budget; the rest are new.`;
+	return `  Reported only: no cold lone whole suite has yet passed under ${TARGET} (BUDGET_ARMED_BY, scripts/lib/suite-ceiling.js).`;
+}
 
 runCheck({
 	name: "suite-budget",
@@ -39,25 +55,25 @@ runCheck({
 	valueFlags: ["--reports"],
 	run(/** @type {import("./lib/check.js").Ctx} */ ctx) {
 		const verdict = judgeBudget(readSweeps(ctx));
-		if (!verdict.judged)
-			ctx.skip(
-				`judged nothing: ${verdict.runs.length} sweep(s) with vitest reports readable${verdict.runs.length > 0 ? ` (${verdict.runs.join(", ")})` : ""}, ${SWEEPS_JUDGED} needed for a median.`,
-			);
-		const { totalSeconds, budgetSeconds, files, slowest, runs } = verdict;
-		const sum = `${files} test files' median CI times over their last ${SWEEPS_JUDGED} sweeps (latest ${runs.slice(0, SWEEPS_JUDGED).join(", ")}) sum to ${secs(totalSeconds)}`;
-		const budget = `the ${secs(budgetSeconds)} budget a 180 s cold lone whole suite allows`;
+		if (!verdict.judged) ctx.skip(judgedNothing(verdict.runs));
+		const { totalSeconds, judgedSeconds, budgetSeconds, files, slowest } =
+			verdict;
+		const sum = `${files} test files' median CI times over their last ${SWEEPS_JUDGED} sweeps (latest ${verdict.runs.slice(0, SWEEPS_JUDGED).join(", ")}) sum to ${secs(totalSeconds)}`;
+		const budget = `the ${secs(budgetSeconds)} budget a ${TARGET} cold lone whole suite allows`;
 		if (!verdict.over) return { okLine: `${sum}, inside ${budget}.` };
-		const record = { totalSeconds, budgetSeconds, files, slowest };
+		const record = {
+			totalSeconds,
+			judgedSeconds,
+			budgetSeconds,
+			files,
+			slowest,
+		};
 		const text = `${sum}, ${secs(totalSeconds - budgetSeconds)} over ${budget}.`;
 		if (verdict.refuses) ctx.fail("SUITE-BUDGET", text, record, "SUITE-BUDGET");
 		else ctx.warn("SUITE-BUDGET", text, record, "SUITE-BUDGET");
 		ctx.say(`SUITE-BUDGET — ${text} Slowest:`);
 		for (const f of slowest) ctx.say(`  ${secs(f.medianSeconds)}  ${f.file}`);
-		ctx.say(
-			verdict.refuses
-				? `  Armed by ${BUDGET_ARMED_BY}: cut the slowest files by measured cost (#2729) before adding more.`
-				: "  Reported only: no cold lone whole suite has yet passed under 180 s (BUDGET_ARMED_BY, scripts/lib/suite-ceiling.js).",
-		);
+		ctx.say(nextStep(verdict.refuses, judgedSeconds));
 		return { noun: "suite over its budget", count: 1, data: record };
 	},
 });

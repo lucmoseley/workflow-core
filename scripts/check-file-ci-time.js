@@ -22,7 +22,11 @@
  */
 
 const { runCheck } = require("./lib/check.js");
-const { SWEEPS_JUDGED, judge } = require("./lib/file-ci-time.js");
+const {
+	SWEEPS_JUDGED,
+	judge,
+	judgedNothing,
+} = require("./lib/file-ci-time.js");
 const { FILE_LIMIT_MS } = require("./lib/suite-ceiling.js");
 const { readSweeps } = require("./lib/sweep-reports.js");
 
@@ -41,10 +45,7 @@ runCheck({
 	valueFlags: ["--reports"],
 	run(/** @type {import("./lib/check.js").Ctx} */ ctx) {
 		const verdict = judge(readSweeps(ctx));
-		if (!verdict.judged)
-			ctx.skip(
-				`judged nothing: ${verdict.runs.length} sweep(s) with vitest reports readable${verdict.runs.length > 0 ? ` (${verdict.runs.join(", ")})` : ""}, ${SWEEPS_JUDGED} needed for a median.`,
-			);
+		if (!verdict.judged) ctx.skip(judgedNothing(verdict.runs));
 		const { over, unjudged, runs } = verdict;
 		const window = `latest ${runs.slice(0, SWEEPS_JUDGED).join(", ")}`;
 		const slowUnjudged = unjudged.filter((u) => u.overInASweep);

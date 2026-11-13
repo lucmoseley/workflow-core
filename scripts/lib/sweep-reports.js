@@ -3,6 +3,9 @@
  * off each run's `vitest-report-*` artefacts (scheduled-checks.yml, kept 14
  * days) or from runs already downloaded. Which sweeps are read is
  * `collect`'s, in `scripts/lib/file-ci-time.js`.
+ *
+ * Its own module so `check-file-ci-time.js` and `check-suite-budget.js` judge
+ * one download path (#5137), split from the first.
  */
 
 const fs = require("node:fs");

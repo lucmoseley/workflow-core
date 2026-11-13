@@ -140,4 +140,18 @@ function judge(sweeps) {
 	return { judged: true, runs, over, unjudged };
 }
 
-module.exports = { SWEEPS_JUDGED, collect, judge, median, readingsByFile };
+/**
+ * The SKIP line where fewer than SWEEPS_JUDGED sweeps were readable.
+ * @param {string[]} runs every sweep read
+ */
+const judgedNothing = (runs) =>
+	`judged nothing: ${runs.length} sweep(s) with vitest reports readable${runs.length > 0 ? ` (${runs.join(", ")})` : ""}, ${SWEEPS_JUDGED} needed for a median.`;
+
+module.exports = {
+	SWEEPS_JUDGED,
+	collect,
+	judge,
+	judgedNothing,
+	median,
+	readingsByFile,
+};

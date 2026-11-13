@@ -1,9 +1,11 @@
 // @vitest-environment node
 /*
- * Pins check-suite-budget.js end to end over `--reports`, sweeps already on
- * disk as `gh run download` leaves them. The sum and the arming are
- * scripts/lib/suite-budget.test.ts's: the armed record is a committed
- * constant, so a refusal is pinned there.
+ * Pins check-suite-budget.js (#5137) end to end over `--reports`, sweeps
+ * already on disk as `gh run download` leaves them; its gh route is
+ * scripts/lib/sweep-reports.js's, pinned through check-file-ci-time.test.ts.
+ * The arithmetic is scripts/lib/suite-budget.test.ts's. The committed
+ * BUDGET_ARMED_BY is null, so a refusal arms through ARMED_ENV. Broken, the
+ * sweep goes green over the budget, or red on a budget nobody armed.
  */
 
 import fs from "node:fs";
@@ -43,8 +45,8 @@ function writeSweep(runId: string, files: Record<string, number>) {
 	);
 }
 
-const run = () => {
-	const r = runInProcess(SCRIPT, ["--reports", dir]);
+const run = (env: Record<string, string> = {}, argv = ["--reports", dir]) => {
+	const r = runInProcess(SCRIPT, argv, { env: { ...process.env, ...env } });
 	return { status: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
 };
 
@@ -66,6 +68,25 @@ describe("check-suite-budget.js", () => {
 		expect(out).toContain(`700 s  ${A}\n  200 s  ${B}`);
 		expect(out).toContain("Reported only: no cold lone whole suite");
 		expect(out).toContain("WARN: 1 suite over its budget");
+	});
+
+	it("refuses a sum over the budget once armed, exiting 1", () => {
+		for (const r of ["3", "2", "1"]) writeSweep(r, { [A]: 700, [B]: 200 });
+		const { status, out } = run({ WFC_SUITE_BUDGET_ARMED_BY: "c".repeat(40) });
+		expect(status).toBe(1);
+		expect(out).toContain("114 s over the 786 s budget");
+		expect(out).toContain(`Armed by ${"c".repeat(40)}`);
+	});
+
+	it("passes a sum under the budget once armed", () => {
+		for (const r of ["3", "2", "1"]) writeSweep(r, { [A]: 300, [B]: 200 });
+		const { status, out } = run({ WFC_SUITE_BUDGET_ARMED_BY: "c".repeat(40) });
+		expect(status).toBe(0);
+		expect(out).toContain("OK:");
+	});
+
+	it("is BROKEN on an unknown flag", () => {
+		expect(run({}, ["--bogus"]).status).toBe(2);
 	});
 
 	it("skips, judging nothing, on fewer than three sweeps", () => {

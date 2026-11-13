@@ -47,13 +47,15 @@ const TARGET_MS = 180_000;
  * #4283, 4 Nov 2026, resting on Bazel's 60 s short-test timeout and the
  * TARGET_MS above. `check-file-ci-time.js` reports a file over it. */
 const FILE_LIMIT_MS = 60_000;
-/* How full a whole suite's workers stay: #3290's bench on #2729 summed 1,497 s
- * of file and setup time over a 343 s run at 5 workers. */
-const PACKING = 1497 / (343 * 5);
+/* #3290's bench on #2729: 1,497 s of file and setup time summed over a 343 s
+ * run at 5 workers, so its workers stayed 0.87 full. */
+const BENCH_WORKERS = 5;
+const PACKING = 1497 / (343 * BENCH_WORKERS);
 /* The summed per-file time a whole suite at TARGET_MS holds (#5137, ruled on
- * #5131, 13 Nov 2026): about 785 worker-seconds. `check-suite-budget.js`
- * judges the suite's summed sweep medians against it. RESIDUAL: the medians
- * are CI runner times, the packing a local bench's. */
+ * #5131, 13 Nov 2026): 786 worker-seconds. `check-suite-budget.js` judges the
+ * suite's summed sweep medians against it. It scales with the worker count
+ * while the packing stays the bench's. RESIDUAL: the medians are CI runner
+ * times, the packing a local bench's. */
 const SUITE_BUDGET_MS = TARGET_MS * WHOLE_SUITE_WORKERS * PACKING;
 /* The sha of the first cold lone whole suite under TARGET_MS, or null. Until
  * one is recorded `check-suite-budget.js` only reports, since a suite that has

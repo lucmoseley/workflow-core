@@ -161,11 +161,18 @@ const VERDICT_JOB = "Suite passed";
  * time job, red once #4293 makes it a need of `Suite passed`, and the suite's
  * growth budget, red once armed (#5137). */
 const FILE_TIMES_JOB = "Test file CI times";
-/** @type {Record<string, string>} */
-const MEDIAN_JOB_ROUTES = {
-	[FILE_TIMES_JOB]: `each file over the limit is cut under its own profiled ticket (a sub-issue of #2729) — \`node ${scriptPath("check-file-ci-time.js")}\` names the files`,
-	"Suite growth budget": `the slowest files are cut by measured cost (a sub-issue of #2729) — \`node ${scriptPath("check-suite-budget.js")}\` names them`,
-};
+const SUITE_BUDGET_JOB = "Suite growth budget";
+/** @type {Map<string, string>} */
+const MEDIAN_JOB_ROUTES = new Map([
+	[
+		FILE_TIMES_JOB,
+		`each file over the limit is cut under its own profiled ticket (a sub-issue of #2729) — \`node ${scriptPath("check-file-ci-time.js")}\` names the files`,
+	],
+	[
+		SUITE_BUDGET_JOB,
+		`the slowest files are cut by measured cost (a sub-issue of #2729) — \`node ${scriptPath("check-suite-budget.js")}\` names them`,
+	],
+]);
 
 // The red-suite filer's own spellings (#532).
 const redSuite = require("./report-red-suite");
@@ -745,7 +752,7 @@ function buildTicketLines(isSweep, failures, ticket, indent) {
 		.filter((name) => !filerOwns(name) && !(isSweep && name === VERDICT_JOB))
 		.map(
 			(name) =>
-				`${indent}Ticket for ${name}: ${(isSweep && MEDIAN_JOB_ROUTES[name]) || "no filer covers this job"}`,
+				`${indent}Ticket for ${name}: ${(isSweep && MEDIAN_JOB_ROUTES.get(name)) || "no filer covers this job"}`,
 		);
 	if (!isSweep) return lines;
 	if (redSuite.filesFor(failures.rows))
@@ -1519,7 +1526,7 @@ function sayFailedRun(ctx, r, { deadline, ticket }) {
 function isMedianRedAlone(r, failures) {
 	if (r.workflowName !== redSuite.SWEEP_NAME || !failures) return false;
 	const jobs = failures.jobs.filter((name) => name !== VERDICT_JOB);
-	return jobs.length > 0 && jobs.every((name) => name in MEDIAN_JOB_ROUTES);
+	return jobs.length > 0 && jobs.every((name) => MEDIAN_JOB_ROUTES.has(name));
 }
 
 /**

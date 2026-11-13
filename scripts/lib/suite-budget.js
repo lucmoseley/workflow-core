@@ -2,61 +2,86 @@
  * suite-budget.js — whether the whole suite's summed per-file CI time is over
  * SUITE_BUDGET_MS (#5137), and whether that refuses.
  *
- * THE SUM IS EACH FILE'S MEDIAN over its latest SWEEPS_JUDGED sweeps, the
- * files and readings `scripts/lib/file-ci-time.js` takes, so one slow sweep
- * moves no file that has three readings. A file timed in fewer, a new one say,
- * counts at the median of what it has: growth counts from its first sweep.
+ * THE FILES SUMMED ARE THOSE THE NEWEST SWEEP TIMED, each at its median over
+ * its latest SWEEPS_JUDGED sweeps (`scripts/lib/file-ci-time.js`), so a file
+ * deleted or renamed since counts nowhere. RESIDUAL: a file whose shard the
+ * newest sweep lost counts nowhere either, which can only understate the sum.
  *
- * IT REFUSES ONLY ONCE ARMED, BUDGET_ARMED_BY in `scripts/lib/suite-ceiling.js`
- * naming the cold lone whole suite that first passed under TARGET_MS. Before
- * that an over-budget sum is reported.
+ * A REFUSAL COUNTS ONLY FILES WITH SWEEPS_JUDGED READINGS: a new file's one
+ * reading is one run's wall time, which never refuses on its own. It counts
+ * towards the reported total from its first sweep, and towards a refusal from
+ * its third.
+ *
+ * IT REFUSES ONLY ONCE ARMED: BUDGET_ARMED_BY in `scripts/lib/suite-ceiling.js`
+ * names the cold lone whole suite that first passed under TARGET_MS. Before
+ * that an over-budget sum is reported. ARM ONLY: ARMED_ENV may arm an unarmed
+ * budget, for tests; it never disarms one.
  */
 
 const { SWEEPS_JUDGED, median, readingsByFile } = require("./file-ci-time.js");
 const { BUDGET_ARMED_BY, SUITE_BUDGET_MS } = require("./suite-ceiling.js");
 
-/* The files a finding names, slowest first. Untraced. */
-const NAMED = 10;
+const ARMED_ENV = "WFC_SUITE_BUDGET_ARMED_BY";
+/* Untraced. */
+const SLOWEST_NAMED = 10;
 
 /**
- * @typedef {{ file: string, medianSeconds: number }} FileMedian
+ * @typedef {{ file: string, medianSeconds: number, readings: number }} FileMedian
  * @typedef {{ judged: false, runs: string[] }
  *   | { judged: true, runs: string[], totalSeconds: number,
- *       budgetSeconds: number, over: boolean, refuses: boolean,
- *       files: number, slowest: FileMedian[] }} Verdict
+ *       judgedSeconds: number, budgetSeconds: number, over: boolean,
+ *       refuses: boolean, files: number, slowest: FileMedian[] }} Verdict
  */
 
 /**
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string|null}
+ */
+const armedBy = (env = process.env) =>
+	BUDGET_ARMED_BY ?? (env[ARMED_ENV] || null);
+
+/** @param {FileMedian[]} files */
+const sumOf = (files) => files.reduce((sum, f) => sum + f.medianSeconds, 0);
+
+/**
  * @param {import("./file-ci-time.js").Sweep[]} sweeps newest first
- * @param {{ armedBy?: string|null, budgetMs?: number }} [options]
+ * @param {{ armed?: string|null, budgetMs?: number }} [options]
  * @returns {Verdict}
  */
 function judgeBudget(
 	sweeps,
-	{ armedBy = BUDGET_ARMED_BY, budgetMs = SUITE_BUDGET_MS } = {},
+	{ armed = armedBy(), budgetMs = SUITE_BUDGET_MS } = {},
 ) {
 	const runs = sweeps.map((s) => s.run);
-	if (sweeps.length < SWEEPS_JUDGED) return { judged: false, runs };
+	const [newest] = sweeps;
+	if (sweeps.length < SWEEPS_JUDGED || !newest) return { judged: false, runs };
+	const live = new Set(newest.rows.map((r) => r.file));
 	/** @type {FileMedian[]} */
-	const medians = [...readingsByFile(sweeps)].map(([file, readings]) => ({
-		file,
-		medianSeconds: median(readings.map((r) => r.seconds)),
-	}));
+	const medians = [...readingsByFile(sweeps)]
+		.filter(([file]) => live.has(file))
+		.map(([file, readings]) => ({
+			file,
+			medianSeconds: median(readings.map((r) => r.seconds)),
+			readings: readings.length,
+		}));
 	medians.sort(
 		(a, b) => b.medianSeconds - a.medianSeconds || a.file.localeCompare(b.file),
 	);
-	const totalSeconds = medians.reduce((sum, f) => sum + f.medianSeconds, 0);
-	const over = totalSeconds * 1000 > budgetMs;
+	const totalSeconds = sumOf(medians);
+	const judgedSeconds = sumOf(
+		medians.filter((f) => f.readings >= SWEEPS_JUDGED),
+	);
 	return {
 		judged: true,
 		runs,
 		totalSeconds,
+		judgedSeconds,
 		budgetSeconds: budgetMs / 1000,
-		over,
-		refuses: over && armedBy !== null,
+		over: totalSeconds * 1000 > budgetMs,
+		refuses: armed !== null && judgedSeconds * 1000 > budgetMs,
 		files: medians.length,
-		slowest: medians.slice(0, NAMED),
+		slowest: medians.slice(0, SLOWEST_NAMED),
 	};
 }
 
-module.exports = { judgeBudget };
+module.exports = { ARMED_ENV, armedBy, judgeBudget };
