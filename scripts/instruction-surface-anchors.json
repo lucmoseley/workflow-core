@@ -139,8 +139,8 @@
 			"source": "#2790, #3583, #4866"
 		},
 		"scripts/check-roadmap-valid.js": {
-			"digest": "021469966c391b97",
-			"verdict": "at need — refuses the commit before it lands, naming each broken card. Re-fed under #4892 through the same route at 2a693a8fe (7.0 type fixes) and its parent, each payload byte-identical at both: `--tree` on a valid roadmap 98 B, exit 0; a bad state and a missing need named, 1044 B, exit 1.",
+			"digest": "9511344d5330dbc3",
+			"verdict": "at need — refuses the commit before it lands, naming each broken card. Re-fed under #4892 through the same route at 2a693a8fe (7.0 type fixes) and its parent, each payload byte-identical at both: `--tree` on a valid roadmap 98 B, exit 0; a bad state and a missing need named, 1044 B, exit 1. Re-fed under #5172 at 54b9cde85 (SPEC export, dispatcher row) and 6abe2ac3b, byte-identical at both: valid roadmap 98 B, exit 0; a bad state and a missing need named, 1043 B, exit 1.",
 			"selfSufficient": "yes — each error names card and fault, and the route (roadmap-edit skill) is inline. Re-fed at #3136 (--tree, a missing need and a bad state): both named; with an empty rule store the rule's place takes the fallback template line naming docs/agents/rules/roadmap-validity.txt.",
 			"source": "#3136, #4892"
 		},
