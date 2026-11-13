@@ -3,14 +3,14 @@
  * The duplicate-dispatch gate (mantahostels#1337) — the check that stops a `/pick-next`
  * batch launching an issue that is already running.
  *
- * Every gate case runs the program as scripts/dispatch-sessions.sh does, through
+ * Every gate case runs the program as scripts/dispatch-sessions.js does, through
  * run-in-process, against a stub `claude` at WFC_CLAUDE_BIN, so the oracle is
  * read through `lib/agent-liveness.js` throughout — its sessionId filter, its
  * empty-list refusal and the `requireSelf` waiver included (mantahostels#1400).
  * The launch-prompt parsing cases call lib/dispatch-ledger.js, the program's
  * own module, directly.
  *
- * scripts/dispatch-sessions.sh runs it before every `/pick-next` launch, so
+ * scripts/dispatch-sessions.js runs it before every `/pick-next` launch, so
  * loosening a case lets a resumed set relaunch issues already running —
  * duplicate sessions contending on files the live ones are mid-write on.
  */

@@ -1,6 +1,6 @@
 /*
  * dispatch-ledger.js — `.pick-next/dispatched.jsonl`, the record
- * scripts/dispatch-sessions.sh appends to as each session launches, and the
+ * scripts/dispatch-sessions.js appends to as each session launches, and the
  * refill loop appends to as it resumes a parked one (#3704), as it stops one on
  * its seat's limit, a row holding past the window until released (#3785), and,
  * as it hands one off or a limit hold ends, a release row (#2744).
@@ -144,7 +144,7 @@ function entryHolds(rec, command) {
 /**
  * One launch line of `.pick-next/dispatched.jsonl`.
  *
- * `session` is the LAUNCHING session — the one that ran dispatch-sessions.sh —
+ * `session` is the LAUNCHING session — the one that ran dispatch-sessions.js —
  * never the launched job's own session (mantahostels#3488). On a refill-loop
  * resume (#3704) it is null: the loop forgets its session id at start.
  * `jobId` is that job's own short id, the one `claude --bg` prints and
@@ -154,7 +154,7 @@ function entryHolds(rec, command) {
  *            seatReason?: string, heldUntil?: string}} DispatchRecord
  *   `seatReason` is why the launch went on its seat: the refill loop's pick
  *   (lib/refill-decide.js's SeatReason), or `own seat` for a direct
- *   dispatch-sessions.sh run (#3732). `heldUntil` holds its issues to that time
+ *   dispatch-sessions.js run (#3732). `heldUntil` holds its issues to that time
  *   for a session stopped with no loop left running (#3785)
  */
 

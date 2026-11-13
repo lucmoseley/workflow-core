@@ -16,6 +16,10 @@ import { shellQuote } from "./sh-quote.js";
 export const buildJobIdWord = (text: string, id: string) =>
 	text.split(id).map(shellQuote).join('"$2"');
 
+/** The stub's `--version` branch, printing `version` in the harness's form. */
+export const buildVersionBranch = (version: string) =>
+	`if [ "$1" = "--version" ]; then echo ${shellQuote(`${version} (Claude Code)`)}; exit 0; fi`;
+
 /** Write a bash `claude` stub at `bin` answering `auth status`
  * (lib/launch-auth.js), then running `lines` in turn, then exiting
  * `fallThroughExit`. */

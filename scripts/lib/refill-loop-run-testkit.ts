@@ -133,6 +133,14 @@ export const readGhActs = () =>
 export const stub = (name: string, body: string) =>
 	fs.writeFileSync(path.join(scripts, name), body);
 
+/* The dispatcher, which the loop runs as an executable: a bash body. */
+export const stubDispatcher = (body: string) =>
+	fs.writeFileSync(
+		path.join(scripts, "dispatch-sessions.js"),
+		`#!/usr/bin/env bash\n${body}`,
+		{ mode: 0o755 },
+	);
+
 /* Once per file, not per case: the closure walk is the cost (#4282). Each is
  * named from this directory, so the test selector sees the read (§X10). */
 const SANDBOX_FILES = [
@@ -224,8 +232,7 @@ process.stdout.write("started the lander");\n`,
 fs.writeFileSync(${control}, JSON.stringify({ ...JSON.parse(fs.readFileSync(${control}, "utf8")), stopRequested: true }));
 fs.appendFileSync(${JSON.stringify(at(".refill-loop-wake"))}, \`\${Date.now()}\\n\`);\n`,
 		);
-		stub(
-			"dispatch-sessions.sh",
+		stubDispatcher(
 			`printf '%s\\n' "$*" >> ${shellQuote(at("dispatches"))}
 node ${shellQuote(path.join(scripts, "request-stop.js"))}\n`,
 		);

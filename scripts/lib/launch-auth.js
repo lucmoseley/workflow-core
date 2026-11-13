@@ -34,8 +34,8 @@
  *     and why.
  */
 
-const { spawnSync } = require("node:child_process");
 const { parseArgs } = require("node:util");
+const { spawnRaw } = require("./child-spawn.js");
 const { claudeBin } = require("./claude-bin.js");
 const { secretsFile } = require("./env-file.js");
 const { buildKeyHelper } = require("./overflow-key.js");
@@ -68,13 +68,13 @@ const isSet = (v) => v !== undefined && v !== "";
  * @param {string} bin
  * @param {NodeJS.ProcessEnv} env
  * @param {string} cwd
+ * @param {typeof spawnRaw} spawn
  * @returns {{why: string}|{status: {authMethod?: string, apiProvider?: string}}}
  */
-function readAuthStatus(bin, env, cwd) {
-	const r = spawnSync(bin, ["auth", "status", "--json"], {
+function readAuthStatus(bin, env, cwd, spawn) {
+	const r = spawn(bin, ["auth", "status", "--json"], {
 		env,
 		cwd,
-		encoding: "utf8",
 		stdio: ["ignore", "pipe", "pipe"],
 		timeout: STATUS_TIMEOUT_MS,
 	});
@@ -163,11 +163,12 @@ function sourceOf(status, env) {
  * Why a model launch of `bin` under `env` in `cwd` would not bill the
  * subscription, or null where it would.
  * @param {{bin: string, env: NodeJS.ProcessEnv, cwd: string,
- *   settings?: string}} launch `settings`: the JSON the launch passes as
- *   `--settings`
+ *   settings?: string, spawn?: typeof spawnRaw}} launch `settings`: the JSON
+ *   the launch passes as `--settings`; `spawn`: the call, where a test runs it
+ *   in-process
  * @returns {string|null}
  */
-function launchAuthRefusal({ bin, env, cwd, settings }) {
+function launchAuthRefusal({ bin, env, cwd, settings, spawn = spawnRaw }) {
 	const refused = (/** @type {string} */ why) =>
 		`this model launch would not bill the subscription: ${why}. Rule: ${RULE}. Unset what set it, or launch from a shell without it.`;
 	if (isSet(env.ANTHROPIC_BASE_URL))
@@ -180,7 +181,7 @@ function launchAuthRefusal({ bin, env, cwd, settings }) {
 		return refused(
 			"an apiKeyHelper in --settings is in force, and is no declared overflow seat's on this config dir",
 		);
-	const read = readAuthStatus(bin, env, cwd);
+	const read = readAuthStatus(bin, env, cwd, spawn);
 	if ("why" in read) return refused(read.why);
 	const { status } = read;
 	const method = status.authMethod;

@@ -5,8 +5,9 @@
  *
  * The guard half is lib/issue-create-label.js, the guard-issue-create-label
  * core, which requires this file (#2796). file-issue.test.ts asserts
- * TAKES_VALUES against docs/agents/triage-labels.md, and every Outside-line
- * verdict against scripts/fixtures/takes-human-bodies.json;
+ * TAKES_VALUES against docs/agents/triage-labels.md, and
+ * lib/file-issue-core.test.ts every Outside-line verdict against
+ * scripts/fixtures/takes-human-bodies.json;
  * lib/issue-create-label.test.ts runs the same table through that core.
  *
  * The Node scripts naming one value spell it through takesValue or

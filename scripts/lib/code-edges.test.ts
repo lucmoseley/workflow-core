@@ -929,7 +929,7 @@ describe("a shell script's loads", () => {
 			["/x/s/guard-root.sh"],
 		],
 		[
-			"dispatch-sessions.sh's `here`, made absolute off $PWD",
+			"a script's `here`, made absolute off $PWD",
 			`${dirOf("here")}\n[[ "$here" == /* ]] || here="$PWD/$here"\nsource "$here/lib/interop-probe.sh" 2>/dev/null\n`,
 			["/x/s/lib/interop-probe.sh"],
 		],

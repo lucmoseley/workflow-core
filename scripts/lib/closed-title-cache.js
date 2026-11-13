@@ -22,6 +22,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const {
 	parseErrLine,
+	gh,
 	ghIssuesUpdatedSince,
 	ghIssueListAll,
 } = require("./gh.js");
@@ -71,19 +72,18 @@ const cacheFile = (repo) =>
 
 /**
  * @param {string} repo
+ * @param {import("./gh.js").GhRun} [run]
  * @returns {Deps}
  */
-function buildGhDeps(repo) {
+function buildGhDeps(repo, run = gh) {
 	/** @param {"all"|"open"} state */
 	const listState = (state) =>
-		ghIssueListAll(state === "all" ? "issues" : "open issues", [
-			"--repo",
-			repo,
-			"--state",
-			state,
-			"--json",
-			"number,title,state",
-		]);
+		ghIssueListAll(
+			state === "all" ? "issues" : "open issues",
+			["--repo", repo, "--state", state, "--json", "number,title,state"],
+			{},
+			run,
+		);
 	return {
 		now: Date.now,
 		file: cacheFile(repo),
@@ -92,7 +92,7 @@ function buildGhDeps(repo) {
 		/* REST's `since` rather than an `updated:>` search: the same filter, with
 		 * no 1,000-result cap. */
 		listSince: (since) =>
-			ghIssuesUpdatedSince(repo, since).map((i) => ({
+			ghIssuesUpdatedSince(repo, since, run).map((i) => ({
 				number: i.number,
 				title: i.title,
 				state: i.state,
@@ -160,10 +160,11 @@ const isOpen = (r) => r.state.toUpperCase() === "OPEN";
  * Throws where the open read fails, or the full pull does with no cache.
  * @param {string} repo
  * @param {Partial<Deps>} [over]
+ * @param {import("./gh.js").GhRun} [run]
  * @returns {Row[]}
  */
-function readTrackerTitles(repo, over = {}) {
-	const deps = { ...buildGhDeps(repo), ...over };
+function readTrackerTitles(repo, over = {}, run = gh) {
+	const deps = { ...buildGhDeps(repo, run), ...over };
 	const stamp = new Date(deps.now()).toISOString();
 	const cache = readCache(deps);
 	if (!cache) {

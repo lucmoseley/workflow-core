@@ -96,6 +96,7 @@ import {
 	settled,
 	spawnIdleHolder,
 	stub,
+	stubDispatcher,
 	ticked,
 	untilLoopEnded,
 	updateControl,
@@ -248,8 +249,7 @@ describe("run (#2435)", () => {
 		fs.mkdirSync(path.dirname(file), { recursive: true });
 		/* The dispatcher launches, then the loop dies before it reads the
 		 * ledger back: a real SIGKILL on the loop, the dispatcher's parent. */
-		stub(
-			"dispatch-sessions.sh",
+		stubDispatcher(
 			`printf '{"ts":"%s","issues":[5],"prompt":"/implement 5","jobId":"job5"}\\n' "$(date -u +%FT%TZ)" >> ${shellQuote(file)}
 printf '%s\\n' "$*" >> ${shellQuote(at("dispatches"))}
 kill -9 $PPID\n`,
@@ -271,10 +271,7 @@ kill -9 $PPID\n`,
 			{ prompt: "/implement 5" },
 		]);
 
-		stub(
-			"dispatch-sessions.sh",
-			`printf '%s\\n' "$*" >> ${shellQuote(at("dispatches"))}\n`,
-		);
+		stubDispatcher(`printf '%s\\n' "$*" >> ${shellQuote(at("dispatches"))}\n`);
 		/* job5 fills the one slot, so nothing launches to ask for the stop. */
 		requestStop();
 		const r = await settled(run(1), "run after a killed launch");
@@ -583,7 +580,7 @@ const runDry = () => {
 
 describe("a dry run with overflow seats (#2611)", () => {
 	const dispatch = () =>
-		`bash ${path.join(scripts, "dispatch-sessions.sh")} opus /implement 5`;
+		`${path.join(scripts, "dispatch-sessions.js")} opus /implement 5`;
 
 	it("prints the headless dispatch on the overflow seat once the plan seat is weekly-full", async () => {
 		weekAt(100);
