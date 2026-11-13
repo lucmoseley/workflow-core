@@ -4,11 +4,11 @@
  * `/proc`, and the holder's transcript. Each suite still writes its own holder
  * and its own assertions.
  *
- * The fake `claude` counts its `agents` calls per config dir and, on a plan's
- * second call — the probe's second sample — runs that plan's `between.sh`. A
- * `fail` file makes the listing fail. On `stop` it runs the caller's `onStop`
- * lines, fails where `stop-fails` exists, swaps in `agents-after-stop.json`,
- * then runs `on-stop.sh`.
+ * The fake `claude` lists a plan's `agents.json`, its rows held to the
+ * harness's field names (lib/agents-stop-fake.ts); a `fail` file makes the
+ * listing fail. On `stop` it runs the caller's `onStop` lines, fails where
+ * `stop-fails` exists, swaps in `agents-after-stop.json`, then answers with
+ * the harness's recorded stop.
  *
  * The fake `gh` serves ticket <n> open, or closed where `closed-<n>` exists in
  * the sandbox; `gh-fails` there fails every call.
@@ -16,8 +16,12 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { buildStopBranch } from "./agents-stop-fake";
 import type { Sandbox } from "./arbiter-testkit";
+import { writeClaudeStub } from "./claude-stub";
 import { stubGhScript } from "./gh-stub";
+import { buildStatLine } from "./proc-fake";
+import { listed } from "./rescue-ports-fake";
 import { runInProcessAsync } from "./run-in-process";
 import { shellQuote } from "./sh-quote.js";
 
@@ -66,10 +70,6 @@ export const holderRow = (over: Partial<Row> = {}): Row => ({
 	...over,
 });
 
-/** A `/proc/<pid>/stat` line; `ticks` is utime, the only CPU field set. */
-export const buildStatLine = (pid: number, ppid: number, ticks: number) =>
-	`${pid} (x y) S ${ppid} 0 0 0 0 0 0 0 0 0 ${ticks} 0 0 0 0 0 0 0 ${pid}00\n`;
-
 const assistant = (content: object[]) =>
 	JSON.stringify({ type: "assistant", message: { content } });
 export const said = (text: string) => assistant([{ type: "text", text }]);
@@ -96,47 +96,44 @@ export function rescueKit(sb: Sandbox) {
 	const transcript = (dir = plan()) =>
 		path.join(dir, "projects", "p", `${SID}.jsonl`);
 
-	const fakeClaude = (onStop: string[] = []) => {
-		const bin = path.join(sb.dir, "claude");
-		fs.writeFileSync(
-			bin,
-			[
-				"#!/bin/sh",
-				'd="$CLAUDE_CONFIG_DIR"',
-				'if [ "$1" = stop ]; then',
-				...onStop.map((l) => `  ${l}`),
-				'  [ -f "$d/stop-fails" ] && { echo "no such job" >&2; exit 1; }',
-				'  [ -f "$d/agents-after-stop.json" ] && cp "$d/agents-after-stop.json" "$d/agents.json"',
-				'  [ -f "$d/on-stop.sh" ] && sh "$d/on-stop.sh"',
-				"  echo stopped; exit 0",
-				"fi",
-				'n=$(cat "$d/oracle-calls" 2>/dev/null || echo 0); n=$((n+1)); echo "$n" > "$d/oracle-calls"',
-				'[ -f "$d/fail" ] && { echo down >&2; exit 1; }',
-				'[ "$n" = 2 ] && [ -f "$d/between.sh" ] && sh "$d/between.sh"',
-				'cat "$d/agents.json"',
-			].join("\n"),
-		);
-		fs.chmodSync(bin, 0o755);
-		return bin;
-	};
+	const fakeClaude = (onStop: string[] = []) =>
+		writeClaudeStub(path.join(sb.dir, "claude"), [
+			'd="$CLAUDE_CONFIG_DIR"',
+			'if [ "$1" = stop ]; then',
+			...onStop.map((l) => `  ${l}`),
+			'  [ -f "$d/stop-fails" ] && { echo "no such job" >&2; exit 1; }',
+			'  [ -f "$d/agents-after-stop.json" ] && cp "$d/agents-after-stop.json" "$d/agents.json"',
+			"fi",
+			buildStopBranch(path.join(sb.dir, "stops")),
+			'if [ "$1" = agents ]; then',
+			'  [ -f "$d/fail" ] && { echo down >&2; exit 1; }',
+			'  cat "$d/agents.json"; exit 0',
+			"fi",
+		]);
 
 	/** What `dir` lists; this session ("sandbox") always, for the self-test. */
 	const lists = (rows: Row[], dir = plan(), file = "agents.json") => {
 		fs.mkdirSync(dir, { recursive: true });
 		fs.writeFileSync(
 			path.join(dir, file),
-			JSON.stringify([{ sessionId: "sandbox", state: "working" }, ...rows]),
+			JSON.stringify(
+				[{ sessionId: "sandbox", state: "working" }, ...rows].map(listed),
+			),
 		);
 	};
-
-	/** A shell line the fake `claude` runs between the probe's two samples. */
-	const between = (sh: string, dir = plan()) =>
-		fs.writeFileSync(path.join(dir, "between.sh"), `${sh}\n`);
 
 	const proc = (pid: number, ppid: number, ticks: number, argv: string) => {
 		const d = path.join(procRoot(), String(pid));
 		fs.mkdirSync(d, { recursive: true });
-		fs.writeFileSync(path.join(d, "stat"), buildStatLine(pid, ppid, ticks));
+		fs.writeFileSync(
+			path.join(d, "stat"),
+			buildStatLine(pid, {
+				comm: "x y",
+				ppid,
+				utime: ticks,
+				startTicks: pid * 100,
+			}),
+		);
 		fs.writeFileSync(
 			path.join(d, "cmdline"),
 			`${argv.split(" ").join("\0")}\0`,
@@ -184,10 +181,6 @@ export function rescueKit(sb: Sandbox) {
 		});
 	};
 
-	/** How many times the fake oracle has listed `dir`. */
-	const readOracleCalls = (dir = plan()) =>
-		Number(fs.readFileSync(path.join(dir, "oracle-calls"), "utf8"));
-
 	/** `before`: shell lines run ahead of the serving, e.g. to log a call. */
 	const fakeGh = (before: string[] = []) =>
 		stubGhScript(
@@ -232,12 +225,10 @@ export function rescueKit(sb: Sandbox) {
 		procRoot,
 		transcript,
 		lists,
-		between,
 		proc,
 		writeTranscript,
 		jobState,
 		ghostJob,
-		readOracleCalls,
 		run,
 	};
 }

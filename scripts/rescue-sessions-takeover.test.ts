@@ -32,17 +32,8 @@ const CLAIMS_LIB = path.resolve(__dirname, "lib", "arbiter-issue-claims.js");
 const N = 621;
 
 const sb = freshSandbox(withTracker);
-const {
-	plan,
-	transcript,
-	lists,
-	between,
-	proc,
-	writeTranscript,
-	jobState,
-	ghostJob,
-	run,
-} = rescueKit(sb);
+const { plan, lists, proc, writeTranscript, jobState, ghostJob, run } =
+	rescueKit(sb);
 
 const events = () => path.join(sb.dir, "events");
 const snapshotDir = () =>
@@ -138,7 +129,6 @@ describe("takeover through the program", () => {
 
 	it("refuses --despite with no --reason, before any write", async () => {
 		frozenHolder();
-		between(`printf 'x\\n' >> ${shellQuote(transcript())}`);
 		for (const [extra, why] of [
 			[[], "--despite needs --reason"],
 			/* lib/cli-args.js refuses a valueless flag before takeover runs. */

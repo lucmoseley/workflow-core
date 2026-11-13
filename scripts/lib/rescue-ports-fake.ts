@@ -54,7 +54,7 @@ export function buildRunOracle(
 }
 
 /** A row as the listing prints it: a field left undefined is left out. */
-const listed = (row: object): Row =>
+export const listed = (row: object): Row =>
 	buildUnrecordedRow(
 		Object.fromEntries(
 			Object.entries(row).filter(([, v]) => v !== undefined),
