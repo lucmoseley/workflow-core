@@ -1,12 +1,12 @@
 /*
  * file-issue's gh fake (#5150): one routing source, served in-process as the
- * core's `gh` port and as the WFC_GH stub the program cases run, the way
- * gh-fake.ts serves its computed answers both ways. It reads the sandbox
- * files a case writes — `issues`, `issues-open`, `list-fails`,
+ * core's `gh` port and as the WFC_GH stub the program cases run. It reads
+ * the sandbox files a case writes — `issues`, `issues-open`, `list-fails`,
  * `create-silent`, `assign-fails`, `post-err`, `api/` — and logs every argv
- * to `gh-calls`. Each JSON answer goes through RECORDED_SHAPES, which
- * gh.contract.test.ts holds to the real gh; lib/link-writer.js's reads answer
- * from LINK_READS.
+ * to `gh-calls`. Its issue-list, issue, sub-issue and label answers go
+ * through RECORDED_SHAPES, which gh.contract.test.ts holds to the real gh; an
+ * `api/` file on any other path is served as written. lib/link-writer.js's
+ * reads answer from LINK_READS.
  */
 
 import fs from "node:fs";
@@ -77,13 +77,11 @@ const route = ghComputed<
 	(argv: string[], input: string, fsys: typeof fs, dir: string) => GhAnswer
 >(SOURCE, "routeFileIssueGh");
 
-/** The core's `gh` port over the sandbox at `dir`. */
 export const fileIssueGh =
 	(dir: string) =>
 	(args: string[], opts: { input?: unknown } = {}): string =>
 		ghServe(route(args, String(opts.input ?? ""), fs, dir))(args);
 
-/** The same routes as the WFC_GH stub executable, for the program cases. */
 export const stubFileIssueGh = (dir: string) =>
 	stubGhScript(
 		dir,

@@ -19,7 +19,6 @@ import { fileIssueKit } from "./file-issue-testkit";
 
 const kit = fileIssueKit();
 
-/** The production adapter, on the gh fake as the WFC_GH stub. */
 const realLink = (parent: number, child: number) => {
 	vi.stubEnv("WFC_GH", kit.ghStub().gh);
 	vi.stubEnv("WFC_LINK_SLEEP", "0");

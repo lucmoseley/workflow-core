@@ -1,7 +1,6 @@
 /*
  * file-issue-host.js — the production ports scripts/file-issue.js wires into
- * lib/file-issue-core.js (#5150). file-issue-link.contract.test.ts holds the
- * module cases' link fake to `link` itself.
+ * lib/file-issue-core.js (#5150).
  */
 
 const fs = require("node:fs");
@@ -12,9 +11,7 @@ const { now } = require("./check.js");
 const { readFdAll } = require("./read-fd.js");
 
 /**
- * The sub-issue link through lib/link-writer.js, which refuses a loop and
- * verifies from the parent side: `{ok}` carrying its stdout and any warning,
- * or `{error}` carrying its stderr.
+ * The sub-issue link through lib/link-writer.js.
  * @type {import("./file-issue-core.js").FileIssuePorts["link"]}
  */
 function link(repo, parent, child) {

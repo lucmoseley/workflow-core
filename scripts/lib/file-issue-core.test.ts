@@ -1,13 +1,7 @@
 // @vitest-environment node
 /*
  * Pins file-issue's logic in-process (#5150): lib/file-issue-core.js's
- * fileIssue, on file-issue's gh fake in-process and the link fake
- * (file-issue-gh-fake.ts and file-issue-link-fake.ts, the second held by
- * file-issue-link.contract.test.ts). Every refusal before the create —
- * a bad takes: label, body, takes:human ticket, placement, parent or map,
- * a likely duplicate, rule:size-line — asserts that no create was sent;
- * the filings beside them assert the create and the link that follow.
- * scripts/file-issue.test.ts keeps the program's boundary set.
+ * fileIssue, on file-issue's gh fake and link fake.
  *
  * Breaking a refusal case costs the guarantee file-issue exists for —
  * nothing half-filed — on the route the issue-create guard sends every new

@@ -3,8 +3,7 @@
  * scripts/file-issue.js through runInProcess against file-issue's gh fake as
  * the WFC_GH stub, the real link underneath, and its module cases, which call
  * lib/file-issue-core.js's fileIssue with the same gh fake in-process and the
- * link fake. One routing source serves both, so a case reads the same
- * whichever seam it runs on.
+ * link fake.
  */
 
 import fs from "node:fs";
@@ -137,8 +136,7 @@ export function fileIssueKit() {
 
 	/**
 	 * Serve `rows` for the similar-title list's `issue list` fetches — the whole
-	 * tracker, and its open rows for `--state open` — with no closed-title cache,
-	 * so the next call pulls the whole tracker.
+	 * tracker, and its open rows for `--state open` — with no closed-title cache.
 	 */
 	const serveIssues = (rows: Row[]) => {
 		fs.writeFileSync(at("issues"), JSON.stringify(rows));
@@ -161,7 +159,6 @@ export function fileIssueKit() {
 		serve("repos/acme/widgets/issues/528/sub_issues", [[]]);
 	};
 
-	/** file-issue's gh fake as the WFC_GH stub. */
 	const ghStub = () => stubFileIssueGh(sb.dir);
 
 	/** The liveness oracle, listing exactly `ids`. */
@@ -192,7 +189,6 @@ export function fileIssueKit() {
 			? fs.readFileSync(at("links"), "utf8").split("\n").filter(Boolean)
 			: [];
 
-	/** scripts/file-issue.js through runInProcess, on the gh stub. */
 	const program = (
 		args: string[],
 		{
@@ -218,7 +214,6 @@ export function fileIssueKit() {
 
 	const has = (name: string) => fs.existsSync(at(name));
 
-	/** lib/file-issue-core.js's fileIssue, its ports the module cases'. */
 	const core = (
 		args: string[],
 		{
@@ -270,16 +265,14 @@ export function fileIssueKit() {
 }
 
 /*
- * The filing declarations' fixtures (#4796): a session transcript whose line 2
- * is a guard's deny and line 3 the call that met it, a --fault-signature file,
- * and the outcome-signature log a filing appends to.
+ * The filing declarations' fixtures (#4796): a session transcript, a
+ * --fault-signature file, and the outcome-signature log a filing appends to.
  */
 export function declarationFixtures(kit: ReturnType<typeof fileIssueKit>) {
 	const Session = "11111111-2222-3333-4444-555555555555";
 	const Slug = "-home-u-repo";
 	const DenyText =
 		"docs/doc-map.md is held by session 735db33b (pid 1), which is still running.";
-	/* A record the case names: a guard's deny, as a tool_result flagged is_error. */
 	const caseRecord = {
 		type: "user",
 		uuid: "u-case",

@@ -5,8 +5,7 @@
  * back and exits. What it refuses, in what order, and the exit codes: that
  * script's header.
  *
- * Every refusal is a returned `{stop}`, never an exit: each step hands back
- * its value or the stop, and fileIssue returns the first stop it meets.
+ * Every refusal is a returned `{stop}`, never an exit.
  */
 
 const path = require("node:path");
@@ -95,7 +94,6 @@ const SPEC = {
  */
 
 /**
- * What the core asks of the world beyond the I/O above.
  * @typedef {object} FileIssuePorts
  * @property {import("./gh.js").GhRun} gh  every tracker read and write
  * @property {(repo: string, parent: number, child: number) =>
@@ -114,7 +112,6 @@ const SPEC = {
 /** @param {unknown} x @returns {x is Stop} */
 const isStop = (x) => typeof x === "object" && x !== null && "stop" in x;
 
-/** Both streams, collected in the order written. */
 function buildStreams() {
 	/** @type {string[]} */
 	const out = [];
@@ -134,7 +131,6 @@ function buildStreams() {
 			err.push(`file-issue: ${text}\n`);
 		},
 		/**
-		 * The refusal line, and the stop carrying its exit code.
 		 * @param {string} text
 		 * @param {number} code
 		 * @returns {Stop}
@@ -175,8 +171,6 @@ class FileIssueCrash extends Error {
 }
 
 /**
- * The whole run: the exit code and what it wrote to each stream. A throw it
- * did not mean is rethrown as a FileIssueCrash carrying both streams.
  * @param {string[]} argv
  * @param {FileIssuePorts} ports
  * @returns {Outcome}
@@ -373,7 +367,6 @@ function checkTitle(io, ports, { flags, lists }, titles) {
 }
 
 /**
- * A filing, from its options to its claim.
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {import("./cli-args.js").Parsed} parsed
@@ -435,7 +428,6 @@ function checkFiling(io, ports, parsed) {
 }
 
 /**
- * The create, then the link or the Standalone line, then the claim.
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {Exclude<ReturnType<typeof checkFiling>, Stop>} filing
@@ -800,8 +792,7 @@ function checkSimilar(io, ports, repo, opts) {
 }
 
 /**
- * The size-line refusal scripts/file-issue.js's header describes. Each read
- * fails open, saying so.
+ * The size-line refusal scripts/file-issue.js's header describes.
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {{repo: string, labels: string[], body: string, opts: Opts}} at

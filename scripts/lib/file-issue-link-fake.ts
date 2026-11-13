@@ -1,14 +1,11 @@
 /*
  * file-issue's link fake (#5150): what lib/file-issue-host.js's `link`
- * answers for the link of `child` under `parent` on file-issue's gh fake, a
- * POST failing with `postErr`, or landing where it is null — the loop check
- * partial there, since the fake's reads never reach the child.
+ * answers for the link of `child` under `parent` on file-issue's gh fake; a
+ * landing link warns, since the fake's reads never reach the child.
  * file-issue-link.contract.test.ts holds every answer to the real adapter.
  */
 
 /**
- * @param parent
- * @param child
  * @param postErr  the POST's stderr, or null where it lands
  */
 export function answerLink(
