@@ -71,8 +71,8 @@ review_standards_base_shown() {
 }
 
 # The sentence handing the Standards axis that glossary, with a leading space,
-# or nothing and a failure where the host has none. inject-tracker-docs.sh
-# spells it out instead, so check-context-budget.js can measure it.
+# or nothing and a failure where the host has none. lib/tracker-inject-text.js's
+# withGlossary is its Node copy.
 review_standards_glossary_line() {
   local glossary
   glossary="$(review_standards_glossary)" || return 1

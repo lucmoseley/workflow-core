@@ -2764,11 +2764,18 @@ const {
 } = require("./lib/rule-text");
 
 /*
- * Where a command's index is rendered. `scripts/inject-tracker-docs.sh` builds
- * each command's injected context, so a rule id it names is a rule some session
- * is told to fetch. Read as prose — an id in a comment there counts.
+ * Where a command's index is rendered: the hook entry the wiring names, and the
+ * file holding its text. `scripts/lib/tracker-inject-text.js` holds every
+ * string `scripts/inject-tracker-docs.js` hands a tracker command, so a rule
+ * id it names is a rule some session is told to fetch. Read as prose — an id
+ * in a comment there counts.
  */
-const INDEX_SOURCES = ["scripts/inject-tracker-docs.sh"];
+const INDEX_SOURCES = [
+	{
+		wired: "scripts/inject-tracker-docs.js",
+		text: "scripts/lib/tracker-inject-text.js",
+	},
+];
 
 /** A trigger line's pointer at a fragment: a backticked `rule:` and the id. */
 const TRIGGER_RE = /`rule:([a-z0-9-]+)`/g;
@@ -2954,8 +2961,8 @@ function loadManifest() {
 function readIndexedRuleIds(wiring) {
 	/** @type {Set<string>} */
 	const ids = new Set();
-	for (const rel of INDEX_SOURCES) {
-		if (!wiring.includes(rel)) continue;
+	for (const { wired, text: rel } of INDEX_SOURCES) {
+		if (!wiring.includes(wired)) continue;
 		const text = readIndexSource(rel);
 		if (text === null) continue;
 		for (const m of text.matchAll(TRIGGER_RE)) if (m[1]) ids.add(m[1]);
@@ -3334,7 +3341,7 @@ function manifestFindings({ manifest, fragments, printedBy, indexed }) {
 				kind: "UNINDEXED-RULE",
 				detail:
 					`rule id "${id}" is printed by no wired emitter and named in no ` +
-					`command's index (${INDEX_SOURCES.join(", ")}), so it reaches no ` +
+					`command's index (${INDEX_SOURCES.map((s) => s.text).join(", ")}), so it reaches no ` +
 					"session by either route. Render it into the index of every command " +
 					"that can trigger it, or wire an emitter.",
 			});

@@ -2,7 +2,7 @@
 """
 scan_doc_reads.py — does a session that was handed the tracker rules go and READ them? (mantahostels#1869)
 
-`scripts/inject-tracker-docs.sh` points at `docs/agents/issue-tracker.md` and
+`scripts/inject-tracker-docs.js` points at `docs/agents/issue-tracker.md` and
 `docs/agents/triage-labels.md` rather than pasting them (mantahostels#1869), so
 they land only where the session opens the file. mantahostels#1872 runs this before/after.
 
@@ -49,7 +49,7 @@ content opens `<persisted-output>` is the stub the harness writes when the
 payload crosses the 10,000-character cut; one without it carries the full text
 inline — every inline one under the cut, as it must be (mantahostels#1869). **This is what
 mantahostels#1872 counts after mantahostels#1870**: `--shape` reports it, and the test is that the
-persisted count for `inject-tracker-docs.sh` reaches zero while the inline
+persisted count for `inject-tracker-docs.js` reaches zero while the inline
 count holds.
 
 **`/code-review` appears in NEITHER shape**, despite being the one command
@@ -109,7 +109,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
 
-# The commands `scripts/inject-tracker-docs.sh` fires on. The marker regex would
+# The commands `scripts/inject-tracker-docs.js` fires on. The marker regex would
 # accept any name, so a session is filtered against this list; without it a
 # `--loose` run invents commands out of prose (mantahostels#1869).
 COMMANDS = {

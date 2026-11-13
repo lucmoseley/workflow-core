@@ -757,10 +757,8 @@ fi
 # as this commit — and never off disk, so a half-saved CLAUDE.md the commit
 # does not carry is not charged here. Same pathspec-commit dependence as the doc-map gate above.
 #
-# The first pattern is deliberately wider than the caps: which docs the injection cap
-# covers is whatever scripts/inject-tracker-docs.sh's DOCS array names, and a
-# path-by-path list here would silently stop covering one moved elsewhere.
-# precommit-context-budget-gate.test.ts asserts every live DOCS entry matches.
+# The first pattern is deliberately wider than the caps, so a path-by-path list
+# here cannot silently stop covering a capped file moved elsewhere.
 #
 # `scripts/` is the whole directory for the same reason (mantahostels#2004): the event cap
 # is the worst-case rule text one PreToolUse event delivers, so it is contained
@@ -791,12 +789,14 @@ fi
 
 # The limit that actually binds the injected payload, which the cap above cannot
 # read: it is PER COMMAND, and check-context-budget.js sums a union larger than
-# any real variant (mantahostels#1915). This runs the STAGED injector and prints every
-# command's margin against the harness's 10,000-character persistence threshold.
+# any real variant (mantahostels#1915). This composes each command's payload from the
+# STAGED text module and the rule fragments /code-review's rules read, and prints
+# every command's margin against the harness's 10,000-character persistence
+# threshold.
 #
 # IT PRINTS ON SUCCESS, unlike the gate above: crossing the threshold raises no
 # error anywhere.
-if armed '^scripts/inject-tracker-docs\.sh$'; then
+if armed '^(scripts/lib/tracker-inject-text\.js|docs/agents/rules/review-(dispatch-shape|deviations-read|finding-destination)\.txt)$'; then
   bash "${WFC_PLUGIN_ROOT:-.}"/scripts/check-injector-margin.sh || exit "$?"
 fi
 

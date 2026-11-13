@@ -65,7 +65,7 @@ ALWAYS_LOADED_MARKERS = [
     "# Working contract",
 ]
 
-# Substrings that identify the issue-tracker rules scripts/inject-tracker-docs.sh
+# Substrings that identify the issue-tracker rules scripts/inject-tracker-docs.js
 # pastes into a session. Same reconstruction caveat as ALWAYS_LOADED_MARKERS.
 TRACKER_MARKERS = [
     "The project's tracker rules are below",

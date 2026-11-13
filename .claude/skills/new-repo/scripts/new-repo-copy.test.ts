@@ -12,8 +12,8 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { initPaths } from "../../../../scripts/init-adopter.js";
 import { HOOKS } from "../../../../scripts/lib/adopter-skeleton.js";
+import { initPaths } from "../../../../scripts/lib/init-adopter-core.js";
 import { runInProcess } from "../../../../scripts/lib/run-in-process.js";
 import {
 	builtThrough,
@@ -155,6 +155,7 @@ describe("new-repo.js copying a source repo", () => {
 		const all = [...new Set(`${written}${untracked}`.split("\n"))].filter(
 			Boolean,
 		);
+		expect(all).toContain(".claude/workflow-core.json");
 		expect(all.filter((f) => !paths.includes(f))).toEqual([]);
 	}, 60_000);
 

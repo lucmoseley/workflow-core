@@ -10,7 +10,7 @@
  * A CORE OF ITS OWN BESIDE guard-review-rules, NOT A PART OF IT, and ahead of
  * it in lib/guard-cores.json: the joined context puts the tier first, so a
  * long areas list pushes the review rules, not the tier, past the preview
- * (#1619), as inject-tracker-docs.sh's typed route does.
+ * (#1619), as inject-tracker-docs.js's typed route does.
  *
  * IMPLICIT: on a Skill call naming `code-review`, matches the staged paths and the paths this session changed since its base, in the session's tree — the linked worktree of the root's repository the session runs in, else the root — against the declared sensitive paths (lib/sensitive-paths.js), with each area a change to the declaration narrows from HEAD's or the session base's; where an area matched or any globless area is declared, injects the tier owed, each area's focus, examples and `live` flag, the focus and attack Artefact paths, the escalated-review rules, the focused and attacker run briefs and the records to write (#1621); where `sensitivePaths` is absent, injects one line saying so.
  * JUSTIFIED: fail-safe — a change to a sensitive path reviewed at the standard tier misses the defects that cost money or leak data, and the vendored skill cannot carry the tier (spec #1612).
@@ -29,7 +29,7 @@
  *    A worktree outside the root adds its staged paths only (#2386). The
  *    declaration read is the root's in any worktree.
  *  - It fires on the Skill TOOL only, as guard-review-rules does. A typed
- *    `/code-review` reaches it through scripts/inject-tracker-docs.sh, which
+ *    `/code-review` reaches it through scripts/inject-tracker-docs.js, which
  *    runs this core alone (`guard-dispatch.js --only inject-review-tier`) on
  *    a Skill payload of its own making (#1697).
  *  - It FAILS OPEN on anything it cannot resolve, and the fail-open is

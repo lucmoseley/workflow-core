@@ -9,7 +9,6 @@
  * so no test reads a checker export (#1411).
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
 const { brokenError } = require("./check");
 const { readObjectBatch } = require("./git-objects");
@@ -37,60 +36,27 @@ const SETTINGS_FILE = ".claude/settings.json";
 /** The per-plugin token table, keyed by `enabledPlugins` name (mantahostels#3132). Host data, so under the host's .claude/ (#37). */
 const PLUGIN_COST_TABLE = ".claude/plugin-context-cost.json";
 
-/* The repo-relative pathspec — CAPPED_PATHSPECS' member and the name every
- * message quotes. Never joined onto `root`: the injector ships WITH the core,
- * so in a plugin install the host has no scripts/ of its own to hold it (#36).
- */
-const INJECTOR = "scripts/inject-tracker-docs.sh";
+/* The repo-relative pathspec of the text module the injection cap measures —
+ * CAPPED_PATHSPECS' member and the name every message quotes. Never joined
+ * onto `root` for the fallback read: the injector ships WITH the core, so in a
+ * plugin install the host has no scripts/ of its own to hold it (#36). */
+const INJECTOR = "scripts/lib/tracker-inject-text.js";
 
-/* Where the injector is actually READ from: the core's own copy, in the
- * scripts/ directory above this one, found the same way in a checkout or a
- * plugin cache. `WFC_INJECTOR_FILE` is the test-injection seam
- * (`lib/host-root.js`'s header convention) — the suite points this at a
- * fixture script instead of writing one under --root. */
+/* Where the text module is read from where `root` carries none: the core's own
+ * copy, beside this file, found the same way in a checkout or a plugin cache.
+ * `WFC_INJECTOR_FILE` is the test-injection seam (`lib/host-root.js`'s header
+ * convention) — the suite points this at a fixture module instead. */
 const INJECTOR_FILE =
 	process.env.WFC_INJECTOR_FILE ||
-	path.join(__dirname, "..", "inject-tracker-docs.sh");
-
-/**
- * The paths in the injector's `DOCS=(...)` array, given the script's text.
- *
- * @param {Ctx} ctx
- * @param {string} script
- * @returns {string[]}
- */
-function docsArray(ctx, script) {
-	return (
-		bashArray(script, "DOCS") ??
-		ctx.broken(`no DOCS=(...) array in ${INJECTOR}`)
-	);
-}
-
-/**
- * The elements of a single-line, unquoted `<name>=(...)` array at column zero
- * of `script`, or null where it assigns none.
- *
- * @param {string} script
- * @param {string} name
- * @returns {string[] | null}
- */
-function bashArray(script, name) {
-	const re = new RegExp(`^${name}=\\(([^)]*)\\)`, "m");
-	const m = script.match(re);
-	if (!m) return null;
-	return requiredGroup(m, 1, re).trim().split(/\s+/).filter(Boolean);
-}
+	path.join(__dirname, "tracker-inject-text.js");
 
 /* ------------------------------------------------------------------ *
  * --against: which paths a revision must be materialised from.
  * ------------------------------------------------------------------ */
 
 /*
- * Everything the two caps can contain, bar the injected docs — those are
- * whatever the injector's DOCS array names, so they are added in a second pass
- * once that array has been read at the revision rather than assumed to live
- * anywhere in particular (mantahostels#1224). `docs/agents` stays here anyway so the common
- * case needs no second listing.
+ * Everything the two caps can contain. `docs/agents` holds the rule fragments
+ * the injection union reads.
  *
  * CAPPED in the sense that an edit here can move a capped total, so this is a
  * second spelling of .husky/pre-commit's grep —
@@ -135,7 +101,6 @@ const MEASURED_ONLY = [VENDORED_SOURCE, PLUGIN_COST_TABLE];
 /* Read at the revision so the index side judges a pool rule against the
  * entries its own commit stages (#2033). Never byte-counted. */
 const { LEDGER_PATH } = require("./pool-admission.js");
-const { execGit } = require("./git.js");
 
 /**
  * The shed registers a cap refusal names, materialised only so the refusal can
@@ -158,7 +123,7 @@ const SHED_REGISTERS = {
  * grep must fire on them, which it does through a bare `scripts/`;
  * precommit-context-budget-gate.test.ts asserts that against this same wiring.
  *
- * FAILS CLOSED like materialisePathspecs' injector limb below: a hooks file
+ * FAILS CLOSED: a hooks file
  * git will not show yields the cap source alone, and check-context-budget.js's
  * `sessionFigures()` then BROKENs on the guards
  * it cannot read rather than measuring a narrowed wiring as compliant.
@@ -239,12 +204,20 @@ const readBlobsAt = (rev, rels) =>
 	).map((r) => (r === null ? null : r.body.toString("utf8")));
 
 /**
- * Every pathspec but the injected docs, which only the injector's revision
- * can name.
+ * The pathspec `--against` fetches blobs from, resolved AT the revision.
+ *
+ * THE INJECTOR IS CORE, NOT HOST (#36), but `--against` in THIS repo is
+ * self-hosted: the core's own history IS the host's, so INJECTOR is fetched
+ * like any listed path — that is what lets a staged growth of the injector's
+ * own bytes be materialised and caught. A plugin install's host git never
+ * tracked it, and the checker's readInjection() falls back to the live core
+ * copy (`INJECTOR_FILE`).
+ *
+ * @param {Ctx} _ctx
  * @param {string} rev
  * @returns {string[]}
  */
-const fixedPathspecs = (rev) => [
+const materialisePathspecs = (_ctx, rev) => [
 	...getPoolFiles(),
 	...CAPPED_PATHSPECS,
 	...MEASURED_ONLY,
@@ -253,50 +226,11 @@ const fixedPathspecs = (rev) => [
 	...readRuleSourcePathspecs(rev),
 ];
 
-/**
- * The pathspec `--against` fetches blobs from, resolved AT the revision.
- *
- * THE INJECTOR IS CORE, NOT HOST (#36), but `--against` in THIS repo is
- * self-hosted: the core's own history IS the host's, so `git show
- * <rev>:...` answers and is tried first — that is what lets a staged growth
- * of the injector's own bytes be materialised and caught. Only a plugin
- * install's host git, which never tracked this core file, fails there and
- * falls back to the live core copy (`INJECTOR_FILE`).
- *
- * @param {Ctx} ctx
- * @param {string} rev
- * @returns {string[]}
- */
-function materialisePathspecs(ctx, rev) {
-	/** @type {string} */
-	let script;
-	try {
-		script = execGit(["show", `${rev}:${INJECTOR}`], {
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-		});
-	} catch {
-		try {
-			script = fs.readFileSync(INJECTOR_FILE, "utf8");
-		} catch {
-			/* Every failure class lands here — a permission error, a corrupt
-			 * install. The narrowed pathspec is survivable because it fails CLOSED
-			 * downstream: the checker's readInjectedDocs() BROKENs on the injector it then cannot
-			 * read, so a narrowed list cannot pass a commit it never measured
-			 * (mantahostels#1834). */
-			return fixedPathspecs(rev);
-		}
-	}
-	return [...new Set([...fixedPathspecs(rev), ...docsArray(ctx, script)])];
-}
-
 module.exports = {
 	SETTINGS_FILE,
 	PLUGIN_COST_TABLE,
 	SHED_REGISTERS,
 	INJECTOR,
 	INJECTOR_FILE,
-	bashArray,
-	docsArray,
 	materialisePathspecs,
 };

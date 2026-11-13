@@ -2,9 +2,9 @@
 # Ask where a just-created issue belongs — and what label it takes — at the
 # moment it is created.
 #
-# WHY A HOOK AND NOT A DOC. inject-tracker-docs.sh hands the tracker rules to
-# six slash commands and says in its own header that an ad-hoc "open an issue
-# for X" typed in prose "gets nothing, and cannot: that path has no
+# WHY A HOOK AND NOT A DOC. inject-tracker-docs.js hands the tracker rules to
+# seven slash commands, and lib/inject-tracker-docs.js's header says an ad-hoc
+# "open an issue for X" typed in prose "gets nothing, and cannot: that path has no
 # distinguishing shape". That is true at UserPromptSubmit. At PostToolUse the
 # shape is exactly `gh issue create` — the path an ad-hoc issue is filed by, and
 # the one a rule in docs/agents/issue-tracker.md never reaches. The census that

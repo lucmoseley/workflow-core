@@ -9,7 +9,7 @@ Each test writes a synthetic transcript; nothing here reads the real corpus.
 
 CI's pytest step runs this file; the scanner
 gates nothing and is run by hand. Loosen a case and the before/after on
-`scripts/inject-tracker-docs.sh` (mantahostels#1872) scores sessions as
+`scripts/inject-tracker-docs.js` (mantahostels#1872) scores sessions as
 following the tracker rules that never opened them.
 """
 

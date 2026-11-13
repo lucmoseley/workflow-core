@@ -30,10 +30,7 @@ import {
 } from "./bg-launch-fake";
 import { buildBgBranch } from "./claude-stub";
 import { type DispatchPorts, dispatch } from "./dispatch-sessions.js";
-import {
-	launch as hostLaunch,
-	interopProbe,
-} from "./dispatch-sessions-host.js";
+import { hostPorts } from "./dispatch-sessions-host.js";
 import {
 	buildHeadlessBranch,
 	type HeadlessCall,
@@ -184,11 +181,14 @@ export interface DispatchFixture {
 	) => Promise<{ stdout: string; stderr: string; code: number }>;
 	/** runCore under a whole environment and working directory of the
 	 * caller's, as the refill loop's dispatcher call sets them. */
-	coreRun: (
+	runCoreUnder: (
 		args: string[],
 		run: { env: NodeJS.ProcessEnv; cwd: string },
 		ports?: Partial<DispatchPorts>,
 	) => Promise<{ stdout: string; stderr: string; code: number }>;
+	/** The ports runCore runs behind, as scripts/lib/dispatch-sessions-host.contract.test.ts
+	 * holds them to the production ones. */
+	corePorts: () => DispatchPorts;
 	/** Every stagger runCore's dispatch asked for, in seconds, in order. */
 	sleepArgs: () => string[];
 }
@@ -251,7 +251,8 @@ export function dispatchFixture(): DispatchFixture {
 		schedClock,
 		run,
 		runCore,
-		coreRun,
+		runCoreUnder,
+		corePorts,
 		sleepArgs,
 	};
 	let psEmpty = "";
@@ -500,33 +501,33 @@ export function dispatchFixture(): DispatchFixture {
 		extraEnv: Record<string, string> = {},
 		ports: Partial<DispatchPorts> = {},
 	): Promise<{ stdout: string; stderr: string; code: number }> {
-		return coreRun(args, { env: baseEnv(extraEnv), cwd: fx.dir }, ports);
+		return runCoreUnder(args, { env: baseEnv(extraEnv), cwd: fx.dir }, ports);
 	}
 
-	function coreRun(
+	function runCoreUnder(
 		args: string[],
 		under: { env: NodeJS.ProcessEnv; cwd: string },
 		ports: Partial<DispatchPorts> = {},
 	): Promise<{ stdout: string; stderr: string; code: number }> {
-		return dispatch(
-			args,
-			{
-				node: async (script, argv, { env, cwd, stdin }) => {
-					const file = path.join(SCRIPTS_DIR, script);
-					const opts = { cwd, env, ...(stdin === undefined ? {} : { stdin }) };
-					const r = ASYNC_MAIN.has(script)
-						? await runInProcessAsync(file, argv, opts)
-						: runInProcess(file, argv, opts);
-					return { status: r.status, stdout: r.stdout, stderr: r.stderr };
-				},
-				interop: interopProbe(),
-				launch: hostLaunch,
-				sleep: (seconds) =>
-					fs.appendFileSync(path.join(fx.dir, "sleeps"), `${seconds}\n`),
-				...ports,
+		return dispatch(args, { ...corePorts(), ...ports }, under);
+	}
+
+	function corePorts(): DispatchPorts {
+		return {
+			node: async (script, argv, { env, cwd, stdin }) => {
+				const file = path.join(SCRIPTS_DIR, script);
+				const opts = { cwd, env, ...(stdin === undefined ? {} : { stdin }) };
+				const r = ASYNC_MAIN.has(script)
+					? await runInProcessAsync(file, argv, opts)
+					: runInProcess(file, argv, opts);
+				return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 			},
-			under,
-		);
+			interop: hostPorts().interop,
+			launch: hostPorts().launch,
+			sleep: async (seconds) => {
+				fs.appendFileSync(path.join(fx.dir, "sleeps"), `${seconds}\n`);
+			},
+		};
 	}
 
 	function sleepArgs(): string[] {
