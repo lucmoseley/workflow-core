@@ -1819,6 +1819,8 @@ const SPEC = {
 		/* The baseline's text module in the old shape is measured by the
 		 * checker that knew that shape: the working one reads an export it
 		 * lacks as BROKEN (#5178). */
+		/* Its run reach, ~430 files under scripts/, is fetched with it: about
+		 * 1 s more a baseline. */
 		baselineCode: "rev",
 	},
 	/** @returns {CheckResult} */

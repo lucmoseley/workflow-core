@@ -25,9 +25,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ENVELOPE_FRAME_KEYS } from "./envelope-frame-keys";
 import { runRecordFile } from "./notify-report-testkit";
+import { copyRequireClosure } from "./require-closure";
 import { runInProcess, runInProcessAsync } from "./run-in-process";
 
 const LIB = path.resolve(__dirname, "check.js");
+const REPO = path.resolve(__dirname, "..", "..");
 
 let dir: string;
 
@@ -1481,17 +1483,23 @@ runCheck({
  * actually taken.
  */
 describe("--against with the blobs materialisation", () => {
-	/**
-	 * A repo whose fixture checker LISTS everything under --root, so a test can
-	 * read back exactly which paths the materialisation put there.
-	 */
-	const blobRepo = (spec: string) => {
-		const root = fs.mkdtempSync(path.join(dir, "blobrepo-"));
+	/** A fresh repo under `dir`, with a committer identity, and git run in it. */
+	const gitRepo = (prefix: string) => {
+		const root = fs.mkdtempSync(path.join(dir, prefix));
 		const git = (...args: string[]) =>
 			spawnSync("git", args, { cwd: root, encoding: "utf8" });
 		git("init", "-q", ".");
 		git("config", "user.email", "t@t");
 		git("config", "user.name", "t");
+		return { root, git };
+	};
+
+	/**
+	 * A repo whose fixture checker LISTS everything under --root, so a test can
+	 * read back exactly which paths the materialisation put there.
+	 */
+	const blobRepo = (spec: string) => {
+		const { root, git } = gitRepo("blobrepo-");
 		fs.writeFileSync(
 			path.join(root, "fixture-check.js"),
 			`const fs = require("node:fs");
@@ -1691,12 +1699,7 @@ runCheck({
   },`;
 
 	const noteRepo = () => {
-		const root = fs.mkdtempSync(path.join(dir, "noterepo-"));
-		const git = (...args: string[]) =>
-			spawnSync("git", args, { cwd: root, encoding: "utf8" });
-		git("init", "-q", ".");
-		git("config", "user.email", "t@t");
-		git("config", "user.name", "t");
+		const { root, git } = gitRepo("noterepo-");
 		fs.writeFileSync(
 			path.join(root, "fixture-check.js"),
 			`const fs = require("node:fs");
@@ -1756,12 +1759,7 @@ runCheck({
 	 * over the fetched tree finds.
 	 */
 	const shapeRepo = (baselineCode: string) => {
-		const root = fs.mkdtempSync(path.join(dir, "shaperepo-"));
-		const git = (...args: string[]) =>
-			spawnSync("git", args, { cwd: root, encoding: "utf8" });
-		git("init", "-q", ".");
-		git("config", "user.email", "t@t");
-		git("config", "user.name", "t");
+		const { root, git } = gitRepo("shaperepo-");
 		const put = (rel: string, text: string) => {
 			fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
 			fs.writeFileSync(path.join(root, rel), text);
@@ -1769,7 +1767,7 @@ runCheck({
 		put(
 			"scripts/fixture-check.js",
 			`const p = require("node:path");
-const { runCheck } = require(${JSON.stringify(LIB)});
+const { runCheck } = require("./lib/check.js");
 const { name } = require("./lib/shape.js");
 runCheck({
   name: "fixture",
@@ -1790,6 +1788,9 @@ runCheck({
 });
 `,
 		);
+		/* The harness copied in, so the baseline side runs the rev's own
+		 * lib/check.js as a real checker does, not this checkout's. */
+		copyRequireClosure(root, REPO, ["scripts/lib/check.js"]);
 		put("scripts/lib/old.js", 'module.exports = "a";\n');
 		put(
 			"scripts/lib/shape.js",
@@ -1802,19 +1803,10 @@ runCheck({
 		put("scripts/lib/shape.js", 'module.exports = { name: "b" };\n');
 		put("wanted/mod.js", "module.exports = { b: 1 };\n");
 		git("add", "-A");
-		const r = spawnSync(
-			"node",
-			[
-				path.join(root, "scripts", "fixture-check.js"),
-				"--against",
-				"HEAD",
-				"--json",
-			],
-			{
-				cwd: root,
-				encoding: "utf8",
-				env: { ...process.env, GITHUB_ACTIONS: "" },
-			},
+		const r = runInProcess(
+			path.join(root, "scripts", "fixture-check.js"),
+			["--against", "HEAD", "--json"],
+			{ cwd: root, env: { ...process.env, GITHUB_ACTIONS: "" } },
 		);
 		return {
 			root,

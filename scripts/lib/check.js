@@ -708,7 +708,7 @@ function writeBlobs(rev, dir, pathspecs) {
 	const entries = listTree(rev, pathspecs).filter(
 		/* cat-file rightly says a gitlink is missing. Nothing downstream
 		 * measures a submodule, so it is skipped rather than refused. */
-		(e) => e.mode !== GIT_MODE.gitlink && !present(path.join(dir, e.path)),
+		(e) => e.mode !== GIT_MODE.gitlink && !isPresent(path.join(dir, e.path)),
 	);
 
 	/* A pathspec that resolved and matched nothing is NOT the refusal above
@@ -739,8 +739,11 @@ function writeBlobs(rev, dir, pathspecs) {
 	}
 }
 
-/** @param {string} file */
-function present(file) {
+/**
+ * Whether `file` stands, a symlink by its own entry rather than its target.
+ * @param {string} file
+ */
+function isPresent(file) {
 	try {
 		fs.lstatSync(file);
 		return true;
@@ -1080,14 +1083,14 @@ function materialisedSpec(spec, ctx, flag, absent) {
 function readSide(ctx, { against, materialise, work }, rev, { label, which }) {
 	const dir = fs.mkdtempSync(path.join(work, "tree-"));
 	materialise(rev, dir, against.pathspecs?.(ctx, rev) ?? []);
-	const code =
+	const checker =
 		which === "baseline" && against.baselineCode === "rev"
 			? baselineChecker(rev, dir, against)
 			: undefined;
 	return reread(
 		dir,
 		label,
-		{ stream: which === "index" && !ctx.asJson, side: which, ...code },
+		{ stream: which === "index" && !ctx.asJson, side: which, ...checker },
 		ctx.args,
 	);
 }
@@ -1106,7 +1109,9 @@ function readSide(ctx, { against, materialise, work }, rev, { label, which }) {
  * That copy runs with this process's core root as its own (lib/script-path.js's
  * WFC_SCRIPT_ROOT): a `blobs` tree is no whole core, and the root decides how
  * a message spells a script path, so a copy rooted in the tree would render
- * the text it measures longer than the index side does.
+ * the text it measures longer than the index side does. Every other file the
+ * copy finds through coreRoot(), corePath() or docPath() is therefore read off
+ * this process's core too, as the working checker read it before.
  *
  * @param {string} rev
  * @param {string} dir
@@ -1119,7 +1124,7 @@ function baselineChecker(rev, dir, against) {
 	const blobs = against.materialise === "blobs";
 	if (blobs) fetchRunReach(rev, dir, self);
 	const code = path.join(dir, self.rel);
-	if (!fs.existsSync(code)) return;
+	if (!isPresent(code)) return;
 	return blobs ? { code, env: { WFC_SCRIPT_ROOT: self.root } } : { code };
 }
 
@@ -1143,6 +1148,9 @@ function checkerPath() {
  */
 function fetchRunReach(rev, dir, self) {
 	if (listTree(rev, [self.rel]).length === 0) return;
+	/* Required here, not at the top: only a blobs baseline under
+	 * `baselineCode: "rev"` walks a reach, and every other checker would pay
+	 * code-edges.js's load for nothing. */
 	const { readRunReach } = require("./code-edges.js");
 	/** @type {Set<string>} */
 	const asked = new Set();
