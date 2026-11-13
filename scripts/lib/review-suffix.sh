@@ -3,8 +3,9 @@
 #
 # SOURCED, NEVER RUN.
 #
-# Three routes name those paths — the review-rules dispatcher core (through
-# lib/review-suffix.js), inject-tracker-docs.sh and concision-backstop.sh — and
+# Three routes name those paths — the review-rules dispatcher core and
+# inject-tracker-docs.js (both through lib/review-suffix.js) and
+# concision-backstop.sh — and
 # a review whose routes disagree dispatches its axes to one file name and reads
 # them back from another. review-suffix.test.ts
 # runs all three on one id and holds them to one answer. A fourth, the

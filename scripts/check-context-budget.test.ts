@@ -34,6 +34,11 @@ import { PROFILES } from "./lib/fault-profiles.js";
  * on (#109) without restating rule-text.js's own resolution. */
 import { CORE_RULES } from "./lib/rule-text";
 import { runInProcess } from "./lib/run-in-process.js";
+import {
+	TEXT_MODULE,
+	textModuleSource,
+	writeTextModule,
+} from "./lib/tracker-text-fixture";
 
 const SCRIPT = path.resolve(__dirname, "check-context-budget.js");
 const { pool: CAP, injection: INJECTION_CAP } = liveCaps();
@@ -73,15 +78,11 @@ beforeEach(() => {
 	fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
 	fs.mkdirSync(path.join(dir, ".claude", "skills"), { recursive: true });
 	fs.mkdirSync(path.join(dir, ".claude", "commands"), { recursive: true });
-	/* check-context-budget.js reads the injector off its own core location, never
-	 * off --root (#36), so every fixture below is pointed at through the
-	 * WFC_INJECTOR_FILE test-injection seam (`lib/host-root.js`'s header
-	 * convention) rather than relying on `--root dir` to find it. Every fixture
-	 * in this file writes the same fixed path, so the seam is set once here. */
-	vi.stubEnv(
-		"WFC_INJECTOR_FILE",
-		path.join(dir, "scripts", "inject-tracker-docs.sh"),
-	);
+	/* Where `--root` carries no text module, check-context-budget.js reads the
+	 * core's own (#36); the WFC_INJECTOR_FILE test-injection seam
+	 * (`lib/host-root.js`'s header convention) points that at the fixture too,
+	 * so no case can measure the live module by accident. */
+	vi.stubEnv("WFC_INJECTOR_FILE", path.join(dir, TEXT_MODULE));
 	/* Pinned to a fresh, empty throwaway store by default, so no fixture in this
 	 * file can resolve an injected id against the LIVE core store beneath
 	 * `docs/agents/rules` by accident, colliding silently instead of throwing
@@ -95,52 +96,15 @@ beforeEach(() => {
 	/* One byte INSIDE the cap, not on it: both surfaces gate at or over their cap
 	 * (mantahostels#1834 unified report mode on the gate's boundary), so a baseline sitting
 	 * exactly on it would breach in every test that does not mean to. */
-	injector(["docs/agents/issue-tracker.md"], INJECTION_CAP - 1);
+	injector(INJECTION_CAP - 1);
 });
 
-/* The fixture injector's own prose, which the cap counts (mantahostels#1284). */
-const FIXTURE_HEADER = "You invoked /implement, a fixture header.";
-
 /**
- * What the injector contributes beyond the documents' own bytes: its header, the
- * blank line joining the two halves, and the marker pair around each document —
- * less the trailing newline `body="$(cat "$f")"` strips off every one.
- *
- * Restated here rather than imported: a test that computed this the checker's way
- * would pass whatever the checker did.
+ * A text module whose injection union weighs `bytes`: its header carries them
+ * all, and `extra` adds further exports on top.
  */
-function overhead(docs: string[]) {
-	return docs.reduce(
-		(n, rel) =>
-			n +
-			Buffer.byteLength(`--- BEGIN ${rel} ---\n`) +
-			Buffer.byteLength(`\n--- END ${rel} ---\n\n`) -
-			1,
-		Buffer.byteLength(FIXTURE_HEADER) + 2,
-	);
-}
-
-/**
- * The injector and the docs it names, sized so the whole injected surface weighs
- * `bytes`. The checker reads the `DOCS=(...)` array and the header assignments out
- * of the script rather than restating either, so the fixture writes real ones.
- */
-function injector(docs: string[], bytes: number, extra = "") {
-	fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
-	fs.writeFileSync(
-		path.join(dir, "scripts", "inject-tracker-docs.sh"),
-		/* `matched=""` is the real script's own initialiser, and is here so the
-		 * fixture pins that it does not overwrite the command the cap measures (mantahostels#1284). */
-		`#!/usr/bin/env bash\nDOCS=(${docs.join(" ")})\nmatched=""\n` +
-			`header="You invoked /\${matched}, a fixture header."\n${extra}`,
-	);
-	const body = bytes - overhead(docs);
-	const each = Math.floor(body / docs.length);
-	docs.forEach((rel, i) => {
-		fs.mkdirSync(path.join(dir, path.dirname(rel)), { recursive: true });
-		const n = i === docs.length - 1 ? body - each * (docs.length - 1) : each;
-		fs.writeFileSync(path.join(dir, rel), "x".repeat(n));
-	});
+function injector(bytes: number, extra = "") {
+	writeTextModule(dir, textModuleSource("x".repeat(bytes), extra));
 }
 
 /** An agent definition, whose name and description are all that reach the prompt. */
@@ -272,7 +236,7 @@ describe("the profile the direction gate reads this envelope through", () => {
 	it("refuses a growing injection surface the same way", () => {
 		const at = (over: number) => {
 			pool(CAP - 1000);
-			injector(["docs/agents/issue-tracker.md"], INJECTION_CAP + over);
+			injector(INJECTION_CAP + over);
 			return run("--json").json();
 		};
 		const smaller = at(700);
@@ -784,24 +748,30 @@ describe("files a pool member `@`-imports (#1956)", () => {
 });
 
 describe("an adopter's rendered tracker payload (#1956)", () => {
-	/* An injector off the host's own scripts/ path, as a plugin install's is,
-	 * whose payload names the command and a file read off the host; /triage,
-	 * and every command where the host has no such file, fails. */
+	/* A text module and hook entry off the host's own scripts/ path, as a
+	 * plugin install's are. The entry's payload names the command and a file
+	 * read off the host; /triage, and every command where the host has no such
+	 * file, fails. */
 	function coreInjector(): string {
 		fs.mkdirSync(path.join(dir, "core"));
-		const script = path.join(dir, "core", "inject-tracker-docs.sh");
+		const text = path.join(dir, "core", "tracker-inject-text.js");
+		fs.writeFileSync(text, textModuleSource("You invoked a fixture header."));
+		const entry = path.join(dir, "core", "inject-tracker-docs.js");
 		fs.writeFileSync(
-			script,
-			"#!/usr/bin/env bash\nDOCS=()\nCOMMANDS=(implement triage)\n" +
-				`matched=""\nheader="You invoked /\${matched}, a fixture header."\n` +
-				`input="$(cat)"\ncmd="\${input#*/}"\ncmd="\${cmd%% *}"\n` +
-				'[ "$cmd" = triage ] && exit 1\n' +
-				'host="$(cat "$CLAUDE_PROJECT_DIR/host.txt")" || exit 1\n' +
-				'printf \'{"hookSpecificOutput":{"additionalContext":"%s %s"}}\' "$cmd" "$host"\n',
+			entry,
+			[
+				'const fs = require("node:fs");',
+				'const cmd = JSON.parse(fs.readFileSync(0, "utf8")).prompt.slice(1).split(" ")[0];',
+				'if (cmd === "triage") process.exit(1);',
+				'const host = fs.readFileSync(process.env.CLAUDE_PROJECT_DIR + "/host.txt", "utf8");',
+				'process.stdout.write(JSON.stringify({ hookSpecificOutput: { additionalContext: cmd + " " + host } }));',
+				"",
+			].join("\n"),
 		);
-		fs.rmSync(path.join(dir, "scripts", "inject-tracker-docs.sh"));
-		vi.stubEnv("WFC_INJECTOR_FILE", script);
-		return script;
+		fs.rmSync(path.join(dir, TEXT_MODULE));
+		vi.stubEnv("WFC_INJECTOR_FILE", text);
+		vi.stubEnv("WFC_INJECTOR_ENTRY", entry);
+		return entry;
 	}
 
 	it("renders each command against the host, beside the core's union", () => {
@@ -828,7 +798,7 @@ describe("an adopter's rendered tracker payload (#1956)", () => {
 		expect(run().stderr).toContain("per command — none rendered, uncapped");
 	});
 
-	it("renders nothing where the host carries its own injector", () => {
+	it("renders nothing where the host carries its own text module", () => {
 		pool(CAP - 1000);
 		expect(run("--json").json().injection.rendered).toBeNull();
 	});
@@ -846,7 +816,7 @@ describe("an adopter's rendered tracker payload (#1956)", () => {
 describe("the injected tracker docs", () => {
 	it("is OK with headroom while the injection is inside its own cap", () => {
 		pool(CAP - 1000);
-		injector(["docs/agents/issue-tracker.md"], INJECTION_CAP - 500);
+		injector(INJECTION_CAP - 500);
 		const j = run("--json").json();
 		expect(j.outcome).toBe("OK");
 		expect(j.injection.headroom).toBe(500);
@@ -854,7 +824,7 @@ describe("the injected tracker docs", () => {
 
 	it("WARNs on its own tag, OVER-INJECTION, and never gates, recording the negative headroom", () => {
 		pool(CAP - 1000);
-		injector(["docs/agents/issue-tracker.md"], INJECTION_CAP + 700);
+		injector(INJECTION_CAP + 700);
 		const r = run("--json");
 		expect(r.json().outcome).toBe("WARN");
 		expect(r.json().findings[0].tag).toBe("OVER-INJECTION");
@@ -864,322 +834,148 @@ describe("the injected tracker docs", () => {
 
 	it("never touches the pool's own headroom", () => {
 		pool(CAP - 1000);
-		injector(["docs/agents/issue-tracker.md"], INJECTION_CAP + 700);
+		injector(INJECTION_CAP + 700);
 		expect(run("--json").json().headroom).toBe(1000);
 	});
 
-	/* mantahostels#2499 narrowed /implement's payload to a residue index in place of the two
-	 * documents. That index is prose in the injected payload like any other
-	 * header string, so it counts against the cap — leaving it out would read a
-	 * relocation as a shed, which is exactly what mantahostels#1284 built PAYLOAD_VARS to
-	 * stop. */
-	it("counts the residue index /implement takes in place of the documents", () => {
-		pool(CAP - 1000);
-		const pointer = "y".repeat(400);
-		injector(
-			["docs/agents/issue-tracker.md"],
-			INJECTION_CAP - 500,
-			`tracker_index="${pointer}"\n`,
-		);
-		expect(run("--json").json().injection.headroom).toBe(500 - 400);
-	});
+	/* A union binding the largest variant binds them all, so each part is read
+	 * at its longest. Each case adds one part on top of the 500 B of headroom
+	 * the header leaves, so the headroom left says what the part was read as. */
+	describe("each part, at its largest variant", () => {
+		const headroomWith = (extra: string) => {
+			pool(CAP - 1000);
+			injector(INJECTION_CAP - 500, extra);
+			return run("--json").json().injection.headroom;
+		};
 
-	/* The other half of mantahostels#1817: the injector filters a document out of one
-	 * command's payload, and the cap must not follow it down. Narrowing what is
-	 * measured narrows the cap by the same bytes and returns no headroom at all
-	 * (c00aa652a160), so the cap reads DOCS and never the per-command
-	 * set — a later session teaching it about `docs_for_command` would shed ~15 KB
-	 * of cap while costing every other command exactly what it cost before. */
-	it("counts a doc the injector drops from one command's payload", () => {
-		pool(CAP - 1000);
-		injector(
-			["docs/agents/issue-tracker.md", "docs/agents/triage-labels.md"],
-			INJECTION_CAP - 500,
-			"LABEL_DOC=docs/agents/triage-labels.md\n" +
-				'docs_for_command=("docs/agents/issue-tracker.md")\n',
-		);
-		// The fixture sizes BOTH documents to 500 B under the cap. Reading the
-		// per-command set instead would leave one of them out and the headroom
-		// would be that document's whole size, not 500.
-		expect(run("--json").json().injection.headroom).toBe(500);
-	});
+		it("counts the residue index of the command whose index is longest", () => {
+			expect(
+				headroomWith(
+					'INDEX: { implement: [], triage: [] }, trackerIndex: (c) => (c === "triage" ? "y".repeat(400) : "y"),',
+				),
+			).toBe(100);
+		});
 
-	/* The real injector writes tracker_index one level deep inside an `if`
-	 * block, as `$'\n\n'"..."` — a $'...' literal concatenated straight onto a
-	 * "..." one, no operator between them. This case nests it a second level,
-	 * which the parser must handle just as well since nothing about its
-	 * indentation logic assumes a fixed depth. */
-	it("parses an indented $'\\n\\n' literal concatenated onto a quoted string", () => {
-		pool(CAP - 1000);
-		const filler = "y".repeat(400);
-		injector(
-			["docs/agents/issue-tracker.md"],
-			INJECTION_CAP - 500,
-			`if [[ "$matched" == "implement" ]]; then\n` +
-				`  if [[ -n "$x" ]]; then\n` +
-				`    tracker_index=$'\\n\\n'"${filler}"\n` +
-				"  fi\n" +
-				"fi\n",
-		);
-		expect(run("--json").json().injection.headroom).toBe(
-			500 - (2 + filler.length),
-		);
-	});
+		it("counts the longest command's closing steps", () => {
+			expect(
+				headroomWith(
+					'CLOSING_STEPS: { implement: "c".repeat(150), triage: "c".repeat(300) },',
+				),
+			).toBe(200);
+		});
 
-	/* A variable reference inside the array reaches the cap as a literal,
-	 * unreadable path, and BREAKS rather than silently resolving to the file
-	 * it names. */
-	it("is BROKEN when DOCS names a variable reference instead of a literal path", () => {
-		pool(CAP - 1000);
-		fs.mkdirSync(path.join(dir, "docs", "agents"), { recursive: true });
-		fs.writeFileSync(
-			path.join(dir, "docs", "agents", "issue-tracker.md"),
-			"x".repeat(100),
-		);
-		fs.writeFileSync(
-			path.join(dir, "scripts", "inject-tracker-docs.sh"),
-			"#!/usr/bin/env bash\n" +
-				"LABEL_DOC=docs/agents/triage-labels.md\n" +
-				`DOCS=(docs/agents/issue-tracker.md \${LABEL_DOC})\nmatched=""\n` +
-				`header="You invoked /\${matched}, a fixture header."\n`,
-		);
-		const r = run("--json");
-		expect(r.status).toBe(2);
-		expect(r.json().outcome).toBe("BROKEN");
-		expect(r.json().summary).toContain("LABEL_DOC");
-	});
+		it("counts the header of the command it is longest for", () => {
+			expect(
+				headroomWith(
+					'header: (c) => HEADER + (c === "triage" ? "t".repeat(120) : ""),',
+				),
+			).toBe(380);
+		});
 
-	/* The assignment regex requires a quoted or $-led RHS, so a bare
-	 * NAME=value never enters `vars` — and every ${NAME} referring to it then
-	 * returns null, tripping `unparsed` on any string over PROSE_BYTES rather
-	 * than being silently dropped. */
-	it("is BROKEN when a bare assignment feeds an unresolved interpolation into a long header string", () => {
-		pool(CAP - 1000);
-		injector(
-			["docs/agents/issue-tracker.md"],
-			INJECTION_CAP,
-			"LABEL_DOC=docs/agents/triage-labels.md\n" +
-				`header="You invoked /\${matched}. \${LABEL_DOC} ${"z".repeat(100)}"\n`,
-		);
-		const r = run("--json");
-		expect(r.status).toBe(2);
-		expect(r.json().outcome).toBe("BROKEN");
-		expect(r.json().summary).toContain("header");
-	});
+		it("counts the takes line of every takes-reading command against every other command", () => {
+			expect(
+				headroomWith(
+					'TAKES_READ: ["implement"], takesLine: (issue, other, matched) => [issue, other, matched].join(":"),',
+				),
+			).toBe(500 - "1:triage:implement".length);
+		});
 
-	it("follows a doc added to the injector rather than a list restated here", () => {
-		pool(CAP - 1000);
-		injector(
-			["docs/agents/issue-tracker.md", "docs/agents/triage-labels.md"],
-			INJECTION_CAP,
-		);
-		const j = run("--json").json();
-		expect(j.injection.files.map((f: { path: string }) => f.path)).toEqual([
-			"docs/agents/issue-tracker.md",
-			"docs/agents/triage-labels.md",
-			"scripts/inject-tracker-docs.sh (header + markers)",
-		]);
-		expect(j.injection.total).toBe(INJECTION_CAP);
-	});
+		it("counts the longest standards state, with the glossary sentence", () => {
+			expect(
+				headroomWith(
+					'standardsText: (state) => (state === "neither" ? "s".repeat(90) : "s"), withGlossary: (s, g) => s + g,',
+				),
+			).toBe(500 - 90 - "GLOSSARY.md".length);
+		});
 
-	it("counts the injector's own header and markers, not the DOCS array alone", () => {
-		pool(CAP - 1000);
-		const docs = ["docs/agents/issue-tracker.md"];
-		injector(docs, INJECTION_CAP);
-		const j = run("--json").json();
-		const doc = j.injection.files.find(
-			(f: { path: string }) => f.path === docs[0],
-		);
-		expect(j.injection.total).toBe(doc.bytes + overhead(docs));
-		expect(j.injection.total).toBeGreaterThan(doc.bytes);
-	});
-
-	it("counts a string the header reaches by interpolation, so relocating into one is not a shed", () => {
-		pool(CAP - 1000);
-		const docs = ["docs/agents/issue-tracker.md"];
-		const rule = "y".repeat(400);
-		injector(
-			docs,
-			INJECTION_CAP,
-			`priced_options="${rule}"\nclosing_steps="\${priced_options}"\n`,
-		);
-		const j = run("--json").json();
-		/* priced_options is counted once as itself and once through closing_steps,
-		 * exactly as the injector concatenates both into the payload. */
-		expect(j.injection.total).toBe(INJECTION_CAP + 2 * rule.length);
-	});
-
-	it("is BROKEN, never short, on a header string it cannot evaluate, naming the variable", () => {
-		pool(CAP - 1000);
-		injector(
-			["docs/agents/issue-tracker.md"],
-			INJECTION_CAP,
-			`priced_options="$(cat ${"z".repeat(120)})"\n`,
-		);
-		const r = run("--json");
-		expect(r.status).toBe(2);
-		expect(r.json().summary).toContain("priced_options");
+		it("counts each fixed string once", () => {
+			expect(
+				headroomWith(
+					'WAYFINDER_CLAUSES: "w".repeat(60), ULTRA: "u".repeat(40),',
+				),
+			).toBe(400);
+		});
 	});
 
 	describe("the priced-options pointer (#2039)", () => {
-		const whole = `priced_options_whole="${"w".repeat(400)}"\n`;
-		const pointer = `priced_options="${"p".repeat(150)}"\n`;
-
-		it("measures the pointer and not the whole shape it falls back to", () => {
+		it("measures the pointer and not the whole shape a host without Core voice gets", () => {
 			pool(CAP - 1000);
 			injector(
-				["docs/agents/issue-tracker.md"],
 				INJECTION_CAP - 500,
-				`${whole}${pointer}wfc_core_voice_loaded || priced_options="$priced_options_whole"\n`,
+				'PRICED_OPTIONS_POINTER: "p".repeat(150), pricedOptionsWhole: () => "w".repeat(400),',
 			);
-			expect(run("--json").json().injection.total).toBe(
-				INJECTION_CAP - 500 + 150,
-			);
+			expect(run("--json").json().injection.headroom).toBe(350);
 		});
+	});
 
-		it("is BROKEN where the last column-zero assignment takes the whole shape", () => {
+	describe("the rule fragments the review strings read", () => {
+		const rule = (id: string, text: string) =>
+			fs.writeFileSync(
+				path.join(dir, "docs", "agents", "rules", `${id}.txt`),
+				text,
+			);
+
+		it("counts each from the root's store, its trailing newlines dropped", () => {
 			pool(CAP - 1000);
 			injector(
-				["docs/agents/issue-tracker.md"],
 				INJECTION_CAP - 500,
-				`${whole}${pointer}priced_options="\${priced_options_whole}"\n`,
+				"dispatchText: (type, suffix, shape) => shape,",
 			);
-			const r = run("--json");
-			expect(r.status).toBe(2);
-			expect(r.json().summary).toContain("priced_options_whole");
+			rule("review-dispatch-shape", `${"d".repeat(100)}\n`);
+			rule("review-deviations-read", `${"v".repeat(50)}\n\n`);
+			rule("review-finding-destination", "f".repeat(25));
+			expect(run("--json").json().injection.headroom).toBe(325);
+		});
+
+		it("hands dispatchText the plugin reviewer type and a session suffix", () => {
+			pool(CAP - 1000);
+			injector(
+				INJECTION_CAP - 500,
+				"dispatchText: (type, suffix) => type + suffix,",
+			);
+			expect(run("--json").json().injection.headroom).toBe(
+				500 - "workflow-core:code-reviewer".length - "-check-co".length,
+			);
 		});
 	});
 
-	it("counts a rule fragment the injector reads through rule_text, from the root's store", () => {
+	it("is BROKEN, naming each, when the module lacks an export the union reads", () => {
 		pool(CAP - 1000);
-		fs.mkdirSync(path.join(dir, "docs", "agents", "rules"), {
-			recursive: true,
-		});
-		fs.writeFileSync(
-			path.join(dir, "docs", "agents", "rules", "fixture-shape.txt"),
-			`${"f".repeat(300)}\n`,
-		);
-		injector(
-			["docs/agents/issue-tracker.md"],
-			INJECTION_CAP,
-			`dispatch_shape="$(rule_text fixture-shape 2>/dev/null)"\ndispatch="\${dispatch_shape}"\n`,
-		);
-		expect(run("--json").json().injection.total).toBe(INJECTION_CAP + 300);
-	});
-
-	it("is BROKEN, never short, on a rule fragment that will not read", () => {
-		pool(CAP - 1000);
-		injector(
-			["docs/agents/issue-tracker.md"],
-			INJECTION_CAP,
-			`dispatch_shape="$(rule_text no-such-fixture-id 2>/dev/null)"\n`,
-		);
+		injector(INJECTION_CAP - 500, "ULTRA: undefined, INDEX: null,");
 		const r = run("--json");
-		expect(r.status).toBe(2);
-		expect(r.json().summary).toContain("dispatch_shape");
-	});
-
-	it("is BROKEN when the injector assigns no header at all", () => {
-		pool(CAP - 1000);
-		fs.writeFileSync(
-			path.join(dir, "scripts", "inject-tracker-docs.sh"),
-			"#!/usr/bin/env bash\nDOCS=(docs/agents/issue-tracker.md)\n",
-		);
-		const r = run("--json");
-		expect(r.status).toBe(2);
-		expect(r.json().summary).toContain("no header=");
-	});
-
-	it("is BROKEN on a long string emitted into a variant this cap does not measure, naming the variable", () => {
-		pool(CAP - 1000);
-		injector(
-			["docs/agents/issue-tracker.md"],
-			INJECTION_CAP,
-			`review_only="${"y".repeat(400)}"\nemit "\${review_only}"\n`,
-		);
-		const r = run("--json");
-		expect(r.status).toBe(2);
-		expect(r.json().summary).toContain("review_only");
-	});
-
-	/* mantahostels#1853: emit "$context" is a bare $var, so namesIn() alone read nothing off
-	 * it and a string reached only through the context= assembly counted as
-	 * zero. */
-	it('is BROKEN on a long string reached only through a bare `emit "$context"`, naming the variable that holds it', () => {
-		pool(CAP - 1000);
-		injector(
-			["docs/agents/issue-tracker.md"],
-			INJECTION_CAP,
-			`review_only="${"y".repeat(400)}"\ncontext="\${review_only}"\nemit "$context"\n`,
-		);
-		const r = run("--json");
-		expect(r.status).toBe(2);
 		expect(r.json().outcome).toBe("BROKEN");
-		expect(r.json().summary).toContain("review_only");
+		expect(r.json().summary).toContain("INDEX (an object)");
+		expect(r.json().summary).toContain("ULTRA (a string)");
 	});
 
-	/* mantahostels#1853: the ownBytes guard this needs. */
-	it('is OK when `emit "$context"` only reaches names PAYLOAD_VARS already counts', () => {
-		pool(CAP - 1000);
-		const filler = "z".repeat(40);
-		injector(
-			["docs/agents/issue-tracker.md"],
-			/* The fixture's own sizing has no notion of the four PAYLOAD_VARS this
-			 * case adds beyond `header`, so the target leaves room for their bytes
-			 * on top of what `injector()` sizes the doc body to. */
-			INJECTION_CAP - 1000,
-			/* Mirrors the real injector's shape: `context` self-references its own
-			 * prior (empty) value, so it is a pure container over already-counted
-			 * names — over PROSE_BYTES once concatenated, but with no bytes of its
-			 * own beyond theirs, so flagging the container itself would be a false
-			 * BROKEN on a fully-counted tree. */
-			`context=""\n` +
-				`wayfinder_clauses="${filler}"\n` +
-				`tracker_index="${filler}"\n` +
-				`closing_steps="${filler}"\n` +
-				`priced_options="${filler}"\n` +
-				`context="\${wayfinder_clauses}\${tracker_index}\${closing_steps}\${priced_options}\${context}"\n` +
-				`emit "$context"\n`,
-		);
-		const r = run("--json");
-		expect(r.status).toBe(0);
-		expect(r.json().outcome).toBe("OK");
-	});
-
-	/* mantahostels#1853 mutation: a name with refs of its own (not a pure container) is
-	 * still a leaf a caller could omit from PAYLOAD_VARS — "has no refs" is the
-	 * wrong test for "already counted", which is why this checks OWN bytes
-	 * instead. */
-	it("is BROKEN on a long uncounted string that also interpolates a ref, reached only via context=, naming the variable that holds it", () => {
+	it("is BROKEN, never short, when a part's export throws", () => {
 		pool(CAP - 1000);
 		injector(
-			["docs/agents/issue-tracker.md"],
-			INJECTION_CAP,
-			`sub="x"\n` +
-				`composite="prefix-\${sub}-${"y".repeat(400)}"\n` +
-				`context="\${composite}"\n` +
-				`emit "$context"\n`,
-		);
-		const r = run("--json");
-		expect(r.status).toBe(2);
-		expect(r.json().outcome).toBe("BROKEN");
-		expect(r.json().summary).toContain("composite");
-	});
-
-	it("is BROKEN when the injector has no DOCS array to read", () => {
-		pool(CAP - 1000);
-		fs.writeFileSync(
-			path.join(dir, "scripts", "inject-tracker-docs.sh"),
-			"#!/usr/bin/env bash\n",
+			INJECTION_CAP - 500,
+			'standardsText: () => { throw new Error("no standards"); },',
 		);
 		const r = run("--json");
 		expect(r.json().outcome).toBe("BROKEN");
-		expect(r.status).toBe(2);
+		expect(r.json().summary).toContain("no standards");
+	});
+
+	/* The module is evaluated with no `require`: a copy read out of git must
+	 * not run anything of the tree it was read beside. */
+	it("is BROKEN, running nothing, on a module that reaches for require", () => {
+		pool(CAP - 1000);
+		writeTextModule(
+			dir,
+			`require("node:fs").writeFileSync(${JSON.stringify(path.join(dir, "ran"))}, "");\n${textModuleSource("x")}`,
+		);
+		const r = run("--json");
+		expect(r.json().outcome).toBe("BROKEN");
+		expect(r.json().summary).toContain("will not evaluate");
+		expect(fs.existsSync(path.join(dir, "ran"))).toBe(false);
 	});
 
 	it("reports a breach under --notify, alongside the pool's", () => {
 		pool(CAP + 500);
-		injector(["docs/agents/issue-tracker.md"], INJECTION_CAP + 700);
+		injector(INJECTION_CAP + 700);
 		const r = run("--notify");
 		expect(r.stdout).toContain("ALWAYS-LOADED POOL OVER CAP");
 		expect(r.stdout).toContain("INJECTED TRACKER DOCS OVER CAP");
@@ -1239,6 +1035,12 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 	function stage(rel: string, bytes: number) {
 		fs.writeFileSync(path.join(dir, rel), buildPoolText(rel, bytes));
 		git("add", "--", rel);
+	}
+
+	/** Rewrite the text module to a union of `bytes` and stage it. */
+	function stageInjector(bytes: number) {
+		injector(bytes);
+		git("add", "--", TEXT_MODULE);
 	}
 
 	/** The byte total a cap finding reports, out of its own message. */
@@ -1439,12 +1241,9 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 	 * one would send the reader shedding from a surface that did not grow. */
 	it("measures the injection surface against its own baseline, not the pool's", () => {
 		pool(CAP - 5000);
-		injector(["docs/agents/issue-tracker.md"], INJECTION_CAP - 1);
+		injector(INJECTION_CAP - 1);
 		baseline();
-		stage(
-			"docs/agents/issue-tracker.md",
-			INJECTION_CAP + 300 - overhead(["docs/agents/issue-tracker.md"]),
-		);
+		stageInjector(INJECTION_CAP + 300);
 		const r = gate("--json");
 		expect(r.status).toBe(1);
 		const f = r.json().findings[0];
@@ -1623,15 +1422,10 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 
 	it("FAILs a commit that adds to the injected docs, naming their own audit", () => {
 		pool(CAP - 5000);
-		injector(["docs/agents/issue-tracker.md"], INJECTION_CAP - 1);
+		injector(INJECTION_CAP - 1);
 		shedRegister();
 		baseline();
-		/* The surface is the doc plus the injector's own bytes, so the doc is sized
-		 * to leave the whole thing 300 B over. */
-		stage(
-			"docs/agents/issue-tracker.md",
-			INJECTION_CAP + 300 - overhead(["docs/agents/issue-tracker.md"]),
-		);
+		stageInjector(INJECTION_CAP + 300);
 		const r = gate("--json");
 		expect(r.json().outcome).toBe("FAIL");
 		expect(r.json().added[0]).toContain(
@@ -1693,31 +1487,23 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 		expect(r.stderr).toContain("always-loaded-shed-candidates.md");
 	});
 
-	/* DOCS is data: nothing may assume which directory an injected doc sits in,
-	 * and that governs the MATERIALISATION too (mantahostels#1834) — the pathspec is read
-	 * out of the injector at the revision, so a doc outside the fixed list is
-	 * fetched or it is not measured at all. */
-	it("measures an injected doc wherever DOCS puts it", () => {
+	/* The text module is fetched with the revision, so the index side measures
+	 * the module the commit stages. */
+	it("measures the staged text module, not the working tree's", () => {
 		pool(CAP - 5000);
-		injector(["docs/agents/issue-tracker.md", "docs/effort-guide.md"], 30_000);
+		injector(INJECTION_CAP - 1);
+		shedRegister();
 		baseline();
-		const j = run("--json").json();
-		expect(j.injection.total).toBe(30_000);
-		expect(
-			j.injection.files.find(
-				(f: { path: string }) => f.path === "docs/effort-guide.md",
-			).bytes,
-		).toBeGreaterThan(0);
-		/* And the materialised index reads the same number, which is what proves
-		 * the second pathspec pass fetched it. */
-		expect(gate("--json").json().indexSummary).toBe(j.summary);
+		stageInjector(INJECTION_CAP + 300);
+		injector(INJECTION_CAP - 1);
+		expect(gate("--json").json().outcome).toBe("FAIL");
 	});
 
 	it("agrees with report mode on both totals over one tree", () => {
 		pool(CAP - 5000);
 		skill("house-thing", "one two three");
 		agent("scout", "abcde");
-		injector(["docs/agents/issue-tracker.md", "docs/effort-guide.md"], 30_000);
+		injector(30_000);
 		baseline();
 		const j = gate("--json").json();
 		expect(j.indexSummary).toBe(run("--json").json().summary);
@@ -1796,15 +1582,17 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 	 * — so `HEAD` in a repo with no commit is an unresolvable rev, which fails
 	 * closed rather than inventing a baseline.
 	 */
-	it("is BROKEN, not an empty baseline, in a repo with no commit yet", () => {
+	/* lib/check.js reads an unborn HEAD's baseline as the empty tree, so a
+	 * first commit over the cap adds that fault rather than inheriting it (#5). */
+	it("refuses a first commit over the cap, against the empty tree", () => {
 		pool(CAP + 500);
 		git("init", "-q", "-b", "main");
 		git("config", "user.email", "t@example.invalid");
 		git("config", "user.name", "t");
 		git("add", "-A");
 		const r = gate("--json");
-		expect(r.json().outcome).toBe("BROKEN");
-		expect(r.status).toBe(2);
+		expect(r.json().outcome).toBe("FAIL");
+		expect(r.status).toBe(1);
 	});
 
 	it("charges an own skill's description to the pool, and a vendored one to nothing", () => {

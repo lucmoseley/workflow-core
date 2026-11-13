@@ -5,18 +5,17 @@
  * commit on (#1506). Were the two to read the tree differently, a copied repo
  * would start with a commit gate its own setup cannot satisfy.
  *
- * init runs as a process, as init-adopter.test.ts runs it, because what it
- * promises is a repo that commits (#5); the checker runs in-process.
+ * init's core and the checker both run in-process, on a real repository.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { adoptWith } from "./init-adopter-fixture";
 import { mkScratchDir } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const CORE = path.resolve(__dirname, "..");
-const INIT = path.join(__dirname, "init-adopter.js");
 const CHECK = path.join(__dirname, "check-gate-switches.js");
 
 const SUBJECTS: Record<string, string> = {
@@ -40,8 +39,7 @@ const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 
 const init = (...args: string[]) =>
-	runInProcess(
-		INIT,
+	adoptWith(
 		[
 			"--root",
 			dir,

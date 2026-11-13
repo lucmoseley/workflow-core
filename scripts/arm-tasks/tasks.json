@@ -213,7 +213,7 @@
 			"fix": "rescue-sees-commit-paths.fix.patch",
 			"hiddenTests": [
 				{
-					"file": "scripts/rescue-sessions.test.ts",
+					"file": "scripts/lib/rescue-jobs.test.ts",
 					"names": [
 						"lists commit-paths.js calls by repo or plugin-cache path (#1714)",
 						"matches a commit-paths.js message against the log (#1714)"

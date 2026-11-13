@@ -2104,7 +2104,7 @@
 			},
 			{
 				"kind": "path",
-				"ref": "scripts/inject-tracker-docs.sh",
+				"ref": "scripts/lib/tracker-inject-text.js",
 				"gloss": "the subject"
 			},
 			{

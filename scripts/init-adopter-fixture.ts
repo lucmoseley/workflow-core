@@ -5,6 +5,8 @@ import path from "node:path";
 import { afterAll, expect, vi } from "vitest";
 import { skeletonPaths } from "./lib/core-owned-files.js";
 import { defineTemplate, mkDirOutsideRepo } from "./lib/git-fixture";
+import { adopt } from "./lib/init-adopter-core.js";
+import { resolveConfigDir } from "./lib/plugin-state.js";
 import { gateTmpdir } from "./lib/precommit-gate-harness.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { upgrade } from "./lib/upgrade-walk.js";
@@ -35,7 +37,7 @@ const emptyRepo = defineTemplate((dir) => {
 
 /* Copies land outside any repository, not under the scratch base, so no
  * test's adopter repo sits inside this checkout. Residual: they are back on
- * the shared /tmp, where mantahostels#3144 saw a fixture deleted mid-copy. */
+ * the shared /tmp (mantahostels#3144). */
 export function repo() {
 	return adopterFrom((dir) => emptyRepo.instantiate(dir));
 }
@@ -66,6 +68,83 @@ export function initialised(founder = "A Founder") {
 	return adopterFrom((dir) => fs.cpSync(built, dir, { recursive: true }));
 }
 
+/* The core's production runNode with the plugin script run in-process in
+ * place of a child node, a failure thrown as execFileSync throws it, so the
+ * core reads it as it reads the spawn's. */
+function runNodeInProcess(
+	root: string,
+	script: string,
+	args: string[],
+	{ quiet = false }: { quiet?: boolean } = {},
+) {
+	const r = runInProcess(script, args, {
+		cwd: root,
+		env: {
+			...process.env,
+			CLAUDE_PROJECT_DIR: root,
+			CLAUDE_CONFIG_DIR: resolveConfigDir(undefined),
+		},
+	});
+	if (r.status === 0) return r.stdout;
+	const stderr = quiet ? null : r.stderr;
+	throw Object.assign(
+		new Error(
+			`Command failed: ${process.execPath} ${[script, ...args].join(" ")}${stderr ? `\n${stderr}` : ""}`,
+		),
+		{ status: r.status, stdout: r.stdout, stderr },
+	);
+}
+
+/**
+ * init's core called in-process, in runInProcess's argument and result shape:
+ * `env`, where given, replaces the environment and `cwd` is the working
+ * directory for the call, as a spawn's would be. runNode runs each plugin
+ * script in-process.
+ */
+export function adoptWith(
+	args: string[],
+	{ cwd, env = process.env }: { cwd: string; env?: NodeJS.ProcessEnv },
+) {
+	let stdout = "";
+	let stderr = "";
+	const savedEnv = process.env;
+	const savedCwd = process.cwd();
+	// env-write-kept: the case's env replaces the whole environment, as a spawn's does.
+	process.env = { ...env };
+	process.chdir(cwd);
+	try {
+		const status = adopt(args, {
+			out: (text) => {
+				stdout += text;
+			},
+			err: (text) => {
+				stderr += text;
+			},
+			runNode: runNodeInProcess,
+		});
+		return { status, stdout, stderr };
+	} finally {
+		process.chdir(savedCwd);
+		// env-write-kept: restores the object the call replaced above.
+		process.env = savedEnv;
+	}
+}
+
+const fixtureArgs = (dir: string, args: string[]) => [
+	"--root",
+	dir,
+	"--plugin-root",
+	CORE,
+	/* Every fixture skips it: a real `claude plugin install` mutates this
+	 * machine's own plugin registry and is exercised on its own, against a
+	 * stub `claude`, in init-adopter.test.ts (#75). */
+	"--no-plugin-install",
+	...args,
+];
+
+/* init passes NO CLAUDE_PROJECT_DIR: init sets it for its own children, so
+ * supplying it would prove the harness rather than the script (#5). */
+
 export const init = (dir: string, ...args: string[]) =>
 	initIn(process.env, dir, ...args);
 
@@ -73,28 +152,17 @@ export const initIn = (
 	env: NodeJS.ProcessEnv,
 	dir: string,
 	...args: string[]
-) =>
-	runInProcess(
-		SCRIPT,
-		[
-			"--root",
-			dir,
-			"--plugin-root",
-			CORE,
-			/* Every fixture skips it: a real `claude plugin install` mutates this
-			 * machine's own plugin registry and is exercised on its own, against a
-			 * stub `claude`, in init-adopter.test.ts (#75). */
-			"--no-plugin-install",
-			...args,
-		],
-		{
-			cwd: dir,
-			/* init() passes NO CLAUDE_PROJECT_DIR: init sets it for its own
-			 * children, so supplying it would prove the harness rather than the
-			 * script (#5). */
-			env,
-		},
-	);
+) => adoptWith(fixtureArgs(dir, args), { cwd: dir, env });
+
+/** init run as the program, for the boundary set (§X11). */
+export const initProgram = (dir: string, ...args: string[]) =>
+	initProgramIn(process.env, dir, ...args);
+
+export const initProgramIn = (
+	env: NodeJS.ProcessEnv,
+	dir: string,
+	...args: string[]
+) => runInProcess(SCRIPT, fixtureArgs(dir, args), { cwd: dir, env });
 
 /** A pathspec commit of `paths` in the adopter, through its own hooks. */
 export function commitThroughHooks(
@@ -111,8 +179,7 @@ export function commitThroughHooks(
 	 * hooks arm the real shellcheck gate, so the commit takes the fixture's own
 	 * TMPDIR for its lock, set after `env` so no caller's replaces it (#2648).
 	 * CLAUDE_PROJECT_DIR is the adopter's, as its own session's would be: a
-	 * session's inherited value names this checkout, and the hooks would read
-	 * its config and run its `npm run check:staged` in the adopter (#3296).
+	 * session's inherited value names this checkout (#3296).
 	 * CLAUDE_CONFIG_DIR is the commit's own, so a guard failing open under the
 	 * hooks logs there, never in the developer's live log (mantahostels#1452). */
 	const config = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-config-"));

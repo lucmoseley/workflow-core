@@ -89,17 +89,17 @@ index 75607885758032e21b9819644622288a4f4af61f..df526de936909467e0275b985d575536
  		["another subcommand", "git status"],
  		["a mention", "grep 'git commit -m x' notes.md"],
  	])("counts no %s", (_name, command) => {
-diff --git a/scripts/rescue-sessions.test.ts b/scripts/rescue-sessions.test.ts
-index 2cc363118273dd18c93c018f4c5b75638a9d28ea..91275e2fc5b4fc2ef13f31d0b05325a854993cba 100644
---- a/scripts/rescue-sessions.test.ts
-+++ b/scripts/rescue-sessions.test.ts
-@@ -444,13 +444,66 @@ describe("the commits snapshot says were attempted and landed", () => {
+diff --git a/scripts/lib/rescue-jobs.test.ts b/scripts/lib/rescue-jobs.test.ts
+index 3b16e17aefd0e360e2c088e5bd833940a7e0f952..38f7f7eb88c4bbc3de0e27a34e378a96cef506e7 100644
+--- a/scripts/lib/rescue-jobs.test.ts
++++ b/scripts/lib/rescue-jobs.test.ts
+@@ -351,13 +351,68 @@ describe("the commits snapshot says were attempted and landed", () => {
  		expect(entry.commitsAttempted).toEqual(["git commit -m x -- scripts/y.js"]);
  	});
  
-+	it("lists commit-paths.js calls by repo or plugin-cache path behind a prefix (#1714)", () => {
++	it("lists commit-paths.js calls by repo or plugin-cache path behind a prefix (#1714)", async () => {
 +		const cached = `node /home/u/.claude2/plugins/cache/workflow-core/workflow-core/1.0.0/scripts/commit-paths.js -m "fix b" -- b.js`;
-+		const { entry } = snapshotOf([
++		const { entry } = await snapshotOf([
 +			bash('node scripts/commit-paths.js -m "fix a" -- a.js'),
 +			bash(
 +				`timeout 900 bash -c 'while [ -e .git/index.lock ]; do sleep 1; done'; ${cached}`,
@@ -115,23 +115,25 @@ index 2cc363118273dd18c93c018f4c5b75638a9d28ea..91275e2fc5b4fc2ef13f31d0b05325a8
 +		]);
 +	});
 +
-+	it("does not count a commit-paths.js --tree pin as an attempt (#2383)", () => {
-+		const { entry } = snapshotOf([
++	it("does not count a commit-paths.js --tree pin as an attempt (#2383)", async () => {
++		const { entry } = await snapshotOf([
 +			bash("t=$(node scripts/commit-paths.js --tree -- a.js) && git diff $t"),
 +		]);
 +		expect(entry.commitsAttempted).toEqual([]);
 +	});
 +
-+	it("does not count a commit-paths.js call it would refuse for its message (#2383)", () => {
-+		const { entry } = snapshotOf([
++	it("does not count a commit-paths.js call it would refuse for its message (#2383)", async () => {
++		const { entry } = await snapshotOf([
 +			bash("node scripts/commit-paths.js -m a -m b -- a.js"),
 +			bash("node scripts/commit-paths.js -- a.js"),
 +		]);
 +		expect(entry.commitsAttempted).toEqual([]);
 +	});
 +
-+	it("does not count a commit-paths.js --help call as an attempt (#2383)", () => {
-+		const { entry } = snapshotOf([bash("node scripts/commit-paths.js --help")]);
++	it("does not count a commit-paths.js --help call as an attempt (#2383)", async () => {
++		const { entry } = await snapshotOf([
++			bash("node scripts/commit-paths.js --help"),
++		]);
 +		expect(entry.commitsAttempted).toEqual([]);
 +	});
 +
@@ -159,25 +161,25 @@ index 2cc363118273dd18c93c018f4c5b75638a9d28ea..91275e2fc5b4fc2ef13f31d0b05325a8
 +		],
  	])(
  		"counts a commit behind %s, with its message (#2383)",
- 		(_, call, subject) => {
-@@ -479,13 +532,22 @@ describe("the commits snapshot says were attempted and landed", () => {
+ 		async (_, call, subject) => {
+@@ -386,13 +441,22 @@ describe("the commits snapshot says were attempted and landed", () => {
  		]);
  	});
  
-+	it("matches a commit-paths.js message longer than the narration keeps (#1714)", () => {
++	it("matches a commit-paths.js message longer than the narration keeps (#1714)", async () => {
 +		const subject = `Make the rescue snapshot see commits made through commit-paths.js, ${"so nothing is missed ".repeat(4).trim()}`;
 +		commit(subject);
-+		const { entry } = landed([
++		const { entry } = await landed([
 +			`node scripts/commit-paths.js -m "${subject}" -- scripts/rescue-sessions.js`,
 +		]);
 +		expect(entry.commitsLanded).toEqual([expect.stringContaining(subject)]);
 +	});
 +
- 	it("matches the subject of a message given by -F file or heredoc (#1714)", () => {
+ 	it("matches the subject of a message given by -F file or heredoc (#1714)", async () => {
  		writeFileSync(join(repo, "msg.txt"), "subject from a file\n\nbody\n");
  		commit("subject from a file");
  		commit("subject from a heredoc");
- 		const { entry } = landed([
+ 		const { entry } = await landed([
 -			"git commit -F msg.txt -- a.js",
 -			`git commit -m "$(cat <<'EOF'\nsubject from a heredoc\n\nbody\nEOF\n)" -- b.js`,
 +			"node scripts/commit-paths.js -F msg.txt -- a.js",
@@ -185,10 +187,10 @@ index 2cc363118273dd18c93c018f4c5b75638a9d28ea..91275e2fc5b4fc2ef13f31d0b05325a8
  		]);
  		expect(entry.commitsLanded).toHaveLength(2);
  	});
-@@ -494,7 +556,7 @@ describe("the commits snapshot says were attempted and landed", () => {
+@@ -401,7 +465,7 @@ describe("the commits snapshot says were attempted and landed", () => {
  		commit("the session's own fix");
  		commit("the session");
- 		const { entry } = landed([
+ 		const { entry } = await landed([
 -			`git commit -m "the session's own fix" -- a.js`,
 +			`node scripts/commit-paths.js -m "the session's own fix" -- a.js`,
  		]);

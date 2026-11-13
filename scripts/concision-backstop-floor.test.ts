@@ -10,7 +10,6 @@
  * a run (#4308's profile), and the logic under test is bash with no in-process seam.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -32,6 +31,7 @@ import {
 	write,
 } from "./lib/concision-backstop-testkit";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
+import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
 backstopFixture();
@@ -95,17 +95,17 @@ describe("the /implement floor — mantahostels#2769", () => {
 	// The marker path is a contract between two scripts, and a session's floor
 	// silently returns to 20 if they drift. Pinned by running the injector for
 	// real rather than by matching its source.
-	it("reads the marker inject-tracker-docs.sh actually writes", () => {
+	it("reads the marker inject-tracker-docs.js actually writes", () => {
 		// A sid the sanitiser actually changes, so a drift between the two
 		// spellings of it fails here rather than passing on a plain uuid.
 		// Dots, not a slash: the base and nag marker filenames use the sid RAW,
 		// so a slash makes them unwritable paths and the backstop exits silent.
 		const sid = "sid.with.dots";
-		const injected = spawnSync(
-			path.resolve(__dirname, "inject-tracker-docs.sh"),
+		const injected = runInProcess(
+			path.resolve(__dirname, "inject-tracker-docs.js"),
+			[],
 			{
-				encoding: "utf8",
-				input: JSON.stringify({
+				stdin: JSON.stringify({
 					session_id: sid,
 					hook_event_name: "UserPromptSubmit",
 					prompt: "/implement 2769",
@@ -117,7 +117,7 @@ describe("the /implement floor — mantahostels#2769", () => {
 			},
 		);
 		// The injector reserves the marker only once it has text to emit, and
-		// exits 0 silently on a missing jq or a dedupe hit — so an unasserted
+		// exits 0 silently on a dedupe hit — so an unasserted
 		// run would leave a drift to fail below, blaming the backstop.
 		expect(injected.status).toBe(0);
 		expect(injected.stdout).not.toBe("");

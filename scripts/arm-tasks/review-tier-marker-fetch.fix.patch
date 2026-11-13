@@ -53,14 +53,14 @@ index c04b81226cd74186d1d6ea0879ef0a24422d2668..4f7c62d903a6e39beeb7a7db2388db44
   * fragment's Replay, the escalated and hold fragments' `git diff … $t` run
   * against it) and assert on its output; the branch case reads the core's own
   * source. Fragments are read from docs/agents/rules/ and the byte cap from
-@@ -42,6 +42,7 @@ const { decide } = require("./review-tier.js") as {
+@@ -41,6 +41,7 @@ const { decide } = require("./review-tier.js") as {
  
  const CORE = path.resolve(__dirname, "review-tier.js");
  const COMMIT_PATHS = path.resolve(__dirname, "..", "commit-paths.js");
 +const RULE_TEXT = path.resolve(__dirname, "rule-text.sh");
- const RULE_CAP = readShellConst(
- 	path.join(__dirname, "hook-limits.sh"),
- 	"RULE_CAP",
+ const { RULE_CAP } = require("./hook-limits.js") as { RULE_CAP: number };
+ const ME = "abcdef12-3456";
+ /**
 @@ -425,7 +426,7 @@ describe("a globless area", () => {
  		const text = envelope() ?? "";
  		expect(text).not.toContain("Tier owed");

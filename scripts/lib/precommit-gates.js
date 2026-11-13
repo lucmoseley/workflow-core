@@ -462,7 +462,7 @@ const GATES = [
 		},
 		floor: true,
 	},
-	/* A program reading WFC_NOW itself rather than lib/check.js's now() (#3457). */
+	/* A program reading WFC_NOW itself rather than lib/clock.js's now() (#3457). */
 	{
 		id: "clock-copies",
 		script: "scripts/check-clock-copies.js",
@@ -472,7 +472,7 @@ const GATES = [
 		staged: "scripts/a.js",
 		refusals: ["reads WFC_NOW itself"],
 		notice: {
-			scope: "every WFC_NOW read outside lib/check.js's now()",
+			scope: "every WFC_NOW read outside lib/clock.js's now()",
 			cite: "(#3457)",
 			cost: "refuses every other session's commit staging a scripts/ program until that read goes through now()",
 		},

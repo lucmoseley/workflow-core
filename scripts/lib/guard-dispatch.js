@@ -42,7 +42,7 @@ const { dispatch } = require("./guard-judge.js");
 
 /**
  * The hook entry. `only` runs that core alone, for a hook that hands one
- * core a payload of its own making (inject-tracker-docs.sh's typed
+ * core a payload of its own making (inject-tracker-docs.js's typed
  * /code-review, #1697); a name no core of the event carries runs none, logged.
  * @param {string} [only]
  */

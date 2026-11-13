@@ -17,8 +17,8 @@ import { failOpenLogPath } from "./guard-log-fixture";
 import {
 	CORE,
 	commitThroughHooks,
-	init,
 	initialised,
+	initProgram,
 	made,
 	repo,
 	SKELETON_PATHS,
@@ -81,7 +81,7 @@ describe("the skeleton's first commit", () => {
 		() => {
 			const { dir } = repo();
 			expect(
-				init(
+				initProgram(
 					dir,
 					"--founder",
 					"A Founder",
@@ -109,7 +109,7 @@ describe("a new repo created with the landing module on (#2412)", () => {
 		() => {
 			const { dir, git } = repo();
 			expect(
-				init(
+				initProgram(
 					dir,
 					"--founder",
 					"A Founder",

@@ -150,15 +150,16 @@ function transcriptSilence(sessionId) {
 }
 
 /**
- * Minutes since an ISO timestamp, or null where it will not parse.
+ * Minutes from an ISO timestamp to `now`, or null where it will not parse.
  * @param {unknown} iso
+ * @param {number} [now] epoch ms
  * @returns {number | null}
  */
-function minutesSince(iso) {
+function minutesSince(iso, now = Date.now()) {
 	if (typeof iso !== "string" || !iso) return null;
 	const then = Date.parse(iso);
 	if (Number.isNaN(then)) return null;
-	return (Date.now() - then) / 60_000;
+	return (now - then) / 60_000;
 }
 
 /**
@@ -191,12 +192,18 @@ function livenessOf(agents) {
  * @param {JobFields & {sessionId: string}} rec
  * @param {Listed} listed
  * @param {number} [minutes]
+ * @param {number} [now] epoch ms the age is taken at
  * @returns {"live" | "young" | {age: number | null, reason: string}}
  */
-function ghostTest(rec, listed, minutes = GHOST_AFTER_MINUTES) {
+function ghostTest(
+	rec,
+	listed,
+	minutes = GHOST_AFTER_MINUTES,
+	now = Date.now(),
+) {
 	const { sessionId } = rec;
 	if (listed.ids.has(sessionId) && listed.pids.has(sessionId)) return "live";
-	const age = minutesSince(rec.updatedAt || rec.createdAt);
+	const age = minutesSince(rec.updatedAt || rec.createdAt, now);
 	if (age !== null && age < minutes) return "young";
 	return {
 		age,

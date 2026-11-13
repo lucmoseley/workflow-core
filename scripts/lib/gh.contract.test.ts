@@ -263,6 +263,35 @@ describe.skipIf(!realGh)("offline: calls a logged-out gh answers", () => {
 		expect(await observe(ghFake(LOGGED_OUT), args)).toEqual(real);
 	});
 
+	/* init-adopter.js's tracker step (#716): the failure init-adopter.test.ts
+	 * serves its set-default and issue list is this answer. */
+	it.for([
+		["repo", "set-default", "acme/widget"],
+		[
+			"issue",
+			"list",
+			"--repo",
+			"acme/widget",
+			"--state",
+			"all",
+			"--limit",
+			"1",
+			"--json",
+			"number",
+			"--jq",
+			".[0].number",
+		],
+	])(
+		"init's `%s %s` answers a logged-out gh alike from the real gh, the stub and the in-process fake",
+		async (call) => {
+			loggedOut();
+			const real = await throughSeam(realGh as string, call);
+			expect(real).toMatchObject({ verdict: "unreachable" });
+			expect(await throughSeam(stubbed(LOGGED_OUT), call)).toEqual(real);
+			expect(await observe(ghFake(LOGGED_OUT), call)).toEqual(real);
+		},
+	);
+
 	/* gh parses its flags before it looks for a login. Verdict and shape only:
 	 * the usage text below the first line changes with every flag gh adds. */
 	it("an unknown flag answers alike from the real gh, the stub and the in-process fake", async () => {
