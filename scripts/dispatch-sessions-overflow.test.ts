@@ -398,32 +398,26 @@ describe("an overflow seat (#2610)", () => {
 	});
 
 	it("refuses a member its own re-read fits none of, launching the one before it (#5167)", async () => {
-		stub();
-		const real = fx.corePorts().node;
-		/* The whole set's read, then each member's re-read, in order. */
-		const fits = [2, 1, 0];
-		const node: typeof real = async (script, argv, opts) => {
-			if (script !== "lib/overflow-budget.js") return real(script, argv, opts);
-			const fit = fits.shift();
-			const answer = {
-				fit,
-				headroomUsd: fit === 0 ? 5 : 25,
-				qUsd: 10,
-				running: fit === 0 ? 1 : 0,
-				reservedUsd: fit === 0 ? 10 : 0,
-				exhausted: false,
-				freeAgain: "2099-01-20",
-			};
-			return { status: 0, stdout: `${JSON.stringify(answer)}\n`, stderr: "" };
+		stub({ headless: "hold" });
+		const env = { ...overflowEnv(200), WFC_PROC: "/proc" };
+		/* In the stagger after the first launch, a Console reading leaves the
+		 * key $15: the first member, listed running, holds $10 of it. */
+		const sleep = async () => {
+			const ledgerDir = path.join(refill(), ".overflow-ledger");
+			fs.mkdirSync(ledgerDir, { recursive: true });
+			fs.writeFileSync(
+				path.join(ledgerDir, `${KEY_VAR}.console.jsonl`),
+				`${JSON.stringify({ at: Date.now(), credits: [{ remainingUsd: 15, grantUsd: 200, grantedOn: "2026-10-28", expiresOn: "2099-12-01" }] })}\n`,
+			);
 		};
-		const call = dispatchCall(batchOf(2), SCRIPT, baseEnv(overflowEnv(200)));
-		const r = await fx.runCoreUnder(call.args, call, { node });
-		expect(fits).toEqual([]);
+		const call = dispatchCall(batchOf(2), SCRIPT, baseEnv(env));
+		const r = await fx.runCoreUnder(call.args, call, { sleep });
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain(
 			`REFUSED: /implement 353 — not launching this member.\n  overflow seat ${label()} fits no session: headroom $5.00 against $10.00 a session ($10.00 held by 1 running).\n`,
 		);
-		expect(readHeadlessLaunches(1).map((c) => c.flags["--name"])).toEqual([
+		expect(readStoredJobIds()).toHaveLength(1);
+		expect(readHeadlessLaunches().map((c) => c.flags["--name"])).toEqual([
 			"Overflow · /implement 341",
 		]);
 	});
