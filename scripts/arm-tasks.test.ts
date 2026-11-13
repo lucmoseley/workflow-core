@@ -335,7 +335,7 @@ describe("accept: work done against work not done", () => {
 		const args = ["build", "add", "--at", "main", "--to", to];
 		const r = run([...args, "--node-modules", NODE_MODULES, ...extra], env);
 		expect(r.code, r.err).toBe(0);
-		return { root: to, sandbox: path.join(to, "repo") };
+		return { root: to, sandbox: path.join(to, "repo"), out: r.out };
 	};
 
 	const commit = (sandbox: string, files: Record<string, string>) => {
@@ -350,6 +350,26 @@ describe("accept: work done against work not done", () => {
 		commit(sandbox, files);
 		git(sandbox, "push", "--quiet", "origin", "main");
 	};
+
+	/** What lib/run-arm.js reads off a build's record: each field's type. */
+	const readsOf = (printed: string) => {
+		const record = JSON.parse(printed);
+		return { prompt: typeof record.prompt, repo: typeof record.sandbox?.repo };
+	};
+
+	it("prints the record the runner reads, as the runner's test fake does (#5149)", () => {
+		const real = build("real");
+		const fakeTo = path.join(tmp, "fake");
+		const fake = runInProcess(
+			path.join(ROOT, "scripts", "lib", "fixtures", "arm-build.js"),
+			["build", "add", "--at", "main", "--to", fakeTo],
+		);
+		expect(fake.status).toBe(0);
+		expect(readsOf(fake.stdout)).toEqual(readsOf(real.out));
+		expect(readsOf(real.out)).toEqual({ prompt: "string", repo: "string" });
+		expect(fs.existsSync(JSON.parse(real.out).sandbox.repo)).toBe(true);
+		expect(fs.existsSync(JSON.parse(fake.stdout).sandbox.repo)).toBe(true);
+	});
 
 	it("passes the known-good sandbox and fails the reverted one, naming the hidden test", () => {
 		const good = build("good", "--known-good");
