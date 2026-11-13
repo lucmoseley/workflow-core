@@ -34,6 +34,8 @@ import {
 	expectMidCommand,
 	KILLED_LIFETIME_S,
 	parseFirstLine,
+	QUICK_BEAT,
+	QUICK_THREE_BEATS_S,
 	readJsonLines,
 	readKillLines,
 	readWatcherPids,
@@ -45,9 +47,8 @@ import {
 	runWithout,
 	SCRIPT,
 	shWaitFor,
-	sleep,
 	spawnDetached,
-	THREE_BEATS_S,
+	TIGHT_MISSING,
 	untilPrinted,
 	untilPublished,
 	untilVerdict,
@@ -92,7 +93,7 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 			SCRIPT,
 			["run", "unwatched", "sleep", KILLED_LIFETIME_S],
 			{
-				env: env(),
+				env: env(QUICK_BEAT),
 			},
 		);
 		await untilWatched("unwatched");
@@ -113,7 +114,10 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		 * under it (mantahostels#2691) — without the run-token guard in cmd_watch,
 		 * the old watcher would eventually see its own (by-then-dead) parent
 		 * gone, find the NEW run's dir with no `status`, and record a false
-		 * kill for a run that never died. */
+		 * kill for a run that never died. FAST's whole-second beat, not
+		 * QUICK_BEAT: the guard is reached only when the old watcher sleeps
+		 * through the republish, and a quarter-second beat wakes it inside
+		 * the republish to record the old run's true kill instead (#5143). */
 		const first = spawn(SCRIPT, ["run", "reused", "sleep", KILLED_LIFETIME_S], {
 			env: env(),
 		});
@@ -141,10 +145,11 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 			republished("reused", firstToken),
 		);
 
-		/* Time is what is under test: the guard holds only if nothing is
-		 * recorded across several of the old watcher's heartbeats, and an
-		 * absence has no event to wait on. */
-		await sleep(4000);
+		/* The old watcher's exit ends every chance it had to record: it
+		 * leaves only on a `status`, on recording, at the run-token guard or
+		 * on the ceiling kill, and its parent is dead, so its next pass takes
+		 * one of the middle two (#5143). */
+		await waitFor("the old watcher to exit", () => !watcherAlive(firstToken));
 
 		/* Filtering by NAME alone read the old run's own kill — perfectly
 		 * true, and recorded whenever that watcher woke in the gap between
@@ -176,7 +181,7 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		 * kill: killed first, the old watcher could wake before the
 		 * republish and record the old run's own true kill, which shares
 		 * this name and `started` and so reads as the false one. */
-		const pinnedClockEnv = env({ WFC_BG_NOW: "1700000000" });
+		const pinnedClockEnv = env({ ...QUICK_BEAT, WFC_BG_NOW: "1700000000" });
 
 		const { pid: firstPid } = spawnDetached(
 			["run", "samesec", "sh", "-c", `echo up; sleep ${KILLED_LIFETIME_S}`],
@@ -232,7 +237,7 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		const gate = join(root, "gate");
 		const { pid: firstPid } = spawnDetached(
 			["run", "gapped", "sleep", KILLED_LIFETIME_S],
-			env({ WFC_BG_WATCH_GATE: gate }),
+			env({ ...QUICK_BEAT, WFC_BG_WATCH_GATE: gate }),
 		);
 		let secondPid: number | undefined;
 		try {
@@ -245,7 +250,7 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 
 			secondPid = spawnDetached(
 				["run", "gapped", "sleep", KILLED_LIFETIME_S],
-				env(),
+				env(QUICK_BEAT),
 			).pid;
 			await waitFor(
 				"the relaunch to republish",
@@ -289,7 +294,7 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		 * file's header describes — hits both at once. */
 		const { pid } = spawnDetached(
 			["run", "termed", "sh", "-c", `echo up; sleep ${KILLED_LIFETIME_S}`],
-			env(),
+			env(QUICK_BEAT),
 		);
 		await untilWatched("termed");
 		await untilPrinted("termed", "up");
@@ -334,7 +339,7 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 	it("records SIGHUP as the signal, same as the SIGTERM shape above (mantahostels#2749)", async () => {
 		const { pid } = spawnDetached(
 			["run", "hupped", "sh", "-c", `echo up; sleep ${KILLED_LIFETIME_S}`],
-			env(),
+			env(QUICK_BEAT),
 		);
 		await untilWatched("hupped");
 		await untilPrinted("hupped", "up");
@@ -391,7 +396,7 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 				"-c",
 				`trap 'exit 143' TERM; echo trapped; sleep ${KILLED_LIFETIME_S}`,
 			],
-			env(),
+			env(QUICK_BEAT),
 		);
 		await untilWatched("conventional");
 		await untilPrinted("conventional", "trapped");
@@ -417,7 +422,7 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 		 * after the publish. */
 		const { pid } = spawnDetached(
 			["run", "late", "sleep", KILLED_LIFETIME_S],
-			env({ WFC_BG_WATCH_FORK_DELAY_S: "1" }),
+			env({ ...QUICK_BEAT, WFC_BG_WATCH_FORK_DELAY_S: "1" }),
 		);
 		await waitFor(
 			"late's run to publish",
@@ -685,10 +690,27 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	const readPid = (file: string) =>
 		Number(readFileSync(join(root, file), "utf8"));
 
+	/* The watcher's passes as polls.log records them: a `nap` line per pass
+	 * that read a deadline, a `mono-unread` per pass that could not read the
+	 * clock to judge it. */
+	const pollLines = (line: RegExp) =>
+		(existsSync(join(root, "polls.log"))
+			? readFileSync(join(root, "polls.log"), "utf8").split("\n")
+			: []
+		).filter((l) => line.test(l));
+
+	/* A command line that holds until the watcher has logged three passes
+	 * matching `line`, so a case asserts what three passes did rather than
+	 * what a guessed span of them did (#5143). */
+	const untilThreePasses = (line: string) =>
+		shWaitFor(
+			`[ "$(cat ${shellQuote(`${root}/polls.log`)} 2>/dev/null | grep -c ${shellQuote(line)})" -ge 3 ]`,
+		);
+
 	/* The watcher polls each heartbeat, so these cross the real clock. */
 	it("kills the named group and the wrapped tree, and check reads a finished, failed ceiling kill", async () => {
 		const child = spawn(SCRIPT, wedged("wedged", 1), {
-			env: env({ WFC_BG_CEILING_GRACE_S: "0" }),
+			env: env({ ...QUICK_BEAT, WFC_BG_CEILING_GRACE_S: "0" }),
 		});
 		try {
 			await untilPrinted("wedged", "runner report");
@@ -719,8 +741,8 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	it("still polls when a late spawn's deadline file lands three polls after launch, and kills the run (#4774)", async () => {
 		/* Pins the late file's kill, not the absence of a wall-clock bound:
 		 * no test can wait out an hours-long one. */
-		const child = spawn(SCRIPT, wedged("late", 1, THREE_BEATS_S), {
-			env: env({ WFC_BG_CEILING_GRACE_S: "0" }),
+		const child = spawn(SCRIPT, wedged("late", 1, QUICK_THREE_BEATS_S), {
+			env: env({ ...QUICK_BEAT, WFC_BG_CEILING_GRACE_S: "0" }),
 		});
 		try {
 			await waitFor("the run's status", () => runFile("late", "status") !== "");
@@ -741,15 +763,16 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	});
 
 	it("spares a group whose leader started before the launch, a recycled pid", async () => {
-		/* Started 2 s before the launch: past the one second the start-time
-		 * check allows for rounding. */
+		/* Started 3 s before the launch, through the launch clock's WFC_BG_NOW
+		 * seam rather than 2 s of real wait (#5143): past the one second the
+		 * start-time check allows for rounding. */
 		const elder = spawn("sleep", [KILLED_LIFETIME_S], {
 			detached: true,
 			stdio: "ignore",
 		});
 		const elderPid = elder.pid as number;
+		const launchedLater = String(Math.floor(Date.now() / 1000) + 3);
 		try {
-			await sleep(2000);
 			const child = spawn(
 				SCRIPT,
 				[
@@ -759,7 +782,13 @@ describe("the suite ceiling's backstop (#2704)", () => {
 					"-c",
 					`echo "${monoS() - 1} ${elderPid}" > "$${DEADLINE_ENV}"; sleep ${KILLED_LIFETIME_S}`,
 				],
-				{ env: env({ WFC_BG_CEILING_GRACE_S: "0" }) },
+				{
+					env: env({
+						...QUICK_BEAT,
+						WFC_BG_CEILING_GRACE_S: "0",
+						WFC_BG_NOW: launchedLater,
+					}),
+				},
 			);
 			try {
 				await waitFor(
@@ -778,7 +807,7 @@ describe("the suite ceiling's backstop (#2704)", () => {
 
 	it("holds the grace at 60 s when the environment asks for more", async () => {
 		const child = spawn(SCRIPT, wedged("stretched", 61), {
-			env: env({ WFC_BG_CEILING_GRACE_S: "999" }),
+			env: env({ ...QUICK_BEAT, WFC_BG_CEILING_GRACE_S: "999" }),
 		});
 		try {
 			await waitFor(
@@ -810,10 +839,7 @@ describe("the suite ceiling's backstop (#2704)", () => {
 		}
 
 		expect(check("slowbeat").stdout).toContain("ceiling-kill");
-		const naps = readFileSync(join(root, "polls.log"), "utf8")
-			.split("\n")
-			.filter((l) => l.startsWith("nap "))
-			.map((l) => Number(l.slice(4)));
+		const naps = pollLines(/^nap /).map((l) => Number(l.slice(4)));
 		expect(naps.length).toBeGreaterThan(0);
 		expect(naps.every((n) => n <= 5)).toBe(true);
 		expect(naps.some((n) => n < 5)).toBe(true);
@@ -822,16 +848,18 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	it("never kills a run whose deadline the wall clock has passed but the monotonic clock has not (#2886)", () => {
 		/* A host suspend steps the wall clock forward on resume while no
 		 * monotonic time passes: the wall clock is pinned a day on, the
-		 * monotonic one a second short of the deadline. */
+		 * monotonic one a second short of the deadline. The command outlives
+		 * three passes that read the deadline, any of which would kill it. */
 		const got = run(
 			[
 				"run",
 				"resumed",
 				"sh",
 				"-c",
-				`echo "1001 $$" > "$${DEADLINE_ENV}"; sleep ${THREE_BEATS_S}; echo finished`,
+				`echo "1001 $$" > "$${DEADLINE_ENV}"; ${untilThreePasses("^nap ")}; echo finished`,
 			],
 			{
+				...QUICK_BEAT,
 				WFC_BG_CEILING_GRACE_S: "0",
 				WFC_BG_MONO: "1000",
 				WFC_BG_NOW: String(Math.floor(Date.now() / 1000) + 86_400),
@@ -840,6 +868,7 @@ describe("the suite ceiling's backstop (#2704)", () => {
 
 		expect(got.status).toBe(0);
 		expect(check("resumed").stdout).toMatch(/^DONE exit=0$/m);
+		expect(pollLines(/^nap /).length).toBeGreaterThanOrEqual(3);
 		expect(existsSync(join(root, "kills.jsonl"))).toBe(false);
 	});
 
@@ -853,9 +882,13 @@ describe("the suite ceiling's backstop (#2704)", () => {
 				"clockless",
 				"sh",
 				"-c",
-				`echo "1 $$" > "$${DEADLINE_ENV}"; sleep ${THREE_BEATS_S}; echo finished`,
+				`echo "1 $$" > "$${DEADLINE_ENV}"; ${untilThreePasses("^mono-unread$")}; echo finished`,
 			],
-			{ WFC_BG_CEILING_GRACE_S: "0", WFC_BG_MONO: "unreadable" },
+			{
+				...QUICK_BEAT,
+				WFC_BG_CEILING_GRACE_S: "0",
+				WFC_BG_MONO: "unreadable",
+			},
 		);
 
 		expect(got.status).toBe(0);
@@ -866,17 +899,23 @@ describe("the suite ceiling's backstop (#2704)", () => {
 				/^bg-run: the monotonic clock would not read \(#2886\), so the suite ceiling's backstop skips each poll it fails on \(#3160\)$/gm,
 			),
 		).toHaveLength(1);
-		const unread = readFileSync(join(root, "polls.log"), "utf8")
-			.split("\n")
-			.filter((l) => l === "mono-unread");
-		expect(unread.length).toBeGreaterThanOrEqual(2);
+		expect(pollLines(/^mono-unread$/).length).toBeGreaterThanOrEqual(2);
 		expect(existsSync(join(root, "kills.jsonl"))).toBe(false);
 	});
 
 	it("never kills a command that writes no deadline file", () => {
+		/* Three passes at a quarter-second beat: a pass with no deadline
+		 * leaves no polls.log line to count. */
 		const got = run(
-			["run", "plain", "sh", "-c", `sleep ${THREE_BEATS_S}; echo finished`],
+			[
+				"run",
+				"plain",
+				"sh",
+				"-c",
+				`sleep ${QUICK_THREE_BEATS_S}; echo finished`,
+			],
 			{
+				...QUICK_BEAT,
 				WFC_BG_CEILING_GRACE_S: "0",
 			},
 		);
@@ -889,7 +928,7 @@ describe("the suite ceiling's backstop (#2704)", () => {
 
 describe("what it refuses to answer", () => {
 	it("refuses a name it has never run, rather than calling it killed", () => {
-		const got = check("never-ran");
+		const got = check("never-ran", TIGHT_MISSING);
 		expect(got.status).toBe(3);
 		expect(got.stderr).toContain("no run named");
 	});
@@ -1046,7 +1085,7 @@ describe("a run whose root moved between launch and check", () => {
 		run(["run", "elsewhere", "sh", "-c", "exit 0"], {
 			WFC_BG_ROOT: join(root, "some-root"),
 		});
-		const got = check("not-that-one");
+		const got = check("not-that-one", TIGHT_MISSING);
 		expect(got.status).toBe(3);
 		expect(got.stderr).toContain("no run named");
 	});

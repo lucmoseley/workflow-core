@@ -176,6 +176,7 @@ async function run(text: string, env: NodeJS.ProcessEnv = {}) {
 		"WFC_JEV_ADVISORY",
 		"WFC_JEV_BASE_URL",
 		"WFC_JEV_ABORT_MS",
+		"WFC_JEV_SWEEP_MS",
 	])
 		delete base[k];
 	const res = await runInProcessAsync(GUARD, [], {
@@ -572,8 +573,13 @@ describe("a machine with no gitleaks", () => {
 
 	it("treats a sweep that never returns as a finding", async () => {
 		const hang = path.join(dir, "gitleaks-hang");
-		fs.writeFileSync(hang, "#!/bin/sh\nsleep 60\n", { mode: 0o755 });
-		const { res, asks } = await ask(PLAIN, 0.99, { WFC_GITLEAKS: hang });
+		fs.writeFileSync(hang, "#!/bin/sh\nexec sleep 60\n", { mode: 0o755 });
+		/* The sweep's budget shortened through its own knob: the hang is what
+		 * this case names, not the length of `SWEEP_MS`. */
+		const { res, asks } = await ask(PLAIN, 0.99, {
+			WFC_GITLEAKS: hang,
+			WFC_JEV_SWEEP_MS: "500",
+		});
 		expect(asks).toEqual([]);
 		expect(saidBy(res)).toBe("");
 		expect(readLogLines()[0].outcome).toBe("skipped-redaction");
@@ -959,8 +965,8 @@ describe("the abort budget's override (#1024)", () => {
 	/** Past every budget these cases set, and well inside `ABORT_MS`. */
 	const slowMs = 1200;
 
-	/** A stub that answers a clear turn after `slowMs`: `clear` under any budget longer than that, `outage` under one shorter. */
-	async function answeringSlowly() {
+	/** A stub that answers a clear turn after `afterMs`: `clear` under any budget longer than that, `outage` under one shorter. */
+	async function answeringSlowly(afterMs: number) {
 		return stub((_body, res) => {
 			setTimeout(() => {
 				res.writeHead(200, { "content-type": "application/json" });
@@ -969,38 +975,61 @@ describe("the abort budget's override (#1024)", () => {
 						answers: { puts_choice: { type: "boolean", probability: 0.1 } },
 					}),
 				);
-			}, slowMs);
+			}, afterMs);
 		});
 	}
 
-	it.each(["", " ", "0", "-250", "250ms", "2.5", "1e3", "0x10"])(
-		"ignores %j and keeps `ABORT_MS`",
-		async (raw) => {
-			await run(
-				PLAIN,
-				callable(await answeringSlowly(), { WFC_JEV_ABORT_MS: raw }),
-			);
-			expect(readLogLines()[0].outcome).toBe("clear");
-		},
-	);
+	/*
+	 * Each row's stub answers past every budget a loose parse could make of its
+	 * value (`Number`, `parseInt`, `parseFloat`, an absolute value: 1000 for
+	 * "1e3", at most 250 for the rest), so honouring the value is an outage and
+	 * keeping `ABORT_MS` is `clear`. Only "1e3" needs the full `slowMs`.
+	 */
+	const pastAnyMisread = 500;
+
+	it.each([
+		["", pastAnyMisread],
+		[" ", pastAnyMisread],
+		["0", pastAnyMisread],
+		["-250", pastAnyMisread],
+		["250ms", pastAnyMisread],
+		["2.5", pastAnyMisread],
+		["1e3", slowMs],
+		["0x10", pastAnyMisread],
+	])("ignores %j and keeps `ABORT_MS`", async (raw, answerAfterMs) => {
+		await run(
+			PLAIN,
+			callable(await answeringSlowly(answerAfterMs), {
+				WFC_JEV_ABORT_MS: raw,
+			}),
+		);
+		expect(readLogLines()[0].outcome).toBe("clear");
+	});
 
 	it("takes a positive whole number of milliseconds", async () => {
 		await run(
 			PLAIN,
-			callable(await answeringSlowly(), { WFC_JEV_ABORT_MS: " 250 " }),
+			callable(await answeringSlowly(slowMs), { WFC_JEV_ABORT_MS: " 250 " }),
 		);
 		expect(readLogLines()[0].outcome).toBe("outage");
 	});
 
 	it("caps a value above `ABORT_MS` at it", async () => {
-		const base = await stub(neverAnswers);
-		const t0 = Date.now();
+		/* The first ask is answered past `ABORT_MS` but well inside the 60 s
+		 * asked for, the re-ask at once. A capped budget aborts the first and
+		 * logs the re-ask's answer; the 60 s budget would wait it out and log
+		 * no re-ask at all. The count proves the cap, not a clock. */
+		const pastTheCapMs = ABORT_MS + 1500;
+		let asked = 0;
+		const base = await stub((_body, res) => {
+			asked++;
+			setTimeout(() => answerWith(res, 0.1), asked === 1 ? pastTheCapMs : 0);
+		});
+		// §X9: a process timeout: the cap bounds a real socket's first answer.
 		await run(PLAIN, callable(base, { WFC_JEV_ABORT_MS: "60000" }));
-		/* The upper bound is what proves the cap: the 60 s asked for could not
-		 * finish under it, even once. */
-		// §X9: a process timeout: the cap bounds a real socket that never answers.
-		expect(Date.now() - t0).toBeLessThan(15_000);
-		expect(readLogLines()[0].outcome).toBe("outage");
+		expect(asked).toBe(ATTEMPTS);
+		expect(readLogLines()[0].outcome).toBe("clear");
+		expect(readLogLines()[0].retries).toBe(1);
 	}, 20_000);
 });
 

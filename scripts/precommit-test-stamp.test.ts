@@ -109,10 +109,11 @@ const COMMIT_PATHS = path.join(ROOT, "scripts/commit-paths.js");
 const COMMIT_KEY = path.join(ROOT, "scripts/lib/commit-key.js");
 
 /**
- * How much slower the stub runs where `stub-slow` exists: a guess, long enough
- * to show in the outcome log's 0.1 s fields over a commit's own git time.
+ * How much slower the stub runs where `stub-slow` exists: three steps of the
+ * outcome log's 0.1 s field, so a run the log failed to count shows as below
+ * it. Only a floor is asserted, so load can only move it away from failing.
  */
-const SLOW_S = 1;
+const SLOW_S = 0.3;
 
 /**
  * One line per run: `lock=<0|1> stamp=<value|unset> staged=<a,b>`, to the
