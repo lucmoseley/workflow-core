@@ -3,8 +3,7 @@
  * The admission gate (#2033, #2056): `check-context-budget.js --against HEAD`
  * refuses a commit adding a top-level pool rule — a list item or a bold-led
  * paragraph — that docs/pool-admission-ledger.json does not admit, behind
- * `.claude/workflow-core.json`'s `admissionGate`, and looks ticket states up
- * on the index side alone.
+ * `.claude/workflow-core.json`'s `admissionGate`.
  */
 
 import { spawnSync } from "node:child_process";
@@ -119,6 +118,20 @@ function report() {
 	return { status: r.status, text: r.stdout + r.stderr };
 }
 
+function expectUnadmitted(
+	r: ReturnType<typeof gate>,
+	line: number,
+	headline: string,
+) {
+	expect(r.status).toBe(1);
+	expect(r.json.added).toEqual([
+		expect.stringContaining(
+			`unadmitted: CLAUDE.md:${line} adds the pool rule "${headline}", which ${LEDGER} does not admit. Add its entry in this commit`,
+		),
+	]);
+	expect(r.json.added[0]).toContain("A reworded headline moves its old entry.");
+}
+
 const KEPT = "**Keep the tree on `main`.** It is shared.";
 const ADDED = "**Never push a branch.** Land on `main`.";
 
@@ -129,13 +142,7 @@ describe("the admission gate at --against HEAD", () => {
 		baseline();
 		claude(KEPT, ADDED);
 		stage("CLAUDE.md");
-		const r = gate();
-		expect(r.status).not.toBe(0);
-		expect(r.json.added).toEqual([
-			expect.stringMatching(
-				/^unadmitted: CLAUDE\.md:4 adds the pool rule "Never push a branch\.", which docs\/pool-admission-ledger\.json does not admit\./,
-			),
-		]);
+		expectUnadmitted(gate(), 4, "Never push a branch.");
 	});
 
 	it("passes the same rule when the commit stages its entry", () => {
@@ -159,10 +166,57 @@ describe("the admission gate at --against HEAD", () => {
 		baseline();
 		claude("**Keep the shared tree on `main`.** It is shared.");
 		stage("CLAUDE.md");
-		expect(gate().status).not.toBe(0);
+		expectUnadmitted(gate(), 3, "Keep the shared tree on `main`.");
 
 		ledger({ headline: "Keep the shared tree on `main`." });
 		stage(LEDGER);
+		const r = gate();
+		expect(r.json.added).toEqual([]);
+		expect(r.status).toBe(0);
+	});
+
+	it("matches a headline's core command at any plugin root, seat or version, and still refuses a reworded one (#5140)", () => {
+		const cache = "plugins/cache/workflow-core/workflow-core";
+		const wait = (root: string) =>
+			`Wait with \`node ${root}scripts/landing-status.js --wait\`.`;
+		const rendered = wait(`/home/u/.claude/${cache}/2.3.0/`);
+		claude(KEPT);
+		ledger({ headline: "Keep the tree on `main`." });
+		baseline();
+		claude(KEPT, `**${rendered}** Then land.`);
+		stage("CLAUDE.md");
+		for (const root of [
+			`/home/u/.claude2/${cache}/2.2.0/`,
+			`${shellQuote("/home/u/my seat/plugins")}/`,
+			`${shellQuote("/home/u/it's/plugins")}/`,
+			"",
+		]) {
+			ledger(
+				{ headline: "Keep the tree on `main`." },
+				{ headline: wait(root) },
+			);
+			stage(LEDGER);
+			const r = gate();
+			expect(r.json.added, root).toEqual([]);
+			expect(r.status, root).toBe(0);
+		}
+
+		ledger(
+			{ headline: "Keep the tree on `main`." },
+			{ headline: rendered.replace("Wait with", "Block on") },
+		);
+		stage(LEDGER);
+		expectUnadmitted(gate(), 4, rendered);
+	});
+
+	it("passes a rule unadmitted at <rev> whose plugin root alone moved (#5140)", () => {
+		const rule = (version: string) =>
+			`**Wait with \`node /home/u/.claude/plugins/cache/workflow-core/workflow-core/${version}/scripts/landing-status.js --wait\`.** Then land.`;
+		claude(KEPT, rule("2.2.0"));
+		ledger({ headline: "Keep the tree on `main`." });
+		baseline();
+		claude(KEPT, rule("2.3.0"));
+		stage("CLAUDE.md");
 		const r = gate();
 		expect(r.json.added).toEqual([]);
 		expect(r.status).toBe(0);
@@ -212,13 +266,7 @@ describe("the admission gate at --against HEAD", () => {
 				"\n\n**Never push a branch.** Land on `main`.\n",
 		);
 		stage("CLAUDE.md");
-		const r = gate();
-		expect(r.status).not.toBe(0);
-		expect(r.json.added).toEqual([
-			expect.stringMatching(
-				/^unadmitted: CLAUDE\.md:5 adds the pool rule "Never push a branch\."/,
-			),
-		]);
+		expectUnadmitted(gate(), 5, "Never push a branch.");
 
 		ledger(
 			{ headline: "Keep the tree on `main`." },

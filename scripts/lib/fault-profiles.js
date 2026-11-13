@@ -242,13 +242,13 @@ const PROFILES = {
 			/** @type {{ tag?: unknown } | undefined} */ (item)?.tag ===
 				CLOSED_TRIGGER,
 		identity: (/** @type {any} */ item, key) => {
-			if (key === "unadmitted") return on("file", "headline")(item);
+			if (key === "unadmitted") return on("key")(item);
 			return key === "findings"
 				? on("tag", "surface", "total")(item)
 				: on("surface", "bytes")(item);
 		},
 		family: (/** @type {any} */ item, key) => {
-			if (key === "unadmitted") return on("file", "headline")(item);
+			if (key === "unadmitted") return on("key")(item);
 			return key === "findings"
 				? on("tag", "surface")(item)
 				: on("surface")(item);

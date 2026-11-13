@@ -6,7 +6,9 @@
  * fences and HTML comments (#2056) — a shape, not a reading, so a list item
  * that states no rule still counts. Its KEY is its file plus its headline — the
  * bold lead where the item opens with one, else its first sentence — so a
- * reworded headline is a new key, and its entry moves with it.
+ * reworded headline is a new key, and its entry moves with it. An absolute
+ * path before `/scripts/` keys as bare `scripts/`, so neither the seat nor the
+ * version init rendered a core command at moves a key (#5140).
  */
 
 const fs = require("node:fs");
@@ -191,8 +193,16 @@ function checkEntry(e, at) {
 		);
 }
 
+/** An absolute path opening a word, bare or quoted as `shellQuote` renders
+ * it, up to its last `/scripts/`: any `--plugin-root` an adopter names is one, so no
+ * narrower shape holds. Residual: two headlines naming one script under two
+ * unrelated trees share a key. */
+const ABSOLUTE_SCRIPTS_PREFIX =
+	/(?<=^|[\s`])(?:'\/[^']*'(?:\\''[^']*')*|\/[^\s`'"]*)\/scripts\//g;
+
 /** @param {{ file: string, headline: string }} x */
-const keyOf = (x) => `${x.file}\n${squash(x.headline)}`;
+const keyOf = (x) =>
+	`${x.file}\n${squash(x.headline).replace(ABSOLUTE_SCRIPTS_PREFIX, "scripts/")}`;
 
 /**
  * @param {{ file: string, line: number, headline: string }[]} items
@@ -209,6 +219,7 @@ function admit(items, entries) {
 
 module.exports = {
 	LEDGER_PATH,
+	keyOf,
 	readPoolItems,
 	readLedger,
 	admit,

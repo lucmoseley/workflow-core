@@ -281,6 +281,7 @@ const GATE_SOURCES: Record<string, string[]> = {
 	test: [".husky/pre-commit"],
 	"mutation-hold": ["scripts/mutation-hold-gate.js"],
 	"pre-commit-local": [".husky/pre-commit"],
+	"commit-msg-local": [".husky/commit-msg"],
 	"staged-paths": ["scripts/lib/precommit-gate.sh"],
 };
 /** Each source's text, with a JS template literal's escaped backticks read as printed. */
