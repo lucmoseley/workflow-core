@@ -26,7 +26,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { dispatch } from "./lib/precommit-dispatch.js";
 import { registerTempCleanup, stagedRepo } from "./lib/precommit-gate-harness";
-import { ROOT, repoPorts } from "./lib/precommit-gate-testkit";
+import { buildRepoPorts, ROOT } from "./lib/precommit-gate-testkit";
 import { GATES } from "./lib/precommit-gates.js";
 
 const CHECKER = "scripts/check-roadmap-valid.js";
@@ -64,7 +64,7 @@ async function arms(root: string): Promise<boolean> {
 	await dispatch({
 		rows: [ROW],
 		gates: "all",
-		ports: repoPorts(root, {
+		ports: buildRepoPorts(root, {
 			load: () => () => {
 				ran = true;
 				return { exit: 0, stdout: "", stderr: "" };

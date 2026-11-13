@@ -23,7 +23,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { dispatch } from "./lib/precommit-dispatch.js";
 import { registerTempCleanup, stagedRepo } from "./lib/precommit-gate-harness";
-import { ROOT, repoPorts } from "./lib/precommit-gate-testkit";
+import { buildRepoPorts, ROOT } from "./lib/precommit-gate-testkit";
 import { GATES } from "./lib/precommit-gates.js";
 
 const CHECKER = "scripts/check-context-budget.js";
@@ -58,7 +58,7 @@ async function fires(
 	await dispatch({
 		rows: [ROW],
 		gates: "all",
-		ports: repoPorts(root, {
+		ports: buildRepoPorts(root, {
 			computed: (name) => (name === "always-loaded-pool" ? pool : []),
 			load: () => () => {
 				ran = true;

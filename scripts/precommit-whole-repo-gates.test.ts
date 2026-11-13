@@ -26,7 +26,7 @@ import {
 	registerTempCleanup,
 	stagedRepo,
 } from "./lib/precommit-gate-harness";
-import { ROOT, repoPorts } from "./lib/precommit-gate-testkit";
+import { buildRepoPorts, ROOT } from "./lib/precommit-gate-testkit";
 import { GATES, PROFILE_GATES } from "./lib/precommit-gates.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { JS_TEST_FILE, siblingTests } from "./lib/test-kind.js";
@@ -44,7 +44,7 @@ async function arms(gate: Gate, root: string): Promise<boolean> {
 	await dispatch({
 		rows: [gate],
 		gates: "all",
-		ports: repoPorts(root, {
+		ports: buildRepoPorts(root, {
 			load: () => () => {
 				ran = true;
 				return { exit: 0, stdout: "", stderr: "" };

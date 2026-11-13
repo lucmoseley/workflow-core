@@ -42,7 +42,7 @@ import {
 	stagedRepo,
 	type TempRepo,
 } from "./lib/precommit-gate-harness";
-import { HOOK, ROOT, repoPorts } from "./lib/precommit-gate-testkit";
+import { buildRepoPorts, HOOK, ROOT } from "./lib/precommit-gate-testkit";
 import { GATES, type PrecommitGate } from "./lib/precommit-gates.js";
 
 const VERSION_ANCHOR = "scripts/check-digest-version.js";
@@ -164,7 +164,7 @@ async function runDocMapRow(
 	const code = await dispatch({
 		rows: [DOC_MAP_ROW],
 		gates: "batch",
-		ports: repoPorts(cwd, {
+		ports: buildRepoPorts(cwd, {
 			load: () => () => PROGRAM({ cwd, env: { ...process.env, ...env } }),
 			write: (_fd: number, text: string) => {
 				output += text;

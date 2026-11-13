@@ -17,7 +17,10 @@
  * runs; the group is KILLed once its leader exits, kill-after-ms after the
  * signal, or on a second signal, and this process ends by the first (#5188).
  * RESIDUAL: a SIGKILL to this process (earlyoom) cannot be
- * caught, and leaves the group running.
+ * caught, and leaves the group running, as does a SIGKILL inside the
+ * kill-after-ms grace a forwarded signal starts, to a group that ignores
+ * that signal; a member still cleaning up at kill-after-ms is KILLed, its
+ * cleanup unfinished.
  *
  * Usage: node scripts/lib/run-budgeted.js <budget-ms> <kill-after-ms> <command> [args…]
  *        node scripts/lib/run-budgeted.js --hook <hook> <command> [args…]

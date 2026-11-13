@@ -17,6 +17,7 @@ import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { STOPPED_LINE } from "./lib/precommit-dispatch.js";
 import { registerTempCleanup, stagedRepo } from "./lib/precommit-gate-harness";
 import {
 	coreCall,
@@ -25,6 +26,7 @@ import {
 	ROOT,
 } from "./lib/precommit-gate-testkit";
 import { GATES } from "./lib/precommit-gates.js";
+import { isDead } from "./lib/process-fixture";
 
 const temps = registerTempCleanup();
 
@@ -33,9 +35,10 @@ const LINE = `${coreCall("node", "scripts/precommit-dispatch.js")} "$@" || exit 
 /*
  * One stub per row, a checker and a program at once: it logs its load, then acts as STUB_ACT names it —
  * `fail` FAILs where the commit stages `red`, `broken` is BROKEN, `throw`
- * will not load, `signal` signals the dispatcher, `scratch` makes a scratch
- * directory, writes the dispatcher's pid to `ready` and waits on a `sleep`
- * child, removing the directory in a `finally` — else passes.
+ * will not load, `signal` signals the dispatcher, `hang` signals it twice and
+ * never returns, `scratch` makes a scratch directory and waits on a child
+ * that writes the dispatcher's pid to `ready` before it sleeps, removing the
+ * directory in a `finally` — else passes.
  */
 const STUB = `const fs = require("node:fs");
 const path = require("node:path");
@@ -58,12 +61,24 @@ const SPEC = {
 	},
 };
 const PROGRAM = ({ cwd }) => {
+	if (act === "hang") {
+		process.kill(process.pid, "SIGTERM");
+		return new Promise(() => {
+			setInterval(() => {}, 1000);
+			setTimeout(() => process.kill(process.pid, "SIGTERM"), 100);
+		});
+	}
 	if (act === "scratch") {
 		const scratch = path.join(cwd, "scratch-" + id);
 		fs.mkdirSync(scratch);
 		try {
-			fs.writeFileSync(path.join(cwd, "ready"), String(process.pid));
-			require("node:child_process").spawnSync("sleep", ["30"]);
+			require("node:child_process").spawnSync("sh", [
+				"-c",
+				'echo "$1" > "$2"; exec sleep 30',
+				"sh",
+				String(process.pid),
+				path.join(cwd, "ready"),
+			]);
 		} finally {
 			fs.rmSync(scratch, { recursive: true });
 		}
@@ -102,6 +117,7 @@ interface HookOpts {
 	act?: string;
 	pluginRoot?: string;
 	config?: object;
+	env?: Record<string, string>;
 }
 
 /** The hook line's command over a fresh fixture, and where it logs. */
@@ -137,6 +153,7 @@ function hookCall(staged: Record<string, string>, opts: HookOpts) {
 				CLAUDE_PROJECT_DIR: root,
 				STUB_ACT: opts.act ?? "",
 				STUB_LOG: log,
+				...opts.env,
 			},
 		},
 	};
@@ -167,6 +184,10 @@ function hook(staged: Record<string, string>, opts: HookOpts = {}) {
  * scratch, as a Ctrl-C reaches every process in the terminal's foreground
  * group; answered once the dispatcher, in a group of its own, has exited.
  */
+/* Every row before the signalled one runs first, each a Node load; a first
+ * guess at a loaded machine's worst, unmeasured. */
+const READY_MS = 20_000;
+
 async function hookSignalled(id: string, signal: NodeJS.Signals) {
 	const { root, log, args, options } = hookCall(SCRIPT, {
 		act: `${id}:scratch`,
@@ -175,14 +196,20 @@ async function hookSignalled(id: string, signal: NodeJS.Signals) {
 	const sh = spawn("sh", args, {
 		...options,
 		detached: true,
-		stdio: "ignore",
+		stdio: ["ignore", "ignore", "pipe"],
 	});
+	let err = "";
+	sh.stderr.on("data", (d) => {
+		err += d;
+	});
+	/* Closed once every holder is gone, the dispatcher outliving the shell. */
+	const closed = new Promise((resolve) => sh.stderr.on("close", resolve));
 	const ended = new Promise<{ code: number | null; signal: string | null }>(
 		(resolve) => sh.on("exit", (code, sig) => resolve({ code, signal: sig })),
 	);
 	const ready = path.join(root, "ready");
 	await vi.waitFor(() => expect(fs.existsSync(ready)).toBe(true), {
-		timeout: 20_000,
+		timeout: READY_MS,
 		interval: 50,
 	});
 	const dispatcher = Number(fs.readFileSync(ready, "utf8"));
@@ -190,20 +217,12 @@ async function hookSignalled(id: string, signal: NodeJS.Signals) {
 	const shell = await ended;
 	/* The first guess at a slow machine's exit, unmeasured; a dispatcher that
 	 * waits out its row's 30 s sleep is far past it. */
-	await vi.waitFor(() => expect(alive(dispatcher)).toBe(false), {
+	await vi.waitFor(() => expect(isDead(dispatcher)).toBe(true), {
 		timeout: 10_000,
 		interval: 50,
 	});
-	return { shell, ...left(root, log) };
-}
-
-function alive(pid: number): boolean {
-	try {
-		process.kill(pid, 0);
-		return true;
-	} catch {
-		return false;
-	}
+	await closed;
+	return { shell, err, ...left(root, log) };
 }
 
 /** Staged `p` arms these rows, by each row's own arm. */
@@ -321,7 +340,7 @@ describe("the hook's dispatcher line", () => {
 		const r = hook(SCRIPT, { act: `${ALL[0]}:signal` });
 		expect(r.code).toBe(128 + 15);
 		expect(r.loaded).toEqual([ALL[0]]);
-		expect(r.err).toContain("pre-commit: a signal stopped the run");
+		expect(r.err).toContain(STOPPED_LINE);
 	});
 
 	it("lets the row a group signal lands in clean its scratch, runs no row after, and exits 128 + n (#5188)", async () => {
@@ -330,11 +349,35 @@ describe("the hook's dispatcher line", () => {
 		);
 		const r = await hookSignalled(ALL[at] ?? "", "SIGINT");
 		expect(at).toBeGreaterThan(-1);
-		expect([r.shell.code, r.shell.signal]).toContainEqual(
+		/* The shell takes the group's SIGINT itself, so its own death is the
+		 * hook's code; the dispatcher's 128 + n is the case above's. */
+		expect(r.shell.signal ?? r.shell.code).toBe(
 			r.shell.signal ? "SIGINT" : 128 + 2,
 		);
 		expect(r.scratch).toEqual([]);
 		expect(r.loaded).toEqual(ALL.slice(0, at + 1));
+		expect(r.err).toContain(STOPPED_LINE);
+	});
+
+	it("exits 128 + n at once on a second signal to a row that never returns (#5188)", () => {
+		const at = ALL.findIndex((n) =>
+			GATES.some((g) => g.kind === "program" && g.script === `scripts/${n}.js`),
+		);
+		const r = hook(SCRIPT, { act: `${ALL[at]}:hang` });
+		expect(r.code).toBe(128 + 15);
+		expect(r.loaded).toEqual(ALL.slice(0, at + 1));
+	});
+
+	it("exits 128 + n where a signal kills git as it names the staged paths (#5188)", () => {
+		const { root } = fixture({});
+		const git = path.join(root, "git-signals-parent");
+		fs.writeFileSync(git, "#!/bin/sh\nkill -TERM $PPID\nkill -TERM $$\n", {
+			mode: 0o755,
+		});
+		const r = hook(SCRIPT, { env: { WFC_GIT: git } });
+		expect(r.code).toBe(128 + 15);
+		expect(r.loaded).toEqual([]);
+		expect(r.err).toContain(STOPPED_LINE);
 	});
 
 	it.each([

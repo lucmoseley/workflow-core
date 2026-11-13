@@ -14,12 +14,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-	dispatch,
-	existsUnder,
-	gateSetOf,
-	readStaged,
-} from "./precommit-dispatch.js";
+import { dispatch, gateSetOf, STOPPED_LINE } from "./precommit-dispatch.js";
+import { buildRepoPorts } from "./precommit-gate-testkit";
 
 type Arm =
 	| { always: true }
@@ -101,10 +97,8 @@ async function run(
 	const exit = await dispatch({
 		rows,
 		gates: opts.gates ?? "all",
-		ports: {
-			staged: () => readStaged(dir),
+		ports: buildRepoPorts(dir, {
 			computed: (name: string) => opts.computed?.[name] ?? [],
-			exists: existsUnder(dir),
 			load: (r: StubRow) => {
 				if (r.throws === "load") throw new Error(`${r.id} will not load`);
 				return () => {
@@ -123,7 +117,7 @@ async function run(
 				else err += text;
 			},
 			interrupted: async () => caught,
-		},
+		}),
 	});
 	return { exit, ran, out, err };
 }
@@ -181,16 +175,12 @@ describe("arming", () => {
 			dispatch({
 				rows: [row("lister", { arm: { computed: "gone" } })],
 				gates: "all",
-				ports: {
-					staged: () => readStaged(dir),
+				ports: buildRepoPorts(dir, {
 					computed: () => {
 						throw new Error("the lister is gone");
 					},
-					exists: existsUnder(dir),
 					load: () => () => ({ exit: 0, stdout: "", stderr: "" }),
-					write: () => undefined,
-					interrupted: async () => null,
-				},
+				}),
 			}),
 		).rejects.toThrow("the lister is gone");
 	});
@@ -253,9 +243,7 @@ describe("a caught signal (#5188)", () => {
 		});
 		expect(r.exit).toBe(128 + 15);
 		expect(r.ran).toEqual(["one", "hit"]);
-		expect(r.err).toBe(
-			"one err\nhit err\npre-commit: a signal stopped the run; no gate ran after it.\n",
-		);
+		expect(r.err).toBe(`one err\nhit err\n${STOPPED_LINE}`);
 	});
 
 	it("exits 128 + n where it lands in the last row, which passed", async () => {

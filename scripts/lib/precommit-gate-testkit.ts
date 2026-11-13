@@ -47,7 +47,7 @@ type DispatchPorts = Parameters<typeof dispatch>[0]["ports"];
  * no computed list, output dropped and no signal, each overridable; `load`
  * is the caller's.
  */
-export const repoPorts = (
+export const buildRepoPorts = (
 	root: string,
 	over: Partial<DispatchPorts> & Pick<DispatchPorts, "load">,
 ): DispatchPorts => ({

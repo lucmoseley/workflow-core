@@ -23,7 +23,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { dispatch } from "./lib/precommit-dispatch.js";
 import { registerTempCleanup, stagedRepo } from "./lib/precommit-gate-harness";
-import { repoPorts } from "./lib/precommit-gate-testkit";
+import { buildRepoPorts } from "./lib/precommit-gate-testkit";
 import { GATES } from "./lib/precommit-gates.js";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -251,7 +251,7 @@ describe("the pre-commit row (#3118, #5172)", () => {
 		await dispatch({
 			rows: [row],
 			gates: "all",
-			ports: repoPorts(root, {
+			ports: buildRepoPorts(root, {
 				computed: (n) => (n === name ? SOURCES : []),
 				load: () => () => {
 					ran = true;

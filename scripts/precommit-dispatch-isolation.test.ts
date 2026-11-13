@@ -18,7 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { dispatch } from "./lib/precommit-dispatch.js";
-import { repoPorts } from "./lib/precommit-gate-testkit";
+import { buildRepoPorts } from "./lib/precommit-gate-testkit";
 import { GATES } from "./lib/precommit-gates.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: CommonJS module
@@ -74,7 +74,7 @@ async function pass(repo: string) {
 			policy: "warn" as const,
 		})),
 		gates: "all",
-		ports: repoPorts(repo, {
+		ports: buildRepoPorts(repo, {
 			computed,
 			load,
 			write: (fd: number, text: string) => {

@@ -61,14 +61,14 @@ describe("past the budget", () => {
 	it("kills a TERM-trapping grandchild and exits 137, the #2855 case", async () => {
 		const r = runSh("echo $$; trap '' TERM; sleep 30 & wait");
 		expect(r.status).toBe(KILLED_EXIT);
-		expect(r.elapsedMs).toBeLessThan(10_000);
+		expect(r.elapsedMs).toBeLessThan(SECOND_SIGNAL_BOUND_MS);
 		await expectGroupDead(Number(r.stdout.trim()));
 	});
 
 	it("exits 124 where the TERM ended the leader, killing a straggler that outlived it", async () => {
 		const r = runSh("echo $$; (trap '' TERM; sleep 30) & sleep 30");
 		expect(r.status).toBe(TIMEOUT_EXIT);
-		expect(r.elapsedMs).toBeLessThan(10_000);
+		expect(r.elapsedMs).toBeLessThan(SECOND_SIGNAL_BOUND_MS);
 		await expectGroupDead(Number(r.stdout.trim()));
 	});
 });
@@ -134,12 +134,30 @@ it("kills a group that ignores the signal, and dies by it, when told to stop (#2
 	await expectGroupDead(pgid);
 });
 
+/* A signalled run's budget and grace: the budget far past the case, so only
+ * the signal ends it; the grace long enough that a run ending inside
+ * SECOND_SIGNAL_BOUND_MS, half of it, ended on the second signal rather
+ * than waiting the grace out. */
+const SIGNALLED_BUDGET_MS = 60_000;
+const SIGNALLED_GRACE_MS = 20_000;
+const SECOND_SIGNAL_BOUND_MS = SIGNALLED_GRACE_MS / 2;
+/* Between two sends, so the runner's listener has run on the first before
+ * the second arrives; a first guess, unmeasured. */
+const SIGNAL_GAP_MS = 200;
+
 /** The runner over `script`, signalled once the script echoes its pid. */
 async function signalled(script: string, signals: NodeJS.Signals[]) {
 	// spawn-kept: a signal, sent to the runner mid-run
 	const child = spawn(
 		process.execPath,
-		[RUN_BUDGETED, "60000", "20000", "sh", "-c", `echo $$; ${script}`],
+		[
+			RUN_BUDGETED,
+			String(SIGNALLED_BUDGET_MS),
+			String(SIGNALLED_GRACE_MS),
+			"sh",
+			"-c",
+			`echo $$; ${script}`,
+		],
 		{ stdio: ["ignore", "pipe", "ignore"] },
 	);
 	const pgid = await new Promise<number>((resolve) =>
@@ -153,7 +171,7 @@ async function signalled(script: string, signals: NodeJS.Signals[]) {
 	 * reach the runner as one. */
 	for (const signal of signals) {
 		child.kill(signal);
-		await new Promise((resolve) => setTimeout(resolve, 200));
+		await new Promise((resolve) => setTimeout(resolve, SIGNAL_GAP_MS));
 	}
 	return { pgid, signal: await ended, elapsedMs: Date.now() - started };
 }
@@ -181,7 +199,7 @@ describe("a signal to the runner (#5188)", () => {
 			"SIGTERM",
 		]);
 		expect(r.signal).toBe("SIGTERM");
-		expect(r.elapsedMs).toBeLessThan(10_000);
+		expect(r.elapsedMs).toBeLessThan(SECOND_SIGNAL_BOUND_MS);
 		await expectGroupDead(r.pgid);
 	});
 });

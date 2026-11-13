@@ -31,6 +31,7 @@ const {
 	existsUnder,
 	gateSetOf,
 	readStaged,
+	STOPPED_LINE,
 } = require("./lib/precommit-dispatch.js");
 const { fromCoreRoot, GATES } = require("./lib/precommit-gates.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -122,7 +123,10 @@ async function main() {
 	} catch (e) {
 		/* A signal kills git too, and is the cause where one was caught. */
 		const code = await interrupted();
-		if (code === null) writeFd(2, `pre-commit: ${caught(e).message}\n`);
+		writeFd(
+			2,
+			code === null ? `pre-commit: ${caught(e).message}\n` : STOPPED_LINE,
+		);
 		process.exit(code ?? 1);
 	}
 	return dispatch({

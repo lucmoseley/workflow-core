@@ -63,6 +63,10 @@ const { spawnGitSync } = require("./git.js");
  *   else null
  */
 
+/** What a caught signal's stop writes to fd 2. */
+const STOPPED_LINE =
+	"pre-commit: a signal stopped the run; no gate ran after it.\n";
+
 /** @type {Record<Lander, GateSet[]>} */
 const SETS = {
 	every: ["all", "merge", "batch"],
@@ -134,11 +138,7 @@ async function dispatch({ rows, gates, ports }) {
 	const staged = ports.staged();
 	const stopped = async () => {
 		const code = await ports.interrupted();
-		if (code !== null)
-			ports.write(
-				2,
-				"pre-commit: a signal stopped the run; no gate ran after it.\n",
-			);
+		if (code !== null) ports.write(2, STOPPED_LINE);
 		return code;
 	};
 	for (const row of rows) {
@@ -197,4 +197,10 @@ function gateSetOf(value) {
  */
 const existsUnder = (cwd) => (rel) => fs.existsSync(path.join(cwd, rel));
 
-module.exports = { dispatch, existsUnder, gateSetOf, readStaged };
+module.exports = {
+	dispatch,
+	existsUnder,
+	gateSetOf,
+	readStaged,
+	STOPPED_LINE,
+};
