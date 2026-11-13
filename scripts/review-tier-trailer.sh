@@ -135,11 +135,11 @@ consume_stamp
 # git runs the hook from the top level, which a relative GIT_INDEX_FILE names.
 tree="$(git write-tree 2>/dev/null)" || dropped "git could not read the staged tree"
 if [[ "$recorded" != "$tree" ]]; then
-  hold="${BASH_SOURCE[0]%/*}/review-hold-gate.sh"
+  hold="${BASH_SOURCE[0]%/*}/review-hold-gate.js"
   [[ -r "$hold" ]] || dropped "$hold is missing, so the tree that moved under the later gates goes unheld"
   how="the staged tree moved after the review hold passed, as another session staged into this index. Commit by pathspec, node ${BASH_SOURCE[0]%/*}/commit-paths.js -m <message> -- <your paths>, which that index cannot reach (rule:review-hold). Nothing was committed."
   status=0
-  bash "$hold" || status=$?
+  node "$hold" || status=$?
   if [[ "$status" -ne 0 ]]; then
     echo "prepare-commit-msg: $how" >&2
     exit "$status"

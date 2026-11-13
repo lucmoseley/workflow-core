@@ -266,6 +266,28 @@ const gitleaksBinary = () => process.env.WFC_GITLEAKS || "gitleaks";
 const SWEEP_MS = 5000;
 
 /**
+ * `ceiling`, unless the variable `name` names a positive whole number of
+ * milliseconds no larger than it: a budget a test may shorten and nothing may
+ * lengthen. Read per call for the reason `gitleaksBinary` gives.
+ * @param {string} name
+ * @param {number} ceiling
+ * @returns {number}
+ */
+function budgetFromEnv(name, ceiling) {
+	const raw = process.env[name]?.trim() ?? "";
+	const ms = /^[1-9]\d*$/.test(raw) ? Number(raw) : ceiling;
+	return Math.min(ms, ceiling);
+}
+
+/**
+ * The sweep's budget: `SWEEP_MS`, unless `WFC_JEV_SWEEP_MS` shortens it. A
+ * TEST KNOB for the suite's hung-sweep case, as `WFC_JEV_ABORT_MS` is for the
+ * hang cases (#5143).
+ * @returns {number}
+ */
+const sweepBudget = () => budgetFromEnv("WFC_JEV_SWEEP_MS", SWEEP_MS);
+
+/**
  * The evaluation model #174 measured and #175 adopted.
  *
  * AN UNPINNED ALIAS, BECAUSE THE GATEWAY ACCEPTS NO VERSIONED ID (#702).
@@ -287,9 +309,7 @@ const ABORT_MS = 3000;
  * @returns {number}
  */
 function abortBudget() {
-	const raw = process.env.WFC_JEV_ABORT_MS?.trim() ?? "";
-	const ms = /^[1-9]\d*$/.test(raw) ? Number(raw) : ABORT_MS;
-	return Math.min(ms, ABORT_MS);
+	return budgetFromEnv("WFC_JEV_ABORT_MS", ABORT_MS);
 }
 
 /**
@@ -490,7 +510,7 @@ function runSweep(input) {
 			 * finish is not a clean scan. spawnSync reports the kill as `error`,
 			 * which the caller already reads as "do not send". */
 			stdio: ["pipe", "ignore", "ignore"],
-			timeout: SWEEP_MS,
+			timeout: sweepBudget(),
 		},
 	);
 }

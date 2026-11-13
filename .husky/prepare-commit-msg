@@ -174,10 +174,10 @@ fi
 if [ -n "$replay" ]; then
   wfc_replay_scan prepare-commit-msg "$route" || exit 1
   if [ "$route" = cherry-pick ]; then
-    hold="${WFC_PLUGIN_ROOT:-$here/..}/scripts/review-hold-gate.sh"
+    hold="${WFC_PLUGIN_ROOT:-$here/..}/scripts/review-hold-gate.js"
     if [ -r "$hold" ]; then
       status=0
-      bash "$hold" || status=$?
+      node "$hold" || status=$?
       [ "$status" -eq 0 ] || refused_in_progress "$status"
       review_tier_trailer "${1-}"
     else
