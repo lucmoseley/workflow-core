@@ -3,7 +3,9 @@
  * runner (#2045, `docs/research/startup-load-before-after-test.md` D2–D5;
  * core and shell, #5149). The program's header says what each subcommand
  * does; this module does it on the ports it is handed and returns the exit
- * status, and the shell wires the production adapters.
+ * status, and the shell wires the production adapters. Files it reads and
+ * writes in place — the plan, the launch records, the arms' `.claude.json`,
+ * the transcripts — since a test crosses them for real in its temp dir.
  *
  * Its lines go out through `out` and `err` as they happen, not returned at
  * the end: `run` loops for hours, and its log of each pair started, held or
@@ -18,12 +20,10 @@ const { scriptPath } = require("./script-path.js");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { flagValue } = require("./cli-args");
-const { launchAuthRefusal } = require("./launch-auth.js");
 const { isTerminalAgent } = require("./agent-liveness.js");
 const { forgetSession } = require("./session-id.js");
 const { CHILD_ERROR_CHARS } = require("./child-buffer.js");
 const { stopOn } = require("./claude-stop.js");
-const { buildSeatEnv, runClaude } = require("./seat-claude.js");
 const { claudeBin } = require("./claude-bin.js");
 const { readClaudeVersionOrWhy } = require("./claude-version.js");
 const { jobDirPath } = require("./job-paths.js");
@@ -48,10 +48,15 @@ const {
 } = require("./breach-score-rule.js");
 const { sessionSpendUsd, sessionTokens } = require("./session-spend.js");
 const { projectSlug } = require("./project-slug.js");
-const { throttleEnv } = require("./throttle-paths.js");
 const { secondaryOf, summariseSecondary } = require("./arm-secondary.js");
 const { readRegisteredGuardSubjects } = require("./guard-fires.js");
 const { requiredGroup } = require("./regex-group.js");
+const {
+	CALL_TIMEOUT_MS,
+	readJobStates,
+	sandboxEnv,
+	start,
+} = require("./arm-claude.js");
 
 const SCRIPTS = path.join(__dirname, "..");
 /** `WFC_ARM_TASKS_CLI` stands a test's stub in for the task builder. */
@@ -67,12 +72,6 @@ const ARM_SPEC = /^([^=]+)=([^@]+)@(.+)$/;
 const RERUN = "run again to start the pairs left";
 /** {@link RERUN}, once a failure stopped its pairs. */
 const RERUN_LEFT = `clear the failure above and ${RERUN}`;
-/**
- * `docs/effort-guide.md`'s standing default, named on the launch so both arms
- * run it whatever each config dir's settings say.
- */
-const MODEL = "claude-opus-5-5[1m]";
-const EFFORT = "medium";
 /** D4's design target: a 30% drop. */
 const DEFAULT_DROP = 0.3;
 /** One run per arm; a running cap under it would hold every pair for ever. */
@@ -98,8 +97,6 @@ const DEFAULT_POLL_SEC = 60;
 const PAIR_ALLOWANCE_MIN = 10;
 /** Untraced, a guess: a stop failing three times running will not pass on a fourth. */
 const STOP_TRIES = 3;
-/** Hang guards, not measurements: each call returns in seconds when well. */
-const CALL_TIMEOUT_MS = 120_000;
 /** A build, scorer or acceptance check reads a whole sandbox or transcript. */
 const READ_TIMEOUT_MS = 900_000;
 
@@ -284,24 +281,6 @@ function trust(configDir, dir) {
 		hasTrustDialogAccepted: true,
 	};
 	writeFileAtomic(file, JSON.stringify(state, null, 2));
-}
-
-/**
- * The throttling paths are pinned because an arm's revision may predate #2098,
- * where the sweep's state still defaults per repo root and each sandbox would
- * kick a full transcript sweep of its own.
- *
- * @param {string} sandbox
- * @param {NodeJS.ProcessEnv} env
- */
-function sandboxEnv(sandbox, env) {
-	return {
-		WFC_GH: path.join(sandbox, "bin", "gh"),
-		GH_HOST: "gh-stub.invalid",
-		GIT_ALLOW_PROTOCOL: "file",
-		DISABLE_AUTOUPDATER: "1",
-		...throttleEnv(env),
-	};
 }
 
 /**
@@ -569,7 +548,7 @@ function byPeriod(scored, starts, baseline) {
  * @typedef {object} Ports
  * @property {NodeJS.ProcessEnv} env  the environment every child reads; `run`
  *   forgets the starting session's id on it
- * @property {import("./seat-claude.js").Spawn} claude  each `claude` call
+ * @property {typeof import("./child-spawn.js").spawnRaw} claude  each `claude` call
  * @property {(cli: string, args: string[], opts: { env: NodeJS.ProcessEnv, timeout: number }) => { status: number | null, stdout: string, stderr: string }} node
  *   a Node program run to its end: the builder, admission, the scorer and the
  *   acceptance check
@@ -726,54 +705,6 @@ function prepare(p, run, { issues, nodeModules }) {
 }
 
 /**
- * Start one prepared run as a `claude --bg` job in its arm's config dir.
- * @param {Ports} p
- * @param {Run} run
- * @param {{ repo: string, prompt: string }} ready
- * @param {string} bin
- * @returns {{ ok: true, record: LaunchRecord } | { ok: false, why: string }}
- */
-function start(p, run, { repo, prompt }, bin) {
-	const env = {
-		...p.env,
-		...sandboxEnv(run.sandbox, p.env),
-		CLAUDE_CONFIG_DIR: run.configDir,
-		PATH: `${path.join(run.sandbox, "bin")}:${p.env.PATH}`,
-	};
-	const refusal = launchAuthRefusal({ bin, env, cwd: repo, spawn: p.claude });
-	if (refusal) return { ok: false, why: refusal };
-	const launched = p.claude(
-		bin,
-		[
-			"--bg",
-			"--model",
-			MODEL,
-			"--effort",
-			EFFORT,
-			"--permission-mode",
-			"auto",
-			prompt,
-		],
-		{ cwd: repo, timeout: CALL_TIMEOUT_MS, env },
-	);
-	const job = /backgrounded\s+·\s+(\S+)/.exec(launched.stdout)?.[1];
-	if (launched.status !== 0 || !job)
-		return {
-			ok: false,
-			why: `launch failed (${launched.status}), check \`CLAUDE_CONFIG_DIR=${run.configDir} claude agents\` before relaunching: ${`${launched.stdout}${launched.stderr}`.trim()}`,
-		};
-	return {
-		ok: true,
-		record: {
-			...run,
-			repo,
-			job,
-			launchedAt: new Date(p.now()).toISOString(),
-		},
-	};
-}
-
-/**
  * Free session slots by `admission.js`, or 0 with the reason where it cannot
  * say (#2045).
  * @param {Ports} p
@@ -795,33 +726,6 @@ function readAdmissionSlots(p) {
 			slots: 0,
 			why: `admission printed no reading (exit ${r.status}): ${r.stderr.trim().slice(0, CHILD_ERROR_CHARS)}`,
 		};
-	}
-}
-
-/**
- * Each job's record from `claude agents --json --all` in one config dir,
- * keyed by the job id `--bg` printed. A `--bg` launch ignores `--session-id`
- * (#2045), so the listing is the one map from job to
- * transcript.
- * @param {Ports} p
- * @param {string} configDir
- * @param {string} bin
- * @returns {JobStates}
- */
-function readJobStates(p, configDir, bin) {
-	const r = runClaude(["agents", "--json", "--all"], {
-		env: buildSeatEnv(p.env, configDir),
-		timeout: CALL_TIMEOUT_MS,
-		bin,
-		spawn: p.claude,
-	});
-	try {
-		/** @type {(Job & { id: string })[]} */
-		const rows = JSON.parse(r.stdout);
-		return new Map(rows.map((j) => [j.id, j]));
-	} catch {
-		// An unreadable listing is reported per run as `state unknown` (#2045).
-		return null;
 	}
 }
 
@@ -1230,15 +1134,14 @@ function runAll(p, parsed) {
  * @param {Exclude<ReturnType<typeof runSetup>, string>} setup
  */
 function runLoop(p, { o, planned, limitMs }) {
-	const now = p.clock;
-	const startedAt = now();
+	const startedAt = p.clock();
 	let lastHeld = "";
 	/** The failure's exit status once one stops further pairs, else 0. */
 	let failed = 0;
 	for (;;) {
 		const exit = refuseGoneCli(p, planned.cli, o.root);
 		if (exit !== null) return exit;
-		if (now() - startedAt >= limitMs)
+		if (p.clock() - startedAt >= limitMs)
 			return stopAtLimit(p, o.root, planned.cli.path, {
 				...o,
 				limitMs,
@@ -1568,9 +1471,7 @@ module.exports = {
 	CLI,
 	launch,
 	plan,
-	readJobStates,
 	refuse,
 	report,
 	run: runAll,
-	start,
 };

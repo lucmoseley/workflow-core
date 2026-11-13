@@ -23,7 +23,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ADMISSION_VERDICT } from "./admission-verdict-fake";
 import { buildJobRow, type Row } from "./agents-stop-fake";
-import { type ArmClaudeOptions, createArmClaudeFake } from "./arm-claude-fake";
+import {
+	type ArmClaudeOptions,
+	createArmClaudeFake,
+	FAKE_VERSION,
+} from "./arm-claude-fake";
 import { runInProcess } from "./run-in-process";
 
 const arm = require("./run-arm.js");
@@ -32,7 +36,6 @@ const { projectSlug } = require("./project-slug.js");
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const BUILDER = path.join(ROOT, "scripts", "lib", "fixtures", "arm-build.js");
-const STUB_VERSION = "2.1.304";
 /** `run` reads its clock once a pass; a case past this many reads is a loop
  * that never ends, failed rather than left spinning, since a synchronous
  * loop outlasts vitest's timeout. */
@@ -204,6 +207,13 @@ describe("plan", () => {
 		expect(
 			readPlan(two).runs.map((r: { id: string }) => r.id.replace("two", "")),
 		).toEqual(runs.map((r: { id: string }) => r.id.replace("one", "")));
+		// The seed orders each pair's arms, so neither arm always starts first.
+		const firsts = new Set(
+			[1, 2, 3, 4, 5, 6].map(
+				(pair) => runs.find((r: { pair: number }) => r.pair === pair).arm,
+			),
+		);
+		expect(firsts).toEqual(new Set(["A", "B"]));
 	});
 
 	it("refuses a plan where no claude answers, naming why", () => {
@@ -309,6 +319,32 @@ describe("launch", () => {
 		});
 		expect(k.run(launchArgs(root, "3")).code).toBe(0);
 		expect(k.fake.launches).toHaveLength(2);
+	});
+
+	it("lists the running pairs through the plan's binary on a launch, not PATH's claude (#2289)", () => {
+		const versions = path.join(tmp, "versions");
+		const bin = path.join(tmp, "bin");
+		const pinned = executable(path.join(versions, FAKE_VERSION));
+		fs.mkdirSync(bin);
+		fs.symlinkSync(pinned, path.join(bin, "claude"));
+		const onPath = {
+			WFC_CLAUDE_BIN: undefined,
+			// claude-route-exempt: asserts the launch keeps the plan's pinned `claude`
+			PATH: `${bin}${path.delimiter}${process.env.PATH}`,
+		};
+		const root = planned(path.join(tmp, "p"), kit({ env: onPath }));
+		fs.rmSync(path.join(bin, "claude"));
+		fs.symlinkSync(
+			executable(path.join(versions, "2.1.305")),
+			path.join(bin, "claude"),
+		);
+		const k = kit({ env: onPath });
+		expect(k.run(launchArgs(root, "1")).code).toBe(0);
+		expect(k.run(launchArgs(root, "2")).code).toBe(0);
+		expect(k.fake.calls.some((c) => c.args[0] === "agents")).toBe(true);
+		expect(
+			k.fake.calls.filter((c) => c.bin !== fs.realpathSync(pinned)),
+		).toEqual([]);
 	});
 
 	it("starts neither member of a pair when one sandbox fails to build", () => {
@@ -584,7 +620,7 @@ describe("run", () => {
 		const versions = path.join(tmp, "versions");
 		const bin = path.join(tmp, "bin");
 		const link = path.join(bin, "claude");
-		const pinned = executable(path.join(versions, STUB_VERSION));
+		const pinned = executable(path.join(versions, FAKE_VERSION));
 		const newer = executable(path.join(versions, "2.1.305"));
 		fs.mkdirSync(bin);
 		fs.symlinkSync(pinned, link);
@@ -623,7 +659,7 @@ describe("run", () => {
 			const k = kit(loop());
 			const r = k.run(args);
 			expect(r.code).toBe(2);
-			expect(r.err).toContain(`${STUB_VERSION}, ${pinned}, is gone`);
+			expect(r.err).toContain(`${FAKE_VERSION}, ${pinned}, is gone`);
 			expect(r.err).toContain(
 				"restore that version, or plan again under a new --root",
 			);

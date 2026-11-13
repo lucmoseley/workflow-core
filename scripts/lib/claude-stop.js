@@ -133,7 +133,7 @@ function stopSession(id, sessionId) {
  * @param {string} seat  a CLAUDE_CONFIG_DIR
  * @param {string} id  the short job id, never the session id
  * @param {string} [bin]  the binary, where the caller pins a CLI version
- * @param {{ env?: NodeJS.ProcessEnv, spawn?: import("./seat-claude.js").Spawn }} [via]
+ * @param {{ env?: NodeJS.ProcessEnv, spawn?: typeof import("./child-spawn.js").spawnRaw }} [via]
  *   the caller's environment, else this process's, and the call, where a test
  *   runs it in-process
  * @returns {StopOutcome}

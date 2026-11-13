@@ -2,8 +2,9 @@
 /*
  * Holds lib/arm-claude-fake.ts, the in-process `claude` lib/run-arm.js's
  * module cases run on (#5149), to the production adapter, lib/child-spawn.js's
- * `spawnRaw`. One case list reads each call through the reader run-arm.js
- * uses: run against the fake; against `spawnRaw` on a `claude` stub printing
+ * `spawnRaw`. One case list reads each call through lib/arm-claude.js, the
+ * calls run-arm.js makes: run against the fake; against `spawnRaw` on a
+ * `claude` stub printing
  * the installed harness's recordings (scripts/fixtures/agents-stop.json,
  * scripts/fixtures/bg-launch.json), which lib/agents-stop.contract.test.ts
  * and lib/bg-launch.contract.test.ts hold to the harness; and, on the
@@ -36,7 +37,7 @@ const { spawnRaw } = require("./child-spawn.js");
 const { stopOn } = require("./claude-stop.js");
 const { readClaudeVersionOrWhy } = require("./claude-version.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
-const arm = require("./run-arm.js");
+const arm = require("./arm-claude.js");
 
 let dir: string;
 beforeEach(() => {

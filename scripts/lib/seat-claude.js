@@ -7,8 +7,6 @@
 const { stripVTControlCharacters } = require("node:util");
 const { claudeBin } = require("./claude-bin.js");
 const { CHILD_TIMEOUT_MS, spawnRaw } = require("./child-spawn.js");
-
-/** @typedef {typeof spawnRaw} Spawn the call `claude` runs through */
 const { childVerdict } = require("./child-failure.js");
 const { forgetRoots } = require("./inherited-roots.js");
 const { forgetSession } = require("./session-id.js");

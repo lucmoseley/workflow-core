@@ -17,10 +17,16 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ADMISSION_VERDICT } from "./lib/admission-verdict-fake";
-import { buildJobRow } from "./lib/agents-stop-fake";
-import { buildAuthStatusNodeBranch } from "./lib/auth-status-fake";
-import { buildLaunchNodeAnswer } from "./lib/bg-launch-fake";
+import {
+	buildAgentsBranch,
+	buildJobRow,
+	buildStopBranch,
+} from "./lib/agents-stop-fake";
+import { FAKE_VERSION } from "./lib/arm-claude-fake";
+import { writeLaunchAnswer } from "./lib/bg-launch-fake";
+import { buildBgBranch, writeClaudeStub } from "./lib/claude-stub";
 import { runInProcess } from "./lib/run-in-process";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const ROOT = path.resolve(__dirname, "..");
 const cliPath = path.join(ROOT, "scripts", "run-arm-test.js");
@@ -36,30 +42,30 @@ const {
 
 const { projectSlug } = require("./lib/project-slug.js");
 
-const STUB_VERSION = "2.1.304";
+/** The job the stub's every launch is answered with. */
+const STUB_JOB = "0000000a";
 
-/** A Node stub's expression for a fresh 8-hex job id. */
-const FRESH_ID_EXPR = `Math.random().toString(16).slice(2,10).padEnd(8,"0")`;
+/** The stub's `--version` branch, naming FAKE_VERSION as the harness does. */
+const VERSION_BRANCH = `if [ "$1" = "--version" ]; then echo ${shellQuote(`${FAKE_VERSION} (Claude Code)`)}; exit 0; fi`;
 
 /**
- * A `claude` stub: `agents` prints `agents`, `auth status` says signed in,
- * `--version` says `STUB_VERSION`, and anything else is a launch, logged to
- * `log` and answered with the recorded launch, naming a fresh job id.
+ * A `claude` stub: `agents` lists `agents`, `auth status` says signed in,
+ * `--version` says FAKE_VERSION, and a `--bg` launch is logged to `log` and
+ * answered with the recorded launch naming STUB_JOB.
  */
 const claudeStub = (
 	agents: { id: string; sessionId?: string; state: string }[],
 	log = path.join(tmp, "claude.log"),
 ) => {
-	const file = path.join(tmp, "claude");
-	const listed = JSON.stringify(
-		agents.map(({ id, state, ...over }) => buildJobRow(id, state, over)),
-	);
-	fs.writeFileSync(
-		file,
-		`#!/usr/bin/env node\nconst a=process.argv.slice(2);if(a[0]==="--version"){console.log("${STUB_VERSION} (Claude Code)");process.exit(0)}if(a[0]==="agents"){console.log(${JSON.stringify(listed)});process.exit(0)}${buildAuthStatusNodeBranch()}require("fs").appendFileSync(${JSON.stringify(log)},JSON.stringify({argv:a,cwd:process.cwd(),cfg:process.env.CLAUDE_CONFIG_DIR,path:process.env.PATH})+"\\n");${buildLaunchNodeAnswer(FRESH_ID_EXPR, "positional")}\n`,
-	);
-	fs.chmodSync(file, 0o755);
-	return file;
+	const answer = writeLaunchAnswer(tmp, STUB_JOB, "positional");
+	const logLaunch = `node -e ${shellQuote('require("fs").appendFileSync(process.argv[1],JSON.stringify({argv:process.argv.slice(2),cwd:process.cwd(),cfg:process.env.CLAUDE_CONFIG_DIR,path:process.env.PATH})+"\\n")')} ${shellQuote(log)} "$@"`;
+	return writeClaudeStub(path.join(tmp, "claude"), [
+		VERSION_BRANCH,
+		buildAgentsBranch(
+			agents.map(({ id, state, ...over }) => buildJobRow(id, state, over)),
+		),
+		buildBgBranch({ ...answer, onLaunch: logLaunch }),
+	]);
 };
 
 let tmp: string;
@@ -131,8 +137,8 @@ describe("plan", () => {
 		const bin = path.join(tmp, "bin");
 		fs.mkdirSync(versions);
 		fs.mkdirSync(bin);
-		fs.renameSync(path.join(tmp, "claude"), path.join(versions, STUB_VERSION));
-		fs.symlinkSync(path.join(versions, STUB_VERSION), path.join(bin, "claude"));
+		fs.renameSync(path.join(tmp, "claude"), path.join(versions, FAKE_VERSION));
+		fs.symlinkSync(path.join(versions, FAKE_VERSION), path.join(bin, "claude"));
 		const { WFC_CLAUDE_BIN: _, ...env } = process.env;
 		const root = path.join(tmp, "p");
 		expect(
@@ -143,8 +149,8 @@ describe("plan", () => {
 			}).code,
 		).toBe(0);
 		expect(readPlan(root).cli).toEqual({
-			path: fs.realpathSync(path.join(versions, STUB_VERSION)),
-			version: STUB_VERSION,
+			path: fs.realpathSync(path.join(versions, FAKE_VERSION)),
+			version: FAKE_VERSION,
 		});
 	});
 });
@@ -242,25 +248,16 @@ describe("the pilot's statistics", () => {
 
 describe("run", () => {
 	/**
-	 * A `claude` stub whose `agents` lists each job `WFC_STUB_EXTRA` names as
-	 * working, and whose `stop` appends the job to `stops`.
+	 * A `claude` stub whose `agents` lists each of `jobs` as working, and
+	 * whose `stop` appends its argv to `stops`.
 	 */
-	const loopStub = () => {
-		const file = path.join(tmp, "claude");
+	const loopStub = (jobs: string[]) => {
 		const stops = path.join(tmp, "stops.log");
-		const row = buildJobRow("JOB", "working");
-		fs.writeFileSync(
-			file,
-			`#!/usr/bin/env node
-const fs=require("fs");const a=process.argv.slice(2);
-if(a[0]==="--version"){console.log("${STUB_VERSION} (Claude Code)");process.exit(0)}
-${buildAuthStatusNodeBranch()}
-if(a[0]==="agents"){const ids=(process.env.WFC_STUB_EXTRA||"").split(",").filter(Boolean);console.log(JSON.stringify(ids.map(id=>JSON.parse(${JSON.stringify(JSON.stringify(row))}.replaceAll("JOB",id)))));process.exit(0)}
-if(a[0]==="stop"){fs.appendFileSync(${JSON.stringify(stops)},a[1]+"\\n");process.exit(0)}
-process.exit(1);
-`,
-		);
-		fs.chmodSync(file, 0o755);
+		const file = writeClaudeStub(path.join(tmp, "claude"), [
+			VERSION_BRANCH,
+			buildAgentsBranch(jobs.map((id) => buildJobRow(id, "working"))),
+			buildStopBranch(stops),
+		]);
 		loggedIn();
 		return { env: { ...stubEnv(8), WFC_CLAUDE_BIN: file }, stops };
 	};
@@ -282,7 +279,7 @@ process.exit(1);
 
 	/**
 	 * Every planned run recorded as launched `agoMin` minutes ago as job
-	 * `j<i>`; the env lists those jobs. The ceiling case leaves a margin of two
+	 * `j<i>`. The ceiling case leaves a margin of two
 	 * minutes past the ceiling against the real clock, which the few seconds
 	 * a run takes cannot cross.
 	 */
@@ -299,20 +296,19 @@ process.exit(1);
 		return {
 			dir,
 			runs,
-			extra: runs.map((_: unknown, i: number) => `j${i}`).join(","),
+			jobs: runs.map((_: unknown, i: number) => `j${i}`),
 		};
 	};
 
 	it("stops a run still going past the ceiling and records it hung, which ends it", () => {
 		const root = path.join(tmp, "p");
 		expect(run(planArgs(root, "3")).code).toBe(0);
-		const { env, stops } = loopStub();
-		const { dir, runs, extra } = seedLaunched(root, 42);
+		const { dir, runs, jobs } = seedLaunched(root, 42);
+		const { env, stops } = loopStub(jobs);
 		// No claude but the plan's, so the stop goes through it (#2289).
 		const r = run(runArgs(root, "--ceiling-min", "40"), {
 			...env,
 			WFC_CLAUDE_BIN: path.join(tmp, "absent"),
-			WFC_STUB_EXTRA: extra,
 		});
 		expect(r.code).toBe(0);
 		expect(r.out).toContain(
