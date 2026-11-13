@@ -68,11 +68,23 @@ const { writeFd } = require("./lib/write-fd.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { scriptPath } = require("./lib/script-path.js");
 
-parseOrExit(process.argv.slice(2), {
-	usage: `usage: review-hold-gate.js   (no arguments; the tree a commit carries is node ${scriptPath("commit-paths.js")} --tree's)\n`,
-});
-const { status, stderr } = runHold(
-	buildHoldPorts({ cwd: process.cwd(), env: process.env }),
-);
-if (stderr) writeFd(2, stderr);
-process.exit(status);
+/**
+ * The hold over the repo at `cwd`, as the pre-commit dispatcher runs it in
+ * its own process (#5172).
+ * @type {import("./lib/precommit-gates.js").Program}
+ */
+const PROGRAM = ({ cwd, env }) => {
+	const { status, stderr } = runHold(buildHoldPorts({ cwd, env }));
+	return { exit: status, stdout: "", stderr: stderr ?? "" };
+};
+
+module.exports = { PROGRAM };
+
+if (require.main === module) {
+	parseOrExit(process.argv.slice(2), {
+		usage: `usage: review-hold-gate.js   (no arguments; the tree a commit carries is node ${scriptPath("commit-paths.js")} --tree's)\n`,
+	});
+	const { exit, stderr } = PROGRAM({ cwd: process.cwd(), env: process.env });
+	if (stderr) writeFd(2, stderr);
+	process.exit(exit);
+}

@@ -2,7 +2,8 @@
 /*
  * Pins the whole-repo pre-commit gates (mantahostels#1753), every row of
  * lib/precommit-gates.js (#4597), as the pre-commit dispatcher runs them
- * (#5172): each row's checker loads as a SPEC without running, takes
+ * (#5172): each row's checker loads as a SPEC, and each program as a
+ * PROGRAM, without running; each checker takes
  * `--against HEAD` for a direction-gated gate and `--index` for a whole-tree
  * one, and arms on exactly the staged paths the hook's own `armed` ERE took.
  *
@@ -72,15 +73,17 @@ function renamed(from: string, to: string): string {
 }
 
 describe.each(GATES)("the dispatcher's $id row", (gate) => {
-	/* The dispatcher requires the checker: one that ran at load would exit the
+	/* The dispatcher requires the module: one that ran at load would exit the
 	 * dispatcher's own process. */
-	it("loads as a SPEC without running", () => {
+	const exported =
+		gate.kind === "program" ? "typeof PROGRAM" : "typeof SPEC?.run";
+	it(`loads as a ${gate.kind === "program" ? "PROGRAM" : "SPEC"} without running`, () => {
 		const r = spawnSync(
 			process.execPath,
 			[
 				"-e",
-				`const { SPEC } = require(${JSON.stringify(path.join(ROOT, gate.script))});
-				 if (typeof SPEC?.run !== "function") process.exit(3);
+				`const { SPEC, PROGRAM } = require(${JSON.stringify(path.join(ROOT, gate.script))});
+				 if (${exported} !== "function") process.exit(3);
 				 process.stdout.write("loaded");`,
 			],
 			{ cwd: ROOT, encoding: "utf8" },

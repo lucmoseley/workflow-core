@@ -55,10 +55,15 @@ const SITE_IDENTITY = ["severity", "tag", "file", "match"];
  * @property {import("./precommit-dispatch.js").Arm} arm the staged paths
  *   that run it
  * @property {"gate" | "warn"} policy whether its red refuses the commit
- * @property {"checker"} kind a lib/check.js checker exporting its SPEC
+ * @property {"checker" | "program"} kind a lib/check.js checker exporting
+ *   its SPEC, or a program exporting its PROGRAM
  * @property {string} [side] why its `--against`/`--index` sides spawn the
  *   checker rather than run in-process, where they do
  * @property {boolean} [quietPass] its pass prints nothing unless it WARNs
+ * @typedef {(io: { cwd: string, env: NodeJS.ProcessEnv }) =>
+ *   import("./precommit-dispatch.js").RowResult} Program a program row's
+ *   core: its exit code and output over the repo at `cwd`, never a write to
+ *   this process's own state
  * @typedef {object} ProfileFields a whole-repo checker's, its faults
  *   attributed to the commit that adds them
  * @property {string} staged a path whose staging arms it
@@ -138,6 +143,19 @@ const GATES = [
 				"or AGENTS.md, refusing only one that adds a fault of its own",
 		},
 		floor: false,
+	},
+	/*
+	 * A session's commit on a declared sensitive path with no escalated review
+	 * of exactly its staged tree (#1622). The program owns its skips.
+	 */
+	{
+		id: "review-hold",
+		script: "scripts/review-hold-gate.js",
+		lander: "batch",
+		args: [],
+		arm: { always: true },
+		policy: "gate",
+		kind: "program",
 	},
 	/*
 	 * The roadmap HTML and its digest are only correct together; refuse the

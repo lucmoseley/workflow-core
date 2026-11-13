@@ -27,7 +27,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ledgerHead } from "./lib/arbiter-testkit";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { ENTRY_BUDGET_MS } from "./lib/hook-deadline.js";
-import { coreCall, HOOK } from "./lib/precommit-gate-testkit";
+import { GATES } from "./lib/precommit-gates.js";
 import { runHold } from "./lib/review-hold.js";
 import { buildHoldPorts } from "./lib/review-hold-host.js";
 import { reviewSuffix } from "./lib/review-suffix";
@@ -46,7 +46,6 @@ const BACKSTOP = path.resolve(__dirname, "concision-backstop.sh");
 const DISPATCH = path.resolve(__dirname, "guard-dispatch.js");
 const ARBITER = path.resolve(__dirname, "session-arbiter.js");
 const WRITE_MARKER = path.resolve(__dirname, "write-review-marker.js");
-const WIRING = `${coreCall("node", "scripts/review-hold-gate.js")} || exit "$?"`;
 const SID = "session-under-test";
 /** code-signal.sh's review floor: a change over it owes a review. */
 const CODE_THRESHOLD = readShellConst(
@@ -409,8 +408,14 @@ afterEach(() => {
 });
 
 describe("review-hold-gate.js — wiring", () => {
-	it("is wired into .husky/pre-commit, through the plugin root an adopter's shim sets", () => {
-		expect(HOOK.split("\n")).toContain(WIRING);
+	it("is a dispatcher program row, gating every commit", () => {
+		expect(
+			GATES.find((g) => g.script === "scripts/review-hold-gate.js"),
+		).toMatchObject({
+			kind: "program",
+			policy: "gate",
+			arm: { always: true },
+		});
 	});
 });
 

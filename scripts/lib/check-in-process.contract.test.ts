@@ -198,6 +198,13 @@ describe.each(GATES)("the $id dispatcher row", (row) => {
 			},
 		});
 		const file = path.join(SCRIPTS, path.basename(row.script));
+		/* A program row: its PROGRAM against its own process shell. */
+		if (row.kind === "program") {
+			const { PROGRAM } = require(file);
+			const env = { ...process.env, CLAUDE_PROJECT_DIR: repo };
+			expect(PROGRAM({ cwd: repo, env })).toEqual(spawned(file, [], repo));
+			return;
+		}
 		expect(
 			settled(
 				await inProcess(

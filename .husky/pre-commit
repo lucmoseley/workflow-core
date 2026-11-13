@@ -143,10 +143,6 @@ fi
 
 hook_bound "${WFC_GITLEAKS:-gitleaks}" git --staged --redact || exit 1
 
-# A session's commit on a declared sensitive path with no escalated review of
-# exactly its staged tree (#1622). The script owns its skips.
-node "${WFC_PLUGIN_ROOT:-.}"/scripts/review-hold-gate.js || exit "$?"
-
 # The roadmap HTML and its digest must agree on their version line (mantahostels#910).
 # The dispatcher's roadmap-pair row catches the half-staged PAIR; this catches
 # the pair staged together with drifted versions.

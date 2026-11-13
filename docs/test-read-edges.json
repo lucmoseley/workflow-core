@@ -741,7 +741,6 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-wait-alarm.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
-			"scripts/review-hold-gate.test.ts",
 			"scripts/session-arbiter.test.ts",
 			"scripts/session-checkout.test.ts",
 			"scripts/warm-caches-workflow.test.ts",
@@ -4375,6 +4374,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -4487,6 +4487,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -4542,6 +4543,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -4593,6 +4595,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -4626,6 +4629,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -4761,6 +4765,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -4943,6 +4948,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -4995,6 +5001,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -5046,6 +5053,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -5170,6 +5178,7 @@
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -5206,6 +5215,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -5239,6 +5249,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -5309,6 +5320,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts",
 			"scripts/worktree-transcript-readers.test.ts"
@@ -5343,6 +5355,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -5376,6 +5389,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -5623,6 +5637,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -5721,6 +5736,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -5772,6 +5788,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -5988,6 +6005,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -6021,6 +6039,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/status-report.test.ts",
 			"scripts/tooling-matrix.test.ts"
@@ -6055,6 +6074,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -6107,6 +6127,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -6176,6 +6197,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -6208,6 +6230,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -6298,6 +6321,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -6332,6 +6356,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -6485,6 +6510,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -6519,6 +6545,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -6780,6 +6807,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -6835,6 +6863,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -6942,6 +6971,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -6977,6 +7007,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -7032,6 +7063,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -7067,6 +7099,7 @@
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -13794,7 +13827,6 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/report-new-shared-faults-doc-map.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
-			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
 			"scripts/session-checkout-reap.test.ts",
@@ -15322,7 +15354,6 @@
 			"scripts/queue-wait-alarm.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
-			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
 			"scripts/session-checkout-reap.test.ts",
@@ -19769,7 +19800,6 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/report-new-shared-faults-doc-map.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
-			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
 			"scripts/session-checkout-reap.test.ts",
@@ -20647,6 +20677,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -21168,7 +21199,6 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/report-new-shared-faults-doc-map.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
-			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
 			"scripts/session-checkout-reap.test.ts",
@@ -21516,7 +21546,6 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/report-new-shared-faults-doc-map.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
-			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
 			"scripts/session-checkout-reap.test.ts",
@@ -23469,7 +23498,6 @@
 			"scripts/queue-wait-alarm.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
-			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
 			"scripts/session-checkout-reap.test.ts",
@@ -27849,7 +27877,6 @@
 			"scripts/queue-wait-alarm.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
-			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
 			"scripts/session-checkout-reap.test.ts",
@@ -31941,6 +31968,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -32104,7 +32132,6 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/report-new-shared-faults-doc-map.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
-			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
 			"scripts/session-checkout-reap.test.ts",
@@ -34544,7 +34571,6 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/report-new-shared-faults-doc-map.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
-			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
 			"scripts/session-checkout-reap.test.ts",
@@ -36731,7 +36757,6 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/report-new-shared-faults-doc-map.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
-			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
 			"scripts/session-checkout-reap.test.ts",
@@ -36800,6 +36825,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -42594,7 +42620,6 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/report-new-shared-faults-doc-map.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
-			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
 			"scripts/session-checkout-reap.test.ts",
@@ -47537,7 +47562,6 @@
 			"scripts/refill-panel-open.test.ts",
 			"scripts/report-new-shared-faults-doc-map.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
-			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
 			"scripts/session-checkout-reap.test.ts",
@@ -50911,17 +50935,31 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/review-hold-gate.js": [
+			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
+			"scripts/lib/check-in-process.contract.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/test-kind.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/precommit-ci-gates.test.ts",
+			"scripts/precommit-context-budget-gate.test.ts",
+			"scripts/precommit-dispatch.test.ts",
+			"scripts/precommit-gate-sets.test.ts",
+			"scripts/precommit-injector-margin-gate.test.ts",
+			"scripts/precommit-roadmap-valid-gate.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
+			"scripts/report-new-shared-faults.test.ts",
 			"scripts/review-hold-gate.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/review-hold-gate.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",

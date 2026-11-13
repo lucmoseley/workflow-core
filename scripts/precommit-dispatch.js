@@ -32,11 +32,17 @@ const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 /**
- * The runner one row names: a checker's exported SPEC, run in-process.
+ * The runner one row names, run in-process: a program's exported PROGRAM over
+ * the working directory, or a checker's exported SPEC.
  * @param {import("./lib/precommit-gates.js").PrecommitGate} row
  */
 function load(row) {
 	const script = fromCoreRoot(row.script);
+	if (row.kind === "program") {
+		const { PROGRAM } = require(script);
+		if (!PROGRAM) throw new Error(`${row.script} exports no PROGRAM.`);
+		return () => PROGRAM({ cwd: process.cwd(), env: process.env });
+	}
 	const { SPEC } = require(script);
 	if (!SPEC) throw new Error(`${row.script} exports no SPEC.`);
 	return () =>

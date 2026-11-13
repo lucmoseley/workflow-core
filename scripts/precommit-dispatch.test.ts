@@ -31,7 +31,7 @@ const temps = registerTempCleanup();
 const LINE = `${coreCall("node", "scripts/precommit-dispatch.js")} "$@" || exit "$?"`;
 
 /*
- * One stub per row: it logs its load, then acts as STUB_ACT names it —
+ * One stub per row, a checker and a program at once: it logs its load, then acts as STUB_ACT names it —
  * `fail` FAILs where the commit stages `red`, `broken` is BROKEN, `throw`
  * will not load, `signal` kills the process — else passes.
  */
@@ -55,7 +55,13 @@ const SPEC = {
 		return { okLine: id + " ok" };
 	},
 };
-module.exports = { SPEC };
+const PROGRAM = ({ cwd }) => {
+	if (act === "broken") return { exit: 2, stdout: "", stderr: id + " is broken\\n" };
+	if (act === "fail" && fs.existsSync(path.join(cwd, "red")))
+		return { exit: 1, stdout: "", stderr: id + " fault\\n" };
+	return { exit: 0, stdout: "", stderr: "" };
+};
+module.exports = { SPEC, PROGRAM };
 if (require.main === module) check.runCheck(SPEC);
 `;
 
@@ -183,6 +189,15 @@ describe("the hook's dispatcher line", () => {
 		expect(r.code).toBe(1);
 		expect(r.err).toContain(`${red} fault`);
 		expect(r.loaded).toEqual(ALL.slice(0, at + 1));
+	});
+
+	it("exits with a program row's own code, its report on stderr", () => {
+		const program = GATES.find((g) => g.kind === "program");
+		const id = path.basename(program?.script ?? "", ".js");
+		const r = hook({ ...SCRIPT, red: "x\n" }, { act: `${id}:fail` });
+		expect(r.code).toBe(1);
+		expect(r.err).toContain(`${id} fault`);
+		expect(r.loaded).toEqual(ALL.slice(0, ALL.indexOf(id) + 1));
 	});
 
 	it("exits 2 on a member's BROKEN", () => {
