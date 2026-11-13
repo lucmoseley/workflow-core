@@ -39,10 +39,16 @@ const { PATH_MAX, toPosix } = require("./read-audit-paths.js");
  */
 
 /**
- * An absolute path's real path, as first looked up, for a variable the
- * standing environment holds unchanged: its paths are looked up once until
- * the process links, moves or removes a path (#5050).
+ * An absolute path's real path, as first looked up, for a word the standing
+ * environment's value of a variable spells: it is looked up once until the
+ * process links, moves or removes a path (#5050, #5139).
  * @typedef {Map<string, string|null>} Settled
+ */
+
+/**
+ * The cache, and the absolute words of the variable's standing value: only
+ * those are answered from it.
+ * @typedef {{cache: Settled, words: Set<string>}} Settling
  */
 
 /* What ends a path inside a word. */
@@ -137,14 +143,15 @@ function buildHanded(root) {
 		/**
 		 * The repo-relative paths `word` names, spelt or resolved.
 		 * @param {string} word
-		 * @param {Settled} [settled] accumulator: where `word` is one whose
-		 *   absolute paths may be answered from an earlier lookup
+		 * @param {Settling} [settling] accumulator: its `cache`, where
+		 *   `word` is a variable's value whose standing words may be
+		 *   answered from an earlier lookup
 		 * @returns {string[]}
 		 */
-		return (word, settled) => {
+		return (word, settling) => {
 			const out = new Set(spelt(word));
 			for (const tried of candidates(word, gluedBy)) {
-				const real = realOfTried(cwd, tried, settled);
+				const real = realOfTried(cwd, tried, settling);
 				const r = real === null ? null : relOf(real);
 				if (r !== null) out.add(r);
 			}
@@ -152,22 +159,32 @@ function buildHanded(root) {
 		};
 	};
 	/**
-	 * `tried` read against `cwd` as `realOf` answers it, an absolute one off
-	 * `settled` where given.
+	 * `tried` read against `cwd` as `realOf` answers it, off `settling`
+	 * where its words hold it.
 	 * @param {string} cwd
 	 * @param {string} tried
-	 * @param {Settled} [settled] accumulator: filled with what is looked up
+	 * @param {Settling} [settling] accumulator: its `cache` filled with what
+	 *   is looked up
 	 */
-	const realOfTried = (cwd, tried, settled) => {
+	const realOfTried = (cwd, tried, settling) => {
 		const abs = path.resolve(cwd, tried);
-		if (settled && path.isAbsolute(tried)) {
-			if (!settled.has(abs)) settled.set(abs, realOf(abs, false));
-			return settled.get(abs) ?? null;
+		if (settling?.words.has(tried)) {
+			const { cache } = settling;
+			if (!cache.has(abs)) cache.set(abs, realOf(abs, false));
+			return cache.get(abs) ?? null;
 		}
 		const isBare = !tried.includes("/") && tried !== "." && tried !== "..";
 		return realOf(abs, isBare);
 	};
 	return { spelt, from };
+}
+
+/**
+ * The absolute paths `value` may name as a word, which a `Settling` answers.
+ * @param {string} value
+ */
+function absoluteWords(value) {
+	return new Set([...candidates(value, null)].filter(path.isAbsolute));
 }
 
 /**
@@ -211,4 +228,4 @@ function glued(piece, isHeld) {
 	return out;
 }
 
-module.exports = { buildHanded };
+module.exports = { absoluteWords, buildHanded };
