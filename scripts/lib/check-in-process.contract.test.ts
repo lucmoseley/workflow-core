@@ -198,11 +198,20 @@ describe.each(GATES)("the $id dispatcher row", (row) => {
 			},
 		});
 		const file = path.join(SCRIPTS, path.basename(row.script));
-		/* A program row: its PROGRAM against its own process shell. */
+		/* A program row: its PROGRAM against its own process shell, in the
+		 * fixture as the dispatcher runs it in the hook's repo. */
 		if (row.kind === "program") {
 			const { PROGRAM } = require(file);
-			const env = { ...process.env, CLAUDE_PROJECT_DIR: repo };
-			expect(PROGRAM({ cwd: repo, env })).toEqual(spawned(file, [], repo));
+			const was = process.cwd();
+			process.chdir(repo);
+			vi.stubEnv("CLAUDE_PROJECT_DIR", repo);
+			try {
+				expect(PROGRAM({ cwd: repo, env: process.env })).toEqual(
+					spawned(file, row.args, repo),
+				);
+			} finally {
+				process.chdir(was);
+			}
 			return;
 		}
 		expect(

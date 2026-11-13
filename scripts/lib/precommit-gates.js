@@ -145,6 +145,27 @@ const GATES = [
 		floor: false,
 	},
 	/*
+	 * docs/test-read-edges.json lets `--changed` select the tests that READ a
+	 * document rather than import it. It is derived from the test corpus, so a
+	 * commit adding or removing a runtime read makes it stale, and a stale
+	 * manifest fails silently: the test it forgot sits unrun behind a filtered
+	 * green (mantahostels#2031). Armed on test files and the manifest, not on
+	 * docs/: adding a document changes no edge until a test reads it. Neither
+	 * lander set runs it: each lander merge has just written the manifest with
+	 * this generator (lib/regenerated-files.js, #4573).
+	 */
+	{
+		id: "test-read-edges",
+		script: "scripts/generate-test-read-edges.js",
+		lander: "none",
+		args: ["--check"],
+		arm: {
+			pattern: new RegExp(String.raw`${JS_TEST}|^docs/test-read-edges\.json$`),
+		},
+		policy: "gate",
+		kind: "program",
+	},
+	/*
 	 * A session's commit on a declared sensitive path with no escalated review
 	 * of exactly its staged tree (#1622). The program owns its skips.
 	 */
@@ -289,6 +310,61 @@ const GATES = [
 		},
 		policy: "gate",
 		kind: "checker",
+	},
+	/*
+	 * hooks/hooks.json is the plugin's copy of the self-plugin's hooks, so an
+	 * edit there without a re-render ships adopters the old hook set (#4,
+	 * #2441). Any script too: one that gains or loses a deny moves its
+	 * onFailure (#2670).
+	 */
+	{
+		id: "plugin-hooks",
+		script: "scripts/generate-plugin-hooks.js",
+		lander: "batch",
+		args: ["--check"],
+		arm: {
+			pattern:
+				/^(self-plugin\/hooks\/hooks\.json|hooks\/hooks\.json|scripts\/[^/]+|scripts\/lib\/(core-hooks|deny-capable|guard-fires)\.js)$/,
+		},
+		policy: "gate",
+		kind: "program",
+	},
+	/*
+	 * docs/agents/rules/<id>.txt is rendered from an anchor pair in the
+	 * document that authors the rule, so an edit inside those anchors makes the
+	 * fragment stale, and the guard delivers a rule the document no longer says
+	 * (mantahostels#2493). Armed on the generator's own source list (#3118) and
+	 * on the generated files; never on scripts/: the generator's own edits are
+	 * caught when it is re-run.
+	 */
+	{
+		id: "rule-fragments",
+		script: "scripts/generate-rule-fragments.js",
+		lander: "batch",
+		args: ["--check"],
+		arm: {
+			pattern: /^docs\/agents\/rules\//,
+			computed: "rule-fragment-sources",
+		},
+		policy: "gate",
+		kind: "program",
+	},
+	/*
+	 * The effort guide's routing block is rendered from the routing file, so
+	 * an edit to either, or to the generator, without a re-render leaves the
+	 * guide disagreeing with what the code routes (#5033).
+	 */
+	{
+		id: "effort-guide-routing",
+		script: "scripts/generate-effort-guide-routing.js",
+		lander: "batch",
+		args: ["--check"],
+		arm: {
+			pattern:
+				/^(docs\/effort-guide\.md|scripts\/lib\/model-routing\.json|scripts\/generate-effort-guide-routing\.js|scripts\/lib\/model-table\.js)$/,
+		},
+		policy: "gate",
+		kind: "program",
 	},
 	/*
 	 * A scripts/ test that spawns a guard sourcing lib/guard-log.sh must

@@ -133,9 +133,8 @@
 			"lines": [
 				{
 					"text": "generate-rule-fragments: ",
-					"sites": 5
-				},
-				"could not list its sources, so the rule-fragment gate refused the commit."
+					"sites": 4
+				}
 			]
 		},
 		{

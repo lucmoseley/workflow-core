@@ -12,10 +12,9 @@
  * plugin, the needle corpus and doc-map's section-reference check; tighten it
  * and tests ship to adopters (#2759). Loosen siblingTests and a host guard
  * with no test passes the registry checks; tighten it and one tested by a
- * form the suite collects is refused as untested (#3170). Drift
- * .husky/pre-commit's JS_TEST_ERE from JS_TEST_FILE, or a test-file gate from
- * JS_TEST_ERE, and a commit staging only a `.spec.` or `.mjs` test skips the
- * gates that read it (#3170, #3387). Drift vitest.config.ts's include from
+ * form the suite collects is refused as untested (#3170). Drift a
+ * test-file pre-commit row's arm from JS_TEST_FILE, and a commit staging only a
+ * `.spec.` or `.mjs` test skips the gates that read it (#3170, #3387). Drift vitest.config.ts's include from
  * JS_TEST_FILE and every reader of JS_TEST_FILE calls a file a test the suite
  * never runs, or misses one it does (#3743). Drift .sonarcloud.properties from
  * them and Sonar judges a test as source (#3810). Set pytest.ini's python_files
@@ -24,11 +23,9 @@
  * its Python half built from those globs, while the two disagree (#3849).
  */
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { LANDER_SKIP } from "./precommit-gate-harness";
 import { GATES } from "./precommit-gates.js";
 import {
 	buildInfixTestName,
@@ -305,73 +302,23 @@ describe("JS_TEST_FILE against vitest.config.ts", () => {
 	});
 });
 
-/* grep's ERE has no non-capturing group. */
-const JS_TEST_ERE = JS_TEST_FILE.source.replaceAll("(?:", "(");
-
-describe("JS_TEST_FILE in grep's ERE", () => {
-	it("is JS_TEST_FILE to grep -E, path for path", () => {
-		const paths = [
-			...siblingTests("scripts/a"),
-			"scripts/a.js",
-			"scripts/a.test.tsy",
-			"scripts/a.tests.ts",
-			"scripts/a.test.ts.bak",
-			"scripts/atest.ts",
-		];
-		let matched = "";
-		try {
-			matched = execFileSync("grep", ["-E", "-e", JS_TEST_ERE], {
-				input: `${paths.join("\n")}\n`,
-				encoding: "utf8",
-			});
-		} catch {
-			/* grep exits 1 where nothing matches. */
-		}
-		expect(matched.split("\n").filter(Boolean)).toEqual(
-			paths.filter((p) => JS_TEST_FILE.test(p)),
-		);
-	});
-
-	const hook = () =>
-		fs.readFileSync(
-			path.resolve(__dirname, "..", "..", ".husky", "pre-commit"),
-			"utf8",
-		);
-
-	it("is .husky/pre-commit's JS_TEST_ERE, set once", () => {
-		expect(
-			hook()
-				.split("\n")
-				.filter((line) => /^\s*(?:export\s+)?JS_TEST_ERE=/.test(line)),
-		).toEqual([`JS_TEST_ERE='${JS_TEST_ERE}'`]);
-	});
-
+describe("JS_TEST_FILE in the pre-commit rows", () => {
 	it.each([
-		["check-guard-test-isolation", "^scripts/.*$JS_TEST_ERE"],
-		["check-host-root-test-isolation", "^scripts/.*$JS_TEST_ERE"],
-		["check-git-fixture-identity", "^scripts/.*$JS_TEST_ERE"],
-		["check-test-env-writes", "$JS_TEST_ERE"],
-		["generate-test-read-edges", "$JS_TEST_ERE"],
-		["check-test-spawn", String.raw`^(scripts|\.claude/skills)/.*$JS_TEST_ERE`],
+		["check-guard-test-isolation", "scripts"],
+		["check-host-root-test-isolation", "scripts"],
+		["check-git-fixture-identity", "scripts"],
+		["check-test-env-writes", "scripts"],
+		["generate-test-read-edges", "scripts"],
+		["check-test-spawn", ".claude/skills/x"],
 	])(
-		"opens .husky/pre-commit's %s gate on every test file vitest collects",
-		(checker, opening) => {
-			/* A registry gate arms on its row's pattern, built on JS_TEST_FILE
-			 * itself (#5172). */
+		"arms the %s row on every test file vitest collects under %s",
+		(checker, root) => {
 			const row = GATES.find((g) => g.script === `scripts/${checker}.js`);
-			if (row) {
-				const root = opening.startsWith("^(") ? ".claude/skills/x" : "scripts";
-				for (const p of siblingTests(`${root}/a`).filter(isJsTestFile))
-					expect("pattern" in row.arm && row.arm.pattern.test(p), p).toBe(true);
-				return;
-			}
-			const arm = hook().match(
-				new RegExp(
-					String.raw`^if ${LANDER_SKIP}armed "([^"]*)"; then\n\s*node \S*${checker}\.js`,
-					"m",
-				),
-			)?.[1];
-			expect(arm?.split("|^")[0]).toBe(opening);
+			expect(row).toBeDefined();
+			for (const p of siblingTests(`${root}/a`).filter(isJsTestFile))
+				expect(row && "pattern" in row.arm && row.arm.pattern.test(p), p).toBe(
+					true,
+				);
 		},
 	);
 });

@@ -3,8 +3,7 @@
  * Pins the queue lander's two pre-commit gate sets (#4545): `--gates=merge`
  * runs only the merge set, `--gates=batch` every gate bar one the lander's
  * Actions run repeats or a lander merge renders, and no argument every gate.
- * The parse, the dispatcher line, the test-read-edges gate, the merge set's
- * exit and two later gates — swallowed-errors, which Actions repeats, and
+ * The parse, the dispatcher line, the merge set's exit and two later gates — swallowed-errors, which Actions repeats, and
  * injector-margin, which it does not — are cut from the real hook and run over
  * stub scripts; the dispatcher's own lander sets are
  * scripts/precommit-dispatch.test.ts's. A last case maps every gate the batch
@@ -34,17 +33,14 @@ const temps = registerTempCleanup();
 const DISPATCH = "scripts/precommit-dispatch.js";
 const CHECKERS = [
 	DISPATCH,
-	"scripts/generate-test-read-edges.js --check",
 	"scripts/check-injector-margin.js --index",
 	"scripts/check-swallowed-errors.js",
 ];
 
 const SCRIPT = [
 	LIB,
-	"JS_TEST_ERE='\\.(test|spec)\\.[cm]?[jt]sx?$'",
 	cutHookBlock("wfc_gates=all", "esac"),
 	cutHookBlock(`node "\${WFC_PLUGIN_ROOT:-.}"/${DISPATCH}`, ""),
-	cutGateFragment("scripts/generate-test-read-edges.js"),
 	cutHookBlock('if [ "$wfc_gates" = merge ]; then', "fi"),
 	cutGateFragment("scripts/check-injector-margin.js"),
 	cutGateFragment("scripts/check-swallowed-errors.js"),
@@ -62,7 +58,6 @@ function run(...args: string[]): { code: number; ran: string[] } {
 			CHECKERS.map((c) => c.split(" ")[0] ?? c).map((c) => [c, stub(c)]),
 		),
 		{
-			"scripts/a.test.ts": "x\n",
 			"scripts/lib/tracker-inject-text.js": "x\n",
 			"scripts/a.py": "x\n",
 		},
@@ -86,7 +81,7 @@ describe("the pre-commit gate sets", () => {
 		expect(run()).toEqual({ code: 0, ran: CHECKERS });
 	});
 
-	it("runs only the dispatcher's merge set on a lander merge, which has just rendered the test-read-edges manifest (#4573)", () => {
+	it("runs only the dispatcher's merge set on a lander merge (#4573)", () => {
 		expect(run("--gates=merge")).toEqual({
 			code: 0,
 			ran: [`${DISPATCH} --gates=merge`],
@@ -157,17 +152,21 @@ it("skips on the batch only gates a workflow on a lander push repeats, or the me
 				const Lookup = "scripts/lib/workflow-core-config.js";
 				return named.find((n) => n !== Lookup) ?? named[0] ?? body;
 			});
-	/* A dispatcher row the batch set skips: its lander is `merge` or `none`. */
+	const rendered = [...REGENERATED_FILES.values()].map((r) => r.generator);
+	/* A dispatcher row the batch set skips: its lander is `merge` or `none`,
+	 * a rendered manifest's generator aside. */
 	const rows = GATES.filter(
-		(g) => g.lander === "merge" || g.lander === "none",
+		(g) =>
+			(g.lander === "merge" || g.lander === "none") &&
+			!rendered.includes(g.script),
 	).map((g) => g.script);
 	expect([...skipped("lander_batch"), ...rows].sort()).toEqual(
 		Object.keys(REPEATED_BY).sort(),
 	);
 	for (const [gate, step] of Object.entries(REPEATED_BY))
 		if (step !== null) expect(workflows, gate).toContain(step);
-	const rendered = [...REGENERATED_FILES.values()].map((r) => r.generator);
-	const neither = skipped("lander_set");
+	/* Neither set runs a rendered manifest's generator. */
+	const neither = GATES.filter((g) => rendered.includes(g.script));
 	expect(neither.length).toBeGreaterThan(0);
-	for (const gate of neither) expect(rendered).toContain(gate);
+	for (const g of neither) expect(g.lander, g.id).toBe("none");
 });

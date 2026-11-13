@@ -161,9 +161,9 @@ describe("the hook's dispatcher line", () => {
 	});
 
 	it("arms a computed row on the pool the host config declares", () => {
-		const pooled = GATES.filter((g) => "computed" in g.arm).map((g) =>
-			path.basename(g.script, ".js"),
-		);
+		const pooled = GATES.filter(
+			(g) => "computed" in g.arm && g.arm.computed === "always-loaded-pool",
+		).map((g) => path.basename(g.script, ".js"));
 		const r = hook(
 			{ "STYLE.md": "x\n" },
 			{ config: { alwaysLoaded: ["STYLE.md"] } },
@@ -174,6 +174,16 @@ describe("the hook's dispatcher line", () => {
 			...armedBy("STYLE.md", ["every", "merge", "batch", "none"]),
 			...pooled,
 		]);
+	});
+
+	it("arms the rule-fragments row on a source its generator scans", () => {
+		const source = "docs/agents/issue-tracker.md";
+		const r = hook({ [source]: "x\n" });
+		expect(r.code).toBe(0);
+		expect(r.loaded).toContain("generate-rule-fragments");
+		expect(armedBy(source, ["every", "merge", "batch", "none"])).not.toContain(
+			"generate-rule-fragments",
+		);
 	});
 
 	it("exits 1 on a member's FAIL, its report on stderr, and loads nothing after", () => {
@@ -192,8 +202,12 @@ describe("the hook's dispatcher line", () => {
 	});
 
 	it("exits with a program row's own code, its report on stderr", () => {
-		const program = GATES.find((g) => g.kind === "program");
-		const id = path.basename(program?.script ?? "", ".js");
+		const id =
+			ALL.find((n) =>
+				GATES.some(
+					(g) => g.kind === "program" && g.script === `scripts/${n}.js`,
+				),
+			) ?? "";
 		const r = hook({ ...SCRIPT, red: "x\n" }, { act: `${id}:fail` });
 		expect(r.code).toBe(1);
 		expect(r.err).toContain(`${id} fault`);

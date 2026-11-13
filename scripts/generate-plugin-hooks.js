@@ -28,7 +28,7 @@
 
 const fs = require("node:fs");
 const os = require("node:os");
-const { writeFd } = require("./lib/write-fd.js");
+const { capture, writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { worktreeRoot } = require("./lib/host-root.js");
@@ -72,9 +72,10 @@ const failClosedAt = (root) =>
  * --check over `tree`: 0 where its hooks/hooks.json is the render of its
  * self-plugin file, 1 naming each fault where not.
  * @param {string} tree
+ * @param {import("./lib/write-fd.js").Write} write
  * @returns {number}
  */
-function checkAt(tree) {
+function checkAt(tree, write) {
 	const { drift } = failClosedAt(tree);
 	/* The committed source, not the fixed one writeAt renders. */
 	const rendered = renderAt(tree);
@@ -88,7 +89,7 @@ function checkAt(tree) {
 	if (current !== rendered)
 		faults.push(`generate-plugin-hooks: ${OUT} is stale\n`);
 	if (faults.length === 0) return 0;
-	writeFd(
+	write(
 		2,
 		`${faults.join("")}generate-plugin-hooks: run node ${scriptPath("generate-plugin-hooks.js")}, then stage ${OUT} and ${SELF_PLUGIN_HOOKS} with this commit\n`,
 	);
@@ -97,19 +98,20 @@ function checkAt(tree) {
 
 /**
  * `checkAt` over the index of the repo git finds from the working directory.
+ * @param {import("./lib/write-fd.js").Write} write
  * @returns {number}
  */
-function checkIndex() {
+function checkIndex(write) {
 	const work = fs.mkdtempSync(path.join(os.tmpdir(), "plugin-hooks-check-"));
 	try {
 		const tree = path.join(work, "tree");
 		fs.mkdirSync(tree);
 		extractTree(indexTree(path.join(work, "index")), tree);
 		if (!shipsPlugin(tree)) {
-			writeFd(2, SKIP);
+			write(2, SKIP);
 			return 0;
 		}
-		return checkAt(tree);
+		return checkAt(tree, write);
 	} finally {
 		fs.rmSync(work, { recursive: true, force: true });
 	}
@@ -143,16 +145,38 @@ function writeAt(root) {
 	return 0;
 }
 
+/**
+ * `run`, a throw from it said on fd 2 and exit 2.
+ * @param {import("./lib/write-fd.js").Write} write
+ * @param {() => number} run
+ * @returns {number}
+ */
+function brokenOnThrow(write, run) {
+	try {
+		return run();
+	} catch (err) {
+		write(2, `generate-plugin-hooks: ${caught(err).message}\n`);
+		return 2;
+	}
+}
+
+/**
+ * The --check run over the index of the working directory's repo, as the
+ * pre-commit dispatcher runs it in its own process (#5172).
+ * @type {import("./lib/precommit-gates.js").Program}
+ */
+const PROGRAM = () =>
+	capture((write) => brokenOnThrow(write, () => checkIndex(write)));
+
 function main() {
 	const check = Boolean(
 		parseOrExit(process.argv.slice(2), CLI).flags["--check"],
 	);
-	try {
-		return check ? checkIndex() : writeAt(worktreeRoot());
-	} catch (err) {
-		writeFd(2, `generate-plugin-hooks: ${caught(err).message}\n`);
-		return 2;
-	}
+	return brokenOnThrow(writeFd, () =>
+		check ? checkIndex(writeFd) : writeAt(worktreeRoot()),
+	);
 }
+
+module.exports = { PROGRAM };
 
 if (require.main === module) process.exit(main());

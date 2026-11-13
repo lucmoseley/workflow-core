@@ -29,9 +29,6 @@
  * rule bind. The trigger is never inferred from the anchor: an anchored id
  * with no TRIGGERS row refuses.
  *
- * --sources prints the documents scanned, one a line, so `.husky/pre-commit`
- * arms `--check` on this list rather than a copy of it (#3118).
- *
  * EXIT CODES: 0 wrote (or, under --check, everything matches); 1 a fault —
  * an unpaired anchor, an empty region, an id the grammar refuses, an id with
  * no TRIGGERS row, a span unpaired, nested, empty or outside a region, or
@@ -39,7 +36,7 @@
  */
 
 const fs = require("node:fs");
-const { writeFd } = require("./lib/write-fd.js");
+const { capture, writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { parseOrExit } = require("./lib/cli-args");
 const { worktreeRoot } = require("./lib/host-root.js");
@@ -52,21 +49,23 @@ const { scriptPath } = require("./lib/script-path.js");
  * session's own tree (#1, #4438): a plugin install keeps this script beside
  * the core's own files, but `docs/agents/rules` lives in the repository being
  * worked on. */
-const ROOT = worktreeRoot();
-const STORE = path.join(ROOT, "docs", "agents", "rules");
+/** @param {string} root */
+const storeOf = (root) => path.join(root, "docs", "agents", "rules");
 /* The host's store, never rule-text's store in force: that falls back to the
  * core's own where the host has none, and a write there from an adopter
  * would overwrite the core's manifest. */
-const MANIFEST = path.join(
-	STORE,
-	path.basename(require("./lib/rule-text").manifestPath()),
-);
+/** @param {string} root */
+const manifestOf = (root) =>
+	path.join(
+		storeOf(root),
+		path.basename(require("./lib/rule-text").manifestPath()),
+	);
 
 /* The documents scanned for anchors, and the trigger each anchored id binds
  * at. One table, not a per-document one: an id is unique across the store, so
  * a second table would only let two documents claim the same id. Repo-relative
- * with `/`, as git names a staged path: `--sources` hands them to the hook's
- * `armed -F`. */
+ * with `/`, as git names a staged path: the pre-commit dispatcher arms
+ * `--check` on this list rather than a copy of it (#3118). */
 const SOURCES = [
 	"docs/agents/triage-labels.md",
 	"docs/agents/issue-tracker.md",
@@ -170,11 +169,12 @@ const HAS_SPAN = new RegExp(SPAN_RE.source);
 
 /**
  * Every anchored region in one document. Throws on a fault.
+ * @param {string} root
  * @param {string} relPath
  * @returns {{ id: string, text: string, source: string }[]}
  */
-function readRegionsIn(relPath) {
-	const lines = fs.readFileSync(path.join(ROOT, relPath), "utf8").split("\n");
+function readRegionsIn(root, relPath) {
+	const lines = fs.readFileSync(path.join(root, relPath), "utf8").split("\n");
 	/** @type {RegionScan} */
 	const scan = { source: relPath, open: null, body: [], out: [] };
 	lines.forEach((line, i) => {
@@ -303,23 +303,25 @@ function closeSpan(open, id, body, at) {
 
 /**
  * Every anchored region across every source, id-collision checked.
+ * @param {string} root
+ * @param {import("./lib/write-fd.js").Write} write
  * @returns {{ id: string, text: string, source: string }[]}
  */
-function collect() {
+function collect(root, write) {
 	/** @type {Map<string, { id: string, text: string, source: string }>} */
 	const seen = new Map();
 	for (const src of SOURCES) {
 		/* An adopter need not carry every source — fantasy-books has no
 		 * triage-labels.md — so an absent one anchors nothing. Said aloud, since
 		 * a silent skip would also hide a source renamed out from under the list. */
-		if (!fs.existsSync(path.join(ROOT, src))) {
-			writeFd(
+		if (!fs.existsSync(path.join(root, src))) {
+			write(
 				1,
 				`generate-rule-fragments: SKIP ${src} (absent — anchors nothing)\n`,
 			);
 			continue;
 		}
-		for (const r of readRegionsIn(src)) {
+		for (const r of readRegionsIn(root, src)) {
 			const prior = seen.get(r.id);
 			if (prior)
 				throw new Error(
@@ -327,7 +329,7 @@ function collect() {
 				);
 			if (!TRIGGERS[r.id])
 				throw new Error(
-					`rule:${r.id} is anchored in ${r.source} but names no trigger — add a TRIGGERS row in ${path.relative(ROOT, __filename)}`,
+					`rule:${r.id} is anchored in ${r.source} but names no trigger — add a TRIGGERS row in ${path.relative(root, __filename)}`,
 				);
 			seen.set(r.id, r);
 		}
@@ -358,15 +360,18 @@ const manifestFor = (regions) =>
 /**
  * The generated files out of step with `regions`, repo-relative; each is
  * rewritten unless `check`.
+ * @param {string} root
  * @param {{ id: string, text: string, source: string }[]} regions
  * @param {boolean} check
  * @returns {string[]}
  */
-function reconcile(regions, check) {
+function reconcile(root, regions, check) {
+	const store = storeOf(root);
+	const manifest = manifestOf(root);
 	const want = new Map(
-		regions.map((r) => [path.join(STORE, `${r.id}.txt`), r.text]),
+		regions.map((r) => [path.join(store, `${r.id}.txt`), r.text]),
 	);
-	want.set(MANIFEST, manifestFor(regions));
+	want.set(manifest, manifestFor(regions));
 
 	const stale = [];
 	for (const [file, text] of want) {
@@ -376,50 +381,49 @@ function reconcile(regions, check) {
 		 * a fragment stale — comparing them would refuse a commit over bytes no
 		 * reader ever sees. The manifest is JSON and compared whole. */
 		const same =
-			file === MANIFEST
+			file === manifest
 				? on === text
 				: on !== null && trimEndRun(on, "\n") === trimEndRun(text, "\n");
 		if (same) continue;
-		stale.push(path.relative(ROOT, file));
+		stale.push(path.relative(root, file));
 		if (check) continue;
-		fs.mkdirSync(STORE, { recursive: true });
+		fs.mkdirSync(store, { recursive: true });
 		fs.writeFileSync(file, text);
 	}
 	return stale;
 }
 
-const USAGE = `usage: node ${scriptPath("generate-rule-fragments.js")} [--check | --sources]`;
+const USAGE = `usage: node ${scriptPath("generate-rule-fragments.js")} [--check]`;
 
 /** @param {string[]} argv */
 function main(argv) {
 	const { flags } = parseOrExit(argv, {
 		usage: USAGE,
-		flags: { "--check": "boolean", "--sources": "boolean" },
+		flags: { "--check": "boolean" },
 	});
-	if (flags["--sources"] === true && flags["--check"] === true) {
-		writeFd(
-			2,
-			`generate-rule-fragments: --check and --sources are exclusive\n${USAGE}\n`,
-		);
-		return 2;
-	}
-	if (flags["--sources"] === true) {
-		writeFd(1, SOURCES.map((s) => `${s}\n`).join(""));
-		return 0;
-	}
-	const check = flags["--check"] === true;
+	return render(worktreeRoot(), flags["--check"] === true, writeFd);
+}
+
+/**
+ * Renders `root`'s fragments and manifest, or with `check` names the stale.
+ * @param {string} root
+ * @param {boolean} check
+ * @param {import("./lib/write-fd.js").Write} write
+ * @returns {number}
+ */
+function render(root, check, write) {
 	/** @type {{ id: string, text: string, source: string }[]} */
 	let regions;
 	try {
-		regions = collect();
+		regions = collect(root, write);
 	} catch (e) {
-		writeFd(2, `generate-rule-fragments: ${caught(e).message}\n`);
+		write(2, `generate-rule-fragments: ${caught(e).message}\n`);
 		return 1;
 	}
 
-	const stale = reconcile(regions, check);
+	const stale = reconcile(root, regions, check);
 	if (check && stale.length > 0) {
-		writeFd(
+		write(
 			2,
 			`generate-rule-fragments: ${stale.length} generated file(s) out of step with their anchored source:\n` +
 				stale.map((f) => `  ${f}\n`).join("") +
@@ -428,8 +432,17 @@ function main(argv) {
 		return 1;
 	}
 	if (!check && stale.length > 0)
-		writeFd(1, `generate-rule-fragments: wrote ${stale.join(", ")}\n`);
+		write(1, `generate-rule-fragments: wrote ${stale.join(", ")}\n`);
 	return 0;
 }
+
+/**
+ * The --check run over the repo at `cwd`, as the pre-commit dispatcher runs
+ * it in its own process (#5172).
+ * @type {import("./lib/precommit-gates.js").Program}
+ */
+const PROGRAM = ({ cwd }) => capture((write) => render(cwd, true, write));
+
+module.exports = { PROGRAM, SOURCES };
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));

@@ -31,7 +31,9 @@
  */
 
 const fs = require("node:fs");
-const { writeFd } = require("./lib/write-fd.js");
+const { capture, writeFd } = require("./lib/write-fd.js");
+
+/** @typedef {import("./lib/write-fd.js").Write} Write */
 const path = require("node:path");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { gitList } = require("./lib/test-read-edges.js");
@@ -89,9 +91,10 @@ function readDirtyContributors(root, read) {
  * changes against HEAD, or the whole index before the first commit.
  * @param {string} root
  * @param {string[] | undefined} only
+ * @param {Write} write
  * @returns {Set<string>}
  */
-function readCommittedFiles(root, only) {
+function readCommittedFiles(root, only, write) {
 	if (only) return new Set(only);
 	try {
 		return new Set(
@@ -104,7 +107,7 @@ function readCommittedFiles(root, only) {
 		);
 	} catch (e) {
 		/* Fails open (#1881), said, so a silence is not read as a clean commit. */
-		writeFd(
+		write(
 			2,
 			`${OUT}: unseen-read warning skipped, git could not list the commit's files: ${e instanceof Error ? e.message : e}\n`,
 		);
@@ -208,13 +211,14 @@ function listUnseen(root, narrowed) {
  * @param {string} root
  * @param {string[] | undefined} only
  * @param {Record<string, import("./lib/test-read-edges.js").Site[]>} unseen
+ * @param {Write} write
  * @returns {void}
  */
-function warnUnseen(root, only, unseen) {
-	const committed = readCommittedFiles(root, only);
+function warnUnseen(root, only, unseen, write) {
+	const committed = readCommittedFiles(root, only, write);
 	const lines = buildSiteLines(unseen, (f) => committed.has(f));
 	if (lines.length === 0) return;
-	writeFd(
+	write(
 		2,
 		`${OUT}: warning: ${lines.length} read(s) in this commit's tests the diff selector cannot attribute, so a change to what they read never selects them:\n` +
 			lines.map((l) => `  ${l}\n`).join("") +
@@ -260,35 +264,49 @@ function main(argv = process.argv.slice(2)) {
 	const opts = parseArgs(argv);
 	if (typeof opts === "number") return opts;
 	const { root, check, only } = opts;
-	const target = path.join(root, OUT);
 	if (opts.unseen) return listUnseen(root, check || Boolean(only));
-	if (check && !hasManifest(root, only)) return 0;
-	const { text, edges, anchored, tests, read, tree, warnings, unseen } = render(
-		root,
-		{ index: check, only, sites: check },
-	);
+	if (check) return checkAt(root, only, writeFd);
+	const { text, edges, anchored, tests, read, warnings } = render(root, {
+		index: false,
+		only,
+		sites: false,
+	});
 	/* An unresolved `source` is an edge this manifest cannot carry (#657). */
 	for (const w of warnings) writeFd(2, `${OUT}: warning: ${w}\n`);
-
-	if (!check) {
-		fs.writeFileSync(target, text);
+	fs.writeFileSync(path.join(root, OUT), text);
+	writeFd(
+		1,
+		`${OUT}: ${Object.keys(edges).length} file(s) read by ${anchored} of ${tests} test file(s)\n`,
+	);
+	const dirty = readDirtyContributors(root, read);
+	if (dirty.length > 0)
 		writeFd(
-			1,
-			`${OUT}: ${Object.keys(edges).length} file(s) read by ${anchored} of ${tests} test file(s)\n`,
+			2,
+			`${OUT}: ${dirty.length} file(s) this render used are uncommitted right now — ` +
+				"this write may have read a neighbour's in-progress edit (mantahostels#2270). " +
+				"Re-run once the tree is still:\n" +
+				dirty.map((f) => `  ${f}\n`).join(""),
 		);
-		const dirty = readDirtyContributors(root, read);
-		if (dirty.length > 0)
-			writeFd(
-				2,
-				`${OUT}: ${dirty.length} file(s) this render used are uncommitted right now — ` +
-					"this write may have read a neighbour's in-progress edit (mantahostels#2270). " +
-					"Re-run once the tree is still:\n" +
-					dirty.map((f) => `  ${f}\n`).join(""),
-			);
-		return 0;
-	}
+	return 0;
+}
 
-	warnUnseen(root, only, unseen);
+/**
+ * --check: 0 where the manifest the index carries is the render of the
+ * index, 1 naming each file whose reader set moved where not.
+ * @param {string} root
+ * @param {string[] | undefined} only
+ * @param {Write} write
+ * @returns {number}
+ */
+function checkAt(root, only, write) {
+	if (!hasManifest(root, only)) return 0;
+	const { text, edges, tree, warnings, unseen } = render(root, {
+		index: true,
+		only,
+		sites: true,
+	});
+	for (const w of warnings) write(2, `${OUT}: warning: ${w}\n`);
+	warnUnseen(root, only, unseen, write);
 
 	/* The manifest the commit carries, not the one on disk. */
 	const have = tree.tracked.has(OUT) ? tree.read(OUT) : "";
@@ -301,7 +319,7 @@ function main(argv = process.argv.slice(2)) {
 	const moved = [...keys]
 		.filter((k) => (before[k] ?? []).join("\n") !== (edges[k] ?? []).join("\n"))
 		.sort();
-	writeFd(
+	write(
 		2,
 		`${OUT} is stale — ${moved.length} file(s) changed their reader set:\n` +
 			`${moved
@@ -317,6 +335,13 @@ function main(argv = process.argv.slice(2)) {
 	return 1;
 }
 
+/**
+ * The --check run over the repo at `cwd`, as the pre-commit dispatcher runs
+ * it in its own process (#5172).
+ * @type {import("./lib/precommit-gates.js").Program}
+ */
+const PROGRAM = ({ cwd }) => capture((write) => checkAt(cwd, undefined, write));
+
 if (require.main === module) process.exit(main());
 
-module.exports = { main };
+module.exports = { main, PROGRAM };

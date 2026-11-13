@@ -31,6 +31,7 @@ const {
 } = require("./lib/model-table.js");
 const { claimDataFile } = require("./lib/doc-map-generator");
 const { caught } = require("./lib/caught.js");
+const { capture, writeFd } = require("./lib/write-fd.js");
 
 const DEFAULT_GUIDE = "docs/effort-guide.md";
 const BEGIN =
@@ -100,44 +101,71 @@ function main(argv) {
 	});
 	const guide =
 		flagValue(flags, "--guide") ?? path.join(worktreeRoot(), DEFAULT_GUIDE);
+	return render(
+		guide,
+		{ check: flags["--check"] === true, claim: flags["--no-claim"] !== true },
+		writeFd,
+	);
+}
+
+/**
+ * Renders `guide`'s routing block, or with `check` compares it.
+ * @param {string} guide
+ * @param {{ check: boolean, claim: boolean }} opts
+ * @param {import("./lib/write-fd.js").Write} write
+ * @returns {number}
+ */
+function render(guide, { check, claim }, write) {
 	let text;
 	let block;
 	try {
 		text = fs.readFileSync(guide, "utf8");
 		block = renderBlock();
 	} catch (e) {
-		console.error(`generate-effort-guide-routing: ${caught(e).message}`);
+		write(2, `generate-effort-guide-routing: ${caught(e).message}\n`);
 		return 2;
 	}
 	const rendered = renderGuide(text, block);
 	if (rendered === null) {
-		console.error(
-			`${guide} carries no routing:begin / routing:end marker pair. Nothing was written.`,
+		write(
+			2,
+			`${guide} carries no routing:begin / routing:end marker pair. Nothing was written.\n`,
 		);
 		return 2;
 	}
 	if (rendered === text) {
-		console.log(`${guide}'s routing block already matches ${routingPath()}.`);
+		write(1, `${guide}'s routing block already matches ${routingPath()}.\n`);
 		return 0;
 	}
-	if (flags["--check"] === true) {
-		console.error(
+	if (check) {
+		write(
+			2,
 			`${guide}'s routing block does not match ${routingPath()}. Regenerate it:\n` +
-				`  node ${scriptPath("generate-effort-guide-routing.js")}`,
+				`  node ${scriptPath("generate-effort-guide-routing.js")}\n`,
 		);
 		return 1;
 	}
-	if (flags["--no-claim"] !== true) claimDataFile(guide);
+	if (claim) claimDataFile(guide);
 	try {
 		fs.writeFileSync(guide, rendered);
 	} catch (e) {
-		console.error(`cannot write ${guide} — ${caught(e).message}`);
+		write(2, `cannot write ${guide} — ${caught(e).message}\n`);
 		return 2;
 	}
-	console.log(`rendered ${guide}'s routing block from ${routingPath()}.`);
+	write(1, `rendered ${guide}'s routing block from ${routingPath()}.\n`);
 	return 0;
 }
 
+/**
+ * The --check run over the guide of the repo at `cwd`, as the pre-commit
+ * dispatcher runs it in its own process (#5172).
+ * @type {import("./lib/precommit-gates.js").Program}
+ */
+const PROGRAM = ({ cwd }) =>
+	capture((write) =>
+		render(path.join(cwd, DEFAULT_GUIDE), { check: true, claim: false }, write),
+	);
+
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
-module.exports = { main };
+module.exports = { main, PROGRAM };

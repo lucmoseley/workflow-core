@@ -43,10 +43,9 @@ const HOOK = fs.readFileSync(path.join(ROOT, ".husky", "pre-commit"), "utf8");
  * A gate's opening line: `if armed …` (#1504), the shell gate's
  * `if armed_shell` (#1828), or the raw `if git diff --cached …` an adopter's
  * own gate may still spell, each after the `! lander_batch &&` of a gate the
- * lander's Actions run repeats (#4545) or the `! lander_set &&` of one no
- * lander set runs (#4573).
+ * lander's Actions run repeats (#4545).
  */
-const LANDER_SKIP = "(?:! lander_(?:batch|set) && )?";
+const LANDER_SKIP = "(?:! lander_batch && )?";
 const GATE_HEAD = new RegExp(
 	`^if ${LANDER_SKIP}(armed |armed_shell;|git diff --cached)`,
 );
@@ -133,17 +132,8 @@ const LIB = fs.readFileSync(
 );
 
 /**
- * The hook's own `JS_TEST_ERE=` line, which the test-file gates' arms expand:
- * without it `$JS_TEST_ERE` reads empty, so an arm of it alone arms nothing.
- * @param {string} hook
- * @returns {string}
- */
-const testEre = (hook) =>
-	hook.split("\n").find((l) => l.startsWith("JS_TEST_ERE=")) ?? "";
-
-/**
- * A gate as a RUNNABLE script: the shared library, the hook's `JS_TEST_ERE`,
- * then the `if armed … fi` block (mantahostels#1793).
+ * A gate as a RUNNABLE script: the shared library, then the `if armed … fi`
+ * block (mantahostels#1793).
  *
  * The hook sources the library by path, which a case cannot: the fragment runs
  * with a throwaway repo as its cwd, where scripts/lib does not exist. Inlining
@@ -157,7 +147,7 @@ const testEre = (hook) =>
  * @returns {string}
  */
 function cutGateScript(anchor, hook = HOOK) {
-	return `${LIB}\n\n${testEre(hook)}\n\n${cutGateFragment(anchor, hook)}`;
+	return `${LIB}\n\n${cutGateFragment(anchor, hook)}`;
 }
 
 /**
@@ -341,7 +331,6 @@ module.exports = {
 	expectFixtureSupplies,
 	gateHead,
 	gateTmpdir,
-	LANDER_SKIP,
 	newRepo,
 	registerTempCleanup,
 	stagedRepo,

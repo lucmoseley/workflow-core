@@ -171,6 +171,25 @@ describe("arming", () => {
 		expect((await run(rows, { dir: docs })).ran).toEqual(["budget"]);
 	});
 
+	it("rejects where a computed list cannot be read, so no row arms on a guess", async () => {
+		const dir = repo({}, { "a.txt": "a\n" });
+		await expect(
+			dispatch({
+				rows: [row("lister", { arm: { computed: "gone" } })],
+				gates: "all",
+				ports: {
+					staged: () => readStaged(dir),
+					computed: () => {
+						throw new Error("the lister is gone");
+					},
+					exists: existsUnder(dir),
+					load: () => () => ({ exit: 0, stdout: "", stderr: "" }),
+					write: () => undefined,
+				},
+			}),
+		).rejects.toThrow("the lister is gone");
+	});
+
 	it("narrows a live row to added or modified paths still on disk, as armed_live does", async () => {
 		const live = [row("wf", { arm: { pattern: /^wf\//, live: true } })];
 		const added = repo({}, { "wf/a.yml": "a\n" });

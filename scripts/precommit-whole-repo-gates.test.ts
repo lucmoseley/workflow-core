@@ -170,6 +170,10 @@ const HOOK_ERE: Record<string, string> = {
 	"scripts/check-vendored-skills.js": String.raw`^(\.agents/skills/|\.agents/vendored-skill-edits\.json$|skills-lock\.json$|\.claude/skills/THIRD-PARTY-NOTICES\.md$)`,
 	"scripts/check-hook-liveness.js": String.raw`^(self-plugin/hooks/hooks\.json$|\.claude/settings\.json$|scripts/)`,
 	"scripts/check-workflow-permissions.js": String.raw`^\.github/workflows/[^/]+\.ya?ml$`,
+	"scripts/generate-test-read-edges.js": String.raw`$JS_TEST_ERE|^docs/test-read-edges\.json$`,
+	"scripts/generate-plugin-hooks.js": String.raw`^(self-plugin/hooks/hooks\.json|hooks/hooks\.json|scripts/[^/]+|scripts/lib/(core-hooks|deny-capable|guard-fires)\.js)$`,
+	"scripts/generate-rule-fragments.js": "^docs/agents/rules/",
+	"scripts/generate-effort-guide-routing.js": String.raw`^(docs/effort-guide\.md|scripts/lib/model-routing\.json|scripts/generate-effort-guide-routing\.js|scripts/lib/model-table\.js)$`,
 	"scripts/check-context-budget.js": String.raw`^(CLAUDE\.md$|AGENTS\.md$|docs/|\.claude/|scripts/|self-plugin/)`,
 };
 
@@ -232,6 +236,16 @@ const PATHS = [
 	"app/page.tsx",
 	"lib/page.tsx",
 	"a.test.ts",
+	"docs/test-read-edges.json",
+	"hooks/hooks.json",
+	"scripts/lib/core-hooks.js",
+	"scripts/lib/guard-fires.js",
+	"scripts/lib/other.js",
+	"docs/agents/rules/x.txt",
+	"docs/agents/rules.md",
+	"docs/effort-guide.md",
+	"scripts/lib/model-routing.json",
+	"scripts/lib/model-table.js",
 ];
 
 describe("each row's arm, against the hook ERE it replaced", () => {

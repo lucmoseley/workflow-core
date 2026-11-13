@@ -33,10 +33,6 @@ unset WFC_TEST_STAMP WFC_MUTATION_STAMP
 
 PATH="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/node_modules/.bin:$PATH"
 
-# lib/test-kind.js's `JS_TEST_FILE` in grep's ERE, pinned equal to it by
-# test-kind.test.ts: the arm of every gate reading scripts/ test files.
-JS_TEST_ERE='\.(test|spec)\.[cm]?[jt]sx?$'
-
 # The shape the staged gates below share — the temp-dir lifecycle, the staging
 # of blobs out of the index, the skip line and the direction gate's exit-code
 # alphabet (mantahostels#1793). A git hook runs with the working tree's top as its cwd, and
@@ -88,20 +84,6 @@ esac
 # so `--gates=` selects the lander's sets there; a gate's red is its own exit
 # code. The registry row holds each gate's arm and why.
 node "${WFC_PLUGIN_ROOT:-.}"/scripts/precommit-dispatch.js "$@" || exit "$?"
-
-# docs/test-read-edges.json is what lets `--changed` select the tests that READ a
-# document rather than import it. It is derived from the test corpus, so a
-# commit adding or removing a runtime read makes it stale, and a stale manifest
-# fails silently in the only direction that matters: the test it forgot sits
-# unrun behind a filtered green indistinguishable from a real one (mantahostels#2031).
-#
-# Conditioned on test files and on the manifest itself. Deliberately NOT on
-# docs/: adding a document changes no edge until a test reads it. Neither
-# lander set runs it: each lander merge has just written the manifest with
-# this generator (lib/regenerated-files.js, #4573).
-if ! lander_set && armed "$JS_TEST_ERE|^docs/test-read-edges\.json\$"; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-test-read-edges.js --check || exit "$?"
-fi
 
 if [ "$wfc_gates" = merge ]; then
   exit 0
@@ -222,40 +204,6 @@ if armed '^skills-lock\.json$'; then
   staged_gate upstream-record live status \
     "opt:skills-lock.json opt:.claude/skills/THIRD-PARTY-NOTICES.md opt:.agents/vendored-upstream-pass.json opt:.agents/vendored-skill-edits.json" \
     'node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-vendored-skills.js --covered "$sg_dir"' ""
-fi
-
-# hooks/hooks.json is the plugin's copy of the self-plugin's hooks, so an edit
-# there without a re-render ships adopters the old hook set (#4, #2441). Any
-# script too: one that gains or loses a deny moves its onFailure (#2670).
-if armed '^(self-plugin/hooks/hooks\.json|hooks/hooks\.json|scripts/[^/]+|scripts/lib/(core-hooks|deny-capable|guard-fires)\.js)$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-plugin-hooks.js --check || exit "$?"
-fi
-
-# docs/agents/rules/<id>.txt is rendered from an anchor pair in the document
-# that authors the rule, so an edit inside those anchors makes the fragment
-# stale — and a stale fragment is the failure the store exists to prevent: the
-# guard delivers a rule the document no longer says (mantahostels#2493, spec mantahostels#2457 §T2).
-#
-# Conditioned on the source documents, read from the generator's own list so
-# the trigger cannot name fewer than it scans (#3118), and on the generated
-# files themselves; never on scripts/: the generator's own edits are caught
-# when it is re-run. A lister that fails refuses the commit rather than arming
-# nothing.
-if armed '^docs/agents/rules/' || {
-  rf_sources="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-rule-fragments.js --sources)" || {
-    echo "pre-commit: scripts/generate-rule-fragments.js could not list its sources, so the rule-fragment gate refused the commit." >&2
-    exit 2
-  }
-  armed -F "$rf_sources"
-}; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-rule-fragments.js --check || exit "$?"
-fi
-
-# The effort guide's routing block is rendered from the routing file, so an
-# edit to either, or to the generator, without a re-render leaves the guide
-# disagreeing with what the code routes (#5033).
-if armed '^(docs/effort-guide\.md|scripts/lib/model-routing\.json|scripts/generate-effort-guide-routing\.js|scripts/lib/model-table\.js)$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-effort-guide-routing.js --check || exit "$?"
 fi
 
 # The doc map's own coverage, checked here as well as in roadmap-digest.yml

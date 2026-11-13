@@ -57,10 +57,13 @@ function load(row) {
  * that computes it. The always-loaded pool is the host config's
  * `alwaysLoaded`, else the default; a config that will not read lists
  * nothing, as the hook's `2>/dev/null` read did, and the row's pattern still
- * arms on `.claude/`, where the config lives.
+ * arms on `.claude/`, where the config lives. The rule-fragment sources are
+ * the generator's own list, so the row cannot arm on fewer than it scans.
  * @type {Record<string, () => string[]>}
  */
 const COMPUTED = {
+	"rule-fragment-sources": () =>
+		require("./generate-rule-fragments.js").SOURCES,
 	"always-loaded-pool": () => {
 		try {
 			return getPoolFiles();
