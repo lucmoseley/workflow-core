@@ -1,0 +1,1 @@
+THE SPEC AXIS READS THE IMPLEMENTER'S DEVIATIONS RECORD. Before dispatching, fetch the originating issue's comments (`gh issue view <n> --comments`) and paste any `**Deviations:**` comment into the Spec sub-agent's prompt, to be reported under its own `## Declared departures` heading, separate from its findings, never suppressed and never counted in the finding total.

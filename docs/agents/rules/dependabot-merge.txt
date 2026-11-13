@@ -1,0 +1,25 @@
+**Never merge a Dependabot PR — take its fix locally and commit it direct to `main`.**
+
+```
+npm update <package> --package-lock-only
+npm install --ignore-scripts
+```
+
+Then commit `package-lock.json` alone, direct to `main`. That recipe covers a transitive package and a caret-ranged direct one, and `package.json` stays untouched.
+
+**A direct dependency pinned to an exact version is the exception — `npm update` will not move an exact pin**, so it reports `up to date` and the advisory stays open (mantahostels#3560). Edit the pin in `package.json` to the fixed version by hand first, then re-resolve and install:
+
+```
+npm install --package-lock-only --ignore-scripts
+npm install --ignore-scripts
+```
+
+Commit `package.json` alongside `package-lock.json`.
+
+**Close the PR by deleting its head branch — `git push origin --delete dependabot/npm_and_yarn/<branch>`, the name read off `gh pr view <n> --json headRefName`.** `gh pr close`, a PR comment and the REST issues `PATCH` all answer `403 Resource not accessible by personal access token` (mantahostels#3351, mantahostels#3358).
+
+`--ignore-scripts` is not optional: a package's `preinstall` and `postinstall` run as you before anything reads a byte of it (mantahostels#1767). Nothing enforces it on these recipes — `scripts/guard-dispatch.js` (its `guard-npm-install` core) denies only an install naming a package `package.json` lacks.
+
+**`npm install` can report `up to date` and leave the old version on disk** while `npm ls` reads the new one out of the lockfile. Check the installed copy directly — `grep -m1 '"version"' node_modules/<pkg>/package.json` — and where it disagrees, `rm -rf node_modules/<pkg>` and install again (mantahostels#3351).
+
+`scripts/guard-dispatch.js` (its `guard-branch-publish` core) refuses a `gh pr merge` of one, printing this rule. **It does not catch** a merge through `gh api`, the GitHub web UI or a script, nor a `gh pr merge` whose PR it cannot look up: an unreadable PR or repo word, a `GH_REPO` override, or a failed lookup. Its silence there is not leave.

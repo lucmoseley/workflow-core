@@ -1,0 +1,19 @@
+A short memory reading is not by itself a reason to stop and report.
+
+Finished-but-resident Claude sessions hold 330-450 MB each that they are about
+to give back, and `free`/`/proc/meminfo` read that memory as spent. So:
+
+  - Reap by hand — `node scripts/reap-finished-sessions.js`, which prints only
+    what it returned — then re-read `free -m` yourself.
+  - The runs that reap for themselves are npm's `test` script, whose `pretest`
+    hook reaps on its way in where the machine is short, printing the
+    headroom left, and `test:changed`, whose `pretest:changed` runs the same
+    reap. Not a build or a bare `vitest run`.
+
+Only a machine still under docs/environment.md §6's rung AFTER a reap is a
+refusal to report.
+
+Two limits. The reap stops FINISHED sessions only, so a shortfall held by live
+neighbours is reclaimed by nothing. And the pretest reap judges against the
+rung for the suite being started from the vitest workers it sees running, so
+a non-vitest suite running beside it leaves it a rung low.

@@ -1,0 +1,15 @@
+[Unit]
+Description=Look for a dead refill loop (#4139)
+
+[Timer]
+# Untraced: 1 minute serves #3963's 2-minute bound, itself a first guess.
+# OnUnitInactiveSec= counts from the unit's last run, which a unit that has never
+# run does not have, so alone it never fires: OnActiveSec= gives the first.
+OnActiveSec=1min
+OnUnitInactiveSec=1min
+# The default of 1min measured a firing every 120 s, so a loop killed just after
+# one came back past 2 minutes. 30 s is a first guess, measured at 60-90 s.
+AccuracySec=30s
+
+[Install]
+WantedBy=timers.target

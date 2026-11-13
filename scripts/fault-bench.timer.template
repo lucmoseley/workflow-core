@@ -1,0 +1,13 @@
+[Unit]
+Description=Run #3246's page-fault bench at 28 h uptime (#4768)
+
+[Timer]
+# The machine's boot, not the user manager's start, so a manager restart does
+# not move it. Filled from fault_bench.py's MIN_UPTIME_S.
+OnBootSec=@BOOT_SEC@
+# A firing short of memory logs NO BENCH and retries; once the boot has a bench
+# each firing does nothing. Untraced: 15 minutes is a first guess.
+OnUnitInactiveSec=15min
+
+[Install]
+WantedBy=timers.target

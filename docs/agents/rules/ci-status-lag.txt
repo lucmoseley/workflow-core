@@ -1,0 +1,14 @@
+A CI VERDICT COVERS A COMMIT RANGE, NOT THE SHA YOU JUST PUSHED.
+
+Run `npm run check:ci` ONCE after every push, docs-only included, and read it;
+never rerun it. It and `check-ci-status.js --notify` answer off the newest run
+carrying a verdict and the COMMIT RANGE back to the last green. Where nothing
+runs on push, that run is the newest sweep, four a day, and the local checks
+are the session's only verdict for up to ~12 hours (mantahostels#2204).
+
+THE RANGE IS WHAT IT COSTS. At ~9.4 commits/hour a 6-hourly sweep covers ~56
+commits, so localising a red by bisection is ~6 full-suite runs and not one.
+THE CRON IS NOT WHAT SETS IT: GitHub delivers slots hours late and drops some
+outright, and the widest measured gap between DELIVERED sweeps is 11h54m — ~112
+commits, ~7 runs (mantahostels#2204). It is a verdict read AFTER THE FACT over a range —
+never a precondition of a push, and no session waits on one (mantahostels#2102).

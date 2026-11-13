@@ -1,0 +1,822 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{project}} — build reference</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --abyss:#08222e;       /* deep ocean ink - text */
+    --ink:#0e2b38;
+    --accent:#0e5c86;       /* primary accent */
+    --accent-bright:#1b8fb0;/* reef cyan accent */
+    --reef:#2bb6c4;
+    --mist:#e7eef0;        /* cool page bg (avoids cream default) */
+    --mist-2:#dde8ea;
+    --surface:#ffffff;
+    --line:#cdd9dc;
+    --line-soft:#e1eaec;
+    --muted:#5d717a;
+    --coral:#d9573c;       /* risk */
+    --coral-bg:#fbeae5;
+    --amber:#bb8311;       /* open */
+    --amber-bg:#fbf2dd;
+    --teal:#0e7b73;        /* idea */
+    --teal-bg:#e1f1ee;
+    --decided:#0e5c86;     /* decided */
+    --decided-bg:#e2eef4;
+    --done:#2c7a4b;        /* completed — distinct from teal idea */
+    --done-bg:#e8f3ec;
+    --done-line:#bcdcc9;
+    --violet:#5b4b8a;      /* decision kind */
+    --violet-bg:#ece9f3;
+    --shadow:0 1px 2px rgba(8,34,46,.06),0 8px 24px -16px rgba(8,34,46,.22);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{
+    margin:0;background:var(--mist);color:var(--ink);
+    font-family:'Inter',system-ui,sans-serif;font-size:15.5px;line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding:0 22px}
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+
+  /* ---------- header ---------- */
+  header.top{
+    background:
+      radial-gradient(120% 140% at 88% -10%, rgba(43,182,196,.16), transparent 55%),
+      linear-gradient(180deg,#0a2935 0%, #0e3f54 100%);
+    color:#eaf4f6;padding:46px 0 40px;position:relative;overflow:hidden;
+    border-bottom:1px solid #0a2935;
+  }
+  header.top .wrap{position:relative;z-index:2}
+  .brand-mark{
+    position:absolute;right:-40px;top:-30px;width:340px;height:340px;opacity:.16;
+    z-index:1;pointer-events:none;
+  }
+  .eyebrow{font-family:'IBM Plex Mono',monospace;font-size:12px;letter-spacing:.18em;
+    text-transform:uppercase;color:var(--reef);margin:0 0 10px}
+  h1{font-family:'Fraunces',serif;font-weight:600;font-size:clamp(34px,6vw,54px);
+    line-height:1.02;margin:0 0 14px;letter-spacing:-.01em}
+  h1 .ray{color:var(--reef)}
+  .sub{max-width:640px;font-size:16.5px;color:#c6dde2;margin:0}
+  .sub b{color:#fff;font-weight:600}
+
+  /* ---------- summary panels ---------- */
+  .panels{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin:-28px 0 8px;position:relative;z-index:3}
+  .panel{background:var(--surface);border:1px solid var(--line-soft);border-radius:14px;
+    padding:18px 18px 8px;box-shadow:var(--shadow)}
+  .panel h3{font-family:'IBM Plex Mono',monospace;font-size:11.5px;letter-spacing:.12em;
+    text-transform:uppercase;margin:0 0 12px;display:flex;align-items:center;gap:8px}
+  .panel h3 .dot{width:9px;height:9px;border-radius:50%}
+  .panel.risk h3 .dot{background:var(--coral)}
+  .panel.open h3 .dot{background:var(--amber)}
+  .panel.win h3 .dot{background:var(--decided)}
+  .panel ul{margin:0;padding:0;list-style:none}
+  .panel li{font-size:13.5px;line-height:1.45;padding:9px 0;border-top:1px solid var(--line-soft);color:var(--ink)}
+  .panel li:first-child{border-top:none}
+  .panel li b{font-weight:600}
+
+  /* ---------- controls ---------- */
+  .controls{position:sticky;top:0;z-index:40;background:rgba(231,238,240,.92);
+    backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:14px 0;margin-top:30px}
+  .ctl-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:9px}
+  .ctl-row:last-child{margin-bottom:0}
+  .ctl-label{font-family:'IBM Plex Mono',monospace;font-size:10.5px;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--muted);width:62px;flex-shrink:0}
+  .chip{font-family:'IBM Plex Mono',monospace;font-size:12px;border:1px solid var(--line);
+    background:var(--surface);color:var(--ink);padding:5px 11px;border-radius:999px;cursor:pointer;
+    transition:all .14s ease;user-select:none;white-space:nowrap}
+  .chip:hover{border-color:var(--accent);color:var(--accent)}
+  .chip.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .chip.on.k-action{background:var(--decided);border-color:var(--decided)}
+  .chip.on.k-decision{background:var(--violet);border-color:var(--violet)}
+  .chip.on.k-reference{background:var(--teal);border-color:var(--teal)}
+  .chip.on.k-watchout{background:var(--coral);border-color:var(--coral)}
+  .chip.on.st-open{background:var(--amber);border-color:var(--amber)}
+  .chip.on.st-parked{background:var(--muted);border-color:var(--muted)}
+  .chip.on.st-done{background:var(--done);border-color:var(--done)}
+  .chip.on.st-active{background:var(--decided);border-color:var(--decided)}
+  .search{flex:1;min-width:170px;border:1px solid var(--line);background:var(--surface);
+    border-radius:999px;padding:6px 14px;font-family:'Inter';font-size:13.5px;color:var(--ink)}
+  .search:focus{outline:2px solid var(--accent-bright);outline-offset:1px;border-color:var(--accent)}
+  .count{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:var(--muted);margin-left:auto;white-space:nowrap}
+
+  /* ---------- id index ---------- */
+  .id-index{background:var(--surface);border-bottom:1px solid var(--line-soft);padding:14px 0}
+  .id-index[hidden]{display:none}
+  .idx-phase{margin-bottom:12px}
+  .idx-phase:last-child{margin-bottom:0}
+  .idx-phase-label{font-family:'IBM Plex Mono',monospace;font-size:10.5px;font-weight:600;letter-spacing:.05em;
+    text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+  .idx-grid{display:flex;flex-wrap:wrap;gap:6px}
+  .idx-entry{display:inline-flex;align-items:center;gap:7px;background:var(--mist);border:1px solid var(--line-soft);
+    border-radius:7px;padding:4px 9px 4px 4px;font-size:12.5px;color:var(--ink);cursor:pointer}
+  .idx-entry:hover{border-color:var(--ink)}
+  .idx-entry code{font-family:'IBM Plex Mono',monospace;font-size:9.5px;color:var(--muted);background:#eef3f4;
+    padding:2px 6px;border-radius:5px}
+  .reset{font-family:'IBM Plex Mono',monospace;font-size:11px;background:none;border:none;
+    color:var(--accent);cursor:pointer;text-decoration:underline;padding:4px}
+
+  /* ---------- phases ---------- */
+  main{padding:30px 0 80px}
+  .phase{margin-bottom:14px;scroll-margin-top:160px}
+  .phase-head{display:flex;align-items:baseline;gap:14px;padding:22px 0 6px;border-top:2px solid var(--ink)}
+  .phase-num{font-family:'Fraunces',serif;font-weight:600;font-size:15px;color:#fff;background:var(--ink);
+    width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0;align-self:center}
+  .phase-title{font-family:'Fraunces',serif;font-weight:600;font-size:23px;margin:0;letter-spacing:-.01em}
+  .phase-when{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--accent);margin-left:auto;align-self:center}
+  .phase-desc{color:var(--muted);font-size:14px;margin:2px 0 16px;max-width:760px}
+
+  .cards{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+  .card{background:var(--surface);border:1px solid var(--line-soft);border-radius:13px;
+    padding:16px 17px;box-shadow:var(--shadow);position:relative;transition:transform .12s ease,box-shadow .12s ease}
+  .card:hover{transform:translateY(-1px);box-shadow:0 2px 4px rgba(8,34,46,.07),0 14px 30px -18px rgba(8,34,46,.3)}
+  .card.span2{grid-column:1/-1}
+  .card-top{display:flex;align-items:flex-start;gap:10px;margin-bottom:8px}
+  .card-id{font-family:'IBM Plex Mono',monospace;font-size:9px;color:var(--muted);background:#eef3f4;
+    padding:3px 6px;border-radius:5px;flex-shrink:0;letter-spacing:.02em;line-height:1.4;
+    align-self:flex-start;user-select:all;cursor:text;opacity:.75}
+  .card-id:hover{opacity:1}
+  .card-title{font-family:'Fraunces',serif;font-weight:600;font-size:17px;line-height:1.18;margin:0;flex:1}
+  .badge{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.05em;
+    text-transform:uppercase;padding:3px 8px;border-radius:6px;white-space:nowrap;flex-shrink:0;margin-top:2px}
+  /* kind pill — the nature of the card */
+  .kind{font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:600;letter-spacing:.05em;
+    text-transform:uppercase;padding:3px 8px;border-radius:6px;white-space:nowrap;flex-shrink:0;margin-top:2px}
+  .kind.action{background:var(--decided-bg);color:var(--decided)}
+  .kind.decision{background:var(--violet-bg);color:var(--violet)}
+  .kind.reference{background:var(--teal-bg);color:var(--teal)}
+  .kind.watchout{background:var(--coral-bg);color:var(--coral)}
+  /* state tag — where the card stands (shown only when not active) */
+  .state-tag{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.05em;
+    text-transform:uppercase;padding:3px 8px;border-radius:6px;white-space:nowrap;flex-shrink:0;margin-top:2px}
+  .state-tag.open{background:var(--amber-bg);color:var(--amber)}
+  .state-tag.parked{background:#eef3f4;color:var(--muted)}
+  .done-tag{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;letter-spacing:.05em;
+    text-transform:uppercase;padding:3px 8px;border-radius:6px;white-space:nowrap;flex-shrink:0;margin-top:2px;
+    background:var(--done);color:#fff}
+  .card.s-done{background:var(--done-bg);border-color:var(--done-line);box-shadow:inset 3px 0 0 var(--done),var(--shadow)}
+  .card.s-done .card-body{color:var(--muted)}
+  .card.s-done:hover{box-shadow:inset 3px 0 0 var(--done),0 2px 4px rgba(8,34,46,.07),0 14px 30px -18px rgba(8,34,46,.3)}
+  .card.s-parked{background:#fbfdfd}
+  .card.s-parked .card-body{color:var(--muted)}
+  .card.s-open{box-shadow:inset 3px 0 0 var(--amber),var(--shadow)}
+  .card.s-open:hover{box-shadow:inset 3px 0 0 var(--amber),0 2px 4px rgba(8,34,46,.07),0 14px 30px -18px rgba(8,34,46,.3)}
+  /* nearest-prerequisite line */
+  .needs{font-family:'IBM Plex Mono',monospace;font-size:10.5px;margin:0 0 9px;
+    display:flex;flex-wrap:wrap;gap:3px 7px;align-items:baseline;line-height:1.4}
+  .needs .nl{letter-spacing:.07em;text-transform:uppercase;color:var(--muted);flex-shrink:0}
+  .needs a{text-decoration:none;border-bottom:1px dotted;cursor:pointer}
+  .needs a.met{color:var(--done);border-color:var(--done-line)}
+  .needs a.unmet{color:var(--coral);border-color:var(--coral)}
+  /* "on record" outcome log */
+  .log{margin:11px 0 0;padding:9px 11px;border-radius:9px;background:var(--done-bg);
+    border-left:3px solid var(--done);font-size:12.5px;line-height:1.46;color:var(--ink)}
+  .log .lk{font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:600;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--done);display:flex;align-items:center;gap:5px;margin-bottom:4px}
+  .log b{font-weight:600}
+  /* prereq-jump highlight */
+  .card.hl{animation:hlpulse 1.7s ease}
+  @keyframes hlpulse{0%{box-shadow:0 0 0 3px var(--accent-bright),var(--shadow)}100%{box-shadow:var(--shadow)}}
+  .card-body{font-size:14px;color:var(--ink);margin:0 0 10px}
+  .card-body b{font-weight:600}
+  .areas{display:flex;flex-wrap:wrap;gap:5px}
+  .area-tag{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--muted);
+    border:1px solid var(--line-soft);border-radius:5px;padding:2px 7px;background:#f4f8f9}
+  .callout{margin:10px 0 0;padding:9px 11px;border-radius:9px;font-size:13px;line-height:1.45;
+    border-left:3px solid;display:flex;gap:8px;align-items:flex-start}
+  .callout .k{font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:600;letter-spacing:.06em;
+    text-transform:uppercase;flex-shrink:0;margin-top:2px}
+  .callout.flag{background:var(--coral-bg);border-color:var(--coral)}
+  .callout.flag .k{color:var(--coral)}
+  .callout.q{background:var(--amber-bg);border-color:var(--amber)}
+  .callout.q .k{color:var(--amber)}
+  .callout.rec{background:var(--decided-bg);border-color:var(--accent)}
+  .callout.rec .k{color:var(--accent)}
+
+  .empty{text-align:center;padding:60px 20px;color:var(--muted);font-size:15px;display:none}
+
+  .docmeta{font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.06em;color:#9fc2cb;margin:12px 0 0}
+
+  .ledger{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:16px 0 2px;font-family:'IBM Plex Mono',monospace;font-size:11.5px}
+  .lg-total{color:var(--muted);letter-spacing:.04em;margin-right:2px}
+  .lg-pill{padding:3px 10px;border-radius:999px;border:1px solid;display:inline-flex;gap:5px;align-items:center}
+  .lg-pill b{font-weight:600}
+  .lg-pill.d{color:var(--decided);border-color:var(--decided);background:var(--decided-bg)}
+  .lg-pill.o{color:var(--amber);border-color:var(--amber);background:var(--amber-bg)}
+  .lg-pill.r{color:var(--coral);border-color:var(--coral);background:var(--coral-bg)}
+  .lg-pill.i{color:var(--teal);border-color:var(--teal);background:var(--teal-bg)}
+  .lg-pill.done{color:var(--done);border-color:var(--done-line);background:var(--done-bg)}
+
+  code{font-family:'IBM Plex Mono',monospace;font-size:.88em;background:#eef4f5;padding:1px 5px;border-radius:4px;color:var(--accent)}
+
+  footer{border-top:1px solid var(--line);padding:24px 0 60px;color:var(--muted);font-size:12.5px}
+  footer b{color:var(--ink);font-weight:600}
+
+  @media (max-width:760px){
+    .panels{grid-template-columns:1fr;margin-top:-20px}
+    .cards{grid-template-columns:1fr}
+    .card.span2{grid-column:auto}
+    .ctl-label{width:100%}
+    .count{margin-left:0;width:100%}
+    .brand-mark{opacity:.1;right:-90px}
+  }
+  @media (prefers-reduced-motion:reduce){
+    *{transition:none!important;scroll-behavior:auto!important}
+  }
+
+  /* ---------- at-a-glance cockpit ---------- */
+  .panel.now h3 .dot{background:var(--accent)}
+  .panel.next h3 .dot{background:var(--amber)}
+  .panel.prog h3 .dot{background:var(--done)}
+  .panel.now{transition:transform .12s ease,box-shadow .12s ease}
+  .g-dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:8px;flex-shrink:0;vertical-align:middle}
+  .g-dot.k-action{background:var(--decided)}
+  .g-dot.k-decision{background:var(--violet)}
+  .g-dot.k-reference{background:var(--teal)}
+  .g-dot.k-watchout{background:var(--coral)}
+  .g-block{font-family:'IBM Plex Mono',monospace;font-size:8.5px;font-weight:600;letter-spacing:.05em;
+    text-transform:uppercase;color:var(--coral);background:var(--coral-bg);
+    padding:1px 5px;border-radius:4px;margin-left:6px;vertical-align:middle}
+  .g-more{color:var(--accent);font-weight:600}
+  .g-none{color:var(--muted)}
+  .g-foot{font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--muted);margin:10px 0 2px}
+  .g-click{cursor:pointer}
+  .panel.now.g-click:hover{transform:translateY(-1px);
+    box-shadow:0 2px 4px rgba(8,34,46,.07),0 14px 30px -18px rgba(8,34,46,.3)}
+  .panel.now.g-click:hover .g-foot{color:var(--accent)}
+  .g-foot.g-click:hover{color:var(--accent);text-decoration:underline}
+  .g-risk{cursor:pointer}
+  .g-risk:hover{color:var(--coral)}
+  .g-prog{margin:2px 0 12px}
+  .g-prog-row{display:flex;justify-content:space-between;align-items:baseline;
+    font-size:12.5px;color:var(--ink);margin:8px 0 4px}
+  .g-prog-row b{font-family:'IBM Plex Mono',monospace;font-weight:600}
+  .g-bar{height:6px;border-radius:999px;background:var(--mist-2);overflow:hidden}
+  .g-bar i{display:block;height:100%;border-radius:999px;
+    background:linear-gradient(90deg,var(--accent),var(--reef))}
+  .g-pills{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .g-pin{font-family:'IBM Plex Mono',monospace;font-size:8.5px;font-weight:600;letter-spacing:.06em;
+    text-transform:uppercase;color:var(--accent);background:var(--decided-bg);
+    padding:1px 5px;border-radius:4px;margin-right:6px;vertical-align:middle}
+
+  /* ---------- per-card Claude model recommendation ---------- */
+  .mrec{display:flex;align-items:flex-start;gap:9px;flex-wrap:wrap;margin:12px 0 0;padding-top:11px;border-top:1px dashed var(--line)}
+  .mrec-label{font-family:'IBM Plex Mono',monospace;font-size:9.5px;font-weight:600;letter-spacing:.12em;
+    text-transform:uppercase;color:var(--muted);padding-top:4px;flex-shrink:0}
+  .mbody{display:flex;flex-wrap:wrap;gap:7px 12px;align-items:center}
+  .mpair{display:inline-flex;align-items:center;gap:6px}
+  .mk{font-family:'Inter';font-size:11.5px;color:var(--muted);line-height:1.3}
+  .marrow{color:var(--line);font-size:11px}
+  .mchip{font-family:'IBM Plex Mono',monospace;font-size:10.5px;font-weight:500;display:inline-flex;
+    align-items:center;gap:5px;padding:3px 9px;border-radius:999px;border:1px solid;white-space:nowrap}
+  .mchip .md{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+  .mchip.max{color:var(--coral);border-color:#eec3b8;background:var(--coral-bg)} .mchip.max .md{background:var(--coral)}
+  .mchip.na{color:var(--muted);border-color:var(--line);background:#eef3f4} .mchip.na .md{background:var(--muted)}
+  .mchip.err{color:#fff;border-color:var(--coral);background:var(--coral)} .mchip.err .md{background:#fff}
+  .mnote{font-size:12px;color:var(--muted);margin:7px 0 0;line-height:1.42;width:100%}
+  .flegend{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin:10px 0 14px}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <svg class="brand-mark" viewBox="0 0 100 100" fill="none" stroke="#bfe6ec" stroke-width="1.4" aria-hidden="true">
+    <path d="M50 30 C30 30 12 40 6 58 C18 52 26 56 30 64 C34 56 40 52 50 52 C60 52 66 56 70 64 C74 56 82 52 94 58 C88 40 70 30 50 30 Z" fill="#bfe6ec" fill-opacity=".5" stroke="none"/>
+    <path d="M44 30 C40 22 42 16 46 12 M56 30 C60 22 58 16 54 12" />
+    <path d="M50 52 L50 84" stroke-width="1"/>
+  </svg>
+  <div class="wrap">
+    <p class="eyebrow">Build reference · day one</p>
+    <h1>{{project}}<br>what to build, in what order</h1>
+    <p class="sub">The single working reference for this project: a <b>phased roadmap</b> crossed with feature areas. Every card carries a <b>kind</b> — <b>Action</b>, <b>Decision</b>, <b>Reference</b>, or <b>Watch-out</b> — and a <b>state</b> — <b>Active</b>, <b>Open</b>, <b>Parked</b>, or <b>Done</b>. Cards flag their <b>nearest prerequisites</b>, log <b>what's been done</b>, and note where a <b>Claude model/effort</b> departs from the standing default. Filter by phase, area, kind, or state.</p>
+    <p class="docmeta">v{{version}} · updated {{stamp}}</p>
+  </div>
+</header>
+
+<div class="wrap">
+  <h2 class="sr-only">At a glance</h2>
+  <div class="panels" id="glance"><!-- cockpit cards injected --></div>
+</div>
+
+<div class="controls">
+  <div class="wrap">
+    <div class="ctl-row">
+      <span class="ctl-label">Phase</span>
+      <div class="chip on" data-filter="phase" data-val="all">All</div>
+      <div class="chip" data-filter="phase" data-val="0">0 · Foundations</div>
+      <div class="chip" data-filter="phase" data-val="1">1 · MVP</div>
+      <div class="chip" data-filter="phase" data-val="2">2 · Traction</div>
+      <div class="chip" data-filter="phase" data-val="3">3 · Revenue</div>
+      <div class="chip" data-filter="phase" data-val="4">4 · Scale</div>
+    </div>
+    <div class="ctl-row" id="areaRow">
+      <span class="ctl-label">Area</span>
+      <!-- area chips injected -->
+    </div>
+    <div class="ctl-row">
+      <span class="ctl-label">Kind</span>
+      <div class="chip k-action" data-filter="kind" data-val="action">Action</div>
+      <div class="chip k-decision" data-filter="kind" data-val="decision">Decision</div>
+      <div class="chip k-reference" data-filter="kind" data-val="reference">Reference</div>
+      <div class="chip k-watchout" data-filter="kind" data-val="watchout">Watch-out</div>
+    </div>
+    <div class="ctl-row">
+      <span class="ctl-label">State</span>
+      <div class="chip on" data-filter="state" data-val="all">All</div>
+      <div class="chip st-active" data-filter="state" data-val="active">Active</div>
+      <div class="chip st-open" data-filter="state" data-val="open">Open</div>
+      <div class="chip st-parked" data-filter="state" data-val="parked">Parked</div>
+      <div class="chip st-done" data-filter="state" data-val="done">Done</div>
+      <input class="search" id="search" type="search" placeholder="Search items…" aria-label="Search items">
+      <button class="reset" id="reset">reset</button>
+      <button class="reset" id="idIndexToggle" type="button" aria-expanded="false">card IDs ▾</button>
+      <span class="count" id="count"></span>
+    </div>
+  </div>
+</div>
+
+<div class="id-index" id="idIndex" hidden></div>
+
+<main>
+  <div class="wrap">
+    <div id="roadmap"></div>
+    <div class="empty" id="empty">No items match those filters. <a href="#" id="emptyReset" style="color:var(--accent)">Reset</a>.</div>
+  </div>
+</main>
+
+<footer>
+  <div class="wrap">
+    <p><b>How to read this.</b> Phases are sequence, not calendar — each gates the next. Every card has a <b>kind</b> (its nature) and a <b>state</b> (where it stands). <b>Kind:</b> <b>Action</b> = a task with a Done-when · <b>Decision</b> = a choice to make or record · <b>Reference</b> = a standing rule or fact you apply, never "finished" · <b>Watch-out</b> = a risk or hard constraint to heed. <b>State:</b> <b>Active</b> = in play now · <b>Open</b> = unresolved, needs a call · <b>Parked</b> = deferred to a future trigger · <b>Done</b> = nothing left for <i>you</i>. A card's <b>Needs</b> line names its <b>nearest prerequisites</b> only (green ✓ = satisfied, coral = still blocking) — tap one to jump to it. The <b>On record</b> block captures what's been decided, discovered, or shipped. Filter remaining work with <b>State → Active</b>.</p>
+    <p><b>To change a card's state</b>, edit <code>state:"active"</code> in its <code>ITEMS</code> entry (<code>"active"</code> / <code>"open"</code> / <code>"parked"</code> / <code>"done"</code>), then re-open the file. To record an outcome, add or extend its <code>log:"…"</code>. To flag a dependency, add <code>needs:["card-id"]</code> using the target's <code>id</code> — the page warns in the browser console if an id is missing or points to a later phase. Granular execution — sub-tasks, assignees, day-to-day — stays in <b>GitHub Issues</b>; this doc tracks kind, state, dependencies and outcomes, not the hour-to-hour. There is deliberately no "in-progress" state: solo, it just becomes a drawer of half-started work, and the active slice already lives in Issues.</p>
+    <p><b>The "at a glance" cockpit</b> (Now · Next · Progress) is computed entirely from <code>ITEMS</code> plus one constant, <code>CURRENT_PHASE</code>, at the top of the script. When you finish a phase, bump that one line (<code>0</code>→<code>1</code>…) and the cockpit re-points itself — nothing else to maintain. <b>Now</b> lists the current phase's active work (flagging anything <b>blocked</b> by an unmet prerequisite); <b>Next</b> surfaces the following phase's watch-outs early; <b>Progress</b> shows the state mix and total blocked count. Each card is a launchpad: tap to drop into the matching filtered view below.</p>
+    <p><b>The Claude strip</b> at the foot of a card marks only where that card departs from the standing default — most cards carry no strip at all:</p>
+    <p class="flegend"><span class="mchip max"><span class="md"></span>Max — one-way call</span><span class="mchip na"><span class="md"></span>Not a Claude task</span></p>
+    <p>An unmarked card runs the default. <b>Max</b> marks a genuinely one-way call — a mistake that can't be walked back. <b>Not a Claude task</b> marks work no Claude session does at all, equivalent to that card's own issue carrying <code>takes:human</code>. Sole authority on the policy, prices and the sub-agent dispatch rule: the plugin's <code>docs/effort-guide.md</code> — never restated here.
+  </div>
+</footer>
+
+<script>
+/* Which phase you're actively working. Bump this one line as you advance
+   (0→1→…); the at-a-glance cockpit derives everything else from it. */
+const CURRENT_PHASE = 0;
+
+const AREAS = {
+{{areas}}
+};
+
+const PHASES = [
+  {n:0,title:"Foundations",when:"Before anything is public",
+   desc:"Decisions and setup that gate everything downstream. Cheap to get right now, expensive to fix later."},
+  {n:1,title:"MVP",when:"First version someone else uses",
+   desc:"The smallest thing that does the job end to end."},
+  {n:2,title:"Traction",when:"Once someone outside uses it",
+   desc:"Placeholder — what earns repeat use."},
+  {n:3,title:"Revenue",when:"Once use repeats",
+   desc:"Placeholder — what pays for the work."},
+  {n:4,title:"Scale",when:"Once it pays",
+   desc:"Placeholder — what keeps it working at size."}
+];
+
+/* Card order within each phase is deliberate: it follows sensible read/execution
+   order — the sequence you'd actually work through, dependency-first — NOT
+   insertion date, kind, state or alphabetical id. This holds even for "done"
+   cards: order them as if nothing were done yet, so the document reads as one
+   continuous plan regardless of progress. When adding a new card, insert it at
+   the point in that phase's sequence where you'd actually do it — respecting
+   any `needs` (a card must sit after every same-phase id in its `needs` array)
+   — not at the end of the array. Re-read neighbouring cards' `b`/`c` text before
+   placing it: some narrative dependencies aren't captured in `needs` (e.g. a
+   card whose body says "validate before X locks" belongs before X, even
+   without a formal `needs:["X"]`).
+
+   LOG-WRITING DISCIPLINE: this document is an action guide first, a record
+   second. When asked to update a card's `log`, write only what the founder
+   needs to know going forward to act correctly next time — not a record of
+   what happened for its own sake. Concretely:
+   - Cut anything that will already be visible elsewhere (e.g. a profile
+     field, a live setting, a past decision already captured in another
+     card) — don't restate what's self-evident from the system it
+     describes.
+   - Keep outcomes and their cause when the cause changes what to do next
+     (e.g. "declined — likely no-traffic, not a quality signal" tells the
+     founder not to waste time re-polishing something that isn't broken).
+   - If a next action follows, point to where it lives (the card id that
+     owns it) rather than restating the steps inline — don't fork the
+     instructions into two places.
+   - Default to one to two sentences. If the log is explaining process
+     rather than stating outcome + forward pointer, it's too long.
+   - This same standard applies to `b` (body) text whenever it goes stale
+     against a log update — don't leave the body and log contradicting
+     each other (e.g. body says "pending" while log says "declined"). */
+
+/* VERSIONING — read before editing.
+   Format: vMAJOR.MINOR · updated D Month YYYY, HH:MM (en-GB date, 24-hour
+   time), shown in the .docmeta line above. That line is the ONLY version
+   marker for this document — never duplicate it in a filename, an export
+   name, or anywhere else in the body.
+   - MINOR +1 — any content change: a card added, edited, or removed;
+     a log entry added. Bump on every save, no exceptions.
+   - MAJOR +1, MINOR resets to 0 — structural change: an ITEMS schema/
+     field change, phase restructuring, or a change to rendering logic
+     (this date+time format is itself an example of the latter).
+   - The bump happens in the same edit as the content change. Never
+     bump without a content change; never change content without
+     bumping.
+   - The date AND time update to the moment of the edit, on every save —
+     not just the date. Use the founder's local time zone, NOT the server/container
+     clock. If you're
+     working from a container clock (commonly UTC), convert explicitly
+     — don't paste the raw server time in. */
+
+/* MODEL/EFFORT ASSIGNMENT — read before setting or editing `m` on any card.
+   Sole authority on the policy: the plugin's docs/effort-guide.md — this
+   block is field mechanics only, never a second statement of the rule.
+   Values: absent (the standing default — most cards carry no `m` at all),
+   "max" (a genuinely one-way call, a mistake that can't be walked back),
+   "—" (no Claude session works this card at all — the exact equivalent of
+   `takes:human` on that card's own issue; a decision/reference/admin card
+   Claude *does* work carries no `m`, not "—"). Leg-scoped exception:
+   m:[["<step>","max"]] — only the departing legs are named; a leg with no
+   entry runs the default.
+   - Default every new card to no `m` at all. Set it only where the card
+     names why it departs — never as a starting point.
+   - "max" is rare and one-way: the single hardest, most irreversible step
+     in a card — money/redemption logic, matching-correctness cores,
+     one-shot compliance sign-offs. Reaching for it elsewhere needs a named
+     reason.
+   - When a card's real execution is a Research-tool run (multi-source
+     synthesis: competitor teardowns, scheme benchmarking, payment-rail or
+     regulatory landscape checks) rather than a chat reply or a Claude Code
+     build, lead `mn` with the words "Research run" — `mn` is what tells you
+     which surface (Research toggle, not chat or Code) to actually use.
+   - Full reasoning (capability/burn-rate tables, Claude Code workflow,
+     weekly-pool mechanics) lives in the effort guide doc — this block is
+     the compressed version for assigning `m` without re-reading it. */
+
+/* CALLOUT LABELS — the `k` field in any card's c:{type,k,x} object.
+   HARD RULE: k is 20 characters or fewer, including spaces. It renders as a
+   small mono uppercase tag; longer labels wrap and break the card layout.
+   Write a terse tag ("Cheap now", "Doc, not a skill"), not a sentence — put
+   the reasoning in `x`. validate.js flags any k over 20 chars. */
+const ITEMS = [
+  /* ---------- PHASE 0 ---------- */
+  {id:"destination",p:0,a:["core"],kind:"decision",state:"open",t:"Name what this project is for",m:"—",mn:"Standing default.",
+   b:"Placeholder. One or two lines a session can orient to before choosing work. Replace this card or keep it as the phase-0 anchor.",
+   dw:"A sentence naming the destination sits in CLAUDE.md §Project and this card reads done."},
+  /* ---------- PHASE 1 ---------- */
+  {id:"first-slice",p:1,a:["core"],kind:"action",state:"open",t:"Ship the first end-to-end slice",mn:"Placeholder.",needs:["destination"],
+   b:"Placeholder. The smallest path through the product that someone other than the founder can use.",
+   dw:"Someone outside the repo has used it once."},
+  /* ---------- PHASE 2 ---------- */
+  {id:"repeat-use",p:2,a:["core"],kind:"action",state:"open",t:"Find what brings a user back",mn:"Placeholder.",needs:["first-slice"],
+   b:"Placeholder. Replace with this phase's first real card.",
+   dw:"One user has come back unprompted."},
+  /* ---------- PHASE 3 ---------- */
+  {id:"first-revenue",p:3,a:["core"],kind:"action",state:"open",t:"Take the first payment",mn:"Placeholder.",needs:["repeat-use"],
+   b:"Placeholder. Replace with this phase's first real card.",
+   dw:"One payment has cleared."},
+  /* ---------- PHASE 4 ---------- */
+  {id:"scale-limit",p:4,a:["core"],kind:"watchout",state:"open",t:"Name the first thing that breaks at size",mn:"Placeholder.",needs:["first-revenue"],
+   b:"Placeholder. Replace with this phase's first real card.",
+   dw:"The limit is named and has its own card."}
+];
+
+/* ---------- render ---------- */
+const state = {phase:"all", areas:new Set(), kinds:new Set(), stateFilter:"all", q:""};
+const BY_ID = Object.fromEntries(ITEMS.map(i=>[i.id,i]));
+
+// is an active card blocked by an unmet (not-done) nearest prerequisite?
+function unmetNeeds(it){
+  if(!it.needs) return [];
+  return it.needs.filter(id=>!(BY_ID[id] && BY_ID[id].state==='done'));
+}
+function isBlocked(it){
+  return it.state==='active' && unmetNeeds(it).length>0;
+}
+
+// build area chips
+const areaRow = document.getElementById('areaRow');
+Object.entries(AREAS).forEach(([k,v])=>{
+  const c=document.createElement('div');
+  c.className='chip'; c.dataset.filter='area'; c.dataset.val=k; c.textContent=v;
+  areaRow.appendChild(c);
+});
+
+const KIND_LABEL={action:'Action',decision:'Decision',reference:'Reference',watchout:'Watch-out'};
+
+function render(){
+  const root=document.getElementById('roadmap');
+  root.innerHTML='';
+  let shown=0;
+  PHASES.forEach(ph=>{
+    if(state.phase!=='all' && String(ph.n)!==state.phase) return;
+    const items=ITEMS.filter(it=>{
+      if(it.p!==ph.n) return false;
+      if(state.areas.size && !it.a.some(a=>state.areas.has(a))) return false;
+      if(state.kinds.size && !state.kinds.has(it.kind)) return false;
+      if(state.stateFilter==='todo' && (it.state==='done'||it.state==='parked')) return false;
+      if(state.stateFilter!=='all' && state.stateFilter!=='todo' && it.state!==state.stateFilter) return false;
+      if(state.q){
+        const needTitles=(it.needs||[]).map(id=>BY_ID[id]?BY_ID[id].t:'').join(' ');
+        const hay=(it.id+' '+it.t+' '+it.b+' '+(it.dw||'')+' '+(it.why||'')+' '+(it.c?it.c.x:'')+' '+(it.log||'')+' '+needTitles+' '+(typeof it.m==='string'?it.m:(it.m?it.m.map(p=>p[0]+' '+p[1]).join(' '):''))+' '+(it.mn||'')).toLowerCase();
+        if(!hay.includes(state.q)) return false;
+      }
+      return true;
+    });
+    if(!items.length) return;
+    const sec=document.createElement('section');
+    sec.className='phase';
+    sec.innerHTML=`<div class="phase-head">
+        <span class="phase-num">${ph.n}</span>
+        <h2 class="phase-title">${ph.title}</h2>
+        <span class="phase-when">${ph.when}</span>
+      </div>
+      <p class="phase-desc">${ph.desc}</p>`;
+    const grid=document.createElement('div'); grid.className='cards';
+    items.forEach(it=>{
+      shown++;
+      const card=document.createElement('article');
+      card.className='card'+(it.span?' span2':'')+' s-'+it.state;
+      card.id='card-'+it.id;
+      const areas=it.a.map(a=>`<span class="area-tag">${AREAS[a]}</span>`).join('');
+      // state tag (only when not active)
+      let stateTag='';
+      if(it.state==='done') stateTag=`<span class="done-tag">✓ Done</span>`;
+      else if(it.state==='open') stateTag=`<span class="state-tag open">Open</span>`;
+      else if(it.state==='parked') stateTag=`<span class="state-tag parked">Parked</span>`;
+      const kindPill=`<span class="kind ${it.kind}">${KIND_LABEL[it.kind]}</span>`;
+      // nearest-prerequisite line
+      let needsLine='';
+      if(it.needs && it.needs.length){
+        const links=it.needs.map(id=>{
+          const dep=BY_ID[id]; if(!dep) return '';
+          const met=dep.state==='done';
+          return `<a class="${met?'met':'unmet'}" data-jump="${id}">${met?'✓ ':''}${dep.t}</a>`;
+        }).join('<span class="nl">·</span> ');
+        needsLine=`<div class="needs"><span class="nl">Needs</span> ${links}</div>`;
+      }
+      let whyBlock='';
+      if(it.why){whyBlock=`<p class="card-body"><b>Why:</b> ${it.why}</p>`;}
+      let dwBlock='';
+      if(it.dw){const dwLabel=it.state==='parked'?'Start when:':'Done when:';dwBlock=`<p class="card-body"><b>${dwLabel}</b> ${it.dw}</p>`;}
+      let callout='';
+      if(it.c){callout=`<div class="callout ${it.c.type}"><span class="k">${it.c.k}</span><span>${it.c.x}</span></div>`;}
+      let logBlock='';
+      if(it.log){logBlock=`<div class="log"><span class="lk">✓ On record</span>${it.log}</div>`;}
+      let mrec='';
+      if(it.m){
+        const M={"max":["max","Max — one-way call"],"—":["na","Not a Claude task"]};
+        // An unrecognised code (a retired spelling such as S/H) renders as an
+        // error chip (mantahostels#833).
+        const chip=v=>{const e=M[v];if(e)return `<span class="mchip ${e[0]}"><span class="md"></span>${e[1]}</span>`;return `<span class="mchip err"><span class="md"></span>RETIRED m CODE: ${v}</span>`;};
+        let body;
+        if(typeof it.m==='string'){body=chip(it.m);}
+        else{body=it.m.map(p=>`<span class="mpair"><span class="mk">${p[0]}</span><span class="marrow">→</span>${chip(p[1])}</span>`).join('');}
+        mrec=`<div class="mrec"><span class="mrec-label">Claude ▸</span><div class="mbody">${body}</div></div>`+(it.mn?`<p class="mnote">${it.mn}</p>`:'');
+      }
+      card.innerHTML=`
+        <div class="card-top">
+          <h3 class="card-title">${it.t}</h3>
+          ${stateTag}
+          ${kindPill}
+          <span class="card-id">${it.id}</span>
+        </div>
+        ${needsLine}
+        ${whyBlock}
+        <p class="card-body">${it.b}</p>
+        ${dwBlock}
+        <div class="areas">${areas}</div>
+        ${callout}${logBlock}${mrec}`;
+      grid.appendChild(card);
+    });
+    sec.appendChild(grid);
+    root.appendChild(sec);
+  });
+  document.getElementById('empty').style.display = shown? 'none':'block';
+  const total=ITEMS.length;
+  document.getElementById('count').textContent = shown===total? `${total} items` : `${shown} of ${total}`;
+  wireJumps();
+}
+
+// prereq-jump: clicking a "Needs:" link scrolls to that card and pulses it
+function wireJumps(){
+  document.querySelectorAll('[data-jump]').forEach(el=>{
+    el.addEventListener('click',()=>{
+      const target=document.getElementById('card-'+el.dataset.jump);
+      if(!target){ // card hidden by current filter — clear filters first
+        resetAll();
+        setTimeout(()=>{const t2=document.getElementById('card-'+el.dataset.jump);if(t2)jumpTo(t2);},60);
+        return;
+      }
+      jumpTo(target);
+    });
+  });
+}
+function jumpTo(target){
+  target.scrollIntoView({behavior:'smooth',block:'center'});
+  target.classList.remove('hl'); void target.offsetWidth; target.classList.add('hl');
+}
+
+// chip handlers
+document.querySelectorAll('.chip').forEach(chip=>{
+  chip.addEventListener('click',()=>{
+    const {filter,val}=chip.dataset;
+    if(filter==='phase'){
+      state.phase=val;
+      document.querySelectorAll('[data-filter="phase"]').forEach(c=>c.classList.toggle('on',c.dataset.val===val));
+    } else if(filter==='area'){
+      chip.classList.toggle('on');
+      state.areas.has(val)?state.areas.delete(val):state.areas.add(val);
+    } else if(filter==='kind'){
+      chip.classList.toggle('on');
+      state.kinds.has(val)?state.kinds.delete(val):state.kinds.add(val);
+    } else if(filter==='state'){
+      state.stateFilter=val;
+      document.querySelectorAll('[data-filter="state"]').forEach(c=>c.classList.toggle('on',c.dataset.val===val));
+    }
+    render();
+  });
+});
+document.getElementById('search').addEventListener('input',e=>{state.q=e.target.value.trim().toLowerCase();render();});
+
+function resetAll(){
+  state.phase='all'; state.areas.clear(); state.kinds.clear(); state.stateFilter='all'; state.q='';
+  document.getElementById('search').value='';
+  document.querySelectorAll('.chip').forEach(c=>{
+    if(c.dataset.filter==='phase') c.classList.toggle('on',c.dataset.val==='all');
+    else if(c.dataset.filter==='state') c.classList.toggle('on',c.dataset.val==='all');
+    else c.classList.remove('on');
+  });
+  render();
+}
+document.getElementById('reset').addEventListener('click',resetAll);
+document.getElementById('emptyReset').addEventListener('click',e=>{e.preventDefault();resetAll();});
+
+// programmatic filter used by the cockpit cards — sets state, syncs chips, scrolls
+function applyFilter(opts){
+  if('phase' in opts){
+    state.phase=String(opts.phase);
+    document.querySelectorAll('[data-filter="phase"]').forEach(c=>c.classList.toggle('on',c.dataset.val===state.phase));
+  }
+  if('stateFilter' in opts){
+    state.stateFilter=opts.stateFilter;
+    document.querySelectorAll('[data-filter="state"]').forEach(c=>c.classList.toggle('on',c.dataset.val===opts.stateFilter));
+  }
+  if('kind' in opts){
+    state.kinds.clear();
+    document.querySelectorAll('[data-filter="kind"]').forEach(c=>c.classList.remove('on'));
+    if(opts.kind){
+      state.kinds.add(opts.kind);
+      const chip=document.querySelector(`[data-filter="kind"][data-val="${opts.kind}"]`);
+      if(chip) chip.classList.add('on');
+    }
+  }
+  render();
+  const main=document.querySelector('main');
+  if(main) main.scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+// at-a-glance cockpit — Now / Next / Progress, all computed from ITEMS + CURRENT_PHASE
+function buildGlance(){
+  const host=document.getElementById('glance'); if(!host) return;
+  const cur=CURRENT_PHASE;
+  const curObj=PHASES.find(p=>p.n===cur);
+  const nextObj=PHASES.find(p=>p.n===cur+1);
+
+  /* Card 1 — NOW: active (to-execute) work in the current phase, focus first */
+  const nowItems=ITEMS.filter(i=>i.p===cur && i.state==='active')
+    .sort((a,b)=>(b.focus?1:0)-(a.focus?1:0));
+  const CAP=6;
+  const nowList=nowItems.slice(0,CAP).map(i=>
+    `<li><span class="g-dot k-${i.kind}"></span>${i.focus?'<span class="g-pin">focus</span>':''}${i.t}${isBlocked(i)?'<span class="g-block">blocked</span>':''}</li>`).join('');
+  const nowMore=nowItems.length>CAP?`<li class="g-more">+${nowItems.length-CAP} more →</li>`:'';
+  const nowEmpty=nowItems.length?'':`<li class="g-none">Phase clear — nothing left to execute.</li>`;
+  const blockedNow=nowItems.filter(isBlocked).length;
+  const nowCard=`
+    <div class="panel now g-click" data-go="now" role="button" tabindex="0"
+         aria-label="Filter to current-phase active items">
+      <h3><span class="dot"></span>Now · Phase ${cur}${curObj?' · '+curObj.title:''}</h3>
+      <ul>${nowList}${nowMore}${nowEmpty}</ul>
+      <p class="g-foot">${nowItems.length} active${blockedNow?` · ${blockedNow} blocked`:''}${nowItems.length?' · tap to filter':''}</p>
+    </div>`;
+
+  /* Card 2 — NEXT: the following phase, surfacing its watch-outs early */
+  let nextCard='';
+  if(nextObj){
+    const nextAll=ITEMS.filter(i=>i.p===nextObj.n);
+    const nextWatch=nextAll.filter(i=>i.kind==='watchout');
+    const body=nextWatch.length
+      ? nextWatch.map(i=>`<li class="g-risk" data-go="nextrisk"><span class="g-dot k-watchout"></span>${i.t}</li>`).join('')
+      : `<li class="g-none">No watch-outs queued.</li>`;
+    nextCard=`
+      <div class="panel next">
+        <h3><span class="dot"></span>Next · Phase ${nextObj.n} · ${nextObj.title}</h3>
+        <ul>${body}</ul>
+        <p class="g-foot g-click" data-go="next" role="button" tabindex="0">${nextAll.length} items queued · tap to preview</p>
+      </div>`;
+  }
+
+  /* Card 3 — PROGRESS: completion plus the state mix and any blocked count */
+  const total=ITEMS.length, doneAll=ITEMS.filter(i=>i.state==='done').length;
+  const curItems=ITEMS.filter(i=>i.p===cur), curDone=curItems.filter(i=>i.state==='done').length;
+  const st={active:0,open:0,parked:0,done:0};
+  ITEMS.forEach(i=>{st[i.state]=(st[i.state]||0)+1;});
+  const blockedAll=ITEMS.filter(isBlocked).length;
+  const curPct=curItems.length?Math.round(curDone/curItems.length*100):0;
+  const allPct=total?Math.round(doneAll/total*100):0;
+  const pill=(n,l,k)=>n?`<span class="lg-pill ${k}"><b>${n}</b> ${l}</span>`:'';
+  const progCard=`
+    <div class="panel prog">
+      <h3><span class="dot"></span>Progress</h3>
+      <div class="g-prog">
+        <div class="g-prog-row"><span>Phase ${cur}</span><b>${curDone} / ${curItems.length}</b></div>
+        <div class="g-bar"><i style="width:${curPct}%"></i></div>
+        <div class="g-prog-row"><span>Overall</span><b>${doneAll} / ${total}</b></div>
+        <div class="g-bar"><i style="width:${allPct}%"></i></div>
+      </div>
+      <div class="g-pills">${pill(st.active,'active','d')}${pill(st.open,'open','o')}${pill(st.parked,'parked','i')}${pill(st.done,'done','done')}${pill(blockedAll,'blocked','r')}</div>
+    </div>`;
+
+  host.innerHTML=nowCard+nextCard+progCard;
+
+  // launch-to-filter: clicking a card drops you into the matching filtered view
+  host.querySelectorAll('[data-go]').forEach(el=>{
+    const go=()=>{
+      if(el.dataset.go==='now' && nowItems.length) applyFilter({phase:cur,stateFilter:'active',kind:null});
+      else if(el.dataset.go==='next' && nextObj) applyFilter({phase:nextObj.n,stateFilter:'all',kind:null});
+      else if(el.dataset.go==='nextrisk' && nextObj) applyFilter({phase:nextObj.n,stateFilter:'all',kind:'watchout'});
+    };
+    el.addEventListener('click',go);
+    el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}});
+  });
+}
+
+// computed-over-manual: warn (don't break) on broken links, forward deps, missing logs
+function validateData(){
+  const ids=new Set(); const issues=[];
+  ITEMS.forEach(i=>{
+    if(!i.id) issues.push(`card "${i.t}" has no id`);
+    else if(ids.has(i.id)) issues.push(`duplicate id "${i.id}"`); else ids.add(i.id);
+  });
+  ITEMS.forEach(i=>{
+    (i.needs||[]).forEach(n=>{
+      const dep=BY_ID[n];
+      if(!dep) issues.push(`"${i.id}" needs missing id "${n}"`);
+      else if(dep.p>i.p) issues.push(`"${i.id}" (P${i.p}) needs "${n}" in later P${dep.p}`);
+    });
+    if(i.state==='done' && !i.log) issues.push(`done card "${i.id}" has no log`);
+  });
+  if(issues.length){console.warn('[roadmap] data issues:',issues);}
+  else{console.log('[roadmap] data OK — '+ITEMS.length+' cards, no broken prerequisites.');}
+}
+
+// id index: built once from ITEMS (can't drift), click an entry to jump to that card
+function buildIdIndex(){
+  const groups={};
+  ITEMS.forEach(it=>{ (groups[it.p]=groups[it.p]||[]).push(it); });
+  const idx=document.getElementById('idIndex');
+  idx.innerHTML = '<div class="wrap">' + PHASES.map(ph=>{
+    const items=groups[ph.n]||[];
+    if(!items.length) return '';
+    return `<div class="idx-phase">
+      <div class="idx-phase-label">P${ph.n} · ${ph.title}</div>
+      <div class="idx-grid">${items.map(it=>`<span class="idx-entry" data-jump="${it.id}"><code>${it.id}</code>${it.t}</span>`).join('')}</div>
+    </div>`;
+  }).join('') + '</div>';
+}
+// single delegated listener — safe regardless of how many times render() re-runs elsewhere
+document.getElementById('idIndex').addEventListener('click', e=>{
+  const entry=e.target.closest('.idx-entry');
+  if(!entry) return;
+  const target=document.getElementById('card-'+entry.dataset.jump);
+  if(!target){
+    resetAll();
+    setTimeout(()=>{const t2=document.getElementById('card-'+entry.dataset.jump); if(t2) jumpTo(t2);},60);
+    return;
+  }
+  jumpTo(target);
+});
+document.getElementById('idIndexToggle').addEventListener('click',()=>{
+  const idx=document.getElementById('idIndex');
+  const btn=document.getElementById('idIndexToggle');
+  const willShow=idx.hasAttribute('hidden');
+  if(willShow){ idx.removeAttribute('hidden'); btn.textContent='card IDs ▴'; btn.setAttribute('aria-expanded','true'); }
+  else{ idx.setAttribute('hidden',''); btn.textContent='card IDs ▾'; btn.setAttribute('aria-expanded','false'); }
+});
+
+render();
+buildGlance();
+validateData();
+buildIdIndex();
+
+</script>
+</body>
+</html>

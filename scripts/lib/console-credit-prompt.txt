@@ -1,0 +1,11 @@
+Read one page in the browser: https://platform.claude.com/settings/billing
+
+Open it in a new tab and read its Promotional credits section.
+
+Your whole reply is one JSON object and nothing else, with these fields:
+
+- "page": "billing" where the Billing page's Promotional credits section is on screen, "sign-in" where a sign-in page came instead, "no-browser" where the browser tools say the extension is not connected, "other" for anything else.
+- "signedInAs": the email address the page's account menu shows, or null where none is shown.
+- "credits": one entry per row of the Promotional credits section, and an empty list where the section has none. Each entry has "remainingUsd" and "grantUsd" as numbers, and "grantedOn" and "expiresOn" as YYYY-MM-DD dates. The page writes dates as month/day/year. Take rows from that section only, never from Invoice history or the sidebar.
+
+Never sign in.

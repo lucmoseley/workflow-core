@@ -1,0 +1,3663 @@
+/*
+ * shell-parse.js — the guard parser's first half in Node (workflow-core#2784, programme
+ * workflow-core#2733): given one opaque shell string from a Bash tool call, which commands
+ * does it run, with which words, redirections and write targets, in which
+ * directory?
+ *
+ * A CORE: it does no I/O. The variables a word may expand through and the
+ * directory test `cp` needs arrive as ports; the guard's entry wires the real
+ * ones (lib/guard-entry.js).
+ *
+ * FAIL OPEN is the house rule (mantahostels#103 §6): a word this file cannot read
+ * comes back unresolved — null, or an empty path — and the guard decides what
+ * that costs. Nothing here ever runs the text.
+ */
+
+// biome-ignore lint/suspicious/noImportCycles: shell-words.js requires this file only inside runScript, once both have loaded (workflow-core#4863).
+const shellWords = require("./shell-words.js");
+const {
+	QUOTED,
+	hasExpansion,
+	isBareSpan,
+	readSentinels,
+	literal,
+	unwrap,
+	commandName,
+	stepGitOptions,
+	isGlobPattern,
+	ASSIGNMENT_RE,
+} = shellWords;
+const { expandTildeWord } = require("./home-path.js");
+const {
+	dirsAfter,
+	moveDir,
+	openChainScope,
+	settleDirs,
+	startDirs,
+	stepDirs,
+} = require("./shell-dirs.js");
+const { endRun, trimEndRun } = require("./trim-run.js");
+// biome-ignore lint/suspicious/noImportCycles: shell-lexer.js requires shell-words.js, which requires this file only inside runScript (workflow-core#4863).
+const { Lexer, SPACE } = require("./shell-lexer.js");
+// biome-ignore lint/suspicious/noImportCycles: git-alias.js requires shell-words.js, which requires this file only inside runScript (workflow-core#4863).
+const gitAlias = require("./git-alias.js");
+const {
+	CONFIG_FILE_VARS,
+	UNREAD_ALIAS,
+	emptyAliasTable,
+	isAliasKey,
+	expandAlias,
+	defineFromEnv,
+	defineFromConfigEnvWord,
+	defineFromConfigWord,
+} = gitAlias;
+
+/** The flatten's subshell marker, standing a bracket on a line of its own so a
+ * walk can end a subshell's `cd` at its `)` (mantahostels#3453). */
+const SCOPE_MARK = "\x02";
+const SCOPE_OPEN = `${SCOPE_MARK}(`;
+const SCOPE_CLOSE = `${SCOPE_MARK})`;
+
+/** Opens a flattened line with the code of the operator before it (workflow-core#4009). */
+const OP_MARK = "\x05";
+
+/** What joins a flattened line to the one before, as parseJoins codes it. */
+const JOIN = Object.freeze({
+	/** a newline, or nothing; falsy, as parseJoins reads it */
+	NONE: "",
+	AND: "a",
+	OR: "o",
+	SEMI: "s",
+	PIPE: "p",
+	BACKGROUND: "b",
+	/** a bracket's opening */
+	OPEN: "(",
+	/** the rest of the line a bracket's `)` closed (#5093) */
+	AFTER_CLOSE: ")",
+});
+
+/** @typedef {typeof JOIN[keyof typeof JOIN]} Join */
+
+/** @type {readonly string[]} */
+const JOIN_CODES = Object.values(JOIN);
+
+/**
+ * @param {string} code
+ * @returns {code is Join}
+ */
+const isJoin = (code) => JOIN_CODES.includes(code);
+
+/** The first private-use code point, where escapeShield's stand-ins start. */
+const STAND_IN_BASE = 0xe0_00;
+
+/**
+ * A shield for the escaped characters among `chars` while a split runs over
+ * text the lexer wrote, where an escape is a `\`-pair: `shield` stands each
+ * such pair's character behind a private-use stand-in, no whitespace and no
+ * mark of these modules, and `unshield` restores each stand-in a pair holds
+ * (#5113, #5114, #5116).
+ *
+ * Residual: a raw stand-in typed after a `\` outside quotes comes back as the
+ * escaped character; it changes that word and splits nothing.
+ * @param {string} chars
+ */
+function escapeShield(chars) {
+	/** @param {number} at */
+	const standIn = (at) => String.fromCharCode(STAND_IN_BASE + at);
+	/** @param {string} text @param {(c: string) => string} swap */
+	const swapPairs = (text, swap) =>
+		text.replace(/\\[\s\S]/g, (pair) => `\\${swap(pair.charAt(1))}`);
+	return {
+		/** @param {string} text */
+		shield: (text) =>
+			swapPairs(text, (c) => {
+				const at = chars.indexOf(c);
+				return at < 0 ? c : standIn(at);
+			}),
+		/** @param {string} text */
+		unshield: (text) =>
+			swapPairs(
+				text,
+				(c) => chars.charAt(c.charCodeAt(0) - STAND_IN_BASE) || c,
+			),
+	};
+}
+
+/** The flatten's shield: every character its splits act on. */
+const FLATTEN_SHIELD = escapeShield("()&|;<>");
+
+/**
+ * The command names whose line the logical-line join refuses to absorb.
+ *
+ * IT STAYS AT `git` AND `gh` (mantahostels#2346): the deny guards are safe here only because a
+ * line they refuse begins with one of these, and a wider list exposes quoted
+ * prose as commands.
+ */
+const GUARDED_HEADS = ["git", "gh"];
+
+/** A word as `read -ra` splits it: on runs of IFS whitespace. */
+const IFS_SPLIT = /[ \t\n]+/;
+
+/** A redirection operator, and the text before it with every `\`-escaped
+ * character kept (workflow-core#1488). */
+const REDIRECT_RE = /^((?:\\.|[^\\<>])*)([<>].*)$/s;
+
+/** @param {string} p */
+const basename = (p) => p.slice(p.lastIndexOf("/") + 1);
+
+/**
+ * A path a verdict can be built on: nothing unexpanded and no blanked span.
+ * @param {string} s
+ */
+const isResolvable = (s) => s !== "" && !hasExpansion(s) && !s.includes(QUOTED);
+
+/**
+ * Blank every quoted span out of `text` on `lx`, reset first.
+ * @param {InstanceType<typeof Lexer>} lx
+ * @param {string} text
+ */
+function maskText(lx, text) {
+	lx.reset();
+	text.split("\n").forEach((line, i) => {
+		if (i) lx.lex("\n");
+		lx.lex(line);
+	});
+	return lx.masked();
+}
+
+/**
+ * Break masked text into the segments it runs, one per line. A subshell or a
+ * command substitution splits too, so neither can hide a command behind its
+ * bracket; given `mark`, each bracket also stands on a line of its own behind
+ * SCOPE_MARK. A backtick pair splits as the `$(…)` it means (workflow-core#3375). The `&`
+ * and `|` of a redirection — `>&`, `<&`, `&>`, `&>>`, `>|` — are shielded from
+ * the split (workflow-core#1488).
+ *
+ * RESIDUAL: an unclosed backtick opens a subshell that never closes, so a `cd`
+ * after it is undone at no `)`.
+ *
+ * The text this returns ends in a newline. Given `ops`, each line an operator
+ * opens starts with OP_MARK and its code, which parseJoins takes off.
+ * @param {string} text
+ * @param {boolean} [mark]
+ * @param {boolean} [ops]
+ */
+function flatten(text, mark = false, ops = false) {
+	let inBackticks = false;
+	/** @param {Join} code */
+	const join = (code) => (ops ? `\n${OP_MARK}${code}` : "\n");
+	const flat = FLATTEN_SHIELD.shield(text)
+		/* A `\`-pair is never a backtick of its own. */
+		.replace(/\\[\s\S]|`/g, (m) => {
+			if (m !== "`") return m;
+			inBackticks = !inBackticks;
+			return inBackticks ? "$(" : ")";
+		})
+		.replace(/&&/g, join(JOIN.AND))
+		.replace(/\|\|/g, join(JOIN.OR))
+		.replace(/([<>])&/g, "$1\x03")
+		.replace(/&>/g, "\x03>")
+		.replace(/>\|/g, ">\x04")
+		.replace(/[()]/g, (b) =>
+			mark
+				? `\n${SCOPE_MARK}${b}\n${ops && b === "(" ? `${OP_MARK}${JOIN.OPEN}` : ""}`
+				: "\n",
+		)
+		.replace(/;/g, join(JOIN.SEMI))
+		.replace(/\|&?/g, join(JOIN.PIPE))
+		.replace(/&/g, join(JOIN.BACKGROUND))
+		.replaceAll("\x03", "&")
+		.replaceAll("\x04", "|");
+	return `${FLATTEN_SHIELD.unshield(flat)}\n`;
+}
+
+/** Where `masked`'s first `||` outside an escape starts, or -1.
+ * @param {string} masked */
+const indexOfFirstOr = (masked) => {
+	for (const m of masked.matchAll(/\\[\s\S]|\|\|/g))
+		if (m[0] === "||") return m.index;
+	return -1;
+};
+
+/**
+ * What joins each of `masked`'s flattened lines to the one before. A blank
+ * line takes the operator carried to it, and hands it on (#5099).
+ * @param {string} masked
+ * @returns {Join[]} one per line of flatSegments
+ */
+function parseJoins(masked) {
+	/** @type {Join} */
+	let carry = JOIN.NONE;
+	let closed = false;
+	return flatten(masked, true, true)
+		.split("\n")
+		.map((line) => {
+			const code = line.startsWith(OP_MARK) ? parseOpCode(line) : JOIN.NONE;
+			const afterClose = closed && !code;
+			const lineEnd = afterClose ? JOIN.AFTER_CLOSE : JOIN.NONE;
+			closed = line === SCOPE_CLOSE;
+			if (line.slice(code ? 2 : 0).trim() === "") {
+				carry ||= code;
+				return lineEnd || carry;
+			}
+			const joined = code || carry || lineEnd;
+			carry = JOIN.NONE;
+			return joined;
+		});
+}
+
+/** The join code an OP_MARK line opens with.
+ * Residual: a raw OP_MARK byte typed at a line's start, outside quotes, reads
+ * as the operator the next character codes, or as `;` for any other, and
+ * stays in the command word, so the command it opens goes unseen; bash would
+ * not run it either.
+ * @param {string} line
+ * @returns {Join} */
+function parseOpCode(line) {
+	const code = line.charAt(1);
+	return isJoin(code) ? code : JOIN.SEMI;
+}
+
+/** @type {readonly Join[]} */
+const CHAIN_HELD = [JOIN.AND, JOIN.PIPE, JOIN.OPEN, JOIN.AFTER_CLOSE];
+
+/**
+ * Whether a `&&` chain ends at the segment: not where `&&` joins it, nor `|`,
+ * which binds tighter (#5109), nor inside a bracket's line.
+ * @param {Join[]} joins
+ * @param {number} segIdx
+ */
+const isChainEnd = (joins, segIdx) =>
+	!CHAIN_HELD.includes(joins[segIdx] ?? JOIN.NONE);
+
+/**
+ * @typedef {object} CommandWords
+ * @property {string[]} words the segment's words, redirections taken out
+ * @property {number} wi where the command starts
+ * @property {number} assignStart where the leading assignments start, past
+ *   any reserved word
+ * @property {number} assignEnd where the leading assignments stop, before any
+ *   `exec`
+ * @property {RedirectEntry[]} redirs one per redirection taken out
+ * @property {boolean} ran whether the segment runs a command
+ */
+
+/**
+ * @typedef {object} RedirectEntry one redirection as written (workflow-core#2785)
+ * @property {string} fd the descriptor as written: digits, a `{name}`, the
+ *   `&` of `&>`, or ""
+ * @property {string} op the operator
+ * @property {string} target masked as the command's words are
+ */
+
+/**
+ * Take the redirections out of `words` (workflow-core#1488): one entry per redirection,
+ * the target masked as the words are. A word carrying an operator part-way —
+ * `echo hi>out` — is cut there, as bash cuts it; a leading run of digits or a
+ * `{name}` is the descriptor. An operator with no target left, or one whose
+ * target is a process substitution, is dropped unrecorded.
+ *
+ * Not inside `[[ … ]]`, where `>` and `<` compare strings, nor in arithmetic
+ * (`noRedirects`). `[` and `test` get no such exemption: bash redirects there.
+ * @param {string[]} words
+ * @param {boolean} noRedirects
+ */
+function stripRedirects(words, noRedirects) {
+	/** @type {RedirectEntry[]} */
+	const redirs = [];
+	if (!words.some((w) => /[<>]/.test(w)) || noRedirects)
+		return { words, redirs };
+	/** @type {string[]} */
+	const out = [];
+	let cond = isConditionalTail(words);
+	let i = 0;
+	while (i < words.length) {
+		const w = words[i++] ?? "";
+		if (w === "[[") cond = true;
+		if (w === "]]") cond = false;
+		if (!cond) i = cutRedirects(w, words, i, { out, redirs });
+		else if (w) out.push(w);
+	}
+	return { words: out, redirs };
+}
+
+/**
+ * Does the segment reach a `]]` before any `[[`? A `&&` inside `[[ … ]]`
+ * splits it, so such a segment is the conditional's tail.
+ * @param {string[]} words
+ */
+function isConditionalTail(words) {
+	for (const w of words) {
+		if (w === "[[") return false;
+		if (w === "]]") return true;
+	}
+	return false;
+}
+
+/** The redirection operators, longest first so a prefix never wins. */
+const REDIRECT_OPS = [
+	"&>>",
+	"&>",
+	">>",
+	">|",
+	">&",
+	"<<<",
+	"<<-",
+	"<<",
+	"<>",
+	"<&",
+];
+
+/**
+ * Cut every redirection out of one word, `words[start - 1]`, pushing what is
+ * left of it to `out` and each redirection to `redirs`. Returns the index of
+ * the next word to read: past a target taken from the word after, or the end
+ * where an operator's target is missing or a process substitution.
+ * @param {string} word
+ * @param {string[]} words
+ * @param {number} start
+ * @param {{ out: string[], redirs: RedirectEntry[] }} acc
+ */
+function cutRedirects(word, words, start, { out, redirs }) {
+	let w = word;
+	let i = start;
+	while (w) {
+		const m = REDIRECT_RE.exec(w);
+		if (!m) {
+			out.push(w);
+			break;
+		}
+		const { fd, op, rest } = parseOperator(m[1] ?? "", m[2] ?? "", out);
+		const t = parseTarget(rest, words, i);
+		if (!t) return words.length;
+		redirs.push({ fd, op, target: t.target });
+		w = t.w;
+		i = t.next;
+	}
+	return i;
+}
+
+/**
+ * Split a redirection off the text `pre` before it: the descriptor — a
+ * leading run of digits, a `{name}`, or the `&` of `&>` — and the operator.
+ * A `pre` that is no descriptor is a word of its own, pushed to `out`.
+ * @param {string} before
+ * @param {string} from the text from the operator on
+ * @param {string[]} out
+ */
+function parseOperator(before, from, out) {
+	let pre = before;
+	let rest = from;
+	let fd = "";
+	if (pre.endsWith("&") && !pre.endsWith("\\&") && rest.startsWith(">")) {
+		pre = pre.slice(0, -1);
+		rest = `&${rest}`;
+		fd = "&";
+	}
+	if (!fd && /^(?:[0-9]+|\{[A-Za-z_][A-Za-z0-9_]*\})$/.test(pre)) fd = pre;
+	else if (pre) out.push(pre);
+	const op = REDIRECT_OPS.find((o) => rest.startsWith(o)) ?? rest.charAt(0);
+	return { fd, op, rest: rest.slice(op.length) };
+}
+
+/**
+ * An operator's target: the text glued after it, up to any further operator
+ * (`w`, still to cut), else the next word. Null where it has none to record.
+ * @param {string} rest the text after the operator
+ * @param {string[]} words
+ * @param {number} i the next word's index
+ * @returns {{ target: string, w: string, next: number } | null}
+ */
+function parseTarget(rest, words, i) {
+	if (rest) {
+		const r = REDIRECT_RE.exec(rest);
+		if (!r) return { target: rest, w: "", next: i };
+		const target = r[1] ?? "";
+		const w = rest.slice(target.length);
+		if (target.endsWith("&") && w.startsWith(">"))
+			return { target: target.slice(0, -1), w: `&${w}`, next: i };
+		return { target, w, next: i };
+	}
+	if (i >= words.length) return null;
+	const target = words[i] ?? "";
+	/* `2> >(tee e)` and `< <(ls)`: the target is a process substitution, whose
+	 * own bare operator the flatten left last. */
+	if ((target === "<" || target === ">") && i + 1 === words.length) return null;
+	return { target, w: "", next: i + 1 };
+}
+
+/**
+ * Split one segment into its words and find the word the command starts at.
+ *
+ * Skipped in shell's own order (workflow-core#1013): any run of reserved words, then the
+ * assignments, then an `exec` and its flags. A word after `exec` is the
+ * command even where it looks like an assignment. `case` arms and function
+ * bodies stay unread. Given `bare`, only the assignments are skipped: the line
+ * join asks that way, because skipping a reserved word there turns a prose
+ * line opening `if git …` into a command (mantahostels#1818's trade).
+ * @param {string} segment
+ * @param {{ bare?: boolean, noRedirects?: boolean }} [opts]
+ * @returns {CommandWords}
+ */
+function commandWords(segment, { bare = false, noRedirects = false } = {}) {
+	const line = segment.split("\n")[0] ?? "";
+	const { words, redirs } = stripRedirects(
+		line.split(IFS_SPLIT).filter(Boolean),
+		noRedirects,
+	);
+	if (words.length === 0)
+		return { words, wi: 0, assignStart: 0, assignEnd: 0, redirs, ran: false };
+	const assignStart = bare ? 0 : skipReserved(words, 0);
+	let wi = assignStart;
+	while (wi < words.length && ASSIGNMENT_RE.test(words[wi] ?? "")) wi++;
+	const assignEnd = wi;
+	if (!bare) wi = skipExec(words, wi);
+	return { words, wi, assignStart, assignEnd, redirs, ran: wi < words.length };
+}
+
+/** The reserved words a command may follow; `time` is read apart, for its
+ * flags. */
+const RESERVED_WORDS = [
+	"{",
+	"!",
+	"if",
+	"then",
+	"else",
+	"elif",
+	"while",
+	"until",
+	"do",
+	"coproc",
+];
+
+/**
+ * The index past any run of reserved words from `start`, a `time` taking its
+ * `-p` and `--` with it.
+ * @param {string[]} words
+ * @param {number} start
+ */
+function skipReserved(words, start) {
+	let wi = start;
+	while (wi < words.length) {
+		const w = words[wi] ?? "";
+		if (w === "time") {
+			if (words[wi + 1] === "-p") wi++;
+			if (words[wi + 1] === "--") wi++;
+		} else if (!RESERVED_WORDS.includes(w)) break;
+		wi++;
+	}
+	return wi;
+}
+
+/**
+ * The index past an `exec` at `start` and its flags, `-a` taking its value
+ * with it; `start` itself where no `exec` stands there.
+ * @param {string[]} words
+ * @param {number} start
+ */
+function skipExec(words, start) {
+	if (words[start] !== "exec") return start;
+	let wi = start + 1;
+	while ((words[wi] ?? "").startsWith("-")) {
+		if ((words[wi] ?? "").endsWith("a")) wi++;
+		wi++;
+	}
+	return wi;
+}
+
+/**
+ * Collapse `.`, `..` and doubled slashes, so two spellings of one absolute
+ * path compare equal as strings (mantahostels#3315). Textual, never
+ * symlink-resolved. One
+ * line only, as the bash reader's `read`.
+ * @param {string} p
+ */
+function normAbs(p) {
+	/** @type {string[]} */
+	const out = [];
+	for (const part of (p.split("\n")[0] ?? "").split("/")) {
+		if (part === "" || part === ".") continue;
+		if (part === "..") out.pop();
+		else out.push(part);
+	}
+	return `/${out.join("/")}`;
+}
+
+/** @param {string} kind a redirection kind */
+const isWriteRedirect = (kind) =>
+	["truncate", "clobber", "append", "read-write"].includes(kind);
+
+/**
+ * @typedef {object} Parsed
+ * @property {string} subject the field as the payload carried it
+ * @property {string[]} spans every quoted span blanked, quote character first
+ * @property {string} masked the subject with quoted spans blanked, heredoc
+ *   bodies out and every separator kept, before the flatten (workflow-core#2710)
+ * @property {number[]} heredocLines the subject's lines, numbered from 0, a
+ *   heredoc's body or terminator fills (workflow-core#2384)
+ * @property {string[]} segments the flattened segments, one command each,
+ *   with SCOPE_MARK lines for the brackets: `\x02(` and `\x02)`
+ * @property {number} conditional the segment index of the first after the
+ *   subject's first `||` outside a quoted span, or -1 where it has none (workflow-core#328)
+ * @property {Join[]} joins parseJoins's code for each segment (workflow-core#4009); a lifted
+ *   substitution's is JOIN.OPEN
+ * @property {boolean[]} lifted whether each segment was lifted out of a
+ *   substitution (#5098)
+ */
+
+/**
+ * Parse one Bash command string.
+ *
+ * Quoted spans are blanked FIRST, and heredoc openers then detected on the
+ * blanked text, so `echo "a << b"` opens no heredoc; a quoted delimiter is read
+ * back off the original line. A heredoc body is data, not commands, and is
+ * dropped (mantahostels#201).
+ *
+ * Then the lines are masked again over LOGICAL lines (mantahostels#182): a quote the lexer
+ * leaves open takes the next line too, so a multi-line message stays one
+ * segment. The join is ABANDONED the moment it would absorb a line that runs
+ * a GUARDED_HEADS command — the lexer is not the whole of shell, and joining on
+ * a stray quote would hide every line after it — EXCEPT inside a message
+ * argument (mantahostels#232), whose lines are prose, and a script unwrap
+ * reads (workflow-core#4978).
+ *
+ * Each command substitution a double-quoted span runs is LIFTED into segments
+ * of its own, bracketed as a subshell, ahead of the segment holding the span
+ * (workflow-core#3375): it runs before that command does.
+ * @param {string} subject
+ * @param {string[]} [spans] accumulator: the subject's spans are appended, so
+ *   words parsed out of a span another parse recorded read through that
+ *   parse's array (workflow-core#4863)
+ * @returns {Parsed}
+ */
+function parseCommand(subject, spans = []) {
+	const { masked, heredocLines } = maskSubject(subject, spans);
+	/* Read BEFORE the flatten turns every `||` into a newline. The text before
+	 * the first one flattens to exactly the segments ahead of it. */
+	const orAt = indexOfFirstOr(masked);
+	const before =
+		orAt >= 0
+			? (flatten(masked.slice(0, orAt), true).match(/\n/g)?.length ?? 0)
+			: -1;
+	/** @type {string[]} */
+	const segments = [];
+	/** @type {Join[]} */
+	const joins = [];
+	/** @type {boolean[]} */
+	const lifted = [];
+	const lineJoins = parseJoins(masked);
+	let conditional = -1;
+	flatSegments(masked).forEach((segment, i) => {
+		if (i === before) conditional = segments.length;
+		const own = withLifted(segment, spans);
+		segments.push(...own);
+		const join = lineJoins[i];
+		if (join === undefined) throw new Error("a segment with no join");
+		const subs = own.slice(0, -1);
+		joins.push(...subs.map(() => JOIN.OPEN), join);
+		lifted.push(...subs.map(() => true), false);
+	});
+	if (before >= 0 && conditional < 0) conditional = segments.length;
+	return {
+		subject,
+		spans,
+		masked,
+		heredocLines,
+		segments,
+		conditional,
+		joins,
+		lifted,
+	};
+}
+
+/**
+ * `subject` masked, and the lines its heredoc bodies fill.
+ * @param {string} subject
+ * @param {string[]} spans accumulator: the subject's spans are appended
+ */
+function maskSubject(subject, spans) {
+	const start = spans.length;
+	const lx = new Lexer(spans);
+	const { commandLines, heredocLines } = readCommandLines(subject, lx);
+	spans.length = start;
+	const masked = trimEndRun(
+		joinLogicalLines(commandLines, lx, spans).join("\n"),
+		"\n",
+	);
+	return { masked, heredocLines };
+}
+
+/** @param {string} masked */
+const flatSegments = (masked) =>
+	trimEndRun(flatten(masked, true), "\n").split("\n");
+
+/**
+ * `segment`, behind the segments its quoted substitutions run.
+ * @param {string} segment
+ * @param {string[]} spans accumulator: each lifted command's spans are
+ *   appended
+ */
+const withLifted = (segment, spans) => [
+	...liftSubstitutions(segment, spans),
+	segment,
+];
+
+/**
+ * The segments the command substitutions in `segment`'s double-quoted spans
+ * run, each bracketed by SCOPE_MARK lines, their own lifted first.
+ * @param {string} segment
+ * @param {string[]} spans accumulator: each lifted command's spans are
+ *   appended
+ * @returns {string[]}
+ */
+function liftSubstitutions(segment, spans) {
+	/** @type {string[]} */
+	const lifted = [];
+	readSentinels(segment, (_lit, idx) => {
+		const span = idx === null ? undefined : spans[idx];
+		if (span === undefined) return { text: "", stepPast: true };
+		for (const inner of quotedSubstitutions(span)) {
+			const { masked } = maskSubject(inner, spans);
+			lifted.push(SCOPE_OPEN);
+			for (const seg of flatSegments(masked))
+				lifted.push(...withLifted(seg, spans));
+			lifted.push(SCOPE_CLOSE);
+		}
+		return { text: "", stepPast: true };
+	});
+	return lifted;
+}
+
+/**
+ * The text of each `$(…)` and backtick pair a recorded span runs at its own
+ * level — none unless it is double-quoted. A `$((`
+ * is arithmetic and skipped. A backtick pair's `\$`, `` \` ``, `\\` and
+ * `\"` lose their backslash, as bash reads them there.
+ * @param {string} span as recorded, its opening quote first
+ */
+function quotedSubstitutions(span) {
+	/** @type {string[]} */
+	const found = [];
+	if (!span.startsWith('"')) return found;
+	let i = 1;
+	while (i > 0 && i < span.length) {
+		const { next, text } = scanSubstitution(span, i);
+		if (text !== null) found.push(text);
+		i = next;
+	}
+	return found;
+}
+
+/**
+ * Read on from `i` in a double-quoted span: where to read on from, -1 where
+ * a substitution never closes, and the text of one that ends there.
+ * @param {string} span
+ * @param {number} i
+ * @returns {{ next: number, text: string | null }}
+ */
+function scanSubstitution(span, i) {
+	const c = span.charAt(i);
+	if (c === "\\") return { next: i + 2, text: null };
+	if (c === "`") {
+		const end = backtickEnd(span, i + 1);
+		if (end < 0) return { next: -1, text: null };
+		const text = span.slice(i + 1, end).replace(/\\([$`\\"])/g, "$1");
+		return { next: end + 1, text };
+	}
+	if (!span.startsWith("$(", i)) return { next: i + 1, text: null };
+	const end = Lexer.substitutionEnd(span, i + 2);
+	if (end < 0) return { next: -1, text: null };
+	const isArith = span.charAt(i + 2) === "(";
+	return { next: end, text: isArith ? null : span.slice(i + 2, end - 1) };
+}
+
+/**
+ * The index of the backtick closing one opened before `from`, or -1.
+ * @param {string} text
+ * @param {number} from
+ */
+function backtickEnd(text, from) {
+	for (let j = from; j < text.length; j++) {
+		const c = text.charAt(j);
+		if (c === "`") return j;
+		if (c === "\\") j++;
+	}
+	return -1;
+}
+
+/**
+ * The subject's command lines, `\`-newlines joined and heredoc bodies out,
+ * and the lines, numbered from 0, those bodies fill (workflow-core#2384).
+ * @param {string} subject
+ * @param {InstanceType<typeof Lexer>} lx
+ */
+function readCommandLines(subject, lx) {
+	/** @type {number[]} */
+	const heredocLines = [];
+	/** @type {string[]} */
+	const commandLines = [];
+	let term = "";
+	let held = "";
+	subject.split("\n").forEach((raw, idx) => {
+		if (term) {
+			heredocLines.push(idx);
+			if (raw === term || raw === `${term};`) term = "";
+			return;
+		}
+		/* A `\`-newline outside `'…'` or `$'…'` is no break to bash, so the line
+		 * is held and the next joined onto it (workflow-core#490). */
+		const line = held + raw;
+		held = "";
+		if (isLineContinued(lx, line)) {
+			held = line.slice(0, -1);
+			return;
+		}
+		lx.lex("\n");
+		term = parseHeredocTerm(lx.out, line);
+		/* An opener ends the carry: a quote after the `<<` would otherwise stay
+		 * open across the skipped body and blank every line after it. */
+		if (term) lx.reset();
+		commandLines.push(line);
+	});
+	if (held) commandLines.push(held);
+	return { commandLines, heredocLines };
+}
+
+/**
+ * Lex one line; true where it ends in a `\`-newline outside `$'…'`, to be
+ * joined onto the next, the lexer then set back to where it stood.
+ * @param {InstanceType<typeof Lexer>} lx
+ * @param {string} line
+ */
+function isLineContinued(lx, line) {
+	const saved = hasOddTrailingBackslashes(line) ? lx.save() : null;
+	lx.out = "";
+	lx.lex(line);
+	if (!lx.escaped || lx.frames.endsWith("E")) return false;
+	if (saved) lx.load(saved);
+	return true;
+}
+
+/** @param {string} line */
+const hasOddTrailingBackslashes = (line) => endRun(line, "\\").length % 2 === 1;
+
+/**
+ * The terminator a line's heredoc opener names, or "". Read on the masked
+ * line, so a `<<` inside quotes opens nothing; a quoted delimiter is read back
+ * off the original line.
+ * @param {string} mask
+ * @param {string} line
+ */
+function parseHeredocTerm(mask, line) {
+	const opener = /<<-?[ \t\n\v\f\r]*\\?([A-Za-z_][A-Za-z0-9_]*)/.exec(mask);
+	const quoted = mask.includes("<<")
+		? /<<-?[ \t\n\v\f\r]*['"]([A-Za-z_][A-Za-z0-9_]*)/.exec(line)
+		: null;
+	return opener?.[1] ?? quoted?.[1] ?? "";
+}
+
+/**
+ * Mask the command lines over LOGICAL lines (mantahostels#182), one masked
+ * entry per logical line, abandoning a join that would absorb a GUARDED_HEADS
+ * line outside a message argument (mantahostels#232) or a script unwrap reads
+ * (workflow-core#4978). A bare `sh -c` script is not among them: unwrap leaves it standing
+ * as the command word (mantahostels#2629), so its later lines are judged only
+ * as lines of their own, which the abandoned join keeps.
+ * Residual: three cores read no unwrap run, so a later `gh` or text line of a
+ * script unwrap reads passes them (#5012).
+ * @param {string[]} commandLines
+ * @param {InstanceType<typeof Lexer>} lx
+ * @param {string[]} spans
+ */
+function joinLogicalLines(commandLines, lx, spans) {
+	/** @type {string[]} */
+	const kept = [];
+	/** @type {string[]} */
+	let pending = [];
+	const keepPerLine = () => {
+		for (const line of pending) kept.push(maskText(lx, line));
+		pending = [];
+		lx.reset();
+	};
+	let heldAt = "";
+	let held = false;
+	lx.reset();
+	for (const line of commandLines) {
+		if (pending.length > 0) {
+			const at = `${lx.opens}${lx.frames ? "open" : ""}`;
+			if (heldAt !== at) {
+				heldAt = at;
+				held = isJoinHeld(lx, spans);
+			}
+			if (!held && isCommandAbsorbed(line, spans)) {
+				pending.push(line);
+				keepPerLine();
+				continue;
+			}
+			/* The join point is inside the quote still open, so the newline lands
+			 * in a span — kept, because the lexer reads a heredoc's terminator
+			 * line by it. */
+			lx.lex("\n");
+		}
+		pending.push(line);
+		lx.lex(line);
+		if (lx.open()) continue;
+		kept.push(lx.out);
+		pending = [];
+		lx.reset();
+	}
+	/* A quote that never closed was not a multi-line string — a stray
+	 * apostrophe in a comment is the ordinary case. */
+	keepPerLine();
+	return kept;
+}
+
+/**
+ * Does `line`, read on its own, run a GUARDED_HEADS command? Every segment is
+ * checked, not just the head word: `foo; git checkout -b evil` hides one.
+ * Masked on a lexer of its own.
+ * @param {string} line
+ * @param {string[]} spans
+ */
+function isCommandAbsorbed(line, spans) {
+	const masked = maskText(new Lexer(spans), line);
+	for (const seg of flatten(masked).split("\n")) {
+		const { words, wi, ran } = commandWords(seg, { bare: true });
+		if (ran && GUARDED_HEADS.includes(basename(words[wi] ?? ""))) return true;
+	}
+	return false;
+}
+
+/**
+ * Is the lexer's still-open quote the argument of a flag whose value is DATA —
+ * a commit message, an issue body — so the lines that follow are prose
+ * (mantahostels#232)? Narrow on the word the quote opens on: `-m` or
+ * `--message` on any command, so `commit-paths.js -m` reads as `git commit -m`
+ * does (workflow-core#4028), and `gh`'s body and title flags on `gh`. Not keyed on the
+ * subcommand: a quoted argument is data whatever the subcommand.
+ * Residual: `-m` is a count or mode on `grep`, `sort`, `mkdir` and others, so
+ * a quote opened after one there keeps its join through a `git` line too.
+ * @param {InstanceType<typeof Lexer>} lx
+ */
+function isMessageOpen(lx) {
+	if (!lx.frames) return false;
+	const lines = flatten(lx.prefix).split("\n");
+	const last = lines.at(-2) ?? "";
+	const { words, wi, ran } = commandWords(last);
+	if (!ran) return false;
+	/* `--message="…` arrives glued to its `=`. */
+	const word = (words.at(-1) ?? "").replace(/[=]$/, "");
+	if (word === "-m" || word === "--message") return true;
+	return (
+		basename(words[wi] ?? "") === "gh" &&
+		["-b", "--body", "-t", "--title"].includes(word)
+	);
+}
+
+/**
+ * Does the lexer's still-open quote hold its join through a GUARDED_HEADS line?
+ * @param {InstanceType<typeof Lexer>} lx
+ * @param {string[]} spans
+ */
+const isJoinHeld = (lx, spans) => isMessageOpen(lx) || isScriptOpen(lx, spans);
+
+/**
+ * Is the lexer's still-open quote, opening a word of its own, the script a
+ * `flock -c` or `watch` runs (workflow-core#4978)?
+ * @param {InstanceType<typeof Lexer>} lx
+ * @param {string[]} spans
+ */
+function isScriptOpen(lx, spans) {
+	if (!/[ \t]$/.test(lx.prefix)) return false;
+	const lines = flatten(lx.prefix).split("\n");
+	const { words, wi, ran } = commandWords(lines.at(-2) ?? "");
+	return ran && shellWords.isScriptNext(words.slice(wi), spans);
+}
+
+/**
+ * A flattened segment for a human: every blanked span shown as `"…"`, and the
+ * leading whitespace the flattening leaves dropped. A sentinel without an
+ * index is not something this file writes, so it is rendered and left alone.
+ * A sentinel byte the command typed shows as `"…"` too: this reads no spans.
+ * @param {string} segment
+ */
+function unmask(segment) {
+	const { out, rest } = readSentinels(segment, (lit, idx) => ({
+		text: `${lit}"…"`,
+		stepPast: idx !== null,
+	}));
+	return (out + rest).replace(/^[ \t\n\v\f\r]+/, "");
+}
+
+/**
+ * Masked text as typed, each blanked span back inside its own quotes, for a
+ * guard handing a command back to be re-issued (workflow-core#519). A span index never
+ * recorded is written `<quoted>` rather than guessed. One pass: a span holds
+ * its text as typed, so a sentinel inside one was typed (workflow-core#4278).
+ * @param {string} text
+ * @param {string[]} spans
+ */
+function asWritten(text, spans) {
+	const { out, rest } = readSentinels(text, (lit, idx) => {
+		const span = idx === null ? undefined : spans[idx];
+		if (span === undefined) return { text: `${lit}<quoted>`, stepPast: true };
+		const close = isBareSpan(span) ? "" : span.charAt(0);
+		return { text: lit + span + close, stepPast: true };
+	});
+	return out + rest;
+}
+
+/**
+ * @typedef {object} Scope what a word resolves against
+ * @property {string[]} spans
+ * @property {Map<string, string>} locals the command's own assignments,
+ *   resolved (mantahostels#208)
+ * @property {Set<string>} dead names it assigned a value this file will not
+ *   resolve, or two different values
+ * @property {Set<string>} exported names an `export`, `declare -x` or
+ *   `typeset -x` put in the environment a `-c` string's shell inherits (#5120)
+ * @property {Map<string, number>} harvested how many of the command's words
+ *   the harvest read as assigning or exporting each name
+ * @property {Record<string, string | undefined>} vars the guard's own
+ *   variables, the environment the hook inherited
+ * @property {string} subject the whole command, searched for a name's other
+ *   mentions under emptyUnset (workflow-core#325)
+ * @property {number} conditional Parsed's
+ * @property {boolean} emptyUnset a git walk's opt-in (workflow-core#310): a name provably
+ *   empty is substituted empty rather than refused
+ * @property {string[]} emptyNames the unset names the last pathArg read as
+ *   empty
+ */
+
+/**
+ * `$VAR` and `${VAR}` in `s` expanded, the command's own assignments winning
+ * over the environment as in shell (mantahostels#208); null where the text
+ * cannot be resolved.
+ *
+ * DELIBERATELY NARROW. It refuses, rather than guessing, on command
+ * substitution, every `${VAR<operator>…}` form, an unset or empty variable,
+ * and a value carrying whitespace or a shell metacharacter. A name the command
+ * assigned in a way this file will not resolve never falls back to the
+ * environment: the command overwrote it.
+ * @param {string} text
+ * @param {Scope} scope
+ * @returns {string | null}
+ */
+function expandVars(text, scope) {
+	if (text.includes("$(") || text.includes("`")) return null;
+	let s = text;
+	let out = "";
+	while (s.includes("$")) {
+		const at = s.indexOf("$");
+		out += s.slice(0, at);
+		const ref = parseVarRef(s.slice(at + 1));
+		if (!ref) return null;
+		const val = lookupVar(ref.name, scope);
+		if (val === null) return null;
+		out += val;
+		s = ref.rest;
+	}
+	return out + s;
+}
+
+/**
+ * The name a `$` opens, `{…}`-braced or bare, and the text after it; null
+ * where neither form follows.
+ * @param {string} s the text after the `$`
+ */
+function parseVarRef(s) {
+	if (s.startsWith("{")) {
+		const close = s.indexOf("}");
+		if (close < 0) return null;
+		return { name: s.slice(1, close), rest: s.slice(close + 1) };
+	}
+	const m = NAME_PREFIX_RE.exec(s);
+	if (!m) return null;
+	return { name: m[0], rest: s.slice(m[0].length) };
+}
+
+/** A shell variable's name. */
+const NAME = "[A-Za-z_][A-Za-z0-9_]*";
+const NAME_RE = new RegExp(`^${NAME}$`);
+const NAME_PREFIX_RE = new RegExp(`^${NAME}`);
+
+/**
+ * The value `name` expands to, the command's own assignments winning; null
+ * where it is refused.
+ * @param {string} name
+ * @param {Scope} scope
+ */
+function lookupVar(name, scope) {
+	/* Anything but a bare name — ${VAR:-x}, ${#VAR}, ${!VAR}, $1 — is
+	 * refused. */
+	if (!NAME_RE.test(name) || scope.dead.has(name)) return null;
+	let val = scope.locals.get(name);
+	if (val === "" && isProvablyEmpty(name, 1, scope)) return "";
+	if (!scope.locals.has(name)) {
+		val = scope.vars[name];
+		if (val === undefined) return isProvablyEmpty(name, 0, scope) ? "" : null;
+	}
+	if (val === undefined || val === "" || /[$`'";|&()<>*?\s]/.test(val))
+		return null;
+	return val;
+}
+
+/** A command that can assign a name without the text naming it (workflow-core#325
+ * review). */
+const SOURCING_RE =
+	/(?:(?:^|[;&|(]|then|do|else)[ \t\n\v\f\r]*|\n[ \t\v\f\r]*)(source|\.|eval)[ \t\n\v\f\r]/;
+
+/**
+ * Under a git walk's emptyUnset opt-in (workflow-core#325), is `$<name>` empty for certain,
+ * so lookupVar substitutes it rather than refusing? The caller has already
+ * found the name unset in the environment and unharvested (`allowed` 0), or
+ * harvested as empty (`allowed` 1). Either is certain only where the command
+ * assigns it NOWHERE ELSE: the harvest sees leading `NAME=` words and an
+ * `export`'s alone, so a `read W` or `for W in` must stop it. Any bare-word mention past
+ * the count refuses — a heredoc or a quoted string naming it included, which
+ * fails open where it need not. A command carrying `||` may skip an assignment
+ * the count cannot tell from a use, and one running `source`, `.` or `eval`
+ * can assign without naming it, so both refuse outright.
+ *
+ * An unset name is recorded in `scope.emptyNames`; one this command emptied
+ * itself needs no telling that variables do not carry between calls.
+ *
+ * RESIDUAL (workflow-core#310's Q2): a name the Bash tool's shell holds and the hook's
+ * environment lacks — an unexported ~/.bashrc variable — reads as unset here,
+ * so the guard judges the cwd where the command runs elsewhere.
+ * @param {string} name
+ * @param {number} allowed
+ * @param {Scope} scope
+ */
+function isProvablyEmpty(name, allowed, scope) {
+	const { subject } = scope;
+	if (!scope.emptyUnset || scope.conditional >= 0) return false;
+	if (SOURCING_RE.test(subject)) return false;
+	if (bareMentions(name, subject) > allowed) return false;
+	if (!allowed) scope.emptyNames.push(name);
+	return true;
+}
+
+/**
+ * How often `subject` names `name` as a whole word but not as a `$name` or
+ * `${name}` reference, which assigns nothing.
+ * @param {string} name
+ * @param {string} subject
+ */
+function bareMentions(name, subject) {
+	let mentions = 0;
+	for (
+		let at = subject.indexOf(name);
+		at >= 0;
+		at = subject.indexOf(name, at + name.length)
+	) {
+		const before = subject.slice(0, at);
+		const after = subject.slice(at + name.length);
+		if (/[A-Za-z0-9_]$/.test(before) || /^[A-Za-z0-9_]/.test(after)) continue;
+		if (before.endsWith("$") || before.endsWith("${")) continue;
+		mentions++;
+	}
+	return mentions;
+}
+
+/**
+ * One path argument — a `cd` target, a redirect target, a word — resolved:
+ * `{ path }`, `{ empty: true }` where it resolved fully to the EMPTY STRING
+ * (only a quoted `""` can, and `cd ""` stays put, workflow-core#301), or null where it stays
+ * unresolved. The unset names it read as empty land in `scope.emptyNames`
+ * (workflow-core#325). The word arrives masked, so a fully literal `cd "/abs"` reaches
+ * here as a sentinel and is read back through `spans` (mantahostels#183).
+ * @param {string} word
+ * @param {Scope} scope
+ * @returns {{ path: string } | { empty: true } | null}
+ */
+function pathArg(word, scope) {
+	scope.emptyNames = [];
+	const raw = expandTilde(word, scope);
+	if (raw === null) return null;
+	if (isResolvable(raw)) return { path: raw };
+	if (!raw) return null;
+	const out = expandMasked(raw, scope);
+	if (out === null) return null;
+	if (out) return isResolvable(out) ? { path: out } : null;
+	/* Only a quoted word survives expanding to nothing: unquoted, bash drops
+	 * it, so `cd $W` with W empty is a bare `cd` (workflow-core#325). */
+	return raw.includes(QUOTED) ? { empty: true } : null;
+}
+
+/**
+ * An unquoted leading `~` is the shell's to expand (mantahostels#3453); `~user`
+ * is refused, not looked up. Null where it will not expand.
+ * @param {string} word
+ * @param {Scope} scope
+ */
+function expandTilde(word, scope) {
+	if (!word.startsWith("~")) return word;
+	return expandTildeWord(word, expandVars("$HOME", scope));
+}
+
+/**
+ * A masked word with every span read back through `scope.spans` and every
+ * variable expanded, or null where any part will not resolve.
+ * @param {string} raw
+ * @param {Scope} scope
+ */
+function expandMasked(raw, scope) {
+	/* Once a part fails nothing after it is read: an expansion records the
+	 * names it read as empty (workflow-core#325). */
+	let ok = true;
+	const { out, rest } = readSentinels(raw, (lit, idx) => {
+		const recorded = idx === null ? undefined : scope.spans[idx];
+		const head = ok && recorded !== undefined ? expandVars(lit, scope) : null;
+		const span =
+			head === null || recorded === undefined
+				? null
+				: expandSpan(recorded, scope);
+		if (span === null) ok = false;
+		return { text: `${head}${span}`, stepPast: true };
+	});
+	const tail = ok ? expandVars(rest, scope) : null;
+	return tail === null ? null : out + tail;
+}
+
+/**
+ * A recorded span's text as the shell reads it: a `"…"` span expanded, a
+ * `'…'` span literal; null where it will not resolve.
+ * @param {string} recorded the span, quote character first
+ * @param {Scope} scope
+ */
+function expandSpan(recorded, scope) {
+	/* A bare span is typed text outside quotes, read back as typed (workflow-core#4278). */
+	if (isBareSpan(recorded)) return recorded;
+	const span = recorded.slice(1);
+	if (recorded.charAt(0) === '"') return expandVars(span, scope);
+	/* Single quotes are literal, so a `$` inside one names a directory rather
+	 * than an expansion. Refused rather than guessed at. */
+	if (recorded.charAt(0) !== "'" || hasExpansion(span)) return null;
+	return span;
+}
+
+/**
+ * A word as the shell would expand it, or null where any part will not
+ * resolve — a quoted `""` included. Relative stays relative.
+ * @param {string} word
+ * @param {Scope} scope
+ */
+function resolveWord(word, scope) {
+	const r = pathArg(word, scope);
+	return r && "path" in r ? r.path : null;
+}
+
+/**
+ * @typedef {object} Redirect
+ * @property {string} fd as written, else 1 for an output and 0 for an input;
+ *   `&` for `&>`, `&>>` and `>&<file>`, which send both 1 and 2
+ * @property {string} kind truncate, clobber, append, read, read-write, copy,
+ *   close, here-string or heredoc
+ * @property {string} target as written, masked as the command's words are
+ * @property {string} path the target as an absolute path, through the walk's
+ *   cwd; "" where it will not resolve, and always for copy, close,
+ *   here-string and heredoc
+ */
+
+/**
+ * @typedef {object} WriteTarget
+ * @property {"write" | "move-source" | "delete"} mode
+ * @property {string} route redirect, or the command as the table in
+ *   writeTargets names it (workflow-core#2142)
+ * @property {string} target as written, masked — `<dest>/<basename>` for a
+ *   copy into a directory
+ * @property {string} path absolute, through the walk's cwd; "" where it will
+ *   not resolve
+ */
+
+/**
+ * @typedef {object} Command one command a walk hands its callback
+ * @property {string} segment the flattened segment, masked
+ * @property {string[]} words the command's own words, leading assignments and
+ *   every redirection removed (workflow-core#1488)
+ * @property {string[]} leading the words before the command — reserved words
+ *   and the leading assignments (workflow-core#1013)
+ * @property {string} cwd the directory it runs in, every `cd` before it taken
+ *   as made; "" where the walk cannot know it, which the caller records before
+ *   it fails open (mantahostels#3453)
+ * @property {import("./shell-dirs.js").Dirs} cwds every directory it may
+ *   stand in, `cwd` first: a `cd` may not have run or have failed (workflow-core#4980)
+ * @property {() => [CommandRun, ...CommandRun[]]} runs the runs its words
+ *   make, as unwrap strips them, in the order they run; unwrapped once, and
+ *   read inside the callback
+ * @property {() => Redirect[]} redirects
+ * @property {(words?: string[], cwd?: string) => WriteTarget[]} writeTargets
+ *   `words` the command's own by default; `cwd` the directory a target, a
+ *   redirect's included, resolves in, the walk's by default, "" where unknown
+ *   (#5012, #5105)
+ * @property {(word: string) => string | null} resolveWord
+ * @property {(name: string) => boolean} assigned whether the command assigned
+ *   `name`, before this point, a value the walk resolves (workflow-core#2436)
+ */
+
+/**
+ * @typedef {import("./shell-words.js").Unwrapped & {
+ *   dirs: () => import("./shell-dirs.js").Dirs }} CommandRun one run a
+ *   command's words make: `dirs` every directory it may stand in, the
+ *   command's `cwds` moved through its own chdirs, its words read under the
+ *   walk's scope as it stands (#5075)
+ */
+
+/**
+ * @typedef {object} WalkPorts
+ * @property {string | undefined} cwd the payload's `.cwd`, where the session's
+ *   shell stands (mantahostels#2682)
+ * @property {string} fallbackCwd where a walk stands with no absolute `cwd`:
+ *   under a hook, lib/host-root.js's sessionDir (workflow-core#4695)
+ * @property {Record<string, string | undefined>} vars what an unassigned
+ *   `$VAR` reads
+ * @property {(path: string) => boolean} isDir
+ * @property {boolean} [bareRedirects] also hand over a segment that is
+ *   redirections alone — `> out`, `exec 3> log` — with no words
+ */
+
+/**
+ * Ports for a walk that judges the text alone: no payload cwd, no
+ * environment, no filesystem.
+ * @type {WalkPorts}
+ */
+const TEXT_ONLY_PORTS = Object.freeze({
+	cwd: undefined,
+	fallbackCwd: "/",
+	vars: {},
+	isDir: () => false,
+});
+
+/**
+ * @typedef {Map<string, string | null>} GitEnv each git-reading variable's raw
+ *   value word, null where the command's handling of it cannot be read
+ */
+
+/**
+ * @typedef {object} Walk one walk's running state over a parse's segments
+ *   (workflow-core#2785): the cwd through `cd`, the subshell stack, arithmetic's redirect
+ *   switch and the command's own assignments. Each walk keeps
+ *   its own, so a walk from inside a callback disturbs nothing.
+ * @property {Parsed} parsed
+ * @property {Scope} scope
+ * @property {import("./shell-dirs.js").DirsState} dirs where the command may
+ *   stand through `cd`, its first "" where the walk cannot know it, the others
+ *   where a `cd` may not have run or failed (workflow-core#4009)
+ * @property {number} cdAt the segment of the last `cd` that opened its `&&` or
+ *   `||` list, unnegated, -1 where none has, for a `cd` after `||` (#5010)
+ * @property {string[]} cwdNames the unset names read as empty on the way to
+ *   the cwd (workflow-core#325)
+ * @property {string} cwdLost the words of the command that made the cwd
+ *   unknown, for the unresolved-tree record (workflow-core#320)
+ * @property {boolean} aliasWritten a `git config` earlier in the command touched
+ *   an alias (workflow-core#4009)
+ * @property {GitEnv} gitEnv the git-reading variables an `export` has put in
+ *   the environment (workflow-core#3997)
+ * @property {{ dirs: import("./shell-dirs.js").DirsState, names: string[],
+ *   noRedirects: boolean, gitEnv: GitEnv, vars: ScopeVars }[]} stack what
+ *   each open `(` restores at its `)`
+ * @property {boolean} noRedirects inside arithmetic, whose `>` and `<`
+ *   compare (workflow-core#1488)
+ * @property {string} arPrev the segment before
+ * @property {string} arLast "open" after a `(`, "open-empty" after the empty
+ *   line a second `(` straight after it leaves
+ */
+
+/**
+ * @param {Parsed} parsed
+ * @param {Record<string, string | undefined>} vars
+ * @param {string} cwd where the walk starts
+ * @param {boolean} emptyUnset
+ * @returns {Walk}
+ */
+const newWalk = (parsed, vars, cwd, emptyUnset) => ({
+	parsed,
+	scope: {
+		spans: parsed.spans,
+		locals: new Map(),
+		dead: new Set(),
+		exported: new Set(),
+		harvested: new Map(),
+		vars,
+		subject: parsed.subject,
+		conditional: parsed.conditional,
+		emptyUnset,
+		emptyNames: [],
+	},
+	dirs: startDirs([cwd]),
+	cdAt: -1,
+	cwdNames: [],
+	cwdLost: "",
+	aliasWritten: false,
+	gitEnv: new Map(),
+	stack: [],
+	noRedirects: false,
+	arPrev: "",
+	arLast: "",
+});
+
+/**
+ * Call `fn` with each segment that is no bracket's SCOPE_MARK line, its words
+ * split. A segment of assignments alone is harvested for the commands after
+ * it, as `WT=/x && git …` flattens into one (mantahostels#208), and so is an
+ * `export`'s (#5120), unless the segment runs apart. A command's own leading
+ * assignments are not: bash expands its words first and puts them in its
+ * environment alone (#5087).
+ * @param {Walk} walk
+ * @param {(segment: string, cw: CommandWords, segIdx: number) => void} fn
+ */
+function eachSegment(walk, fn) {
+	walk.parsed.segments.forEach((segment, segIdx) => {
+		if (arithScope(walk, segment)) return;
+		const cw = commandWords(segment, { noRedirects: walk.noRedirects });
+		if (!runsApart(walk.parsed, segIdx)) harvestSegment(walk, cw, segIdx);
+		fn(segment, cw, segIdx);
+	});
+}
+
+/**
+ * @param {Walk} walk accumulator: its scope is moved
+ * @param {CommandWords} cw
+ * @param {number} segIdx
+ */
+function harvestSegment(walk, cw, segIdx) {
+	if (cw.ran)
+		harvestExport(walk.scope, walk.parsed, cw.words.slice(cw.wi), segIdx);
+	else
+		harvest(walk.scope, walk.parsed, cw.words.slice(0, cw.assignEnd), segIdx);
+}
+
+/**
+ * Whether `segment` is a bracket's SCOPE_MARK line, moving the scope where it
+ * is. Arithmetic `((` and `$((` compare with `>` and `<` (workflow-core#1488): each `(`
+ * stacks the state its `)` restores. A `$(` opens a command, a `(` inside
+ * arithmetic groups, and a second `(` straight after a first — the flatten
+ * leaves exactly an empty line between — opens arithmetic.
+ * @param {Walk} walk accumulator: its `arLast` and `arPrev` are moved, and
+ *   at a bracket what openScope or closeScope moves
+ * @param {string} segment
+ */
+function arithScope(walk, segment) {
+	const isOpen = segment === SCOPE_OPEN;
+	const isClose = segment === SCOPE_CLOSE;
+	if (isOpen) openScope(walk);
+	else if (isClose) closeScope(walk);
+	else if (segment !== "") walk.arLast = "";
+	else if (walk.arLast === "open") walk.arLast = "open-empty";
+	walk.arPrev = segment;
+	return isOpen || isClose;
+}
+
+/** @typedef {Pick<Scope, "locals" | "dead" | "exported">} ScopeVars
+ * `harvested` is left out: bareMentions counts the whole command's words, so
+ * the count must span a subshell's `)` too. */
+
+/**
+ * @param {Scope} scope
+ * @returns {ScopeVars} a copy of its variables
+ */
+const copyVars = (scope) => ({
+	locals: new Map(scope.locals),
+	dead: new Set(scope.dead),
+	exported: new Set(scope.exported),
+});
+
+/** A subshell's `(`: stack the state its `)` restores, and open the
+ * directories' scope.
+ * @param {Walk} walk accumulator: its stack, directories, redirect mode and
+ *   `arLast` are moved */
+function openScope(walk) {
+	const { dirs, cwdNames: names, noRedirects, gitEnv, scope } = walk;
+	walk.stack.push({ dirs, names, noRedirects, gitEnv, vars: copyVars(scope) });
+	walk.dirs = openChainScope(dirs);
+	if (walk.arLast === "open-empty") {
+		walk.noRedirects = true;
+		walk.arLast = "";
+		return;
+	}
+	if (walk.arPrev.endsWith("$")) walk.noRedirects = false;
+	walk.arLast = "open";
+}
+
+/** A `)` with no `(` open is a `case` pattern, which moves nothing.
+ * RESIDUAL: one inside a subshell closes that subshell early.
+ * @param {Walk} walk accumulator: its stack, directories, cwd names, redirect
+ *   mode, `gitEnv`, the scope's locals, dead and exported, and `arLast` are
+ *   moved */
+function closeScope(walk) {
+	const back = walk.stack.pop();
+	if (back) {
+		walk.dirs = back.dirs;
+		walk.cwdNames = back.names;
+		walk.noRedirects = back.noRedirects;
+		walk.gitEnv = back.gitEnv;
+		/* Onto the scope object itself: a Command and dirEnv hold it. */
+		Object.assign(walk.scope, back.vars);
+	}
+	walk.arLast = "";
+}
+
+/** A `NAME=value` word: the name, then the value. */
+const ASSIGNMENT = new RegExp(`^(${NAME})=(.*)$`, "s");
+
+/**
+ * Record the literal assignments in `words` (mantahostels#208) into `scope`,
+ * each visible to what reads after it alone. A name lands in `dead` — every
+ * later use unresolvable — on an assignment at or after the first `||`
+ * (workflow-core#328), which a `||` may skip; on a value this file will not resolve; and
+ * on a second assignment of a different value, as the flatten loses which arm
+ * ran.
+ * @param {Scope} scope accumulator
+ * @param {Parsed} parsed
+ * @param {string[]} words
+ * @param {number} segIdx
+ */
+function harvest(scope, { conditional }, words, segIdx) {
+	const skipped = conditional >= 0 && segIdx >= conditional;
+	for (const w of words) {
+		const m = ASSIGNMENT.exec(w);
+		if (!m) continue;
+		const val = skipped ? null : assignedValue(m[2] ?? "", scope);
+		recordAssignment(scope, m[1] ?? "", val);
+		countHarvested(scope, m[1] ?? "");
+	}
+}
+
+/**
+ * @param {Scope} scope accumulator: its harvested is moved
+ * @param {string} name
+ */
+const countHarvested = (scope, name) =>
+	scope.harvested.set(name, (scope.harvested.get(name) ?? 0) + 1);
+
+/**
+ * Record what one `export`, `declare -x`, `typeset -x`, `export -n` or `unset`
+ * does to `scope`: its assignments as harvest records a bare one's, and each
+ * name it exports or drops from the environment. An `unset` name, or an
+ * assignment word whose name is quoted, is unresolvable after it.
+ * @param {Scope} scope accumulator: its locals, dead, exported and harvested
+ *   are moved
+ * @param {Parsed} parsed
+ * @param {string[]} own the command's words, its command word first
+ * @param {number} segIdx
+ */
+function harvestExport(scope, parsed, [head = "", ...rest], segIdx) {
+	const kind = exportKind(head, rest);
+	if (kind === null) return;
+	for (const { w, text, name } of exportArgs(rest, parsed.spans)) {
+		if (!NAME_RE.test(name)) continue;
+		if (ASSIGNMENT.exec(w)?.[1] === name && head !== "unset")
+			harvest(scope, parsed, [w], segIdx);
+		else {
+			if (head === "unset" || text !== name)
+				recordAssignment(scope, name, null);
+			countHarvested(scope, name);
+		}
+		if (kind === "export") scope.exported.add(name);
+		else scope.exported.delete(name);
+	}
+}
+
+/**
+ * The scope each of a command's own leading assignments reads its value under,
+ * by name, the last of a name winning: the walk's, every assignment before it
+ * applied, as bash expands them left to right (#5087).
+ * @param {Walk} walk
+ * @param {string[]} leading
+ * @param {number} segIdx
+ * @returns {Map<string, Scope>}
+ */
+function leadingScopes(walk, leading, segIdx) {
+	/** @type {Map<string, Scope>} */
+	const out = new Map();
+	leading.forEach((w, i) => {
+		const name = ASSIGNMENT.exec(w)?.[1];
+		if (name === undefined) return;
+		const scope = {
+			...walk.scope,
+			...copyVars(walk.scope),
+			harvested: new Map(walk.scope.harvested),
+		};
+		harvest(scope, walk.parsed, leading.slice(0, i), segIdx);
+		out.set(name, scope);
+	});
+	return out;
+}
+
+/**
+ * Read where a `cd`, or a command that losesCwd, moves the cwd, keeping the
+ * names and words that record it. Followed: `cd <path>`, and `cd ""`, which
+ * stays put (workflow-core#301). Made unknown: `cd -` and any other flag, a bare `cd`,
+ * `pushd`, `popd`, `builtin cd` and `command cd`.
+ * @param {Walk} walk accumulator: its cwd names and lost words are moved
+ * @param {string[]} words
+ * @returns {import("./shell-dirs.js").Resolved}
+ */
+function moveCwd(walk, words) {
+	const [head = "", arg] = words;
+	if (losesCwd(head, arg)) {
+		loseCwd(walk, words);
+		return null;
+	}
+	const r = pathArg(arg ?? "", walk.scope);
+	const names = walk.scope.emptyNames;
+	if (r && "empty" in r) {
+		walk.cwdNames = [...walk.cwdNames, ...names];
+		return r;
+	}
+	if (!r || r.path.startsWith("-")) {
+		loseCwd(walk, words);
+		return null;
+	}
+	walk.cwdNames = r.path.startsWith("/")
+		? [...names]
+		: [...walk.cwdNames, ...names];
+	return r;
+}
+
+/**
+ * Whether a command moves the cwd: a `cd`, or one losesCwd names.
+ * @param {string} head
+ * @param {string | undefined} arg the word after it
+ */
+const movesCwd = (head, arg) => head === "cd" || losesCwd(head, arg);
+
+/**
+ * Whether a command moves the cwd where no word of it says.
+ * @param {string} head
+ * @param {string | undefined} arg the word after it
+ */
+const losesCwd = (head, arg) =>
+	head === "pushd" ||
+	head === "popd" ||
+	((head === "builtin" || head === "command") && arg === "cd");
+
+/**
+ * Keep the command that made the cwd unknown. RESIDUAL: not stacked, so a
+ * subshell's `)` handing back an unknown cwd leaves the words of a `cd`
+ * inside it.
+ * @param {Walk} walk
+ * @param {string[]} words
+ */
+function loseCwd(walk, words) {
+	walk.cwdNames = [];
+	walk.cwdLost = words.join(" ");
+}
+
+/**
+ * A word as an absolute path through the walk's cwd, normalised; "" where it
+ * will not resolve.
+ * @param {Walk} walk
+ * @param {string} word
+ */
+function absolutePath(walk, word) {
+	return absoluteIn(cwdOf(walk), word, walk.scope);
+}
+
+/**
+ * A word as an absolute path, a relative one joined to `cwd`; "" where it
+ * will not resolve or `cwd` is unknown.
+ * @param {string} cwd
+ * @param {string} word
+ * @param {Scope} scope
+ */
+function absoluteIn(cwd, word, scope) {
+	const p = resolveWord(word, scope);
+	if (!p) return "";
+	if (p.startsWith("/")) return normAbs(p);
+	return cwd ? normAbs(`${cwd}/${p}`) : "";
+}
+
+/**
+ * Call `fn` once per command `parsed` runs, in order. Segments that run
+ * nothing are skipped, bar redirections alone under `bareRedirects`.
+ *
+ * Seeded from the payload's cwd, else `ports.fallbackCwd` (mantahostels#2682). The
+ * cwd is moved AFTER each callback, as stepCwd moves it, so a `cd`'s own
+ * callback reads the directory it ran from. A subshell's `)` hands back the
+ * cwd its `(` saw.
+ * @param {Parsed} parsed
+ * @param {(cmd: Command) => void} fn
+ * @param {WalkPorts} ports
+ */
+function walkCommands(parsed, fn, ports) {
+	const seed =
+		typeof ports.cwd === "string" && ports.cwd.startsWith("/")
+			? ports.cwd
+			: ports.fallbackCwd;
+	const walk = newWalk(parsed, ports.vars, seed, false);
+	const { scope } = walk;
+	/** @param {string} word */
+	const abs = (word) => absolutePath(walk, word);
+	eachSegment(
+		walk,
+		(segment, { words, wi, assignEnd, redirs, ran }, segIdx) => {
+			settleCwdDoubt(walk, segIdx);
+			if (!ran && !(ports.bareRedirects && redirs.length > 0)) return;
+			const own = ran ? words.slice(wi) : [];
+			const leading = words.slice(0, assignEnd);
+			const redirects = () => readRedirects(redirs, scope, abs);
+			/** @param {string} cwd */
+			const at = (cwd) => (/** @type {string} */ word) =>
+				absoluteIn(cwd, word, scope);
+			fn({
+				segment,
+				words: own,
+				leading,
+				cwd: cwdOf(walk),
+				cwds: walk.dirs.dirs,
+				runs: commandRuns(own, walk.dirs.dirs, {
+					scope,
+					isDir: ports.isDir,
+				}),
+				redirects,
+				writeTargets: (w = own, cwd = cwdOf(walk)) =>
+					writeTargets(w, readRedirects(redirs, scope, at(cwd)), {
+						spans: scope.spans,
+						resolveAbs: at(cwd),
+						resolve: (word) => resolveWord(word, scope),
+						isDir: ports.isDir,
+					}),
+				resolveWord: (word) => resolveWord(word, scope),
+				assigned: (name) => scope.locals.has(name),
+			});
+			if (ran) stepCwd(walk, own, segIdx, ports.isDir);
+		},
+	);
+}
+
+/**
+ * A Command's `runs`: each run's `dirs` read on its first call.
+ * @param {string[]} words the command's own
+ * @param {import("./shell-dirs.js").Dirs} cwds
+ * @param {{ scope: Scope, isDir: (path: string) => boolean }} at
+ * @returns {() => [CommandRun, ...CommandRun[]]}
+ */
+function commandRuns(words, cwds, { scope, isDir }) {
+	/** @type {[CommandRun, ...CommandRun[]] | undefined} */
+	let runs;
+	/** @param {import("./shell-words.js").Unwrapped} run @returns {CommandRun} */
+	const withDirs = (run) => {
+		/** @type {import("./shell-dirs.js").Dirs | undefined} */
+		let dirs;
+		return {
+			...run,
+			dirs: () => {
+				dirs ??= runCwd(cwds, run.chdirs, scope, isDir);
+				return dirs;
+			},
+		};
+	};
+	return () => {
+		if (runs) return runs;
+		const [first, ...later] = unwrap(words, scope.spans);
+		runs = [withDirs(first), ...later.map(withDirs)];
+		return runs;
+	};
+}
+
+/**
+ * @typedef {import("./shell-words.js").Chdir} Chdir
+ */
+
+/**
+ * @typedef {object} ScriptCommand one command a `sh -c` script runs
+ * @property {string[]} words from its command word on, masked, redirections
+ *   taken out
+ * @property {string[]} leading each assignment an earlier `export` put in the
+ *   environment, then its own leading ones, in the order they apply
+ * @property {Chdir[]} chdirs each `cd` before it, in order
+ * @property {string[]} unread each git-reading variable an earlier command
+ *   changed in a way not followed here, as markRepoVarsUnread reads one
+ */
+
+/**
+ * @typedef {object} ScriptAt where in a script a segment stands
+ * @property {Parsed} parsed
+ * @property {number} segIdx
+ * @property {string[]} spans
+ */
+
+/**
+ * @typedef {object} ScriptState what a script's next command runs under
+ * @property {Chdir[]} chdirs
+ * @property {{ depth: number }[]} pending the depth of each `cd` whose `&&`
+ *   chain has not yet ended, as stepDirs tags its pending (#5095)
+ * @property {boolean} subshellOpened a subshell has opened since the last `cd`
+ * @property {string[]} exports
+ * @property {Map<string, string>} locals each name an assignment alone set,
+ *   its word
+ * @property {string[]} lost each name the script may have changed in a way
+ *   not followed: an assignment that may not have run, an `unset`, or any
+ *   other command naming it bare (`read X`, `for X in`)
+ * @property {string[]} unread
+ * @property {number} cdAt the segment of the last `cd` that opened its `&&` or
+ *   `||` list, -1 where none has
+ */
+
+/**
+ * The commands of a script a wrapper hands to `sh -c`, in the order they run,
+ * parsed as a command line is (workflow-core#4863), its spans appended to `spans`. A `cd`,
+ * an `export` and an assignment alone move the commands after it as walkGit's
+ * walk moves them: not from a pipeline or behind `&`; a subshell's `)` hands
+ * back what its `(` saw; a `cd` holds as stepCwd's does, the directory test
+ * left to the reader, which has the cwd.
+ * @param {string} script
+ * @param {string[]} spans accumulator: the script's spans are appended
+ * @returns {ScriptCommand[]}
+ */
+function parseScript(script, spans) {
+	const parsed = parseCommand(script, spans);
+	/** @type {ScriptCommand[]} */
+	const out = [];
+	/** @type {ScriptState} */
+	let state = {
+		chdirs: [],
+		pending: [],
+		subshellOpened: false,
+		exports: [],
+		locals: new Map(),
+		lost: [],
+		unread: [],
+		cdAt: -1,
+	};
+	/** @type {ScriptState[]} */
+	const stack = [];
+	parsed.segments.forEach((segment, segIdx) => {
+		if (segment === SCOPE_OPEN) {
+			stack.push(state);
+			/* As openScope's: the chain outside stays open (#5093, #5102). */
+			state = { ...openChainScope(state), subshellOpened: true };
+			return;
+		}
+		/* A `)` with no `(` open is a `case` pattern, which moves nothing. A
+		 * `((…))` or `$((…))` parses as brackets too, and its assignments
+		 * stand, so each name the brackets changed is lost. */
+		if (segment === SCOPE_CLOSE) {
+			const outer = stack.pop();
+			if (outer)
+				state = {
+					...outer,
+					lost: settleLost(outer.lost, changedNames(state, outer), false),
+				};
+			return;
+		}
+		const ends = chainEndDepth(parsed, segIdx);
+		if (ends !== undefined) state = settleScriptChain(state, ends);
+		const cw = commandWords(segment);
+		const assigned = cw.words.slice(cw.assignStart, cw.assignEnd);
+		if (cw.ran)
+			out.push({
+				words: cw.words.slice(cw.wi),
+				leading: [...state.exports, ...assigned],
+				chdirs: state.chdirs,
+				unread: state.unread,
+			});
+		const where = { parsed, segIdx, spans };
+		state = cw.ran
+			? stepScript(state, cw, where)
+			: assignAlone(state, cw.words, assigned, where);
+	});
+	return out;
+}
+
+/**
+ * The state at a chain end `depth` compound commands deep: the last `cd`
+ * before it settles, for every command after, each chain a `cd` as deep or
+ * deeper opened (#5082, #5095, #5109).
+ * @param {ScriptState} state
+ * @param {number} depth
+ * @returns {ScriptState}
+ */
+function settleScriptChain(state, depth) {
+	if (!state.pending.some((p) => p.depth >= depth)) return state;
+	const last = state.chdirs.at(-1);
+	if (!last) throw new Error("a -c string's && chain is open with no cd");
+	/** @type {Chdir} */
+	const settled = { ...last, settles: Math.min(last.settles ?? depth, depth) };
+	return {
+		...state,
+		chdirs: [...state.chdirs.slice(0, -1), settled],
+		pending: state.pending.filter((p) => p.depth < depth),
+	};
+}
+
+/**
+ * The state after a segment of assignments alone: each a local, and a
+ * variable already exported takes the new value.
+ * @param {ScriptState} state
+ * @param {string[]} words the segment's
+ * @param {string[]} assigned
+ * @param {ScriptAt} where
+ * @returns {ScriptState}
+ */
+function assignAlone(state, words, assigned, where) {
+	const { spans } = where;
+	const locals = new Map(state.locals);
+	let { exports } = state;
+	for (const w of assigned) {
+		const name = assignedName(w, spans);
+		locals.set(name, w);
+		if (exports.some((e) => assignedName(e, spans) === name))
+			exports = [...withoutName(exports, name, spans), w];
+	}
+	const { set, lostTo } = assignedNames(
+		assigned.map((w) => literal(w, spans).text),
+		false,
+	);
+	const lost = settleLost(
+		settleLost(state.lost, set, isSureAssignment(where)),
+		lostTo,
+		false,
+	);
+	return markScriptUnread(
+		{ ...state, locals, exports, lost },
+		words,
+		true,
+		spans,
+	);
+}
+
+/** A name a word spells other than as a `$name` or `${name}` reference. */
+const BARE_NAME_RE = /(?<![\w$])(?<!\$\{)[A-Za-z_]\w*/g;
+
+/**
+ * The names assignment texts set, and those they leave lost: every one where
+ * `empties` (an `unset`), else each `+=`, which appends to a value this file
+ * does not add up.
+ * @param {string[]} texts
+ * @param {boolean} empties
+ */
+function assignedNames(texts, empties) {
+	/** @type {string[]} */
+	const set = [];
+	/** @type {string[]} */
+	const lostTo = [];
+	for (const t of texts) {
+		const name = (t.split("=", 1)[0] ?? "").replace(/\+$/, "");
+		if (empties || /^[^=]*\+=/.test(t)) lostTo.push(name);
+		else if (t.includes("=")) set.push(name);
+	}
+	return { set, lostTo };
+}
+
+/**
+ * @param {ScriptState} inner
+ * @param {ScriptState} outer
+ */
+const changedNames = (inner, outer) => [
+	...inner.lost,
+	...[...inner.locals].flatMap(([name, w]) =>
+		outer.locals.get(name) === w ? [] : [name],
+	),
+];
+
+/**
+ * Whether a segment's assignments surely stand after it: no `&&` or `||`
+ * before it, no compound command in the script, and not in a pipeline or
+ * behind `&`.
+ * @param {Pick<ScriptAt, "parsed" | "segIdx">} where
+ */
+const isSureAssignment = ({ parsed, segIdx }) =>
+	isSureMove(parsed, segIdx, []) && !runsApart(parsed, segIdx);
+
+/**
+ * `lost` after `names` are assigned: followed where the assignment surely
+ * stands, lost where it may not.
+ * @param {string[]} lost
+ * @param {string[]} names
+ * @param {boolean} sure
+ */
+const settleLost = (lost, names, sure) =>
+	sure
+		? lost.filter((n) => !names.includes(n))
+		: [...lost, ...names.filter((n) => !lost.includes(n))];
+
+/**
+ * The state after one command: a `cd` or `export` moves it; any other command
+ * but `git` may mark variables unread.
+ * @param {ScriptState} state
+ * @param {CommandWords} cw
+ * @param {ScriptAt} where
+ * @returns {ScriptState}
+ */
+function stepScript(state, cw, where) {
+	const { spans } = where;
+	const own = cw.words.slice(cw.wi);
+	const [head = "", ...rest] = own.map((w) => literal(w, spans).text);
+	const apart = runsApart(where.parsed, where.segIdx);
+	const kind = exportKind(head, rest);
+	if (kind !== null)
+		return apart
+			? state
+			: exportInScript(state, { head, kind }, own.slice(1), where);
+	if (movesCwd(head, rest[0]))
+		return apart ? state : cdInScript(state, own, where);
+	const runs = unwrap(own, spans);
+	if (runs.every((run) => commandName(run.words[0] ?? "") === "git"))
+		return state;
+	const named = [head, ...rest].flatMap((t) => t.match(BARE_NAME_RE) ?? []);
+	return markScriptUnread(
+		{ ...state, lost: settleLost(state.lost, named, false) },
+		cw.words,
+		false,
+		spans,
+	);
+}
+
+/**
+ * @param {ScriptState} state
+ * @param {{ head: string, kind: "export" | "drop" }} command its command word,
+ *   and what exportKind reads it as
+ * @param {string[]} args the words after the command word, masked
+ * @param {ScriptAt} where
+ * @returns {ScriptState}
+ */
+function exportInScript(state, command, args, where) {
+	const { spans } = where;
+	const texts = exportArgs(args, spans).map((a) => a.text);
+	const { set, lostTo } =
+		command.kind === "export"
+			? assignedNames(texts, false)
+			: assignedNames(texts, command.head === "unset");
+	const lost = settleLost(
+		settleLost(state.lost, set, isSureAssignment(where)),
+		lostTo,
+		false,
+	);
+	return { ...exportWords(state, command, args, spans), lost };
+}
+
+/**
+ * @param {ScriptState} state
+ * @param {{ head: string, kind: "export" | "drop" }} command
+ * @param {string[]} args the words after the command word, masked
+ * @param {string[]} spans
+ * @returns {ScriptState}
+ */
+function exportWords(state, { head, kind }, args, spans) {
+	let { exports, unread } = state;
+	const locals = new Map(state.locals);
+	for (const { w, text, name } of exportArgs(args, spans)) {
+		unread = unread.filter((n) => n !== name);
+		if (kind === "drop") {
+			exports = withoutName(exports, name, spans);
+			if (head === "unset") locals.delete(name);
+			continue;
+		}
+		if (text !== name) locals.set(name, w);
+		/* A name alone exports the value it holds, and keeps an earlier
+		 * export's where the script set none. */
+		const value = text === name ? locals.get(name) : w;
+		if (value !== undefined)
+			exports = [...withoutName(exports, name, spans), value];
+	}
+	return { ...state, exports, unread, locals };
+}
+
+/**
+ * The state after a `cd`: one whose target no word gives goes where nothing
+ * resolves; one a `&&` chains a command off opens a chain.
+ * @param {ScriptState} state
+ * @param {string[]} own its words, masked
+ * @param {ScriptAt} where
+ * @returns {ScriptState}
+ */
+function cdInScript(state, own, where) {
+	const texts = own.map((w) => literal(w, where.spans).text);
+	const [head, arg] = texts;
+	const known =
+		head === "cd" && arg !== undefined && !arg.startsWith("-") && own[1];
+	const dir = known || `$(${texts.join(" ")})`;
+	const { holds, afterFailed, chained, depth, cdAt } = classifyCd(
+		where.parsed,
+		where.segIdx,
+		own,
+		state.cdAt,
+	);
+	/** @type {Map<string, string | null>} */
+	const vars = new Map(state.locals);
+	for (const name of state.lost) vars.set(name, null);
+	/** @type {Chdir} */
+	const cd = { dir, read: false, holds, vars, depth };
+	if (afterFailed) cd.afterFailed = true;
+	if (chained) cd.chained = true;
+	if (state.subshellOpened) cd.opensScope = true;
+	return {
+		...state,
+		chdirs: [...state.chdirs, cd],
+		pending: chained ? [...state.pending, { depth }] : state.pending,
+		subshellOpened: false,
+		cdAt,
+	};
+}
+
+/**
+ * @param {ScriptState} state
+ * @param {string[]} words the segment's
+ * @param {boolean} assigning
+ * @param {string[]} spans
+ * @returns {ScriptState}
+ */
+function markScriptUnread(state, words, assigning, spans) {
+	const named = repoVarsNamed(words, assigning, spans).filter(
+		(n) => !state.unread.includes(n),
+	);
+	return named.length === 0
+		? state
+		: { ...state, unread: [...state.unread, ...named] };
+}
+
+/**
+ * The words an `export`, `declare`, `typeset` or `unset` names, its flags
+ * left out: each masked, read through literal, and the name it sets.
+ * @param {string[]} args the words after its command word
+ * @param {string[]} spans
+ * @returns {{ w: string, text: string, name: string }[]}
+ */
+const exportArgs = (args, spans) =>
+	args.flatMap((w) => {
+		const text = literal(w, spans).text;
+		return text.startsWith("-")
+			? []
+			: [{ w, text, name: assignedName(w, spans) }];
+	});
+
+/**
+ * @param {string} w an assignment or a name, masked
+ * @param {string[]} spans
+ */
+const assignedName = (w, spans) =>
+	(literal(w, spans).text.split("=", 1)[0] ?? "").replace(/\+$/, "");
+
+/**
+ * @param {string[]} words
+ * @param {string} name
+ * @param {string[]} spans
+ */
+const withoutName = (words, name, spans) =>
+	words.filter((w) => assignedName(w, spans) !== name);
+
+/**
+ * @typedef {object} GitCall one git command walkGit hands its callback
+ * @property {string} segment the flattened segment, masked
+ * @property {string} sub the subcommand, one the walk asked for
+ * @property {string} tree the working tree it runs against; "" only under
+ *   `strict`, where the tree did not resolve and may be any tree at all
+ *   (workflow-core#311): branch on it before any `git -C`, which answers an empty path for
+ *   the hook's own cwd
+ * @property {string[]} args the subcommand's own words, RAW: each still to be
+ *   read through literal
+ * @property {string[]} emptyVars under `emptyUnset`, each unset name read as
+ *   empty on the way to `tree` (workflow-core#325), once each, in order; else empty
+ */
+
+/**
+ * @typedef {WalkPorts & {
+ *   treeClass: (dir: string) => "shared" | "linked" | "other" | "unknown",
+ *   log: (what: string, detail?: string) => void,
+ *   readFileAliases?: (dir: string) => import("./git-alias.js").FileAliases | null,
+ * }} GitWalkPorts `treeClass` is lib/git-tree.js's treeClassifier; `log`
+ *   records a fail-open; `readFileAliases` reads the config files a tree sees, null
+ *   where git could not say, and a walk without it reads none
+ */
+
+/**
+ * @typedef {object} GitWalkOpts
+ * @property {string[]} subs the subcommands to call back for
+ * @property {string} noun what the guard would have judged, for the
+ *   fail-open record
+ * @property {"shared" | "repo"} scope "shared" judges this repo's shared
+ *   working tree alone; "repo" a linked worktree too (mantahostels#1213), for
+ *   a guard whose reason to refuse is not the shared index (mantahostels#344)
+ * @property {boolean} [strict] hand an unresolved tree over as "" rather than
+ *   record and skip it (workflow-core#301, workflow-core#311): for a guard whose target may BE the shared
+ *   tree, where declining to judge allows the very command it refuses. The
+ *   callback then owns the fail-open record for what it still allows
+ * @property {boolean} [emptyUnset] the opt-in workflow-core#310 ruled: a `cd`/`git -C`
+ *   target whose every `$` is a bare name the command does not assign and the
+ *   environment does not set — or one the command sets to empty — is
+ *   substituted EMPTY and judged, which in quotes is the cwd. Shell state does
+ *   not carry between Bash calls, so that is the tree the command runs in
+ * @property {boolean} [unwrap] judge a git command behind shell-words.js's
+ *   unwrap wrappers (workflow-core#1731). Without it, a command a `flock -c` or `watch`
+ *   script runs is still judged (workflow-core#4978), behind an outer wrapper too
+ *   (`timeout 5 flock … -c "git …"`), while a bare `timeout 5 git …` stays
+ *   unread
+ */
+
+/**
+ * Call `fn` once per git invocation of one of `opts.subs` that runs against a
+ * tree in `opts.scope` (mantahostels#157). Everything else is filtered out
+ * here: another repo, a tree outside the scope, a subcommand the guard did not
+ * ask for, and a `cd`, which moves the running cwd rather than being judged.
+ *
+ * The subcommand filter runs BEFORE the tree is resolved: a `git status` whose
+ * tree cannot be resolved is no fail-open, because no guard was going to judge
+ * it. One the guard asked for
+ * whose tree will not resolve is recorded through `ports.log`, as is a tree
+ * git could not answer for (mantahostels#147).
+ *
+ * Seeded from `ports.fallbackCwd`, which a hook's context sets to the
+ * session's directory (workflow-core#4695).
+ * @param {Parsed} parsed
+ * @param {(call: GitCall) => void} fn
+ * @param {GitWalkPorts} ports
+ * @param {GitWalkOpts} opts
+ */
+function walkGit(parsed, fn, ports, opts) {
+	const walk = newWalk(
+		parsed,
+		ports.vars,
+		ports.fallbackCwd,
+		opts.emptyUnset ?? false,
+	);
+	eachSegment(walk, (segment, cw, segIdx) => {
+		const gits = readGitSegment(walk, cw, segIdx, {
+			unwrapped: opts.unwrap ?? false,
+			isDir: ports.isDir,
+		});
+		for (const git of gits) judgeGit(walk, segment, git, { fn, ports, opts });
+	});
+}
+
+/**
+ * Hand `fn` each tree one git command runs against, where its subcommand is
+ * one the walk asked for.
+ * @param {Walk} walk
+ * @param {string} segment
+ * @param {GitTarget & { sub: string, args: string[] }} git
+ * @param {{ fn: (call: GitCall) => void, ports: GitWalkPorts,
+ *   opts: GitWalkOpts }} with
+ */
+function judgeGit(walk, segment, git, { fn, ports, opts }) {
+	const { subs, noun, scope, strict = false } = opts;
+	const { sub, args } = expandAlias(git.sub, git.args, git.aliases, {
+		subs,
+		readFileAliases: () =>
+			ports.readFileAliases
+				? ports.readFileAliases(git.named || git.tree || ports.fallbackCwd)
+				: new Map(),
+	});
+	if (sub === "config") markAliasWritten(walk, args);
+	if (!subs.includes(sub)) return;
+	/* A named git directory moves the refs and leaves the work tree where the
+	 * command stands, and a named work tree moves the files (measured), so
+	 * each adds a tree to judge. */
+	const trees = [git.named, git.workTree, git.tree, ...git.doubted].filter(
+		(t) => t !== null,
+	);
+	for (const tree of new Set(trees)) {
+		/** @param {string} judged */
+		const call = (judged) =>
+			fn({
+				segment,
+				sub,
+				tree: judged,
+				args,
+				emptyVars: [...new Set(git.names)],
+			});
+		judgeTree(tree, sub, call, {
+			walk,
+			git,
+			ports,
+			opts: { noun, scope, strict },
+		});
+	}
+}
+
+/**
+ * Hand `call` one tree its walk judges, or record why it cannot.
+ * @param {string} tree "" where it will not resolve
+ * @param {string} sub
+ * @param {(tree: string) => void} call
+ * @param {{ walk: Walk, git: GitTarget, ports: GitWalkPorts,
+ *   opts: { noun: string, scope: "shared" | "repo", strict: boolean } }} from
+ */
+function judgeTree(tree, sub, call, { walk, git, ports, opts }) {
+	if (!isResolvable(tree)) {
+		if (opts.strict) call("");
+		else
+			ports.log(
+				`could not resolve the working tree for a git ${sub} — ${opts.noun} allowed unchecked`,
+				unresolvedDetail(git, walk, ports.fallbackCwd),
+			);
+		return;
+	}
+	const cls = ports.treeClass(tree);
+	/* "unknown" is git declining to answer for the directory, not a
+	 * different tree: the guard is declining to judge a command it asked
+	 * for, so it is recorded. */
+	if (cls === "unknown")
+		ports.log(
+			`git could not answer for ${tree} — a git ${sub} there was allowed unchecked`,
+		);
+	else if (cls === "shared" || (opts.scope === "repo" && cls === "linked"))
+		call(tree);
+}
+
+/**
+ * @typedef {object} GitTarget the trees a git command reaches
+ * @property {string} tree its work tree; "" where it will not resolve
+ * @property {string | null} named the tree whose refs `--git-dir`, `GIT_DIR` or
+ *   `GIT_COMMON_DIR` name, "" where it will not resolve; null where none does
+ * @property {string | null} workTree the tree `--work-tree` or `GIT_WORK_TREE`
+ *   names, "" where it will not resolve; null where none does
+ * @property {string[]} doubted where the command may stand instead of `tree`
+ * @property {ReturnType<typeof pathArg>[]} dirMoves each `-C`'s directory
+ *   as pathArg read it, in order
+ * @property {string[]} names the unset names read as empty on the way (workflow-core#325)
+ * @property {string} written an unresolved `-C` as typed, for the record
+ * @property {import("./git-alias.js").AliasTable} aliases what the command
+ *   line defines
+ */
+
+/**
+ * One segment's git commands carrying a subcommand: each `{ sub, args }` and
+ * the tree it runs against, none for anything else — a `cd` among them, which
+ * moves the walk's cwd instead (emptying it where the target will not resolve,
+ * so every later segment fails open rather than judging a worktree command
+ * against the hook's own tree).
+ * @param {Walk} walk
+ * @param {CommandWords} cw
+ * @param {number} segIdx
+ * @param {{ unwrapped: boolean, isDir: (path: string) => boolean }} how
+ *   `unwrapped` judges past the launcher wrappers (workflow-core#1731); each command a
+ *   `-c` string runs is judged either way (workflow-core#4699, workflow-core#4978)
+ * @returns {(GitTarget & { sub: string, args: string[] })[]}
+ */
+function readGitSegment(walk, { words, wi, assignEnd, ran }, segIdx, how) {
+	settleCwdDoubt(walk, segIdx);
+	if (!ran) {
+		markRepoVarsUnread(walk, words, true);
+		return [];
+	}
+	const own = words.slice(wi);
+	if (stepCwd(walk, own, segIdx, how.isDir)) return [];
+	if (trackExport(walk, own)) return [];
+	const leading = words.slice(0, assignEnd);
+	const scopes = leadingScopes(walk, leading, segIdx);
+	const unwrapped = unwrap(own, walk.scope.spans);
+	const runs = how.unwrapped
+		? unwrapped
+		: [
+				{ words: own, wrapperWords: [], chdirs: [], unread: [] },
+				...unwrapped.filter((run) => run.scripted),
+			];
+	const gitRuns = runs.filter(
+		(run) => commandName(run.words[0] ?? "") === "git",
+	);
+	const gits = gitRuns.flatMap((run) => {
+		const git = readGitRun(walk, run, { leading, scopes }, how.isDir);
+		return git ? [git] : [];
+	});
+	/* After the git runs, which a later run's mention of a variable cannot
+	 * reach back to. */
+	if (gitRuns.length < runs.length) markRepoVarsUnread(walk, words, false);
+	return gits;
+}
+
+/**
+ * One `git` command's subcommand and the tree it runs against. Its moves, a
+ * wrapper's and a script's read under the walk's scope and then its `-C`s, are
+ * made once from every directory the walk may stand in: the first is the tree,
+ * the others `doubted`.
+ * @param {Walk} walk
+ * @param {Pick<import("./shell-words.js").Unwrapped, "words" | "wrapperWords" | "chdirs" | "unread">} run
+ *   its words from `git` on, and what its wrappers and its script carried
+ * @param {{ leading: string[], scopes: Map<string, Scope> }} prefix the
+ *   segment's own leading assignments, and leadingScopes' answer
+ * @param {(path: string) => boolean} isDir
+ * @returns {(GitTarget & { sub: string, args: string[] }) | null}
+ */
+function readGitRun(walk, run, { leading, scopes }, isDir) {
+	const { words: own, chdirs } = run;
+	/** @type {Map<string, GitDirWord>} */
+	const dirEnv = new Map();
+	for (const [name, word] of walk.gitEnv)
+		dirEnv.set(name, { word, scope: walk.scope });
+	for (const [name, word] of leading.flatMap(parseGitEnvWord))
+		dirEnv.set(name, { word, scope: scopes.get(name) ?? walk.scope });
+	/* A wrapper's words were expanded before it ran, under the walk's scope
+	 * (#5087). */
+	for (const [name, word] of run.wrapperWords.flatMap(parseGitEnvWord))
+		dirEnv.set(name, { word, scope: walk.scope });
+	for (const name of run.unread)
+		dirEnv.set(name, { word: null, scope: walk.scope });
+	/** @type {GitEnv} */
+	const env = new Map([...dirEnv].map(([name, dir]) => [name, dir.word]));
+	const { spans } = walk.scope;
+	/** @type {GitTarget} */
+	const target = {
+		tree: cwdOf(walk),
+		named: null,
+		workTree: null,
+		doubted: [],
+		dirMoves: [],
+		names: walk.cwdNames,
+		written: "",
+		aliases: emptyAliasTable(),
+	};
+	target.aliases.anyUnread = walk.aliasWritten;
+	defineFromEnv(target.aliases, env, spans);
+	const moves = chdirs.map((cd) => {
+		const { resolved, emptyNames } = chdirArg(cd, walk.scope);
+		moveGitTarget(target, resolved, cd.dir, emptyNames);
+		return chdirMove(cd, resolved);
+	});
+	const i = readGitOptions(own, target, {
+		scope: walk.scope,
+		dirEnv,
+		isDir,
+	});
+	const word = own[i];
+	if (word === undefined) return null;
+	/** @type {import("./shell-dirs.js").Move[]} */
+	const dashC = target.dirMoves.map((resolved) => ({
+		resolved,
+		holds: "always",
+	}));
+	[, ...target.doubted] = dirsAfter(
+		walk.dirs.dirs,
+		[...moves, ...dashC],
+		isDir,
+	);
+	/* The config read follows `tree`, which the doubt says it may not stand in. */
+	target.aliases.anyUnread ||= target.doubted.length > 0;
+	const args = own.slice(i + 1);
+	const spelt = literal(word, spans);
+	/* An unread word could be any subcommand, or a `--git-dir` to any tree. */
+	if (!spelt.known)
+		return {
+			...target,
+			named: target.named ?? "",
+			sub: UNREAD_ALIAS,
+			args: [],
+		};
+	return { ...target, sub: spelt.text, args };
+}
+
+/* A segment opening a compound command, whose parts a `cd` may run in any order
+ * or not at all. A `{ …; }` group runs its parts in order: isBraceGroupSure. */
+const COMPOUND_START =
+	/^\s*(?:if|while|until|for|select|case|function)(?:\s|$)/;
+
+/**
+ * The index of the segment that follows `segIdx`'s in its list: past the
+ * substitutions lifted out of the next command (#5098). Inside a lifted run,
+ * the next segment.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+function nextInList({ lifted }, segIdx) {
+	let i = segIdx + 1;
+	if (lifted[segIdx]) return i;
+	while (lifted[i]) i++;
+	return i;
+}
+
+/**
+ * The index of the segment ahead of `segIdx`'s in its list, as nextInList
+ * reads one: past the substitutions lifted out of this command.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+function prevInList({ lifted }, segIdx) {
+	let i = segIdx - 1;
+	if (lifted[segIdx]) return i;
+	while (lifted[i]) i--;
+	return i;
+}
+
+/**
+ * The join between the segment and the one that follows it in its list.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+const joinAfter = (parsed, segIdx) => parsed.joins[nextInList(parsed, segIdx)];
+
+/**
+ * Whether the segment runs in a subshell of its own, in a pipeline or behind
+ * `&`, so a `cd` or `export` in it moves nothing after it (measured).
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+function runsApart(parsed, segIdx) {
+	const after = joinAfter(parsed, segIdx);
+	return (
+		parsed.joins[segIdx] === JOIN.PIPE ||
+		after === JOIN.PIPE ||
+		after === JOIN.BACKGROUND
+	);
+}
+
+/**
+ * Whether the segment opens its `&&` or `||` list: no `&&` or `||` before it.
+ * @param {Join[]} joins
+ * @param {number} segIdx
+ */
+const opensList = (joins, segIdx) =>
+	joins[segIdx] !== JOIN.AND && joins[segIdx] !== JOIN.OR;
+
+/**
+ * Whether the segment is a `cd` after `||` whose left side is the `cd` that
+ * opened the list at `cdAt`, unnegated: it runs only where that one failed
+ * (#5010).
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ * @param {number} cdAt -1 where no such `cd` stands
+ */
+const isAfterCd = (parsed, segIdx, cdAt) =>
+	parsed.joins[segIdx] === JOIN.OR && cdAt === prevInList(parsed, segIdx);
+
+/**
+ * Whether the segment's command is negated by `!`, past any `{` opening it.
+ * @param {string[]} segments
+ * @param {number} segIdx
+ */
+function isNegated(segments, segIdx) {
+	const segment = segments[segIdx];
+	if (segment === undefined) return false;
+	return (
+		segment
+			.trim()
+			.split(/\s+/)
+			.find((w) => w !== "{") === "!"
+	);
+}
+
+/**
+ * Whether a `&&` chains the next command off the segment alone, so it runs only
+ * where the segment's command worked: not where `||` stands before it, whose
+ * left side working runs that command too, nor where `!` reverses its status
+ * (measured, #5010).
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+const isChainedOff = (parsed, segIdx) =>
+	joinAfter(parsed, segIdx) === JOIN.AND &&
+	parsed.joins[segIdx] !== JOIN.OR &&
+	!isNegated(parsed.segments, segIdx);
+
+/** The joins that keep a segment in the list or pipeline before it.
+ * @type {readonly Join[]} */
+const IN_LIST = [JOIN.AND, JOIN.OR, JOIN.PIPE];
+
+/** @param {Join | undefined} join undefined past the last segment */
+const isInList = (join) => join !== undefined && IN_LIST.includes(join);
+
+/**
+ * Whether the `&&` and `||` list the segment ends is closed by `&`, which
+ * backgrounds all of it, a pipeline in it included (measured, #5010, #5107).
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+function isListBackgrounded(parsed, segIdx) {
+	const { joins } = parsed;
+	let end = nextInList(parsed, segIdx);
+	while (isInList(joins[end]))
+		end = nextInList(parsed, commandEnd(parsed, end));
+	return joins[end] === JOIN.BACKGROUND;
+}
+
+/** @type {WeakMap<Parsed, Compound[] | null>} */
+const compoundMemo = new WeakMap();
+
+/**
+ * @typedef {[from: number, to: number, opener: string]} Compound a compound
+ *   command's opening and closing segment, and the word that opened it
+ */
+
+/** Each word that closes a compound command, and the words that open one. */
+const CLOSERS = new Map([
+	["}", ["{"]],
+	["fi", ["if"]],
+	["done", ["while", "until", "for", "select"]],
+	["esac", ["case"]],
+]);
+
+const OPENERS = new Set([...CLOSERS.values()].flat());
+
+/**
+ * The closer a word is, a `}` read with any redirection straight after it;
+ * undefined where it is none.
+ * @param {string} word
+ */
+function closerOf(word) {
+	if (/^\}(?=$|[<>])/.test(word)) return "}";
+	return CLOSERS.has(word) ? word : undefined;
+}
+
+/**
+ * The words a segment opens with that close a compound command, and those
+ * that open one: among the reserved words after them, or the word after
+ * those, which takes a word of its own, so no reserved word follows (#5095,
+ * #5109).
+ * @param {string} segment
+ */
+function compoundWords(segment) {
+	const words = segment.trim().split(/\s+/);
+	/** @type {string[]} */
+	const closes = [];
+	let wi = 0;
+	for (let c = closerOf(words[wi] ?? ""); c; c = closerOf(words[wi] ?? "")) {
+		closes.push(c);
+		wi++;
+	}
+	const end = skipReserved(words, wi);
+	const opens = words.slice(wi, end).filter((w) => OPENERS.has(w));
+	const next = words[end];
+	if (next !== undefined && OPENERS.has(next) && !RESERVED_WORDS.includes(next))
+		opens.push(next);
+	return { closes, opens };
+}
+
+/**
+ * Whether a bracket's `(` at `at` holds commands: not an array's, after `=`,
+ * nor the inner one of `((`, which holds arithmetic.
+ * @param {string[]} segments
+ * @param {number} at
+ */
+function holdsCommands(segments, at) {
+	const before = segments[at - 1] ?? "";
+	if (/[=]\s*$/.test(before)) return false;
+	return !(before.trim() === "" && segments[at - 2] === SCOPE_OPEN);
+}
+
+/**
+ * Whether the brackets `from` to `to` are a function's `()`: empty, after a
+ * name alone, so a `{` straight after opens its body.
+ * @param {string[]} segments
+ * @param {number} from
+ * @param {number} to
+ */
+const isFunctionParens = (segments, from, to) =>
+	to === from + 2 &&
+	segments[from + 1]?.trim() === "" &&
+	/^\s*(?:function\s+)?[^\s$=<>|&;`'"]+\s*$/.test(segments[from - 1] ?? "");
+
+/**
+ * Whether each segment opens where a command starts: not inside an array's or
+ * arithmetic's brackets, nor the rest of a line after a `)` that closed a `(`
+ * other than a function's (#5109). A `)` that closed none is a `case`
+ * pattern's.
+ * @param {Parsed} parsed
+ * @returns {boolean[]}
+ */
+function commandStarts({ segments, joins }) {
+	/** @type {{ from: number, holds: boolean }[]} */
+	const brackets = [];
+	let afterBracket = false;
+	return segments.map((segment, i) => {
+		if (segment === SCOPE_OPEN) {
+			brackets.push({ from: i, holds: holdsCommands(segments, i) });
+			return false;
+		}
+		if (segment === SCOPE_CLOSE) {
+			const closed = brackets.pop();
+			afterBracket =
+				closed !== undefined && !isFunctionParens(segments, closed.from, i);
+			return false;
+		}
+		const rest = joins[i] === JOIN.AFTER_CLOSE && afterBracket;
+		return !rest && brackets.every((b) => b.holds);
+	});
+}
+
+/**
+ * Each compound command, paired by segment; null where an opener or closer is
+ * left over or a closer meets another's opener.
+ * @param {Parsed} parsed
+ * @returns {Compound[] | null}
+ */
+function compoundSpans(parsed) {
+	const known = compoundMemo.get(parsed);
+	if (known !== undefined) return known;
+	const starts = commandStarts(parsed);
+	/** @type {[number, string][]} */
+	const open = [];
+	/** @type {Compound[] | null} */
+	let groups = [];
+	scan: for (const [i, segment] of parsed.segments.entries()) {
+		if (!starts[i]) continue;
+		const { closes, opens } = compoundWords(segment);
+		for (const closer of closes) {
+			const top = open.pop();
+			if (!top || !CLOSERS.get(closer)?.includes(top[1])) {
+				groups = null;
+				break scan;
+			}
+			groups.push([top[0], i, top[1]]);
+		}
+		for (const opener of opens) open.push([i, opener]);
+	}
+	if (open.length > 0) groups = null;
+	compoundMemo.set(parsed, groups);
+	return groups;
+}
+
+/**
+ * How many compound commands the segment's command runs inside, an opener's
+ * own counted (#5095, #5109).
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+const runDepth = (parsed, segIdx) =>
+	(compoundSpans(parsed) ?? []).filter(
+		([from, to]) => from <= segIdx && segIdx < to,
+	).length;
+
+/**
+ * The depth of the `&&` chain end at the segment, or undefined where none ends
+ * there: the compound commands holding its join, a closer's own counted, as
+ * the `;` before a `}` or `fi` sits inside (#5095, #5109). Where an opener or
+ * closer is left over, every chain end settles.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+function chainEndDepth(parsed, segIdx) {
+	if (!isChainEnd(parsed.joins, segIdx)) return;
+	return (compoundSpans(parsed) ?? []).filter(
+		([from, to]) => from < segIdx && segIdx <= to,
+	).length;
+}
+
+/**
+ * The last segment of the command a list member starts at `segIdx`: past a
+ * `( … )` or compound command it opens, the words after its `)` or closer, a
+ * function's `( … )` or compound body past blank lines, and each `$(…)` or
+ * `<(…)` mid-word (#5107, #5112, #5117, #5118). Any other bracket opening on a
+ * blank line is another command's.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+function commandEnd(parsed, segIdx) {
+	let end = groupEnd(parsed, segIdx);
+	for (
+		let next = stepPast(parsed, end);
+		next !== end;
+		next = stepPast(parsed, end)
+	)
+		end = next;
+	return end;
+}
+
+/**
+ * The last segment of the `( … )` or compound command the segment at `segIdx`
+ * opens, or `segIdx` where it opens neither.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+const groupEnd = (parsed, segIdx) =>
+	parsed.segments[segIdx] === SCOPE_OPEN
+		? closingBracket(parsed.segments, segIdx)
+		: closingCompound(parsed, segIdx);
+
+/**
+ * The command's last segment so far once the words or bracket after `end` are
+ * taken in, or `end` where nothing after it is the command's.
+ * @param {Parsed} parsed
+ * @param {number} end
+ */
+function stepPast(parsed, end) {
+	const { segments, joins } = parsed;
+	const next = end + 1;
+	if (joins[next] === JOIN.AFTER_CLOSE) return closingCompound(parsed, next);
+	if (segments[next] !== SCOPE_OPEN || joins[next] !== JOIN.NONE) return end;
+	const close = closingBracket(segments, next);
+	if (!isFunctionParens(segments, next, close))
+		return segments[end]?.trim() ? close : end;
+	let body = close + 1;
+	while (body < segments.length - 1 && !segments[body]?.trim()) body++;
+	return groupEnd(parsed, body);
+}
+
+/**
+ * The index of the SCOPE_MARK `)` line closing the `(` line at `openIdx`, or
+ * the last segment's where none does: bash reads to the script's end for the
+ * `)` and refuses the source line holding the `(` and all after it, though
+ * the lines before it have run (#5115).
+ * @param {string[]} segments
+ * @param {number} openIdx
+ */
+function closingBracket(segments, openIdx) {
+	let depth = 0;
+	for (let i = openIdx; i < segments.length; i++) {
+		if (segments[i] === SCOPE_OPEN) depth++;
+		else if (segments[i] === SCOPE_CLOSE && --depth === 0) return i;
+	}
+	return segments.length - 1;
+}
+
+/**
+ * The segment closing the outermost compound command the segment at `segIdx`
+ * opens, or `segIdx` where it opens none or its openers and closers are
+ * unpaired (#5112, #5117).
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+function closingCompound(parsed, segIdx) {
+	let end = segIdx;
+	for (const [from, to] of compoundSpans(parsed) ?? [])
+		if (from === segIdx && to > end) end = to;
+	return end;
+}
+
+/**
+ * Whether every `{ …; }` group holding the segment surely runs in this shell:
+ * no `&&` or `||` before it, not in a pipeline, its list not closed by `&`, and
+ * not a function's body. False where any compound command's opener or closer
+ * is unpaired.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ */
+function isBraceGroupSure(parsed, segIdx) {
+	const { joins, segments } = parsed;
+	const groups = compoundSpans(parsed);
+	if (!groups) return false;
+	return groups.every(([from, to, opener]) => {
+		if (opener !== "{" || segIdx < from || segIdx > to) return true;
+		const before = joins[from];
+		let prev = prevInList(parsed, from);
+		while (prev >= 0 && segments[prev]?.trim() === "")
+			prev = prevInList(parsed, prev);
+		/* `f() { …; }` defines the group, and `(…) {` reads as nothing else. */
+		const defined =
+			(before === JOIN.NONE || before === JOIN.AFTER_CLOSE) &&
+			segments[prev] === SCOPE_CLOSE;
+		return (
+			!defined &&
+			!isInList(before) &&
+			joinAfter(parsed, to) !== JOIN.PIPE &&
+			!isListBackgrounded(parsed, to)
+		);
+	});
+}
+
+/**
+ * Whether a `cd` surely runs where its directory is there, from where the
+ * segment before it left the walk: none of the command's segments opening a
+ * compound command, any `{ …; }` group holding it surely running, its `&&` or
+ * `||` list not closed by `&`, and no word after its target.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ * @param {string[]} own its words
+ */
+const isSureOnceReached = (parsed, segIdx, own) =>
+	!isListBackgrounded(parsed, segIdx) &&
+	own.length <= 2 &&
+	!parsed.segments.some((s) => COMPOUND_START.test(s)) &&
+	isBraceGroupSure(parsed, segIdx);
+
+/**
+ * Whether a `cd` surely runs, where its directory is there: as
+ * isSureOnceReached, with no `&&` or `||` before it.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ * @param {string[]} own its words
+ */
+function isSureMove(parsed, segIdx, own) {
+	return (
+		opensList(parsed.joins, segIdx) && isSureOnceReached(parsed, segIdx, own)
+	);
+}
+
+/**
+ * How a `cd` holds, as both the walk and a `-c` string read one: "if-dir"
+ * where it surely ran had its directory been there — opening its `&&` or `||`
+ * list, or after `||` whose left side is the `cd` before it — else "maybe";
+ * the compound commands it runs inside; and the `cdAt` the next `cd` reads.
+ * @param {Parsed} parsed
+ * @param {number} segIdx
+ * @param {string[]} own its words
+ * @param {number} cdAt the last `cd` that opened its list, -1 where none has
+ * @returns {{ holds: "if-dir" | "maybe", afterFailed: boolean,
+ *   chained: boolean, depth: number, cdAt: number }}
+ */
+function classifyCd(parsed, segIdx, own, cdAt) {
+	const opens = opensList(parsed.joins, segIdx);
+	const afterFailed = isAfterCd(parsed, segIdx, cdAt);
+	return {
+		holds:
+			(opens || afterFailed) && isSureOnceReached(parsed, segIdx, own)
+				? "if-dir"
+				: "maybe",
+		afterFailed,
+		chained: isChainedOff(parsed, segIdx),
+		depth: runDepth(parsed, segIdx),
+		cdAt: opens && !isNegated(parsed.segments, segIdx) ? segIdx : -1,
+	};
+}
+
+/**
+ * A `&&` chain's end: from here on, a `cd` that opened it may not have worked.
+ * @param {Walk} walk accumulator: its directories are replaced
+ * @param {number} segIdx
+ */
+function settleCwdDoubt(walk, segIdx) {
+	const { parsed } = walk;
+	const ends = chainEndDepth(parsed, segIdx);
+	if (ends !== undefined) walk.dirs = settleDirs(walk.dirs, ends);
+}
+
+/**
+ * Move the cwd for one command's words, as moveCwd reads them, through
+ * stepDirs; whether the command is one that moves it. In a pipeline or behind
+ * `&` it runs in a subshell and moves nothing (measured).
+ * @param {Walk} walk accumulator: its directories and `cdAt` are moved
+ * @param {string[]} own
+ * @param {number} segIdx
+ * @param {(path: string) => boolean} isDir
+ */
+function stepCwd(walk, own, segIdx, isDir) {
+	const [head = "", arg] = own;
+	if (!movesCwd(head, arg)) return false;
+	const { cwdNames, cwdLost } = walk;
+	const resolved = moveCwd(walk, own);
+	if (runsApart(walk.parsed, segIdx)) {
+		Object.assign(walk, { cwdNames, cwdLost });
+		return true;
+	}
+	const { cdAt, ...move } = classifyCd(walk.parsed, segIdx, own, walk.cdAt);
+	walk.dirs = stepDirs(walk.dirs, { resolved, ...move }, isDir);
+	walk.cdAt = cdAt;
+	return true;
+}
+
+/**
+ * The walk's cwd: where it stands if every move before was made.
+ * @param {Walk} walk
+ */
+const cwdOf = (walk) => walk.dirs.dirs[0];
+
+/**
+ * Every directory a run may stand in: each of `cwds` moved through its
+ * `chdirs` by dirsAfter. Unknown past a directory no word gives whole: a
+ * wrapper's word reading a variable or a `~`, a `-c` string's `cd` reading one
+ * its script did not set (workflow-core#4981), a glob, or a `-` flag.
+ * @param {import("./shell-dirs.js").Dirs} cwds
+ * @param {Chdir[]} chdirs
+ * @param {Scope} scope the outer command's, so a wrapper's word reads the
+ *   variables the command set
+ * @param {(path: string) => boolean} isDir
+ * @returns {import("./shell-dirs.js").Dirs}
+ */
+function runCwd(cwds, chdirs, scope, isDir) {
+	const moves = chdirs.map((cd) => chdirMove(cd, chdirArg(cd, scope).resolved));
+	return dirsAfter(cwds, moves, isDir);
+}
+
+/**
+ * @param {Chdir} cd
+ * @param {import("./shell-dirs.js").Resolved} resolved its directory
+ * @returns {import("./shell-dirs.js").Move}
+ */
+const chdirMove = ({ dir, read, vars, envReset, ...move }, resolved) => ({
+	resolved,
+	...move,
+});
+
+const CONFIG_READ = /^(?:--get|--list$|-l$)/;
+
+/**
+ * Note a `git config` naming an alias or an include, or a key it cannot read:
+ * what it writes is not on disk when the hook reads it.
+ * @param {Walk} walk accumulator
+ * @param {string[]} args raw
+ */
+function markAliasWritten(walk, args) {
+	const read = args.map((w) => literal(w, walk.scope.spans));
+	if (read.some((l) => CONFIG_READ.test(l.text))) return;
+	walk.aliasWritten ||= read.some((l, i) =>
+		/* A last word after another is a value, whatever it holds. */
+		l.known ? isAliasKey(l.text) : i === 0 || i < read.length - 1,
+	);
+}
+
+const REPO_VARS = ["GIT_DIR", "GIT_COMMON_DIR", "GIT_WORK_TREE"];
+
+const GIT_ENV_NAME = new RegExp(
+	`^(?:${[...REPO_VARS, ...CONFIG_FILE_VARS].join("|")}|GIT_CONFIG_COUNT|GIT_CONFIG_PARAMETERS|GIT_CONFIG_(?:KEY|VALUE)_\\d+)$`,
+);
+
+/**
+ * @param {string} word
+ * @returns {[string, string][]}
+ */
+function parseGitEnvWord(word) {
+	const eq = word.indexOf("=");
+	const name = word.slice(0, eq);
+	return eq > 0 && GIT_ENV_NAME.test(name) ? [[name, word.slice(eq + 1)]] : [];
+}
+
+/**
+ * Mark the repository variables unread where a command mentions them other than
+ * as a `git` prefix or a plain `export`: an assignment after an export, `set -a`,
+ * `eval` and `local -x` each change the environment in a way not followed here.
+ * @param {Walk} walk accumulator: its `gitEnv` is replaced
+ * @param {string[]} words
+ * @param {boolean} assigning the segment holds assignments alone
+ */
+function markRepoVarsUnread(walk, words, assigning) {
+	const named = repoVarsNamed(words, assigning, walk.scope.spans);
+	if (named.length === 0) return;
+	walk.gitEnv = new Map(walk.gitEnv);
+	for (const name of named) walk.gitEnv.set(name, null);
+}
+
+/**
+ * The repository variables a command's words name, as markRepoVarsUnread
+ * reads them.
+ * @param {string[]} words
+ * @param {boolean} assigning the segment holds assignments alone
+ * @param {string[]} spans
+ */
+function repoVarsNamed(words, assigning, spans) {
+	const text = words.map((w) => literal(w, spans).text).join(" ");
+	/* A bare `HOME=` moves a variable already exported (measured). Any other
+	 * command naming `HOME` or `XDG_CONFIG_HOME` only reads it, far too often to
+	 * call each one a move. */
+	const candidates = [
+		...REPO_VARS,
+		...CONFIG_FILE_VARS.filter((name) => assigning || name.startsWith("GIT_")),
+	];
+	return candidates.filter((name) => new RegExp(`\\b${name}\\b`).test(text));
+}
+
+/**
+ * @param {string} head
+ * @param {string[]} rest
+ * @returns {"export" | "drop" | null}
+ */
+function exportKind(head, rest) {
+	if (head === "unset") return "drop";
+	const declares =
+		(head === "declare" || head === "typeset") &&
+		rest.some((w) => /^-\w*x/.test(w));
+	if (head !== "export" && !declares) return null;
+	return rest.includes("-n") ? "drop" : "export";
+}
+
+/**
+ * Move `walk.gitEnv` for one `export`, `declare -x`, `typeset -x` or `unset`;
+ * whether the command is one of them. A bare assignment exports nothing
+ * (measured), so a name only `export` names reads its value through the shell.
+ * @param {Walk} walk accumulator: its `gitEnv` is replaced
+ * @param {string[]} words
+ */
+function trackExport(walk, [head = "", ...rest]) {
+	const kind = exportKind(head, rest);
+	if (kind === null) return false;
+	const env = new Map(walk.gitEnv);
+	for (const { text } of exportArgs(rest, walk.scope.spans)) {
+		const [name = ""] = text.split("=", 1);
+		if (!GIT_ENV_NAME.test(name)) continue;
+		if (kind === "drop") env.delete(name);
+		else
+			env.set(name, text === name ? `$${name}` : text.slice(name.length + 1));
+	}
+	walk.gitEnv = env;
+	return true;
+}
+
+/**
+ * What one of git's own options says, its value `next` where it takes the next
+ * word and spelt on where it is stuck.
+ * @param {string} w
+ * @param {string} next
+ * @param {GitTarget} target accumulator: its tree and aliases are moved
+ * @param {{ scope: Scope, dirs: GitDirs }} from `dirs`, an accumulator,
+ *   holds the directories read after the `-C`s end
+ */
+function stepGitOption(w, next, target, { scope, dirs }) {
+	const { spans } = scope;
+	if (w === "--git-dir") dirs.gitDir = { word: next, scope };
+	else if (w.startsWith("--git-dir="))
+		dirs.gitDir = { word: w.slice("--git-dir=".length), scope };
+	else if (w === "--work-tree") dirs.workTree = { word: next, scope };
+	else if (w.startsWith("--work-tree="))
+		dirs.workTree = { word: w.slice("--work-tree=".length), scope };
+	else if (w === "-C") readGitDir(next, target, scope);
+	else if (w === "-c") defineFromConfigWord(target.aliases, next, spans);
+	else if (w === "--config-env")
+		defineFromConfigEnvWord(target.aliases, next, spans);
+	else if (w.startsWith("--config-env="))
+		defineFromConfigEnvWord(
+			target.aliases,
+			w.slice("--config-env=".length),
+			spans,
+		);
+}
+
+/**
+ * Step git's own options; the index of the subcommand, or past the end where
+ * there is none. The directories `--git-dir`, `--work-tree` or the environment
+ * name are read last, since git reads a relative one from wherever the `-C`s
+ * end.
+ * @param {string[]} own the command's words, `git` first
+ * @param {GitTarget} target
+ * @param {{ scope: Scope, dirEnv: Map<string, GitDirWord>,
+ *   isDir: (path: string) => boolean }} from `dirEnv` each git-reading
+ *   variable's word
+ */
+function readGitOptions(own, target, { scope, dirEnv, isDir }) {
+	/** @type {GitDirs} */
+	const dirs = {
+		gitDir: dirEnv.get("GIT_DIR"),
+		workTree: dirEnv.get("GIT_WORK_TREE"),
+	};
+	const i = stepGitOptions(own, scope.spans, (w, next) =>
+		stepGitOption(w, next ?? "", target, { scope, dirs }),
+	);
+	nameRepoTree(dirs.gitDir, dirEnv.get("GIT_COMMON_DIR"), target, isDir);
+	nameWorkTree(dirs.workTree, target);
+	return i;
+}
+
+/**
+ * @typedef {{ word: string | null, scope: Scope }} GitDirWord a directory
+ *   word, null where it cannot be read, and the scope it reads under
+ * @typedef {{ gitDir?: GitDirWord, workTree?: GitDirWord }} GitDirs
+ */
+
+/**
+ * A directory word as an absolute path from `target`'s tree; "" where it will not
+ * resolve.
+ * @param {string} word
+ * @param {GitTarget} target
+ * @param {Scope} scope
+ */
+function absFromTree(word, target, scope) {
+	const r = pathArg(word, scope);
+	const path = r && "path" in r ? r.path : "";
+	const abs =
+		path.startsWith("/") || !path || !target.tree
+			? path
+			: `${target.tree}/${path}`;
+	return abs.startsWith("/") ? abs : "";
+}
+
+/**
+ * @param {GitDirWord | undefined} named
+ * @param {GitTarget} target accumulator: its `workTree` and `written` are set
+ */
+function nameWorkTree(named, target) {
+	if (named === undefined) return;
+	const { word, scope } = named;
+	const abs = word === null ? "" : absFromTree(word, target, scope);
+	target.workTree = abs && normAbs(abs);
+	if (!abs) target.written = `--work-tree ${word}`;
+}
+
+/**
+ * Set `target.named` to the tree the git directory names. Unknown where both are
+ * named, as the refs and the HEAD can live apart; where it is empty, which git
+ * refuses (measured); and where it is a file not called `.git`, a gitfile that
+ * could point anywhere.
+ * @param {GitDirWord | undefined} gitDir
+ * @param {GitDirWord | undefined} commonDir
+ * @param {GitTarget} target accumulator: its `named` and `written` are set
+ * @param {(path: string) => boolean} isDir
+ */
+function nameRepoTree(gitDir, commonDir, target, isDir) {
+	const named = gitDir === undefined ? commonDir : gitDir;
+	if (named === undefined) return;
+	const { word, scope } = named;
+	const both = gitDir !== undefined && commonDir !== undefined;
+	const abs = both || word === null ? "" : absFromTree(word, target, scope);
+	const tree = abs ? treeOfGitDir(abs) : "";
+	const readable = tree !== "" && (tree !== normAbs(abs) || isDir(abs));
+	target.named = readable ? tree : "";
+	if (!readable) target.written = `--git-dir ${word}`;
+}
+
+/**
+ * The tree a git directory belongs to, read as a path: a tree's `.git` is its
+ * root, where a linked tree's is the file the classifier would not enter. Any
+ * other directory stands for itself, as the classifier asks git about it.
+ * @param {string} dir absolute
+ */
+const treeOfGitDir = (dir) => normAbs(dir).replace(/\/\.git$/, "") || "/";
+
+/**
+ * Move `target` for one `git -C <word>`. `git -C ""` runs against the cwd —
+ * git treats an empty path as if -C were not given (workflow-core#301) — so the tree
+ * stands where it is. A relative path from an unknown tree stays unknown.
+ * @param {string} word
+ * @param {GitTarget} target
+ * @param {Scope} scope
+ */
+function readGitDir(word, target, scope) {
+	const r = pathArg(word, scope);
+	target.dirMoves.push(r);
+	moveGitTarget(target, r, word, scope.emptyNames);
+}
+
+/**
+ * Move `target` to a directory as pathArg answered it.
+ * @param {GitTarget} target accumulator: its tree, names and written
+ *   are moved
+ * @param {ReturnType<typeof pathArg>} r
+ * @param {string} word as written, for the unresolved record
+ * @param {string[]} emptyNames the unset names `r` read as empty
+ */
+function moveGitTarget(target, r, word, emptyNames) {
+	const from = target.tree;
+	target.tree = moveDir(from, r);
+	if (!r) target.written = `-C ${word}`;
+	else if ("path" in r && r.path.startsWith("/")) {
+		target.names = [...emptyNames];
+		target.written = "";
+	} else if ("empty" in r || from)
+		target.names = [...target.names, ...emptyNames];
+}
+
+/**
+ * One chdir's directory as the shell that makes it reads it (workflow-core#4981): a `read`
+ * one as it stands; a `-c` string's `cd` under buildScriptScope; any other — a
+ * wrapper's word the outer shell expands — under the outer `scope`. Null
+ * past an unquoted glob or a `-` flag.
+ * @param {Chdir} cd
+ * @param {Scope} scope the outer command's
+ * @returns {{ resolved: ReturnType<typeof pathArg>, emptyNames: string[] }}
+ */
+function chdirArg(cd, scope) {
+	const none = { resolved: null, emptyNames: [] };
+	if (cd.read && cd.dir.startsWith("-")) return none;
+	if (cd.read)
+		return {
+			resolved: cd.dir ? { path: cd.dir } : { empty: true },
+			emptyNames: [],
+		};
+	if (isGlobPattern(cd.dir)) return none;
+	const inner = cd.vars ? buildScriptScope(cd, scope) : scope;
+	const r = pathArg(cd.dir, inner);
+	if (r && "path" in r && r.path.startsWith("-")) return none;
+	return { resolved: r, emptyNames: inner.emptyNames };
+}
+
+/**
+ * @param {string[]} spans
+ * @returns {Scope}
+ */
+const buildBareScope = (spans) => ({
+	spans,
+	locals: new Map(),
+	dead: new Set(),
+	exported: new Set(),
+	harvested: new Map(),
+	vars: {},
+	subject: "",
+	conditional: -1,
+	emptyUnset: false,
+	emptyNames: [],
+});
+
+/** Names a script's shell sets itself, whatever the script did. */
+const SHELL_SET = ["PWD", "OLDPWD", "_"];
+
+/**
+ * What a `-c` string's word reads under: each name its script set at that
+ * value, read itself under the environment alone; any other at the
+ * environment the outer command hands down, a name it exported at the value
+ * the outer command reads (#5120). Unknown: a name the script changed
+ * unfollowed or set to a value that will not resolve, SHELL_SET, an exported
+ * name the outer command may have changed unseen, and an
+ * environment name the outer command names bare without exporting it — it
+ * may have set it — or any under a `source`, `.` or `eval`, or behind a
+ * wrapper that may replace the environment.
+ * @param {Chdir} cd a `-c` string's `cd`
+ * @param {Scope} outer
+ * @returns {Scope}
+ */
+function buildScriptScope({ vars = new Map(), envReset }, outer) {
+	const inherits = !envReset && !SOURCING_RE.test(outer.subject);
+	/** @type {Scope} */
+	const scope = {
+		...buildBareScope(outer.spans),
+		dead: new Set([...SHELL_SET, ...vars.keys()]),
+		vars: inherits ? buildInheritedEnv(outer) : {},
+	};
+	/** @type {Map<string, string>} */
+	const locals = new Map();
+	const dead = new Set(SHELL_SET);
+	for (const [name, word] of vars) {
+		const raw = word?.slice(word.indexOf("=") + 1);
+		const val = raw === undefined ? null : assignedValue(raw, scope);
+		if (val) locals.set(name, val);
+		else dead.add(name);
+	}
+	return { ...scope, locals, dead, emptyNames: [] };
+}
+
+/**
+ * The environment a `-c` string's shell inherits from `outer`, as
+ * buildScriptScope reads it. An exported name stands at its outer value only
+ * where the harvest read every bare mention of it: one it did not may have
+ * changed it.
+ * @param {Scope} outer
+ * @returns {Record<string, string | undefined>}
+ */
+function buildInheritedEnv(outer) {
+	/** @type {Record<string, string | undefined>} */
+	const env = {};
+	for (const [name, value] of Object.entries(outer.vars))
+		if (bareMentions(name, outer.subject) === 0) env[name] = value;
+	for (const name of outer.exported) {
+		const seen = outer.harvested.get(name) ?? 0;
+		const value =
+			bareMentions(name, outer.subject) === seen
+				? lookupVar(name, outer)
+				: null;
+		if (value === null) delete env[name];
+		else env[name] = value;
+	}
+	return env;
+}
+
+/**
+ * The unresolved-tree record's detail (workflow-core#315, workflow-core#320): what the walk could not
+ * resolve as typed, the session's directory, and the walk's cwd.
+ * @param {GitTarget} git
+ * @param {Walk} walk
+ * @param {string} pwd
+ */
+function unresolvedDetail(git, walk, pwd) {
+	const t = git.written || git.tree || walk.cwdLost;
+	const typed = asWritten(t || "<unknown>", walk.scope.spans);
+	return `target=${typed} pwd=${pwd} cwd=${cwdOf(walk) || "<unknown>"}`;
+}
+
+/**
+ * The line workflow-core#310 ruled for a refusal whose tree was reached through an unset
+ * variable, with a blank line after it; "" where `emptyVars` names none.
+ * @param {string[]} emptyVars a GitCall's
+ */
+function unsetText(emptyVars) {
+	const names = [...new Set(emptyVars)];
+	if (names.length === 0) return "";
+	const list = names.map((n) => `\`$${n}\``).join(", ");
+	const verb = names.length === 1 ? "is" : "are";
+	return `${list} ${verb} unset in this call; shell variables do not carry over between Bash calls.\n\n`;
+}
+
+/**
+ * @param {RedirectEntry[]} redirs stripRedirects's entries
+ * @param {Scope} scope
+ * @param {(word: string) => string} resolveAbs
+ * @returns {Redirect[]}
+ */
+function readRedirects(redirs, scope, resolveAbs) {
+	return redirs.map((entry) => readRedirect(entry, scope, resolveAbs));
+}
+
+/**
+ * One stripRedirects entry as a Redirect.
+ * @param {RedirectEntry} entry
+ * @param {Scope} scope
+ * @param {(word: string) => string} resolveAbs
+ * @returns {Redirect}
+ */
+function readRedirect({ fd: written, op, target }, scope, resolveAbs) {
+	const copy =
+		op === ">&" || op === "<&"
+			? readDescriptorCopy(op, written, target, scope)
+			: null;
+	const kind = copy ? copy.kind : (REDIRECT_KINDS.get(op) ?? "");
+	let fd = copy ? copy.fd : written;
+	if (!fd) fd = op.startsWith("<") ? "0" : "1";
+	const path =
+		kind === "read" || isWriteRedirect(kind) ? resolveAbs(target) : "";
+	return { fd, kind, target, path };
+}
+
+/** The kind each operator but `>&` and `<&` names. */
+const REDIRECT_KINDS = new Map([
+	[">", "truncate"],
+	["&>", "truncate"],
+	[">|", "clobber"],
+	[">>", "append"],
+	["&>>", "append"],
+	["<", "read"],
+	["<>", "read-write"],
+	["<<<", "here-string"],
+	["<<", "heredoc"],
+	["<<-", "heredoc"],
+]);
+
+/**
+ * A `>&` or `<&`'s kind, and its descriptor as `fd` was written. Bash decides
+ * on the expanded word, so `>&$fd` is read through its value, and taken as a
+ * copy where it has none.
+ * @param {string} op
+ * @param {string} fd
+ * @param {string} target
+ * @param {Scope} scope
+ */
+function readDescriptorCopy(op, fd, target, scope) {
+	const word = resolveWord(target, scope) ?? "1";
+	if (word === "-") return { kind: "close", fd };
+	if (/^[0-9]+-?$/.test(word)) return { kind: "copy", fd };
+	/* `>&file` with no descriptor is bash's older `&>file`. */
+	if (op === ">&" && !fd) return { kind: "truncate", fd: "&" };
+	return { kind: "read", fd };
+}
+
+/**
+ * An assignment's value as this file resolves it — "" for an empty one or a
+ * quoted `""` — or null where it will not resolve.
+ * @param {string} raw
+ * @param {Scope} scope
+ */
+function assignedValue(raw, scope) {
+	if (!raw) return "";
+	const r = pathArg(raw, scope);
+	if (!r) return null;
+	return "path" in r ? r.path : "";
+}
+
+/**
+ * Record `name`'s assignment of `val`, or put it in `dead` where `val` is
+ * unresolved (null) or differs from a value it already holds.
+ * @param {Scope} scope
+ * @param {string} name
+ * @param {string | null} val
+ */
+function recordAssignment(scope, name, val) {
+	const prior = scope.locals.get(name);
+	if (val === null || (prior !== undefined && prior !== val)) {
+		scope.locals.delete(name);
+		scope.dead.add(name);
+		return;
+	}
+	scope.locals.set(name, val);
+}
+
+/**
+ * Every file one command writes or removes (workflow-core#1827), by the routes the guard
+ * tier reads:
+ *
+ *   a redirect            every kind isWriteRedirect names; a heredoc's own
+ *                         redirect is read, its body is data
+ *   `cp` / `mv`           the LAST bare word, or `-t <dir>`, as
+ *                         `<dest>/<basename>` where the destination is a
+ *                         directory, ends in `/` or takes two sources — and for
+ *                         `mv` alone its SOURCES, which it destroys
+ *   `sed -i` / `perl -i`  every bare file argument
+ *   `truncate`, `tee`     every bare file argument
+ *   `git restore <path>`  every bare word after the subcommand, unless
+ *                         `--staged` without `--worktree`
+ *   `git checkout -- <p>` every bare word after the `--`
+ *   `rm`, `git rm`,       every bare word, and every word past a `--`
+ *   `git mv`
+ *
+ * The command word is read as written, never unwrapped, so `sudo tee x` is not
+ * read. `git checkout <path>` without `--` is not read: the word is a revision
+ * as often as a path. Nor is a git global option.
+ * @param {string[]} words
+ * @param {Redirect[]} redirects
+ * @param {{ spans: string[], resolveAbs: (w: string) => string, resolve: (w: string) => string | null, isDir: (p: string) => boolean }} ctx
+ * @returns {WriteTarget[]}
+ */
+function writeTargets(words, redirects, ctx) {
+	/** @type {WriteTarget[]} */
+	const rows = [];
+	let route = "redirect";
+	/** @type {AddTarget} */
+	const add = (mode, target, path = ctx.resolveAbs(target)) => {
+		rows.push({ mode, route, target, path });
+	};
+	for (const r of redirects)
+		if (isWriteRedirect(r.kind)) add("write", r.target, r.path);
+	const [command = "", ...args] = words;
+	const head = literal(command, ctx.spans);
+	if (!head.known) return rows;
+	const base = basename(head.text);
+	route = base === "git" ? `git ${args[0] ?? ""}` : base;
+	COMMAND_TARGETS.get(base)?.(args, add, ctx);
+	return rows;
+}
+
+/**
+ * @typedef {{ spans: string[], resolveAbs: (w: string) => string, resolve: (w: string) => string | null, isDir: (p: string) => boolean }} TargetCtx
+ */
+
+/**
+ * @typedef {(mode: WriteTarget["mode"], target: string, path?: string) => void} AddTarget
+ */
+
+/**
+ * Each command writeTargets reads, by its name as written, and how.
+ * @type {Map<string, (args: string[], add: AddTarget, ctx: TargetCtx) => void>}
+ */
+const COMMAND_TARGETS = new Map([
+	["cp", (args, add, ctx) => copyTargets("cp", args, add, ctx)],
+	["mv", (args, add, ctx) => copyTargets("mv", args, add, ctx)],
+	[
+		"sed",
+		(args, add) => {
+			if (isInPlace("efl", args))
+				bareTargets(["-e", "-f", "--expression", "--file"], args, add);
+		},
+	],
+	[
+		"perl",
+		(args, add) => {
+			if (isInPlace("0CDeEFIlmMx", args))
+				bareTargets(["-e", "-E", "-I", "-m", "-M", "-F"], args, add);
+		},
+	],
+	[
+		"truncate",
+		(args, add) =>
+			bareTargets(["-s", "--size", "-r", "--reference"], args, add),
+	],
+	["tee", (args, add) => bareTargets([], args, add)],
+	["rm", (args, add) => deleteTargets(args, add)],
+	["git", (args, add) => gitTargets(args, add)],
+]);
+
+/**
+ * `git restore`, `git checkout --`, `git mv` and `git rm`'s targets.
+ * @param {string[]} args
+ * @param {AddTarget} add
+ */
+function gitTargets(args, add) {
+	const [sub, ...rest] = args;
+	if (sub === "restore") {
+		const staged = rest.includes("--staged") || rest.includes("-S");
+		const worktree = rest.includes("--worktree") || rest.includes("-W");
+		if (!staged || worktree)
+			bareTargets(["-s", "--source", "--pathspec-from-file"], rest, add);
+	} else if (sub === "checkout") {
+		const sep = rest.indexOf("--");
+		if (sep >= 0) for (const w of rest.slice(sep + 1)) add("write", w);
+	} else if (sub === "mv" || sub === "rm") deleteTargets(rest, add);
+}
+
+/**
+ * Every bare word as a write target; `skip` names the flags whose VALUE is
+ * the next word.
+ * @param {string[]} skip
+ * @param {string[]} ws
+ * @param {AddTarget} add
+ */
+function bareTargets(skip, ws, add) {
+	let value = false;
+	for (const w of ws) {
+		if (value) {
+			value = false;
+			continue;
+		}
+		if (w === "--") continue;
+		if (w.startsWith("-")) {
+			value = skip.includes(w);
+			continue;
+		}
+		add("write", w);
+	}
+}
+
+/** No flag of `rm`, `git rm` or `git mv` takes a separate value but
+ * `git rm --pathspec-from-file`, whose file then lands here.
+ * @param {string[]} ws
+ * @param {AddTarget} add */
+function deleteTargets(ws, add) {
+	let sep = false;
+	for (const w of ws) {
+		if (!sep && w === "--") {
+			sep = true;
+			continue;
+		}
+		if (!sep && w.startsWith("-")) continue;
+		add("delete", w);
+	}
+}
+
+/**
+ * Is any word an in-place switch? Bundled single letters are read left to
+ * right and the scan stops at the first switch that TAKES an argument, so
+ * `perl -Ilib` is not misread as in-place on its `i`.
+ * @param {string} takesArg
+ * @param {string[]} words
+ */
+function isInPlace(takesArg, words) {
+	for (const w of words) {
+		if (w === "--in-place" || w.startsWith("--in-place=")) return true;
+		if (w === "--") return false;
+		if (isShortFlags(w) && hasInPlaceLetter(w, takesArg)) return true;
+	}
+	return false;
+}
+
+/** @param {string} w */
+const isShortFlags = (w) => w.startsWith("-") && !w.startsWith("--");
+
+/**
+ * Does a bundle of single-letter switches hold `i` before any switch that
+ * takes an argument?
+ * @param {string} w
+ * @param {string} takesArg
+ */
+function hasInPlaceLetter(w, takesArg) {
+	for (const ch of w.slice(1)) {
+		if (ch === "i") return true;
+		if (takesArg.includes(ch)) return false;
+	}
+	return false;
+}
+
+/**
+ * `cp` and `mv`'s destinations, and `mv`'s sources. `cp` leaves its sources
+ * alone, so reading them would report a read as a write.
+ * @param {string} prog
+ * @param {string[]} args
+ * @param {AddTarget} add
+ * @param {TargetCtx} ctx
+ */
+function copyTargets(prog, args, add, ctx) {
+	const picked = pickDestination(parseCopyArgs(args));
+	if (!picked) return;
+	const { srcs, dest } = picked;
+	const dpath = ctx.resolveAbs(dest.text);
+	const lit = literal(dest.text, ctx.spans).text;
+	if (!lit && !dpath) return;
+	/* A directory as this hook sees it, or one by its own spelling — a
+	 * trailing `/` names nothing else, existing or not. */
+	const into = isDirectoryDest(dpath, lit, ctx) || dest.into;
+	const dir = { base: dest.text.replace(/\/$/, ""), dpath };
+	for (const src of srcs) {
+		if (into) addIntoTarget(src, dir, add, ctx);
+		if (prog === "mv") add("move-source", src);
+	}
+	if (!into) add("write", dest.text, dpath);
+}
+
+/** Flags of `cp` and `mv` whose value is the next word: 1, the target
+ * directory; 2, a backup suffix, a value and no file. */
+const COPY_VALUE_FLAGS = new Map([
+	["-t", 1],
+	["--target-directory", 1],
+	["-S", 2],
+	["--suffix", 2],
+]);
+
+/**
+ * `cp` or `mv`'s bare words, and the `-t` directory where one is named.
+ * @param {string[]} args
+ */
+function parseCopyArgs(args) {
+	let dest = "";
+	/** @type {string[]} */
+	const srcs = [];
+	let value = 0;
+	for (const w of args) {
+		if (value) {
+			if (value === 1) dest = w;
+			value = 0;
+			continue;
+		}
+		const takes = COPY_VALUE_FLAGS.get(w);
+		if (takes) value = takes;
+		else if (w.startsWith("--target-directory="))
+			dest = w.slice(w.indexOf("=") + 1);
+		else if (!w.startsWith("-")) srcs.push(w);
+	}
+	return { dest, srcs };
+}
+
+/**
+ * The destination — the `-t` directory, else the last bare word, taken off
+ * the sources — and whether it must be a directory; null where there is none.
+ * @param {{ dest: string, srcs: string[] }} parsed
+ */
+function pickDestination({ dest, srcs }) {
+	if (dest) return { srcs, dest: { text: dest, into: true } };
+	if (srcs.length < 2) return null;
+	const last = srcs.pop();
+	if (last === undefined) return null;
+	/* Two sources or more land in a directory or nowhere. */
+	return { srcs, dest: { text: last, into: srcs.length >= 2 } };
+}
+
+/**
+ * Is the destination a directory as this hook sees it, or by its spelling?
+ * @param {string} dpath
+ * @param {string} lit
+ * @param {TargetCtx} ctx
+ */
+const isDirectoryDest = (dpath, lit, ctx) =>
+	Boolean(dpath && ctx.isDir(dpath)) || lit.endsWith("/");
+
+/**
+ * One source copied into the destination directory, as `<dest>/<basename>`.
+ * @param {string} src
+ * @param {{ base: string, dpath: string }} dir the destination as written, no
+ *   trailing `/`, and absolute, or ""
+ * @param {AddTarget} add
+ * @param {TargetCtx} ctx
+ */
+function addIntoTarget(src, { base, dpath }, add, ctx) {
+	/* The basename as written where it reads, else the masked word's own —
+	 * `"$F"` stays unreadable to the caller, `$HOME/a.md` comes back
+	 * `a.md`. */
+	const name = literal(src, ctx.spans);
+	const tgt = `${base}/${basename(name.known ? name.text : src)}`;
+	const rsrc = ctx.resolve(src) ?? name.text;
+	add("write", tgt, dpath && rsrc ? normAbs(`${dpath}/${basename(rsrc)}`) : "");
+}
+
+module.exports = {
+	parseCommand,
+	escapeShield,
+	parseScript,
+	walkCommands,
+	TEXT_ONLY_PORTS,
+	unmask,
+	asWritten,
+	normAbs,
+	walkGit,
+	unsetText,
+	BASH_SPACE: SPACE,
+};

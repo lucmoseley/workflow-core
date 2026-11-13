@@ -1,0 +1,7 @@
+An issue with no parent sits outside every map, so `/wayfinder`'s frontier query never offers it and the work it describes is never scheduled. Every issue created mid-session is placed before anything else: **file it with `node scripts/file-issue.js`** (#533), which creates, labels and links in one call. Working issue A, a new issue B is one of three things:
+
+- **Caused by A** — split out of it, or surfaced while implementing it → sub-issue of A.
+- **Peer work A's own parent owns**, not caused by A → give it that same parent.
+- **A roadmap card** (`<card-id> — …` title), **or cross-cutting work with no single originator** → standalone; `--standalone` writes that in the body.
+
+**A sub-issue holds its parent open**, so caused-by work ruled not to hold its originator is a peer or standalone, never a child — one the parent's own blockers wait on is a loop none of them can close (#495; `node scripts/check-issue-cycles.js` reports one).

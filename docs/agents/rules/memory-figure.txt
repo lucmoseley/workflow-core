@@ -1,0 +1,9 @@
+RUN `free -h` BEFORE AND AFTER ANY BUILD OR FULL TEST RUN, AND REPORT THE
+AVAILABLE FIGURE (#2024).
+
+The `BEFORE THIS … RUN` line printed with this rule is the before reading for
+the launch it came on, taken from MemAvailable as the guard judged it. Its
+after reading is yours: `free -h` once the run ends. Every later build or full
+run this session is yours at both ends. Put both `available` figures in your
+reply: the machine is shared, and the next reader of it needs a measurement,
+not a guess.

@@ -1,0 +1,7 @@
+#!/bin/sh
+# arbiter-belt/claude — the arbiter sandbox's refuse-only `claude`, first on PATH
+# behind WFC_CLAUDE_BIN (#4089, #4103). stubOracles in lib/arbiter-testkit.ts prepends this
+# directory so a bare name that misses the var stops here, not at the real
+# binary. Tracked, so a detached child outliving its sandbox still reaches it.
+echo "arbiter sandbox: bare claude call off WFC_CLAUDE_BIN: $*" >&2
+exit 1

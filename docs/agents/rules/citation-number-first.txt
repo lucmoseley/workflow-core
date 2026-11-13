@@ -1,0 +1,1 @@
+Number before title, always — issue bodies, comments, `docs/` files. The number is the only token that resolves in GitHub search or `gh issue view`.

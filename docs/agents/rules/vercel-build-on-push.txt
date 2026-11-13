@@ -1,0 +1,9 @@
+CI RUNS NO `next build`. VERCEL DOES, ON EVERY PUSH TO `main`, AND DEPLOYS WHAT
+IT BUILDS.
+
+So a breach only a build catches fails PRODUCTION, not CI — a green suite here
+proves nothing about it. Run `npm run build` yourself before pushing anything
+that touches the app, one build at a time (§Machine limits).
+
+Type errors are gated (mantahostels#1062): HARD in CI, warn-only in pre-commit. A
+warn-only pass locally is not a pass.

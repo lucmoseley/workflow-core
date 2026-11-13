@@ -1,0 +1,10 @@
+THAT CALL WAS KILLED BY A SIGNAL — exit 137 is SIGKILL, 143 is SIGTERM — NOT
+STOPPED BY AN ERROR OF ITS OWN. DO NOT DEBUG IT AS YOUR OWN BUG YET.
+
+A build, test or session dying with no error of its own is probably earlyoom,
+the machine's out-of-memory killer (`docs/environment.md` §3). Run `memcheck`
+first.
+
+Not certainly earlyoom, and not certainly a backgrounded job either: the
+harness's bg-shell pressure reaper SIGTERMs those (`docs/environment.md` §5),
+and a `kill` or `timeout -s KILL` in your own command exits the same way.

@@ -1,0 +1,11 @@
+THE THREE `claude` CALLS ARE ONE SEQUENCE, NEVER ALTERNATIVES:
+
+  claude plugin marketplace add <url>#<ref> --scope project
+  claude plugin install <name>@<marketplace> -y --scope project
+  claude plugin update <name>@<marketplace> --scope project -y
+
+`marketplace add` is the only step that rotates the supply's ref. `install`
+no-ops on an already-installed plugin. `update` is the only one that re-pulls.
+Closing *supply behind pin* needs `marketplace add`; closing *install behind
+supply* needs `install` then `update`. Skip a step that a gap does not call
+for, never reorder the ones a gap does.

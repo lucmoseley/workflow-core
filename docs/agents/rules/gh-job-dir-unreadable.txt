@@ -1,0 +1,1 @@
+**`gh` reads a `$CLAUDE_JOB_DIR` path fine** (mantahostels#2688), piped `--body-file -` included. The real hazard is unrelated to `gh`: **`$CLAUDE_JOB_DIR` can fail to resolve** (mantahostels#2088), breaking the path before any tool opens it. Use `.claude/tmp/` regardless — `docs/agents/rules/job-dir-scratch.txt`.

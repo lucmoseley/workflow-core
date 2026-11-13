@@ -1,0 +1,6 @@
+A SKILL WHOSE FRONTMATTER CARRIES `disable-model-invocation: true` RUNS ONLY AS
+A TYPED SLASH COMMAND — `/implement`, `/wayfinder`, `/to-spec`, `/to-tickets`
+and `/triage` among them. The Skill tool refuses only you (mantahostels#1757).
+
+Replicating the skill is refused too, so do the ticket's work directly — never
+a blank page.
