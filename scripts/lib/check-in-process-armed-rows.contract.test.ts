@@ -1,20 +1,20 @@
 // @vitest-environment node
 /*
  * The equivalence contract (#5172) for each pre-commit dispatcher row armed by
- * a staged path. The always-armed rows are check-in-process-always-rows, a
- * file of their own so the two run on separate workers (#5191).
+ * a staged path: the row run in-process gives the same exit code, stdout and
+ * stderr as its checker or program spawned. It is what licenses the row: a row
+ * whose checker fails it keeps its own process. The other rows are
+ * check-in-process-always-rows, a file of their own so the two run on separate
+ * workers (#5191).
  */
 
-import { afterEach, describe, it } from "vitest";
-import { dispatcherRowCase, removeFixtures } from "./check-in-process-testkit";
+import { afterEach } from "vitest";
+import {
+	describeDispatcherRows,
+	removeFixtures,
+} from "./check-in-process-testkit";
 import { GATES } from "./precommit-gates.js";
 
 afterEach(removeFixtures);
 
-describe.each(GATES.filter((row) => "staged" in row))(
-	"the $id dispatcher row",
-	(row) => {
-		it("runs in-process exactly as spawned over a change to its arming path", () =>
-			dispatcherRowCase(row));
-	},
-);
+describeDispatcherRows(GATES.filter((row) => "staged" in row));

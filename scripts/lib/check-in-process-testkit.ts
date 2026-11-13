@@ -14,10 +14,12 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { checkInProcess } from "./check";
 import { defineTemplate } from "./git-fixture";
 import type { GATES } from "./precommit-gates.js";
+
+type GateRow = (typeof GATES)[number];
 
 export const SCRIPTS = path.resolve(__dirname, "..");
 
@@ -69,21 +71,25 @@ export const spawned = (script: string, args: string[], repo: string) => {
 
 /* The fixture is the run's working directory, as the hook's is; chdir is the
  * test's, around the call, never the checker's. */
-export const inProcess = async (
+const inRepo = async <T>(repo: string, run: () => T | Promise<T>) => {
+	const was = process.cwd();
+	process.chdir(repo);
+	vi.stubEnv("CLAUDE_PROJECT_DIR", repo);
+	try {
+		return await run();
+	} finally {
+		process.chdir(was);
+	}
+};
+
+export const inProcess = (
 	script: string,
 	args: string[],
 	repo: string,
 	sides: "spawn" | "in-process" = "in-process",
 ) => {
 	const { SPEC } = require(script);
-	const was = process.cwd();
-	process.chdir(repo);
-	vi.stubEnv("CLAUDE_PROJECT_DIR", repo);
-	try {
-		return await checkInProcess(SPEC, args, { script, sides });
-	} finally {
-		process.chdir(was);
-	}
+	return inRepo(repo, () => checkInProcess(SPEC, args, { script, sides }));
 };
 
 /* A run with what differs between any two runs taken out: the random name of
@@ -103,7 +109,7 @@ const settled = (r: {
 /* Every dispatcher row as the dispatcher runs it (#5172): its args, its sides
  * spawned where the row keeps a `side`, over a tree whose one commit holds the
  * row's arming path and whose index changes it. */
-export const dispatcherRowCase = async (row: (typeof GATES)[number]) => {
+const dispatcherRowCase = async (row: GateRow) => {
 	/* An always-armed row has no arming path: any change arms it. */
 	const at = "staged" in row ? row.staged : "notes.txt";
 	const repo = fixture({
@@ -120,16 +126,11 @@ export const dispatcherRowCase = async (row: (typeof GATES)[number]) => {
 	 * fixture as the dispatcher runs it in the hook's repo. */
 	if (row.kind === "program") {
 		const { PROGRAM } = require(file);
-		const was = process.cwd();
-		process.chdir(repo);
-		vi.stubEnv("CLAUDE_PROJECT_DIR", repo);
-		try {
+		await inRepo(repo, () =>
 			expect(PROGRAM({ cwd: repo, env: process.env })).toEqual(
 				spawned(file, row.args, repo),
-			);
-		} finally {
-			process.chdir(was);
-		}
+			),
+		);
 		return;
 	}
 	expect(
@@ -138,3 +139,10 @@ export const dispatcherRowCase = async (row: (typeof GATES)[number]) => {
 		),
 	).toEqual(settled(spawned(file, row.args, repo)));
 };
+
+/** Each row's case, one per dispatcher row, for a contract file to declare. */
+export const describeDispatcherRows = (rows: GateRow[]) =>
+	describe.each(rows)("the $id dispatcher row", (row) => {
+		it("runs in-process exactly as spawned over a change to its arming path", () =>
+			dispatcherRowCase(row));
+	});
