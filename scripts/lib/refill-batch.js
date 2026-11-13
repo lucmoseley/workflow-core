@@ -124,6 +124,14 @@ const buildMemberDropped = (/** @type {string} */ prompt) =>
 /* A set-level refusal or cut: the duplicate gate's REFUSED or DROPPING
  * header, the allowance cap's CAPPED, the launch timeout's REFUSED. */
 const SET_HEADER = /^\s*(REFUSED: |DROPPING |CAPPED: )/;
+/* admission.js's `slots` line at no slot, as parseRefusalReason gives it; a
+ * test pins it to admission.js's template. A HOLD with slots left is the
+ * allowance breach, which the loop's free-slot count skips, so that member
+ * counts as tried. Residual: an `ADMISSION REFUSED` prints no `slots` line,
+ * so its members count as tried too. */
+const ADMISSION_HOLD = /^slots 0 — HOLD\b/;
+/** @param {string} reason one of parseRefusalReason's */
+const isAdmissionHold = (reason) => ADMISSION_HOLD.test(reason);
 
 /**
  * Parse why the dispatcher launched nothing for `prompt` from its output: the
@@ -209,11 +217,6 @@ function launchBatch(batch, io) {
 	const tried = (r.failed ? reached : batch).filter((l) => !held.has(l));
 	return { launched, refused, tried, ...r };
 }
-
-/* admission.js's `slots` line, as parseRefusalReason gives it. */
-const ADMISSION_HOLD = /^slots \d+ — HOLD\b/;
-/** @param {string} reason one of parseRefusalReason's */
-const isAdmissionHold = (reason) => ADMISSION_HOLD.test(reason);
 
 /**
  * The members of `batch` the dispatch ledger shows launched by a call made at

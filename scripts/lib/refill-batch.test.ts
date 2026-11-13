@@ -174,6 +174,37 @@ describe("a refused member's reason (#2500)", () => {
 			]);
 	});
 
+	it("keeps a member held on admission.js's own slots line untried (#5125)", () => {
+		const js = fs.readFileSync(
+			path.join(__dirname, "..", "admission.js"),
+			"utf8",
+		);
+		const template = js.match(
+			/`(slots +)\$\{verdict\.slots\} — \$\{verdict\.admit \? "ADMIT" : "(HOLD)"\}: /,
+		);
+		expect(template).not.toBeNull();
+		const line = `  ${template?.[1]}0 — ${template?.[2]}: 1869 MB available`;
+		const r = launchBatch([launch], {
+			...seededIo([]),
+			run: () => ({
+				failed: null,
+				out: `REFUSED: ${launch.prompt} — not launching this member.\n${line}`,
+			}),
+		});
+		expect(r.tried).toEqual([]);
+	});
+
+	it("counts a member held on the allowance, slots left, as tried (#5125)", () => {
+		const r = launchBatch([launch], {
+			...seededIo([]),
+			run: () => ({
+				failed: null,
+				out: `REFUSED: ${launch.prompt} — not launching this member.\n  slots              2 — HOLD: allowance breach`,
+			}),
+		});
+		expect(r.tried).toEqual([launch]);
+	});
+
 	it("keys on the dropped member line dispatch-sessions.sh prints", () => {
 		for (const line of printed(/printf '( {2}dropped: %s)\\n'/g, launch.prompt))
 			expect(reasonFor(`DROPPING 1 issue(s)\n${line}`)).toEqual([

@@ -9,7 +9,8 @@
  *
  * Loosen one and a met gate stays held with nobody summoned to judge it, a
  * judge is launched on every sweep whatever it read, a refused judgement
- * takes a slot every tick, or one slow `check:` stalls every tick behind it.
+ * takes a slot every tick, one refused on admission's HOLD waits out
+ * JUDGE_EVERY_MS, or one slow `check:` stalls every tick behind it.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -368,8 +369,6 @@ describe("a judgement refused on admission stays queued (#5125)", () => {
 			history: [],
 			judgements: readGateStore(file, throwOnLog).pending,
 		}).launches;
-	/** One dispatcher call that launches nothing, printing `out`; dropTried
-	 * then runs on what it tried, as the tick does. */
 	const refuse = (launches: unknown[], out: string) => {
 		const r = launchBatch(launches, {
 			dispatcher: "/unused",
