@@ -10,7 +10,8 @@
  * The lander's output is appended to `.lander.log` in the canonical
  * checkout's markers directory. Each script that launches it appends this
  * script's own output there too, so its started line, naming the launching
- * session (#2478), opens the run. The refill loop's supervision
+ * session (#2478) and the commit the lander's code is from (#5174), opens
+ * the run. The refill loop's supervision
  * (supervise-landing.js, #2692), which runs as no session, names itself with
  * `--launched-by`.
  *
@@ -30,6 +31,7 @@ const { readOwedDrops } = require("./lib/lander-records.js");
 const {
 	landerLog,
 	launcherName,
+	readCodeRef,
 	spawnDetachedRun,
 	startLander,
 	buildStartedLine,
@@ -96,7 +98,14 @@ function main(argv = process.argv.slice(2)) {
 		say(`SKIP: ${result.skipped}`);
 		return 0;
 	}
-	say(buildStartedLine(result, { at: new Date().toISOString(), by, log }));
+	say(
+		buildStartedLine(result, {
+			at: new Date().toISOString(),
+			by,
+			log,
+			code: readCodeRef(),
+		}),
+	);
 	return 0;
 }
 

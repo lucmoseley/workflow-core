@@ -669,22 +669,31 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	 * group outside its own tree, as a SIGKILLed runner's orphaned vitest is,
 	 * writes `<deadline> <pgid>` with the deadline `ago` seconds past, prints
 	 * its report, then waits. `spawnDelayS` holds it that long first, as a
-	 * queued runner's spawn is held; absent, it starts at once. */
-	const wedged = (name: string, ago: number, spawnDelayS = 0) => [
-		"run",
-		name,
-		"sh",
-		"-c",
-		[
-			`sleep ${spawnDelayS}`,
-			`setsid --fork sh -c ${shellQuote(`echo $$ > ${shellQuote(`${root}/group`)}; exec sleep ${KILLED_LIFETIME_S}`)}`,
-			`sleep ${KILLED_LIFETIME_S} & echo $! > ${shellQuote(`${root}/child`)}`,
-			shWaitFor(`[ -s ${shellQuote(`${root}/group`)} ]`),
-			`echo "${monoS() - ago} $(cat ${shellQuote(`${root}/group`)})" > "$${DEADLINE_ENV}"`,
-			"echo 'SUITE CEILING — the runner report'",
-			"wait",
-		].join("; "),
-	];
+	 * queued runner's spawn is held; absent, it starts at once. A deadline
+	 * further back than the host's uptime would be negative, which the watcher
+	 * never reads, so it throws: a wider past pins WFC_BG_MONO instead (#5138). */
+	const wedged = (name: string, ago: number, spawnDelayS = 0) => {
+		const deadline = monoS() - ago;
+		if (deadline < 0)
+			throw new Error(
+				`a deadline ${ago} s back is before this host's boot; pin WFC_BG_MONO`,
+			);
+		return [
+			"run",
+			name,
+			"sh",
+			"-c",
+			[
+				`sleep ${spawnDelayS}`,
+				`setsid --fork sh -c ${shellQuote(`echo $$ > ${shellQuote(`${root}/group`)}; exec sleep ${KILLED_LIFETIME_S}`)}`,
+				`sleep ${KILLED_LIFETIME_S} & echo $! > ${shellQuote(`${root}/child`)}`,
+				shWaitFor(`[ -s ${shellQuote(`${root}/group`)} ]`),
+				`echo "${deadline} $(cat ${shellQuote(`${root}/group`)})" > "$${DEADLINE_ENV}"`,
+				"echo 'SUITE CEILING — the runner report'",
+				"wait",
+			].join("; "),
+		];
+	};
 
 	const readPid = (file: string) =>
 		Number(readFileSync(join(root, file), "utf8"));
@@ -805,8 +814,13 @@ describe("the suite ceiling's backstop (#2704)", () => {
 	});
 
 	it("holds the grace at 60 s when the environment asks for more", async () => {
-		const child = spawn(SCRIPT, wedged("stretched", 61), {
-			env: env({ ...QUICK_BEAT, WFC_BG_CEILING_GRACE_S: "999" }),
+		const graceCapS = 60; // bg-run.sh's CEILING_GRACE_S
+		const child = spawn(SCRIPT, wedged("stretched", 0), {
+			env: env({
+				...QUICK_BEAT,
+				WFC_BG_CEILING_GRACE_S: "999",
+				WFC_BG_MONO: String(monoS() + graceCapS + 1),
+			}),
 		});
 		try {
 			await waitFor(
@@ -817,7 +831,7 @@ describe("the suite ceiling's backstop (#2704)", () => {
 			child.kill("SIGKILL");
 		}
 
-		expect(check("stretched").stdout).toContain("killed it 60s past");
+		expect(check("stretched").stdout).toContain(`killed it ${graceCapS}s past`);
 	});
 
 	it("polls at most every 5 s and never past the kill's due time, whatever the heartbeat (#2680)", async () => {

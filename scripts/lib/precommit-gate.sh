@@ -42,8 +42,7 @@
 # adds paths and removes none, so an ordinary rename never disarms a gate, and
 # every checker already meets an armed path absent, a `git rm` arming it too —
 # PROVIDED a checker that re-reads the index takes the flag as well, or it meets
-# an `R` where it looks for a `D`. check-roadmap-valid.js and
-# check-injector-margin.sh do (#1483).
+# an `R` where it looks for a `D`. check-roadmap-valid.js does (#1483).
 #
 # AND -z, because git's default renders a path outside ASCII double-quoted and
 # C-escaped, so it starts `"` and no prefix pattern matches it.

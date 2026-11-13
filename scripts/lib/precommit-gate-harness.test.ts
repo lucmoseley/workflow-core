@@ -223,8 +223,8 @@ describe("the scripts a gate invokes", () => {
 		],
 		[
 			"injector-margin",
-			"scripts/check-injector-margin.sh",
-			["scripts/check-injector-margin.sh"],
+			"scripts/check-injector-margin.js",
+			["scripts/check-injector-margin.js"],
 		],
 		[
 			"digest-version",

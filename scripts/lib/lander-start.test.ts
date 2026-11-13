@@ -17,7 +17,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { launcherName, spawnDetachedRun, startLander } from "./lander-start.js";
+import {
+	buildStartedLine,
+	launcherName,
+	parseStartedCode,
+	readCodeRef,
+	spawnDetachedRun,
+	startLander,
+} from "./lander-start.js";
 
 const start = (
 	holder: number | null,
@@ -193,5 +200,57 @@ describe("spawnDetachedRun", () => {
 			"const e = process.env; console.log(JSON.stringify([e.CLAUDE_PROJECT_DIR, e.CLAUDE_CODE_SESSION_ID ?? null, e.CLAUDE_JOB_DIR ?? null, e.WFC_REPORT_OWNER ?? null]));",
 		);
 		expect(logged).toEqual([tmp, null, null, null]);
+	});
+});
+
+describe("readCodeRef (#5174)", () => {
+	it("names a git checkout's HEAD, a plugin install's release tag, and neither as unread", () => {
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "code-ref-"));
+		try {
+			const checkout = path.join(tmp, "checkout");
+			fs.mkdirSync(checkout);
+			const git = (...args: string[]) =>
+				spawnSync("git", args, { cwd: checkout, encoding: "utf8" });
+			git("init", "-q");
+			git(
+				"-c",
+				"user.name=t",
+				"-c",
+				"user.email=t@t",
+				"commit",
+				"-q",
+				"--allow-empty",
+				"-m",
+				"x",
+			);
+			expect(readCodeRef(checkout)).toBe(
+				git("rev-parse", "HEAD").stdout.trim(),
+			);
+			const plugin = path.join(tmp, "plugin");
+			fs.mkdirSync(path.join(plugin, ".claude-plugin"), { recursive: true });
+			fs.writeFileSync(
+				path.join(plugin, ".claude-plugin", "plugin.json"),
+				JSON.stringify({ name: "workflow-core", version: "2.2.0" }),
+			);
+			expect(readCodeRef(plugin)).toBe("v2.2.0");
+			expect(readCodeRef(path.join(tmp, "neither"))).toBe("unread");
+		} finally {
+			fs.rmSync(tmp, { recursive: true, force: true });
+		}
+	});
+
+	it("parses back the code a started line names, and none from an older line or an unread code", () => {
+		const line = buildStartedLine(
+			{ started: 7, waiting: ["queue/a"], owed: [] },
+			{
+				at: "2026-11-13T00:00:00.000Z",
+				by: "the refill loop",
+				log: "x",
+				code: "v2.3.0",
+			},
+		);
+		expect(parseStartedCode(line)).toBe("v2.3.0");
+		expect(parseStartedCode(line.replace("; code v2.3.0", ""))).toBeNull();
+		expect(parseStartedCode(line.replace("v2.3.0", "unread"))).toBeNull();
 	});
 });

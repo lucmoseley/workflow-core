@@ -103,7 +103,7 @@ it("starts one detached queue lander that lands the queue ref, and none beside i
 	const first = start(["--tester", tester]);
 	expect(first.status, first.stderr).toBe(0);
 	expect(first.stdout).toMatch(
-		/^\S+Z started the queue lander, 1 queue ref\(s\) waiting: queue\/work, 0 drop\(s\) owed a decision \(launched by no session; pid \d+\); its output: /,
+		/^\S+Z started the queue lander, 1 queue ref\(s\) waiting: queue\/work, 0 drop\(s\) owed a decision \(launched by no session; pid \d+; code [0-9a-f]{40}\); its output: /,
 	);
 	await waitFor(() => fs.existsSync(path.join(markers(), ".lander.pid")));
 
@@ -152,7 +152,7 @@ it("starts a lander with no queue ref waiting where a drop is owed a decision, w
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout).toMatch(
-		/^\S+Z started the queue lander, 0 queue ref\(s\) waiting, 1 drop\(s\) owed a decision: dropped\/gone \(launched by no session; pid \d+\); its output: /,
+		/^\S+Z started the queue lander, 0 queue ref\(s\) waiting, 1 drop\(s\) owed a decision: dropped\/gone \(launched by no session; pid \d+; code [0-9a-f]{40}\); its output: /,
 	);
 	expect(
 		await waitFor(() => git(remote, "branch", "--list", "dropped/gone") === ""),

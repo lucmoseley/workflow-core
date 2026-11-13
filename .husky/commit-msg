@@ -14,7 +14,11 @@
 #            but a replay. A missing scanner, subject check or
 #            scripts/lib/commit-route.sh refuses every commit. Then, but on a merge, refuses a commit whose
 #            staged diff weakens a check its message names on no `Weakens:`
-#            line (scripts/check-weakens-line.js).
+#            line (scripts/check-weakens-line.js). Last, on every route a
+#            replay included, sources the adopter's own
+#            `.husky/commit-msg.local` where it exists, after
+#            refusing every commit on a script it names that the repo lacks
+#            (scripts/lib/local-hook.sh).
 # JUSTIFIED: fail-safe — the keyword closes the issue server-side on the push,
 #            so the guard-issue-close core never fires and the issue closes with no
 #            resolution comment and no `**Outstanding:**` line (#118); a
@@ -42,6 +46,7 @@ here="$(dirname "$0")"
 scanner="${WFC_PLUGIN_ROOT:-$here/..}/scripts/check-commit-message-closes.sh"
 subject_check="${WFC_PLUGIN_ROOT:-$here/..}/scripts/check-commit-subject.sh"
 route_lib="${WFC_PLUGIN_ROOT:-$here/..}/scripts/lib/commit-route.sh"
+local_lib="${WFC_PLUGIN_ROOT:-$here/..}/scripts/lib/local-hook.sh"
 
 # FAIL CLOSED on a missing script rather than passing the message unread.
 # Each worktree runs its own copy of this hook and resolves its own scripts/
@@ -57,24 +62,39 @@ require() {
 require "$scanner" "the closing-keyword scan did not run" "passing the message unread (#138)"
 require "$subject_check" "the subject was not measured" "passing the subject unmeasured (#2332)"
 require "$route_lib" "this commit's route cannot be read" "scanning a replayed message as a new one (#1503)"
+require "$local_lib" ".husky/commit-msg.local cannot be checked" "running the adopter's refusals unchecked (#5142)"
 # shellcheck source=scripts/lib/commit-route.sh
 . "$route_lib"
+# shellcheck source=scripts/lib/local-hook.sh
+. "$local_lib"
 
-# THE REPLAY STAND-DOWN (#138): the replay routes that reach this hook stand down
-# here as in `.husky/prepare-commit-msg`, for the reasons its own header gives.
+# THE REPLAY STAND-DOWN (#138): on the replay routes that reach this hook the
+# core's checks stand down as in `.husky/prepare-commit-msg`, for the reasons
+# its own header gives.
 gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null || :)"
 route="$(wfc_commit_route commit-msg "$gitdir")"
-if wfc_commit_route_replays "$route"; then
-  exit 0
+if ! wfc_commit_route_replays "$route"; then
+  bash "$scanner" "$1" commit-msg
+  bash "$subject_check" "$1" commit-msg
+
+  # A commit that weakens a check names each weakening on a `Weakens:` line
+  # (#2235). This is the one hook holding both the finished message and the
+  # commit's index. A merge stands down: the lines it joins were judged at
+  # their own commits.
+  if [ "$route" != merge ]; then
+    node "${WFC_PLUGIN_ROOT:-$here/..}/scripts/check-weakens-line.js" "$1"
+  fi
 fi
 
-bash "$scanner" "$1" commit-msg
-bash "$subject_check" "$1" commit-msg
-
-# A commit that weakens a check names each weakening on a `Weakens:` line
-# (#2235). This is the one hook holding both the finished message and the
-# commit's index. A merge stands down: the lines it joins were judged at their
-# own commits.
-if [ "$route" != merge ]; then
-  node "${WFC_PLUGIN_ROOT:-$here/..}/scripts/check-weakens-line.js" "$1"
+# THE ADOPTER'S OWN REFUSALS: `.husky/commit-msg.local` (#5142), on
+# `.husky/pre-commit.local`'s contract (#437): last, only where it exists,
+# SOURCED in this `sh -e` shell, so `$1` is the message file and any failing
+# command or `exit 1` refuses the commit; core never writes it; and a script it
+# names that the repo lacks refuses every commit. It runs on every route, a
+# replay included: `$route` names it, and the adopter stands down for itself.
+if [ -f .husky/commit-msg.local ]; then
+  wfc_local_hook_refuse_missing .husky/commit-msg.local \
+    "commit-msg: .husky/commit-msg.local calls a script this repo does not have:"
+  # shellcheck source=/dev/null # the adopter's own optional gate, absent from most repos
+  . ./.husky/commit-msg.local
 fi
