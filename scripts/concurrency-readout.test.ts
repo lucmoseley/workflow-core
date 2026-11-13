@@ -50,7 +50,7 @@ const run = ({ refused = false, empty = false, fresh = false } = {}) => {
 		path.join(refill, "concurrency.jsonl"),
 		`${JSON.stringify({
 			at: new Date(Date.now() - (fresh ? 0 : STALE_AGE_MS)).toISOString(),
-			working: 1,
+			live: 1,
 			ceiling: 2,
 			binding: null,
 			also: [],
