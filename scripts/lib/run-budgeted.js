@@ -12,9 +12,15 @@
  *
  * The command inherits stdout and stderr; stdin is closed, bar --hook's. Past the budget a
  * group whose leader has already exited is killed too, so no straggler holds
- * the pipes. A signal to this process kills the group and ends this process by
- * the same signal. RESIDUAL: a SIGKILL to this process (earlyoom) cannot be
- * caught, and leaves the group running.
+ * the pipes. A SIGTERM, SIGINT or SIGHUP to this process goes on to the group,
+ * as GNU `timeout` passes on a signal it receives, so a member's own cleanup
+ * runs; the group is KILLed once its leader exits, kill-after-ms after the
+ * signal, or on a second signal, and this process ends by the first (#5188).
+ * RESIDUAL: a SIGKILL to this process (earlyoom) cannot be
+ * caught, and leaves the group running, as does a SIGKILL inside the
+ * kill-after-ms grace a forwarded signal starts, to a group that ignores
+ * that signal; a member still cleaning up at kill-after-ms is KILLed, its
+ * cleanup unfinished.
  *
  * Usage: node scripts/lib/run-budgeted.js <budget-ms> <kill-after-ms> <command> [args…]
  *        node scripts/lib/run-budgeted.js --hook <hook> <command> [args…]
@@ -155,11 +161,20 @@ async function main(argv) {
 	 * before `spawn` returns, and a signal then would meet only the default
 	 * action and leave the group running (#2928). Node runs the handler on a
 	 * later tick, by which time `pgid` is set. */
-	for (const signal of FORWARDED)
-		process.on(signal, () => {
+	/** @type {NodeJS.Signals | null} */
+	let stopping = null;
+	/** @param {NodeJS.Signals} signal */
+	const stop = (signal) => {
+		if (stopping) {
 			signalGroup("SIGKILL");
-			dieBy(signal);
-		});
+			dieBy(stopping);
+			return;
+		}
+		stopping = signal;
+		signalGroup(signal);
+		setTimeout(() => stop(signal), killAfterMs);
+	};
+	for (const signal of FORWARDED) process.on(signal, stop);
 
 	const child = spawn(command, args, {
 		detached: true,
@@ -189,7 +204,10 @@ async function main(argv) {
 		});
 		child.on("exit", (code, signal) => {
 			clearTimeout(budget);
-			if (sent) {
+			if (stopping) {
+				signalGroup("SIGKILL");
+				dieBy(stopping);
+			} else if (sent) {
 				signalGroup("SIGKILL");
 				resolve(sent === "KILL" ? KILLED_EXIT : TIMEOUT_EXIT);
 			} else if (signal) dieBy(signal);

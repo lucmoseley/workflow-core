@@ -20,13 +20,13 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { dispatch, existsUnder, readStaged } from "./lib/precommit-dispatch.js";
+import { dispatch } from "./lib/precommit-dispatch.js";
 import {
 	newRepo,
 	registerTempCleanup,
 	stagedRepo,
 } from "./lib/precommit-gate-harness";
-import { ROOT } from "./lib/precommit-gate-testkit";
+import { buildRepoPorts, ROOT } from "./lib/precommit-gate-testkit";
 import { GATES, PROFILE_GATES } from "./lib/precommit-gates.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { JS_TEST_FILE, siblingTests } from "./lib/test-kind.js";
@@ -44,16 +44,12 @@ async function arms(gate: Gate, root: string): Promise<boolean> {
 	await dispatch({
 		rows: [gate],
 		gates: "all",
-		ports: {
-			staged: () => readStaged(root),
-			computed: () => [],
-			exists: existsUnder(root),
+		ports: buildRepoPorts(root, {
 			load: () => () => {
 				ran = true;
 				return { exit: 0, stdout: "", stderr: "" };
 			},
-			write: () => undefined,
-		},
+		}),
 	});
 	return ran;
 }

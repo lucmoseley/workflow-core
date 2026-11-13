@@ -2,8 +2,8 @@
 /*
  * The pre-commit dispatcher's core (#5172), seam 1 of #5171: arming, order,
  * stop-on-first-red, the exit alphabet, the warn policy, crash and load-fault
- * refusal, and the lander sets, over stub rows and the staged entries real
- * git reads in the test's temp directory.
+ * refusal, a caught signal's stop (#5188), and the lander sets, over stub
+ * rows and the staged entries real git reads in the test's temp directory.
  *
  * It is the hook's gate stack: loosen a case and a commit a gate refuses
  * lands, or a gate runs on a commit it was never armed for.
@@ -14,12 +14,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-	dispatch,
-	existsUnder,
-	gateSetOf,
-	readStaged,
-} from "./precommit-dispatch.js";
+import { dispatch, gateSetOf, STOPPED_LINE } from "./precommit-dispatch.js";
+import { buildRepoPorts } from "./precommit-gate-testkit";
 
 type Arm =
 	| { always: true }
@@ -90,23 +86,24 @@ async function run(
 		dir?: string;
 		gates?: "all" | "merge" | "batch";
 		computed?: Record<string, string[]>;
+		signalIn?: string;
 	} = {},
 ) {
 	const dir = opts.dir ?? repo({}, { "a.txt": "a\n" });
 	const ran: string[] = [];
+	let caught: number | null = null;
 	let out = "";
 	let err = "";
 	const exit = await dispatch({
 		rows,
 		gates: opts.gates ?? "all",
-		ports: {
-			staged: () => readStaged(dir),
+		ports: buildRepoPorts(dir, {
 			computed: (name: string) => opts.computed?.[name] ?? [],
-			exists: existsUnder(dir),
 			load: (r: StubRow) => {
 				if (r.throws === "load") throw new Error(`${r.id} will not load`);
 				return () => {
 					ran.push(r.id);
+					if (r.id === opts.signalIn) caught = 128 + 15;
 					if (r.throws === "run") throw new Error(`${r.id} blew up`);
 					return {
 						exit: r.result?.exit ?? 0,
@@ -119,7 +116,8 @@ async function run(
 				if (fd === 1) out += text;
 				else err += text;
 			},
-		},
+			interrupted: async () => caught,
+		}),
 	});
 	return { exit, ran, out, err };
 }
@@ -177,15 +175,12 @@ describe("arming", () => {
 			dispatch({
 				rows: [row("lister", { arm: { computed: "gone" } })],
 				gates: "all",
-				ports: {
-					staged: () => readStaged(dir),
+				ports: buildRepoPorts(dir, {
 					computed: () => {
 						throw new Error("the lister is gone");
 					},
-					exists: existsUnder(dir),
 					load: () => () => ({ exit: 0, stdout: "", stderr: "" }),
-					write: () => undefined,
-				},
+				}),
 			}),
 		).rejects.toThrow("the lister is gone");
 	});
@@ -238,6 +233,36 @@ describe("the exit alphabet", () => {
 		const r = await run([row("red", { result: { exit: code } }), row("x")]);
 		expect(r.exit).toBe(code);
 		expect(r.ran).toEqual(["red"]);
+	});
+});
+
+describe("a caught signal (#5188)", () => {
+	it("lets the row it lands in finish, writing its output, and runs no row after", async () => {
+		const r = await run([row("one"), row("hit"), row("after")], {
+			signalIn: "hit",
+		});
+		expect(r.exit).toBe(128 + 15);
+		expect(r.ran).toEqual(["one", "hit"]);
+		expect(r.err).toBe(`one err\nhit err\n${STOPPED_LINE}`);
+	});
+
+	it("exits 128 + n where it lands in the last row, which passed", async () => {
+		const r = await run([row("one"), row("last")], { signalIn: "last" });
+		expect(r.exit).toBe(128 + 15);
+		expect(r.ran).toEqual(["one", "last"]);
+	});
+
+	it("outranks the red of the row it lands in, and of a warn row", async () => {
+		const red = await run([row("hit", { result: { exit: 1 } }), row("after")], {
+			signalIn: "hit",
+		});
+		expect(red.exit).toBe(128 + 15);
+		const warn = await run(
+			[row("hit", { policy: "warn", result: { exit: 2 } }), row("after")],
+			{ signalIn: "hit" },
+		);
+		expect(warn.exit).toBe(128 + 15);
+		expect(warn.ran).toEqual(["hit"]);
 	});
 });
 

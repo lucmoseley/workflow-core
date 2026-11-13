@@ -16,6 +16,11 @@
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import {
+	type dispatch,
+	existsUnder,
+	readStaged,
+} from "./precommit-dispatch.js";
 import { shellQuote } from "./sh-quote.js";
 
 /** The repository root, for a suite reading a checker it compares the hook against. */
@@ -34,6 +39,25 @@ export const CORE_ROOT = '"${WFC_PLUGIN_ROOT:-.}"/';
 /** How the hook runs core script `script` with `runner`. */
 export const coreCall = (runner: string, script: string) =>
 	`${runner} ${CORE_ROOT}${script}`;
+
+type DispatchPorts = Parameters<typeof dispatch>[0]["ports"];
+
+/**
+ * The dispatcher's ports over the repo at `root`: its staged paths and files,
+ * no computed list, output dropped and no signal, each overridable; `load`
+ * is the caller's.
+ */
+export const buildRepoPorts = (
+	root: string,
+	over: Partial<DispatchPorts> & Pick<DispatchPorts, "load">,
+): DispatchPorts => ({
+	staged: () => readStaged(root),
+	computed: () => [],
+	exists: existsUnder(root),
+	write: () => undefined,
+	interrupted: async () => null,
+	...over,
+});
 
 /** The lines of the hook from the first starting `first` to the first after it equal to `last`. */
 export function cutHookBlock(first: string, last: string): string {

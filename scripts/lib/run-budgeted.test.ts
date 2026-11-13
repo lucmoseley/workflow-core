@@ -10,6 +10,9 @@
  */
 
 import { spawn, spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { isGroupDead } from "./process-fixture";
 import { runInProcessAsync } from "./run-in-process.js";
@@ -58,14 +61,14 @@ describe("past the budget", () => {
 	it("kills a TERM-trapping grandchild and exits 137, the #2855 case", async () => {
 		const r = runSh("echo $$; trap '' TERM; sleep 30 & wait");
 		expect(r.status).toBe(KILLED_EXIT);
-		expect(r.elapsedMs).toBeLessThan(10_000);
+		expect(r.elapsedMs).toBeLessThan(SECOND_SIGNAL_BOUND_MS);
 		await expectGroupDead(Number(r.stdout.trim()));
 	});
 
 	it("exits 124 where the TERM ended the leader, killing a straggler that outlived it", async () => {
 		const r = runSh("echo $$; (trap '' TERM; sleep 30) & sleep 30");
 		expect(r.status).toBe(TIMEOUT_EXIT);
-		expect(r.elapsedMs).toBeLessThan(10_000);
+		expect(r.elapsedMs).toBeLessThan(SECOND_SIGNAL_BOUND_MS);
 		await expectGroupDead(Number(r.stdout.trim()));
 	});
 });
@@ -106,7 +109,7 @@ describe("its own failures", () => {
 /* The signal lands just after the command starts, the #2928 window. A runner
  * that arms its handlers late fails this only some runs: 3 in 10 under a
  * whole suite's load, 0 in 10 idle. */
-it("kills the group and dies by the same signal when told to stop (#2928)", async () => {
+it("kills a group that ignores the signal, and dies by it, when told to stop (#2928)", async () => {
 	// spawn-kept: a signal, sent to the runner mid-run
 	const child = spawn(
 		process.execPath,
@@ -129,4 +132,74 @@ it("kills the group and dies by the same signal when told to stop (#2928)", asyn
 	child.kill("SIGTERM");
 	expect(await ended).toBe("SIGTERM");
 	await expectGroupDead(pgid);
+});
+
+/* A signalled run's budget and grace: the budget far past the case, so only
+ * the signal ends it; the grace long enough that a run ending inside
+ * SECOND_SIGNAL_BOUND_MS, half of it, ended on the second signal rather
+ * than waiting the grace out. */
+const SIGNALLED_BUDGET_MS = 60_000;
+const SIGNALLED_GRACE_MS = 20_000;
+const SECOND_SIGNAL_BOUND_MS = SIGNALLED_GRACE_MS / 2;
+/* Between two sends, so the runner's listener has run on the first before
+ * the second arrives; a first guess, unmeasured. */
+const SIGNAL_GAP_MS = 200;
+
+/** The runner over `script`, signalled once the script echoes its pid. */
+async function signalled(script: string, signals: NodeJS.Signals[]) {
+	// spawn-kept: a signal, sent to the runner mid-run
+	const child = spawn(
+		process.execPath,
+		[
+			RUN_BUDGETED,
+			String(SIGNALLED_BUDGET_MS),
+			String(SIGNALLED_GRACE_MS),
+			"sh",
+			"-c",
+			`echo $$; ${script}`,
+		],
+		{ stdio: ["ignore", "pipe", "ignore"] },
+	);
+	const pgid = await new Promise<number>((resolve) =>
+		child.stdout.once("data", (d) => resolve(Number(String(d).trim()))),
+	);
+	const started = Date.now();
+	const ended = new Promise<NodeJS.Signals | null>((resolve) =>
+		child.on("exit", (_code, signal) => resolve(signal)),
+	);
+	/* Spaced apart: a standard signal does not queue, so two sent at once
+	 * reach the runner as one. */
+	for (const signal of signals) {
+		child.kill(signal);
+		await new Promise((resolve) => setTimeout(resolve, SIGNAL_GAP_MS));
+	}
+	return { pgid, signal: await ended, elapsedMs: Date.now() - started };
+}
+
+describe("a signal to the runner (#5188)", () => {
+	it("passes it on to the group, so a member's cleanup runs, and dies by it", async () => {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "run-budgeted-"));
+		const mark = path.join(dir, "cleaned");
+		try {
+			const r = await signalled(
+				`trap 'touch ${mark}; exit 130' INT; sleep 30 & wait`,
+				["SIGINT"],
+			);
+			expect(r.signal).toBe("SIGINT");
+			expect(fs.existsSync(mark)).toBe(true);
+			await expectGroupDead(r.pgid);
+		} finally {
+			fs.rmSync(dir, { recursive: true, force: true });
+		}
+	});
+
+	it("kills the group at once on a second signal, not after kill-after-ms", async () => {
+		const r = await signalled("trap '' TERM; sleep 30 & wait", [
+			"SIGTERM",
+			"SIGTERM",
+		]);
+		expect(r.signal).toBe("SIGTERM");
+		expect(r.elapsedMs).toBeLessThan(SECOND_SIGNAL_BOUND_MS);
+		await expectGroupDead(r.pgid);
+	});
 });

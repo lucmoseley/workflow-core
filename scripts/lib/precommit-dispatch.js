@@ -21,6 +21,11 @@
  * computes, any member of which is staged; a pattern row's `live` narrows it
  * to the paths armed_live keeps.
  *
+ * A SIGNAL (#5188). A row runs to its end, so its own cleanup runs; the
+ * `interrupted` port is asked before each row and after the last, and once
+ * it answers a code, no further row runs and the run exits with it, saying
+ * so on fd 2.
+ *
  * THE LANDER SETS (#4545). `--gates=merge` runs the `every` and `merge` rows,
  * `--gates=batch` the `every` and `batch` rows; a plain commit runs them all.
  */
@@ -53,8 +58,14 @@ const { spawnGitSync } = require("./git.js");
  *   exists: (rel: string) => boolean,
  *   load: (row: R) => () => RowResult | Promise<RowResult>,
  *   write: (fd: number, text: string) => void,
- * }} Ports
+ *   interrupted: () => Promise<number | null>,
+ * }} Ports `interrupted` answers the code a caught signal owes, 128 + n,
+ *   else null
  */
+
+/** What a caught signal's stop writes to fd 2. */
+const STOPPED_LINE =
+	"pre-commit: a signal stopped the run; no gate ran after it.\n";
 
 /** @type {Record<Lander, GateSet[]>} */
 const SETS = {
@@ -125,14 +136,23 @@ const crashLine = (row, at, e) =>
  */
 async function dispatch({ rows, gates, ports }) {
 	const staged = ports.staged();
+	const stopped = async () => {
+		const code = await ports.interrupted();
+		if (code !== null) ports.write(2, STOPPED_LINE);
+		return code;
+	};
 	for (const row of rows) {
 		if (!SETS[row.lander].includes(gates)) continue;
 		if (!armed(row.arm, staged, ports)) continue;
+		const before = await stopped();
+		if (before !== null) return before;
 		const result = await runRow(row, ports);
 		if (row.policy === "warn" || result.exit === 0) continue;
+		const after = await stopped();
+		if (after !== null) return after;
 		return result.exit;
 	}
-	return 0;
+	return (await stopped()) ?? 0;
 }
 
 /**
@@ -177,4 +197,10 @@ function gateSetOf(value) {
  */
 const existsUnder = (cwd) => (rel) => fs.existsSync(path.join(cwd, rel));
 
-module.exports = { dispatch, existsUnder, gateSetOf, readStaged };
+module.exports = {
+	dispatch,
+	existsUnder,
+	gateSetOf,
+	readStaged,
+	STOPPED_LINE,
+};

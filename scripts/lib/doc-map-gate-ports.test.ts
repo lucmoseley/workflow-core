@@ -30,9 +30,13 @@ import { describe, expect, it, vi } from "vitest";
 import { PROGRAM } from "./doc-map-gate-ports.js";
 import { emptyDataFile } from "./doc-map-testkit";
 import { defineTemplate, mkScratchDir } from "./git-fixture";
-import { dispatch, existsUnder, readStaged } from "./precommit-dispatch.js";
+import { dispatch } from "./precommit-dispatch.js";
 import { registerTempCleanup, type TempRepo } from "./precommit-gate-harness";
-import { ROOT, writeCheckerDelegates } from "./precommit-gate-testkit";
+import {
+	buildRepoPorts,
+	ROOT,
+	writeCheckerDelegates,
+} from "./precommit-gate-testkit";
 import { GATES, type PrecommitGate } from "./precommit-gates.js";
 import { runInProcess } from "./run-in-process.js";
 import { shellQuote } from "./sh-quote.js";
@@ -318,15 +322,12 @@ async function runGate(
 	const code = await dispatch({
 		rows: [row],
 		gates: "batch",
-		ports: {
-			staged: () => readStaged(cwd),
-			computed: () => [],
-			exists: existsUnder(cwd),
+		ports: buildRepoPorts(cwd, {
 			load: () => () => PROGRAM({ cwd, env: NO_ANNOTATIONS }),
 			write: (_fd: number, text: string) => {
 				output += text;
 			},
-		},
+		}),
 	});
 	return { code, output };
 }
