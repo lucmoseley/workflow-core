@@ -11,7 +11,7 @@
  *
  * Over the 10 s file budget (§X8 (5)), some 13 s: the two-filings race runs
  * two real processes, and every filing case pays file-issue.js's real start
- * and the checkers' real spawns. Those are the adapters under test here.
+ * and the checkers' real spawns.
  */
 
 import { spawn } from "node:child_process";

@@ -35,7 +35,6 @@ const { runEnv, seed, wfc } = morningReviewFixture(
 
 afterEach(() => vi.unstubAllEnvs());
 
-/** Each key's type, arrays told apart from objects. */
 const shapeOf = (envelope: Record<string, unknown>) =>
 	Object.fromEntries(
 		Object.entries(envelope)

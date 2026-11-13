@@ -1,7 +1,6 @@
 /*
  * checker-run.js — a core checker's `--json` run, as scripts/file-morning-review.js
- * runs it (#5148): `runChecker` waits for it, `startChecker` leaves it running
- * beside the reads. lib/checker-run-fake.ts answers the same two ports from
+ * runs it (#5148). lib/checker-run-fake.ts answers the same two ports from
  * recorded envelopes; checker-run.contract.test.ts holds it to these.
  */
 
@@ -15,8 +14,6 @@ const { coreRoot } = require("./script-path.js");
  * @typedef {{error?: Error | null, stdout?: string | null, status: number | null}} CheckerRun
  */
 /**
- * A checker left running: `settle` waits for its run within its bound, `stop`
- * kills it.
  * @typedef {{settle: () => Promise<CheckerRun>, stop: () => void}} Started
  */
 
@@ -24,12 +21,11 @@ const { coreRoot } = require("./script-path.js");
 const CHECKER_TIMEOUT_MS = {
 	/* Untraced: the count line runs every enforcing check over the whole tree. */
 	"check-primitives.js": 5 * 60 * 1000,
-	/* One paged GraphQL read per tracker, run side by side. Measured on 1 Nov
-	 * across six trackers: 10-16 s in six runs, 71 s in another. 2.5x that worst
-	 * run, the multiplier a guess (#3771), and well inside refill-review-run.js's
-	 * REVIEW_TIMEOUT_MS. */
+	/* One paged GraphQL read per tracker, run side by side: 2.5x the worst run
+	 * #3771 measured, the multiplier a guess, and well inside
+	 * refill-review-run.js's REVIEW_TIMEOUT_MS. */
 	"check-idle-efforts.js": 3 * 60 * 1000,
-	/* Above the check's own worst case, 196 s: wsl.exe's 3 tries at 12 s, two gh reads at 80 s. */
+	/* Above the check's own worst case. */
 	"check-wsl-currency.js": 4 * 60 * 1000,
 };
 

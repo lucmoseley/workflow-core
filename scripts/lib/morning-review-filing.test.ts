@@ -6,15 +6,13 @@
  * through the fixture's handler in-process (`ghPort`, held by
  * gh-stub-server.test.ts), filing through lib/file-issue-fake.ts (held by
  * file-issue.contract.test.ts) and the checkers through
- * lib/checker-run-fake.ts (held by checker-run.contract.test.ts). Each case
- * asserts the exit code the core returns and the text it writes. The program's
+ * lib/checker-run-fake.ts (held by checker-run.contract.test.ts). The program's
  * boundary set stays in file-morning-review.test.ts. Break the core and the
  * loop files no review, or two in a day, or loses an event between two
  * reviews (#3813), or a repo that did not read loses its events (#3831).
  *
- * Near the 10 s file budget (§X8 (5)): 38 cases, many filing three or four
- * days in a row, each filing paying two journalctl fake starts and its real
- * git. It replaced some 72 s of the same cases run as the program (#5148).
+ * Near the 10 s file budget (§X8 (5)): many cases file three or four days in
+ * a row, each filing paying two journalctl fake starts and its real git.
  */
 
 import { execFileSync } from "node:child_process";
@@ -50,11 +48,7 @@ const {
 beforeEach(() => stubRunEnv());
 afterEach(() => vi.unstubAllEnvs());
 
-/**
- * One filing on acme/wfc through the core, on the in-process ports, with the
- * clock at `at` where given (the core's and the handler's both) and each
- * checker answered by its envelope in `envelopes`, else its recorded one.
- */
+/** One filing; `at` pins the core's clock and the handler's both. */
 const file = async ({
 	dryRun = false,
 	at,
@@ -94,7 +88,6 @@ const readsFile = () => refillFile(".morning-review-reads.json");
 const lockFile = () => refillFile(".morning-review-filing.pid");
 const TODAY = buildReviewTitle(localDate(new Date()));
 
-/** One filing, with the clock at `at`. */
 const reviewAt = async (at: string) => {
 	expect((await file({ at })).status).toBe(0);
 };
@@ -727,12 +720,12 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 		afterEach(() => vi.useRealTimers());
 
 		const second = () => path.join(path.dirname(wfc()), "second");
-		/** No tracker makes the checkout's read fail, with its config in place. */
 		const writeSecondConfig = (text: string) =>
 			fs.writeFileSync(
 				path.join(second(), ".claude", "workflow-core.json"),
 				text,
 			);
+		/** No tracker makes the checkout's read fail, with its config in place. */
 		const configureSecond = (config: object) =>
 			writeSecondConfig(
 				JSON.stringify({ contract: 1, founder: "T", ...config }),

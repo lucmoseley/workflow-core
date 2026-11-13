@@ -47,14 +47,12 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
-/** A tracker with no issue filed, `prepare`, where given, then run on it. */
 const freshTracker = (prepare?: () => void) => {
 	fs.rmSync(path.dirname(stub("x")), { recursive: true, force: true });
 	seed([]);
 	prepare?.();
 };
 
-/** Each side's answer and what it created, from a fresh tracker each. */
 function fileBoth(prepare?: () => void) {
 	freshTracker(prepare);
 	const real = fileThrough(argv, body, wfc());

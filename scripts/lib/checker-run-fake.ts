@@ -1,10 +1,8 @@
 /*
  * The shared checker-run fake (§G7, #5148): lib/morning-review-filing.js's
  * `runChecker` and `startChecker` ports, answering each core checker's
- * `--json` run with a recorded envelope in-process, never a node start.
- * checker-run.contract.test.ts holds each envelope to its real checker's,
- * run as the shell's adapters run it: the same keys, each of the same type,
- * and the same outcome.
+ * `--json` run with a recorded envelope in-process.
+ * checker-run.contract.test.ts holds each envelope to its real checker's.
  */
 
 import type { CheckerRun } from "./checker-run.js";
@@ -43,17 +41,13 @@ const IDLE_ENVELOPE = {
 	damaged: [] as string[],
 };
 
-/** check-wsl-currency.js off WSL: a SKIP. */
 const WSL_SKIP_ENVELOPE = frame(
 	"wsl-currency",
 	"SKIP",
 	"SKIP: the kernel release carries no `microsoft`, so this is not WSL.",
 );
 
-/**
- * check-wsl-currency.js on WSL where neither the latest release nor the
- * installed version reads: a WARN whose lines name both.
- */
+/** check-wsl-currency.js on WSL where the latest release will not read. */
 export const WSL_UNREAD_ENVELOPE = {
 	...frame("wsl-currency", "WARN", "WSL currency not read"),
 	state: "UNREAD",
@@ -67,17 +61,13 @@ export const CHECKER_ENVELOPES: Record<string, object> = {
 	"check-wsl-currency.js": WSL_SKIP_ENVELOPE,
 };
 
-/** `envelope` as its checker prints it, exit 0. */
+/** `envelope` as its checker prints it. */
 const printedRun = (envelope: object): CheckerRun => ({
 	error: null,
 	stdout: `${JSON.stringify(envelope, null, 2)}\n`,
 	status: 0,
 });
 
-/**
- * The two checker ports, each script answered by its envelope in
- * `envelopes`, else its recorded one.
- */
 export function checkerFake(envelopes: Record<string, object> = {}) {
 	const runOf = (script: string): CheckerRun => {
 		const envelope = envelopes[script] ?? CHECKER_ENVELOPES[script];

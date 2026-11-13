@@ -96,7 +96,6 @@ function parseRequest(fields) {
 }
 
 /**
- * The call's status and streams, as the handler gave them.
  * @param {Function} handler
  * @param {{argv: string[], env: Record<string, string | undefined>, cwd?: string, stdin?: string}} req
  */
@@ -132,7 +131,6 @@ function buildCallAnswer(handler, req) {
 }
 
 /**
- * The answer on the wire.
  * @param {Function} handler
  * @param {NonNullable<ReturnType<typeof parseRequest>>} req
  */
@@ -153,9 +151,9 @@ const compileHandler = (source, filename = "gh-handler.js") =>
 
 /**
  * `source` answering in this process as lib/gh.js's `gh(args, opts)` does, for
- * a core's gh port in a module test (#5148): the answer the served stub gives,
- * a non-zero status thrown as execFileSync throws it. Stdin is `opts.input`,
- * read only where an argument names it, as the client reads it.
+ * a core's gh port in a module test (#5148), a non-zero status thrown as
+ * execFileSync throws it. Stdin is `opts.input`, read only where an argument
+ * names it.
  * @param {string} source
  * @param {{env: Record<string, string | undefined>, cwd: string}} at
  * @returns {(args: string[], opts?: import("node:child_process").ExecFileSyncOptions) => string}

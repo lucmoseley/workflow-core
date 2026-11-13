@@ -3,8 +3,7 @@
  * `fileThrough(argv, body, root)` with the root bound, answered in-process
  * through a gh port. It files what file-issue.js files for a script's argv
  * (lib/script-filer-argv.js) whose body carries its own Standalone line and
- * whose fault is `--no-fault`: the body unchanged, the given labels plus
- * `origin:<class>`, through one `gh issue create`. file-issue.contract.test.ts
+ * whose fault is `--no-fault`. file-issue.contract.test.ts
  * holds it to the real file-issue.js on a landed create and a failed one.
  * What it does not model: file-issue.js's refusals before the create (a
  * label the tracker lacks, a similar open title, a `takes:` rule), so a case
@@ -20,12 +19,10 @@ export interface FiledAnswer {
 	stderr: string;
 }
 
-/** Each value `flag` takes in `argv`. */
 const valuesOf = (argv: string[], flag: string) =>
 	argv.flatMap((x, i) => (argv[i - 1] === flag ? [x] : []));
 
 /**
- * The filer port over `gh`, filing on `repo`.
  * @param gh lib/gh.js's `gh(args, opts)`, or a module test's port standing in for it
  */
 export function fileIssueFake(gh: typeof realGh, repo: string) {

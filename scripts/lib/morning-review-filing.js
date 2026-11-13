@@ -2,11 +2,11 @@
  * morning-review-filing.js — scripts/file-morning-review.js's core (#5148,
  * spec #5135): the day's morning review issue (#2011, spec #1995 §The morning
  * review issue), read, rendered through lib/morning-review.js and filed. It
- * writes each line through the `out` and `err` ports as it goes and returns
- * the exit code.
+ * writes through the `out` and `err` ports as it goes and returns the exit
+ * code.
  *
- * Ports (§T7): `now`, the clock; `out` and `err`, the two streams; `gh`, lib/gh.js's `gh(args, opts)`; `file`,
- * file-issue.js through lib/file-through.js; `runChecker` and
+ * Ports (§T7): `now`, `out`, `err` and `gh`; `file`, file-issue.js through
+ * lib/file-through.js; `runChecker` and
  * `startChecker`, a core checker's `--json` run, the second left running
  * beside the reads. The filesystem, git and journalctl are read in place, and
  * the filing lock and the day's kept reads are written in place:
@@ -154,9 +154,6 @@ const WSL_CURRENCY_SCRIPT = "check-wsl-currency.js";
  * }} Ports
  */
 /**
- * What every step is handed: the ports, the gh readers over `ports.gh`, the
- * run's fixed `now`, the tracker it files on, whether it is a dry run, and
- * the day's kept reads once the window is read.
  * @typedef {{ports: Ports, gh: ReturnType<typeof buildGhReaders>, now: Date,
  *   tracker: string, dryRun: boolean, reads: Reads}} Ctx
  */
@@ -746,8 +743,6 @@ function readTimelineAge(ctx, repo, number, label) {
 }
 
 /**
- * File today's review unless one carries today's date or another run is
- * filing it; a dry run files nothing, so it takes no lock. The exit code.
  * @param {{tracker: string, dryRun: boolean, ports: Ports}} at
  * @returns {Promise<number>}
  */
