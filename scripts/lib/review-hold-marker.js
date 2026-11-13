@@ -2,22 +2,22 @@
  * review-hold-marker.js — the review hold's judgement of its marker and the
  * text it answers with (#1622, spec #1612 §The hold): which fault a marker
  * carries, the `Review-Tier:` value a clearing one leaves, and the refusal.
- * lib/review-hold.js is its caller; it is a module of its own so the fault
- * ladder and the text are tested through these exports, word for word.
+ * A module of its own so the fault ladder and the text are tested through
+ * these exports, word for word.
  */
 
 const { stripNewlines } = require("./strip-newlines.js");
 
 /**
  * concision-marker.sh's NAMED_PATHS_MAX, which the Stop nag lists paths up
- * to, so the hold and the nag name as many: a first guess there, never
- * measured. lib/review-hold-marker.test.ts pins the two together.
+ * to: a first guess there, never measured. lib/review-hold-marker.test.ts
+ * pins the two together.
  */
 const NAMED_PATHS_MAX = 10;
 
 /**
  * The most of a bad tier= value a fault quotes: concision-marker.sh's
- * short_quote cuts at `%.40s`, so the hold and the nag quote alike.
+ * short_quote cuts at `%.40s`.
  */
 const QUOTED_MAX = 40;
 
@@ -95,7 +95,6 @@ const stampValue = (text, tree) =>
 	`${stripped(markerField(text, "tier"))}; areas=${markerList(text, "areas").join(",")}; base=${stripped(markerField(text, "base"))}; tree=${tree}; paths=${markerList(text, "paths").join(",")}`;
 
 /**
- * The refusal, every line of it.
  * @param {object} r
  * @param {string[]} r.areas
  * @param {string[] | null} r.offSides on a merge, the paths no side carries

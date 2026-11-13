@@ -743,8 +743,7 @@ describe("an adopter's hooks, run from the plugin through their shims (#1839)", 
  * lib/commit-route.js, the Node callers' copy (#5153): the same route as the
  * shell copy for every marker the table reads, each hook, and the leftover
  * and live `sequencer` (#3298). One git directory per row, its markers laid
- * by hand, since the claim is the two copies' agreement on the same markers;
- * the table's rows against git itself are the cases above.
+ * by hand, since the claim is the two copies' agreement on the same markers.
  */
 describe("commit-route.js answers as commit-route.sh does", () => {
 	const markerSets = [
@@ -806,7 +805,7 @@ describe("commit-route.js answers as commit-route.sh does", () => {
 	const Actions = ["", "merge side", "pull . side"];
 	/**
 	 * The shell copy's route on every hook under every GIT_REFLOG_ACTION, one
-	 * `<hook> <route>` line each, in HOOKS × Actions order: one sh for all.
+	 * sh for all.
 	 */
 	const shellRoutes = (dir: string, cwd: string) => {
 		const sh = spawnSync(

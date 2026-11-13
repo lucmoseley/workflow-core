@@ -6,8 +6,6 @@
  */
 
 /**
- * `text` less its trailing newlines, as a shell's `$(…)` reads a command's
- * output.
  * @param {string} text
  */
 function stripNewlines(text) {

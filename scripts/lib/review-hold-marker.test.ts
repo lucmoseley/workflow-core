@@ -32,7 +32,6 @@ afterEach(() => {
 	scratch = "";
 });
 
-/** concision-marker.sh's marker_tier_fault on a marker holding `text`, for `areas`. */
 const shellTierFault = (text: string, areas: string[]) => {
 	scratch = mkScratchDir("review-hold-marker-");
 	const marker = path.join(scratch, "marker");

@@ -65,7 +65,6 @@ class Unchecked extends Error {
 }
 
 /**
- * Runs the hold over the commit the ports read.
  * @param {HoldPorts} ports
  * @returns {Outcome}
  */

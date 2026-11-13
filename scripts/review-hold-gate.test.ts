@@ -14,8 +14,7 @@
  * crosses real git without a hook's spawns (#5153, §X11). The boundary set
  * stays real `git commit`s, merges and cherry-picks through hooks running the
  * live entries, because the hook routes and the index git builds for a
- * pathspec, --patch or linked-worktree commit no in-process call reproduces;
- * the wiring into `.husky/pre-commit` is read off that file.
+ * pathspec, --patch or linked-worktree commit no in-process call reproduces.
  * `tree=` comes from `commit-paths.js --tree`, or mid-merge from the index, as
  * write-review-marker.js takes it for a session, so a drift between that
  * computation and the hook's fails here; the Stop backstop and push guard read
@@ -166,10 +165,8 @@ const inProcess = <T>(call: () => T, projectDir?: string): T => {
 };
 
 /**
- * The hold over `paths`, staged into the index, run in-process on its
- * production ports over the checkout `cwd`: a module case (§X11), crossing
- * no hook. `projectDir` is the harness's CLAUDE_PROJECT_DIR, unset where
- * absent; `env` is laid over the rest, after GIT_REFLOG_ACTION is cleared.
+ * The hold over `paths`, staged, in-process over the checkout `cwd`.
+ * `projectDir` is the harness's CLAUDE_PROJECT_DIR, unset where absent.
  */
 const hold = (
 	paths: string[],
@@ -325,8 +322,8 @@ const RULE = fs
 	.replace(/\n+$/, "");
 
 /**
- * Asserts a module case's whole outcome: exit 1 and the refusal, every line,
- * built here from its parts rather than by the core's own refusal().
+ * The refusal is built here from its parts, never by the core's own
+ * refusal().
  */
 const expectHeld = (
 	r: { status: number | null; stderr: string },
@@ -610,7 +607,7 @@ describe("review-hold-gate.js — the declaration it reads", () => {
 		},
 	);
 
-	/** The staged declaration's read fault the refusal names, "" where it names none. */
+	/** The staged declaration's read fault the refusal names. */
 	const stagedFaultOf = (stderr: string) =>
 		/^ {2}The staged \.claude\/workflow-core\.json will not read, and a review would land it broken, so correct it first: (.*)$/m.exec(
 			stderr,
@@ -863,7 +860,6 @@ describe("review-hold-gate.js — a merge's landed bytes pass, anything added is
 	const inWt = (args: string[], env: Record<string, string> = {}) =>
 		hookedGit(args, { cwd: wt, projectDir: repo, env });
 	const wtCount = () => git("-C", wt, "rev-list", "--count", "HEAD");
-	/** The hold in the worktree, in-process, the shared tree its markers' host. */
 	const holdInWt = (env: Record<string, string> = {}) =>
 		hold([], { cwd: wt, projectDir: repo, env });
 	const stageInWt = (rel: string, text: string) => {
@@ -1621,12 +1617,7 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 		});
 	});
 
-	/**
-	 * A module case (§X11): `paths` staged, then the hold and the trailer each
-	 * run in-process on their production ports over this repo, as session
-	 * `sid`, on a message file holding `text`. `holding: false` runs the
-	 * trailer alone; `env` is laid over both runs'.
-	 */
+	/** The hold then the trailer, in-process; `holding: false` runs the trailer alone. */
 	const trailOn = (
 		paths: string[],
 		text: string,
@@ -1652,7 +1643,7 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 		});
 		return { ...r, text: () => fs.readFileSync(msg, "utf8") };
 	};
-	/** The message's `Review-Tier:` values, one per line, as git's valueonly prints them. */
+	/** The message's `Review-Tier:` values, one per line. */
 	const trailerValues = (text: string) =>
 		text
 			.split("\n")

@@ -1,7 +1,7 @@
 /*
  * commit-route.js — which git operation made the commit a hook is asked
- * about: its commit route (GLOSSARY.md), for Node callers. The one copy for
- * them; scripts/lib/commit-route.sh is the shell callers' copy, and
+ * about: its commit route (GLOSSARY.md), for Node callers.
+ * scripts/lib/commit-route.sh is the shell callers' copy, and
  * lib/commit-route.test.ts holds the two to the same answer on every row of
  * that file's marker table. Change the two together.
  *
