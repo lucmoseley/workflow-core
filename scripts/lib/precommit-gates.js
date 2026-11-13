@@ -51,7 +51,8 @@ const SITE_IDENTITY = ["severity", "tag", "file", "match"];
  *   lander's gate sets that run it beside a plain commit (#4545): `every`
  *   both, `merge` the merge set, `batch` the batch set, `none` neither, a
  *   gate the lander's Actions run repeats
- * @property {string[]} args what the dispatcher hands the checker
+ * @property {string[]} args what the dispatcher hands the checker; empty on a
+ *   program row, whose PROGRAM takes only its working directory and env
  * @property {import("./precommit-dispatch.js").Arm} arm the staged paths
  *   that run it
  * @property {"gate" | "warn"} policy whether its red refuses the commit
@@ -158,7 +159,7 @@ const GATES = [
 		id: "test-read-edges",
 		script: "scripts/generate-test-read-edges.js",
 		lander: "none",
-		args: ["--check"],
+		args: [],
 		arm: {
 			pattern: new RegExp(String.raw`${JS_TEST}|^docs/test-read-edges\.json$`),
 		},
@@ -321,66 +322,10 @@ const GATES = [
 		id: "plugin-hooks",
 		script: "scripts/generate-plugin-hooks.js",
 		lander: "batch",
-		args: ["--check"],
-		arm: {
-			pattern:
-				/^(self-plugin\/hooks\/hooks\.json|hooks\/hooks\.json|scripts\/[^/]+|scripts\/lib\/(core-hooks|deny-capable|guard-fires)\.js)$/,
-		},
-		policy: "gate",
-		kind: "program",
-	},
-	/*
-	 * docs/agents/rules/<id>.txt is rendered from an anchor pair in the
-	 * document that authors the rule, so an edit inside those anchors makes the
-	 * fragment stale, and the guard delivers a rule the document no longer says
-	 * (mantahostels#2493). Armed on the generator's own source list (#3118) and
-	 * on the generated files; never on scripts/: the generator's own edits are
-	 * caught when it is re-run.
-	 */
-	{
-		id: "rule-fragments",
-		script: "scripts/generate-rule-fragments.js",
-		lander: "batch",
-		args: ["--check"],
-		arm: {
-			pattern: /^docs\/agents\/rules\//,
-			computed: "rule-fragment-sources",
-		},
-		policy: "gate",
-		kind: "program",
-	},
-	/*
-	 * The effort guide's routing block is rendered from the routing file, so
-	 * an edit to either, or to the generator, without a re-render leaves the
-	 * guide disagreeing with what the code routes (#5033).
-	 */
-	{
-		id: "effort-guide-routing",
-		script: "scripts/generate-effort-guide-routing.js",
-		lander: "batch",
-		args: ["--check"],
-		arm: {
-			pattern:
-				/^(docs\/effort-guide\.md|scripts\/lib\/model-routing\.json|scripts\/generate-effort-guide-routing\.js|scripts\/lib\/model-table\.js)$/,
-		},
-		policy: "gate",
-		kind: "program",
-	},
-	/*
-	 * The doc map's own coverage, checked at commit as well as in
-	 * roadmap-digest.yml (mantahostels#390); lib/doc-map-gate.js's header holds
-	 * its rules. The pattern spells SCOPE in lib/doc-map.js, a directory member
-	 * as `docs/` and a root file as `AGENTS\.md$`, and
-	 * lib/doc-map-gate-ports.test.ts asserts the parity.
-	 */
-	{
-		id: "doc-map",
-		script: "scripts/lib/doc-map-gate-ports.js",
-		lander: "batch",
 		args: [],
 		arm: {
 			pattern:
-				/^(docs\/|\.claude\/|hooks\/|self-plugin\/|AGENTS\.md$|CLAUDE\.md$|PRODUCT\.md$|DESIGN\.md$|GLOSSARY\.md$)/,
+				/^(self-plugin\/hooks\/hooks\.json|hooks\/hooks\.json|scripts\/[^/]+|scripts\/lib\/(core-hooks|deny-capable|guard-fires)\.js)$/,
 		},
 		policy: "gate",
 		kind: "program",
@@ -865,6 +810,43 @@ const GATES = [
 		floor: true,
 	},
 	/*
+	 * docs/agents/rules/<id>.txt is rendered from an anchor pair in the
+	 * document that authors the rule, so an edit inside those anchors makes the
+	 * fragment stale, and the guard delivers a rule the document no longer says
+	 * (mantahostels#2493). Armed on the generator's own source list (#3118) and
+	 * on the generated files; never on scripts/: the generator's own edits are
+	 * caught when it is re-run.
+	 */
+	{
+		id: "rule-fragments",
+		script: "scripts/generate-rule-fragments.js",
+		lander: "batch",
+		args: [],
+		arm: {
+			pattern: /^docs\/agents\/rules\//,
+			computed: "rule-fragment-sources",
+		},
+		policy: "gate",
+		kind: "program",
+	},
+	/*
+	 * The effort guide's routing block is rendered from the routing file, so
+	 * an edit to either, or to the generator, without a re-render leaves the
+	 * guide disagreeing with what the code routes (#5033).
+	 */
+	{
+		id: "effort-guide-routing",
+		script: "scripts/generate-effort-guide-routing.js",
+		lander: "batch",
+		args: [],
+		arm: {
+			pattern:
+				/^(docs\/effort-guide\.md|scripts\/lib\/model-routing\.json|scripts\/generate-effort-guide-routing\.js|scripts\/lib\/model-table\.js)$/,
+		},
+		policy: "gate",
+		kind: "program",
+	},
+	/*
 	 * The user-settings snapshot against ~/.claude/settings.json, checked here
 	 * and not in CI: its source lives outside the repo, so a runner could only
 	 * ever skip. Report-only, since drift in an unrelated file must not block
@@ -944,6 +926,25 @@ const GATES = [
 		arm: { pattern: /^\.github\/workflows\/[^/]+\.ya?ml$/, live: true },
 		policy: "gate",
 		kind: "checker",
+	},
+	/*
+	 * The doc map's own coverage, checked at commit as well as in
+	 * roadmap-digest.yml (mantahostels#390); lib/doc-map-gate.js's header holds
+	 * its rules. The pattern spells SCOPE in lib/doc-map.js, a directory member
+	 * as `docs/` and a root file as `AGENTS\.md$`, and
+	 * lib/doc-map-gate-ports.test.ts asserts the parity.
+	 */
+	{
+		id: "doc-map",
+		script: "scripts/lib/doc-map-gate-ports.js",
+		lander: "batch",
+		args: [],
+		arm: {
+			pattern:
+				/^(docs\/|\.claude\/|hooks\/|self-plugin\/|AGENTS\.md$|CLAUDE\.md$|PRODUCT\.md$|DESIGN\.md$|GLOSSARY\.md$)/,
+		},
+		policy: "gate",
+		kind: "program",
 	},
 	/*
 	 * The always-loaded context budget (#1014): a commit that adds bytes and

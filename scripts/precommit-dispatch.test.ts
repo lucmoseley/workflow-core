@@ -380,6 +380,12 @@ describe("the hook's dispatcher line", () => {
 		expect(r.err).toContain(STOPPED_LINE);
 	});
 
+	it("registers no arguments on a program row, as load hands its PROGRAM none", () => {
+		const programs = GATES.filter((g) => g.kind === "program");
+		expect(programs.length).toBeGreaterThan(0);
+		expect(programs.filter((g) => g.args.length > 0)).toEqual([]);
+	});
+
 	it.each([
 		["--gates=merge", ["every", "merge"]],
 		["--gates=batch", ["every", "batch"]],
