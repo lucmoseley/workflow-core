@@ -62,11 +62,6 @@
 		"body": "**Gated until:** 2026-11-12 — the window starts at 23:30 +08 on 10 Nov 2026, when the AI host was ended with its service disabled (this ticket's 15:31 UTC comment of 10 Nov), after Windows restarted at 13:56:47 UTC (`LastBootUpTime`), so its 24 h of minute log ends at 23:30 +08 on 11 Nov.\n**Gate basis:** one full daily cycle of minute log after the baseline change, the same length as the baseline's, the 24 h to 01:20 UTC 10 Nov (#4850): heavy paging in 19.1% ±4.8% of 256 minutes under 1,000 MB, 6.5% ±2.8% of 293 at 1,000–1,500, 4.1% ±1.7% of 510 at 1,500–2,500 and 1.0% ±1.4% of 201 above (95% intervals). The daily cycle alone moves the rate sevenfold: over 6–10 Nov heavy paging came in 21/995 minutes at 00–06 +08 (2.1%, mean 4.8 sessions), 87/1,061 at 06–12 (8.2%, 5.5), 133/910 at 12–18 (14.6%, 7.8) and 127/1,012 at 18–24 (12.5%, 5.9) (`~/memwatch-minute.jsonl`), so a window shorter than the day samples part of the cycle and compares a different population; time floor 24 h, one daily cycle; assumes the day's session load matches the baseline's.",
 		"comments": []
 	},
-	"4862": {
-		"state": "OPEN",
-		"body": "**Gated on:** the memory-hold trial has written its `end` line — check: `grep -q '\"event\": \"end\"' ~/.claude/memory-switchback/events.jsonl && echo \"trial ended\" || echo \"trial still running\"` — abandon if: the trial unit dies with no `end` line and a resume (`run` alone) refuses\n**Gate basis:** the trial ends itself at 77 usable pairs (#4162's sizing, `USABLE_PAIRS` in `scripts/memory_switchback.py`), its first stop rule, or its 168 h schedule (`SCHEDULE_H`), whichever is first; started 2026-11-11 13:27 +08 (#4862 comments); nothing short of its `end` line gives the readout its data",
-		"comments": []
-	},
 	"4884": {
 		"state": "OPEN",
 		"body": "",
