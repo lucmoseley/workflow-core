@@ -89,6 +89,7 @@ it("lifts its own pause when its runner is dead, across a restart", () => {
 	expect(next.paused).toBeUndefined();
 	expect(readStored()?.paused).toBeUndefined();
 	expect(lines.join()).toContain("died");
+	expect(lines).toContain("quiet bench: resumed by the quiet bench route");
 	expect(readState().phase).toBe(null);
 });
 
@@ -96,8 +97,9 @@ it("does not lift a founder's pause set since the tick read the control", () => 
 	const founder = { by: "founder", at: NOW - 1 };
 	writeControlFile({ ...baseControl, paused: founder });
 	writeState(RUN_STATE);
-	tend({ ...baseControl, paused: OURS });
+	const { lines } = tend({ ...baseControl, paused: OURS });
 	expect(readStored()?.paused).toEqual(founder);
+	expect(lines.join()).not.toContain("resumed by");
 });
 
 it("takes no pause over one set since the tick read the control, and counts no attempt", () => {
@@ -113,8 +115,9 @@ it("takes no pause over one set since the tick read the control, and counts no a
 it("takes the pause on a due bench and names why", () => {
 	writeControlFile(baseControl);
 	writeState({ due: { at: NOW - 1, value: true } });
-	const { next } = tend(baseControl);
+	const { next, lines } = tend(baseControl);
 	expect(next.paused).toMatchObject({ by: QUIET_BENCH_PAUSE, at: NOW });
+	expect(lines).toContain("quiet bench: paused by the quiet bench route");
 	expect(next.paused?.why).toContain(`#${LADDER_BENCH.issue}`);
 	expect(readStored()?.paused).toEqual(next.paused);
 });

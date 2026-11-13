@@ -1360,6 +1360,7 @@ describe("buildSetPlanJson (#3968)", () => {
 	const plan = {
 		write: null,
 		startFrom: null,
+		pauseSet: null,
 		lines: ["paused:    no"],
 		warning,
 	};

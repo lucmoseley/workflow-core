@@ -1126,6 +1126,14 @@ const buildPauseIdle = ({ by, at, issues = [], why }) =>
 const buildPauseText = (pause) => buildIdleText(buildPauseIdle(pause));
 
 /**
+ * The loop log's line for a pause written or lifted, naming who sent it (#5126).
+ * @param {boolean} paused the state written
+ * @param {string} source
+ */
+const buildPauseLogLine = (paused, source) =>
+	`${paused ? "paused" : "resumed"} by ${source}`;
+
+/**
  * The pause three launched sessions in a row with no act call for, with their
  * issues, each once. Only `set --resume` ends it: nothing reopens by waiting.
  * @param {LaunchRecord[]} stalled
@@ -1420,6 +1428,7 @@ module.exports = {
 	buildPlanWaitText,
 	buildLoopWait,
 	buildIdleText,
+	buildPauseLogLine,
 	FIVE_HOUR_FULL,
 	LIMIT_HELD_WAIT,
 	NO_FREE_SLOT,

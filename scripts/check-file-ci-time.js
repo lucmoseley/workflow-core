@@ -6,14 +6,10 @@
  * Usage:
  *   node check-file-ci-time.js [--reports <dir>] [--json]
  *
- * Reads each sweep's `vitest-report-*` artefacts (scheduled-checks.yml, kept
- * 14 days). The judging, and which sweeps and files it takes, is
- * `scripts/lib/file-ci-time.js`; the limit is FILE_LIMIT_MS in
- * `scripts/lib/suite-ceiling.js`.
- *
- * `--reports <dir>` judges sweeps already downloaded, one subdirectory per run
- * named by its run id, as `gh run download <id> -p 'vitest-report-*' -D <dir>/<id>`
- * leaves them.
+ * Reads each sweep's vitest reports (`scripts/lib/sweep-reports.js`, where
+ * `--reports <dir>` names sweeps already downloaded). The judging, and which
+ * sweeps and files it takes, is `scripts/lib/file-ci-time.js`; the limit is
+ * FILE_LIMIT_MS in `scripts/lib/suite-ceiling.js`.
  *
  * FEWER THAN THREE SWEEPS READABLE IS A SKIP THAT SAYS IT JUDGED NOTHING,
  * never an OK.
@@ -25,106 +21,14 @@
  * DEFEAT:    convenience — --reports judges sweeps already downloaded, with no gh call.
  */
 
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-const { caught } = require("./lib/caught.js");
 const { runCheck } = require("./lib/check.js");
-const { SWEEPS_JUDGED, collect, judge } = require("./lib/file-ci-time.js");
-const { ghJson } = require("./lib/gh.js");
-const { hostRoot } = require("./lib/host-root.js");
-const { VERIFIED_BRANCH } = require("./lib/landing-refs.js");
-const { FILE_LIMIT_MS } = require("./lib/suite-ceiling.js");
 const {
-	SUITE_WORKFLOW,
-	downloadReports,
-	readReports,
-} = require("./lib/suite-timings.js");
-
-/* Untraced: a week of sweeps at four a day, past the eight `collect` reads,
- * for runs with no reports in between. */
-const RUNS_LISTED = 30;
-
-const ROOT = hostRoot();
-
-/**
- * @param {string} run
- * @param {string} dir
- * @returns {import("./lib/file-ci-time.js").Sweep|null}
- */
-function sweepAt(run, dir) {
-	if (!fs.existsSync(dir)) return null;
-	const rows = readReports(dir, ROOT);
-	return rows.length > 0 ? { run, rows } : null;
-}
-
-/**
- * Sweeps under a directory of runs, the highest run id newest.
- * @param {string} dir
- */
-function localSweeps(dir) {
-	const runs = fs
-		.readdirSync(dir, { withFileTypes: true })
-		.filter((e) => e.isDirectory())
-		.map((e) => e.name)
-		.sort((a, b) => b.localeCompare(a, "en", { numeric: true }));
-	return collect(runs, (run) => sweepAt(run, path.join(dir, run)));
-}
-
-/**
- * Sweeps from GitHub, each run's reports downloaded to a temp directory and
- * removed once read.
- * @param {import("./lib/check.js").Ctx} ctx
- */
-function remoteSweeps(ctx) {
-	/* Listed by branch at the source: the lander's pushes run the same
-	 * workflow, and enough of them push every sweep out of a mixed window
-	 * (#4559); a manual run on a feature branch tests a tree `main` never
-	 * held. */
-	/** @type {{ databaseId: number }[]} */
-	let listed;
-	try {
-		listed = ghJson([
-			"run",
-			"list",
-			"--workflow",
-			SUITE_WORKFLOW,
-			"--branch",
-			VERIFIED_BRANCH,
-			"--limit",
-			String(RUNS_LISTED),
-			"--json",
-			"databaseId",
-		]);
-	} catch (e) {
-		ctx.skip(
-			`GitHub unreachable listing ${SUITE_WORKFLOW} runs on ${VERIFIED_BRANCH}: ${String(e)}`,
-		);
-	}
-	const runs = listed
-		.map((r) => r.databaseId)
-		.sort((a, b) => b - a)
-		.map(String);
-	const work = fs.mkdtempSync(path.join(os.tmpdir(), "file-ci-time-"));
-	try {
-		return collect(runs, (run) => {
-			const dir = path.join(work, run);
-			try {
-				if (!downloadReports(run, dir)) return null;
-			} catch (e) {
-				const err = caught(e);
-				ctx.skip(
-					`GitHub unreachable downloading run ${run}'s vitest reports: ${(String(err.stderr ?? "") || err.message).trim()}`,
-				);
-			}
-			const sweep = sweepAt(run, dir);
-			fs.rmSync(dir, { recursive: true, force: true });
-			return sweep;
-		});
-	} finally {
-		fs.rmSync(work, { recursive: true, force: true });
-	}
-}
+	SWEEPS_JUDGED,
+	judge,
+	judgedNothing,
+} = require("./lib/file-ci-time.js");
+const { FILE_LIMIT_MS } = require("./lib/suite-ceiling.js");
+const { readSweeps } = require("./lib/sweep-reports.js");
 
 /** @param {number} s */
 const secs = (s) => `${Math.round(s)} s`;
@@ -140,19 +44,8 @@ runCheck({
 	usage: "node check-file-ci-time.js [--reports <dir>] [--json]",
 	valueFlags: ["--reports"],
 	run(/** @type {import("./lib/check.js").Ctx} */ ctx) {
-		const reports = ctx.value("--reports", "");
-		const { sweeps, passedOver } = reports
-			? localSweeps(reports)
-			: remoteSweeps(ctx);
-		if (passedOver.length > 0)
-			ctx.say(
-				`Passed over ${passedOver.length} run(s) with no vitest reports: ${passedOver.join(", ")}.`,
-			);
-		const verdict = judge(sweeps);
-		if (!verdict.judged)
-			ctx.skip(
-				`judged nothing: ${verdict.runs.length} sweep(s) with vitest reports readable${verdict.runs.length > 0 ? ` (${verdict.runs.join(", ")})` : ""}, ${SWEEPS_JUDGED} needed for a median.`,
-			);
+		const verdict = judge(readSweeps(ctx));
+		if (!verdict.judged) ctx.skip(judgedNothing(verdict.runs));
 		const { over, unjudged, runs } = verdict;
 		const window = `latest ${runs.slice(0, SWEEPS_JUDGED).join(", ")}`;
 		const slowUnjudged = unjudged.filter((u) => u.overInASweep);

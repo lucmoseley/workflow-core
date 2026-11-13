@@ -214,7 +214,7 @@ function fileRow(dir: string, at: string, outcome: "pass" | "fail") {
 			/* The read audit saw it read nothing beyond its imports. */
 			audits: new Map([[TEST, { reads: NO_READS }]]),
 		},
-		{ storeRoot: dir, lander: false },
+		{ storeRoot: dir, rowless: false },
 	);
 }
 

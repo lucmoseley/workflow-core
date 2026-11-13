@@ -5,7 +5,7 @@
  * the policy. In short — mantahostels#273, where a suite imported half-written
  * source and went red with a different set of failures each run.
  *
- * IMPLICIT:  on every suite run, names the tracked files rewritten while the suite ran, and, outside the lander's run, removes the read audit's log directories killed runs left (#5046) and arms the audit on NODE_OPTIONS for every worker and the Node children it spawns (#4916), under which a stub, a shell or a checkout program a test runs in the checkout, or hands a path there, runs traced by `strace`, where one works, tracer and child on one CPU (#4966, #4982, #5132), and each real git and the git guard is handed an event log of the audit's on `GIT_TRACE2_EVENT` (#4997); and, on a verdict the reporter left, records the run's certificate (none where its scope hit the task cap) or red marker in the canonical checkout's marker store, and each file it ran in the pass store (#4790), none keyed on an input whose change time passed a mark the setup took as the run began (#5018), the certificate being what the pre-push gate reads; on a red one it names which failures were already red on the run's base (#3624).
+ * IMPLICIT:  on every suite run, names the tracked files rewritten while the suite ran, and, outside a rowless run (lib/pass-store.js: the lander's or ci.yml's), removes the read audit's log directories killed runs left (#5046) and arms the audit on NODE_OPTIONS for every worker and the Node children it spawns (#4916), under which a stub, a shell or a checkout program a test runs in the checkout, or hands a path there, runs traced by `strace`, where one works, tracer and child on one CPU (#4966, #4982, #5132), and each real git and the git guard is handed an event log of the audit's on `GIT_TRACE2_EVENT` (#4997); and, on a verdict the reporter left, records the run's certificate (none where its scope hit the task cap) or red marker in the canonical checkout's marker store, and each file it ran in the pass store (#4790), none keyed on an input whose change time passed a mark the setup took as the run began (#5018), the certificate being what the pre-push gate reads; on a red one it names which failures were already red on the run's base (#3624).
  * JUSTIFIED: fail-safe — a red caused by a file saved mid-run is otherwise read as a breakage in the code under test (mantahostels#273).
  * DEFEAT:    none — it prints and records, and never fails a run.
  */
@@ -27,10 +27,12 @@ const {
 const { readLaunch, takeRunReport } = require("./lib/suite-handoff.js");
 const { hasOwnScopeHitCap } = require("./lib/user-scope.js");
 const { readAlreadyRedLines } = require("./lib/already-red.js");
-const { record: recordFileResults } = require("./lib/pass-store.js");
+const {
+	record: recordFileResults,
+	isRowlessRun,
+} = require("./lib/pass-store.js");
 const readAudit = require("./lib/read-audit.js");
 const { keepRun } = require("./lib/row-measure.js");
-const { isLanderRun } = require("./lib/session-id.js");
 const { caught } = require("./lib/caught.js");
 
 /*
@@ -44,12 +46,12 @@ let treeRoot = process.cwd();
 let watch: import("./lib/run-steadiness.js").Watch | null = null;
 
 /* The read audit's log directory (#4916), null where this run is unaudited:
- * a test's nested run, whose reads its owner's audit holds, or the lander's,
- * which records no row. */
+ * a test's nested run, whose reads its owner's audit holds, or a rowless
+ * one (lib/pass-store.js). */
 let auditDir: string | null = null;
 
 function armAudit() {
-	auditDir = isLanderRun() ? null : readAudit.install(treeRoot);
+	auditDir = isRowlessRun() ? null : readAudit.install(treeRoot);
 }
 
 /* `recorded`, the run this teardown handed the pass store, is kept beside

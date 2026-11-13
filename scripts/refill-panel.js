@@ -43,6 +43,7 @@ const {
 const { openPanel } = require("./lib/refill-panel-terminal.js");
 const { resolveTopic } = require("./lib/refill-panel-topic.js");
 const { readViewEnv } = require("./lib/refill-panel-view-env.js");
+const { withPanelSource } = require("./lib/refill-commands.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { FETCH_TIMEOUT_MS } = require("./lib/pinned-code.js");
@@ -89,6 +90,19 @@ const runCommand = (file, argv, timeout, env) =>
 		});
 	});
 
+/**
+ * Run the loop's `args`, as the panel.
+ * @param {string[]} args
+ * @param {NodeJS.ProcessEnv} env
+ */
+const runLoop = (args, env) =>
+	runCommand(
+		process.execPath,
+		[LOOP_PROGRAM, ...args],
+		args[0] === "status" ? READ_TIMEOUT_MS : PRESS_TIMEOUT_MS,
+		withPanelSource(env),
+	);
+
 /** @param {unknown} err */
 const reportCrash = (err) =>
 	writeFd(
@@ -106,13 +120,7 @@ const isCount = (given) => /^[1-9]\d*$/.test(given);
  */
 async function printScreens(sizes, env) {
 	const { text, readError } = await buildScreensText(sizes, {
-		run: (args) =>
-			runCommand(
-				process.execPath,
-				[LOOP_PROGRAM, ...args],
-				READ_TIMEOUT_MS,
-				env,
-			),
+		run: (args) => runLoop(args, env),
 		runBurn: (args) => runCommand(BURN_PROGRAM, args, READ_TIMEOUT_MS, env),
 		now: Date.now,
 	});
@@ -211,13 +219,7 @@ function main(argv = process.argv.slice(2)) {
 		stdin: process.stdin,
 		stdout: process.stdout,
 		proc: process,
-		run: (args) =>
-			runCommand(
-				process.execPath,
-				[LOOP_PROGRAM, ...args],
-				args[0] === "status" ? READ_TIMEOUT_MS : PRESS_TIMEOUT_MS,
-				env,
-			),
+		run: (args) => runLoop(args, env),
 		runBurn: (args) => runCommand(BURN_PROGRAM, args, READ_TIMEOUT_MS, env),
 		resolveTopic: (text, repos, signal) =>
 			resolveTopic(text, repos, { env, signal }),

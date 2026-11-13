@@ -45,7 +45,7 @@ const path = require("node:path");
 const { caught } = require("./caught.js");
 const { relativeUnder } = require("./is-under.js");
 const { listingId } = require("./listing-id.js");
-const { buildHanded } = require("./read-audit-handed.js");
+const { absoluteWords, buildHanded } = require("./read-audit-handed.js");
 const { pathKind } = require("./path-kind.js");
 const {
 	GIT_EVENTS,
@@ -228,6 +228,14 @@ function install() {
 		for (const [abs, real] of settled)
 			if (real !== abs || changed.some((at) => relativeUnder(at, abs) !== null))
 				settled.delete(abs);
+	};
+	/** @type {Map<string, import("./read-audit-handed.js").Settling>} */
+	const settlings = new Map();
+	/* A new standing environment: every lookup, and what each variable's
+	 * standing value spells. */
+	const resettle = () => {
+		settled.clear();
+		settlings.clear();
 	};
 
 	/**
@@ -499,6 +507,24 @@ function install() {
 	 * the processes below. */
 	let standing = readStanding(process.env.WFC_READ_AUDIT_STANDING);
 	const isOwner = owner === String(process.pid);
+	/** A variable's value as weighed: this preload left off `NODE_OPTIONS`. */
+	const namedText = (
+		/** @type {string} */ name,
+		/** @type {string} */ value,
+	) => (name === "NODE_OPTIONS" ? value.split(SELF).join("") : value);
+	/* A value moved off the standing one still answers, from the cache, the
+	 * words it shares with it: a stub directory put before the standing
+	 * `PATH` is looked up afresh, and the rest is not (#5139). */
+	const settlingOf = (/** @type {string} */ name) => {
+		const value = standing[name];
+		if (value === undefined) return;
+		let at = settlings.get(name);
+		if (at === undefined) {
+			at = { cache: settled, words: absoluteWords(namedText(name, value)) };
+			settlings.set(name, at);
+		}
+		return at;
+	};
 	/**
 	 * The checkout paths a variable's value names, less what the audit and
 	 * the program lookup put there themselves: the root this audit was told,
@@ -510,10 +536,7 @@ function install() {
 	 */
 	const envPaths = (name, value, named) => {
 		if (name === "WFC_READ_AUDIT_ROOT") return [];
-		const paths = named(
-			name === "NODE_OPTIONS" ? value.split(SELF).join("") : value,
-			standing[name] === value ? settled : undefined,
-		);
+		const paths = named(namedText(name, value), settlingOf(name));
 		if (name !== "PATH") return paths;
 		return paths.filter(
 			(p) => p !== guardDir && !p.split("/").includes("node_modules"),
@@ -957,7 +980,7 @@ function install() {
 		settle() {
 			guard(() => {
 				standing = { ...process.env };
-				settled.clear();
+				resettle();
 				if (!isOwner) return;
 				const file = path.join(dir, `${owner}.standing.json`);
 				const gitAt = sizeOf(path.join(dir, `${owner}.git`));
