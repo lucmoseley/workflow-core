@@ -681,16 +681,18 @@ describe("write-secret", () => {
 		["a directory", () => fs.mkdirSync(store(), { mode: 0o700 })],
 		[
 			"a socket",
-			/* A listener that exits at once leaves its path behind. */
+			/* A listener that exits at once leaves its path behind. Bound by
+			 * its bare name from its own directory, as sun_path holds 108 bytes
+			 * and a nested temp root's absolute path can pass that (#5162). */
 			() =>
 				execFileSync(
 					process.execPath,
 					[
 						"-e",
 						"require('node:net').createServer().listen(process.argv[1],()=>process.exit(0))",
-						store(),
+						path.basename(store()),
 					],
-					{ env: isolatedEnv() },
+					{ cwd: path.dirname(store()), env: isolatedEnv() },
 				),
 		],
 	])(
