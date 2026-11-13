@@ -23,7 +23,8 @@
  *
  * A SIGNAL (#5188). A row runs to its end, so its own cleanup runs; the
  * `interrupted` port is asked before each row and after the last, and once
- * it answers a code, no further row runs and the run exits with it.
+ * it answers a code, no further row runs and the run exits with it, saying
+ * so on fd 2.
  *
  * THE LANDER SETS (#4545). `--gates=merge` runs the `every` and `merge` rows,
  * `--gates=batch` the `every` and `batch` rows; a plain commit runs them all.
@@ -131,18 +132,27 @@ const crashLine = (row, at, e) =>
  */
 async function dispatch({ rows, gates, ports }) {
 	const staged = ports.staged();
+	const stopped = async () => {
+		const code = await ports.interrupted();
+		if (code !== null)
+			ports.write(
+				2,
+				"pre-commit: a signal stopped the run; no gate ran after it.\n",
+			);
+		return code;
+	};
 	for (const row of rows) {
 		if (!SETS[row.lander].includes(gates)) continue;
 		if (!armed(row.arm, staged, ports)) continue;
-		const before = await ports.interrupted();
+		const before = await stopped();
 		if (before !== null) return before;
 		const result = await runRow(row, ports);
 		if (row.policy === "warn" || result.exit === 0) continue;
-		const after = await ports.interrupted();
+		const after = await stopped();
 		if (after !== null) return after;
 		return result.exit;
 	}
-	return (await ports.interrupted()) ?? 0;
+	return (await stopped()) ?? 0;
 }
 
 /**

@@ -21,8 +21,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { dispatch, existsUnder, readStaged } from "./lib/precommit-dispatch.js";
+import { dispatch } from "./lib/precommit-dispatch.js";
 import { registerTempCleanup, stagedRepo } from "./lib/precommit-gate-harness";
+import { repoPorts } from "./lib/precommit-gate-testkit";
 import { GATES } from "./lib/precommit-gates.js";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -250,17 +251,13 @@ describe("the pre-commit row (#3118, #5172)", () => {
 		await dispatch({
 			rows: [row],
 			gates: "all",
-			ports: {
-				staged: () => readStaged(root),
+			ports: repoPorts(root, {
 				computed: (n) => (n === name ? SOURCES : []),
-				exists: existsUnder(root),
 				load: () => () => {
 					ran = true;
 					return { exit: 0, stdout: "", stderr: "" };
 				},
-				write: () => undefined,
-				interrupted: async () => null,
-			},
+			}),
 		});
 		return ran;
 	}

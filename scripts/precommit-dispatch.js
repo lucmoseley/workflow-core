@@ -12,8 +12,8 @@
  * the core's code. A checker row runs through lib/check.js's
  * checkInProcess(), its sides in-process unless the row keeps a `side`.
  * SIGINT, SIGTERM and SIGHUP are caught for the run (#5188): the row they
- * land in runs to its end, its own scratch cleanup with it, and no row runs
- * after, the run exiting 128 + n.
+ * land in runs to its end and no row runs after; a second signal exits at
+ * once.
  *
  * Exit 0 every armed gate passed, skipped or only warned; a gating red's own
  * code otherwise (1 FAIL, 2 BROKEN, a program's code); 1 where git will not
@@ -61,8 +61,8 @@ function load(row) {
  * The lists a `computed` arm names, each read in-process from the library
  * that computes it. The always-loaded pool is the host config's
  * `alwaysLoaded`, else the default; a config that will not read lists
- * nothing, as the hook's `2>/dev/null` read did, and the row's pattern still
- * arms on `.claude/`, where the config lives. The rule-fragment sources are
+ * nothing, and the row's pattern still arms on `.claude/`, where the config
+ * lives. The rule-fragment sources are
  * the generator's own list, so the row cannot arm on fewer than it scans.
  * @type {Record<string, () => string[]>}
  */
@@ -90,7 +90,8 @@ function computed(name) {
  * Catches SIGINT, SIGTERM and SIGHUP for the rest of the process, and answers
  * the dispatcher's `interrupted` port: the first caught signal's 128 + n,
  * else null. A listener fires only between event-loop turns, so the port
- * yields one turn before it answers; a synchronous row runs on to its end.
+ * yields one turn before it answers. A second signal exits at once, its
+ * row's cleanup unrun, as the way out of a row that will not return.
  * @returns {() => Promise<number | null>}
  */
 function catchSignals() {
@@ -98,7 +99,8 @@ function catchSignals() {
 	let code = null;
 	/** @param {NodeJS.Signals} name */
 	const record = (name) => {
-		code ??= 128 + constants.signals[name];
+		if (code !== null) process.exit(code);
+		code = 128 + constants.signals[name];
 	};
 	for (const name of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(name, record);
 	return () => new Promise((resolve) => setImmediate(() => resolve(code)));
@@ -118,8 +120,10 @@ async function main() {
 	try {
 		staged = readStaged(cwd);
 	} catch (e) {
-		writeFd(2, `pre-commit: ${caught(e).message}\n`);
-		process.exit(1);
+		/* A signal kills git too, and is the cause where one was caught. */
+		const code = await interrupted();
+		if (code === null) writeFd(2, `pre-commit: ${caught(e).message}\n`);
+		process.exit(code ?? 1);
 	}
 	return dispatch({
 		rows: GATES,

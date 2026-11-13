@@ -44,8 +44,8 @@ const HOOK_SIGNALS = new Set(["SIGHUP", "SIGINT", "SIGTERM"]);
 
 /**
  * Thrown where a hook signal ended a child. A signal sent to the hook's process
- * group reaches the gate while spawnSync blocks, and Node drops it there, so
- * the child's death is the only sign of it.
+ * group reaches the gate while spawnSync blocks, and Node's listeners run only
+ * once the gate returns, so the child's death is the gate's sign of it.
  */
 class Interrupted extends Error {
 	/** @param {NodeJS.Signals} signal */

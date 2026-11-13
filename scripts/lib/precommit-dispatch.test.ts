@@ -2,8 +2,8 @@
 /*
  * The pre-commit dispatcher's core (#5172), seam 1 of #5171: arming, order,
  * stop-on-first-red, the exit alphabet, the warn policy, crash and load-fault
- * refusal, a caught signal's stop (#5188), and the lander sets, over stub rows and the staged entries real
- * git reads in the test's temp directory.
+ * refusal, a caught signal's stop (#5188), and the lander sets, over stub
+ * rows and the staged entries real git reads in the test's temp directory.
  *
  * It is the hook's gate stack: loosen a case and a commit a gate refuses
  * lands, or a gate runs on a commit it was never armed for.
@@ -90,7 +90,6 @@ async function run(
 		dir?: string;
 		gates?: "all" | "merge" | "batch";
 		computed?: Record<string, string[]>;
-		/** The row a SIGTERM lands in: `interrupted` answers 143 once it ran. */
 		signalIn?: string;
 	} = {},
 ) {
@@ -247,14 +246,16 @@ describe("the exit alphabet", () => {
 	});
 });
 
-describe("a caught signal", () => {
+describe("a caught signal (#5188)", () => {
 	it("lets the row it lands in finish, writing its output, and runs no row after", async () => {
 		const r = await run([row("one"), row("hit"), row("after")], {
 			signalIn: "hit",
 		});
 		expect(r.exit).toBe(128 + 15);
 		expect(r.ran).toEqual(["one", "hit"]);
-		expect(r.err).toBe("one err\nhit err\n");
+		expect(r.err).toBe(
+			"one err\nhit err\npre-commit: a signal stopped the run; no gate ran after it.\n",
+		);
 	});
 
 	it("exits 128 + n where it lands in the last row, which passed", async () => {

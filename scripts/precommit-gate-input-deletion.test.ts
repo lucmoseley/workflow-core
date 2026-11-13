@@ -33,7 +33,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { PROGRAM } from "./lib/doc-map-gate-ports.js";
-import { dispatch, existsUnder, readStaged } from "./lib/precommit-dispatch.js";
+import { dispatch } from "./lib/precommit-dispatch.js";
 import {
 	cutGateScript,
 	expectFixtureSupplies,
@@ -42,7 +42,7 @@ import {
 	stagedRepo,
 	type TempRepo,
 } from "./lib/precommit-gate-harness";
-import { HOOK, ROOT } from "./lib/precommit-gate-testkit";
+import { HOOK, ROOT, repoPorts } from "./lib/precommit-gate-testkit";
 import { GATES, type PrecommitGate } from "./lib/precommit-gates.js";
 
 const VERSION_ANCHOR = "scripts/check-digest-version.js";
@@ -164,16 +164,12 @@ async function runDocMapRow(
 	const code = await dispatch({
 		rows: [DOC_MAP_ROW],
 		gates: "batch",
-		ports: {
-			staged: () => readStaged(cwd),
-			computed: () => [],
-			exists: existsUnder(cwd),
+		ports: repoPorts(cwd, {
 			load: () => () => PROGRAM({ cwd, env: { ...process.env, ...env } }),
 			write: (_fd: number, text: string) => {
 				output += text;
 			},
-			interrupted: async () => null,
-		},
+		}),
 	});
 	return { code, output };
 }
