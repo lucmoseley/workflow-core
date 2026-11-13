@@ -789,7 +789,7 @@ counts issues, not sessions, so a merged bundle contributes each of its members.
 
 **An issue the launcher has already launched is not in that count** (mantahostels#1528). The
 run excludes anything launched inside the 1-hour window
-`scripts/dispatch-sessions.sh` drops on, printing them under
+`scripts/dispatch-sessions.js` drops on, printing them under
 `ALREADY DISPATCHED` with the age and prompt of each. The hold keys on issue
 and command (#752): an entry excludes an issue only while its `/<skill>`
 matches the issue's current `takes:` value. So an issue a `/triage` launch has since relabelled
@@ -877,7 +877,7 @@ Then only these, one line each, only where each applies:
 mantahostels#1153). One call, every session in it:
 
 ```
-scripts/dispatch-sessions.sh <model> "/<skill> <issues>" [<model> "<prompt>" ...]
+scripts/dispatch-sessions.js <model> "/<skill> <issues>" [<model> "<prompt>" ...]
 ```
 
 One `<model> <prompt>` pair per §6 line, same order. **A lone issue's prompt is
@@ -961,7 +961,7 @@ allowance and duplicate-drop rules as the first, its own floor of one included. 
 states the combined total**, first launch and top-up together, not just the
 first call's count, and its `Not launched:` block loses each issue the top-up
 started. **The top-up is a skill-level step, not part of
-`scripts/dispatch-sessions.sh`**: that script knows N < M but not §4's
+`scripts/dispatch-sessions.js`**: that script knows N < M but not §4's
 ordering for what replaces the drop.
 
 **Never `claude agents --model`**: that sets a view-wide default and would move

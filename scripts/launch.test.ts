@@ -4,10 +4,10 @@
  * Haiku rows, Opus rows, plain Opus for an unmapped kind, and a `--model`
  * override in either direction (mantahostels#1334, mantahostels#1088).
  *
- * launch.sh resolves scripts/dispatch-sessions.sh relative to its own
- * location ("$here/dispatch-sessions.sh"), not via PATH, so the seam is a
+ * launch.sh resolves scripts/dispatch-sessions.js relative to its own
+ * location ("$here/dispatch-sessions.js"), not via PATH, so the seam is a
  * sibling stub file rather than a PATH shadow: copy launch.sh into a temp
- * dir alongside a stub dispatch-sessions.sh that records its argv, and the
+ * dir alongside a stub dispatch-sessions.js that records its argv, and the
  * real lib/launch-models.sh it sources.
  *
  * It is the launcher a session or the founder runs by hand: break a case here
@@ -47,14 +47,14 @@ const stubDispatch = (): void => {
 		`printf '%s\\n' "$*" >> ${shellQuote(path.join(dir, "argv"))}`,
 		"exit 0",
 	].join("\n");
-	const file = path.join(dir, "dispatch-sessions.sh");
+	const file = path.join(dir, "dispatch-sessions.js");
 	fs.writeFileSync(file, script);
 	fs.chmodSync(file, 0o755);
 };
 
 const stubDispatchExiting = (code: number): void => {
 	const script = ["#!/bin/bash", `exit ${code}`].join("\n");
-	const file = path.join(dir, "dispatch-sessions.sh");
+	const file = path.join(dir, "dispatch-sessions.js");
 	fs.writeFileSync(file, script);
 	fs.chmodSync(file, 0o755);
 };
@@ -160,7 +160,7 @@ describe("--model override", () => {
 		expect(dispatchArgv()).toBe("opus /pick-next 1352");
 	});
 
-	it("is not itself forwarded to dispatch-sessions.sh as a flag", () => {
+	it("is not itself forwarded to dispatch-sessions.js as a flag", () => {
 		stubDispatch();
 		run(["--dry-run", "--model", "opus", "pick-next", "1352"]);
 		const argv = dispatchArgv();
@@ -170,7 +170,7 @@ describe("--model override", () => {
 });
 
 describe("flag passthrough", () => {
-	it("forwards leading flags to dispatch-sessions.sh ahead of the model/prompt pair", () => {
+	it("forwards leading flags to dispatch-sessions.js ahead of the model/prompt pair", () => {
 		stubDispatch();
 		const r = run(["--dry-run", "--no-advisor", "pick-next", "341"]);
 		expect(r.code).toBe(0);
@@ -202,7 +202,7 @@ describe("usage", () => {
 });
 
 describe("exit code propagation", () => {
-	it("propagates dispatch-sessions.sh's exit code verbatim", () => {
+	it("propagates dispatch-sessions.js's exit code verbatim", () => {
 		stubDispatchExiting(3);
 		const r = run(["implement", "1"]);
 		expect(r.code).toBe(3);

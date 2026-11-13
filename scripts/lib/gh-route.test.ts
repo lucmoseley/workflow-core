@@ -133,8 +133,8 @@ const GH_FIX = {
 
 const CLAUDE_FIX = {
 	"SECOND-VAR":
-		"claude SECOND-VAR Fix: name the binary through WFC_CLAUDE_BIN, the one var scripts/lib/claude-bin.js reads, as scripts/run-mod-tests.js and scripts/dispatch-sessions.sh do.",
-	"SHELL-BARE": `claude SHELL-BARE Fix: run "${sub("WFC_CLAUDE_BIN:-claude")}", the var scripts/lib/claude-bin.js reads, as scripts/dispatch-sessions.sh does; or mark it \`claude-route-exempt: <why>\` where \`claude\` is only text.`,
+		"claude SECOND-VAR Fix: name the binary through WFC_CLAUDE_BIN, the one var scripts/lib/claude-bin.js reads, as scripts/run-mod-tests.js and scripts/start-session.sh do.",
+	"SHELL-BARE": `claude SHELL-BARE Fix: run "${sub("WFC_CLAUDE_BIN:-claude")}", the var scripts/lib/claude-bin.js reads, as scripts/start-session.sh does; or mark it \`claude-route-exempt: <why>\` where \`claude\` is only text.`,
 	"PATH-STUB":
 		"claude PATH-STUB Fix: point WFC_CLAUDE_BIN at the stub executable, never PATH.",
 	"NODE-COPY":

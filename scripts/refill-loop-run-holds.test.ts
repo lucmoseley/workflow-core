@@ -73,6 +73,7 @@ import {
 	seat,
 	settled,
 	stub,
+	stubDispatcher,
 	updateControl,
 	weekAt,
 	writeKeyCostTable,
@@ -328,8 +329,7 @@ process.stdout.write(${JSON.stringify(`${buildFiledLine(Issue, `https://github.c
 		updateControl({
 			scope: { mode: "normal", repos: [repo, other], goal: null },
 		});
-		stub(
-			"dispatch-sessions.sh",
+		stubDispatcher(
 			`printf '%s\\n' "$PWD" >> ${shellQuote(at("dispatches"))}
 node ${shellQuote(path.join(scripts, "request-stop.js"))}\n`,
 		);

@@ -2,7 +2,8 @@
 /*
  * gh-stub-server.js through `serveGhStub`'s bash client, as a test's gh call
  * reaches it (#2877). SPAWNED, NOT RUN IN PROCESS (§X3's two-processes shape):
- * the server must answer while the call runs. Loosen a case and a suite on
+ * the server must answer while the call runs. Its in-process port, `buildHandlerPort`,
+ * is held to the served answer by the last case (§G7). Loosen a case and a suite on
  * this stub can pass on a gh call whose arguments, body or exit status never
  * reached its handler.
  */
@@ -18,6 +19,7 @@ import {
 	stubGhHandler,
 	stubGhScript,
 } from "./gh-stub";
+import { buildHandlerPort } from "./gh-stub-server.js";
 
 const HANDLER = String.raw`
 if (argv[0] === "echo") { out(JSON.stringify({ argv, cwd, stdin, sb: env.SB }) + "\n"); err("on stderr\n"); exit(3); }
@@ -126,4 +128,43 @@ it("answers as stubGhHandler's per-call gh does, for the same handler and call (
 			served.stderr,
 		]);
 	}
+});
+
+it("answers in-process as the served gh does, for the same handler and call (#5148)", () => {
+	const port = buildHandlerPort(HANDLER, {
+		env: { ...process.env, SB: "a=b" },
+		cwd: dir,
+	});
+	const inProcess = (args: string[], input?: string) => {
+		try {
+			return { status: 0, stdout: port(args, { input }), stderr: "" };
+		} catch (e) {
+			const { status, stdout, stderr } = e as {
+				status: number;
+				stdout: string;
+				stderr: string;
+			};
+			return { status, stdout, stderr };
+		}
+	};
+	for (const [args, input] of [
+		[["echo", "a b", "--body-file", "-"], "body\n"],
+		[["echo", "--input", "x@-"], "piped\n"],
+		[["echo"], "unread"],
+		[["other"], undefined],
+	] as const) {
+		const served = call([...args], input);
+		expect(inProcess([...args], input)).toEqual({
+			status: served.status,
+			stdout: served.stdout,
+			stderr: served.stderr,
+		});
+	}
+	/* A thrown handler's stack names where it was compiled, so its first line alone. */
+	const broke = inProcess(["throw"]);
+	const served = call(["throw"]);
+	expect([broke.status, broke.stderr.split("\n")[0]]).toEqual([
+		served.status,
+		served.stderr.split("\n")[0],
+	]);
 });

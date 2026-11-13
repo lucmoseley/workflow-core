@@ -10,7 +10,7 @@
  * suite chose rather than against whatever the machine happens to be doing —
  * which is the thing the script reports on and so cannot also be its fixture.
  *
- * /pick-next §5 and scripts/dispatch-sessions.sh re-read this count before
+ * /pick-next §5 and scripts/dispatch-sessions.js re-read this count before
  * every launch: loosen a case and a session can be admitted past the
  * machine's 10 GB cap, which freezes the machine, or a free slot held shut.
  *
@@ -1480,7 +1480,7 @@ describe("the CPU limb (#830)", () => {
 			json: false,
 		});
 
-	/* dispatch-sessions.sh keys its remedy off this line (#834). */
+	/* dispatch-sessions.js keys its remedy off this line (#834). */
 	it("names the load on a `cpu load` line, saying when it is the only hold", () => {
 		const sole = text({ load: ceiling });
 		expect(sole.status).toBe(1);
@@ -1510,7 +1510,7 @@ describe("the CPU limb (#830)", () => {
 		expect(r.stderr).toMatch(/^cpu load\s+.*\(#830\)$/m);
 	});
 
-	/* What dispatch-sessions.sh --force-memory runs, so the override keeps the
+	/* What dispatch-sessions.js --force-memory runs, so the override keeps the
 	 * CPU limb armed (#834) — and reads nothing else, memory included. */
 	it("judges the load alone under --load-only", () => {
 		const held = text({ load: ceiling, mb: null, args: ["--load-only"] });
@@ -1952,7 +1952,7 @@ describe("the session ceiling (#2141)", () => {
 		expect(r.json.reason).not.toMatch(/#2141/);
 	});
 
-	/* dispatch-sessions.sh keys its remedy off this line. */
+	/* dispatch-sessions.js keys its remedy off this line. */
 	it("holds — exit 1 — at the ceiling, on a `cpu sessions` line saying when it is the only hold", () => {
 		const text = (m: Machine) =>
 			run({
@@ -2092,7 +2092,7 @@ describe("text output stays a handful of figures", () => {
 });
 
 /*
- * mantahostels#2588. The re-read `dispatch-sessions.sh` takes before each spawn sees the
+ * mantahostels#2588. The re-read `dispatch-sessions.js` takes before each spawn sees the
  * spare pool as it stands, and none of the pair the daemon warms the moment
  * this launch claims its own — which is exactly the memory the NEXT member of
  * the set will find gone. `--launch` charges for it up front.
@@ -2259,7 +2259,7 @@ describe("the allowance re-read (#293, #294)", () => {
 		expect(json.admit).toBe(true);
 	});
 
-	/* #299: what `dispatch-sessions.sh --force` passes. The allowance limb
+	/* #299: what `dispatch-sessions.js --force` passes. The allowance limb
 	 * goes; the memory limb, asserted on the second run, stays. */
 	it("--skip-allowance admits past a fresh breach, but still holds on memory", () => {
 		const configDir = cacheDir();

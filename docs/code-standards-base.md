@@ -131,7 +131,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | Printing a `session-arbiter.js` command | `buildArbiterCommand` in `scripts/lib/build-arbiter-command.js` | `scripts/lib/tracker-ops.js` | §0, its floor table | `scripts/check-arbiter-commands.js` |
 | Reading the clock | `now()` in `scripts/lib/check.js`, pinned by `WFC_NOW`; for a guard core, a host port's `now(env)` handed its `ctx.env` | `scripts/check-history-trim.js`, `scripts/lib/sweep-fire-host.js` | §0, its floor table | `scripts/check-clock-copies.js` |
 | Invoking `gh`, and stubbing it in a test | `gh`, `ghJson` and their kin in `scripts/lib/gh.js`, reading `WFC_GH`; `"${WFC_GH:-gh}"` in shell; a test's stub at `WFC_GH`, in the core from `scripts/lib/gh-stub.ts`, which the release does not ship | `scripts/check-issue-orphans.js`, `scripts/park-blocked.sh` | §X2, §N7 | `scripts/check-gh-route.js` |
-| Invoking `claude`, and stubbing it in a test | `claudeBin()` in `scripts/lib/claude-bin.js`, reading `WFC_CLAUDE_BIN`, or `claudeBin(env)` where the child runs under an `env` of its own; `"${WFC_CLAUDE_BIN:-claude}"` in shell; a test's stub at `WFC_CLAUDE_BIN` | `scripts/run-mod-tests.js`, `scripts/dispatch-sessions.sh` | §X2, §N7 | `scripts/check-gh-route.js` |
+| Invoking `claude`, and stubbing it in a test | `claudeBin()` in `scripts/lib/claude-bin.js`, reading `WFC_CLAUDE_BIN`, or `claudeBin(env)` where the child runs under an `env` of its own; `"${WFC_CLAUDE_BIN:-claude}"` in shell; a test's stub at `WFC_CLAUDE_BIN` | `scripts/run-mod-tests.js`, `scripts/start-session.sh` | §X2, §N7 | `scripts/check-gh-route.js` |
 | Reading all of a program's stdin | `readFdAll` in `scripts/lib/read-fd.js` | `scripts/write-secret.js` | §N6 | Standards axis criterion |
 | Writing a program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/check-plugin-gap.js` | §N6 | `scripts/check-program-output.js` |
 | A `report-*` program filing an issue | `createIssue` in `scripts/lib/tracking-issue.js`, or its `fileOrRefresh` | `scripts/report-remeasure-due.js` | §N3 | `scripts/check-report-programs.js` |
@@ -142,7 +142,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | Reading or writing an arbiter record | `paths`, `readRecord` and `writeRecord` and their kin in `scripts/lib/arbiter-core.js` | `scripts/lib/arbiter-issue-claims.js` | §N10 | Standards axis criterion |
 | Holding a lock for a program's whole run, which a crashed holder cannot wedge | `pidLock` in `scripts/lib/pid-lock.js`, stale only once its holder has gone | `scripts/file-morning-review.js` | §G1 | Standards axis criterion |
 | Asking whether a pid is alive | `pidAlive` in `scripts/lib/arbiter-proc.js`, which reads EPERM as alive | `scripts/lib/pid-lock.js` | §G1 | Standards axis criterion |
-| Printing a rule the rule-text store holds | `rule_text` in `scripts/lib/rule-text.sh`; `readRuleText` or `readRuleTextOr` in `scripts/lib/rule-text.js`; a guard core's `ruleOrFallback` in `scripts/lib/guard-verdict.js` | `scripts/review-hold-gate.sh`, `scripts/check-weakens-line.js` | §G11 | Standards axis criterion |
+| Printing a rule the rule-text store holds | `rule_text` in `scripts/lib/rule-text.sh`; `readRuleText` or `readRuleTextOr` in `scripts/lib/rule-text.js`; a guard core's `ruleOrFallback` in `scripts/lib/guard-verdict.js` | `scripts/check-commit-subject.sh`, `scripts/check-weakens-line.js` | §G11 | Standards axis criterion |
 
 ---
 

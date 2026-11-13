@@ -9,7 +9,7 @@
  * moves with the committed table — bar one case that reads the committed table
  * on purpose.
  *
- * `allowance.js` sizes `/pick-next`'s capped launch in `dispatch-sessions.sh`
+ * `allowance.js` sizes `/pick-next`'s capped launch in `dispatch-sessions.js`
  * from these figures; loosen a case and a mispriced spend launches a set past
  * the usage bar, or cuts one that would have fitted.
  */

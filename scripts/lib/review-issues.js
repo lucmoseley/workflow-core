@@ -5,7 +5,7 @@
  * the `reverse <n>` comments on them.
  */
 
-const { ghIssueListAll } = require("./gh.js");
+const { gh, buildGhReaders } = require("./gh.js");
 const { parseReviewDate } = require("./morning-review.js");
 const { takesLabel } = require("./takes-label.js");
 
@@ -19,26 +19,28 @@ const REVIEW_LABEL = takesLabel("wayfinder");
  * file twice.
  * @param {string} repo
  * @param {"all" | "open" | "closed"} state
- * @param {{withComments?: boolean, more?: string[]}} [opts]
+ * @param {{withComments?: boolean, more?: string[], run?: typeof gh}} [opts]
+ *   `run` the gh port, lib/gh.js's `gh` where absent
  * @returns {{number: number, title: string, state: string, createdAt: string,
  *   body: string, comments?: import("./review-reversal.js").Comment[]}[]}
  */
 function readReviewIssues(
 	repo,
 	state,
-	{ withComments = false, more = [] } = {},
+	{ withComments = false, more = [], run = gh } = {},
 ) {
-	return ghIssueListAll("review issues", [
-		"--repo",
-		repo,
-		"--state",
-		state,
-		"--label",
-		REVIEW_LABEL,
-		...more,
-		"--json",
-		`number,title,state,createdAt,body${withComments ? ",comments" : ""}`,
-	])
+	return buildGhReaders(run)
+		.ghIssueListAll("review issues", [
+			"--repo",
+			repo,
+			"--state",
+			state,
+			"--label",
+			REVIEW_LABEL,
+			...more,
+			"--json",
+			`number,title,state,createdAt,body${withComments ? ",comments" : ""}`,
+		])
 		.filter((/** @type {{title: string}} */ i) => parseReviewDate(i.title))
 		.sort(
 			(

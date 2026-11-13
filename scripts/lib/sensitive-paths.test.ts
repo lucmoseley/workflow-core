@@ -19,6 +19,8 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initGitRepo } from "./git-fixture";
 import { runInProcess } from "./run-in-process";
+import { heldAreas } from "./sensitive-paths.js";
+import { readConfig } from "./workflow-core-config.js";
 
 const SCRIPT = path.join(__dirname, "sensitive-paths.js");
 const REPO_ROOT = path.join(__dirname, "..", "..");
@@ -205,29 +207,28 @@ describe("sensitive-paths — matching", () => {
 	});
 });
 
-describe("sensitive-paths --held (#3905, #4512)", () => {
+describe("heldAreas, the review hold's read of what it holds (#3905, #4512)", () => {
 	const Config = ".claude/workflow-core.json";
 	const area = (name: string, globs: string[]) => ({
 		name,
 		description: "d",
 		globs,
 	});
-	/** Two fixture roots, `after`'s text given raw, `paths` on stdin. */
+	const declared = (root: string) => () =>
+		readConfig({ root, quiet: true }).sensitivePaths;
+	/** Two fixture roots' declarations, `after`'s text given raw. */
 	const held = (before: unknown, afterText: string, paths = [Config]) => {
 		const was = host(before);
 		const now = path.join(dir, "after");
 		fs.mkdirSync(path.join(now, ".claude"), { recursive: true });
 		fs.writeFileSync(path.join(now, Config), afterText);
-		return runInProcess(SCRIPT, ["--held", was, now], {
-			cwd: dir,
-			stdin: `${paths.join("\0")}\0`,
-		});
+		return heldAreas(declared(was), declared(now), paths);
 	};
 	const names = (before: unknown, afterText: string, paths?: string[]) => {
 		const r = held(before, afterText, paths);
-		expect(r.stderr).toBe("");
-		expect(r.status).toBe(0);
-		return r.stdout.split("\n").filter(Boolean);
+		expect(r.fault).toBe("");
+		expect(r.judged).toBe(true);
+		return r.areas;
 	};
 	const declaring = (sensitivePaths?: unknown) =>
 		JSON.stringify({ contract: 1, founder: "F", sensitivePaths });
@@ -273,11 +274,11 @@ describe("sensitive-paths --held (#3905, #4512)", () => {
 		expect(names(before, after, ["z", "y", "x"])).toEqual(["a", "b", "c"]);
 	});
 
-	it("exits 3 where the after copy will not parse and drops an area, naming it and the fault", () => {
+	it("names the area and the fault where the after copy will not parse and drops it", () => {
 		const r = held([area("a", ["x"])], "{ not json");
-		expect(r.status).toBe(3);
-		expect(r.stdout).toBe("a\n");
-		expect(r.stderr).toMatch(/^BROKEN: .*workflow-core\.json/);
+		expect(r.judged).toBe(true);
+		expect(r.areas).toEqual(["a"]);
+		expect(r.fault).toMatch(/^BROKEN: .*workflow-core\.json/);
 	});
 
 	it("names an area only the before copy matches, the declaration unstaged", () => {
@@ -285,35 +286,26 @@ describe("sensitive-paths --held (#3905, #4512)", () => {
 		expect(names([area("a", ["x"])], after, ["x"])).toEqual(["a"]);
 	});
 
-	it("exits 2 where the after copy will not parse and the paths do not carry it", () => {
+	it("cannot judge where the after copy will not parse and the paths do not carry it", () => {
 		const r = held([area("a", ["x"])], "{ not json", ["x"]);
-		expect(r.status).toBe(2);
-		expect(r.stdout).toBe("");
-		expect(r.stderr).toContain("BROKEN");
+		expect(r.judged).toBe(false);
+		expect(r.areas).toEqual([]);
+		expect(r.fault).toContain("BROKEN");
 	});
 
-	it("exits 2 where the after copy will not parse and the before copy declares nothing", () => {
+	it("cannot judge where the after copy will not parse and the before copy declares nothing", () => {
 		const r = held(undefined, "{ not json");
-		expect(r.status).toBe(2);
-		expect(r.stdout).toBe("");
-		expect(r.stderr).toContain("BROKEN");
+		expect(r.judged).toBe(false);
+		expect(r.areas).toEqual([]);
+		expect(r.fault).toContain("BROKEN");
 	});
 
-	it("exits 2 where the before copy will not parse", () => {
+	it("cannot judge where the before copy will not parse", () => {
 		const was = host();
 		fs.writeFileSync(path.join(was, Config), "{ nope");
-		const r = runInProcess(SCRIPT, ["--held", was, was], {
-			cwd: dir,
-			stdin: "x\n",
-		});
-		expect(r.status).toBe(2);
-		expect(r.stderr).toContain("BROKEN");
-	});
-
-	it("exits 2 on usage, given one root", () => {
-		const r = runInProcess(SCRIPT, ["--held", host()], { cwd: dir, stdin: "" });
-		expect(r.status).toBe(2);
-		expect(r.stderr).toContain("usage:");
+		const r = heldAreas(declared(was), declared(was), ["x"]);
+		expect(r.judged).toBe(false);
+		expect(r.fault).toContain("BROKEN");
 	});
 });
 
