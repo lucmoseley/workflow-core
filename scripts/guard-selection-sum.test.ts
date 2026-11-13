@@ -516,7 +516,7 @@ describe("the not-launched block stands in for the admission-cut line (#592)", (
 		expect(
 			run(
 				`${three}\n\n**Not launched:**\n- no admission slot: #1317, #1320\n\n` +
-					"**Memory:**\n  free             5039 MB\n  working          9 session(s), 3048 MB PSS\n\n" +
+					"**Memory:**\n  free             5039 MB\n  live             9 session(s), 3048 MB PSS\n\n" +
 					"**Open:** 43 open, 60 frontier, 12 blocked",
 			).blocked,
 		).toBe(false);
