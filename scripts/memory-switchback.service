@@ -1,0 +1,16 @@
+[Unit]
+Description=The memory-hold switchback (#4862): walk its schedule, resuming after a boot, a user manager restart or a kill
+
+[Service]
+WorkingDirectory=%h/workflow-core
+ExecStart=/usr/bin/python3 scripts/memory_switchback.py run
+# Past a kill the script cannot see, no hold stays declared to admission.
+ExecStopPost=/bin/rm -f %h/.claude/memory-hold
+# A kill resumes. Exit 1 is a stop asked for (SIGTERM), the refusal of an ended
+# trial or a crash, none of which a restart mends.
+Restart=on-failure
+RestartSec=30
+RestartPreventExitStatus=1
+
+[Install]
+WantedBy=default.target
