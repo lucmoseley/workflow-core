@@ -754,9 +754,9 @@ function writeBlobs(rev, dir, pathspecs) {
 
 	/* A pathspec that resolved and matched nothing is NOT the refusal above
 	 * (mantahostels#1940). An empty spec is a fault in the spec — apparatus, and this
-	 * library's to judge. An empty listing means the revision matched nothing
-	 * or every blob is already in `dir`, and what it means is the checker's
-	 * to say. */
+	 * library's to judge. An empty listing means the pathspecs matched no blob
+	 * at the revision, which is the checker's to judge, or every match is
+	 * already in `dir`. */
 	if (entries.length === 0) return;
 
 	/* One `cat-file --batch` for the lot: the per-blob alternative is a process
