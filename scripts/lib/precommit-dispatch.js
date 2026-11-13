@@ -100,41 +100,45 @@ function readStaged(cwd) {
 }
 
 /**
+ * Whether `arm` arms on `staged`, `list` being its computed list's paths.
  * @param {Arm} arm
  * @param {StagedEntry[]} staged
- * @param {Pick<Ports<Row>, "computed" | "exists">} ports
+ * @param {string[]} list
+ * @param {(path: string) => boolean} exists
  */
-function armed(arm, staged, ports) {
+function armed(arm, staged, list, exists) {
 	if ("always" in arm) return true;
-	if (arm.computed !== undefined) {
-		const list = new Set(ports.computed(arm.computed));
-		if (staged.some((e) => list.has(e.path))) return true;
-	}
+	const computed = new Set(list);
+	if (staged.some((e) => computed.has(e.path))) return true;
 	if (!("pattern" in arm)) return false;
 	return staged.some(
 		(e) =>
 			arm.pattern.test(e.path) &&
-			(!arm.live ||
-				((e.status === "A" || e.status === "M") && ports.exists(e.path))),
+			(!arm.live || ((e.status === "A" || e.status === "M") && exists(e.path))),
 	);
 }
 
 /**
- * Whether `row` arms, or BROKEN where the list it arms on will not compute:
- * that list's module is the row's own, so its fault is the row's load fault.
+ * Whether `row` runs on this commit: `broken` where the list it arms on will
+ * not compute, that list's module being the row's own, so its fault is the
+ * row's load fault and its one line is written here.
  * @template {Row} R
  * @param {R} row
  * @param {StagedEntry[]} staged
  * @param {Ports<R>} ports
- * @returns {boolean | { exit: number }}
+ * @returns {"armed" | "unarmed" | "broken"}
  */
-function armedOrBroken(row, staged, ports) {
-	try {
-		return armed(row.arm, staged, ports);
-	} catch (e) {
-		ports.write(2, crashLine(row, "load", e));
-		return { exit: 2 };
-	}
+function armingOf(row, staged, ports) {
+	/** @type {string[]} */
+	let list = [];
+	if ("computed" in row.arm && row.arm.computed !== undefined)
+		try {
+			list = ports.computed(row.arm.computed);
+		} catch (e) {
+			ports.write(2, crashLine(row, "load", e));
+			return "broken";
+		}
+	return armed(row.arm, staged, list, ports.exists) ? "armed" : "unarmed";
 }
 
 /**
@@ -162,11 +166,11 @@ async function dispatch({ rows, gates, ports }) {
 	};
 	for (const row of rows) {
 		if (!SETS[row.lander].includes(gates)) continue;
-		const arming = armedOrBroken(row, staged, ports);
-		if (arming === false) continue;
+		const arming = armingOf(row, staged, ports);
+		if (arming === "unarmed") continue;
 		const before = await stopped();
 		if (before !== null) return before;
-		const result = arming === true ? await runRow(row, ports) : arming;
+		const result = arming === "armed" ? await runRow(row, ports) : { exit: 2 };
 		if (row.policy === "warn" || result.exit === 0) continue;
 		const after = await stopped();
 		if (after !== null) return after;

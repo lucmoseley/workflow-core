@@ -9,16 +9,20 @@
  * Each row is one checker and the trees it is judged on; each tree runs both
  * ways and the two are compared, never against a hand-written expectation.
  *
+ * Breaking it costs that licence: a row whose in-process run drifts from its
+ * process would refuse, or pass, a commit differently from the checker's own
+ * CLI, and nothing else compares the two. It runs over the 10 s file budget
+ * (base §X8 (5)); #5191 splits it.
+ *
  * spawn-kept: the `spawned` helper is the real process every row is held to.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { checkInProcess } from "./check";
-import { defineTemplate } from "./git-fixture";
+import { defineTemplate, mkScratchDir } from "./git-fixture";
 import { GATES } from "./precommit-gates.js";
 
 const SCRIPTS = path.resolve(__dirname, "..");
@@ -120,7 +124,7 @@ const EMPTY = defineTemplate((dir) => {
 
 const dirs: string[] = [];
 const fixture = (tree: Tree) => {
-	const parent = fs.mkdtempSync(path.join(os.tmpdir(), "check-in-process-"));
+	const parent = mkScratchDir("check-in-process-");
 	dirs.push(parent);
 	const repo = fs.realpathSync(EMPTY.instantiate(path.join(parent, "repo")));
 	tree.build(repo);

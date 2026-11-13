@@ -1,7 +1,8 @@
 /*
- * check-sink.js — where a lib/check.js run writes its bytes (#5172). A process
- * run writes the real fds; an in-process run holds both streams as text, so
- * the pre-commit dispatcher prints each gate's output when that gate finishes.
+ * check-sink.js — where a pre-commit dispatcher member writes its bytes
+ * (#5172): a lib/check.js run, or a program row's CLI core through capture().
+ * A process run writes the real fds; an in-process run holds both streams as
+ * text, so the dispatcher prints each gate's output when that gate finishes.
  */
 const { writeFd } = require("./write-fd.js");
 

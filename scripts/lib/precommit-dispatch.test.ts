@@ -11,10 +11,9 @@
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { defineTemplate } from "./git-fixture";
+import { defineTemplate, mkScratchDir } from "./git-fixture";
 import { dispatch, gateSetOf, STOPPED_LINE } from "./precommit-dispatch.js";
 import { buildRepoPorts } from "./precommit-gate-testkit";
 
@@ -57,7 +56,7 @@ function repo(
 	committed: Record<string, string>,
 	staged: Record<string, string | null>,
 ): string {
-	const parent = fs.mkdtempSync(path.join(os.tmpdir(), "precommit-dispatch-"));
+	const parent = mkScratchDir("precommit-dispatch-");
 	dirs.push(parent);
 	const dir = fs.realpathSync(SEEDED.instantiate(path.join(parent, "repo")));
 	const write = (files: Record<string, string | null>) => {
