@@ -252,8 +252,7 @@ jobs:
       actions: read
       contents: read
     # No pass-store row and no read audit: the store goes with the runner
-    # unread, and the audit's preload on every Node child doubled the suite's
-    # file time (#5138, lib/pass-store.js's `rowless`).
+    # unread (#5138, lib/pass-store.js's `isRowlessRun`).
     env:
       WFC_ROWLESS_RUN: "1"
     strategy:
