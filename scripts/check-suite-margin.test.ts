@@ -397,6 +397,29 @@ describe("silence", () => {
 	});
 });
 
+describe("arming the growth budget (#5137)", () => {
+	it("names a green lone whole suite under the target as the run to arm it, in the OK line", () => {
+		writeJsonl(store, marker({ durationMs: TARGET_MS - 1000 }));
+		const r = run();
+		expect(r.out).toMatch(
+			new RegExp(
+				`^OK: .*arm the growth budget by setting BUDGET_ARMED_BY in scripts/lib/suite-ceiling.js to "${SHA}"`,
+				"m",
+			),
+		);
+	});
+
+	it("names none for a lone whole suite over the target, or one run at its own worker count", () => {
+		writeJsonl(store, marker());
+		expect(run().out).not.toContain("arm the growth budget");
+		writeJsonl(
+			store,
+			marker({ durationMs: TARGET_MS - 1000, argv: ["--maxWorkers=8"] }),
+		);
+		expect(run().out).not.toContain("arm the growth budget");
+	});
+});
+
 describe("nothing judged (#4291)", () => {
 	it.each([
 		["an absent store", []],
