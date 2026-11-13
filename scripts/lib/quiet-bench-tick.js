@@ -36,7 +36,7 @@ const {
 	readRunResult,
 	readUnpostedRuns,
 } = require("./quiet-bench-runs.js");
-const { QUIET_BENCH_PAUSE } = require("./refill-decide.js");
+const { buildPauseLogLine, QUIET_BENCH_PAUSE } = require("./refill-decide.js");
 const {
 	readControlChecked,
 	withControlLock,
@@ -121,6 +121,13 @@ function stopRunner() {
 }
 
 /**
+ * @param {boolean} paused
+ * @param {(line: string) => void} log
+ */
+const logHold = (paused, log) =>
+	log(`quiet bench: ${buildPauseLogLine(paused, "the quiet bench route")}`);
+
+/**
  * The control with the pause `kind` asks for, written against a fresh read, or
  * null where the lock stayed held or a take finds a pause already set: a pause
  * another writer has set is never overwritten, nor lifted.
@@ -138,6 +145,7 @@ function writeHold(kind, now, log) {
 			const paused = { by: QUIET_BENCH_PAUSE, at: now, why: HOLD_DRAINING };
 			const next = { ...control, paused };
 			writeControlFile(next);
+			logHold(true, log);
 			return next;
 		}
 		if (control.paused?.by !== QUIET_BENCH_PAUSE) return control;
@@ -147,6 +155,7 @@ function writeHold(kind, now, log) {
 				? { ...control, paused: { ...control.paused, why: HOLD_RUNNING } }
 				: (({ paused: _lifted, ...rest }) => rest)(control);
 		writeControlFile(next);
+		if (kind === "lift") logHold(false, log);
 		return next;
 	}, HOLD_LOCK_WAIT_MS);
 	if ("busy" in written) {
