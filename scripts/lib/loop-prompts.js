@@ -42,19 +42,26 @@ const BOOT_UNREAD_PROMPT = `${LOOP_PROMPT_PREFIX}resume — a restart killed you
 /* A session the loop stopped on a permission prompt, whose prompt went with the
  * stop (#3949). */
 const PARKED_PERMISSION_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the refill loop stopped you on a permission prompt and the founder may be back. Repeat the tool call that raised it, a subagent's by making it yourself, so the prompt comes back to him, then continue your task. Where you cannot repeat it, post a \`**Hand-off:**\` on the issue saying why, hand him the call as a literal \`!\` line or fenced text and what to send back, and end \`needs input: <the call> — waits on you: #N\` under your \`waits on you:\` block.`;
-/* A session the loop stopped on an API error or a limit (#3949). */
-const PARKED_NOTHING_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the refill loop parked you on an API error or your seat's usage limit. ${LIMIT_LOSS}`;
+/* A session the loop stopped on an API error or a limit, each named as its own
+ * (#3949, #5164). */
+const PARKED_NOTHING_PROMPTS = {
+	API_ERROR: `${LOOP_PROMPT_PREFIX}resume — the refill loop parked you on an API error. ${LIMIT_LOSS}`,
+	LIMIT: `${LOOP_PROMPT_PREFIX}resume — the refill loop parked you on your seat's usage limit. ${LIMIT_LOSS}`,
+};
 
-const NOTHING_TO_REPEAT = new Set(["API_ERROR", "LIMIT"]);
-
-/** @param {string|undefined} cause  the park marker's; none on a session's own park */
+/**
+ * @param {string|undefined} cause  the park marker's; none on a session's own park
+ * @returns {cause is keyof typeof PARKED_NOTHING_PROMPTS}
+ */
 const hasNothingToRepeat = (cause) =>
-	cause !== undefined && NOTHING_TO_REPEAT.has(cause);
+	cause !== undefined && Object.hasOwn(PARKED_NOTHING_PROMPTS, cause);
 
 /** @param {string|undefined} cause  the park marker's; none on a session's own park */
 function parkedPromptOf(cause) {
 	if (cause === "PERMISSION") return PARKED_PERMISSION_PROMPT;
-	return hasNothingToRepeat(cause) ? PARKED_NOTHING_PROMPT : PARKED_PROMPT;
+	return hasNothingToRepeat(cause)
+		? PARKED_NOTHING_PROMPTS[cause]
+		: PARKED_PROMPT;
 }
 
 /** @param {string} text */

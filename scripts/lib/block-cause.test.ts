@@ -342,6 +342,20 @@ describe("an API error", () => {
 		).toEqual(auth);
 	});
 
+	it("reads a Cloudflare 403 tagged authentication_failed as transient, not auth (#5164)", () => {
+		const transient = { cause: "API_ERROR", sub: "transient" };
+		const page =
+			"Please run /login · API Error: 403 Attention Required! | Cloudflare";
+		expect(
+			cause(row(), job({ detail: null, needs: null }), [
+				apiErrorRow("authentication_failed", page),
+			]),
+		).toEqual(transient);
+		expect(
+			cause(row(), job({ detail: page, needs: "login required — run /login" })),
+		).toEqual(transient);
+	});
+
 	it("reads transient off an API Error detail or a server_error row (rule 7)", () => {
 		const transient = { cause: "API_ERROR", sub: "transient" };
 		expect(cause(row(), job({ detail: "API Error: 529 Overloaded" }))).toEqual(
