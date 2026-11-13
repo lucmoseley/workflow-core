@@ -43,6 +43,7 @@ import {
 	parseFirstLine,
 	pastStale,
 	poll,
+	QUICK_BEAT,
 	readKillLines,
 	readWatcherPids,
 	republished,
@@ -54,6 +55,7 @@ import {
 	SCRIPT,
 	shWaitFor,
 	spawnDetached,
+	TIGHT_MISSING,
 	untilPublished,
 	untilVerdict,
 	WIDE_MISSING,
@@ -103,7 +105,7 @@ describe("a run that finishes", () => {
 describe("a run that is killed", () => {
 	it("reports KILLED, not DONE, when the wrapper is SIGKILLed mid-command", async () => {
 		const child = spawn(SCRIPT, ["run", "doomed", "sleep", KILLED_LIFETIME_S], {
-			env: env(),
+			env: env(QUICK_BEAT),
 		});
 		await untilPublished("doomed");
 		expectMidCommand("doomed", child.pid);
@@ -120,7 +122,7 @@ describe("a run that is killed", () => {
 			SCRIPT,
 			["run", "nostatus", "sleep", KILLED_LIFETIME_S],
 			{
-				env: env(),
+				env: env(QUICK_BEAT),
 			},
 		);
 		await untilPublished("nostatus");
@@ -205,12 +207,22 @@ describe("inline output", () => {
  * so a job whose own text happens to contain "DONE" or "KILLED" would
  * otherwise pass a `toContain` check that never looked at the verdict. */
 describe("wait", () => {
-	function wait(name: string, ceiling: string) {
-		return run(["wait", name, ceiling]);
+	/* A fifth of FAST's poll, for a case whose wait is the next poll after
+	 * the run's verdict changes (#5143): a guess, not a measurement. */
+	const quickPoll = { WFC_BG_WAIT_POLL_S: "0.2" };
+
+	function wait(
+		name: string,
+		ceiling: string,
+		extra: Record<string, string> = {},
+	) {
+		return run(["wait", name, ceiling], extra);
 	}
 
 	function spawnWait(name: string, ceiling: string) {
-		const child = spawn(SCRIPT, ["wait", name, ceiling], { env: env() });
+		const child = spawn(SCRIPT, ["wait", name, ceiling], {
+			env: env(quickPoll),
+		});
 		let stdout = "";
 		child.stdout.on("data", (d) => {
 			stdout += d;
@@ -267,7 +279,7 @@ describe("wait", () => {
 			env: env(),
 		});
 		await untilPublished("slow");
-		const got = wait("slow", "1");
+		const got = wait("slow", "1", quickPoll);
 		expect(got.status).toBe(2);
 		expect(parseFirstLine(got.stdout)).toContain("RUNNING");
 		child.kill("SIGKILL");
@@ -278,7 +290,7 @@ describe("wait", () => {
 			SCRIPT,
 			["run", "midkill", "sleep", KILLED_LIFETIME_S],
 			{
-				env: env(),
+				env: env(QUICK_BEAT),
 			},
 		);
 		await untilPublished("midkill");
@@ -297,7 +309,7 @@ describe("wait", () => {
 	});
 
 	it("refuses a name it has never run, same as check", () => {
-		const got = wait("never-waited", "1");
+		const got = wait("never-waited", "1", TIGHT_MISSING);
 		expect(got.status).toBe(3);
 		expect(got.stderr).toContain("no run named");
 	});
@@ -722,7 +734,7 @@ describe("the memory sample's descendant walk (mantahostels#2683)", () => {
 			SCRIPT,
 			["run", name, "sh", "-c", `${shellQuote(workerPath)} & wait`],
 			{
-				env: env(),
+				env: env(QUICK_BEAT),
 			},
 		);
 
@@ -757,7 +769,7 @@ describe("the memory sample's descendant walk (mantahostels#2683)", () => {
 				/* Cap at 1: `sh` itself is the only visit the walk gets, so the
 				 * worker script grandchild is never reached — the cap fires on a
 				 * tree two levels deep, not one it can't otherwise walk. */
-				env: env({ WFC_BG_MAX_DESCENDANTS: "1" }),
+				env: env({ ...QUICK_BEAT, WFC_BG_MAX_DESCENDANTS: "1" }),
 			},
 		);
 
@@ -785,7 +797,7 @@ describe("the kill record (mantahostels#2662)", () => {
 			SCRIPT,
 			["run", "recorded", "sleep", KILLED_LIFETIME_S],
 			{
-				env: env(),
+				env: env(QUICK_BEAT),
 			},
 		);
 		/* Killed once the first memory sample lands, one heartbeat in. */
@@ -1028,7 +1040,7 @@ describe("the kill record (mantahostels#2662)", () => {
 			SCRIPT,
 			["run", "checked-twice", "sleep", KILLED_LIFETIME_S],
 			{
-				env: env(),
+				env: env(QUICK_BEAT),
 			},
 		);
 		await untilPublished("checked-twice");
