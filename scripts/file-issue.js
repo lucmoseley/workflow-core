@@ -68,31 +68,22 @@
  * cli-args-exempt: its argv is the core's, parsed there by lib/cli-args.js.
  */
 
-const fs = require("node:fs");
-const { fileIssue } = require("./lib/file-issue-core.js");
-const { gh } = require("./lib/gh.js");
-const { runLinkSync } = require("./lib/link-writer.js");
-const { readGateWrite } = require("./lib/gate-judge.js");
-const { now } = require("./lib/check.js");
+const { fileIssue, FileIssueCrash } = require("./lib/file-issue-core.js");
+const { buildHostPorts } = require("./lib/file-issue-host.js");
 const { writeFd } = require("./lib/write-fd.js");
 
-/** @type {import("./lib/file-issue-core.js").FileIssuePorts} */
-const PORTS = {
-	gh,
-	link: (repo, parent, child) => {
-		const r = runLinkSync("sub-issue", [String(parent), String(child)], {
-			repo,
-		});
-		if (r.code === 0) return { ok: r.out.trim(), warning: r.warning };
-		return { error: r.err || "no output" };
-	},
-	judge: (body) => readGateWrite(body, { route: "file-issue" }),
-	readBody: (file) => fs.readFileSync(file === "-" ? 0 : file, "utf8"),
-	/* A stray WFC_NOW in the session's env skews this durable stamp (check.js `now`). */
-	now,
+/** @param {import("./lib/file-issue-core.js").Outcome} written */
+const write = ({ stdout, stderr }) => {
+	if (stdout) writeFd(1, stdout);
+	if (stderr) writeFd(2, stderr);
 };
 
-const { code, stdout, stderr } = fileIssue(process.argv.slice(2), PORTS);
-if (stdout) writeFd(1, stdout);
-if (stderr) writeFd(2, stderr);
-process.exitCode = code;
+try {
+	const outcome = fileIssue(process.argv.slice(2), buildHostPorts());
+	write(outcome);
+	process.exitCode = outcome.code;
+} catch (e) {
+	if (!(e instanceof FileIssueCrash)) throw e;
+	write(e.written);
+	throw e.cause;
+}

@@ -83,9 +83,19 @@ const SPEC = {
 	},
 };
 
+/*
+ * DIRECT I/O, on purpose (#5150): the core reads the config's tracker, the
+ * rule-text store, the session id and the arbiter (claim, acts ledger, error
+ * log), writes the signature log, and runs a body's gate `check:` commands
+ * (gate-check.js `run: true`) itself rather than through ports. Each runs
+ * in-process against the test's sandbox, which §X11 condition 2 allows.
+ * Residual: a module case still spawns the gate's `check:` commands and the
+ * arbiter's liveness oracle, and a filing outside a sandbox writes the real
+ * ledger and log.
+ */
+
 /**
- * What the core asks of the world beyond the filesystem, the arbiter and the
- * session's environment, which it reads directly.
+ * What the core asks of the world beyond the I/O above.
  * @typedef {object} FileIssuePorts
  * @property {import("./gh.js").GhRun} gh  every tracker read and write
  * @property {(repo: string, parent: number, child: number) =>
@@ -148,13 +158,45 @@ function buildStreams() {
  */
 
 /**
- * The whole run: the exit code and what it wrote to each stream.
+ * A throw the core did not mean, carrying what it had written before it: a
+ * crash after the create still hands back the `Filed #N` line, so the caller
+ * sees the number and does not file a duplicate.
+ */
+class FileIssueCrash extends Error {
+	/**
+	 * @param {Outcome} written
+	 * @param {{cause: unknown}} options
+	 */
+	constructor(written, { cause }) {
+		super(caught(cause).message, { cause });
+		this.name = "FileIssueCrash";
+		this.written = written;
+	}
+}
+
+/**
+ * The whole run: the exit code and what it wrote to each stream. A throw it
+ * did not mean is rethrown as a FileIssueCrash carrying both streams.
  * @param {string[]} argv
  * @param {FileIssuePorts} ports
  * @returns {Outcome}
  */
 function fileIssue(argv, ports) {
 	const io = buildStreams();
+	try {
+		return runAll(io, argv, ports);
+	} catch (e) {
+		throw new FileIssueCrash(io.end(1), { cause: e });
+	}
+}
+
+/**
+ * @param {Streams} io
+ * @param {string[]} argv
+ * @param {FileIssuePorts} ports
+ * @returns {Outcome}
+ */
+function runAll(io, argv, ports) {
 	/** @type {import("./cli-args.js").Parsed} */
 	let parsed;
 	try {
@@ -739,7 +781,7 @@ function checkSimilar(io, ports, repo, opts) {
 	try {
 		similar = similarTitles(repo, /** @type {string} */ (opts.title), ports.gh);
 	} catch (e) {
-		// Fails open: a gh outage would otherwise stop every filing.
+		// Fails open: a gh outage would otherwise stop every filing (#536).
 		io.out(
 			`Could not list similar open issues (${parseErrLine(e)}) — filing without the check.\n`,
 		);
@@ -949,4 +991,4 @@ function claimFiled(io, ports, { repo, n, sessionId }) {
 	return null;
 }
 
-module.exports = { fileIssue, USAGE };
+module.exports = { fileIssue, FileIssueCrash };
