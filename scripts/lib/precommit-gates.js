@@ -53,7 +53,8 @@ const SITE_IDENTITY = ["severity", "tag", "file", "match"];
  *   gate the lander's Actions run repeats
  * @property {string[]} args what the dispatcher hands the checker; on a
  *   program row, the arguments under which its script's own process runs
- *   what PROGRAM runs, which check-in-process.contract.test.ts holds equal
+ *   what PROGRAM runs, which check-in-process-armed-rows and
+ *   check-in-process-always-rows hold equal
  * @property {import("./precommit-dispatch.js").Arm} arm the staged paths
  *   that run it
  * @property {"gate" | "warn"} policy whether its red refuses the commit

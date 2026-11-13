@@ -286,16 +286,14 @@ if (foreign.length && foreign[0] !== "o/r" && /dependencies\\/blocked_by/.test(p
 // fails, so that issue takes the REST path and meets the failure there.
 ${LINKS_GRAPHQL_FAKE}
 ${RECORDED_SHAPES}
-// The embedded serveAnswer calls process.exit, which here ends the server.
-const answer = (a) => { out(a.stdout); err(a.stderr); exit(a.status); };
-const fail = () => answer(${JSON.stringify(GH_NOT_FOUND)});
+const fail = () => serveHandlerAnswer(${JSON.stringify(GH_NOT_FOUND)});
 if (p === "graphql") {
   if (fx.failGraphql) return fail();
   if (fx.failGraphqlOnce && bump("graphql") === 1) return fail();
   if (fx.graphqlAnswers === "empty") return;
-  if (fx.graphqlAnswers === "noRepo") return answer(${JSON.stringify(GH_GRAPHQL_NO_REPO)});
+  if (fx.graphqlAnswers === "noRepo") return serveHandlerAnswer(${JSON.stringify(GH_GRAPHQL_NO_REPO)});
   const failing = [...(fx.failDeps || []), ...(fx.failDepsOnce || [])];
-  return answer(answerLinks(argv, (_repo, n) =>
+  return serveHandlerAnswer(answerLinks(argv, (_repo, n) =>
     failing.includes(n) ? null : { blockedBy: (fx.deps || {})[n] || [] }));
 }
 if (/dependencies\\/blocked_by/.test(p)) {
@@ -306,7 +304,7 @@ if (/dependencies\\/blocked_by/.test(p)) {
 }
 if (/\\/parent$/.test(p)) {
   const parent = (fx.parents || {})[num(/issues\\/(\\d+)\\/parent/)];
-  if (!parent) return answer(${JSON.stringify(GH_PARENT_NOT_FOUND)});
+  if (!parent) return serveHandlerAnswer(${JSON.stringify(GH_PARENT_NOT_FOUND)});
   return page("parentPage", { url: parent.url, labels: parent.labels.map((name) => ({ name })) });
 }
 if (/\\/sub_issues/.test(p)) {
@@ -328,7 +326,7 @@ if (/\\/timeline/.test(p)) {
 if (/^repos\\/[^/]+\\/[^/]+$/.test(p))
   return out(asRecorded("repo", { open_issues_count: fx.openCount ?? fx.issues.length }) + "\\n");
 if (/issues\\?state=open/.test(p)) {
-  if (fx.failList) return answer(${JSON.stringify(GH_LOGGED_OUT)});
+  if (fx.failList) return serveHandlerAnswer(${JSON.stringify(GH_LOGGED_OUT)});
   return page("issuesPage", fx.issues.map((i) => ({
     number: i.number,
     state: "open",
