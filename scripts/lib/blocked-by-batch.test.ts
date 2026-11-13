@@ -67,14 +67,13 @@ const bump = (k) => {
 };
 ${LINKS_GRAPHQL_FAKE}
 ${RECORDED_SHAPES}
-const answer = (a) => { out(a.stdout); err(a.stderr); exit(a.status); };
-const fail = () => answer(${JSON.stringify(GH_NOT_FOUND)});
+const fail = () => serveHandlerAnswer(${JSON.stringify(GH_NOT_FOUND)});
 if (argv[1] === "graphql") {
   if (fx.failBatch === "always") return fail();
   if (fx.failBatch === "once" && bump("graphql") === 1) return fail();
   if (fx.batchAnswers === "empty") return;
-  if (fx.batchAnswers === "noRepo") return answer(${JSON.stringify(GH_GRAPHQL_NO_REPO)});
-  return answer(answerLinks(argv, (_repo, n) =>
+  if (fx.batchAnswers === "noRepo") return serveHandlerAnswer(${JSON.stringify(GH_GRAPHQL_NO_REPO)});
+  return serveHandlerAnswer(answerLinks(argv, (_repo, n) =>
     (fx.nullInBatch || []).includes(n) ? null : { blockedBy: (fx.deps || {})[n] || [] }));
 }
 const n = Number(argv[1].match(/issues\/(\d+)\/dependencies\/blocked_by/)[1]);

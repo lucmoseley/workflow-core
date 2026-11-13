@@ -73,7 +73,6 @@ const a = argv;
 fs.appendFileSync(f("calls"), a.join(" ") + "\\n");
 const say = (o) => { out(typeof o === "string" ? o : JSON.stringify(o)); exit(0); };
 const no = (m) => { err(m + "\\n"); exit(1); };
-const serve = (g) => { out(g.stdout); err(g.stderr); exit(g.status); };
 const { readText } = require("./file-read.js");
 const optional = (n) => { const r = readText(f(n)); return r.state === "read" ? r.data : null; };
 const issue = () => JSON.parse(fs.readFileSync(f("issue.json"), "utf8"));
@@ -82,7 +81,7 @@ if (a[0] === "api") {
 	if (a[1] === "user") say({ login: "me" });
 	if (a[1] === "graphql") {
 		// Every cited number open, unless the gql-closed file lists it (#984).
-		serve(answerGraphql(a, optional("gql-closed")?.split(" ") ?? [], []));
+		serveHandlerAnswer(answerGraphql(a, optional("gql-closed")?.split(" ") ?? [], []));
 	}
 	if (a[1] === "repos/acme/widgets/issues/534") say(issue());
 	if (a[1] === "repos/acme/widgets/issues/534/sub_issues")

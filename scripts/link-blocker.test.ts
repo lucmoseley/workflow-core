@@ -58,18 +58,17 @@ const path = require("node:path");
 const at = (name) => path.join(env.GH_STUB_DIR, name);
 fs.appendFileSync(at("calls.log"), argv.join(" ") + "\\n");
 const g = JSON.parse(fs.readFileSync(at("gh-answers.json"), "utf8"));
-const serve = (a) => { out(a.stdout); err(a.stderr); exit(a.status); };
 const joined = argv.join(" ");
 if (joined.includes("--method POST"))
-	serve(g.postFails ? { status: 1, stdout: "", stderr: "gh: Bad credentials (HTTP 401)\\n" } : { status: 0, stdout: "{}", stderr: "" });
+	serveHandlerAnswer(g.postFails ? { status: 1, stdout: "", stderr: "gh: Bad credentials (HTTP 401)\\n" } : { status: 0, stdout: "{}", stderr: "" });
 if (argv[1] === "graphql")
-	serve(g.graphFails
+	serveHandlerAnswer(g.graphFails
 		? { status: 1, stdout: "", stderr: "gh: Something went wrong (HTTP 502)\\n" }
 		: answerLinks(argv, (repo, n) => g.graph[repo.toLowerCase() + "#" + n] ?? {}));
-if (joined.includes("/dependencies/blocked_by --paginate --slurp")) serve({ status: 0, stdout: g.listed, stderr: "" });
+if (joined.includes("/dependencies/blocked_by --paginate --slurp")) serveHandlerAnswer({ status: 0, stdout: g.listed, stderr: "" });
 const id = /^repos\\/([^/]+\\/[^/]+)\\/issues\\/(\\d+)$/.exec(argv[1] ?? "");
-if (id && argv.includes(".id")) serve(buildJqLines(9000 + Number(id[2])));
-serve({ status: 1, stdout: "", stderr: "gh: no answer for " + joined + "\\n" });
+if (id && argv.includes(".id")) serveHandlerAnswer(buildJqLines(9000 + Number(id[2])));
+serveHandlerAnswer({ status: 1, stdout: "", stderr: "gh: no answer for " + joined + "\\n" });
 `;
 
 let server: GhStubServer;

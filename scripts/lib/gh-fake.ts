@@ -168,12 +168,16 @@ export const ghAnswerHandler = (fixture: string) =>
  * of a fixture the contract holds to the real call, so its keys and types
  * are gh's and only its values are the test's. A GraphQL one is node source
  * defining one function that returns a GhAnswer, for a stub to embed and
- * print with `serveAnswer`, or for `ghComputed` to load in-process.
+ * print with `serveAnswer` — or, in serveGhStub's handler, `serveHandlerAnswer`
+ * — or for `ghComputed` to load in-process.
  */
 
 /* Declarations a computed source embeds; a stub embedding two repeats them
  * harmlessly. `shaped` keeps exactly the template's keys, `answerOf` errs
- * as gh does on a GraphQL `errors` list: exit 1, each message on stderr. */
+ * as gh does on a GraphQL `errors` list: exit 1, each message on stderr.
+ * `serveAnswer` prints through `process`; `serveHandlerAnswer` through the
+ * `out`, `err` and `exit` of serveGhStub's handler, whose `process` is the
+ * server's, so `process.exit` there ends every later call. */
 const HELPERS = String.raw`function shaped(template, values) {
 	return Object.fromEntries(Object.keys(template).map((k) => [k, k in values ? values[k] : template[k]]));
 }
@@ -189,6 +193,11 @@ function serveAnswer(a) {
 	process.stdout.write(a.stdout);
 	process.stderr.write(a.stderr);
 	process.exit(a.status);
+}
+function serveHandlerAnswer(a) {
+	out(a.stdout);
+	err(a.stderr);
+	exit(a.status);
 }`;
 
 /**
