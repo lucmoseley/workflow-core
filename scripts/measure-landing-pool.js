@@ -103,7 +103,6 @@ const CLI = {
 const iso = (t) => new Date(t).toISOString();
 
 /**
- * Whether `ancestor` is in `rev`'s history.
  * @param {string} cwd
  * @param {string} ancestor
  * @param {string} rev
@@ -188,7 +187,7 @@ function readCarriedSince(root, carry) {
 	);
 	for (const line of log.split("\n").filter(Boolean)) {
 		const [rev, ct] = line.split(" ");
-		/* null where the revision deleted the file, which ends the run too. */
+		/* null where the revision deleted the file. */
 		const ref = pinRef(
 			parseJsonOrNull(gitOrNull(["show", `${rev}:${SETTINGS}`], { cwd: root })),
 		);
@@ -336,7 +335,7 @@ function countReaps(home, since) {
 }
 
 /**
- * The reaps reading. A `--since` still ahead reads 0: #5054's gate is set
+ * A `--since` still ahead reads 0: #5054's gate is set
  * before the reaps it counts begin.
  * @param {string} home
  * @param {string} since

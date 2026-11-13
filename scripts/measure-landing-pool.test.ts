@@ -49,7 +49,6 @@ const write = (file: string, text: string) => {
 
 const markers = (root: string) => path.join(root, ".claude", "tmp", "markers");
 
-/** A main checkout under the fixture home carrying a config. */
 const checkout = (name: string, modules: string[]) => {
 	const root = path.join(home, name);
 	fs.mkdirSync(root);
@@ -69,7 +68,6 @@ const settings = (ref: string) =>
 		},
 	});
 
-/** Commits a pin to `ref` at time `at`. */
 const pin = (root: string, ref: string, at: number) => {
 	write(path.join(root, ".claude", "settings.json"), settings(ref));
 	git(root, ["add", ".claude/settings.json"]);
@@ -80,7 +78,6 @@ const pin = (root: string, ref: string, at: number) => {
 	});
 };
 
-/** A release root commit rendered from `source`, tagged `tag`. */
 const release = (tag: string, source: string) => {
 	const tree = git(core, ["mktree"], {});
 	const commit = git(core, [
@@ -92,13 +89,11 @@ const release = (tag: string, source: string) => {
 	git(core, ["tag", tag, commit]);
 };
 
-/** A green run of `secs` seconds ending at `end`. */
 const green = (end: number, secs: number, sha: string) => [
 	`${iso(end - secs * S)} test-sha ${sha}`,
 	`${iso(end)} fast-forward-main ${sha}`,
 ];
 
-/** Queue rows for stays of the given seconds, ending one minute apart from `end` back. */
 const stays = (end: number, lengths: number[]) =>
 	lengths
 		.flatMap((secs, k) => {
@@ -114,7 +109,7 @@ const stays = (end: number, lengths: number[]) =>
 		.map((r) => JSON.stringify(r))
 		.join("\n");
 
-/* Every case only reads the fixture, so it is built once (§X8). */
+/* Every case only reads the fixture. */
 beforeAll(() => {
 	home = fs.mkdtempSync(path.join(os.tmpdir(), "landing-pool-"));
 	core = checkout("workflow-core", ["landing"]);
@@ -161,7 +156,6 @@ beforeAll(() => {
 
 	checkout("quiet", []);
 
-	/* Reaps: two in the window for workflow-core, one before it; one for lodge. */
 	const reap = (t: number) => JSON.stringify({ at: iso(t), path: "x" });
 	write(
 		path.join(core, ".git", "wfc-reaped-worktrees.jsonl"),

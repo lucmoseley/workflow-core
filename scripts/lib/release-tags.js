@@ -83,7 +83,7 @@ const readLatestTag = (root) => readReleaseTags(root).at(-1) ?? null;
 /**
  * Whether release `tag` carries `sha`: `sha` is an ancestor of the source its
  * message names. `git tag --contains` cannot answer it, as each release is a
- * root commit (release-contains.js).
+ * root commit.
  * @param {string} root a clone holding the tags and their sources
  * @param {string} tag
  * @param {string} sha
