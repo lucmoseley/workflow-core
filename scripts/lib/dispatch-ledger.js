@@ -202,9 +202,10 @@ const isKeptPastWindow = (rec, now) =>
  * ledger is append-only and a torn write must not disarm every later check.
  * @param {string|undefined} root
  * @param {number} windowHours
+ * @param {number} [now] epoch ms the window ends at
  * @returns {{ok: boolean, rows: (DispatchRecord|ReleaseRecord)[], error?: string}}
  */
-function readCountedRows(root, windowHours) {
+function readCountedRows(root, windowHours, now = Date.now()) {
 	let read;
 	try {
 		read = readJsonl(ledgerPath(root));
@@ -212,7 +213,6 @@ function readCountedRows(root, windowHours) {
 		return { ok: false, rows: [], error: String(err) };
 	}
 	if (!read) return { ok: true, rows: [] }; // never launched from here: not a failure
-	const now = Date.now();
 	const cutoff = now - windowHours * 3600 * 1000;
 	const rows = /** @type {(DispatchRecord|ReleaseRecord)[]} */ ([]);
 	for (const rec of read.rows) {
@@ -237,10 +237,11 @@ const isLaunch = (rec) => !("released" in rec);
  * that keeps a released job's id holds again (#3722).
  * @param {string|undefined} root
  * @param {number} windowHours
+ * @param {number} [now] epoch ms the window ends at
  * @returns {{ok: boolean, entries: DispatchRecord[], error?: string}}
  */
-function readRecentEntries(root, windowHours) {
-	const { rows, ...read } = readCountedRows(root, windowHours);
+function readRecentEntries(root, windowHours, now = Date.now()) {
+	const { rows, ...read } = readCountedRows(root, windowHours, now);
 	/** @type {Map<string, number>} each job's last release, by line */
 	const lastRelease = new Map();
 	rows.forEach((r, i) => {

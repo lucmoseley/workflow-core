@@ -166,7 +166,8 @@ describe.skipIf(!hasProc)("a fake /proc entry for this process", () => {
 		const ticks = (process.cpuUsage().user / 1e6) * USER_HZ;
 		const real = Number(fields?.[FIELD.utime]);
 
-		/* Both read the same moment, a few ticks apart at most. */
+		/* Both read the same moment. The 5 ticks and 5% are guesses, never
+		 * measured: wide of the two reads' gap, narrow of any other field. */
 		expect(Math.abs(real - ticks)).toBeLessThan(Math.max(5, ticks * 0.05));
 		const built = parseStatFields(
 			buildStatLine(process.pid, { comm, utime: real, startTicks: 1 }),

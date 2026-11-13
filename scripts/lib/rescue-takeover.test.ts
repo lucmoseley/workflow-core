@@ -123,6 +123,22 @@ describe("takeover: a headless overflow holder (#2608)", () => {
 	});
 });
 
+describe("takeover: a step that throws (#5157)", () => {
+	it("fails with exit 1 and the stack, stopping and adopting nothing", async () => {
+		frozenHolder();
+		world().ports.sleep = async () => {
+			throw new Error("clock broke");
+		};
+		const r = await takeover();
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			"rescue-sessions takeover: failed: Error: clock broke\n",
+		);
+		expect(stopped()).toBe(false);
+		expect(readHolders()).toEqual([SID]);
+	});
+});
+
 describe("takeover: the success path", () => {
 	it("comments the stopped session, its plan, the verdict with its evidence, and the snapshot", async () => {
 		frozenHolder();
@@ -580,12 +596,13 @@ describe("takeover --despite: the founder overrules SLOW or ASKING (#622)", () =
 
 /* #1989 */
 describe("takeover: a GHOST is stopped and handed back for re-dispatch", () => {
-	it("adds --force where its own launch is still inside the ledger window, and --no-advisor where it ran with none", async () => {
+	/** A sonnet ghost with no advisor, its own launch `minutes` back on the fake clock. */
+	const launchedAgo = (minutes: number) => {
 		ghostJob(`/implement ${N}`);
 		jobState({
 			state: "working",
 			intent: `/implement ${N}`,
-			updatedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+			updatedAt: new Date(world().ports.now() - 60 * 60_000).toISOString(),
 			respawnFlags: ["--model", "sonnet"],
 		});
 		lists([], plan(), true);
@@ -593,12 +610,25 @@ describe("takeover: a GHOST is stopped and handed back for re-dispatch", () => {
 		fs.mkdirSync(path.dirname(ledgerFile), { recursive: true });
 		fs.writeFileSync(
 			ledgerFile,
-			`${JSON.stringify({ ts: new Date(Date.now() - 40 * 60_000).toISOString(), issues: [N], model: "sonnet", prompt: `/implement ${N}` })}\n`,
+			`${JSON.stringify({ ts: new Date(world().ports.now() - minutes * 60_000).toISOString(), issues: [N], model: "sonnet", prompt: `/implement ${N}` })}\n`,
 		);
+	};
+
+	it("adds --force where its own launch is still inside the ledger window, and --no-advisor where it ran with none", async () => {
+		launchedAgo(40);
 		const r = await takeover();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(
 			`scripts/dispatch-sessions.js --force --no-advisor sonnet '/implement ${N}'`,
+		);
+	});
+
+	it("adds no --force once its own launch has left the ledger window", async () => {
+		launchedAgo(120);
+		const r = await takeover();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(
+			`scripts/dispatch-sessions.js --no-advisor sonnet '/implement ${N}'`,
 		);
 	});
 

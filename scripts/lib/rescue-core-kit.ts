@@ -15,32 +15,10 @@ import { makeProcRoot } from "./proc-fake";
 import { createRescuePorts } from "./rescue-ports-fake";
 import { holderRow, type Row, type Run, rescueKit } from "./rescue-testkit";
 
-type Core = (args: object, ports: object) => Promise<Run>;
-
-const CORES: Record<string, () => Core> = {
-	list: () => require("./rescue-jobs.js").list,
-	snapshot: () => require("./rescue-jobs.js").snapshot,
-	stop: () => require("./rescue-jobs.js").stop,
-	probe: () => require("./rescue-probe.js").probe,
-	takeover: () => require("./rescue-takeover.js").takeover,
-	"hand-off": () => require("./rescue-takeover.js").handOff,
+const { ENTRIES, parseArgs } = require("./rescue-cli.js") as {
+	ENTRIES: Record<string, () => (args: object, ports: object) => Promise<Run>>;
+	parseArgs: (argv: string[]) => object;
 };
-
-/**
- * `argv`'s `--flag value` pairs as rescue-sessions.js's parseArgs keys them:
- * each flag without its `--`, hand-off's repeatable `--issue` as a list.
- */
-export function toArgs(sub: string, argv: string[]) {
-	const out: { _: string[] } & Record<string, string | string[]> = { _: [sub] };
-	for (let i = 0; i < argv.length; i += 2) {
-		const key = String(argv[i]).slice(2);
-		const value = String(argv[i + 1]);
-		if (sub === "hand-off" && key === "issue")
-			out.issue = [...((out.issue as string[] | undefined) ?? []), value];
-		else out[key] = value;
-	}
-	return out;
-}
 
 export function rescueCoreKit(sb: Sandbox) {
 	const files = rescueKit(sb);
@@ -82,23 +60,23 @@ export function rescueCoreKit(sb: Sandbox) {
 	const removeProc = (pid: number) =>
 		fs.rmSync(`${proc.root}/${pid}`, { recursive: true, force: true });
 
-	/** files.ghostJob's job that never started, listed through the fake. */
+	/** files.ghostJob's job that never started, an hour old on the fake clock, listed through the fake. */
 	const ghostJob = (
 		intent: string,
 		rows: Row[] = [holderRow({ pid: undefined })],
 	) => {
-		files.ghostJob(intent, rows);
+		files.ghostJob(intent, rows, world.ports.now());
 		lists([
 			...rows,
 			{ sessionId: "neighbour", kind: "background", state: "working", pid: 7 },
 		]);
 	};
 
-	/** The core behind `sub`, given `argv`, on the fake ports. */
+	/** The core behind `sub`, given `argv` as the shell parses it, on the fake ports. */
 	const run = (sub: string, argv: string[]): Promise<Run> => {
-		const core = CORES[sub];
-		if (!core) throw new Error(`no core for ${sub}`);
-		return core()(toArgs(sub, argv), world.ports);
+		const entry = ENTRIES[sub];
+		if (!entry) throw new Error(`no core for ${sub}`);
+		return entry()(parseArgs([sub, ...argv]), world.ports);
 	};
 
 	return {

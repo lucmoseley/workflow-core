@@ -477,7 +477,7 @@ async function stopGhost(
 		ports,
 	);
 	io.out(
-		`\nNothing ran, so nothing is adopted. ${buildRedispatchText(rec, kept)}\n`,
+		`\nNothing ran, so nothing is adopted. ${buildRedispatchText(rec, kept, ports.now())}\n`,
 	);
 	return 0;
 }
@@ -488,8 +488,9 @@ async function stopGhost(
  * still held by the dispatch ledger, which would otherwise refuse it.
  * @param {any} rec  the ghost's job record, as `GhostJob` carries it
  * @param {string} kept  where that record was copied
+ * @param {number} now  epoch ms the ledger window ends at
  */
-function buildRedispatchText(rec, kept) {
+function buildRedispatchText(rec, kept, now) {
 	const { shellQuote } = require("./sh-quote.js");
 	const {
 		DEFAULT_WINDOW_HOURS,
@@ -504,7 +505,11 @@ function buildRedispatchText(rec, kept) {
 	if (!intent || !model)
 		return `Its record names ${intent ? "no model" : "no intent"} — re-dispatch it by hand from ${kept}.`;
 	const issues = issuesIn(intent.match(INTENT_ISSUES)?.[0] ?? "");
-	const held = readRecentEntries(undefined, DEFAULT_WINDOW_HOURS).entries.some(
+	const held = readRecentEntries(
+		undefined,
+		DEFAULT_WINDOW_HOURS,
+		now,
+	).entries.some(
 		(e) =>
 			e.issues.some((n) => issues.includes(n)) &&
 			entryHolds(e, commandOf(intent)),

@@ -97,7 +97,8 @@ export function createRescuePorts(procRoot: string) {
 		down: false,
 		commentFails: false,
 	};
-	let clock = Date.now();
+	/* A day ahead of the wall clock, so a read that skips `now` reads a different age. */
+	let clock = Date.now() + 24 * 3_600_000;
 	let stopSeat = "";
 
 	const claude = createArmClaudeFake({

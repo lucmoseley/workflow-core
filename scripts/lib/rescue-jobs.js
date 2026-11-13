@@ -45,10 +45,9 @@ const OTHER_INPUT_CHARS = 100;
  * @property {NodeJS.ProcessEnv} env
  * @property {() => number} now  the clock, in epoch milliseconds
  * @property {(ms: number) => Promise<void>} sleep
- * @property {RunOracle | undefined} oracle  `claude agents --json` per config
- *   dir, lib/agent-liveness.js's runOracle where undefined
- * @property {typeof import("./child-spawn.js").spawnRaw | undefined} claude  `claude
- *   stop`'s spawn, lib/claude-stop.js's default where undefined
+ * @property {RunOracle} oracle  `claude agents --json` per config dir
+ * @property {typeof import("./child-spawn.js").spawnRaw} claude  `claude
+ *   stop`'s spawn
  * @property {import("./gh.js").GhRun} gh
  * @property {string} procRoot
  */
@@ -505,7 +504,7 @@ function deathPoint(narration) {
  * `null`, never to "all dead".
  *
  * @param {string} dir
- * @param {RunOracle | undefined} oracle
+ * @param {RunOracle} oracle
  * @returns {Set<string> | null}
  */
 function liveSessions(dir, oracle) {

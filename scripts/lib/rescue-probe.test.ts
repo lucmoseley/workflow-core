@@ -96,6 +96,16 @@ describe("probe: the verdict table, first match wins", () => {
 		expect(r.stdout).toContain("does not list this very session");
 	});
 
+	it("UNKNOWN, with what threw, when a step throws past every reading (#5157)", async () => {
+		frozenHolder();
+		world().ports.sleep = async () => {
+			throw new Error("clock broke");
+		};
+		const r = await probe();
+		expect(r.status).toBe(EXIT.UNKNOWN);
+		expect(r.stderr).toContain("UNKNOWN  probe failed: clock broke\n");
+	});
+
 	it("ENDED when no plan lists it", async () => {
 		frozenHolder();
 		lists([]);
@@ -466,7 +476,10 @@ describe("probe: GHOST, off the first sample alone", () => {
 
 	it("not GHOST inside the grace window", async () => {
 		ghostJob("/implement 620");
-		jobState({ state: "working", updatedAt: new Date().toISOString() });
+		jobState({
+			state: "working",
+			updatedAt: new Date(world().ports.now()).toISOString(),
+		});
 		const r = await probe(["--session", SID]);
 		expect(r.status).toBe(EXIT.UNKNOWN);
 		expect(r.stdout).toContain("first sample: /proc would not read");

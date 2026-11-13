@@ -789,12 +789,12 @@ function openIssues(issues, gh) {
  * one took a turn, so the two samples judge it. A listing that would not
  * read is doubt, not absence.
  * @param {Listing} listing
- * @param {string[]} dirs
- * @param {string} sessionId
  * @param {ProbeSample} sample
+ * @param {{dirs: string[], sessionId: string, now: number}} holder  its
+ *   plans, its session, and the epoch ms its record's age is taken at
  * @returns {{verdict: "GHOST", why: string, evidence: string[], ghost: GhostJob} | null}
  */
-function ghostVerdict(listing, dirs, sessionId, sample) {
+function ghostVerdict(listing, sample, { dirs, sessionId, now }) {
 	const { ghostTest, livenessOf } = require("./hung-jobs");
 	if (sample.transcript || sample.unread) return null;
 	if (sample.holder && isTerminalAgent(sample.holder.row)) return null;
@@ -803,7 +803,7 @@ function ghostVerdict(listing, dirs, sessionId, sample) {
 	const found = { dir: own.seat, rec: own.job };
 	const listed = livenessOf(listing.agents ?? []);
 	if (!listed.ids) return null;
-	const ghost = ghostTest(found.rec, listed);
+	const ghost = ghostTest(found.rec, listed, undefined, now);
 	if (typeof ghost === "string") return null;
 	const age =
 		ghost.age === null ? "an unreadable time" : `${Math.floor(ghost.age)}m`;
@@ -845,7 +845,11 @@ async function sampleHolder(io, args, cmd, ports) {
 	const who = resolveHolder(args, dirs, first, { cmd, ports });
 	if ("refuse" in who) return die(io, who.refuse);
 	const before = takeSample(first, dirs, who.sessionId, ports.procRoot);
-	const ghost = ghostVerdict(first, dirs, who.sessionId, before);
+	const ghost = ghostVerdict(first, before, {
+		dirs,
+		sessionId: who.sessionId,
+		now: ports.now(),
+	});
 	if (ghost) return { who, dirs, after: before, ...ghost };
 	await ports.sleep(interval * 1000);
 	const after = takeSample(

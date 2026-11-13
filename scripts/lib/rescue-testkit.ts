@@ -96,6 +96,9 @@ export function rescueKit(sb: Sandbox) {
 	const transcript = (dir = plan()) =>
 		path.join(dir, "projects", "p", `${SID}.jsonl`);
 
+	/* The `agents` branch is hand-written, not buildAgentsBranch's: a takeover
+	 * case needs the listing to change once a stop takes, so it is read off
+	 * disk each call. Its rows still pass through `listed`. */
 	const fakeClaude = (onStop: string[] = []) =>
 		writeClaudeStub(path.join(sb.dir, "claude"), [
 			'd="$CLAUDE_CONFIG_DIR"',
@@ -167,6 +170,7 @@ export function rescueKit(sb: Sandbox) {
 	const ghostJob = (
 		intent: string,
 		rows: Row[] = [holderRow({ pid: undefined })],
+		now = Date.now(),
 	) => {
 		lists([
 			...rows,
@@ -176,7 +180,7 @@ export function rescueKit(sb: Sandbox) {
 			state: "working",
 			detail: "starting…",
 			intent,
-			updatedAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+			updatedAt: new Date(now - 60 * 60_000).toISOString(),
 			respawnFlags: ["--advisor", "opus", "--model", "opus"],
 		});
 	};
