@@ -9,7 +9,7 @@
  */
 
 import fs from "node:fs";
-import { afterEach, beforeEach, vi } from "vitest";
+import { afterEach, beforeEach } from "vitest";
 import type { Sandbox } from "./arbiter-testkit";
 import { makeProcRoot } from "./proc-fake";
 import { createRescuePorts } from "./rescue-ports-fake";
@@ -54,7 +54,6 @@ export function rescueCoreKit(sb: Sandbox) {
 		proc = makeProcRoot();
 		world = createRescuePorts(proc.root);
 		argvOf.clear();
-		vi.stubEnv("WFC_PROC", proc.root);
 	});
 	afterEach(() => proc.remove());
 
