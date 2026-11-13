@@ -2,8 +2,9 @@
  * arm-claude.js — the `claude` calls of scripts/run-arm-test.js's core,
  * lib/run-arm.js (#2045, #5149): a run's `--bg` launch in its arm's config
  * dir, and one config dir's job listing. Each goes through the core's
- * `claude` port, so lib/arm-claude.contract.test.ts holds the runner's
- * in-process fake to the production adapter through these same calls.
+ * `claude` port, and reads the time from its `now`, touching nothing else,
+ * so lib/arm-claude.contract.test.ts holds the runner's in-process fake to
+ * the production adapter through these same calls.
  */
 
 const path = require("node:path");

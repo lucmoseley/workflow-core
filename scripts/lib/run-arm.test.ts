@@ -88,10 +88,6 @@ interface KitOpts extends Omit<ArmClaudeOptions, "listing"> {
 	sleep?: (ms: number) => void;
 }
 
-/**
- * The core on its fakes, and what they saw. `run` parses argv as the shell
- * does and calls the subcommand's entry.
- */
 function kit(o: KitOpts = {}) {
 	const admissionCli = path.join(tmp, "admission.js");
 	const env: NodeJS.ProcessEnv = {

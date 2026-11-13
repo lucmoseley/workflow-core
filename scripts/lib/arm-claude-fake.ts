@@ -1,11 +1,10 @@
 /*
  * The in-process fake of the `claude` calls lib/run-arm.js makes through its
- * `claude` port (#5149): `--version`, `auth status`, `agents --json --all`,
- * `stop <job>` and a positional `--bg` launch. It answers from the installed
- * harness's recordings — scripts/fixtures/agents-stop.json's rows and stops,
+ * `claude` port (#5149). It answers from the installed harness's recordings
+ * — scripts/fixtures/agents-stop.json's rows and stops,
  * scripts/fixtures/bg-launch.json's positional launch — and runs
- * lib/fixtures/auth-status.js, the `auth status` fake, in-process. Held to
- * the production adapter by lib/arm-claude.contract.test.ts.
+ * lib/fixtures/auth-status.js, the `auth status` fake. Held to the
+ * production adapter by lib/arm-claude.contract.test.ts.
  */
 
 import path from "node:path";
@@ -15,7 +14,6 @@ import { AUTH_STATUS_FAKE } from "./auth-status-fake";
 import { buildRecordedAnswer } from "./bg-launch-fake";
 import { runInProcess } from "./run-in-process";
 
-/** The version `--version` prints for any binary not named silent. */
 export const FAKE_VERSION = "2.1.304";
 
 export interface Answer {
@@ -31,7 +29,7 @@ interface CallOpts {
 	timeout: number;
 }
 
-/** One `--bg` launch, as the harness would see it. */
+/** One `--bg` launch. */
 export interface Launch {
 	bin: string;
 	argv: string[];
@@ -63,7 +61,6 @@ const answer = (status: number, stdout = "", stderr = ""): Answer => ({
 	stderr,
 });
 
-/** The recorded stop `kind`, naming job `job`. */
 const recordedStop = (kind: "ok" | "noJob", job: string): Answer => {
 	const r = stops.stops[kind];
 	return answer(
@@ -73,12 +70,11 @@ const recordedStop = (kind: "ok" | "noJob", job: string): Answer => {
 	);
 };
 
-/** The 8-hex job id the `n`th launch is answered with. */
 export const launchedJob = (n: number) => n.toString(16).padStart(8, "0");
 
 /**
- * The fake, with what it was asked: every call's binary and argv, each launch
- * tried, the jobs launched, and the jobs stopped.
+ * The fake, and every call's binary and argv, each launch tried, the jobs
+ * launched, and the jobs stopped.
  */
 export function createArmClaudeFake(opts: ArmClaudeOptions = {}) {
 	const calls: { bin: string; args: string[] }[] = [];

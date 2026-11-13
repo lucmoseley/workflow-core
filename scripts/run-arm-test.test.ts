@@ -24,7 +24,11 @@ import {
 } from "./lib/agents-stop-fake";
 import { FAKE_VERSION } from "./lib/arm-claude-fake";
 import { writeLaunchAnswer } from "./lib/bg-launch-fake";
-import { buildBgBranch, writeClaudeStub } from "./lib/claude-stub";
+import {
+	buildBgBranch,
+	buildVersionBranch,
+	writeClaudeStub,
+} from "./lib/claude-stub";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -42,11 +46,9 @@ const {
 
 const { projectSlug } = require("./lib/project-slug.js");
 
-/** The job the stub's every launch is answered with. */
 const STUB_JOB = "0000000a";
 
-/** The stub's `--version` branch, naming FAKE_VERSION as the harness does. */
-const VERSION_BRANCH = `if [ "$1" = "--version" ]; then echo ${shellQuote(`${FAKE_VERSION} (Claude Code)`)}; exit 0; fi`;
+const VERSION_BRANCH = buildVersionBranch(FAKE_VERSION);
 
 /**
  * A `claude` stub: `agents` lists `agents`, `auth status` says signed in,

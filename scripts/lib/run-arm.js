@@ -3,13 +3,14 @@
  * runner (#2045, `docs/research/startup-load-before-after-test.md` D2–D5;
  * core and shell, #5149). The program's header says what each subcommand
  * does; this module does it on the ports it is handed and returns the exit
- * status, and the shell wires the production adapters. Files it reads and
- * writes in place — the plan, the launch records, the arms' `.claude.json`,
- * the transcripts — since a test crosses them for real in its temp dir.
+ * status, and the shell wires the production adapters. It reads and writes
+ * its files in place — the plan, the launch records, the arms'
+ * `.claude.json`, the transcripts — since a test crosses them for real in
+ * its temp dir.
  *
- * Its lines go out through `out` and `err` as they happen, not returned at
- * the end: `run` loops for hours, and its log of each pair started, held or
- * stopped is read while it runs.
+ * Its lines go out through `out` and `err` as they happen: `run` loops for
+ * hours, and its log of each pair started, held or stopped is read while it
+ * runs.
  *
  * IN NO §N3 FAMILY, DELIBERATELY: it gates nothing and files no issue, and it
  * writes outside the repo.

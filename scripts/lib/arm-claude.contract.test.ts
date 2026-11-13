@@ -30,8 +30,11 @@ import {
 } from "./arm-claude-fake";
 import { REFUSED_AUTH } from "./auth-status-fake";
 import { buildAnswerBranch, buildRecordedAnswer } from "./bg-launch-fake";
-import { claudeLiveSkipReason, writeClaudeStub } from "./claude-stub";
-import { shellQuote } from "./sh-quote.js";
+import {
+	buildVersionBranch,
+	claudeLiveSkipReason,
+	writeClaudeStub,
+} from "./claude-stub";
 
 const { spawnRaw } = require("./child-spawn.js");
 const { stopOn } = require("./claude-stop.js");
@@ -50,7 +53,6 @@ afterEach(() => {
 const STOP_ID = recorded.stops.ok.id;
 const NO_JOB_ID = recorded.stops.noJob.id;
 
-/** The ports run-arm.js's readers take, on `spawn`; nothing else is called. */
 const portsOn = (spawn: unknown) => ({
 	env: { ...process.env, PATH: process.env.PATH },
 	claude: spawn,
@@ -74,17 +76,15 @@ const bgBranch = () => {
 	return `if [ "$1" = "--bg" ]; then ${buildAnswerBranch({ status: 0, stdout, stderr })}; fi`;
 };
 
-/** A side: the binary its calls name, and the call. */
 interface Side {
 	bin: string;
 	spawn: unknown;
 }
 
-/** The recording, through the production adapter on a stub. */
 const stubSide = (rows: object[] | null): Side => {
 	const log = path.join(dir, "stops");
 	const bin = writeClaudeStub(path.join(dir, "claude"), [
-		`if [ "$1" = "--version" ]; then echo ${shellQuote(`${recorded.harness} (Claude Code)`)}; exit 0; fi`,
+		buildVersionBranch(recorded.harness),
 		buildAgentsBranch(rows === null ? null : (rows as never)),
 		buildStopBranch(log, { [path.join(dir, "gone")]: "noJob" }),
 		bgBranch(),
@@ -92,7 +92,6 @@ const stubSide = (rows: object[] | null): Side => {
 	return { bin, spawn: spawnRaw };
 };
 
-/** The fake, answering as the stub does. */
 const fakeSide = (rows: object[] | null): Side => {
 	const fake = createArmClaudeFake({
 		listing: () => rows as never,
@@ -107,7 +106,6 @@ const ROWS = [
 	buildJobRow("j-blocked", "blocked"),
 ];
 
-/** Each reader's verdict on one side. */
 const verdicts = (side: Side) => {
 	const p = portsOn(side.spawn);
 	const version = readClaudeVersionOrWhy(side.bin, side.spawn);

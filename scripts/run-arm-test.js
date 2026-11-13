@@ -59,10 +59,8 @@
  * per-period split and a post hoc arm × period check. A hung run's wall time
  * counts at `--ceiling-min`, the run's ceiling.
  *
- * The logic is lib/run-arm.js's core (#5149). This shell parses argv, wires
- * the production adapters — `claude` and each Node program as real children,
- * the monotonic and wall clocks, the thread's own sleep, fd 1 and 2 — and
- * exits with the status the core returns.
+ * The logic is lib/run-arm.js's core (#5149); this shell wires its
+ * production adapters and exits with the status it returns.
  *
  * IN NO §N3 FAMILY, DELIBERATELY: it gates nothing and files no issue, and it
  * writes outside the repo.
