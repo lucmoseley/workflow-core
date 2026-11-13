@@ -149,11 +149,12 @@ function buildHoldPorts({ cwd, env }) {
 			try {
 				root = require("./host-root.js").hostRoot(cwd);
 			} catch {
-				/* readRuleTextOr resolves the root itself, and falls back. */
+				/* readRuleTextOr resolves it from process.cwd(), the cwd the entry
+				 * passes, and falls back there (#3142). */
 			}
 			return require("./rule-text.js").readRuleTextOr(
 				"review-hold",
-				"The review hold's rule did not load",
+				"A commit on a declared sensitive path is held until its pre-commit review is recorded",
 				"review-hold-gate.js",
 				root,
 			);

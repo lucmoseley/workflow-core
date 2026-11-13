@@ -10,7 +10,7 @@
  * A launch spelt out in a skill is judged afresh by the auto-mode classifier
  * each time; a fixed script is what a
  * narrow allow rule can name, run bare. Background sessions go through
- * scripts/dispatch-sessions.sh, not here.
+ * scripts/dispatch-sessions.js, not here.
  *
  * usage   `claude -p /usage --permission-mode manual` on that seat, so the
  *         child can approve no tool: prints both bars and spends no model

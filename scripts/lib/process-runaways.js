@@ -144,9 +144,10 @@ What started this, and whether it could start again. The pids and any later firi
  * The episode tickets on `repo`, by title; throws where the tracker cannot be
  * read.
  * @param {string} repo
+ * @param {Parameters<typeof readTicketsByPrefix>[3]} [run] the gh port
  */
-const readEpisodeTickets = (repo) =>
-	readTicketsByPrefix(repo, "process runaway tickets", TITLE_PREFIX);
+const readEpisodeTickets = (repo, run) =>
+	readTicketsByPrefix(repo, "process runaway tickets", TITLE_PREFIX, run);
 
 module.exports = {
 	buildEpisodeBody,

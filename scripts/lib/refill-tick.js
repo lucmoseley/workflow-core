@@ -150,7 +150,7 @@ const SCRIPTS = path.dirname(__dirname);
  * spec #1995 files the review on. A plugin install has no config there and
  * runs no review. */
 const REVIEW_ROOT = path.dirname(SCRIPTS);
-const DISPATCHER = path.join(SCRIPTS, "dispatch-sessions.sh");
+const DISPATCHER = path.join(SCRIPTS, "dispatch-sessions.js");
 
 /**
  * The spawn options of a child run in checkout `root`.

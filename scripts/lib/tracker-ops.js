@@ -92,10 +92,11 @@ const labelNames = (raw) =>
  * One issue off the REST API, which carries `parent_issue_url` where
  * `gh issue view --json` does not.
  * @param {string} apiPath
+ * @param {import("./gh.js").GhRun} [run]
  * @returns {Issue}
  */
-function readIssueAt(apiPath) {
-	const raw = ghJson(["api", apiPath]);
+function readIssueAt(apiPath, run = gh) {
+	const raw = ghJson(["api", apiPath], {}, run);
 	return {
 		number: raw.number,
 		title: raw.title,
@@ -112,14 +113,17 @@ function readIssueAt(apiPath) {
 /**
  * @param {string} repo
  * @param {number} n
+ * @param {import("./gh.js").GhRun} [run]
  */
-const readIssue = (repo, n) => readIssueAt(`repos/${repo}/issues/${n}`);
+const readIssue = (repo, n, run = gh) =>
+	readIssueAt(`repos/${repo}/issues/${n}`, run);
 
 /**
  * @param {Issue} issue
+ * @param {import("./gh.js").GhRun} [run]
  */
-const readParent = (issue) =>
-	issue.parentPath ? readIssueAt(issue.parentPath) : null;
+const readParent = (issue, run = gh) =>
+	issue.parentPath ? readIssueAt(issue.parentPath, run) : null;
 
 /**
  * A roadmap card's own issue, by the guard-issue-close core's discriminator: a
@@ -307,10 +311,11 @@ function claimIfFree(n, sessionId) {
  * Assign `n` to the caller. Null on success, else gh's reason.
  * @param {string} repo
  * @param {number} n
+ * @param {import("./gh.js").GhRun} [run]
  */
-function assignSelf(repo, n) {
+function assignSelf(repo, n, run = gh) {
 	try {
-		gh(["issue", "edit", String(n), "--repo", repo, "--add-assignee", "@me"]);
+		run(["issue", "edit", String(n), "--repo", repo, "--add-assignee", "@me"]);
 		return null;
 	} catch (e) {
 		return parseErrLine(e);
@@ -323,9 +328,10 @@ function assignSelf(repo, n) {
  * where the open issues cannot be read, or the whole tracker with no cache.
  * @param {string} repo
  * @param {string} query
+ * @param {import("./gh.js").GhRun} [run]
  */
-function similarTitles(repo, query) {
-	const found = similarOpen(query, readTrackerTitles(repo));
+function similarTitles(repo, query, run = gh) {
+	const found = similarOpen(query, readTrackerTitles(repo, {}, run));
 	const text =
 		found.length > 0
 			? `Open issues whose titles resemble this one — a duplicate, or its natural parent?\n${found

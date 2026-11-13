@@ -1,5 +1,5 @@
 /*
- * allowance.js — the shared reader `dispatch-sessions.sh`'s gate and
+ * allowance.js — the shared reader `dispatch-sessions.js`'s gate and
  * `admission.js`'s per-spawn re-read both want (#293, #294).
  *
  * Reads `cachedUsageUtilization.utilization.limits`, through

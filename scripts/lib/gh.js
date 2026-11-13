@@ -134,6 +134,12 @@ const isForbidden = (raw) =>
 	/\(HTTP 403\)/.test(String(asExecError(raw).stderr ?? ""));
 
 /**
+ * A synchronous gh call's signature: `gh` itself, or the in-process port a
+ * core takes in its place, which throws what execFileSync throws.
+ * @typedef {(args: string[], opts?: import("node:child_process").ExecFileSyncOptions) => string} GhRun
+ */
+
+/**
  * Run gh synchronously; return stdout. Throws execFileSync's error, with
  * stderr captured on `e.stderr` rather than echoed to the terminal.
  * @param {string[]} args
@@ -173,10 +179,36 @@ async function ghAsync(args, opts = {}) {
  * the caller knows.
  * @param {string[]} args
  * @param {import("node:child_process").ExecFileSyncOptions} [opts]
+ * @param {GhRun} [run]  the call, `gh` but where a core's port answers it
  * @returns {any}
  */
-function ghJson(args, opts = {}) {
-	return JSON.parse(gh(args, opts));
+function ghJson(args, opts = {}, run = gh) {
+	return buildGhReaders(run).ghJson(args, opts);
+}
+
+/**
+ * The JSON readers over `run`, a core's gh port (§T7): `gh` above in
+ * production, gh-stub-server.js's `buildHandlerPort` in a module test (#5148).
+ * @param {(args: string[], opts?: import("node:child_process").ExecFileSyncOptions) => string} run
+ */
+function buildGhReaders(run) {
+	/** @type {(args: string[], opts?: import("node:child_process").ExecFileSyncOptions) => any} */
+	const json = (args, opts = {}) => JSON.parse(run(args, opts));
+	return {
+		ghJson: json,
+		/** @type {(apiArgs: string[], opts?: import("node:child_process").ExecFileSyncOptions) => any[]} */
+		ghApiSlurp: (apiArgs, opts = {}) =>
+			json(["api", ...apiArgs, "--paginate", "--slurp"], opts).flat(),
+		/** @type {(what: string, args: string[], opts?: import("node:child_process").ExecFileSyncOptions) => any[]} */
+		ghIssueListAll: (what, args, opts = {}) =>
+			assertWholeTracker(
+				json(
+					["issue", "list", ...args, "--limit", String(ISSUE_LIST_LIMIT)],
+					opts,
+				),
+				what,
+			),
+	};
 }
 
 /**
@@ -193,10 +225,11 @@ const ghDefaultRepo = (opts = {}) =>
  * `.flat()` normalises both. `any[]`: the caller's endpoint decides the row.
  * @param {string[]} apiArgs
  * @param {import("node:child_process").ExecFileSyncOptions} [opts]
+ * @param {GhRun} [run]
  * @returns {any[]}
  */
-function ghApiSlurp(apiArgs, opts = {}) {
-	return ghJson(["api", ...apiArgs, "--paginate", "--slurp"], opts).flat();
+function ghApiSlurp(apiArgs, opts = {}, run = gh) {
+	return buildGhReaders(run).ghApiSlurp(apiArgs, opts);
 }
 
 /**
@@ -612,21 +645,26 @@ function ghClosedIssuesWithLabel(label) {
  * before it is believed (#2565). Throws on a failed read.
  * @param {string} repo `owner/name`
  * @param {string} since ISO 8601
+ * @param {GhRun} [run]
  * @returns {IssueRow[]}
  */
-function ghIssuesUpdatedSince(repo, since) {
+function ghIssuesUpdatedSince(repo, since, run = gh) {
 	const read = () =>
-		ghApiSlurp([
-			`repos/${repo}/issues`,
-			"-X",
-			"GET",
-			"-f",
-			"state=all",
-			"-f",
-			`since=${since}`,
-			"-f",
-			"per_page=100",
-		]);
+		ghApiSlurp(
+			[
+				`repos/${repo}/issues`,
+				"-X",
+				"GET",
+				"-f",
+				"state=all",
+				"-f",
+				`since=${since}`,
+				"-f",
+				"per_page=100",
+			],
+			{},
+			run,
+		);
 	const rows = read();
 	return (rows.length > 0 ? rows : read()).filter((i) => !i.pull_request);
 }
@@ -637,16 +675,11 @@ function ghIssuesUpdatedSince(repo, since) {
  * @param {string} what
  * @param {string[]} args
  * @param {import("node:child_process").ExecFileSyncOptions} [opts]
+ * @param {GhRun} [run]
  * @returns {any[]}
  */
-function ghIssueListAll(what, args, opts = {}) {
-	return assertWholeTracker(
-		ghJson(
-			["issue", "list", ...args, "--limit", String(ISSUE_LIST_LIMIT)],
-			opts,
-		),
-		what,
-	);
+function ghIssueListAll(what, args, opts = {}, run = gh) {
+	return buildGhReaders(run).ghIssueListAll(what, args, opts);
 }
 
 module.exports = {
@@ -678,6 +711,7 @@ module.exports = {
 	assertWholeTracker,
 	assertOpenRead,
 	ghIssueListAll,
+	buildGhReaders,
 	ghAllIssues,
 	ghOpenIssues,
 	ghOpenIssuesWithLabel,

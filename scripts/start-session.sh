@@ -32,7 +32,7 @@ set -uo pipefail
 here="${BASH_SOURCE[0]%/*}"
 [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
 here="$(cd "$here" && pwd)"
-# Fails open where the library will not load, as dispatch-sessions.sh does:
+# Fails open where the library will not load, as dispatch-sessions.js does:
 # the probe may never be the reason Claude won't start (mantahostels#3111).
 # shellcheck source=scripts/lib/interop-probe.sh
 source "$here/lib/interop-probe.sh" 2>/dev/null

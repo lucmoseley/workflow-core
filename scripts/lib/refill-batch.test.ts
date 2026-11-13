@@ -4,7 +4,7 @@
  * and the records read back from the dispatch ledger after it. The batch
  * cases run a fake dispatcher, a bash script in a temporary directory that
  * writes real ledger lines; the rest touch no disk but the read of
- * dispatch-sessions.sh that pins the member lines a refusal keys on.
+ * dispatch-sessions.js that pins the member lines a refusal keys on.
  *
  * The resume cases (#3621) drive launchOrResume with the resume and the
  * dispatcher call injected; the adoption cases (#4180), adoptLaunching with
@@ -22,6 +22,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { COPY_WHY } from "./bg-resume-fake";
 import { readRecentEntries } from "./dispatch-ledger.js";
+import { DEFAULT_STAGGER_SECONDS } from "./dispatch-sessions.js";
 import {
 	adoptLaunching,
 	batchesOf,
@@ -39,15 +40,7 @@ describe("readStaggerMs (#3855)", () => {
 		readStaggerMs({ WFC_DISPATCH_STAGGER_SECONDS: value });
 
 	it("holds the dispatcher's default", () => {
-		const shell = fs.readFileSync(
-			path.join(__dirname, "..", "dispatch-sessions.sh"),
-			"utf8",
-		);
-		const [, seconds] =
-			shell.match(
-				/STAGGER_SECONDS="\$\{WFC_DISPATCH_STAGGER_SECONDS:-(\d+)\}"/,
-			) ?? [];
-		expect(read()).toBe(Number(seconds) * 1000);
+		expect(read()).toBe(DEFAULT_STAGGER_SECONDS * 1000);
 	});
 
 	it("reads the override, 0 included, and an empty or unreadable one as the default", () => {
@@ -111,19 +104,13 @@ describe("the dispatcher call for one batch", () => {
 	};
 	const call = dispatchCall(
 		[launch, { ...launch, issues: [43], prompt: "/triage 43" }],
-		"/core/scripts/dispatch-sessions.sh",
+		"/core/scripts/dispatch-sessions.js",
 		env,
 	);
 
 	it("runs the dispatcher with each member's model and prompt, in pick order, as its only arguments", () => {
-		expect(call.file).toBe("bash");
-		expect(call.args).toEqual([
-			"/core/scripts/dispatch-sessions.sh",
-			"opus",
-			"/implement 42",
-			"opus",
-			"/triage 43",
-		]);
+		expect(call.file).toBe("/core/scripts/dispatch-sessions.js");
+		expect(call.args).toEqual(["opus", "/implement 42", "opus", "/triage 43"]);
 	});
 
 	it("runs in the target repo's checkout, as its host root", () => {
@@ -146,14 +133,14 @@ describe("the dispatcher call for one batch", () => {
 });
 
 describe("a refused member's reason (#2500)", () => {
-	/* Each member line as dispatch-sessions.sh prints it for `prompt`. */
+	/* Each member line as dispatch-sessions.js prints it for `prompt`. */
 	const printed = (format: RegExp, prompt: string) => {
 		const sh = fs.readFileSync(
-			path.join(__dirname, "..", "dispatch-sessions.sh"),
+			path.join(__dirname, "dispatch-sessions.js"),
 			"utf8",
 		);
 		const lines = [...sh.matchAll(format)].map((m) =>
-			String(m[1]).replace("%s", prompt),
+			String(m[1]).replace(/\$\{[^}]+\}/, prompt),
 		);
 		expect(lines).not.toEqual([]);
 		return lines;
@@ -164,9 +151,9 @@ describe("a refused member's reason (#2500)", () => {
 			run: () => ({ failed: null, out }),
 		}).refused.map((f) => f.reason);
 
-	it("keys on the REFUSED member line dispatch-sessions.sh prints", () => {
+	it("keys on the REFUSED member line dispatch-sessions.js prints", () => {
 		for (const line of printed(
-			/printf '(REFUSED: %s — [^']*)\\n'/g,
+			/`(REFUSED: \$\{prompt\} — [^`\\]*)\\n`/g,
 			launch.prompt,
 		))
 			expect(reasonFor(`${line}\n  slots              0 — HOLD`)).toEqual([
@@ -205,8 +192,11 @@ describe("a refused member's reason (#2500)", () => {
 		expect(r.tried).toEqual([launch]);
 	});
 
-	it("keys on the dropped member line dispatch-sessions.sh prints", () => {
-		for (const line of printed(/printf '( {2}dropped: %s)\\n'/g, launch.prompt))
+	it("keys on the dropped member line dispatch-sessions.js prints", () => {
+		for (const line of printed(
+			/`( {2}dropped: \$\{[^}]+\})\\n`/g,
+			launch.prompt,
+		))
 			expect(reasonFor(`DROPPING 1 issue(s)\n${line}`)).toEqual([
 				"DROPPING 1 issue(s)",
 			]);
@@ -217,7 +207,7 @@ describe("one dispatcher call per repo (#2315)", () => {
 	/*
 	 * A fake dispatcher: per member, in argument order, the word at its place
 	 * in FAKE_PLAN says what it does. `launch` writes the member's ledger entry
-	 * as dispatch-sessions.sh does, `refuse` skips it as an admission refusal,
+	 * as dispatch-sessions.js does, `refuse` skips it as an admission refusal,
 	 * printing the re-read under its REFUSED line, `drop` as a duplicate drop,
 	 * `die` exits 5 there (a launch timeout, interop wedge or kernel stall),
 	 * and `timeout` as a launch timeout, printing its REFUSED line.

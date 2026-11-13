@@ -258,7 +258,7 @@ describe("the model list reads off respawnFlags", () => {
 		);
 	});
 
-	it("does not mistake the advisor for the model — the shape dispatch-sessions.sh launches", () => {
+	it("does not mistake the advisor for the model — the shape dispatch-sessions.js launches", () => {
 		expect(modelListed(["--advisor", "opus", "--model", "sonnet"])).toBe(
 			"sonnet",
 		);

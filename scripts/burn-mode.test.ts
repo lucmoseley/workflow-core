@@ -14,7 +14,7 @@
  * default.
  *
  * The burn-mode skill runs it, and lib/dispatch-rewrite.js and
- * dispatch-sessions.sh read its marker: loosen a case and an `off` can leave a
+ * dispatch-sessions.js read its marker: loosen a case and an `off` can leave a
  * plan burning allowance unannounced.
  */
 
