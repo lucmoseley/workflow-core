@@ -19,7 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderHookShim } from "./adopter-skeleton";
-import { commitRoute, commitRouteReplays } from "./commit-route.js";
+import { commitRoute } from "./commit-route.js";
 import { newRepo, registerTempCleanup } from "./precommit-gate-harness";
 import { ROOT } from "./precommit-gate-testkit";
 import { shellQuote } from "./sh-quote.js";
@@ -861,36 +861,6 @@ describe("commit-route.js answers as commit-route.sh does", () => {
 		expect(sh.status).toBe(2);
 		expect(() => commitRoute("pre-push", dir)).toThrow(
 			"no marker table for the hook 'pre-push'",
-		);
-	});
-
-	it("calls each route a replay or not as wfc_commit_route_replays does", () => {
-		const routes = [
-			"rebase",
-			"rebase-apply",
-			"am",
-			"cherry-pick",
-			"merge",
-			"commit",
-			"revert-sequence",
-		];
-		const sh = spawnSync(
-			"sh",
-			[
-				"-c",
-				`. "$1" && shift && for r in "$@"; do if wfc_commit_route_replays "$r"; then echo "$r true"; else echo "$r false"; fi; done`,
-				"sh",
-				LIB,
-				...routes,
-			],
-			{ encoding: "utf8" },
-		);
-		expect(sh.status).toBe(0);
-		expect(sh.stdout).toBe(
-			"rebase true\nrebase-apply true\nam true\ncherry-pick true\nmerge false\ncommit false\nrevert-sequence false\n",
-		);
-		expect(routes.map((r) => `${r} ${commitRouteReplays(r)}`)).toEqual(
-			sh.stdout.split("\n").filter(Boolean),
 		);
 	});
 });

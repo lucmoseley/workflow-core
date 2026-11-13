@@ -9,10 +9,13 @@
  * declared path is refused with no way out, a land's merge of neighbours'
  * reviewed commits among them.
  *
- * Driven through real `git commit`s in a throwaway repo whose pre-commit hook
- * runs the live script, because the hold reads the index git builds for the
- * commit, which no stub reproduces; its wiring into `.husky/pre-commit` and the
- * adopter skeleton is read off those files.
+ * Its branch cases stage paths in a throwaway repo and run the hold's and the
+ * trailer's cores in-process on their production ports, so every git read
+ * crosses real git without a hook's spawns (#5153, §X11). The boundary set
+ * stays real `git commit`s, merges and cherry-picks through hooks running the
+ * live entries, because the hook routes and the index git builds for a
+ * pathspec, --patch or linked-worktree commit no in-process call reproduces;
+ * the wiring into `.husky/pre-commit` is read off that file.
  * `tree=` comes from `commit-paths.js --tree`, or mid-merge from the index, as
  * write-review-marker.js takes it for a session, so a drift between that
  * computation and the hook's fails here; the Stop backstop and push guard read
@@ -313,6 +316,51 @@ const expectRefused = (
 	expect(commitCount()).toBe(commits);
 };
 
+/** The hold rule's text, as the refusal prints it between blank lines. */
+const RULE = fs
+	.readFileSync(
+		path.resolve(__dirname, "..", "docs/agents/rules/review-hold.txt"),
+		"utf8",
+	)
+	.replace(/\n+$/, "");
+
+/**
+ * Asserts a module case's whole outcome: exit 1 and the refusal, every line,
+ * built here from its parts rather than by the core's own refusal().
+ */
+const expectHeld = (
+	r: { status: number | null; stderr: string },
+	{
+		fault,
+		areas = "secrets",
+		offSides = "",
+		stagedFault = "",
+	}: { fault: string; areas?: string; offSides?: string; stagedFault?: string },
+) => {
+	expect(r).toEqual({
+		status: 1,
+		stderr: [
+			"pre-commit: this commit changes a declared sensitive path, and no escalated review of exactly this change is recorded (#1622).",
+			`  Areas touched: ${areas}.`,
+			...(offSides
+				? [
+						`  This merge's paths no merged-in side carries, the ones to review: ${offSides}.`,
+					]
+				: []),
+			`  The marker ${marker()} does not clear it: ${fault}.`,
+			...(stagedFault
+				? [
+						`  The staged .claude/workflow-core.json will not read, and a review would land it broken, so correct it first: ${stagedFault}`,
+					]
+				: []),
+			"",
+			RULE,
+			"",
+			"pre-commit: the review hold refused this commit (rule:review-hold). Nothing was committed.\n",
+		].join("\n"),
+	});
+};
+
 /** The seeded repo and its hooks directory, built once and copied per case. */
 const fixture = defineTemplate((root) => {
 	// Points git() and write() at the template; beforeEach points them back.
@@ -369,6 +417,14 @@ describe("review-hold-gate.js — wiring", () => {
 	});
 });
 
+describe("review-hold-gate.js — usage", () => {
+	it("exits 2 with its usage on an argument", () => {
+		const r = runInProcess(GATE, ["x"], { cwd: repo, env: quietEnv() });
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("usage: review-hold-gate.js");
+	});
+});
+
 describe("review-hold-gate.js — refusals", () => {
 	it("refuses a staged sensitive glob with no marker, naming the area and the rule", () => {
 		write(SECRET, "new\n");
@@ -389,13 +445,16 @@ describe("review-hold-gate.js — refusals", () => {
 	it("refuses a standard tier, naming it", () => {
 		write(SECRET, "new\n");
 		mark({ tier: "standard", areas: "secrets", tree: treeOf(["--", SECRET]) });
-		expectRefused(hold([SECRET]), "its tier= is 'standard'");
+		expectHeld(hold([SECRET]), {
+			fault:
+				"its tier= is 'standard', and only escalated or mission-critical covers a declared sensitive path",
+		});
 	});
 
 	it("refuses a marker with no tier= line, as a standard review's marker has", () => {
 		write(SECRET, "new\n");
 		mark({});
-		expectRefused(hold([SECRET]), "it has no tier= line");
+		expectHeld(hold([SECRET]), { fault: "it has no tier= line" });
 	});
 
 	it("refuses a marker whose areas= misses a matched area, naming the missing one", () => {
@@ -407,24 +466,26 @@ describe("review-hold-gate.js — refusals", () => {
 			tree: treeOf(["--", SECRET, PRICE]),
 		});
 		const r = hold([SECRET, PRICE]);
-		expectRefused(r, "its areas= does not name money.");
-		expect(r.stderr).toContain("Areas touched: money, secrets.");
+		expectHeld(r, {
+			areas: "money, secrets",
+			fault: "its areas= does not name money",
+		});
 	});
 
 	it("refuses a stale tree= after an edit made once the marker was written", () => {
 		write(SECRET, "reviewed\n");
 		mark({ tier: "escalated", areas: "secrets", tree: treeOf(["--", SECRET]) });
 		write(SECRET, "edited after review\n");
-		expectRefused(
-			hold([SECRET]),
-			"its tree= is not the tree this commit carries",
-		);
+		expectHeld(hold([SECRET]), {
+			fault:
+				"its tree= is not the tree this commit carries, so something changed after it was written",
+		});
 	});
 
 	it("refuses a marker with no paths= line, which the Stop nag would read as a review of every path", () => {
 		write(SECRET, "new\n");
 		mark({ tier: "escalated", areas: "secrets", tree: treeOf(["--", SECRET]) });
-		expectRefused(hold([SECRET]), "it has no paths= line");
+		expectHeld(hold([SECRET]), { fault: "it has no paths= line" });
 	});
 
 	it("refuses a marker whose paths= line names nothing, saying so", () => {
@@ -435,7 +496,7 @@ describe("review-hold-gate.js — refusals", () => {
 			tree: treeOf(["--", SECRET]),
 			paths: " , ",
 		});
-		expectRefused(hold([SECRET]), "its paths= names no path");
+		expectHeld(hold([SECRET]), { fault: "its paths= names no path" });
 	});
 
 	it("refuses a marker whose paths= misses a path the commit changes, naming it", () => {
@@ -447,7 +508,9 @@ describe("review-hold-gate.js — refusals", () => {
 			tree: treeOf(["--", SECRET, PLAIN]),
 			paths: SECRET,
 		});
-		expectRefused(hold([SECRET, PLAIN]), `its paths= does not name ${PLAIN}.`);
+		expectHeld(hold([SECRET, PLAIN]), {
+			fault: `its paths= does not name ${PLAIN}`,
+		});
 	});
 
 	it("refuses a --patch commit whose whole path changed after write-review-marker.js wrote its marker", () => {
@@ -472,13 +535,13 @@ describe("review-hold-gate.js — the declaration it reads", () => {
 	it("still holds when the working-tree declaration drops the area unstaged", () => {
 		write(".claude/workflow-core.json", JSON.stringify({ sensitivePaths: [] }));
 		write(SECRET, "new\n");
-		expectRefused(hold([SECRET]), "there is no marker");
+		expectHeld(hold([SECRET]), { fault: "there is no marker" });
 	});
 
 	it("still holds when the working-tree declaration is broken unstaged", () => {
 		write(".claude/workflow-core.json", "{ not json");
 		write(SECRET, "new\n");
-		expectRefused(hold([SECRET]), "there is no marker");
+		expectHeld(hold([SECRET]), { fault: "there is no marker" });
 	});
 
 	it("holds an area the staged declaration adds", () => {
@@ -492,9 +555,10 @@ describe("review-hold-gate.js — the declaration it reads", () => {
 			}),
 		);
 		write(PLAIN, "new\n");
-		const r = hold([PLAIN, ".claude/workflow-core.json"]);
-		expectRefused(r, "there is no marker");
-		expect(r.stderr).toContain("Areas touched: pages.");
+		expectHeld(hold([PLAIN, ".claude/workflow-core.json"]), {
+			areas: "pages",
+			fault: "there is no marker",
+		});
 	});
 
 	const Config = ".claude/workflow-core.json";
@@ -538,10 +602,19 @@ describe("review-hold-gate.js — the declaration it reads", () => {
 		(_, edit, areas) => {
 			edit();
 			const r = hold([Config]);
-			expectRefused(r, "there is no marker");
-			expect(r.stderr).toContain(`Areas touched: ${areas}.`);
+			expectHeld(r, {
+				areas,
+				fault: "there is no marker",
+				stagedFault: stagedFaultOf(r.stderr),
+			});
 		},
 	);
+
+	/** The staged declaration's read fault the refusal names, "" where it names none. */
+	const stagedFaultOf = (stderr: string) =>
+		/^ {2}The staged \.claude\/workflow-core\.json will not read, and a review would land it broken, so correct it first: (.*)$/m.exec(
+			stderr,
+		)?.[1] ?? "";
 
 	it("names the fault of a staged declaration that will not parse (#3905)", () => {
 		write(Config, "{ not json");
@@ -629,12 +702,13 @@ describe("review-hold-gate.js — a replay's own bytes pass, anything added is h
 	};
 	const held = (r: { status: number | null; stderr: string }, before: string) =>
 		expectRefused(r, "there is no marker", before);
+	const heldInProcess = (r: { status: number | null; stderr: string }) =>
+		expectHeld(r, { fault: "there is no marker" });
 
 	it("holds a conflict on a glob resolved with new bytes", () => {
 		stopOnConflict(divergedPick([SECRET], [SECRET]));
 		resolve(SECRET, "SNEAK\n");
-		const before = commitCount();
-		held(hold([]), before);
+		heldInProcess(hold([]));
 	});
 
 	it("holds a conflict on a glob resolved with new bytes, through git cherry-pick --continue", () => {
@@ -651,16 +725,14 @@ describe("review-hold-gate.js — a replay's own bytes pass, anything added is h
 		stopOnConflict(divergedPick([PLAIN], [PLAIN]));
 		resolve(PLAIN, "resolved\n");
 		resolve(SECRET, "SNEAK\n");
-		const before = commitCount();
-		held(hold([]), before);
+		heldInProcess(hold([]));
 	});
 
 	it("holds an extra edit to a glob the picked commit changed cleanly", () => {
 		stopOnConflict(divergedPick([PLAIN, SECRET], [PLAIN]));
 		resolve(PLAIN, "resolved\n");
 		resolve(SECRET, "theirs\nSNEAK\n");
-		const before = commitCount();
-		held(hold([]), before);
+		heldInProcess(hold([]));
 	});
 
 	it("passes a conflict off the globs, its glob change as the picked commit made it", () => {
@@ -762,8 +834,7 @@ describe("review-hold-gate.js — a replay's own bytes pass, anything added is h
 			fs.mkdirSync(path.join(repo, ".git", dir));
 			write(SECRET, "new\n");
 			git("add", "--", SECRET);
-			const before = commitCount();
-			held(hold([]), before);
+			heldInProcess(hold([]));
 		},
 	);
 
@@ -883,12 +954,7 @@ describe("review-hold-gate.js — a merge's landed bytes pass, anything added is
 		diverge([SECRET], [SECRET]);
 		inWt(["merge", "--no-edit", "origin/landing"]);
 		stageInWt(SECRET, "SNEAK\n");
-		const before = wtCount();
-		const r = holdInWt();
-		refusedIn(r, wt, before);
-		expect(r.stderr).toContain(
-			`This merge's paths no merged-in side carries, the ones to review: ${SECRET}.`,
-		);
+		expectHeld(holdInWt(), { offSides: SECRET, fault: "there is no marker" });
 	});
 
 	it("holds a glob both sides changed, git combining them cleanly, until the marker names it (#4426)", () => {
@@ -911,10 +977,9 @@ describe("review-hold-gate.js — a merge's landed bytes pass, anything added is
 
 	it("holds a clean merge carrying new bytes on a glob neither side wrote", () => {
 		diverge([PLAIN], [PRICE]);
-		const before = wtCount();
 		expect(inWt(["merge", "--no-commit", "origin/landing"]).status).toBe(0);
 		stageInWt(SECRET, "SNEAK\n");
-		refusedIn(holdInWt(), wt, before);
+		expectHeld(holdInWt(), { offSides: SECRET, fault: "there is no marker" });
 	});
 
 	it("clears a held merge on the marker review-hold.txt says to write, paths= naming the held path alone (#4426)", () => {
@@ -928,10 +993,10 @@ describe("review-hold-gate.js — a merge's landed bytes pass, anything added is
 	it("holds a merge whose marker's paths= names only a landed path, not the held one", () => {
 		heldMerge();
 		expect(writeMarkerInWt(PLAIN).stderr).toBe("");
-		const before = wtCount();
-		const r = holdInWt();
-		refusedIn(r, wt, before);
-		expect(r.stderr).toContain(`its paths= does not name ${SECRET}`);
+		expectHeld(holdInWt(), {
+			offSides: SECRET,
+			fault: `its paths= does not name ${SECRET}`,
+		});
 	});
 
 	it("holds a merge whole where its side is on no remote-tracking ref", () => {
@@ -944,9 +1009,10 @@ describe("review-hold-gate.js — a merge's landed bytes pass, anything added is
 		git("worktree", "add", "-q", "--detach", wt, "HEAD");
 		stageInWt(SECRET, "SNEAK\n");
 		const forged = git("-C", wt, "stash", "create");
-		const before = wtCount();
-		const r = holdInWt({ GIT_REFLOG_ACTION: `merge ${forged}` });
-		refusedIn(r, wt, before);
+		expectHeld(holdInWt({ GIT_REFLOG_ACTION: `merge ${forged}` }), {
+			offSides: SECRET,
+			fault: "there is no marker",
+		});
 	});
 
 	it("holds a pull's merge whole, git naming no side it reads", () => {
@@ -1028,6 +1094,31 @@ describe("review-hold-gate.js — passes", () => {
 		const r = commit([SECRET], { sid: "" });
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
+	});
+
+	it("says a commit is NOT checked where git names no git directory, and passes it", () => {
+		write(SECRET, "new\n");
+		git("add", "--", SECRET);
+		expect(
+			hold([], { env: { GIT_DIR: path.join(scratch, "no-git") } }),
+		).toEqual({
+			status: 0,
+			stderr:
+				"pre-commit: the review hold could not read the git directory — this commit is NOT checked. See: node scripts/check-guard-errors.js\n",
+		});
+	});
+
+	it("passes a commit whose stamp it cannot write, saying what the commit lands without", () => {
+		write(PLAIN, "new\n");
+		git("add", "--", PLAIN);
+		/* A directory where the stamp goes, which neither a remove nor a write
+		 * of the file can clear. */
+		const stampAt = path.join(repo, ".git", `wfc-review-tier-${SID}`);
+		fs.mkdirSync(path.join(stampAt, "held"), { recursive: true });
+		expect(hold([])).toEqual({
+			status: 0,
+			stderr: `pre-commit: could not write ${stampAt}, so this commit lands with no check that its tree stayed put under the later gates.\n`,
+		});
 	});
 
 	it("leaves a commit touching no glob alone, with no marker", () => {
@@ -1743,6 +1834,14 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 			const r = trailOn([PLAIN], `land\n\n${Typed}\n`);
 			expect(r.status).toBe(0);
 			expect(r.text()).toBe("land\n");
+		});
+
+		it("strips even HEAD's own one mid-rebase, where no review vouches for a replay's message", () => {
+			git("commit", "--allow-empty", "-qm", `reviewed\n\n${Typed}`);
+			fs.mkdirSync(path.join(repo, ".git", "rebase-merge"));
+			const r = trailOn([], `reviewed\n\n${Typed}\n`);
+			expect(r.status).toBe(0);
+			expect(r.text()).toBe("reviewed\n");
 		});
 
 		it("strips one the picked commit does not carry, resolving a cherry-pick by hand", () => {

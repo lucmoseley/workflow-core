@@ -25,8 +25,8 @@ const { stripNewlines } = require("./strip-newlines.js");
  * @property {(route: string) => string} vouching the one message whose
  *   `Review-Tier:` line this commit may keep, "" where none
  * @property {(gitDir: string) => string | null} stampPath null with no session
- * @property {(stamp: string) => boolean} stampExists
- * @property {(stamp: string) => string} readStamp throws where unreadable
+ * @property {(stamp: string) => string | null} readStamp null where absent,
+ *   "" where unreadable
  * @property {(stamp: string) => void} removeStamp
  * @property {() => string} writeTree throws where git will not write it
  * @property {() => import("./review-hold.js").Outcome} hold the review hold,
@@ -108,7 +108,7 @@ function runTrailer(msg, ports) {
 /**
  * The fail-open sayings: each says why on stderr, logs it and stops at 0.
  * @param {TrailerPorts} ports
- * @param {string[]} said
+ * @param {string[]} said accumulator: each fail-open line is pushed here
  */
 function failOpens(ports, said) {
 	/** @param {string} saying @param {string} logged @param {string} [detail] @returns {never} */
@@ -137,8 +137,9 @@ function failOpens(ports, said) {
 /**
  * @param {string} msg
  * @param {TrailerPorts} ports
- * @param {string[]} said
- * @param {{ stripped: boolean, wrote: boolean }} state
+ * @param {string[]} said accumulator: each stderr line is pushed here
+ * @param {{ stripped: boolean, wrote: boolean }} state accumulator: set to
+ *   whether a line was stripped and whether a trailer was written
  */
 function trail(msg, ports, said, state) {
 	const { dropped, unstripped } = failOpens(ports, said);
@@ -152,7 +153,7 @@ function trail(msg, ports, said, state) {
 	if (!gitDir)
 		dropped("git named no git directory to read the review hold's stamp from");
 	const stamp = ports.stampPath(gitDir);
-	if (stamp === null || !ports.stampExists(stamp)) return;
+	if (stamp === null) return;
 	const value = settledValue(ports, stamp, said, dropped);
 	if (value === null || value === "unheld") return;
 	const wrote = ports.interpretTrailers(msg, value);
@@ -189,15 +190,18 @@ function stripMessage(msg, ports, route, unstripped) {
 /**
  * The stamp's value once its tree is this commit's: where the tree moved,
  * the hold re-run on it, and the commit refused where that refuses or the
- * tree still differs. Null where the re-run hold left no stamp.
+ * tree still differs. Null where there is no stamp, or the re-run hold left
+ * none.
  * @param {TrailerPorts} ports
  * @param {string} stamp
- * @param {string[]} said
+ * @param {string[]} said accumulator: the hold's and the refusal's lines are pushed here
  * @param {(why: string) => never} dropped
  * @returns {string | null}
  */
 function settledValue(ports, stamp, said, dropped) {
-	let [recorded, value] = consume(ports, stamp);
+	let read = consume(ports, stamp);
+	if (read === null) return null;
+	let [recorded, value] = read;
 	if (!(recorded && value))
 		dropped(`the review hold's stamp ${stamp} could not be read`);
 	let tree = "";
@@ -214,8 +218,9 @@ function settledValue(ports, stamp, said, dropped) {
 		said.push(how);
 		throw new Stop(held.status);
 	}
-	if (!ports.stampExists(stamp)) return null;
-	[recorded, value] = consume(ports, stamp);
+	read = consume(ports, stamp);
+	if (read === null) return null;
+	[recorded, value] = read;
 	if (recorded !== tree) {
 		said.push(how);
 		throw new Stop(1);
@@ -225,20 +230,18 @@ function settledValue(ports, stamp, said, dropped) {
 
 /**
  * The stamp's tree and value, consumed on read, so a stamp outliving its
- * commit stands behind no other.
+ * commit stands behind no other; null where there is none. An unreadable
+ * stamp reads as empty, which the caller reports.
  * @param {TrailerPorts} ports
  * @param {string} stamp
- * @returns {[string, string]}
+ * @returns {[string, string] | null}
  */
 function consume(ports, stamp) {
-	let lines = ["", ""];
-	try {
-		lines = ports.readStamp(stamp).split("\n");
-	} catch {
-		/* Read as empty, which the caller reports. */
-	}
+	const text = ports.readStamp(stamp);
+	if (text === null) return null;
+	const lines = text.split("\n");
 	ports.removeStamp(stamp);
 	return [lines[0] ?? "", lines[1] ?? ""];
 }
 
-module.exports = { runTrailer, stripUnvouched };
+module.exports = { runTrailer };

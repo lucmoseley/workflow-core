@@ -13,7 +13,8 @@
  *   node scripts/review-tier-trailer.js <message file>     from .husky/prepare-commit-msg
  *
  * FAILS OPEN on its own faults, with one stderr line logged for
- * check-guard-errors.js. An empty message path, which a direct `sh -e` run of
+ * check-guard-errors.js. A crash of the entry itself exits non-zero, which
+ * .husky/prepare-commit-msg turns into a refusal: fail closed. An empty message path, which a direct `sh -e` run of
  * the hook hands, consumes no stamp and logs nothing.
  *
  * LIMITS

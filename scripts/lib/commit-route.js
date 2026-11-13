@@ -112,11 +112,4 @@ function sequencing(hook, dir) {
 	return r.status === 0 && String(r.stdout).trim() === safety;
 }
 
-/**
- * The routes that replay commits already made and reach no pre-commit.
- * @param {string} route
- */
-const commitRouteReplays = (route) =>
-	["rebase", "rebase-apply", "am", "cherry-pick"].includes(route);
-
-module.exports = { commitRoute, commitRouteReplays };
+module.exports = { commitRoute };
