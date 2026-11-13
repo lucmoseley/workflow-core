@@ -730,7 +730,7 @@ const readSwapHold = () => swapHoldOf(readMeminfoKb());
  *   totalMb: number | null,
  *   rounding: string,
  *   free: MemRow,
- *   working: MemRow & { count: number | null, noProcess?: number },
+ *   live: MemRow & { count: number | null, noProcess?: number },
  *   finished: MemRow & { count: number | null, reapable: number | null, reapableUnknown: string | null },
  *   pool: MemRow & { drift: string[] },
  *   unlisted: MemRow & { count: number | null, dirs: { dir: string, count: number }[] },
@@ -1031,7 +1031,7 @@ function unlistedDirs(unlisted, configDirOf) {
 }
 
 /**
- * Where the machine's memory is going (#589): free, working sessions, finished
+ * Where the machine's memory is going (#589): free, live sessions, finished
  * sessions still resident, the daemon and spare pool, sessions the listing
  * cannot see (#3322), everything else, and the
  * arithmetic from free memory to the slot count, with the CPU limb's slot count
@@ -1131,10 +1131,8 @@ function memoryBreakdown({
 		};
 	};
 	const finishedIds = [...(finishedSet ?? [])];
-	const workingIds = [...(listedIds ?? [])].filter(
-		(id) => !finishedSet?.has(id),
-	);
-	const working = sessionsRow(workingIds);
+	const liveIds = [...(listedIds ?? [])].filter((id) => !finishedSet?.has(id));
+	const live = sessionsRow(liveIds);
 	const finishedRow = sessionsRow(finishedIds);
 	const finished = {
 		...finishedRow,
@@ -1158,7 +1156,7 @@ function memoryBreakdown({
 					dirs: unlistedDirs(unlisted, configDirOf),
 				};
 
-	const parts = [free, working, finishedRow, poolMem, unlistedMem];
+	const parts = [free, live, finishedRow, poolMem, unlistedMem];
 	const blocked = parts.find((r) => r.unknown !== null);
 	const other = otherRow({
 		blocked: Boolean(blocked),
@@ -1174,7 +1172,7 @@ function memoryBreakdown({
 		totalMb,
 		rounding: ROUNDING,
 		free,
-		working,
+		live,
 		finished,
 		pool: poolMem,
 		unlisted: unlistedMem,
@@ -1233,7 +1231,7 @@ function buildMemoryBreakdownLines(m) {
 	return [
 		`memory             of ${m.totalMb === null ? "unknown" : `${m.totalMb} MB`} total — ${m.rounding}`,
 		`  free             ${orUnknown(m.free, `${m.free.mb} MB`)}`,
-		`  live             ${orUnknown(m.working, `${m.working.count} session(s)${m.working.noProcess ? ` (${m.working.noProcess} with no process)` : ""}, ${m.working.mb} MB PSS`)}`,
+		`  live             ${orUnknown(m.live, `${m.live.count} session(s)${m.live.noProcess ? ` (${m.live.noProcess} with no process)` : ""}, ${m.live.mb} MB PSS`)}`,
 		`  finished         ${orUnknown(f, `${f.count} session(s) still resident, ${f.mb} MB PSS, ${f.reapable === null ? `unknown (${f.reapableUnknown})` : f.reapable} taken by the next reap`)}`,
 		`  daemon + spares  ${orUnknown(m.pool, `${m.pool.mb} MB PSS`)}`,
 		...m.pool.drift.map((why) => `    spare shape drift: ${why}`),

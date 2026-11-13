@@ -4,7 +4,7 @@
  *
  * TWO RECORDS, EACH WRITTEN WHERE ITS FACT IS KNOWN. The refill loop appends
  * one line per tick to `concurrency.jsonl` beside its other files
- * (lib/refill-dir.js): the working count, the admission ceiling, the binding
+ * (lib/refill-dir.js): the live and working counts, the admission ceiling, the binding
  * limit, every other failing limit, and the memory figures behind them.
  * Sustained concurrency comes from memwatch's minute record instead
  * (docs/environment.md §4, #3214), its `sessions` field, which keeps
@@ -62,14 +62,14 @@ const SPREAD_CAP = 10;
 /**
  * @typedef {object} TickRecord
  * @property {string} at
- * @property {number|null} working admission's working count, the founder's
+ * @property {number|null} live admission's live-session count, the founder's
  *   own session included, plus what the tick started and less what it stopped
  *   after that read (#3770, #3778); one started that dies still counts until
  *   the next tick's read
- * @property {number|null} ceiling admission's working count plus its slots,
+ * @property {number|null} ceiling admission's live count plus its slots,
  *   which a start or stop does not move
- * @property {number|null} stateWorking the tick's agents listing's sessions
- *   in state `working`, the agents view's own count (#4747); null where the
+ * @property {number|null} working the tick's agents listing's sessions in
+ *   state `working`, the agents view's own count (#4747); null where the
  *   listing went unread
  * @property {Failing|null} binding
  * @property {Failing[]} also
@@ -220,9 +220,9 @@ function failingAt({ input, decision, admission }) {
 /**
  * @typedef {{input: import("./refill-decide.js").TickInput,
  *   decision: import("./refill-decide.js").Decision,
- *   admission: AdmissionJson|null, workingChange: number,
+ *   admission: AdmissionJson|null, liveChange: number,
  *   agents: import("./agent-liveness.js").AgentRecord[]|null}} Tick
- *   `workingChange` nets the sessions the tick started and stopped after
+ *   `liveChange` nets the sessions the tick started and stopped after
  *   reading `admission`; `agents` is the tick's listing
  */
 
@@ -232,20 +232,18 @@ function failingAt({ input, decision, admission }) {
  * @returns {TickRecord}
  */
 function buildTickRecord(tick) {
-	const { input, admission: a, workingChange, agents } = tick;
+	const { input, admission: a, liveChange, agents } = tick;
 	const [binding = null, ...also] = failingAt(tick);
-	const count = a?.memory?.working?.count;
+	const count = a?.memory?.live?.count;
 	const admitted = typeof count === "number" ? count : null;
 	return {
 		at: new Date(input.now).toISOString(),
-		working: admitted === null ? null : admitted + workingChange,
+		live: admitted === null ? null : admitted + liveChange,
 		ceiling:
 			admitted !== null && typeof a?.slots === "number"
 				? admitted + a.slots
 				: null,
-		stateWorking: agents
-			? agents.filter((r) => r.state === "working").length
-			: null,
+		working: agents ? agents.filter((r) => r.state === "working").length : null,
 		binding,
 		also,
 		memory: a ? buildTickMemory(a) : null,
@@ -273,7 +271,7 @@ function buildTickMemory(a) {
 		marginMb: a.marginMb,
 		memorySlots: a.memorySlots,
 		rows: {
-			working: a.memory?.working?.mb ?? null,
+			live: a.memory?.live?.mb ?? null,
 			finished: a.memory?.finished?.mb ?? null,
 			pool: a.memory?.pool?.mb ?? null,
 			other: a.memory?.other?.mb ?? null,
@@ -406,7 +404,7 @@ function buildBlockText(r, readLive) {
 	const lines = [
 		...r.unreadable.map((u) => `unreadable: ${u}`),
 		t
-			? `${t.working ?? "?"} working at the last tick (${t.at}), admission ceiling ${t.ceiling ?? "?"}`
+			? `${t.live ?? "?"} live at the last tick (${t.at}), admission ceiling ${t.ceiling ?? "?"}`
 			: "no refill-loop tick recorded",
 		`bound by:  ${v ? `${v.limit} — ${v.why}` : `${NONE} — ${buildUnboundText(t)}`}`,
 	];
@@ -428,7 +426,7 @@ function buildBlockText(r, readLive) {
  * @param {TickRecord|null|undefined} t
  */
 const buildUnboundText = (t) =>
-	t && t.working !== null && t.ceiling !== null && t.working >= t.ceiling
+	t && t.live !== null && t.ceiling !== null && t.live >= t.ceiling
 		? "the last tick filled the free slots"
 		: "a slot is free; the loop launches next tick";
 
@@ -517,8 +515,8 @@ function readNewestTick() {
 }
 
 /**
- * What `refill-loop.js status --json` carries for the panel. `working`,
- * `ceiling` and `stateWorking` are null where unread or the newest tick is
+ * What `refill-loop.js status --json` carries for the panel. `live`,
+ * `ceiling` and `working` are null where unread or the newest tick is
  * stale or a stop.
  * @param {number} now
  */
@@ -531,9 +529,9 @@ function readConcurrencyStatus(now) {
 			? newest
 			: null;
 	return {
-		working: tick?.working ?? null,
+		live: tick?.live ?? null,
 		ceiling: tick?.ceiling ?? null,
-		stateWorking: tick?.stateWorking ?? null,
+		working: tick?.working ?? null,
 	};
 }
 

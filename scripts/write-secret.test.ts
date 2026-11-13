@@ -29,6 +29,7 @@ import {
 	secretsFile,
 } from "./lib/env-file.js";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
+import { plantSocket } from "./lib/socket-fixture";
 
 const SCRIPT = path.resolve(__dirname, "write-secret.js");
 
@@ -679,22 +680,7 @@ describe("write-secret", () => {
 
 	it.each([
 		["a directory", () => fs.mkdirSync(store(), { mode: 0o700 })],
-		[
-			"a socket",
-			/* A listener that exits at once leaves its path behind. Bound by
-			 * its bare name from its own directory, as sun_path holds 108 bytes
-			 * and a nested temp root's absolute path can pass that (#5162). */
-			() =>
-				execFileSync(
-					process.execPath,
-					[
-						"-e",
-						"require('node:net').createServer().listen(process.argv[1],()=>process.exit(0))",
-						path.basename(store()),
-					],
-					{ cwd: path.dirname(store()), env: isolatedEnv() },
-				),
-		],
+		["a socket", () => plantSocket(store(), isolatedEnv())],
 	])(
 		"refuses by name with exit 1 where the file is %s, without hanging (#3822)",
 		(_l, plantStore) => {

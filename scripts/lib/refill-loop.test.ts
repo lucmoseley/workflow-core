@@ -35,9 +35,9 @@ import {
 	readActsSoFar,
 	reviewStep,
 	runningOf,
+	runningOffLimitOf,
 	scopeRoots,
 	summaryOf,
-	workingOf,
 } from "./refill-loop.js";
 import {
 	away,
@@ -168,7 +168,7 @@ describe("the idle alarm's reading of a limit hold (#3838)", () => {
 	};
 	const stopped = record({ issues: [7, 8], limitHeld });
 
-	it("reads a launch stopped on its limit as held from the stop, one row per issue, and not as working", () => {
+	it("reads a launch stopped on its limit as held from the stop, one row per issue, and not as running", () => {
 		const why = "stopped on its weekly limit (reset Fri)";
 		expect(limitHoldsOf([stopped])).toEqual([
 			{
@@ -186,7 +186,7 @@ describe("the idle alarm's reading of a limit hold (#3838)", () => {
 				onLimit: true,
 			},
 		]);
-		expect(workingOf([stopped])).toEqual([]);
+		expect(runningOffLimitOf([stopped])).toEqual([]);
 	});
 
 	it("reads a limit-blocked launch the loop could not stop as held from the block, as no bound parks it", () => {
@@ -201,10 +201,10 @@ describe("the idle alarm's reading of a limit hold (#3838)", () => {
 				onLimit: true,
 			},
 		]);
-		expect(workingOf([blocked])).toEqual([]);
+		expect(runningOffLimitOf([blocked])).toEqual([]);
 	});
 
-	it("reads a working launch, a question-held one and one resumed from its hold as working, not held", () => {
+	it("reads a working launch, a question-held one and one resumed from its hold as running, not held", () => {
 		const live = [
 			record({ issues: [1] }),
 			record({
@@ -215,13 +215,13 @@ describe("the idle alarm's reading of a limit hold (#3838)", () => {
 			record({ issues: [3], limitHeld: { ...limitHeld, resumedAt: NOW } }),
 		];
 		expect(limitHoldsOf(live)).toEqual([]);
-		expect(workingOf(live).flatMap((l) => l.issues)).toEqual([1, 2, 3]);
+		expect(runningOffLimitOf(live).flatMap((l) => l.issues)).toEqual([1, 2, 3]);
 	});
 
 	it("reads a finished launch's stale hold as neither", () => {
 		const done = record({ limitHeld, finishedAt: NOW });
 		expect(limitHoldsOf([done])).toEqual([]);
-		expect(workingOf([done])).toEqual([]);
+		expect(runningOffLimitOf([done])).toEqual([]);
 	});
 });
 

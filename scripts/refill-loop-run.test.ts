@@ -187,9 +187,9 @@ describe("run (#2435)", () => {
 		expect(lines).toHaveLength(1);
 		const { drawNeedMb, memory } = ADMISSION_VERDICT;
 		expect(lines[0]).toMatchObject({
-			working: memory.working.count,
-			// The working sessions plus run(1)'s one free slot.
-			ceiling: memory.working.count + 1,
+			live: memory.live.count,
+			// The live sessions plus run(1)'s one free slot.
+			ceiling: memory.live.count + 1,
 			binding: {
 				limit: "loop not running",
 				why: "stopping: stop was requested",
@@ -197,7 +197,7 @@ describe("run (#2435)", () => {
 			also: [],
 			memory: {
 				drawNeedMb,
-				rows: { working: memory.working.mb },
+				rows: { live: memory.live.mb },
 				largest: { name: "the live sessions' p95 draw", mb: drawNeedMb },
 			},
 		});
