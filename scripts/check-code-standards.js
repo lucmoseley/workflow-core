@@ -106,10 +106,10 @@ const {
 } = require("./lib/guard-cores.js");
 /** @typedef {import("./lib/standards-pins").LinePin} LinePin */
 
-/* Relative to the working directory, never to __dirname: it is what lets this
- * be exercised inside a throwaway repository rather than against this one
- * (§X3). */
-const ROOT = process.cwd();
+/* The working directory, never __dirname: it is what lets this be exercised
+ * inside a throwaway repository rather than against this one (§X3). Read at
+ * each call, so a run in a shared process judges its own directory (#5172). */
+const root = () => process.cwd();
 const DOC = "docs/code-standards.md";
 const ANCHORS = "scripts/code-standards-anchors.json";
 const BASE_DOC = "docs/code-standards-base.md";
@@ -294,7 +294,7 @@ const keyOf = (rel, from, to) =>
  */
 function loadAnchors(file) {
 	try {
-		const raw = JSON.parse(fs.readFileSync(path.join(ROOT, file), "utf8"));
+		const raw = JSON.parse(fs.readFileSync(path.join(root(), file), "utf8"));
 		/* Tolerate anything non-object rather than crashing the whole check. */
 		return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
 	} catch {
@@ -312,9 +312,9 @@ function saveAnchors(file, anchors) {
 			.sort()
 			.map((k) => [k, anchors[k]]),
 	);
-	fs.mkdirSync(path.dirname(path.join(ROOT, file)), { recursive: true });
+	fs.mkdirSync(path.dirname(path.join(root(), file)), { recursive: true });
 	fs.writeFileSync(
-		path.join(ROOT, file),
+		path.join(root(), file),
 		`${JSON.stringify(sorted, null, "\t")}\n`,
 	);
 }
@@ -332,7 +332,7 @@ function readChangedFiles(rev, broken) {
 	let out = "";
 	try {
 		out = execGit(["diff", "--name-only", rev], {
-			cwd: ROOT,
+			cwd: root(),
 			encoding: "utf8",
 		});
 	} catch (e) {
@@ -356,7 +356,7 @@ function readChangedLines(rev, rel, broken) {
 	let out = "";
 	try {
 		out = execGit(["diff", "-U0", rev, "--", rel], {
-			cwd: ROOT,
+			cwd: root(),
 			encoding: "utf8",
 		});
 	} catch (e) {
@@ -384,7 +384,7 @@ function readTrackedFiles(broken) {
 	let out = "";
 	try {
 		out = execGit(["ls-files"], {
-			cwd: ROOT,
+			cwd: root(),
 			encoding: "utf8",
 		});
 	} catch (e) {
@@ -444,7 +444,7 @@ function resolveCited(rawPath, tracked) {
 /** @param {string} rel */
 function readLines(rel) {
 	try {
-		return fs.readFileSync(path.join(ROOT, rel), "utf8").split("\n");
+		return fs.readFileSync(path.join(root(), rel), "utf8").split("\n");
 	} catch {
 		return null;
 	}
@@ -453,7 +453,7 @@ function readLines(rel) {
 /** @param {string} rel */
 function readText(rel) {
 	try {
-		return fs.readFileSync(path.join(ROOT, rel), "utf8");
+		return fs.readFileSync(path.join(root(), rel), "utf8");
 	} catch {
 		return null;
 	}
@@ -737,8 +737,8 @@ function consumersOf(paths, blocks) {
  * @returns {string[]}
  */
 function dispatchedModules() {
-	const own = path.join(ROOT, MANIFEST_REL);
-	if (manifestAt(ROOT) !== own) return [];
+	const own = path.join(root(), MANIFEST_REL);
+	if (manifestAt(root()) !== own) return [];
 	return readDispatchedCores(own).map((rel) =>
 		path.basename(rel).replace(SCRIPT_EXT, ""),
 	);
@@ -975,7 +975,7 @@ function judgePin(j, pin) {
 
 	/* Judged before a path fault ends the pin, since the release refuses a
 	 * pin naming no file too: the UNSHIPPED set is exactly what it refuses. */
-	const unshipped = j.shipped && baseLinePinFault(ROOT, pin, j.shipped);
+	const unshipped = j.shipped && baseLinePinFault(root(), pin, j.shipped);
 	if (unshipped)
 		push(
 			"UNSHIPPED",
@@ -1220,7 +1220,7 @@ function isDocumentArg(arg) {
 function docsFor(ctx, reviewing, reviewDoc) {
 	const named = reviewing ? (reviewDoc ?? DOC) : ctx.args[0];
 	if (named) return [named];
-	if (fs.existsSync(path.join(ROOT, BASE_DOC))) return [DOC, BASE_DOC];
+	if (fs.existsSync(path.join(root(), BASE_DOC))) return [DOC, BASE_DOC];
 	return [DOC];
 }
 
@@ -1236,7 +1236,7 @@ function readDocs(docs) {
 	const unread = [];
 	for (const doc of docs) {
 		try {
-			const text = fs.readFileSync(path.join(ROOT, doc), "utf8");
+			const text = fs.readFileSync(path.join(root(), doc), "utf8");
 			read.push({ doc, text, pins: parseLinePins(text) });
 		} catch (e) {
 			unread.push(`${doc} could not be read: ${errMessage(e)}`);
@@ -1259,7 +1259,7 @@ function readDocs(docs) {
 function loadShipped(ctx) {
 	try {
 		const { isShipped } = require("./lib/plugin-tree");
-		return (/** @type {string} */ rel) => isShipped(ROOT, rel);
+		return (/** @type {string} */ rel) => isShipped(root(), rel);
 	} catch (e) {
 		ctx.say(
 			`  the release's shipped-path seam could not be loaded, so no base line pin was judged UNSHIPPED: ${errMessage(e)}\n`,
@@ -1285,7 +1285,7 @@ function routeDrift(ctx, docs, read) {
 	if (!docs.includes(DOC)) return { rows: 0, findings: [] };
 	let declared;
 	try {
-		declared = readConfig({ root: ROOT, quiet: true }).pythonRoutes;
+		declared = readConfig({ root: root(), quiet: true }).pythonRoutes;
 	} catch (e) {
 		ctx.say(
 			`  ${CONFIG_PATH} could not be read, so pythonRoutes went unchecked against the route table: ${errMessage(e)}\n`,
@@ -1457,7 +1457,8 @@ function okLineOf({
 	);
 }
 
-runCheck({
+/** @type {import("./lib/check.js").CheckSpec} */
+const SPEC = {
 	name: "code-standards",
 	usage:
 		"node check-code-standards.js [--warn] [--json] [--touching <rev>] [<doc>] | --review [<doc>] [<pin>…]",
@@ -1562,4 +1563,7 @@ runCheck({
 			},
 		};
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

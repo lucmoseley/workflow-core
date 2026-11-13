@@ -332,7 +332,8 @@ function compareCopy(ctx, { doc, docPath }, { live, fence, missingIsDrift }) {
 	};
 }
 
-runCheck({
+/** @type {import("./lib/check.js").CheckSpec} */
+const SPEC = {
 	name: "user-settings-drift",
 	usage:
 		"node check-user-settings-drift.js [--warn] [<doc.md>] [<settings.json>]",
@@ -413,4 +414,7 @@ runCheck({
 			data: { differences, docPath, settingsPath },
 		};
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

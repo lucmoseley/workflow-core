@@ -272,6 +272,54 @@ const GATES = [
 		kind: "checker",
 	},
 	/*
+	 * The user-settings snapshot against ~/.claude/settings.json, checked here
+	 * and not in CI: its source lives outside the repo, so a runner could only
+	 * ever skip. Report-only, since drift in an unrelated file must not block
+	 * an unrelated commit.
+	 */
+	{
+		id: "user-settings-drift",
+		script: "scripts/check-user-settings-drift.js",
+		lander: "batch",
+		args: ["--warn"],
+		arm: { always: true },
+		policy: "warn",
+		kind: "checker",
+	},
+	/*
+	 * The code standards' citations, §N7 exports and pythonRoutes (#1863),
+	 * scoped to what this commit touches (mantahostels#2631). Report-only by
+	 * ruling (mantahostels#1091). Always armed: a citation can point at almost
+	 * any tracked file, and the run is cheap. --touching HEAD reads the
+	 * worktree, not the index, so an unstaged edit can surface here — accepted,
+	 * since it never refuses (check-code-standards.js:27-43).
+	 */
+	{
+		id: "code-standards",
+		script: "scripts/check-code-standards.js",
+		lander: "batch",
+		args: ["--touching", "HEAD", "--warn"],
+		arm: { always: true },
+		policy: "warn",
+		kind: "checker",
+	},
+	/*
+	 * An own skill body this commit grows past its cap, reported only
+	 * (mantahostels#3136); and a skill or command body holding an unescaped
+	 * $<digit>, which the harness rewrites to an argument — that limb FAILs,
+	 * so the row gates (#1490). --touching HEAD reads the worktree, so an
+	 * unstaged edit can surface here — accepted, the fix being one escape.
+	 */
+	{
+		id: "skill-body-size",
+		script: "scripts/check-skill-body-size.js",
+		lander: "batch",
+		args: ["--touching", "HEAD"],
+		arm: { always: true },
+		policy: "gate",
+		kind: "checker",
+	},
+	/*
 	 * A scripts/ test that spawns a guard sourcing lib/guard-log.sh must
 	 * redirect CLAUDE_CONFIG_DIR, or every fail-open it provokes is appended to
 	 * the developer's real guard-errors.log (mantahostels#1452). Armed on every

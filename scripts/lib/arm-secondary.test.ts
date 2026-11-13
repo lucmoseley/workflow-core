@@ -350,8 +350,6 @@ const HOOK_CALLS: Record<string, (string | null)[]> = {
 	"scripts/check-digest-render.js": ["digest-render"],
 	"scripts/check-doc-map.js": ["doc-map", "doc-map", "doc-map"],
 	"scripts/checker-new-faults.js": ["doc-map"],
-	"scripts/check-user-settings-drift.js": [null],
-	"scripts/check-code-standards.js": [null],
 	"scripts/lib/always-loaded-pool.js": [null],
 	"scripts/check-superseded-values.js": ["superseded-needle"],
 	"scripts/lib/formatters.js": ["ruff", null, null],

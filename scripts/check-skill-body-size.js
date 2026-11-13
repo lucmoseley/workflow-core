@@ -342,4 +342,5 @@ const SPEC = {
 	},
 };
 
+module.exports = { SPEC };
 if (require.main === module) runCheck(SPEC);

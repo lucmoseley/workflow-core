@@ -262,35 +262,6 @@ if armed '^(docs/effort-guide\.md|scripts/lib/model-routing\.json|scripts/genera
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-effort-guide-routing.js --check || exit "$?"
 fi
 
-# The user-settings snapshot is checked here, not in CI: its source lives
-# outside the repo, so a CI runner could only ever skip. Warn-only — drift in
-# an unrelated file must not block an unrelated commit.
-node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-user-settings-drift.js --warn
-
-# The code standards' citations (docs/code-standards.md, and the base
-# beside it where this repo carries one), §N7 exports and pythonRoutes against
-# the local route table (#1863), scoped to what this commit touches
-# (mantahostels#2631). WARN-only by ruling (mantahostels#1091), so this never exits
-# non-zero except on its own apparatus failing (BROKEN: git unable to
-# enumerate the tracked set). Unconditional, not scoped to a path grep: a
-# citation can point at almost any tracked file (app/, scripts/, docs/,
-# top-level configs alike), and the sole reason a repo-wide check earns a
-# path condition elsewhere in this file is cost — cheap here (mantahostels#2631).
-# --touching HEAD, not --against: reasoning in check-code-standards.js:27-43.
-# It reads the WORKTREE against HEAD, not the staged index other --against
-# gates in this file use, so an unstaged edit the commit does not carry can
-# surface on it — accepted because WARN-only means it never blocks (check-code-
-# standards.js:405,433).
-node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-code-standards.js --touching HEAD --warn
-
-# An own skill body this commit grows past the size its re-reading pays for
-# (mantahostels#3136), report-only by ruling; and a skill or command body
-# holding an unescaped $<digit>, which the harness rewrites to an argument —
-# that limb refuses (#1490). --touching HEAD reads the worktree, so an
-# unstaged edit to a body the commit does not carry can surface here, and on
-# the token limb refuse — accepted, the fix being one escape.
-node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-skill-body-size.js --touching HEAD
-
 # The doc map's own coverage, checked here as well as in roadmap-digest.yml
 # (mantahostels#390, the ticket that moved this local). Rationale and measurement:
 # docs/doc-map.md §A.

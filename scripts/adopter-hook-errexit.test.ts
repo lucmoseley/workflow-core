@@ -24,7 +24,13 @@ import {
 	registerTempCleanup,
 	stagedRepo,
 } from "./lib/precommit-gate-harness";
-import { HOOK, LIB, LOCAL_HOOK_LIB, ROOT } from "./lib/precommit-gate-testkit";
+import {
+	coreCall,
+	HOOK,
+	LIB,
+	LOCAL_HOOK_LIB,
+	ROOT,
+} from "./lib/precommit-gate-testkit";
 
 const temps = registerTempCleanup();
 
@@ -81,14 +87,19 @@ describe("an adopter's pre-push under `set -e` (#745)", () => {
 /* An adopter-shaped repo: core.hooksPath = .husky, no .husky/_, the pre-commit
  * shim as init writes it, and a plugin root, which WORKFLOW_CORE_DIR names,
  * holding the core's pre-commit and a stub for every script it calls, each
- * exiting its STUB_EXIT_<name> or 0. */
+ * exiting its STUB_EXIT_<name> or 0. The hook gains one bare line after the
+ * dispatcher's, a probe with no `|| exit`, since every gate a plain commit
+ * runs now carries one: only errexit can refuse on the probe's failure. */
+const DISPATCH_LINE = 'scripts/precommit-dispatch.js "$@" || exit "$?"\n';
+const PROBE_LINE = `${coreCall("node", "scripts/errexit-probe.js")}\n`;
 function buildAdopter(opts: { local?: string; errexit?: boolean }) {
 	const { root, git } = stagedRepo("hook-errexit-", temps, {}, {});
 	git("branch", "-M", "main");
 
 	const plugin = fs.mkdtempSync(`${root}-plugin-`);
 	temps.push(plugin);
-	let hook = HOOK;
+	expect(HOOK).toContain(DISPATCH_LINE);
+	let hook = HOOK.replace(DISPATCH_LINE, DISPATCH_LINE + PROBE_LINE);
 	if (opts.errexit === false) {
 		expect(hook).toMatch(/^set -e.*$/m);
 		hook = hook.replace(/^set -e.*$/m, "");
@@ -159,7 +170,7 @@ function tryCommit(
 	};
 }
 
-const BROKEN = { STUB_EXIT_check_skill_body_size: "2" };
+const BROKEN = { STUB_EXIT_errexit_probe: "2" };
 
 describe("an adopter's pre-commit refuses on a gate that only fails (#745)", () => {
 	it("lands a commit every stub gate passes", () => {
@@ -168,9 +179,9 @@ describe("an adopter's pre-commit refuses on a gate that only fails (#745)", () 
 		expect(r.landed).toBe(true);
 	});
 
-	it("refuses on check-skill-body-size's BROKEN, exit 2 with no `|| exit`", () => {
+	it("refuses on a bare line's BROKEN, exit 2 with no `|| exit`", () => {
 		const r = tryCommit(buildAdopter({}), BROKEN);
-		expect(r.out).toContain("STUB scripts/check-skill-body-size.js exit 2");
+		expect(r.out).toContain("STUB scripts/errexit-probe.js exit 2");
 		expect(r.status).not.toBe(0);
 		expect(r.landed).toBe(false);
 	});

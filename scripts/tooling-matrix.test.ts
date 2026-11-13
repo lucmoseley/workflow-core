@@ -784,10 +784,6 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 		["ESLint, `--max-warnings 0`", /eslint --max-warnings 0/],
 		["`commands.typecheck`", /this commit is NOT blocked/],
 		[
-			"`scripts/check-code-standards.js`",
-			/check-code-standards\.js --touching HEAD --warn/,
-		],
-		[
 			"shellcheck, `-x --severity=style --exclude=SC2016`",
 			/shellcheck -x --severity=style --exclude=SC2016/,
 		],
@@ -809,13 +805,18 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 		expect(hook).toContain('scripts/precommit-dispatch.js "$@" || exit "$?"');
 	});
 
-	it("names `scripts/check-workflow-permissions.js`, a dispatcher row", () => {
-		expect(floor).toContain("| `scripts/check-workflow-permissions.js` |");
-		expect(GATES.find((g) => g.id === "workflow-permissions")?.policy).toBe(
-			"gate",
-		);
-		expect(hook).toContain('scripts/precommit-dispatch.js "$@" || exit "$?"');
-	});
+	it.each([
+		["workflow-permissions", "gate"],
+		["code-standards", "warn"],
+	])(
+		"names the %s row's script, which the dispatcher runs as a %s",
+		(id, policy) => {
+			const row = GATES.find((g) => g.id === id);
+			expect(floor).toContain(`| \`${row?.script}\` |`);
+			expect(row?.policy).toBe(policy);
+			expect(hook).toContain('scripts/precommit-dispatch.js "$@" || exit "$?"');
+		},
+	);
 
 	it("gives shfmt the flags the format gate passes it", () => {
 		// The hook hands formatting to check-format-staged.js, which takes its

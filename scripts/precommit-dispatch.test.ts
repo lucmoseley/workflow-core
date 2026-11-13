@@ -159,6 +159,16 @@ describe("the hook's dispatcher line", () => {
 		expect(r.err).toContain(`${ALL[1]} is broken`);
 	});
 
+	it("exits 0 past a warn row's BROKEN, its report on stderr, loading every row after", () => {
+		const warn = GATES.find((g) => g.policy === "warn");
+		const id = path.basename(warn?.script ?? "", ".js");
+		const r = hook(SCRIPT, { act: `${id}:broken` });
+		expect(ALL).toContain(id);
+		expect(r.code).toBe(0);
+		expect(r.err).toContain(`${id} is broken`);
+		expect(r.loaded).toEqual(ALL);
+	});
+
 	it("exits 2 on a member that will not load, naming its row", () => {
 		const id = ALL[0] ?? "";
 		const row = GATES.find((g) => g.script === `scripts/${id}.js`);
