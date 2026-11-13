@@ -275,16 +275,48 @@ jobs:
       - name: Write the husky shims
         run: npm run prepare
 
+      # Full history and Shard timings run in the background, beside Install
+      # test tools; Wait for history and timings joins them (#5138).
+      #
+      # Full history: the checkout is depth 1, and arm-tasks.test.ts pushes
+      # HEAD's history to a sandbox origin, refused without the parents
+      # (#2099). Unshallowed here rather than `fetch-depth: 0`, which would
+      # also fetch the tags Surface contract keeps from every test.
+      #
+      # Shard timings: the per-file times this shard packs by, the newest
+      # green suite run's reports, chosen by this run's creation so every
+      # shard plans from the same run (#4574). Uploaded with the report
+      # below, where scheduled-checks.yml's verdict compares the shards'; a
+      # hand-run of this file has no verdict job, so nothing compares them
+      # there.
+      - name: Start full history and shard timings
+        if: ${{ !cancelled() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          start() {
+            name=$1
+            shift
+            ("$@" > "$RUNNER_TEMP/$name.log" 2>&1; echo $? > "$RUNNER_TEMP/$name.rc") &
+          }
+          start history git fetch --quiet --no-tags --unshallow origin "$GITHUB_SHA"
+          start timings node scripts/suite-timings.js latest "$RUNNER_TEMP/shard-timings.csv" --before-run "$GITHUB_RUN_ID"
+
       - name: Install test tools
         if: ${{ !cancelled() }}
         uses: ./.github/actions/test-tools
 
-      # The checkout is depth 1, and arm-tasks.test.ts pushes HEAD's history
-      # to a sandbox origin, refused without the parents (#2099). Unshallowed here rather than `fetch-depth: 0`, which
-      # would also fetch the tags Surface contract keeps from every test.
-      - name: Full history
+      # Prints each one's output, and fails where either did.
+      - name: Wait for history and timings
         if: ${{ !cancelled() }}
-        run: git fetch --quiet --no-tags --unshallow origin "$GITHUB_SHA"
+        run: |
+          failed=0
+          for name in history timings; do
+            timeout 120 bash -c "until [ -f '$RUNNER_TEMP/$name.rc' ]; do sleep 1; done" || { echo "$name never finished"; failed=1; continue; }
+            cat "$RUNNER_TEMP/$name.log"
+            [ "$(cat "$RUNNER_TEMP/$name.rc")" = 0 ] || failed=1
+          done
+          exit "$failed"
 
       # The guard port programme reads the Vitest step's time with load1 and
       # `free -m` beside it (#2733, #2783); the runner records neither otherwise.
@@ -294,17 +326,6 @@ jobs:
           cat /proc/loadavg
           free -m
           nproc
-
-      # The per-file times this shard packs by: the newest green suite run's
-      # reports, chosen by this run's creation so every shard plans from the
-      # same run (#4574). Uploaded with the report below, where
-      # scheduled-checks.yml's verdict compares the shards'; a hand-run of
-      # this file has no verdict job, so nothing compares them there.
-      - name: Shard timings
-        if: ${{ !cancelled() }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: node scripts/suite-timings.js latest "$RUNNER_TEMP/shard-timings.csv" --before-run "$GITHUB_RUN_ID"
 
       # vitest run exits non-zero on any failing test and npm propagates that,
       # and a failing test fails the build. On a `lander/batch-<k>` push alone the
