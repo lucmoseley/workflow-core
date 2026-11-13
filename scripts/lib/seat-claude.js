@@ -7,6 +7,8 @@
 const { stripVTControlCharacters } = require("node:util");
 const { claudeBin } = require("./claude-bin.js");
 const { CHILD_TIMEOUT_MS, spawnRaw } = require("./child-spawn.js");
+
+/** @typedef {typeof spawnRaw} Spawn the call `claude` runs through */
 const { childVerdict } = require("./child-failure.js");
 const { forgetRoots } = require("./inherited-roots.js");
 const { forgetSession } = require("./session-id.js");
@@ -30,14 +32,21 @@ function buildSeatEnv(env, seat, over = {}) {
  * `claude <args>` run to its end in `cwd` (else the caller's) under `env`
  * (buildSeatEnv's).
  * @param {string[]} args
- * @param {{cwd?: string, env: NodeJS.ProcessEnv, timeout?: number, bin?: string}} opts
- *   `bin` where the caller pins a CLI version
+ * @param {{cwd?: string, env: NodeJS.ProcessEnv, timeout?: number, bin?: string, spawn?: typeof spawnRaw}} opts
+ *   `bin` where the caller pins a CLI version; `spawn` the call, where a test
+ *   runs it in-process
  */
 function runClaude(
 	args,
-	{ cwd, env, timeout = CHILD_TIMEOUT_MS, bin = claudeBin(env) },
+	{
+		cwd,
+		env,
+		timeout = CHILD_TIMEOUT_MS,
+		bin = claudeBin(env),
+		spawn = spawnRaw,
+	},
 ) {
-	const r = spawnRaw(bin, args, {
+	const r = spawn(bin, args, {
 		cwd,
 		env,
 		stdio: ["ignore", "pipe", "pipe"],
