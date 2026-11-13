@@ -42,9 +42,20 @@ export const FAST = {
 	WFC_BG_MISSING_POLL_S: "0.1",
 };
 
-/* Three of FAST's heartbeats: three watcher passes, any of which would kill a
+/* A sub-second heartbeat (#5143), for a case whose wait is a watcher pass or
+ * the toucher's death, both one heartbeat apart: each idles a quarter of
+ * FAST's second instead, a guess that still leaves each wait several
+ * scheduler slices wide. Not FAST itself: the kill record states heartbeat_s
+ * only for a whole-second beat (record_kill), and each beat's memory sample
+ * walks all of /proc, so only a short-lived run takes it. */
+export const QUICK_BEAT = { WFC_BG_HEARTBEAT_S: "0.25" };
+/* Three of its heartbeats: three watcher passes, any of which would kill a
  * run it read as due. */
-export const THREE_BEATS_S = 3 * Number(FAST.WFC_BG_HEARTBEAT_S);
+export const QUICK_THREE_BEATS_S = 3 * Number(QUICK_BEAT.WFC_BG_HEARTBEAT_S);
+
+/* A MISSING_S window of two retries, for a case that refuses a name nothing
+ * will ever publish: FAST's 1.5 s window is for the races that need it. */
+export const TIGHT_MISSING = { WFC_BG_MISSING_S: "0.2" };
 
 /* How long a command a case kills runs if left alone (#2689): past the case's
  * own timeout, so no stall the case survives carries its kill past the
