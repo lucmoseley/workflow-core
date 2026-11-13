@@ -236,12 +236,13 @@ it("prints each checkout's count and the left-out ones in its text reading", () 
 	);
 });
 
-it("counts reaps in every checkout's record, naming one with none", () => {
+it("counts reaps in every checkout's record, naming one with none, and none from a start still ahead", () => {
 	const d = json(["reaps", "--since", iso(SINCE)]);
 	expect(d.total).toBe(3);
 	const r = run(["reaps", "--since", iso(SINCE)]);
 	expect(r.stdout).toContain("  quiet: 0 (no wfc-reaped-worktrees.jsonl)");
 	expect(r.stdout).toContain("  workflow-core: 2");
+	expect(json(["reaps", "--since", iso(NOW + 3600 * S)]).total).toBe(0);
 });
 
 it("refuses a pooled reading outside workflow-core, and one with no --carrying", () => {

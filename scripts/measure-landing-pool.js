@@ -53,6 +53,7 @@ const { queueLogFile, readQueueRows } = require("./lib/queue-log.js");
 const { homeDir, readAdopterCheckouts } = require("./lib/refill-repos.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 const {
+	ISO_TIME_RE,
 	TARGET_MULTIPLE,
 	greenSuiteSpans,
 	memberStays,
@@ -338,6 +339,18 @@ function countReaps(home, since) {
 	};
 }
 
+/**
+ * The reaps reading. A `--since` still ahead reads 0: a gate is set before
+ * the reaps it counts begin.
+ * @param {string} home
+ * @param {string} since
+ * @returns {{data: object, lines: string[]}|string}
+ */
+const readReaps = (home, since) =>
+	ISO_TIME_RE.test(since)
+		? countReaps(home, Date.parse(since))
+		: `--since takes an ISO time with its zone, such as 2026-11-15T13:00:00Z: ${since}`;
+
 /** @param {string} text */
 const refuse = (text) => {
 	writeFd(2, `${text}\n`);
@@ -350,10 +363,12 @@ const refuse = (text) => {
  * @param {string|undefined} command
  * @param {string|true|undefined} ref
  * @param {string} home
- * @param {{since: number, until: number}} w
+ * @param {string} since an ISO time
  * @returns {{data: object, lines: string[]}|string}
  */
-function readPooled(command, ref, home, w) {
+function readPooled(command, ref, home, since) {
+	const w = windowOf({ since }, now());
+	if (typeof w === "string") return w;
 	const core = repoRoot();
 	if (core === null || !isCoreHost(core))
 		return "measure-landing-pool.js runs in workflow-core: it reads its release tags.";
@@ -369,17 +384,14 @@ function main(argv) {
 	const parsed = parseOrCode(argv, CLI);
 	if (typeof parsed === "number") return parsed;
 	const { command, flags } = parsed;
-	const at = now();
-	const w = windowOf({ since: /** @type {string} */ (flags["--since"]) }, at);
-	if (typeof w === "string" || flags["--since"] === undefined)
-		return refuse(
-			typeof w === "string" ? w : `--since is required\n\n${USAGE}`,
-		);
+	const since = flags["--since"];
+	if (typeof since !== "string")
+		return refuse(`--since is required\n\n${USAGE}`);
 	const home = homeDir();
 	const out =
 		command === "reaps"
-			? countReaps(home, w.since)
-			: readPooled(command, flags["--carrying"], home, w);
+			? readReaps(home, since)
+			: readPooled(command, flags["--carrying"], home, since);
 	if (typeof out === "string") return refuse(out);
 	writeFd(
 		1,

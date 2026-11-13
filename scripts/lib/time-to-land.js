@@ -489,6 +489,7 @@ function replayBatches(events) {
 }
 
 module.exports = {
+	ISO_TIME_RE,
 	TARGET_MULTIPLE,
 	greenSuiteSpans,
 	memberStays,
