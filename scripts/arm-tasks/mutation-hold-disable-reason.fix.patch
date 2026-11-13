@@ -976,7 +976,7 @@ index a538d07a98e363a00ce25eaaaed6e8d7dea9da8f..2a26a56eb43459477daa09f75e7fa4b3
  });
 -
 diff --git a/scripts/mutation-hold-gate.js b/scripts/mutation-hold-gate.js
-index 122700ef86834de168c17a82ba64127d8dfcc08f..6b12f547e8e493ec5f33453740e34db2717d4e7e 100644
+index ffc6a4d7c1f287acc9a4bae4a259c1a461215745..da2b21005e1183b9ef42e9b32f6b0cd5a0b4ff00 100644
 --- a/scripts/mutation-hold-gate.js
 +++ b/scripts/mutation-hold-gate.js
 @@ -4,9 +4,9 @@
@@ -1095,7 +1095,7 @@ index 122700ef86834de168c17a82ba64127d8dfcc08f..6b12f547e8e493ec5f33453740e34db2
   * Says a fail-open on stderr and writes it to the fail-open log.
   * @param {string} stderrLine after its `pre-commit: ` prefix
   * @param {string} logLine
-@@ -398,6 +451,375 @@
+@@ -398,6 +451,376 @@
  }
  
  /**
@@ -1429,8 +1429,9 @@ index 122700ef86834de168c17a82ba64127d8dfcc08f..6b12f547e8e493ec5f33453740e34db2
 +	const read = readCommentsInChild(root, strykerConfig, entries);
 +	if ("error" in read) {
 +		// Fails open, logged: the tools the missing-tool check reads are
-+		// installed, so only a Stryker laid out unlike STRYKER_VERSION's, a host config
-+		// that hangs, or a child that will not run, gets here (#2366, #2727).
++		// installed, so only a Stryker laid out unlike STRYKER_VERSION's, a host
++		// config that hangs, or a child that will not run, gets here (#2366,
++		// #2727).
 +		reportUnread(files.join(", "), read.error);
 +		return [];
 +	}
@@ -1471,7 +1472,7 @@ index 122700ef86834de168c17a82ba64127d8dfcc08f..6b12f547e8e493ec5f33453740e34db2
   * The mutated span's source text. A location outside the source is a report
   * that will not read, so the hold fails open on it (#2078, #1871 §Faults).
   * @param {string[]} lines
-@@ -720,7 +1142,8 @@
+@@ -720,7 +1143,8 @@
  
  /**
   * The areas the staged paths touch, under the declaration at HEAD or as
@@ -1481,7 +1482,7 @@ index 122700ef86834de168c17a82ba64127d8dfcc08f..6b12f547e8e493ec5f33453740e34db2
   * @param {ConfigCopy[]} copies
   * @param {string[]} staged
   */
-@@ -737,11 +1160,16 @@
+@@ -737,11 +1161,16 @@
  		}
  	/** @type {Map<string, LineRange[]>} */
  	const ranges = new Map();
@@ -1501,7 +1502,7 @@ index 122700ef86834de168c17a82ba64127d8dfcc08f..6b12f547e8e493ec5f33453740e34db2
  }
  
  /**
-@@ -862,6 +1290,16 @@
+@@ -873,6 +1302,16 @@
  	);
  }
  
@@ -1518,7 +1519,7 @@ index 122700ef86834de168c17a82ba64127d8dfcc08f..6b12f547e8e493ec5f33453740e34db2
  /**
   * The refusal for a run's outcome, or null where it passes.
   * @param {ReturnType<typeof runStryker>} run
-@@ -915,6 +1353,12 @@
+@@ -926,6 +1365,12 @@
  		const missing = missingToolRefusal(root, HOOK_VOICE);
  		if (missing !== null) return refuse(missing);
  		const tree = gitOr(["write-tree"], "could not read the staged tree").trim();

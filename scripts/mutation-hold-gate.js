@@ -212,8 +212,8 @@ const CORE_DEFAULT = { testRunner: TEST_RUNNER, coverageAnalysis: "perTest" };
  * The runner's default pool, threads, fails every test calling
  * `process.chdir()`, and kills its workers under a vitest `execArgv` heap flag.
  * Stryker's default `disableTypeChecks` rewrites each matching file into the
- * sandbox with no mode; vitest never type-checks, so the rewrite buys the run
- * nothing. */
+ * sandbox with no mode, so none can run as an executable; vitest never
+ * type-checks, so the rewrite buys the run nothing. */
 const POOL = "forks";
 const DISABLE_TYPE_CHECKS = false;
 
@@ -781,8 +781,9 @@ function unreasonedDisables(root, strykerConfig, hunks) {
 	const read = readCommentsInChild(root, strykerConfig, entries);
 	if ("error" in read) {
 		// Fails open, logged: the tools the missing-tool check reads are
-		// installed, so only a Stryker laid out unlike STRYKER_VERSION's, a host config
-		// that hangs, or a child that will not run, gets here (#2366, #2727).
+		// installed, so only a Stryker laid out unlike STRYKER_VERSION's, a host
+		// config that hangs, or a child that will not run, gets here (#2366,
+		// #2727).
 		reportUnread(files.join(", "), read.error);
 		return [];
 	}
@@ -1248,7 +1249,8 @@ function readStrykerInstalls(manifest) {
  * The refusal for the tools the run needs and `root`'s `node_modules` lacks,
  * or holds at a Stryker older than STRYKER_VERSION (#5180), every one in one
  * refusal, or null. Read off each package.json, so no `exports` map hides an
- * install; one that will not read counts as installed.
+ * install; one that will not read counts as installed, left to Stryker's own
+ * run to refuse (#5180).
  * @param {string} root
  * @param {Voice} voice
  */
