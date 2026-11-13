@@ -384,6 +384,26 @@ describe("the hook's dispatcher line", () => {
 	});
 
 	it.each([
+		["exits non-zero", "exit 1", "could not read this commit's staged paths"],
+		[
+			"breaks its list off mid-entry",
+			"printf 'M\\000a.txt\\000D'",
+			"git's staged path list broke off mid-entry",
+		],
+	])(
+		"refuses with exit 1, running no row, where git %s naming the staged paths",
+		(_, body, says) => {
+			const { root } = fixture({});
+			const git = path.join(root, "git-will-not-list");
+			fs.writeFileSync(git, `#!/bin/sh\n${body}\n`, { mode: 0o755 });
+			const r = hook(SCRIPT, { env: { WFC_GIT: git } });
+			expect(r.code).toBe(1);
+			expect(r.loaded).toEqual([]);
+			expect(r.err).toContain(`pre-commit: ${says}`);
+		},
+	);
+
+	it.each([
 		["--gates=merge", ["every", "merge"]],
 		["--gates=batch", ["every", "batch"]],
 	])("passes %s through, running that lander set", (arg, sets) => {

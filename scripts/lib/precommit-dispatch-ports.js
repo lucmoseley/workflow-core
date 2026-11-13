@@ -92,15 +92,16 @@ function readStaged(cwd) {
 		throw new Error(
 			"could not read this commit's staged paths from git — refusing, since no gate could arm.",
 		);
+	/* Every field ends in a NUL, so a whole list splits to status-path pairs
+	 * and one trailing "". */
 	const fields = String(r.stdout).split("\0");
+	if (fields.pop() !== "" || fields.length % 2 !== 0)
+		throw new Error(
+			"git's staged path list broke off mid-entry — refusing, since no gate could arm on it.",
+		);
 	const entries = [];
-	for (let i = 0; i + 1 < fields.length; i += 2) {
-		const status = fields[i];
-		const rel = fields[i + 1];
-		if (status === undefined || rel === undefined)
-			throw new Error(`git's staged list broke off at field ${i}.`);
-		entries.push({ status, path: rel });
-	}
+	for (let i = 0; i < fields.length; i += 2)
+		entries.push({ status: String(fields[i]), path: String(fields[i + 1]) });
 	return entries;
 }
 

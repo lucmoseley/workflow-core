@@ -121,10 +121,8 @@ const crashLine = (row, at, e) =>
  * @returns {Promise<number>}
  */
 async function dispatch({ rows, gates, ports }) {
-	const staged = await stagedOrExit(ports);
-	return typeof staged === "number"
-		? staged
-		: runRows(rows, gates, staged, ports);
+	const read = await readStagedOrRefuse(ports);
+	return "exit" in read ? read.exit : runRows(rows, gates, read.staged, ports);
 }
 
 /**
@@ -157,22 +155,22 @@ async function runRows(rows, gates, staged, ports) {
 }
 
 /**
- * The commit's staged entries, else the exit where git will not name them:
- * 1, or the 128 + n of a caught signal, which kills git too.
+ * The commit's staged entries, else the exit code where git will not name
+ * them: 1, or the 128 + n of a caught signal, which kills git too.
  * @template {Row} R
  * @param {Ports<R>} ports
- * @returns {Promise<StagedEntry[] | number>}
+ * @returns {Promise<{ staged: StagedEntry[] } | { exit: number }>}
  */
-async function stagedOrExit(ports) {
+async function readStagedOrRefuse(ports) {
 	try {
-		return ports.staged();
+		return { staged: ports.staged() };
 	} catch (e) {
 		const code = await ports.interrupted();
 		ports.write(
 			2,
 			code === null ? `pre-commit: ${caught(e).message}\n` : STOPPED_LINE,
 		);
-		return code ?? 1;
+		return { exit: code ?? 1 };
 	}
 }
 
