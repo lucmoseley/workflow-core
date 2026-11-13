@@ -17,6 +17,8 @@ const {
 const { heldAreas } = require("./sensitive-paths.js");
 const { readConfig } = require("./workflow-core-config.js");
 
+const LOG_LABEL = "review-hold-gate.js";
+
 /**
  * @param {{ cwd: string, env: NodeJS.ProcessEnv, now?: () => number }} opts
  * @returns {import("./review-hold.js").HoldPorts}
@@ -140,19 +142,20 @@ function buildHoldPorts({ cwd, env, now = Date.now }) {
 			try {
 				root = require("./host-root.js").hostRoot(cwd);
 			} catch {
-				/* readRuleTextOr resolves the root itself, and falls back. */
+				/* readRuleTextOr resolves it from process.cwd(), the cwd the entry
+				 * passes, and falls back there (#3142). */
 			}
 			return require("./rule-text.js").readRuleTextOr(
 				"review-hold",
-				"A commit on a declared sensitive path is held until its escalated review is recorded",
-				"review-hold-gate.js",
+				"A commit on a declared sensitive path is held until its pre-commit review is recorded",
+				LOG_LABEL,
 				root,
 			);
 		},
 		log: (what, detail) => {
 			try {
 				require("./arbiter-core.js").logError(
-					"review-hold-gate.js",
+					LOG_LABEL,
 					what,
 					detail || undefined,
 				);
