@@ -8,13 +8,12 @@
  * (lib/refill-dir.js), so the memory-kill filer reads every repo's runs from
  * one place. The wrapper opens it as it starts, before its queue wait or its
  * selection, and rewrites it every sample with `sampledAt`; a run whose
- * wrapper was killed leaves it at its last sample, with no `endedAt`. The
- * marker a finished run writes carries `memoryOf`'s block into
- * `.test-runs.jsonl` (lib/run-ledger.js).
+ * wrapper was killed leaves it at its last sample, with no `endedAt`.
  *
- * A PID IS THE RUN'S ONLY WHILE SEEN: `lastSeenAt` gives the time a pid was
- * last seen in its role, the wrapper's and main's being the last sample, so
- * lib/earlyoom-kills.js never names a run for a later process reusing a pid.
+ * A PID IS THE RUN'S ONLY WHILE SEEN: `heldUntil` gives the time a pid was
+ * last seen in its role, the wrapper's and main's being the last sample, plus
+ * SEEN_SLACK_MS, so lib/earlyoom-kills.js never names a run for a later
+ * process reusing a pid.
  *
  * A WORKER is a direct child of vitest's main process, or a process that
  * claimed a file (below): one forked and gone between two samples still
@@ -83,11 +82,9 @@ const toMiB = (kb) => Math.round(kb / 1024);
 function readMemKb(proc, pid) {
 	const status = readText(path.join(proc, String(pid), "status"));
 	if (status.state !== "read") return null;
-	const kb = (/** @type {string} */ key) =>
-		Number(status.data.match(new RegExp(`^${key}:\\s+(\\d+) kB$`, "m"))?.[1]);
-	const rss = kb("VmRSS");
+	const rss = Number(status.data.match(/^VmRSS:\s+(\d+) kB$/m)?.[1]);
 	if (!Number.isFinite(rss)) return null;
-	const hwm = kb("VmHWM");
+	const hwm = Number(status.data.match(/^VmHWM:\s+(\d+) kB$/m)?.[1]);
 	return { rss, hwm: Number.isFinite(hwm) ? hwm : rss };
 }
 
@@ -111,7 +108,6 @@ function readChildren(proc, parent) {
 }
 
 /**
- * The pids that claimed a file, by pid.
  * @param {string} file the run file
  * @returns {Map<number, string>}
  */
@@ -147,11 +143,13 @@ function sampleOwn(proc, wrapper, main) {
 }
 
 /**
- * Lists and stamps the run's workers — main's children and every claimant —
- * folding each live one's VmHWM into `workerHwm`; their VmRSS summed, kB.
+ * Lists and stamps the run's workers, folding each live one's VmHWM into
+ * `workerHwm`; their VmRSS summed, kB.
  * @param {string} proc
- * @param {RunFile} run
+ * @param {RunFile} run accumulator: its `pids.workers` and `workersSeenAt`
+ *   gain this sample's workers
  * @param {{ at: string, claims: Map<number, string>, workerHwm: Map<number, number> }} sampling
+ *   `workerHwm` an accumulator: each worker's highest VmHWM, kB
  */
 function sampleWorkers(proc, run, { at, claims, workerHwm }) {
 	const main = run.pids.main;
@@ -188,7 +186,7 @@ function writeRun(file, run) {
 	try {
 		writeFileAtomic(file, `${JSON.stringify(run)}\n`, { mkdir: true });
 	} catch {
-		/* a lost reading costs the reading, never the run */
+		/* NEVER THROWS */
 	}
 }
 
@@ -377,6 +375,8 @@ function readRunFiles(dir = storeDir()) {
 		try {
 			runs.push(JSON.parse(fs.readFileSync(path.join(dir, name), "utf8")));
 		} catch (error) {
+			/* A neighbour's sweep took it after the listing. */
+			if (caught(error).code === "ENOENT") continue;
 			return {
 				runs: [],
 				why: `the test run store: ${name}: ${caught(error).message}`,
@@ -386,14 +386,13 @@ function readRunFiles(dir = storeDir()) {
 }
 
 /**
- * The role `pid` held in `run` and when it was last seen there, ms, or null
- * where it held none. The wrapper and main are seen at each sample until the
- * run ends.
+ * The role `pid` held in `run` and the last time, ms, it can be taken for the
+ * run's: its last sighting plus SEEN_SLACK_MS; null where it held none.
  * @param {RunFile} run
  * @param {number} pid
- * @returns {{ role: Role, seenUntil: number }|null}
+ * @returns {{ role: Role, until: number }|null}
  */
-function lastSeenAt(run, pid) {
+function heldUntil(run, pid) {
 	const lastSample = Date.parse(run.endedAt ?? run.sampledAt);
 	/** @type {[Role, number]|null} */
 	let held = null;
@@ -401,13 +400,13 @@ function lastSeenAt(run, pid) {
 	else if (run.pids.main === pid) held = ["vitest main", lastSample];
 	else if (run.workersSeenAt[pid])
 		held = ["worker", Math.min(Date.parse(run.workersSeenAt[pid]), lastSample)];
-	return held && { role: held[0], seenUntil: held[1] + SEEN_SLACK_MS };
+	return held && { role: held[0], until: held[1] + SEEN_SLACK_MS };
 }
 
 module.exports = {
 	MEMORY_ENV,
 	claimFile,
-	lastSeenAt,
+	heldUntil,
 	readRunFiles,
 	readRunMemory,
 	startSampler,

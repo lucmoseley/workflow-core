@@ -792,7 +792,6 @@ function runOnce(
 		armSignals();
 		heldRuns.set(inflightFile, killCarrier);
 		const tmpRoot = openRunRoot(err);
-		/* Its pids are on disk before vitest can draw anything (#5183). */
 		const runLaunch = {
 			session,
 			kind: kindOfLaunch({
@@ -1060,8 +1059,7 @@ function runOnce(
 }
 
 /* The memory record the wrapper opened as it started, before its queue wait
- * and its selection, so a wrapper killed there still leaves its pid (#5183).
- * The first run takes it; a wrapper that spawned nothing discards it. */
+ * and its selection, so a wrapper killed there still leaves its pid (#5183). */
 /** @type {import("./lib/run-memory.js").Sampler|null} */
 let wrapperMemory = null;
 
@@ -2876,13 +2874,13 @@ if (require.main === module) {
 			// `process.exitCode`, never `process.exit()`: stdout is a pipe here, so
 			// writes to it are queued rather than synchronous, and exit() tears the
 			// process down before a piped `| head` or `| grep` has drained that
-			// queue — losing exactly the failure text this wrapper exists to keep
-			// (mantahostels#1943 review).
+			// queue (mantahostels#1943).
 			.then((code) => {
 				takeWrapperMemory()?.discard();
 				process.exitCode = code;
 			})
 			.catch((error) => {
+				takeWrapperMemory()?.discard();
 				process.stderr.write(`run-vitest.js crashed: ${error}\n`);
 				process.exitCode = 1;
 			});

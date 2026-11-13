@@ -163,7 +163,7 @@ describe("startSampler (#5183)", () => {
 		sampler.sample();
 		const { runs } = memory.readRunFiles(store);
 		expect(runs[0].pids.workers).toEqual([999_999_998]);
-		expect(memory.lastSeenAt(runs[0], 999_999_998)?.role).toBe("worker");
+		expect(memory.heldUntil(runs[0], 999_999_998)?.role).toBe("worker");
 		sampler.stop();
 	});
 
@@ -196,7 +196,7 @@ describe("startSampler (#5183)", () => {
 	});
 });
 
-describe("lastSeenAt (#5183)", () => {
+describe("heldUntil (#5183)", () => {
 	it("holds the wrapper and main to the last sample, and a worker to its own last sighting", () => {
 		const store = path.join(dir, "store");
 		const c = clock();
@@ -210,12 +210,13 @@ describe("lastSeenAt (#5183)", () => {
 		c.step(30_000);
 		sampler.sample();
 		const [run] = memory.readRunFiles(store).runs;
-		expect(memory.lastSeenAt(run, process.pid)).toEqual({
+		expect(memory.heldUntil(run, process.pid)).toEqual({
 			role: "wrapper",
-			seenUntil: start + 30_000 + 2000,
+			/* The last sample, plus SEEN_SLACK_MS's two 1 s samples. */
+			until: start + 30_000 + 2000,
 		});
-		expect(memory.lastSeenAt(run, 999_999_997)?.role).toBe("vitest main");
-		expect(memory.lastSeenAt(run, 4)).toBeNull();
+		expect(memory.heldUntil(run, 999_999_997)?.role).toBe("vitest main");
+		expect(memory.heldUntil(run, 4)).toBeNull();
 		sampler.discard();
 	});
 });

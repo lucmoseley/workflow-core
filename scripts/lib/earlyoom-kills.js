@@ -5,18 +5,17 @@
  *
  * THE JOURNAL IS THE LOG. Debian's earlyoom.service runs with DynamicUser and
  * ProtectSystem=strict, so a `-N` script could write nowhere uid 1000 reads
- * (#3094's delegated decision); earlyoom already logs each signal as
+ * (#3094); earlyoom already logs each signal as
  *   sending SIGTERM to process 658446 uid 1000 "MainThread": badness 741, VmRSS 983 MiB
  * after a `mem avail: … swap free: …` line, which this pairs with it.
  *
- * A KILL IS ONE PID: earlyoom re-signals a process that outlives SIGTERM
- * (25 Oct 2026: one 4 GB MainThread signalled four times over 43 s), so
+ * A KILL IS ONE PID: earlyoom re-signals a process that outlives SIGTERM, so
  * repeated signals to one pid inside an incident are one kill, keeping the
  * first signal's readings and the count.
  *
  * AN INCIDENT is kills no more than INCIDENT_GAP_MS apart. It is OVER once
  * INCIDENT_GAP_MS has passed since its last kill: before then a later kill may
- * still join it, so the filer waits.
+ * still join it.
  *
  * A HEADLESS RUN is a kill whose pid, boot and time match a run in
  * lib/headless-runs.js's store (#4143): same pid, the boot `journalctl
@@ -27,20 +26,19 @@
  * A TEST RUN is a node kill whose pid was a run's wrapper, vitest main or
  * worker in lib/run-memory.js's run files when it died (#5183): same boot,
  * the run started at or before the kill, the pid seen in its role up to it
- * (`lastSeenAt`), the latest such run where two share them. The ticket names
- * its launch: session, kind and files.
+ * (`heldUntil`), the latest such run where two share them.
  *
  * FAILS OPEN: journalctl absent, refused, timed out or printing nothing reads
  * as no kills, with `why` set so a caller can say so. A store or boot list
  * that will not read, or a run on a victim's pid that recorded no boot,
  * leaves the kills unjoined, with the incident's
  * `unjoined` saying why. WFC_JOURNALCTL injects
- * the binary (§N7), as check-kernel-stall.js takes it.
+ * the binary (§N7).
  */
 
 const { caught } = require("./caught.js");
 const { readStoredRuns } = require("./headless-runs.js");
-const { lastSeenAt, readRunFiles } = require("./run-memory.js");
+const { heldUntil, readRunFiles } = require("./run-memory.js");
 const { shortJobId } = require("./job-paths.js");
 const {
 	buildProcessSpan,
@@ -57,7 +55,7 @@ const {
 const { requiredGroup } = require("./regex-group.js");
 const { docPath } = require("./script-path.js");
 
-/** Ruled at #3082 (Q1 → B); untraced. */
+/** Ruled at #3082; untraced. */
 const INCIDENT_GAP_MS = 30 * 60 * 1000;
 
 const LINE = /^(\S+) \S+ earlyoom\[\d+\]: (.*)$/;
@@ -183,7 +181,7 @@ function groupIncidents(signals) {
 const isOver = (i, now) => now - Date.parse(i.last) > INCIDENT_GAP_MS;
 
 /**
- * earlyoom's journal since `sinceMs`. A read that failed is no kills, with why.
+ * earlyoom's journal since `sinceMs`.
  * @param {number} sinceMs
  * @returns {{text: string, why: string|null}}
  */
@@ -204,6 +202,33 @@ function readJournal(sinceMs) {
 }
 
 /**
+ * The latest-started of `items` recorded in `boot`, or null.
+ * @template {{ bootId: string|null, started: number }} T
+ * @param {T[]} items
+ * @param {import("./journalctl.js").Boot|undefined} boot
+ * @returns {T|null}
+ */
+function latestInBoot(items, boot) {
+	return items
+		.filter(
+			(i) =>
+				boot !== undefined &&
+				i.bootId !== null &&
+				bootKey(i.bootId) === boot.id,
+		)
+		.reduce(
+			(a, i) => (a === null || i.started > a.started ? i : a),
+			/** @type {T|null} */ (null),
+		);
+}
+
+/** @param {string[]} runs @returns {string[]} */
+const bootlessNote = (runs) =>
+	runs.length === 0
+		? []
+		: [`${runs.join(", ")} on a victim's pid recorded no boot`];
+
+/**
  * The test run `k`'s pid was part of when it died in `boot`, and the runs on
  * its pid that recorded no boot, by file time.
  * @param {Kill} k
@@ -216,24 +241,15 @@ function findTestRun(k, boot, runs) {
 		return { testRun: null, bootless: [] };
 	const at = Date.parse(k.at);
 	const held = runs.flatMap((r) => {
-		const seen = lastSeenAt(r, k.pid);
-		return seen !== null &&
-			toSecond(Date.parse(r.at)) <= at &&
-			at <= seen.seenUntil
-			? [{ run: r, role: seen.role }]
+		const seen = heldUntil(r, k.pid);
+		return seen !== null && toSecond(Date.parse(r.at)) <= at && at <= seen.until
+			? [{ run: r, role: seen.role, started: Date.parse(r.at) }]
 			: [];
 	});
-	const latest = held
-		.filter(
-			({ run }) =>
-				boot !== undefined &&
-				run.bootId !== null &&
-				bootKey(run.bootId) === boot.id,
-		)
-		.reduce(
-			(a, h) => (a === null || h.run.at > a.run.at ? h : a),
-			/** @type {(typeof held)[number]|null} */ (null),
-		);
+	const latest = latestInBoot(
+		held.map((h) => ({ ...h, bootId: h.run.bootId })),
+		boot,
+	);
 	const bootless = held.flatMap(({ run }) =>
 		run.bootId === null ? [`test run from ${run.at}`] : [],
 	);
@@ -274,17 +290,10 @@ function joinRuns(incidents) {
 				(r) => r.pid === k.pid && toSecond(r.launchedAt) <= at,
 			);
 			for (const r of onPid) if (r.bootId === null) bootless.push(r.jobId);
-			const run = onPid
-				.filter(
-					(r) =>
-						boot !== undefined &&
-						r.bootId !== null &&
-						bootKey(r.bootId) === boot.id,
-				)
-				.reduce(
-					(a, r) => (a === null || r.launchedAt > a.launchedAt ? r : a),
-					/** @type {import("./headless-runs.js").RunRecord|null} */ (null),
-				);
+			const run = latestInBoot(
+				onPid.map((r) => ({ ...r, started: r.launchedAt })),
+				boot,
+			);
 			if (run !== null)
 				return {
 					...k,
@@ -299,14 +308,14 @@ function joinRuns(incidents) {
 				: { ...k, kind: /** @type {Kind} */ ("test run"), testRun };
 		});
 		const unjoined = [
-			...(bootless.length === 0
-				? []
-				: [
-						`headless ${bootless.length === 1 ? "run" : "runs"} ${bootless.join(", ")} on a victim's pid recorded no boot`,
-					]),
-			...(bootlessTests.length === 0
-				? []
-				: [`${bootlessTests.join(", ")} on a victim's pid recorded no boot`]),
+			...bootlessNote(
+				bootless.length === 0
+					? []
+					: [
+							`headless ${bootless.length === 1 ? "run" : "runs"} ${bootless.join(", ")}`,
+						],
+			),
+			...bootlessNote(bootlessTests),
 			...(testRuns.why === null ? [] : [testRuns.why]),
 		];
 		return {
@@ -364,7 +373,7 @@ const mib = (v) => (v === null ? "unread" : `${v} MiB`);
 
 /**
  * @param {Kill[]} kills
- * @returns {string} `Claude host 2, headless run 1 (job 03998aa2), other 1`
+ * @returns {string}
  */
 const byKind = (kills) =>
 	KINDS.flatMap((kind) => {
@@ -384,7 +393,7 @@ const filesOf = (t) => {
 	return t.files.map((f) => `\`${f}\``).join(", ");
 };
 
-/** @param {TestRun} t `worker of a named run by \`abcd1234\` in workflow-core: \`a.test.ts\`` */
+/** @param {TestRun} t */
 const testRunCell = (t) => {
 	const files = filesOf(t);
 	const by = t.session === null ? "" : ` by \`${shortJobId(t.session)}\``;
