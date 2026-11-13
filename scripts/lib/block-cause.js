@@ -51,6 +51,10 @@ const AUTH_DETAIL =
 	/^(Login expired|Could not refresh your login|Invalid API key|Your organization has disabled)/;
 const AUTH_NEEDS = /^(login required|org disabled OAuth)/;
 const AUTH_ERRORS = new Set(["authentication_failed", "oauth_org_not_allowed"]);
+/* Cloudflare's WAF or IP block page, a 403 at the edge that the CLI tags
+ * `authentication_failed` and words "Please run /login" though the login is
+ * good: transient, so the loop's capped resumes take it up (#5164). */
+const EDGE_BLOCK = /API Error: 403\b.*\bCloudflare\b/;
 /* The `needs` a dialog writes to the job record, the one mark a parked row
  * keeps of it: 2.1.311's `dialog open` table, its managed-settings emit and
  * its startup-wedge watchdog, read from the binary (#3252). A dialog the
@@ -297,6 +301,12 @@ const RULES = [
 			);
 			return hit ? { cause: "LIMIT", bar: hit[1] } : { cause: "LIMIT" };
 		},
+	],
+	[
+		(f) =>
+			EDGE_BLOCK.test(f.detail) ||
+			(isApiError(f) && EDGE_BLOCK.test(textOf(f.said))),
+		{ cause: "API_ERROR", sub: "transient" },
 	],
 	[
 		(f) =>
