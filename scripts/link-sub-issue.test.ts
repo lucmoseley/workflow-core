@@ -116,10 +116,9 @@ const path = require("node:path");
 const at = (name) => path.join(env.GH_STUB_DIR, name);
 fs.appendFileSync(at(${JSON.stringify(CALLS_FILE)}), argv.join(" ") + "\\n");
 const g = JSON.parse(fs.readFileSync(at(${JSON.stringify(ANSWERS_FILE)}), "utf8"));
-const serve = (a) => { out(a.stdout); err(a.stderr); exit(a.status); };
-if (argv.join(" ").includes("--method POST")) serve(g.post);
+if (argv.join(" ").includes("--method POST")) serveHandlerAnswer(g.post);
 if (argv[1] === "graphql")
-	serve(g.graphFails
+	serveHandlerAnswer(g.graphFails
 		? { status: 1, stdout: "", stderr: "gh: Something went wrong (HTTP 502)\\n" }
 		: answerLinks(argv, (repo, n) => g.graph[repo.toLowerCase() + "#" + n] ?? {}));
 if (argv[argv.indexOf("--jq") + 1] === ${JSON.stringify(LINK_READS.children.jq)}) {
@@ -130,9 +129,9 @@ if (argv[argv.indexOf("--jq") + 1] === ${JSON.stringify(LINK_READS.children.jq)}
 }
 const issue = /\\/issues\\/(\\d+)$/.exec(argv[1] ?? "");
 if (issue && argv.includes(".state") && g.states[issue[1]] !== undefined)
-	serve(buildJqLines(g.states[issue[1]]));
+	serveHandlerAnswer(buildJqLines(g.states[issue[1]]));
 const read = answerLinkRead(argv, g.reads);
-if (read) serve(read);
+if (read) serveHandlerAnswer(read);
 `;
 
 let server: GhStubServer;
