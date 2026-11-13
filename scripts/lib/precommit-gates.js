@@ -88,7 +88,7 @@ const GATES = [
 	/*
 	 * Once the main checkout is cut over to the worktree model (#4248), it takes
 	 * no commit at all: its main moves by the levelling step's fast-forward
-	 * alone. Every set runs it, a lander's merge and batch included.
+	 * alone.
 	 */
 	{
 		id: "main-checkout-commit",
@@ -107,8 +107,7 @@ const GATES = [
 	 * scripts/ and .husky/ arm it because a guard is a file: deleting
 	 * .husky/pre-commit falsifies an **Enforced** claim without any document
 	 * changing. self-plugin/ holds the wiring an UNWIRED claim is judged
-	 * against. Its report streams past on the way, so a session still meets the
-	 * implicit-behaviour roster mantahostels#1261 put here.
+	 * against.
 	 *
 	 * Identity is `file` + `rule`, which every FAIL kind carries; a staleness
 	 * warning carries neither, and `guard` names its path. lib/fault-profiles.js
@@ -151,8 +150,7 @@ const GATES = [
 	 * docs/test-read-edges.json lets `--changed` select the tests that READ a
 	 * document rather than import it. It is derived from the test corpus, so a
 	 * commit adding or removing a runtime read makes it stale, and a stale
-	 * manifest fails silently: the test it forgot sits unrun behind a filtered
-	 * green (mantahostels#2031). Armed on test files and the manifest, not on
+	 * manifest fails silently (mantahostels#2031). Armed on test files and the manifest, not on
 	 * docs/: adding a document changes no edge until a test reads it. Neither
 	 * lander set runs it: each lander merge has just written the manifest with
 	 * this generator (lib/regenerated-files.js, #4573).
@@ -230,9 +228,7 @@ const GATES = [
 		kind: "checker",
 	},
 	/*
-	 * A gate's subject tracked while its switch is off — a test file with no
-	 * commands.test, the roadmap, manual or §B with its module off, the brand
-	 * sheet and app/ with `site` off (#1506). Unarmed, as it judges the whole
+	 * A gate's subject tracked while its switch is off (#1506). Unarmed, as it judges the whole
 	 * index: a subject that landed before this shipped is refused at the next
 	 * commit.
 	 */
@@ -868,8 +864,8 @@ const GATES = [
 	 * scoped to what this commit touches (mantahostels#2631). Report-only by
 	 * ruling (mantahostels#1091). Always armed: a citation can point at almost
 	 * any tracked file, and the run is cheap. --touching HEAD reads the
-	 * worktree, not the index, so an unstaged edit can surface here — accepted,
-	 * since it never refuses (check-code-standards.js:27-43).
+	 * worktree, not the index, so an unstaged edit can surface here — accepted
+	 * (check-code-standards.js:27-43).
 	 */
 	{
 		id: "code-standards",
@@ -883,8 +879,7 @@ const GATES = [
 	/*
 	 * A primitives row naming a path or § id that does not resolve, or a local
 	 * row taking a base row's job (#3451). Every commit, since a renamed
-	 * exemplar can sit anywhere; --paths-only keeps it to stat calls, the count
-	 * line being `npm run status`'s. It reads the worktree, so an unstaged
+	 * exemplar can sit anywhere; --paths-only keeps it to stat calls. It reads the worktree, so an unstaged
 	 * rename the commit does not carry can surface here; a base row's fault
 	 * only warns in an adopter.
 	 */
@@ -932,8 +927,7 @@ const GATES = [
 	/*
 	 * The doc map's own coverage, checked at commit as well as in
 	 * roadmap-digest.yml (mantahostels#390); lib/doc-map-gate.js's header holds
-	 * its rules. The pattern spells SCOPE in lib/doc-map.js, a directory member
-	 * as `docs/` and a root file as `AGENTS\.md$`, and
+	 * its rules. The pattern spells SCOPE in lib/doc-map.js, and
 	 * lib/doc-map-gate-program.test.ts asserts the parity.
 	 */
 	{
@@ -961,7 +955,7 @@ const GATES = [
 	 * adopter may place outside the pattern.
 	 *
 	 * Silent on a pass: its byte line on nearly every commit would teach the
-	 * reader to skip it. A WARN names an over-cap surface, so it prints.
+	 * reader to skip it.
 	 */
 	{
 		id: "context-budget",

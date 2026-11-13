@@ -14,7 +14,7 @@ const { writeFd } = require("./write-fd.js");
 /** @type {Sink} */
 const FD_SINK = { write: writeFd };
 
-/** Both streams held as text, byte for byte; a say-fd other than 1 is stderr. */
+/** Both streams held as text. */
 class BufferSink {
 	constructor() {
 		this.stdout = "";
@@ -30,7 +30,7 @@ class BufferSink {
 
 /**
  * Runs `run` against a BufferSink's writer, for a CLI core the pre-commit
- * dispatcher runs as a program row in its own process.
+ * dispatcher runs as a program row in the dispatcher's process.
  * @param {(write: import("./write-fd.js").Write) => number} run
  * @returns {{ exit: number, stdout: string, stderr: string }}
  */

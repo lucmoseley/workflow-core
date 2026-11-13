@@ -95,13 +95,11 @@ const CORE_RULES = path.join(__dirname, "..", "..", RULES_DIR);
 /** @type {{ dir: string, fallback: string | undefined } | null} */
 let pinned = null;
 
-/** WFC_RULES_DIR, or the store withRuleStore pinned in its place. */
 const overrideDir = () => (pinned ? pinned.dir : process.env.WFC_RULES_DIR);
 
 /**
  * `read`'s result with the store at `dir` and its core layer at `fallback`,
- * as WFC_RULES_DIR and WFC_RULES_FALLBACK_DIR would set them, both undone
- * after; untouched where `dir` is undefined.
+ * as WFC_RULES_DIR and WFC_RULES_FALLBACK_DIR would set them.
  *
  * @template T
  * @param {string | undefined} dir

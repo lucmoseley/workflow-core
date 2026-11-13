@@ -1,8 +1,7 @@
 /*
  * precommit-dispatch.js — the pre-commit dispatcher's core (#5172): every
  * member gate of .husky/pre-commit runs in one Node process, so they share
- * one startup instead of paying one each. scripts/precommit-dispatch.js is
- * its shell; lib/precommit-gates.js's rows are its members, in order.
+ * one startup instead of paying one each.
  *
  * THE EXIT CONTRACT. Rows run in order, and the first gating red ends the
  * run with that row's code: 1 for FAIL, 2 for BROKEN, a program's own code.
@@ -16,19 +15,13 @@
  * refuses: its output prints, whatever its exit, and its own throw prints
  * one line naming it and the run goes on.
  *
- * ARMING. The staged entries are read once, by staged_names' own git call
- * (lib/precommit-gate.sh), so a rename arms on both its ends. A row arms
- * `always`, on a pattern any staged path matches, or on a list a port
- * computes, any member of which is staged; a pattern row's `live` narrows it
- * to the paths armed_live keeps.
+ * ARMING. A row arms `always`, on a pattern any staged path matches, or on
+ * a list a port computes, any member of which is staged.
  *
  * A SIGNAL (#5188). A row runs to its end, so its own cleanup runs; the
- * `interrupted` port is asked before each row and after the last, and once
- * it answers a code, no further row runs and the run exits with it, saying
- * so on fd 2.
- *
- * THE LANDER SETS (#4545). `--gates=merge` runs the `every` and `merge` rows,
- * `--gates=batch` the `every` and `batch` rows; a plain commit runs them all.
+ * `interrupted` port is asked before each row, after a gating red and after
+ * the last, and once it answers a code, no further row runs and the run
+ * exits with it, saying so on fd 2.
  */
 
 const fs = require("node:fs");
@@ -43,12 +36,10 @@ const { spawnGitSync } = require("./git.js");
  * @typedef {{ always: true }
  *   | { pattern: RegExp, live?: boolean, computed?: string }
  *   | { computed: string }} Arm `live` keeps the paths armed_live would:
- *   added or modified, and still on disk; a pattern row's `computed` list
- *   arms it as well, as the hook's `armed '<ere>' || armed -F <list>` did
+ *   added or modified, and still on disk
  * @typedef {{ exit: number, stdout: string, stderr: string }} RowResult
  * @typedef {{ id: string, lander: Lander, arm: Arm, policy: "gate" | "warn",
- *   quietPass?: boolean }} Row `quietPass` drops a passing run's output
- *   unless it holds a WARN
+ *   quietPass?: boolean }} Row
  */
 
 /**
@@ -64,7 +55,6 @@ const { spawnGitSync } = require("./git.js");
  *   else null
  */
 
-/** What a caught signal's stop writes to fd 2. */
 const STOPPED_LINE =
 	"pre-commit: a signal stopped the run; no gate ran after it.\n";
 
@@ -120,8 +110,7 @@ function armed(arm, staged, list, exists) {
 
 /**
  * Whether `row` runs on this commit: `broken` where the list it arms on will
- * not compute, that list's module being the row's own, so its fault is the
- * row's load fault and its one line is written here.
+ * not compute.
  * @template {Row} R
  * @param {R} row
  * @param {StagedEntry[]} staged
@@ -150,8 +139,7 @@ const crashLine = (row, at, e) =>
 	`pre-commit: the ${row.id} gate ${at === "load" ? "could not load" : "threw"}: ${caught(e).message}\n`;
 
 /**
- * Runs the rows armed for this commit in order, writing each one's output as
- * it finishes, and answers the hook's exit code.
+ * The hook's exit code for this commit's armed rows.
  *
  * @template {Row} R
  * @param {{ rows: R[], gates: GateSet, ports: Ports<R> }} input
@@ -180,7 +168,6 @@ async function dispatch({ rows, gates, ports }) {
 }
 
 /**
- * One row, its output written: a throw becomes its one line and BROKEN.
  * @template {Row} R
  * @param {R} row
  * @param {Ports<R>} ports

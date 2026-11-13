@@ -159,7 +159,7 @@ const SAY_FD_ENV = "WFC_CHECK_SAY_FD";
 
 /**
  * The fd a spawned side run's parent named for its human report, by
- * SAY_FD_ENV; a non-numeric or absent value leaves say() alone.
+ * SAY_FD_ENV.
  * @returns {number | null}
  */
 function sayFdFromEnv() {
@@ -168,7 +168,6 @@ function sayFdFromEnv() {
 }
 
 /**
- * The side a spawned side run was told it reads, by its parent's SIDE_ENV.
  * @returns {"index" | "baseline" | undefined}
  */
 function sideFromEnv() {
@@ -178,7 +177,7 @@ function sideFromEnv() {
 
 /**
  * How a run reads its `--against`/`--index` sides: `spawn` re-runs the
- * checker's file as a child, as a process run always has; `in-process` runs
+ * checker's file as a child; `in-process` runs
  * its spec in this process over the same materialised tree (#5172).
  * @typedef {"spawn" | "in-process"} SideRun
  */
@@ -304,8 +303,8 @@ class CheckContext {
 	 *   script?: string, spec?: CheckSpec, sides?: SideRun,
 	 *   side?: "index" | "baseline", sayFd?: number | null }} opts `script`
 	 *   is the checker's own file, which a spawned `--against`/`--index` side
-	 *   re-runs; `sink` takes every byte the run writes; `sides` says how
-	 *   this run reads its sides; `side` and `sayFd` are a side run's own,
+	 *   re-runs; `sink` takes every byte the run writes; `side` and `sayFd`
+	 *   are a side run's own,
 	 *   in place of SIDE_ENV and SAY_FD_ENV
 	 */
 	constructor(argv, opts) {
@@ -842,8 +841,7 @@ function writeEntry(e, body, { rev, dir }) {
  * @param {string} label
  * @param {{ stream: boolean, side: "index" | "baseline", code?: string,
  *   sink: Sink, env?: NodeJS.ProcessEnv }} opts the streamed report goes to
- *   `sink`: inherited where that is the real fds, so it streams live, else
- *   read whole and written
+ *   `sink`
  * @param {string[]} args
  * @returns {{ outcome: Outcome, summary: string, envelope: Record<string, unknown> }}
  */
@@ -1170,9 +1168,7 @@ function readSide(ctx, { against, materialise, work }, rev, { label, which }) {
 
 /**
  * reread()'s in-process twin: the same spec run over `dir` as
- * `--root <dir> --json <args>`, its side named in its ctx, its envelope read
- * from its own stdout, and its human report put on this run's stderr where
- * streamed, as SAY_FD_ENV puts a child's.
+ * `--root <dir> --json <args>`.
  *
  * @param {CheckContext} ctx
  * @param {CheckSpec} spec
@@ -1238,8 +1234,6 @@ function baselineChecker(rev, dir, against, script) {
 }
 
 /**
- * The checker at `script`: its path relative to the root above its
- * directory, and that root.
  * @param {string | undefined} script
  * @returns {{ rel: string, root: string } | undefined}
  */
@@ -1746,7 +1740,7 @@ process.on("unhandledRejection", reportCrash);
  * inside the tail, so there it never settles.
  *
  * The process shell over startRun(): it reads `process.argv`, writes the real
- * fds and exits. checkInProcess() is the same run with none of those.
+ * fds and exits.
  *
  * @param {CheckSpec} spec
  * @returns {Promise<never> | undefined}
@@ -1818,8 +1812,7 @@ const helpAsked = (argv) => {
 };
 
 /**
- * The run both shells share, up to its outcome: the usage on `--help`, else
- * the ctx and the checker's run folded into an outcome, or the Promise of one.
+ * The run both shells share, up to its outcome.
  *
  * @param {CheckSpec} spec
  * @param {string[]} argv

@@ -23,7 +23,7 @@
 #   materialisations and the fail-closed rule (mantahostels#1801, mantahostels#1833).
 # - THE REVISION gate_stage_out STAGED FROM, so a gate could take a HEAD
 #   baseline as well as the index. The hook's one HEAD read is the doc-map
-#   gate's, in its own entry (scripts/lib/doc-map-gate-program.js) — so re-add it
+#   gate's, a dispatcher row (scripts/lib/doc-map-gate-program.js) — so re-add it
 #   only for a SECOND such gate (mantahostels#2032).
 
 # --- arming ------------------------------------------------------------------

@@ -2,22 +2,19 @@
 /*
  * precommit-dispatch.js — the pre-commit dispatcher's shell (#5172): runs
  * every row of lib/precommit-gates.js in this one process, through
- * lib/precommit-dispatch.js, so the hook's Node gates share one startup.
+ * lib/precommit-dispatch.js.
  *
  *   node scripts/precommit-dispatch.js [--gates=merge|--gates=batch]
  *
  * .husky/pre-commit runs it once, after the shared-tree branch check, passing
- * its own arguments through. It wires the real ports — git in the working
- * directory the hook runs in, the filesystem, fds 1 and 2 — and exits with
- * the core's code. A checker row runs through lib/check.js's
- * checkInProcess(), its sides in-process unless the row keeps a `side`.
+ * its own arguments through.
  * SIGINT, SIGTERM and SIGHUP are caught for the run (#5188): the row they
  * land in runs to its end and no row runs after; a second signal exits at
  * once.
  *
  * Exit 0 every armed gate passed, skipped or only warned; a gating red's own
  * code otherwise (1 FAIL, 2 BROKEN, a program's code); 1 where git will not
- * name the staged paths, since no gate could arm; 128 + n on signal n.
+ * name the staged paths; 128 + n on signal n.
  */
 
 const { constants } = require("node:os");
