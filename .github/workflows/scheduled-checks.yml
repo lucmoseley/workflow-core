@@ -153,6 +153,28 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/check-file-ci-time.js
 
+  # The suite's growth budget (#5137): red once armed and over, so no
+  # `continue-on-error`. Placed as `file-times` is, and not on a lander push,
+  # for the same reasons.
+  suite-budget:
+    name: Suite growth budget
+    needs: [suite]
+    if: ${{ !cancelled() && github.event_name != 'push' && github.repository == 'lucmoseley/workflow-core' }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # Dependency-free, so no install.
+      - name: Summed file times against the budget
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/check-suite-budget.js
+
   # THE ONE CHECK `main`'S RULESET REQUIRES (#2414): its name is pinned in that
   # ruleset, so renaming this job locks `main` until the ruleset is edited to
   # match. One aggregate job rather than the suite's own jobs, so a change to

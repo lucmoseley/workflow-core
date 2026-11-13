@@ -1432,9 +1432,25 @@ describe("a red Test file CI times job routes to cut tickets, not a bisect (#436
 			"Ticket for Test file CI times: each file over the limit is cut under its own profiled ticket (a sub-issue of #2729)",
 		);
 		expect(out).not.toContain("no filer covers this job");
-		expect(out).toContain("No bisect: Test file CI times judges a median");
+		expect(out).toContain("No bisect: each red job judges medians");
 		expect(out).not.toContain("since the last green run");
 		expect(out).not.toContain("gh workflow run bisect.yml");
+	});
+
+	it("routes a red Suite growth budget to cuts, with no bisect, beside the per-file job (#5137)", () => {
+		redSweepOver();
+		stubRunsAndJobs([
+			fileTimes,
+			{ ...fileTimes, name: "Suite growth budget" },
+			verdict,
+		]);
+
+		const out = check(["--notify"]).stdout;
+		expect(out).toContain(
+			"Ticket for Suite growth budget: the slowest files are cut by measured cost (a sub-issue of #2729)",
+		);
+		expect(out).not.toContain("no filer covers this job");
+		expect(out).toContain("No bisect: each red job judges medians");
 	});
 
 	it("still prints the bisect range where the suite is red as well", () => {

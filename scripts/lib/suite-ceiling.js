@@ -30,6 +30,7 @@ const { caught } = require("./caught.js");
 const { pidAlive } = require("./arbiter-proc.js");
 const { readEnvironVar } = require("./proc-environ.js");
 const { procRoot, REAL_PROC } = require("./proc-root.js");
+const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js");
 
 /* 14 minutes, so bg-run's backstop at the deadline plus 60 s still lands
  * inside #2667's 15. */
@@ -46,6 +47,20 @@ const TARGET_MS = 180_000;
  * #4283, 4 Nov 2026, resting on Bazel's 60 s short-test timeout and the
  * TARGET_MS above. `check-file-ci-time.js` reports a file over it. */
 const FILE_LIMIT_MS = 60_000;
+/* #3290's bench on #2729: 1,497 s of file and setup time summed over a 343 s
+ * run at 5 workers. */
+const BENCH_WORKERS = 5;
+const PACKING = 1497 / (343 * BENCH_WORKERS);
+/* The summed per-file time a whole suite at TARGET_MS holds (#5137, ruled on
+ * #5131): 786 worker-seconds. `check-suite-budget.js` judges the
+ * suite's summed sweep medians against it. RESIDUAL: the medians are CI runner
+ * times, the packing a local bench's. */
+const SUITE_BUDGET_MS = TARGET_MS * WHOLE_SUITE_WORKERS * PACKING;
+/* The sha of the first cold lone whole suite under TARGET_MS, or null. Until
+ * one is recorded `check-suite-budget.js` only reports, since a suite that has
+ * never fitted would refuse every change; `check-suite-margin.js` names the
+ * run to record here. */
+const BUDGET_ARMED_BY = null;
 const CEILING_ENV = "WFC_SUITE_CEILING_MS";
 /* Where a run writes `<deadline s> <pgid>`, one line, for bg-run's
  * `read -r` to take. The deadline is on CLOCK_MONOTONIC, the clock this
@@ -328,6 +343,7 @@ function armCeiling({
 }
 
 module.exports = {
+	BUDGET_ARMED_BY,
 	CEILING_CLOSE,
 	CEILING_ENV,
 	CEILING_LINE,
@@ -336,6 +352,7 @@ module.exports = {
 	FILE_LIMIT_MS,
 	OWNER_ENV,
 	SETTLE_MS,
+	SUITE_BUDGET_MS,
 	TARGET_MS,
 	armCeiling,
 	ceilingHeadline,
