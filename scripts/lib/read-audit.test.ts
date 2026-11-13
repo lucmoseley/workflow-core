@@ -725,7 +725,7 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			);
 		});
 
-		it("weighs afresh a variable whose value moved off the standing one, though its path was looked up before (#5050)", () => {
+		it("weighs afresh a moved value that respells a standing path, though its path was looked up before (#5050)", () => {
 			const root = checkout();
 			const cwd = outsideDir();
 			const link = path.join(cwd, "in");
@@ -763,6 +763,26 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			});
 			expect(readAudits(log, root).get(T).doubt).toMatch(
 				/a child \(cat \) was handed a path in the checkout by its environment \(RULES\)/,
+			);
+		});
+
+		it("answers from the lookup cache a standing path a moved value keeps, so a child's link to it goes unseen (#5139)", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const link = path.join(cwd, "in");
+			const linker = `require("node:fs").symlinkSync(${quoted(root)}, ${quoted(link)})`;
+			const moved = { RULES: `${outsideDir()}${path.delimiter}${link}` };
+			const body = [
+				spawns("cat", [], cwd, { env: moved }),
+				`require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(linker)}]);`,
+				spawns("cat", [], cwd, { env: moved }),
+			].join("\n");
+			const log = audited(root, T, body, {
+				env: { RULES: link },
+				trace: false,
+			});
+			expect(readAudits(log, root).get(T).doubt ?? "").not.toMatch(
+				/by its environment \(RULES\)/,
 			);
 		});
 

@@ -143,15 +143,15 @@ function buildHanded(root) {
 		/**
 		 * The repo-relative paths `word` names, spelt or resolved.
 		 * @param {string} word
-		 * @param {Settling} [settled] accumulator: where `word` is a
-		 *   variable's value whose standing words may be answered from an
-		 *   earlier lookup
+		 * @param {Settling} [settling] accumulator: its `cache`, where
+		 *   `word` is a variable's value whose standing words may be
+		 *   answered from an earlier lookup
 		 * @returns {string[]}
 		 */
-		return (word, settled) => {
+		return (word, settling) => {
 			const out = new Set(spelt(word));
 			for (const tried of candidates(word, gluedBy)) {
-				const real = realOfTried(cwd, tried, settled);
+				const real = realOfTried(cwd, tried, settling);
 				const r = real === null ? null : relOf(real);
 				if (r !== null) out.add(r);
 			}
@@ -159,17 +159,17 @@ function buildHanded(root) {
 		};
 	};
 	/**
-	 * `tried` read against `cwd` as `realOf` answers it, off `settled`
+	 * `tried` read against `cwd` as `realOf` answers it, off `settling`
 	 * where its words hold it.
 	 * @param {string} cwd
 	 * @param {string} tried
-	 * @param {Settling} [settled] accumulator: its cache filled with what is
-	 *   looked up
+	 * @param {Settling} [settling] accumulator: its `cache` filled with what
+	 *   is looked up
 	 */
-	const realOfTried = (cwd, tried, settled) => {
+	const realOfTried = (cwd, tried, settling) => {
 		const abs = path.resolve(cwd, tried);
-		if (settled?.words.has(tried)) {
-			const { cache } = settled;
+		if (settling?.words.has(tried)) {
+			const { cache } = settling;
 			if (!cache.has(abs)) cache.set(abs, realOf(abs, false));
 			return cache.get(abs) ?? null;
 		}

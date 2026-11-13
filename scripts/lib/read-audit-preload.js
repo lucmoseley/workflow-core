@@ -210,6 +210,14 @@ function install() {
 	/* A path this process links, moves or removes may move where a settled
 	 * one lands; a child's go unseen (#5050). */
 	const unsettle = () => settled.clear();
+	/** @type {Map<string, import("./read-audit-handed.js").Settling>} */
+	const settlings = new Map();
+	/* A new standing environment: every lookup, and what each variable's
+	 * standing value spells. */
+	const resettle = () => {
+		settled.clear();
+		settlings.clear();
+	};
 
 	/**
 	 * Wrap `obj[name]`, calling `on(args, result)` once it returns or settles,
@@ -485,8 +493,6 @@ function install() {
 		/** @type {string} */ name,
 		/** @type {string} */ value,
 	) => (name === "NODE_OPTIONS" ? value.split(SELF).join("") : value);
-	/** @type {Map<string, import("./read-audit-handed.js").Settling>} */
-	const settlings = new Map();
 	/* A value moved off the standing one still answers, from the cache, the
 	 * words it shares with it: a stub directory put before the standing
 	 * `PATH` is looked up afresh, and the rest is not (#5139). */
@@ -955,8 +961,7 @@ function install() {
 		settle() {
 			guard(() => {
 				standing = { ...process.env };
-				settled.clear();
-				settlings.clear();
+				resettle();
 				if (!isOwner) return;
 				const file = path.join(dir, `${owner}.standing.json`);
 				const gitAt = sizeOf(path.join(dir, `${owner}.git`));
