@@ -1,8 +1,7 @@
 /*
  * rescue-core-kit.ts — the module cases' fixtures for rescue-sessions' cores
- * (#5157): each core called in-process on lib/rescue-ports-fake.ts's ports,
- * a fake /proc from lib/proc-fake.ts, and the holder's transcript and job
- * record on disk, as lib/rescue-testkit.ts writes them for the program cases.
+ * (#5157), the holder's files on disk as lib/rescue-testkit.ts writes them for
+ * the program cases.
  *
  * The clock is the fake's: a probe's sleep between samples and a takeover's
  * confirmation polls advance it and return at once.
@@ -23,7 +22,6 @@ const { ENTRIES, parseArgs } = require("./rescue-cli.js") as {
 export function rescueCoreKit(sb: Sandbox) {
 	const files = rescueKit(sb);
 	const { plan } = files;
-	/* Minted per case, in beforeEach. */
 	let proc = {} as ReturnType<typeof makeProcRoot>;
 	let world = {} as ReturnType<typeof createRescuePorts>;
 	const argvOf = new Map<number, { ppid: number; argv: string }>();
@@ -60,7 +58,7 @@ export function rescueCoreKit(sb: Sandbox) {
 	const removeProc = (pid: number) =>
 		fs.rmSync(`${proc.root}/${pid}`, { recursive: true, force: true });
 
-	/** files.ghostJob's job that never started, an hour old on the fake clock, listed through the fake. */
+	/** files.ghostJob's job that never started, an hour old on the fake clock. */
 	const ghostJob = (
 		intent: string,
 		rows: Row[] = [holderRow({ pid: undefined })],

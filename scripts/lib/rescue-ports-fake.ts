@@ -6,8 +6,7 @@
  * The oracle and the stop answer through lib/arm-claude-fake.ts's spawn, the
  * installed harness's recordings; the oracle's fold of each seat's answer
  * into what lib/agent-liveness.js's runOracle returns or throws is held to
- * runOracle itself by lib/rescue-ports.contract.test.ts. `gh` answers through
- * lib/gh-fake.ts's ghServe, an issue in its recorded shape.
+ * runOracle itself by lib/rescue-ports.contract.test.ts.
  *
  * FOR TESTS ONLY.
  */
@@ -61,7 +60,6 @@ export const listed = (row: object): Row =>
 		) as Row,
 	);
 
-/** One stop the fake answered: the job, and the seat it ran on. */
 export interface Stop {
 	job: string;
 	seat: string;
@@ -74,7 +72,7 @@ export interface GhCall {
 }
 
 /**
- * The ports, and the world they answer from. Every seat lists this session
+ * Every seat lists this session
  * ("sandbox") ahead of its rows, for the oracle's self-test; a seat never
  * given rows fails its listing.
  */
@@ -181,7 +179,6 @@ export function createRescuePorts(procRoot: string) {
 		listsRaw(dir: string, rows: object[], after = false) {
 			(after ? afterStop : listing).set(dir, rows.map(listed));
 		},
-		/** No listing stands for `dir` once it is stopped. */
 		keepsListingAfterStop(dir: string) {
 			afterStop.delete(dir);
 		},
