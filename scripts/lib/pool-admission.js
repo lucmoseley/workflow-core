@@ -7,8 +7,8 @@
  * that states no rule still counts. Its KEY is its file plus its headline — the
  * bold lead where the item opens with one, else its first sentence — so a
  * reworded headline is a new key, and its entry moves with it. An absolute
- * plugin root before `/scripts/` keys as bare `scripts/`, so neither the seat
- * nor the version init rendered a core command at moves a key (#5140).
+ * path before `/scripts/` keys as bare `scripts/`, so neither the seat nor the
+ * version init rendered a core command at moves a key (#5140).
  */
 
 const fs = require("node:fs");

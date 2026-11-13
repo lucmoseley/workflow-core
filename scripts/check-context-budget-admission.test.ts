@@ -119,6 +119,21 @@ function report() {
 	return { status: r.status, text: r.stdout + r.stderr };
 }
 
+/* The refusal a session reads: exit 1, the rule it adds, and the way out. */
+function expectUnadmitted(
+	r: ReturnType<typeof gate>,
+	line: number,
+	headline: string,
+) {
+	expect(r.status).toBe(1);
+	expect(r.json.added).toEqual([
+		expect.stringContaining(
+			`unadmitted: CLAUDE.md:${line} adds the pool rule "${headline}", which ${LEDGER} does not admit. Add its entry in this commit`,
+		),
+	]);
+	expect(r.json.added[0]).toContain("A reworded headline moves its old entry.");
+}
+
 const KEPT = "**Keep the tree on `main`.** It is shared.";
 const ADDED = "**Never push a branch.** Land on `main`.";
 
@@ -129,13 +144,7 @@ describe("the admission gate at --against HEAD", () => {
 		baseline();
 		claude(KEPT, ADDED);
 		stage("CLAUDE.md");
-		const r = gate();
-		expect(r.status).not.toBe(0);
-		expect(r.json.added).toEqual([
-			expect.stringMatching(
-				/^unadmitted: CLAUDE\.md:4 adds the pool rule "Never push a branch\.", which docs\/pool-admission-ledger\.json does not admit\./,
-			),
-		]);
+		expectUnadmitted(gate(), 4, "Never push a branch.");
 	});
 
 	it("passes the same rule when the commit stages its entry", () => {
@@ -159,13 +168,7 @@ describe("the admission gate at --against HEAD", () => {
 		baseline();
 		claude("**Keep the shared tree on `main`.** It is shared.");
 		stage("CLAUDE.md");
-		const refused = gate();
-		expect(refused.status).toBe(1);
-		expect(refused.json.added).toEqual([
-			expect.stringMatching(
-				/^unadmitted: CLAUDE\.md:3 adds the pool rule "Keep the shared tree on `main`\.", /,
-			),
-		]);
+		expectUnadmitted(gate(), 3, "Keep the shared tree on `main`.");
 
 		ledger({ headline: "Keep the shared tree on `main`." });
 		stage(LEDGER);
@@ -205,13 +208,7 @@ describe("the admission gate at --against HEAD", () => {
 			{ headline: rendered.replace("Wait with", "Block on") },
 		);
 		stage(LEDGER);
-		const refused = gate();
-		expect(refused.status).toBe(1);
-		expect(refused.json.added).toEqual([
-			expect.stringMatching(
-				/^unadmitted: CLAUDE\.md:4 adds the pool rule "Wait with /,
-			),
-		]);
+		expectUnadmitted(gate(), 4, rendered);
 	});
 
 	it("reads a rule unadmitted at <rev> as inherited where only its plugin root moved (#5140)", () => {
@@ -271,13 +268,7 @@ describe("the admission gate at --against HEAD", () => {
 				"\n\n**Never push a branch.** Land on `main`.\n",
 		);
 		stage("CLAUDE.md");
-		const r = gate();
-		expect(r.status).not.toBe(0);
-		expect(r.json.added).toEqual([
-			expect.stringMatching(
-				/^unadmitted: CLAUDE\.md:5 adds the pool rule "Never push a branch\."/,
-			),
-		]);
+		expectUnadmitted(gate(), 5, "Never push a branch.");
 
 		ledger(
 			{ headline: "Keep the tree on `main`." },
