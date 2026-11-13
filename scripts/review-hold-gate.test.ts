@@ -21,11 +21,13 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ledgerHead } from "./lib/arbiter-testkit";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { ENTRY_BUDGET_MS } from "./lib/hook-deadline.js";
 import { coreCall, HOOK } from "./lib/precommit-gate-testkit";
+import { runHold } from "./lib/review-hold.js";
+import { buildHoldPorts } from "./lib/review-hold-host.js";
 import { reviewSuffix } from "./lib/review-suffix";
 import { reviewTierStamp } from "./lib/review-tier-stamp.js";
 import { runInProcess } from "./lib/run-in-process";
@@ -143,6 +145,28 @@ const commit = (paths: string[], opts: Parameters<typeof hookedGit>[1] = {}) =>
 		opts,
 	);
 
+/**
+ * The hold over `paths`, staged into the index, run in-process on its
+ * production ports over this repo: a module case (§X11), crossing no hook.
+ * hostRoot() reads the process's CLAUDE_PROJECT_DIR and the fail-open log its
+ * CLAUDE_CONFIG_DIR, so both are stubbed for the call.
+ */
+const hold = (paths: string[], { sid = SID } = {}) => {
+	if (paths.length > 0) git("add", "-A", "--", ...paths);
+	vi.stubEnv("CLAUDE_PROJECT_DIR", undefined);
+	vi.stubEnv("CLAUDE_CONFIG_DIR", scratch);
+	try {
+		return runHold(
+			buildHoldPorts({
+				cwd: repo,
+				env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: sid },
+			}),
+		);
+	} finally {
+		vi.unstubAllEnvs();
+	}
+};
+
 /** What `commit-paths.js --tree` prints, the tree review-hold.txt names. */
 const treeOf = (args: string[], cwd = repo) => {
 	const r = runInProcess(COMMIT_PATHS, ["--tree", ...args], {
@@ -257,7 +281,7 @@ const refusedIn = (
 };
 
 const expectRefused = (
-	r: ReturnType<typeof commit>,
+	r: { status: number | null; stderr: string },
 	fault: string,
 	commits = "1",
 ) => {
@@ -318,13 +342,13 @@ afterEach(() => {
 	fs.rmSync(scratch, { recursive: true, force: true });
 });
 
-describe("review-hold-gate.sh — wiring", () => {
+describe("review-hold-gate.js — wiring", () => {
 	it("is wired into .husky/pre-commit, through the plugin root an adopter's shim sets", () => {
 		expect(HOOK.split("\n")).toContain(WIRING);
 	});
 });
 
-describe("review-hold-gate.sh — refusals", () => {
+describe("review-hold-gate.js — refusals", () => {
 	it("refuses a staged sensitive glob with no marker, naming the area and the rule", () => {
 		write(SECRET, "new\n");
 		const r = commit([SECRET]);
@@ -344,13 +368,13 @@ describe("review-hold-gate.sh — refusals", () => {
 	it("refuses a standard tier, naming it", () => {
 		write(SECRET, "new\n");
 		mark({ tier: "standard", areas: "secrets", tree: treeOf(["--", SECRET]) });
-		expectRefused(commit([SECRET]), "its tier= is 'standard'");
+		expectRefused(hold([SECRET]), "its tier= is 'standard'");
 	});
 
 	it("refuses a marker with no tier= line, as a standard review's marker has", () => {
 		write(SECRET, "new\n");
 		mark({});
-		expectRefused(commit([SECRET]), "it has no tier= line");
+		expectRefused(hold([SECRET]), "it has no tier= line");
 	});
 
 	it("refuses a marker whose areas= misses a matched area, naming the missing one", () => {
@@ -361,7 +385,7 @@ describe("review-hold-gate.sh — refusals", () => {
 			areas: "secrets",
 			tree: treeOf(["--", SECRET, PRICE]),
 		});
-		const r = commit([SECRET, PRICE]);
+		const r = hold([SECRET, PRICE]);
 		expectRefused(r, "its areas= does not name money.");
 		expect(r.stderr).toContain("Areas touched: money, secrets.");
 	});
@@ -371,7 +395,7 @@ describe("review-hold-gate.sh — refusals", () => {
 		mark({ tier: "escalated", areas: "secrets", tree: treeOf(["--", SECRET]) });
 		write(SECRET, "edited after review\n");
 		expectRefused(
-			commit([SECRET]),
+			hold([SECRET]),
 			"its tree= is not the tree this commit carries",
 		);
 	});
@@ -379,7 +403,7 @@ describe("review-hold-gate.sh — refusals", () => {
 	it("refuses a marker with no paths= line, which the Stop nag would read as a review of every path", () => {
 		write(SECRET, "new\n");
 		mark({ tier: "escalated", areas: "secrets", tree: treeOf(["--", SECRET]) });
-		expectRefused(commit([SECRET]), "it has no paths= line");
+		expectRefused(hold([SECRET]), "it has no paths= line");
 	});
 
 	it("refuses a marker whose paths= line names nothing, saying so", () => {
@@ -390,7 +414,7 @@ describe("review-hold-gate.sh — refusals", () => {
 			tree: treeOf(["--", SECRET]),
 			paths: " , ",
 		});
-		expectRefused(commit([SECRET]), "its paths= names no path");
+		expectRefused(hold([SECRET]), "its paths= names no path");
 	});
 
 	it("refuses a marker whose paths= misses a path the commit changes, naming it", () => {
@@ -402,10 +426,7 @@ describe("review-hold-gate.sh — refusals", () => {
 			tree: treeOf(["--", SECRET, PLAIN]),
 			paths: SECRET,
 		});
-		expectRefused(
-			commit([SECRET, PLAIN]),
-			`its paths= does not name ${PLAIN}.`,
-		);
+		expectRefused(hold([SECRET, PLAIN]), `its paths= does not name ${PLAIN}.`);
 	});
 
 	it("refuses a --patch commit whose whole path changed after write-review-marker.js wrote its marker", () => {
@@ -421,7 +442,7 @@ describe("review-hold-gate.sh — refusals", () => {
 	});
 });
 
-describe("review-hold-gate.sh — the declaration it reads", () => {
+describe("review-hold-gate.js — the declaration it reads", () => {
 	const readDeclared = () =>
 		JSON.parse(
 			fs.readFileSync(path.join(repo, ".claude/workflow-core.json"), "utf8"),
@@ -430,13 +451,13 @@ describe("review-hold-gate.sh — the declaration it reads", () => {
 	it("still holds when the working-tree declaration drops the area unstaged", () => {
 		write(".claude/workflow-core.json", JSON.stringify({ sensitivePaths: [] }));
 		write(SECRET, "new\n");
-		expectRefused(commit([SECRET]), "there is no marker");
+		expectRefused(hold([SECRET]), "there is no marker");
 	});
 
 	it("still holds when the working-tree declaration is broken unstaged", () => {
 		write(".claude/workflow-core.json", "{ not json");
 		write(SECRET, "new\n");
-		expectRefused(commit([SECRET]), "there is no marker");
+		expectRefused(hold([SECRET]), "there is no marker");
 	});
 
 	it("holds an area the staged declaration adds", () => {
@@ -450,7 +471,7 @@ describe("review-hold-gate.sh — the declaration it reads", () => {
 			}),
 		);
 		write(PLAIN, "new\n");
-		const r = commit([PLAIN, ".claude/workflow-core.json"]);
+		const r = hold([PLAIN, ".claude/workflow-core.json"]);
 		expectRefused(r, "there is no marker");
 		expect(r.stderr).toContain("Areas touched: pages.");
 	});
@@ -495,7 +516,7 @@ describe("review-hold-gate.sh — the declaration it reads", () => {
 		"holds a commit whose declaration %s, under what it drops (#3905)",
 		(_, edit, areas) => {
 			edit();
-			const r = commit([Config]);
+			const r = hold([Config]);
 			expectRefused(r, "there is no marker");
 			expect(r.stderr).toContain(`Areas touched: ${areas}.`);
 		},
@@ -503,7 +524,7 @@ describe("review-hold-gate.sh — the declaration it reads", () => {
 
 	it("names the fault of a staged declaration that will not parse (#3905)", () => {
 		write(Config, "{ not json");
-		expect(commit([Config]).stderr).toContain(
+		expect(hold([Config]).stderr).toContain(
 			"The staged .claude/workflow-core.json will not read",
 		);
 	});
@@ -516,12 +537,12 @@ describe("review-hold-gate.sh — the declaration it reads", () => {
 			tree: treeOf(["--", Config]),
 			paths: Config,
 		});
-		expect(commit([Config]).status).toBe(0);
+		expect(hold([Config]).status).toBe(0);
 	});
 
 	it("leaves alone a commit that only widens a glob list", () => {
 		write(Config, withMoney(["lib/pricing/**", "lib/quotes/**"]));
-		expect(commit([Config]).status).toBe(0);
+		expect(hold([Config]).status).toBe(0);
 	});
 
 	it("does not take a reordering of the declaration for a narrowing", () => {
@@ -533,11 +554,11 @@ describe("review-hold-gate.sh — the declaration it reads", () => {
 				sensitivePaths: [...cfg.sensitivePaths].reverse(),
 			}),
 		);
-		expect(commit([Config]).status).toBe(0);
+		expect(hold([Config]).status).toBe(0);
 	});
 });
 
-describe("review-hold-gate.sh — a replay's own bytes pass, anything added is held (#3905)", () => {
+describe("review-hold-gate.js — a replay's own bytes pass, anything added is held (#3905)", () => {
 	const hookEnv = () => {
 		const env: Record<string, string | undefined> = {
 			...quietEnv(),
@@ -743,7 +764,7 @@ describe("review-hold-gate.sh — a replay's own bytes pass, anything added is h
 	});
 });
 
-describe("review-hold-gate.sh — a merge's landed bytes pass, anything added is held (#4383)", () => {
+describe("review-hold-gate.js — a merge's landed bytes pass, anything added is held (#4383)", () => {
 	let wt: string;
 	/** A git command in the worktree, under the fixture's hooks, the shared tree its markers' host as the harness sets it. */
 	const inWt = (args: string[], env: Record<string, string> = {}) =>
@@ -915,7 +936,7 @@ describe("review-hold-gate.sh — a merge's landed bytes pass, anything added is
 	});
 });
 
-describe("review-hold-gate.sh — passes", () => {
+describe("review-hold-gate.js — passes", () => {
 	it("passes a pathspec commit whose marker matches, with something else staged in the shared index", () => {
 		write(PLAIN, "staged by someone else\n");
 		git("add", "--", PLAIN);
@@ -943,7 +964,7 @@ describe("review-hold-gate.sh — passes", () => {
 			tree: git("write-tree"),
 			paths: SECRET,
 		});
-		const r = commit([]);
+		const r = hold([]);
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 	});
@@ -988,13 +1009,13 @@ describe("review-hold-gate.sh — passes", () => {
 
 	it("leaves a commit touching no glob alone, with no marker", () => {
 		write(PLAIN, "new\n");
-		const r = commit([PLAIN]);
+		const r = hold([PLAIN]);
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 	});
 });
 
-describe("review-hold-gate.sh — the marker's other readers", () => {
+describe("review-hold-gate.js — the marker's other readers", () => {
 	const code = Array.from(
 		{ length: CODE_THRESHOLD + 1 },
 		(_, i) => `export const x${i} = ${i};\n`,
