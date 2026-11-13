@@ -1,11 +1,11 @@
 /*
  * dispatch-sessions-testkit.ts — the fixture every test driving
- * scripts/dispatch-sessions.sh end to end stands on: a stub `claude`, and a
+ * scripts/dispatch-sessions.js end to end stands on: a stub `claude`, and a
  * throwaway root holding a stub for every oracle the launcher and its gates
  * read (#2423).
  *
  * The stub `claude` is injected at WFC_CLAUDE_BIN (mantahostels#1374).
- * `dispatch-sessions.sh` exports it, so one var covers both the launcher and the
+ * `dispatch-sessions.js` exports it, so one var covers both the launcher and the
  * live oracle of the ledger check it shells out to.
  *
  * Break it and both dispatch suites fail at once, or pass blind: an oracle left
@@ -29,6 +29,8 @@ import {
 	writeLaunchAnswer,
 } from "./bg-launch-fake";
 import { buildBgBranch } from "./claude-stub";
+import { type DispatchPorts, dispatch } from "./dispatch-sessions.js";
+import { hostPorts } from "./dispatch-sessions-host.js";
 import {
 	buildHeadlessBranch,
 	type HeadlessCall,
@@ -38,6 +40,7 @@ import {
 } from "./headless-run-fake";
 import { buildLoadavgLine } from "./proc-fake";
 import { writePsStub } from "./ps-stub";
+import { runInProcess, runInProcessAsync } from "./run-in-process.js";
 import { writeSchedClock } from "./sched-clock-fake";
 import { shellQuote } from "./sh-quote.js";
 import { PROBE_TIMEOUT_MS } from "./usage-probe.js";
@@ -54,7 +57,10 @@ import {
  * allows to land the stop. */
 const PROBE_HANG_SECONDS = PROBE_TIMEOUT_MS / 2 / 1000;
 
-export const SCRIPT = path.resolve(__dirname, "..", "dispatch-sessions.sh");
+export const SCRIPT = path.resolve(__dirname, "..", "dispatch-sessions.js");
+const SCRIPTS_DIR = path.resolve(__dirname, "..");
+/* The helpers whose main is async, which runInProcess cannot await. */
+const ASYNC_MAIN = new Set(["usage-probe.js"]);
 /** The fixture routing file, by WFC_MODEL_ROUTING, for a case judging the routing itself (lib/model-table.test.ts names its rows). */
 export const ROUTING = {
 	WFC_MODEL_ROUTING: path.resolve(
@@ -157,26 +163,33 @@ export interface DispatchFixture {
 	/** A WFC_SCHED_CLOCK directory whose tasks run for `ratio` of the
 	 * 2 CPU-s the machine was busy: 0 reads frozen, 1 running. */
 	schedClock: (ratio: number) => string;
+	/** The dispatcher as a program: scripts/dispatch-sessions.js spawned. */
 	run: (
 		args: string[],
 		extraEnv?: Record<string, string>,
 	) => { stdout: string; stderr: string; code: number };
 	/**
-	 * A `sleep` on PATH that records its argument and returns at once (#146).
-	 * `sleepArgs()` reads the log back, so a stagger case asserts the exact
-	 * seconds the script asked for instead of an elapsed-time ceiling neighbour
-	 * load can breach. Returns the env overlay that puts it in front of the real
-	 * `sleep`.
-	 *
-	 * PATH rather than a `WFC_*` injection point like the other stubs: #146
-	 * forbids adding a seam to the dispatcher for a test's benefit, and the
-	 * shell's own command resolution is a seam already there. Residual —
-	 * every `sleep` in the process tree lands in one log with no caller recorded,
-	 * so a second one anywhere would break `toEqual(["2"])` naming nothing. The
-	 * script has exactly one.
+	 * The dispatcher's core, in this process (#5145): each helper it names run
+	 * through runInProcess on the real program, the interop probe and the
+	 * launch through the production ports, and the stagger recorded rather
+	 * than slept, for `sleepArgs()` to read back. `ports` replaces any of them.
 	 */
-	stubSleep: () => Record<string, string>;
-	/** Every argument the stubbed `sleep` was called with, in order. */
+	runCore: (
+		args: string[],
+		extraEnv?: Record<string, string>,
+		ports?: Partial<DispatchPorts>,
+	) => Promise<{ stdout: string; stderr: string; code: number }>;
+	/** runCore under a whole environment and working directory of the
+	 * caller's, as the refill loop's dispatcher call sets them. */
+	runCoreUnder: (
+		args: string[],
+		run: { env: NodeJS.ProcessEnv; cwd: string },
+		ports?: Partial<DispatchPorts>,
+	) => Promise<{ stdout: string; stderr: string; code: number }>;
+	/** The ports runCore runs behind, as scripts/lib/dispatch-sessions-host.contract.test.ts
+	 * holds them to the production ones. */
+	corePorts: () => DispatchPorts;
+	/** Every stagger runCore's dispatch asked for, in seconds, in order. */
 	sleepArgs: () => string[];
 }
 
@@ -237,7 +250,9 @@ export function dispatchFixture(): DispatchFixture {
 		regWedged,
 		schedClock,
 		run,
-		stubSleep,
+		runCore,
+		runCoreUnder,
+		corePorts,
 		sleepArgs,
 	};
 	let psEmpty = "";
@@ -469,7 +484,7 @@ export function dispatchFixture(): DispatchFixture {
 		args: string[],
 		extraEnv: Record<string, string> = {},
 	): { stdout: string; stderr: string; code: number } {
-		const r = spawnSync("bash", [SCRIPT, ...args], {
+		const r = spawnSync(process.execPath, [SCRIPT, ...args], {
 			cwd: fx.dir,
 			encoding: "utf8",
 			env: baseEnv(extraEnv),
@@ -481,15 +496,38 @@ export function dispatchFixture(): DispatchFixture {
 		};
 	}
 
-	function stubSleep(): Record<string, string> {
-		const binDir = path.join(fx.dir, "stub-bin");
-		fs.mkdirSync(binDir, { recursive: true });
-		fs.writeFileSync(
-			path.join(binDir, "sleep"),
-			`#!/bin/bash\nprintf '%s\\n' "$*" >> ${shellQuote(path.join(fx.dir, "sleeps"))}\n`,
-			{ mode: 0o755 },
-		);
-		return { PATH: `${binDir}:${process.env.PATH ?? ""}` };
+	function runCore(
+		args: string[],
+		extraEnv: Record<string, string> = {},
+		ports: Partial<DispatchPorts> = {},
+	): Promise<{ stdout: string; stderr: string; code: number }> {
+		return runCoreUnder(args, { env: baseEnv(extraEnv), cwd: fx.dir }, ports);
+	}
+
+	function runCoreUnder(
+		args: string[],
+		under: { env: NodeJS.ProcessEnv; cwd: string },
+		ports: Partial<DispatchPorts> = {},
+	): Promise<{ stdout: string; stderr: string; code: number }> {
+		return dispatch(args, { ...corePorts(), ...ports }, under);
+	}
+
+	function corePorts(): DispatchPorts {
+		return {
+			node: async (script, argv, { env, cwd, stdin }) => {
+				const file = path.join(SCRIPTS_DIR, script);
+				const opts = { cwd, env, ...(stdin === undefined ? {} : { stdin }) };
+				const r = ASYNC_MAIN.has(script)
+					? await runInProcessAsync(file, argv, opts)
+					: runInProcess(file, argv, opts);
+				return { status: r.status, stdout: r.stdout, stderr: r.stderr };
+			},
+			interop: hostPorts().interop,
+			launch: hostPorts().launch,
+			sleep: async (seconds) => {
+				fs.appendFileSync(path.join(fx.dir, "sleeps"), `${seconds}\n`);
+			},
+		};
 	}
 
 	function sleepArgs(): string[] {

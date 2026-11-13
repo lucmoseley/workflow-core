@@ -9,7 +9,7 @@
  * `docs/data/session-cost-table.json` is never written. The `--write` case
  * claims the table from the real arbiter, inside the testkit sandbox.
  *
- * That table is what the capped launch in `scripts/dispatch-sessions.sh`
+ * That table is what the capped launch in `scripts/dispatch-sessions.js`
  * projects running sessions' spend from: a mismatched or mis-filtered row
  * sizes a set against the wrong remaining spend.
  */

@@ -150,9 +150,9 @@ source "$here/lib/review-standards.sh" 2>/dev/null ||
 # The default for where review-standards.sh, or the script-path.sh it reads
 # the core root from, did not load, spelt at the plugin root in an install:
 # the reason leaves through no resolver (#2096). The four texts below are
-# inject-tracker-docs.sh's word for word, pinned by this script's test
-# (#2097): two copies, as check-context-budget.js measures the injector's arm
-# only from its literal text.
+# lib/tracker-inject-text.js's standardsText word for word, pinned by this
+# script's test (#2097): two copies, as a shell hook reads no JavaScript
+# module without a node process.
 standards_base="$(doc_path code-standards-base.md 2>/dev/null)" || standards_base=docs/code-standards-base.md
 base_shown="$(review_standards_base_shown 2>/dev/null)" && standards_base="$base_shown"
 standards_state="$(review_standards_state 2>/dev/null)" || standards_state=both
@@ -280,11 +280,9 @@ if { [[ -z "$was_escalated" ]] || [[ -n "$new_marker" ]]; } &&
   # which reach a review only through the code-review skill (mantahostels#958,
   # mantahostels#1011, mantahostels#3451). Keep the wordings in step. The dispatch
   # shape and its model pin are that fragment itself, printed (#1697). Its load,
-  # fallback and "Reviewer type …" lead-in are repeated in inject-tracker-docs.sh's
-  # /code-review arm, not shared: check-context-budget.js counts that arm by
-  # parsing the injector, and reads the fragment only off a `rule_text`
-  # assignment there (RULE_TEXT_RHS), so a helper's output would count as zero.
-  # inject-tracker-docs.test.ts finds the concision pass's pin by the
+  # fallback and "Reviewer type …" lead-in are repeated in
+  # lib/tracker-inject-text.js's /code-review text.
+  # lib/inject-tracker-docs.test.ts finds the concision pass's pin by the
   # `fresh-reader agents on` before it (mantahostels#2614).
   dispatch_shape="$(rule_or_path review-dispatch-shape "Dispatch the review runs as" " says.")"
   [[ -n "$cs_implement" ]] &&

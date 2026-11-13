@@ -14,7 +14,7 @@
  * while the oracle lists it carrying no `pid`): that, and not a missing record,
  * is what a ghost looked like.
  *
- * It reports through `npm run status` and is named by dispatch-sessions.sh:
+ * It reports through `npm run status` and is named by dispatch-sessions.js:
  * loosen a case and either a ghost sits "working" in the agents view for good,
  * or a live job is called dead and its session retired by hand.
  */

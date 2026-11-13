@@ -7,7 +7,7 @@
  *
  * The readings and their sizing are pure over their inputs. The reads are
  * readSeat, off lib/allowance.js, and readCap, through lib/allowance-cap.js,
- * the sizing dispatch-sessions.sh's `allowance.js --cap` call runs; readSizedSeats takes its read, probe and
+ * the sizing dispatch-sessions.js's `allowance.js --cap` call runs; readSizedSeats takes its read, probe and
  * sizing as arguments, and overflowReadings its key budgets, so each caller
  * picks its own: the tick probes stale seats and reads each budget afresh, the
  * status view probes none (#3733) and memoises each key's budget (#4169).
@@ -20,6 +20,7 @@ const {
 	sizedPercent,
 } = require("./allowance.js");
 const { capOf } = require("./allowance-cap.js");
+const { DEFAULT_CEILINGS } = require("./dispatch-sessions.js");
 const { isBudgetSpent } = require("./overflow-budget-core.js");
 const {
 	FULL,
@@ -37,13 +38,8 @@ const { hasResetPassed } = require("./usage-cache.js");
 /** @typedef {{seat: string, outcome: string, stampMs?: number|null}} Probe
  * `stampMs`, the cache's stamp once it ended. */
 
-/* dispatch-sessions.sh's WEEK_CEILING and SESSION_CEILING defaults, the
- * thresholds its cap sizes a launch past; its test pins the two copies
- * together. */
-const DEFAULT_CEILINGS = { week: 99, session: 90 };
-
 /**
- * dispatch-sessions.sh's cap thresholds, from the variables it reads.
+ * dispatch-sessions.js's cap thresholds, from the variables it reads.
  * @param {Record<string, string | undefined>} env
  */
 const ceilingsOf = (env) => ({

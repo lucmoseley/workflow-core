@@ -86,7 +86,7 @@
  *
  * HUNG-JOB detection is `lib/hung-jobs.js#findHungJobs` (mantahostels#2598), called
  * off the SAME `liveSessions()` listing, so `admission.js` and
- * `dispatch-sessions.sh` share the test without a second `claude agents --json`
+ * `dispatch-sessions.js` share the test without a second `claude agents --json`
  * spawn.
  *
  * IMPLICIT:  on `npm run status` (scripts/status-report.js), reports a background job stuck in "working" with no live process behind it; --notify alone says each one once. It never clears one; where the refill loop runs, it names the loop as the route that stops one listed with no pid and no transcript (#2467).
@@ -285,7 +285,7 @@ function judgeWorking(
 	const me = process.env.CLAUDE_CODE_SESSION_ID;
 
 	// HUNG-JOB off the SAME listing, in lib/hung-jobs.js (mantahostels#2598) — shared
-	// with admission.js and dispatch-sessions.sh, neither of which spawns
+	// with admission.js and dispatch-sessions.js, neither of which spawns
 	// a second oracle to get it.
 	const hung = findHungJobs(jobs, { ids, pids }, { hungMinutes, minutes });
 

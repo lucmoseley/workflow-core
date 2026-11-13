@@ -1,6 +1,6 @@
 /*
  * usage-probe.js — the one `claude -p "/usage"` call, cache first, that both
- * `dispatch-sessions.sh`'s allowance gate (through `scripts/usage-probe.js`)
+ * `dispatch-sessions.js`'s allowance gate (through `scripts/usage-probe.js`)
  * and the refill loop's stale-seat read make (#2306, from #2189's ruling).
  *
  * THE PROBE IS NEVER DROPPED: it is the seat's usage cache's only refresher.
@@ -58,8 +58,9 @@ const STAMP_POLL_MS = 250;
  * The seat's `/usage`, probing only where the cached reading is not trustworthy.
  * `text` is whatever the probe printed (empty where none ran, or where it was
  * stopped before printing), for `readAllowance`'s `usageText`.
- * @param {{ configDir: string, claudeBin: string, claudeArgs?: string[], timeoutMs?: number, signal?: AbortSignal }} opts
- *   `claudeArgs` go before `-p "/usage"`.
+ * @param {{ configDir: string, claudeBin: string, claudeArgs?: string[], timeoutMs?: number, signal?: AbortSignal, now?: number }} opts
+ *   `claudeArgs` go before `-p "/usage"`; `now` is the clock the cached
+ *   reading's age is judged on, as `allowance.js` judges it.
  * @returns {Promise<{ outcome: ProbeOutcome, text: string, error?: string }>}
  */
 async function probeUsage({
@@ -68,8 +69,9 @@ async function probeUsage({
 	claudeArgs = [],
 	timeoutMs = PROBE_TIMEOUT_MS,
 	signal,
+	now = Date.now(),
 }) {
-	const cached = readAllowance({ configDir });
+	const cached = readAllowance({ configDir, now });
 	if (isTrustworthy(cached)) return { outcome: "cached", text: "" };
 	const env = buildSeatEnv(process.env, configDir);
 	const refusal = launchAuthRefusal({ bin: claudeBin, env, cwd: PROBE_CWD });

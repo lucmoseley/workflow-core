@@ -207,7 +207,7 @@ export interface Fixture {
 	emptySubIssues?: number[];
 	/**
 	 * Lines in `.pick-next/dispatched.jsonl`, the ledger
-	 * `scripts/dispatch-sessions.sh` appends to as it launches (mantahostels#1528).
+	 * `scripts/dispatch-sessions.js` appends to as it launches (mantahostels#1528).
 	 * `hoursAgo` defaults to 0.5, inside the 1-hour window the launcher drops on.
 	 */
 	dispatched?: Array<{

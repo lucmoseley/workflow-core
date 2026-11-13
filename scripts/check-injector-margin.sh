@@ -4,17 +4,16 @@
 # measures, against the harness's 10,000-character persistence threshold (mantahostels#1915).
 #
 # Usage:
-#   bash scripts/check-injector-margin.sh            # the STAGED injector
+#   bash scripts/check-injector-margin.sh            # the STAGED text module
 #   bash scripts/check-injector-margin.sh --tree     # the working tree's copy
 #
 # WHY THIS EXISTS SEPARATELY FROM check-context-budget.js. That checker's
-# INJECTION_CAP_BYTES is a union of every payload string the injector can emit,
-# larger than any real variant and comparable with none, and it PARSES the
-# injector rather than running it — deliberately, since `--against` reads the
-# script out of git and executing the working tree's copy would run whatever was
-# half-saved there. So it cannot report the limit that binds, which is
-# per command. mantahostels#1915 ruled option (A) — run the STAGED blob, which is neither the
-# working tree nor a parse.
+# INJECTION_CAP_BYTES is a union of every payload part the text module holds,
+# larger than any real variant and comparable with none. So it cannot report
+# the limit that binds, which is per command. This composes each command's
+# payload out of the STAGED scripts/lib/tracker-inject-text.js through its own
+# composers (scripts/lib/injector-margin.js), which is neither the working
+# tree nor a parse: mantahostels#1915's option (A).
 #
 # CROSSING THE THRESHOLD IS SILENT. The harness persists a payload over 10,000
 # characters to a file and hands the session a ~2 KB preview plus a link, which
@@ -22,24 +21,25 @@
 #
 # NOT IN THE `check-*` FAMILY. That family gates through scripts/lib/check.js's
 # `runCheck` and its five-outcome alphabet; this is shell, so it cannot reach
-# either. Shell because the subject IS a shell script and running it is the whole
-# method — a Node wrapper would buy `--json` and `--notify` at the price of a
-# spawn per command and a second language between the reader and what is being
-# measured.
+# either.
 #
 # EXIT ALPHABET: 0 every command fits · 1 one or more would be persisted ·
-# 2 BROKEN, the script could not be read, parsed or run.
+# 2 BROKEN, the text module could not be read, evaluated or composed.
 #
-# THIS HOOK NOW EXECUTES SHELL OUT OF THE INDEX (mantahostels#1915). The residual is that the
-# same stack fires on `git merge`, `git revert` and `cherry-pick --continue`, where
-# the staged bytes may be another session's; TMPDIR is redirected but contains
-# nothing, so the blob runs with the session's own credentials. The injector
-# sources no file and reads no sibling, which is what keeps that bounded.
+# THE STAGED BLOB IS EVALUATED, NEVER RUN: lib/load-text-module.js gives it no
+# `require`, so the same stack firing on `git merge`, `git revert` and
+# `cherry-pick --continue`, where the staged bytes may be another session's,
+# executes none of them with the session's credentials.
 
 set -uo pipefail
 
 here="${BASH_SOURCE[0]%/*}"
 [[ "$here" == "${BASH_SOURCE[0]}" ]] && here=.
+# Absolute, as the measuring helper beside it is run after the `cd` below.
+here="$(cd -- "$here" && pwd)" || {
+  printf 'BROKEN: cannot resolve this script'"'"'s directory\n' >&2
+  exit 2
+}
 # shellcheck source=scripts/lib/guard-root.sh
 source "$here/lib/guard-root.sh"
 
@@ -48,21 +48,15 @@ source "$here/lib/guard-root.sh"
 # derived from is on mantahostels#1915. inject-tracker-docs.test.ts reads this line.
 TIGHT_HEADROOM_CHARS=1000
 
-INJECTOR="scripts/inject-tracker-docs.sh"
+TEXT_MODULE="scripts/lib/tracker-inject-text.js"
+
+# The fragments /code-review's rules read, staged like the module.
+REVIEW_RULES=(review-dispatch-shape review-deviations-read review-finding-destination)
 
 broken() {
   printf 'BROKEN: %s\n' "$1" >&2
   exit 2
 }
-
-# SKIP loudly rather than refuse, as .husky/pre-commit's other binary-dependent
-# gates do: jq is apparatus, and the injector itself fails open without it
-# (inject-tracker-docs.sh's `command -v jq` line), so a hard dependency here
-# would refuse the commit while naming a command as the offender.
-if ! command -v jq >/dev/null 2>&1; then
-  echo "jq is not on PATH — injector-margin gate SKIPPED, this commit is NOT blocked." >&2
-  exit 0
-fi
 
 # Every path below is repo-root-relative — `git show :<path>` always is, and the
 # `--tree` branch's `cp` would otherwise disagree with it when run from a
@@ -91,29 +85,32 @@ trap 'rm -rf "$tmp"' EXIT INT TERM
 if [[ "${1:-}" = "--tree" ]]; then
   source_desc="the working tree"
   from_tree=1
-  cp -- "$INJECTOR" "$tmp/inj.sh" 2>"$tmp/err" ||
-    broken "cannot read $INJECTOR: $(cat "$tmp/err")"
+  cp -- "$TEXT_MODULE" "$tmp/text.js" 2>"$tmp/err" ||
+    broken "cannot read $TEXT_MODULE: $(cat "$tmp/err")"
 else
   source_desc="the staged blob"
   from_tree=
-  if ! git show ":$INJECTOR" >"$tmp/inj.sh" 2>"$tmp/err"; then
-    if grep -qxF -- "$INJECTOR" <<<"$(git diff --cached --name-only --no-renames --diff-filter=D)"; then
-      echo "$INJECTOR is staged for deletion — nothing to measure, gate SKIPPED." >&2
+  if ! git show ":$TEXT_MODULE" >"$tmp/text.js" 2>"$tmp/err"; then
+    if grep -qxF -- "$TEXT_MODULE" <<<"$(git diff --cached --name-only --no-renames --diff-filter=D)"; then
+      echo "$TEXT_MODULE is staged for deletion — nothing to measure, gate SKIPPED." >&2
       exit 0
     fi
-    broken "cannot read $INJECTOR from the index: $(cat "$tmp/err")"
+    broken "cannot read $TEXT_MODULE from the index: $(cat "$tmp/err")"
   fi
 fi
 
 read_source() {
   if [[ -n "$from_tree" ]]; then cat -- "$1"; else git show ":$1"; fi
 }
-# The integer a `<name>=<n>` line at column zero of <file> assigns.
+# The integer a `const <name> = <n>;` line at column zero of <file> assigns,
+# the shape lib/hook-limits.js's limitIn() reads, numeric separators dropped.
 lib_const() {
-  read_source "$1" 2>/dev/null | sed -n "s/^$2=\([0-9]*\)\$/\1/p"
+  read_source "$1" 2>/dev/null | sed -n "s/^const $2 = \([0-9][0-9_]*\);\$/\1/p" | tr -d _
 }
-LIMIT="$(lib_const scripts/lib/hook-limits.sh HOOK_PERSIST_CHARS)"
-[[ -n "$LIMIT" ]] || broken "no HOOK_PERSIST_CHARS=<n> line in scripts/lib/hook-limits.sh"
+LIMIT="$(lib_const scripts/lib/hook-limits.js HOOK_PERSIST_CHARS)"
+[[ -n "$LIMIT" ]] || broken "no const HOOK_PERSIST_CHARS = <n>; line in scripts/lib/hook-limits.js"
+CAP="$(lib_const scripts/lib/hook-limits.js RULE_CAP)"
+[[ -n "$CAP" ]] || broken "no const RULE_CAP = <n>; line in scripts/lib/hook-limits.js"
 
 # INCLUSIVE, AND THAT IS A CHOICE RATHER THAN A MEASUREMENT. mantahostels#1868 read the
 # constant and not the comparison, so whether the harness persists at exactly
@@ -122,79 +119,29 @@ LIMIT="$(lib_const scripts/lib/hook-limits.sh HOOK_PERSIST_CHARS)"
 # costs a rule that silently stops arriving.
 OVER_AT="$LIMIT"
 
-# Derived, never listed here: a command added to the injector is covered without
-# anything being edited twice.
-#
-# THE SHAPE IT DEPENDS ON is a single-line, unquoted `COMMANDS=(a b c)` at column
-# zero. A multi-line array, a trailing comment or quoted elements all break it —
-# the first two into BROKEN, the third into a payload the injector cannot match.
-# The suite asserts the live array's shape.
-commands="$(sed -n 's/^COMMANDS=(\(.*\))$/\1/p' "$tmp/inj.sh")"
-[[ -n "$commands" ]] || broken "no single-line COMMANDS=(...) array in $INJECTOR"
+# The rule fragments from the same source as the module. An absent one is
+# composed as the hook composes it, from the module's own fallback.
+mkdir -p "$tmp/rules" || broken "cannot make a scratch rules directory"
+for id in "${REVIEW_RULES[@]}"; do
+  rel="docs/agents/rules/$id.txt"
+  read_source "$rel" >"$tmp/rules/$id.txt" 2>/dev/null || rm -f -- "$tmp/rules/$id.txt"
+done
 
-# The split below is deliberate — it is how the array's elements are separated —
-# so the two things that make an unquoted expansion dangerous are pinned rather
-# than inherited: globbing off, and a known IFS.
-set -f
-IFS=' '
-
-# `length` counts codepoints; the harness slices with String.prototype.length,
-# which counts UTF-16 units. They agree on everything in the payload today —
-# `§`, `—`, `→`, `❓` are all BMP — and would not on an astral character.
-UTF16_LEN='.hookSpecificOutput.additionalContext
-	| explode | map(if . > 65535 then 2 else 1 end) | add // 0'
+# Derived, never listed here: a command added to the module's COMMANDS is
+# covered without anything being edited twice. What each figure holds, and the
+# upper bound each input is set to, is lib/injector-margin.js's header.
+node "$here/lib/injector-margin.js" "$tmp/text.js" "$tmp/rules" "$CAP" >"$tmp/sizes" 2>"$tmp/err" ||
+  broken "$TEXT_MODULE could not be measured: $(cat "$tmp/err")"
+[[ -s "$tmp/sizes" ]] || broken "$TEXT_MODULE names no command"
 
 printf '%s payload per command, against the harness %s-character persistence threshold:\n' \
   "$source_desc" "$LIMIT"
 
 status=0
-# A real hook payload always carries a session_id, which is what triggers
-# mantahostels#2220's 8-char Artefact-path suffix (scripts/lib/review-suffix.sh) — the
-# WITH-session case is the longer, binding one, not the bare fallback. The
-# probe below fixes a stub id so that case is measured deterministically
-# regardless of the caller's own CLAUDE_CODE_SESSION_ID, which env -u still
-# strips (mantahostels#2240).
-# scripts/lib/rendered-injection.js runs the same probe; keep the two in step.
-PROBE_SESSION_ID="check-injector-margin-probe-00000000"
-
-# A stub `gh` answering every issue with the longest command name as its
-# `takes:` value, an upper bound on the #1164 line, so that line is measured
-# where it fires and no commit waits on the network. The command named itself
-# is measured without the line.
-longest=""
-for c in $commands; do [[ "${#c}" -gt "${#longest}" ]] && longest="$c"; done
-# shellcheck disable=SC2015 # broken is right whether printf or chmod fails.
-printf '#!/bin/sh\necho takes:%s\n' "$longest" >"$tmp/gh" && chmod +x "$tmp/gh" ||
-  broken "cannot write the stub gh"
-
-# What /code-review adds at run time from files this probe has no copy of
-# (#1697): the dispatch fragment, measured here as its short fallback, and the
-# review-tier envelope. Its rules are capped at RULE_CAP and its areas
-# prelude is not, so a host declaring many areas can still cross the threshold;
-# the injector then puts the tier first, inside the preview. The `+ 2` is the
-# blank line joining the tier to the rest.
-review_reserve() {
-  local cap shape len
-  cap="$(lib_const scripts/lib/hook-limits.sh RULE_CAP)"
-  [[ -n "$cap" ]] || broken "no RULE_CAP=<n> line in scripts/lib/hook-limits.sh"
-  shape="$(read_source docs/agents/rules/review-dispatch-shape.txt 2>/dev/null)" ||
-    broken "cannot read docs/agents/rules/review-dispatch-shape.txt"
-  len="$(printf '%s' "$shape" | jq -Rs 'length')" || broken "jq could not measure review-dispatch-shape.txt"
-  case "$len" in '' | *[!0-9]*) broken "review-dispatch-shape.txt measured as '$len'" ;; esac
-  reserve=$((cap + 2 + len))
-}
-reserve=0
-case " $commands " in *" code-review "*) review_reserve ;; esac
-
-for cmd in $commands; do
-  # TMPDIR is redirected regardless, to keep the sweep out of a real scratch
-  # directory; the dedupe marker this session id mints lands there too.
-  n="$(printf '{"prompt":"/%s 1","hook_event_name":"UserPromptSubmit","session_id":"%s"}' "$cmd" "$PROBE_SESSION_ID" |
-    TMPDIR="$tmp" WFC_GH="$tmp/gh" env -u CLAUDE_CODE_SESSION_ID bash "$tmp/inj.sh" | jq -r "$UTF16_LEN")"
+while read -r cmd n; do
   case "$n" in
     '' | *[!0-9]*) broken "/$cmd emitted no measurable payload" ;;
   esac
-  [[ "$cmd" != code-review ]] || n=$((n + reserve))
 
   left=$((LIMIT - n))
   if [[ "$n" -ge "$OVER_AT" ]]; then
@@ -206,7 +153,7 @@ for cmd in $commands; do
     note=''
   fi
   printf '  /%-12s %5d chars, %5d left%s\n' "$cmd" "$n" "$left" "$note"
-done
+done <"$tmp/sizes"
 
 if [[ "$status" -ne 0 ]]; then
   cat >&2 <<-'EOF'

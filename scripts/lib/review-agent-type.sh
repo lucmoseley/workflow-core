@@ -9,10 +9,10 @@
 # bare name is the only one. So the host's own definition, where present, wins.
 #
 # Three routes name the type — the review-rules dispatcher core,
-# inject-tracker-docs.sh and concision-backstop.sh — and
+# inject-tracker-docs.js and concision-backstop.sh — and
 # lib/review-suffix.test.ts holds them to this answer on both kinds of host.
-# The core reads lib/review-agent-type.js, this file's Node twin; keep the two
-# in step (review-agent-type.test.ts holds them to one answer).
+# The two Node routes read lib/review-agent-type.js, this file's Node twin;
+# keep the two in step (review-agent-type.test.ts holds them to one answer).
 # This file's directory without a `dirname` fork; `.` where sourced by a bare name.
 _rat_here="${BASH_SOURCE[0]%/*}"
 [[ "$_rat_here" == "${BASH_SOURCE[0]}" ]] && _rat_here=.

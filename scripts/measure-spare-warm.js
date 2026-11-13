@@ -3,7 +3,7 @@
  * measure-spare-warm.js — how long the daemon's replacement bg-spare takes to
  * become resident after a `claude --bg` launch claims one.
  *
- * WHAT IT IS FOR (mantahostels#2588). `dispatch-sessions.sh` sleeps
+ * WHAT IT IS FOR (mantahostels#2588). `dispatch-sessions.js` sleeps
  * WFC_DISPATCH_STAGGER_SECONDS between launches so the NEXT member's
  * admission re-read counts the pair the previous member's launch caused. This
  * is the measurement behind that interval.
@@ -29,7 +29,7 @@
  *             its auth would not bill the subscription (lib/launch-auth.js).
  *
  * IT MEASURES, IT NEVER WRITES. Setting WFC_DISPATCH_STAGGER_SECONDS's
- * default from what this prints is a hand edit to dispatch-sessions.sh.
+ * default from what this prints is a hand edit to dispatch-sessions.js.
  *
  * Usage: `USAGE` below, which `--help` prints.
  *
@@ -464,7 +464,7 @@ function writeText(out) {
 		`seconds to plateau ${out.secondsToPlateau ?? "—"}`,
 		`plateau RSS        ${out.plateauMb ?? "—"} MB (the pair)`,
 		out.verdict === "plateau"
-			? `  Set WFC_DISPATCH_STAGGER_SECONDS's default in scripts/dispatch-sessions.sh\n  from this, over several readings — one is a sample, not a figure.`
+			? `  Set WFC_DISPATCH_STAGGER_SECONDS's default in scripts/lib/dispatch-sessions.js\n  from this, over several readings — one is a sample, not a figure.`
 			: "  No plateau, so nothing here sets a default.",
 	];
 	writeFd(1, `${lines.join("\n")}\n`);

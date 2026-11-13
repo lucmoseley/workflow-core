@@ -96,10 +96,31 @@ describe("messages a shipped script prints", () => {
 		return found;
 	}
 
+	const resolvesWholeText =
+		/(?:const hookBlock|\{(?!\s*repoRoot\s*\})[^}]*\}) = require\("\.\/(?:lib\/)?hook-block(?:\.js)?"\)|\{[^}]*\bdeny(?:Text)?\b[^}]*\} = require\("\.\/guard-verdict\.js"\)|resolve_script_paths|resolveScriptPaths|\.corePaths\(/;
+
+	/* A lib whose text a session sees only through the lib named beside it,
+	 * which runs a whole-text resolver over it: read as resolved while that
+	 * emitter still holds the resolver. */
+	const EmittedThrough: Record<string, string> = {
+		"tracker-inject-text.js": "inject-tracker-docs.js",
+	};
+	const resolvedByEmitter = (file: string) => {
+		const emitter = EmittedThrough[path.basename(file)];
+		return (
+			emitter !== undefined &&
+			resolvesWholeText.test(
+				fs.readFileSync(path.join(path.dirname(file), emitter), "utf8"),
+			)
+		);
+	};
+
 	it("name no script by a bare command-shaped path", () => {
 		const files = [
 			...guardFiles,
-			...libNames.map((f) => path.join(__dirname, f)),
+			...libNames
+				.map((f) => path.join(__dirname, f))
+				.filter((f) => !resolvedByEmitter(f)),
 		];
 		expect(
 			files.flatMap((f) => readBareLines(f, (l) => COMMAND_SHAPED.test(l))),
@@ -125,8 +146,6 @@ describe("messages a shipped script prints", () => {
 	/* A read that found nothing or stopped partway lists far fewer: each list
 	 * held 54 or more at #4285. */
 	const ScriptListFloor = 40;
-	const resolvesWholeText =
-		/(?:const hookBlock|\{(?!\s*repoRoot\s*\})[^}]*\}) = require\("\.\/(?:lib\/)?hook-block(?:\.js)?"\)|\{[^}]*\bdeny(?:Text)?\b[^}]*\} = require\("\.\/guard-verdict\.js"\)|resolve_script_paths|resolveScriptPaths|\.corePaths\(/;
 
 	function bareLinesPastResolver(
 		rels: string[],
@@ -209,7 +228,7 @@ describe("messages a shipped script prints", () => {
 			)
 			.map((f) => path.join(__dirname, f)),
 		path.join(SCRIPTS, "place-new-issue.sh"),
-		path.join(SCRIPTS, "inject-tracker-docs.sh"),
+		path.join(SCRIPTS, "inject-tracker-docs.js"),
 		path.join(SCRIPTS, "concision-backstop.sh"),
 	];
 	const resolvesLine = /\bdoc_?[pP]ath\b/;
@@ -218,7 +237,7 @@ describe("messages a shipped script prints", () => {
 		const found: string[] = [];
 		for (const file of hookFiles) {
 			const text = fs.readFileSync(file, "utf8");
-			const resolves = resolvesWholeText.test(text);
+			const resolves = resolvesWholeText.test(text) || resolvedByEmitter(file);
 			text.split("\n").forEach((line, i) => {
 				if (COMMENT_LINE.test(line)) return;
 				const skill = /\.claude\/skills\/[\w-]+\/SKILL\.md/.test(line);

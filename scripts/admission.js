@@ -9,10 +9,10 @@
  *         node admission.js --load-only
  *
  * `--skip-allowance` drops the allowance limb below, the memory limb staying
- * armed — what `dispatch-sessions.sh --force` passes (#299).
+ * armed — what `dispatch-sessions.js --force` passes (#299).
  *
  * `--load-only` judges the CPU limb alone, the load and session ceilings both —
- * what `dispatch-sessions.sh --force-memory` runs, so overriding memory never
+ * what `dispatch-sessions.js --force-memory` runs, so overriding memory never
  * disarms either (#834, #2141). Only `WFC_LOAD_CEILING=0` (or a 0 in `~/.claude/load-ceiling`) and
  * `WFC_SESSION_CEILING=0` turn them off.
  *
@@ -23,7 +23,7 @@
  * member is about to cost — `poolReserve` in `lib/admission.js` has the
  * pricing. It charges each slot past the first its own pair, as the earlier
  * members' pairs are resident by the k-th member's re-read (#2511), so
- * `dispatch-sessions.sh`'s per-member re-reads admit every slot the refill
+ * `dispatch-sessions.js`'s per-member re-reads admit every slot the refill
  * loop's free-slot count, also passing it, finds (#2500).
  *
  * Exit codes:
@@ -45,7 +45,7 @@
  * read this file already pays for — `lib/hung-jobs.js#findHungJobs` takes that
  * listing rather than calling `claude agents --json` again. It never changes
  * the exit code: a hung job is a courtesy the refusal text can use, not a
- * gate `verdict` does not already carry. `dispatch-sessions.sh`'s roster
+ * gate `verdict` does not already carry. `dispatch-sessions.js`'s roster
  * remedy reads the TEXT-mode rendering (`buildHungJobsText`, below) rather than
  * this field directly — it never passes `--json` — so the two are exercised
  * by separate tests, not one.
@@ -54,7 +54,7 @@
  * admission.test.ts's "includes hungJobs in --json even when empty" case.
  * Separately, dropping the TEXT-mode section `buildHungJobsText` renders is caught
  * by dispatch-sessions-reread.test.ts's "names a HUNG-JOB inline" case, which reads
- * dispatch-sessions.sh's own relay of it rather than this file's `--json`.
+ * dispatch-sessions.js's own relay of it rather than this file's `--json`.
  */
 
 const { writeFd } = require("./lib/write-fd.js");
@@ -85,7 +85,7 @@ const USAGE = `Usage: node ${scriptPath("admission.js")} [--json] [--launch] [--
 
 /*
  * A backstop at 100% on both bars, never the launcher's 90/99 thresholds:
- * those size the set once, in `dispatch-sessions.sh`'s cap, and a set the cap
+ * those size the set once, in `dispatch-sessions.js`'s cap, and a set the cap
  * admitted must not be refused member by member on the same reading (#371
  * item 5).
  */
@@ -139,7 +139,7 @@ const CPU_LOAD_UNKNOWN =
 
 /**
  * The `cpu load` and `cpu sessions` lines for each CPU hold, which
- * `dispatch-sessions.sh` keys its remedy off — and off `the only hold`, on the
+ * `dispatch-sessions.js` keys its remedy off — and off `the only hold`, on the
  * last, for whether a memory or allowance remedy applies too.
  * @param {import("./lib/cpu-sample").LoadReading} load
  * @param {ReturnType<typeof readCpuSlots>} cpu
@@ -170,7 +170,7 @@ function main() {
 	const json = flags["--json"] === true;
 	const spares = flags["--launch"] ? LAUNCH_SPARES : 0;
 	// One `claude agents --json` read, shared with the hung-job scan below
-	// (mantahostels#2598) — `dispatch-sessions.sh`'s per-member re-read must not double it.
+	// (mantahostels#2598) — `dispatch-sessions.js`'s per-member re-read must not double it.
 	// Empty outside a session reads as nothing live (#2180).
 	const listed = admissionSessionIds();
 	const { overhead, host, live, load, cpu, verdict, memory } = machineAdmission(
@@ -183,7 +183,7 @@ function main() {
 		},
 	);
 	/* Between the figures and the hung-job section, never after it:
-	 * `dispatch-sessions.sh` reads from `^hung job(s)` to the end. */
+	 * `dispatch-sessions.js` reads from `^hung job(s)` to the end. */
 	const memoryText = `\n\n${buildMemoryBreakdownLines(memory).join("\n")}`;
 
 	// Runs even where `verdict` is itself refused — a warning is still worth
@@ -336,7 +336,7 @@ function buildReportLines({
 		`reclaimable        ${verdict.reclaimedMb} MB about to be reaped`,
 		...(windowsLine ? [`windows memory     ${windowsLine}`] : []),
 		`slots              ${verdict.slots} — ${verdict.admit ? "ADMIT" : "HOLD"}: ${verdict.reason}`,
-		/* dispatch-sessions.sh relays the unknown line on its admit path. */
+		/* dispatch-sessions.js relays the unknown line on its admit path. */
 		...(verdict.load.load1 === null ? [CPU_LOAD_UNKNOWN] : []),
 		...buildCpuHoldLines(
 			verdict.load,
@@ -362,7 +362,7 @@ function buildReportLines({
 }
 
 /**
- * The hung-job section for the text-mode reports above — dispatch-sessions.sh
+ * The hung-job section for the text-mode reports above — dispatch-sessions.js
  * reads this off `admission_out` directly rather than a second `check:ghost-jobs`
  * run (mantahostels#2598). Empty string where there is nothing to say, so a clean run's
  * output is unchanged.

@@ -875,7 +875,7 @@ describe("issues the launcher has already dispatched", () => {
 		});
 		expect(r.out).toContain("ALREADY DISPATCHED (1)");
 		expect(r.out).toContain("1h after launching it");
-		expect(r.out).toContain("scripts/dispatch-sessions.sh --force");
+		expect(r.out).toContain("scripts/dispatch-sessions.js --force");
 	});
 
 	it("takes the excluded issue out of the frontier count the summary prints", async () => {

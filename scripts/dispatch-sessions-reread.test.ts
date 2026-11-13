@@ -31,21 +31,14 @@ import { writePsStub } from "./lib/ps-stub";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const fx = dispatchFixture();
-const {
-	stubClaude,
-	baseEnv,
-	launchArgv,
-	readArgvLines,
-	run,
-	stubSleep,
-	sleepArgs,
-} = fx;
+const { stubClaude, baseEnv, launchArgv, readArgvLines, runCore, sleepArgs } =
+	fx;
 
 describe("the partial launch's edges", () => {
-	it("previews the partial set under --dry-run without starting it", () => {
+	it("previews the partial set under --dry-run without starting it", async () => {
 		stubClaude({});
-		run(["sonnet", "/implement 341"]);
-		const preview = run([
+		await runCore(["sonnet", "/implement 341"]);
+		const preview = await runCore([
 			"--dry-run",
 			"sonnet",
 			"/implement 341",
@@ -58,32 +51,37 @@ describe("the partial launch's edges", () => {
 		expect(preview.stdout).not.toContain("/implement 341");
 	});
 
-	it("refuses an empty prompt, which would desync the drop list", () => {
+	it("refuses an empty prompt, which would desync the drop list", async () => {
 		stubClaude({});
-		const r = run(["sonnet", "", "opus", "/wayfinder 1114"]);
+		const r = await runCore(["sonnet", "", "opus", "/wayfinder 1114"]);
 		expect(r.code).toBe(2);
 		expect(r.stderr).toContain("may not be empty");
 	});
 
-	it("warns about the advisor for the members that actually launch", () => {
+	it("warns about the advisor for the members that actually launch", async () => {
 		/* The Sonnet member is dropped, so the set that launches is Opus-only and
 		 * wants no advisor. */
 		stubClaude({ advisorAttaches: false });
-		run(["sonnet", "/implement 341"]);
-		const second = run(["sonnet", "/implement 341", "opus", "/wayfinder 1114"]);
+		await runCore(["sonnet", "/implement 341"]);
+		const second = await runCore([
+			"sonnet",
+			"/implement 341",
+			"opus",
+			"/wayfinder 1114",
+		]);
 		expect(second.stderr).not.toContain("the advisor is not live here");
 	});
 });
 
 describe("the per-member admission re-read (mantahostels#2553)", () => {
-	it("launches a member when the re-read shows headroom", () => {
+	it("launches a member when the re-read shows headroom", async () => {
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341"]);
+		const r = await runCore(["sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);
 		expect(launchArgv()).toContain("--bg");
 	});
 
-	it("refuses a member when the re-read shows no headroom, and names it", () => {
+	it("refuses a member when the re-read shows no headroom, and names it", async () => {
 		// A neighbour already listed, so the always-admit-one guarantee
 		// (`admission.js`'s own header) does not mask the low-memory refusal
 		// this test is actually about.
@@ -91,7 +89,7 @@ describe("the per-member admission re-read (mantahostels#2553)", () => {
 			agentsJson: agentsListing(true),
 		});
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
-		const r = run(["sonnet", "/implement 341"]);
+		const r = await runCore(["sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("REFUSED: /implement 341");
 		expect(r.stderr).toContain("not launching this member");
@@ -99,43 +97,48 @@ describe("the per-member admission re-read (mantahostels#2553)", () => {
 		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 
-	it("refuses every low-headroom member in a set, not only the first, naming each and launching none", () => {
+	it("refuses every low-headroom member in a set, not only the first, naming each and launching none", async () => {
 		stubClaude({
 			agentsJson: agentsListing(true),
 		});
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
-		const r = run(["sonnet", "/implement 341", "opus", "/wayfinder 1114"]);
+		const r = await runCore([
+			"sonnet",
+			"/implement 341",
+			"opus",
+			"/wayfinder 1114",
+		]);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("REFUSED: /implement 341");
 		expect(r.stderr).toContain("REFUSED: /wayfinder 1114");
 		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 
-	it("refuses on an unreadable re-read rather than guessing headroom, naming the member and offering --force-memory as the way out", () => {
+	it("refuses on an unreadable re-read rather than guessing headroom, naming the member and offering --force-memory as the way out", async () => {
 		stubClaude({});
 		fs.rmSync(fx.meminfo);
-		const r = run(["sonnet", "/implement 341"]);
+		const r = await runCore(["sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("REFUSED: /implement 341");
 		expect(r.stderr).toContain("--force-memory overrides a memory one");
 		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 
-	it("--force-memory skips the memory re-read and launches anyway", () => {
+	it("--force-memory skips the memory re-read and launches anyway", async () => {
 		stubClaude({
 			agentsJson: agentsListing(true),
 		});
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
-		const r = run(["--force-memory", "sonnet", "/implement 341"]);
+		const r = await runCore(["--force-memory", "sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);
 		expect(r.stderr).not.toContain("REFUSED: /implement 341");
 		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(true);
 	});
 
-	it("never re-reads under --dry-run", () => {
+	it("never re-reads under --dry-run", async () => {
 		stubClaude({});
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
-		const r = run(["--dry-run", "sonnet", "/implement 341"]);
+		const r = await runCore(["--dry-run", "sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);
 		expect(r.stderr).not.toContain("REFUSED: /implement 341");
 		expect(r.stdout).toContain("would launch");
@@ -146,10 +149,10 @@ describe("a CPU load hold at the re-read (#830, #834)", () => {
 	// load1 well over the testkit's WFC_LOAD_CEILING of 10.
 	const overloaded = () => fs.writeFileSync(fx.loadavg, buildLoadavgLine(60));
 
-	it("names the load remedy, and neither the memory one nor the roster", () => {
+	it("names the load remedy, and neither the memory one nor the roster", async () => {
 		stubClaude({});
 		overloaded();
-		const r = run(["sonnet", "/implement 341"]);
+		const r = await runCore(["sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("REFUSED: /implement 341");
 		expect(r.stderr).toContain("A CPU load hold");
@@ -159,39 +162,44 @@ describe("a CPU load hold at the re-read (#830, #834)", () => {
 		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 
-	it("names both remedies where memory holds as well", () => {
+	it("names both remedies where memory holds as well", async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
 		overloaded();
-		const r = run(["sonnet", "/implement 341"]);
+		const r = await runCore(["sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("A CPU load hold");
 		expect(r.stderr).toContain("--force-memory overrides a memory one");
 	});
 
-	it("keeps the CPU limb armed under --force-memory", () => {
+	it("keeps the CPU limb armed under --force-memory", async () => {
 		stubClaude({});
 		overloaded();
-		const r = run(["--force-memory", "sonnet", "/implement 341"]);
+		const r = await runCore(["--force-memory", "sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("REFUSED: /implement 341");
 		expect(r.stderr).toContain("A CPU load hold");
 		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 
-	it("--force --force-memory still holds on load", () => {
+	it("--force --force-memory still holds on load", async () => {
 		stubClaude({});
 		overloaded();
-		const r = run(["--force", "--force-memory", "sonnet", "/implement 341"]);
+		const r = await runCore([
+			"--force",
+			"--force-memory",
+			"sonnet",
+			"/implement 341",
+		]);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("A CPU load hold");
 		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 
-	it("warns, and launches, where --force-memory cannot read the load, naming the member and the load as unknown", () => {
+	it("warns, and launches, where --force-memory cannot read the load, naming the member and the load as unknown", async () => {
 		stubClaude({});
 		fs.rmSync(fx.loadavg);
-		const r = run(["--force-memory", "sonnet", "/implement 341"]);
+		const r = await runCore(["--force-memory", "sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("WARNING: /implement 341");
 		expect(r.stderr).toMatch(/cpu load\s+unknown/);
@@ -202,9 +210,9 @@ describe("a CPU load hold at the re-read (#830, #834)", () => {
 /* #2876: the admit path's warning match, on the allowance line admission.js
  * prints where its own reading is not fresh, and silent where it is. */
 describe("the admit-path allowance warning", () => {
-	it("names the member and the stale reading, and launches", () => {
+	it("names the member and the stale reading, and launches", async () => {
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341"]);
+		const r = await runCore(["sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("WARNING: /implement 341");
 		expect(r.stderr).toContain(
@@ -213,11 +221,11 @@ describe("the admit-path allowance warning", () => {
 		expect(launchArgv()).toContain("--bg");
 	});
 
-	it("says nothing on a fresh reading", () => {
+	it("says nothing on a fresh reading", async () => {
 		const configDir = path.join(fx.dir, "fresh-config");
 		writeCache(configDir, { session: 40, weeklyAll: 50 });
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341"], {
+		const r = await runCore(["sonnet", "/implement 341"], {
 			CLAUDE_CONFIG_DIR: configDir,
 		});
 		expect(r.code).toBe(0);
@@ -234,9 +242,9 @@ describe("a CPU session hold at the re-read (#2141)", () => {
 		WFC_SESSION_CEILING: "1",
 	});
 
-	it("names the session remedy, and neither the memory one nor the roster", () => {
+	it("names the session remedy, and neither the memory one nor the roster", async () => {
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341"], full());
+		const r = await runCore(["sonnet", "/implement 341"], full());
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("REFUSED: /implement 341");
 		expect(r.stderr).toContain("A CPU session hold");
@@ -246,24 +254,27 @@ describe("a CPU session hold at the re-read (#2141)", () => {
 		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 
-	it("names both remedies where memory holds as well", () => {
+	it("names both remedies where memory holds as well", async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
-		const r = run(["sonnet", "/implement 341"], full());
+		const r = await runCore(["sonnet", "/implement 341"], full());
 		expect(r.stderr).toContain("A CPU session hold");
 		expect(r.stderr).toContain("--force-memory overrides a memory one");
 	});
 
-	it("keeps the session ceiling armed under --force-memory", () => {
+	it("keeps the session ceiling armed under --force-memory", async () => {
 		stubClaude({});
-		const r = run(["--force-memory", "sonnet", "/implement 341"], full());
+		const r = await runCore(
+			["--force-memory", "sonnet", "/implement 341"],
+			full(),
+		);
 		expect(r.stderr).toContain("A CPU session hold");
 		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);
 	});
 
-	it("warns, and launches, where --force-memory cannot count the sessions", () => {
+	it("warns, and launches, where --force-memory cannot count the sessions", async () => {
 		stubClaude({});
-		const r = run(["--force-memory", "sonnet", "/implement 341"], {
+		const r = await runCore(["--force-memory", "sonnet", "/implement 341"], {
 			WFC_PS: writePsStub(fx.dir, [], { name: "ps-failing", fails: true }),
 		});
 		expect(r.stderr).toContain("WARNING: /implement 341");
@@ -287,18 +298,18 @@ describe("--force and --force-memory split (#299)", () => {
 	};
 	const readLaunches = () => readArgvLines().filter((l) => l.includes("--bg"));
 
-	it("--force alone leaves the memory re-read armed", () => {
+	it("--force alone leaves the memory re-read armed", async () => {
 		lowMemory();
-		const r = run(["--force", "sonnet", "/implement 341"]);
+		const r = await runCore(["--force", "sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("REFUSED: /implement 341");
 		expect(r.stderr).toContain("--force-memory overrides it");
 		expect(readLaunches()).toHaveLength(0);
 	});
 
-	it("--force launches every member past a full session bar, not refusing each", () => {
+	it("--force launches every member past a full session bar, not refusing each", async () => {
 		stubClaude({});
-		const r = run(
+		const r = await runCore(
 			["--force", "sonnet", "/implement 341", "opus", "/wayfinder 1114"],
 			fullSession(),
 		);
@@ -307,9 +318,9 @@ describe("--force and --force-memory split (#299)", () => {
 		expect(readLaunches()).toHaveLength(2);
 	});
 
-	it("--force-memory alone leaves the allowance gate armed", () => {
+	it("--force-memory alone leaves the allowance gate armed", async () => {
 		stubClaude({});
-		const r = run(
+		const r = await runCore(
 			["--force-memory", "sonnet", "/implement 341"],
 			fullSession(),
 		);
@@ -318,10 +329,10 @@ describe("--force and --force-memory split (#299)", () => {
 		expect(readLaunches()).toHaveLength(0);
 	});
 
-	it("--force-memory alone leaves the duplicate drop armed", () => {
+	it("--force-memory alone leaves the duplicate drop armed", async () => {
 		stubClaude({});
-		run(["sonnet", "/implement 341"]);
-		const r = run(["--force-memory", "sonnet", "/implement 341"]);
+		await runCore(["sonnet", "/implement 341"]);
+		const r = await runCore(["--force-memory", "sonnet", "/implement 341"]);
 		expect(r.code).toBe(4);
 		expect(r.stderr).toContain("dropped: /implement 341");
 		expect(r.stderr).toContain(
@@ -330,11 +341,11 @@ describe("--force and --force-memory split (#299)", () => {
 		expect(readLaunches()).toHaveLength(1);
 	});
 
-	it("--force --force-memory together skip all three gates, as the old --force did", () => {
+	it("--force --force-memory together skip all three gates, as the old --force did", async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
-		run(["sonnet", "/implement 341"]);
+		await runCore(["sonnet", "/implement 341"]);
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
-		const r = run(
+		const r = await runCore(
 			["--force", "--force-memory", "sonnet", "/implement 341"],
 			fullSession(),
 		);
@@ -354,8 +365,9 @@ describe("the launch stagger (mantahostels#2553)", () => {
 	it("sleeps WFC_DISPATCH_STAGGER_SECONDS between two launches", () => {
 		stubClaude({});
 		const start = Date.now();
+		// spawn-kept: a timeout — the stagger is the host's real sleep, timed on the real clock
 		const r = spawnSync(
-			"bash",
+			process.execPath,
 			[SCRIPT, "sonnet", "/implement 341", "opus", "/wayfinder 1114"],
 			{
 				cwd: fx.dir,
@@ -377,16 +389,13 @@ describe("the launch stagger (mantahostels#2553)", () => {
 	 * STAGGER_SECONDS). The recorded argument pins it: any re-pick or a
 	 * dropped sleep fails.
 	 */
-	it("staggers by the measured 2 seconds when nothing overrides it", () => {
+	it("staggers by the measured 2 seconds when nothing overrides it", async () => {
 		stubClaude({});
-		const env = baseEnv(stubSleep());
-		delete env.WFC_DISPATCH_STAGGER_SECONDS;
-		const r = spawnSync(
-			"bash",
-			[SCRIPT, "sonnet", "/implement 341", "opus", "/wayfinder 1114"],
-			{ cwd: fx.dir, encoding: "utf8", env },
+		const r = await runCore(
+			["sonnet", "/implement 341", "opus", "/wayfinder 1114"],
+			{ WFC_DISPATCH_STAGGER_SECONDS: "" },
 		);
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		expect(sleepArgs()).toEqual(["2"]);
 		expect(readArgvLines().filter((l) => l.includes("--bg"))).toHaveLength(2);
 	});
@@ -395,57 +404,52 @@ describe("the launch stagger (mantahostels#2553)", () => {
 	 * The three cases below assert an EMPTY log, never a sub-second elapsed
 	 * time, which a `sleep 0.9` would pass.
 	 */
-	it("never sleeps before the first launch, or after the last", () => {
+	it("never sleeps before the first launch, or after the last", async () => {
 		stubClaude({});
-		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
-			cwd: fx.dir,
-			encoding: "utf8",
-			env: baseEnv({ WFC_DISPATCH_STAGGER_SECONDS: "1", ...stubSleep() }),
+		const r = await runCore(["sonnet", "/implement 341"], {
+			WFC_DISPATCH_STAGGER_SECONDS: "1",
 		});
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		// An empty log also describes a run that never launched at all, so the
 		// one launch has to be asserted alongside it.
 		expect(readArgvLines().filter((l) => l.includes("--bg"))).toHaveLength(1);
 		expect(sleepArgs()).toEqual([]);
 	});
 
-	it("never sleeps under --dry-run", () => {
+	it("never sleeps under --dry-run", async () => {
 		stubClaude({});
-		const r = spawnSync(
-			"bash",
-			[
-				SCRIPT,
-				"--dry-run",
-				"sonnet",
-				"/implement 341",
-				"opus",
-				"/wayfinder 1114",
-			],
-			{
-				encoding: "utf8",
-				env: baseEnv({ WFC_DISPATCH_STAGGER_SECONDS: "1", ...stubSleep() }),
-			},
+		const r = await runCore(
+			["--dry-run", "sonnet", "/implement 341", "opus", "/wayfinder 1114"],
+			{ WFC_DISPATCH_STAGGER_SECONDS: "1" },
 		);
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		expect(r.stdout).toContain("would launch");
 		expect(sleepArgs()).toEqual([]);
 	});
 
-	it("does not stagger a member the re-read refused", () => {
+	it("does not stagger after a launch that failed", async () => {
+		stubClaude({ launchFails: true });
+		const r = await runCore(
+			["sonnet", "/implement 341", "opus", "/wayfinder 1114"],
+			{ WFC_DISPATCH_STAGGER_SECONDS: "1" },
+		);
+		expect(r.code).toBe(0);
+		// Both launches ran and failed: the failure, not a refusal, is what skips the stagger.
+		expect(r.stderr).toContain("(claude exited 1; not recorded as launched.)");
+		expect(readArgvLines().filter((l) => l.includes("--bg"))).toHaveLength(2);
+		expect(sleepArgs()).toEqual([]);
+	});
+
+	it("does not stagger a member the re-read refused", async () => {
 		stubClaude({
 			agentsJson: agentsListing(true),
 		});
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
-		const r = spawnSync(
-			"bash",
-			[SCRIPT, "sonnet", "/implement 341", "opus", "/wayfinder 1114"],
-			{
-				cwd: fx.dir,
-				encoding: "utf8",
-				env: baseEnv({ WFC_DISPATCH_STAGGER_SECONDS: "1", ...stubSleep() }),
-			},
+		const r = await runCore(
+			["sonnet", "/implement 341", "opus", "/wayfinder 1114"],
+			{ WFC_DISPATCH_STAGGER_SECONDS: "1" },
 		);
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		// Both members refused (memory stays low throughout), so neither pays
 		// the stagger. Asserted on the refusal itself, not just the empty log:
 		// a `claude` that died on launch would leave the same empty log.
@@ -464,20 +468,20 @@ describe("the launch stagger (mantahostels#2553)", () => {
  * having reached it is observable from outside.
  */
 describe("the pending-spare charge on the re-read (mantahostels#2588)", () => {
-	it("relays the pending-spare reserve in a refusal, so the flag is visibly in force", () => {
+	it("relays the pending-spare reserve in a refusal, so the flag is visibly in force", async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    600000 kB\n");
-		const r = run(["sonnet", "/implement 341"]);
+		const r = await runCore(["sonnet", "/implement 341"]);
 		expect(r.stderr).toContain("pending spares");
 		// No idle pair is resident under the empty `ps` stub, so the measured
 		// fallback is what prices it.
 		expect(r.stderr).toContain("106 MB");
 	});
 
-	it("charges nothing extra under --force-memory, which re-reads the load alone", () => {
+	it("charges nothing extra under --force-memory, which re-reads the load alone", async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    600000 kB\n");
-		const r = run(["--force-memory", "sonnet", "/implement 341"]);
+		const r = await runCore(["--force-memory", "sonnet", "/implement 341"]);
 		expect(r.stderr).not.toContain("pending spares");
 	});
 });
@@ -488,24 +492,24 @@ describe("the pending-spare charge on the re-read (mantahostels#2588)", () => {
  * slot arithmetic, which names a lander's reserve only where one is queued.
  */
 describe("the lander read on the re-read (#2889)", () => {
-	const refused = () => {
+	const refused = async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    600000 kB\n");
-		return run(["sonnet", "/implement 341"]).stderr;
+		return (await runCore(["sonnet", "/implement 341"])).stderr;
 	};
 
-	it("reads the fixture's queue, never the machine's own landers", () => {
-		expect(refused()).not.toMatch(/\d+ lander/);
+	it("reads the fixture's queue, never the machine's own landers", async () => {
+		expect(await refused()).not.toMatch(/\d+ lander/);
 	});
 
-	it("counts a lander queued in the fixture's queue", () => {
+	it("counts a lander queued in the fixture's queue", async () => {
 		const queue = path.join(fx.dir, "wfc-suite-queue");
 		fs.mkdirSync(queue);
 		fs.writeFileSync(
 			path.join(queue, `wfc-suite-queue-${process.pid}.json`),
 			JSON.stringify({ pid: process.pid, at: 1, role: "lander" }),
 		);
-		expect(refused()).toMatch(/\d+ lander/);
+		expect(await refused()).toMatch(/\d+ lander/);
 	});
 });
 
@@ -515,30 +519,30 @@ describe("the lander read on the re-read (#2889)", () => {
  * retires one travels with the refusal rather than behind a second command.
  */
 describe("the roster remedy on a refusal (mantahostels#2588)", () => {
-	it("offers the roster SIGTERM route when the re-read refuses a member", () => {
+	it("offers the roster SIGTERM route when the re-read refuses a member", async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
-		const r = run(["sonnet", "/implement 341"]);
+		const r = await runCore(["sonnet", "/implement 341"]);
 		expect(r.stderr).toContain("check-ghost-jobs.js");
 		expect(r.stderr).toContain("replPid");
 		expect(r.stderr).toContain("SIGTERM");
 		expect(r.stderr).toContain("roster:");
 	});
 
-	it("offers it on the already-dispatched refusal too", () => {
+	it("offers it on the already-dispatched refusal too", async () => {
 		stubClaude({});
-		run(["sonnet", "/implement 341"]);
-		const second = run(["sonnet", "/implement 341"]);
+		await runCore(["sonnet", "/implement 341"]);
+		const second = await runCore(["sonnet", "/implement 341"]);
 		expect(second.code).toBe(4);
 		expect(second.stderr).toContain("check-ghost-jobs.js");
 		expect(second.stderr).toContain("replPid");
 	});
 
-	it("names the ghost-job checker by its plugin-root path in an install (#1289)", () => {
+	it("names the ghost-job checker by its plugin-root path in an install (#1289)", async () => {
 		stubClaude({});
 		const root = path.join(fx.dir, "plugins", "w f c");
-		run(["sonnet", "/implement 341"]);
-		const second = run(["sonnet", "/implement 341"], {
+		await runCore(["sonnet", "/implement 341"]);
+		const second = await runCore(["sonnet", "/implement 341"], {
 			WFC_SCRIPT_ROOT: root,
 		});
 		expect(second.stderr).toContain(
@@ -546,10 +550,15 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 		);
 	});
 
-	it("prints it once, however many members a set refuses", () => {
+	it("prints it once, however many members a set refuses", async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
-		const r = run(["sonnet", "/implement 341", "opus", "/wayfinder 1114"]);
+		const r = await runCore([
+			"sonnet",
+			"/implement 341",
+			"opus",
+			"/wayfinder 1114",
+		]);
 		expect(r.stderr).toContain("REFUSED: /implement 341");
 		expect(r.stderr).toContain("REFUSED: /wayfinder 1114");
 		expect(r.stderr.split("check-ghost-jobs.js")).toHaveLength(2);
@@ -563,25 +572,23 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 	 * caller — an unreadable per-member drop list — gets nothing, and that
 	 * branch has no test.
 	 */
-	it("says nothing about a roster on a launch that is not refused", () => {
+	it("says nothing about a roster on a launch that is not refused", async () => {
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341"]);
+		const r = await runCore(["sonnet", "/implement 341"]);
 		expect(r.stderr).not.toContain("check-ghost-jobs.js");
 	});
 
-	it("names the gap rather than going quiet where no roster file exists", () => {
+	it("names the gap rather than going quiet where no roster file exists", async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
-		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
+		const r = await fx.runCoreUnder(["sonnet", "/implement 341"], {
 			cwd: fx.dir,
-			encoding: "utf8",
-			// A HOME with no .claude* under it at all.
 			env: { ...baseEnv(), HOME: fx.dir },
 		});
 		expect(r.stderr).toContain("none under");
 	});
 
-	it("lists the roster of every plan dir, .claude12 included, and of no other dir (#2580)", () => {
+	it("lists the roster of every plan dir, .claude12 included, and of no other dir (#2580)", async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
 		const home = path.join(fx.dir, "home");
@@ -591,7 +598,7 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 			fs.mkdirSync(path.dirname(roster(dir)), { recursive: true });
 			fs.writeFileSync(roster(dir), "{}");
 		}
-		const r = run(["sonnet", "/implement 341"], { HOME: home });
+		const r = await runCore(["sonnet", "/implement 341"], { HOME: home });
 		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("REFUSED: /implement 341");
 		for (const dir of [".claude", ".claude3", ".claude12"]) {
@@ -601,17 +608,16 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 		expect(r.stderr).not.toContain("none under");
 	});
 
-	it("names an unset HOME rather than aborting the refusal (#2580)", () => {
+	it("names an unset HOME rather than aborting the refusal (#2580)", async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
 		const env = baseEnv();
 		delete env.HOME;
-		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
+		const r = await fx.runCoreUnder(["sonnet", "/implement 341"], {
 			cwd: fx.dir,
-			encoding: "utf8",
 			env,
 		});
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("HOME unset or unreadable");
 	});
 
@@ -621,7 +627,7 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 	 * "working" job listed alive with a pid, past the transcript-less window,
 	 * so `lib/hung-jobs.js#findHungJobs` calls it hung rather than a ghost.
 	 */
-	it("names a HUNG-JOB inline, with its roster path, on a refusal (mantahostels#2598)", () => {
+	it("names a HUNG-JOB inline, with its roster path, on a refusal (mantahostels#2598)", async () => {
 		const hungSessionId = "hung-0000-0000-0000-000000000000";
 		stubClaude({
 			agentsJson: JSON.stringify([
@@ -645,9 +651,8 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 			}),
 		);
 
-		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
+		const r = await fx.runCoreUnder(["sonnet", "/implement 341"], {
 			cwd: fx.dir,
-			encoding: "utf8",
 			env: baseEnv({
 				CLAUDE_CONFIG_DIR: configDir,
 				WFC_CLAUDE_CONFIG_A: configDir,
@@ -662,10 +667,10 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 		expect(r.stderr).not.toContain("check-ghost-jobs.js");
 	});
 
-	it("falls back to the second command where nothing reads as hung", () => {
+	it("falls back to the second command where nothing reads as hung", async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
-		const r = run(["sonnet", "/implement 341"]);
+		const r = await runCore(["sonnet", "/implement 341"]);
 		expect(r.stderr).toContain("check-ghost-jobs.js");
 	});
 });
@@ -680,11 +685,14 @@ describe("the kernel-stall check (#867)", () => {
 		return at;
 	}
 
-	it("refuses the whole call on a stalled boot, naming the first stall's time", () => {
+	it("refuses the whole call on a stalled boot, naming the first stall's time", async () => {
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341", "opus", "/wayfinder 1114"], {
-			WFC_KERNEL_LOG: kernelStalled(),
-		});
+		const r = await runCore(
+			["sonnet", "/implement 341", "opus", "/wayfinder 1114"],
+			{
+				WFC_KERNEL_LOG: kernelStalled(),
+			},
+		);
 		expect(r.code).toBe(5);
 		expect(r.stderr).toContain("RCU stall");
 		expect(r.stderr).toContain("2026-10-07T22:43:24+08:00");
@@ -692,23 +700,23 @@ describe("the kernel-stall check (#867)", () => {
 		expect(readArgvLines()).toEqual([]);
 	});
 
-	it("launches normally on a clean boot", () => {
+	it("launches normally on a clean boot", async () => {
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341"]);
+		const r = await runCore(["sonnet", "/implement 341"]);
 		expect(r.code).toBe(0);
 		expect(launchArgv()).toBeDefined();
 	});
 
-	it("launches where the kernel log cannot be read", () => {
+	it("launches where the kernel log cannot be read", async () => {
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341"], {
+		const r = await runCore(["sonnet", "/implement 341"], {
 			WFC_KERNEL_LOG: path.join(fx.dir, "no-such-log"),
 		});
 		expect(r.code).toBe(0);
 		expect(launchArgv()).toBeDefined();
 	});
 
-	it("re-checks before each member, naming the ones already launched and --force", () => {
+	it("re-checks before each member, naming the ones already launched and --force", async () => {
 		stubClaude({});
 		// Clean for the opening check and the first member's, stalled from the
 		// second member's on.
@@ -725,11 +733,14 @@ describe("the kernel-stall check (#867)", () => {
 			].join("\n"),
 			{ mode: 0o755 },
 		);
-		const r = run(["sonnet", "/implement 341", "opus", "/wayfinder 1114"], {
-			WFC_KERNEL_LOG: "",
-			WFC_JOURNALCTL: journal,
-			WFC_DMESG: path.join(fx.dir, "no-such-dmesg"),
-		});
+		const r = await runCore(
+			["sonnet", "/implement 341", "opus", "/wayfinder 1114"],
+			{
+				WFC_KERNEL_LOG: "",
+				WFC_JOURNALCTL: journal,
+				WFC_DMESG: path.join(fx.dir, "no-such-dmesg"),
+			},
+		);
 		expect(r.code).toBe(5);
 		expect(r.stderr).toContain("1 member(s) HAD already launched");
 		expect(r.stderr).toContain("/implement 341");
@@ -739,11 +750,14 @@ describe("the kernel-stall check (#867)", () => {
 });
 
 describe("the scheduler-clock check (#2779)", () => {
-	it("refuses the whole call on a frozen clock, naming the signal", () => {
+	it("refuses the whole call on a frozen clock, naming the signal", async () => {
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341", "opus", "/wayfinder 1114"], {
-			WFC_SCHED_CLOCK: fx.schedClock(0),
-		});
+		const r = await runCore(
+			["sonnet", "/implement 341", "opus", "/wayfinder 1114"],
+			{
+				WFC_SCHED_CLOCK: fx.schedClock(0),
+			},
+		);
 		expect(r.code).toBe(5);
 		expect(r.stderr).toContain("SCHED-CLOCK-FROZEN");
 		expect(r.stderr).not.toContain("RCU stall");
@@ -751,18 +765,18 @@ describe("the scheduler-clock check (#2779)", () => {
 		expect(readArgvLines()).toEqual([]);
 	});
 
-	it("launches on a clock it cannot read (#4092)", () => {
+	it("launches on a clock it cannot read (#4092)", async () => {
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341"], {
+		const r = await runCore(["sonnet", "/implement 341"], {
 			WFC_SCHED_CLOCK: path.join(fx.dir, "no-clock"),
 		});
 		expect(r.code).toBe(0);
 		expect(launchArgv()).toBeDefined();
 	});
 
-	it("launches once the clock moves again", () => {
+	it("launches once the clock moves again", async () => {
 		stubClaude({});
-		const r = run(["sonnet", "/implement 341"], {
+		const r = await runCore(["sonnet", "/implement 341"], {
 			WFC_SCHED_CLOCK: fx.schedClock(1),
 		});
 		expect(r.code).toBe(0);

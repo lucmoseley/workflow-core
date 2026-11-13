@@ -46,10 +46,10 @@ concision_session_base() {
 #   findings=<n>
 #   route=in-session                    (.concision-pass-<sid> only, mantahostels#1099)
 #   tier= areas= tree= paths=           (.codereview-pass-<sid> on a sensitive
-#                                       change: tier= and areas= read only
-#                                       by marker_tier_fault; tree= and
-#                                       paths= by review-hold-gate.sh and
-#                                       by code-signal.sh's review_uncovered)
+#                                       change: tier= and areas= read by
+#                                       marker_tier_fault and lib/review-hold.js;
+#                                       tree= and paths= by lib/review-hold.js
+#                                       and by code-signal.sh's review_uncovered)
 #
 # Unreadable, malformed, or missing either of the first two keys means no pass:
 # re-running a pass is the cheaper error. `route=` is NOT validated here — it is

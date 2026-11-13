@@ -237,7 +237,11 @@ const GATE_SOURCES: Record<string, string[]> = {
 	),
 	branch: [".husky/pre-commit"],
 	"check-staged-biome": ["scripts/lib/infer-commands.js"],
-	"review-hold": ["scripts/review-hold-gate.sh"],
+	"review-hold": [
+		"scripts/review-hold-gate.js",
+		"scripts/lib/review-hold.js",
+		"scripts/lib/review-hold-marker.js",
+	],
 	"roadmap-pair": ["scripts/check-roadmap-pair.js"],
 	"roadmap-valid": ["scripts/check-roadmap-valid.js"],
 	"citation-tracker": ["scripts/check-citation-tracker.js"],

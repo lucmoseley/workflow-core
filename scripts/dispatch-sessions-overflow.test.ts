@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * Pins dispatch-sessions.sh on an overflow seat (#2610, spec #2570): no
+ * Pins dispatch-sessions.js on an overflow seat (#2610, spec #2570): no
  * `/usage` probe, advisor check or allowance cap; the set sized by the key's
  * budget gate, which --force does not lift; each member launched headless,
  * `claude -p` through lib/headless-sessions.js under its plan seat's dir,
@@ -9,15 +9,16 @@
  * job id, session id, key and allowance in the ledger (#3694); and a plan
  * launch unchanged, `--bg`.
  *
- * The calls go through lib/refill-batch.js's launchBatch, so a cut or refused
- * member's reason is the one the loop's refusal parser reads. Every `claude`
+ * Each call is lib/refill-batch.js's dispatchCall, run on the core in
+ * process; the cases reading which members the loop counts launched or
+ * refused go through its launchBatch over a spawned dispatcher, so a cut or
+ * refused member's reason is the one the loop's refusal parser reads. Every `claude`
  * is the testkit's stub and every key a fixture secrets-file value.
  *
- * Over the 10 s run-cost line (§X8 (5)): each case runs the real dispatcher,
- * whose gates each spawn a node process, since the subject is the script's
- * own sequence of gates; the #4392 and #4425 cases also copy the scripts into a
- * loop code worktree or a session worktree, since the subject is a launch
- * from one.
+ * Over the 10 s run-cost line (§X8 (5)): the #4392 and #4425 cases copy the
+ * scripts into a loop code worktree or a session worktree and spawn the copy,
+ * since the subject is a launch from one; and each headless launch is a real
+ * detached child the cases poll.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -39,7 +40,7 @@ import {
 } from "./lib/dispatch-sessions-testkit";
 import type { HeadlessCall } from "./lib/headless-run-fake";
 import { readRun, readStoredRuns, stop } from "./lib/headless-runs.js";
-import { launchBatch } from "./lib/refill-batch.js";
+import { dispatchCall, launchBatch } from "./lib/refill-batch.js";
 import { sleepSync } from "./lib/sleep-sync.js";
 import { isTestKind } from "./lib/test-kind.js";
 
@@ -96,13 +97,8 @@ function stub(opts: Parameters<typeof stubClaude>[0] = {}) {
 
 const prompts = ["/implement 341", "/implement 353", "/wayfinder 1114"];
 
-function dispatch(
-	n: number,
-	env: Record<string, string>,
-	flags: string[] = [],
-	dispatcher = SCRIPT,
-) {
-	const batch = prompts.slice(0, n).map((prompt) => ({
+function batchOf(n: number) {
+	return prompts.slice(0, n).map((prompt) => ({
 		root: fx.dir,
 		issues: [],
 		prompt,
@@ -111,19 +107,44 @@ function dispatch(
 		keyVar: KEY_VAR,
 		reason: "overflow" as const,
 	}));
-	return launchBatch(batch, {
+}
+
+/* The core in process on the call the loop would make: its exit and its
+ * merged output. */
+async function dispatch(
+	n: number,
+	env: Record<string, string>,
+	flags: string[] = [],
+) {
+	const call = dispatchCall(batchOf(n), SCRIPT, baseEnv(env));
+	const r = await fx.runCoreUnder([...flags, ...call.args], {
+		cwd: call.cwd,
+		env: call.env,
+	});
+	return {
+		failed: r.code === 0 ? null : `exit ${r.code}`,
+		out: `${r.stdout}${r.stderr}`.trim(),
+	};
+}
+
+/* The loop's own launchBatch over a spawned dispatcher: the cases that read
+ * which members it counts launched or refused, and why, and those launching
+ * from a dispatcher copied into another worktree. */
+function throughLoop(
+	n: number,
+	env: Record<string, string>,
+	flags: string[] = [],
+	dispatcher = SCRIPT,
+) {
+	return launchBatch(batchOf(n), {
 		dispatcher,
 		env: baseEnv(env),
 		run: (call) => {
-			const r = spawnSync(
-				call.file,
-				[call.args[0], ...flags, ...call.args.slice(1)],
-				{
-					cwd: call.cwd,
-					env: call.env,
-					encoding: "utf8",
-				},
-			);
+			const r = spawnSync(call.file, [...flags, ...call.args], {
+				cwd: call.cwd,
+				env: call.env,
+				encoding: "utf8",
+			});
 			return {
 				failed: r.status === 0 ? null : `exit ${r.status}`,
 				out: `${r.stdout}${r.stderr}`.trim(),
@@ -206,7 +227,7 @@ function loopCodeTip(env: Record<string, string>) {
 	return {
 		codeDir,
 		tip,
-		dispatcher: path.join(tip, "scripts", "dispatch-sessions.sh"),
+		dispatcher: path.join(tip, "scripts", "dispatch-sessions.js"),
 	};
 }
 
@@ -242,7 +263,7 @@ function sessionWorktree({ mainCopy = true }: { mainCopy?: boolean } = {}) {
 	return {
 		main,
 		worktree,
-		dispatcher: path.join(worktree, "scripts", "dispatch-sessions.sh"),
+		dispatcher: path.join(worktree, "scripts", "dispatch-sessions.js"),
 	};
 }
 
@@ -250,7 +271,7 @@ describe("an overflow seat (#2610)", () => {
 	it("skips the probe and the cap, launching claude -p under the plan dir with the key's helper, its name, its budget, and no key in its environment (#4580)", () => {
 		// Plan bars at 100% would refuse a plan seat; an overflow seat never reads them.
 		stub({ session: "100", week: "100" });
-		const r = dispatch(1, {
+		const r = throughLoop(1, {
 			...overflowEnv(200),
 			[KEY_VAR]: "sk-in-the-caller",
 			ANTHROPIC_API_KEY: "sk-in-the-shell",
@@ -282,7 +303,7 @@ describe("an overflow seat (#2610)", () => {
 		const env = overflowEnv(200);
 		const { codeDir, tip, dispatcher } = loopCodeTip(env);
 		fs.symlinkSync(path.resolve(__dirname, ".."), `${codeDir}.current`);
-		const r = dispatch(1, env, [], dispatcher);
+		const r = throughLoop(1, env, [], dispatcher);
 		expect(r.failed).toBeNull();
 		const [launch] = readHeadlessLaunches(1);
 		const helper = helperOf(launch);
@@ -295,7 +316,7 @@ describe("an overflow seat (#2610)", () => {
 		stub();
 		const env = overflowEnv(200);
 		const { codeDir, dispatcher } = loopCodeTip(env);
-		const r = dispatch(1, env, [], dispatcher);
+		const r = throughLoop(1, env, [], dispatcher);
 		expect(r.failed).toBe("exit 2");
 		expect(r.out).toContain(
 			`no key helper at ${codeDir}.current/scripts/lib/overflow-key.js`,
@@ -307,7 +328,7 @@ describe("an overflow seat (#2610)", () => {
 	it("names the main checkout's helper when run by hand from a session worktree, so it outlives that worktree (#4425)", () => {
 		stub();
 		const { main, worktree, dispatcher } = sessionWorktree();
-		const r = dispatch(1, overflowEnv(200), [], dispatcher);
+		const r = throughLoop(1, overflowEnv(200), [], dispatcher);
 		expect(r.failed).toBeNull();
 		const [launch] = readHeadlessLaunches(1);
 		const helper = helperOf(launch);
@@ -319,7 +340,7 @@ describe("an overflow seat (#2610)", () => {
 	it("refuses a hand-run overflow launch from a session worktree whose main checkout holds no helper, naming the path (#4425)", () => {
 		stub();
 		const { main, dispatcher } = sessionWorktree({ mainCopy: false });
-		const r = dispatch(1, overflowEnv(200), [], dispatcher);
+		const r = throughLoop(1, overflowEnv(200), [], dispatcher);
 		expect(r.failed).toBe("exit 2");
 		expect(r.out).toContain(
 			`no key helper at ${path.join(main, "scripts/lib/overflow-key.js")}`,
@@ -329,10 +350,10 @@ describe("an overflow seat (#2610)", () => {
 		expect(readAnyLaunches()).toEqual([]);
 	});
 
-	it("starts the session in a fresh worktree detached at origin/main, as a plan launch does (#4245)", () => {
+	it("starts the session in a fresh worktree detached at origin/main, as a plan launch does (#4245)", async () => {
 		const main = seedLandingCheckout(fx.dir);
 		stub();
-		const r = dispatch(1, {
+		const r = await dispatch(1, {
 			...overflowEnv(200),
 			WFC_MODULES: LANDING_MODULES,
 		});
@@ -351,12 +372,12 @@ describe("an overflow seat (#2610)", () => {
 		).toBe(main);
 	});
 
-	it("sizes the set from the batch's checkout's table, whichever checkout the loop's env names (#3700)", () => {
+	it("sizes the set from the batch's checkout's table, whichever checkout the loop's env names (#3700)", async () => {
 		stub();
 		const elsewhere = path.join(fx.dir, "elsewhere");
 		/* $100 a session fits 2 of the $200 grant, so a gate reading this table prints "fits 2". */
 		writeCostTable(elsewhere, { meanUsd: 100, quantilesUsd: [1, 100] });
-		const r = dispatch(1, {
+		const r = await dispatch(1, {
 			...overflowEnv(200),
 			CLAUDE_PROJECT_DIR: elsewhere,
 		});
@@ -366,7 +387,7 @@ describe("an overflow seat (#2610)", () => {
 
 	it("cuts the set to the budget's fit in the CAPPED shape, each launch's allowance and budget the headroom left", () => {
 		stub({ headless: "hold" });
-		const r = dispatch(3, { ...overflowEnv(25), WFC_PROC: "/proc" });
+		const r = throughLoop(3, { ...overflowEnv(25), WFC_PROC: "/proc" });
 		const capped = `CAPPED: launching 2 of 3 on the overflow budget of ${label()} (headroom $25.00, $10.00 a session).`;
 		expect(r.out).toContain(capped);
 		expect(r.launched.map((l) => l.prompt)).toEqual(prompts.slice(0, 2));
@@ -378,78 +399,77 @@ describe("an overflow seat (#2610)", () => {
 
 	it("refuses a set the budget fits none of, exit 3, in the REFUSED shape", () => {
 		stub();
-		const r = dispatch(2, overflowEnv(5));
+		const r = throughLoop(2, overflowEnv(5));
 		const refused = `REFUSED: overflow seat ${label()} fits no session: headroom $5.00 against $10.00 a session ($0.00 held by 0 running).`;
 		expect(r.failed).toBe("exit 3");
 		expect(r.refused.map((x) => x.reason)).toEqual([refused, refused]);
 		expect(readAnyLaunches()).toEqual([]);
 	});
 
-	it("refuses at exit 3 past --force, saying the budget gate does not lift", () => {
+	it("refuses at exit 3 past --force, saying the budget gate does not lift", async () => {
 		stub();
-		const r = dispatch(1, overflowEnv(5), ["--force"]);
+		const r = await dispatch(1, overflowEnv(5), ["--force"]);
 		expect(r.failed).toBe("exit 3");
 		expect(r.out).toContain("--force does not lift the budget gate");
 		expect(readAnyLaunches()).toEqual([]);
 	});
 
-	it("cuts a set past --force all the same", () => {
+	it("cuts a set past --force all the same", async () => {
 		stub();
-		const r = dispatch(3, overflowEnv(25), ["--force"]);
+		const r = await dispatch(3, overflowEnv(25), ["--force"]);
 		expect(r.out).toContain("CAPPED: launching 2 of 3 on the overflow budget");
 		expect(readHeadlessLaunches(2)).toHaveLength(2);
 	});
 
-	it("launches an opus member by the standard row with burn mode on, the burn row never reaching it", () => {
+	it("launches an opus member by the standard row with burn mode on, the burn row never reaching it", async () => {
 		stub();
 		fs.writeFileSync(path.join(fx.dir, "burn-mode"), "");
-		const r = spawnSync(
-			"bash",
-			[SCRIPT, "--dry-run", "opus", "/implement 341"],
-			{ encoding: "utf8", env: baseEnv({ ...overflowEnv(200), ...ROUTING }) },
-		);
-		expect(r.status).toBe(0);
+		const r = await fx.runCoreUnder(["--dry-run", "opus", "/implement 341"], {
+			cwd: process.cwd(),
+			env: baseEnv({ ...overflowEnv(200), ...ROUTING }),
+		});
+		expect(r.code).toBe(0);
 		expect(r.stdout).toContain("headless-sessions.js launch");
 		expect(r.stderr).not.toContain("burn mode");
 		expect(`${r.stdout}${r.stderr}`).not.toContain("test-sonnet");
 	});
 
-	it("admits a member the standard row moves onto the overflow alias, with burn mode on", () => {
+	it("admits a member the standard row moves onto the overflow alias, with burn mode on", async () => {
 		stub();
 		fs.writeFileSync(path.join(fx.dir, "burn-mode"), "");
-		const r = spawnSync(
-			"bash",
-			[SCRIPT, "--dry-run", "sonnet", "/implement 341"],
-			{ encoding: "utf8", env: baseEnv({ ...overflowEnv(200), ...ROUTING }) },
-		);
-		expect(r.status).toBe(0);
+		const r = await fx.runCoreUnder(["--dry-run", "sonnet", "/implement 341"], {
+			cwd: process.cwd(),
+			env: baseEnv({ ...overflowEnv(200), ...ROUTING }),
+		});
+		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("model table: sonnet -> test-opus-2[1m]");
 		expect(r.stderr).not.toContain("burn mode");
 	});
 
 	it.each(["opus", "test-opus-2", "test-opus-2[1m]", "opus[1m]"])(
 		"admits %s, a spelling of the overflow alias's current model",
-		(spelling) => {
+		async (spelling) => {
 			stub();
-			const r = spawnSync(
-				"bash",
-				[SCRIPT, "--dry-run", spelling, "/implement 341"],
-				{ encoding: "utf8", env: baseEnv({ ...overflowEnv(200), ...ROUTING }) },
+			const r = await fx.runCoreUnder(
+				["--dry-run", spelling, "/implement 341"],
+				{
+					cwd: process.cwd(),
+					env: baseEnv({ ...overflowEnv(200), ...ROUTING }),
+				},
 			);
-			expect(r.status, r.stderr).toBe(0);
+			expect(r.code, r.stderr).toBe(0);
 		},
 	);
 
 	it.each(["haiku", "test-opus-1", "opusish"])(
 		"refuses %s before the duplicate and budget gates, exit 2",
-		(spelling) => {
+		async (spelling) => {
 			stub();
-			const r = spawnSync("bash", [SCRIPT, spelling, "/implement 341"], {
+			const r = await fx.runCoreUnder([spelling, "/implement 341"], {
 				cwd: fx.dir,
-				encoding: "utf8",
 				env: baseEnv({ ...overflowEnv(200), ...ROUTING }),
 			});
-			expect(r.status).toBe(2);
+			expect(r.code).toBe(2);
 			expect(r.stderr).toContain(
 				`REFUSED: ${label()} is an overflow seat, which launches Opus alone (#1920); ${spelling} is not.`,
 			);
@@ -475,7 +495,7 @@ describe("an overflow seat (#2610)", () => {
 			path.join(projects, `${sessionId}.jsonl`),
 			`${JSON.stringify({ type: "assistant", isApiErrorMessage: true, error: "billing_error", message: { model: "<synthetic>", content: [{ type: "text", text: "Credit balance is too low" }] } })}\n`,
 		);
-		const r = dispatch(1, env);
+		const r = throughLoop(1, env);
 		expect(r.failed).toBe("exit 3");
 		expect(r.refused[0]?.reason).toMatch(
 			new RegExp(
@@ -510,7 +530,7 @@ describe("an overflow seat (#2610)", () => {
 			path.join(ledgerDir, `${KEY_VAR}.console.jsonl`),
 			`${JSON.stringify({ at: Date.now() - 3_600_000, credits: [{ remainingUsd: 150, grantUsd: 200, grantedOn: "2026-10-28", expiresOn: "2099-12-01" }] })}\n`,
 		);
-		const r = dispatch(1, env);
+		const r = throughLoop(1, env);
 		expect(r.failed).toBe("exit 3");
 		expect(r.refused[0]?.reason).toMatch(
 			new RegExp(
@@ -523,7 +543,7 @@ describe("an overflow seat (#2610)", () => {
 
 	it("refuses the set where the key is missing from the secrets file, naming the variable", () => {
 		stub();
-		const r = dispatch(1, overflowEnv(200, { key: false }));
+		const r = throughLoop(1, overflowEnv(200, { key: false }));
 		expect(r.failed).toBe("exit 2");
 		expect(r.out).toContain(
 			`REFUSED: overflow seat ${label()}: ${KEY_VAR} is not set in ${secrets()}`,
@@ -532,9 +552,9 @@ describe("an overflow seat (#2610)", () => {
 		expect(readAnyLaunches()).toEqual([]);
 	});
 
-	it("refuses a launch the guard finds would bill elsewhere", () => {
+	it("refuses a launch the guard finds would bill elsewhere", async () => {
 		stub();
-		const r = dispatch(1, {
+		const r = await dispatch(1, {
 			...overflowEnv(200),
 			ANTHROPIC_BASE_URL: "https://elsewhere.example",
 		});
@@ -543,26 +563,22 @@ describe("an overflow seat (#2610)", () => {
 		expect(readAnyLaunches()).toEqual([]);
 	});
 
-	it("prints the overflow launch on a dry run", () => {
+	it("prints the overflow launch on a dry run", async () => {
 		stub();
-		const r = spawnSync(
-			"bash",
-			[SCRIPT, "--dry-run", "opus", "/implement 341"],
-			{
-				encoding: "utf8",
-				env: baseEnv(overflowEnv(200)),
-			},
-		);
-		expect(r.status).toBe(0);
+		const r = await fx.runCoreUnder(["--dry-run", "opus", "/implement 341"], {
+			cwd: process.cwd(),
+			env: baseEnv(overflowEnv(200)),
+		});
+		expect(r.code).toBe(0);
 		expect(r.stdout).toMatch(
-			/^would launch: env -u WFC_REPO_ROOT -u CLAUDE_PROJECT_DIR -u WFC_DISPATCH_ROOT -u ANTHROPIC_API_KEY -u WFC_TEST_OVERFLOW_KEY -u CLAUDE_CODE_SESSION_ID node \S+\/lib\/headless-sessions\.js launch --key WFC_TEST_OVERFLOW_KEY --cwd \. --budget 200 --name=\/implement\\ 341 -- \/implement\\ 341$/m,
+			/^would launch: env -u WFC_REPO_ROOT -u CLAUDE_PROJECT_DIR -u WFC_DISPATCH_ROOT -u ANTHROPIC_API_KEY -u WFC_TEST_OVERFLOW_KEY -u CLAUDE_CODE_SESSION_ID node \S+\/lib\/headless-sessions\.js launch --key WFC_TEST_OVERFLOW_KEY --cwd \. --budget 200 '--name=\/implement 341' -- '\/implement 341'$/m,
 		);
 		expect(readAnyLaunches()).toEqual([]);
 	});
 });
 
 describe("an overflow line naming a dir with no plan line (#3701)", () => {
-	it("refuses the dispatch, naming the line", () => {
+	it("refuses the dispatch, naming the line", async () => {
 		stub();
 		const env = overflowEnv(200);
 		const file = path.join(fx.dir, ".claude", "refill-seats");
@@ -570,41 +586,35 @@ describe("an overflow line naming a dir with no plan line (#3701)", () => {
 			file,
 			`~/.claude3\n~/.claude2 api key=${KEY_VAR} grant=200 cycle-day=20\n`,
 		);
-		const r = spawnSync(
-			"bash",
-			[SCRIPT, "--dry-run", "opus", "/implement 341"],
-			{
-				encoding: "utf8",
-				env: baseEnv(env),
-			},
-		);
-		expect(r.status).toBe(2);
+		const r = await fx.runCoreUnder(["--dry-run", "opus", "/implement 341"], {
+			cwd: process.cwd(),
+			env: baseEnv(env),
+		});
+		expect(r.code).toBe(2);
 		expect(r.stderr).toContain(`${file}:2: ~/.claude2 has no plan seat line`);
 		expect(readArgvLines()).toEqual([]);
 	});
 });
 
 describe("a plan seat on an overflow seat's dir (#3693)", () => {
-	it("launches as a plan member where no key is named: no helper, no prefix", () => {
+	it("launches as a plan member where no key is named: no helper, no prefix", async () => {
 		stub();
-		const r = spawnSync("bash", [SCRIPT, "opus", "/implement 341"], {
+		const r = await fx.runCoreUnder(["opus", "/implement 341"], {
 			cwd: fx.dir,
-			encoding: "utf8",
 			env: baseEnv({ ...overflowEnv(200), WFC_SEAT_KEY: "" }),
 		});
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		expect(r.stdout).toContain("Allowance OK");
 		expect(readBgLaunches()).toEqual(["--bg -- /implement 341"]);
 	});
 
-	it("launches a prompt opening with a dash as the prompt, never an option (#4820)", () => {
+	it("launches a prompt opening with a dash as the prompt, never an option (#4820)", async () => {
 		stub();
-		const r = spawnSync("bash", [SCRIPT, "opus", "--resume /implement 341"], {
+		const r = await fx.runCoreUnder(["opus", "--resume /implement 341"], {
 			cwd: fx.dir,
-			encoding: "utf8",
 			env: baseEnv({ ...overflowEnv(200), WFC_SEAT_KEY: "" }),
 		});
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		expect(readBgLaunches()).toEqual(["--bg -- --resume /implement 341"]);
 	});
 });
@@ -612,9 +622,9 @@ describe("a plan seat on an overflow seat's dir (#3693)", () => {
 describe("the launch record that marks a session overflow (#3694)", () => {
 	const readLookup = () => readOverflowLookup([fx.dir]);
 
-	it("records each member's key, its own allowance and its launch-time session id, and the reader answers by job id", () => {
+	it("records each member's key, its own allowance and its launch-time session id, and the reader answers by job id", async () => {
 		stub({ headless: "hold" });
-		dispatch(2, { ...overflowEnv(25), WFC_PROC: "/proc" });
+		await dispatch(2, { ...overflowEnv(25), WFC_PROC: "/proc" });
 		const rows = readRecentEntries(fx.dir, 1).entries;
 		const [first, second] = rows.map((e) => String(e.jobId));
 		const row = (jobId: string, allowanceUsd: number) => ({
@@ -632,14 +642,13 @@ describe("the launch record that marks a session overflow (#3694)", () => {
 		expect(readLookup()({ jobId: first })).toMatchObject({ keyVar: KEY_VAR });
 	});
 
-	it("leaves a plan launch's row as it was, and reads it as no overflow session", () => {
+	it("leaves a plan launch's row as it was, and reads it as no overflow session", async () => {
 		stub();
-		const r = spawnSync("bash", [SCRIPT, "opus", "/implement 341"], {
+		const r = await fx.runCoreUnder(["opus", "/implement 341"], {
 			cwd: fx.dir,
-			encoding: "utf8",
 			env: baseEnv({ ...overflowEnv(200), WFC_SEAT_KEY: "" }),
 		});
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		const [entry] = readRecentEntries(fx.dir, 1).entries;
 		expect(Object.keys(entry ?? {}).sort()).toEqual(
 			[
@@ -659,9 +668,9 @@ describe("the launch record that marks a session overflow (#3694)", () => {
 describe("the teardown (#5014)", () => {
 	let held: ReturnType<typeof readStoredRuns> = [];
 
-	it("leaves a case's held runs running when it returns", () => {
+	it("leaves a case's held runs running when it returns", async () => {
 		stub({ headless: "hold" });
-		dispatch(2, { ...overflowEnv(25), WFC_PROC: "/proc" });
+		await dispatch(2, { ...overflowEnv(25), WFC_PROC: "/proc" });
 		expect(readHeadlessLaunches(2)).toHaveLength(2);
 		readFixtureStore();
 		held = readStoredRuns();

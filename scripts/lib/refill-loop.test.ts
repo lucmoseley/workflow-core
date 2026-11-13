@@ -2,7 +2,7 @@
 /*
  * The refill loop's pure readings (#2012) and the repos a tick serves
  * (#2123); a seat's reading and sizing are seat-reading.test.ts's. No fixture
- * touches disk but the read of dispatch-sessions.sh that pins the free-slot
+ * touches disk but the read of dispatch-sessions.js that pins the free-slot
  * count's admission flags to the script's, and the acts ledgers the progress
  * cases write in arbiter-testkit's sandbox.
  *
@@ -1611,16 +1611,18 @@ describe("the seats' probe stamps on the state file (#4060)", () => {
 });
 
 describe("the free-slot count (#2500)", () => {
-	it("charges what dispatch-sessions.sh's per-member re-read charges", () => {
+	it("charges what dispatch-sessions.js's per-member re-read charges", () => {
 		const sh = fs.readFileSync(
-			path.join(__dirname, "..", "dispatch-sessions.sh"),
+			path.join(__dirname, "dispatch-sessions.js"),
 			"utf8",
 		);
-		const reread = sh.match(/admission_args=\(([^)]*)\)/);
+		const reread = sh.match(
+			/admissionArgs = this\.forceMemory\s*\?\s*\["--load-only"\]\s*:\s*\[\s*"([^"]+)"/,
+		);
 		expect(reread).not.toBeNull();
 		expect(FREE_SLOT_ARGS).toEqual([
 			"--json",
-			...String(reread?.[1]).split(/\s+/),
+			String(reread?.[1]),
 			"--skip-allowance",
 		]);
 	});

@@ -43,7 +43,7 @@ generated fragment collapses whitespace first, as
 
 **Plain text, not JSON.** The guards are half bash and half Node, so a fragment
 must be `cat`-able from one and `fs.readFileSync`-able from the other with no
-parser. `jq` is the dependency `scripts/inject-tracker-docs.sh` fails open on,
+parser. `jq` is the dependency `scripts/concision-backstop.sh` fails open on,
 and a rule that fails open is a rule that reaches nobody.
 
 **One fragment can hold a sentence another owns.** Where a guard prints a

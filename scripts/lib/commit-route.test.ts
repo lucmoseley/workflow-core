@@ -19,6 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderHookShim } from "./adopter-skeleton";
+import { commitRoute } from "./commit-route.js";
 import { newRepo, registerTempCleanup } from "./precommit-gate-harness";
 import { ROOT } from "./precommit-gate-testkit";
 import { shellQuote } from "./sh-quote.js";
@@ -735,5 +736,130 @@ describe("an adopter's hooks, run from the plugin through their shims (#1839)", 
 			`${a.plugin}/scripts/lib/commit-route.sh is missing`,
 		);
 		expect(r.out).not.toContain("STUB SCANNER");
+	});
+});
+
+/*
+ * lib/commit-route.js, the Node callers' copy (#5153): the same route as the
+ * shell copy for every marker the table reads, each hook, and the leftover
+ * and live `sequencer` (#3298). One git directory per row, its markers laid
+ * by hand, since the claim is the two copies' agreement on the same markers.
+ */
+describe("commit-route.js answers as commit-route.sh does", () => {
+	const markerSets = [
+		[],
+		["rebase-merge/"],
+		["rebase-apply/rebasing"],
+		["rebase-apply/applying"],
+		["CHERRY_PICK_HEAD"],
+		["REVERT_HEAD"],
+		["MERGE_HEAD"],
+		["BISECT_LOG"],
+		["sequencer/abort-safety=HEAD"],
+		["sequencer/abort-safety=other"],
+		["sequencer/"],
+		["rebase-merge/", "CHERRY_PICK_HEAD"],
+		["CHERRY_PICK_HEAD", "sequencer/abort-safety=HEAD"],
+		["MERGE_HEAD", "sequencer/abort-safety=HEAD"],
+		["sequencer/abort-safety=HEAD^", "reflog=revert"],
+		["sequencer/abort-safety=HEAD^", "reflog=commit"],
+	];
+
+	/** Lays one marker, `<path>[=<rev>]` or `reflog=<verb>`, in `dir`. */
+	function layMarker(dir: string, m: string, git: (...a: string[]) => string) {
+		if (m.startsWith("reflog=")) {
+			fs.appendFileSync(
+				path.join(dir, "logs", "HEAD"),
+				`a b t <t> 0 +0000\t${m.slice("reflog=".length)}: x\n`,
+			);
+			return;
+		}
+		const [rel, rev] = m.split("=");
+		const file = path.join(dir, rel);
+		if (rel.endsWith("/")) {
+			fs.mkdirSync(file, { recursive: true });
+			return;
+		}
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		let body = "";
+		if (rev === "other") body = "0".repeat(40);
+		else if (rev !== undefined) body = git("rev-parse", rev);
+		fs.writeFileSync(file, `${body}\n`);
+	}
+
+	/** A repo two commits deep whose git directory carries `markers`. */
+	function laid(markers: string[]) {
+		const { root } = newRepo("commit-route-js-", temps);
+		const git = (...a: string[]) =>
+			execFileSync("git", a, { cwd: root, encoding: "utf8" }).trim();
+		fs.writeFileSync(path.join(root, "f"), "1\n");
+		git("add", "f");
+		git("commit", "-qm", "one");
+		fs.writeFileSync(path.join(root, "f"), "2\n");
+		git("commit", "-qam", "two");
+		const dir = git("rev-parse", "--absolute-git-dir");
+		for (const m of markers) layMarker(dir, m, git);
+		return { root, dir };
+	}
+
+	const Actions = ["", "merge side", "pull . side"];
+	/**
+	 * The shell copy's route on every hook under every GIT_REFLOG_ACTION, one
+	 * sh for all.
+	 */
+	const shellRoutes = (dir: string, cwd: string) => {
+		const sh = spawnSync(
+			"sh",
+			[
+				"-c",
+				`. "$1" && shift && dir="$1" && shift && for hook in ${HOOKS.join(" ")}; do for action in "$@"; do printf '%s %s\\n' "$hook" "$(GIT_REFLOG_ACTION="$action" wfc_commit_route "$hook" "$dir")" || exit 1; done; done`,
+				"sh",
+				LIB,
+				dir,
+				...Actions,
+			],
+			{ cwd, encoding: "utf8" },
+		);
+		expect(sh.stderr).toBe("");
+		expect(sh.status).toBe(0);
+		return sh.stdout.split("\n").filter(Boolean);
+	};
+
+	it.each(markerSets.map((m) => [m.join(" ") || "no marker", m]))(
+		"agrees on every hook with %s",
+		(_, markers) => {
+			const { root, dir } = laid(markers as string[]);
+			const prev = process.cwd();
+			process.chdir(root);
+			try {
+				expect(
+					HOOKS.flatMap((hook) =>
+						Actions.map(
+							(action) =>
+								`${hook} ${commitRoute(hook, dir, { env: { GIT_REFLOG_ACTION: action } })}`,
+						),
+					),
+				).toEqual(shellRoutes(dir, root));
+			} finally {
+				process.chdir(prev);
+			}
+		},
+	);
+
+	it("reads an empty git directory as no marker, as the shell copy does", () => {
+		expect(commitRoute("pre-commit", "", { env: {} })).toBe("commit");
+	});
+
+	it("throws on a hook with no row, where the shell copy exits 2", () => {
+		const { root, dir } = laid([]);
+		const sh = spawnSync(
+			"sh",
+			["-c", '. "$1" && wfc_commit_route pre-push "$2"', "sh", LIB, dir],
+			{ cwd: root, encoding: "utf8" },
+		);
+		expect(sh.status).toBe(2);
+		expect(() => commitRoute("pre-push", dir)).toThrow(
+			"no marker table for the hook 'pre-push'",
+		);
 	});
 });

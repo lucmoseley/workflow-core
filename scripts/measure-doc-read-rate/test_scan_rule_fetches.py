@@ -6,7 +6,7 @@ Each test writes a synthetic transcript; nothing here reads the real corpus.
 
 CI's pytest step runs this file; the scanner
 gates nothing and is run by hand. Loosen a case and the per-command rule index
-`scripts/inject-tracker-docs.sh` injects is scored as delivering rules that
+`scripts/inject-tracker-docs.js` injects is scored as delivering rules that
 sessions never fetched, or fetched and were refused.
 """
 

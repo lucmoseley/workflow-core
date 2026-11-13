@@ -392,13 +392,19 @@ describe("the rule-text store", () => {
 	}
 
 	/** An injector carrying a per-command index that names `ids`. */
-	function injectorIndex(...ids: string[]): string {
-		return `#!/usr/bin/env bash\n${ids
+	/** The hook entry the wiring names, and the text module holding its index. */
+	const IndexEntry = "scripts/inject-tracker-docs.js";
+	function injectorIndex(...ids: string[]): Record<string, string> {
+		const lines = ids
 			.map(
 				(id) =>
-					`index=${shellQuote(`- \`rule:${id}\` — before the act it binds on.`)}`,
+					`\t${JSON.stringify(id)}: ${JSON.stringify(`- \`rule:${id}\` — before the act it binds on.`)},`,
 			)
-			.join("\n")}\n`;
+			.join("\n");
+		return {
+			[IndexEntry]: "#!/usr/bin/env node\n",
+			"scripts/lib/tracker-inject-text.js": `const INDEX_LINES = {\n${lines}\n};\nmodule.exports = { INDEX_LINES };\n`,
+		};
 	}
 
 	it("exempts a manifest fragment no emitter prints, when an index names it", () => {
@@ -416,13 +422,11 @@ describe("the rule-text store", () => {
 							trigger: "a `gh issue create` on the Bash tool",
 						},
 					}),
-					"scripts/inject-tracker-docs.sh": injectorIndex(
-						"takes-value-vocabulary",
-					),
+					...injectorIndex("takes-value-vocabulary"),
 					"scripts/guard-label.sh": "#!/usr/bin/env bash\n",
 					[SELF_PLUGIN_HOOKS]: hooksWiring(
 						"scripts/guard-label.sh",
-						"scripts/inject-tracker-docs.sh",
+						IndexEntry,
 					),
 				},
 			}),
@@ -447,13 +451,11 @@ describe("the rule-text store", () => {
 							trigger: "a `gh issue create` on the Bash tool",
 						},
 					}),
-					"scripts/inject-tracker-docs.sh": injectorIndex(
-						"takes-value-vocabulary",
-					),
+					...injectorIndex("takes-value-vocabulary"),
 					"scripts/guard-label.sh": "#!/usr/bin/env bash\n",
 					[SELF_PLUGIN_HOOKS]: hooksWiring(
 						"scripts/guard-label.sh",
-						"scripts/inject-tracker-docs.sh",
+						IndexEntry,
 					),
 				},
 			}),
@@ -478,11 +480,11 @@ describe("the rule-text store", () => {
 							trigger: "a `gh issue create` on the Bash tool",
 						},
 					}),
-					"scripts/inject-tracker-docs.sh": injectorIndex("no-such-rule"),
+					...injectorIndex("no-such-rule"),
 					"scripts/guard-label.sh": "#!/usr/bin/env bash\n",
 					[SELF_PLUGIN_HOOKS]: hooksWiring(
 						"scripts/guard-label.sh",
-						"scripts/inject-tracker-docs.sh",
+						IndexEntry,
 					),
 				},
 			}),
@@ -516,13 +518,11 @@ describe("the rule-text store", () => {
 							trigger: "   ",
 						},
 					}),
-					"scripts/inject-tracker-docs.sh": injectorIndex(
-						"takes-value-vocabulary",
-					),
+					...injectorIndex("takes-value-vocabulary"),
 					"scripts/guard-label.sh": "#!/usr/bin/env bash\n",
 					[SELF_PLUGIN_HOOKS]: hooksWiring(
 						"scripts/guard-label.sh",
-						"scripts/inject-tracker-docs.sh",
+						IndexEntry,
 					),
 				},
 			}),
@@ -558,11 +558,11 @@ describe("the rule-text store", () => {
 					// The injector exists and indexes something else — a fragment of
 					// its own, so the index is not itself a dangling citation (mantahostels#3135).
 					"docs/agents/rules/commit-pathspec.txt": "Commit by pathspec.\n",
-					"scripts/inject-tracker-docs.sh": injectorIndex("commit-pathspec"),
+					...injectorIndex("commit-pathspec"),
 					"scripts/guard-label.sh": "#!/usr/bin/env bash\n",
 					[SELF_PLUGIN_HOOKS]: hooksWiring(
 						"scripts/guard-label.sh",
-						"scripts/inject-tracker-docs.sh",
+						IndexEntry,
 					),
 				},
 			}),
@@ -573,7 +573,7 @@ describe("the rule-text store", () => {
 			(f: { kind: string }) => f.kind === "UNINDEXED-RULE",
 		);
 		expect(found?.detail).toMatch(/takes-value-vocabulary/);
-		expect(found?.detail).toMatch(/inject-tracker-docs\.sh/);
+		expect(found?.detail).toMatch(/tracker-inject-text\.js/);
 	});
 
 	it("counts an index nothing wires as no index at all", () => {
@@ -591,9 +591,7 @@ describe("the rule-text store", () => {
 							trigger: "a `gh issue create` on the Bash tool",
 						},
 					}),
-					"scripts/inject-tracker-docs.sh": injectorIndex(
-						"takes-value-vocabulary",
-					),
+					...injectorIndex("takes-value-vocabulary"),
 					"scripts/guard-label.sh": "#!/usr/bin/env bash\n",
 					[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-label.sh"),
 				},
@@ -616,13 +614,11 @@ describe("the rule-text store", () => {
 							source: "docs/agents/triage-labels.md",
 						},
 					}),
-					"scripts/inject-tracker-docs.sh": injectorIndex(
-						"takes-value-vocabulary",
-					),
+					...injectorIndex("takes-value-vocabulary"),
 					"scripts/guard-label.sh": "#!/usr/bin/env bash\n",
 					[SELF_PLUGIN_HOOKS]: hooksWiring(
 						"scripts/guard-label.sh",
-						"scripts/inject-tracker-docs.sh",
+						IndexEntry,
 					),
 				},
 			}),

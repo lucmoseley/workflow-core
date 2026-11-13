@@ -24,6 +24,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { caught } from "./caught.js";
 import {
+	answerCited,
 	answerLinkRead,
 	asRecorded,
 	buildCreateAnswer,
@@ -753,10 +754,6 @@ describe("live: computed answers", () => {
 			).toEqual(real);
 		},
 	);
-
-	const answerCited = ghComputed<
-		(argv: string[], issues: Record<string, object>) => GhAnswer
-	>(CITED_GRAPHQL_FAKE, "answerCited");
 
 	/* #2331's comments fit one page, so the answer's shape holds. */
 	it("lib/basis-cited-read.js's batched read answers alike from the real gh, the stub and the in-process fake", async ({

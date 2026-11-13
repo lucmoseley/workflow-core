@@ -25,6 +25,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
+import { textModuleSource, writeTextModule } from "./lib/tracker-text-fixture";
 
 const SCRIPT = path.resolve(__dirname, "check-context-budget.js");
 const NEW_FAULTS = path.resolve(__dirname, "checker-new-faults.js");
@@ -97,21 +98,17 @@ function pool() {
 }
 
 /*
- * check-context-budget.js reads the injector and the RULE_CAP file off the
- * core's own location, never off --root (#36), so a fixture copy has to be
- * pointed at through the WFC_INJECTOR_FILE / WFC_CAP_FILE test-injection seams
- * (`lib/host-root.js`'s header convention) rather than written under `dir`
- * where nothing reads it any more.
+ * check-context-budget.js reads the RULE_CAP file off the core's own location,
+ * never off --root (#36), so a fixture copy has to be pointed at through the
+ * WFC_CAP_FILE test-injection seam (`lib/host-root.js`'s header convention);
+ * the text module, where `--root` carries none, through WFC_INJECTOR_FILE.
  */
 
-/** An injector the injection cap reads as near-empty, so only the session cap speaks. */
+/** A text module the injection cap reads as near-empty, so only the session cap speaks. */
 function injector() {
 	vi.stubEnv(
 		"WFC_INJECTOR_FILE",
-		write(
-			"scripts/inject-tracker-docs.sh",
-			'#!/usr/bin/env bash\nDOCS=()\nmatched=""\nheader="fixture."\n',
-		),
+		writeTextModule(dir, textModuleSource("fixture.")),
 	);
 }
 
@@ -119,7 +116,7 @@ function injector() {
 const ruleCap = (bytes: number) => {
 	vi.stubEnv(
 		"WFC_CAP_FILE",
-		write("scripts/lib/hook-limits.sh", `RULE_CAP=${bytes}\n`),
+		write("scripts/lib/hook-limits.js", `const RULE_CAP = ${bytes};\n`),
 	);
 };
 
@@ -723,7 +720,7 @@ describe("BROKEN, never a vacuous pass", () => {
 
 	it("is BROKEN when RULE_CAP cannot be read", () => {
 		settings({ Bash: group("Bash", 1, 1000) });
-		fs.rmSync(path.join(dir, "scripts", "lib", "hook-limits.sh"));
+		fs.rmSync(path.join(dir, "scripts", "lib", "hook-limits.js"));
 		const r = run("--json");
 		expect(r.json().outcome).toBe("BROKEN");
 		expect(r.json().summary).toContain("RULE_CAP");
@@ -769,7 +766,7 @@ describe("BROKEN, never a vacuous pass", () => {
 	 * parse and wire nothing still need no RULE_CAP, and settings that wire
 	 * something still do. */
 	it("needs no RULE_CAP source when nothing is wired on PreToolUse", () => {
-		fs.rmSync(path.join(dir, "scripts", "lib", "hook-limits.sh"));
+		fs.rmSync(path.join(dir, "scripts", "lib", "hook-limits.js"));
 		settings({});
 		expect(run("--json").json().outcome).toBe("OK");
 	});
