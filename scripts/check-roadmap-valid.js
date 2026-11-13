@@ -135,7 +135,8 @@ const PHASE_GATE = /^validate-p\d+$/;
 const git = (/** @type {string[]} */ ...args) =>
 	execGit(args, { encoding: "utf8" });
 
-runCheck({
+/** @type {import("./lib/check.js").CheckSpec} */
+const SPEC = {
 	name: "roadmap-valid",
 	module: "roadmap",
 	usage: "node check-roadmap-valid.js [--tree]",
@@ -144,7 +145,10 @@ runCheck({
 		if (ctx.has("--tree")) return runTree(ctx);
 		return runIndex(ctx);
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);
 
 /**
  * A validator message as a finding's key: the message is all the identity

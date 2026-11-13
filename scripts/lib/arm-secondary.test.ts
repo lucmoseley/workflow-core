@@ -440,7 +440,7 @@ describe("the commit-gate refusal table against the gates .husky/pre-commit runs
 			"\nnode ",
 			[
 				'\nnode scripts/check-new-gate.js || exit "$?"',
-				'node scripts/check-vendored-skills.js --other-mode || exit "$?"',
+				'node scripts/check-ruff-introduced.js --other-mode || exit "$?"',
 				"staged_gate new-label live status '' 'true' \"\"",
 				'echo >&2 "pre-commit: the new gate refused this commit."',
 				"node ",
@@ -448,7 +448,7 @@ describe("the commit-gate refusal table against the gates .husky/pre-commit runs
 		);
 		expect(unmappedGates(added)).toEqual([
 			"scripts/check-new-gate.js",
-			"scripts/check-vendored-skills.js",
+			"scripts/check-ruff-introduced.js",
 			"new-label",
 			"pre-commit: the new gate refused this commit.",
 		]);

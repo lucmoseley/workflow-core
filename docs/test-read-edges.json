@@ -78,7 +78,8 @@
 		],
 		".agents/vendored-skill-edits.json": [
 			"scripts/check-vendored-skills.test.ts",
-			"scripts/npx-bare-name.test.ts"
+			"scripts/npx-bare-name.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts"
 		],
 		".agents/vendored-upstream-pass.json": [
 			"scripts/check-vendored-skills.test.ts"
@@ -218,7 +219,8 @@
 		".claude/skills/THIRD-PARTY-NOTICES.md": [
 			"scripts/check-context-budget.test.ts",
 			"scripts/check-vendored-skills.test.ts",
-			"scripts/lib/plugin-tree.test.ts"
+			"scripts/lib/plugin-tree.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts"
 		],
 		".claude/skills/animate": [
 			"scripts/check-context-budget.test.ts"
@@ -582,7 +584,6 @@
 			"scripts/check-release-pin.test.ts",
 			"scripts/check-workflow-permissions.test.ts",
 			"scripts/checker-registrations.test.ts",
-			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -886,7 +887,6 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/pre-merge-commit-gate.test.ts",
-			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".husky/pre-push": [
@@ -3243,6 +3243,7 @@
 			"scripts/lib/morning-review-filing.test.ts",
 			"scripts/lib/write-set-predict.test.ts",
 			"scripts/precommit-roadmap-valid-gate.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/roadmap-template-render.test.ts",
 			"scripts/upgrade.test.ts"
 		],
@@ -3274,8 +3275,7 @@
 			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/file-issue.contract.test.ts",
 			"scripts/lib/morning-review-filing.test.ts",
-			"scripts/lib/write-set-predict.test.ts",
-			"scripts/precommit-roadmap-valid-gate.test.ts"
+			"scripts/lib/write-set-predict.test.ts"
 		],
 		"docs/test-read-edges.json": [
 			"scripts/admissible-share.test.ts",
@@ -4147,7 +4147,6 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/npx-bare-name.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
-			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -4353,6 +4352,7 @@
 		"scripts/check-arbiter-commands.js": [
 			"scripts/check-arbiter-commands.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -4461,6 +4461,7 @@
 		"scripts/check-citation-tracker.js": [
 			"scripts/check-citation-tracker.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -4514,6 +4515,7 @@
 			"scripts/check-cli-args.test.ts",
 			"scripts/check-host-root.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -4562,6 +4564,7 @@
 		"scripts/check-clock-copies.js": [
 			"scripts/check-clock-copies.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -4884,6 +4887,7 @@
 		"scripts/check-gate-switches.js": [
 			"scripts/check-gate-switches.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/init-adopter-subjects.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -4934,6 +4938,7 @@
 		"scripts/check-gh-route.js": [
 			"scripts/check-gh-route.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -4982,6 +4987,7 @@
 		"scripts/check-git-fixture-identity.js": [
 			"scripts/check-git-fixture-identity.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -5097,6 +5103,7 @@
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-host-root.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-new-faults.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/hook-registrations.test.ts",
@@ -5135,6 +5142,7 @@
 		"scripts/check-guard-test-isolation.js": [
 			"scripts/check-guard-test-isolation.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-new-faults.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -5166,6 +5174,7 @@
 		"scripts/check-hand-callers.js": [
 			"scripts/check-hand-callers.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -5232,15 +5241,27 @@
 		],
 		"scripts/check-hook-liveness.js": [
 			"scripts/check-hook-liveness.test.ts",
+			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
+			"scripts/lib/check-in-process.contract.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/test-kind.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/precommit-ci-gates.test.ts",
+			"scripts/precommit-dispatch.test.ts",
+			"scripts/precommit-gate-sets.test.ts",
+			"scripts/precommit-roadmap-valid-gate.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
+			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts",
 			"scripts/worktree-transcript-readers.test.ts"
 		],
 		"scripts/check-hook-liveness.test.ts": [
@@ -5253,6 +5274,7 @@
 		"scripts/check-host-root-test-isolation.js": [
 			"scripts/check-host-root-test-isolation.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -5283,6 +5305,7 @@
 		"scripts/check-host-root.js": [
 			"scripts/check-host-root.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -5527,6 +5550,7 @@
 		"scripts/check-jsonl-reads.js": [
 			"scripts/check-jsonl-reads.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -5622,6 +5646,7 @@
 		],
 		"scripts/check-lockfile-sync.js": [
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -5670,6 +5695,7 @@
 		"scripts/check-main-checkout-commit.js": [
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-main-checkout-commit.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -5883,6 +5909,7 @@
 		"scripts/check-precommit-exit.js": [
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-precommit-exit.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -5913,6 +5940,7 @@
 		"scripts/check-primitives.js": [
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-primitives.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -5944,6 +5972,7 @@
 		"scripts/check-program-output.js": [
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-program-output.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -5993,6 +6022,7 @@
 			"scripts/check-host-root.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-registrations.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -6059,6 +6089,7 @@
 		"scripts/check-report-programs.js": [
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-report-programs.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -6087,17 +6118,27 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-research-added.js": [
+			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
+			"scripts/lib/check-in-process.contract.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
-			"scripts/lib/precommit-gate-harness.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/test-kind.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/precommit-ci-gates.test.ts",
+			"scripts/precommit-dispatch.test.ts",
+			"scripts/precommit-gate-sets.test.ts",
+			"scripts/precommit-roadmap-valid-gate.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
+			"scripts/report-new-shared-faults.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/check-research-added.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -6164,6 +6205,7 @@
 		],
 		"scripts/check-roadmap-pair.js": [
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/check-roadmap-pair.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/gated-checks.test.ts",
@@ -6194,19 +6236,29 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-roadmap-valid.js": [
+			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/check-roadmap-valid.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/gated-checks.test.ts",
+			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
+			"scripts/lib/check-in-process.contract.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
-			"scripts/lib/precommit-gate-harness.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/test-kind.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/precommit-ci-gates.test.ts",
+			"scripts/precommit-dispatch.test.ts",
+			"scripts/precommit-gate-sets.test.ts",
 			"scripts/precommit-roadmap-valid-gate.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/precommit-whole-repo-gates.test.ts",
+			"scripts/report-new-shared-faults.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/check-roadmap-valid.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -6356,6 +6408,7 @@
 		],
 		"scripts/check-skill-frontmatter.js": [
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/check-skill-frontmatter.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -6615,6 +6668,7 @@
 		],
 		"scripts/check-test-env-writes.js": [
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/check-test-env-writes.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -6667,6 +6721,7 @@
 		],
 		"scripts/check-test-spawn.js": [
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/check-test-spawn.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -6790,17 +6845,29 @@
 		],
 		"scripts/check-vendored-skills.js": [
 			"scripts/arm-tasks.test.ts",
+			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/check-vendored-skills.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/gated-checks.test.ts",
+			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
+			"scripts/lib/check-in-process.contract.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/test-kind.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
+			"scripts/precommit-ci-gates.test.ts",
+			"scripts/precommit-dispatch.test.ts",
+			"scripts/precommit-gate-sets.test.ts",
+			"scripts/precommit-roadmap-valid-gate.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
+			"scripts/report-new-shared-faults.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/check-vendored-skills.test.ts": [
 			"scripts/arm-tasks.test.ts",
@@ -6831,6 +6898,7 @@
 		],
 		"scripts/check-website-copy.js": [
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/check-website-copy.test.ts",
 			"scripts/checker-new-faults.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -6862,17 +6930,28 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-workflow-permissions.js": [
+			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/check-workflow-permissions.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/gated-checks.test.ts",
+			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
+			"scripts/lib/check-in-process.contract.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/plugin-tree.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/test-kind.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/precommit-ci-gates.test.ts",
+			"scripts/precommit-dispatch.test.ts",
+			"scripts/precommit-gate-sets.test.ts",
+			"scripts/precommit-roadmap-valid-gate.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
+			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
@@ -12678,7 +12757,6 @@
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-plugin-gap.test.ts",
-			"scripts/check-research-added.test.ts",
 			"scripts/check-roadmap-valid.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-self-throttling.test.ts",
@@ -13538,7 +13616,6 @@
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
-			"scripts/check-research-added.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-sh-changed.test.ts",
 			"scripts/check-shfmt.test.ts",
@@ -19510,7 +19587,6 @@
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
-			"scripts/check-research-added.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-sh-changed.test.ts",
 			"scripts/check-shfmt.test.ts",
@@ -20431,6 +20507,7 @@
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -20907,7 +20984,6 @@
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
-			"scripts/check-research-added.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-sh-changed.test.ts",
 			"scripts/check-shfmt.test.ts",
@@ -21231,7 +21307,6 @@
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
-			"scripts/check-research-added.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-self-throttling.test.ts",
 			"scripts/check-sh-changed.test.ts",
@@ -31724,6 +31799,7 @@
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -31844,7 +31920,6 @@
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
-			"scripts/check-research-added.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-sh-changed.test.ts",
 			"scripts/check-shfmt.test.ts",
@@ -34279,7 +34354,6 @@
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
-			"scripts/check-research-added.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-sh-changed.test.ts",
 			"scripts/check-shfmt.test.ts",
@@ -36443,7 +36517,6 @@
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-plugin-gap.test.ts",
-			"scripts/check-research-added.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-self-throttling.test.ts",
 			"scripts/check-sh-changed.test.ts",
@@ -36584,6 +36657,7 @@
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
@@ -42288,7 +42362,6 @@
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
-			"scripts/check-research-added.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-sh-changed.test.ts",
 			"scripts/check-shfmt.test.ts",
@@ -47155,7 +47228,6 @@
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-plugin-gap.test.ts",
-			"scripts/check-research-added.test.ts",
 			"scripts/check-roadmap-valid.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-self-throttling.test.ts",
@@ -47519,7 +47591,6 @@
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/check-program-output.test.ts",
-			"scripts/check-research-added.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-self-throttling.test.ts",
 			"scripts/check-sh-changed.test.ts",
@@ -49283,7 +49354,6 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-dispatch.test.ts",
-			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/precommit-dispatch.test.ts": [
@@ -52181,6 +52251,7 @@
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/precommit-doc-map-gate.test.ts",
 			"scripts/precommit-staged-gate.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
 			"scripts/register-doc.test.ts"
 		],
 		"tsconfig.build.json": [

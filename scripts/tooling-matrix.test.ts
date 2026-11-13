@@ -46,7 +46,10 @@ import os from "node:os";
 import path from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { PROFILE_GATES as PRECOMMIT_GATES } from "./lib/precommit-gates.js";
+import {
+	GATES,
+	PROFILE_GATES as PRECOMMIT_GATES,
+} from "./lib/precommit-gates.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { testGate } from "./lib/test-gate.js";
 
@@ -791,10 +794,6 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 		["actionlint", /actionlint \$tool_paths/],
 		["ruff", /check-ruff-introduced\.js/],
 		["`scripts/check-swallowed-errors.js`", /check-swallowed-errors\.js \|\|/],
-		[
-			"`scripts/check-workflow-permissions.js`",
-			/check-workflow-permissions\.js \|\|/,
-		],
 		["`commands.test`", /test-gate\.js commit/],
 		["`scripts/mutation-hold-gate.js`", /mutation-hold-gate\.js \|\|/],
 	])("names %s, which the hook still runs", (gate, call) => {
@@ -807,6 +806,14 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 	)("names %s, which the dispatcher still runs", (script, g) => {
 		expect(floor).toContain(`\`${script}\``);
 		expect(g.policy).toBe("gate");
+		expect(hook).toContain('scripts/precommit-dispatch.js "$@" || exit "$?"');
+	});
+
+	it("names `scripts/check-workflow-permissions.js`, a dispatcher row", () => {
+		expect(floor).toContain("| `scripts/check-workflow-permissions.js` |");
+		expect(GATES.find((g) => g.id === "workflow-permissions")?.policy).toBe(
+			"gate",
+		);
 		expect(hook).toContain('scripts/precommit-dispatch.js "$@" || exit "$?"');
 	});
 

@@ -388,8 +388,12 @@ function run(ctx) {
 	};
 }
 
-runCheck({
+/** @type {import("./lib/check.js").CheckSpec} */
+const SPEC = {
 	name: "check-workflow-permissions",
 	usage: `node ${scriptPath("check-workflow-permissions.js")} [<workflows-dir>] [--warn] [--json]`,
 	run,
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

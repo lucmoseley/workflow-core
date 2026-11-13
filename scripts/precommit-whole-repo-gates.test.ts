@@ -136,7 +136,8 @@ describe.each(PROFILE_GATES)("the pre-commit $id gate", (gate) => {
 });
 
 /*
- * Each row's arm pinned to the hook's own `armed` ERE it replaced (#5172),
+ * Each pattern row's arm pinned to the hook's own `armed` ERE it replaced
+ * (#5172),
  * frozen here as the hook spelt it, `$JS_TEST_ERE` standing for
  * JS_TEST_FILE in grep's ERE: grep -E and the row's pattern must take the
  * same paths of a list spanning every condition.
@@ -161,7 +162,17 @@ const HOOK_ERE: Record<string, string> = {
 	"scripts/check-report-programs.js": String.raw`^scripts/report-[^/]+\.[cm]?js$`,
 	"scripts/check-program-output.js": String.raw`^(scripts|\.claude/skills/[^/]+/scripts)/.+\.[cm]?js$`,
 	"scripts/check-precommit-exit.js": String.raw`^\.husky/pre-commit(\.local)?$`,
+	"scripts/check-roadmap-valid.js": String.raw`^docs/reference-roadmap\.html$`,
+	"scripts/check-research-added.js": "^docs/research/",
+	"scripts/check-vendored-skills.js": String.raw`^(\.agents/skills/|\.agents/vendored-skill-edits\.json$|skills-lock\.json$|\.claude/skills/THIRD-PARTY-NOTICES\.md$)`,
+	"scripts/check-hook-liveness.js": String.raw`^(self-plugin/hooks/hooks\.json$|\.claude/settings\.json$|scripts/)`,
+	"scripts/check-workflow-permissions.js": String.raw`^\.github/workflows/[^/]+\.ya?ml$`,
 };
+
+/** Every row arming on a path pattern, which HOOK_ERE pins. */
+const PATTERN_GATES = GATES.flatMap((g) =>
+	"pattern" in g.arm ? [{ ...g, arm: g.arm }] : [],
+);
 
 /* grep's ERE has no non-capturing group. */
 const JS_TEST_ERE = JS_TEST_FILE.source.replaceAll("(?:", "(");
@@ -193,6 +204,15 @@ const PATHS = [
 	".husky/pre-commit.local",
 	".husky/post-commit",
 	".github/workflows/ci.yml",
+	".github/workflows/ci.yaml",
+	".github/workflows/sub/ci.yml",
+	"docs/reference-roadmap.html",
+	"vendor/docs/reference-roadmap.html",
+	"docs/research/a.md",
+	".agents/skills/x/SKILL.md",
+	".agents/vendored-skill-edits.json",
+	"skills-lock.json",
+	".claude/skills/THIRD-PARTY-NOTICES.md",
 	"self-plugin/hooks/hooks.json",
 	"self-plugin/a.json",
 	"hooks/a.js",
@@ -208,11 +228,11 @@ const PATHS = [
 describe("each row's arm, against the hook ERE it replaced", () => {
 	it("covers every row", () => {
 		expect(Object.keys(HOOK_ERE).sort()).toEqual(
-			PROFILE_GATES.map((g) => g.script).sort(),
+			PATTERN_GATES.map((g) => g.script).sort(),
 		);
 	});
 
-	it.each(PROFILE_GATES)("$id takes the paths grep -E took", (gate) => {
+	it.each(PATTERN_GATES)("$id takes the paths grep -E took", (gate) => {
 		const ere = (HOOK_ERE[gate.script] ?? "").replaceAll(
 			"$JS_TEST_ERE",
 			JS_TEST_ERE,
@@ -226,9 +246,9 @@ describe("each row's arm, against the hook ERE it replaced", () => {
 		} catch {
 			/* grep exits 1 where nothing matches. */
 		}
-		expect(
-			PATHS.filter((p) => "pattern" in gate.arm && gate.arm.pattern.test(p)),
-		).toEqual(matched.split("\n").filter(Boolean));
+		expect(PATHS.filter((p) => gate.arm.pattern.test(p))).toEqual(
+			matched.split("\n").filter(Boolean),
+		);
 	});
 });
 

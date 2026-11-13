@@ -4,8 +4,8 @@
  * runs only the merge set, `--gates=batch` every gate bar one the lander's
  * Actions run repeats or a lander merge renders, and no argument every gate.
  * The parse, the dispatcher line, the test-read-edges gate, the merge set's
- * exit and two later gates — roadmap-valid, which Actions repeats, and
- * research-added, which it does not — are cut from the real hook and run over
+ * exit and two later gates — swallowed-errors, which Actions repeats, and
+ * injector-margin, which it does not — are cut from the real hook and run over
  * stub scripts; the dispatcher's own lander sets are
  * scripts/precommit-dispatch.test.ts's. A last case maps every gate the batch
  * set skips to the step of a workflow a lander push runs that repeats it, and
@@ -35,8 +35,8 @@ const DISPATCH = "scripts/precommit-dispatch.js";
 const CHECKERS = [
 	DISPATCH,
 	"scripts/generate-test-read-edges.js --check",
-	"scripts/check-roadmap-valid.js",
-	"scripts/check-research-added.js",
+	"scripts/check-injector-margin.js --index",
+	"scripts/check-swallowed-errors.js",
 ];
 
 const SCRIPT = [
@@ -46,8 +46,8 @@ const SCRIPT = [
 	cutHookBlock(`node "\${WFC_PLUGIN_ROOT:-.}"/${DISPATCH}`, ""),
 	cutGateFragment("scripts/generate-test-read-edges.js"),
 	cutHookBlock('if [ "$wfc_gates" = merge ]; then', "fi"),
-	cutGateFragment("scripts/check-roadmap-valid.js"),
-	cutGateFragment("scripts/check-research-added.js"),
+	cutGateFragment("scripts/check-injector-margin.js"),
+	cutGateFragment("scripts/check-swallowed-errors.js"),
 ].join("\n\n");
 
 /** The scripts the hook ran on `args`, each with its arguments, in order,
@@ -63,8 +63,8 @@ function run(...args: string[]): { code: number; ran: string[] } {
 		),
 		{
 			"scripts/a.test.ts": "x\n",
-			"docs/reference-roadmap.html": "x\n",
-			"docs/research/a.md": "x\n",
+			"scripts/lib/tracker-inject-text.js": "x\n",
+			"scripts/a.py": "x\n",
 		},
 	);
 	const r = spawnSync("sh", ["-ec", SCRIPT, "pre-commit", ...args], {
@@ -96,7 +96,10 @@ describe("the pre-commit gate sets", () => {
 	it("runs a gate Actions does not repeat on the batch, and skips one it does", () => {
 		expect(run("--gates=batch")).toEqual({
 			code: 0,
-			ran: [`${DISPATCH} --gates=batch`, "scripts/check-research-added.js"],
+			ran: [
+				`${DISPATCH} --gates=batch`,
+				"scripts/check-injector-margin.js --index",
+			],
 		});
 	});
 

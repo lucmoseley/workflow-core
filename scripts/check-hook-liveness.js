@@ -2445,7 +2445,8 @@ const ONLY_TAG_NOUNS = [
 	],
 ];
 
-runCheck({
+/** @type {import("./lib/check.js").CheckSpec} */
+const SPEC = {
 	name: "hook-liveness",
 	usage:
 		"node check-hook-liveness.js [--days <n>] [--budget-ms <n>] [--only <census|manifest|self-plugin|reap|detached>] [--notify]",
@@ -2519,4 +2520,7 @@ runCheck({
 			flushStamps(ctx);
 		}
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

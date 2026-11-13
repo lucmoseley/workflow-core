@@ -69,10 +69,11 @@ function run(ctx) {
 	return { noun: "added research file(s)", count: added.length };
 }
 
-if (require.main === module) {
-	runCheck({
-		name: "research-added",
-		usage: "node check-research-added.js [--json] [--warn]",
-		run,
-	});
-}
+const SPEC = {
+	name: "research-added",
+	usage: "node check-research-added.js [--json] [--warn]",
+	run,
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

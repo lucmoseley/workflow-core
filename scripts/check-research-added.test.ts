@@ -11,7 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initGitRepo, mkScratchDir } from "./lib/git-fixture";
-import { armingPattern } from "./lib/precommit-gate-harness";
+import { GATES } from "./lib/precommit-gates.js";
 import { runInProcess } from "./lib/run-in-process";
 
 const CHECKER = "scripts/check-research-added.js";
@@ -107,9 +107,10 @@ describe("check-research-added", () => {
 		expect(check().status).toBe(0);
 	});
 
-	it("is armed in .husky/pre-commit on the directory it reads", () => {
-		expect(new RegExp(armingPattern(CHECKER)).test("docs/research/x.md")).toBe(
-			true,
-		);
+	it("is a dispatcher row armed on the directory it reads", () => {
+		const arm = GATES.find((g) => g.script === CHECKER)?.arm;
+		expect(
+			arm && "pattern" in arm && arm.pattern.test("docs/research/x.md"),
+		).toBe(true);
 	});
 });

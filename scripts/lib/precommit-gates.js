@@ -152,6 +152,22 @@ const GATES = [
 		kind: "checker",
 	},
 	/*
+	 * The staged roadmap is structurally valid, or it does not get committed
+	 * (mantahostels#698). The checker judges the STAGED blob against HEAD's, so
+	 * an unsaved roadmap edit the commit does not carry stays out of it. Only
+	 * validator ERRORs refuse; WARNINGs and the added/removed card list report
+	 * and pass, a roadmap-edit run that adds a card being ordinary work.
+	 */
+	{
+		id: "roadmap-valid",
+		script: "scripts/check-roadmap-valid.js",
+		lander: "none",
+		args: [],
+		arm: { pattern: /^docs\/reference-roadmap\.html$/ },
+		policy: "gate",
+		kind: "checker",
+	},
+	/*
 	 * A citation of this repo's tracker is bare `#N`; `mantahostels#N` names
 	 * the inherited tracker (#162). Unarmed by path: the fault landed in
 	 * shell, JS, TS, JSON and markdown alike, so there is no directory to
@@ -198,6 +214,60 @@ const GATES = [
 		lander: "batch",
 		args: [],
 		arm: { always: true },
+		policy: "gate",
+		kind: "checker",
+	},
+	/*
+	 * A file added under docs/research/ (#2356): research is posted on its
+	 * issue, never landed in the tree. The refusal prints the rule.
+	 */
+	{
+		id: "research-added",
+		script: "scripts/check-research-added.js",
+		lander: "batch",
+		args: [],
+		arm: { pattern: /^docs\/research\// },
+		policy: "gate",
+		kind: "checker",
+	},
+	/*
+	 * A local edit to a vendored skill body is declared, or this commit does
+	 * not land (mantahostels#1809, specified at mantahostels#1826). Armed on a
+	 * vendored path, the manifest or the licence notices (#1939). It reads the
+	 * worktree, not the index: all the vendored files plus the manifest are too
+	 * many paths to stage out one by one.
+	 */
+	{
+		id: "vendored-skills",
+		script: "scripts/check-vendored-skills.js",
+		lander: "batch",
+		args: [],
+		arm: {
+			pattern:
+				/^(\.agents\/skills\/|\.agents\/vendored-skill-edits\.json$|skills-lock\.json$|\.claude\/skills\/THIRD-PARTY-NOTICES\.md$)/,
+		},
+		policy: "gate",
+		kind: "checker",
+	},
+	/*
+	 * Every command the core registers its own hooks with resolves to a file
+	 * that exists, and is executable where the command runs it directly
+	 * (mantahostels#1898): a hook wired to a missing path fires nothing and
+	 * says nothing. Armed on either registration file or a script, since
+	 * renaming a guard falsifies the wiring without the registration changing.
+	 * The working tree, not the index: whether a hook can run is a property of
+	 * the files on this machine now. Only the self-plugin assertion; its
+	 * siblings read ~/.claude and answer on `npm run status`.
+	 */
+	{
+		id: "hook-liveness",
+		script: "scripts/check-hook-liveness.js",
+		lander: "batch",
+		args: ["--only", "self-plugin"],
+		arm: {
+			pattern:
+				/^(self-plugin\/hooks\/hooks\.json$|\.claude\/settings\.json$|scripts\/)/,
+		},
 		policy: "gate",
 		kind: "checker",
 	},
@@ -694,6 +764,22 @@ const GATES = [
 		lander: "batch",
 		args: ["--paths-only"],
 		arm: { always: true },
+		policy: "gate",
+		kind: "checker",
+	},
+	/*
+	 * A workflow job reaching past the timer-triggered autonomy ceiling, R1
+	 * (docs/agents/autonomy-ceiling.md). Added or modified files only, `live`:
+	 * a commit deleting the last workflow would otherwise refuse on
+	 * NOTHING-INSPECTED. It reads the working tree, so an unstaged workflow
+	 * edit the commit does not carry can surface here (#1380).
+	 */
+	{
+		id: "workflow-permissions",
+		script: "scripts/check-workflow-permissions.js",
+		lander: "none",
+		args: [],
+		arm: { pattern: /^\.github\/workflows\/[^/]+\.ya?ml$/, live: true },
 		policy: "gate",
 		kind: "checker",
 	},

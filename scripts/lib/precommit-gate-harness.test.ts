@@ -64,7 +64,7 @@ describe("cutGateFragment", () => {
 
 	it("cuts a different block for each anchor", () => {
 		expect(cutGateFragment("scripts/check-doc-map.js")).not.toBe(
-			cutGateFragment("scripts/check-roadmap-valid.js"),
+			cutGateFragment("scripts/check-injector-margin.js"),
 		);
 	});
 
@@ -104,12 +104,12 @@ describe("cutGateFragment", () => {
 
 describe("gateHead and armingPattern (#1597)", () => {
 	it("reads a one-line head and its pattern", () => {
-		expect(gateHead("scripts/check-research-added.js")).toBe(
-			"if armed '^docs/research/'; then\n",
+		const pattern =
+			"^(scripts/lib/tracker-inject-text\\.js|docs/agents/rules/review-(dispatch-shape|deviations-read|finding-destination)\\.txt)$";
+		expect(gateHead("scripts/check-injector-margin.js")).toBe(
+			`if armed '${pattern}'; then\n`,
 		);
-		expect(armingPattern("scripts/check-research-added.js")).toBe(
-			"^docs/research/",
-		);
+		expect(armingPattern("scripts/check-injector-margin.js")).toBe(pattern);
 	});
 
 	it("reads a head wrapped across lines through its `then`", () => {
@@ -216,11 +216,6 @@ describe("the scripts a gate invokes", () => {
 	});
 
 	it.each([
-		[
-			"roadmap-valid",
-			"scripts/check-roadmap-valid.js",
-			["scripts/check-roadmap-valid.js"],
-		],
 		[
 			"injector-margin",
 			"scripts/check-injector-margin.js",

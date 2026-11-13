@@ -147,26 +147,6 @@ hook_bound "${WFC_GITLEAKS:-gitleaks}" git --staged --redact || exit 1
 # exactly its staged tree (#1622). The script owns its skips.
 node "${WFC_PLUGIN_ROOT:-.}"/scripts/review-hold-gate.js || exit "$?"
 
-# The staged roadmap is structurally valid, or it does not get committed (mantahostels#698).
-# Scoped to commits that stage the roadmap, so a commit touching nothing else
-# pays nothing. The checker judges the STAGED blob against HEAD's, so an
-# unsaved roadmap edit the commit does not carry stays out of it.
-#
-# Only validator ERRORs exit non-zero. WARNINGs, and the added/removed card list,
-# report and pass: a roadmap-edit run that adds a card is ordinary work (mantahostels#698).
-#
-# Anchored at both ends, so vendor/docs/reference-roadmap.html and any other
-# look-alike does not fire it.
-if ! lander_batch && armed '^docs/reference-roadmap\.html$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-roadmap-valid.js || exit "$?"
-fi
-
-# A file added under docs/research/ (#2356): research is posted on its issue,
-# never landed in the tree. The refusal prints the rule.
-if armed '^docs/research/'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-research-added.js || exit "$?"
-fi
-
 # The roadmap HTML and its digest must agree on their version line (mantahostels#910).
 # The dispatcher's roadmap-pair row catches the half-staged PAIR; this catches
 # the pair staged together with drifted versions.
@@ -237,18 +217,6 @@ if ! lander_batch && armed '^(docs/reference-roadmap\.html|docs/roadmap-digest\.
   node $dr_hint docs/reference-roadmap.html --out docs/roadmap-digest.md"
 fi
 
-# A local edit to a vendored skill body is declared, or this commit does not land
-# (mantahostels#1809, specified at mantahostels#1826). Nothing reads skills-lock.json's computedHash — it
-# is not a digest of anything this repo holds.
-#
-# Scoped to commits that stage a vendored path, the manifest or the licence
-# notices (#1939), so an unrelated commit pays nothing. The worktree, not the index: the check reads all 72
-# vendored files plus the manifest, too many paths to stage out one by one, and
-# the same trade-off the guard-registry gate near the top makes.
-if armed '^(\.agents/skills/|\.agents/vendored-skill-edits\.json$|skills-lock\.json$|\.claude/skills/THIRD-PARTY-NOTICES\.md$)'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-vendored-skills.js || exit "$?"
-fi
-
 # A staged skills-lock.json is covered by the staged record of a completed
 # `check-vendored-skills.js --upstream --write` run, its lock and licence-notice hashes
 # matching (#2394, ruled at #2377). The index, not the worktree: the record
@@ -258,24 +226,6 @@ if armed '^skills-lock\.json$'; then
   staged_gate upstream-record live status \
     "opt:skills-lock.json opt:.claude/skills/THIRD-PARTY-NOTICES.md opt:.agents/vendored-upstream-pass.json opt:.agents/vendored-skill-edits.json" \
     'node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-vendored-skills.js --covered "$sg_dir"' ""
-fi
-
-# Every command this repo registers its own hooks with resolves to a file that
-# exists, and is executable where the command runs it directly (mantahostels#1898). A hook
-# wired to a path that is not there fires nothing and says nothing. The core
-# registers in self-plugin/hooks/hooks.json, an adopter in .claude/settings.json.
-#
-# Scoped to commits that stage either file or a script: renaming a guard
-# falsifies the wiring without the registration changing.
-#
-# The WORKING TREE, not the index: whether a hook can run is a property of the
-# files on this machine right now.
-#
-# Only the self-plugin assertion. Its four siblings read ~/.claude and answer on
-# `npm run status` instead — a runner would find an empty corpus and report
-# all-clear forever.
-if armed '^(self-plugin/hooks/hooks\.json$|\.claude/settings\.json$|scripts/)'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-hook-liveness.js --only self-plugin || exit "$?"
 fi
 
 # hooks/hooks.json is the plugin's copy of the self-plugin's hooks, so an edit
@@ -340,15 +290,6 @@ node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-code-standards.js --touching HEAD --w
 # unstaged edit to a body the commit does not carry can surface here, and on
 # the token limb refuse — accepted, the fix being one escape.
 node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-skill-body-size.js --touching HEAD
-
-# A workflow job reaching past the timer-triggered autonomy ceiling, R1
-# (docs/agents/autonomy-ceiling.md). Added or modified files only: a commit
-# deleting the last workflow would otherwise refuse on NOTHING-INSPECTED. It
-# reads the working tree, so an unstaged workflow edit the commit does not
-# carry can surface here (#1380).
-if ! lander_batch && armed '^\.github/workflows/[^/]+\.ya?ml$' && [ -n "$(armed_live)" ]; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-workflow-permissions.js || exit "$?"
-fi
 
 # The doc map's own coverage, checked here as well as in roadmap-digest.yml
 # (mantahostels#390, the ticket that moved this local). Rationale and measurement:
