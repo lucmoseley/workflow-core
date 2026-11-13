@@ -16,7 +16,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { checkInProcess } from "./check";
 import { GATES } from "./precommit-gates.js";
 
@@ -127,10 +127,13 @@ afterEach(() => {
 		fs.rmSync(d, { recursive: true, force: true });
 });
 
+/* The fixture is also the run's host (CLAUDE_PROJECT_DIR), as the hook's
+ * repo is its own: vitest.setup.ts points the host at an empty non-repo. */
 const spawned = (script: string, args: string[], repo: string) => {
 	const r = spawnSync(process.execPath, [script, ...args], {
 		cwd: repo,
 		encoding: "utf8",
+		env: { ...process.env, CLAUDE_PROJECT_DIR: repo },
 	});
 	return { exit: r.status, stdout: r.stdout, stderr: r.stderr };
 };
@@ -146,6 +149,7 @@ const inProcess = async (
 	const { SPEC } = require(script);
 	const was = process.cwd();
 	process.chdir(repo);
+	vi.stubEnv("CLAUDE_PROJECT_DIR", repo);
 	try {
 		return await checkInProcess(SPEC, args, { script, sides });
 	} finally {
