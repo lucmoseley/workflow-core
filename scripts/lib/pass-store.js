@@ -1456,7 +1456,6 @@ function heldRow(file, entries, { sha, before, git, values }) {
 }
 
 module.exports = {
-	ROWLESS_RUN,
 	rowless,
 	heldAtSha,
 	CACHED_ENV,
