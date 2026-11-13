@@ -5,7 +5,7 @@
  * `collect`'s, in `scripts/lib/file-ci-time.js`.
  *
  * Its own module so `check-file-ci-time.js` and `check-suite-budget.js` judge
- * one download path (#5137), split from the first.
+ * one download path (#5137).
  */
 
 const fs = require("node:fs");
@@ -55,9 +55,7 @@ function localSweeps(dir) {
 }
 
 /**
- * Sweeps from GitHub, each run's reports downloaded to a temp directory and
- * removed once read.
- * @param {(why: string) => never} skip called where GitHub cannot answer
+ * @param {(why: string) => never} skip
  */
 function remoteSweeps(skip) {
 	/* Listed by branch at the source: the lander's pushes run the same

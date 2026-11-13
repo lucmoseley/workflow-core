@@ -7,15 +7,13 @@
  * deleted or renamed since counts nowhere. RESIDUAL: a file whose shard the
  * newest sweep lost counts nowhere either, which can only understate the sum.
  *
- * A REFUSAL COUNTS ONLY FILES WITH SWEEPS_JUDGED READINGS: a new file's one
- * reading is one run's wall time, which never refuses on its own. It counts
+ * A REFUSAL COUNTS ONLY FILES WITH SWEEPS_JUDGED READINGS. A new file counts
  * towards the reported total from its first sweep, and towards a refusal from
  * its third.
  *
  * IT REFUSES ONLY ONCE ARMED: BUDGET_ARMED_BY in `scripts/lib/suite-ceiling.js`
- * names the cold lone whole suite that first passed under TARGET_MS. Before
- * that an over-budget sum is reported. ARM ONLY: ARMED_ENV may arm an unarmed
- * budget, for tests; it never disarms one.
+ * names the cold lone whole suite that first passed under TARGET_MS. ARM
+ * ONLY: ARMED_ENV may arm an unarmed budget, for tests; it never disarms one.
  */
 
 const { SWEEPS_JUDGED, median, readingsByFile } = require("./file-ci-time.js");

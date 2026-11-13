@@ -271,9 +271,7 @@ function reportSlowFile(ctx, f, target) {
 }
 
 /**
- * Names the latest lone whole suite where it is green, under the target and
- * the growth budget is not yet armed: the run BUDGET_ARMED_BY is to record
- * (#5137). Every whole suite is cold, the pass store being off for full runs.
+ * The run BUDGET_ARMED_BY is to record (#5137). Every whole suite is cold, the pass store being off for full runs.
  * @param {Marker[]} markers
  * @param {Marker[]} failures
  * @returns {string} the sentence, or "" where there is none

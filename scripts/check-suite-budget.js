@@ -13,15 +13,13 @@
  * arms it are SUITE_BUDGET_MS and BUDGET_ARMED_BY in
  * `scripts/lib/suite-ceiling.js`.
  *
- * IT REFUSES IN THE SCHEDULED SWEEP ALONE, on recorded medians: a commit has
- * no median for the file it adds, and one run's wall time judges the machine
- * as much as the suite.
+ * IT REFUSES IN THE SCHEDULED SWEEP ALONE, on recorded medians.
  *
  * FEWER THAN THREE SWEEPS READABLE IS A SKIP THAT SAYS IT JUDGED NOTHING,
  * never an OK.
  *
  * IMPLICIT:  in the scheduled sweep (scheduled-checks.yml), sums each test file's median CI time over its last three sweeps, downloading those sweeps' vitest reports, and turns the sweep red where the sum is over the budget scripts/lib/suite-ceiling.js sets and that budget is armed; unarmed, it reports.
- * JUSTIFIED: fail-safe — the suite grows by about 20 files a day, and an unrefused budget lets it move the 180 s target (#2729) further off unseen (#5131).
+ * JUSTIFIED: fail-safe — an unrefused budget lets growth move the 180 s target (#2729) further off unseen (#5131).
  * DEFEAT:    convenience — --reports judges sweeps already downloaded, with no gh call.
  */
 
