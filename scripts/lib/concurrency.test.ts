@@ -35,8 +35,8 @@ const unread = () => {
 
 /* A tick that moved no session after its read, the case nearly every test reads. */
 const record = (
-	tick: Omit<Parameters<typeof buildTickRecord>[0], "workingChange" | "agents">,
-) => buildTickRecord({ ...tick, workingChange: 0, agents: null });
+	tick: Omit<Parameters<typeof buildTickRecord>[0], "liveChange" | "agents">,
+) => buildTickRecord({ ...tick, liveChange: 0, agents: null });
 
 const minute = (ms: number, sessions: number | null) => ({
 	ts: iso(ms),
@@ -44,7 +44,7 @@ const minute = (ms: number, sessions: number | null) => ({
 });
 const tickAt = (ms: number, binding: string | null, also: string[] = []) => ({
 	at: iso(ms),
-	working: 4,
+	live: 4,
 	ceiling: 6,
 	binding: binding && { limit: binding, why: `${binding} why` },
 	also: also.map((limit) => ({ limit, why: `${limit} why` })),
@@ -82,7 +82,7 @@ const admission = (over: Record<string, unknown> = {}) => ({
 	load: { overloaded: false, load1: 3, ceiling: 48 },
 	cpu: { full: false, slots: 2, sessions: 6, ceiling: 12 },
 	memory: {
-		working: { count: 6, mb: 3600 },
+		live: { count: 6, mb: 3600 },
 		other: { mb: 1400 },
 		pool: { mb: 300 },
 		finished: { mb: 0 },
@@ -231,7 +231,7 @@ describe("readout's verdict (#3317)", () => {
 		});
 		expect(buildBlockText(r, unread)).toBe(
 			[
-				`4 working at the last tick (${iso(T0)}), admission ceiling 6`,
+				`4 live at the last tick (${iso(T0)}), admission ceiling 6`,
 				"bound by:  allowance — allowance why",
 				"also:      memory (memory why)",
 				"memory:    non-session processes holds most (1400 MB)",
@@ -545,14 +545,14 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 		});
 		expect(r).toMatchObject({
 			at: iso(T0),
-			working: 6,
+			live: 6,
 			ceiling: 6,
 			binding: {
 				limit: "memory",
 				why: "the lander's suite reserve holds most (2200 MB)",
 			},
 			also: [{ limit: "CPU", why: "12 sessions fill the ceiling of 12" }],
-			memory: { rows: { working: 3600, other: 1400, pool: 300, finished: 0 } },
+			memory: { rows: { live: 3600, other: 1400, pool: 300, finished: 0 } },
 		});
 	});
 
@@ -611,28 +611,28 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 		{
 			name: "no slots",
 			over: { slots: undefined },
-			working: 6,
+			live: 6,
 			ceiling: null,
 			failing: [noFit],
 		},
 		{
 			name: "no memory slots",
 			over: { memorySlots: undefined },
-			working: 6,
+			live: 6,
 			ceiling: 7,
 			failing: [noFit],
 		},
 		{
 			name: "no memory breakdown",
 			over: { memory: undefined },
-			working: null,
+			live: null,
 			ceiling: null,
 			failing: [noFit],
 		},
 		{
 			name: "no load or CPU reading",
 			over: { load: undefined, cpu: undefined },
-			working: 6,
+			live: 6,
 			ceiling: 7,
 			failing: [
 				{
@@ -643,41 +643,41 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 		},
 	])(
 		"reads a verdict with $name as unknown, never NaN or a throw (#3531)",
-		({ over, working, ceiling, failing }) => {
+		({ over, live, ceiling, failing }) => {
 			const r = record({
 				input: input(),
 				decision: idle("no free slot"),
 				admission: admission({ slots: 1, ...over }),
 			});
-			expect(r.working).toBe(working);
+			expect(r.live).toBe(live);
 			expect(r.ceiling).toBe(ceiling);
 			expect([r.binding, ...r.also].filter(Boolean)).toEqual(failing);
 		},
 	);
 
-	it("counts the tick's own launches as working, leaving the ceiling where admission set it (#3770)", () => {
+	it("counts the tick's own launches as live, leaving the ceiling where admission set it (#3770)", () => {
 		const r = buildTickRecord({
 			input: input({ freeSlots: 2 }),
 			decision: { launches: [{}, {}], skipped: [], idle: null },
 			admission: admission({ slots: 2 }),
-			workingChange: 2,
+			liveChange: 2,
 			agents: null,
 		});
-		const { count } = admission().memory.working;
-		expect(r.working).toBe(count + 2);
+		const { count } = admission().memory.live;
+		expect(r.live).toBe(count + 2);
 		expect(r.ceiling).toBe(count + 2);
 	});
 
-	it("takes a session the tick stopped off working, leaving the ceiling where admission set it (#3778)", () => {
+	it("takes a session the tick stopped off the live count, leaving the ceiling where admission set it (#3778)", () => {
 		const r = buildTickRecord({
 			input: input({ freeSlots: 0 }),
 			decision: { launches: [], skipped: [], idle: null },
 			admission: admission({ slots: 0 }),
-			workingChange: -1,
+			liveChange: -1,
 			agents: null,
 		});
-		const { count } = admission().memory.working;
-		expect(r.working).toBe(count - 1);
+		const { count } = admission().memory.live;
+		expect(r.live).toBe(count - 1);
 		expect(r.ceiling).toBe(count);
 	});
 
@@ -686,7 +686,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			input: input({ freeSlots: 2 }),
 			decision: { launches: [{}, {}], skipped: [], idle: null },
 			admission: admission({ slots: 2 }),
-			workingChange: 2,
+			liveChange: 2,
 			agents: null,
 		});
 		const r = readout({
@@ -708,11 +708,11 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			input: input(),
 			decision: idle("no free slot"),
 			admission: admission(),
-			workingChange: 0,
+			liveChange: 0,
 			agents,
 		});
-		expect(r.stateWorking).toBe(2);
-		expect(r.working).toBe(admission().memory.working.count);
+		expect(r.working).toBe(2);
+		expect(r.live).toBe(admission().memory.live.count);
 	});
 
 	it("records the working count as null where the listing went unread (#4747)", () => {
@@ -721,7 +721,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			decision: idle("no free slot"),
 			admission: admission(),
 		});
-		expect(r.stateWorking).toBeNull();
+		expect(r.working).toBeNull();
 	});
 
 	it("records null counts and memory where admission did not read", () => {
@@ -731,7 +731,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			admission: null,
 		});
 		expect(r).toMatchObject({
-			working: null,
+			live: null,
 			ceiling: null,
 			binding: {
 				limit: "memory",
@@ -745,13 +745,13 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 
 describe("what status --json carries for the panel (#4062)", () => {
 	let dir: string;
-	const Unread = { working: null, ceiling: null, stateWorking: null };
+	const Unread = { live: null, ceiling: null, working: null };
 	const line = (over: object = {}, ago = MIN) =>
 		JSON.stringify({
 			at: iso(T0 - ago),
-			working: 9,
+			live: 9,
 			ceiling: 9,
-			stateWorking: 6,
+			working: 6,
 			binding: { limit: "memory", why: "w" },
 			...over,
 		});
@@ -777,19 +777,19 @@ describe("what status --json carries for the panel (#4062)", () => {
 	});
 
 	it("takes the newest tick's counts and ceiling", () => {
-		expect(statusOf(line({ working: 1 }), line())).toEqual({
-			working: 9,
+		expect(statusOf(line({ live: 1 }), line())).toEqual({
+			live: 9,
 			ceiling: 9,
-			stateWorking: 6,
+			working: 6,
 		});
 	});
 
 	it("reads a tick recorded before the working count as unread on it (#4747)", () => {
-		expect(statusOf(line({ stateWorking: undefined })).stateWorking).toBeNull();
+		expect(statusOf(line({ working: undefined })).working).toBeNull();
 	});
 
 	it("trusts a tick up to the staleness bound, and not past it", () => {
-		expect(statusOf(line({}, STALE_MS)).working).toBe(9);
+		expect(statusOf(line({}, STALE_MS)).live).toBe(9);
 		expect(statusOf(line({}, STALE_MS + 1))).toEqual(Unread);
 	});
 
@@ -799,6 +799,6 @@ describe("what status --json carries for the panel (#4062)", () => {
 	});
 
 	it("falls back to the tick before a torn last line", () => {
-		expect(statusOf(line(), '{"at": "2026-').working).toBe(9);
+		expect(statusOf(line(), '{"at": "2026-').live).toBe(9);
 	});
 });

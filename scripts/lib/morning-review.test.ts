@@ -538,7 +538,7 @@ describe("renderReview (#2011)", () => {
 		const ticks = [
 			{
 				at: new Date(now - 20 * MIN).toISOString(),
-				working: null,
+				live: null,
 				ceiling: null,
 				binding: { limit: "CPU", why: "load" },
 				also: [],

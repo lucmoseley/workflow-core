@@ -819,8 +819,8 @@ describe("a limit-held launch through the tick (#3735)", () => {
 		});
 	});
 
-	it("nets the limit acts' working change into the tick's record (#3778)", async () => {
-		const records: { working: number | null }[] = [];
+	it("nets the limit acts' live change into the tick's record (#3778)", async () => {
+		const records: { live: number | null }[] = [];
 		/* The hold's resume on its seat adds one session. */
 		const { io } = fakeIo(
 			stateOf({ launches: [HELD_LAUNCH] }),
@@ -840,7 +840,7 @@ describe("a limit-held launch through the tick (#3735)", () => {
 		await tickOf(io);
 		expect(records).toEqual([
 			expect.objectContaining({
-				working: ADMISSION_VERDICT.memory.working.count + 1,
+				live: ADMISSION_VERDICT.memory.live.count + 1,
 			}),
 		]);
 	});
@@ -881,8 +881,8 @@ describe("the checkout the free-slot count is read in (#4962)", () => {
 });
 
 describe("the tick's concurrency row (#3770)", () => {
-	it("counts the sessions the tick launched into its working figure", async () => {
-		const records: { working: number | null; ceiling: number | null }[] = [];
+	it("counts the sessions the tick launched into its live figure", async () => {
+		const records: { live: number | null; ceiling: number | null }[] = [];
 		const { io } = fakeIo(stateOf(), {
 			readFreeSlots: () => ({
 				slots: 1,
@@ -894,14 +894,14 @@ describe("the tick's concurrency row (#3770)", () => {
 		});
 		const r = await tickOf(io);
 		expect("launches" in r.decision && r.decision.launches).toHaveLength(1);
-		const { count } = ADMISSION_VERDICT.memory.working;
+		const { count } = ADMISSION_VERDICT.memory.live;
 		expect(records).toEqual([
-			expect.objectContaining({ working: count + 1, ceiling: count + 1 }),
+			expect.objectContaining({ live: count + 1, ceiling: count + 1 }),
 		]);
 	});
 
 	it("counts the tick's listing in state working, the agents view's figure (#4747)", async () => {
-		const records: { stateWorking: number | null }[] = [];
+		const records: { working: number | null }[] = [];
 		const agents = ["working", "idle", "working", "blocked"].map(
 			(state, i) => ({
 				sessionId: `s${i}`,
@@ -915,7 +915,7 @@ describe("the tick's concurrency row (#3770)", () => {
 			},
 		});
 		await tickOf(io);
-		expect(records).toEqual([expect.objectContaining({ stateWorking: 2 })]);
+		expect(records).toEqual([expect.objectContaining({ working: 2 })]);
 	});
 });
 

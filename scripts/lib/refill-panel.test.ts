@@ -64,7 +64,7 @@ const RUNNING = {
 		idle: { reason: "nothing launchable", detail: "" },
 		paused: false,
 	},
-	concurrency: { working: 9, ceiling: 9, stateWorking: 6 },
+	concurrency: { live: 9, ceiling: 9, working: 6 },
 	mode: "normal",
 	handedOffSinceAway: 0,
 	repos: [],
@@ -262,19 +262,19 @@ describe("the panel's rows", () => {
 	it("reads line 1 as the working, idle and room counts, and an unread count as ? (#4747, #5158)", () => {
 		const line1 = (concurrency: object) =>
 			summary(rowsOf({ status: { ...RUNNING, concurrency } }))[2][0];
-		expect(line1({ working: 7, ceiling: 9, stateWorking: 2 })).toBe(
+		expect(line1({ live: 7, ceiling: 9, working: 2 })).toBe(
 			"2 working · 5 idle · room for 2",
 		);
-		expect(line1({ working: 3, ceiling: 2, stateWorking: 4 })).toBe(
+		expect(line1({ live: 3, ceiling: 2, working: 4 })).toBe(
 			"4 working · 0 idle · room for 0",
 		);
-		expect(line1({ working: 7, ceiling: 9, stateWorking: null })).toBe(
+		expect(line1({ live: 7, ceiling: 9, working: null })).toBe(
 			"? working · ? idle · room for 2",
 		);
-		expect(line1({ working: 7, ceiling: null, stateWorking: 2 })).toBe(
+		expect(line1({ live: 7, ceiling: null, working: 2 })).toBe(
 			"2 working · 5 idle · room for ?",
 		);
-		expect(line1({ working: null, ceiling: null, stateWorking: null })).toBe(
+		expect(line1({ live: null, ceiling: null, working: null })).toBe(
 			"? working · ? idle · room for ?",
 		);
 	});
@@ -285,7 +285,7 @@ describe("the panel's rows", () => {
 		const rows = rowsOf({ status: { ...RUNNING, lastTick } });
 		expect(rows[2].text).toBe(LOOP_COUNT);
 		expect(rows[3].text).toBe("");
-		const concurrency = { working: null, ceiling: null, stateWorking: null };
+		const concurrency = { live: null, ceiling: null, working: null };
 		const unread = rowsOf({ status: { ...RUNNING, lastTick, concurrency } });
 		expect(unread[2].text).toBe("? working · ? idle · room for ?");
 		expect(unread[3].text).toBe("");
