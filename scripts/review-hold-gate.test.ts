@@ -1709,8 +1709,9 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 			fs.chmodSync(dir, 0o755);
 		}
 		expect(r.status).toBe(0);
+		/* git names why where its version says one; CI's says nothing. */
 		expect(r.stderr).toMatch(
-			/^prepare-commit-msg: git could not write the trailer, so this commit lands with no Review-Tier: trailer \(.+\)\.\n$/s,
+			/^prepare-commit-msg: git could not write the trailer, so this commit lands with no Review-Tier: trailer( \(.+\))?\.\n$/s,
 		);
 		expect(fs.readFileSync(msg, "utf8")).toBe("land\n");
 	});
