@@ -162,7 +162,8 @@ const { VERIFIED_REF } = require("./lib/landing-refs.js");
 const { pushGateState } = require("./lib/test-gate.js");
 const { selectTouched } = require("./lib/touched-tests.js");
 const { yieldToWhole } = require("./lib/cpu-yield.js");
-const { appendEmptyTouchedLine } = require("./lib/run-ledger.js");
+const { appendEmptyTouchedLine, kindOfLaunch } = require("./lib/run-ledger.js");
+const runMemory = require("./lib/run-memory.js");
 const { lookupLaunch, recordAllCached } = require("./lib/cached-plan.js");
 const {
 	CACHED_ENV,
@@ -457,7 +458,8 @@ function finishAllCached(looked, { root, launch, out, session, execFn }) {
  * inherited one never reaches a run that looked nothing up.
  * `startMark` the run's start on the change-time clock (lib/tree-drift.js's
  * `markStart`), null where none was taken. `tmpRoot` the run's `TMPDIR`.
- * @param {{ inflightFile: string, timingsFile: string, plan: ReturnType<typeof expandChanged>, launch: LauncherLaunch, base: string|null, cached: Record<string, string>|null, startMark: bigint|null, tmpRoot: string|null }} run
+ * `memoryFile` the run's memory record (lib/run-memory.js).
+ * @param {{ inflightFile: string, timingsFile: string, plan: ReturnType<typeof expandChanged>, launch: LauncherLaunch, base: string|null, cached: Record<string, string>|null, startMark: bigint|null, tmpRoot: string|null, memoryFile: string }} run
  */
 function vitestEnv({
 	inflightFile,
@@ -468,6 +470,7 @@ function vitestEnv({
 	cached,
 	startMark,
 	tmpRoot,
+	memoryFile,
 }) {
 	/* The deadline file is this run's alone: a runner a test drives inside
 	 * vitest would otherwise overwrite it, then remove it, disarming bg-run's
@@ -494,6 +497,7 @@ function vitestEnv({
 		}),
 		...(process.stdout.isTTY ? { FORCE_COLOR: "1" } : {}),
 		...(tmpRoot === null ? {} : { TMPDIR: tmpRoot }),
+		[runMemory.MEMORY_ENV]: memoryFile,
 		/* Taken before vitest reads its config, which a run keys rows on too
 		 * (#5018); an inherited one, earlier still, stands where none is. */
 		...(startMark === null ? {} : { [START_MARK_ENV]: String(startMark) }),
@@ -788,6 +792,21 @@ function runOnce(
 		armSignals();
 		heldRuns.set(inflightFile, killCarrier);
 		const tmpRoot = openRunRoot(err);
+		const runLaunch = {
+			session,
+			kind: kindOfLaunch({
+				argv: launch.argv ?? null,
+				touched: launch.touched === true,
+				full: Boolean(weighed.full),
+				lander: idSeam.isLanderRun(),
+			}),
+			argv: launch.argv ?? [],
+			files: plan?.files ?? [],
+			fileCount: plan?.files.length ?? 0,
+			repo: path.basename(target),
+		};
+		const memory = takeWrapperMemory() ?? runMemory.startSampler(runLaunch);
+		memory.setLaunch(runLaunch);
 		/* A group of its own, so a kill reaches every worker vitest forks. */
 		const child = spawnFn(
 			bin,
@@ -804,10 +823,12 @@ function runOnce(
 					cached,
 					startMark: markStart(root),
 					tmpRoot,
+					memoryFile: memory.file,
 				}),
 				detached: true,
 			},
 		);
+		memory.setMain(child.pid ?? null);
 		if (!weighed.wholeSlot) yieldCpu(child, { err });
 		const spawnedAt = Date.now();
 		const spawnedAtMono = performance.now();
@@ -884,6 +905,7 @@ function runOnce(
 			inflight: record.open,
 			finished: record.finished,
 			argv: launch.argv ?? [],
+			memory: memory.current(),
 			...(idSeam.isLanderRun() ? { lander: true } : {}),
 			/* A killed run writes no scope, and an escalated whole run's argv
 			 * names no `--full=`; the margin check reads this (#3237). */
@@ -979,6 +1001,7 @@ function runOnce(
 			if (settled) return;
 			settled = true;
 			heldRuns.delete(inflightFile);
+			memory.stop();
 			dropRunRoot(tmpRoot, err);
 			dropCached();
 			disarm();
@@ -1033,6 +1056,29 @@ function runOnce(
 		};
 		child.on("close", settle);
 	});
+}
+
+/* The memory record the wrapper opened as it started, before its queue wait
+ * and its selection, so a wrapper killed there still leaves its pid (#5183). */
+/** @type {import("./lib/run-memory.js").Sampler|null} */
+let wrapperMemory = null;
+
+/** @param {string[]} argv */
+function openWrapperMemory(argv) {
+	wrapperMemory = runMemory.startSampler({
+		session: idSeam.fromEnv(),
+		kind: "queued",
+		argv,
+		files: [],
+		fileCount: 0,
+		repo: path.basename(repoRoot(TREE_ROOT) || TREE_ROOT),
+	});
+}
+
+function takeWrapperMemory() {
+	const taken = wrapperMemory;
+	wrapperMemory = null;
+	return taken;
 }
 
 /* Isolated worktrees `releaseRunsAndWorktrees` removes on a signal, since a `.finally()`
@@ -2808,6 +2854,7 @@ if (require.main === module) {
 		 * this run's own root, so a dead run's audit logs on the real temp
 		 * root are swept here (#5108). */
 		readAudit.sweep(os.tmpdir());
+		openWrapperMemory(argv);
 		holdForLoad()
 			.then((go) =>
 				go
@@ -2827,12 +2874,13 @@ if (require.main === module) {
 			// `process.exitCode`, never `process.exit()`: stdout is a pipe here, so
 			// writes to it are queued rather than synchronous, and exit() tears the
 			// process down before a piped `| head` or `| grep` has drained that
-			// queue — losing exactly the failure text this wrapper exists to keep
-			// (mantahostels#1943 review).
+			// queue (mantahostels#1943).
 			.then((code) => {
+				takeWrapperMemory()?.discard();
 				process.exitCode = code;
 			})
 			.catch((error) => {
+				takeWrapperMemory()?.discard();
 				process.stderr.write(`run-vitest.js crashed: ${error}\n`);
 				process.exitCode = 1;
 			});

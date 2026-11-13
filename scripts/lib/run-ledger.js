@@ -22,6 +22,9 @@
  * `cachedFiles` and `ranFiles` are the pass store's hits and misses (#4790):
  * cachedFiles null on a run that looked nothing up.
  *
+ * `memory` is the run's pids and peak resident memory (lib/run-memory.js,
+ * #5183): null on a run the wrapper did not sample.
+ *
  * `kind` and `fullCause` are #2812's rules; `runs.py` reads them, with
  * `verdict`, from here. `kind` is `lander` where the marker carries the
  * lander's mark and its argv a `--full` flag (#4757). `lander` is that mark on
@@ -53,26 +56,57 @@ function ranFull({ scope }, fullFlag) {
 	);
 }
 
+/** @param {string[]|null|undefined} argv */
+const hasFullFlag = (argv) =>
+	argv?.some((a) => a.startsWith("--full")) ?? false;
+
 /**
- * @param {Marker} m
+ * A launch's kind, before any marker: what `kindOf` reads off one, and what
+ * the run's memory record names (lib/run-memory.js, #5183).
+ * @param {{ argv: string[]|null|undefined, touched: boolean, full: boolean,
+ *   lander: boolean, suite?: string, viaChanged?: boolean,
+ *   fileFilters?: boolean }} launch `full` whether it ran or asked for the
+ *   whole suite
  * @returns {string}
  */
-function kindOf(m) {
-	const { argv, scope } = m;
-	if (scope?.touched) return "touched";
-	if (m.suite === "pytest") return "pytest";
-	const fullFlag = argv?.some((a) => a.startsWith("--full")) ?? false;
-	if (m.lander && fullFlag) return "lander";
-	if (ranFull(m, fullFlag)) return "full";
+function kindOfLaunch({
+	argv,
+	touched,
+	full,
+	lander,
+	suite = "vitest",
+	viaChanged = false,
+	fileFilters = false,
+}) {
+	if (touched) return "touched";
+	if (suite === "pytest") return "pytest";
+	const fullFlag = hasFullFlag(argv);
+	if (lander && fullFlag) return "lander";
+	if (full || fullFlag) return "full";
 	if (argv?.includes("--adopt")) return "adopt";
-	if (argv?.includes("--changed") || scope?.viaChanged) return "changed";
-	if (!argv) return scope?.fileFilters?.length ? "named" : "bare";
+	if (argv?.includes("--changed") || viaChanged) return "changed";
+	if (!argv) return fileFilters ? "named" : "bare";
 	const named =
 		argv.includes("--retest") ||
 		argv.includes("-t") ||
 		argv.some((a) => !a.startsWith("-"));
 	return named ? "named" : "bare";
 }
+
+/**
+ * @param {Marker} m
+ * @returns {string}
+ */
+const kindOf = (m) =>
+	kindOfLaunch({
+		argv: m.argv,
+		touched: Boolean(m.scope?.touched),
+		full: ranFull(m, hasFullFlag(m.argv)),
+		lander: Boolean(m.lander),
+		suite: m.suite,
+		viaChanged: Boolean(m.scope?.viaChanged),
+		fileFilters: Boolean(m.scope?.fileFilters?.length),
+	});
 
 /**
  * @param {Marker} m
@@ -122,6 +156,7 @@ function buildLedgerLine(m, { green, root }) {
 		wholeSlot: m.scope?.wholeSlot === true,
 		cachedFiles: Array.isArray(m.cached) ? m.cached.length : null,
 		ranFiles: m.scope?.modulesRun ?? null,
+		memory: m.memory ?? null,
 		repo: path.basename(root),
 	};
 }
@@ -187,4 +222,9 @@ function appendEmptyTouchedLine(
 	);
 }
 
-module.exports = { RUN_LEDGER, appendEmptyTouchedLine, appendLedgerLine };
+module.exports = {
+	RUN_LEDGER,
+	appendEmptyTouchedLine,
+	appendLedgerLine,
+	kindOfLaunch,
+};

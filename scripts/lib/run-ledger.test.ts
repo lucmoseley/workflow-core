@@ -14,11 +14,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 const require = createRequire(import.meta.url);
 const {
+	markerFrom,
 	record,
 	recordFailure,
 	storePath,
 	readMarkers,
 } = require("./test-pass-marker.js");
+const runMemory = require("./run-memory.js");
 const { DAY_MS } = require("./retained-jsonl.js");
 
 const dirs: string[] = [];
@@ -94,6 +96,7 @@ describe("the ledger beside the marker stores (#2824)", () => {
 				wholeSlot: false,
 				cachedFiles: null,
 				ranFiles: 3,
+				memory: null,
 				repo: path.basename(root),
 			},
 			expect.objectContaining({ verdict: "red", session: null }),
@@ -230,5 +233,40 @@ describe("a line's kind, cause and verdict (#2812 runs.py rules)", () => {
 		expect(lineFor({ ceilingKill: true }, false).verdict).toBe("killed");
 		expect(lineFor({ stalled: true }, false).verdict).toBe("stalled");
 		expect(lineFor({}, false).verdict).toBe("red");
+	});
+	it("carries the run's pids and four peaks from the wrapper's run file, null where none was sampled (#5183)", () => {
+		const store = sandbox();
+		const sampler = runMemory.startSampler(
+			{
+				session: "s-1",
+				kind: "named",
+				argv: [],
+				files: [],
+				fileCount: 0,
+				repo: "r",
+			},
+			{ dir: store, intervalMs: 60_000, bootId: null },
+		);
+		sampler.setMain(process.ppid);
+		sampler.sample();
+		const memory = runMemory.readRunMemory({
+			[runMemory.MEMORY_ENV]: sampler.file,
+		});
+		sampler.stop();
+		const built = markerFrom(null, { head: SHA }, null, { memory });
+		const line = lineFor(built);
+		expect(line.memory).toEqual(memory);
+		expect(Object.keys(line.memory.peaksMiB)).toEqual([
+			"wrapper",
+			"main",
+			"worker",
+			"sum",
+		]);
+		expect(line.memory.pids).toMatchObject({
+			wrapper: process.pid,
+			main: process.ppid,
+		});
+		expect(line.memory.peaksMiB.wrapper).toBeGreaterThan(0);
+		expect(lineFor({}).memory).toBeNull();
 	});
 });

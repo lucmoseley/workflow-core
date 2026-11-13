@@ -22,6 +22,14 @@ if (runTempRoot) process.env.TMPDIR = runTempRoot;
 	globalThis as { __wfcReadAudit?: { claim: (file: string) => void } }
 ).__wfcReadAudit?.claim(String(expect.getState().testPath));
 
+/* THE RUN'S MEMORY RECORD NAMES THE FILE THIS WORKER RUNS (#5183), so its
+ * peak can be tied to a file (lib/run-memory.js). */
+(
+	createRequire(import.meta.url)("./scripts/lib/run-memory.js") as {
+		claimFile: (file: string) => void;
+	}
+).claimFile(String(expect.getState().testPath));
+
 /*
  * NO FIXTURE'S GIT CALL REACHES THE REAL REPO THROUGH AN INHERITED GIT_DIR
  * (#1677).
