@@ -197,7 +197,7 @@ describe.each(GATES)("the $id dispatcher row", (row) => {
 				stage(r, at, json ? '{ "v": 2 }\n' : "two\n");
 			},
 		});
-		const file = path.join(SCRIPTS, path.basename(row.script));
+		const file = path.join(SCRIPTS, path.relative("scripts", row.script));
 		/* A program row: its PROGRAM against its own process shell, in the
 		 * fixture as the dispatcher runs it in the hook's repo. */
 		if (row.kind === "program") {

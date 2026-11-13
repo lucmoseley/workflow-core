@@ -267,7 +267,11 @@ const GATE_SOURCES: Record<string, string[]> = {
 	"skill-body-size": ["scripts/check-skill-body-size.js"],
 	"workflow-permissions": ["scripts/check-workflow-permissions.js"],
 	primitives: ["scripts/check-primitives.js"],
-	"doc-map": [".husky/pre-commit", "scripts/lib/precommit-gate.sh"],
+	"doc-map": [
+		"scripts/lib/precommit-gate-verdicts.js",
+		"scripts/lib/doc-map-gate-report.js",
+		"scripts/lib/doc-map-gate.js",
+	],
 	"context-budget": ["scripts/check-context-budget.js"],
 	"injector-margin": ["scripts/check-injector-margin.js"],
 	"superseded-needle": [".husky/pre-commit", "scripts/lib/precommit-gate.sh"],
@@ -313,10 +317,18 @@ describe("the commit-gate refusal table against the gates it copies (#2298)", ()
 				const found = sources.reduce((n, s) => n + occurrences(s, spelt), 0);
 				expect(found, `${spelt} in ${GATE_SOURCES[id]}`).toBe(row.sites ?? 1);
 				if (!row.from) continue;
-				expect(row.from.replace(/\$\w+/, id)).toBe(row.text);
-				expect(PRE_COMMIT).toMatch(
-					new RegExp(`^\\s*${row.via} ${id}(\\s|$)`, "m"),
-				);
+				expect(row.from.replace(/\$(?:\w+|\{\w+\})/, id)).toBe(row.text);
+				// The placeholder's value is bound at a shell call site (`via`), or
+				// as the id's own string literal in a Node gate's sources.
+				if (row.via)
+					expect(PRE_COMMIT).toMatch(
+						new RegExp(`^\\s*${row.via} ${id}(\\s|$)`, "m"),
+					);
+				else
+					expect(
+						sources.some((src) => src.includes(JSON.stringify(id))),
+						`${id} bound in ${GATE_SOURCES[id]}`,
+					).toBe(true);
 			}
 		},
 	);
@@ -348,8 +360,6 @@ const HOOK_CALLS: Record<string, (string | null)[]> = {
 	"scripts/precommit-dispatch.js": [null],
 	"scripts/lib/workflow-core-config.js": [null, null, null],
 	"scripts/check-digest-render.js": ["digest-render"],
-	"scripts/check-doc-map.js": ["doc-map", "doc-map", "doc-map"],
-	"scripts/checker-new-faults.js": ["doc-map"],
 	"scripts/check-superseded-values.js": ["superseded-needle"],
 	"scripts/lib/formatters.js": ["ruff", null, null],
 	"scripts/check-ruff-introduced.js": ["ruff"],
@@ -363,7 +373,6 @@ const HOOK_CALLS: Record<string, (string | null)[]> = {
 };
 /** The hook's inline `pre-commit:` heads that refuse nothing. */
 const HOOK_NOTICES = [
-	"left as they are, the $dm_noun above reach the scheduled sweeps as DEAD",
 	"is RED — reporting only, this commit is NOT blocked.",
 	"skipped, not waited for, as this commit holds .git/index.lock",
 	"in the lock — no pre-lock green stands it down",

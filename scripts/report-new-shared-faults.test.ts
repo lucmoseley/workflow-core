@@ -572,8 +572,8 @@ describe("the notice the session reads", () => {
 /**
  * The real notice table, not a stub one: a profile with no row goes
  * unannounced (#4246), and a row's gate claim must be the flag the hook, or
- * its dispatcher's row, runs its checker with (#4221). doc-map's own staged-vs-HEAD block gates it, with
- * no flag on its line.
+ * its dispatcher's row, runs its checker with (#4221). doc-map's own row
+ * compares staged with HEAD itself, running its checker with no flag.
  */
 describe("lib/shared-fault-notices.js's NOTICES", () => {
 	const OwnGateBlock = new Set(["doc-map"]);
@@ -591,8 +591,13 @@ describe("lib/shared-fault-notices.js's NOTICES", () => {
 
 	const cases = Object.entries(NOTICES).map(([profile, { script, gate }]) => {
 		const name = path.basename(script);
-		/* A dispatcher row's run is its args (#5172). */
-		const row = GATES.find((g) => g.script === `scripts/${name}`);
+		/* A dispatcher row's run is its args (#5172); an own-gate profile's row
+		 * is the one it names. */
+		const row =
+			GATES.find((g) => g.script === `scripts/${name}`) ??
+			(OwnGateBlock.has(profile)
+				? GATES.find((g) => g.id === profile)
+				: undefined);
 		const runs = row
 			? [row.args.join(" ")]
 			: hook
@@ -622,8 +627,7 @@ describe("lib/shared-fault-notices.js's NOTICES", () => {
 
 /*
  * HOOK PARITY (mantahostels#1825): .husky/post-commit's own text is read and its fault
- * block is CUT AND RUN, the way precommit-doc-map-gate.test.ts exercises the
- * pre-commit fragment.
+ * block is CUT AND RUN.
  *
  * The cases stub `scripts/report-new-shared-faults.js` inside a throwaway repo:
  * what is under test is the hook's guarding, not the script's answer.

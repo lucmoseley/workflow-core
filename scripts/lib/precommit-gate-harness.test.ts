@@ -53,9 +53,8 @@ describe("cutGateFragment", () => {
 	});
 
 	it("stops at the `fi` in column zero, not an indented one", () => {
-		// The doc-map gate nests several `if`s, so every `fi` but the last is
-		// indented.
-		const fragment = cutGateFragment("scripts/check-doc-map.js");
+		// The typecheck gate nests `if`s, so every `fi` but the last is indented.
+		const fragment = cutGateFragment("command typecheck");
 		const fis = fragment.split("\n").filter((l) => l.trim() === "fi");
 		expect(fis.length).toBeGreaterThan(1);
 		expect(fis.slice(0, -1).every((l) => l !== "fi")).toBe(true);
@@ -63,7 +62,7 @@ describe("cutGateFragment", () => {
 	});
 
 	it("cuts a different block for each anchor", () => {
-		expect(cutGateFragment("scripts/check-doc-map.js")).not.toBe(
+		expect(cutGateFragment("command typecheck")).not.toBe(
 			cutGateFragment("scripts/check-injector-margin.js"),
 		);
 	});
@@ -170,17 +169,17 @@ describe("the scripts a gate invokes", () => {
 		]);
 	});
 
-	it("finds a call passed as a bare argument to gate_direction, alongside the direct calls around it", () => {
-		expect(invokedBy("scripts/check-doc-map.js")).toEqual([
-			"scripts/check-doc-map.js",
-			"scripts/checker-new-faults.js",
+	it("finds a call inside a command substitution, alongside the direct call after it", () => {
+		expect(invokedBy("check-ruff-introduced.js")).toEqual([
+			"scripts/check-ruff-introduced.js",
+			"scripts/lib/formatters.js",
 		]);
 	});
 
 	it("de-duplicates a script the fragment calls more than once", () => {
-		const invoked = invokedBy("scripts/check-doc-map.js");
+		const invoked = invokedBy("check-ruff-introduced.js");
 		expect(
-			invoked.filter((s) => s === "scripts/check-doc-map.js"),
+			invoked.filter((s) => s === "scripts/lib/formatters.js"),
 		).toHaveLength(1);
 	});
 
@@ -225,11 +224,6 @@ describe("the scripts a gate invokes", () => {
 			"digest-version",
 			"scripts/check-digest-version.js",
 			["scripts/check-digest-version.js"],
-		],
-		[
-			"doc-map",
-			"scripts/check-doc-map.js",
-			["scripts/check-doc-map.js", "scripts/checker-new-faults.js"],
 		],
 		[
 			"superseded-needle",

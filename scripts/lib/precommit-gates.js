@@ -367,6 +367,25 @@ const GATES = [
 		kind: "program",
 	},
 	/*
+	 * The doc map's own coverage, checked at commit as well as in
+	 * roadmap-digest.yml (mantahostels#390); lib/doc-map-gate.js's header holds
+	 * its rules. The pattern spells SCOPE in lib/doc-map.js, a directory member
+	 * as `docs/` and a root file as `AGENTS\.md$`, and
+	 * lib/doc-map-gate-ports.test.ts asserts the parity.
+	 */
+	{
+		id: "doc-map",
+		script: "scripts/lib/doc-map-gate-ports.js",
+		lander: "batch",
+		args: [],
+		arm: {
+			pattern:
+				/^(docs\/|\.claude\/|hooks\/|self-plugin\/|AGENTS\.md$|CLAUDE\.md$|PRODUCT\.md$|DESIGN\.md$|GLOSSARY\.md$)/,
+		},
+		policy: "gate",
+		kind: "program",
+	},
+	/*
 	 * A scripts/ test that spawns a guard sourcing lib/guard-log.sh must
 	 * redirect CLAUDE_CONFIG_DIR, or every fail-open it provokes is appended to
 	 * the developer's real guard-errors.log (mantahostels#1452). Armed on every

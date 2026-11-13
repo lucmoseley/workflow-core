@@ -18,8 +18,8 @@
  * the second.
  *
  * A THIRD GATE reached neither, and mantahostels#2902 brought it in: the doc-map gate,
- * spelled out in .husky/pre-commit rather than declared, asking for its input
- * with `git checkout-index` instead of gate_stage_out.
+ * a pre-commit dispatcher row (scripts/lib/doc-map-gate.js) rather than a
+ * declared gate, asking for its input with `git checkout-index` before it reads the map alone.
  *
  * Every checker is stubbed to exit 1 and print a marker: the refusal happens
  * BEFORE the checker runs, so a case asserting the marker's absence is
@@ -32,6 +32,8 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { PROGRAM } from "./lib/doc-map-gate-ports.js";
+import { dispatch, existsUnder, readStaged } from "./lib/precommit-dispatch.js";
 import {
 	cutGateScript,
 	expectFixtureSupplies,
@@ -40,11 +42,12 @@ import {
 	stagedRepo,
 	type TempRepo,
 } from "./lib/precommit-gate-harness";
-import { HOOK } from "./lib/precommit-gate-testkit";
+import { HOOK, ROOT } from "./lib/precommit-gate-testkit";
+import { GATES, type PrecommitGate } from "./lib/precommit-gates.js";
 
 const VERSION_ANCHOR = "scripts/check-digest-version.js";
 const SUPERSEDED_ANCHOR = "--broken-only";
-const DOC_MAP_ANCHOR = "scripts/check-doc-map.js";
+const DOC_MAP_ROW = GATES.find((g) => g.id === "doc-map") as PrecommitGate;
 
 const ROADMAP = "docs/reference-roadmap.html";
 const DIGEST = "docs/roadmap-digest.md";
@@ -152,7 +155,27 @@ function runGate(
 
 const versionGate = () => cutGateScript(VERSION_ANCHOR);
 const supersededGate = () => cutGateScript(SUPERSEDED_ANCHOR);
-const docMapGate = () => cutGateScript(DOC_MAP_ANCHOR);
+/** The doc-map row run by the dispatcher's core over `cwd`'s staged paths. */
+async function runDocMapRow(
+	cwd: string,
+	env: Record<string, string> = {},
+): Promise<{ code: number; output: string }> {
+	let output = "";
+	const code = await dispatch({
+		rows: [DOC_MAP_ROW],
+		gates: "batch",
+		ports: {
+			staged: () => readStaged(cwd),
+			computed: () => [],
+			exists: existsUnder(cwd),
+			load: () => () => PROGRAM({ cwd, env: { ...process.env, ...env } }),
+			write: (_fd: number, text: string) => {
+				output += text;
+			},
+		},
+	});
+	return { code, output };
+}
 
 const PAIR = { [ROADMAP]: "html\n", [DIGEST]: "digest\n" };
 const VERSION_CHECKERS = ["scripts/check-digest-version.js"];
@@ -508,17 +531,18 @@ describe("mutations of the library are caught by the cases above", () => {
  * THE DOC-MAP GATE IS THE THIRD CALLER, AND IT REACHED NONE OF THE ABOVE
  * (mantahostels#2902).
  *
- * .husky/pre-commit spells that gate out rather than declaring it — mantahostels#1793 left
- * it that way for its `--map-dirty` flag, temp index and untracked-entry
- * replay — and it asks for its input with `git checkout-index` and a file test
- * rather than `gate_stage_out`. So `git rm --cached docs/doc-map.md` took the
- * skip line, `dm_status` stayed 0, and the commit landed: the repo's authority
- * model, always loaded and read before any tracked-document edit, out of the
- * tree with nothing printed but a warning.
+ * That gate is not declared — its `--map-dirty` flag, temp index and
+ * untracked-entry replay (mantahostels#1793) put it in its own core,
+ * scripts/lib/doc-map-gate.js — and it asks for its input with `git
+ * checkout-index` and a file test. So `git rm --cached docs/doc-map.md` once
+ * took the skip line and landed: the repo's authority model, always loaded and
+ * read before any tracked-document edit, out of the tree with nothing printed
+ * but a warning.
  *
- * Measured pre-fix at exit 0, the skip line, no checker run (mantahostels#2902). The fix
- * calls gate_stage_out for the MAP ALONE down the not-readable limb, so these
- * cases run against the same gate_check_deleted the two callers above use.
+ * Down the not-readable limb it now reads the map alone and asks git whether
+ * this commit deletes it, in the wording gate_check_deleted prints
+ * (lib/precommit-gate-verdicts.js). Its branches are module cases in
+ * lib/doc-map-gate.test.ts; these run the row over real git.
  */
 
 /**
@@ -574,18 +598,27 @@ function conflictedMap(): TempRepo {
 
 describe("the doc-map gate, which spells itself out", () => {
 	it("supplies exactly the scripts the gate under test invokes", () => {
-		expectFixtureSupplies(DOC_MAP_ANCHOR, DOC_MAP_CHECKERS);
+		const ports = fs.readFileSync(
+			path.join(ROOT, "scripts/lib/doc-map-gate-ports.js"),
+			"utf8",
+		);
+		const invoked = [
+			...new Set([...ports.matchAll(/"([\w-]+\.js)"/g)].map((m) => m[1])),
+		]
+			.map((n) => `scripts/${n}`)
+			.sort();
+		expect(invoked).toEqual([...DOC_MAP_CHECKERS].sort());
 	});
 
 	// mantahostels#2902's reproduction: `git rm --cached docs/doc-map.md`.
-	it("refuses the commit as a deletion, before the checker runs", () => {
+	it("refuses the commit as a deletion, before the checker runs", async () => {
 		const { root } = fixture({
 			checkers: DOC_MAP_CHECKERS,
 			committed: { [MAP]: "map\n" },
 			deleted: [MAP],
 		});
 
-		const { code, output } = runGate(root, docMapGate());
+		const { code, output } = await runDocMapRow(root);
 		expect(code).toBe(1);
 		expect(output).toContain("this commit DELETES it");
 		expect(output).not.toContain(STUB_MARKER);
@@ -593,42 +626,42 @@ describe("the doc-map gate, which spells itself out", () => {
 
 	// The map renamed OUT of docs/ — the case this gate's `^docs/` arming grep
 	// could not see at all until it took --no-renames (mantahostels#2903).
-	it("refuses when the map is renamed out of docs/, naming it as deleted, before the checker runs", () => {
+	it("refuses when the map is renamed out of docs/, naming it as deleted, before the checker runs", async () => {
 		const { root, git } = fixture({
 			checkers: DOC_MAP_CHECKERS,
 			committed: { [MAP]: "map\n" },
 		});
 		git("mv", MAP, "elsewhere.md");
 
-		const { code, output } = runGate(root, docMapGate());
+		const { code, output } = await runDocMapRow(root);
 		expect(code).toBe(1);
 		expect(output).toContain("this commit DELETES it");
 		expect(output).toContain(MAP);
 		expect(output).not.toContain(STUB_MARKER);
 	});
 
-	it("names the deleted file and the way through", () => {
+	it("names the deleted file and the way through", async () => {
 		const { root } = fixture({
 			checkers: DOC_MAP_CHECKERS,
 			committed: { [MAP]: "map\n" },
 			deleted: [MAP],
 		});
 
-		const { output } = runGate(root, docMapGate());
+		const { output } = await runDocMapRow(root);
 		expect(output).toContain(MAP);
 		expect(output).toContain("git checkout HEAD --");
 		expect(output).toContain(`${ESCAPE}=1`);
 		expect(output).toContain("the doc-map check reads");
 	});
 
-	it("lets the deletion through when the escape is set", () => {
+	it("lets the deletion through when the escape is set", async () => {
 		const { root } = fixture({
 			checkers: DOC_MAP_CHECKERS,
 			committed: { [MAP]: "map\n" },
 			deleted: [MAP],
 		});
 
-		const { code, output } = runGate(root, docMapGate(), { [ESCAPE]: "1" });
+		const { code, output } = await runDocMapRow(root, { [ESCAPE]: "1" });
 		expect(code).toBe(0);
 		expect(output).toContain(`${ESCAPE} is set`);
 		expect(output).toContain("skipped the doc-map check");
@@ -645,24 +678,24 @@ describe("the doc-map gate, which spells itself out", () => {
 	 * `checkout-index` succeeds, and the map it was asked for was never in the
 	 * index.
 	 */
-	it("skips and passes when the map was never in the index", () => {
+	it("skips and passes when the map was never in the index", async () => {
 		const { root } = fixture({
 			checkers: DOC_MAP_CHECKERS,
 			committed: { "docs/other.md": "x\n" },
 			staged: { "docs/other.md": "x edited\n" },
 		});
 
-		const { code, output } = runGate(root, docMapGate());
+		const { code, output } = await runDocMapRow(root);
 		expect(code).toBe(0);
 		expect(output).toContain("skipped the doc-map check");
 		expect(output).not.toContain("DELETES");
 	});
 
 	// The OTHER cause: mantahostels#2902's second acceptance criterion, fixture at mantahostels#2911.
-	it("skips and passes when checkout-index fails on a missing blob", () => {
+	it("skips and passes when checkout-index fails on a missing blob", async () => {
 		const { root } = badBlobMap();
 
-		const { code, output } = runGate(root, docMapGate());
+		const { code, output } = await runDocMapRow(root);
 		expect(code).toBe(0);
 		expect(output).toContain("skipped the doc-map check");
 		expect(output).not.toContain("DELETES");
@@ -670,63 +703,25 @@ describe("the doc-map gate, which spells itself out", () => {
 
 	// The whole hook stack runs on `git merge` here, so a resolution must not be
 	// read as a deletion: an unmerged path has no stage-0 blob either.
-	it("skips and passes on an unmerged map mid-conflict", () => {
+	it("skips and passes on an unmerged map mid-conflict", async () => {
 		const { root } = conflictedMap();
 
-		const { code, output } = runGate(root, docMapGate());
+		const { code, output } = await runDocMapRow(root);
 		expect(code).toBe(0);
 		expect(output).toContain("skipped the doc-map check");
 		expect(output).not.toContain("DELETES");
 	});
 
-	it("runs the checker normally when nothing is deleted", () => {
+	it("runs the checker normally when nothing is deleted", async () => {
 		const { root } = fixture({
 			checkers: DOC_MAP_CHECKERS,
 			committed: { [MAP]: "map\n" },
 			staged: { [MAP]: "map edited\n" },
 		});
 
-		const { output } = runGate(root, docMapGate());
+		const { output } = await runDocMapRow(root);
 		expect(output).toContain(STUB_MARKER);
 		expect(output).not.toContain("DELETES");
-	});
-
-	// The gate's own call, not the library's: a fix landing only in
-	// precommit-gate.sh passes every case above this one and fails this.
-	it("stops refusing when the gate's deletion question is dropped", () => {
-		const original = docMapGate();
-		const mutant = original.replace(
-			/ {4}if ! gate_stage_out "\$dm_dir" docs\/doc-map\.md; then\n {6}gate_check_deleted doc-map\n {4}fi\n/,
-			"",
-		);
-		expect(mutant, "the doc-map deletion question no longer parses").not.toBe(
-			original,
-		);
-		const { root } = fixture({
-			checkers: DOC_MAP_CHECKERS,
-			committed: { [MAP]: "map\n" },
-			deleted: [MAP],
-		});
-
-		expect(runGate(root, mutant).code).toBe(0);
-	});
-
-	// Isolates the OTHER cause (mantahostels#2911): a fix reached only through the file
-	// test at `[ -f … ]` leaves `checkout-index` itself unguarded. This mutant
-	// aborts the hook on the exit status the not-readable limb exists to warn
-	// and pass on instead — it fails only this case, never the sibling "never
-	// in the index" one, where `checkout-index` succeeds trivially.
-	it("stops warning and passing when checkout-index's own failure is unguarded", () => {
-		const original = docMapGate();
-		const mutant = original.replace(
-			'git checkout-index -a --prefix="$dm_dir/tree/" 2>/dev/null || dm_readable=0',
-			'git checkout-index -a --prefix="$dm_dir/tree/" 2>/dev/null || exit 1',
-		);
-		expect(mutant, "the checkout-index call no longer parses").not.toBe(
-			original,
-		);
-
-		expect(runGate(badBlobMap().root, mutant).code).toBe(1);
 	});
 });
 

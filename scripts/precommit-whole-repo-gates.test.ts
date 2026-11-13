@@ -26,7 +26,7 @@ import {
 	registerTempCleanup,
 	stagedRepo,
 } from "./lib/precommit-gate-harness";
-import { HOOK, LIB, ROOT } from "./lib/precommit-gate-testkit";
+import { ROOT } from "./lib/precommit-gate-testkit";
 import { GATES, PROFILE_GATES } from "./lib/precommit-gates.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { JS_TEST_FILE, siblingTests } from "./lib/test-kind.js";
@@ -174,6 +174,7 @@ const HOOK_ERE: Record<string, string> = {
 	"scripts/generate-plugin-hooks.js": String.raw`^(self-plugin/hooks/hooks\.json|hooks/hooks\.json|scripts/[^/]+|scripts/lib/(core-hooks|deny-capable|guard-fires)\.js)$`,
 	"scripts/generate-rule-fragments.js": "^docs/agents/rules/",
 	"scripts/generate-effort-guide-routing.js": String.raw`^(docs/effort-guide\.md|scripts/lib/model-routing\.json|scripts/generate-effort-guide-routing\.js|scripts/lib/model-table\.js)$`,
+	"scripts/lib/doc-map-gate-ports.js": String.raw`^(docs/|\.claude/|hooks/|self-plugin/|AGENTS\.md$|CLAUDE\.md$|PRODUCT\.md$|DESIGN\.md$|GLOSSARY\.md$)`,
 	"scripts/check-context-budget.js": String.raw`^(CLAUDE\.md$|AGENTS\.md$|docs/|\.claude/|scripts/|self-plugin/)`,
 };
 
@@ -246,6 +247,13 @@ const PATHS = [
 	"docs/effort-guide.md",
 	"scripts/lib/model-routing.json",
 	"scripts/lib/model-table.js",
+	"PRODUCT.md",
+	"DESIGN.md",
+	"GLOSSARY.md",
+	"GLOSSARY.md.bak",
+	"my-docs/a.md",
+	"vendor/CLAUDE.md",
+	"hooks",
 ];
 
 describe("each row's arm, against the hook ERE it replaced", () => {
@@ -272,15 +280,6 @@ describe("each row's arm, against the hook ERE it replaced", () => {
 		expect(PATHS.filter((p) => gate.arm.pattern.test(p))).toEqual(
 			matched.split("\n").filter(Boolean),
 		);
-	});
-});
-
-describe("the shell's direction gate (mantahostels#1793)", () => {
-	it("keeps gate_direction for its one caller, the doc map", () => {
-		// Spelled out deliberately, for its --map-dirty flag, temp index and
-		// untracked-entry replay (mantahostels#1793).
-		expect(LIB).toContain("gate_direction() {");
-		expect(HOOK).toContain("gate_direction doc-map");
 	});
 });
 

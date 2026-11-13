@@ -543,8 +543,8 @@ function parseEntries(text, idPattern) {
 // GLOSSARY.md joined at #2720: the domain glossary, which restates rules its
 // owner documents carry, so an unregistered one is never re-read when they change.
 //
-// .husky/pre-commit greps the same set to decide whether to run the gate at all;
-// precommit-doc-map-gate.test.ts asserts the two stay in step.
+// The pre-commit doc-map row's arm spells the same set to decide whether to run
+// the gate at all; lib/doc-map-gate-ports.test.ts asserts the two stay in step.
 const SCOPE = [
 	"docs",
 	".claude",
