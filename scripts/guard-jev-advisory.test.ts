@@ -743,9 +743,9 @@ describe("a flagged turn", () => {
 	});
 
 	it("carries the hash the log names it by, and the verdict command", async () => {
-		/* The advisory is the ONLY moment the flag can be judged — the message
-		 * text is never kept — so the hash in it has to be the one the verdict
-		 * store joins on (#253). Read off the log this run wrote rather than
+		/* The verdict store joins on the hash, not the text the `flagged` line
+		 * keeps, so the hash the advisory names has to be the logged one
+		 * (#253). Read off the log this run wrote rather than
 		 * recomputed here, which is what makes a change to either side fail. */
 		const { res } = await ask(PLAIN, 0.91);
 		const { messageHash } = readLogLines()[0];
