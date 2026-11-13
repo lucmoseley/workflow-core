@@ -266,6 +266,7 @@ def block_rows(pairs, ratio, *, noise=0.0, seed=0, usable=True):
                     "cpu_per_call": 1.0,
                     "closes_h": 6.0,
                     "win_floor_min": 0,
+                    "active": 4,
                     "ticked": True,
                     "usable": usable,
                 }
@@ -323,6 +324,7 @@ def test_blocks_read_marks_usability_and_reads_the_last_ten_minutes():
     assert row["hto_min"] == 1.0
     assert row["cpu_per_call"] == 1200 / 20
     assert row["win_floor_min"] == 3
+    assert row["active"] == 4
     assert row["usable"]
     (row,) = ms.blocks_read(sched, evs, ticks=[T0 + 10], **kw)
     assert not row["usable"]  # its only loop tick fell in the washout

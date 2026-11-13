@@ -21,14 +21,16 @@ per arm instead, as a balance check.
            run it right before `run`, which refuses a schedule whose pair 0 has passed
   run      walk the schedule, starting and ending the holder at each block's edges.
            Ends at the schedule's end, at USABLE_PAIRS usable pairs or at a stop
-           rule, and removes the hold whichever way it ends. Run it detached, the
-           unit removing the hold file even on a kill the script cannot see;
-           stopping the unit kills the holder with it:
-             systemd-run --user --unit=wfc-memory-switchback --collect \\
-               -p ExecStopPost="/bin/rm -f $HOME/.claude/memory-hold" \\
-               python3 "$PWD/scripts/memory_switchback.py" run
-           Restarted after a reboot or a kill, it resumes at the block in
-           progress; after a stop rule or a finished trial it refuses.
+           rule, and removes the hold whichever way it ends. Run it as the user
+           unit scripts/memory-switchback.service, which starts it again after
+           a boot, a user manager restart or a kill, and removes the hold file
+           even on a kill the script cannot see; stopping the unit kills the
+           holder with it:
+             cp scripts/memory-switchback.service ~/.config/systemd/user/
+             systemctl --user daemon-reload
+             systemctl --user enable --now memory-switchback.service
+           Restarted, it resumes at the block in progress; after a stop rule
+           or a finished trial it refuses.
   hold     the holder itself: resident anonymous memory, re-touched every
            TOUCH_S seconds at low CPU, `ready` on stdout once every page is in
   readout  print the markdown readout for the ticket
@@ -527,6 +529,7 @@ def blocks_read(sched, events, *, minute_rows, mem, ticks, close_ts, until):
                 "hto_min": sum(m["hto"] for m in mins) / READ_MIN,
                 "cpu_per_call": cpu_s / len(bash) if bash else None,
                 "closes_h": sum(lo <= t < hi for t in close_ts) * 60 / READ_MIN,
+                "active": active,
                 "win_floor_min": sum(
                     r.get("win_avail_mb") is not None
                     and r["win_avail_mb"] < WINDOWS_FLOOR_MB
@@ -562,6 +565,9 @@ COMPANIONS = (
         f"Minutes Windows under its {WINDOWS_FLOOR_MB} MB launch floor (balance)",
         "win_floor_min",
     ),
+    # Launches fixed, read rather than assumed: admission's Windows charge
+    # reads MemFree, which the add-back leaves alone (#4956).
+    ("Active transcripts, block median (balance)", "active"),
 )
 
 
