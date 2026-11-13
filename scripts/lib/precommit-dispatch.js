@@ -10,9 +10,9 @@
  * and stderr reach fds 1 and 2 when it finishes, before the next starts —
  * except a `quietPass` row's pass with no WARN in it, whose output is dropped.
  *
- * THE FAILURE POLICY, per row. A `gate` row fails closed: a throw while its
- * module loads or while it runs is BROKEN, exit 2, with one line naming the
- * row. A `warn` row never refuses: its output prints, whatever its exit, and
+ * THE FAILURE POLICY, per row (#5171). A `gate` row fails closed: a throw
+ * while its module loads, while the list it arms on is computed or while it
+ * runs is BROKEN, exit 2, with one line naming the row. A `warn` row never refuses: its output prints, whatever its exit, and
  * its own throw prints one line naming it and the run goes on.
  *
  * ARMING. The staged entries are read once, by staged_names' own git call
@@ -119,6 +119,24 @@ function armed(arm, staged, ports) {
 }
 
 /**
+ * Whether `row` arms, or BROKEN where the list it arms on will not compute:
+ * that list's module is the row's own, so its fault is the row's load fault.
+ * @template {Row} R
+ * @param {R} row
+ * @param {StagedEntry[]} staged
+ * @param {Ports<R>} ports
+ * @returns {boolean | { exit: number }}
+ */
+function armedOrBroken(row, staged, ports) {
+	try {
+		return armed(row.arm, staged, ports);
+	} catch (e) {
+		ports.write(2, crashLine(row, "load", e));
+		return { exit: 2 };
+	}
+}
+
+/**
  * @param {Row} row
  * @param {"load" | "run"} at
  * @param {unknown} e
@@ -143,10 +161,11 @@ async function dispatch({ rows, gates, ports }) {
 	};
 	for (const row of rows) {
 		if (!SETS[row.lander].includes(gates)) continue;
-		if (!armed(row.arm, staged, ports)) continue;
+		const arming = armedOrBroken(row, staged, ports);
+		if (arming === false) continue;
 		const before = await stopped();
 		if (before !== null) return before;
-		const result = await runRow(row, ports);
+		const result = arming === true ? await runRow(row, ports) : arming;
 		if (row.policy === "warn" || result.exit === 0) continue;
 		const after = await stopped();
 		if (after !== null) return after;

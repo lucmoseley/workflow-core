@@ -85,7 +85,7 @@ async function run(
 	opts: {
 		dir?: string;
 		gates?: "all" | "merge" | "batch";
-		computed?: Record<string, string[]>;
+		computed?: Record<string, string[] | Error>;
 		signalIn?: string;
 	} = {},
 ) {
@@ -98,7 +98,11 @@ async function run(
 		rows,
 		gates: opts.gates ?? "all",
 		ports: buildRepoPorts(dir, {
-			computed: (name: string) => opts.computed?.[name] ?? [],
+			computed: (name: string) => {
+				const list = opts.computed?.[name] ?? [];
+				if (list instanceof Error) throw list;
+				return list;
+			},
 			load: (r: StubRow) => {
 				if (r.throws === "load") throw new Error(`${r.id} will not load`);
 				return () => {
@@ -169,20 +173,31 @@ describe("arming", () => {
 		expect((await run(rows, { dir: docs })).ran).toEqual(["budget"]);
 	});
 
-	it("rejects where a computed list cannot be read, so no row arms on a guess", async () => {
-		const dir = repo({}, { "a.txt": "a\n" });
-		await expect(
-			dispatch({
-				rows: [row("lister", { arm: { computed: "gone" } })],
-				gates: "all",
-				ports: buildRepoPorts(dir, {
-					computed: () => {
-						throw new Error("the lister is gone");
-					},
-					load: () => () => ({ exit: 0, stdout: "", stderr: "" }),
-				}),
-			}),
-		).rejects.toThrow("the lister is gone");
+	it("refuses as the row's BROKEN where its computed list cannot be read, so no row arms on a guess", async () => {
+		const r = await run(
+			[row("lister", { arm: { computed: "gone" } }), row("after")],
+			{ computed: { gone: new Error("the lister is gone") } },
+		);
+		expect(r.exit).toBe(2);
+		expect(r.err).toBe(
+			"pre-commit: the lister gate could not load: the lister is gone\n",
+		);
+		expect(r.ran).toEqual([]);
+	});
+
+	it("goes on past a warn row whose computed list cannot be read, naming it", async () => {
+		const r = await run(
+			[
+				row("lister", { arm: { computed: "gone" }, policy: "warn" }),
+				row("after"),
+			],
+			{ computed: { gone: new Error("the lister is gone") } },
+		);
+		expect(r.exit).toBe(0);
+		expect(r.err).toContain(
+			"pre-commit: the lister gate could not load: the lister is gone\n",
+		);
+		expect(r.ran).toEqual(["after"]);
 	});
 
 	it("narrows a live row to added or modified paths still on disk, as armed_live does", async () => {
