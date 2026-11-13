@@ -81,6 +81,7 @@ async function pass(repo: string) {
 			write: (fd: number, text: string) => {
 				out += `[${fd}] ${text}`;
 			},
+			interrupted: async () => null,
 		},
 	});
 	return {

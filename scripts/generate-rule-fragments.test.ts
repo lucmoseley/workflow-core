@@ -259,6 +259,7 @@ describe("the pre-commit row (#3118, #5172)", () => {
 					return { exit: 0, stdout: "", stderr: "" };
 				},
 				write: () => undefined,
+				interrupted: async () => null,
 			},
 		});
 		return ran;

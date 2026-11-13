@@ -21,6 +21,10 @@
  * computes, any member of which is staged; a pattern row's `live` narrows it
  * to the paths armed_live keeps.
  *
+ * A SIGNAL (#5188). A row runs to its end, so its own cleanup runs; the
+ * `interrupted` port is asked before each row and after the last, and once
+ * it answers a code, no further row runs and the run exits with it.
+ *
  * THE LANDER SETS (#4545). `--gates=merge` runs the `every` and `merge` rows,
  * `--gates=batch` the `every` and `batch` rows; a plain commit runs them all.
  */
@@ -53,7 +57,9 @@ const { spawnGitSync } = require("./git.js");
  *   exists: (rel: string) => boolean,
  *   load: (row: R) => () => RowResult | Promise<RowResult>,
  *   write: (fd: number, text: string) => void,
- * }} Ports
+ *   interrupted: () => Promise<number | null>,
+ * }} Ports `interrupted` answers the code a caught signal owes, 128 + n,
+ *   else null
  */
 
 /** @type {Record<Lander, GateSet[]>} */
@@ -128,11 +134,15 @@ async function dispatch({ rows, gates, ports }) {
 	for (const row of rows) {
 		if (!SETS[row.lander].includes(gates)) continue;
 		if (!armed(row.arm, staged, ports)) continue;
+		const before = await ports.interrupted();
+		if (before !== null) return before;
 		const result = await runRow(row, ports);
 		if (row.policy === "warn" || result.exit === 0) continue;
+		const after = await ports.interrupted();
+		if (after !== null) return after;
 		return result.exit;
 	}
-	return 0;
+	return (await ports.interrupted()) ?? 0;
 }
 
 /**

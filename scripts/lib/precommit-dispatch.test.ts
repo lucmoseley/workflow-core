@@ -2,7 +2,7 @@
 /*
  * The pre-commit dispatcher's core (#5172), seam 1 of #5171: arming, order,
  * stop-on-first-red, the exit alphabet, the warn policy, crash and load-fault
- * refusal, and the lander sets, over stub rows and the staged entries real
+ * refusal, a caught signal's stop (#5188), and the lander sets, over stub rows and the staged entries real
  * git reads in the test's temp directory.
  *
  * It is the hook's gate stack: loosen a case and a commit a gate refuses
@@ -90,10 +90,13 @@ async function run(
 		dir?: string;
 		gates?: "all" | "merge" | "batch";
 		computed?: Record<string, string[]>;
+		/** The row a SIGTERM lands in: `interrupted` answers 143 once it ran. */
+		signalIn?: string;
 	} = {},
 ) {
 	const dir = opts.dir ?? repo({}, { "a.txt": "a\n" });
 	const ran: string[] = [];
+	let caught: number | null = null;
 	let out = "";
 	let err = "";
 	const exit = await dispatch({
@@ -107,6 +110,7 @@ async function run(
 				if (r.throws === "load") throw new Error(`${r.id} will not load`);
 				return () => {
 					ran.push(r.id);
+					if (r.id === opts.signalIn) caught = 128 + 15;
 					if (r.throws === "run") throw new Error(`${r.id} blew up`);
 					return {
 						exit: r.result?.exit ?? 0,
@@ -119,6 +123,7 @@ async function run(
 				if (fd === 1) out += text;
 				else err += text;
 			},
+			interrupted: async () => caught,
 		},
 	});
 	return { exit, ran, out, err };
@@ -185,6 +190,7 @@ describe("arming", () => {
 					exists: existsUnder(dir),
 					load: () => () => ({ exit: 0, stdout: "", stderr: "" }),
 					write: () => undefined,
+					interrupted: async () => null,
 				},
 			}),
 		).rejects.toThrow("the lister is gone");
@@ -238,6 +244,36 @@ describe("the exit alphabet", () => {
 		const r = await run([row("red", { result: { exit: code } }), row("x")]);
 		expect(r.exit).toBe(code);
 		expect(r.ran).toEqual(["red"]);
+	});
+});
+
+describe("a caught signal", () => {
+	it("lets the row it lands in finish, writing its output, and runs no row after", async () => {
+		const r = await run([row("one"), row("hit"), row("after")], {
+			signalIn: "hit",
+		});
+		expect(r.exit).toBe(128 + 15);
+		expect(r.ran).toEqual(["one", "hit"]);
+		expect(r.err).toBe("one err\nhit err\n");
+	});
+
+	it("exits 128 + n where it lands in the last row, which passed", async () => {
+		const r = await run([row("one"), row("last")], { signalIn: "last" });
+		expect(r.exit).toBe(128 + 15);
+		expect(r.ran).toEqual(["one", "last"]);
+	});
+
+	it("outranks the red of the row it lands in, and of a warn row", async () => {
+		const red = await run([row("hit", { result: { exit: 1 } }), row("after")], {
+			signalIn: "hit",
+		});
+		expect(red.exit).toBe(128 + 15);
+		const warn = await run(
+			[row("hit", { policy: "warn", result: { exit: 2 } }), row("after")],
+			{ signalIn: "hit" },
+		);
+		expect(warn.exit).toBe(128 + 15);
+		expect(warn.ran).toEqual(["hit"]);
 	});
 });
 

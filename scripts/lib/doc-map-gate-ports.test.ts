@@ -326,6 +326,7 @@ async function runGate(
 			write: (_fd: number, text: string) => {
 				output += text;
 			},
+			interrupted: async () => null,
 		},
 	});
 	return { code, output };

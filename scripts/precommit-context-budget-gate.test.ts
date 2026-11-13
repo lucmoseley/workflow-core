@@ -67,6 +67,7 @@ async function fires(
 				return { exit: 0, stdout: "", stderr: "" };
 			},
 			write: () => undefined,
+			interrupted: async () => null,
 		},
 	});
 	return ran;

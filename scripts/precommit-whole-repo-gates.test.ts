@@ -53,6 +53,7 @@ async function arms(gate: Gate, root: string): Promise<boolean> {
 				return { exit: 0, stdout: "", stderr: "" };
 			},
 			write: () => undefined,
+			interrupted: async () => null,
 		},
 	});
 	return ran;

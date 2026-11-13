@@ -33,7 +33,9 @@ const LINE = `${coreCall("node", "scripts/precommit-dispatch.js")} "$@" || exit 
 /*
  * One stub per row, a checker and a program at once: it logs its load, then acts as STUB_ACT names it —
  * `fail` FAILs where the commit stages `red`, `broken` is BROKEN, `throw`
- * will not load, `signal` kills the process — else passes.
+ * will not load, `signal` kills the process, `scratch` makes a scratch
+ * directory, takes a SIGTERM while it holds it and removes it in a `finally`
+ * — else passes.
  */
 const STUB = `const fs = require("node:fs");
 const path = require("node:path");
@@ -56,6 +58,15 @@ const SPEC = {
 	},
 };
 const PROGRAM = ({ cwd }) => {
+	if (act === "scratch") {
+		const scratch = path.join(cwd, "scratch-" + id);
+		fs.mkdirSync(scratch);
+		try {
+			process.kill(process.pid, "SIGTERM");
+		} finally {
+			fs.rmSync(scratch, { recursive: true });
+		}
+	}
 	if (act === "broken") return { exit: 2, stdout: "", stderr: id + " is broken\\n" };
 	if (act === "fail" && fs.existsSync(path.join(cwd, "red")))
 		return { exit: 1, stdout: "", stderr: id + " fault\\n" };
@@ -75,7 +86,7 @@ function fixture(staged: Record<string, string>) {
 	}
 	fs.writeFileSync(
 		path.join(root, ".git", "info", "exclude"),
-		".stub-core/\nload.log\n",
+		".stub-core/\nload.log\nscratch-*/\n",
 	);
 	for (const [rel, body] of Object.entries(staged)) {
 		fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
@@ -123,10 +134,11 @@ function hook(
 			},
 		},
 	);
+	const scratch = fs.readdirSync(root).filter((n) => n.startsWith("scratch-"));
 	const loaded = fs.existsSync(log)
 		? fs.readFileSync(log, "utf8").split("\n").filter(Boolean)
 		: [];
-	return { code: r.status, out: r.stdout, err: r.stderr, loaded };
+	return { code: r.status, out: r.stdout, err: r.stderr, loaded, scratch };
 }
 
 /** Staged `p` arms these rows, by each row's own arm. */
@@ -243,6 +255,17 @@ describe("the hook's dispatcher line", () => {
 	it("exits 128 + n where a member's signal kills the dispatcher", () => {
 		const r = hook(SCRIPT, { act: `${ALL[0]}:signal` });
 		expect(r.code).toBe(128 + 15);
+	});
+
+	it("lets the row a signal lands in clean its scratch, runs no row after, and exits 128 + n", () => {
+		const at = ALL.findIndex((n) =>
+			GATES.some((g) => g.kind === "program" && g.script === `scripts/${n}.js`),
+		);
+		const r = hook(SCRIPT, { act: `${ALL[at]}:scratch` });
+		expect(at).toBeGreaterThan(-1);
+		expect(r.code).toBe(128 + 15);
+		expect(r.scratch).toEqual([]);
+		expect(r.loaded).toEqual(ALL.slice(0, at + 1));
 	});
 
 	it.each([
