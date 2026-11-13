@@ -1,7 +1,7 @@
 /*
  * dispatch-sessions.js — the dispatcher's core (#5145): launch a /pick-next
  * dispatch set, each session on the model its kind calls for, and only as many
- * as allowance remains for (#369). scripts/dispatch-sessions.js is its shell.
+ * as allowance remains for (#369).
  *
  * A CORE (base §T7, §X11): it reads nothing of its own process — the
  * environment, the working directory and every child come in through
@@ -220,10 +220,10 @@ function exitAt(code) {
  * }} DispatchPorts
  */
 
-/** `text` with its trailing newlines gone, as `$(…)` takes a child's stdout. */
+/** `text` with its trailing newlines gone. */
 const chomp = (/** @type {string} */ text) => trimEndRun(text, "\n");
 
-/** Each line of `text` behind `prefix`, as `sed 's/^/<prefix>/'` prints it. */
+/** Each line of `text` behind `prefix`. */
 function prefixLines(/** @type {string} */ text, /** @type {string} */ prefix) {
 	if (text === "") return "";
 	const ends = text.endsWith("\n");
@@ -269,7 +269,7 @@ function readFields(line, n) {
 }
 
 /**
- * Create an empty temp file under the run's TMPDIR, as `mktemp -t` does.
+ * Create an empty temp file under the run's TMPDIR.
  * @param {NodeJS.ProcessEnv} env
  * @param {string} prefix
  * @returns {string} its path, or "" where none could be made
@@ -453,7 +453,7 @@ class Dispatch {
 		return r.status;
 	}
 
-	/** A program read for its stdout, its stderr relayed, as `$(…)` takes it.
+	/** A program read for its stdout, its stderr relayed.
 	 * @param {string} script @param {string[]} args */
 	async captured(script, args) {
 		const r = await this.run(script, args);
@@ -603,7 +603,7 @@ class Dispatch {
 
 	/* Refuses the WHOLE call on an RCU stall this boot (#867) or a frozen
 	 * scheduler clock (#2779). The checker exits 1 on one of those alone; any
-	 * other failure launches. Its stdout is not read. */
+	 * other failure launches. */
 	async refuseIfKernelUnhealthy() {
 		const r = await this.run("check-kernel-stall.js", []);
 		if (r.status === 0) return;
@@ -907,8 +907,8 @@ class Dispatch {
 	}
 
 	/**
-	 * Create an empty temp file under the run's TMPDIR, removed when the
-	 * dispatch ends; "" where none could be made.
+	 * makeTemp's file, removed when the dispatch ends; "" where none could be
+	 * made.
 	 * @param {string} prefix
 	 */
 	temp(prefix) {

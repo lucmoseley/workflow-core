@@ -2,7 +2,7 @@
  * dispatch-sessions-host.js — the production ports lib/dispatch-sessions.js
  * runs behind (#5145): each helper as its own node process, the interop probe
  * through its one bash library, and the launch in a process group of its own
- * under its ceiling. scripts/dispatch-sessions.js wires them.
+ * under its ceiling.
  */
 
 const { spawn, spawnSync } = require("node:child_process");
@@ -23,10 +23,9 @@ const INTEROP_SCRIPT = [
 ].join("\n");
 
 /* Seconds a launch that ignores its TERM gets before the KILL: the `-k 5`
- * the bash dispatcher's `timeout` carried, kept as it was; untraced past that. */
+ * the bash dispatcher's `timeout` carried; untraced past that. */
 const KILL_GRACE_SECONDS = 5;
-/* A helper's output, captured whole as bash's `$(...)` did, where
- * spawnSync's 1 MiB default would cut it short. A guess at a ceiling no
+/* A helper's output, captured whole, where spawnSync's 1 MiB default would cut it short. A guess at a ceiling no
  * helper nears, not a measurement. */
 const HELPER_OUTPUT_MAX_BYTES = 64 * 1024 * 1024;
 
@@ -145,7 +144,6 @@ function sleep(seconds) {
 	return new Promise((resolve) => setTimeout(resolve, Number(seconds) * 1000));
 }
 
-/** The ports a real dispatch runs behind. */
 function hostPorts() {
 	return { node, interop: interopProbe(), launch, sleep };
 }
