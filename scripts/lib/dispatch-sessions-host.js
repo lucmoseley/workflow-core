@@ -2,7 +2,7 @@
  * dispatch-sessions-host.js — the production ports lib/dispatch-sessions.js
  * runs behind (#5145): each helper as its own node process, the interop probe
  * through its one bash library, and the launch in a process group of its own
- * under its ceiling. scripts/dispatch-sessions.js wires them.
+ * under its ceiling.
  */
 
 const { spawn, spawnSync } = require("node:child_process");
@@ -22,8 +22,12 @@ const INTEROP_SCRIPT = [
 	"exit 10",
 ].join("\n");
 
-/* Seconds a launch that ignores its TERM gets before the KILL. */
+/* Seconds a launch that ignores its TERM gets before the KILL: the `-k 5`
+ * the bash dispatcher's `timeout` carried; untraced past that. */
 const KILL_GRACE_SECONDS = 5;
+/* A helper's output, captured whole, where spawnSync's 1 MiB default would cut it short. A guess at a ceiling no
+ * helper nears, not a measurement. */
+const HELPER_OUTPUT_MAX_BYTES = 64 * 1024 * 1024;
 
 /**
  * @param {string} script relative to scripts/
@@ -36,7 +40,7 @@ function node(script, args, { env, cwd, stdin }) {
 		env,
 		input: stdin ?? "",
 		encoding: "utf8",
-		maxBuffer: 64 * 1024 * 1024,
+		maxBuffer: HELPER_OUTPUT_MAX_BYTES,
 	});
 	return {
 		status:
@@ -77,7 +81,9 @@ function interopProbe(library = path.join(SCRIPTS, "lib", "interop-probe.sh")) {
 function launch(argv, { cwd, env, timeoutS }) {
 	return new Promise((resolve) => {
 		const [file, ...rest] = argv;
-		const child = spawn(/** @type {string} */ (file), rest, {
+		if (file === undefined)
+			return resolve({ status: 127, timedOut: false, output: "no command\n" });
+		const child = spawn(file, rest, {
 			cwd,
 			env,
 			detached: true,
@@ -138,9 +144,8 @@ function sleep(seconds) {
 	return new Promise((resolve) => setTimeout(resolve, Number(seconds) * 1000));
 }
 
-/** The ports a real dispatch runs behind. */
 function hostPorts() {
 	return { node, interop: interopProbe(), launch, sleep };
 }
 
-module.exports = { hostPorts, interopProbe, launch, node };
+module.exports = { hostPorts };

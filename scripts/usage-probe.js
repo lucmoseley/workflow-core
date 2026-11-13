@@ -27,6 +27,7 @@ const { configDir: defaultConfigDir } = require("./lib/config-dir.js");
 const { claudeBin } = require("./lib/agent-liveness.js");
 const { OUTCOME_PREFIX, probeUsage } = require("./lib/usage-probe.js");
 const { writeFd } = require("./lib/write-fd.js");
+const { now } = require("./lib/check.js");
 
 const CLI = {
 	usage:
@@ -55,6 +56,7 @@ async function main() {
 		claudeBin: claudeBin(),
 		claudeArgs: positionals,
 		signal: abort.signal,
+		now: now(),
 	});
 	writeFd(1, r.text);
 	writeFd(

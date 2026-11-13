@@ -3,7 +3,7 @@
  * `<bin> --version` prints it.
  */
 
-const { spawnSync } = require("node:child_process");
+const { spawnRaw } = require("./child-spawn.js");
 
 /* `claude --version` answers in ~20 ms (#2037); the ceiling is a guess (#901). */
 const VERSION_TIMEOUT_MS = 10_000;
@@ -11,13 +11,11 @@ const VERSION_TIMEOUT_MS = 10_000;
 /**
  * The x.y.z `bin --version` prints, or why it printed none.
  * @param {string} bin
+ * @param {typeof spawnRaw} [spawn] the call, where a test runs it in-process
  * @returns {{ version: string } | { why: string }}
  */
-function readClaudeVersionOrWhy(bin) {
-	const r = spawnSync(bin, ["--version"], {
-		encoding: "utf8",
-		timeout: VERSION_TIMEOUT_MS,
-	});
+function readClaudeVersionOrWhy(bin, spawn = spawnRaw) {
+	const r = spawn(bin, ["--version"], { timeout: VERSION_TIMEOUT_MS });
 	const version = /^\d+\.\d+\.\d+/m.exec(r.stdout ?? "")?.[0];
 	if (version) return { version };
 	return {

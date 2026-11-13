@@ -22,7 +22,11 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { COPY_WHY } from "./bg-resume-fake";
 import { readRecentEntries } from "./dispatch-ledger.js";
-import { DEFAULT_STAGGER_SECONDS } from "./dispatch-sessions.js";
+import {
+	DEFAULT_STAGGER_SECONDS,
+	memberDropped,
+	memberRefused,
+} from "./dispatch-sessions.js";
 import {
 	adoptLaunching,
 	batchesOf,
@@ -133,18 +137,6 @@ describe("the dispatcher call for one batch", () => {
 });
 
 describe("a refused member's reason (#2500)", () => {
-	/* Each member line as dispatch-sessions.js prints it for `prompt`. */
-	const printed = (format: RegExp, prompt: string) => {
-		const sh = fs.readFileSync(
-			path.join(__dirname, "dispatch-sessions.js"),
-			"utf8",
-		);
-		const lines = [...sh.matchAll(format)].map((m) =>
-			String(m[1]).replace(/\$\{[^}]+\}/, prompt),
-		);
-		expect(lines).not.toEqual([]);
-		return lines;
-	};
 	const reasonFor = (out: string) =>
 		launchBatch([launch], {
 			...seededIo([]),
@@ -152,13 +144,11 @@ describe("a refused member's reason (#2500)", () => {
 		}).refused.map((f) => f.reason);
 
 	it("keys on the REFUSED member line dispatch-sessions.js prints", () => {
-		for (const line of printed(
-			/`(REFUSED: \$\{prompt\} — [^`\\]*)\\n`/g,
-			launch.prompt,
-		))
-			expect(reasonFor(`${line}\n  slots              0 — HOLD`)).toEqual([
-				"slots 0 — HOLD",
-			]);
+		expect(
+			reasonFor(
+				`${memberRefused(launch.prompt)}\n  slots              0 — HOLD`,
+			),
+		).toEqual(["slots 0 — HOLD"]);
 	});
 
 	it("keeps a member held on admission.js's own slots line untried (#5125)", () => {
@@ -193,13 +183,9 @@ describe("a refused member's reason (#2500)", () => {
 	});
 
 	it("keys on the dropped member line dispatch-sessions.js prints", () => {
-		for (const line of printed(
-			/`( {2}dropped: \$\{[^}]+\})\\n`/g,
-			launch.prompt,
-		))
-			expect(reasonFor(`DROPPING 1 issue(s)\n${line}`)).toEqual([
-				"DROPPING 1 issue(s)",
-			]);
+		expect(
+			reasonFor(`DROPPING 1 issue(s)\n  ${memberDropped(launch.prompt)}`),
+		).toEqual(["DROPPING 1 issue(s)"]);
 	});
 });
 

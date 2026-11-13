@@ -30,6 +30,7 @@ const REPO_PART_RE = /^[\w.-]+$/;
  * @typedef {import("./issue-gate.js").Follow} Follow
  * @typedef {import("./issue-gate.js").FollowRecord} FollowRecord
  * @typedef {import("./issue-gate.js").BasisWrite} BasisWrite
+ * @typedef {(args: string[], opts: {timeout: number}) => string} GhRun
  * @typedef {Wanted & {key: string, ref: string}} Unread a citation left
  *   unread: `key` lower-cased `owner/name#N`, `ref` as the basis wrote it
  * @typedef {any} GhJson GitHub's answer as parsed, every reader defaulting a
@@ -82,12 +83,13 @@ function failedWhy(err, timeoutMs) {
  *
  * @param {string} query
  * @param {number} timeoutMs
+ * @param {GhRun} run
  * @returns {{data: GhJson}|{why: string}}
  */
-function runQuery(query, timeoutMs) {
+function runQuery(query, timeoutMs, run) {
 	try {
 		const data = JSON.parse(
-			gh(["api", "graphql", "-f", `query=${query}`], { timeout: timeoutMs }),
+			run(["api", "graphql", "-f", `query=${query}`], { timeout: timeoutMs }),
 		)?.data;
 		return data && typeof data === "object"
 			? { data }
@@ -156,12 +158,12 @@ function takePage(data, repos, p, into) {
  * under, absent where it was not read.
  *
  * @param {Wanted[]} wanted each issue once, its repo lower-cased
- * @param {{timeoutMs: number}} opts `timeoutMs` bounds the whole
- *   read, its comment pages included
+ * @param {{timeoutMs: number, run: GhRun}} opts `timeoutMs` bounds the whole
+ *   read, its comment pages included; `run`, the gh call
  * @returns {{issues: Map<string, CitedIssue|null>, why: string|null, ms: number}}
  *   `why`: what left any issue unread
  */
-function readCitedIssues(wanted, { timeoutMs }) {
+function readCitedIssues(wanted, { timeoutMs, run }) {
 	const startedAt = Date.now();
 	const sendable = wanted.filter((w) =>
 		w.repo.split("/").every((part) => REPO_PART_RE.test(part)),
@@ -184,7 +186,7 @@ function readCitedIssues(wanted, { timeoutMs }) {
 		const repos = [...new Set(pages.map((p) => p.repo))];
 		const read =
 			left > 0
-				? runQuery(buildQuery(repos, pages), left)
+				? runQuery(buildQuery(repos, pages), left, run)
 				: { why: `GitHub did not answer within ${timeoutMs} ms` };
 		if ("why" in read) {
 			why = read.why;
@@ -253,8 +255,9 @@ const CITED_BOUND_MS = 10_000;
  * (#5011), so a command cannot switch the read off in a hook's environment.
  *
  * @param {BasisWrite[]} bodies
- * @param {{timeoutMs: number, root?: string, env?: NodeJS.ProcessEnv}} opts
- *   `root`, the project whose config names the tracker
+ * @param {{timeoutMs: number, root?: string, env?: NodeJS.ProcessEnv,
+ *   gh?: GhRun}} opts `root`, the project whose config names the tracker;
+ *   `gh`, the read's gh call, lib/gh.js's by default
  * @returns {{faults: WordedFault[][], traces: FollowRecord[][],
  *   unread: Unread[], why: string|null, ms: number}} by body, in order:
  *   `faults`, the whole body's, which an edit's caller holds by
@@ -262,7 +265,10 @@ const CITED_BOUND_MS = 10_000;
  *   verdicts; `unread`, the citations judged on form alone, `why` saying
  *   what left them; `ms`, the read's wall time
  */
-function readBasisFaults(bodies, { timeoutMs, root, env = process.env }) {
+function readBasisFaults(
+	bodies,
+	{ timeoutMs, root, env = process.env, gh: run = gh },
+) {
 	const formOnly = (/** @type {Follow} */ follow) => ({
 		faults: bodies.map((w) => faultsOf(w, follow)),
 		traces: bodies.map(() => []),
@@ -292,7 +298,7 @@ function readBasisFaults(bodies, { timeoutMs, root, env = process.env }) {
 		read = unreadAll("no tracker resolves from `.claude/workflow-core.json`");
 	else if (timeoutMs < MIN_CITED_MS)
 		read = unreadAll("too little of the hook's time was left for it");
-	else read = readCitedIssues(wanted, { timeoutMs });
+	else read = readCitedIssues(wanted, { timeoutMs, run });
 	/** @type {FollowRecord[][]} */
 	const traces = bodies.map(() => []);
 	return {

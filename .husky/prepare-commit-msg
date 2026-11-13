@@ -21,7 +21,7 @@
 #            on, per hook: scripts/lib/commit-route.sh, whose absence
 #            refuses every commit. On a commit that passes, writes the review
 #            hold's `Review-Tier:` trailer through
-#            scripts/review-tier-trailer.sh (#3664), which refuses a tree that
+#            scripts/review-tier-trailer.js (#3664), which refuses a tree that
 #            moved after the hold passed and fails the hold on re-reading it
 #            (#3905).
 # JUSTIFIED: fail-safe — this is the one hook that can refuse a commit and
@@ -147,14 +147,30 @@ unchecked() {
     bash -c '. "$1" && gl_log "$2 is missing — $3"' prepare-commit-msg "$log_lib" "${1##*/}" "$2" 2>/dev/null || :
 }
 
+# trailer_idle <message file> — true where the trailer would write and strip
+# nothing: no message, or no stamp of this session's in the git directory and no
+# `Review-Tier:` line in the message, so the node start it costs is skipped
+# (#5153). The stamp's name is lib/review-tier-stamp.js's, the line's spelling
+# review-tier-trailer.js's KEY; an unreadable message runs the trailer.
+trailer_idle() {
+  [ -n "$1" ] || return 0
+  [ -n "$gitdir" ] || return 1
+  sid="$(printf %s "${CLAUDE_CODE_SESSION_ID-}" | tr -c 'A-Za-z0-9_-' _)"
+  [ -z "$sid" ] || [ ! -e "$gitdir/wfc-review-tier-$sid" ] || return 1
+  found=0
+  grep -qiE '^review-tier[[:blank:]]*:' "$1" 2>/dev/null || found=$?
+  [ "$found" -eq 1 ]
+}
+
 # The hold's trailer and its re-read of a moved tree, on every exit a passing
 # commit takes: the hold wrote its stamp in whichever run passed, `pre-commit`'s,
 # this hook's own or the replay path's.
 review_tier_trailer() {
-  trailer="${WFC_PLUGIN_ROOT:-$here/..}/scripts/review-tier-trailer.sh"
+  trailer="${WFC_PLUGIN_ROOT:-$here/..}/scripts/review-tier-trailer.js"
   if [ -r "$trailer" ]; then
+    trailer_idle "$1" && return 0
     status=0
-    bash "$trailer" "$1" || status=$?
+    node "$trailer" "$1" || status=$?
     [ "$status" -eq 0 ] || refused_in_progress "$status"
   else
     unchecked "$trailer" "this commit lands with no Review-Tier: trailer and no check that its tree stayed put"
