@@ -1017,4 +1017,4 @@ function repushFailure({ reads, branch }, sha) {
 			};
 }
 
-module.exports = { queueTester };
+module.exports = { queueTester, RUNNER_STEPS };

@@ -15,7 +15,12 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import { type Job, queueTester, type Run } from "./actions-tester.js";
+import {
+	type Job,
+	queueTester,
+	RUNNER_STEPS,
+	type Run,
+} from "./actions-tester.js";
 import { stubGhScript } from "./gh-stub.js";
 import { markersDir } from "./marker-root.js";
 import type { Placement } from "./queue-lander.js";
@@ -1586,4 +1591,21 @@ it("cancels every unfinished run on a batch ref but those at the sha kept, namin
 	const all = queueReads([() => [run(1, "failure"), run(2, null)]]);
 	expect(queueOf(all).cancel?.(BATCH0, null)).toEqual([SHA]);
 	expect(all.cancelled).toEqual([2]);
+});
+
+it("names as runner steps only steps ci.yml's Vitest job carries (#5138)", () => {
+	const ci = fs.readFileSync(
+		path.join(__dirname, "../../.github/workflows/ci.yml"),
+		"utf8",
+	);
+	const vitest = ci.slice(
+		ci.indexOf("\n  vitest:\n"),
+		ci.indexOf("\n  python:\n"),
+	);
+	const named = (step: string) => vitest.includes(`- name: ${step}\n`);
+	const generated = (step: string) =>
+		step === "Set up job" || step.startsWith("Run actions/");
+	expect([...RUNNER_STEPS].filter((s) => !generated(s) && !named(s))).toEqual(
+		[],
+	);
 });
