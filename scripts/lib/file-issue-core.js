@@ -246,7 +246,7 @@ function readOpts(io, { flags, lists }) {
  * The origin and the fault declaration every filing carries (#4796).
  * @param {Streams} io
  * @param {Opts} opts
- * @returns {Stop | undefined}
+ * @returns {Stop | null}
  */
 function checkDeclarations(io, { origin, signatureFile, noFault }) {
 	if (origin === undefined || !isOrigin(origin))
@@ -259,6 +259,7 @@ function checkDeclarations(io, { origin, signatureFile, noFault }) {
 			"give exactly one of --fault-signature <file> or --no-fault: does this ticket claim to stop a recurring fault? --no-fault is a cut, refactor, rename or new capability. The file's shape: scripts/lib/fault-signature.js. Nothing filed.",
 			2,
 		);
+	return null;
 }
 
 /**
@@ -307,7 +308,7 @@ function readBody(io, ports, file) {
  * @param {FileIssuePorts} ports
  * @param {import("./cli-args.js").Parsed} parsed
  * @param {string[]} titles  the `--check` values
- * @returns {Stop | undefined}
+ * @returns {Stop | null}
  */
 function checkTitle(io, ports, { flags, lists }, titles) {
 	const [title, ...more] = titles;
@@ -326,6 +327,7 @@ function checkTitle(io, ports, { flags, lists }, titles) {
 	} catch (e) {
 		return io.fail(`could not list ${repo}'s issues (${parseErrLine(e)}).`, 1);
 	}
+	return null;
 }
 
 /**
@@ -333,7 +335,7 @@ function checkTitle(io, ports, { flags, lists }, titles) {
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {import("./cli-args.js").Parsed} parsed
- * @returns {Stop | undefined}
+ * @returns {Stop | null}
  */
 function run(io, ports, parsed) {
 	const filing = checkFiling(io, ports, parsed);
@@ -395,7 +397,7 @@ function checkFiling(io, ports, parsed) {
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {Exclude<ReturnType<typeof checkFiling>, Stop>} filing
- * @returns {Stop | undefined}
+ * @returns {Stop | null}
  */
 function fileAndPlace(
 	io,
@@ -444,7 +446,7 @@ function fileAndPlace(
 
 	if (!willClaim) {
 		io.out(`#${n} is unassigned.\n`);
-		return;
+		return null;
 	}
 	return claimFiled(io, ports, { repo, n, sessionId });
 }
@@ -490,10 +492,10 @@ function checkSignatureFile(io, file) {
  * @param {Streams} io
  * @param {Record<string, unknown> | null} pending  the line, its issue blank
  * @param {string} issue
- * @returns {Stop | undefined}
+ * @returns {Stop | null}
  */
 function logSignature(io, pending, issue) {
-	if (pending === null) return;
+	if (pending === null) return null;
 	const line = { ...pending, issue };
 	try {
 		const root = worktreeRoot();
@@ -507,6 +509,7 @@ function logSignature(io, pending, issue) {
 			1,
 		);
 	}
+	return null;
 }
 
 /**
@@ -518,7 +521,7 @@ function logSignature(io, pending, issue) {
  * @param {FileIssuePorts} ports
  * @param {string[]} labels
  * @param {string} body
- * @returns {Stop | undefined}
+ * @returns {Stop | null}
  */
 function checkBody(io, ports, labels, body) {
 	// The template, handed over before the takes:human checks can refuse (#983).
@@ -539,6 +542,7 @@ function checkBody(io, ports, labels, body) {
 	for (const w of checks.warnings) io.warn(w);
 	if (checks.refusals.length > 0)
 		return io.fail(`Nothing filed: ${checks.refusals.join(" ")}`, 2);
+	return null;
 }
 
 /**
@@ -548,7 +552,7 @@ function checkBody(io, ports, labels, body) {
  * @param {FileIssuePorts} ports
  * @param {string} repo
  * @param {string[]} labels
- * @returns {Stop | undefined}
+ * @returns {Stop | null}
  */
 function checkSecondMap(io, ports, repo, labels) {
 	const map = secondMapVerdict(labels, () => listOpenMaps(repo, ports.gh));
@@ -562,6 +566,7 @@ function checkSecondMap(io, ports, repo, labels) {
 			map.unreadable,
 		);
 	}
+	return null;
 }
 
 /* gh refuses a link past 7 layers ("You can't add more than 7 layers of
@@ -695,7 +700,7 @@ function readParent(io, ports, { repo, number, labels }) {
  * @param {FileIssuePorts} ports
  * @param {string} repo
  * @param {string[]} labels
- * @returns {Stop | undefined}
+ * @returns {Stop | null}
  */
 function checkKnownLabels(io, ports, repo, labels) {
 	let known;
@@ -717,6 +722,7 @@ function checkKnownLabels(io, ports, repo, labels) {
 			`${unknown.join(", ")} ${unknown.length === 1 ? "is" : "are"} not a label on ${repo} — gh would abort the create and still exit 0. Fix the spelling; a new label is a vocabulary change (docs/agents/triage-labels.md). Nothing filed.`,
 			2,
 		);
+	return null;
 }
 
 /**
@@ -726,7 +732,7 @@ function checkKnownLabels(io, ports, repo, labels) {
  * @param {FileIssuePorts} ports
  * @param {string} repo
  * @param {Opts} opts
- * @returns {Stop | undefined}
+ * @returns {Stop | null}
  */
 function checkSimilar(io, ports, repo, opts) {
 	let similar;
@@ -738,7 +744,7 @@ function checkSimilar(io, ports, repo, opts) {
 			`Could not list similar open issues (${parseErrLine(e)}) — filing without the check.\n`,
 		);
 	}
-	if (!similar) return;
+	if (!similar) return null;
 	const unchecked = similar.found.filter(
 		(c) => !opts.distinct.has(c.number) && c.number !== opts.parent,
 	);
@@ -748,6 +754,7 @@ function checkSimilar(io, ports, repo, opts) {
 			2,
 		);
 	io.out(similar.text);
+	return null;
 }
 
 /**
@@ -756,10 +763,10 @@ function checkSimilar(io, ports, repo, opts) {
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {{repo: string, labels: string[], body: string, opts: Opts}} at
- * @returns {Stop | undefined}
+ * @returns {Stop | null}
  */
 function checkSizeLine(io, ports, { repo, labels, body, opts }) {
-	if (!labels.includes(IMPLEMENT_LABEL)) return;
+	if (!labels.includes(IMPLEMENT_LABEL)) return null;
 	const overlaps = sizeLineCandidates({
 		body,
 		filed: readOwnFiledIssues(io, ports, repo),
@@ -775,6 +782,7 @@ function checkSizeLine(io, ports, { repo, labels, body, opts }) {
 			),
 			2,
 		);
+	return null;
 }
 
 /**
@@ -878,7 +886,7 @@ function create(io, ports, { repo, title, labels, filedBody }) {
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {{repo: string, parent: Issue, n: number, claimLater: string}} at
- * @returns {Stop | undefined}
+ * @returns {Stop | null}
  */
 function linkFiled(io, ports, { repo, parent, n, claimLater }) {
 	const linked = ports.link(repo, parent.number, n);
@@ -889,6 +897,7 @@ function linkFiled(io, ports, { repo, parent, n, claimLater }) {
 		);
 	if (linked.warning) io.warn(linked.warning);
 	io.out(`${linked.ok}\n`);
+	return null;
 }
 
 /**
@@ -916,7 +925,7 @@ function linkRemedy(error, parent, n) {
  * @param {Streams} io
  * @param {FileIssuePorts} ports
  * @param {{repo: string, n: number, sessionId: string|null}} at
- * @returns {Stop | undefined}
+ * @returns {Stop | null}
  */
 function claimFiled(io, ports, { repo, n, sessionId }) {
 	let recorded =
@@ -937,6 +946,7 @@ function claimFiled(io, ports, { repo, n, sessionId }) {
 			1,
 		);
 	io.out(`${recorded} Assigned #${n} to @me.\n`);
+	return null;
 }
 
 module.exports = { fileIssue, USAGE };
