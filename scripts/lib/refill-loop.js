@@ -501,7 +501,7 @@ const runningOf = (launches) =>
  * on a limit, which limitHoldsOf names (#3838).
  * @param {LoopLaunch[]} launches
  */
-const workingOf = (launches) =>
+const unheldRunningOf = (launches) =>
 	runningOf(launches.filter((l) => limitWaitOf(l) === null));
 
 /**
@@ -678,7 +678,7 @@ module.exports = {
 	reviewStep,
 	limitHoldsOf,
 	runningOf,
-	workingOf,
+	unheldRunningOf,
 	scopeRoots,
 	controlWithoutOptedOut,
 	landingRoots,

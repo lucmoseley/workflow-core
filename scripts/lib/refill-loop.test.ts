@@ -37,7 +37,7 @@ import {
 	runningOf,
 	scopeRoots,
 	summaryOf,
-	workingOf,
+	unheldRunningOf,
 } from "./refill-loop.js";
 import {
 	away,
@@ -186,7 +186,7 @@ describe("the idle alarm's reading of a limit hold (#3838)", () => {
 				onLimit: true,
 			},
 		]);
-		expect(workingOf([stopped])).toEqual([]);
+		expect(unheldRunningOf([stopped])).toEqual([]);
 	});
 
 	it("reads a limit-blocked launch the loop could not stop as held from the block, as no bound parks it", () => {
@@ -201,7 +201,7 @@ describe("the idle alarm's reading of a limit hold (#3838)", () => {
 				onLimit: true,
 			},
 		]);
-		expect(workingOf([blocked])).toEqual([]);
+		expect(unheldRunningOf([blocked])).toEqual([]);
 	});
 
 	it("reads a working launch, a question-held one and one resumed from its hold as working, not held", () => {
@@ -215,13 +215,13 @@ describe("the idle alarm's reading of a limit hold (#3838)", () => {
 			record({ issues: [3], limitHeld: { ...limitHeld, resumedAt: NOW } }),
 		];
 		expect(limitHoldsOf(live)).toEqual([]);
-		expect(workingOf(live).flatMap((l) => l.issues)).toEqual([1, 2, 3]);
+		expect(unheldRunningOf(live).flatMap((l) => l.issues)).toEqual([1, 2, 3]);
 	});
 
 	it("reads a finished launch's stale hold as neither", () => {
 		const done = record({ limitHeld, finishedAt: NOW });
 		expect(limitHoldsOf([done])).toEqual([]);
-		expect(workingOf([done])).toEqual([]);
+		expect(unheldRunningOf([done])).toEqual([]);
 	});
 });
 

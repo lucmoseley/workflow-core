@@ -853,7 +853,7 @@ const withSeatTaken = ({ seats, overflow }, l) => ({
  * @param {LoopLaunch} out
  * @returns {-1|0|1}
  */
-function limitWorkingChange(l, out) {
+function limitLiveChange(l, out) {
 	if (!isLimitHeld(out))
 		return out.parkStopped !== undefined && !isLimitHeld(l) ? -1 : 0;
 	const resumed = out.limitHeld.resumedAt !== undefined;
@@ -902,7 +902,7 @@ function actOnLimits(launches, mode, seen) {
 			slots,
 			moveSeats,
 		});
-		const change = limitWorkingChange(l, out);
+		const change = limitLiveChange(l, out);
 		/* A resume from held fills a seat as a move onto it does; a live one's
 		 * stop and resume in place keeps the slot it holds (#3730). */
 		if (out.seat !== l.seat || out.keyVar !== l.keyVar || change > 0)

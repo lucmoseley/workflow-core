@@ -977,7 +977,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 		expect(out).toMatchObject({ slots: 2, liveChange: 0 });
 	});
 
-	describe("the tick's working figure (#3778)", () => {
+	describe("the tick's live figure (#3778)", () => {
 		const Open = { seats: [planSeat()] };
 		const FailedResume = { resumeStopped: () => ({ failed: "no" }) };
 		const live = [agent("job42", "blocked")];
