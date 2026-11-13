@@ -62,9 +62,11 @@
  * Each shard is appended, pruned and swept under its lock
  * (lib/retained-jsonl.js), on the pass-marker archive's retention.
  *
- * A ROWLESS RUN neither reads nor writes it, nor is audited (`rowless`): the
+ * A ROWLESS RUN neither reads nor writes it, nor is audited (`isRowlessRun`): the
  * lander's tester's, and ci.yml's, whose store goes with the runner unread
- * (#5138).
+ * (#5138). Residual: no CI run exercises a test under the audit's preload,
+ * `strace` or git event log, so a fault only the audit brings out shows on
+ * a local run alone.
  */
 
 const crypto = require("node:crypto");
@@ -842,7 +844,7 @@ const ROWLESS_RUN = "WFC_ROWLESS_RUN";
  * @param {Record<string, string|undefined>} [env]
  * @returns {boolean}
  */
-function rowless(env = process.env) {
+function isRowlessRun(env = process.env) {
 	return idSeam.isLanderRun(env) || env[ROWLESS_RUN] === "1";
 }
 
@@ -862,7 +864,7 @@ function record(run, { storeRoot, err = process.stderr, ...seams }) {
 		? run.files
 		: run.files.filter((f) => f.outcome === "fail");
 	if (!storeRoot || files.length === 0) return 0;
-	if (seams.rowless ?? rowless()) return 0;
+	if (seams.rowless ?? isRowlessRun()) return 0;
 	/** @type {RunInputs|null} */
 	let inputs = null;
 	try {
@@ -960,7 +962,7 @@ function lookup(files, { root, storeRoot, ...seams }) {
 	/** @type {Lookup} */
 	const none = { cached: [], run: [...files], refused: [], notice: null };
 	if (files.length === 0 || !storeRoot) return none;
-	if (seams.rowless ?? rowless()) return none;
+	if (seams.rowless ?? isRowlessRun()) return none;
 	const pragmas = new Map(files.map((f) => [f, readPragma(root, f)]));
 	const refused = files.filter((f) => pragmas.get(f) === "bare");
 	if (refused.length > 0) return { ...none, refused };
@@ -1456,7 +1458,7 @@ function heldRow(file, entries, { sha, before, git, values }) {
 }
 
 module.exports = {
-	rowless,
+	isRowlessRun,
 	heldAtSha,
 	CACHED_ENV,
 	foldCached,

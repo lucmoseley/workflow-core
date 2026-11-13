@@ -27,7 +27,7 @@ const {
 	lookup,
 	readCachedHandoff,
 	record,
-	rowless,
+	isRowlessRun,
 	writeCachedHandoff,
 } = require("./pass-store.js");
 const { markersDir } = require("./marker-root.js");
@@ -973,12 +973,14 @@ describe("a run whose per-file verdicts cannot be trusted records no pass", () =
 				.cached,
 		).toEqual([]);
 	});
+});
 
+describe("which runs keep no rows (#5138)", () => {
 	it("calls the lander's run and ci.yml's rowless, and nothing else", () => {
-		expect(rowless({ WFC_LANDER_RUN: "1" })).toBe(true);
-		expect(rowless({ WFC_ROWLESS_RUN: "1" })).toBe(true);
-		expect(rowless({ GITHUB_ACTIONS: "true" })).toBe(false);
-		expect(rowless({})).toBe(false);
+		expect(isRowlessRun({ WFC_LANDER_RUN: "1" })).toBe(true);
+		expect(isRowlessRun({ WFC_ROWLESS_RUN: "1" })).toBe(true);
+		expect(isRowlessRun({ GITHUB_ACTIONS: "true" })).toBe(false);
+		expect(isRowlessRun({})).toBe(false);
 	});
 });
 

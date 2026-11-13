@@ -27,7 +27,10 @@ const {
 const { readLaunch, takeRunReport } = require("./lib/suite-handoff.js");
 const { hasOwnScopeHitCap } = require("./lib/user-scope.js");
 const { readAlreadyRedLines } = require("./lib/already-red.js");
-const { record: recordFileResults, rowless } = require("./lib/pass-store.js");
+const {
+	record: recordFileResults,
+	isRowlessRun,
+} = require("./lib/pass-store.js");
 const readAudit = require("./lib/read-audit.js");
 const { keepRun } = require("./lib/row-measure.js");
 const { caught } = require("./lib/caught.js");
@@ -48,7 +51,7 @@ let watch: import("./lib/run-steadiness.js").Watch | null = null;
 let auditDir: string | null = null;
 
 function armAudit() {
-	auditDir = rowless() ? null : readAudit.install(treeRoot);
+	auditDir = isRowlessRun() ? null : readAudit.install(treeRoot);
 }
 
 /* `recorded`, the run this teardown handed the pass store, is kept beside
