@@ -17,6 +17,8 @@
  * name the staged paths, since no gate could arm.
  */
 
+const v8 = require("node:v8");
+const vm = require("node:vm");
 const { getPoolFiles } = require("./lib/always-loaded-pool.js");
 const { checkInProcess } = require("./lib/check.js");
 const { caught } = require("./lib/caught.js");
@@ -31,9 +33,20 @@ const { fromCoreRoot, GATES } = require("./lib/precommit-gates.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 
+/*
+ * A full collection before each row. The members share one heap, and the
+ * garbage an earlier row leaves makes a later one slower: measured on a
+ * scripts/ commit, the last row (context budget) took 1-2 s more CPU after
+ * the others than alone, and collecting between rows gave it back and cut
+ * the run's own CPU by 1.8 s (#5172). Exposed from inside the process, as
+ * the hook's `node` line carries no flag.
+ */
+v8.setFlagsFromString("--expose-gc");
+const collect = vm.runInNewContext("gc");
+
 /**
- * The runner one row names, run in-process: a program's exported PROGRAM over
- * the working directory, or a checker's exported SPEC.
+ * The runner one row names, run in-process after a collection: a program's
+ * exported PROGRAM over the working directory, or a checker's exported SPEC.
  * @param {import("./lib/precommit-gates.js").PrecommitGate} row
  */
 function load(row) {
@@ -41,15 +54,20 @@ function load(row) {
 	if (row.kind === "program") {
 		const { PROGRAM } = require(script);
 		if (!PROGRAM) throw new Error(`${row.script} exports no PROGRAM.`);
-		return () => PROGRAM({ cwd: process.cwd(), env: process.env });
+		return () => {
+			collect();
+			return PROGRAM({ cwd: process.cwd(), env: process.env });
+		};
 	}
 	const { SPEC } = require(script);
 	if (!SPEC) throw new Error(`${row.script} exports no SPEC.`);
-	return () =>
-		checkInProcess(SPEC, row.args, {
+	return () => {
+		collect();
+		return checkInProcess(SPEC, row.args, {
 			script,
 			sides: row.side ? "spawn" : "in-process",
 		});
+	};
 }
 
 /**
