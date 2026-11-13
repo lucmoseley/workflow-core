@@ -797,7 +797,7 @@ fi
 # IT PRINTS ON SUCCESS, unlike the gate above: crossing the threshold raises no
 # error anywhere.
 if armed '^(scripts/lib/tracker-inject-text\.js|docs/agents/rules/review-(dispatch-shape|deviations-read|finding-destination)\.txt)$'; then
-  bash "${WFC_PLUGIN_ROOT:-.}"/scripts/check-injector-margin.sh || exit "$?"
+  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-injector-margin.js --index || exit "$?"
 fi
 
 # check-superseded-values.js exits BROKEN — not WARN — when a §B entry carries a

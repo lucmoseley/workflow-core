@@ -37,7 +37,7 @@ const emission = require("./lib/rule-emission") as any;
 const { CAP_SOURCE, WIRED_SCRIPT_RE, readSourcedClosure } = emission;
 /* Resolved, so an entry spelled as a named constant is checked as well as a
  * literal one (#1120). */
-const { INJECTOR, materialisePathspecs } =
+const { TRACKER_TEXT, materialisePathspecs } =
 	// biome-ignore lint/suspicious/noExplicitAny: CommonJS module, as above
 	require("./lib/context-budget-pathspecs") as any;
 /* Materialised but moving no capped total, so the gate need not fire on it:
@@ -196,7 +196,7 @@ describe("the pre-commit context-budget gate", () => {
 	it("triggers on the text module and every rule fragment the injection union reads", () => {
 		const alternation = armingRegex();
 		for (const rel of [
-			INJECTOR,
+			TRACKER_TEXT,
 			"docs/agents/rules/review-dispatch-shape.txt",
 			"docs/agents/rules/review-deviations-read.txt",
 			"docs/agents/rules/review-finding-destination.txt",

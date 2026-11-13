@@ -25,7 +25,7 @@ let dir: string;
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "ctxbudget-admission-"));
 	vi.stubEnv(
-		"WFC_INJECTOR_FILE",
+		"WFC_TRACKER_TEXT_FILE",
 		writeTextModule(dir, textModuleSource("fixture")),
 	);
 	vi.stubEnv(

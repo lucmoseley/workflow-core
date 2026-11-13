@@ -270,7 +270,7 @@ const GATE_SOURCES: Record<string, string[]> = {
 	primitives: ["scripts/check-primitives.js"],
 	"doc-map": [".husky/pre-commit", "scripts/lib/precommit-gate.sh"],
 	"context-budget": ["scripts/check-context-budget.js"],
-	"injector-margin": ["scripts/check-injector-margin.sh"],
+	"injector-margin": ["scripts/check-injector-margin.js"],
 	"superseded-needle": [".husky/pre-commit", "scripts/lib/precommit-gate.sh"],
 	eslint: [".husky/pre-commit"],
 	shellcheck: [".husky/pre-commit", "scripts/lib/precommit-gate.sh"],

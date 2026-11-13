@@ -17,7 +17,7 @@
 # Prints nothing for an empty id, so the caller falls back to the bare name.
 #
 # 8, never the full uuid: a full id at both paths costs ~56 chars of the
-# injector's payload budget (scripts/check-injector-margin.sh).
+# injector's payload budget (scripts/check-injector-margin.js).
 #
 # lib/scratch-overwrite.js suggests the same suffix for any `.claude/tmp/`
 # scratch name (#1167), so a session told one convention meets one spelling.

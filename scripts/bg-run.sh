@@ -564,9 +564,7 @@ SIGNAL_DIR=""
 # untrapped `bash -c 'while :; ...'` wrapped command, memory and PSI both
 # clean, neither process surviving its wrapper. And the structural sweep
 # needs `.js`, not just `.sh`: one more
-# TERM/HUP-trapping script is on file beyond check-injector-margin.sh (which
-# still only cleans up a scratch dir, and is never the wrapped command) —
-# scripts/run-vitest.js's `armSignals`.
+# TERM/HUP-trapping script is on file — scripts/run-vitest.js's `armSignals`.
 # check-stale-suite-queue.js's own header comment (line 11) DESCRIBES that
 # cleanup happening on SIGTERM/SIGINT/SIGHUP, but traps nothing itself — it is
 # a separate, standalone reporting script (`npm run check:suite-queue`,

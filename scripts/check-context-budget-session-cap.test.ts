@@ -101,13 +101,13 @@ function pool() {
  * check-context-budget.js reads the RULE_CAP file off the core's own location,
  * never off --root (#36), so a fixture copy has to be pointed at through the
  * WFC_CAP_FILE test-injection seam (`lib/host-root.js`'s header convention);
- * the text module, where `--root` carries none, through WFC_INJECTOR_FILE.
+ * the text module, where `--root` carries none, through WFC_TRACKER_TEXT_FILE.
  */
 
 /** A text module the injection cap reads as near-empty, so only the session cap speaks. */
 function injector() {
 	vi.stubEnv(
-		"WFC_INJECTOR_FILE",
+		"WFC_TRACKER_TEXT_FILE",
 		writeTextModule(dir, textModuleSource("fixture.")),
 	);
 }

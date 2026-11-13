@@ -18,6 +18,7 @@ const { getPoolFiles } = require("./always-loaded-pool");
 const { SELF_PLUGIN_HOOKS, readOwnHooks } = require("./core-hooks.js");
 const { AFTER_EVENTS } = require("./hook-events.js");
 const { hostRoot } = require("./host-root.js");
+const { TRACKER_TEXT } = require("./load-text-module.js");
 const { MANIFEST_REL } = require("./guard-cores.js");
 const {
 	CAP_SOURCE,
@@ -36,18 +37,17 @@ const SETTINGS_FILE = ".claude/settings.json";
 /** The per-plugin token table, keyed by `enabledPlugins` name (mantahostels#3132). Host data, so under the host's .claude/ (#37). */
 const PLUGIN_COST_TABLE = ".claude/plugin-context-cost.json";
 
-/* The repo-relative pathspec of the text module the injection cap measures —
- * CAPPED_PATHSPECS' member and the name every message quotes. Never joined
- * onto `root` for the fallback read: the injector ships WITH the core, so in a
- * plugin install the host has no scripts/ of its own to hold it (#36). */
-const INJECTOR = "scripts/lib/tracker-inject-text.js";
-
-/* Where the text module is read from where `root` carries none: the core's own
+/* The text module the injection cap measures, TRACKER_TEXT, is a
+ * CAPPED_PATHSPECS member. Never joined onto `root` for the fallback read: it
+ * ships WITH the core, so in a plugin install the host has no scripts/ of its
+ * own to hold it (#36).
+ *
+ * Where the text module is read from where `root` carries none: the core's own
  * copy, beside this file, found the same way in a checkout or a plugin cache.
- * `WFC_INJECTOR_FILE` is the test-injection seam (`lib/host-root.js`'s header
- * convention) — the suite points this at a fixture module instead. */
-const INJECTOR_FILE =
-	process.env.WFC_INJECTOR_FILE ||
+ * `WFC_TRACKER_TEXT_FILE` is the test-injection seam (`lib/host-root.js`'s
+ * header convention) — the suite points this at a fixture module instead. */
+const TRACKER_TEXT_FILE =
+	process.env.WFC_TRACKER_TEXT_FILE ||
 	path.join(__dirname, "tracker-inject-text.js");
 
 /* ------------------------------------------------------------------ *
@@ -76,7 +76,7 @@ const CAPPED_PATHSPECS = [
 	CONFIG_PATH,
 	/* The core's hook wiring, which decides which guards the event cap holds. */
 	SELF_PLUGIN_HOOKS,
-	INJECTOR,
+	TRACKER_TEXT,
 	"docs/agents",
 ];
 
@@ -206,12 +206,12 @@ const readBlobsAt = (rev, rels) =>
 /**
  * The pathspec `--against` fetches blobs from, resolved AT the revision.
  *
- * THE INJECTOR IS CORE, NOT HOST (#36), but `--against` in THIS repo is
- * self-hosted: the core's own history IS the host's, so INJECTOR is fetched
- * like any listed path — that is what lets a staged growth of the injector's
- * own bytes be materialised and caught. A plugin install's host git never
- * tracked it, and the checker's readInjection() falls back to the live core
- * copy (`INJECTOR_FILE`).
+ * THE TEXT MODULE IS CORE, NOT HOST (#36), but `--against` in THIS repo is
+ * self-hosted: the core's own history IS the host's, so TRACKER_TEXT is fetched
+ * like any listed path — that is what lets a staged growth of its own bytes be
+ * materialised and caught. A plugin install's host git never tracked it, and
+ * the checker's readInjection() falls back to the live core copy
+ * (`TRACKER_TEXT_FILE`).
  *
  * @param {Ctx} _ctx
  * @param {string} rev
@@ -230,7 +230,7 @@ module.exports = {
 	SETTINGS_FILE,
 	PLUGIN_COST_TABLE,
 	SHED_REGISTERS,
-	INJECTOR,
-	INJECTOR_FILE,
+	TRACKER_TEXT,
+	TRACKER_TEXT_FILE,
 	materialisePathspecs,
 };

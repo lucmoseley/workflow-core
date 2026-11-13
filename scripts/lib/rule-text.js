@@ -373,6 +373,20 @@ function rulePointer(id) {
 }
 
 /**
+ * A rule-fragment lookup over `root`, as lib/tracker-inject-text.js's
+ * codeReviewParts takes one: readRuleText's answer, or "" where it throws.
+ * @param {string} root
+ * @returns {(id: string) => string}
+ */
+const fragmentLookup = (root) => (id) => {
+	try {
+		return readRuleText(id, root);
+	} catch {
+		return "";
+	}
+};
+
+/**
  * readRuleText for a guard or checker that must not crash: where the fragment
  * cannot be read it logs the failure under `label` and answers `lead` in the
  * guard fallback template (#3018), which rule-fallback-template.test.ts holds.
@@ -423,5 +437,6 @@ module.exports = {
 	readRuleParagraph,
 	rulePointer,
 	readRuleText,
+	fragmentLookup,
 	readRuleTextOr,
 };
