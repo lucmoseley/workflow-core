@@ -7,6 +7,8 @@
  * fix (base §N4).
  */
 
+import fs from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { judgeHook, parseBreaches } from "./precommit-exit.js";
 
@@ -22,6 +24,19 @@ describe("parseBreaches", () => {
 				"./scripts/c.sh || exit 1",
 			),
 		).toEqual([1, 2, 3]);
+	});
+
+	it("reads the hook's dispatcher line as a checker line, passing it as the hook spells it (#5172)", () => {
+		const hook = fs.readFileSync(
+			path.resolve(__dirname, "..", "..", ".husky", "pre-commit"),
+			"utf8",
+		);
+		const line = hook
+			.split("\n")
+			.find((l) => l.includes("scripts/precommit-dispatch.js"));
+		expect(line).toMatch(/\|\| exit "\$\?"$/);
+		expect(lines(line ?? "")).toEqual([]);
+		expect(lines((line ?? "").replace('exit "$?"', "exit 1"))).toEqual([1]);
 	});
 
 	it("passes a checker passing its code on, and an outside command or inline code exiting 1", () => {
