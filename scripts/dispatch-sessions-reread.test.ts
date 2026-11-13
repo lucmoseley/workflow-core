@@ -581,7 +581,7 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 	it("names the gap rather than going quiet where no roster file exists", async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
-		const r = await fx.coreRun(["sonnet", "/implement 341"], {
+		const r = await fx.runCoreUnder(["sonnet", "/implement 341"], {
 			cwd: fx.dir,
 			env: { ...baseEnv(), HOME: fx.dir },
 		});
@@ -613,7 +613,7 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
 		const env = baseEnv();
 		delete env.HOME;
-		const r = await fx.coreRun(["sonnet", "/implement 341"], {
+		const r = await fx.runCoreUnder(["sonnet", "/implement 341"], {
 			cwd: fx.dir,
 			env,
 		});
@@ -651,7 +651,7 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 			}),
 		);
 
-		const r = await fx.coreRun(["sonnet", "/implement 341"], {
+		const r = await fx.runCoreUnder(["sonnet", "/implement 341"], {
 			cwd: fx.dir,
 			env: baseEnv({
 				CLAUDE_CONFIG_DIR: configDir,

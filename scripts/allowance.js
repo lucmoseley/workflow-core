@@ -31,6 +31,7 @@ const { writeFd } = require("./lib/write-fd.js");
 const { configDir: defaultConfigDir } = require("./lib/config-dir.js");
 const { readAllowance, isTrustworthy } = require("./lib/allowance");
 const { capOf } = require("./lib/allowance-cap.js");
+const { now } = require("./lib/check.js");
 
 const CLI = {
 	usage:
@@ -71,7 +72,11 @@ function readStdin() {
 function main() {
 	const args = parseArgs(process.argv.slice(2));
 	const usageText = readStdin();
-	const result = readAllowance({ configDir: args.configDir, usageText });
+	const result = readAllowance({
+		configDir: args.configDir,
+		usageText,
+		now: now(),
+	});
 	const trustworthy = isTrustworthy(result);
 
 	if (args.json) {

@@ -6,7 +6,9 @@
  * A CORE (base §T7, §X11): it reads nothing of its own process — the
  * environment, the working directory and every child come in through
  * `dispatch`'s arguments — and returns the exit code with the complete text
- * it wrote. The ports:
+ * it wrote. Its one direct I/O is the filesystem, which has no fake (#5135):
+ * the scratch files it hands a helper and reads back, the launch's debug log,
+ * and the roster files a remedy names. The ports:
  *
  *   node(script, args, {env, cwd, stdin?})  one of this repo's Node programs,
  *            `script` relative to scripts/, as {status, stdout, stderr}
@@ -111,10 +113,40 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { bashQuote } = require("./bash-quote.js");
 const { bgLaunchId } = require("./bg-launch-id.js");
+const { claudeBin } = require("./claude-bin.js");
+const { readText } = require("./file-read.js");
 const { docPath, scriptPath } = require("./script-path.js");
+const { shellQuote } = require("./sh-quote.js");
 const { trimEndRun, trimStartRun } = require("./trim-run.js");
+
+/* The per-member lines lib/refill-batch.js's refusal parser keys on: one
+ * copy, which the parser imports. */
+const MEMBER_REFUSED_TAIL = "— not launching this member.";
+const memberRefused = (/** @type {string} */ prompt) =>
+	`REFUSED: ${prompt} ${MEMBER_REFUSED_TAIL}`;
+const memberDropped = (/** @type {string} */ prompt) => `dropped: ${prompt}`;
+
+/** @typedef {{model: string, prompt: string}} Member one of the set's sessions */
+
+/**
+ * The model-prompt words, two to a member.
+ * @param {string[]} words an even count
+ */
+function membersOf(words) {
+	/** @type {Member[]} */
+	const members = [];
+	/** @type {string | undefined} */
+	let model;
+	for (const w of words) {
+		if (model === undefined) model = w;
+		else {
+			members.push({ model, prompt: w });
+			model = undefined;
+		}
+	}
+	return members;
+}
 
 /** scripts/, which every program the core names sits under. */
 const SCRIPTS = path.resolve(__dirname, "..");
@@ -259,11 +291,8 @@ function makeTemp(env, prefix) {
 /** The file's text, or "" where it cannot be read. */
 function readOrEmpty(/** @type {string} */ file) {
 	if (!file) return "";
-	try {
-		return fs.readFileSync(file, "utf8");
-	} catch {
-		return "";
-	}
+	const got = readText(file);
+	return got.state === "read" ? got.data : "";
 }
 
 /** The flags that only switch a setting on or off. */
@@ -334,7 +363,7 @@ class Dispatch {
 		 * duplicate gate's live limb reads every Claude plan's sessions through
 		 * agent-liveness.js, whichever plan this runs under (#3512).
 		 */
-		this.claudeBin = run.env.WFC_CLAUDE_BIN || "claude";
+		this.claudeBin = claudeBin(run.env);
 		/** @type {NodeJS.ProcessEnv} */
 		this.env = { ...run.env, WFC_CLAUDE_BIN: this.claudeBin };
 		const e = this.env;
@@ -434,7 +463,7 @@ class Dispatch {
 
 	/** @param {string[]} argv */
 	async main(argv) {
-		let args = this.parseArgs(argv);
+		let members = this.parseArgs(argv);
 		/* BEFORE both gates, not just before the launches (mantahostels#3111):
 		 * each of them shells out to `claude` too — the duplicate gate for its
 		 * live oracle, the allowance gate under a 120s ceiling — so a wedge
@@ -443,18 +472,18 @@ class Dispatch {
 		await this.refuseIfInteropWedged();
 		await this.refuseIfKernelUnhealthy();
 		await this.readSeat();
-		args = await this.remap(args);
-		if (this.overflow) await this.admitOverflowModels(args);
-		if (!this.force) args = await this.duplicateGate(args);
-		let wantsAdvisor = await this.warnUnknownModels(args);
+		members = await this.remap(members);
+		if (this.overflow) await this.admitOverflowModels(members);
+		if (!this.force) members = await this.duplicateGate(members);
+		let wantsAdvisor = await this.warnUnknownModels(members);
 		await this.probeUsage();
-		if (this.overflow) args = await this.overflowBudgetGate(args);
+		if (this.overflow) members = await this.overflowBudgetGate(members);
 		if (!this.overflow && !this.force) {
-			const capped = await this.allowanceGate(args);
+			const capped = await this.allowanceGate(members);
 			// The advisor line below describes the members that launch, not the cut.
-			if (capped.length !== args.length)
+			if (capped.length !== members.length)
 				wantsAdvisor = await this.anyWantsAdvisor(capped);
-			args = capped;
+			members = capped;
 		}
 		if (wantsAdvisor) this.reportAdvisor();
 		/*
@@ -462,11 +491,8 @@ class Dispatch {
 		 * `poolReserve`, the bg-spare pool) immediately before EACH spawn
 		 * (mantahostels#2553).
 		 */
-		while (args.length > 0) {
-			const [model, prompt] = /** @type {[string, string]} */ (args);
-			args = args.slice(2);
-			await this.launchMember(model, prompt, args.length > 0);
-		}
+		for (const [i, { model, prompt }] of members.entries())
+			await this.launchMember(model, prompt, i < members.length - 1);
 	}
 
 	/**
@@ -475,12 +501,13 @@ class Dispatch {
 	 */
 	parseArgs(argv) {
 		let args = [...argv];
-		while (args.length > 0) {
-			const a = /** @type {string} */ (args[0]);
+		for (;;) {
+			const [a, operand] = args;
+			if (a === undefined) break;
 			if (Object.hasOwn(SWITCHES, a))
 				this.setSwitch(SWITCHES[/** @type {keyof typeof SWITCHES} */ (a)]);
 			else if (a === "--into") {
-				this.into = this.intoOperand(args);
+				this.into = this.intoOperand(operand);
 				args = args.slice(1);
 			} else if (a === "--") {
 				args = args.slice(1);
@@ -489,17 +516,24 @@ class Dispatch {
 			else break;
 			args = args.slice(1);
 		}
-		if (args.length === 0 || args.length % 2 !== 0)
+		return this.membersOrUsage(args);
+	}
+
+	/** The members `words` name, or exit 2 on an odd count, or on a set
+	 * `--into` cannot take. @param {string[]} words */
+	membersOrUsage(words) {
+		if (words.length === 0 || words.length % 2 !== 0)
 			this.exitWith(
 				2,
 				`usage: ${scriptPath("dispatch-sessions.js", this.env)} [--dry-run] [--force] [--force-memory] [--no-advisor] [--into <worktree>] <model> <prompt> [<model> <prompt> ...]\n`,
 			);
-		if (this.into !== "" && args.length !== 2)
+		const members = membersOf(words);
+		if (this.into !== "" && members.length !== 1)
 			this.exitWith(
 				2,
-				`--into starts one session in one worktree; this set has ${args.length / 2} members\n`,
+				`--into starts one session in one worktree; this set has ${members.length} members\n`,
 			);
-		return args;
+		return members;
 	}
 
 	/** @param {readonly [string, boolean]} sw a SWITCHES entry */
@@ -510,10 +544,10 @@ class Dispatch {
 		else this.forceMemory = on;
 	}
 
-	/** @param {string[]} args the rest of the command line, at `--into` */
-	intoOperand(args) {
-		if (args.length < 2) this.exitWith(2, "--into names no worktree\n");
-		return /** @type {string} */ (args[1]);
+	/** @param {string | undefined} operand the word after `--into` */
+	intoOperand(operand) {
+		if (operand === undefined) this.exitWith(2, "--into names no worktree\n");
+		return operand;
 	}
 
 	/**
@@ -614,7 +648,7 @@ class Dispatch {
 		if (!this.overflow && seatKind !== "plan")
 			this.exitWith(
 				2,
-				`REFUSED: the seat ${this.seatDir} read as ${bashQuote(seatKind, this.env)}, neither plan nor overflow.\n`,
+				`REFUSED: the seat ${this.seatDir} read as ${shellQuote(seatKind)}, neither plan nor overflow.\n`,
 			);
 		// Burn mode never reaches an overflow seat (#4919).
 		this.burn = burnState === "on" && !this.overflow;
@@ -626,17 +660,12 @@ class Dispatch {
 	}
 
 	/** Each member's model as the table launches it.
-	 * @param {string[]} args */
-	async remap(args) {
-		/** @type {string[]} */
+	 * @param {Member[]} members */
+	async remap(members) {
+		/** @type {Member[]} */
 		const remapped = [];
-		for (let i = 0; i < args.length; i += 2) {
-			const m = /** @type {string} */ (args[i]);
-			remapped.push(
-				await this.launchModel(m),
-				/** @type {string} */ (args[i + 1]),
-			);
-		}
+		for (const { model, prompt } of members)
+			remapped.push({ model: await this.launchModel(model), prompt });
 		return remapped;
 	}
 
@@ -667,14 +696,13 @@ class Dispatch {
 
 	/** Only the overflow alias's current-model spellings are admitted on an
 	 * overflow seat (lib/model-table.js's `admits`).
-	 * @param {string[]} args */
-	async admitOverflowModels(args) {
-		for (let i = 0; i < args.length; i += 2) {
-			const m = /** @type {string} */ (args[i]);
+	 * @param {Member[]} members */
+	async admitOverflowModels(members) {
+		for (const { model: m } of members) {
 			if ((await this.relayed(MODEL_TABLE, ["admits", m])) !== 0)
 				this.exitWith(
 					2,
-					`REFUSED: ${this.seatLabel} is an overflow seat, which launches Opus alone (#1920); ${bashQuote(m, this.env)} is not.\n`,
+					`REFUSED: ${this.seatLabel} is an overflow seat, which launches Opus alone (#1920); ${shellQuote(m)} is not.\n`,
 				);
 		}
 	}
@@ -785,12 +813,12 @@ class Dispatch {
 	 * The first `n` members of `set`, naming each one cut. Both caps cut the
 	 * set's tail this way, with no skip-ahead.
 	 * @param {number} n
-	 * @param {string[]} set
+	 * @param {Member[]} set
 	 */
 	keepFirst(n, set) {
-		for (let i = 2 * n + 1; i < set.length; i += 2)
-			this.err(`  dropped: ${set[i]}\n`);
-		return set.slice(0, 2 * n);
+		for (const { prompt } of set.slice(n))
+			this.err(`  ${memberDropped(prompt)}\n`);
+		return set.slice(0, n);
 	}
 
 	/*
@@ -802,9 +830,9 @@ class Dispatch {
 	 * still reports, but never exits on it. The check itself writes nothing.
 	 * Refusal is per MEMBER, not per set.
 	 */
-	/** @param {string[]} args */
-	async duplicateGate(args) {
-		const prompts = this.checkedPrompts(args);
+	/** @param {Member[]} members */
+	async duplicateGate(members) {
+		const prompts = this.checkedPrompts(members);
 		const dropFile = this.temp("dispatch-drop");
 		const status = await this.relayed("check-duplicate-dispatch.js", [
 			"--issues",
@@ -812,7 +840,7 @@ class Dispatch {
 			"--drop-index-out",
 			dropFile,
 		]);
-		if (status === 0) return args;
+		if (status === 0) return members;
 		/* Fail CLOSED on an unreadable drop file, unlike the check itself:
 		 * without it there is no way to tell which member offended. */
 		const dropText = readOrEmpty(dropFile);
@@ -820,26 +848,25 @@ class Dispatch {
 			this.refuseDispatched(
 				"the whole set, because the per-member drop list is unreadable.",
 			);
-			return args;
+			return members;
 		}
-		return this.dropMembers(args, dropText);
+		return this.dropMembers(members, dropText);
 	}
 
 	/**
 	 * The prompts, one a line, each refused where it would shift the drop
 	 * list's indices.
-	 * @param {string[]} args
+	 * @param {Member[]} members
 	 */
-	checkedPrompts(args) {
+	checkedPrompts(members) {
 		let prompts = "";
-		for (let i = 1; i < args.length; i += 2) {
-			const p = /** @type {string} */ (args[i]);
+		for (const { prompt: p } of members) {
 			if (p.replace(/\s/g, "") === "")
 				this.exitWith(2, "usage: a launch prompt may not be empty.\n");
 			if (p.includes("\n"))
 				this.exitWith(
 					2,
-					`usage: a launch prompt may not contain a newline: ${bashQuote(p, this.env)}\n`,
+					`usage: a launch prompt may not contain a newline: ${shellQuote(p)}\n`,
 				);
 			prompts += `${p}\n`;
 		}
@@ -847,27 +874,26 @@ class Dispatch {
 	}
 
 	/**
-	 * @param {string[]} args
+	 * @param {Member[]} members
 	 * @param {string} dropText the drop list, one 0-based member index a line;
 	 *   a line counts only where its newline ends it
 	 */
-	async dropMembers(args, dropText) {
+	async dropMembers(members, dropText) {
 		const drop = new Set(
 			dropText
 				.split("\n")
 				.slice(0, -1)
 				.map((l) => l.trim()),
 		);
-		/** @type {string[]} */
+		/** @type {Member[]} */
 		const keep = [];
-		for (let i = 0; i < args.length; i += 2) {
-			const pair = args.slice(i, i + 2);
-			if (drop.has(`${i / 2}`)) this.err(`  dropped: ${pair[1]}\n`);
-			else keep.push(...pair);
+		for (const [i, member] of members.entries()) {
+			if (drop.has(`${i}`)) this.err(`  ${memberDropped(member.prompt)}\n`);
+			else keep.push(member);
 		}
 		if (keep.length > 0) {
 			this.out(
-				`Launching ${keep.length / 2} of ${args.length / 2} set(s); the rest are already dispatched.\n`,
+				`Launching ${keep.length} of ${members.length} set(s); the rest are already dispatched.\n`,
 			);
 			return keep;
 		}
@@ -877,7 +903,7 @@ class Dispatch {
 		 * nothing to do with a stuck job, and the recipe there is misdirection. */
 		await this.rosterRemedy();
 		this.refuseDispatched("every member of this set is already dispatched.");
-		return args;
+		return members;
 	}
 
 	/**
@@ -906,12 +932,11 @@ class Dispatch {
 		return this.advisor && (await this.advisorClass(model)) !== "none";
 	}
 
-	/** @param {string[]} args */
-	async anyWantsAdvisor(args) {
+	/** @param {Member[]} members */
+	async anyWantsAdvisor(members) {
 		let wants = false;
-		for (let i = 0; i < args.length; i += 2)
-			if (await this.wantsAdvisor(/** @type {string} */ (args[i])))
-				wants = true;
+		for (const { model } of members)
+			if (await this.wantsAdvisor(model)) wants = true;
 		return wants;
 	}
 
@@ -922,14 +947,13 @@ class Dispatch {
 	 * unrecognised spelling (mantahostels#1199, the ticket that added this
 	 * warning). Whether any member wants the advisor.
 	 */
-	/** @param {string[]} args */
-	async warnUnknownModels(args) {
+	/** @param {Member[]} members */
+	async warnUnknownModels(members) {
 		if (!this.advisor) return false;
 		/** @type {string[]} */
 		const unknown = [];
 		let wants = false;
-		for (let i = 0; i < args.length; i += 2) {
-			const m = /** @type {string} */ (args[i]);
+		for (const { model: m } of members) {
 			const cls = await this.advisorClass(m);
 			if (cls !== "none") wants = true;
 			if (cls === "unknown") unknown.push(m);
@@ -1023,22 +1047,22 @@ class Dispatch {
 	 * budget (#2609), `fit` being how many more sessions its headroom holds at
 	 * one mean session each. Fails CLOSED like the allowance gate.
 	 */
-	/** @param {string[]} args */
-	async overflowBudgetGate(args) {
+	/** @param {Member[]} members */
+	async overflowBudgetGate(members) {
 		const budget = await this.readBudget("the whole set");
 		if (!budget) throw exitAt(3);
 		const fit = Number(budget.fit);
 		if (fit === 0) this.refuseNoFit(budget);
-		if (fit < Math.floor(args.length / 2)) {
+		if (fit < members.length) {
 			this.err(
-				`CAPPED: launching ${budget.fit} of ${args.length / 2} on the overflow budget of ${this.seatLabel} (headroom $${money(budget.headroom)}, $${money(budget.qUsd)} a session).\n`,
+				`CAPPED: launching ${budget.fit} of ${members.length} on the overflow budget of ${this.seatLabel} (headroom $${money(budget.headroom)}, $${money(budget.qUsd)} a session).\n`,
 			);
-			return this.keepFirst(fit, args);
+			return this.keepFirst(fit, members);
 		}
 		this.out(
 			`Budget OK: ${this.seatLabel} fits ${budget.fit}; headroom $${money(budget.headroom)}.\n`,
 		);
-		return args;
+		return members;
 	}
 
 	/** @param {Budget} budget @returns {never} */
@@ -1056,9 +1080,9 @@ class Dispatch {
 
 	/**
 	 * The plan seat's allowance gate: the members it leaves.
-	 * @param {string[]} args
+	 * @param {Member[]} members
 	 */
-	async allowanceGate(args) {
+	async allowanceGate(members) {
 		/* stderr discarded on purpose: a crash here collapses to the same
 		 * "absent" both bars read on a clean but untrustworthy run, and the
 		 * refusal below already says that is likely transient — the cases are
@@ -1068,7 +1092,7 @@ class Dispatch {
 			[
 				"--json",
 				"--cap",
-				`${args.length / 2}`,
+				`${members.length}`,
 				"--session-threshold",
 				this.sessionCeiling,
 				"--week-threshold",
@@ -1085,22 +1109,22 @@ class Dispatch {
 		 * running at once (#372 measured <=1 s), but still launches one while
 		 * the bar reads under 100% — the floor applies per call (#371). */
 		const capLaunch = Number(a.capLaunch);
-		if (Number.isNaN(capLaunch) || capLaunch >= Math.floor(args.length / 2)) {
+		if (Number.isNaN(capLaunch) || capLaunch >= members.length) {
 			const shown = (/** @type {string} */ trust, /** @type {string} */ pct) =>
 				trust === "unreported" ? "not reported" : `${pct}%`;
 			this.out(
 				`Allowance OK: week ${shown(a.weekTrust, a.weekPct)}, session ${shown(a.sessionTrust, a.sessionPct)}.\n`,
 			);
-			return args;
+			return members;
 		}
 		if (capLaunch === 0) this.refuseFullBar(a);
 		this.err(
-			`CAPPED: launching ${a.capLaunch} of ${args.length / 2} on the ${a.capBar} bar (${a.capReading}% used, ${a.capNRunning} running session(s)\n`,
+			`CAPPED: launching ${a.capLaunch} of ${members.length} on the ${a.capBar} bar (${a.capReading}% used, ${a.capNRunning} running session(s)\n`,
 		);
 		this.err(
 			`  projected at ${a.capRunning} more points, ~${a.capFigure} a new session).\n`,
 		);
-		return this.keepFirst(capLaunch, args);
+		return this.keepFirst(capLaunch, members);
 	}
 
 	/** No trustworthy reading from either source (JSON cache or the printed
@@ -1191,9 +1215,7 @@ class Dispatch {
 		if (this.overflow && !budget) return;
 		const { launcher, cmd } = await this.launchCommand(model, prompt, budget);
 		if (this.dryRun) {
-			this.out(
-				`would launch: ${cmd.map((w) => bashQuote(w, this.env)).join(" ")}\n`,
-			);
+			this.out(`would launch: ${cmd.map((w) => shellQuote(w)).join(" ")}\n`);
 			return;
 		}
 		/* Re-probed per member (mantahostels#3111, #867, #2779): the bridge
@@ -1267,7 +1289,7 @@ class Dispatch {
 	 * @param {string[]} lines its lines
 	 */
 	async refuseMember(prompt, text, lines) {
-		this.err(`REFUSED: ${prompt} — not launching this member.\n`);
+		this.err(`${memberRefused(prompt)}\n`);
 		this.err(prefixLines(`${text}\n`, "  "));
 		this.err("  Re-read immediately before this spawn (mantahostels#2553).\n");
 		/* admission.js names a CPU hold on a `cpu load` or `cpu sessions` line,
@@ -1327,7 +1349,7 @@ class Dispatch {
 			`${prompt} — not launching this member`,
 		);
 		if (!budget || Number(budget.fit) !== 0) return budget;
-		this.err(`REFUSED: ${prompt} — not launching this member.\n`);
+		this.err(`${memberRefused(prompt)}\n`);
 		this.err(`  ${this.noFitLine(budget)}\n`);
 		return null;
 	}
@@ -1397,7 +1419,7 @@ class Dispatch {
 			prompt,
 		]);
 		if (r.status === 0) return chomp(r.stdout);
-		this.err(`REFUSED: ${prompt} — not launching this member.\n`);
+		this.err(`${memberRefused(prompt)}\n`);
 		this.err(prefixLines(r.stderr, "  "));
 		return null;
 	}
@@ -1505,11 +1527,13 @@ function isFile(file) {
 
 /**
  * @param {string} text
- * @returns {any} the JSON `text` holds, or null
+ * @returns {Record<string, unknown> | null} the JSON object `text` holds, or
+ * null for anything else
  */
 function parseJson(text) {
 	try {
-		return JSON.parse(text);
+		const v = JSON.parse(text);
+		return v !== null && typeof v === "object" ? v : null;
 	} catch {
 		return null;
 	}
@@ -1546,7 +1570,7 @@ const ALLOWANCE_FIELDS = /** @type {const} */ ({
  */
 function readAllowance(json) {
 	const j = parseJson(json);
-	if (j === null || typeof j !== "object") {
+	if (j === null) {
 		return /** @type {Allowance} */ ({
 			...Object.fromEntries(Object.keys(ALLOWANCE_FIELDS).map((k) => [k, ""])),
 			trustworthy: "false",
@@ -1558,7 +1582,8 @@ function readAllowance(json) {
 			capNRunning: "",
 		});
 	}
-	const binding = j.cap?.binding;
+	const binding = (/** @type {string} */ key) =>
+		readAt(j, ["cap", "binding", key], false);
 	return /** @type {Allowance} */ ({
 		...Object.fromEntries(
 			Object.entries(ALLOWANCE_FIELDS).map(([k, [at, kind]]) => [
@@ -1567,24 +1592,29 @@ function readAllowance(json) {
 			]),
 		),
 		trustworthy: jqString(j.trustworthy === true),
-		capBar: binding?.bar === "session" ? "session" : "weekly",
-		capRunning: rounded(binding?.runningPoints, 10),
-		capFigure: rounded(binding?.perSessionPoints, 100),
-		capNRunning: jqLength(j.cap?.running),
+		capBar: binding("bar") === "session" ? "session" : "weekly",
+		capRunning: rounded(binding("runningPoints"), 10),
+		capFigure: rounded(binding("perSessionPoints"), 100),
+		capNRunning: jqLength(readAt(j, ["cap", "running"], false)),
 	});
 }
 
 /**
  * The value at `at` in `j`, null where any step is missing.
- * @param {any} j
+ * @param {unknown} j
  * @param {readonly string[]} at
  * @param {boolean} or jq's `//`: null or false reads empty
+ * @returns {unknown}
  */
 function readAt(j, at, or) {
-	/** @type {any} */
 	let v = j;
-	for (const k of at)
-		v = v === null || typeof v !== "object" ? null : (v[k] ?? null);
+	for (const k of at) {
+		const here = v;
+		v =
+			here !== null && typeof here === "object"
+				? (Object.entries(here).find(([key]) => key === k)?.[1] ?? null)
+				: null;
+	}
 	return or && (v === null || v === false) ? "" : v;
 }
 
@@ -1609,8 +1639,10 @@ function jqString(v) {
 }
 
 module.exports = {
+	MEMBER_REFUSED_TAIL,
+	memberDropped,
+	memberRefused,
 	DEFAULT_CEILINGS,
-	DEFAULT_LAUNCH_TIMEOUT_SECONDS,
 	DEFAULT_STAGGER_SECONDS,
 	dispatch,
 };

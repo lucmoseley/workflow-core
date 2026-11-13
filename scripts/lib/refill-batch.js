@@ -13,7 +13,12 @@ const {
 } = require("./refill-block-core.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
 const { seatIdOf } = require("./refill-seats.js");
-const { DEFAULT_STAGGER_SECONDS } = require("./dispatch-sessions.js");
+const {
+	DEFAULT_STAGGER_SECONDS,
+	MEMBER_REFUSED_TAIL,
+	memberDropped,
+	memberRefused,
+} = require("./dispatch-sessions.js");
 
 /* Untraced: the dispatcher call's one-off gates and a `claude --bg` that hangs
  * up to dispatch-sessions.js's own launch ceiling. */
@@ -114,13 +119,6 @@ function buildWouldRunLine(call) {
  *   log: (line: string) => void, now: () => number}} ResumeIo
  */
 
-/* The dispatcher's per-member lines parseRefusalReason keys on, which a test
- * pins to lib/dispatch-sessions.js's message templates through launchBatch. */
-const MEMBER_REFUSED_TAIL = "— not launching this member.";
-const buildMemberRefused = (/** @type {string} */ prompt) =>
-	`REFUSED: ${prompt} ${MEMBER_REFUSED_TAIL}`;
-const buildMemberDropped = (/** @type {string} */ prompt) =>
-	`dropped: ${prompt}`;
 /* A set-level refusal or cut: the duplicate gate's REFUSED or DROPPING
  * header, the allowance cap's CAPPED, the launch timeout's REFUSED. */
 const SET_HEADER = /^\s*(REFUSED: |DROPPING |CAPPED: )/;
@@ -146,7 +144,7 @@ function parseRefusalReason(out, prompt, failed) {
 	const lines = out.split("\n");
 	const isSetHeader = (/** @type {string} */ l) =>
 		SET_HEADER.test(l) && !l.endsWith(MEMBER_REFUSED_TAIL);
-	const at = lines.indexOf(buildMemberRefused(prompt));
+	const at = lines.indexOf(memberRefused(prompt));
 	if (at !== -1) {
 		const end = lines.findIndex((l, i) => i > at && !l.startsWith("  "));
 		const block = lines
@@ -156,16 +154,14 @@ function parseRefusalReason(out, prompt, failed) {
 		return (
 			block.find((l) => l.startsWith("slots ")) ??
 			block[0] ??
-			buildMemberRefused(prompt)
+			memberRefused(prompt)
 		);
 	}
-	const dropped = lines.findIndex(
-		(l) => l.trim() === buildMemberDropped(prompt),
-	);
+	const dropped = lines.findIndex((l) => l.trim() === memberDropped(prompt));
 	if (dropped !== -1)
 		return (
 			lines.slice(0, dropped).findLast(isSetHeader)?.trim() ??
-			buildMemberDropped(prompt)
+			memberDropped(prompt)
 		);
 	if (failed)
 		return lines.findLast(isSetHeader)?.trim() ?? `dispatcher ${failed}`;
@@ -205,18 +201,7 @@ const limitParksOf = (l) =>
 function launchBatch(batch, io) {
 	const call = dispatchCall(batch, io.dispatcher, io.env);
 	const calledAt = io.now();
-	return settleBatch(batch, calledAt, io.run(call), io);
-}
-
-/**
- * launchBatch's outcome of a dispatcher call made at `calledAt` that ended as
- * `r`.
- * @param {import("./refill-decide.js").Launch[]} batch
- * @param {number} calledAt
- * @param {{failed: string|null, out: string}} r
- * @param {Pick<Parameters<typeof launchBatch>[1], "entriesOf"|"sessionOf">} io
- */
-function settleBatch(batch, calledAt, r, io) {
+	const r = io.run(call);
 	const { launched, reached, missing } = readLaunched(batch, calledAt, io);
 	const refused = missing.map((l) => ({
 		launch: l,
@@ -476,5 +461,4 @@ module.exports = {
 	launchBatch,
 	launchOrResume,
 	readStaggerMs,
-	settleBatch,
 };

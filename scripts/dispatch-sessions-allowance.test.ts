@@ -22,7 +22,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
 	agentsListing,
 	dispatchFixture,
@@ -32,19 +32,13 @@ import { printedResets } from "./lib/usage-probe-fake";
 
 const fx = dispatchFixture();
 
-/* The cache ages below are read on this injected clock, years from the real
- * one, so a reader still on the real clock reads every cache as stale. Only
- * Date is faked, and it keeps moving, so the probe's own waits still run. */
-const NOW = Date.UTC(2031, 0, 15, 12);
+/* The cache ages below are read on the boundary clock, WFC_NOW (lib/check.js's
+ * `now`), half an hour behind the real one: a reader still on the real clock
+ * reads a fresh cache as stale, past lib/allowance.js's 5 minutes, while the
+ * stub's printed resets, set off the real clock, stay ahead of both. */
+const NOW = Date.now() - 30 * 60 * 1000;
 const STALE = NOW - 10 * 60 * 1000;
-function onInjectedClock() {
-	beforeEach(() => {
-		vi.useFakeTimers({ toFake: ["Date"], now: NOW, shouldAdvanceTime: true });
-	});
-	afterEach(() => {
-		vi.useRealTimers();
-	});
-}
+const AT_NOW = { WFC_NOW: new Date(NOW).toISOString() };
 const { stubClaude, launchArgv, readArgvLines, runCore, run } = fx;
 
 describe("the allowance gate", () => {
@@ -218,15 +212,14 @@ describe("the allowance cap (#371)", () => {
 /* #294: the gate re-pointed at `cachedUsageUtilization` (#280), primary over
  * the printed bars. */
 describe("the allowance gate's JSON source (#280, #294)", () => {
-	onInjectedClock();
-
 	it("reads the JSON cache over the printed bars when both are fresh", async () => {
 		const configDir = path.join(fx.dir, "fresh-config");
-		writeCache(configDir, { session: 40, weeklyAll: 50 });
+		writeCache(configDir, { session: 40, weeklyAll: 50 }, NOW);
 		// The stub's printed bars say 99% — if the gate used them the run would
 		// refuse. The JSON cache says 40/50, so it should not.
 		stubClaude({ week: "99", session: "99" });
 		const r = await runCore(["sonnet", "/implement 341"], {
+			...AT_NOW,
 			CLAUDE_CONFIG_DIR: configDir,
 		});
 		expect(r.code).toBe(0);
@@ -238,6 +231,7 @@ describe("the allowance gate's JSON source (#280, #294)", () => {
 		writeCache(configDir, { session: 40, weeklyAll: 50 }, STALE);
 		stubClaude({ week: "3", session: "12" });
 		const r = await runCore(["sonnet", "/implement 341"], {
+			...AT_NOW,
 			CLAUDE_CONFIG_DIR: configDir,
 		});
 		expect(r.code).toBe(0);
@@ -246,7 +240,7 @@ describe("the allowance gate's JSON source (#280, #294)", () => {
 
 	it("refuses with a 'transient' reading where neither source is trustworthy", async () => {
 		stubClaude({ week: "not a number", session: "not a number" });
-		const r = await runCore(["sonnet", "/implement 341"]);
+		const r = await runCore(["sonnet", "/implement 341"], AT_NOW);
 		expect(r.code).toBe(3);
 		expect(r.stderr).toContain("no trustworthy allowance reading");
 		expect(r.stderr).toContain("likely transient");
@@ -256,9 +250,10 @@ describe("the allowance gate's JSON source (#280, #294)", () => {
 	 * `Current session:` line; the cap runs on the weekly bar alone. */
 	it("launches without --force on a fresh weekly bar where the account reports no session bar", async () => {
 		const configDir = path.join(fx.dir, "weekly-only-config");
-		writeCache(configDir, { weeklyAll: 0 });
+		writeCache(configDir, { weeklyAll: 0 }, NOW);
 		stubClaude({ session: null });
 		const r = await runCore(["sonnet", "/implement 341"], {
+			...AT_NOW,
 			CLAUDE_CONFIG_DIR: configDir,
 		});
 		expect(r.code).toBe(0);
@@ -271,6 +266,7 @@ describe("the allowance gate's JSON source (#280, #294)", () => {
 		writeCache(configDir, { weeklyAll: 0 }, STALE);
 		stubClaude({ session: null, week: "not a number" });
 		const r = await runCore(["sonnet", "/implement 341"], {
+			...AT_NOW,
 			CLAUDE_CONFIG_DIR: configDir,
 		});
 		expect(r.code).toBe(3);
@@ -288,9 +284,10 @@ describe("the allowance gate's JSON source (#280, #294)", () => {
 			{ mode: 0o755 },
 		);
 		const configDir = path.join(fx.dir, "no-probe-config");
-		writeCache(configDir, { session: 40, weeklyAll: 50 });
+		writeCache(configDir, { session: 40, weeklyAll: 50 }, NOW);
 		stubClaude({});
 		const r = await runCore(["sonnet", "/implement 341"], {
+			...AT_NOW,
 			CLAUDE_CONFIG_DIR: configDir,
 			PATH: `${fx.dir}:${process.env.PATH}`,
 		});

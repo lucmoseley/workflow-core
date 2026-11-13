@@ -210,7 +210,7 @@ describe("the session's directory (#4245)", () => {
 	it("refuses a member it finds no directory for, naming why", async () => {
 		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "not-a-repo-"));
 		stubClaude({});
-		const r = await fx.coreRun(["sonnet", "/implement 341"], {
+		const r = await fx.runCoreUnder(["sonnet", "/implement 341"], {
 			cwd: outside,
 			env: baseEnv(),
 		});
@@ -302,7 +302,7 @@ describe("the WFC_CLAUDE_BIN fallback (mantahostels#1401)", () => {
 		const env = baseEnv({ PATH: `${shadowDir()}:${process.env.PATH}` });
 		delete env.WFC_CLAUDE_BIN;
 
-		const r = await fx.coreRun(["--dry-run", "sonnet", "/implement 341"], {
+		const r = await fx.runCoreUnder(["--dry-run", "sonnet", "/implement 341"], {
 			cwd: process.cwd(),
 			env,
 		});
@@ -316,6 +316,32 @@ describe("the WFC_CLAUDE_BIN fallback (mantahostels#1401)", () => {
 		// by argv content, not merely a file existing.
 		expect(readArgvLines().some((l) => l.includes("-p /usage"))).toBe(true);
 		expect(readArgvLines().some((l) => l.includes("agents --json"))).toBe(true);
+	});
+});
+
+describe("a launch killed from outside (#5145)", () => {
+	/* 137 is also what the ceiling's KILL leaves, but only the ceiling's own
+	 * expiry refuses the call: a launch an outside SIGKILL took, the OOM
+	 * killer's say, fails alone, and admission re-reads memory before the next
+	 * member. */
+	it("reports the kill, records nothing for it, and goes on to the next member", async () => {
+		stubClaude({});
+		const killed = path.join(fx.dir, "killed-claude");
+		fs.writeFileSync(
+			killed,
+			`#!/bin/bash\n[[ " $* " == *" --bg "* ]] && [[ "$*" == *"/implement 341"* ]] && kill -9 $$\nexec ${shellQuote(stubPath())} "$@"\n`,
+			{ mode: 0o755 },
+		);
+		const r = await runCore(
+			["sonnet", "/implement 341", "opus", "/wayfinder 1114"],
+			{ WFC_CLAUDE_BIN: killed },
+		);
+		expect(r.code).toBe(0);
+		expect(r.stderr).toContain(
+			"(claude exited 137; not recorded as launched.)",
+		);
+		expect(r.stderr).not.toContain("did not return within");
+		expect(launchArgv()).toContain("/wayfinder 1114");
 	});
 });
 
