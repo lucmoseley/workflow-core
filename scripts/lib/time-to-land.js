@@ -177,6 +177,14 @@ const ISO_TIME_RE =
 	/^\d{4}-\d\d-\d\dT\d\d:\d\d(?::\d\d(?:\.\d+)?)?(?:Z|[+-]\d\d:\d\d)$/;
 
 /**
+ * Why a `--<name>` value is refused as no ISO time with its zone.
+ * @param {string} name
+ * @param {string} value
+ */
+const buildIsoRefusal = (name, value) =>
+	`--${name} takes an ISO time with its zone, such as 2026-11-10T16:13:04Z: ${value}`;
+
+/**
  * @typedef {{since: number, until: number, label: string}} Window ms; `label`
  *   names it in a reading's line
  */
@@ -192,7 +200,7 @@ const ISO_TIME_RE =
 function windowOf(flags, at) {
 	for (const [name, value] of Object.entries(flags))
 		if (value != null && !ISO_TIME_RE.test(value))
-			return `--${name} takes an ISO time with its zone, such as 2026-11-10T16:13:04Z: ${value}`;
+			return buildIsoRefusal(name, value);
 	const until = flags.until == null ? at : Date.parse(flags.until);
 	const since =
 		flags.since == null ? until - BASELINE_MS : Date.parse(flags.since);
@@ -489,9 +497,12 @@ function replayBatches(events) {
 }
 
 module.exports = {
+	ISO_TIME_RE,
+	buildIsoRefusal,
 	TARGET_MULTIPLE,
 	greenSuiteSpans,
 	memberStays,
+	overCountNeeded,
 	parseLanderLog,
 	readLogSince,
 	judgeTimeToLand,

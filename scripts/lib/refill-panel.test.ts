@@ -73,7 +73,7 @@ const RUNNING = {
 	overflow: [],
 	burnMode: BURN_OFF,
 };
-const LOOP_COUNT = "6 working · 9 of 9 slots taken";
+const LOOP_COUNT = "6 working · 3 idle · room for 0";
 const WAITING_ROW = "No ticket ready";
 const PAUSED_TICK = {
 	at: LATER,
@@ -259,14 +259,23 @@ function heldUntil() {
 }
 
 describe("the panel's rows", () => {
-	it("reads line 1 as the working count beside the slots taken, and an unread count as ? (#4747)", () => {
+	it("reads line 1 as the working, idle and room counts, and an unread count as ? (#4747, #5158)", () => {
 		const line1 = (concurrency: object) =>
 			summary(rowsOf({ status: { ...RUNNING, concurrency } }))[2][0];
-		expect(line1({ working: 8, ceiling: 8, stateWorking: 6 })).toBe(
-			"6 working · 8 of 8 slots taken",
+		expect(line1({ working: 7, ceiling: 9, stateWorking: 2 })).toBe(
+			"2 working · 5 idle · room for 2",
+		);
+		expect(line1({ working: 3, ceiling: 2, stateWorking: 4 })).toBe(
+			"4 working · 0 idle · room for 0",
+		);
+		expect(line1({ working: 7, ceiling: 9, stateWorking: null })).toBe(
+			"? working · ? idle · room for 2",
+		);
+		expect(line1({ working: 7, ceiling: null, stateWorking: 2 })).toBe(
+			"2 working · 5 idle · room for ?",
 		);
 		expect(line1({ working: null, ceiling: null, stateWorking: null })).toBe(
-			"? working · ? of ? slots taken",
+			"? working · ? idle · room for ?",
 		);
 	});
 
@@ -278,7 +287,7 @@ describe("the panel's rows", () => {
 		expect(rows[3].text).toBe("");
 		const concurrency = { working: null, ceiling: null, stateWorking: null };
 		const unread = rowsOf({ status: { ...RUNNING, lastTick, concurrency } });
-		expect(unread[2].text).toBe("? working · ? of ? slots taken");
+		expect(unread[2].text).toBe("? working · ? idle · room for ?");
 		expect(unread[3].text).toBe("");
 	});
 

@@ -48213,6 +48213,24 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/measure-landing-pool.js": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/measure-landing-pool.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/measure-landing-pool.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/measure-long-lines/scan_long_lines.py": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",

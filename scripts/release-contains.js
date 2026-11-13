@@ -19,27 +19,9 @@
  */
 
 const { parseOrCode } = require("./lib/cli-args");
-const { RENDERED_FROM, readReleaseTags } = require("./lib/release-tags.js");
+const { readReleaseTags, readTagCarry } = require("./lib/release-tags.js");
 const { caught } = require("./lib/caught.js");
 const { commitSha } = require("./lib/commit-sha.js");
-const { execGit, spawnGitSync } = require("./lib/git.js");
-
-/** @param {string[]} args */
-const git = (...args) =>
-	execGit(args, {
-		encoding: "utf8",
-		stdio: ["ignore", "pipe", "pipe"],
-	}).trim();
-
-/**
- * @param {string} ancestor
- * @param {string} descendant
- */
-const isAncestor = (ancestor, descendant) => {
-	const r = spawnGitSync(["merge-base", "--is-ancestor", ancestor, descendant]);
-	if (r.status === 0 || r.status === 1) return r.status === 0;
-	throw new Error(`git merge-base failed on ${descendant}`);
-};
 
 /**
  * Splits the release tags into those carrying `sha` and those it cannot read.
@@ -52,14 +34,9 @@ function sortTags(sha, tags) {
 	/** @type {string[]} */
 	const unread = [];
 	for (const tag of tags) {
-		const source = RENDERED_FROM.exec(
-			git("log", "-1", "--format=%B", tag),
-		)?.[1];
-		if (!source)
-			unread.push(`${tag}: its message carries no rendered-from line`);
-		else if (commitSha(process.cwd(), source) === null)
-			unread.push(`${tag}: its source ${source} is not in this clone`);
-		else if (isAncestor(sha, source)) carrying.push(tag);
+		const r = readTagCarry(process.cwd(), tag, sha);
+		if ("unread" in r) unread.push(r.unread);
+		else if (r.carries) carrying.push(tag);
 	}
 	return { carrying, unread };
 }

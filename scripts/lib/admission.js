@@ -1233,7 +1233,7 @@ function buildMemoryBreakdownLines(m) {
 	return [
 		`memory             of ${m.totalMb === null ? "unknown" : `${m.totalMb} MB`} total — ${m.rounding}`,
 		`  free             ${orUnknown(m.free, `${m.free.mb} MB`)}`,
-		`  working          ${orUnknown(m.working, `${m.working.count} session(s)${m.working.noProcess ? ` (${m.working.noProcess} with no process)` : ""}, ${m.working.mb} MB PSS`)}`,
+		`  live             ${orUnknown(m.working, `${m.working.count} session(s)${m.working.noProcess ? ` (${m.working.noProcess} with no process)` : ""}, ${m.working.mb} MB PSS`)}`,
 		`  finished         ${orUnknown(f, `${f.count} session(s) still resident, ${f.mb} MB PSS, ${f.reapable === null ? `unknown (${f.reapableUnknown})` : f.reapable} taken by the next reap`)}`,
 		`  daemon + spares  ${orUnknown(m.pool, `${m.pool.mb} MB PSS`)}`,
 		...m.pool.drift.map((why) => `    spare shape drift: ${why}`),
