@@ -57,7 +57,7 @@ const {
 } = require("./fault-signature.js");
 const { SIGNATURE_LABEL } = require("./signature-label.js");
 const { hostRoot, worktreeRoot } = require("./host-root.js");
-const { scriptPath } = require("./script-path.js");
+const { docPath, scriptPath } = require("./script-path.js");
 
 const HUMAN_LABEL = takesLabel("human");
 
@@ -753,7 +753,7 @@ function checkKnownLabels(io, ports, repo, labels) {
 	const unknown = labels.filter((l) => !known.has(l));
 	if (unknown.length > 0)
 		return io.fail(
-			`${unknown.join(", ")} ${unknown.length === 1 ? "is" : "are"} not a label on ${repo} — gh would abort the create and still exit 0. Fix the spelling; a new label is a vocabulary change (docs/agents/triage-labels.md). Nothing filed.`,
+			`${unknown.join(", ")} ${unknown.length === 1 ? "is" : "are"} not a label on ${repo} — gh would abort the create and still exit 0. Fix the spelling; a new label is a vocabulary change (${docPath("agents/triage-labels.md")}). Nothing filed.`,
 			2,
 		);
 	return null;
