@@ -16,9 +16,9 @@ import { shellQuote } from "./sh-quote.js";
 
 /** `prompted`: `--bg <flags> -- <prompt>`, as guard-main-checkout-job.js
  * launches; `idle`: `--bg --agent claude --name <name>`, as start-session.sh
- * does; `positional`: `--bg <flags> <prompt>`, as dispatch-sessions.sh and
+ * does; `positional`: `--bg <flags> <prompt>`, as dispatch-sessions.js and
  * run-arm-test.js do; `named`: `--bg <flags> -n <name> <prompt>`, as
- * dispatch-sessions.sh's overflow launch. */
+ * dispatch-sessions.js's overflow launch. */
 export type LaunchKind = "prompted" | "idle" | "positional" | "named";
 export type RmKind = "ok" | "noJob";
 

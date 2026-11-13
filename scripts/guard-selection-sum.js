@@ -72,7 +72,7 @@
  * The opening wave owes no completion mark: it ends waiting for the band read
  * to wake it, and *Working* is the right filing for that. mantahostels#1337's re-dispatch
  * hazard is carried instead by the recorded keys and by
- * `scripts/dispatch-sessions.sh`'s duplicate drop.
+ * `scripts/dispatch-sessions.js`'s duplicate drop.
  *
  * IT DEMANDS THE LINE, NOT A NON-EMPTY ONE. §6 prints `none` where nothing
  * overflowed. mantahostels#1321 proposed omitting the line in that case; omission is exactly
@@ -677,7 +677,7 @@ function completionMarkFault(message, opts) {
 				"failed: <why the set could not be dispatched>\n\n" +
 				"`result:` is the right one where the set is launched and nothing waits " +
 				"on the founder. Do not write it on the strength of the launch command " +
-				"exiting 0 — read what `scripts/dispatch-sessions.sh` printed first, " +
+				"exiting 0 — read what `scripts/dispatch-sessions.js` printed first, " +
 				"since it refuses on allowance and on an already-launched set.",
 		};
 	}

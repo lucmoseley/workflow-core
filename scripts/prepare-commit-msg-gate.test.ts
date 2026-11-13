@@ -49,7 +49,7 @@ const temps = registerTempCleanup();
 
 /** Where a stubbed hook appends the line proving it ran. */
 // isolation-exempt: every fixture holds a stub at this path, which logs nothing.
-const HOLD = "scripts/review-hold-gate.sh";
+const HOLD = "scripts/review-hold-gate.js";
 const LOG = "fired.log";
 
 /**
@@ -185,7 +185,7 @@ const buildTemplate = (root: string) => {
 
 	const log = path.join(root, LOG);
 	fs.writeFileSync(path.join(husky, "pre-commit"), precommitStub(log, 0));
-	fs.writeFileSync(path.join(root, HOLD), "exit 0\n");
+	fs.writeFileSync(path.join(root, HOLD), "process.exit(0);\n");
 
 	fs.writeFileSync(path.join(root, "base.txt"), "base\n");
 	git("add", "--", "base.txt");
@@ -1101,7 +1101,7 @@ describe("the review hold on a cherry-pick's replay path (#3905)", () => {
 	const refusing = (p: Probe) =>
 		fs.writeFileSync(
 			path.join(p.root, HOLD),
-			'echo "the hold refused this pick" >&2\nexit 1\n',
+			'process.stderr.write("the hold refused this pick\\n");\nprocess.exit(1);\n',
 		);
 	/** A commit on a side branch, the probe back where it started. */
 	const sideCommit = (p: Probe, rel: string) => {
@@ -1151,7 +1151,7 @@ describe("the review hold on a cherry-pick's replay path (#3905)", () => {
 		expect(r.code).toBe(0);
 		expect(r.output).toContain("this cherry-pick went unchecked");
 		expect(readGuardErrorsLog(config)).toMatch(
-			/\tprepare-commit-msg\treview-hold-gate\.sh is missing — this cherry-pick went unchecked for a sensitive-path review\n$/,
+			/\tprepare-commit-msg\treview-hold-gate\.js is missing — this cherry-pick went unchecked for a sensitive-path review\n$/,
 		);
 	});
 

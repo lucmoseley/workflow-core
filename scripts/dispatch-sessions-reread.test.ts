@@ -37,7 +37,7 @@ const {
 	launchArgv,
 	readArgvLines,
 	run,
-	stubSleep,
+	runCore,
 	sleepArgs,
 } = fx;
 
@@ -354,8 +354,9 @@ describe("the launch stagger (mantahostels#2553)", () => {
 	it("sleeps WFC_DISPATCH_STAGGER_SECONDS between two launches", () => {
 		stubClaude({});
 		const start = Date.now();
+		// spawn-kept: a timeout — the stagger is the host's real sleep, timed on the real clock
 		const r = spawnSync(
-			"bash",
+			process.execPath,
 			[SCRIPT, "sonnet", "/implement 341", "opus", "/wayfinder 1114"],
 			{
 				cwd: fx.dir,
@@ -377,16 +378,13 @@ describe("the launch stagger (mantahostels#2553)", () => {
 	 * STAGGER_SECONDS). The recorded argument pins it: any re-pick or a
 	 * dropped sleep fails.
 	 */
-	it("staggers by the measured 2 seconds when nothing overrides it", () => {
+	it("staggers by the measured 2 seconds when nothing overrides it", async () => {
 		stubClaude({});
-		const env = baseEnv(stubSleep());
-		delete env.WFC_DISPATCH_STAGGER_SECONDS;
-		const r = spawnSync(
-			"bash",
-			[SCRIPT, "sonnet", "/implement 341", "opus", "/wayfinder 1114"],
-			{ cwd: fx.dir, encoding: "utf8", env },
+		const r = await runCore(
+			["sonnet", "/implement 341", "opus", "/wayfinder 1114"],
+			{ WFC_DISPATCH_STAGGER_SECONDS: "" },
 		);
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		expect(sleepArgs()).toEqual(["2"]);
 		expect(readArgvLines().filter((l) => l.includes("--bg"))).toHaveLength(2);
 	});
@@ -395,57 +393,52 @@ describe("the launch stagger (mantahostels#2553)", () => {
 	 * The three cases below assert an EMPTY log, never a sub-second elapsed
 	 * time, which a `sleep 0.9` would pass.
 	 */
-	it("never sleeps before the first launch, or after the last", () => {
+	it("never sleeps before the first launch, or after the last", async () => {
 		stubClaude({});
-		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
-			cwd: fx.dir,
-			encoding: "utf8",
-			env: baseEnv({ WFC_DISPATCH_STAGGER_SECONDS: "1", ...stubSleep() }),
+		const r = await runCore(["sonnet", "/implement 341"], {
+			WFC_DISPATCH_STAGGER_SECONDS: "1",
 		});
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		// An empty log also describes a run that never launched at all, so the
 		// one launch has to be asserted alongside it.
 		expect(readArgvLines().filter((l) => l.includes("--bg"))).toHaveLength(1);
 		expect(sleepArgs()).toEqual([]);
 	});
 
-	it("never sleeps under --dry-run", () => {
+	it("never sleeps under --dry-run", async () => {
 		stubClaude({});
-		const r = spawnSync(
-			"bash",
-			[
-				SCRIPT,
-				"--dry-run",
-				"sonnet",
-				"/implement 341",
-				"opus",
-				"/wayfinder 1114",
-			],
-			{
-				encoding: "utf8",
-				env: baseEnv({ WFC_DISPATCH_STAGGER_SECONDS: "1", ...stubSleep() }),
-			},
+		const r = await runCore(
+			["--dry-run", "sonnet", "/implement 341", "opus", "/wayfinder 1114"],
+			{ WFC_DISPATCH_STAGGER_SECONDS: "1" },
 		);
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		expect(r.stdout).toContain("would launch");
 		expect(sleepArgs()).toEqual([]);
 	});
 
-	it("does not stagger a member the re-read refused", () => {
+	it("does not stagger after a launch that failed", async () => {
+		stubClaude({ launchFails: true });
+		const r = await runCore(
+			["sonnet", "/implement 341", "opus", "/wayfinder 1114"],
+			{ WFC_DISPATCH_STAGGER_SECONDS: "1" },
+		);
+		expect(r.code).toBe(0);
+		// Both launches ran and failed: the failure, not a refusal, is what skips the stagger.
+		expect(r.stderr).toContain("(claude exited 1; not recorded as launched.)");
+		expect(readArgvLines().filter((l) => l.includes("--bg"))).toHaveLength(2);
+		expect(sleepArgs()).toEqual([]);
+	});
+
+	it("does not stagger a member the re-read refused", async () => {
 		stubClaude({
 			agentsJson: agentsListing(true),
 		});
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
-		const r = spawnSync(
-			"bash",
-			[SCRIPT, "sonnet", "/implement 341", "opus", "/wayfinder 1114"],
-			{
-				cwd: fx.dir,
-				encoding: "utf8",
-				env: baseEnv({ WFC_DISPATCH_STAGGER_SECONDS: "1", ...stubSleep() }),
-			},
+		const r = await runCore(
+			["sonnet", "/implement 341", "opus", "/wayfinder 1114"],
+			{ WFC_DISPATCH_STAGGER_SECONDS: "1" },
 		);
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		// Both members refused (memory stays low throughout), so neither pays
 		// the stagger. Asserted on the refusal itself, not just the empty log:
 		// a `claude` that died on launch would leave the same empty log.
@@ -569,13 +562,11 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 		expect(r.stderr).not.toContain("check-ghost-jobs.js");
 	});
 
-	it("names the gap rather than going quiet where no roster file exists", () => {
+	it("names the gap rather than going quiet where no roster file exists", async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
-		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
+		const r = await fx.coreRun(["sonnet", "/implement 341"], {
 			cwd: fx.dir,
-			encoding: "utf8",
-			// A HOME with no .claude* under it at all.
 			env: { ...baseEnv(), HOME: fx.dir },
 		});
 		expect(r.stderr).toContain("none under");
@@ -601,17 +592,16 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 		expect(r.stderr).not.toContain("none under");
 	});
 
-	it("names an unset HOME rather than aborting the refusal (#2580)", () => {
+	it("names an unset HOME rather than aborting the refusal (#2580)", async () => {
 		stubClaude({ agentsJson: agentsListing(true) });
 		fs.writeFileSync(fx.meminfo, "MemAvailable:    10 kB\n");
 		const env = baseEnv();
 		delete env.HOME;
-		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
+		const r = await fx.coreRun(["sonnet", "/implement 341"], {
 			cwd: fx.dir,
-			encoding: "utf8",
 			env,
 		});
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("HOME unset or unreadable");
 	});
 
@@ -621,7 +611,7 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 	 * "working" job listed alive with a pid, past the transcript-less window,
 	 * so `lib/hung-jobs.js#findHungJobs` calls it hung rather than a ghost.
 	 */
-	it("names a HUNG-JOB inline, with its roster path, on a refusal (mantahostels#2598)", () => {
+	it("names a HUNG-JOB inline, with its roster path, on a refusal (mantahostels#2598)", async () => {
 		const hungSessionId = "hung-0000-0000-0000-000000000000";
 		stubClaude({
 			agentsJson: JSON.stringify([
@@ -645,9 +635,8 @@ describe("the roster remedy on a refusal (mantahostels#2588)", () => {
 			}),
 		);
 
-		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
+		const r = await fx.coreRun(["sonnet", "/implement 341"], {
 			cwd: fx.dir,
-			encoding: "utf8",
 			env: baseEnv({
 				CLAUDE_CONFIG_DIR: configDir,
 				WFC_CLAUDE_CONFIG_A: configDir,

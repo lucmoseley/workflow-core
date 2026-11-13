@@ -436,7 +436,7 @@ Two launch points read `/proc/loadavg` before adding work, against
 | Launch | At or above the ceiling |
 |---|---|
 | A test run through `scripts/run-vitest.js` — every `npm run test` and `test:changed` | **holds**, re-reading every 15 s, and **refuses** if still over after 5 minutes, as `--queue` refuses at its timeout on the memory rung: a refusal costs one session a retry, a freeze (§7) costs all of them. A `--queue` run holds again once its gate opens, before it spawns (#834) |
-| A session, at `lib/admission.js`'s verdicts — `dispatch-sessions.sh` re-reads `scripts/admission.js` before every member | **HOLD**, exit 1, 0 slots and a `cpu load` line — `dispatch-sessions.sh` skips that member with a load remedy. `--force-memory` re-reads the load alone (`--load-only`), so no flag lifts the hold (#834). pick-next's ADMISSION block holds and reads 0 free slots too, and prints a `cpu load` line over the ceiling or where the load is unreadable |
+| A session, at `lib/admission.js`'s verdicts — `dispatch-sessions.js` re-reads `scripts/admission.js` before every member | **HOLD**, exit 1, 0 slots and a `cpu load` line — `dispatch-sessions.js` skips that member with a load remedy. `--force-memory` re-reads the load alone (`--load-only`), so no flag lifts the hold (#834). pick-next's ADMISSION block holds and reads 0 free slots too, and prints a `cpu load` line over the ceiling or where the load is unreadable |
 
 The 24 is a stopgap on #3209's measurement, ruled on #3211, held until #3223's
 switchback reads it. `WFC_LOAD_CEILING=<n>` overrides it; where that is unset,
@@ -464,7 +464,7 @@ the sessions already running. A session is counted as a `claude bg-pty-host`
 process on the machine: every plan's, the reading run's own included. A host
 whose daemon has gone (parent pid 1) is left out, and an interactive terminal
 session runs no host, so it goes uncounted. At the ceiling, `scripts/admission.js`
-prints **HOLD** with a `cpu sessions` line, and `dispatch-sessions.sh` skips that
+prints **HOLD** with a `cpu sessions` line, and `dispatch-sessions.js` skips that
 member with a session remedy. `--force-memory`'s `--load-only` judges this ceiling
 too. pick-next's ADMISSION block prints the same line, and the breakdown has a
 `cpu slots` row. `WFC_SESSION_CEILING=<n>` overrides it, `0` turns it off, and an
@@ -647,7 +647,7 @@ Logs to `%LOCALAPPDATA%\wsl-interop-watchdog.log` only on detection; empty is he
 
 ### Guard 3 — the dispatch launcher
 
-`scripts/dispatch-sessions.sh` sources the probe itself, because Guard 1 cannot reach it (mantahostels#3111).
+`scripts/dispatch-sessions.js` runs the probe library itself, because Guard 1 cannot reach it (mantahostels#3111).
 
 - **Probes before both gates and again before every member's spawn.** Before the gates because each shells out to `claude` too — the duplicate gate for its live oracle, the allowance gate under a 120s ceiling — so a wedge caught only at the launch would be reported minutes late. Before every spawn because the bridge can wedge mid-set.
 - **Refuses the whole call, exit 5.** Nothing is recorded where the wedge precedes the first spawn; where it arrives mid-set the refusal **names the members that did launch**, because they are on the ledger and re-running the whole command would hit the duplicate gate on them. A `--dry-run` can exit 5 too — the opening probe precedes both gates, and both shell out to `claude` on a dry run as well.

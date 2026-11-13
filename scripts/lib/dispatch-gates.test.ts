@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * Pins lib/dispatch-gates.js, dispatch-sessions.sh's seat, overflow-key,
+ * Pins lib/dispatch-gates.js, dispatch-sessions.js's seat, overflow-key,
  * launch-auth and burn-mode gates in one node start (#4321). Driven through
  * its CLI against a `claude` stub answering `auth status`.
  *
@@ -40,7 +40,7 @@ const marker = () => path.join(home, "burn-mode");
 const seat = () => path.join(home, ".claude2");
 /**
  * A bare environment: none of the parent's auth or burn marker leaks in. The
- * config dir is the seat's, as dispatch-sessions.sh reads its seat from it.
+ * config dir is the seat's, as dispatch-sessions.js reads its seat from it.
  */
 const gates = (identity: string[], extra: Record<string, string> = {}) =>
 	runInProcess(SCRIPT, ["--", ...identity], {
