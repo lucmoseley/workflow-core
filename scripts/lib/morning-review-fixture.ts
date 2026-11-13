@@ -18,7 +18,7 @@ import {
 	stubGhHandler,
 	stubGhScript,
 } from "./gh-stub";
-import { handlerPort } from "./gh-stub-server.js";
+import { buildHandlerPort } from "./gh-stub-server.js";
 import {
 	buildEarlyoomReadingLine,
 	buildEarlyoomSignalLine,
@@ -49,6 +49,8 @@ const CREATE_FAILED = path.join(
  * `fail-issues-since` exists and answering empty once where `empty-issues-since`
  * does; `fail-after-create` makes a create land and report failure. The closes
  * read fails where `fail-closes` exists, and once where `fail-closes-once` does.
+ * The review issues' list fails where `fail-reviews` exists, and the labels
+ * list answers empty where `no-labels` does.
  * file-issue.js's similar-title list holds enough unrelated titles that a
  * lookalike scores above the cut, and an open one, #1995, where `lookalike`
  * exists.
@@ -78,7 +80,7 @@ if (a[0] === "api" && timeline[5] === "timeline") {
 }
 if (a[0] === "issue" && a[1] === "list" && a[a.indexOf("--label") + 1] === "urgent") sayRows(read("urgent.json"));
 if (a[0] === "issue" && a[1] === "list" && a[a.indexOf("--label") + 1] === "parked") sayRows(read("parked.json"));
-if (a[0] === "api" && ["repos/acme/wfc/labels", "repos/acme/other/labels"].includes(a[1])) sayPage("labelsPage", [{ name: "takes:wayfinder" }, { name: "takes:implement" }, { name: "origin:morning-review-script" }, { name: "origin:founder" }]);
+if (a[0] === "api" && ["repos/acme/wfc/labels", "repos/acme/other/labels"].includes(a[1])) sayPage("labelsPage", fs.existsSync(f("no-labels")) ? [] : [{ name: "takes:wayfinder" }, { name: "takes:implement" }, { name: "origin:morning-review-script" }, { name: "origin:founder" }]);
 if (a[0] === "api" && ["repos/acme/wfc/issues", "repos/acme/other/issues"].includes(a[1]) && a.some((x) => x.startsWith("since="))) {
 	if (fs.existsSync(f("fail-issues-since"))) { ${ghAnswerHandler(NOT_FOUND)} }
 	if (fs.existsSync(f("empty-issues-since"))) { fs.rmSync(f("empty-issues-since")); sayPage("issuesPage", []); }
@@ -95,6 +97,7 @@ if (a[0] === "issue" && a[1] === "list" && !a.includes("--label") && (a[a.indexO
 	if (fs.existsSync(f("fail-closes"))) { ${ghAnswerHandler(NOT_FOUND)} }
 }
 if (a[0] === "issue" && a[1] === "list" && a.includes("--search") && !a.includes("--label")) sayRows(read("closed.json"));
+if (a[0] === "issue" && a[1] === "list" && a.includes("--label") && fs.existsSync(f("fail-reviews"))) { ${ghAnswerHandler(NOT_FOUND)} }
 if (a[0] === "issue" && a[1] === "list" && a.includes("--label"))
 	sayRows(read("reviews.json").filter((i) => a[a.indexOf("--state") + 1] === "all" || i.state === a[a.indexOf("--state") + 1].toUpperCase()));
 if (a[0] === "issue" && a[1] === "comment") {
@@ -322,7 +325,7 @@ export function morningReviewFixture(
 
 	/** The core's gh port: the handler `WFC_GH` serves, answered in this process. */
 	const ghPort = () =>
-		handlerPort(Handler, {
+		buildHandlerPort(Handler, {
 			env: { STUB_DIR: path.join(sb.dir, "gh") },
 			cwd: wfc(),
 		});

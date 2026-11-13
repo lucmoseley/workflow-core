@@ -5,7 +5,7 @@
  * the `reverse <n>` comments on them.
  */
 
-const { gh, ghReaders } = require("./gh.js");
+const { gh, buildGhReaders } = require("./gh.js");
 const { parseReviewDate } = require("./morning-review.js");
 const { takesLabel } = require("./takes-label.js");
 
@@ -29,7 +29,7 @@ function readReviewIssues(
 	state,
 	{ withComments = false, more = [], run = gh } = {},
 ) {
-	return ghReaders(run)
+	return buildGhReaders(run)
 		.ghIssueListAll("review issues", [
 			"--repo",
 			repo,

@@ -7,7 +7,7 @@
  * gh-stub-server.test.ts), filing through lib/file-issue-fake.ts (held by
  * file-issue.contract.test.ts) and the checkers through
  * lib/checker-run-fake.ts (held by checker-run.contract.test.ts). Each case
- * asserts the exit code and the review's text the core returns. The program's
+ * asserts the exit code the core returns and the text it writes. The program's
  * boundary set stays in file-morning-review.test.ts. Break the core and the
  * loop files no review, or two in a day, or loses an event between two
  * reviews (#3813), or a repo that did not read loses its events (#3831).
@@ -22,7 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
-import { type CheckerRun, checkerFake } from "./checker-run-fake";
+import { checkerFake, WSL_UNREAD_ENVELOPE } from "./checker-run-fake";
 import { fileIssueFake } from "./file-issue-fake";
 import { localDate } from "./local-date.js";
 import { buildReviewTitle } from "./morning-review.js";
@@ -51,40 +51,52 @@ beforeEach(() => stubRunEnv());
 afterEach(() => vi.unstubAllEnvs());
 
 /**
- * One filing on acme/wfc through the core, on the in-process ports; a
- * checker `runs` leaves out answers with its recorded envelope.
+ * One filing on acme/wfc through the core, on the in-process ports, with the
+ * clock at `at` where given (the core's and the handler's both) and each
+ * checker answered by its envelope in `envelopes`, else its recorded one.
  */
 const file = async ({
 	dryRun = false,
-	runs = {},
+	at,
+	envelopes = {},
 }: {
 	dryRun?: boolean;
-	runs?: Record<string, CheckerRun>;
+	at?: string;
+	envelopes?: Record<string, object>;
 } = {}) => {
+	if (at) vi.useFakeTimers({ toFake: ["Date"], now: new Date(at) });
 	const gh = ghPort();
-	const r = await fileMorningReview({
-		tracker: "acme/wfc",
-		dryRun,
-		ports: {
-			now: () => new Date(),
-			gh,
-			file: fileIssueFake(gh, "acme/wfc"),
-			...checkerFake(runs),
-		},
-	});
-	return { status: r.code, stdout: r.stdout, stderr: r.stderr };
+	const streams = { stdout: "", stderr: "" };
+	try {
+		const status = await fileMorningReview({
+			tracker: "acme/wfc",
+			dryRun,
+			ports: {
+				now: () => new Date(),
+				out: (text: string) => {
+					streams.stdout += text;
+				},
+				err: (text: string) => {
+					streams.stderr += text;
+				},
+				gh,
+				file: fileIssueFake(gh, "acme/wfc"),
+				...checkerFake(envelopes),
+			},
+		});
+		return { status, ...streams };
+	} finally {
+		if (at) vi.useRealTimers();
+	}
 };
 
 const readsFile = () => refillFile(".morning-review-reads.json");
 const lockFile = () => refillFile(".morning-review-filing.pid");
 const TODAY = buildReviewTitle(localDate(new Date()));
 
-/** One filing, with the clock at `at`: the core's and the handler's both. */
+/** One filing, with the clock at `at`. */
 const reviewAt = async (at: string) => {
-	vi.useFakeTimers({ toFake: ["Date"], now: new Date(at) });
-	const r = await file();
-	vi.useRealTimers();
-	expect(r.status).toBe(0);
+	expect((await file({ at })).status).toBe(0);
 };
 
 /** Appends a still-caught decision to a checkout's ledger, stamped `at`. */
@@ -158,6 +170,29 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 		seed([]);
 		expect((await file()).status).toBe(0);
 		expect(readCreated()[0].body).not.toContain("## WSL currency");
+	});
+
+	it("files the WSL currency section with the checker's lines where it read on WSL (#4082)", async () => {
+		seed([]);
+		const r = await file({
+			envelopes: { "check-wsl-currency.js": WSL_UNREAD_ENVELOPE },
+		});
+		expect(r.status).toBe(0);
+		const { body } = readCreated()[0];
+		expect(body).toContain("## WSL currency");
+		expect(body).toContain("WSL currency not read");
+		expect(body).toContain("the latest release: ");
+	});
+
+	it("files nothing and exits 1 where the review issues will not list", async () => {
+		seed([]);
+		fs.writeFileSync(stub("fail-reviews"), "");
+		const r = await file();
+		expect(r.status).toBe(1);
+		expect(r.stderr).toMatch(
+			/^could not list acme\/wfc's review issues \(.+\)\. Nothing filed\.\n$/,
+		);
+		expect(readCreated()).toHaveLength(0);
 	});
 
 	it("files the concurrency section from the refill loop's ticks and memwatch's minutes (#3321)", async () => {
@@ -250,12 +285,24 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 		);
 	});
 
-	it("files nothing when today's review issue is already closed", async () => {
-		seed([{ number: 6, title: TODAY, state: "CLOSED", createdAt: ago(1) }]);
-		const r = await file();
+	it("files nothing when today's review issue is already closed, and files the next day", async () => {
+		const at = "2026-10-10T07:00:00.000Z";
+		const title = buildReviewTitle(localDate(new Date(at)));
+		seed([
+			{
+				number: 6,
+				title,
+				state: "CLOSED",
+				createdAt: "2026-10-10T06:00:00.000Z",
+				body: "",
+			},
+		]);
+		const r = await file({ at });
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("#6 is today's review issue already");
 		expect(readCreated()).toHaveLength(0);
+		await reviewAt("2026-10-11T07:00:00.000Z");
+		expect(readCreated()).toHaveLength(1);
 	});
 
 	it("lists an issue urgent 8 days under Stuck urgent with pick-next's reason, one with no labeled event at its creation's age, marked at most, not one urgent 6 days nor one whose timeline will not read, and writes no label (#2693, #3760)", async () => {
@@ -1063,6 +1110,18 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 					expect(after).not.toContain("acme/second#8");
 				},
 			);
+
+			it("ends the carry of one absent over 30 days on the filing's clock, saying what it gives up", async () => {
+				seedCarried();
+				fs.rmSync(dotGit(), { recursive: true });
+				await reviewAt("2026-11-10T07:00:00.000Z");
+
+				const [ended] = bodies();
+				expect(ended).toContain(
+					"- second: `no .git and carried over 30 days, so its events since 2026-10-09T07:00:00.000Z reach no review`",
+				);
+				expect(ended).not.toContain("Events unread since");
+			});
 
 			it("keeps a linked worktree out, unnamed, whether or not a line names it", async () => {
 				seedCarried();

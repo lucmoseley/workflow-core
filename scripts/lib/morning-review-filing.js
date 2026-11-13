@@ -2,13 +2,14 @@
  * morning-review-filing.js — scripts/file-morning-review.js's core (#5148,
  * spec #5135): the day's morning review issue (#2011, spec #1995 §The morning
  * review issue), read, rendered through lib/morning-review.js and filed. It
- * returns the exit code and the complete text of both streams; the shell
- * writes them.
+ * writes each line through the `out` and `err` ports as it goes and returns
+ * the exit code.
  *
- * Ports (§T7): `now`, the clock; `gh`, lib/gh.js's `gh(args, opts)`; `file`,
+ * Ports (§T7): `now`, the clock; `out` and `err`, the two streams; `gh`, lib/gh.js's `gh(args, opts)`; `file`,
  * file-issue.js through lib/file-through.js; `runChecker` and
  * `startChecker`, a core checker's `--json` run, the second left running
- * beside the reads. The filesystem, git and journalctl are read in place:
+ * beside the reads. The filesystem, git and journalctl are read in place, and
+ * the filing lock and the day's kept reads are written in place:
  * #2733's boundary table gives the filesystem no fake, git runs real in a
  * test's temp directory, and journalctl is reached at WFC_JOURNALCTL, its
  * owned fake held by journalctl.contract.test.ts.
@@ -101,7 +102,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { parseErrLine, ghReaders, retryingOnceSync } = require("./gh.js");
+const { parseErrLine, buildGhReaders, retryingOnceSync } = require("./gh.js");
 const { parseEnvelope } = require("./check-envelope.js");
 const { caught } = require("./caught.js");
 const { execGit } = require("./git.js");
@@ -139,18 +140,13 @@ const WSL_CURRENCY_SCRIPT = "check-wsl-currency.js";
 
 /** @typedef {import("./morning-review.js").Unread} Unread */
 /** @typedef {Pick<ReturnType<typeof reviewReads>, "read">} Reads */
-/**
- * A checker's run: an error where it did not finish, its stdout and exit.
- * @typedef {{error?: Error | null, stdout?: string | null, status: number | null}} CheckerRun
- */
-/**
- * A checker left running: `settle` waits for its run within the shell's
- * bound, `stop` kills it.
- * @typedef {{settle: () => Promise<CheckerRun>, stop: () => void}} Started
- */
+/** @typedef {import("./checker-run.js").CheckerRun} CheckerRun */
+/** @typedef {import("./checker-run.js").Started} Started */
 /**
  * @typedef {{
  *   now: () => Date,
+ *   out: (text: string) => void,
+ *   err: (text: string) => void,
  *   gh: typeof import("./gh.js").gh,
  *   file: (argv: string[], body: string) => {status: number | null, stdout?: string | null, stderr?: string | null, error?: Error},
  *   runChecker: (script: string, args: string[], cwd: string) => CheckerRun,
@@ -158,9 +154,11 @@ const WSL_CURRENCY_SCRIPT = "check-wsl-currency.js";
  * }} Ports
  */
 /**
- * What every read is handed: the ports, the gh readers over `ports.gh`, the
- * run's fixed `now`, and the day's kept reads once the window is read.
- * @typedef {{ports: Ports, gh: ReturnType<typeof ghReaders>, now: Date, reads: Reads}} Ctx
+ * What every step is handed: the ports, the gh readers over `ports.gh`, the
+ * run's fixed `now`, the tracker it files on, whether it is a dry run, and
+ * the day's kept reads once the window is read.
+ * @typedef {{ports: Ports, gh: ReturnType<typeof buildGhReaders>, now: Date,
+ *   tracker: string, dryRun: boolean, reads: Reads}} Ctx
  */
 
 /**
@@ -324,7 +322,7 @@ function readCountLine(ctx, root) {
 
 /**
  * @param {string} script
- * @param {{error?: Error | null, stdout?: string | null, status: number | null}} r
+ * @param {CheckerRun} r
  * @returns {{envelope: Record<string, any>, missing: string} | {why: string}}
  */
 function judgeEnvelope(script, r) {
@@ -534,20 +532,19 @@ function readAlarms(root, repo) {
 
 /**
  * The machine's earlyoom incidents with a kill since `since`, and each one's
- * ticket on `tracker` (scripts/file-memory-kill-tickets.js, #3094).
+ * ticket on the tracker (scripts/file-memory-kill-tickets.js, #3094).
  * @param {Ctx} ctx
- * @param {string} tracker
  * @param {string} since
  * @returns {import("./morning-review.js").KillReading}
  */
-function readKills(ctx, tracker, since) {
+function readKills(ctx, since) {
 	const { incidents, why } = kills.readIncidents(Date.parse(since));
 	if (why !== null || incidents.length === 0)
 		return { incidents, tickets: new Map(), why };
 	try {
 		return {
 			incidents,
-			tickets: kills.readIncidentTickets(tracker, ctx.ports.gh),
+			tickets: kills.readIncidentTickets(ctx.tracker, ctx.ports.gh),
 			why,
 		};
 	} catch (e) {
@@ -561,20 +558,19 @@ function readKills(ctx, tracker, since) {
 
 /**
  * The machine's process-runaway episodes with a firing since `since`, and each
- * one's ticket on `tracker` (scripts/file-process-runaway-tickets.js, #3807).
+ * one's ticket on the tracker (scripts/file-process-runaway-tickets.js, #3807).
  * @param {Ctx} ctx
- * @param {string} tracker
  * @param {string} since
  * @returns {import("./morning-review.js").RunawayReading}
  */
-function readRunaways(ctx, tracker, since) {
+function readRunaways(ctx, since) {
 	const { episodes, why } = runaways.readEpisodes(Date.parse(since));
 	if (why !== null || episodes.length === 0)
 		return { episodes, tickets: new Map(), why };
 	try {
 		return {
 			episodes,
-			tickets: runaways.readEpisodeTickets(tracker, ctx.ports.gh),
+			tickets: runaways.readEpisodeTickets(ctx.tracker, ctx.ports.gh),
 			why,
 		};
 	} catch (e) {
@@ -750,84 +746,55 @@ function readTimelineAge(ctx, repo, number, label) {
 }
 
 /**
- * The run's two streams, built as it goes.
- */
-function buildStreams() {
-	const streams = { stdout: "", stderr: "" };
-	return {
-		streams,
-		/** @param {string} text */
-		out: (text) => {
-			streams.stdout += text;
-		},
-		/** @param {string} text */
-		err: (text) => {
-			streams.stderr += text;
-		},
-	};
-}
-
-/**
  * File today's review unless one carries today's date or another run is
- * filing it; a dry run files nothing, so it takes no lock. The exit code and
- * both streams.
+ * filing it; a dry run files nothing, so it takes no lock. The exit code.
  * @param {{tracker: string, dryRun: boolean, ports: Ports}} at
- * @returns {Promise<{code: number, stdout: string, stderr: string}>}
+ * @returns {Promise<number>}
  */
-async function fileMorningReview({ tracker, dryRun, ports }) {
-	const io = buildStreams();
-	const ctx = {
+function fileMorningReview({ tracker, dryRun, ports }) {
+	return fileReview({
 		ports,
-		gh: ghReaders(ports.gh),
+		gh: buildGhReaders(ports.gh),
 		now: ports.now(),
+		tracker,
+		dryRun,
 		reads: freshReads(),
-	};
-	const code = await fileReview(ctx, io, tracker, dryRun);
-	return { code, ...io.streams };
+	});
 }
 
-/**
- * @param {Ctx} ctx
- * @param {ReturnType<typeof buildStreams>} io
- * @param {string} tracker
- * @param {boolean} dryRun
- */
-async function fileReview(ctx, io, tracker, dryRun) {
-	if (dryRun) return fileUnlessFiledToday(ctx, io, tracker, true);
+/** @param {Ctx} ctx */
+async function fileReview(ctx) {
+	if (ctx.dryRun) return fileUnlessFiledToday(ctx);
 	const file = refillPath(FILING_LOCK);
 	fs.mkdirSync(path.dirname(file), { recursive: true });
 	const lock = pidLock(file, LOCK_NAME);
 	if (!lock.acquire()) {
-		io.err(
+		ctx.ports.err(
 			`another run is filing today's review (pid ${lock.holder()}). Nothing filed: re-run once it ends.\n`,
 		);
 		return 1;
 	}
 	try {
-		return await fileUnlessFiledToday(ctx, io, tracker, false);
+		return await fileUnlessFiledToday(ctx);
 	} finally {
 		lock.release();
 	}
 }
 
 /**
- * @param {{ctx: Ctx, io: ReturnType<typeof buildStreams>, tracker: string,
- *   since: string, why: string | null, previous: any, reviews: any[],
- *   dryRun: boolean, idle: Started, wslCurrency: Started}} at
+ * @param {{ctx: Ctx, since: string, why: string | null, previous: any,
+ *   reviews: any[], idle: Started, wslCurrency: Started}} at
  */
 async function renderWindow({
 	ctx,
-	io,
-	tracker,
 	since,
 	why,
 	previous,
 	reviews,
-	dryRun,
 	idle,
 	wslCurrency,
 }) {
-	const { now } = ctx;
+	const { now, tracker, dryRun, ports } = ctx;
 	const withReads = {
 		...ctx,
 		reads: dryRun ? freshReads() : reviewReads(localDate(now)),
@@ -850,7 +817,7 @@ async function renderWindow({
 				readAbsence(path.join(home, checkout)),
 		}),
 	];
-	const holds = readHoldRoots(included, (line) => io.err(`${line}\n`)).map(
+	const holds = readHoldRoots(included, (line) => ports.err(`${line}\n`)).map(
 		(root) => readOpenHolds(root, now.getTime()),
 	);
 	return review.renderReview({
@@ -865,8 +832,8 @@ async function renderWindow({
 		],
 		unreadEvents: read.flatMap((r) => r.unreadEvents),
 		holds: holds.flatMap((h) => h.read),
-		kills: readKills(ctx, tracker, since),
-		runaways: readRunaways(ctx, tracker, since),
+		kills: readKills(ctx, since),
+		runaways: readRunaways(ctx, since),
 		concurrency: readConcurrency(now.getTime()),
 		idle: await readIdle(idle),
 		wslCurrency: await readWslCurrency(wslCurrency),
@@ -877,27 +844,24 @@ async function renderWindow({
  * Read the window and file its review, unless one carries today's date. The
  * exit code.
  * @param {Ctx} ctx
- * @param {ReturnType<typeof buildStreams>} io
- * @param {string} tracker
- * @param {boolean} dryRun
  * @returns {Promise<number>}
  */
-async function fileUnlessFiledToday(ctx, io, tracker, dryRun) {
-	const { now, ports } = ctx;
+async function fileUnlessFiledToday(ctx) {
+	const { now, ports, tracker, dryRun } = ctx;
 	const title = review.buildReviewTitle(localDate(now));
 
 	let reviews;
 	try {
 		reviews = readReviewIssues(tracker, "all", { run: ports.gh });
 	} catch (e) {
-		io.err(
+		ports.err(
 			`could not list ${tracker}'s review issues (${parseErrLine(e)}). Nothing filed.\n`,
 		);
 		return 1;
 	}
 	const today = reviews.find((i) => i.title === title);
 	if (today) {
-		io.out(
+		ports.out(
 			`#${today.number} is today's review issue already. Nothing filed.\n`,
 		);
 		return 0;
@@ -911,13 +875,10 @@ async function fileUnlessFiledToday(ctx, io, tracker, dryRun) {
 	try {
 		body = await renderWindow({
 			ctx,
-			io,
-			tracker,
 			since,
 			why,
 			previous,
 			reviews,
-			dryRun,
 			idle,
 			wslCurrency,
 		});
@@ -927,7 +888,7 @@ async function fileUnlessFiledToday(ctx, io, tracker, dryRun) {
 	}
 
 	if (dryRun) {
-		io.out(`${title}\n\n${body}`);
+		ports.out(`${title}\n\n${body}`);
 		return 0;
 	}
 	const earlier = reviews
@@ -943,8 +904,8 @@ async function fileUnlessFiledToday(ctx, io, tracker, dryRun) {
 		}),
 		body,
 	);
-	io.out(filed.stdout ?? "");
-	io.err(filed.stderr || (filed.error ? `${filed.error.message}\n` : ""));
+	ports.out(filed.stdout ?? "");
+	ports.err(filed.stderr || (filed.error ? `${filed.error.message}\n` : ""));
 	return filed.status ?? 1;
 }
 

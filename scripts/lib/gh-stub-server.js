@@ -56,6 +56,12 @@ printf '%s' "$err" >&2
 exit "$status"
 `;
 
+/**
+ * Whether `arg` names stdin, as the client reads it: `-` or `…@-`.
+ * @param {string} arg
+ */
+const isStdinArg = (arg) => arg === "-" || arg.endsWith("@-");
+
 class Exit {
 	/** @param {number} code */
 	constructor(code) {
@@ -94,7 +100,7 @@ function parseRequest(fields) {
  * @param {Function} handler
  * @param {{argv: string[], env: Record<string, string | undefined>, cwd?: string, stdin?: string}} req
  */
-function answerCall(handler, req) {
+function buildCallAnswer(handler, req) {
 	let stdout = "";
 	let stderr = "";
 	let status = 0;
@@ -131,7 +137,7 @@ function answerCall(handler, req) {
  * @param {NonNullable<ReturnType<typeof parseRequest>>} req
  */
 function answer(handler, req) {
-	const { status, stdout, stderr } = answerCall(handler, req);
+	const { status, stdout, stderr } = buildCallAnswer(handler, req);
 	if (`${stdout}${stderr}`.includes("\0"))
 		return "1\0\0gh stub: the handler answered a NUL, which the wire cannot carry\n\0";
 	return `${status}\0${stdout}\0${stderr}\0`;
@@ -154,12 +160,12 @@ const compileHandler = (source, filename = "gh-handler.js") =>
  * @param {{env: Record<string, string | undefined>, cwd: string}} at
  * @returns {(args: string[], opts?: import("node:child_process").ExecFileSyncOptions) => string}
  */
-function handlerPort(source, { env, cwd }) {
+function buildHandlerPort(source, { env, cwd }) {
 	const handler = compileHandler(source);
 	return (args, opts = {}) => {
-		const piped = args.some((x) => x === "-" || x.endsWith("@-"));
+		const piped = args.some(isStdinArg);
 		const stdin = piped ? String(opts.input ?? "") : "";
-		const { status, stdout, stderr } = answerCall(handler, {
+		const { status, stdout, stderr } = buildCallAnswer(handler, {
 			argv: args,
 			env,
 			cwd,
@@ -207,4 +213,4 @@ if (require.main === module) {
 	serve(handlerFile);
 }
 
-module.exports = { buildServerClient, handlerPort };
+module.exports = { buildServerClient, buildHandlerPort };

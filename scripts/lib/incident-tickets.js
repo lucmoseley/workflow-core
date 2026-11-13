@@ -19,7 +19,7 @@ const path = require("node:path");
 const { fileThrough } = require("./file-through.js");
 const { findFiledLine } = require("./filed-line.js");
 const { buildScriptFilerArgv } = require("./script-filer-argv.js");
-const { gh, ghReaders, parseErrLine } = require("./gh.js");
+const { gh, buildGhReaders, parseErrLine } = require("./gh.js");
 const { gitCommonDir } = require("./git.js");
 const { markersDir } = require("./marker-root.js");
 const { pidLock } = require("./pid-lock.js");
@@ -172,7 +172,7 @@ function fileIncidents({
  */
 function readTicketsByPrefix(repo, what, prefix, run = gh) {
 	/** @type {{number: number, title: string}[]} */
-	const found = ghReaders(run).ghIssueListAll(what, [
+	const found = buildGhReaders(run).ghIssueListAll(what, [
 		"--repo",
 		repo,
 		"--state",

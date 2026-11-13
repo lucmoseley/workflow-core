@@ -7,11 +7,7 @@
  * and the same outcome.
  */
 
-export interface CheckerRun {
-	error?: Error | null;
-	stdout: string;
-	status: number | null;
-}
+import type { CheckerRun } from "./checker-run.js";
 
 const frame = (checker: string, outcome: string, summary: string) => ({
 	checker,
@@ -25,7 +21,7 @@ const frame = (checker: string, outcome: string, summary: string) => ({
 });
 
 /** check-primitives.js on a tree whose tables name no program: its count line. */
-export const PRIMITIVES_ENVELOPE = {
+const PRIMITIVES_ENVELOPE = {
 	...frame(
 		"primitives",
 		"OK",
@@ -36,7 +32,7 @@ export const PRIMITIVES_ENVELOPE = {
 };
 
 /** check-idle-efforts.js with the refill loop stopped and no tracker read. */
-export const IDLE_ENVELOPE = {
+const IDLE_ENVELOPE = {
 	...frame(
 		"idle-efforts",
 		"WARN",
@@ -48,13 +44,23 @@ export const IDLE_ENVELOPE = {
 };
 
 /** check-wsl-currency.js off WSL: a SKIP. */
-export const WSL_SKIP_ENVELOPE = frame(
+const WSL_SKIP_ENVELOPE = frame(
 	"wsl-currency",
 	"SKIP",
 	"SKIP: the kernel release carries no `microsoft`, so this is not WSL.",
 );
 
-/** Each core checker's envelope, by script. */
+/**
+ * check-wsl-currency.js on WSL where neither the latest release nor the
+ * installed version reads: a WARN whose lines name both.
+ */
+export const WSL_UNREAD_ENVELOPE = {
+	...frame("wsl-currency", "WARN", "WSL currency not read"),
+	state: "UNREAD",
+	lines: ["WSL currency not read", "the latest release: "],
+};
+
+/** Each core checker's envelope off WSL, by script. */
 export const CHECKER_ENVELOPES: Record<string, object> = {
 	"check-primitives.js": PRIMITIVES_ENVELOPE,
 	"check-idle-efforts.js": IDLE_ENVELOPE,
@@ -62,21 +68,19 @@ export const CHECKER_ENVELOPES: Record<string, object> = {
 };
 
 /** `envelope` as its checker prints it, exit 0. */
-export const printedRun = (envelope: object): CheckerRun => ({
+const printedRun = (envelope: object): CheckerRun => ({
 	error: null,
 	stdout: `${JSON.stringify(envelope, null, 2)}\n`,
 	status: 0,
 });
 
 /**
- * The two checker ports, each script answered by `runs`, the recorded
- * envelopes where it names none.
+ * The two checker ports, each script answered by its envelope in
+ * `envelopes`, else its recorded one.
  */
-export function checkerFake(runs: Record<string, CheckerRun> = {}) {
+export function checkerFake(envelopes: Record<string, object> = {}) {
 	const runOf = (script: string): CheckerRun => {
-		const given = runs[script];
-		if (given) return given;
-		const envelope = CHECKER_ENVELOPES[script];
+		const envelope = envelopes[script] ?? CHECKER_ENVELOPES[script];
 		if (!envelope) throw new Error(`checker fake: no envelope for ${script}`);
 		return printedRun(envelope);
 	};

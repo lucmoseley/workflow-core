@@ -8,6 +8,10 @@
  * core's branches are lib/morning-review-filing.test.ts's. Break it and the
  * loop files no review, or two in a day, or a hand run leaves the founder's
  * `reverse <n>` comments unanswered (#3388).
+ *
+ * Over the 10 s file budget (§X8 (5)), some 13 s: the two-filings race runs
+ * two real processes, and every filing case pays file-issue.js's real start
+ * and the checkers' real spawns. Those are the adapters under test here.
  */
 
 import { spawn } from "node:child_process";
@@ -83,6 +87,26 @@ describe("file-morning-review.js (#2011)", () => {
 		expect(second.status).toBe(0);
 		expect(second.stdout).toContain("is today's review issue already");
 		expect(readCreated()).toHaveLength(1);
+	});
+
+	it("refuses an unknown flag with exit 2 and its usage, filing nothing", async () => {
+		seed([]);
+		const r = await run(["--bogus"]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("unknown flag: --bogus");
+		expect(r.stderr).toContain("usage: node ");
+		expect(readCreated()).toHaveLength(0);
+	});
+
+	it("exits with file-issue.js's code where it refuses the filing, its refusal on stderr", async () => {
+		seed([]);
+		fs.writeFileSync(stub("no-labels"), "");
+		const r = await run();
+		expect(r.status).toBe(2);
+		expect(r.stderr).toMatch(
+			/^file-issue: .*origin:morning-review-script are not a label on acme\/wfc .+ Nothing filed\.$/m,
+		);
+		expect(readCreated()).toHaveLength(0);
 	});
 
 	it("names the open earlier reviews distinct up front, so file-issue.js files on its first run (#4601)", async () => {

@@ -176,15 +176,15 @@ async function ghAsync(args, opts = {}) {
  * @returns {any}
  */
 function ghJson(args, opts = {}) {
-	return ghReaders(gh).ghJson(args, opts);
+	return buildGhReaders(gh).ghJson(args, opts);
 }
 
 /**
  * The JSON readers over `run`, a core's gh port (§T7): `gh` above in
- * production, gh-stub-server.js's `handlerPort` in a module test (#5148).
+ * production, gh-stub-server.js's `buildHandlerPort` in a module test (#5148).
  * @param {(args: string[], opts?: import("node:child_process").ExecFileSyncOptions) => string} run
  */
-function ghReaders(run) {
+function buildGhReaders(run) {
 	/** @type {(args: string[], opts?: import("node:child_process").ExecFileSyncOptions) => any} */
 	const json = (args, opts = {}) => JSON.parse(run(args, opts));
 	return {
@@ -221,7 +221,7 @@ const ghDefaultRepo = (opts = {}) =>
  * @returns {any[]}
  */
 function ghApiSlurp(apiArgs, opts = {}) {
-	return ghReaders(gh).ghApiSlurp(apiArgs, opts);
+	return buildGhReaders(gh).ghApiSlurp(apiArgs, opts);
 }
 
 /**
@@ -665,7 +665,7 @@ function ghIssuesUpdatedSince(repo, since) {
  * @returns {any[]}
  */
 function ghIssueListAll(what, args, opts = {}) {
-	return ghReaders(gh).ghIssueListAll(what, args, opts);
+	return buildGhReaders(gh).ghIssueListAll(what, args, opts);
 }
 
 module.exports = {
@@ -697,7 +697,7 @@ module.exports = {
 	assertWholeTracker,
 	assertOpenRead,
 	ghIssueListAll,
-	ghReaders,
+	buildGhReaders,
 	ghAllIssues,
 	ghOpenIssues,
 	ghOpenIssuesWithLabel,

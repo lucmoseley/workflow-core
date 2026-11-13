@@ -2,7 +2,7 @@
 /*
  * gh-stub-server.js through `serveGhStub`'s bash client, as a test's gh call
  * reaches it (#2877). SPAWNED, NOT RUN IN PROCESS (§X3's two-processes shape):
- * the server must answer while the call runs. Its in-process port, `handlerPort`,
+ * the server must answer while the call runs. Its in-process port, `buildHandlerPort`,
  * is held to the served answer by the last case (§G7). Loosen a case and a suite on
  * this stub can pass on a gh call whose arguments, body or exit status never
  * reached its handler.
@@ -19,7 +19,7 @@ import {
 	stubGhHandler,
 	stubGhScript,
 } from "./gh-stub";
-import { handlerPort } from "./gh-stub-server.js";
+import { buildHandlerPort } from "./gh-stub-server.js";
 
 const HANDLER = String.raw`
 if (argv[0] === "echo") { out(JSON.stringify({ argv, cwd, stdin, sb: env.SB }) + "\n"); err("on stderr\n"); exit(3); }
@@ -131,7 +131,7 @@ it("answers as stubGhHandler's per-call gh does, for the same handler and call (
 });
 
 it("answers in-process as the served gh does, for the same handler and call (#5148)", () => {
-	const port = handlerPort(HANDLER, {
+	const port = buildHandlerPort(HANDLER, {
 		env: { ...process.env, SB: "a=b" },
 		cwd: dir,
 	});
