@@ -12,6 +12,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnGitSync } = require("./git.js");
+const { stripNewlines } = require("./strip-newlines.js");
 
 const HOOKS_WITH_ROWS = new Set([
 	"pre-commit",
@@ -109,16 +110,6 @@ function sequencing(hook, dir) {
 		{ encoding: "utf8" },
 	);
 	return r.status === 0 && String(r.stdout).trim() === safety;
-}
-
-/**
- * `text` less its trailing newlines, as a shell's `$(cat …)` reads it.
- * @param {string} text
- */
-function stripNewlines(text) {
-	let end = text.length;
-	while (end > 0 && text[end - 1] === "\n") end--;
-	return text.slice(0, end);
 }
 
 /**
