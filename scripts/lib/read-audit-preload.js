@@ -234,8 +234,6 @@ function install() {
 	};
 	/** @type {Map<string, import("./read-audit-handed.js").Settling>} */
 	const settlings = new Map();
-	/* A new standing environment: every lookup, and what each variable's
-	 * standing value spells. */
 	const resettle = () => {
 		settled.clear();
 		settlings.clear();
@@ -476,11 +474,8 @@ function install() {
 	/* A child a test ran under a TMPDIR of its own still holds the suite's
 	 * stubs (#5072). */
 	const ownTmp = realRealpathSync(os.tmpdir());
-	const verdictOf = buildVerdictOf({
-		root,
-		tmps: [...new Set([process.env.WFC_READ_AUDIT_TMP ?? ownTmp, ownTmp])],
-		realpath: realRealpathSync,
-	});
+	const tmps = [...new Set([process.env.WFC_READ_AUDIT_TMP ?? ownTmp, ownTmp])];
+	const verdictOf = buildVerdictOf({ root, tmps, realpath: realRealpathSync });
 	/** @typedef {import("./read-audit-provenance.js").Provenance} Provenance */
 	/**
 	 * What the child the test asked for is, for every test that weighs it
@@ -531,7 +526,7 @@ function install() {
 	/**
 	 * The checkout paths a variable's value names, less what the audit and
 	 * the program lookup put there themselves: the root this audit was told,
-	 * this preload on `NODE_OPTIONS`, and on `PATH` the git guard, which logs
+	 * the lookups it hands a child, this preload on `NODE_OPTIONS`, and on `PATH` the git guard, which logs
 	 * its own reads, and every `node_modules`, which the audit leaves out.
 	 * @param {string} name
 	 * @param {string} value
@@ -726,17 +721,29 @@ function install() {
 	let handings = 0;
 	let handedText = "";
 	let handedFile = "";
+	/** Whether a test may write at `at`: under the checkout or a temporary
+	 * directory, as lib/read-audit-provenance.js has it. */
+	const isWritable = (/** @type {string} */ at) =>
+		[root, ...tmps].some((under) => relativeUnder(under, at) !== null);
 	/**
-	 * Hand an audited child this process's settled lookups, so it starts
-	 * where its spawner stands, not with every standing word to look up
-	 * again (#5160): a file of this audit's, written afresh only where the
-	 * lookups changed since the last one handed.
+	 * Hand an audited child this process's settled lookups of paths no test
+	 * may write (#5160). A lookup a test can move, by a link another
+	 * process makes, the child makes afresh. The file this process was
+	 * handed is never passed on: its lookups may be ones this process
+	 * dropped since.
 	 * @param {Untyped} opts
 	 * @returns {Untyped}
 	 */
 	const withSettled = (opts) => {
-		if (settled.size === 0 || !isAudited(opts?.envPairs)) return opts;
-		const text = JSON.stringify([...settled]);
+		if (!isAudited(opts?.envPairs)) return opts;
+		const pairs = opts.envPairs.filter(
+			(/** @type {string} */ p) => !String(p).startsWith(`${SETTLED}=`),
+		);
+		const kept = [...settled].filter(
+			([abs, real]) => !isWritable(abs) && (real === null || !isWritable(real)),
+		);
+		if (kept.length === 0) return { ...opts, envPairs: pairs };
+		const text = JSON.stringify(kept);
 		if (text !== handedText) {
 			const file = path.join(
 				dir,
@@ -746,9 +753,6 @@ function install() {
 			handedText = text;
 			handedFile = file;
 		}
-		const pairs = opts.envPairs.filter(
-			(/** @type {string} */ p) => !String(p).startsWith(`${SETTLED}=`),
-		);
 		return { ...opts, envPairs: [...pairs, `${SETTLED}=${handedFile}`] };
 	};
 	/**

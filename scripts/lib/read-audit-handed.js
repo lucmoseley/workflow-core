@@ -81,14 +81,10 @@ function buildHanded(root) {
 	 * @param {boolean} mustStand
 	 */
 	const realOf = (abs, mustStand) => {
-		try {
-			return realpath(abs);
-		} catch (e) {
-			if (mustStand) return null;
-			const { code } = caught(e);
-			if (code !== "ENOENT" && code !== "ENOTDIR") return abs;
-		}
-		return realOfDeepest(abs) ?? abs;
+		const got = tryRealpath(abs);
+		if (typeof got === "string") return got;
+		if (mustStand) return null;
+		return got === UNREADABLE ? abs : (realOfDeepest(abs) ?? abs);
 	};
 	/**
 	 * The repo-relative paths `word` spells by the root's absolute name.
@@ -112,8 +108,7 @@ function buildHanded(root) {
 	 * What words name, resolved from one working directory, each name it
 	 * may hold looked up once. Input text is not searched for glued paths,
 	 * so a relative path stuck behind a prefix there (`-Iin/x` written down
-	 * a pipe) goes unseen: a lookup a character would cost a megabyte of
-	 * input a million.
+	 * a pipe) goes unseen.
 	 * @param {string} cwd the child's working directory, real path
 	 * @param {{text?: boolean}} [kind]
 	 */
@@ -172,40 +167,48 @@ function buildHanded(root) {
 	return { spelt, from };
 }
 
-/** @param {string} abs @returns {string|null} */
+/* A head that cannot be read, as against one that does not stand. */
+const UNREADABLE = Symbol("unreadable");
+
+/**
+ * @param {string} abs
+ * @returns {string|null|typeof UNREADABLE} null where it does not stand
+ */
 function tryRealpath(abs) {
 	try {
 		return realpath(abs);
-	} catch {
-		return null;
+	} catch (e) {
+		const { code } = caught(e);
+		return code === "ENOENT" || code === "ENOTDIR" ? null : UNREADABLE;
 	}
 }
 
 /**
  * `abs`, which does not stand whole, with its links followed through the
- * deepest part of it that stands and the rest as spelt; null where not even
- * the root will resolve. A lookup fails at the first part that will not
- * resolve, so every longer head fails with it and every shorter one stands:
- * the deepest that stands is found by halving, not a lookup a part, for a
- * whole `PATH` value is a word of some 150 parts (#5160).
+ * deepest part of it that stands and the rest as spelt; null where a head
+ * cannot be read. A lookup fails at the first part that will not resolve,
+ * so every longer head fails with it and every shorter one stands: the
+ * deepest that stands is found by halving, not a lookup a part (#5160).
  * @param {string} abs
  */
 function realOfDeepest(abs) {
 	const parts = abs.split(path.sep).slice(1);
 	let real = tryRealpath(path.sep);
-	if (real === null) return null;
 	let stands = 0;
 	let fails = parts.length;
-	while (fails - stands > 1) {
+	while (typeof real === "string" && fails - stands > 1) {
 		const mid = (stands + fails) >> 1;
 		const got = tryRealpath(path.sep + parts.slice(0, mid).join(path.sep));
+		if (got === UNREADABLE) return null;
 		if (got === null) fails = mid;
 		else {
 			real = got;
 			stands = mid;
 		}
 	}
-	return path.join(real, ...parts.slice(stands));
+	return typeof real === "string"
+		? path.join(real, ...parts.slice(stands))
+		: null;
 }
 
 /**

@@ -3,6 +3,11 @@
  * Tests for read-audit-handed.js's lookup of a word that does not stand
  * whole (#5160): it lands where the deepest part of it that stands leads,
  * links followed, the rest kept as spelt.
+ *
+ * Each case builds a real tree with real links in a temporary directory,
+ * because the lookup is the kernel's own `realpath`. Break it and the read
+ * audit places a path a test handed a child in the wrong spot, so a child
+ * handed the checkout through a link goes undoubted.
  */
 
 import fs from "node:fs";
@@ -26,8 +31,6 @@ const tmp = () => {
 	return dir;
 };
 
-/** A checkout holding `a/b/file` and `a/hop` linking to `a/b`, and a
- * directory outside it linking in. */
 const layout = () => {
 	const root = tmp();
 	fs.mkdirSync(path.join(root, "a", "b"), { recursive: true });

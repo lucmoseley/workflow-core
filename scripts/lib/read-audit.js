@@ -49,8 +49,9 @@
  *   variable's standing value spells it, once a child was spawned with it:
  *   the preload looks those up again, whatever value the variable is
  *   handed, only after its own process links, moves or removes a path
- *   (#5050, #5139), and a Node child starts from the lookups its spawner
- *   holds (#5160).
+ *   (#5050, #5139), and a Node child, through any child between, starts
+ *   from its spawner's lookups of paths outside the checkout and every
+ *   temporary directory (#5160).
  */
 
 const fs = require("node:fs");
