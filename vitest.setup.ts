@@ -58,11 +58,6 @@ delete process.env.WFC_ROWLESS_RUN;
  * Deleted in the worker, so vitest's own process still reads them. */
 delete process.env.WFC_PASS_STORE_CACHED;
 
-/* A live memory-hold trial's declaration is the machine's, not a case's:
- * blank, it reads as no hold, so a meminfo fixture is never lifted by the
- * real holder's MB (#4862). A case naming its own still wins. */
-process.env.WFC_MEMORY_HOLD = "";
-
 /* No write route a case drives launches the gate judge (#4969): each launch
  * is a child process, and its fallback line would join every create's
  * output. A case that drives the judge blanks it. The judge honours it only

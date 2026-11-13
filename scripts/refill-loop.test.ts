@@ -1066,17 +1066,17 @@ describe("set (#3856)", () => {
 			path.join(dir, "concurrency.jsonl"),
 			`${JSON.stringify({
 				at: new Date().toISOString(),
-				working: 9,
+				live: 9,
 				ceiling: 9,
-				stateWorking: 6,
+				working: 6,
 				binding: { limit: "memory", why: "w" },
 			})}\n`,
 		);
 		const r = await run("status", "--json");
 		expect(JSON.parse(r.stdout).concurrency).toEqual({
-			working: 9,
+			live: 9,
 			ceiling: 9,
-			stateWorking: 6,
+			working: 6,
 		});
 	});
 

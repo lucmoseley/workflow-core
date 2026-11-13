@@ -210,7 +210,7 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 		);
 		const tick = (min: number, binding: object | null, ceiling: number) => ({
 			at: at(min),
-			working: 4,
+			live: 4,
 			ceiling,
 			binding,
 			also: [],

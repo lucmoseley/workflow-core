@@ -58,10 +58,6 @@ if _real_git:
     os.environ["WFC_HOST_GIT_REAL"] = _real_git
 os.environ["PATH"] = os.pathsep.join([_guard_dir] + _path_dirs)
 
-# A live memory-hold trial's declaration never lifts a test's meminfo fixture,
-# as vitest.setup.ts blanks it (#4862).
-os.environ["WFC_MEMORY_HOLD"] = ""
-
 # The session's temp root is a private one (#5083), `wfc-pytest-<pid>-XXXXXX`,
 # which pytest_sessionfinish removes with every fixture a test left in it,
 # pytest's own `tmp_path` base inside it. An xdist worker, or a pytest a test

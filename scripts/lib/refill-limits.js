@@ -853,7 +853,7 @@ const withSeatTaken = ({ seats, overflow }, l) => ({
  * @param {LoopLaunch} out
  * @returns {-1|0|1}
  */
-function limitWorkingChange(l, out) {
+function limitLiveChange(l, out) {
 	if (!isLimitHeld(out))
 		return out.parkStopped !== undefined && !isLimitHeld(l) ? -1 : 0;
 	const resumed = out.limitHeld.resumedAt !== undefined;
@@ -880,13 +880,13 @@ const takesSlot = (l) => isLimitHeld(l);
  * @param {LoopLaunch[]} launches
  * @param {"away"|"normal"} mode
  * @param {LimitTick} seen
- * @returns {{launches: LoopLaunch[], slots: number, workingChange: number}}
+ * @returns {{launches: LoopLaunch[], slots: number, liveChange: number}}
  */
 function actOnLimits(launches, mode, seen) {
 	let { slots } = seen;
-	let workingChange = 0;
+	let liveChange = 0;
 	if (!seen.agents || !launches.some(isLimitBlocked))
-		return { launches, slots, workingChange };
+		return { launches, slots, liveChange };
 	let moveSeats = seen.readMoveSeats();
 	const blocked = blockedIdsOf(seen.agents);
 	const acted = launches.map((l) => {
@@ -902,16 +902,16 @@ function actOnLimits(launches, mode, seen) {
 			slots,
 			moveSeats,
 		});
-		const change = limitWorkingChange(l, out);
+		const change = limitLiveChange(l, out);
 		/* A resume from held fills a seat as a move onto it does; a live one's
 		 * stop and resume in place keeps the slot it holds (#3730). */
 		if (out.seat !== l.seat || out.keyVar !== l.keyVar || change > 0)
 			moveSeats = withSeatTaken(moveSeats, out);
 		if (change > 0) slots -= 1;
-		workingChange += change;
+		liveChange += change;
 		return syncLedgerHold(out, seen.io);
 	});
-	return { launches: acted, slots, workingChange };
+	return { launches: acted, slots, liveChange };
 }
 
 module.exports = {
