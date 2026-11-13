@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * usage-probe.js — the CLI over `lib/usage-probe.js`, for the callers that
- * cannot `await` it: `dispatch-sessions.sh`'s allowance gate and the refill
+ * cannot `await` it: `dispatch-sessions.js`'s allowance gate and the refill
  * loop's synchronous stale-seat read (#2306).
  *
  * Usage: node usage-probe.js [--config-dir <dir>] [-- <claude flag>...]

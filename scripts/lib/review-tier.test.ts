@@ -533,7 +533,7 @@ describe("the fragments", () => {
 		expect(readFragment("review-tier-escalated")).toContain(definition);
 	});
 
-	// review-hold-gate.sh holds the commit that adds an area's globs (#1612 triage Q2).
+	// review-hold-gate.js holds the commit that adds an area's globs (#1612 triage Q2).
 	it("say the commit adding a globless area's globs is held", () => {
 		expect(readFragment("review-tier-globless")).toContain(
 			"That commit is held",

@@ -219,7 +219,7 @@ function die(msg) {
 /**
  * The model a session ran on, read off `--model` by name.
  *
- * Never off position: `dispatch-sessions.sh` launches `--advisor <a> --model <m>`
+ * Never off position: `dispatch-sessions.js` launches `--advisor <a> --model <m>`
  * as well as the bare form, so respawnFlags[1] is the advisor, not the model.
  *
  * @param {string[]} flags
@@ -2048,7 +2048,7 @@ function buildRedispatchText(rec, kept) {
 		...(flags.includes("--advisor") ? [] : ["--no-advisor"]),
 	];
 	const command = [
-		scriptPath("dispatch-sessions.sh"),
+		scriptPath("dispatch-sessions.js"),
 		...opts,
 		model,
 		shellQuote(intent),
@@ -2274,7 +2274,7 @@ function buildWhereLine({ cwd, cwdGuessed }) {
 	const dir = shellQuote(cwd);
 	const core = require("./lib/arbiter-core");
 	return isSessionWorktreeDir(core.repoRoot(), cwd)
-		? `in its worktree: cd ${dir}, or relaunch there with ${scriptPath("dispatch-sessions.sh")} --into ${dir} <model> <prompt>`
+		? `in its worktree: cd ${dir}, or relaunch there with ${scriptPath("dispatch-sessions.js")} --into ${dir} <model> <prompt>`
 		: `where its edits sit: cd ${dir}`;
 }
 

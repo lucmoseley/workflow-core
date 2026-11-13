@@ -147,7 +147,7 @@ const isAlive = (pid: number) => readProcStartOf(pid) !== null;
 const listed = async () => JSON.parse((await cli(["list"])).stdout);
 const flag = (argv: string[], name: string) => argv[argv.indexOf(name) + 1];
 
-/* dispatch-sessions.sh's own job-id parse, run on the launch's output. */
+/* dispatch-sessions.js's own job-id parse, run on the launch's output. */
 const dispatcherJobId = (stdout: string) =>
 	spawnSync(
 		"bash",

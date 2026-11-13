@@ -639,7 +639,7 @@
 			},
 			{
 				"kind": "path",
-				"ref": "scripts/dispatch-sessions.sh",
+				"ref": "scripts/dispatch-sessions.js",
 				"gloss": "how the successor sessions are launched"
 			}
 		],

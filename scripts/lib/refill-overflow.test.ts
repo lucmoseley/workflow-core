@@ -89,17 +89,17 @@ describe("the dry run's dispatch line", () => {
 				reason: "overflow",
 			},
 		],
-		"/core/dispatch-sessions.sh",
+		"/core/dispatch-sessions.js",
 		{ PATH: "/usr/bin" },
 	);
 	const { WFC_SEAT_KEY: _key, ...planEnv } = call.env;
 
 	it("names the key an overflow seat bills, and only there", () => {
 		expect(buildWouldRunLine(call)).toBe(
-			"would run in /home/u/wfc on overflow seat /home/u/.claude2, each member billed to key=WFC_KEY: bash /core/dispatch-sessions.sh opus /implement 7",
+			"would run in /home/u/wfc on overflow seat /home/u/.claude2, each member billed to key=WFC_KEY: /core/dispatch-sessions.js opus /implement 7",
 		);
 		expect(buildWouldRunLine({ ...call, env: planEnv })).toBe(
-			"would run in /home/u/wfc on /home/u/.claude2: bash /core/dispatch-sessions.sh opus /implement 7",
+			"would run in /home/u/wfc on /home/u/.claude2: /core/dispatch-sessions.js opus /implement 7",
 		);
 	});
 });

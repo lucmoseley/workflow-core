@@ -14,7 +14,7 @@
  * allowance nobody asked it to, so it is driven only against a stub `claude`
  * (WFC_CLAUDE_BIN), for its launch-auth check (#2236).
  *
- * Its reading sets `WFC_DISPATCH_STAGGER_SECONDS` in `dispatch-sessions.sh`:
+ * Its reading sets `WFC_DISPATCH_STAGGER_SECONDS` in `dispatch-sessions.js`:
  * a figure timed short lets the next member's admission miss memory the
  * previous launch is still taking, on a machine that freezes past 10 GB.
  */
