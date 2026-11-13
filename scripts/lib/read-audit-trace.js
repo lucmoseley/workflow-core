@@ -51,6 +51,31 @@ const FLAGS = [
  * one is missing the trial in `findStrace` fails, and nothing is traced. */
 const SH = "/bin/sh";
 
+/* THE TRACER AND ITS TRACEE SHARE ONE CPU (#5132). Every stop is a wake-up
+ * of the other side, and on this WSL2 VM one that crosses CPUs costs ~0.25
+ * ms: a `wfc-config.sh` call, ~870 stops, took 270 ms traced unpinned, 71
+ * ms pinned, 34 ms untraced. The CPU is the one the spawning process last
+ * ran on. So a traced child and all it starts see one CPU in their
+ * affinity, and `nproc` reads 1 there. With no `taskset` here, the trace
+ * runs unpinned. */
+const TASKSET = "/usr/bin/taskset";
+const PIN = pathKind(TASKSET) === "file";
+
+/**
+ * The CPU this process last ran on, field 39 of `/proc/self/stat`; null
+ * where that cannot be read.
+ * @returns {string|null}
+ */
+function currentCpu() {
+	try {
+		const stat = fs.readFileSync("/proc/self/stat", "utf8");
+		const cpu = stat.slice(stat.lastIndexOf(")") + 2).split(" ")[36];
+		return cpu !== undefined && /^\d+$/.test(cpu) ? cpu : null;
+	} catch {
+		return null;
+	}
+}
+
 /* The traced side, `$1` and `$2` the pipes its output goes down, either
  * empty: it opens them by name, so the tracer never holds them. */
 const INNER =
@@ -63,10 +88,10 @@ const INNER =
  * a named pipe a `cat` copies from, started before the tracer and so not
  * followed; the tracer itself gets /dev/null. No other child is started
  * first: the tracer waits on one of its own before it runs the program,
- * and a stray one ending answers that wait early. `$1` the tracer, `$2`
- * the trace, the rest the child's words. */
+ * and a stray one ending answers that wait early. `$1` the CPU to pin to
+ * or empty, `$2` the tracer, `$3` the trace, the rest the child's words. */
 const OUTER = [
-	"s=$1 o=$2; shift 2; a= b=",
+	"c=$1 s=$2 o=$3; shift 3; a= b=",
 	"if [ -p /dev/fd/1 ] || [ -S /dev/fd/1 ]; then a=$o.1; fi",
 	"if [ -p /dev/fd/2 ] || [ -S /dev/fd/2 ]; then b=$o.2; fi",
 	'[ -z "$a" ] || /usr/bin/mkfifo "$a" || exit 127',
@@ -75,7 +100,9 @@ const OUTER = [
 	'if [ -n "$b" ]; then /bin/cat <"$b" 1>&2 & fi',
 	'[ -z "$a" ] || exec >/dev/null',
 	'[ -z "$b" ] || exec 2>/dev/null',
-	`exec "$s" ${FLAGS.join(" ")} -o "$o" -- ${SH} -c '${INNER}' sh "$a" "$b" "$@"`,
+	`set -- "$s" ${FLAGS.join(" ")} -o "$o" -- ${SH} -c '${INNER}' sh "$a" "$b" "$@"`,
+	`if [ -n "$c" ]; then exec ${TASKSET} -c "$c" "$@"; fi`,
+	'exec "$@"',
 ].join("\n");
 
 /**
@@ -89,6 +116,7 @@ const buildTraceArgv = (strace, out, argv) => [
 	"-c",
 	OUTER,
 	"sh",
+	(PIN && currentCpu()) || "",
 	strace,
 	out,
 	...argv,

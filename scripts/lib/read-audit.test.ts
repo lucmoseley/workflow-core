@@ -505,6 +505,20 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 		expect(audit.reads.files).toContain(".claude/settings.json");
 	});
 
+	it("runs a traced shell on the one CPU its spawner last ran on (#5132)", () => {
+		const root = checkout();
+		const out = path.join(
+			fs.mkdtempSync(path.join(os.tmpdir(), "rda-cpu-")),
+			"n",
+		);
+		dirs.push(path.dirname(out));
+		reads(
+			root,
+			`require("node:child_process").execSync(${quoted(`nproc >${out}`)}, { cwd: ${quoted(root)} });`,
+		);
+		expect(fs.readFileSync(out, "utf8")).toBe("1\n");
+	});
+
 	it("doubts a file a child read and then removed, which nothing is left to key", () => {
 		const root = checkout();
 		const audit = reads(
@@ -756,6 +770,28 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			].join("\n");
 			const log = audited(root, T, body, {
 				env: { RULES: link },
+				trace: false,
+			});
+			expect(readAudits(log, root).get(T).doubt).toMatch(
+				/a child \(cat \) was handed a path in the checkout by its environment \(RULES\)/,
+			);
+		});
+
+		it("weighs afresh a standing variable's path once the process moves a directory over one above it (#5132)", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const staged = path.join(cwd, "staged");
+			/* Linked by a child, which leaves this process's lookups standing,
+			 * until the process moves the link's directory into the path. */
+			const linker = `const fs = require("node:fs"); fs.mkdirSync(${quoted(staged)}); fs.symlinkSync(${quoted(root)}, ${quoted(path.join(staged, "in"))});`;
+			const body = [
+				spawns("cat", [], cwd),
+				`require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(linker)}]);`,
+				`require("node:fs").renameSync(${quoted(staged)}, ${quoted(path.join(cwd, "sub"))});`,
+				spawns("cat", [], cwd),
+			].join("\n");
+			const log = audited(root, T, body, {
+				env: { RULES: path.join(cwd, "sub", "in") },
 				trace: false,
 			});
 			expect(readAudits(log, root).get(T).doubt).toMatch(
