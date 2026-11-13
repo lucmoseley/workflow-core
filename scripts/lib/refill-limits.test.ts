@@ -761,7 +761,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			expect(logs(calls).join("\n")).toContain("seat busy");
 			const parked = limits(launches as Launch[], live);
 			expect(parked.launches[0]).toMatchObject({ parkStopped: NOW });
-			expect(parked.workingChange).toBe(-1);
+			expect(parked.liveChange).toBe(-1);
 		});
 	});
 
@@ -974,14 +974,14 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			seatListRead: true,
 			slots: 2,
 		});
-		expect(out).toMatchObject({ slots: 2, workingChange: 0 });
+		expect(out).toMatchObject({ slots: 2, liveChange: 0 });
 	});
 
 	describe("the tick's working figure (#3778)", () => {
 		const Open = { seats: [planSeat()] };
 		const FailedResume = { resumeStopped: () => ({ failed: "no" }) };
 		const live = [agent("job42", "blocked")];
-		it.each<[string, () => { workingChange: number }, number]>([
+		it.each<[string, () => { liveChange: number }, number]>([
 			["a held one resumed adds one", () => limits([held()], [], Open), 1],
 			[
 				"a live one stopped for its limit takes one off",
@@ -1044,7 +1044,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 				0,
 			],
 		])("%s", (_, run, change) => {
-			expect(run().workingChange).toBe(change);
+			expect(run().liveChange).toBe(change);
 		});
 	});
 
@@ -1339,7 +1339,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 		);
 
 		it("moves a held one as another seat opens, unstopped, taking a slot", () => {
-			const { launches, calls, slots, workingChange } = limits([held()], [], {
+			const { launches, calls, slots, liveChange } = limits([held()], [], {
 				seats: [fiveHourFull, other()],
 				slots: 1,
 			});
@@ -1347,7 +1347,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			expect(calls).toContain(`move job42 ${Seat} /other s-job42`);
 			expect(launches[0]).toMatchObject({ seat: "/other" });
 			expect(slots).toBe(0);
-			expect(workingChange).toBe(1);
+			expect(liveChange).toBe(1);
 		});
 
 		it("leaves a failed move held on its old seat, naming why in the log and a comment", () => {
@@ -1501,7 +1501,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			});
 
 		it("leaves a live one resumed in place, with three unproven running, dated by its launch", () => {
-			const { launches, workingChange } = limits(
+			const { launches, liveChange } = limits(
 				[...unproven, blocked({ launchedAt: Act - 60 * MIN })],
 				[agent("job42", "blocked")],
 				{ slots: 0 },
@@ -1511,7 +1511,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 				limitHeld: { resumedAt: NOW },
 			});
 			expect(launches[3]).not.toHaveProperty("slotTakenAt");
-			expect(workingChange).toBe(0);
+			expect(liveChange).toBe(0);
 			expect(room(launches)).toBe(1);
 		});
 

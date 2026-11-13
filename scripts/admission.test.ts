@@ -583,7 +583,7 @@ describe("daemon + spare-pool reservation", () => {
 			pss: { "111": 102_400, "110": 51_200, "333": 102_400, "332": 51_200 },
 			cwds: { "111": "/home/u/repo", ...idleAt("333") },
 		});
-		expect(json.memory.working).toMatchObject({ count: 2, mb: 150 });
+		expect(json.memory.live).toMatchObject({ count: 2, mb: 150 });
 		expect(json.memory.pool.mb).toBe(150);
 	});
 
@@ -706,7 +706,7 @@ describe("the unlisted row (#3322)", () => {
 		const m = json.memory;
 		expect(
 			m.free.mb +
-				m.working.mb +
+				m.live.mb +
 				m.finished.mb +
 				m.pool.mb +
 				m.unlisted.mb +
@@ -735,7 +735,7 @@ describe("the unlisted row (#3322)", () => {
 			unknown: null,
 			dirs: [],
 		});
-		expect(json.memory.working.mb).toBe(450);
+		expect(json.memory.live.mb).toBe(450);
 	});
 
 	it("reads unknown where the listing was refused, as working does", () => {
@@ -951,7 +951,7 @@ describe("aggregate session draw (#2221)", () => {
 		// ceil(2 × 600 + 1.645 × 200 × √2 − 250): a, parked and retired by
 		// the daemon, is charged as one that will resume
 		expect(json.drawNeedMb).toBe(1416);
-		expect(json.memory.working).toMatchObject({
+		expect(json.memory.live).toMatchObject({
 			mb: 250,
 			noProcess: 2, // a, and this run's own session, listed here with no pid
 			unknown: null,
@@ -2374,13 +2374,13 @@ describe("the memory breakdown (#589)", () => {
 		 * finished. The pool is the daemon plus the idle pair: 410,000 kB. */
 		expect(m.totalMb).toBe(10_000);
 		expect(m.free).toEqual({ mb: 6000, unknown: null });
-		expect(m.working).toEqual({ count: 2, mb: 957, unknown: null });
+		expect(m.live).toEqual({ count: 2, mb: 957, unknown: null });
 		expect(m.finished).toMatchObject({ count: 1, mb: 410, reapable: 1 });
 		expect(m.pool).toEqual({ mb: 400, unknown: null, drift: [] });
 		expect(m.other.mb).toBe(10_000 - 6000 - 957 - 410 - 400);
-		expect(
-			m.free.mb + m.working.mb + m.finished.mb + m.pool.mb + m.other.mb,
-		).toBe(m.totalMb);
+		expect(m.free.mb + m.live.mb + m.finished.mb + m.pool.mb + m.other.mb).toBe(
+			m.totalMb,
+		);
 	});
 
 	it("names the three largest processes that are neither a session nor the pool", () => {
@@ -2466,7 +2466,7 @@ describe("the memory breakdown (#589)", () => {
 		const m = JSON.parse(r.stdout).memory;
 		expect(m.other.mb).toBe(0);
 		expect(m.other.overlapMb).toBeGreaterThan(0);
-		expect(m.free.mb + m.working.mb + m.finished.mb + m.pool.mb).toBe(
+		expect(m.free.mb + m.live.mb + m.finished.mb + m.pool.mb).toBe(
 			m.totalMb + m.other.overlapMb,
 		);
 	});

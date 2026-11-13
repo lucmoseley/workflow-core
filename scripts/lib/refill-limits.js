@@ -880,13 +880,13 @@ const takesSlot = (l) => isLimitHeld(l);
  * @param {LoopLaunch[]} launches
  * @param {"away"|"normal"} mode
  * @param {LimitTick} seen
- * @returns {{launches: LoopLaunch[], slots: number, workingChange: number}}
+ * @returns {{launches: LoopLaunch[], slots: number, liveChange: number}}
  */
 function actOnLimits(launches, mode, seen) {
 	let { slots } = seen;
-	let workingChange = 0;
+	let liveChange = 0;
 	if (!seen.agents || !launches.some(isLimitBlocked))
-		return { launches, slots, workingChange };
+		return { launches, slots, liveChange };
 	let moveSeats = seen.readMoveSeats();
 	const blocked = blockedIdsOf(seen.agents);
 	const acted = launches.map((l) => {
@@ -908,10 +908,10 @@ function actOnLimits(launches, mode, seen) {
 		if (out.seat !== l.seat || out.keyVar !== l.keyVar || change > 0)
 			moveSeats = withSeatTaken(moveSeats, out);
 		if (change > 0) slots -= 1;
-		workingChange += change;
+		liveChange += change;
 		return syncLedgerHold(out, seen.io);
 	});
-	return { launches: acted, slots, workingChange };
+	return { launches: acted, slots, liveChange };
 }
 
 module.exports = {
