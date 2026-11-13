@@ -30,6 +30,8 @@ import { runHold } from "./lib/review-hold.js";
 import { buildHoldPorts } from "./lib/review-hold-host.js";
 import { reviewSuffix } from "./lib/review-suffix";
 import { reviewTierStamp } from "./lib/review-tier-stamp.js";
+import { runTrailer as trailerCore } from "./lib/review-tier-trailer.js";
+import { buildTrailerPorts } from "./lib/review-tier-trailer-host.js";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import { readShellConst } from "./lib/shell-const-testkit";
@@ -146,25 +148,34 @@ const commit = (paths: string[], opts: Parameters<typeof hookedGit>[1] = {}) =>
 	);
 
 /**
- * The hold over `paths`, staged into the index, run in-process on its
- * production ports over this repo: a module case (§X11), crossing no hook.
- * hostRoot() reads the process's CLAUDE_PROJECT_DIR and the fail-open log its
+ * `call` with the process environment a hook would hand this repo: hostRoot()
+ * reads the process's CLAUDE_PROJECT_DIR and the fail-open log its
  * CLAUDE_CONFIG_DIR, so both are stubbed for the call.
  */
-const hold = (paths: string[], { sid = SID } = {}) => {
-	if (paths.length > 0) git("add", "-A", "--", ...paths);
+const inProcess = <T>(call: () => T): T => {
 	vi.stubEnv("CLAUDE_PROJECT_DIR", undefined);
 	vi.stubEnv("CLAUDE_CONFIG_DIR", scratch);
 	try {
-		return runHold(
+		return call();
+	} finally {
+		vi.unstubAllEnvs();
+	}
+};
+
+/**
+ * The hold over `paths`, staged into the index, run in-process on its
+ * production ports over this repo: a module case (§X11), crossing no hook.
+ */
+const hold = (paths: string[], { sid = SID } = {}) => {
+	if (paths.length > 0) git("add", "-A", "--", ...paths);
+	return inProcess(() =>
+		runHold(
 			buildHoldPorts({
 				cwd: repo,
 				env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: sid },
 			}),
-		);
-	} finally {
-		vi.unstubAllEnvs();
-	}
+		),
+	);
 };
 
 /** What `commit-paths.js --tree` prints, the tree review-hold.txt names. */
@@ -1507,22 +1518,62 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 		});
 	});
 
+	/**
+	 * A module case (§X11): `paths` staged, then the hold and the trailer each
+	 * run in-process on their production ports over this repo, as session
+	 * `sid`, on a message file holding `text`. `holding: false` runs the
+	 * trailer alone; `env` is laid over both runs'.
+	 */
+	const trailOn = (
+		paths: string[],
+		text: string,
+		{ sid = SID, holding = true, env = {} as Record<string, string> } = {},
+	) => {
+		if (paths.length > 0) git("add", "-A", "--", ...paths);
+		const msg = path.join(scratch, "msg");
+		fs.writeFileSync(msg, text);
+		const runEnv = { ...quietEnv(), CLAUDE_CODE_SESSION_ID: sid, ...env };
+		const r = inProcess(() => {
+			const held = holding
+				? runHold(buildHoldPorts({ cwd: repo, env: runEnv }))
+				: { status: 0, stderr: "" };
+			if (held.status !== 0) return held;
+			const trailed = trailerCore(
+				msg,
+				buildTrailerPorts({ cwd: repo, env: runEnv }),
+			);
+			return {
+				status: trailed.status,
+				stderr: held.stderr + trailed.stderr,
+			};
+		});
+		return { ...r, text: () => fs.readFileSync(msg, "utf8") };
+	};
+	/** The message's `Review-Tier:` values, one per line, as git's valueonly prints them. */
+	const trailerValues = (text: string) =>
+		text
+			.split("\n")
+			.filter((l) => l.startsWith("Review-Tier: "))
+			.map((l) => l.slice("Review-Tier: ".length))
+			.join("\n");
+
 	it("writes the marker's tier, areas, base, tree and paths on a held commit, and consumes the stamp", () => {
 		const base = git("rev-parse", "HEAD");
 		write(SECRET, "new\n");
 		write(PRICE, "new\n");
-		const tree = treeOf(["--", SECRET, PRICE]);
+		git("add", "--", SECRET, PRICE);
+		const tree = git("write-tree");
 		mark({
 			tier: "mission-critical",
 			areas: "money, secrets",
 			tree,
 			paths: `${SECRET}, ${PRICE}`,
 		});
-		const r = commit([SECRET, PRICE]);
+		const r = trailOn([], "land\n");
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
-		expect(trailers()).toBe(
-			`mission-critical; areas=money,secrets; base=${base}; tree=${tree}; paths=${SECRET},${PRICE}`,
+		expect(r.text()).toBe(
+			`land\n\nReview-Tier: mission-critical; areas=money,secrets; base=${base}; tree=${tree}; paths=${SECRET},${PRICE}\n`,
 		);
 		expect(fs.existsSync(stamp())).toBe(false);
 	});
@@ -1531,21 +1582,50 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 		write(SECRET, "new\n");
 		git("add", "--", SECRET);
 		fs.writeFileSync(stamp(), `${git("write-tree")}\n`);
-		const msg = path.join(scratch, "msg");
-		fs.writeFileSync(msg, "land\n");
-		const r = runInProcess(Trailer, [msg], {
-			cwd: repo,
-			env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: SID },
-		});
-		expect(r.stderr).toContain("could not be read");
+		const r = trailOn([], "land\n", { holding: false });
+		expect(r.stderr).toBe(
+			`prepare-commit-msg: the review hold's stamp ${stamp()} could not be read, so this commit lands with no Review-Tier: trailer.\n`,
+		);
 		expect(r.status).toBe(0);
+		expect(r.text()).toBe("land\n");
+	});
+
+	it("says so where git will not write the trailer, the commit landing with none", () => {
+		write(SECRET, "new\n");
+		git("add", "--", SECRET);
+		const tree = git("write-tree");
+		mark({ tier: "escalated", areas: "secrets", tree, paths: SECRET });
+		/* git writes the trailer through a file beside the message, which a
+		 * read-only directory refuses. */
+		const dir = path.join(scratch, "sealed");
+		fs.mkdirSync(dir);
+		const msg = path.join(dir, "msg");
+		fs.writeFileSync(msg, "land\n");
+		fs.chmodSync(dir, 0o555);
+		const runEnv = { ...quietEnv(), CLAUDE_CODE_SESSION_ID: SID };
+		let r: { status: number; stderr: string };
+		try {
+			r = inProcess(() => {
+				expect(runHold(buildHoldPorts({ cwd: repo, env: runEnv })).status).toBe(
+					0,
+				);
+				return trailerCore(msg, buildTrailerPorts({ cwd: repo, env: runEnv }));
+			});
+		} finally {
+			fs.chmodSync(dir, 0o755);
+		}
+		expect(r.status).toBe(0);
+		expect(r.stderr).toMatch(
+			/^prepare-commit-msg: git could not write the trailer, so this commit lands with no Review-Tier: trailer \(.+\)\.\n$/s,
+		);
 		expect(fs.readFileSync(msg, "utf8")).toBe("land\n");
 	});
 
 	it("leaves nothing behind on a commit off the globs", () => {
 		write(PLAIN, "new\n");
-		expect(commit([PLAIN]).status).toBe(0);
-		expect(trailers()).toBe("");
+		const r = trailOn([PLAIN], "land\n");
+		expect(r.status).toBe(0);
+		expect(r.text()).toBe("land\n");
 		expect(fs.existsSync(stamp())).toBe(false);
 	});
 
@@ -1555,9 +1635,9 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 			stamp(),
 			`${"a".repeat(40)}\nescalated; areas=secrets; tree=${"a".repeat(40)}; paths=${SECRET}\n`,
 		);
-		const r = commit([PLAIN]);
+		const r = trailOn([PLAIN], "land\n");
 		expect(r.status).toBe(0);
-		expect(trailers()).toBe("");
+		expect(r.text()).toBe("land\n");
 		expect(fs.existsSync(stamp())).toBe(false);
 	});
 
@@ -1569,25 +1649,15 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 			stamp(),
 			`${tree}\nescalated; areas=secrets; base=${"b".repeat(40)}; tree=${tree}; paths=${SECRET}\n`,
 		);
-		const r = commit([], { sid: "" });
+		const r = trailOn([], "land\n", { sid: "" });
 		expect(r.status).toBe(0);
-		expect(trailers()).toBe("");
+		expect(r.text()).toBe("land\n");
 	});
 
 	describe("a trailer no stamp vouches for (#3906)", () => {
 		const Typed = "Review-Tier: mission-critical; areas=secrets; tree=x";
-		const commitTyped = (...message: string[]) =>
-			hookedGit(["commit", "-q", ...message.flatMap((m) => ["-m", m])]);
-		/** The trailer script alone on a message holding `text`, as the session `sid`. */
-		const trailerOn = (text: string, sid = SID) => {
-			const msg = path.join(scratch, "msg");
-			fs.writeFileSync(msg, text);
-			const r = runInProcess(Trailer, [msg], {
-				cwd: repo,
-				env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: sid },
-			});
-			return { ...r, text: () => fs.readFileSync(msg, "utf8") };
-		};
+		const Stripped =
+			"prepare-commit-msg: removed the message's Review-Tier: line, as no review of this commit is recorded; only the review hold writes one.\n";
 
 		it.each([
 			["as git spells it", Typed],
@@ -1595,24 +1665,17 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 			["folded", `${Typed}\n  ; paths=a,b`],
 		])("strips one typed %s, and says so", (_, typed) => {
 			write(PLAIN, "new\n");
-			git("add", "--", PLAIN);
-			const r = commitTyped("land", `Signed-off-by: a <a@b>\n${typed}`);
+			const r = trailOn([PLAIN], `land\n\nSigned-off-by: a <a@b>\n${typed}\n`);
 			expect(r.status).toBe(0);
-			expect(r.stderr).toContain("no review of this commit is recorded");
-			expect(trailers()).toBe("");
-			expect(git("log", "-1", "--format=%B")).toBe(
-				"land\n\nSigned-off-by: a <a@b>",
-			);
+			expect(r.stderr).toBe(Stripped);
+			expect(r.text()).toBe("land\n\nSigned-off-by: a <a@b>\n");
 		});
 
 		it("leaves a message carrying none as it was, saying nothing", () => {
 			write(PLAIN, "new\n");
-			git("add", "--", PLAIN);
-			const r = commitTyped("land", "Not-a-Review-Tier: kept");
+			const r = trailOn([PLAIN], "land\n\nNot-a-Review-Tier: kept\n");
 			expect(r.stderr).toBe("");
-			expect(git("log", "-1", "--format=%B")).toBe(
-				"land\n\nNot-a-Review-Tier: kept",
-			);
+			expect(r.text()).toBe("land\n\nNot-a-Review-Tier: kept\n");
 		});
 
 		it("replaces one typed on a commit the hold passed with its own, and says nothing of a strip", () => {
@@ -1620,38 +1683,66 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 			git("add", "--", SECRET);
 			const tree = git("write-tree");
 			mark({ tier: "escalated", areas: "secrets", tree, paths: SECRET });
-			const r = commitTyped("land", Typed);
+			const r = trailOn([], `land\n\n${Typed}\n`);
 			expect(r.status).toBe(0);
 			expect(r.stderr).toBe("");
-			expect(trailers()).toContain("escalated; areas=secrets;");
-			expect(trailers()).not.toContain("mission-critical");
+			expect(trailerValues(r.text())).toContain("escalated; areas=secrets;");
+			expect(r.text()).not.toContain("mission-critical");
 		});
 
 		it("strips one where the stamp cannot be read, as the fault says", () => {
 			fs.writeFileSync(stamp(), `${git("write-tree")}\n`);
-			const r = trailerOn(`land\n\n${Typed}\n`);
+			const r = trailOn([], `land\n\n${Typed}\n`, { holding: false });
 			expect(r.status).toBe(0);
-			expect(r.stderr).toContain("could not be read");
-			expect(r.text()).not.toContain("Review-Tier");
+			expect(r.stderr).toBe(
+				`prepare-commit-msg: the review hold's stamp ${stamp()} could not be read, so this commit lands with no Review-Tier: trailer.\n${Stripped}`,
+			);
+			expect(r.text()).toBe("land\n");
 		});
 
 		it("strips one with no session, on the founder's own terminal", () => {
 			write(PLAIN, "new\n");
-			git("add", "--", PLAIN);
-			const r = trailerOn(`land\n\n${Typed}\n`, "");
+			const r = trailOn([PLAIN], `land\n\n${Typed}\n`, { sid: "" });
 			expect(r.status).toBe(0);
-			expect(r.stderr).toContain("no review of this commit is recorded");
-			expect(r.text()).not.toContain("Review-Tier");
+			expect(r.stderr).toBe(Stripped);
+			expect(r.text()).toBe("land\n");
 		});
 
 		it("says a line stands unvouched where it cannot read the message, and goes on", () => {
-			const r = runInProcess(Trailer, [path.join(scratch, "absent")], {
-				cwd: repo,
-				env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: SID },
-			});
+			const absent = path.join(scratch, "absent");
+			const r = inProcess(() =>
+				trailerCore(
+					absent,
+					buildTrailerPorts({
+						cwd: repo,
+						env: { ...quietEnv(), CLAUDE_CODE_SESSION_ID: SID },
+					}),
+				),
+			);
 			expect(r.status).toBe(0);
-			expect(r.stderr).toContain("stands unvouched");
-			expect(r.stderr).not.toContain("lands with no Review-Tier");
+			expect(r.stderr).toBe(
+				`prepare-commit-msg: could not read the message file ${absent}, so a Review-Tier: line in the message stands unvouched.\n`,
+			);
+		});
+
+		it("strips one typed by hand mid-rebase, whose replays never reach the script", () => {
+			write(PLAIN, "new\n");
+			fs.mkdirSync(path.join(repo, ".git", "rebase-merge"));
+			const r = trailOn([PLAIN], `land\n\n${Typed}\n`);
+			expect(r.status).toBe(0);
+			expect(r.text()).toBe("land\n");
+		});
+
+		it("strips one the picked commit does not carry, resolving a cherry-pick by hand", () => {
+			const picked = git("rev-parse", "HEAD");
+			write(PLAIN, "new\n");
+			fs.writeFileSync(
+				path.join(repo, ".git", "CHERRY_PICK_HEAD"),
+				`${picked}\n`,
+			);
+			const r = trailOn([PLAIN], `land\n\n${Typed}\n`);
+			expect(r.status).toBe(0);
+			expect(r.text()).toBe("land\n");
 		});
 
 		it("keeps a reviewed commit's trailer through an amend that only rewords it", () => {
@@ -1678,30 +1769,6 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 			write(PLAIN, "new\n");
 			expect(commit([PLAIN]).status).toBe(0);
 			const r = hookedGit(["commit", "--amend", "-qm", `land\n\n${Typed}`]);
-			expect(r.status).toBe(0);
-			expect(trailers()).toBe("");
-		});
-
-		it("strips one typed by hand mid-rebase, whose replays never reach the script", () => {
-			write(PLAIN, "new\n");
-			git("add", "--", PLAIN);
-			const rebasing = path.join(repo, ".git", "rebase-merge");
-			fs.mkdirSync(rebasing);
-			const r = commitTyped("land", Typed);
-			fs.rmSync(rebasing, { recursive: true });
-			expect(r.status).toBe(0);
-			expect(trailers()).toBe("");
-		});
-
-		it("strips one the picked commit does not carry, resolving a cherry-pick by hand", () => {
-			const picked = git("rev-parse", "HEAD");
-			write(PLAIN, "new\n");
-			git("add", "--", PLAIN);
-			fs.writeFileSync(
-				path.join(repo, ".git", "CHERRY_PICK_HEAD"),
-				`${picked}\n`,
-			);
-			const r = commitTyped("land", Typed);
 			expect(r.status).toBe(0);
 			expect(trailers()).toBe("");
 		});
@@ -1811,6 +1878,12 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 			"prepare-commit-msg: git named no git directory to read the review hold's stamp from, so this commit lands with no Review-Tier: trailer.\n",
 		);
 		expect(fs.readFileSync(msg, "utf8")).toBe("land\n");
+	});
+
+	it("exits 2 with its usage on no message file", () => {
+		const r = runInProcess(Trailer, [], { cwd: repo, env: quietEnv() });
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("usage: review-tier-trailer.js <message file>");
 	});
 
 	it("consumes no stamp and logs nothing on an empty message path, as a direct run of the hook hands (#3716)", () => {
