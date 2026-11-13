@@ -1320,8 +1320,7 @@ function readKeptSource(root, marketplace) {
 
 /**
  * The whole run: argv parsed and settled against the repo, then the skeleton
- * written. Every line goes out through `ports.out` and `ports.err` as it is
- * made; the return is the exit code.
+ * written.
  * @param {string[]} argv
  * @param {Ports} ports
  * @returns {number}

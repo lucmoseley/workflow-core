@@ -3,23 +3,13 @@
  * Holds lib/claude-plugin-fake.ts, the `claude` init-adopter.test.ts's
  * materialising cases run, to the installed harness's recorded answers
  * (scripts/fixtures/claude-plugin.json, re-recorded by
- * `node scripts/record-claude-plugin.js`) (#5146). One case list, each run
- * against the recording and the fake, read through the production readers:
- * each verb's exit as lib/materialise-plugin.js's `run` takes it, the
- * `details` figure through lib/core-context-cost.js's measurerFor, the
- * refusal through materialise-plugin.js's installFailure, and the two side
- * effects' keys and types. Where `claude` is on PATH, the live cases run the
- * free, offline calls against it in a scratch config dir and project (§G7.2):
- * the refusal, a directory source's `marketplace add`, and `details` through
- * `--plugin-dir`, since `details` of an installed plugin needs `install`,
- * which clones the plugin's url source from GitHub. Unheld, being
- * unrecorded: a url source's `marketplace add`, and the clone `install`
- * lands at the row's installPath (the fake's `place`).
- *
- * Breaking it lets init-adopter.test.ts pass on a `claude` the core misreads:
- * a cost row seeded from a line the harness never prints, a failure message
- * built from a stderr it never writes, or an install row the core's
- * findInstallRecord reads where the harness's would not be.
+ * `node scripts/record-claude-plugin.js`) (#5146). Where `claude` is on PATH,
+ * the live cases run the free, offline calls against it in a scratch config
+ * dir and project (§G7.2); `details` goes through `--plugin-dir`, since
+ * `details` of an installed plugin needs `install`, which clones the plugin's
+ * url source from GitHub. Unheld, being unrecorded: a url source's
+ * `marketplace add`, and the clone `install` lands at the row's installPath
+ * (the fake's `place`).
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -90,17 +80,14 @@ const call = (bin: string, args: string[]) =>
 		},
 	});
 
-/** The `details` figure as the cost measurer reads it from `bin`. */
 const measure = (bin: string, pluginId = PLUGIN_ID) =>
 	measurerFor({ root: project, claudeBin: bin, configDir: config })(pluginId);
 
-/** The source `marketplace add` wrote into the project's settings. */
 const addedSource = () =>
 	JSON.parse(
 		fs.readFileSync(path.join(project, ".claude/settings.json"), "utf8"),
 	).extraKnownMarketplaces["workflow-core"].source;
 
-/** A JSON value's shape: its keys and each value's type, not its values. */
 const shape = (value: Record<string, unknown>) =>
 	Object.fromEntries(Object.entries(value).map(([k, v]) => [k, typeof v]));
 

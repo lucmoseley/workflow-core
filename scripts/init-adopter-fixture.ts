@@ -37,7 +37,7 @@ const emptyRepo = defineTemplate((dir) => {
 
 /* Copies land outside any repository, not under the scratch base, so no
  * test's adopter repo sits inside this checkout. Residual: they are back on
- * the shared /tmp, where mantahostels#3144 saw a fixture deleted mid-copy. */
+ * the shared /tmp (mantahostels#3144). */
 export function repo() {
 	return adopterFrom((dir) => emptyRepo.instantiate(dir));
 }
@@ -69,9 +69,8 @@ export function initialised(founder = "A Founder") {
 }
 
 /* The core's production runNode with the plugin script run in-process in
- * place of a child node: the real script, the same cwd and child env, and a
- * failure thrown as execFileSync throws it — status, stderr and a message
- * naming the command — so the core reads it as it reads the spawn's. */
+ * place of a child node, a failure thrown as execFileSync throws it, so the
+ * core reads it as it reads the spawn's. */
 function runNodeInProcess(
 	root: string,
 	script: string,
@@ -99,8 +98,8 @@ function runNodeInProcess(
 /**
  * init's core called in-process, in runInProcess's argument and result shape:
  * `env`, where given, replaces the environment and `cwd` is the working
- * directory for the call, as a spawn's would be. The streams are collected,
- * and runNode runs each plugin script in-process.
+ * directory for the call, as a spawn's would be. runNode runs each plugin
+ * script in-process.
  */
 export function adoptWith(
 	args: string[],
@@ -110,7 +109,7 @@ export function adoptWith(
 	let stderr = "";
 	const savedEnv = process.env;
 	const savedCwd = process.cwd();
-	// env-write-kept: the case's env replaces the whole environment, as a spawn's does, and the finally below puts the same object back before the call returns.
+	// env-write-kept: the case's env replaces the whole environment, as a spawn's does.
 	process.env = { ...env };
 	process.chdir(cwd);
 	try {
@@ -180,8 +179,7 @@ export function commitThroughHooks(
 	 * hooks arm the real shellcheck gate, so the commit takes the fixture's own
 	 * TMPDIR for its lock, set after `env` so no caller's replaces it (#2648).
 	 * CLAUDE_PROJECT_DIR is the adopter's, as its own session's would be: a
-	 * session's inherited value names this checkout, and the hooks would read
-	 * its config and run its `npm run check:staged` in the adopter (#3296).
+	 * session's inherited value names this checkout (#3296).
 	 * CLAUDE_CONFIG_DIR is the commit's own, so a guard failing open under the
 	 * hooks logs there, never in the developer's live log (mantahostels#1452). */
 	const config = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-config-"));

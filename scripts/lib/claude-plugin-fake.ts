@@ -6,10 +6,7 @@
  * `node scripts/record-claude-plugin.js`) by lib/claude-plugin.contract.test.ts.
  *
  * A node stub, not lib/claude-stub.ts's bash one: its side effects are JSON
- * edits, and it is asked no `auth status`. It logs each call's argv, one line
- * per call, and answers as the recording does, side effects included, as the
- * real binary always writes them: vitest.setup.ts points every file at a
- * scratch CLAUDE_CONFIG_DIR (#838), and `install` refuses where none is set.
+ * edits, and it is asked no `auth status`.
  */
 
 import fs from "node:fs";
@@ -49,12 +46,10 @@ export interface PluginFake {
 	alwaysOn?: string;
 	/** Values for the row `install` writes. `place`, where given, is linked at
 	 * the row's installPath, standing in for the clone the install lands
-	 * there; that clone is unheld, being a network fetch of the marketplace's
-	 * url plugin source. */
+	 * there; that clone is unheld. */
 	install?: { version?: string; gitCommitSha?: string; place?: string };
 }
 
-/* The stub's body: reads its answers from the JSON beside it. */
 const STUB = `#!/usr/bin/env node
 const fs = require("node:fs");
 const path = require("node:path");
@@ -127,17 +122,14 @@ process.exit(1);
 /** The absent path the recorded refusal names, record-claude-plugin.js's. */
 export const REFUSED_PATH = "/synthetic/absent";
 
-/** The recorded refusal as `marketplace add` of `source` prints it. */
 export const refusalOf = (source: string) =>
 	recorded.responses.refusal.stderr.replace(REFUSED_PATH, source);
 
-/** The recorded Always-on line, its figure swapped for `figure` where given. */
 export const alwaysOnLine = (figure?: string) =>
 	figure === undefined
 		? recorded.responses.details.alwaysOn
 		: recorded.responses.details.alwaysOn.replace(/~[\d,.]+k?/, `~${figure}`);
 
-/** Writes the fake `claude` into `dir`, returning its path. */
 export function writeClaudePluginFake(dir: string, fake: PluginFake = {}) {
 	const { alwaysOn, ...rest } = fake;
 	fs.writeFileSync(

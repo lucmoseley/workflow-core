@@ -21,13 +21,12 @@
  *
  * Unrecorded: a url source's `marketplace add` (`<url>#<ref>`). The CLI
  * takes only owner/repo, https:// or a path, refusing file://, so recording
- * one clones a published marketplace, which this recorder does not yet do.
+ * one clones a published marketplace.
  *
- * Kept apart from record-claude-responses.js because it spends no model
- * turn: the calls write a plugin registry, and `install` clones the plugin's
- * url source (.claude-plugin/marketplace.json) from GitHub. Each runs in a
- * throwaway CLAUDE_CONFIG_DIR and a throwaway git project, never the
- * developer's own registry, through materialise-plugin.js's own `run`, so
+ * The calls write a plugin registry, and `install` clones the plugin's url
+ * source (.claude-plugin/marketplace.json) from GitHub. Each runs in a
+ * throwaway CLAUDE_CONFIG_DIR and a throwaway git project, through
+ * materialise-plugin.js's own `run`, so
  * stdin is closed (`update` with stdin open waits on it). Run it by hand
  * after a harness upgrade, then
  * `npm run test -- scripts/lib/claude-plugin.contract.test.ts`.
@@ -63,8 +62,7 @@ const SYNTHETIC = {
 };
 
 /**
- * One call as materialise-plugin.js runs it; a refusal's status and stderr
- * read off `run`'s throw, any other throw (a timeout, no binary) rethrown.
+ * A refusal's status and stderr read off `run`'s throw, any other throw (a timeout, no binary) rethrown.
  * @param {{config: string, project: string}} at
  * @param {string[]} args
  */
