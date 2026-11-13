@@ -8,8 +8,8 @@
 # probe, in scripts/lib/interop-probe.sh.
 #
 # THIS COVERS INTERACTIVE SHELLS ONLY — it is a shell function, so a script
-# calling the binary directly gets nothing from it. Such a script sources the
-# probe library itself; `scripts/dispatch-sessions.sh` is the worked example.
+# calling the binary directly gets nothing from it. Such a script runs the
+# probe library itself; `scripts/start-session.sh` is the worked example.
 
 # Its directory without a `dirname` fork, unset after: this file is sourced into
 # the user's shell.

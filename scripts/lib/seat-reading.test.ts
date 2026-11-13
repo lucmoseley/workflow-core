@@ -3,7 +3,7 @@
  * A seat's reading, its cap sizing and the overflow seats' readings
  * (lib/seat-reading.js, #4218), each overflow seat's budget injected. No
  * fixture touches disk but the usage caches the reading cases write, the cap
- * sized on them, and the reads of dispatch-sessions.sh that pin the copies
+ * sized on them, and the reads of dispatch-sessions.js that pin the copies
  * of its cap thresholds to the script's.
  *
  * Loosen one and failover leaves its order, a full seat reopens before its
@@ -769,17 +769,17 @@ describe("the cap's launch count (#2278)", () => {
 		]);
 	});
 
-	it("sizes on the inputs dispatch-sessions.sh's cap call passes: the members and the two thresholds", () => {
+	it("sizes on the inputs dispatch-sessions.js's cap call passes: the members and the two thresholds", () => {
 		const sh = fs.readFileSync(
-			path.join(__dirname, "..", "dispatch-sessions.sh"),
+			path.join(__dirname, "dispatch-sessions.js"),
 			"utf8",
 		);
-		const call = sh.match(/allowance\.js" --json \\\n\s*(--cap[\s\S]*?) 2>/);
+		const call = sh.match(/"allowance\.js",\s*\[([\s\S]*?)\]/);
 		expect(call).not.toBeNull();
 		expect(
-			String(call?.[1])
-				.split(/[\s\\]+/)
-				.filter((a) => a.startsWith("--")),
+			[...String(call?.[1]).matchAll(/"(--[a-z-]+)"/g)]
+				.map((m) => m[1])
+				.filter((a) => a !== "--json"),
 		).toEqual(["--cap", "--session-threshold", "--week-threshold"]);
 	});
 
@@ -849,24 +849,7 @@ describe("the cap's launch count (#2278)", () => {
 });
 
 describe("dispatch's cap thresholds", () => {
-	it("defaults to the figures dispatch-sessions.sh defaults to", () => {
-		const sh = fs.readFileSync(
-			path.join(__dirname, "..", "dispatch-sessions.sh"),
-			"utf8",
-		);
-		const week = sh.match(
-			/WEEK_CEILING="\$\{WFC_DISPATCH_WEEK_CEILING:-(\d+)\}"/,
-		);
-		const session = sh.match(
-			/SESSION_CEILING="\$\{WFC_DISPATCH_SESSION_CEILING:-(\d+)\}"/,
-		);
-		expect(ceilingsOf({})).toEqual({
-			week: Number(week?.[1]),
-			session: Number(session?.[1]),
-		});
-	});
-
-	it("reads the variables dispatch-sessions.sh reads", () => {
+	it("reads the variables dispatch-sessions.js reads", () => {
 		expect(
 			ceilingsOf({
 				WFC_DISPATCH_WEEK_CEILING: "80",

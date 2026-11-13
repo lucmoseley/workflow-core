@@ -1,6 +1,6 @@
 /*
  * usage-probe.js — the one `claude -p "/usage"` call, cache first, that both
- * `dispatch-sessions.sh`'s allowance gate (through `scripts/usage-probe.js`)
+ * `dispatch-sessions.js`'s allowance gate (through `scripts/usage-probe.js`)
  * and the refill loop's stale-seat read make (#2306, from #2189's ruling).
  *
  * THE PROBE IS NEVER DROPPED: it is the seat's usage cache's only refresher.

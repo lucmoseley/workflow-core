@@ -8,7 +8,7 @@
  * in-process, so no live seat's usage reading or transcripts are read.
  *
  * Its rates are copied by hand into `lib/allowance.js#POINTS_PER_USD`, which
- * the capped launch in `scripts/dispatch-sessions.sh` sizes a set by: a wrong
+ * the capped launch in `scripts/dispatch-sessions.js` sizes a set by: a wrong
  * rate launches more sessions than a bar has room for, or fewer.
  */
 import fs from "node:fs";

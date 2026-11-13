@@ -123,7 +123,7 @@ describe("tracked bash files (#4983)", () => {
 			.split("\n")
 			.filter(Boolean);
 		const files = [...new Set([...listed, ...readTrackedShellFiles()])];
-		expect(files).toContain("scripts/dispatch-sessions.sh");
+		expect(files).toContain("scripts/launch.sh");
 		const hits: string[] = [];
 		for (const rel of files) {
 			const src = fs.readFileSync(path.join(ROOT, rel), "utf8");

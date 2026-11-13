@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * allowance.js — the thin CLI over `lib/allowance.js`, for `dispatch-sessions.sh`
+ * allowance.js — the thin CLI over `lib/allowance.js`, for `dispatch-sessions.js`
  * (a bash caller) to shell out to; `admission.js` (Node) `require`s the lib
  * in-process instead (#293).
  *
