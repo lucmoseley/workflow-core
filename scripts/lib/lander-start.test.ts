@@ -10,8 +10,7 @@
  * owning session stopped waits unticketed for an unrelated push; drop the scope and the lander's suite
  * competes process by process with every session beside it. The cgroup case
  * runs only where `systemd-run --user --scope` works, which CI's runner
- * lacks. readCodeRef names the commit the lander's code is from (#5174):
- * drop it and the pool cannot tell a loop-started lander from a pinned one.
+ * lacks.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -21,8 +20,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	buildStartedLine,
 	launcherName,
+	parseStartedCode,
 	readCodeRef,
-	readStartedCode,
 	spawnDetachedRun,
 	startLander,
 } from "./lander-start.js";
@@ -240,7 +239,7 @@ describe("readCodeRef (#5174)", () => {
 		}
 	});
 
-	it("reads back the code a started line names, and none from an older line", () => {
+	it("parses back the code a started line names, and none from an older line or an unread code", () => {
 		const line = buildStartedLine(
 			{ started: 7, waiting: ["queue/a"], owed: [] },
 			{
@@ -250,7 +249,8 @@ describe("readCodeRef (#5174)", () => {
 				code: "v2.3.0",
 			},
 		);
-		expect(readStartedCode(line)).toBe("v2.3.0");
-		expect(readStartedCode(line.replace("; code v2.3.0", ""))).toBeNull();
+		expect(parseStartedCode(line)).toBe("v2.3.0");
+		expect(parseStartedCode(line.replace("; code v2.3.0", ""))).toBeNull();
+		expect(parseStartedCode(line.replace("v2.3.0", "unread"))).toBeNull();
 	});
 });

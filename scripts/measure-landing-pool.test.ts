@@ -2,9 +2,9 @@
 /*
  * measure-landing-pool.js (#5159), run for real over a fixture home: a
  * workflow-core checkout with two release tags, an adopter whose pin moved
- * to the carrying tag partway through its logs, two pinned below it, one of
- * them served by a loop-started lander running the code (#5174), and one
- * with `landing` off.
+ * to the carrying tag partway through its logs, three pinned below it, two
+ * of them served by landers whose code carries it (#5174), one such run
+ * begun before the window behind 4 MB of log, and one with `landing` off.
  *
  * Loosen it and a gate counts an adopter's stays from before its pin ran
  * the measured code, counts a repo that does not run it, misses a
@@ -16,6 +16,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, expect, it } from "vitest";
+import { buildStartedLine } from "./lib/lander-start.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "measure-landing-pool.js");
@@ -156,26 +157,42 @@ beforeAll(() => {
 
 	pin(checkout("behind", ["landing"]), "v2.2.0", SINCE - 3600 * S);
 
-	/* served: pinned below, its lander started by the loop at 4 hours back
-	 * running the measured commit, then by its push hook at 1 hour back on
-	 * v2.2.0. A 10 s green run and 2 stays under the first, 1 of them over its
-	 * 30 s target; a 300 s stay spanning both runs and a 900 s one under the
-	 * second are left out. */
+	const started = (t: number, code: string) =>
+		buildStartedLine(
+			{ started: 1, waiting: ["queue/x"], owed: [] },
+			{ at: iso(t), by: "x", log: "x", code },
+		);
 	const served = checkout("served", ["landing"]);
 	pin(served, "v2.2.0", SINCE - 3600 * S);
-	const started = (t: number, by: string, code: string) =>
-		`${iso(t)} started the queue lander, 1 queue ref(s) waiting: queue/x, 0 drop(s) owed a decision (launched by ${by}; pid 1; code ${code}); its output: x`;
 	write(
 		path.join(markers(served), ".lander.log"),
 		`${[
-			started(NOW - 4 * 3600 * S, "the refill loop", measured),
+			started(NOW - 4 * 3600 * S, measured),
 			...green(NOW - 3.5 * 3600 * S, 10, "v1"),
-			started(NOW - 3600 * S, "a session", "v2.2.0"),
+			started(NOW - 3600 * S, "v2.2.0"),
+			started(NOW - 1200 * S, "v2.3.0"),
 		].join("\n")}\n`,
 	);
 	write(
 		path.join(markers(served), ".queue-log.jsonl"),
-		`${stays(NOW - 3 * 3600 * S, [40, 5])}\n${stays(NOW - 3600 * S + 60 * S, [300])}\n${stays(NOW - 1800 * S, [900])}\n`,
+		`${[
+			stays(NOW - 3 * 3600 * S, [40, 5]),
+			stays(NOW - 3600 * S + 60 * S, [300]),
+			stays(NOW - 1800 * S, [900]),
+			stays(NOW - 300 * S, [20]),
+		].join("\n")}\n`,
+	);
+
+	const early = checkout("early", ["landing"]);
+	pin(early, "v2.2.0", SINCE - 3600 * S);
+	const noise = `${iso(SINCE - 3600 * S)} noise ${"x".repeat(70)}\n`;
+	write(
+		path.join(markers(early), ".lander.log"),
+		`${started(SINCE - 2 * 3600 * S, measured)}\n${noise.repeat(50_000)}${green(NOW - 3 * 3600 * S, 10, "e1").join("\n")}\n`,
+	);
+	write(
+		path.join(markers(early), ".queue-log.jsonl"),
+		`${stays(NOW - 2 * 3600 * S, [20, 5])}\n`,
 	);
 
 	checkout("quiet", []);
@@ -211,13 +228,14 @@ const json = (args: string[]) => {
 it("pools every landing checkout running the sha, an adopter only from when its pin carried it", () => {
 	const d = json(["stays", "--since", iso(SINCE), "--carrying", measured]);
 	expect(d.repos.map((r: { name: string }) => r.name)).toEqual([
+		"early",
 		"lodge",
 		"served",
 		"workflow-core",
 	]);
-	expect(d.repos.find((r: { name: string }) => r.name === "lodge").from).toBe(
-		iso(Math.floor(CARRIED / S) * S),
-	);
+	expect(
+		d.repos.find((r: { name: string }) => r.name === "lodge").unnamedFrom,
+	).toBe(iso(Math.floor(CARRIED / S) * S));
 	expect(d.left).toEqual([
 		{
 			name: "behind",
@@ -243,11 +261,16 @@ it("judges each checkout's stays against its own target and pools the counts", (
 		targetMs: 30 * S,
 	});
 	expect(byName.served).toMatchObject({
-		stays: 2,
+		stays: 3,
 		overTarget: 1,
 		targetMs: 30 * S,
 	});
-	expect(d).toMatchObject({ stays: 17, overTarget: 4, over: false });
+	expect(byName.early).toMatchObject({
+		stays: 2,
+		overTarget: 0,
+		targetMs: 30 * S,
+	});
+	expect(d).toMatchObject({ stays: 20, overTarget: 4, over: false });
 });
 
 it("prints each checkout's count and the left-out ones in its text reading", () => {
@@ -259,7 +282,7 @@ it("prints each checkout's count and the left-out ones in its text reading", () 
 		"only under lander runs whose code carries it, as its pin v2.2.0 does not carry the sha",
 	);
 	expect(r.stdout).toContain(
-		"pooled: 4 of 17 stay(s) over their checkout's target",
+		"pooled: 4 of 20 stay(s) over their checkout's target",
 	);
 });
 

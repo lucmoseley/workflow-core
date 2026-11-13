@@ -1,6 +1,7 @@
 /*
- * lander-start.js — whether to start the queue lander, and the detached start
- * (#2405, spec #2261; #4458).
+ * lander-start.js — whether to start the queue lander, the detached start
+ * (#2405, spec #2261; #4458), and its started line, built and parsed, naming
+ * the commit or release the lander's code is from (#5174).
  */
 
 const { spawnSync } = require("node:child_process");
@@ -47,12 +48,10 @@ function startLander({ holder, waiting, owed, spawnRun }) {
 }
 
 /**
- * The commit the lander's code is from (#5174): the HEAD sha where `root` is
- * a git checkout, as the refill loop's code worktree is, else the release
- * tag of the plugin install it is; "unread" where neither reads. A lander
- * runs the code of what started it, not the checkout's pin.
- * @param {string} [root] the code's root, by default lib/script-path.js
- *   coreRoot's
+ * The commit or release the lander's code is from (#5174): the HEAD sha where `root` is
+ * a git checkout, else the release tag of the plugin install it is;
+ * "unread" where neither reads.
+ * @param {string} [root] the code's root
  * @returns {string}
  */
 function readCodeRef(root = coreRoot()) {
@@ -71,7 +70,7 @@ function readCodeRef(root = coreRoot()) {
  * @param {{started: number, waiting: string[], owed: string[]}} result
  * @param {{at: string, by: string, log: string, code: string}} o `at` the
  *   start's ISO time, `by` its launcher, `log` the run's output file, `code`
- *   readCodeRef's commit
+ *   readCodeRef's commit or release
  */
 function buildStartedLine({ started, waiting, owed }, { at, by, log, code }) {
 	/** @param {string[]} refs */
@@ -82,12 +81,15 @@ function buildStartedLine({ started, waiting, owed }, { at, by, log, code }) {
 const CODE_OF = /; pid \d+; code (\S+)\); its output: /;
 
 /**
- * The commit a started line's code is from, or null on a line older than
- * #5174 or none at all.
+ * The commit or release a started line's code is from, or null where it names none: a
+ * line older than #5174, no started line, or code read as "unread".
  * @param {string} line
  * @returns {string|null}
  */
-const readStartedCode = (line) => CODE_OF.exec(line)?.[1] ?? null;
+function parseStartedCode(line) {
+	const code = CODE_OF.exec(line)?.[1];
+	return code === undefined || code === "unread" ? null : code;
+}
 
 /* A guess: a session-start launch can read the oracle before its session is
  * listed, so an unlisted id is asked again this many times, this far apart. */
@@ -210,7 +212,7 @@ module.exports = {
 	startLander,
 	buildStartedLine,
 	readCodeRef,
-	readStartedCode,
+	parseStartedCode,
 	launcherName,
 	spawnDetachedRun,
 	landerLog,

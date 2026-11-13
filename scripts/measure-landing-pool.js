@@ -10,13 +10,11 @@
  *
  * THE POOL (`stays`): each main checkout under $HOME whose
  * `.claude/workflow-core.json` lists `landing`, its stays and green runs
- * counted under each lander run that ran `<sha>` (#5174). A lander runs the
- * code of what started it, so a run whose started line names its code
- * (lib/lander-start.js readStartedCode) counts where that code carries
- * `<sha>`: a commit that has it as an ancestor, or a release tag carrying it
- * (lib/release-tags.js readTagCarry). A run whose line names none, older than
- * #5174 or begun before the log's window, falls back on the checkout's own:
- * workflow-core where `<sha>` is on its `origin/main`, an adopter from the
+ * counted under each lander run that ran `<sha>` (#5174). A run whose
+ * started line names its code counts where that code carries `<sha>`: a
+ * commit that has it as an ancestor, or a release tag carrying it. The log is
+ * read back to the run in force at `--since`. A run whose line names no code
+ * falls back on the checkout's own: workflow-core where `<sha>` is on its `origin/main`, an adopter from the
  * time its pin first carried `<sha>` without break: the committer time of the
  * oldest `.claude/settings.json` revision in the unbroken run of carrying pins
  * ending at HEAD, or the file's mtime where only its uncommitted pin carries
@@ -56,7 +54,7 @@ const {
 	spawnGitSync,
 } = require("./lib/git.js");
 const { readJsonl } = require("./lib/jsonl.js");
-const { landerLog, readStartedCode } = require("./lib/lander-start.js");
+const { landerLog, parseStartedCode } = require("./lib/lander-start.js");
 const { findPin, isCoreHost, readJsonSafe } = require("./lib/plugin-state.js");
 const { queueLogFile, readQueueRows } = require("./lib/queue-log.js");
 const { homeDir, readAdopterCheckouts } = require("./lib/refill-repos.js");
@@ -74,6 +72,7 @@ const {
 	secs,
 	windowOf,
 } = require("./lib/time-to-land.js");
+const { DAY_MS } = require("./lib/retained-jsonl.js");
 const { REAPED_RECORD } = require("./lib/worktree-reaper.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -125,16 +124,18 @@ function isAncestor(cwd, ancestor, rev) {
  * @typedef {{carries: boolean} | {unread: string}} Carry
  */
 
+/* Required on first use, past the core check: the release leaves it behind. */
+const releaseTags = () => require("./lib/release-tags.js");
+
 /**
- * Whether a pin's ref carries `sha`, memoised: lib/release-tags.js
+ * Whether a pin's ref carries `sha`: lib/release-tags.js
  * readTagCarry, a ref this clone lacks read as unread.
  * @param {string} core workflow-core's checkout
  * @param {string} sha
  * @returns {(ref: string) => Carry}
  */
 function buildTagCarrier(core, sha) {
-	/* Required here, past the core check: the release leaves it behind. */
-	const { readTagCarry } = require("./lib/release-tags.js");
+	const { readTagCarry } = releaseTags();
 	/** @type {Map<string, Carry>} */
 	const seen = new Map();
 	return (ref) => {
@@ -150,16 +151,15 @@ function buildTagCarrier(core, sha) {
 }
 
 /**
- * Whether the code a lander's started line names carries `sha`, memoised: a
- * release tag through `carry`, a commit where `sha` is its ancestor. A code
- * this clone lacks, "unread" among them, does not.
+ * Whether the code a lander's started line names carries `sha`. A code this
+ * clone lacks does not.
  * @param {string} core
  * @param {string} sha
  * @param {(ref: string) => Carry} carry
  * @returns {(code: string) => boolean}
  */
 function buildCodeCarrier(core, sha, carry) {
-	const { TAG_RE } = require("./lib/release-tags.js");
+	const { TAG_RE } = releaseTags();
 	/** @type {Map<string, boolean>} */
 	const seen = new Map();
 	return (code) => {
@@ -268,6 +268,37 @@ function readPool(home, carry, sha) {
 }
 
 /**
+ * The time a lander run naming no code counts from under `f`: -Infinity for
+ * workflow-core, null where no such run counts.
+ * @param {Fallback} f
+ * @returns {number|null}
+ */
+const unnamedFrom = (f) =>
+	"from" in f ? (f.from ?? Number.NEGATIVE_INFINITY) : null;
+
+/**
+ * The stamped lines of the lander log at `file` from the run in force at
+ * `since`: the log is read back past `since` a day, then twice as far each
+ * time, until a started line at or before `since` is in, or the whole log is.
+ * @param {string} file
+ * @param {number} since
+ * @returns {import("./lib/time-to-land.js").LanderEvent[]}
+ */
+function readRunsSince(file, since) {
+	for (let back = 0; ; back = back === 0 ? DAY_MS : back * 2) {
+		const reach = since - back;
+		const events = parseLanderLog(readLogSince(file, reach));
+		const first = events[0]?.t;
+		if (
+			first === undefined ||
+			first >= reach ||
+			events.some((e) => e.kind === "started" && e.t <= since)
+		)
+			return events;
+	}
+}
+
+/**
  * Whether a span of a checkout's log ran the sha: every lander run it spans
  * does, by its named code or else the checkout's fallback.
  * @param {import("./lib/time-to-land.js").LanderEvent[]} events
@@ -279,12 +310,11 @@ function readPool(home, carry, sha) {
 function buildAdmission(events, fallback, codeCarries) {
 	const runs = events
 		.filter((e) => e.kind === "started")
-		.map((e) => ({ t: e.t, code: readStartedCode(e.rest) }));
+		.map((e) => ({ t: e.t, code: parseStartedCode(e.rest) }));
+	const unnamed = unnamedFrom(fallback);
 	/** @param {string|null} code @param {number} t */
 	const ran = (code, t) =>
-		code === null
-			? "from" in fallback && t >= (fallback.from ?? t)
-			: codeCarries(code);
+		code === null ? unnamed !== null && t >= unnamed : codeCarries(code);
 	/** @param {number} t */
 	const codeAt = (t) => runs.findLast((r) => r.t <= t)?.code ?? null;
 	return {
@@ -295,19 +325,12 @@ function buildAdmission(events, fallback, codeCarries) {
 	};
 }
 
-/**
- * @param {Fallback} f
- * @param {number} since
- */
-const startOf = (f, since) =>
-	"from" in f ? Math.max(since, f.from ?? since) : since;
-
 /** @param {Fallback} f @param {number} since */
 const fromLine = (f, since) => {
 	if (!("from" in f))
 		return `from ${iso(since)}, only under lander runs whose code carries it, as ${f.why}`;
 	return f.from !== null && f.from > since
-		? `from ${iso(f.from)}, when its pin ${f.pin} first carried it`
+		? `from ${iso(since)} under lander runs whose code carries it, from ${iso(f.from)} under any other, when its pin ${f.pin} first carried it`
 		: `from ${iso(since)}`;
 };
 
@@ -326,7 +349,7 @@ const leftLine = (left) =>
 function poolStays(pool, w, sha, codeCarries) {
 	const left = [...pool.left];
 	const ran = pool.members.flatMap((m) => {
-		const events = parseLanderLog(readLogSince(landerLog(m.root), w.since));
+		const events = readRunsSince(landerLog(m.root), w.since);
 		const { admit, carried } = buildAdmission(events, m.fallback, codeCarries);
 		if ("why" in m.fallback && carried === 0) {
 			left.push({
@@ -339,7 +362,7 @@ function poolStays(pool, w, sha, codeCarries) {
 	});
 	left.sort((a, b) => a.name.localeCompare(b.name));
 	const repos = ran.map(({ m, events, admit }) => {
-		const since = startOf(m.fallback, w.since);
+		const unnamed = unnamedFrom(m.fallback) ?? Number.POSITIVE_INFINITY;
 		const r = judgeTimeToLand(
 			memberStays(readQueueRows(queueLogFile(m.root))).filter((s) =>
 				admit(s.take, s.at),
@@ -352,7 +375,10 @@ function poolStays(pool, w, sha, codeCarries) {
 			: `${r.stays} stay(s), unjudged: no green run in its window, so left out of the pool`;
 		return {
 			name: m.name,
-			from: iso(since),
+			unnamedFrom:
+				unnamed === Number.POSITIVE_INFINITY
+					? null
+					: iso(Math.max(w.since, unnamed)),
 			judged: r.judged,
 			stays: r.stays,
 			overTarget: r.overTarget,
