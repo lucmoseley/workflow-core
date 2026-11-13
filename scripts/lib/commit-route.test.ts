@@ -803,37 +803,47 @@ describe("commit-route.js answers as commit-route.sh does", () => {
 		return { root, dir };
 	}
 
-	const shellRoute = (
-		hook: string,
-		dir: string,
-		cwd: string,
-		env: NodeJS.ProcessEnv,
-	) =>
-		spawnSync(
+	const Actions = ["", "merge side", "pull . side"];
+	/**
+	 * The shell copy's route on every hook under every GIT_REFLOG_ACTION, one
+	 * `<hook> <route>` line each, in HOOKS × Actions order: one sh for all.
+	 */
+	const shellRoutes = (dir: string, cwd: string) => {
+		const sh = spawnSync(
 			"sh",
-			["-c", '. "$1" && wfc_commit_route "$2" "$3"', "sh", LIB, hook, dir],
-			{ cwd, encoding: "utf8", env: { ...process.env, ...env } },
+			[
+				"-c",
+				`. "$1" && shift && dir="$1" && shift && for hook in ${HOOKS.join(" ")}; do for action in "$@"; do printf '%s %s\\n' "$hook" "$(GIT_REFLOG_ACTION="$action" wfc_commit_route "$hook" "$dir")" || exit 1; done; done`,
+				"sh",
+				LIB,
+				dir,
+				...Actions,
+			],
+			{ cwd, encoding: "utf8" },
 		);
+		expect(sh.stderr).toBe("");
+		expect(sh.status).toBe(0);
+		return sh.stdout.split("\n").filter(Boolean);
+	};
 
 	it.each(markerSets.map((m) => [m.join(" ") || "no marker", m]))(
 		"agrees on every hook with %s",
 		(_, markers) => {
 			const { root, dir } = laid(markers as string[]);
-			for (const hook of HOOKS)
-				for (const action of ["", "merge side", "pull . side"]) {
-					const env = { GIT_REFLOG_ACTION: action };
-					const sh = shellRoute(hook, dir, root, env);
-					expect(sh.status).toBe(0);
-					const prev = process.cwd();
-					process.chdir(root);
-					try {
-						expect(`${hook} ${commitRoute(hook, dir, { env })}`).toBe(
-							`${hook} ${sh.stdout.trim()}`,
-						);
-					} finally {
-						process.chdir(prev);
-					}
-				}
+			const prev = process.cwd();
+			process.chdir(root);
+			try {
+				expect(
+					HOOKS.flatMap((hook) =>
+						Actions.map(
+							(action) =>
+								`${hook} ${commitRoute(hook, dir, { env: { GIT_REFLOG_ACTION: action } })}`,
+						),
+					),
+				).toEqual(shellRoutes(dir, root));
+			} finally {
+				process.chdir(prev);
+			}
 		},
 	);
 
@@ -843,27 +853,44 @@ describe("commit-route.js answers as commit-route.sh does", () => {
 
 	it("throws on a hook with no row, where the shell copy exits 2", () => {
 		const { root, dir } = laid([]);
-		expect(shellRoute("pre-push", dir, root, {}).status).toBe(2);
+		const sh = spawnSync(
+			"sh",
+			["-c", '. "$1" && wfc_commit_route pre-push "$2"', "sh", LIB, dir],
+			{ cwd: root, encoding: "utf8" },
+		);
+		expect(sh.status).toBe(2);
 		expect(() => commitRoute("pre-push", dir)).toThrow(
 			"no marker table for the hook 'pre-push'",
 		);
 	});
 
-	it.each([
-		["rebase", true],
-		["rebase-apply", true],
-		["am", true],
-		["cherry-pick", true],
-		["merge", false],
-		["commit", false],
-		["revert-sequence", false],
-	])("calls %s a replay: %s, as wfc_commit_route_replays does", (route, is) => {
+	it("calls each route a replay or not as wfc_commit_route_replays does", () => {
+		const routes = [
+			"rebase",
+			"rebase-apply",
+			"am",
+			"cherry-pick",
+			"merge",
+			"commit",
+			"revert-sequence",
+		];
 		const sh = spawnSync(
 			"sh",
-			["-c", '. "$1" && wfc_commit_route_replays "$2"', "sh", LIB, route],
+			[
+				"-c",
+				`. "$1" && shift && for r in "$@"; do if wfc_commit_route_replays "$r"; then echo "$r true"; else echo "$r false"; fi; done`,
+				"sh",
+				LIB,
+				...routes,
+			],
 			{ encoding: "utf8" },
 		);
-		expect(sh.status === 0).toBe(is);
-		expect(commitRouteReplays(route)).toBe(is);
+		expect(sh.status).toBe(0);
+		expect(sh.stdout).toBe(
+			"rebase true\nrebase-apply true\nam true\ncherry-pick true\nmerge false\ncommit false\nrevert-sequence false\n",
+		);
+		expect(routes.map((r) => `${r} ${commitRouteReplays(r)}`)).toEqual(
+			sh.stdout.split("\n").filter(Boolean),
+		);
 	});
 });
