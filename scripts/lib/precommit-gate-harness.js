@@ -108,9 +108,7 @@ function gateHead(anchor, hook = HOOK) {
 }
 
 /**
- * The ERE a gate's head passes to `armed`, unquoted. Where a head arms twice,
- * the single-quoted one: the context-budget gate's second, `armed -F`, takes a
- * computed path list rather than an ERE.
+ * The single-quoted ERE a gate's head passes to `armed`, unquoted.
  * @param {string} anchor as `cutGateFragment`'s
  * @param {string} [hook] as `cutGateFragment`'s
  * @returns {string}

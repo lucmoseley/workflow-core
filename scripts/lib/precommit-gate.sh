@@ -79,21 +79,14 @@ staged_names() {
   staged_read=1
 }
 
-# armed '<ERE>' | armed -F '<path>…' — true where a staged path matches, and
-# sets $armed_paths to the ones that do, for armed_live and tool_gate.
-#
-# `-F` takes newline-separated literal paths, each matched whole: the context
-# gate's always-loaded pool. An empty pattern arms nothing.
+# armed '<ERE>' — true where a staged path matches, and sets $armed_paths to
+# the ones that do, for armed_live and tool_gate. An empty pattern arms
+# nothing.
 armed() {
-  armed_flags=-E
-  if [ "$1" = "-F" ]; then
-    armed_flags=-xF
-    shift
-  fi
   staged_names
   armed_paths=""
   [ -n "$1" ] && [ -n "$staged_paths" ] || return 1
-  armed_paths="$(printf '%s\n' "$staged_paths" | grep "$armed_flags" -e "$1")" || :
+  armed_paths="$(printf '%s\n' "$staged_paths" | grep -E -e "$1")" || :
   [ -n "$armed_paths" ]
 }
 

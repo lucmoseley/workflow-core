@@ -10,6 +10,10 @@
  * It runs the checker at "${WFC_PLUGIN_ROOT:-.}"/scripts/, as the hook spells
  * every core script, so an adopter's shim reaches the plugin's copy (#1839).
  *
+ * In no family (§N3): a dispatcher program row, not a checker. Its exit is
+ * the gate's verdict — 0 pass, 1 refuse — or the checker's own BROKEN code
+ * passed through, and 128 + n on a hook signal.
+ *
  * IMPLICIT:  on a commit touching the doc map's scope, refuses one adding a doc-map fault HEAD does not carry, deleting the map, or adding a register row or Section C route for a file the commit does not carry.
  * JUSTIFIED: fail-safe — a doc map that stops telling the truth misleads every session that checks it before an edit, and the sweeps catch it only after the push.
  * DEFEAT:    WFC_ALLOW_GATE_INPUT_DELETE=1 lets the map's deletion through (the founder's to set, #916); a fault HEAD already carries passes by design (mantahostels#1688); an untracked item whose path appears anywhere in HEAD's map passes as inherited.
