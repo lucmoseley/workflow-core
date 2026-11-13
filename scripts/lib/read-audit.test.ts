@@ -909,17 +909,20 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			);
 		});
 
-		/* What a Node grandchild of the test was handed: the lookups it
-		 * starts from, or none. `/bin` is a link on a merged-/usr system and
-		 * a directory elsewhere; neither is under a temporary directory. */
-		const handedTo = (root: string, child: (report: string) => string) => {
+		/* What a Node descendant of the test was handed: the lookups it starts
+		 * from, or none. `spawner` is what the test runs after filling its own
+		 * lookups, handed the reporter's code. `/bin` is a link on a merged-/usr
+		 * system and a directory elsewhere; neither is under a temporary
+		 * directory. */
+		const spawnsNode = (code: string) =>
+			`require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(code)}]);`;
+		const handedTo = (spawner: (report: string) => string) => {
 			const out = path.join(outsideDir(), "handed.json");
 			const report = `const fs = require("node:fs"); const f = process.env.WFC_READ_AUDIT_SETTLED; fs.writeFileSync(${quoted(out)}, f ? fs.readFileSync(f, "utf8") : "[]");`;
-			const body = [
-				spawns("cat", [], outsideDir()),
-				`require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(child(report))}]);`,
-			].join("\n");
-			audited(root, T, body, {
+			const body = [spawns("cat", [], outsideDir()), spawner(report)].join(
+				"\n",
+			);
+			audited(checkout(), T, body, {
 				env: { RULES: `/bin${path.delimiter}${outsideDir()}` },
 				trace: false,
 			});
@@ -927,45 +930,30 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 				JSON.parse(fs.readFileSync(out, "utf8")),
 			);
 		};
-		const spawnsNode = (code: string) =>
-			`require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(code)}]);`;
+		/* An unlink of `/` always fails (EISDIR) and removes nothing, yet the
+		 * attempt drops every lookup at or under it. */
+		const dropsAll = `try { require("node:fs").unlinkSync("/"); } catch {}`;
 
 		it("hands a Node child its spawner's lookup of a path no test may write (#5160)", () => {
-			const handed = handedTo(checkout(), (report) => report);
+			const handed = handedTo(spawnsNode);
 			expect(handed.get("/bin")).toBe(fs.realpathSync("/bin"));
 			expect([...handed.keys()].some((k) => k.startsWith(os.tmpdir()))).toBe(
 				false,
 			);
 		});
 
-		it("passes on none of the lookups a Node child dropped, though it was handed them (#5160)", () => {
-			/* An unlink of `/` always fails (EISDIR) and removes nothing, yet
-			 * the attempt drops every lookup at or under it. */
-			const handed = handedTo(checkout(), (report) =>
-				[
-					`try { require("node:fs").unlinkSync("/"); } catch {}`,
-					spawnsNode(report),
-				].join("\n"),
+		it("hands a Node child none of the lookups its spawner dropped (#5160)", () => {
+			const handed = handedTo((report) =>
+				[dropsAll, spawnsNode(report)].join("\n"),
 			);
 			expect([...handed.keys()]).toEqual([]);
 		});
 
-		it("hands a Node child none of the lookups its spawner dropped (#5160)", () => {
-			const root = checkout();
-			const cwd = outsideDir();
-			const link = path.join(cwd, "in");
-			const body = [
-				spawns("cat", [], cwd),
-				`require("node:fs").symlinkSync(${quoted(root)}, ${quoted(link)});`,
-				`require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(spawns("cat", [], cwd))}]);`,
-			].join("\n");
-			const log = audited(root, T, body, {
-				env: { RULES: link },
-				trace: false,
-			});
-			expect(readAudits(log, root).get(T).doubt).toMatch(
-				/a child \(cat \) was handed a path in the checkout by its environment \(RULES\)/,
+		it("passes on none of the lookups a Node child dropped, though it was handed them (#5160)", () => {
+			const handed = handedTo((report) =>
+				spawnsNode([dropsAll, spawnsNode(report)].join("\n")),
 			);
+			expect([...handed.keys()]).toEqual([]);
 		});
 
 		it("doubts a child whose sync input names a checkout path", () => {

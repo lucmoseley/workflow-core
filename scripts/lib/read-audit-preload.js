@@ -526,8 +526,9 @@ function install() {
 	/**
 	 * The checkout paths a variable's value names, less what the audit and
 	 * the program lookup put there themselves: the root this audit was told,
-	 * the lookups it hands a child, this preload on `NODE_OPTIONS`, and on `PATH` the git guard, which logs
-	 * its own reads, and every `node_modules`, which the audit leaves out.
+	 * the lookups it hands a child, this preload on `NODE_OPTIONS`, and on
+	 * `PATH` the git guard, which logs its own reads, and every
+	 * `node_modules`, which the audit leaves out.
 	 * @param {string} name
 	 * @param {string} value
 	 * @param {Named} named
