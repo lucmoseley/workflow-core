@@ -88,7 +88,7 @@
 	"scripts/report-suite-queue-wait.js": "48a4e9f8abf411cc",
 	"scripts/review-hold-gate.sh": "a725d8d751e511cd",
 	"scripts/run-pinned-guards.js": "d31cd85a73158684",
-	"scripts/run-vitest.js": "0b10f66ff7fcfb74",
+	"scripts/run-vitest.js": "ae0d94aa034ae316",
 	"scripts/self-plugin-canary.sh": "f8221b6482b2769d",
 	"scripts/session-arbiter.js": "64cda160f2fce7e8",
 	"scripts/session-checkout.js": "56fcf94a7d92afec",
@@ -99,7 +99,7 @@
 	"scripts/vitest-json-reporter.ts": "6caf007578bc2159",
 	"scripts/vitest-pass-reporter.ts": "a2e2da3d5adfb693",
 	"scripts/vitest-temp-root.ts": "396653ba091f935b",
-	"scripts/vitest-tree-watch.ts": "68cb39f6fdf092b5",
+	"scripts/vitest-tree-watch.ts": "d6c9cbfd87f3813e",
 	"scripts/watch-artefact.js": "315971b546e0a06e",
 	"scripts/write-self-plugin-marker.sh": "da926c91383737b7"
 }

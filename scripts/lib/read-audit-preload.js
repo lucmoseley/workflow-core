@@ -85,6 +85,9 @@ const DIR = process.env.WFC_READ_AUDIT;
 const ROOT = process.env.WFC_READ_AUDIT_ROOT;
 const STRACE = process.env.WFC_READ_AUDIT_STRACE;
 
+/* The variable naming the lookups a spawner hands its child (#5160). */
+const SETTLED = "WFC_READ_AUDIT_SETTLED";
+
 /* The global the audit's api hangs on, for vitest.setup.ts to claim with. */
 const scope =
 	/** @type {{ __wfcReadAudit?: { claim: (file: string) => void, settle: () => void } }} */ (
@@ -211,7 +214,7 @@ function install() {
 	const realOpenSync = fs.openSync;
 
 	/** @type {import("./read-audit-handed.js").Settled} */
-	const settled = new Map();
+	const settled = readSettled(process.env[SETTLED]);
 	/* A path this process links, moves or removes moves where a settled one
 	 * lands only where it is that path or beneath it, as spelt or with its
 	 * links followed, or where its own lookup followed a link, whose hops
@@ -535,7 +538,7 @@ function install() {
 	 * @param {Named} named
 	 */
 	const envPaths = (name, value, named) => {
-		if (name === "WFC_READ_AUDIT_ROOT") return [];
+		if (name === "WFC_READ_AUDIT_ROOT" || name === SETTLED) return [];
 		const paths = named(namedText(name, value), settlingOf(name));
 		if (name !== "PATH") return paths;
 		return paths.filter(
@@ -720,6 +723,34 @@ function install() {
 		const told = [...pairs, `${GIT_EVENTS}=${path.join(dir, events)}`];
 		return { opts: { ...opts, envPairs: told }, events };
 	};
+	let handings = 0;
+	let handedText = "";
+	let handedFile = "";
+	/**
+	 * Hand an audited child this process's settled lookups, so it starts
+	 * where its spawner stands, not with every standing word to look up
+	 * again (#5160): a file of this audit's, written afresh only where the
+	 * lookups changed since the last one handed.
+	 * @param {Untyped} opts
+	 * @returns {Untyped}
+	 */
+	const withSettled = (opts) => {
+		if (settled.size === 0 || !isAudited(opts?.envPairs)) return opts;
+		const text = JSON.stringify([...settled]);
+		if (text !== handedText) {
+			const file = path.join(
+				dir,
+				`${owner}.${process.pid}.${++handings}.settled.json`,
+			);
+			fs.writeFileSync(file, text);
+			handedText = text;
+			handedFile = file;
+		}
+		const pairs = opts.envPairs.filter(
+			(/** @type {string} */ p) => !String(p).startsWith(`${SETTLED}=`),
+		);
+		return { ...opts, envPairs: [...pairs, `${SETTLED}=${handedFile}`] };
+	};
 	/**
 	 * `bin` is the spawn's program as `binOf` found it, and `prov` what that
 	 * program is, each once, for every test that weighs it and for its
@@ -749,7 +780,9 @@ function install() {
 				return { opts: asked, bin, prov, route: { within: true }, hands: [] };
 			const hands = handsOf(asked, prov);
 			const route = routeOf(asked, hands, bin, prov);
-			const { opts, events } = gitEventsOf(asked, prov);
+			const told = gitEventsOf(asked, prov);
+			const { events } = told;
+			const opts = withSettled(told.opts);
 			if (!route || !("trace" in route))
 				return { opts, bin, prov, route, hands, events };
 			const args = buildTraceArgv(
@@ -1005,6 +1038,30 @@ function readStanding(file) {
 	} catch {
 		// No file to read is no settled environment (#4982).
 		return {};
+	}
+}
+
+/**
+ * The lookups a spawner handed this process, off the file it wrote; none
+ * where it handed none or the file will not read.
+ * @param {string|undefined} file
+ * @returns {import("./read-audit-handed.js").Settled}
+ */
+function readSettled(file) {
+	if (!file) return new Map();
+	try {
+		const pairs = JSON.parse(fs.readFileSync(file, "utf8"));
+		return new Map(
+			pairs.filter(
+				(/** @type {unknown} */ p) =>
+					Array.isArray(p) &&
+					typeof p[0] === "string" &&
+					(typeof p[1] === "string" || p[1] === null),
+			),
+		);
+	} catch {
+		// Nothing handed is every lookup made afresh (#5160).
+		return new Map();
 	}
 }
 

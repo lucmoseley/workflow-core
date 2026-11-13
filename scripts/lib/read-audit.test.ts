@@ -890,6 +890,43 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			);
 		});
 
+		it("hands a Node child its spawner's lookups, so a link another child made since goes unseen there too (#5160)", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const link = path.join(cwd, "in");
+			const linker = `require("node:fs").symlinkSync(${quoted(root)}, ${quoted(link)})`;
+			const body = [
+				spawns("cat", [], cwd),
+				`require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(linker)}]);`,
+				`require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(spawns("cat", [], cwd))}]);`,
+			].join("\n");
+			const log = audited(root, T, body, {
+				env: { RULES: link },
+				trace: false,
+			});
+			expect(readAudits(log, root).get(T).doubt ?? "").not.toMatch(
+				/by its environment \(RULES\)/,
+			);
+		});
+
+		it("hands a Node child none of the lookups its spawner dropped (#5160)", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const link = path.join(cwd, "in");
+			const body = [
+				spawns("cat", [], cwd),
+				`require("node:fs").symlinkSync(${quoted(root)}, ${quoted(link)});`,
+				`require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(spawns("cat", [], cwd))}]);`,
+			].join("\n");
+			const log = audited(root, T, body, {
+				env: { RULES: link },
+				trace: false,
+			});
+			expect(readAudits(log, root).get(T).doubt).toMatch(
+				/a child \(cat \) was handed a path in the checkout by its environment \(RULES\)/,
+			);
+		});
+
 		it("doubts a child whose sync input names a checkout path", () => {
 			const root = checkout();
 			const body = spawns("cat", [], outsideDir(), {

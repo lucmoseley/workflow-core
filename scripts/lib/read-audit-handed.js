@@ -81,21 +81,14 @@ function buildHanded(root) {
 	 * @param {boolean} mustStand
 	 */
 	const realOf = (abs, mustStand) => {
-		/** @type {string[]} */
-		const tail = [];
-		for (let head = abs; ; ) {
-			try {
-				return path.join(realpath(head), ...tail);
-			} catch (e) {
-				if (mustStand) return null;
-				const { code } = caught(e);
-				const up = path.dirname(head);
-				if ((code !== "ENOENT" && code !== "ENOTDIR") || up === head)
-					return abs;
-				tail.unshift(path.basename(head));
-				head = up;
-			}
+		try {
+			return realpath(abs);
+		} catch (e) {
+			if (mustStand) return null;
+			const { code } = caught(e);
+			if (code !== "ENOENT" && code !== "ENOTDIR") return abs;
 		}
+		return realOfDeepest(abs) ?? abs;
 	};
 	/**
 	 * The repo-relative paths `word` spells by the root's absolute name.
@@ -177,6 +170,42 @@ function buildHanded(root) {
 		return realOf(abs, isBare);
 	};
 	return { spelt, from };
+}
+
+/** @param {string} abs @returns {string|null} */
+function tryRealpath(abs) {
+	try {
+		return realpath(abs);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * `abs`, which does not stand whole, with its links followed through the
+ * deepest part of it that stands and the rest as spelt; null where not even
+ * the root will resolve. A lookup fails at the first part that will not
+ * resolve, so every longer head fails with it and every shorter one stands:
+ * the deepest that stands is found by halving, not a lookup a part, for a
+ * whole `PATH` value is a word of some 150 parts (#5160).
+ * @param {string} abs
+ */
+function realOfDeepest(abs) {
+	const parts = abs.split(path.sep).slice(1);
+	let real = tryRealpath(path.sep);
+	if (real === null) return null;
+	let stands = 0;
+	let fails = parts.length;
+	while (fails - stands > 1) {
+		const mid = (stands + fails) >> 1;
+		const got = tryRealpath(path.sep + parts.slice(0, mid).join(path.sep));
+		if (got === null) fails = mid;
+		else {
+			real = got;
+			stands = mid;
+		}
+	}
+	return path.join(real, ...parts.slice(stands));
 }
 
 /**
