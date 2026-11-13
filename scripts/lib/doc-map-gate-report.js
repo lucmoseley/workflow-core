@@ -147,9 +147,18 @@ function greenReport(report, headMap) {
 	return { text, exit: 0 };
 }
 
+/**
+ * Whether `report` holds an untracked block, the one thing HEAD's map is read
+ * to judge: a report without one costs no HEAD read.
+ * @param {string} report
+ */
+const readsHeadMap = (report) =>
+	UNTRACKED_BLOCKS.some((block) => sliceBlock(report, block.marker) !== "");
+
 module.exports = {
 	addedItems,
 	greenReport,
+	readsHeadMap,
 	itemsOf,
 	REPLAY_MARKERS,
 	sliceBlock,

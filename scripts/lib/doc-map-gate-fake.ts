@@ -40,8 +40,10 @@ export interface CheckCall {
 export function fakeGatePorts(scene: GateScene): {
 	ports: DocMapGatePorts;
 	calls: CheckCall[];
+	headMapReads: () => number;
 } {
 	const calls: CheckCall[] = [];
+	let headMapReads = 0;
 	const files = new Map<string, string>();
 	let dirs = 0;
 	const headIndexes = new Set<string>();
@@ -90,7 +92,10 @@ export function fakeGatePorts(scene: GateScene): {
 				stdout: "dead: docs/new-fault.md\n",
 				stderr: "",
 			},
-		headMap: () => scene.headMap ?? "",
+		headMap: () => {
+			headMapReads++;
+			return scene.headMap ?? "";
+		},
 	};
-	return { ports, calls };
+	return { ports, calls, headMapReads: () => headMapReads };
 }

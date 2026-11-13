@@ -53,7 +53,7 @@ const {
 	skipLine,
 	substituted,
 } = require("./precommit-gate-verdicts.js");
-const { greenReport } = require("./doc-map-gate-report.js");
+const { greenReport, readsHeadMap } = require("./doc-map-gate-report.js");
 
 const MAP = "docs/doc-map.md";
 const LABEL = "doc-map";
@@ -161,7 +161,10 @@ function runDocMapGate(ports, env) {
 		if (!verdict.pass) return { exit: status, stderr };
 	}
 
-	const green = greenReport(report, ports.headMap());
+	const green = greenReport(
+		report,
+		readsHeadMap(report) ? ports.headMap() : "",
+	);
 	return { exit: green.exit, stderr: stderr + green.text };
 }
 

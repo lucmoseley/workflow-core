@@ -15,8 +15,8 @@ import { runDocMapGate } from "./doc-map-gate.js";
 import { fakeGatePorts, type GateScene } from "./doc-map-gate-fake";
 
 const gate = (scene: GateScene, allowDelete = false) => {
-	const { ports, calls } = fakeGatePorts(scene);
-	return { ...runDocMapGate(ports, { allowDelete }), calls };
+	const { ports, calls, headMapReads } = fakeGatePorts(scene);
+	return { ...runDocMapGate(ports, { allowDelete }), calls, headMapReads };
 };
 
 const REPORT = "FAIL: 1 doc-map problem(s)\n  dead: docs/x.md";
@@ -148,6 +148,24 @@ describe("a readable index", () => {
 		expect(calls[0].args).toEqual(["--root", "/fake/tmp1/tree"]);
 		expect(calls[1].args).toEqual(["--root", "/fake/tmp1/tree", "--json"]);
 		expect(calls[2].args).toEqual(["--root", "/fake/tmp2/tree", "--json"]);
+	});
+
+	// The old shell block read it only under an untracked block, too (#5155).
+	it("reads HEAD's map only for a report holding an untracked block", () => {
+		expect(
+			gate(
+				failing({ newFaults: { status: 0, stdout: "", stderr: "" } }),
+			).headMapReads(),
+		).toBe(0);
+		expect(
+			gate({
+				check: {
+					status: 0,
+					report:
+						"1 doc-map register entr(ies) name a file present on disk but not yet tracked by git:\n  docs/fresh.md",
+				},
+			}).headMapReads(),
+		).toBe(1);
 	});
 
 	// A run let through on inheritance still owes the untracked replay.
