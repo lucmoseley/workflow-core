@@ -25,6 +25,9 @@
  * for check-guard-registry.js's --root, which sets both for an adopter root
  * (mantahostels#1753). It is read at
  * call time, not at require time, so a test can set it per case.
+ * withRuleStore pins the same pair for one synchronous read, in this module
+ * rather than the environment, so a caller sharing the process with other
+ * work leaves nothing behind it (#5172).
  */
 
 const fs = require("node:fs");
@@ -89,6 +92,34 @@ const MANIFEST_NAME = "manifest.json";
 /** The CORE's own store: the plugin root's in an adopter, this repo's here. */
 const CORE_RULES = path.join(__dirname, "..", "..", RULES_DIR);
 
+/** @type {{ dir: string, fallback: string | undefined } | null} */
+let pinned = null;
+
+/** WFC_RULES_DIR, or the store withRuleStore pinned in its place. */
+const overrideDir = () => (pinned ? pinned.dir : process.env.WFC_RULES_DIR);
+
+/**
+ * `read`'s result with the store at `dir` and its core layer at `fallback`,
+ * as WFC_RULES_DIR and WFC_RULES_FALLBACK_DIR would set them, both undone
+ * after; untouched where `dir` is undefined.
+ *
+ * @template T
+ * @param {string | undefined} dir
+ * @param {string | undefined} fallback
+ * @param {() => T} read
+ * @returns {T}
+ */
+function withRuleStore(dir, fallback, read) {
+	if (dir === undefined) return read();
+	const before = pinned;
+	pinned = { dir, fallback };
+	try {
+		return read();
+	} finally {
+		pinned = before;
+	}
+}
+
 /**
  * The store directory in force: the override, else the host repo's own, else
  * the CORE's, which is where an adopter's fragments live — so a guard firing
@@ -99,7 +130,7 @@ const CORE_RULES = path.join(__dirname, "..", "..", RULES_DIR);
  * @returns {string} absolute path
  */
 function rulesDir(root) {
-	const override = process.env.WFC_RULES_DIR;
+	const override = overrideDir();
 	if (override) return path.resolve(override);
 	const host = path.join(root ?? hostRoot(), RULES_DIR);
 	/* A directory, as rt_dir's `-d` asks: a FILE there falls through (#101). */
@@ -109,8 +140,10 @@ function rulesDir(root) {
 
 /** @returns {string | null} absolute path of the CORE's layer, as rulesDirs() takes it */
 function coreLayer() {
-	if (!process.env.WFC_RULES_DIR) return CORE_RULES;
-	const fallback = process.env.WFC_RULES_FALLBACK_DIR;
+	if (!overrideDir()) return CORE_RULES;
+	const fallback = pinned
+		? pinned.fallback
+		: process.env.WFC_RULES_FALLBACK_DIR;
 	return fallback ? path.resolve(fallback) : null;
 }
 
@@ -429,6 +462,7 @@ const fallbackLine = (lead, id) =>
 	`${lead}; the rule could not be read from ${docPath(`agents/rules/${id}.txt`)}. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.`;
 
 module.exports = {
+	withRuleStore,
 	RULES_DIR,
 	RuleMissing,
 	CORE_RULES,

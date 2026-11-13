@@ -58,7 +58,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
-const { readRuleText } = require("./rule-text");
+const { readRuleText, withRuleStore } = require("./rule-text");
 const { hostRoot } = require("./host-root.js");
 const { moduleOn } = require("./workflow-core-config");
 const { requiredGroup } = require("./regex-group.js");
@@ -794,43 +794,6 @@ function isCovered(matcher, tool) {
 
 /** What one wired guard reaches.
  * @typedef {{ ids: string[], bytes: Map<string, number>, overCap: { id: string, bytes: number }[], calls: number, direct: Map<string, DirectFigure>, latchFaults: LatchFault[] }} GuardReach */
-
-/**
- * @param {string} name
- * @param {string | undefined} value undefined deletes the variable
- */
-function setEnv(name, value) {
-	if (value === undefined) delete process.env[name];
-	else process.env[name] = value;
-}
-
-/**
- * `read`'s result with the fragment store at `rulesDir` and its fallback layer
- * at `rulesFallbackDir`, both restored after; untouched where `rulesDir` is
- * undefined.
- *
- * @template T
- * @param {string | undefined} rulesDir
- * @param {string | undefined} rulesFallbackDir
- * @param {() => T} read
- * @returns {T}
- */
-function withRuleStore(rulesDir, rulesFallbackDir, read) {
-	const before = process.env.WFC_RULES_DIR;
-	const fallbackBefore = process.env.WFC_RULES_FALLBACK_DIR;
-	if (rulesDir !== undefined) {
-		setEnv("WFC_RULES_DIR", rulesDir);
-		setEnv("WFC_RULES_FALLBACK_DIR", rulesFallbackDir);
-	}
-	try {
-		return read();
-	} finally {
-		if (rulesDir !== undefined) {
-			setEnv("WFC_RULES_DIR", before);
-			setEnv("WFC_RULES_FALLBACK_DIR", fallbackBefore);
-		}
-	}
-}
 
 /**
  * One guard's effective source, from `sources` where given, else from disk

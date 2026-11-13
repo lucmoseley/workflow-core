@@ -110,10 +110,13 @@ async function main() {
 	});
 }
 
-main().then(
-	(code) => process.exit(code),
-	(e) => {
-		writeFd(2, `pre-commit: the dispatcher threw: ${caught(e).message}\n`);
-		process.exit(2);
-	},
-);
+module.exports = { computed, load };
+
+if (require.main === module)
+	main().then(
+		(code) => process.exit(code),
+		(e) => {
+			writeFd(2, `pre-commit: the dispatcher threw: ${caught(e).message}\n`);
+			process.exit(2);
+		},
+	);
