@@ -230,9 +230,8 @@ const RATCHET_SURFACE = "rule-ratchet";
  * holds only the cap, the severity and the reporting (mantahostels#2003, mantahostels#2004). */
 const { reachableAfterCall, reachableByTool } = require("./lib/rule-emission");
 const { AFTER_EVENTS } = require("./lib/hook-events.js");
-const { RULES_DIR, CORE_RULES } = require("./lib/rule-text");
+const { RULES_DIR, CORE_RULES, fragmentLookup } = require("./lib/rule-text");
 const { caught } = require("./lib/caught.js");
-const { trimEndRun } = require("./lib/trim-run.js");
 const { readImportedFiles } = require("./lib/pool-imports.js");
 const {
 	INJECTOR_ENTRY,
@@ -761,7 +760,7 @@ function readInjection(ctx, root) {
 	const files = [
 		{
 			path: TRACKER_TEXT,
-			bytes: injectorBytes(ctx, text, (id) => readRuleFragment(root, id)),
+			bytes: injectorBytes(ctx, text, fragmentLookup(root)),
 			...(fromCore && { note: "the core's union, capped there" }),
 		},
 	];
@@ -811,13 +810,7 @@ const UNION_EXPORTS = {
 	trackerIndex: "function",
 	CLOSING_STEPS: "object",
 	PRICED_OPTIONS_POINTER: "string",
-	standardsText: "function",
-	withGlossary: "function",
-	dispatchText: "function",
-	DISPATCH_SHAPE_FALLBACK: "string",
-	DEVIATIONS_READ_FALLBACK: "string",
-	DISPOSITION_FALLBACK: "string",
-	ULTRA: "string",
+	codeReviewParts: "function",
 };
 
 /* The inputs a part interpolates, each at the value that makes it longest
@@ -846,7 +839,7 @@ const longest = (xs) =>
 /**
  * Each part of the union, in payload order.
  * @param {TextModule} t
- * @param {(id: string) => string | null} fragment a rule fragment's text
+ * @param {(id: string) => string} fragment a rule fragment's text, or ""
  * @returns {string[]}
  */
 function injectorParts(t, fragment) {
@@ -869,51 +862,34 @@ function injectorParts(t, fragment) {
 		longest(Object.keys(t.INDEX).map((c) => t.trackerIndex(c))),
 		longest(Object.values(t.CLOSING_STEPS)),
 		t.PRICED_OPTIONS_POINTER,
-		t.withGlossary(
-			longest(STANDARDS_STATES.map((s) => t.standardsText(s, STANDARDS_SHOWN))),
-			GLOSSARY_SHOWN,
+		...longestParts(
+			STANDARDS_STATES.map((standardsState) =>
+				t.codeReviewParts({
+					standardsState,
+					standardsBase: STANDARDS_SHOWN,
+					glossary: GLOSSARY_SHOWN,
+					reviewType: MEASURED_REVIEW_TYPE,
+					sidSuffix: reviewSuffix(PROBE_SESSION_ID),
+					fragment,
+				}),
+			),
 		),
-		t.dispatchText(
-			MEASURED_REVIEW_TYPE,
-			reviewSuffix(PROBE_SESSION_ID),
-			fragment("review-dispatch-shape") ?? t.DISPATCH_SHAPE_FALLBACK,
-		),
-		fragment("review-deviations-read") ?? t.DEVIATIONS_READ_FALLBACK,
-		t.ULTRA,
-		fragment("review-finding-destination") ?? t.DISPOSITION_FALLBACK,
 	];
 }
 
 /**
- * A rule fragment's text at `root`, or the core's own where `root` holds no
- * store — a plugin install's host — or null where neither reads. Not
- * rule-text.js's layered lookup, which reads the live host root: `--against`
- * measures a materialised revision at `root`.
- *
- * @param {string} root
- * @param {string} id
- * @returns {string | null}
+ * The longest of several part lists in bytes summed.
+ * @param {string[][]} lists
  */
-function readRuleFragment(root, id) {
-	for (const dir of [path.join(root, RULES_DIR), CORE_RULES]) {
-		try {
-			return trimEndRun(
-				fs.readFileSync(path.join(dir, `${id}.txt`), "utf8"),
-				"\n",
-			);
-		} catch {
-			/* Absent at this layer: the next one answers, or null does. */
-		}
-	}
-	return null;
-}
+const longestParts = (lists) =>
+	lists.reduce((a, b) => (sum(b, bytesIn) > sum(a, bytesIn) ? b : a));
 
 /**
  * The union's bytes.
  *
  * @param {Ctx} ctx
  * @param {TextModule} t
- * @param {(id: string) => string | null} fragment
+ * @param {(id: string) => string} fragment
  * @returns {number}
  */
 function injectorBytes(ctx, t, fragment) {
