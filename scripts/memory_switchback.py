@@ -594,8 +594,6 @@ COMPANIONS = (
         f"Minutes Windows under its {WINDOWS_FLOOR_MB} MB launch floor (balance)",
         "win_floor_min",
     ),
-    # Launches fixed, read rather than assumed: admission's Windows charge
-    # reads MemFree, which the add-back leaves alone (#4956).
     ("Active transcripts, block median, not launches (balance)", "active"),
 )
 
