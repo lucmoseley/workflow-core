@@ -1,3 +1,12 @@
+// @vitest-environment node
+/**
+ * rescue-sessions.js's list, snapshot and stop through the program
+ * (mantahostels#2605): the boundary set lib/rescue-jobs.js's module cases
+ * (lib/rescue-jobs.test.ts) leave to it (#5157) — argument parsing, the real
+ * oracle adapter asked of the source plan's own config dir and killed on its
+ * timeout with every child, `claude stop` on a stub, and one run of each
+ * subcommand through the shell's exit.
+ */
 import {
 	mkdirSync,
 	mkdtempSync,
@@ -15,18 +24,8 @@ import {
 } from "./lib/agents-stop-fake";
 import { writeClaudeStub } from "./lib/claude-stub";
 import { runInProcessAsync } from "./lib/run-in-process";
-import { buildBashCall } from "./lib/transcript-testkit";
 
 const SCRIPT = join(__dirname, "rescue-sessions.js");
-/**
- * rescue-sessions.js's list, snapshot and stop through the program
- * (mantahostels#2605): the boundary set lib/rescue-jobs.js's module cases
- * (lib/rescue-jobs.test.ts) leave to it (#5157) — argument parsing, the real
- * oracle adapter asked of the source plan's own config dir and killed on its
- * timeout with every child, `claude stop` on a stub, and one run of each
- * subcommand through the shell's exit.
- */
-const _NO_CLAUDE = { ...process.env, WFC_CLAUDE_BIN: "/nonexistent/claude" };
 
 /** Every temp dir a test made. */
 const made: string[] = [];
@@ -51,7 +50,6 @@ function assistant(content: unknown[]) {
 }
 
 const said = (text: string) => line(assistant([{ type: "text", text }]));
-const _bash = (command: string) => line(buildBashCall(command));
 
 /** A config dir holding the jobs described, in the daemon's own layout. */
 function configDirOf(jobs: Record<string, unknown>): string {
