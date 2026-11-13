@@ -73,24 +73,26 @@ const a = argv;
 fs.appendFileSync(f("calls"), a.join(" ") + "\\n");
 const say = (o) => { out(typeof o === "string" ? o : JSON.stringify(o)); exit(0); };
 const no = (m) => { err(m + "\\n"); exit(1); };
+const serve = (g) => { out(g.stdout); err(g.stderr); exit(g.status); };
+const { readText } = require("./file-read.js");
+const optional = (n) => { const r = readText(f(n)); return r.state === "read" ? r.data : null; };
 const issue = () => JSON.parse(fs.readFileSync(f("issue.json"), "utf8"));
 const comments = () => JSON.parse(fs.readFileSync(f("comments.json"), "utf8"));
 if (a[0] === "api") {
 	if (a[1] === "user") say({ login: "me" });
 	if (a[1] === "graphql") {
 		// Every cited number open, unless the gql-closed file lists it (#984).
-		const g = answerGraphql(a, fs.existsSync(f("gql-closed")) ? fs.readFileSync(f("gql-closed"), "utf8").split(" ") : [], []);
-		out(g.stdout); err(g.stderr); exit(g.status);
+		serve(answerGraphql(a, optional("gql-closed")?.split(" ") ?? [], []));
 	}
 	if (a[1] === "repos/acme/widgets/issues/534") say(issue());
 	if (a[1] === "repos/acme/widgets/issues/534/sub_issues")
-		say([fs.existsSync(f("subs.json")) ? JSON.parse(fs.readFileSync(f("subs.json"), "utf8")) : []]);
+		say([JSON.parse(optional("subs.json") ?? "[]")]);
 	if (a[1] === "repos/acme/widgets/issues/534/comments") {
 		if (fs.existsSync(f("comments-fail"))) no("HTTP 502: Bad Gateway");
 		say([comments()]);
 	}
-	if (a[1] === "repos/acme/widgets/issues/528" && fs.existsSync(f("parent.json")))
-		say({ ...JSON.parse(fs.readFileSync(f("parent.json"), "utf8")), body: fs.readFileSync(f("map.md"), "utf8") });
+	const parent = a[1] === "repos/acme/widgets/issues/528" ? optional("parent.json") : null;
+	if (parent !== null) say({ ...JSON.parse(parent), body: fs.readFileSync(f("map.md"), "utf8") });
 	no("HTTP 404: Not Found");
 }
 if (a[0] === "issue" && a[1] === "comment") {
