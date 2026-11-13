@@ -1746,6 +1746,95 @@ runCheck({
 		expect(r.status).toBe(0);
 		expect(`${r.stdout}${r.stderr}`).not.toContain("GREW-NOTE");
 	});
+
+	/*
+	 * `baselineCode: "rev"` over a pathspec that holds none of the checker's
+	 * code (#5178): a commit renaming the module's export and the checker's
+	 * read of it together. The working checker reads HEAD's module in the old
+	 * shape as BROKEN; HEAD's own copy, fetched with its run reach, measures it.
+	 * HEAD's copy also requires a lib the commit deletes, which only the walk
+	 * over the fetched tree finds.
+	 */
+	const shapeRepo = (baselineCode: string) => {
+		const root = fs.mkdtempSync(path.join(dir, "shaperepo-"));
+		const git = (...args: string[]) =>
+			spawnSync("git", args, { cwd: root, encoding: "utf8" });
+		git("init", "-q", ".");
+		git("config", "user.email", "t@t");
+		git("config", "user.name", "t");
+		const put = (rel: string, text: string) => {
+			fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+			fs.writeFileSync(path.join(root, rel), text);
+		};
+		put(
+			"scripts/fixture-check.js",
+			`const p = require("node:path");
+const { runCheck } = require(${JSON.stringify(LIB)});
+const { name } = require("./lib/shape.js");
+runCheck({
+  name: "fixture",
+  usage: "node fixture-check.js [--against <rev>]",
+  valueFlags: ["--root"],
+  against: {
+    profile: "guard-test-isolation",
+    materialise: "blobs",
+    baseline: "always",
+    pathspecs: () => ["wanted"],
+    ${baselineCode}
+  },
+  run(ctx) {
+    const mod = require(p.join(ctx.value("--root", process.cwd()), "wanted", "mod.js"));
+    if (!(name in mod)) ctx.broken("the module has no " + name);
+    return { okLine: "ROOT=" + process.env.WFC_SCRIPT_ROOT };
+  },
+});
+`,
+		);
+		put("scripts/lib/old.js", 'module.exports = "a";\n');
+		put(
+			"scripts/lib/shape.js",
+			'module.exports = { name: require("./old.js") };\n',
+		);
+		put("wanted/mod.js", "module.exports = { a: 1 };\n");
+		git("add", "-A");
+		git("commit", "-qm", "seed");
+		fs.rmSync(path.join(root, "scripts", "lib", "old.js"));
+		put("scripts/lib/shape.js", 'module.exports = { name: "b" };\n');
+		put("wanted/mod.js", "module.exports = { b: 1 };\n");
+		git("add", "-A");
+		const r = spawnSync(
+			"node",
+			[
+				path.join(root, "scripts", "fixture-check.js"),
+				"--against",
+				"HEAD",
+				"--json",
+			],
+			{
+				cwd: root,
+				encoding: "utf8",
+				env: { ...process.env, GITHUB_ACTIONS: "" },
+			},
+		);
+		return {
+			root,
+			status: r.status,
+			out: `${r.stdout}${r.stderr}`,
+			stdout: r.stdout,
+		};
+	};
+
+	it("reads a baseline in the old shape with the baseline's own checker", () => {
+		const { root, status, stdout } = shapeRepo('baselineCode: "rev",');
+		expect(status).toBe(0);
+		expect(JSON.parse(stdout).baselineSummary).toBe(`OK: ROOT=${root}`);
+	});
+
+	it("reads it BROKEN with the working checker, the gap #5178 closed", () => {
+		const { status, out } = shapeRepo("");
+		expect(status).toBe(2);
+		expect(out).toContain("the module has no b");
+	});
 });
 
 /*
