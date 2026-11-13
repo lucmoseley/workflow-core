@@ -1,13 +1,18 @@
 // @vitest-environment node
 /*
  * Pins file-issue's logic in-process (#5150): lib/file-issue-core.js's
- * fileIssue, on the in-process gh router and the link fake
- * (lib/file-issue-testkit.ts, the link fake held by
+ * fileIssue, on file-issue's gh fake in-process and the link fake
+ * (file-issue-gh-fake.ts and file-issue-link-fake.ts, the second held by
  * file-issue-link.contract.test.ts). Every refusal before the create —
  * a bad takes: label, body, takes:human ticket, placement, parent or map,
  * a likely duplicate, rule:size-line — asserts that no create was sent;
  * the filings beside them assert the create and the link that follow.
  * scripts/file-issue.test.ts keeps the program's boundary set.
+ *
+ * Breaking a refusal case costs the guarantee file-issue exists for —
+ * nothing half-filed — on the route the issue-create guard sends every new
+ * ticket down, so a loosened case files tickets that route to nobody or sit
+ * unplaced.
  */
 
 import fs from "node:fs";
@@ -17,14 +22,16 @@ import HUMAN_BODIES from "../fixtures/takes-human-bodies.json" with {
 	type: "json",
 };
 import { issueClaims, store } from "./arbiter-testkit";
+import { FileIssueCrash } from "./file-issue-core.js";
+import { NEW } from "./file-issue-gh-fake";
 import {
-	assignCall,
+	ASSIGN_CALL,
+	declarationFixtures,
 	fileIssueKit,
 	filing,
 	issue,
 	listed,
 	ME,
-	NEW,
 	type Row,
 	TRACKER,
 } from "./file-issue-testkit";
@@ -705,83 +712,8 @@ describe("rule:size-line before a takes:implement filing (#4450)", () => {
 });
 
 describe("the filing declarations (#4796)", () => {
-	const Session = "11111111-2222-3333-4444-555555555555";
-	const Slug = "-home-u-repo";
-	const DenyText =
-		"docs/doc-map.md is held by session 735db33b (pid 1), which is still running.";
-	/* A record the case names: a guard's deny, as a tool_result flagged is_error. */
-	const caseRecord = {
-		type: "user",
-		uuid: "u-case",
-		timestamp: "2026-11-01T10:00:00.000Z",
-		message: {
-			content: [
-				{
-					type: "tool_result",
-					tool_use_id: "toolu_1",
-					is_error: true,
-					content: DenyText,
-				},
-			],
-		},
-	};
-	/* The call that met the deny, on line 3: a `reads: "call"` case. */
-	const callRecord = {
-		type: "assistant",
-		uuid: "a-call",
-		timestamp: "2026-11-01T10:01:00.000Z",
-		message: {
-			content: [
-				{
-					type: "tool_use",
-					id: "toolu_2",
-					name: "Bash",
-					input: { command: "git push --force origin main" },
-				},
-			],
-		},
-	};
-	/** The session's transcript on the second seat, the case record on line 2. */
-	const seatTranscript = () => {
-		const dir = path.join(path.dirname(sb.home), ".claude2", "projects", Slug);
-		fs.mkdirSync(dir, { recursive: true });
-		fs.writeFileSync(
-			path.join(dir, `${Session}.jsonl`),
-			[
-				{ type: "user", uuid: "u0", message: { content: "hi" } },
-				caseRecord,
-				callRecord,
-			]
-				.map((r) => `${JSON.stringify(r)}\n`)
-				.join(""),
-		);
-	};
-	const sigFile = (content: unknown) => {
-		const f = at("sig.json");
-		fs.writeFileSync(f, JSON.stringify(content));
-		return f;
-	};
-	const declaring = (extra: string[]) => [
-		...filing(["takes:implement"]),
-		"--origin",
-		"code-review",
-		...extra,
-	];
-	const log = () =>
-		path.join(sb.repo, "docs", "data", "outcome-signatures.jsonl");
-	const readLog = () =>
-		fs.existsSync(log())
-			? fs
-					.readFileSync(log(), "utf8")
-					.split("\n")
-					.filter(Boolean)
-					.map((l) => JSON.parse(l))
-			: [];
-	const regexSig = (pattern: string, scope = "main") => ({
-		signature: { kind: "regex", pattern, scope },
-		prediction: "the hold denials stop",
-		case: { session: Session, line: 2 },
-	});
+	const { Session, seatTranscript, sigFile, declaring, readLog, regexSig } =
+		declarationFixtures(kit);
 
 	it("refuses a filing with no --origin, naming the list, and creates nothing", () => {
 		setUp();
@@ -819,7 +751,7 @@ describe("the filing declarations (#4796)", () => {
 
 	it("stamps origin:<class> on the create and logs nothing for --no-fault", () => {
 		setUp();
-		const r = run(declaring(["--no-fault"]), { cwd: sb.repo });
+		const r = run(declaring(["--no-fault"]));
 		expect(r.status).toBe(0);
 		expect(readCreates()[0]).toContain("--label origin:code-review");
 		expect(readCreates()[0]).not.toContain("fault-signature");
@@ -929,39 +861,6 @@ describe("the filing declarations (#4796)", () => {
 		);
 	});
 
-	it("files a matching regex signature and appends its line", () => {
-		setUp();
-		seatTranscript();
-		const r = run(
-			declaring([
-				"--fault-signature",
-				sigFile(regexSig("is held by session \\w+")),
-			]),
-			{ cwd: sb.repo },
-		);
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain("Signature logged");
-		const [line, ...more] = readLog();
-		expect(more).toEqual([]);
-		expect(line).toMatchObject({
-			issue: `acme/widgets#${NEW}`,
-			signature: {
-				kind: "regex",
-				pattern: "is held by session \\w+",
-				scope: "main",
-			},
-			prediction: "the hold denials stop",
-			case: { session: Session, line: 2 },
-		});
-		expect(Number.isNaN(Date.parse(line.filedAt))).toBe(false);
-		/* The create carries the label and the line less its issue (#4861). */
-		expect(readCreates()[0]).toContain("--label fault-signature");
-		const { issue: _, ...rest } = line;
-		expect(readBodySeen()).toContain(
-			`## Fault signature\n\n\`\`\`json\n${JSON.stringify(rest)}\n\`\`\`\n`,
-		);
-	});
-
 	it("files a call-reading regex against the tool_use record that is its case, logging reads and its tool", () => {
 		setUp();
 		seatTranscript();
@@ -976,9 +875,7 @@ describe("the filing declarations (#4796)", () => {
 			prediction: "no force pushes to main",
 			case: { session: Session, line: 3 },
 		};
-		const r = run(declaring(["--fault-signature", sigFile(callSig)]), {
-			cwd: sb.repo,
-		});
+		const r = run(declaring(["--fault-signature", sigFile(callSig)]));
 		expect(r.status).toBe(0);
 		expect(readLog()[0].signature).toEqual(callSig.signature);
 	});
@@ -1061,7 +958,6 @@ describe("the filing declarations (#4796)", () => {
 					case: { session: Session, line: 2 },
 				}),
 			]),
-			{ cwd: sb.repo },
 		);
 		expect(r.status).toBe(0);
 		expect(readLog()[0].signature).toEqual({
@@ -1081,7 +977,6 @@ describe("the filing declarations (#4796)", () => {
 					why: "the fault leaves no transcript trace",
 				}),
 			]),
-			{ cwd: sb.repo },
 		);
 		expect(r.status).toBe(0);
 		expect(readLog()).toEqual([
@@ -1350,6 +1245,29 @@ describe("the model reading (#4969)", () => {
 });
 
 describe("create, then link", () => {
+	it("hands a crash after the create back as FileIssueCrash, carrying the Filed line printed so far", () => {
+		setUp();
+		const crash = new Error("link adapter blew up");
+		let thrown: unknown;
+		try {
+			run(filing(["takes:implement"]), {
+				ports: {
+					link: () => {
+						throw crash;
+					},
+				},
+			});
+		} catch (e) {
+			thrown = e;
+		}
+		expect(thrown).toBeInstanceOf(FileIssueCrash);
+		const { written, cause } = thrown as InstanceType<typeof FileIssueCrash>;
+		expect(cause).toBe(crash);
+		expect(written.code).toBe(1);
+		expect(written.stdout).toContain(`Filed #${NEW}`);
+		expect(readCreates()).toHaveLength(1);
+	});
+
 	it("exits 1 when the create prints no issue URL, saying to search before re-running", () => {
 		setUp();
 		fs.writeFileSync(at("create-silent"), "");
@@ -1436,7 +1354,7 @@ describe("a charting session's map and its children (#2314)", () => {
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(`Recorded the arbiter claim for session ${ME}.`);
 		expect(readClaimants()).toEqual([ME]);
-		expect(readGhCalls()).toContain(assignCall);
+		expect(readGhCalls()).toContain(ASSIGN_CALL);
 	});
 
 	it("leaves a map filed with no session id unassigned", () => {
@@ -1444,7 +1362,7 @@ describe("a charting session's map and its children (#2314)", () => {
 		const r = run(mapFiling(), { sessionId: null });
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(`#${NEW} is unassigned.`);
-		expect(readGhCalls()).not.toContain(assignCall);
+		expect(readGhCalls()).not.toContain(ASSIGN_CALL);
 	});
 
 	it("leaves a research ticket filed under a map unassigned and unclaimed", () => {
@@ -1453,7 +1371,7 @@ describe("a charting session's map and its children (#2314)", () => {
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(`#${NEW} is unassigned.`);
 		expect(readClaimants()).toEqual([]);
-		expect(readGhCalls()).not.toContain(assignCall);
+		expect(readGhCalls()).not.toContain(ASSIGN_CALL);
 	});
 });
 

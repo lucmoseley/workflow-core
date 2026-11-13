@@ -1,21 +1,20 @@
 /*
  * The sandbox file-issue's tests share (#5150): its program cases, which run
- * scripts/file-issue.js through runInProcess against the gh stub with the real
- * link underneath, and its module cases, which call lib/file-issue-core.js's
- * fileIssue on the in-process gh router and the link fake. Both read one set
- * of sandbox files — `issues`, `issues-open`, `list-fails`, `assign-fails`,
- * `post-err`, `api/` — and both log every gh argv to `gh-calls`, so a case
- * reads the same whichever seam it runs on.
+ * scripts/file-issue.js through runInProcess against file-issue's gh fake as
+ * the WFC_GH stub, the real link underneath, and its module cases, which call
+ * lib/file-issue-core.js's fileIssue with the same gh fake in-process and the
+ * link fake. One routing source serves both, so a case reads the same
+ * whichever seam it runs on.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { vi } from "vitest";
 import { freshSandbox, issueClaims } from "./arbiter-testkit";
-import { fileIssue } from "./file-issue-core.js";
+import { type FileIssuePorts, fileIssue } from "./file-issue-core.js";
+import { fileIssueGh, NEW, stubFileIssueGh } from "./file-issue-gh-fake";
+import { answerLink } from "./file-issue-link-fake";
 import { readGateWrite } from "./gate-judge.js";
-import { asRecorded, buildJqLines, ghServe } from "./gh-fake";
-import { buildLinkReadArms, stubGhScript } from "./gh-stub";
 import { ORIGINS } from "./issue-origin";
 import { MARKERS_REL } from "./marker-root";
 import { runInProcess } from "./run-in-process";
@@ -24,10 +23,6 @@ import { TAKES_VALUES } from "./takes-label";
 
 export const SCRIPT = path.resolve(__dirname, "..", "file-issue.js");
 export const ME = "sess-me";
-/** The number the stubbed create returns — nothing a caller could guess. */
-export const NEW = 561;
-/** The sub-issue id the stub's link reads answer for #NEW. */
-export const NEW_ID = 987_654;
 /** The signature line's filed-at clock in a module case. */
 export const NOW = Date.parse("2026-11-13T09:00:00.000Z");
 
@@ -67,7 +62,7 @@ export const filing = (labels: string[], placement = ["--parent", "528"]) => [
 	"-",
 ];
 
-export const assignCall = `issue edit ${NEW} --repo acme/widgets --add-assignee @me`;
+export const ASSIGN_CALL = `issue edit ${NEW} --repo acme/widgets --add-assignee @me`;
 
 export interface Row {
 	number: number;
@@ -166,45 +161,8 @@ export function fileIssueKit() {
 		serve("repos/acme/widgets/issues/528/sub_issues", [[]]);
 	};
 
-	/**
-	 * The `gh` stub. `issue list` answers from the `issues` file, or `[]`;
-	 * `issue create` saves its stdin body and prints the new URL;
-	 * the sub-issue POST fails with the text in `post-err` where it exists, and
-	 * otherwise makes the parent list the child; `api <path>` answers from
-	 * serve()'s files. Every argv is logged.
-	 */
-	const ghStub = () =>
-		stubGhScript(
-			sb.dir,
-			`#!/bin/sh
-echo "$*" >> ${shellQuote(at("gh-calls"))}
-case "$*" in
-  "issue create"*)
-    cat > ${shellQuote(at("body-seen"))}
-    echo ${shellQuote(`https://github.com/acme/widgets/issues/${NEW}`)}; exit 0 ;;
-  "issue list"*)
-    if [ -f ${shellQuote(at("list-fails"))} ]; then echo "HTTP 502: Bad Gateway" >&2; exit 1; fi
-    f=${shellQuote(at("issues"))}; case "$*" in *"--state open --json number,title,state"*) f=${shellQuote(at("issues-open"))} ;; esac
-    if [ -f "$f" ]; then cat "$f"; else echo "[]"; fi
-    exit 0 ;;
-  "issue edit"*)
-    if [ -f ${shellQuote(at("assign-fails"))} ]; then echo "HTTP 403: no" >&2; exit 1; fi
-    exit 0 ;;
-  *"--method POST"*)
-    if [ -f ${shellQuote(at("post-err"))} ]; then cat ${shellQuote(at("post-err"))} >&2; exit 1; fi
-    touch ${shellQuote(at("linked"))}; exit 0 ;;
-${buildLinkReadArms(
-	{ id: buildJqLines(NEW_ID), children: buildJqLines(NEW) },
-	{ childrenWhen: `[ -f ${shellQuote(at("linked"))} ]` },
-)}
-  "api "*)
-    f=${shellQuote(at("api"))}/"$(echo "$2" | tr / _)"
-    [ -f "$f" ] && cat "$f" && exit 0
-    echo "HTTP 404: Not Found" >&2; exit 1 ;;
-esac
-exit 0
-`,
-		);
+	/** file-issue's gh fake as the WFC_GH stub. */
+	const ghStub = () => stubFileIssueGh(sb.dir);
 
 	/** The liveness oracle, listing exactly `ids`. */
 	const oracle = (ids: string[]) => {
@@ -259,45 +217,6 @@ exit 0
 	};
 
 	const has = (name: string) => fs.existsSync(at(name));
-	const ok = (stdout: string) => ({ status: 0, stdout, stderr: "" });
-	const failed = (stderr: string) => ({ status: 1, stdout: "", stderr });
-
-	/** `issue list`: the `issues` rows, or `issues-open` for the open read,
-	 *  as written — a case's rows carry fields (a map's labels) the real
-	 *  `--json` read never asks for, so no recorded shape holds them. */
-	const answerList = (joined: string) => {
-		if (has("list-fails")) return failed("HTTP 502: Bad Gateway\n");
-		const f = joined.includes("--state open --json number,title,state")
-			? at("issues-open")
-			: at("issues");
-		return ok(fs.existsSync(f) ? fs.readFileSync(f, "utf8") : "[]\n");
-	};
-
-	/** `api <path>`: serve()'s file for it, or gh's 404. */
-	const answerApi = (apiPath: string) => {
-		const f = path.join(at("api"), apiPath.replaceAll("/", "_"));
-		if (!fs.existsSync(f)) return failed("HTTP 404: Not Found\n");
-		return ok(recordedApi(apiPath, fs.readFileSync(f, "utf8")));
-	};
-
-	/** What the stub answers `args`, in-process, through the shared fake. */
-	const ghRouter = (args: string[], opts: { input?: unknown } = {}): string => {
-		const joined = args.join(" ");
-		fs.appendFileSync(at("gh-calls"), `${joined}\n`);
-		let answer = ok("");
-		if (joined.startsWith("issue create")) {
-			fs.writeFileSync(at("body-seen"), String(opts.input ?? ""));
-			answer = ok(
-				has("create-silent")
-					? ""
-					: `https://github.com/acme/widgets/issues/${NEW}\n`,
-			);
-		} else if (joined.startsWith("issue list")) answer = answerList(joined);
-		else if (joined.startsWith("issue edit"))
-			answer = has("assign-fails") ? failed("HTTP 403: no\n") : ok("");
-		else if (args[0] === "api") answer = answerApi(String(args[1]));
-		return ghServe(answer)(args);
-	};
 
 	/** lib/file-issue-core.js's fileIssue, its ports the module cases'. */
 	const core = (
@@ -307,13 +226,14 @@ exit 0
 			sessionId = ME,
 			bare = false,
 			extraEnv = {},
-		}: RunOpts = {},
+			ports = {},
+		}: Omit<RunOpts, "cwd"> & { ports?: Partial<FileIssuePorts> } = {},
 	): Ran => {
 		vi.stubEnv("WFC_CLAUDE_BIN", oracle([ME]));
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", sessionId ?? undefined);
 		for (const [k, v] of Object.entries(extraEnv)) vi.stubEnv(k, v);
 		const { code, stdout, stderr } = fileIssue(declare(args, bare), {
-			gh: ghRouter,
+			gh: fileIssueGh(sb.dir),
 			link: (_repo, parent, child) => {
 				fs.appendFileSync(at("links"), `${parent} ${child}\n`);
 				return answerLink(
@@ -326,6 +246,7 @@ exit 0
 			readBody: (file) =>
 				file === "-" ? stdin : fs.readFileSync(file, "utf8"),
 			now: () => NOW,
+			...ports,
 		});
 		return { status: code, stdout, stderr };
 	};
@@ -348,44 +269,93 @@ exit 0
 	};
 }
 
-/**
- * A served `api` answer, held to gh's recorded shape where one is recorded:
- * an issue, a sub-issues page, the labels.
- * @param apiPath
- * @param text the served JSON
+/*
+ * The filing declarations' fixtures (#4796): a session transcript whose line 2
+ * is a guard's deny and line 3 the call that met it, a --fault-signature file,
+ * and the outcome-signature log a filing appends to.
  */
-function recordedApi(apiPath: string, text: string): string {
-	const value = JSON.parse(text);
-	if (/^repos\/[^/]+\/[^/]+\/issues\/\d+$/.test(apiPath))
-		return asRecorded("issue", value);
-	if (apiPath.endsWith("/sub_issues"))
-		return asRecorded("subIssuesPage", value);
-	return text;
-}
-
-/**
- * What lib/link-writer.js's runLinkSync answers, mapped as
- * scripts/file-issue.js maps it, for the link of `child` under `parent` on the
- * stub: a POST failing with `postErr`, or landing where it is null — the
- * loop check partial there, since the stub's reads never reach the child.
- * file-issue-link.contract.test.ts holds every answer to the real call.
- * @param parent
- * @param child
- * @param postErr  the POST's stderr, or null where it lands
- */
-export function answerLink(
-	parent: number,
-	child: number,
-	postErr: string | null,
-): { ok: string; warning?: string } | { error: string } {
-	if (postErr === null)
-		return {
-			ok: `linked #${child} as a sub-issue of #${parent}`,
-			warning: `warning — the loop check was partial: could not read #${child} (HTTP 404: Not Found); linking anyway, and check-issue-cycles.js is the backstop.`,
-		};
-	if (/7 layers/.test(postErr))
-		return {
-			error: `#${parent} is 7 layers deep — give #${child} the SAME parent as #${parent} instead, and say in its body why it is a peer (docs/agents/issue-tracker.md)`,
-		};
-	return { error: `POST failed: ${postErr.trim()}` };
+export function declarationFixtures(kit: ReturnType<typeof fileIssueKit>) {
+	const Session = "11111111-2222-3333-4444-555555555555";
+	const Slug = "-home-u-repo";
+	const DenyText =
+		"docs/doc-map.md is held by session 735db33b (pid 1), which is still running.";
+	/* A record the case names: a guard's deny, as a tool_result flagged is_error. */
+	const caseRecord = {
+		type: "user",
+		uuid: "u-case",
+		timestamp: "2026-11-01T10:00:00.000Z",
+		message: {
+			content: [
+				{
+					type: "tool_result",
+					tool_use_id: "toolu_1",
+					is_error: true,
+					content: DenyText,
+				},
+			],
+		},
+	};
+	/* The call that met the deny, on line 3: a `reads: "call"` case. */
+	const callRecord = {
+		type: "assistant",
+		uuid: "a-call",
+		timestamp: "2026-11-01T10:01:00.000Z",
+		message: {
+			content: [
+				{
+					type: "tool_use",
+					id: "toolu_2",
+					name: "Bash",
+					input: { command: "git push --force origin main" },
+				},
+			],
+		},
+	};
+	/** The session's transcript on the second seat, the case record on line 2. */
+	const seatTranscript = () => {
+		const dir = path.join(
+			path.dirname(kit.sb.home),
+			".claude2",
+			"projects",
+			Slug,
+		);
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(
+			path.join(dir, `${Session}.jsonl`),
+			[
+				{ type: "user", uuid: "u0", message: { content: "hi" } },
+				caseRecord,
+				callRecord,
+			]
+				.map((r) => `${JSON.stringify(r)}\n`)
+				.join(""),
+		);
+	};
+	const sigFile = (content: unknown) => {
+		const f = kit.at("sig.json");
+		fs.writeFileSync(f, JSON.stringify(content));
+		return f;
+	};
+	const declaring = (extra: string[]) => [
+		...filing(["takes:implement"]),
+		"--origin",
+		"code-review",
+		...extra,
+	];
+	const log = () =>
+		path.join(kit.sb.repo, "docs", "data", "outcome-signatures.jsonl");
+	const readLog = () =>
+		fs.existsSync(log())
+			? fs
+					.readFileSync(log(), "utf8")
+					.split("\n")
+					.filter(Boolean)
+					.map((l) => JSON.parse(l))
+			: [];
+	const regexSig = (pattern: string, scope = "main") => ({
+		signature: { kind: "regex", pattern, scope },
+		prediction: "the hold denials stop",
+		case: { session: Session, line: 2 },
+	});
+	return { Session, seatTranscript, sigFile, declaring, readLog, regexSig };
 }

@@ -1,32 +1,32 @@
 // @vitest-environment node
 /*
- * Pins that file-issue refuses a bad label, body, `takes:human` ticket,
- * placement or likely duplicate before any create, and that a filed issue is
- * labelled, linked under its parent and verified in one call.
+ * file-issue.js's §X11 boundary set (#5150), run through its command line on
+ * file-issue's gh fake as the WFC_GH stub and a sandboxed arbiter store
+ * (#533; the seam ruled on #500, Q1 (A)). Each case stays a program case for
+ * what only the shell wires: the exit code and streams, argv and --help, the
+ * body read from fd 0 and from a file, the real link-writer underneath (a
+ * link reported as made is one the parent side listed), the gate judge's
+ * spawn and its fallback, the session id from the env, the host clock under
+ * WFC_NOW, and the similar-title list's gh failure. The takes: value set is
+ * pinned here against each hand copy of it. Every branch — each refusal
+ * before the create among them — is pinned in lib/file-issue-core.test.ts.
  *
- * file-issue.js, driven through its command line with the gh stub and a
- * sandboxed arbiter store (#533; the seam ruled on #500, Q1 (A)).
- *
- * The real link-sub-issue.sh runs underneath, against the same stub, so a
- * link reported as made is one the parent side listed. Breaking a refusal
- * case costs the guarantee the script exists for — nothing half-filed — so
- * each asserts that no create was sent. It is the route the issue-create
- * guard sends every new ticket down, so a loosened case files tickets that
- * route to nobody or sit unplaced. The takes: value set is pinned here too,
- * against each hand copy of it.
+ * A loosened case lets the shell file a ticket half-made or unplaced on the
+ * route the issue-create guard sends every new ticket down.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { issueClaims } from "./lib/arbiter-testkit";
+import { NEW } from "./lib/file-issue-gh-fake";
 import {
-	assignCall,
+	ASSIGN_CALL,
+	declarationFixtures,
 	fileIssueKit,
 	filing,
 	listed,
 	ME,
-	NEW,
 	TRACKER,
 } from "./lib/file-issue-testkit";
 import {
@@ -197,7 +197,45 @@ describe("assignment", () => {
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(`Recorded the arbiter claim for session ${ME}.`);
 		expect(readClaimants()).toEqual([ME]);
-		expect(readGhCalls()).toContain(assignCall);
+		expect(readGhCalls()).toContain(ASSIGN_CALL);
+	});
+});
+
+describe("a fault signature (#4796)", () => {
+	const { Session, seatTranscript, sigFile, declaring, readLog, regexSig } =
+		declarationFixtures(kit);
+
+	it("files a matching regex signature and appends its line, stamped from the host clock", () => {
+		setUp();
+		seatTranscript();
+		const r = run(
+			declaring([
+				"--fault-signature",
+				sigFile(regexSig("is held by session \\w+")),
+			]),
+			{ extraEnv: { WFC_NOW: "2026-11-13T09:00:00.000Z" } },
+		);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("Signature logged");
+		const [line, ...more] = readLog();
+		expect(more).toEqual([]);
+		expect(line).toMatchObject({
+			issue: `acme/widgets#${NEW}`,
+			signature: {
+				kind: "regex",
+				pattern: "is held by session \\w+",
+				scope: "main",
+			},
+			prediction: "the hold denials stop",
+			case: { session: Session, line: 2 },
+			filedAt: "2026-11-13T09:00:00.000Z",
+		});
+		/* The create carries the label and the line less its issue (#4861). */
+		expect(readCreates()[0]).toContain("--label fault-signature");
+		const { issue: _, ...rest } = line;
+		expect(readBodySeen()).toContain(
+			`## Fault signature\n\n\`\`\`json\n${JSON.stringify(rest)}\n\`\`\`\n`,
+		);
 	});
 });
 
