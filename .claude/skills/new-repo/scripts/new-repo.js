@@ -90,7 +90,7 @@ const {
 const {
 	initPaths,
 	readManifestMarketplaceName,
-} = require("../../../../scripts/init-adopter.js");
+} = require("../../../../scripts/lib/init-adopter-core.js");
 const { installPathFor } = require("../../../../scripts/lib/plugin-state.js");
 const { requiredGroup } = require("../../../../scripts/lib/regex-group.js");
 const { inferCommands } = require("../../../../scripts/lib/infer-commands.js");

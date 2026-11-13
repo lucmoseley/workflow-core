@@ -12,8 +12,8 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { initPaths } from "../../../../scripts/init-adopter.js";
 import { HOOKS } from "../../../../scripts/lib/adopter-skeleton.js";
+import { initPaths } from "../../../../scripts/lib/init-adopter-core.js";
 import { runInProcess } from "../../../../scripts/lib/run-in-process.js";
 import {
 	builtThrough,
@@ -127,7 +127,7 @@ describe("new-repo.js copying a source repo", () => {
 		);
 		expect(before).toMatch(/^::\tscripts\/browse\.py$/m);
 		const init = runInProcess(
-			path.resolve(__dirname, "../../../../scripts/init-adopter.js"),
+			path.resolve(__dirname, "../../../../scripts/lib/init-adopter-core.js"),
 			[
 				"--root",
 				repo,

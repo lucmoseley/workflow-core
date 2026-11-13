@@ -21,7 +21,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { initPaths } from "./init-adopter.js";
 import {
 	CORE,
 	init,
@@ -37,6 +36,7 @@ import { HOOKS, renderHookShim, TOOLS } from "./lib/adopter-skeleton.js";
 import { skeletonPaths } from "./lib/core-owned-files.js";
 import { RUFF_INSTALL } from "./lib/formatters.js";
 import { stubGhScript } from "./lib/gh-stub";
+import { initPaths } from "./lib/init-adopter-core.js";
 import { installPathFor } from "./lib/plugin-state.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";

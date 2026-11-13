@@ -181,7 +181,7 @@ const ALLOWED = {
 		reason:
 			"CORE_ROOT is the second root the registry needs: an adopter's rules name the CORE's guards, which ship in the plugin and are never copied into the host repo, so a BROKEN-CLAIM would fire on every one of them (#5). rootIsCore() then joins a core script onto the HOST root deliberately — the absence it tests for is the whole discriminator, and this file is the checker's own example of it",
 	},
-	"scripts/init-adopter.js": {
+	"scripts/lib/init-adopter-core.js": {
 		tags: ["SELF-ROOTED-JS"],
 		reason:
 			"bootstraps a host repo FROM this checkout, so its own tree is the source it copies and the host's is --root (#5)",
