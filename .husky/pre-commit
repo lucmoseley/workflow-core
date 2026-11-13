@@ -536,45 +536,6 @@ if armed '^(docs/|\.claude/|hooks/|self-plugin/|AGENTS\.md$|CLAUDE\.md$|PRODUCT\
   fi
 fi
 
-# The two context caps, gated on DIRECTION rather than level (mantahostels#1224). A commit
-# that ADDS bytes and leaves a surface at or over its cap is refused, whether it
-# was over already or this commit crossed it (#1014); an over-cap total this
-# commit did not increase stays the WARN it has always been.
-#
-# --against HEAD reads both totals out of git — HEAD as the baseline, the index
-# as this commit — and never off disk, so a half-saved CLAUDE.md the commit
-# does not carry is not charged here. Same pathspec-commit dependence as the doc-map gate above.
-#
-# The first pattern is deliberately wider than the caps, so a path-by-path list
-# here cannot silently stop covering a capped file moved elsewhere.
-#
-# `scripts/` is the whole directory for the same reason (mantahostels#2004): the event cap
-# is the worst-case rule text one PreToolUse event delivers, so it is contained
-# by whichever guards the hooks wire — and naming those here would be a second
-# wiring to keep true. `self-plugin/` holds the core's wiring. Only the handful
-# the wiring reaches is actually materialised; lib/context-budget-pathspecs.js's
-# readRuleSourcePathspecs() reads them out of the hooks AT the revision.
-#
-# The second `armed` is the pool the host's config declares under `alwaysLoaded`
-# (#33), which an adopter may place outside the first. A config that will not
-# read prints nothing and fires nothing here, but editing it fires `.claude/`.
-#
-# Output is held and replayed only on a refusal or a WARN: the checker prints an
-# OK byte line on every run.
-if armed '^(CLAUDE\.md$|AGENTS\.md$|docs/|\.claude/|scripts/|self-plugin/)' ||
-  armed -F "$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/always-loaded-pool.js 2>/dev/null)"; then
-  cb_status=0
-  cb_out="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-context-budget.js --against HEAD 2>&1)" || cb_status=$?
-  case "$cb_status:$cb_out" in
-    0:*WARN:*) printf '%s\n' "$cb_out" >&2 ;;
-    0:*) : ;;
-    *)
-      printf '%s\n' "$cb_out" >&2
-      exit "$cb_status"
-      ;;
-  esac
-fi
-
 # The limit that actually binds the injected payload, which the cap above cannot
 # read: it is PER COMMAND, and check-context-budget.js sums a union larger than
 # any real variant (mantahostels#1915). This composes each command's payload from the

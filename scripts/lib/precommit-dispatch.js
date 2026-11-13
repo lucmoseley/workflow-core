@@ -7,7 +7,8 @@
  * THE EXIT CONTRACT. Rows run in order, and the first gating red ends the
  * run with that row's code: 1 for FAIL, 2 for BROKEN, a program's own code.
  * 0 means every armed row passed, skipped or only warned. Each row's stdout
- * and stderr reach fds 1 and 2 when it finishes, before the next starts.
+ * and stderr reach fds 1 and 2 when it finishes, before the next starts —
+ * except a `quietPass` row's pass with no WARN in it, whose output is dropped.
  *
  * THE FAILURE POLICY, per row. A `gate` row fails closed: a throw while its
  * module loads or while it runs is BROKEN, exit 2, with one line naming the
@@ -34,11 +35,14 @@ const { spawnGitSync } = require("./git.js");
  * @typedef {"every" | "merge" | "batch" | "none"} Lander
  * @typedef {{ status: string, path: string }} StagedEntry
  * @typedef {{ always: true }
- *   | { pattern: RegExp, live?: boolean }
+ *   | { pattern: RegExp, live?: boolean, computed?: string }
  *   | { computed: string }} Arm `live` keeps the paths armed_live would:
- *   added or modified, and still on disk
+ *   added or modified, and still on disk; a pattern row's `computed` list
+ *   arms it as well, as the hook's `armed '<ere>' || armed -F <list>` did
  * @typedef {{ exit: number, stdout: string, stderr: string }} RowResult
- * @typedef {{ id: string, lander: Lander, arm: Arm, policy: "gate" | "warn" }} Row
+ * @typedef {{ id: string, lander: Lander, arm: Arm, policy: "gate" | "warn",
+ *   quietPass?: boolean }} Row `quietPass` drops a passing run's output
+ *   unless it holds a WARN
  */
 
 /**
@@ -90,10 +94,11 @@ function readStaged(cwd) {
  */
 function armed(arm, staged, ports) {
 	if ("always" in arm) return true;
-	if ("computed" in arm) {
+	if (arm.computed !== undefined) {
 		const list = new Set(ports.computed(arm.computed));
-		return staged.some((e) => list.has(e.path));
+		if (staged.some((e) => list.has(e.path))) return true;
 	}
+	if (!("pattern" in arm)) return false;
 	return staged.some(
 		(e) =>
 			arm.pattern.test(e.path) &&
@@ -144,6 +149,8 @@ async function runRow(row, ports) {
 		const run = ports.load(row);
 		at = "run";
 		const { exit, stdout, stderr } = await run();
+		if (row.quietPass && exit === 0 && !/WARN:/.test(stdout + stderr))
+			return { exit };
 		if (stdout) ports.write(1, stdout);
 		if (stderr) ports.write(2, stderr);
 		return { exit };

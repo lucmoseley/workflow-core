@@ -23,13 +23,14 @@ import {
 
 type Arm =
 	| { always: true }
-	| { pattern: RegExp; live?: boolean }
+	| { pattern: RegExp; live?: boolean; computed?: string }
 	| { computed: string };
 interface StubRow {
 	id: string;
 	lander: "every" | "merge" | "batch" | "none";
 	arm: Arm;
 	policy: "gate" | "warn";
+	quietPass?: boolean;
 	/** What the stub's runner answers, or how it fails. */
 	result?: { exit: number; stdout?: string; stderr?: string };
 	throws?: "load" | "run";
@@ -157,6 +158,19 @@ describe("arming", () => {
 		).toEqual([]);
 	});
 
+	it("runs a pattern row on its computed list too, where no path matches the pattern", async () => {
+		const rows = [
+			row("budget", { arm: { pattern: /^docs\//, computed: "pool" } }),
+		];
+		const dir = repo({}, { "STYLE.md": "x\n" });
+		expect(
+			(await run(rows, { dir, computed: { pool: ["STYLE.md"] } })).ran,
+		).toEqual(["budget"]);
+		expect((await run(rows, { dir })).ran).toEqual([]);
+		const docs = repo({}, { "docs/a.md": "x\n" });
+		expect((await run(rows, { dir: docs })).ran).toEqual(["budget"]);
+	});
+
 	it("narrows a live row to added or modified paths still on disk, as armed_live does", async () => {
 		const live = [row("wf", { arm: { pattern: /^wf\//, live: true } })];
 		const added = repo({}, { "wf/a.yml": "a\n" });
@@ -223,6 +237,32 @@ describe("the failure policy", () => {
 			"pre-commit: the gone gate could not load: gone will not load\n",
 		);
 		expect(r.ran).toEqual([]);
+	});
+
+	it.each([
+		["drops a quiet row's pass", { exit: 0, stdout: "OK: 12 B\n" }, 0, ""],
+		[
+			"prints a quiet row's pass that WARNs",
+			{ exit: 0, stdout: "OK: 12 B\n", stderr: "WARN: over cap\n" },
+			0,
+			"OK: 12 B\nWARN: over cap\n",
+		],
+		[
+			"prints a quiet row's FAIL and refuses with its code",
+			{ exit: 1, stderr: "FAIL: over cap\n" },
+			1,
+			"FAIL: over cap\n",
+		],
+		[
+			"prints a quiet row's BROKEN and refuses with its code",
+			{ exit: 2, stderr: "BROKEN: no git\n" },
+			2,
+			"BROKEN: no git\n",
+		],
+	])("%s", async (_name, result, exit, printed) => {
+		const r = await run([row("budget", { quietPass: true, result })]);
+		expect(r.exit).toBe(exit);
+		expect(r.out + r.err).toBe(printed);
 	});
 
 	it("prints a warn row's red and goes on, never refusing", async () => {

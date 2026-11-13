@@ -17,6 +17,7 @@
  * name the staged paths, since no gate could arm.
  */
 
+const { getPoolFiles } = require("./lib/always-loaded-pool.js");
 const { checkInProcess } = require("./lib/check.js");
 const { caught } = require("./lib/caught.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
@@ -45,6 +46,32 @@ function load(row) {
 		});
 }
 
+/**
+ * The lists a `computed` arm names, each read in-process from the library
+ * that computes it. The always-loaded pool is the host config's
+ * `alwaysLoaded`, else the default; a config that will not read lists
+ * nothing, as the hook's `2>/dev/null` read did, and the row's pattern still
+ * arms on `.claude/`, where the config lives.
+ * @type {Record<string, () => string[]>}
+ */
+const COMPUTED = {
+	"always-loaded-pool": () => {
+		try {
+			return getPoolFiles();
+		} catch {
+			/* A config that will not read: the checker names it when it runs. */
+			return [];
+		}
+	},
+};
+
+/** @param {string} name */
+function computed(name) {
+	const list = COMPUTED[name];
+	if (!list) throw new Error(`no computed list is named ${name}.`);
+	return list();
+}
+
 /** @returns {Promise<number>} the hook's exit code */
 async function main() {
 	const parsed = parseOrCode(process.argv.slice(2), {
@@ -66,7 +93,7 @@ async function main() {
 		gates: gateSetOf(flagValue(parsed.flags, "--gates")),
 		ports: {
 			staged: () => staged,
-			computed: () => [],
+			computed,
 			exists: existsUnder(cwd),
 			load,
 			write: writeFd,

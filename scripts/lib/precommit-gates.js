@@ -58,6 +58,7 @@ const SITE_IDENTITY = ["severity", "tag", "file", "match"];
  * @property {"checker"} kind a lib/check.js checker exporting its SPEC
  * @property {string} [side] why its `--against`/`--index` sides spawn the
  *   checker rather than run in-process, where they do
+ * @property {boolean} [quietPass] its pass prints nothing unless it WARNs
  * @typedef {object} ProfileFields a whole-repo checker's, its faults
  *   attributed to the commit that adds them
  * @property {string} staged a path whose staging arms it
@@ -268,54 +269,6 @@ const GATES = [
 			pattern:
 				/^(self-plugin\/hooks\/hooks\.json$|\.claude\/settings\.json$|scripts\/)/,
 		},
-		policy: "gate",
-		kind: "checker",
-	},
-	/*
-	 * The user-settings snapshot against ~/.claude/settings.json, checked here
-	 * and not in CI: its source lives outside the repo, so a runner could only
-	 * ever skip. Report-only, since drift in an unrelated file must not block
-	 * an unrelated commit.
-	 */
-	{
-		id: "user-settings-drift",
-		script: "scripts/check-user-settings-drift.js",
-		lander: "batch",
-		args: ["--warn"],
-		arm: { always: true },
-		policy: "warn",
-		kind: "checker",
-	},
-	/*
-	 * The code standards' citations, §N7 exports and pythonRoutes (#1863),
-	 * scoped to what this commit touches (mantahostels#2631). Report-only by
-	 * ruling (mantahostels#1091). Always armed: a citation can point at almost
-	 * any tracked file, and the run is cheap. --touching HEAD reads the
-	 * worktree, not the index, so an unstaged edit can surface here — accepted,
-	 * since it never refuses (check-code-standards.js:27-43).
-	 */
-	{
-		id: "code-standards",
-		script: "scripts/check-code-standards.js",
-		lander: "batch",
-		args: ["--touching", "HEAD", "--warn"],
-		arm: { always: true },
-		policy: "warn",
-		kind: "checker",
-	},
-	/*
-	 * An own skill body this commit grows past its cap, reported only
-	 * (mantahostels#3136); and a skill or command body holding an unescaped
-	 * $<digit>, which the harness rewrites to an argument — that limb FAILs,
-	 * so the row gates (#1490). --touching HEAD reads the worktree, so an
-	 * unstaged edit can surface here — accepted, the fix being one escape.
-	 */
-	{
-		id: "skill-body-size",
-		script: "scripts/check-skill-body-size.js",
-		lander: "batch",
-		args: ["--touching", "HEAD"],
-		arm: { always: true },
 		policy: "gate",
 		kind: "checker",
 	},
@@ -799,6 +752,38 @@ const GATES = [
 		floor: true,
 	},
 	/*
+	 * The user-settings snapshot against ~/.claude/settings.json, checked here
+	 * and not in CI: its source lives outside the repo, so a runner could only
+	 * ever skip. Report-only, since drift in an unrelated file must not block
+	 * an unrelated commit.
+	 */
+	{
+		id: "user-settings-drift",
+		script: "scripts/check-user-settings-drift.js",
+		lander: "batch",
+		args: ["--warn"],
+		arm: { always: true },
+		policy: "warn",
+		kind: "checker",
+	},
+	/*
+	 * The code standards' citations, §N7 exports and pythonRoutes (#1863),
+	 * scoped to what this commit touches (mantahostels#2631). Report-only by
+	 * ruling (mantahostels#1091). Always armed: a citation can point at almost
+	 * any tracked file, and the run is cheap. --touching HEAD reads the
+	 * worktree, not the index, so an unstaged edit can surface here — accepted,
+	 * since it never refuses (check-code-standards.js:27-43).
+	 */
+	{
+		id: "code-standards",
+		script: "scripts/check-code-standards.js",
+		lander: "batch",
+		args: ["--touching", "HEAD", "--warn"],
+		arm: { always: true },
+		policy: "warn",
+		kind: "checker",
+	},
+	/*
 	 * A primitives row naming a path or § id that does not resolve, or a local
 	 * row taking a base row's job (#3451). Every commit, since a renamed
 	 * exemplar can sit anywhere; --paths-only keeps it to stat calls, the count
@@ -811,6 +796,22 @@ const GATES = [
 		script: "scripts/check-primitives.js",
 		lander: "batch",
 		args: ["--paths-only"],
+		arm: { always: true },
+		policy: "gate",
+		kind: "checker",
+	},
+	/*
+	 * An own skill body this commit grows past its cap, reported only
+	 * (mantahostels#3136); and a skill or command body holding an unescaped
+	 * $<digit>, which the harness rewrites to an argument — that limb FAILs,
+	 * so the row gates (#1490). --touching HEAD reads the worktree, so an
+	 * unstaged edit can surface here — accepted, the fix being one escape.
+	 */
+	{
+		id: "skill-body-size",
+		script: "scripts/check-skill-body-size.js",
+		lander: "batch",
+		args: ["--touching", "HEAD"],
 		arm: { always: true },
 		policy: "gate",
 		kind: "checker",
@@ -830,6 +831,35 @@ const GATES = [
 		arm: { pattern: /^\.github\/workflows\/[^/]+\.ya?ml$/, live: true },
 		policy: "gate",
 		kind: "checker",
+	},
+	/*
+	 * The always-loaded context budget (#1014): a commit that adds bytes and
+	 * leaves a surface at or over its cap is refused; an over-cap total it did
+	 * not increase stays a WARN. --against HEAD reads both totals out of git, so
+	 * a half-saved CLAUDE.md the commit does not carry is not charged.
+	 *
+	 * The pattern is deliberately wider than the caps, so a capped file moved
+	 * elsewhere stays covered; `scripts/` is whole, since the event cap is the
+	 * rule text the wired guards deliver (mantahostels#2004). The computed list
+	 * is the pool the host config declares under `alwaysLoaded` (#33), which an
+	 * adopter may place outside the pattern.
+	 *
+	 * Silent on a pass: its byte line on nearly every commit would teach the
+	 * reader to skip it. A WARN names an over-cap surface, so it prints.
+	 */
+	{
+		id: "context-budget",
+		script: "scripts/check-context-budget.js",
+		lander: "batch",
+		args: ["--against", "HEAD"],
+		arm: {
+			pattern:
+				/^(CLAUDE\.md$|AGENTS\.md$|docs\/|\.claude\/|scripts\/|self-plugin\/)/,
+			computed: "always-loaded-pool",
+		},
+		policy: "gate",
+		kind: "checker",
+		quietPass: true,
 	},
 ];
 

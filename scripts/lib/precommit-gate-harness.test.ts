@@ -232,11 +232,6 @@ describe("the scripts a gate invokes", () => {
 			["scripts/check-doc-map.js", "scripts/checker-new-faults.js"],
 		],
 		[
-			"context-budget",
-			"scripts/check-context-budget.js",
-			["scripts/check-context-budget.js", "scripts/lib/always-loaded-pool.js"],
-		],
-		[
 			"superseded-needle",
 			"--broken-only",
 			["scripts/check-superseded-values.js"],

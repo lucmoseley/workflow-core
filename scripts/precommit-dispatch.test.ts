@@ -81,10 +81,25 @@ function fixture(staged: Record<string, string>) {
 
 function hook(
 	staged: Record<string, string>,
-	opts: { args?: string[]; act?: string; pluginRoot?: string } = {},
+	opts: {
+		args?: string[];
+		act?: string;
+		pluginRoot?: string;
+		config?: object;
+	} = {},
 ) {
 	const { root, core } = fixture(staged);
+	if (opts.config) {
+		fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(root, ".claude", "workflow-core.json"),
+			JSON.stringify(opts.config),
+		);
+	}
 	const log = path.join(root, "load.log");
+	/* The suite pins the pool through WFC_ALWAYS_LOADED; a case declaring its
+	 * own config drops it, so the config is what the dispatcher reads. */
+	const { WFC_ALWAYS_LOADED: _pool, ...inherited } = process.env;
 	const r = spawnSync(
 		"sh",
 		["-ec", `${HOOK_BOUND_LIB}\n${LINE}`, "pre-commit", ...(opts.args ?? [])],
@@ -92,10 +107,11 @@ function hook(
 			cwd: root,
 			encoding: "utf8",
 			env: {
-				...process.env,
+				...(opts.config ? inherited : process.env),
 				GITHUB_ACTIONS: "",
 				WFC_PLUGIN_ROOT: opts.pluginRoot ?? ROOT,
 				WFC_SCRIPT_ROOT: core,
+				CLAUDE_PROJECT_DIR: root,
 				STUB_ACT: opts.act ?? "",
 				STUB_LOG: log,
 			},
@@ -136,6 +152,22 @@ describe("the hook's dispatcher line", () => {
 			armedBy("lib/page.tsx", ["every", "merge", "batch", "none"]),
 		);
 		expect(r.loaded.length).toBeGreaterThan(0);
+	});
+
+	it("arms a computed row on the pool the host config declares", () => {
+		const pooled = GATES.filter((g) => "computed" in g.arm).map((g) =>
+			path.basename(g.script, ".js"),
+		);
+		const r = hook(
+			{ "STYLE.md": "x\n" },
+			{ config: { alwaysLoaded: ["STYLE.md"] } },
+		);
+		expect(pooled.length).toBeGreaterThan(0);
+		expect(r.code).toBe(0);
+		expect(r.loaded).toEqual([
+			...armedBy("STYLE.md", ["every", "merge", "batch", "none"]),
+			...pooled,
+		]);
 	});
 
 	it("exits 1 on a member's FAIL, its report on stderr, and loads nothing after", () => {

@@ -1,15 +1,15 @@
 // @vitest-environment node
 /*
- * The pre-commit context-budget gate (mantahostels#1224), exercised as the shell it is.
+ * The pre-commit context-budget gate (mantahostels#1224), a pre-commit
+ * dispatcher row (#5172).
  *
- * `.husky/pre-commit` calls `check-context-budget.js --against HEAD` only when the
- * commit touches a path either cap can contain, and passes its exit code
- * straight through — the checker's own FAIL is what refuses the commit.
+ * The row runs `check-context-budget.js --against HEAD` only when the commit
+ * touches a path either cap can contain, or a pool file the host config
+ * declares. What the dispatcher does with its exit, and its quiet pass, are
+ * scripts/lib/precommit-dispatch.test.ts's; what the checker FINDS is
+ * check-context-budget.test.ts's.
  *
- * The checker is stubbed in each fixture so both exit codes can be driven; what
- * it FINDS is pinned in check-context-budget.test.ts, not here.
- *
- * It is a hard gate in `.husky/pre-commit`: loosen a case and a commit growing
+ * It is a hard gate: loosen a case and a commit growing
  * an always-loaded file, guard or injected doc past its cap lands unrefused,
  * and every later session pays those bytes before it does any work.
  *
@@ -18,17 +18,13 @@
  * runtime, so no literal names them.
  */
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-	armingPattern,
-	cutGateFragment,
-	registerTempCleanup,
-	stagedRepo,
-} from "./lib/precommit-gate-harness";
-import { coreCall, HOOK, LIB, ROOT } from "./lib/precommit-gate-testkit";
+import { dispatch, existsUnder, readStaged } from "./lib/precommit-dispatch.js";
+import { registerTempCleanup, stagedRepo } from "./lib/precommit-gate-harness";
+import { ROOT } from "./lib/precommit-gate-testkit";
+import { GATES } from "./lib/precommit-gates.js";
 
 const CHECKER = "scripts/check-context-budget.js";
 /* The event cap's inputs, read the checker's own way rather than restated. */
@@ -43,56 +39,37 @@ const { TRACKER_TEXT, materialisePathspecs } =
 /* Materialised but moving no capped total, so the gate need not fire on it:
  * the vendored skills a `.claude/skills` symlink points into. */
 const VENDORED_SOURCE = ".agents/skills";
-const STUB_MARKER = "STUB-CHECK-RAN";
 
 const temps = registerTempCleanup();
-const gateFragment = () => cutGateFragment(`${CHECKER} --against HEAD`);
 
-/**
- * A repo with one commit, a stubbed checker, and `staged` staged on top.
- *
- * The stub TOUCHES a file rather than printing: the gate holds the checker's
- * output and replays it only on a refusal or a WARN, so "did it run" cannot be
- * read off stdout.
- */
-function fixture(
+const row = GATES.find((g) => g.script === CHECKER);
+if (!row || !("pattern" in row.arm))
+	throw new Error(`no pattern row for ${CHECKER} in lib/precommit-gates.js`);
+const ROW = row;
+const PATTERN = row.arm.pattern;
+
+/** Whether the dispatcher runs the row on `staged`, the pool being `pool`. */
+async function fires(
 	staged: Record<string, string>,
-	checkerExit = 0,
-	extraLine = "",
-): string {
-	const checker =
-		`require("node:fs").writeFileSync("${STUB_MARKER}", "");\n` +
-		`console.log("${STUB_MARKER}");\n` +
-		(extraLine ? `console.error(${JSON.stringify(extraLine)});\n` : "") +
-		`process.exit(${checkerExit});\n`;
-	return stagedRepo(
-		"ctx-budget-gate-",
-		temps,
-		{ "scripts/check-context-budget.js": checker },
-		staged,
-	).root;
-}
-
-const ran = (root: string) => fs.existsSync(path.join(root, STUB_MARKER));
-
-function runGate(cwd: string): { code: number; output: string } {
-	// stderr merged in: the gate replays the checker's held output there, and on
-	// a WARN it does so while still exiting 0.
-	const script = `{\n${LIB}\n${gateFragment()}\n} 2>&1`;
-	try {
-		const out = execFileSync("sh", ["-c", script], {
-			cwd,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		return { code: 0, output: out };
-	} catch (e) {
-		const err = e as { status?: number; stdout?: string; stderr?: string };
-		return {
-			code: err.status ?? 1,
-			output: `${err.stdout ?? ""}${err.stderr ?? ""}`,
-		};
-	}
+	pool: string[] = [],
+): Promise<boolean> {
+	const { root } = stagedRepo("ctx-budget-gate-", temps, {}, staged);
+	let ran = false;
+	await dispatch({
+		rows: [ROW],
+		gates: "all",
+		ports: {
+			staged: () => readStaged(root),
+			computed: (name) => (name === "always-loaded-pool" ? pool : []),
+			exists: existsUnder(root),
+			load: () => () => {
+				ran = true;
+				return { exit: 0, stdout: "", stderr: "" };
+			},
+			write: () => undefined,
+		},
+	});
+	return ran;
 }
 
 interface PreToolUseSettings {
@@ -118,20 +95,24 @@ const readRepoFile = (rel: string) => {
 	}
 };
 
-describe("the pre-commit context-budget gate", () => {
-	it("is wired into .husky/pre-commit", () => {
-		expect(HOOK).toContain(`${coreCall("node", CHECKER)} --against HEAD`);
+describe("the pre-commit context-budget row", () => {
+	it("is a gating checker row, silent on a pass, armed on the always-loaded pool too", () => {
+		expect(ROW).toMatchObject({
+			policy: "gate",
+			kind: "checker",
+			args: ["--against", "HEAD"],
+			quietPass: true,
+			arm: { computed: "always-loaded-pool" },
+		});
 	});
 
 	/*
-	 * The hook's arming pattern is a second spelling of the paths the checker's
+	 * The row's arming pattern is a second spelling of the paths the checker's
 	 * `--against` materialises. A path the checker measures but the pattern does
 	 * not match is a surface the gate silently stops covering, which is the
 	 * drift this asserts against.
 	 */
-	function armingRegex(): RegExp {
-		return new RegExp(armingPattern(`${CHECKER} --against HEAD`));
-	}
+	const armingRegex = () => PATTERN;
 
 	it("triggers on every path --against materialises, the vendored source aside", () => {
 		const ctx = {
@@ -206,60 +187,25 @@ describe("the pre-commit context-budget gate", () => {
 			);
 	});
 
-	/* An adopter's declared pool file outside the grep (#33), read off the pool
-	 * module the hook runs — stubbed here, as the checker is. */
-	it("fires on a declared pool file outside the grep, and not on its neighbour", () => {
-		const stubPool = (root: string) => {
-			fs.mkdirSync(path.join(root, "scripts", "lib"), { recursive: true });
-			fs.writeFileSync(
-				path.join(root, "scripts", "lib", "always-loaded-pool.js"),
-				'console.log("CLAUDE.md\\nSTYLE.md");\n',
-			);
-		};
-		const declared = fixture({ "STYLE.md": "x\n" });
-		stubPool(declared);
-		expect(runGate(declared).code).toBe(0);
-		expect(ran(declared)).toBe(true);
-
-		const neighbour = fixture({ "STYLE.md.bak": "x\n" });
-		stubPool(neighbour);
-		expect(runGate(neighbour).code).toBe(0);
-		expect(ran(neighbour)).toBe(false);
+	/* An adopter's declared pool file outside the pattern (#33). */
+	it("fires on a declared pool file outside the pattern, and not on its neighbour", async () => {
+		const pool = ["CLAUDE.md", "STYLE.md"];
+		expect(await fires({ "STYLE.md": "x\n" }, pool)).toBe(true);
+		expect(await fires({ "STYLE.md.bak": "x\n" }, pool)).toBe(false);
 	});
 
-	it("does not fire on a commit touching none of them", () => {
-		const root = fixture({ "app/page.tsx": "x\n" }, 1);
-		expect(runGate(root).code).toBe(0);
-		expect(ran(root)).toBe(false);
+	it("does not fire on a commit touching none of them", async () => {
+		expect(await fires({ "app/page.tsx": "x\n" })).toBe(false);
 	});
 
 	/* `scripts/` moved INSIDE the scope at mantahostels#2004 — the event cap is contained by
 	 * the guards under it — so the lookalike is a path that merely reads like a
 	 * capped one. */
-	it("does not fire on a lookalike path outside the capped scope", () => {
-		const root = fixture({ "app/docs-helper.js": "x\n" }, 1);
-		expect(runGate(root).code).toBe(0);
-		expect(ran(root)).toBe(false);
+	it("does not fire on a lookalike path outside the capped scope", async () => {
+		expect(await fires({ "app/docs-helper.js": "x\n" })).toBe(false);
 	});
 
-	/*
-	 * The gate is silent on a pass and speaks on a WARN. A byte line at every
-	 * docs commit is what teaches the reader to skip the gate; a WARN names a
-	 * surface that is over cap, which is worth one line even when unrefused.
-	 */
-	it("holds the checker's output on a pass", () => {
-		expect(runGate(fixture({ "CLAUDE.md": "x\n" })).output).not.toContain(
-			STUB_MARKER,
-		);
-	});
-
-	it("replays it on a WARN, which exits 0 and would otherwise go unseen", () => {
-		const r = runGate(fixture({ "CLAUDE.md": "x\n" }, 0, "WARN: over cap"));
-		expect(r.code).toBe(0);
-		expect(r.output).toContain("WARN: over cap");
-	});
-
-	for (const rel of [
+	it.each([
 		"CLAUDE.md",
 		"AGENTS.md",
 		"docs/working-contract.md",
@@ -268,28 +214,7 @@ describe("the pre-commit context-budget gate", () => {
 		".claude/commands/thing.md",
 		".claude/agents/scout.md",
 		"scripts/lib/tracker-inject-text.js",
-	]) {
-		it(`fires on a commit staging ${rel}`, () => {
-			const root = fixture({ [rel]: "x\n" });
-			runGate(root);
-			expect(ran(root)).toBe(true);
-		});
-	}
-
-	it("refuses the commit with the checker's own exit code", () => {
-		const failRoot = fixture({ "CLAUDE.md": "x\n" }, 1);
-		const fail = runGate(failRoot);
-		expect(fail.code).toBe(1);
-		expect(ran(failRoot)).toBe(true);
-		expect(fail.output).toContain(STUB_MARKER);
-
-		// BROKEN is passed through rather than flattened, AND its output is
-		// replayed rather than swallowed: the exit-code check alone would still
-		// pass if the gate dropped the `printf` that replays it.
-		const brokenRoot = fixture({ "CLAUDE.md": "x\n" }, 2);
-		const broken = runGate(brokenRoot);
-		expect(broken.code).toBe(2);
-		expect(ran(brokenRoot)).toBe(true);
-		expect(broken.output).toContain(STUB_MARKER);
+	])("fires on a commit staging %s", async (rel) => {
+		expect(await fires({ [rel]: "x\n" })).toBe(true);
 	});
 });

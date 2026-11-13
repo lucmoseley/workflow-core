@@ -25,6 +25,7 @@ import {
 	type TempRepo,
 } from "./lib/precommit-gate-harness";
 import { coreCall, HOOK, LIB } from "./lib/precommit-gate-testkit";
+import { GATES } from "./lib/precommit-gates.js";
 
 const CHECKER = "scripts/check-injector-margin.js";
 const { TRACKER_TEXT } =
@@ -93,16 +94,18 @@ describe("the pre-commit injector-margin gate", () => {
 	});
 
 	it("runs after the context-budget gate, which is the cheaper, broader one", () => {
-		// Positions of the CALL lines, never of a comment naming the checker:
-		// `indexOf` on the raw text would compare one gate's commentary against the
-		// other gate's call and still read as ordered.
+		// The budget is a dispatcher row, so the dispatcher's CALL line comes
+		// first — never a comment naming either checker.
 		const lines = HOOK.split("\n");
 		const callOf = (needle: string) =>
 			lines.findIndex(
 				(l) => l.includes(needle) && !l.trimStart().startsWith("#"),
 			);
-		expect(callOf(BUDGET)).toBeGreaterThan(-1);
-		expect(callOf(CHECKER)).toBeGreaterThan(callOf(BUDGET));
+		expect(GATES.some((g) => g.script === BUDGET)).toBe(true);
+		expect(callOf("scripts/precommit-dispatch.js")).toBeGreaterThan(-1);
+		expect(callOf(CHECKER)).toBeGreaterThan(
+			callOf("scripts/precommit-dispatch.js"),
+		);
 	});
 
 	it("arms on exactly the files the checker measures", () => {

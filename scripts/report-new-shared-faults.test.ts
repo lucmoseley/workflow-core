@@ -28,7 +28,7 @@ import {
 	commitOverSequencer,
 	cutPostCommitBlock,
 } from "./lib/precommit-gate-testkit";
-import { PROFILE_GATES as GATES } from "./lib/precommit-gates.js";
+import { GATES } from "./lib/precommit-gates.js";
 import {
 	CHECKERS_ENV,
 	lines,

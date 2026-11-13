@@ -167,6 +167,7 @@ const HOOK_ERE: Record<string, string> = {
 	"scripts/check-vendored-skills.js": String.raw`^(\.agents/skills/|\.agents/vendored-skill-edits\.json$|skills-lock\.json$|\.claude/skills/THIRD-PARTY-NOTICES\.md$)`,
 	"scripts/check-hook-liveness.js": String.raw`^(self-plugin/hooks/hooks\.json$|\.claude/settings\.json$|scripts/)`,
 	"scripts/check-workflow-permissions.js": String.raw`^\.github/workflows/[^/]+\.ya?ml$`,
+	"scripts/check-context-budget.js": String.raw`^(CLAUDE\.md$|AGENTS\.md$|docs/|\.claude/|scripts/|self-plugin/)`,
 };
 
 /** Every row arming on a path pattern, which HOOK_ERE pins. */
@@ -212,6 +213,11 @@ const PATHS = [
 	".agents/skills/x/SKILL.md",
 	".agents/vendored-skill-edits.json",
 	"skills-lock.json",
+	"CLAUDE.md",
+	"AGENTS.md",
+	"CLAUDE.md.bak",
+	"self-plugin/hooks/hooks.json",
+	"app/docs-helper.js",
 	".claude/skills/THIRD-PARTY-NOTICES.md",
 	"self-plugin/hooks/hooks.json",
 	"self-plugin/a.json",
