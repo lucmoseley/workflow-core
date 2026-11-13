@@ -1272,8 +1272,31 @@ describe("turning the adopter's hooks into shims on every run (#104, #1839)", ()
 		upgrade({ root, pluginRoot, out: (l) => lines.push(l) });
 		expect(read("pre-commit")).toBe("#!/usr/bin/env sh\n# adopter's own\n");
 		expect(lines.filter((l) => l.includes(".husky/pre-commit"))).toEqual([
-			"skipped .husky/pre-commit — the adopter's own hook (no shim marker or WFC_PLUGIN_ROOT line), so the core's pre-commit gate does not run there",
+			"skipped .husky/pre-commit — the adopter's own hook (no shim marker or WFC_PLUGIN_ROOT line), so the core's pre-commit gate does not run there; move its own gates to .husky/pre-commit.local and delete it, and the next upgrade writes the shim",
 		]);
+	});
+
+	it("offers no .local way out for a hook whose core copy sources none", () => {
+		bump();
+		write(root, ".husky/pre-push", "#!/usr/bin/env sh\n# adopter's own\n");
+		const lines: string[] = [];
+		upgrade({ root, pluginRoot, out: (l) => lines.push(l) });
+		expect(lines.filter((l) => l.includes(".husky/pre-push"))).toEqual([
+			"skipped .husky/pre-push — the adopter's own hook (no shim marker or WFC_PLUGIN_ROOT line), so the core's pre-push gate does not run there",
+		]);
+	});
+
+	it("keeps an adopter's commit-msg refusals in .husky/commit-msg.local behind the plain shim, saying nothing of either (#5142)", () => {
+		bump();
+		const local = 'grep -q WIP "$1" && exit 1 || :\n';
+		write(root, ".husky/commit-msg", renderHookShim("commit-msg"));
+		fs.chmodSync(path.join(root, ".husky/commit-msg"), 0o755);
+		write(root, ".husky/commit-msg.local", local);
+		const lines: string[] = [];
+		upgrade({ root, pluginRoot, out: (l) => lines.push(l) });
+		expect(read("commit-msg")).toBe(renderHookShim("commit-msg"));
+		expect(read("commit-msg.local")).toBe(local);
+		expect(lines.filter((l) => l.includes(".husky/commit-msg"))).toEqual([]);
 	});
 
 	it("names the conversion under --dry-run and writes nothing", () => {

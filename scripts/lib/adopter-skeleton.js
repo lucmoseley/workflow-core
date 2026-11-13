@@ -360,6 +360,10 @@ const FAIL_OPEN_HOOKS = new Set([
 	"post-checkout",
 ]);
 
+/** The hooks whose core copy sources an adopter's own `.husky/<hook>.local`
+ * last (#437, #5142). */
+const LOCAL_HOOKS = ["pre-commit", "commit-msg"];
+
 /** A line every shim carries, which tells it from an adopter's own hook. */
 const SHIM_MARK = "# workflow-core hook shim:";
 
@@ -386,8 +390,8 @@ function renderHookShim(hook) {
 		: "refused: no workflow-core resolves to run this repo's gates.";
 	return `#!/usr/bin/env sh
 ${SHIM_MARK} core-owned; init and upgrade write it and a plugin
-# bump leaves it unchanged. A pre-commit gate of this repo's own goes in
-# .husky/pre-commit.local.
+# bump leaves it unchanged. A gate of this repo's own goes in
+# ${LOCAL_HOOKS.map((h) => `.husky/${h}.local`).join(" or ")}.
 #
 # IMPLICIT:  on every ${hook}, finds workflow-core through scripts/lib/resolve-core.js and runs that core's .husky/${hook}; ${failOpen ? "where none resolves, says so and lets git go on" : "where none resolves, refuses"}.
 # JUSTIFIED: fail-safe — a hook naming no plugin path cannot be left pointing at a pruned version or at another machine's install (#1839).
@@ -834,6 +838,7 @@ module.exports = {
 	settingsKeys,
 	labelPlan,
 	HOOKS,
+	LOCAL_HOOKS,
 	hookRootOf,
 	HELPERS,
 	TOOLS,

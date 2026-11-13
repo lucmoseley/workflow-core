@@ -23,6 +23,7 @@ import {
 	HOOK,
 	LIB,
 	LOCAL_GATE_OPEN,
+	LOCAL_HOOK_LIB,
 } from "./lib/precommit-gate-testkit";
 
 const temps = registerTempCleanup();
@@ -48,7 +49,7 @@ function fixture(opts: {
 }
 
 function run(root: string) {
-	const script = `${LIB}\n\n${cutLocalGateBlock()}\necho REACHED-END\n`;
+	const script = `${LIB}\n${LOCAL_HOOK_LIB}\n\n${cutLocalGateBlock()}\necho REACHED-END\n`;
 	const r = spawnSync("sh", ["-e", "-c", script], {
 		cwd: root,
 		encoding: "utf8",

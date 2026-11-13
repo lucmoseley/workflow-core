@@ -14,7 +14,7 @@
  * tree, a half-saved edit included, and not the adopter's pinned release —
  * so the caller names the entry it ran.
  *
- * Measured in UTF-16 units, the harness's and scripts/check-injector-margin.sh's
+ * Measured in UTF-16 units, the harness's and scripts/check-injector-margin.js's
  * unit, so a figure here compares with that gate's.
  */
 

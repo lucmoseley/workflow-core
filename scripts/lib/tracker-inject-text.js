@@ -2,10 +2,9 @@
  * tracker-inject-text.js — every string inject-tracker-docs.js hands a tracker
  * command, and how one command's payload is put together from them (#5151).
  *
- * NO REQUIRE, ON PURPOSE. check-context-budget.js and lib/injector-margin.js
- * (check-injector-margin.sh's measure) evaluate a revision's copy of this file
- * out of git, where its siblings are not beside it (lib/load-text-module.js);
- * a require here breaks both reads.
+ * NO REQUIRE, ON PURPOSE. check-context-budget.js and check-injector-margin.js
+ * evaluate a revision's copy of this file where its siblings are not beside it
+ * (lib/load-text-module.js); a require here breaks both reads.
  *
  * WHAT IT HOLDS IS RULES, NOT DOCUMENTS: prose held here, so a renamed or
  * unreadable document cannot empty the payload. What stays pasted is
@@ -17,7 +16,7 @@
  * GROWING THIS SPENDS THE 10,000-CHARACTER BUDGET every command's payload fits
  * inside (lib/hook-limits.js's HOOK_PERSIST_CHARS). Cross it and that
  * command's payload is persisted to a file instead, which sessions seldom open
- * (mantahostels#1870). check-injector-margin.sh refuses a commit that crosses
+ * (mantahostels#1870). check-injector-margin.js refuses a commit that crosses
  * it, and inject-tracker-docs.test.ts asserts every command under it.
  */
 
@@ -141,28 +140,42 @@ const DEVIATIONS_READ_FALLBACK =
 const DISPOSITION_FALLBACK =
 	"Give every review finding a destination, as docs/agents/rules/review-finding-destination.txt says.";
 
+/**
+ * /code-review's rules part by part, in payload order: the one composition the
+ * hook sends and both injector checkers measure. `fragment` answers a rule
+ * fragment's text, or "" where it cannot be read, its fallback then standing in.
+ * @param {{standardsState: "base" | "local" | "neither" | "both", standardsBase: string, glossary: string | null, reviewType: string, sidSuffix: string, fragment: (id: string) => string}} host
+ */
+function codeReviewParts({
+	standardsState,
+	standardsBase,
+	glossary,
+	reviewType,
+	sidSuffix,
+	fragment,
+}) {
+	const standards = standardsText(standardsState, standardsBase);
+	return [
+		glossary === null ? standards : withGlossary(standards, glossary),
+		dispatchText(
+			reviewType,
+			sidSuffix,
+			fragment("review-dispatch-shape") || DISPATCH_SHAPE_FALLBACK,
+		),
+		fragment("review-deviations-read") || DEVIATIONS_READ_FALLBACK,
+		ULTRA,
+		fragment("review-finding-destination") || DISPOSITION_FALLBACK,
+	];
+}
+
 /** /code-review takes the priced-options rule ALONE, not the tracker index: it
  * files an issue only where a finding needs one. These reach a TYPED
  * /code-review only; one loaded through the Skill tool takes the same rules
  * from lib/review-rules.js (mantahostels#3451). Keep the two in step.
- * @param {{standards: string, dispatch: string, deviationsRead: string, disposition: string, pricedOptions: string}} parts */
-const codeReviewRules = ({
-	standards,
-	dispatch,
-	deviationsRead,
-	disposition,
-	pricedOptions,
-}) =>
+ * @param {Parameters<typeof codeReviewParts>[0]} host @param {string} pricedOptions */
+const codeReviewRules = (host, pricedOptions) =>
 	"You invoked /code-review, whose vendored skill file cannot carry project rules. " +
-	standards +
-	" " +
-	dispatch +
-	" " +
-	deviationsRead +
-	" " +
-	ULTRA +
-	" " +
-	disposition +
+	codeReviewParts(host).join(" ") +
 	pricedOptions;
 
 /* /wayfinder's own clauses: the write-back rule for a disposed finding
@@ -357,18 +370,19 @@ module.exports = {
 	COMMANDS,
 	TAKES_READ,
 	PRICED_OPTIONS_POINTER,
-	DISPATCH_SHAPE_FALLBACK,
-	DEVIATIONS_READ_FALLBACK,
-	DISPOSITION_FALLBACK,
-	ULTRA,
 	WAYFINDER_CLAUSES,
 	INDEX,
 	INDEX_LINES,
 	CLOSING_STEPS,
+	DISPATCH_SHAPE_FALLBACK,
+	DEVIATIONS_READ_FALLBACK,
+	DISPOSITION_FALLBACK,
+	ULTRA,
 	pricedOptionsWhole,
 	standardsText,
 	withGlossary,
 	dispatchText,
+	codeReviewParts,
 	codeReviewRules,
 	trackerIndex,
 	header,

@@ -10,6 +10,10 @@
 
 const vm = require("node:vm");
 
+/* The text module's repo-relative path: the name each reader quotes, and the
+ * path it is materialised at. */
+const TRACKER_TEXT = "scripts/lib/tracker-inject-text.js";
+
 /* A hung copy is BROKEN. */
 const EVAL_TIMEOUT_MS = 2000;
 
@@ -29,4 +33,4 @@ function loadTextModule(source, filename) {
 	return module.exports;
 }
 
-module.exports = { loadTextModule };
+module.exports = { TRACKER_TEXT, loadTextModule };
