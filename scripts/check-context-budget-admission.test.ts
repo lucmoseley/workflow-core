@@ -159,7 +159,13 @@ describe("the admission gate at --against HEAD", () => {
 		baseline();
 		claude("**Keep the shared tree on `main`.** It is shared.");
 		stage("CLAUDE.md");
-		expect(gate().status).not.toBe(0);
+		const refused = gate();
+		expect(refused.status).toBe(1);
+		expect(refused.json.added).toEqual([
+			expect.stringMatching(
+				/^unadmitted: CLAUDE\.md:3 adds the pool rule "Keep the shared tree on `main`\.", /,
+			),
+		]);
 
 		ledger({ headline: "Keep the shared tree on `main`." });
 		stage(LEDGER);
