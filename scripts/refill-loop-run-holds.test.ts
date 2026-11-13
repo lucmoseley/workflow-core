@@ -949,7 +949,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 	const Job = "job7";
 	const Run = "run with a limit-held launch";
 	const jobFile = () => path.join(seat, "jobs", Job, "state.json");
-	const Admitted = ADMISSION_VERDICT.memory.working.count;
+	const Admitted = ADMISSION_VERDICT.memory.live.count;
 	const concurrencyRow = () =>
 		JSON.parse(readLines(at("concurrency.jsonl"))[0]);
 
@@ -998,7 +998,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 		);
 	};
 
-	it("resumes under its own seat once a fresh reading reads open, takes its slot, comments, counts it working, its claim kept (#3778, #2968)", async () => {
+	it("resumes under its own seat once a fresh reading reads open, takes its slot, comments, counts it live, its claim kept (#3778, #2968)", async () => {
 		seed();
 		weekAt(10);
 		arbiterAs("s-job7", "claim-issue", "7");
@@ -1025,7 +1025,7 @@ describe("a session held on its seat's limit (#3735)", () => {
 		/* Its slot went to the resume, so the frontier's #5 launched nothing. */
 		expect(r.stdout).toContain("no free slot");
 		expect(concurrencyRow()).toMatchObject({
-			working: Admitted + 1,
+			live: Admitted + 1,
 			ceiling: Admitted + 1,
 		});
 		expect(arbiterAs("s-job7", "issue-claims")).toContain("s-job7");

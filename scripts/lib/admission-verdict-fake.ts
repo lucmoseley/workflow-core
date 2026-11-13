@@ -41,7 +41,7 @@ export const ADMISSION_VERDICT = {
 		unknown: null,
 	},
 	memory: {
-		working: { count: 2, mb: 1200 },
+		live: { count: 2, mb: 1200 },
 		finished: { count: 0, mb: 0 },
 		pool: { mb: 106 },
 		other: { mb: 1000 },
