@@ -75,7 +75,7 @@ before it ever looked** (mantahostels#2019). Prior art to copy, by file and test
   guard that does not exist"` and `"fails when the guard exists but nothing
   triggers it, as UNWIRED"` — a structural pin off the checker's own `--json`
   envelope: `findings[0].detail`.
-- `scripts/lib/doc-map-gate-ports.test.ts`, `"refuses the commit, naming the
+- `scripts/lib/doc-map-gate-program.test.ts`, `"refuses the commit, naming the
   row and the regeneration command"` — a real-checker fixture, pinned on the
   refusal text naming the row and the fix command.
 - `scripts/lib/doc-map-gate.test.ts`, `"fails closed when the comparison

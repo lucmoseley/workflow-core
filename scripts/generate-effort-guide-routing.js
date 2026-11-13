@@ -31,7 +31,8 @@ const {
 } = require("./lib/model-table.js");
 const { claimDataFile } = require("./lib/doc-map-generator");
 const { caught } = require("./lib/caught.js");
-const { capture, writeFd } = require("./lib/write-fd.js");
+const { capture } = require("./lib/check-sink.js");
+const { writeFd } = require("./lib/write-fd.js");
 
 const DEFAULT_GUIDE = "docs/effort-guide.md";
 const BEGIN =

@@ -27,4 +27,16 @@ class BufferSink {
 	}
 }
 
-module.exports = { FD_SINK, BufferSink };
+/**
+ * Runs `run` against a BufferSink's writer, for a CLI core the pre-commit
+ * dispatcher runs as a program row in its own process.
+ * @param {(write: import("./write-fd.js").Write) => number} run
+ * @returns {{ exit: number, stdout: string, stderr: string }}
+ */
+function capture(run) {
+	const sink = new BufferSink();
+	const exit = run((fd, text) => sink.write(fd, text));
+	return { exit, stdout: sink.stdout, stderr: sink.stderr };
+}
+
+module.exports = { FD_SINK, BufferSink, capture };

@@ -2,7 +2,7 @@
  * doc-map-gate.js — the pre-commit doc-map gate's core (mantahostels#390, #5155): runs
  * check-doc-map.js over this commit's index, refuses only the faults this
  * commit adds, and replays what a held green report must not hide.
- * lib/doc-map-gate-ports.js wires it as the pre-commit dispatcher's doc-map row.
+ * lib/doc-map-gate-program.js wires it as the pre-commit dispatcher's doc-map row.
  *
  * THE INDEX CARRIES THE COMMIT'S SCOPE (mantahostels#1922). A pathspec commit
  * (`git commit -m … -- <paths>`) makes git hand the hook its own

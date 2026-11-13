@@ -32,7 +32,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { PROGRAM } from "./lib/doc-map-gate-ports.js";
+import { PROGRAM } from "./lib/doc-map-gate-program.js";
 import { dispatch } from "./lib/precommit-dispatch.js";
 import {
 	cutGateScript,

@@ -10,6 +10,9 @@
  *
  * The core's policy over stub rows is scripts/lib/precommit-dispatch.test.ts.
  *
+ * Breaking it costs the hook's own contract: a dispatcher whose exit the
+ * hook drops lets every red gate's commit through.
+ *
  * spawn-kept: the hook line is a real `sh` running a real Node process.
  */
 

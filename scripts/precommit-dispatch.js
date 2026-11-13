@@ -21,10 +21,6 @@
  */
 
 const { constants } = require("node:os");
-const v8 = require("node:v8");
-const vm = require("node:vm");
-const { getPoolFiles } = require("./lib/always-loaded-pool.js");
-const { checkInProcess } = require("./lib/check.js");
 const { caught } = require("./lib/caught.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const {
@@ -34,75 +30,10 @@ const {
 	readStaged,
 	STOPPED_LINE,
 } = require("./lib/precommit-dispatch.js");
-const { fromCoreRoot, GATES } = require("./lib/precommit-gates.js");
+const { computed, load } = require("./lib/precommit-dispatch-ports.js");
+const { GATES } = require("./lib/precommit-gates.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
-
-/*
- * A full collection before each row. The members share one heap, and the
- * garbage an earlier row leaves makes a later one slower: measured on a
- * scripts/ commit, the last row (context budget) took 1-2 s more CPU after
- * the others than alone, and collecting between rows gave it back and cut
- * the run's own CPU by 1.8 s (#5172). Exposed from inside the process, as
- * the hook's `node` line carries no flag.
- */
-v8.setFlagsFromString("--expose-gc");
-const collect = vm.runInNewContext("gc");
-
-/**
- * The runner one row names, run in-process after a collection: a program's
- * exported PROGRAM over the working directory, or a checker's exported SPEC.
- * @param {import("./lib/precommit-gates.js").PrecommitGate} row
- */
-function load(row) {
-	const script = fromCoreRoot(row.script);
-	if (row.kind === "program") {
-		const { PROGRAM } = require(script);
-		if (!PROGRAM) throw new Error(`${row.script} exports no PROGRAM.`);
-		return () => {
-			collect();
-			return PROGRAM({ cwd: process.cwd(), env: process.env });
-		};
-	}
-	const { SPEC } = require(script);
-	if (!SPEC) throw new Error(`${row.script} exports no SPEC.`);
-	return () => {
-		collect();
-		return checkInProcess(SPEC, row.args, {
-			script,
-			sides: row.side ? "spawn" : "in-process",
-		});
-	};
-}
-
-/**
- * The lists a `computed` arm names, each read in-process from the library
- * that computes it. The always-loaded pool is the host config's
- * `alwaysLoaded`, else the default; a config that will not read lists
- * nothing, and the row's pattern still arms on `.claude/`, where the config
- * lives. The rule-fragment sources are
- * the generator's own list, so the row cannot arm on fewer than it scans.
- * @type {Record<string, () => string[]>}
- */
-const COMPUTED = {
-	"rule-fragment-sources": () =>
-		require("./generate-rule-fragments.js").SOURCES,
-	"always-loaded-pool": () => {
-		try {
-			return getPoolFiles();
-		} catch {
-			/* A config that will not read: the checker names it when it runs. */
-			return [];
-		}
-	},
-};
-
-/** @param {string} name */
-function computed(name) {
-	const list = COMPUTED[name];
-	if (!list) throw new Error(`no computed list is named ${name}.`);
-	return list();
-}
 
 /**
  * Catches SIGINT, SIGTERM and SIGHUP for the rest of the process, and answers
@@ -144,7 +75,7 @@ async function main() {
 			2,
 			code === null ? `pre-commit: ${caught(e).message}\n` : STOPPED_LINE,
 		);
-		process.exit(code ?? 1);
+		return code ?? 1;
 	}
 	return dispatch({
 		rows: GATES,
@@ -159,8 +90,6 @@ async function main() {
 		},
 	});
 }
-
-module.exports = { computed, load };
 
 if (require.main === module)
 	main().then(

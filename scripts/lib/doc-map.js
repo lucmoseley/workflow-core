@@ -544,7 +544,7 @@ function parseEntries(text, idPattern) {
 // owner documents carry, so an unregistered one is never re-read when they change.
 //
 // The pre-commit doc-map row's arm spells the same set to decide whether to run
-// the gate at all; lib/doc-map-gate-ports.test.ts asserts the two stay in step.
+// the gate at all; lib/doc-map-gate-program.test.ts asserts the two stay in step.
 const SCOPE = [
 	"docs",
 	".claude",
