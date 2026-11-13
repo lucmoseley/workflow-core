@@ -193,13 +193,16 @@ function checkEntry(e, at) {
 		);
 }
 
-/** An absolute path, bare or single-quoted as `shellQuote` renders it, up to
- * its last `/scripts/`. */
-const PLUGIN_ROOT = /(?<![\w./~-])(?:'\/[^']*'|\/[^\s`'"]*)\/scripts\//g;
+/** An absolute path opening a word, bare or quoted as `shellQuote` renders
+ * it, up to its last `/scripts/`: any `--plugin-root` an adopter names is one, so no
+ * narrower shape holds. Residual: two headlines naming one script under two
+ * unrelated trees share a key. */
+const ABSOLUTE_SCRIPTS_PREFIX =
+	/(?<=^|[\s`])(?:'\/[^']*'(?:\\''[^']*')*|\/[^\s`'"]*)\/scripts\//g;
 
 /** @param {{ file: string, headline: string }} x */
 const keyOf = (x) =>
-	`${x.file}\n${squash(x.headline).replace(PLUGIN_ROOT, "scripts/")}`;
+	`${x.file}\n${squash(x.headline).replace(ABSOLUTE_SCRIPTS_PREFIX, "scripts/")}`;
 
 /**
  * @param {{ file: string, line: number, headline: string }[]} items

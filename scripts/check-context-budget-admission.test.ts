@@ -181,6 +181,7 @@ describe("the admission gate at --against HEAD", () => {
 		for (const root of [
 			`/home/u/.claude2/${cache}/2.2.0/`,
 			`${shellQuote("/home/u/my seat/plugins")}/`,
+			`${shellQuote("/home/u/it's/plugins")}/`,
 			"",
 		]) {
 			ledger(
@@ -198,7 +199,13 @@ describe("the admission gate at --against HEAD", () => {
 			{ headline: rendered.replace("Wait with", "Block on") },
 		);
 		stage(LEDGER);
-		expect(gate().status).not.toBe(0);
+		const refused = gate();
+		expect(refused.status).toBe(1);
+		expect(refused.json.added).toEqual([
+			expect.stringMatching(
+				/^unadmitted: CLAUDE\.md:4 adds the pool rule "Wait with /,
+			),
+		]);
 	});
 
 	it("reads a rule unadmitted at <rev> as inherited where only its plugin root moved (#5140)", () => {
