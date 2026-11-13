@@ -654,6 +654,7 @@
 			"scripts/check-guard-registry-reads.test.ts",
 			"scripts/check-weakens-line.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/commit-msg-local-gate.test.ts",
 			"scripts/husky-script-refs.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -662,7 +663,8 @@
 			"scripts/lib/hook-bound.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
-			"scripts/prepare-commit-msg-gate.test.ts"
+			"scripts/prepare-commit-msg-gate.test.ts",
+			"scripts/upgrade.test.ts"
 		],
 		".husky/post-checkout": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
@@ -915,6 +917,7 @@
 			"scripts/run-mod-tests.test.ts",
 			"scripts/run-pytest.test.ts",
 			"scripts/run-vitest.test.ts",
+			"scripts/upgrade.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".husky/prepare-commit-msg": [
@@ -6844,6 +6847,13 @@
 		"scripts/commit-gate-refusals.json": [
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/commit-msg-local-gate.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -27315,6 +27325,38 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/local-hook.sh": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/hook-code-root.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/headless-sessions.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/resume-io.contract.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/settings-lockout.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/pipefail-grep-quiet.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/session-checkout-reap.test.ts",
+			"scripts/session-checkout.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/local-tester.js": [
 			"scripts/check-guard-errors.test.ts",

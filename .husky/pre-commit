@@ -49,6 +49,8 @@ JS_TEST_ERE='\.(test|spec)\.[cm]?[jt]sx?$'
 # which aborts every commit in the repo until the other half follows.
 # shellcheck source=scripts/lib/precommit-gate.sh
 . "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/precommit-gate.sh
+# shellcheck source=scripts/lib/local-hook.sh
+. "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/local-hook.sh
 
 # Once the main checkout is cut over to the worktree model (#4248), it takes no
 # commit at all: its main moves by the levelling step's fast-forward alone.
@@ -1166,37 +1168,14 @@ fi
 #     hook's PATH are in scope, and any failing command or `exit 1` refuses
 #     the commit;
 #   - core never writes, copies or rewrites it — it is the adopter's to commit;
-#   - before it runs, every `scripts/…` or `.claude/…` path it names ending
-#     .js/.cjs/.mjs/.sh/.py must exist from the repo top, or EVERY commit is
-#     refused naming the path, not just one staging the gate's arming path,
-#     where a missing script would otherwise hide (#426). A path spelled
-#     through $WFC_PLUGIN_ROOT is a core script under the plugin, and skipped.
-#     The scan is lexical: a path built in a variable goes unseen, and one
-#     through an alias of $WFC_PLUGIN_ROOT is checked against the repo top.
+#   - before it runs, a script it names that the repo lacks refuses EVERY
+#     commit, not just one staging the gate's arming path, where a missing
+#     script would otherwise hide (scripts/lib/local-hook.sh, #426).
 # An `exit 0` there ends the hook before the stamp below, so
 # prepare-commit-msg runs every gate again: slow, never a skipped gate.
-# Pre-commit only: the other hooks read no local file.
+# `.husky/commit-msg.local` is the one other local file (#5142).
 if [ -f .husky/pre-commit.local ]; then
-  # Word by word, split on blanks and on ; | & < >, so a $WFC_PLUGIN_ROOT
-  # path is dropped alone. A path counts only at the word's start or after a
-  # quote, `=`, `./`, a variable or a `$(…)`. Keep it in step with
-  # scripts/husky-script-refs.test.ts's SCRIPT_PATH; a grep pattern's `\.`
-  # stops the path short of its extension, so an arming pattern never matches.
-  pcl_missing="$(sed -e '/^[[:space:]]*#/d' -e 's/[[:space:]]#.*//' .husky/pre-commit.local |
-    tr -s ' \t;|&<>' '\n' |
-    grep -v 'WFC_PLUGIN_ROOT' |
-    sed -nE 's#^([^/]*[^/A-Za-z0-9_.-]|[^/]*(\$\{?[A-Za-z_][A-Za-z0-9_]*\}?"?|[)"]+|\.)/)?((\.claude|scripts)/[A-Za-z0-9_./-]*).*$#\3#p' |
-    grep -E '\.(c?js|mjs|sh|py)$' |
-    sort -u |
-    while IFS= read -r pcl_path; do
-      [ -e "$pcl_path" ] || printf '%s\n' "$pcl_path"
-    done)"
-  if [ -n "$pcl_missing" ]; then
-    echo "pre-commit: .husky/pre-commit.local calls a script this repo does not have:" >&2
-    printf '%s\n' "$pcl_missing" | sed 's/^/  /' >&2
-    echo "  Every commit is refused until it exists or the local file stops naming it (#437)." >&2
-    exit 1
-  fi
+  wfc_local_hook_check pre-commit
   # shellcheck source=/dev/null # the adopter's own optional gate, absent from most repos
   . ./.husky/pre-commit.local
 fi
