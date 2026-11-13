@@ -1,6 +1,6 @@
 """memwatch_minute.py — the one reader of memwatch's minute log,
-`~/memwatch-minute.jsonl` (docs/environment.md §4), for fault_bench.py and
-memory_switchback.py, so both parse it alike (#4791).
+`~/memwatch-minute.jsonl` (docs/environment.md §4), for fault_bench.py
+(#4791).
 """
 
 import json

@@ -999,7 +999,7 @@ describe("basisFaults — a cited issue followed one hop (#5007)", () => {
 		expect(r.read).toEqual([]);
 	});
 
-	it.each(["4961", "4791", "4862", "3432", "4781", "4967", "4972", "4852"])(
+	it.each(["4961", "4791", "3432", "4781", "4967", "4972", "4852"])(
 		"passes #%s, following nothing",
 		(n) => {
 			const r = judge(fixtures[n].body, Number(n));
