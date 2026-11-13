@@ -18,6 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { checkInProcess } from "./check";
+import { defineTemplate } from "./git-fixture";
 import { GATES } from "./precommit-gates.js";
 
 const SCRIPTS = path.resolve(__dirname, "..");
@@ -110,15 +111,18 @@ const ROWS: Row[] = [
 	},
 ];
 
+/** An empty repo with its identity set, built once and copied per tree. */
+const EMPTY = defineTemplate((dir) => {
+	git(dir, "init", "-q", ".");
+	git(dir, "config", "user.email", "test@example.com");
+	git(dir, "config", "user.name", "test");
+});
+
 const dirs: string[] = [];
 const fixture = (tree: Tree) => {
-	const repo = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), "check-in-process-")),
-	);
-	dirs.push(repo);
-	git(repo, "init", "-q", ".");
-	git(repo, "config", "user.email", "test@example.com");
-	git(repo, "config", "user.name", "test");
+	const parent = fs.mkdtempSync(path.join(os.tmpdir(), "check-in-process-"));
+	dirs.push(parent);
+	const repo = fs.realpathSync(EMPTY.instantiate(path.join(parent, "repo")));
 	tree.build(repo);
 	return repo;
 };

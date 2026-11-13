@@ -19,6 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
+import { defineTemplate } from "./lib/git-fixture";
 import { dispatch } from "./lib/precommit-dispatch.js";
 import { buildRepoPorts } from "./lib/precommit-gate-testkit";
 import { GATES } from "./lib/precommit-gates.js";
@@ -36,9 +37,7 @@ const git = (repo: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd: repo, encoding: "utf8" });
 
 /** A repo with one commit, and a change staged on paths most rows arm on. */
-function fixture(): string {
-	const repo = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-isolation-"));
-	dirs.push(repo);
+const STAGED = defineTemplate((repo) => {
 	git(repo, "init", "-q");
 	git(repo, "config", "user.email", "fixture@example.invalid");
 	git(repo, "config", "user.name", "fixture");
@@ -54,7 +53,12 @@ function fixture(): string {
 	write("scripts/a.js", 'require("node:path"); // two\n');
 	write("scripts/a.test.ts", "export {};\n");
 	write("docs/a.md", "a\n");
-	return repo;
+});
+
+function fixture(): string {
+	const parent = fs.mkdtempSync(path.join(os.tmpdir(), "dispatch-isolation-"));
+	dirs.push(parent);
+	return STAGED.instantiate(path.join(parent, "repo"));
 }
 
 /* What differs between two runs by design: the random name of each tree a

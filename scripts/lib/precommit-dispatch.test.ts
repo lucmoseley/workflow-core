@@ -14,6 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { defineTemplate } from "./git-fixture";
 import { dispatch, gateSetOf, STOPPED_LINE } from "./precommit-dispatch.js";
 import { buildRepoPorts } from "./precommit-gate-testkit";
 
@@ -38,34 +39,43 @@ afterEach(() => {
 		fs.rmSync(d, { recursive: true, force: true });
 });
 
+const git = (dir: string, ...args: string[]) =>
+	execFileSync("git", args, { cwd: dir, encoding: "utf8" });
+
+/** One seed commit, built once for the file and copied per repo. */
+const SEEDED = defineTemplate((dir) => {
+	git(dir, "init", "-q", ".");
+	git(dir, "config", "user.email", "test@example.com");
+	git(dir, "config", "user.name", "test");
+	fs.writeFileSync(path.join(dir, "seed.txt"), "seed\n");
+	git(dir, "add", "--", "seed.txt");
+	git(dir, "commit", "-qm", "init");
+});
+
 /** A repo with `committed` in HEAD and `staged` added to the index. */
 function repo(
 	committed: Record<string, string>,
 	staged: Record<string, string | null>,
 ): string {
-	const dir = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), "precommit-dispatch-")),
-	);
-	dirs.push(dir);
-	const git = (...args: string[]) =>
-		execFileSync("git", args, { cwd: dir, encoding: "utf8" });
-	git("init", "-q", ".");
-	git("config", "user.email", "test@example.com");
-	git("config", "user.name", "test");
+	const parent = fs.mkdtempSync(path.join(os.tmpdir(), "precommit-dispatch-"));
+	dirs.push(parent);
+	const dir = fs.realpathSync(SEEDED.instantiate(path.join(parent, "repo")));
 	const write = (files: Record<string, string | null>) => {
 		for (const [rel, body] of Object.entries(files)) {
 			const abs = path.join(dir, rel);
 			if (body === null) {
-				git("rm", "-q", "--", rel);
+				git(dir, "rm", "-q", "--", rel);
 				continue;
 			}
 			fs.mkdirSync(path.dirname(abs), { recursive: true });
 			fs.writeFileSync(abs, body);
-			git("add", "--", rel);
+			git(dir, "add", "--", rel);
 		}
 	};
-	write({ "seed.txt": "seed\n", ...committed });
-	git("commit", "-qm", "init");
+	if (Object.keys(committed).length > 0) {
+		write(committed);
+		git(dir, "commit", "-qm", "committed");
+	}
 	write(staged);
 	return dir;
 }
