@@ -246,6 +246,7 @@ const { readConfig, resolveKey } = require("./lib/workflow-core-config.js");
 const { ghJson } = require("./lib/gh.js");
 const {
 	LEDGER_PATH,
+	keyOf,
 	readPoolItems,
 	readLedger,
 	admit,
@@ -1721,7 +1722,8 @@ const isTicketedTrigger = (e) =>
  * `trigger` entries whose ticket has closed (#2033).
  *
  * The unadmitted rules are the envelope's `unadmitted` key, which the
- * direction gate refuses only as this commit's addition (checker-new-faults.js).
+ * direction gate refuses only as this commit's addition (checker-new-faults.js),
+ * each matched across the two sides by its ledger `key` (#5140).
  *
  * @param {Ctx} ctx
  * @param {string} root
@@ -1774,6 +1776,7 @@ function poolRuleAdmission(ctx, root) {
 		unadmitted: unadmitted.map((i) => ({
 			file: i.file,
 			headline: i.headline,
+			key: keyOf(i),
 			message:
 				`${i.file}:${i.line} adds the pool rule "${i.headline}", which ${LEDGER_PATH} does not admit. ` +
 				"Add its entry in this commit — file, headline exactly as quoted, claim (the wrong act a session " +

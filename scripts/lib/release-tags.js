@@ -7,7 +7,8 @@
  */
 
 const { cutAt } = require("./cut-at.js");
-const { execGit } = require("./git.js");
+const { commitSha } = require("./commit-sha.js");
+const { execGit, spawnGitSync } = require("./git.js");
 
 /** A release tag as release-plugin.js cuts one. */
 const TAG_RE = /^v\d+\.\d+\.\d+$/;
@@ -79,8 +80,37 @@ function readReleaseTags(root) {
  */
 const readLatestTag = (root) => readReleaseTags(root).at(-1) ?? null;
 
+/**
+ * Whether release `tag` carries `sha`: `sha` is an ancestor of the source its
+ * message names. `git tag --contains` cannot answer it, as each release is a
+ * root commit.
+ * @param {string} root a clone holding the tags and their sources
+ * @param {string} tag
+ * @param {string} sha
+ * @returns {{carries: boolean} | {unread: string}} `unread` why it cannot say
+ */
+function readTagCarry(root, tag, sha) {
+	const message = execGit(["log", "-1", "--format=%B", tag], {
+		cwd: root,
+		encoding: "utf8",
+		stdio: ["ignore", "pipe", "pipe"],
+	});
+	const source = RENDERED_FROM.exec(String(message))?.[1];
+	if (!source)
+		return { unread: `${tag}: its message carries no rendered-from line` };
+	if (commitSha(root, source) === null)
+		return { unread: `${tag}: its source ${source} is not in this clone` };
+	const r = spawnGitSync(["merge-base", "--is-ancestor", sha, source], {
+		cwd: root,
+		stdio: "ignore",
+	});
+	if (r.status === 0 || r.status === 1) return { carries: r.status === 0 };
+	throw new Error(`git merge-base failed on ${tag}'s source ${source}`);
+}
+
 module.exports = {
 	RENDERED_FROM,
+	readTagCarry,
 	TAG_RE,
 	isMajorBump,
 	readLatestTag,

@@ -941,7 +941,7 @@ describe("aggregate session draw (#2221)", () => {
 		);
 	});
 
-	it("charges a listed session with no pid its whole draw, and reads the working row without it (#2426)", () => {
+	it("charges a listed session with no pid its whole draw, and reads the live row without it (#2426)", () => {
 		const { json, status } = run({
 			mb: 6000,
 			sessions: [SELF, "a", "b@202"],
@@ -966,7 +966,7 @@ describe("aggregate session draw (#2221)", () => {
 			/^live draw +2 live session\(s\): .* − 250 MB they already hold; 1 with no process, charged in full$/m,
 		);
 		expect(stdout).toMatch(
-			/^ {2}working +3 session\(s\) \(2 with no process\), 250 MB PSS$/m,
+			/^ {2}live +3 session\(s\) \(2 with no process\), 250 MB PSS$/m,
 		);
 	});
 
@@ -1858,7 +1858,7 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 		});
 		const lines = buildMemoryBreakdownLines(memory).join("\n");
 		expect(lines).toMatch(
-			/^ {2}working {10}unknown \(pid 301's smaps_rollup unreadable\)/m,
+			/^ {2}live {13}unknown \(pid 301's smaps_rollup unreadable\)/m,
 		);
 		expect(lines).toMatch(
 			/^ {2}everything else {2}unknown \(a row above it is unknown\)/m,
@@ -2407,7 +2407,7 @@ describe("the memory breakdown (#589)", () => {
 		const r = runScenario({ ...s, pss });
 		expect(r.status).toBe(s.expected.status);
 		expect(r.stdout).toMatch(
-			/ {2}working {10}unknown \(pid 301's smaps_rollup unreadable\)/,
+			/ {2}live {13}unknown \(pid 301's smaps_rollup unreadable\)/,
 		);
 		expect(r.stdout).toMatch(
 			/ {2}everything else {2}unknown \(a row above it is unknown\)/,
