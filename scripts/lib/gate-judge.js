@@ -165,16 +165,15 @@ const lastLine = (stderr) =>
  *   stdout: string, stderr: string}} JudgeRun the launcher's run, as
  *   spawnSync gives it
  * @typedef {(prompt: string, opts: {boundMs: number, env: NodeJS.ProcessEnv})
- *   => JudgeRun} JudgePort one model call: the prompt in, the launcher's run
- *   out; lib/gate-judge-fake.ts's `judgeServe` in the suites
+ *   => JudgeRun} JudgePort one model call; lib/gate-judge-fake.ts's
+ *   `judgeServe` in the suites
  * @typedef {import("./basis-cited-read.js").GhRun} GhRun
  * @typedef {{judge?: JudgePort, cited?: GhRun}} GatePorts `cited`: the
  *   cited read's gh call (lib/gh.js `gh`)
  */
 
 /**
- * The production `judge` port: the launcher, killed `LAUNCHER_GRACE_MS`
- * past its own kill at `boundMs`.
+ * The production `judge` port: the launcher.
  *
  * @type {JudgePort}
  */
@@ -597,8 +596,7 @@ function answer(patterns, read, override, citedNote = "") {
  *   `leftMs`, what the reading may spend, WRITE_BOUND_MS by default: the
  *   cited read takes up to CITED_BOUND_MS of it, the model reading what is
  *   left, up to JUDGE_BOUND_MS
- * @param {GatePorts} [ports] the model call and the cited read's gh call,
- *   the production adapters by default
+ * @param {GatePorts} [ports] the production adapters by default
  * @returns {{refusal: string|null, advice: string}}
  */
 function readGateWrite(

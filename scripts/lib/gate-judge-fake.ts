@@ -29,7 +29,7 @@ export const OVERRIDE_REASON = "the records build up on demand";
 export const OVERRIDE_LINE = `**Gate judge override:** ${OVERRIDE_REASON}`;
 export const FALLBACK_LEAD = "The model reading of this body did not run";
 
-/* A judge bound far over a launched call, which is three Node starts. */
+/** A judge bound far over a launched call, which is three Node starts. */
 export const LAUNCHED_BOUND_MS = 60_000;
 
 /** Where lib/gate-judge.js logs each write route's model call. */

@@ -2,8 +2,7 @@
 /*
  * lib/gate-judge.js's judgedBasisFaults and readGateWrite, the three write
  * routes' one entry, driven with a body and the in-process `judge` fake
- * (lib/gate-judge-fake.ts `judgeServe`, held to the launched fake by
- * lib/gate-judge.contract.test.ts). Broken, a wait or basis the model faults
+ * (lib/gate-judge-fake.ts `judgeServe`). Broken, a wait or basis the model faults
  * files unrefused, or a write the model cannot read is refused.
  *
  * spawn-kept: the boundary set runs the fake `claude` binary through the real
@@ -60,16 +59,14 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 function judge(
 	body: string,
 	plan: Plan,
-	opts: { own?: number; before?: string; boundMs?: number } = {},
+	opts: { own?: number; before?: string } = {},
 ) {
 	return judgedBasisFaults(body, {
-		boundMs: LAUNCHED_BOUND_MS,
 		...opts,
 		judge: judgeServe(plan, prompts),
 	});
 }
 
-/* The fake `claude` launched through the real launcher, for the boundary set. */
 function launch(
 	body: string,
 	plan: JudgeFakePlan,
@@ -795,8 +792,6 @@ describe("a write route words the cited follow (#5007)", () => {
 	});
 	afterEach(() => vi.unstubAllEnvs());
 
-	/* The cited read's gh call in-process: the shared gh fake's answerCited,
-	 * which gh.contract.test.ts holds to the real gh and to the stub. */
 	const serving =
 		(cited: Record<string, Record<number, CitedFixture>>) =>
 		(args: string[]) => {
