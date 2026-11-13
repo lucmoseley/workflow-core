@@ -524,8 +524,12 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 	 * repo, "skips the filter on a --root tree outside any repo" for walk(), and
 	 * check-guard-registry-rule-text.test.ts's "passes when the fragment, the
 	 * wired emitter and the trigger all agree" for the emitter walk. */
-	const inRepo = (ignore: string) => () => gitRepo({ claude, ignore, files });
-	const outsideRepo = () => build({ claude, files });
+	const inRepo = (ignore: string) => ({
+		make: () => gitRepo({ claude, ignore, files }),
+		gitLists: true,
+	});
+	/* These rows pin the walks only while git cannot list the root. */
+	const outsideRepo = { make: () => build({ claude, files }), gitLists: false };
 	it.each([
 		["gitignored", inRepo(".claude/tmp/\n"), ".claude/tmp/s/systemd/private"],
 		[
@@ -540,15 +544,13 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 		["outside a repo, standing as a scan root", outsideRepo, "AGENTS.md"],
 	])(
 		"leaves the verdict clean over a socket: %s (#3974)",
-		(name, makeRoot, rel) => {
-			const root = makeRoot();
+		(_name, tree, rel) => {
+			const root = tree.make();
 			plantSocket(path.join(root, rel));
 			const r = run(root);
 			expect(r.code).toBe(0);
 			expect(r.kinds).toEqual([]);
-			// The outside rows pin the walks only while git cannot list the root.
-			if (name.startsWith("outside"))
-				expect(r.report).not.toContain("listed by git");
+			expect(r.report.includes("listed by git")).toBe(tree.gitLists);
 		},
 	);
 
