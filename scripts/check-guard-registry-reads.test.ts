@@ -12,7 +12,6 @@
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -32,6 +31,7 @@ import {
 	SELF_PLUGIN_HOOKS,
 	temps,
 } from "./lib/guard-registry-testkit";
+import { plantSocket } from "./lib/socket-fixture";
 
 afterEach(removeTemps);
 
@@ -518,19 +518,6 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 		expect(r.code).toBe(0);
 	});
 
-	/** Only a bound socket has the type on disk. */
-	const runWithSocket = async (root: string, rel: string): Promise<Result> => {
-		const socketPath = path.join(root, rel);
-		fs.mkdirSync(path.dirname(socketPath), { recursive: true });
-		const server = net.createServer();
-		await new Promise<void>((done) => server.listen(socketPath, done));
-		try {
-			return run(root);
-		} finally {
-			await new Promise((done) => server.close(done));
-		}
-	};
-
 	it.each([
 		["gitignored", ".claude/tmp/\n", ".claude/tmp/s/systemd/private"],
 		["gitignored, named like a document", ".claude/tmp/\n", ".claude/tmp/s.md"],
@@ -538,8 +525,27 @@ describe("gitignored scratch under a scan root (mantahostels#2243)", () => {
 		["standing as a scan root", "", "AGENTS.md"],
 	])(
 		"leaves the verdict clean over a socket: %s (#3974)",
-		async (_name, ignore, rel) => {
-			const r = await runWithSocket(gitRepo({ claude, ignore, files }), rel);
+		(_name, ignore, rel) => {
+			const root = gitRepo({ claude, ignore, files });
+			plantSocket(path.join(root, rel));
+			const r = run(root);
+			expect(r.code).toBe(0);
+			expect(r.kinds).toEqual([]);
+		},
+	);
+
+	/* In a repo, git's listing never names a socket, so only a tree git cannot
+	 * list sends one through walk() and the emitter walk. */
+	it.each([
+		["nested", ".claude/tmp/s/systemd/private"],
+		["named like an emitter", ".claude/tmp/s.sh"],
+		["standing as a scan root", "AGENTS.md"],
+	])(
+		"leaves the verdict clean over a socket outside a repo: %s (#3974)",
+		(_name, rel) => {
+			const root = build({ claude, files });
+			plantSocket(path.join(root, rel));
+			const r = run(root);
 			expect(r.code).toBe(0);
 			expect(r.kinds).toEqual([]);
 		},
