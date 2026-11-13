@@ -2,13 +2,14 @@
  * The morning review scripts' shared fixture (#2011, #2017): a fixture home
  * with one included checkout, `wfc`, filing on acme/wfc, and a stub `gh` over
  * its review issues, closes, labelled issues and comments. Each script's test
- * drives its own script against it.
+ * drives its own script against it; lib/morning-review-filing.test.ts drives
+ * the core with the same handler answering in-process (`ghPort`, #5148).
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll } from "vitest";
+import { afterAll, beforeAll, vi } from "vitest";
 import type { freshSandbox } from "./arbiter-testkit";
 import { ghAnswerHandler, RECORDED_SHAPES } from "./gh-fake";
 import {
@@ -17,6 +18,7 @@ import {
 	stubGhHandler,
 	stubGhScript,
 } from "./gh-stub";
+import { handlerPort } from "./gh-stub-server.js";
 import {
 	buildEarlyoomReadingLine,
 	buildEarlyoomSignalLine,
@@ -318,6 +320,28 @@ export function morningReviewFixture(
 		MEMWATCH_MINUTE_LOG: refillFile("memwatch-minute.jsonl"),
 	});
 
+	/** The core's gh port: the handler `WFC_GH` serves, answered in this process. */
+	const ghPort = () =>
+		handlerPort(Handler, {
+			env: { STUB_DIR: path.join(sb.dir, "gh") },
+			cwd: wfc(),
+		});
+
+	/** The environment a filing reads, set on this process for a module case. */
+	const stubRunEnv = () => {
+		const env = runEnv();
+		for (const key of [
+			"HOME",
+			"CLAUDE_PROJECT_DIR",
+			"WFC_JOURNALCTL",
+			"WFC_RUNAWAY_LOG",
+			"WFC_PROC",
+			"WFC_REFILL_DIR",
+			"MEMWATCH_MINUTE_LOG",
+		] as const)
+			vi.stubEnv(key, env[key]);
+	};
+
 	const run = (argv: string[] = [], env: Record<string, string> = {}) =>
 		runInProcessAsync(script, argv, {
 			cwd: wfc(),
@@ -332,6 +356,7 @@ export function morningReviewFixture(
 
 	return {
 		ago,
+		ghPort,
 		heldGh,
 		home,
 		readCreated,
@@ -340,6 +365,7 @@ export function morningReviewFixture(
 		runEnv,
 		seed,
 		stub,
+		stubRunEnv,
 		wfc,
 	};
 }
