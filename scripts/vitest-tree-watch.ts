@@ -34,6 +34,7 @@ const {
 const readAudit = require("./lib/read-audit.js");
 const { keepRun } = require("./lib/row-measure.js");
 const { caught } = require("./lib/caught.js");
+const { readRunMemory } = require("./lib/run-memory.js");
 
 /*
  * The tree under test: vitest's own root, handed to `setup`. Never this file's
@@ -158,6 +159,7 @@ export function runTeardown(rootOverride?: string | null) {
 		...report,
 		isolated: launch.isolated,
 		argv: launch.argv,
+		memory: readRunMemory(),
 		// Taken in treeRoot — the worktree this process is actually running
 		// against, frozen or shared — and AFTER the run, unlike every other
 		// tree field (mantahostels#2187's own point: they all describe the start).

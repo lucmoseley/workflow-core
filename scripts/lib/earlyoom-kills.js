@@ -24,6 +24,11 @@
  * run where two share them. A killed run records no end, so a pid reused
  * after it in the same boot still matches.
  *
+ * A TEST RUN is a kill whose pid is a run's wrapper, vitest main or worker
+ * in lib/run-memory.js's run files (#5183): same boot, the run started at or
+ * before the kill and not ended before it, the latest such run where two
+ * share them. The ticket names its launch: session, kind and files.
+ *
  * FAILS OPEN: journalctl absent, refused, timed out or printing nothing reads
  * as no kills, with `why` set so a caller can say so. A store or boot list
  * that will not read, or a run on a victim's pid that recorded no boot,
@@ -34,6 +39,7 @@
 
 const { caught } = require("./caught.js");
 const { readStoredRuns } = require("./headless-runs.js");
+const { readRunFiles } = require("./run-memory.js");
 const {
 	buildProcessSpan,
 	localMinute,
@@ -68,6 +74,7 @@ const TEST_OR_BUILD = /^(npm|npx|tsc|vitest|esbuild|biome|pytest)$/;
 const KINDS = /** @type {const} */ ([
 	"Claude host",
 	"headless run",
+	"test run",
 	"claude CLI",
 	"node or python process",
 	"test or build",
@@ -83,11 +90,14 @@ const KINDS = /** @type {const} */ ([
  * @property {string} name comm, as earlyoom printed it
  * @property {Kind} kind
  * @property {string|null} jobId the headless run's, where the kill is one
+ * @property {TestRun|null} testRun the test launch, where the kill is one of its processes
  * @property {number} badness
  * @property {number} rssMiB
  * @property {number|null} availMiB MemAvailable before the first signal
  * @property {number|null} swapFreeMiB SwapFree then
  * @property {number} signals
+ * @typedef {{role: "wrapper"|"vitest main"|"worker", session: string|null,
+ *   kind: string, files: string[], fileCount: number, repo: string}} TestRun
  * @typedef {{kills: Kill[], first: string, last: string,
  *   unjoined: string|null}} Incident
  */
@@ -136,6 +146,7 @@ function parseSignals(text) {
 			name,
 			kind: kindOf(name),
 			jobId: null,
+			testRun: null,
 			badness: Number(group(5)),
 			rssMiB: Number(group(6)),
 			availMiB: reading?.availMiB ?? null,
@@ -191,10 +202,51 @@ function readJournal(sinceMs) {
 }
 
 /**
+ * The test run `k`'s pid belongs to in `boot`, or null.
+ * @param {Kill} k
+ * @param {import("./journalctl.js").Boot|undefined} boot
+ * @param {import("./run-memory.js").RunFile[]} runs
+ * @returns {TestRun|null}
+ */
+function findTestRun(k, boot, runs) {
+	if (boot === undefined) return null;
+	const at = Date.parse(k.at);
+	/** @param {import("./run-memory.js").RunFile} r */
+	const roleOf = (r) => {
+		if (r.pids.wrapper === k.pid) return "wrapper";
+		if (r.pids.main === k.pid) return "vitest main";
+		return r.pids.workers.includes(k.pid) ? "worker" : null;
+	};
+	const run = runs
+		.filter(
+			(r) =>
+				r.bootId !== null &&
+				bootKey(r.bootId) === boot.id &&
+				roleOf(r) !== null &&
+				toSecond(Date.parse(r.at)) <= at &&
+				(r.endedAt === undefined || Date.parse(r.endedAt) >= at),
+		)
+		.reduce(
+			(a, r) => (a === null || r.at > a.at ? r : a),
+			/** @type {import("./run-memory.js").RunFile|null} */ (null),
+		);
+	if (run === null) return null;
+	const { session, kind, files, fileCount, repo } = run;
+	return {
+		role: /** @type {TestRun["role"]} */ (roleOf(run)),
+		session,
+		kind,
+		files,
+		fileCount,
+		repo,
+	};
+}
+
+/**
  * @param {Incident[]} incidents
  * @returns {Incident[]}
  */
-function joinHeadlessRuns(incidents) {
+function joinRuns(incidents) {
 	if (incidents.length === 0) return incidents;
 	/** @param {string} unjoined */
 	const unread = (unjoined) => incidents.map((i) => ({ ...i, unjoined }));
@@ -206,6 +258,7 @@ function joinHeadlessRuns(incidents) {
 	}
 	const { boots, why } = readBoots();
 	if (why !== null) return unread(why);
+	const testRuns = readRunFiles();
 	return incidents.map((i) => {
 		/** @type {string[]} */
 		const bootless = [];
@@ -227,13 +280,16 @@ function joinHeadlessRuns(incidents) {
 					(a, r) => (a === null || r.launchedAt > a.launchedAt ? r : a),
 					/** @type {import("./headless-runs.js").RunRecord|null} */ (null),
 				);
-			return run === null
+			if (run !== null)
+				return {
+					...k,
+					kind: /** @type {Kind} */ ("headless run"),
+					jobId: run.jobId,
+				};
+			const testRun = findTestRun(k, boot, testRuns);
+			return testRun === null
 				? k
-				: {
-						...k,
-						kind: /** @type {Kind} */ ("headless run"),
-						jobId: run.jobId,
-					};
+				: { ...k, kind: /** @type {Kind} */ ("test run"), testRun };
 		});
 		return {
 			...i,
@@ -267,9 +323,7 @@ function readIncidents(sinceMs) {
 			continue;
 		}
 		return {
-			incidents: joinHeadlessRuns(
-				all.filter((i) => Date.parse(i.last) > sinceMs),
-			),
+			incidents: joinRuns(all.filter((i) => Date.parse(i.last) > sinceMs)),
 			why: null,
 		};
 	}
@@ -307,9 +361,25 @@ const byKind = (kills) =>
 		];
 	}).join(", ");
 
+/** @param {TestRun} t */
+const filesOf = (t) => {
+	if (t.fileCount === 0) return "no files";
+	if (t.fileCount > t.files.length) return `${t.fileCount} files`;
+	return t.files.map((f) => `\`${f}\``).join(", ");
+};
+
+/** @param {TestRun} t `worker of a named run by \`abcd1234\` in workflow-core: \`a.test.ts\`` */
+const testRunCell = (t) => {
+	const files = filesOf(t);
+	const by = t.session === null ? "" : ` by \`${t.session.slice(0, 8)}\``;
+	return `${t.role} of a ${t.kind} run${by} in ${t.repo}: ${files}`;
+};
+
 /** @param {Kill} k */
-const kindCell = (k) =>
-	k.jobId === null ? k.kind : `${k.kind} \`${k.jobId}\``;
+const kindCell = (k) => {
+	if (k.testRun !== null) return `${k.kind}: ${testRunCell(k.testRun)}`;
+	return k.jobId === null ? k.kind : `${k.kind} \`${k.jobId}\``;
+};
 
 /**
  * The incident ticket's body.
@@ -333,7 +403,7 @@ function buildIncidentBody(i) {
 
 earlyoom killed ${i.kills.length} ${i.kills.length === 1 ? "process" : "processes"} between ${localMinute(first)} and ${localMinute(last)} machine time, one incident: kills no more than ${INCIDENT_GAP_MS / 60_000} min apart (#3094).
 
-By kind: ${byKind(i.kills)}. A headless run is a \`claude -p\` in the headless run store; claude CLI is the daemon, \`claude agents\` or a \`-p\` the store has none for; a node or python process is any such program, the refill loop and test workers included.${i.unjoined === null ? "" : `\n\nNot joined to the headless runs, so a claude CLI kill may be one: ${i.unjoined}.`}
+By kind: ${byKind(i.kills)}. A headless run is a \`claude -p\` in the headless run store; a test run is a test launch's wrapper, vitest main or worker, matched by pid to its memory record (\`.test-run-memory\`); claude CLI is the daemon, \`claude agents\` or a \`-p\` the store has none for; a node or python process is any such program, the refill loop and test workers included.${i.unjoined === null ? "" : `\n\nNot joined to the headless or test runs, so a kill named by its process may be one: ${i.unjoined}.`}
 
 Lowest MemAvailable before a kill: ${lowest === null ? "unread" : `${lowest.availMiB} MiB, SwapFree ${mib(lowest.swapFreeMiB)}`}.
 

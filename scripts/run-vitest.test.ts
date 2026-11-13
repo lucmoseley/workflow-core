@@ -74,6 +74,7 @@ const { dirPath } = require("./lib/test-log.js");
 const { main } = require("./run-vitest.js");
 const { launchEnv, readLaunch } = require("./lib/suite-handoff.js");
 const { START_MARK_ENV } = require("./lib/tree-drift.js");
+const { MEMORY_ENV } = require("./lib/run-memory.js");
 const { DEADLINE_ENV, sweepAtStart } = require("./lib/suite-ceiling.js");
 
 /* The wrapper's own flags and the filter an empty selection runs under,
@@ -2892,13 +2893,16 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 			expect(queued.args).toEqual(unqueued.args);
 			// The same child but for the launch's own argv, which names --queue,
 			// the start mark each launch takes of its own (#5018), and the temp
-			// root each makes of its own (#5108).
+			// root each makes of its own (#5108), and its memory record (#5183).
 			const readLaunchSansArgv = (env: Record<string, string>) => {
 				const { argv: _argv, ...recorded } = readLaunch(env);
 				const rest = Object.fromEntries(
 					Object.entries(env).filter(
 						([k]) =>
-							!(k in launchEnv({})) && k !== START_MARK_ENV && k !== "TMPDIR",
+							!(k in launchEnv({})) &&
+							k !== START_MARK_ENV &&
+							k !== "TMPDIR" &&
+							k !== MEMORY_ENV,
 					),
 				);
 				return { launch: recorded, rest };

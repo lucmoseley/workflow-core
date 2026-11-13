@@ -256,7 +256,7 @@ describe("headless runs among the kills (#4143)", () => {
 		expect(i.kills[0].kind).toBe("claude CLI");
 		expect(i.unjoined).toBe("journalctl --list-boots: no boots");
 		expect(kills.buildIncidentBody(i)).toContain(
-			"Not joined to the headless runs, so a claude CLI kill may be one: journalctl --list-boots: no boots.",
+			"Not joined to the headless or test runs, so a kill named by its process may be one: journalctl --list-boots: no boots.",
 		);
 
 		seed([T0], [{ jobId: "0aaaaaaa", launchedAt: T0 - 5 * MIN }]);
@@ -267,5 +267,103 @@ describe("headless runs among the kills (#4143)", () => {
 		const [j] = kills.readIncidents(T0 - 60 * MIN).incidents;
 		expect(j.kills[0].kind).toBe("claude CLI");
 		expect(j.unjoined).toMatch(/^the headless run store: /);
+	});
+});
+
+describe("test runs among the kills (#5183)", () => {
+	const Worker = 5151;
+	const dashed = ONE_BOOT.id.replace(
+		/^(.{8})(.{4})(.{4})(.{4})(.{12})$/,
+		"$1-$2-$3-$4-$5",
+	);
+	/** A kill of a node worker on Worker at T0, and `runs` in the run files. */
+	function seed(runs: Record<string, unknown>[]) {
+		vi.stubEnv(
+			"WFC_JOURNALCTL",
+			writeJournalctl(path.join(dir, "join"), [
+				buildEarlyoomReadingLine(T0),
+				buildEarlyoomSignalLine(T0, Worker, "MainThread", { rss: 2176 }),
+			]),
+		);
+		const store = path.join(dir, "refill", ".test-run-memory");
+		fs.mkdirSync(store, { recursive: true });
+		runs.forEach((r, n) => {
+			fs.writeFileSync(
+				path.join(store, `${n}.json`),
+				JSON.stringify({
+					at: new Date(T0 - 5 * MIN).toISOString(),
+					bootId: dashed,
+					session: "abcd1234-ffff-0000",
+					kind: "named",
+					argv: ["scripts/a.test.ts", "scripts/b.test.ts"],
+					files: ["scripts/a.test.ts", "scripts/b.test.ts"],
+					fileCount: 2,
+					repo: "workflow-core",
+					pids: { wrapper: 10, main: 11, workers: [12, Worker] },
+					peaksMiB: { wrapper: 400, main: 600, worker: 2176, sum: 3200 },
+					workerFile: "scripts/a.test.ts",
+					...r,
+				}),
+			);
+		});
+	}
+	const kinds = () =>
+		kills
+			.readIncidents(T0 - 60 * MIN)
+			.incidents.flatMap((i: { kills: { kind: string }[] }) =>
+				i.kills.map((k) => k.kind),
+			);
+
+	it("names a killed worker's launch from the pid match: session, kind and files, in the ticket's table", () => {
+		seed([{}]);
+		const [i] = kills.readIncidents(T0 - 60 * MIN).incidents;
+		expect(i.kills[0].testRun).toEqual({
+			role: "worker",
+			session: "abcd1234-ffff-0000",
+			kind: "named",
+			files: ["scripts/a.test.ts", "scripts/b.test.ts"],
+			fileCount: 2,
+			repo: "workflow-core",
+		});
+		const body = kills.buildIncidentBody(i);
+		expect(body).toContain("By kind: test run 1.");
+		expect(body).toContain(
+			"| test run: worker of a named run by `abcd1234` in workflow-core: `scripts/a.test.ts`, `scripts/b.test.ts` | `MainThread` | 5151 |",
+		);
+		expect(basisFaults(body)).toEqual([]);
+	});
+
+	it("names the wrapper itself, and counts a large selection rather than listing it", () => {
+		seed([
+			{
+				pids: { wrapper: Worker, main: 11, workers: [] },
+				kind: "touched",
+				fileCount: 32,
+			},
+		]);
+		const body = kills.buildIncidentBody(
+			kills.readIncidents(T0 - 60 * MIN).incidents[0],
+		);
+		expect(body).toContain(
+			"| test run: wrapper of a touched run by `abcd1234` in workflow-core: 32 files |",
+		);
+	});
+
+	it("leaves a reused pid unmatched: a run that ended before the kill, started after it, or ran in another boot", () => {
+		seed([
+			{ endedAt: new Date(T0 - MIN).toISOString() },
+			{ at: new Date(T0 + MIN).toISOString() },
+			{ bootId: "fedcba98-7654-3210-fedc-ba9876543210" },
+		]);
+		expect(kinds()).toEqual(["node or python process"]);
+	});
+
+	it("takes the run started latest where two share the pid", () => {
+		seed([
+			{ at: new Date(T0 - 50 * MIN).toISOString(), kind: "full" },
+			{ at: new Date(T0 - 5 * MIN).toISOString(), kind: "named" },
+		]);
+		const [i] = kills.readIncidents(T0 - 60 * MIN).incidents;
+		expect(i.kills[0].testRun.kind).toBe("named");
 	});
 });

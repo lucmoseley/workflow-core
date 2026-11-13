@@ -102,7 +102,8 @@ const { readTreeIds, isSameContent } = require("./content-ids.js");
  *   inflight?: {module: string, stage: string}[], finished?: string[],
  *   testsInFlight?: {nodeid: string, stage: string}[]|null,
  *   testsNeverStarted?: number|null, testsFinished?: number|null,
- *   slowest?: import("./test-file-timings.js").SlowFile[]}} Marker
+ *   slowest?: import("./test-file-timings.js").SlowFile[],
+ *   memory?: import("./run-memory.js").RunMemory|null}} Marker
  * @typedef {Marker & {sha: string, at: string, suite: string,
  *   startedAt: string, durationMs: number, argv: string[]}} KillRow the
  *   fields every stall or ceiling kill's fail-store row carries
@@ -585,6 +586,9 @@ function countMalformed({ root = repoRoot(), store = STORE } = {}) {
  * @param {import("./test-file-timings.js").SlowFile[]|null} [run.slowest] The run's
  *   slowest files, repo-relative, off the in-flight reporter's timings
  *   (#2770). Omitted where it timed none.
+ * @param {import("./run-memory.js").RunMemory|null} [run.memory] The run's
+ *   pids and peaks, off the wrapper's run file (#5183). Omitted where none
+ *   was sampled.
  * @returns {Marker & {foreign: {path: string, why: string}[]}}
  */
 function markerFrom(
@@ -606,6 +610,7 @@ function markerFrom(
 		argv = null,
 		attestation = null,
 		slowest = null,
+		memory = null,
 	} = {},
 ) {
 	const attested = attestedFields(attestation);
@@ -669,6 +674,7 @@ function markerFrom(
 		...(argv ? { argv } : {}),
 		...attested,
 		...(slowest?.length ? { slowest } : {}),
+		...(memory ? { memory } : {}),
 		foreign: (drifted?.moved ?? []).map((e) => ({
 			path: e.path,
 			why: `${e.kind} while the suite ran`,
