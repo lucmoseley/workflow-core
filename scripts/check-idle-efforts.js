@@ -164,7 +164,7 @@ function readLoop(reportDamaged) {
 		running: true,
 		stoppedRun: null,
 		served,
-		launches: loop.unheldRunningOf(state.launches),
+		launches: loop.runningOffLimitOf(state.launches),
 		held: [...state.held, ...loop.limitHoldsOf(state.launches)],
 		repoHolds,
 		loopWait: buildLiveLoopWait(control?.paused, state.lastTick?.idle),
