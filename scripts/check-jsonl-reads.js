@@ -22,7 +22,8 @@
  * DEFEAT:    the `jsonl-read-exempt: <why>` marker; --warn caps findings below the gating line; a parse further than WINDOW lines from its split, a split on a variable, or a line-by-line `readline` read.
  */
 
-const { parseLineSites, runHeresyCheck } = require("./lib/heresy-scan.js");
+const { runCheck } = require("./lib/check");
+const { parseLineSites, heresySpec } = require("./lib/heresy-scan.js");
 
 /* The widest split-to-parse gap among the sites live at #3452:
  * lib/pending-tasks.js, 12 lines. */
@@ -35,7 +36,8 @@ const READER = "scripts/lib/jsonl.js";
 
 const FIX = `read it through readJsonl (a file), parseJsonl (text) or parseJsonlRow (one streamed line) in ${READER}, as scripts/lib/dispatch-ledger.js's readCountedRows does; or mark it \`jsonl-read-exempt: <why>\` where the text is no JSONL (#3452).`;
 
-runHeresyCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = heresySpec({
 	name: "jsonl-reads",
 	skip: [READER],
 	breaches: [
@@ -61,3 +63,6 @@ runHeresyCheck({
 		};
 	},
 });
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

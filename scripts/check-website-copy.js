@@ -138,7 +138,8 @@ function refuseAbsoluteRoots(ctx) {
 			ctx.usageError(`${r} is absolute; pass a repo-relative directory.`);
 }
 
-runCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = {
 	name: "website-copy",
 	module: "site",
 	usage:
@@ -224,4 +225,7 @@ runCheck({
 		);
 		return { noun: "banned tell(s) in website copy", count: hits };
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

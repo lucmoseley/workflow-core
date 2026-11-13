@@ -39,6 +39,7 @@ import {
 import { ORIGINS } from "./issue-origin.js";
 import { readPluginStyles } from "./output-styles.js";
 import { CORE_ROOT, cutLocalGateBlock } from "./precommit-gate-testkit";
+import { GATES } from "./precommit-gates.js";
 import { runInProcess } from "./run-in-process";
 import { TAKES_PREFIX, TAKES_VALUES, takesLabel } from "./takes-label";
 import { MODULES, type Module } from "./workflow-core-config.js";
@@ -260,6 +261,8 @@ describe("the core-owned rules file", () => {
 					.join("\n"),
 			),
 			fs.readFileSync(path.join(CORE, "hooks/hooks.json"), "utf8"),
+			/* The pre-commit dispatcher's rows run as the hook does (#5172). */
+			...GATES.map((g) => g.script),
 		].join("\n");
 		const named = promises.flatMap((line) =>
 			[...line.matchAll(/`([\w.-]+\.(?:js|sh))`/g)].map((m) => m[1]),

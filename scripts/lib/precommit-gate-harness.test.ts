@@ -232,11 +232,6 @@ describe("the scripts a gate invokes", () => {
 			["scripts/check-digest-version.js"],
 		],
 		[
-			"guard-registry",
-			"scripts/check-guard-registry.js",
-			["scripts/check-guard-registry.js"],
-		],
-		[
 			"doc-map",
 			"scripts/check-doc-map.js",
 			["scripts/check-doc-map.js", "scripts/checker-new-faults.js"],
@@ -250,11 +245,6 @@ describe("the scripts a gate invokes", () => {
 			"superseded-needle",
 			"--broken-only",
 			["scripts/check-superseded-values.js"],
-		],
-		[
-			"guard-test-isolation",
-			"scripts/check-guard-test-isolation.js",
-			["scripts/check-guard-test-isolation.js"],
 		],
 		[
 			"eslint",

@@ -16,6 +16,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll } from "vitest";
 import { readProgramLibs } from "../lib-closure-fixture";
+import { coreCall } from "./precommit-gate-testkit";
+import { GATES } from "./precommit-gates.js";
 import { runInProcess } from "./run-in-process";
 
 export const REAL_SCRIPT = path.join(
@@ -361,18 +363,14 @@ export function anchorExpiryKit() {
 		run(root, ["--against", "HEAD"], { env: claims(locks) });
 	const review = (root: string, paths: string[]) =>
 		reviewIn(root, paths, ownClaims(root));
-	/* .husky/pre-commit's own guard-registry line, so the case runs what the
+	/* The guard-registry row of lib/precommit-gates.js, which the hook's
+	 * dispatcher runs (#5172), as one shell line, so the case runs what the
 	 * hook runs. */
 	const readHookLine = () => {
-		const line = fs
-			.readFileSync(
-				path.join(__dirname, "..", "..", ".husky", "pre-commit"),
-				"utf8",
-			)
-			.split("\n")
-			.find((l) => l.includes("check-guard-registry.js --against HEAD"));
-		if (!line) throw new Error("no guard-registry line in .husky/pre-commit");
-		return line.trim();
+		const row = GATES.find((g) => g.id === "guard-registry");
+		if (!row)
+			throw new Error("no guard-registry row in lib/precommit-gates.js");
+		return `${coreCall("node", row.script)} ${row.args.join(" ")} || exit "$?"`;
 	};
 	const added = (r: Result) =>
 		r.json.findings

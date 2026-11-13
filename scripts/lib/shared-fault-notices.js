@@ -53,7 +53,15 @@ const OWN_BLOCK_ROWS = {
 
 const ROWS = {
 	...Object.fromEntries(
-		GATES.map((g) => [g.id, { script: g.script, gate: g.flag, ...g.notice }]),
+		GATES.map((g) => [
+			g.id,
+			{
+				script: g.script,
+				/** @type {Gate} */
+				gate: g.args[0] === "--index" ? "index" : "against",
+				...g.notice,
+			},
+		]),
 	),
 	...OWN_BLOCK_ROWS,
 };

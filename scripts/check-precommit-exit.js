@@ -35,7 +35,8 @@ const { FIX_LINE, judgeHook } = require("./lib/precommit-exit.js");
 const { runCheck } = require("./lib/check");
 
 const FILES = [".husky/pre-commit", ".husky/pre-commit.local"];
-runCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = {
 	name: "precommit-exit",
 	usage:
 		"node check-precommit-exit.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]",
@@ -62,4 +63,7 @@ runCheck({
 			data: { scanned: files.length },
 		};
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

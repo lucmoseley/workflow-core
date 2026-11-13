@@ -188,7 +188,7 @@ describe("checker registrations", () => {
 				fs.readFileSync(path.join(SCRIPTS, file), "utf8"),
 			);
 			/* lib/heresy-scan.js declares --against under the check's name (#3555). */
-			if (source.includes("runHeresyCheck("))
+			if (source.includes("heresySpec("))
 				return heresyScanTakesAgainst && source.includes(`name: "${profile}"`);
 			return (
 				source.includes(`profile: "${profile}"`) &&

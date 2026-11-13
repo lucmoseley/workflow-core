@@ -28,6 +28,7 @@ import {
 	commitOverSequencer,
 	cutPostCommitBlock,
 } from "./lib/precommit-gate-testkit";
+import { GATES } from "./lib/precommit-gates.js";
 import {
 	CHECKERS_ENV,
 	lines,
@@ -570,8 +571,8 @@ describe("the notice the session reads", () => {
 
 /**
  * The real notice table, not a stub one: a profile with no row goes
- * unannounced (#4246), and a row's gate claim must be the flag the hook runs
- * its checker with (#4221). doc-map's own staged-vs-HEAD block gates it, with
+ * unannounced (#4246), and a row's gate claim must be the flag the hook, or
+ * its dispatcher's row, runs its checker with (#4221). doc-map's own staged-vs-HEAD block gates it, with
  * no flag on its line.
  */
 describe("lib/shared-fault-notices.js's NOTICES", () => {
@@ -590,11 +591,16 @@ describe("lib/shared-fault-notices.js's NOTICES", () => {
 
 	const cases = Object.entries(NOTICES).map(([profile, { script, gate }]) => {
 		const name = path.basename(script);
-		const runs = hook
-			.split("\n")
-			.filter(
-				(l) => !l.trimStart().startsWith("#") && l.includes(`scripts/${name}`),
-			);
+		/* A dispatcher row's run is its args (#5172). */
+		const row = GATES.find((g) => g.script === `scripts/${name}`);
+		const runs = row
+			? [row.args.join(" ")]
+			: hook
+					.split("\n")
+					.filter(
+						(l) =>
+							!l.trimStart().startsWith("#") && l.includes(`scripts/${name}`),
+					);
 		return { profile, gate, name, runs };
 	});
 

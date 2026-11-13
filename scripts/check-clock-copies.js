@@ -22,7 +22,8 @@
  * DEFEAT:    the `clock-kept: <why>` marker; --warn caps findings below the gating line; a read split across lines, or one through a computed key.
  */
 
-const { parseLineSites, runHeresyCheck } = require("./lib/heresy-scan.js");
+const { runCheck } = require("./lib/check");
+const { parseLineSites, heresySpec } = require("./lib/heresy-scan.js");
 
 /* Built from VAR, so this file's own patterns read as no site. */
 const VAR = "WFC_NOW";
@@ -37,7 +38,8 @@ const CLOCK = "scripts/lib/clock.js";
 
 const FIX = `call now() from ${CLOCK}, as scripts/check-history-trim.js does, where runCheck turns its throw on a malformed WFC_NOW into BROKEN; outside runCheck, catch that throw as scripts/lib/log-reading.js's now does; in a guard core, pass its env as scripts/lib/sweep-fire-host.js's now(env) does; or mark the read \`clock-kept: <why>\` (#3457).`;
 
-runHeresyCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = heresySpec({
 	name: "clock-copies",
 	skip: [CLOCK],
 	breaches: [
@@ -61,3 +63,6 @@ runHeresyCheck({
 		};
 	},
 });
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

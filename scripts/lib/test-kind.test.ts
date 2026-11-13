@@ -356,17 +356,21 @@ describe("JS_TEST_FILE in grep's ERE", () => {
 	])(
 		"opens .husky/pre-commit's %s gate on every test file vitest collects",
 		(checker, opening) => {
-			/* A registry gate's ERE is its row's; generate-precommit-gates.test.ts
-			 * holds the hook to the row's render (#4597). */
+			/* A registry gate arms on its row's pattern, built on JS_TEST_FILE
+			 * itself (#5172). */
 			const row = GATES.find((g) => g.script === `scripts/${checker}.js`);
-			const arm = row
-				? row.ere
-				: hook().match(
-						new RegExp(
-							String.raw`^if ${LANDER_SKIP}armed "([^"]*)"; then\n\s*node \S*${checker}\.js`,
-							"m",
-						),
-					)?.[1];
+			if (row) {
+				const root = opening.startsWith("^(") ? ".claude/skills/x" : "scripts";
+				for (const p of siblingTests(`${root}/a`).filter(isJsTestFile))
+					expect("pattern" in row.arm && row.arm.pattern.test(p), p).toBe(true);
+				return;
+			}
+			const arm = hook().match(
+				new RegExp(
+					String.raw`^if ${LANDER_SKIP}armed "([^"]*)"; then\n\s*node \S*${checker}\.js`,
+					"m",
+				),
+			)?.[1];
 			expect(arm?.split("|^")[0]).toBe(opening);
 		},
 	);

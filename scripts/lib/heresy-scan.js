@@ -14,7 +14,6 @@ const { blankComments } = require("./strip-comments.js");
 const { isJsTestFile } = require("./test-kind.js");
 
 /** @typedef {import("./check").Ctx} Ctx */
-const { runCheck } = require("./check");
 
 const PROGRAM = /\.(?:c|m)?js$/;
 /* A `report-*` program: directly under scripts/, `[^/]+` keeping a
@@ -159,7 +158,8 @@ function failSites(ctx, rel, program, breaches) {
 }
 
 /**
- * Run one heresy check over `dirs` in the tree at `--root`, or the host root.
+ * The spec of one heresy check over `dirs` in the tree at `--root`, or the
+ * host root, for lib/check.js's runCheck or checkInProcess.
  * `include` takes a repo-relative path; `skip` names the primitive's own home,
  * repo-relative. Where `summary` is given, any finding prints two
  * lines: the count, its `phrase` and each site, then its `fix`.
@@ -172,8 +172,9 @@ function failSites(ctx, rel, program, breaches) {
  *   summary?: { phrase: string, fix: string },
  *   finish: (ctx: Ctx, scanned: number) => { okLine: string, noun: string },
  * }} spec
+ * @returns {import("./check").CheckSpec}
  */
-function runHeresyCheck({
+function heresySpec({
 	name: checkName,
 	dirs = ["scripts"],
 	include = () => true,
@@ -182,7 +183,7 @@ function runHeresyCheck({
 	summary,
 	finish,
 }) {
-	runCheck({
+	return {
 		name: checkName,
 		usage: `node check-${checkName}.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]`,
 		valueFlags: ["--root"],
@@ -209,7 +210,7 @@ function runHeresyCheck({
 				data: { scanned: names.length },
 			};
 		},
-	});
+	};
 }
 
 module.exports = {
@@ -217,6 +218,6 @@ module.exports = {
 	listTreeFiles,
 	parseLineSites,
 	parseMatchSites,
-	runHeresyCheck,
+	heresySpec,
 	saySites,
 };

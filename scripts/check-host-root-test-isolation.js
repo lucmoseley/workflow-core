@@ -248,7 +248,8 @@ function spawnedScripts(
 	return [...named].sort();
 }
 
-runCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = {
 	name: "host-root-test-isolation",
 	usage:
 		"node check-host-root-test-isolation.js [--json] [--warn] [--root <dir>] [--against <rev>]",
@@ -314,4 +315,7 @@ runCheck({
 			data,
 		};
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

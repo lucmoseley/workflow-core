@@ -76,7 +76,8 @@ function writesIn(/** @type {string} */ source) {
 	return out;
 }
 
-runCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = {
 	name: "test-env-writes",
 	usage:
 		"node check-test-env-writes.js [--json] [--warn] [--root <dir>] [--against <rev>]",
@@ -121,4 +122,7 @@ runCheck({
 			data: { scanned: files.length },
 		};
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

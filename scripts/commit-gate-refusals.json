@@ -125,15 +125,6 @@
 			]
 		},
 		{
-			"id": "precommit-gates",
-			"lines": [
-				{
-					"text": "generate-precommit-gates: ",
-					"sites": 3
-				}
-			]
-		},
-		{
 			"id": "test-read-edges",
 			"lines": ["changed their reader set:"]
 		},

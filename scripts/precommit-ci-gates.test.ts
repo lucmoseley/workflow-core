@@ -14,8 +14,9 @@
  * UNVERIFIED, and deliberately: the CI half — the steps still in
  * roadmap-digest.yml, and scheduled-checks.yml that calls it. Testing those means running a workflow.
  *
- * Both checkers are stubbed in each fixture so their exit codes are ours to
- * drive.
+ * The digest checker is stubbed in each fixture so its exit code is ours to
+ * drive; the guard-registry gate is a dispatcher row, so its arm alone is
+ * pinned here.
  */
 
 import { execFileSync } from "node:child_process";
@@ -32,6 +33,7 @@ import {
 	type TempRepo,
 } from "./lib/precommit-gate-harness";
 import { coreCall, HOOK } from "./lib/precommit-gate-testkit";
+import { GATES } from "./lib/precommit-gates.js";
 
 const DIGEST_CHECKER = "scripts/check-digest-version.js";
 const REGISTRY_CHECKER = "scripts/check-guard-registry.js";
@@ -70,9 +72,8 @@ function fixture(opts: {
 }): TempRepo {
 	const checker = `console.log("${STUB_MARKER}");
 const fs = require("node:fs");
-// Echo the file arguments the digest gate stages out. A flag or a rev — which
-// is all the guard-registry gate passes (#1833) — is not one, and reading
-// it would kill the stub before its chosen exit code.
+// Echo the file arguments the digest gate stages out. A flag or a rev is not
+// one, and reading it would kill the stub before its chosen exit code.
 for (const a of process.argv.slice(2)) {
 	if (fs.existsSync(a) && fs.statSync(a).isFile())
 		console.log("ARG " + fs.readFileSync(a, "utf8").trim());
@@ -259,15 +260,16 @@ describe("the pre-commit digest-version gate", () => {
 	});
 });
 
-describe("the pre-commit guard-registry gate", () => {
-	const fragment = () => cutGateScript(REGISTRY_CHECKER);
+/* The guard-registry gate is a dispatcher row (#5172): its arm is the row's
+ * pattern, its exit and report the dispatcher's, pinned in
+ * scripts/precommit-dispatch.test.ts. */
+describe("the pre-commit guard-registry row", () => {
+	const row = GATES.find((g) => g.script === REGISTRY_CHECKER);
+	const arms = (p: string) =>
+		row !== undefined && "pattern" in row.arm && row.arm.pattern.test(p);
 
-	it("is wired into .husky/pre-commit", () => {
-		expect(HOOK).toContain(coreCall("node", REGISTRY_CHECKER));
-	});
-
-	it("supplies exactly the scripts the gate invokes", () => {
-		expectFixtureSupplies(REGISTRY_CHECKER, [REGISTRY_CHECKER]);
+	it("is a gating row of the dispatcher", () => {
+		expect(row?.policy).toBe("gate");
 	});
 
 	// Every root the checker actually reads: the documents carrying
@@ -281,55 +283,19 @@ describe("the pre-commit guard-registry gate", () => {
 		".husky/pre-commit",
 		"AGENTS.md",
 		"CLAUDE.md",
-	])("runs the checker for a commit staging %s", (staged) => {
-		const { root } = fixture({
-			checker: REGISTRY_CHECKER,
-			checkerExit: 0,
-			staged: { [staged]: "x\n" },
-		});
-
-		expect(runGate(root, fragment()).output).toContain(STUB_MARKER);
-	});
-
-	it("fails the commit when a rule's stated backing does not hold, passing the checker report through", () => {
-		const { root } = fixture({
-			checker: REGISTRY_CHECKER,
-			checkerExit: 1,
-			staged: { "CLAUDE.md": "x\n" },
-		});
-
-		const { code, output } = runGate(root, fragment());
-		expect(code).not.toBe(0);
-		expect(output).toContain(STUB_MARKER);
-	});
-
-	it("does not run the checker for a commit outside that scope", () => {
-		const { root } = fixture({
-			checker: REGISTRY_CHECKER,
-			checkerExit: 1,
-			staged: { "app/page.tsx": "x\n", "public/robots.txt": "x\n" },
-		});
-
-		const { code, output } = runGate(root, fragment());
-		expect(code).toBe(0);
-		expect(output).not.toContain(STUB_MARKER);
+	])("arms on a commit staging %s", (staged) => {
+		expect(arms(staged)).toBe(true);
 	});
 
 	// The `^` and `$` anchors: a directory merely beginning with the letters
 	// "docs", and a file merely ending in "CLAUDE.md", are not in scope.
-	/* Which of the checker's faults this commit ADDS is not the hook's
-	 * question: it is `--against HEAD` inside scripts/lib/check.js (mantahostels#1833),
-	 * proved once in scripts/lib/check.test.ts. The hook owns the arming
-	 * condition and the exit, and those alone are what this file still covers. */
-
-	it("does not fire on paths that only resemble the scope", () => {
-		const { root } = fixture({
-			checker: REGISTRY_CHECKER,
-			checkerExit: 1,
-			staged: { "docs-archive/x.md": "x\n", "vendor/MYCLAUDE.md": "x\n" },
-		});
-
-		expect(runGate(root, fragment()).code).toBe(0);
+	it.each([
+		"app/page.tsx",
+		"public/robots.txt",
+		"docs-archive/x.md",
+		"vendor/MYCLAUDE.md",
+	])("does not arm on %s", (staged) => {
+		expect(arms(staged)).toBe(false);
 	});
 });
 
@@ -343,7 +309,7 @@ describe("the pre-commit guard-registry gate", () => {
  * mutation actually changed the text — a `.replace()` matching nothing would
  * silently re-test the real gate and pass vacuously.
  */
-describe("mutations of the two gates are caught by the cases above", () => {
+describe("mutations of the digest-version gate are caught by the cases above", () => {
 	const mutate = (
 		checker: string,
 		find: string | RegExp,
@@ -357,8 +323,6 @@ describe("mutations of the two gates are caught by the cases above", () => {
 		expect(mutant, `mutation '${find}' did not apply`).not.toBe(original);
 		return mutant;
 	};
-
-	const fragment = () => cutGateScript(REGISTRY_CHECKER);
 
 	const dropFilter = (checker: string): string => {
 		// Read off the block; the literal it yields is replaced in the whole script.
@@ -426,84 +390,5 @@ describe("mutations of the two gates are caught by the cases above", () => {
 		const { output } = runGate(root, mutant);
 		expect(output).not.toContain("ARG INDEX");
 		expect(output).toContain("ARG v1.0 committed");
-	});
-
-	/*
-	 * A mutation that SURVIVES, recorded rather than dropped: deleting the
-	 * `|| exit "$gr_status"` after the direction gate changes nothing, because
-	 * husky runs the hook as `sh -e` (.husky/_/h) and the gate's own non-zero
-	 * return aborts the shell. It does not lose the BROKEN code either — a
-	 * non-FAIL status never reaches the direction gate at all, taking the `elif`
-	 * the case below mutates.
-	 *
-	 * The digest-version gate does not share the property: staged_gate captures
-	 * the checker's status so it can print advice first, which swallows the
-	 * failure — so there the explicit exit IS load-bearing.
-	 */
-	it("guard-registry still refuses, with the checker report, without its explicit exit, because sh -e catches it", () => {
-		const { root } = fixture({
-			checker: REGISTRY_CHECKER,
-			checkerExit: 1,
-			staged: { "CLAUDE.md": "x\n" },
-		});
-
-		const { code, output } = runGate(
-			root,
-			mutate(REGISTRY_CHECKER, ' || exit "$?"', ""),
-		);
-		expect(code).not.toBe(0);
-		expect(output).toContain(STUB_MARKER);
-	});
-
-	/* A BROKEN 2 and a fault this commit adds (1) call for different acts, so
-	 * the checker's own code has to survive the hook: `|| exit "$?"` is what
-	 * carries it, and a bare `|| exit 1` would flatten the two. */
-	it("guard-registry flattens a BROKEN to 1 when the exit stops reading $?", () => {
-		const broken = () =>
-			fixture({
-				checker: REGISTRY_CHECKER,
-				checkerExit: 2,
-				staged: { "CLAUDE.md": "x\n" },
-			});
-
-		// A structural pin: 2 vs 1 is the checker's own BROKEN-vs-fault distinction
-		// (staged_gate's `<exit> status`), not a generic non-zero.
-		const base = runGate(broken().root, fragment());
-		expect(base.code).toBe(2);
-		expect(base.output).toContain(STUB_MARKER);
-
-		const mutant = runGate(
-			broken().root,
-			mutate(REGISTRY_CHECKER, '|| exit "$?"', "|| exit 1"),
-		);
-		expect(mutant.code).toBe(1);
-		expect(mutant.output).toContain(STUB_MARKER);
-	});
-
-	it("guard-registry runs out of scope when its path filter is dropped", () => {
-		const { root } = fixture({
-			checker: REGISTRY_CHECKER,
-			checkerExit: 1,
-			staged: { "app/page.tsx": "x\n" },
-		});
-
-		const { code, output } = runGate(root, dropFilter(REGISTRY_CHECKER));
-		expect(code).not.toBe(0);
-		expect(output).toContain(STUB_MARKER);
-	});
-
-	it("guard-registry fires out of scope when the `^` anchor is dropped", () => {
-		const { root } = fixture({
-			checker: REGISTRY_CHECKER,
-			checkerExit: 1,
-			staged: { "vendor/MYCLAUDE.md": "x\n" },
-		});
-
-		const { code, output } = runGate(
-			root,
-			mutate(REGISTRY_CHECKER, "'^(docs/", "'(docs/"),
-		);
-		expect(code).not.toBe(0);
-		expect(output).toContain(STUB_MARKER);
 	});
 });

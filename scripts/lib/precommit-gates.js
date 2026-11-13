@@ -1,13 +1,13 @@
 /*
- * precommit-gates.js — the pre-commit's whole-repo checker gates, one row per
- * gate (#4597). Each row is the gate's one registration, read by:
+ * precommit-gates.js — the pre-commit's Node gates, one row per gate (#4597).
+ * Each row is the gate's one registration, read by:
  *
- * - .husky/pre-commit's two `precommit-gates` regions, rendered by
- *   scripts/generate-precommit-gates.js, whose `--check` refuses a stale one.
+ * - scripts/precommit-dispatch.js, which runs the rows in this order in one
+ *   process (#5172), lib/precommit-dispatch.js's header holding the contract.
  * - lib/fault-profiles.js's PROFILES, from `identity`.
  * - lib/shared-fault-notices.js's NOTICES, from `notice`.
  * - lib/arm-secondary.js's refusal table, from `refusals`.
- * - The hook test (precommit-whole-repo-gates.test.ts), the refusal-source
+ * - The row test (precommit-whole-repo-gates.test.ts), the refusal-source
  *   test (lib/arm-secondary.test.ts) and base §0's floor test
  *   (tooling-matrix.test.ts), which iterate GATES.
  *
@@ -15,10 +15,6 @@
  * row: that table mixes these gates with gates of other shapes in one curated
  * order, so the floor test requires a row naming each `floor` gate's script
  * rather than rendering it.
- *
- * A row renders as one block, `if [! lander_batch && ]armed <ere>; then node
- * <script> <flag> || exit "$?"; fi`, so check-precommit-exit.js, the gate
- * harness and the lander's `--gates=` sets read it as any hand-written gate.
  *
  * THE BASELINE MUST EXIST for an `against` gate: lib/check.js resolves
  * HEAD^{tree} before it reads anything, so in a repo with no commit yet the
@@ -32,12 +28,14 @@
  * `script` and `sources` are spelt from the core root, and `fromCoreRoot` reads
  * them there through coreRoot(), the anchor under which the read-edge
  * extractor attributes them to a test importing this module (base §X10).
- * The generator's `--check` compiles the index's copy of this file at this
- * file's own path, so its requires resolve as this one's do.
  */
 
 const path = require("node:path");
 const { coreRoot } = require("./script-path.js");
+const { JS_TEST_FILE } = require("./test-kind.js");
+
+/** A JS test file's name, the arm of every row reading scripts/ tests. */
+const JS_TEST = JS_TEST_FILE.source;
 
 /** A finding's identity where a row names none: one site in one file. */
 const SITE_IDENTITY = ["severity", "tag", "file", "match"];
@@ -47,12 +45,17 @@ const SITE_IDENTITY = ["severity", "tag", "file", "match"];
  * @typedef {object} PrecommitGate
  * @property {string} id the fault profile and refusal-table id
  * @property {string} script the checker, from the repo root
- * @property {"against" | "index"} flag `--against HEAD` or `--index`
- * @property {string} ere the ERE `armed` matches staged paths against; a
- *   `$JS_TEST_ERE` in it is the hook's own variable, expanded by the shell
- * @property {"merge" | "batch" | "none"} lander the queue lander's gate set
- *   that runs it beside a plain commit (#4545): `merge` runs before the hook's
- *   `--gates=merge` exit, `none` is a gate the lander's Actions run repeats
+ * @property {import("./precommit-dispatch.js").Lander} lander the queue
+ *   lander's gate sets that run it beside a plain commit (#4545): `every`
+ *   both, `merge` the merge set, `batch` the batch set, `none` neither, a
+ *   gate the lander's Actions run repeats
+ * @property {string[]} args what the dispatcher hands the checker
+ * @property {import("./precommit-dispatch.js").Arm} arm the staged paths
+ *   that run it
+ * @property {"gate" | "warn"} policy whether its red refuses the commit
+ * @property {"checker"} kind a lib/check.js checker exporting its SPEC
+ * @property {string} [side] why its `--against`/`--index` sides spawn the
+ *   checker rather than run in-process, where they do
  * @property {string} staged a path whose staging arms it
  * @property {RefusalLine[]} refusals the lines any one of which names the gate
  * @property {string[]} [sources] the files printing `refusals`, where not the
@@ -85,9 +88,18 @@ const GATES = [
 	{
 		id: "guard-registry",
 		script: "scripts/check-guard-registry.js",
-		flag: "against",
-		ere: String.raw`^(docs/|\.claude/|scripts/|\.husky/|self-plugin/|AGENTS\.md$|CLAUDE\.md$)`,
 		lander: "merge",
+		args: ["--against", "HEAD"],
+		arm: {
+			pattern:
+				/^(docs\/|\.claude\/|scripts\/|\.husky\/|self-plugin\/|AGENTS\.md$|CLAUDE\.md$)/,
+		},
+		policy: "gate",
+		kind: "checker",
+		side:
+			"its judged root is a module variable --root resets and its rule store an " +
+			"env var it writes, so an in-process index side leaves the parent reading " +
+			"a removed tree",
 		staged: "scripts/guard-x.sh",
 		refusals: [
 			"Fix the rule or fix the claim",
@@ -122,9 +134,15 @@ const GATES = [
 	{
 		id: "guard-test-isolation",
 		script: "scripts/check-guard-test-isolation.js",
-		flag: "against",
-		ere: String.raw`^scripts/.*$JS_TEST_ERE|^scripts/.*\.(ts|sh)$`,
 		lander: "none",
+		args: ["--against", "HEAD"],
+		arm: {
+			pattern: new RegExp(
+				String.raw`^scripts/.*${JS_TEST}|^scripts/.*\.(ts|sh)$`,
+			),
+		},
+		policy: "gate",
+		kind: "checker",
 		staged: "scripts/a.test.ts",
 		refusals: ["without setting CLAUDE_CONFIG_DIR, so a fail-open it provokes"],
 		identity: ["severity", "tag", "file"],
@@ -150,9 +168,15 @@ const GATES = [
 	{
 		id: "host-root-test-isolation",
 		script: "scripts/check-host-root-test-isolation.js",
-		flag: "against",
-		ere: String.raw`^scripts/.*$JS_TEST_ERE|^scripts/.*\.(js|sh)$`,
 		lander: "batch",
+		args: ["--against", "HEAD"],
+		arm: {
+			pattern: new RegExp(
+				String.raw`^scripts/.*${JS_TEST}|^scripts/.*\.(js|sh)$`,
+			),
+		},
+		policy: "gate",
+		kind: "checker",
 		staged: "scripts/a.test.ts",
 		refusals: ["without setting CLAUDE_PROJECT_DIR, so the child roots itself"],
 		identity: ["severity", "tag", "file"],
@@ -178,9 +202,11 @@ const GATES = [
 	{
 		id: "git-fixture-identity",
 		script: "scripts/check-git-fixture-identity.js",
-		flag: "against",
-		ere: "^scripts/.*$JS_TEST_ERE",
 		lander: "none",
+		args: ["--against", "HEAD"],
+		arm: { pattern: new RegExp(`^scripts/.*${JS_TEST}`) },
+		policy: "gate",
+		kind: "checker",
 		staged: "scripts/a.test.ts",
 		refusals: ["with no identity set for it, so it fails on a runner"],
 		identity: ["severity", "tag", "file"],
@@ -207,9 +233,11 @@ const GATES = [
 	{
 		id: "test-env-writes",
 		script: "scripts/check-test-env-writes.js",
-		flag: "against",
-		ere: String.raw`$JS_TEST_ERE|^scripts/.*\.ts$`,
 		lander: "none",
+		args: ["--against", "HEAD"],
+		arm: { pattern: new RegExp(String.raw`${JS_TEST}|^scripts/.*\.ts$`) },
+		policy: "gate",
+		kind: "checker",
 		staged: "scripts/lib/a-testkit.ts",
 		refusals: [
 			"which unstubEnvs never restores, so the change outlives its case",
@@ -239,9 +267,11 @@ const GATES = [
 	{
 		id: "host-root",
 		script: "scripts/check-host-root.js",
-		flag: "against",
-		ere: String.raw`^(scripts/|\.claude/|\.husky/)`,
 		lander: "batch",
+		args: ["--against", "HEAD"],
+		arm: { pattern: /^(scripts\/|\.claude\/|\.husky\/)/ },
+		policy: "gate",
+		kind: "checker",
 		staged: "scripts/a.js",
 		refusals: [
 			{ text: "Use hostRoot() from lib/host-root.js", sites: 2 },
@@ -269,9 +299,11 @@ const GATES = [
 	{
 		id: "website-copy",
 		script: "scripts/check-website-copy.js",
-		flag: "against",
-		ere: "^app/",
 		lander: "none",
+		args: ["--against", "HEAD"],
+		arm: { pattern: /^app\// },
+		policy: "gate",
+		kind: "checker",
 		staged: "app/page.tsx",
 		refusals: ["These are banned tells from"],
 		notice: {
@@ -289,9 +321,11 @@ const GATES = [
 	{
 		id: "skill-frontmatter",
 		script: "scripts/check-skill-frontmatter.js",
-		flag: "against",
-		ere: String.raw`^\.claude/skills/[^/]+/SKILL\.md$`,
 		lander: "none",
+		args: ["--against", "HEAD"],
+		arm: { pattern: /^\.claude\/skills\/[^/]+\/SKILL\.md$/ },
+		policy: "gate",
+		kind: "checker",
 		staged: ".claude/skills/s/SKILL.md",
 		refusals: ["A strict YAML reader drops this skill (#887)."],
 		identity: ["severity", "tag", "file"],
@@ -312,9 +346,11 @@ const GATES = [
 	{
 		id: "hand-callers",
 		script: "scripts/check-hand-callers.js",
-		flag: "against",
-		ere: String.raw`^(scripts/|\.claude/skills/[^/]+/scripts/)`,
 		lander: "batch",
+		args: ["--against", "HEAD"],
+		arm: { pattern: /^(scripts\/|\.claude\/skills\/[^/]+\/scripts\/)/ },
+		policy: "gate",
+		kind: "checker",
 		staged: "scripts/a.js",
 		identity: ["severity", "tag", "file", "match", "nth"],
 		refusals: [
@@ -337,9 +373,14 @@ const GATES = [
 	{
 		id: "registrations",
 		script: "scripts/check-registrations.js",
-		flag: "against",
-		ere: String.raw`^(\.claude/(settings|registrations|guard-fire-needles)\.json$|self-plugin/hooks/hooks\.json$|scripts/|\.husky/|\.github/workflows/)`,
 		lander: "batch",
+		args: ["--against", "HEAD"],
+		arm: {
+			pattern:
+				/^(\.claude\/(settings|registrations|guard-fire-needles)\.json$|self-plugin\/hooks\/hooks\.json$|scripts\/|\.husky\/|\.github\/workflows\/)/,
+		},
+		policy: "gate",
+		kind: "checker",
 		staged: "scripts/a.js",
 		refusals: [
 			"is run by no hook in .claude/settings.json",
@@ -368,9 +409,11 @@ const GATES = [
 	{
 		id: "cli-args",
 		script: "scripts/check-cli-args.js",
-		flag: "against",
-		ere: String.raw`^scripts/[^/]+\.js$`,
 		lander: "batch",
+		args: ["--against", "HEAD"],
+		arm: { pattern: /^scripts\/[^/]+\.js$/ },
+		policy: "gate",
+		kind: "checker",
 		staged: "scripts/a.js",
 		refusals: ["fall through to the default action"],
 		identity: ["severity", "tag", "file", "content"],
@@ -390,9 +433,13 @@ const GATES = [
 	{
 		id: "test-spawn",
 		script: "scripts/check-test-spawn.js",
-		flag: "index",
-		ere: String.raw`^(scripts|\.claude/skills)/.*$JS_TEST_ERE`,
 		lander: "batch",
+		args: ["--index"],
+		arm: {
+			pattern: new RegExp(String.raw`^(scripts|\.claude/skills)/.*${JS_TEST}`),
+		},
+		policy: "gate",
+		kind: "checker",
 		staged: "scripts/a.test.ts",
 		refusals: ["spawns node on the program under test"],
 		identity: ["severity", "tag", "file", "call", "nth"],
@@ -412,9 +459,11 @@ const GATES = [
 	{
 		id: "jsonl-reads",
 		script: "scripts/check-jsonl-reads.js",
-		flag: "index",
-		ere: String.raw`^scripts/.+\.[cm]?js$`,
 		lander: "batch",
+		args: ["--index"],
+		arm: { pattern: /^scripts\/.+\.[cm]?js$/ },
+		policy: "gate",
+		kind: "checker",
 		staged: "scripts/a.js",
 		refusals: ["hand-parses JSONL"],
 		notice: {
@@ -432,9 +481,11 @@ const GATES = [
 	{
 		id: "gh-route",
 		script: "scripts/check-gh-route.js",
-		flag: "index",
-		ere: String.raw`^(scripts|\.claude/skills|\.husky|hooks)/`,
 		lander: "batch",
+		args: ["--index"],
+		arm: { pattern: /^(scripts|\.claude\/skills|\.husky|hooks)\// },
+		policy: "gate",
+		kind: "checker",
 		staged: "scripts/a.sh",
 		refusals: ["off its one route"],
 		sources: ["scripts/check-gh-route.js", "scripts/lib/gh-route.js"],
@@ -449,9 +500,11 @@ const GATES = [
 	{
 		id: "arbiter-commands",
 		script: "scripts/check-arbiter-commands.js",
-		flag: "index",
-		ere: String.raw`^scripts/.+\.[cm]?js$`,
 		lander: "batch",
+		args: ["--index"],
+		arm: { pattern: /^scripts\/.+\.[cm]?js$/ },
+		policy: "gate",
+		kind: "checker",
 		staged: "scripts/a.js",
 		refusals: ["spells an arbiter command by hand"],
 		notice: {
@@ -466,9 +519,11 @@ const GATES = [
 	{
 		id: "clock-copies",
 		script: "scripts/check-clock-copies.js",
-		flag: "index",
-		ere: String.raw`^scripts/.+\.[cm]?js$`,
 		lander: "batch",
+		args: ["--index"],
+		arm: { pattern: /^scripts\/.+\.[cm]?js$/ },
+		policy: "gate",
+		kind: "checker",
 		staged: "scripts/a.js",
 		refusals: ["reads WFC_NOW itself"],
 		notice: {
@@ -483,9 +538,11 @@ const GATES = [
 	{
 		id: "report-programs",
 		script: "scripts/check-report-programs.js",
-		flag: "index",
-		ere: String.raw`^scripts/report-[^/]+\.[cm]?js$`,
 		lander: "batch",
+		args: ["--index"],
+		arm: { pattern: /^scripts\/report-[^/]+\.[cm]?js$/ },
+		policy: "gate",
+		kind: "checker",
 		staged: "scripts/report-a.js",
 		refusals: ["report-program breach(es)"],
 		notice: {
@@ -499,9 +556,13 @@ const GATES = [
 	{
 		id: "program-output",
 		script: "scripts/check-program-output.js",
-		flag: "index",
-		ere: String.raw`^(scripts|\.claude/skills/[^/]+/scripts)/.+\.[cm]?js$`,
 		lander: "batch",
+		args: ["--index"],
+		arm: {
+			pattern: /^(scripts|\.claude\/skills\/[^/]+\/scripts)\/.+\.[cm]?js$/,
+		},
+		policy: "gate",
+		kind: "checker",
 		staged: ".claude/skills/s/scripts/a.js",
 		refusals: ["write(s) past writeFd"],
 		notice: {
@@ -517,9 +578,11 @@ const GATES = [
 	{
 		id: "precommit-exit",
 		script: "scripts/check-precommit-exit.js",
-		flag: "index",
-		ere: String.raw`^\.husky/pre-commit(\.local)?$`,
 		lander: "batch",
+		args: ["--index"],
+		arm: { pattern: /^\.husky\/pre-commit(\.local)?$/ },
+		policy: "gate",
+		kind: "checker",
 		staged: ".husky/pre-commit",
 		refusals: ["exits 1 on a checker's failure"],
 		sources: [
@@ -536,9 +599,6 @@ const GATES = [
 	},
 ];
 
-/** The hook argument each flag renders as. */
-const FLAG_ARGS = { against: "--against HEAD", index: "--index" };
-
 /**
  * A path from the core root, absolute, in the core the running code sits in:
  * not script-path.js's corePath, which spells one for a command line.
@@ -547,4 +607,4 @@ const FLAG_ARGS = { against: "--against HEAD", index: "--index" };
  */
 const fromCoreRoot = (rel) => path.join(coreRoot(), rel);
 
-module.exports = { FLAG_ARGS, GATES, fromCoreRoot, SITE_IDENTITY };
+module.exports = { GATES, fromCoreRoot, SITE_IDENTITY };

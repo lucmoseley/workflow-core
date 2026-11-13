@@ -261,7 +261,6 @@ const GATE_SOURCES: Record<string, string[]> = {
 	],
 	"hook-liveness": ["scripts/check-hook-liveness.js"],
 	"plugin-hooks": ["scripts/generate-plugin-hooks.js"],
-	"precommit-gates": ["scripts/generate-precommit-gates.js"],
 	"test-read-edges": ["scripts/generate-test-read-edges.js"],
 	"rule-fragments": ["scripts/generate-rule-fragments.js", ".husky/pre-commit"],
 	"effort-guide-routing": ["scripts/generate-effort-guide-routing.js"],
@@ -343,7 +342,9 @@ describe("the commit-gate refusal table against the gates it copies (#2298)", ()
  * unattributed.
  */
 const HOOK_CALLS: Record<string, (string | null)[]> = {
-	...Object.fromEntries(PRECOMMIT_GATES.map((g) => [g.script, [g.id]])),
+	/* Each row's own lines pass through its output, so the dispatcher's call
+	 * names no one gate (#5172). */
+	"scripts/precommit-dispatch.js": [null],
 	"scripts/lib/workflow-core-config.js": [null, null, null],
 	"scripts/check-digest-render.js": ["digest-render"],
 	"scripts/check-doc-map.js": ["doc-map", "doc-map", "doc-map"],

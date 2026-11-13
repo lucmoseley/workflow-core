@@ -27,8 +27,9 @@
 const {
 	REPORT_PROGRAM,
 	parseMatchSites,
-	runHeresyCheck,
+	heresySpec,
 } = require("./lib/heresy-scan.js");
+const { runCheck } = require("./lib/check");
 const { blankInert } = require("./lib/strip-comments.js");
 const { isTestKind } = require("./lib/test-kind.js");
 
@@ -49,7 +50,8 @@ const include = (rel) =>
 	!rel.startsWith("scripts/templates/") &&
 	(rel.startsWith("scripts/") || SKILL_PROGRAM.test(rel));
 
-runHeresyCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = heresySpec({
 	name: "program-output",
 	dirs: ["scripts", ".claude/skills"],
 	include,
@@ -74,3 +76,6 @@ runHeresyCheck({
 		};
 	},
 });
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

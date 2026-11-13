@@ -49,7 +49,8 @@ const { runCheck } = require("./lib/check");
 
 const ROOTS = ["scripts", ".claude/skills", ".husky", "hooks"];
 
-runCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = {
 	name: "gh-route",
 	usage:
 		"node check-gh-route.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]",
@@ -95,4 +96,7 @@ runCheck({
 			data: { scanned },
 		};
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

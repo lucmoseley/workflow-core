@@ -46,7 +46,7 @@ import os from "node:os";
 import path from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
-import { FLAG_ARGS, GATES as PRECOMMIT_GATES } from "./lib/precommit-gates.js";
+import { GATES as PRECOMMIT_GATES } from "./lib/precommit-gates.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { testGate } from "./lib/test-gate.js";
 
@@ -804,9 +804,10 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 
 	it.each(
 		PRECOMMIT_GATES.filter((g) => g.floor).map((g) => [g.script, g] as const),
-	)("names %s, which the hook still runs", (script, g) => {
+	)("names %s, which the dispatcher still runs", (script, g) => {
 		expect(floor).toContain(`\`${script}\``);
-		expect(hook).toContain(`${script} ${FLAG_ARGS[g.flag]} || exit "$?"`);
+		expect(g.policy).toBe("gate");
+		expect(hook).toContain('scripts/precommit-dispatch.js "$@" || exit "$?"');
 	});
 
 	it("gives shfmt the flags the format gate passes it", () => {
@@ -876,12 +877,16 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			"check-context-budget",
 			"check-injector-margin",
 			"check-superseded-values",
-			"generate-precommit-gates",
+			// The dispatcher: each of its rows is placed below as a script.
+			"precommit-dispatch",
 			...PRECOMMIT_GATES.filter((g) => !g.floor).map((g) =>
 				g.script.slice("scripts/".length).replace(/\.js$/, ""),
 			),
 		]);
-		const run = new Set(hook.match(/scripts\/[\w/-]+\.(?:js|sh)/g));
+		const run = new Set([
+			...(hook.match(/scripts\/[\w/-]+\.(?:js|sh)/g) ?? []),
+			...PRECOMMIT_GATES.map((g) => g.script),
+		]);
 		expect(run.size).toBeGreaterThan(0);
 		const unplaced = [...run].filter(
 			(script) =>

@@ -18,6 +18,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { checkInProcess } from "./check";
+import { GATES } from "./precommit-gates.js";
 
 const SCRIPTS = path.resolve(__dirname, "..");
 
@@ -136,12 +137,17 @@ const spawned = (script: string, args: string[], repo: string) => {
 
 /* The fixture is the run's working directory, as the hook's is; chdir is the
  * test's, around the call, never the checker's. */
-const inProcess = async (script: string, args: string[], repo: string) => {
+const inProcess = async (
+	script: string,
+	args: string[],
+	repo: string,
+	sides: "spawn" | "in-process" = "in-process",
+) => {
 	const { SPEC } = require(script);
 	const was = process.cwd();
 	process.chdir(repo);
 	try {
-		return await checkInProcess(SPEC, args, { script });
+		return await checkInProcess(SPEC, args, { script, sides });
 	} finally {
 		process.chdir(was);
 	}
@@ -154,5 +160,47 @@ describe.each(ROWS)("$script $args", ({ script, args, trees }) => {
 		expect(await inProcess(file, args, repo)).toEqual(
 			spawned(file, args, repo),
 		);
+	});
+});
+
+/* A run with what differs between any two runs taken out: the random name of
+ * each materialised tree, and a BROKEN's stack frames. */
+const settled = (r: {
+	exit: number | null;
+	stdout: string;
+	stderr: string;
+}) => {
+	const settle = (t: string) =>
+		t
+			.replace(/check-against-[\w-]+?-\w{6}\/tree-\w{6}/g, "<tree>")
+			.replace(/^\s+at .*\n/gm, "");
+	return { exit: r.exit, stdout: settle(r.stdout), stderr: settle(r.stderr) };
+};
+
+/* Every dispatcher row as the dispatcher runs it (#5172): its args, its sides
+ * spawned where the row keeps a `side`, over a tree whose one commit holds the
+ * row's arming path and whose index changes it. */
+describe.each(GATES)("the $id dispatcher row", (row) => {
+	it("runs in-process exactly as spawned over a change to its arming path", async () => {
+		const repo = fixture({
+			name: row.staged,
+			build: (r) => {
+				const json = row.staged.endsWith(".json");
+				stage(r, row.staged, json ? '{ "v": 1 }\n' : "one\n");
+				git(r, "commit", "-qm", "init");
+				stage(r, row.staged, json ? '{ "v": 2 }\n' : "two\n");
+			},
+		});
+		const file = path.join(SCRIPTS, path.basename(row.script));
+		expect(
+			settled(
+				await inProcess(
+					file,
+					row.args,
+					repo,
+					row.side ? "spawn" : "in-process",
+				),
+			),
+		).toEqual(settled(spawned(file, row.args, repo)));
 	});
 });

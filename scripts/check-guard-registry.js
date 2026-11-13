@@ -4943,7 +4943,8 @@ function sayFindings(
 		);
 }
 
-runCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = {
 	name: "guard-registry",
 	usage: `node check-guard-registry.js [--warn] [--json] [--roster] [--root <dir>] [--against <rev>] [--head <rev>] | --touched-by <rev> [--root <dir>] (BROKEN past ${TOUCHED_BY_CEILING_MS / 1000}s) | --review [--sole-writer] [<path>…] [--taking <path>]… [--own <path>]… | --review --stale`,
 	valueFlags: ["--root", "--touched-by", "--taking", "--own"],
@@ -5110,4 +5111,7 @@ runCheck({
 			},
 		};
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

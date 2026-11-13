@@ -108,7 +108,8 @@ function loadYaml(ctx) {
 	return loaded.module;
 }
 
-runCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = {
 	name: "skill-frontmatter",
 	usage:
 		"node check-skill-frontmatter.js [--root <dir>] [--against <rev>] [--json] [--warn]",
@@ -154,4 +155,7 @@ runCheck({
 			data: { parsed },
 		};
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

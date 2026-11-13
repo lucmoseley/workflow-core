@@ -85,15 +85,11 @@ case "${1-}" in
   --gates=merge | --gates=batch) wfc_gates="${1#--gates=}" ;;
 esac
 
-# The whole-repo checker gates the lander's merge set runs, before its exit
-# below. Both precommit-gates regions are rendered from scripts/lib/precommit-gates.js,
-# whose rows hold each gate's why, by scripts/generate-precommit-gates.js:
-# edit the registry and re-run it, never the region (#4597).
-# precommit-gates:merge:begin
-if ! lander_batch && armed '^(docs/|\.claude/|scripts/|\.husky/|self-plugin/|AGENTS\.md$|CLAUDE\.md$)'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-guard-registry.js --against HEAD || exit "$?"
-fi
-# precommit-gates:merge:end
+# The Node gates, every row of scripts/lib/precommit-gates.js, in its order,
+# in one process sharing one startup (#5172). It takes this hook's arguments,
+# so `--gates=` selects the lander's sets there; a gate's red is its own exit
+# code. The registry row holds each gate's arm and why.
+node "${WFC_PLUGIN_ROOT:-.}"/scripts/precommit-dispatch.js "$@" || exit "$?"
 
 # docs/test-read-edges.json is what lets `--changed` select the tests that READ a
 # document rather than import it. It is derived from the test corpus, so a
@@ -319,88 +315,6 @@ fi
 if armed '^(self-plugin/hooks/hooks\.json|hooks/hooks\.json|scripts/[^/]+|scripts/lib/(core-hooks|deny-capable|guard-fires)\.js)$'; then
   node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-plugin-hooks.js --check || exit "$?"
 fi
-
-# The precommit-gates regions are rendered from the registry, so an edit to the
-# hook, the registry or its renderer without a re-render runs gates the registry
-# no longer holds (#4597).
-if armed '^(\.husky/pre-commit|scripts/(generate-precommit-gates|lib/precommit-gates(-render)?)\.js)$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/generate-precommit-gates.js --check || exit "$?"
-fi
-
-# The rest of the whole-repo checker gates, rendered as the merge region above.
-# precommit-gates:batch:begin
-if ! lander_batch && armed '^scripts/.*'"$JS_TEST_ERE"'|^scripts/.*\.(ts|sh)$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-guard-test-isolation.js --against HEAD || exit "$?"
-fi
-
-if armed '^scripts/.*'"$JS_TEST_ERE"'|^scripts/.*\.(js|sh)$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-host-root-test-isolation.js --against HEAD || exit "$?"
-fi
-
-if ! lander_batch && armed '^scripts/.*'"$JS_TEST_ERE"; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-git-fixture-identity.js --against HEAD || exit "$?"
-fi
-
-if ! lander_batch && armed "$JS_TEST_ERE"'|^scripts/.*\.ts$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-test-env-writes.js --against HEAD || exit "$?"
-fi
-
-if armed '^(scripts/|\.claude/|\.husky/)'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-host-root.js --against HEAD || exit "$?"
-fi
-
-if ! lander_batch && armed '^app/'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-website-copy.js --against HEAD || exit "$?"
-fi
-
-if ! lander_batch && armed '^\.claude/skills/[^/]+/SKILL\.md$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-skill-frontmatter.js --against HEAD || exit "$?"
-fi
-
-if armed '^(scripts/|\.claude/skills/[^/]+/scripts/)'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-hand-callers.js --against HEAD || exit "$?"
-fi
-
-if armed '^(\.claude/(settings|registrations|guard-fire-needles)\.json$|self-plugin/hooks/hooks\.json$|scripts/|\.husky/|\.github/workflows/)'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-registrations.js --against HEAD || exit "$?"
-fi
-
-if armed '^scripts/[^/]+\.js$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-cli-args.js --against HEAD || exit "$?"
-fi
-
-if armed '^(scripts|\.claude/skills)/.*'"$JS_TEST_ERE"; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-test-spawn.js --index || exit "$?"
-fi
-
-if armed '^scripts/.+\.[cm]?js$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-jsonl-reads.js --index || exit "$?"
-fi
-
-if armed '^(scripts|\.claude/skills|\.husky|hooks)/'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-gh-route.js --index || exit "$?"
-fi
-
-if armed '^scripts/.+\.[cm]?js$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-arbiter-commands.js --index || exit "$?"
-fi
-
-if armed '^scripts/.+\.[cm]?js$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-clock-copies.js --index || exit "$?"
-fi
-
-if armed '^scripts/report-[^/]+\.[cm]?js$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-report-programs.js --index || exit "$?"
-fi
-
-if armed '^(scripts|\.claude/skills/[^/]+/scripts)/.+\.[cm]?js$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-program-output.js --index || exit "$?"
-fi
-
-if armed '^\.husky/pre-commit(\.local)?$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-precommit-exit.js --index || exit "$?"
-fi
-# precommit-gates:batch:end
 
 # docs/agents/rules/<id>.txt is rendered from an anchor pair in the document
 # that authors the rule, so an edit inside those anchors makes the fragment

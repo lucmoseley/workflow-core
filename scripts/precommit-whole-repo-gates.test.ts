@@ -1,255 +1,232 @@
 // @vitest-environment node
 /*
  * Pins the whole-repo pre-commit gates (mantahostels#1753), every row of
- * lib/precommit-gates.js (#4597), exercised as the shell they are: each one call, `--against HEAD` for a direction-gated gate
- * and `--index` for a whole-tree one, refusing with the checker's own exit code,
- * and, for a direction-gated one, the `--root` each side of the comparison is
- * read through.
+ * lib/precommit-gates.js (#4597), as the pre-commit dispatcher runs them
+ * (#5172): each row's checker loads as a SPEC without running, takes
+ * `--against HEAD` for a direction-gated gate and `--index` for a whole-tree
+ * one, and arms on exactly the staged paths the hook's own `armed` ERE took.
  *
- * The shell is one line each, and what `--against HEAD` does is proved once,
- * against a fake check, in scripts/lib/check.test.ts. What is left here is what
- * only the hook can answer. Each checker is stubbed in a throwaway repo, the
- * shared tree's index being repo-global (mantahostels#63).
+ * What the dispatcher does with a row's verdict is proved once, over stub
+ * rows, in scripts/lib/precommit-dispatch.test.ts, and through the real hook
+ * in scripts/precommit-dispatch.test.ts. What is left here is each row's own.
  *
  * They are hard gates in `.husky/pre-commit`: loosen a case and a commit adding
  * a new fault — a rule claiming backing it lacks, a test escaping its fixture —
  * lands unrefused, or a direction-gated one is refused for faults it inherited.
  */
 
-import { spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { dispatch, existsUnder, readStaged } from "./lib/precommit-dispatch.js";
 import {
-	cutGateScript,
-	expectFixtureSupplies,
 	newRepo,
 	registerTempCleanup,
 	stagedRepo,
 } from "./lib/precommit-gate-harness";
-import { coreCall, HOOK, LIB, ROOT } from "./lib/precommit-gate-testkit";
-import { FLAG_ARGS, GATES as PRECOMMIT_GATES } from "./lib/precommit-gates.js";
+import { HOOK, LIB, ROOT } from "./lib/precommit-gate-testkit";
+import { GATES } from "./lib/precommit-gates.js";
 import { runInProcess } from "./lib/run-in-process.js";
+import { JS_TEST_FILE, siblingTests } from "./lib/test-kind.js";
 
 const temps = registerTempCleanup();
-
-const GATES = PRECOMMIT_GATES.map((g) => ({
-	profile: g.id,
-	checker: g.script,
-	/** A path in this gate's `armed` condition. */
-	staged: g.staged,
-	/** What the hook line hands the checker. */
-	args: FLAG_ARGS[g.flag],
-}));
 
 /** A path no gate's condition holds, and where a rename of it goes. */
 const OUTSIDE = "lib/page.tsx";
 
-const STUB_MARKER = "STUB-CHECK-RAN";
+type Gate = (typeof GATES)[number];
 
-/** A git repo with one commit and a stubbed checker whose exit code is ours to choose. */
-function fixture(opts: {
-	checker: string;
-	staged: string;
-	checkerExit: number;
-}): { root: string; git: (...args: string[]) => Buffer } {
-	const checker =
-		`const fs = require("node:fs");\n` +
-		`console.log("${STUB_MARKER}");\n` +
-		`fs.appendFileSync("argv.log", process.argv.slice(2).join(" ") + "\\n");\n` +
-		`process.exit(${opts.checkerExit});\n`;
-	return stagedRepo(
-		"whole-repo-gate-",
-		temps,
-		{ [opts.checker]: checker },
-		{ [opts.staged]: "x\n" },
-	);
+/** Whether the dispatcher runs `gate` on what is staged in `root`. */
+async function arms(gate: Gate, root: string): Promise<boolean> {
+	let ran = false;
+	await dispatch({
+		rows: [gate],
+		gates: "all",
+		ports: {
+			staged: () => readStaged(root),
+			computed: () => [],
+			exists: existsUnder(root),
+			load: () => () => {
+				ran = true;
+				return { exit: 0, stdout: "", stderr: "" };
+			},
+			write: () => undefined,
+		},
+	});
+	return ran;
 }
 
-/** The fixture above, but committing `from` and staging its `git mv` to `to`. */
-function renamed(checker: string, from: string, to: string): string {
-	const { root, git } = fixture({ checker, staged: from, checkerExit: 1 });
+/** A repo committing `from` and staging its `git mv` to `to`. */
+function renamed(from: string, to: string): string {
+	const { root, git } = stagedRepo(
+		"whole-repo-gate-",
+		temps,
+		{},
+		{ [from]: "x\n" },
+	);
 	git("commit", "-qm", "add");
 	fs.mkdirSync(path.join(root, path.dirname(to)), { recursive: true });
 	git("mv", "--", from, to);
 	return root;
 }
 
-/*
- * spawnSync, not execFileSync: the gate's verdicts go to stderr, and
- * execFileSync returns stdout alone on a zero exit.
- *
- * `-e` because husky runs the hook under `sh -e`, where an unconsumed non-zero
- * status aborts the file rather than falling through.
- */
-function runGate(
-	cwd: string,
-	fragment: string,
-): { code: number; output: string } {
-	const run = spawnSync("sh", ["-ec", fragment], {
-		cwd,
-		encoding: "utf8",
-		stdio: ["ignore", "pipe", "pipe"],
-		env: { ...process.env, GITHUB_ACTIONS: "" },
-	});
-	return {
-		code: run.status ?? 1,
-		output: `${run.stdout ?? ""}${run.stderr ?? ""}`,
-	};
-}
-
-const readLog = (root: string, name: string) =>
-	fs.existsSync(path.join(root, name))
-		? fs.readFileSync(path.join(root, name), "utf8")
-		: "";
-
-describe.each(GATES)("the pre-commit $profile gate", (gate) => {
-	const fragment = () => cutGateScript(gate.checker);
-	const build = (checkerExit: number) =>
-		fixture({ checker: gate.checker, staged: gate.staged, checkerExit }).root;
-
-	it("is wired into .husky/pre-commit as one call", () => {
-		expect(HOOK).toContain(
-			`${coreCall("node", gate.checker)} ${gate.args} || exit "$?"`,
-		);
-	});
-
-	it("supplies exactly the scripts the gate invokes", () => {
-		expectFixtureSupplies(gate.checker, [gate.checker]);
-	});
-
+describe.each(GATES)("the pre-commit $id gate", (gate) => {
 	it("names a profile lib/fault-profiles.js actually carries", () => {
 		const { PROFILES } = require("./lib/fault-profiles.js");
-		expect(Object.keys(PROFILES)).toContain(gate.profile);
+		expect(Object.keys(PROFILES)).toContain(gate.id);
 	});
 
-	it("hands the checker its args and nothing else", () => {
-		const root = build(0);
-
-		runGate(root, fragment());
-
-		expect(readLog(root, "argv.log").trim()).toBe(gate.args);
+	it("hands its checker --against HEAD or --index, and nothing else", () => {
+		expect([["--against", "HEAD"], ["--index"]]).toContainEqual(gate.args);
 	});
 
-	/* The hook line must not swallow the checker's own report. lib/check.test.ts
-	 * proves the LIBRARY streams it, and nothing but this proves `|| exit "$?"`
-	 * leaves it alone. */
-	it.each([0, 1, 2])(
-		"passes the checker's own report through on exit %i",
-		(code) => {
-			expect(runGate(build(code), fragment()).output).toContain(STUB_MARKER);
-		},
-	);
-
-	it("passes a green run", () => {
-		expect(runGate(build(0), fragment()).code).toBe(0);
+	/* The dispatcher requires the checker: one that ran at load would exit the
+	 * dispatcher's own process. */
+	it("loads as a SPEC without running", () => {
+		const r = spawnSync(
+			process.execPath,
+			[
+				"-e",
+				`const { SPEC } = require(${JSON.stringify(path.join(ROOT, gate.script))});
+				 if (typeof SPEC?.run !== "function") process.exit(3);
+				 process.stdout.write("loaded");`,
+			],
+			{ cwd: ROOT, encoding: "utf8" },
+		);
+		expect({ status: r.status, stdout: r.stdout, stderr: r.stderr }).toEqual({
+			status: 0,
+			stdout: "loaded",
+			stderr: "",
+		});
 	});
 
-	/* The checker's alphabet reaches the session intact: a BROKEN 2 must stay
-	 * distinguishable from a fault this commit adds (1), because they call for
-	 * different acts (mantahostels#155). */
-	// exempt (mantahostels#2081): the STUB_MARKER pin for exit 1 and 2 is carried by
-	// "passes the checker's own report through on exit %i" above, run over
-	// [0, 1, 2]. This test's own residual claim — that the observed code came
-	// from the checker and not some other non-zero route — is what its
-	// `.toBe(code)` structural pin proves; the marker pin alone would not.
-	it.each([1, 2])("refuses with the checker's own exit code %i", (code) => {
-		expect(runGate(build(code), fragment()).code).toBe(code);
+	it("arms on a path in its condition", async () => {
+		const { root } = stagedRepo(
+			"whole-repo-gate-",
+			temps,
+			{},
+			{ [gate.staged]: "x\n" },
+		);
+		expect(await arms(gate, root)).toBe(true);
 	});
 
 	/* After `git mv`, a bare `--name-only` prints the new name alone, so a move
 	 * out of the condition armed nothing. */
-	it("fires on a rename out of its condition (#1483)", () => {
-		const root = renamed(
-			gate.checker,
-			gate.staged,
-			`bin/${path.basename(gate.staged)}`,
+	it("arms on a rename out of its condition (#1483)", async () => {
+		const root = renamed(gate.staged, `bin/${path.basename(gate.staged)}`);
+		expect(await arms(gate, root)).toBe(true);
+	});
+
+	it("does not arm on a rename with neither end in its condition", async () => {
+		expect(await arms(gate, renamed(OUTSIDE, "bin/page.tsx"))).toBe(false);
+	});
+
+	it("does not arm on a commit outside its condition", async () => {
+		const { root } = stagedRepo(
+			"whole-repo-gate-",
+			temps,
+			{},
+			{ [OUTSIDE]: "x\n" },
 		);
-
-		const { code, output } = runGate(root, fragment());
-
-		expect(code).toBe(1);
-		expect(output).toContain(STUB_MARKER);
-	});
-
-	it("does not fire on a rename with neither end in its condition", () => {
-		const root = renamed(gate.checker, OUTSIDE, "bin/page.tsx");
-
-		const { code, output } = runGate(root, fragment());
-
-		expect(code).toBe(0);
-		expect(output).not.toContain(STUB_MARKER);
-	});
-
-	it("does not fire on a commit outside its condition", () => {
-		const { root } = fixture({
-			checker: gate.checker,
-			staged: OUTSIDE,
-			checkerExit: 1,
-		});
-
-		const { code, output } = runGate(root, fragment());
-
-		expect(code).toBe(0);
-		expect(output).not.toContain(STUB_MARKER);
+		expect(await arms(gate, root)).toBe(false);
 	});
 });
 
-/* The regions above are rendered from lib/precommit-gates.js, so a stale one
- * runs gates the registry no longer holds: the hook's own gate refuses it,
- * running the real generator against the fixture's index (#4597). */
-describe("the pre-commit's precommit-gates region gate", () => {
-	const registrySource = fs.readFileSync(
-		path.join(ROOT, "scripts", "lib", "precommit-gates.js"),
-		"utf8",
-	);
-	const stale = HOOK.replace(
-		"check-jsonl-reads.js --index",
-		"check-x.js --index",
-	);
-	/* `alone`, where given, is staged over a HEAD already holding both files. */
-	const run = (hook: string, alone?: Record<string, string>) => {
-		const files = {
-			".husky/pre-commit": hook,
-			"scripts/lib/precommit-gates.js": registrySource,
-		};
-		const { root } = stagedRepo(
-			"precommit-gates-region-",
-			temps,
-			alone ? files : {},
-			alone ?? files,
+/*
+ * Each row's arm pinned to the hook's own `armed` ERE it replaced (#5172),
+ * frozen here as the hook spelt it, `$JS_TEST_ERE` standing for
+ * JS_TEST_FILE in grep's ERE: grep -E and the row's pattern must take the
+ * same paths of a list spanning every condition.
+ */
+const HOOK_ERE: Record<string, string> = {
+	"scripts/check-guard-registry.js": String.raw`^(docs/|\.claude/|scripts/|\.husky/|self-plugin/|AGENTS\.md$|CLAUDE\.md$)`,
+	"scripts/check-guard-test-isolation.js": String.raw`^scripts/.*$JS_TEST_ERE|^scripts/.*\.(ts|sh)$`,
+	"scripts/check-host-root-test-isolation.js": String.raw`^scripts/.*$JS_TEST_ERE|^scripts/.*\.(js|sh)$`,
+	"scripts/check-git-fixture-identity.js": "^scripts/.*$JS_TEST_ERE",
+	"scripts/check-test-env-writes.js": String.raw`$JS_TEST_ERE|^scripts/.*\.ts$`,
+	"scripts/check-host-root.js": String.raw`^(scripts/|\.claude/|\.husky/)`,
+	"scripts/check-website-copy.js": "^app/",
+	"scripts/check-skill-frontmatter.js": String.raw`^\.claude/skills/[^/]+/SKILL\.md$`,
+	"scripts/check-hand-callers.js": String.raw`^(scripts/|\.claude/skills/[^/]+/scripts/)`,
+	"scripts/check-registrations.js": String.raw`^(\.claude/(settings|registrations|guard-fire-needles)\.json$|self-plugin/hooks/hooks\.json$|scripts/|\.husky/|\.github/workflows/)`,
+	"scripts/check-cli-args.js": String.raw`^scripts/[^/]+\.js$`,
+	"scripts/check-test-spawn.js": String.raw`^(scripts|\.claude/skills)/.*$JS_TEST_ERE`,
+	"scripts/check-jsonl-reads.js": String.raw`^scripts/.+\.[cm]?js$`,
+	"scripts/check-gh-route.js": String.raw`^(scripts|\.claude/skills|\.husky|hooks)/`,
+	"scripts/check-arbiter-commands.js": String.raw`^scripts/.+\.[cm]?js$`,
+	"scripts/check-clock-copies.js": String.raw`^scripts/.+\.[cm]?js$`,
+	"scripts/check-report-programs.js": String.raw`^scripts/report-[^/]+\.[cm]?js$`,
+	"scripts/check-program-output.js": String.raw`^(scripts|\.claude/skills/[^/]+/scripts)/.+\.[cm]?js$`,
+	"scripts/check-precommit-exit.js": String.raw`^\.husky/pre-commit(\.local)?$`,
+};
+
+/* grep's ERE has no non-capturing group. */
+const JS_TEST_ERE = JS_TEST_FILE.source.replaceAll("(?:", "(");
+
+const PATHS = [
+	...GATES.map((g) => g.staged),
+	...siblingTests("scripts/a"),
+	...siblingTests("scripts/lib/a"),
+	...siblingTests(".claude/skills/x/scripts/a"),
+	...siblingTests("app/a"),
+	"scripts/a.js",
+	"scripts/a.mjs",
+	"scripts/a.cjs",
+	"scripts/a.sh",
+	"scripts/a.ts",
+	"scripts/lib/a.js",
+	"scripts/report-a.js",
+	"scripts/lib/report-a.js",
+	"scripts/a.json",
+	".claude/settings.json",
+	".claude/registrations.json",
+	".claude/guard-fire-needles.json",
+	".claude/settings.local.json",
+	".claude/skills/x/SKILL.md",
+	".claude/skills/x/y/SKILL.md",
+	".claude/skills/x/scripts/a.js",
+	".claude/skills/x/notes.md",
+	".husky/pre-commit",
+	".husky/pre-commit.local",
+	".husky/post-commit",
+	".github/workflows/ci.yml",
+	"self-plugin/hooks/hooks.json",
+	"self-plugin/a.json",
+	"hooks/a.js",
+	"docs/a.md",
+	"AGENTS.md",
+	"CLAUDE.md",
+	"README.md",
+	"app/page.tsx",
+	"lib/page.tsx",
+	"a.test.ts",
+];
+
+describe("each row's arm, against the hook ERE it replaced", () => {
+	it("covers every row", () => {
+		expect(Object.keys(HOOK_ERE).sort()).toEqual(
+			GATES.map((g) => g.script).sort(),
 		);
-		const r = spawnSync(
-			"sh",
-			["-ec", cutGateScript("generate-precommit-gates.js")],
-			{
-				cwd: root,
+	});
+
+	it.each(GATES)("$id takes the paths grep -E took", (gate) => {
+		const ere = (HOOK_ERE[gate.script] ?? "").replaceAll(
+			"$JS_TEST_ERE",
+			JS_TEST_ERE,
+		);
+		let matched = "";
+		try {
+			matched = execFileSync("grep", ["-E", "-e", ere], {
+				input: `${PATHS.join("\n")}\n`,
 				encoding: "utf8",
-				env: { ...process.env, GITHUB_ACTIONS: "", WFC_PLUGIN_ROOT: ROOT },
-			},
-		);
-		return { code: r.status ?? 1, output: `${r.stdout}${r.stderr}` };
-	};
-
-	it("refuses a commit staging a stale region", () => {
-		const { code, output } = run(stale);
-
-		expect(code).toBe(1);
-		expect(output).toContain("precommit-gates regions are stale");
-		expect(output).toContain("generate-precommit-gates.js, then stage");
-	});
-
-	it("arms on a commit staging the renderer alone", () => {
-		const { code, output } = run(stale, {
-			"scripts/lib/precommit-gates-render.js": "",
-		});
-
-		expect(code).toBe(1);
-		expect(output).toContain("precommit-gates regions are stale");
-	});
-
-	it("passes a commit staging the registry's render", () => {
-		expect(run(HOOK).code).toBe(0);
+			});
+		} catch {
+			/* grep exits 1 where nothing matches. */
+		}
+		expect(
+			PATHS.filter((p) => "pattern" in gate.arm && gate.arm.pattern.test(p)),
+		).toEqual(matched.split("\n").filter(Boolean));
 	});
 });
 

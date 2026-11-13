@@ -21,14 +21,16 @@
 const {
 	REPORT_PROGRAM,
 	parseMatchSites,
-	runHeresyCheck,
+	heresySpec,
 } = require("./lib/heresy-scan.js");
+const { runCheck } = require("./lib/check");
 const ISSUE_CREATE = /(["'`])issue\1\s*,\s*(["'`])create\2|\bissue\s+create\b/g;
 
 const CREATE_FIX =
 	"file through createIssue in scripts/lib/tracking-issue.js, as scripts/report-remeasure-due.js does, or its fileOrRefresh (§N3).";
 
-runHeresyCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = heresySpec({
 	name: "report-programs",
 	include: (rel) => REPORT_PROGRAM.test(rel),
 	breaches: [
@@ -47,3 +49,6 @@ runHeresyCheck({
 		};
 	},
 });
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

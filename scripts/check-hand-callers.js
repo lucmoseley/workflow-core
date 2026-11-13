@@ -63,7 +63,8 @@ function scriptsUnder(root) {
 	return out.sort();
 }
 
-runCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = {
 	name: "hand-callers",
 	usage:
 		"node check-hand-callers.js [--root <dir>] [--against <rev>] [--json] [--warn]",
@@ -105,4 +106,7 @@ runCheck({
 			data: { scripts: files.length },
 		};
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

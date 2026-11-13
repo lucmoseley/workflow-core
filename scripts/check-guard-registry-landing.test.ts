@@ -31,7 +31,6 @@ import {
 	templateOf,
 	temps,
 } from "./lib/guard-registry-testkit";
-import { expectFixtureSupplies } from "./lib/precommit-gate-harness";
 import { runInProcess } from "./lib/run-in-process";
 
 afterEach(removeTemps);
@@ -124,23 +123,6 @@ describe("--against HEAD, the shape .husky/pre-commit's guard-registry gate runs
 		expect(r.status).toBe(0);
 		expect(r.stderr + r.stdout).toContain("Gitignore filter: not run");
 		expect(r.stderr + r.stdout).not.toContain("FAILED OPEN");
-	});
-});
-
-/*
- * Pure bookkeeping, not a --against exercise: expectFixtureSupplies reads only
- * what `.husky/pre-commit`'s own fragment spawns as a runnable
- * (`node|bash|sh scripts/x.js`), which is `check-guard-registry.js` alone — the
- * checker's own `require()`s of lib/fault-profiles.js/lib/fault-diff.js are
- * invisible to that scan, so this asserts nothing about whether build() copies
- * them. It duplicates scripts/precommit-ci-gates.test.ts's identical assertion
- * for the same gate.
- */
-describe("the pre-commit anchor's own supply set (mantahostels#2077)", () => {
-	it("supplies exactly the script the pre-commit anchor invokes", () => {
-		expectFixtureSupplies("scripts/check-guard-registry.js", [
-			"scripts/check-guard-registry.js",
-		]);
 	});
 });
 

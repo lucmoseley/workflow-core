@@ -568,7 +568,8 @@ function reportUnisolated(
 	);
 }
 
-runCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = {
 	name: "guard-test-isolation",
 	usage:
 		"node check-guard-test-isolation.js [--json] [--warn] [--root <dir>] [--against <rev>]",
@@ -624,4 +625,7 @@ runCheck({
 			data,
 		};
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

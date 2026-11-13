@@ -173,7 +173,8 @@ function unstatedSpawns(source) {
 	return out;
 }
 
-runCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = {
 	name: "test-spawn",
 	usage:
 		"node check-test-spawn.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]",
@@ -208,4 +209,7 @@ runCheck({
 			data: { scanned: files.length },
 		};
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

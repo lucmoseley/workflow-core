@@ -92,7 +92,8 @@ function isFault(source) {
 	return readsArgv && !onStrictParser && !EXEMPT.test(source);
 }
 
-runCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = {
 	name: "cli-args",
 	usage:
 		"node check-cli-args.js [--root <dir>] [--against <rev>] [--json] [--warn]",
@@ -140,4 +141,7 @@ runCheck({
 			data: { scanned: names.length },
 		};
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

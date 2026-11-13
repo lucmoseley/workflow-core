@@ -26,8 +26,9 @@
 const {
 	parseLineSites,
 	parseMatchSites,
-	runHeresyCheck,
+	heresySpec,
 } = require("./lib/heresy-scan.js");
+const { runCheck } = require("./lib/check");
 
 const ARBITER = "session-arbiter\\.js";
 const NODE = "node +(?:--?[\\w=.-]+ +)*";
@@ -68,7 +69,8 @@ function findHandSpelt(program) {
 	return [...withWord, ...literal];
 }
 
-runHeresyCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = heresySpec({
 	name: "arbiter-commands",
 	skip: [BUILDER],
 	breaches: [
@@ -87,3 +89,6 @@ runHeresyCheck({
 		};
 	},
 });
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

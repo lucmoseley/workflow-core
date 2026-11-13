@@ -277,7 +277,8 @@ function settingsFaults(ctx, root) {
 	return faults;
 }
 
-runCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = {
 	name: "registrations",
 	usage:
 		"node check-registrations.js [--root <dir>] [--against <rev>] [--json] [--warn]",
@@ -346,4 +347,7 @@ runCheck({
 			count: ctx.findings.length,
 		};
 	},
-});
+};
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

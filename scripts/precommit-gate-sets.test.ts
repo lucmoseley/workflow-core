@@ -1,14 +1,16 @@
 // @vitest-environment node
 /*
  * Pins the queue lander's two pre-commit gate sets (#4545): `--gates=merge`
- * runs only the guard-registry gate, `--gates=batch` every other gate bar
- * one the lander's Actions run repeats or a lander merge renders, and no
- * argument every gate. The parse, the merge gate, the test-read-edges gate, the merge set's exit and two
- * later gates — guard-test-isolation, which Actions repeats, and host-root,
- * which it does not — are cut from the real hook and run over stub checkers.
- * A last case maps every gate the batch set skips to the step of a workflow
- * a lander push runs that repeats it, and every gate both sets skip to a
- * generator each lander merge runs, read off the real files.
+ * runs only the merge set, `--gates=batch` every gate bar one the lander's
+ * Actions run repeats or a lander merge renders, and no argument every gate.
+ * The parse, the dispatcher line, the test-read-edges gate, the merge set's
+ * exit and two later gates — roadmap-valid, which Actions repeats, and
+ * research-added, which it does not — are cut from the real hook and run over
+ * stub scripts; the dispatcher's own lander sets are
+ * scripts/precommit-dispatch.test.ts's. A last case maps every gate the batch
+ * set skips to the step of a workflow a lander push runs that repeats it, and
+ * every gate both sets skip to a generator each lander merge runs, read off
+ * the real files.
  *
  * Loosen it and a lander batch can reach main with a check no hook and no
  * Actions job ran on it.
@@ -24,37 +26,46 @@ import {
 	stagedRepo,
 } from "./lib/precommit-gate-harness";
 import { cutHookBlock, LIB } from "./lib/precommit-gate-testkit";
+import { GATES } from "./lib/precommit-gates.js";
 import { REGENERATED_FILES } from "./lib/regenerated-files.js";
 
 const temps = registerTempCleanup();
 
+const DISPATCH = "scripts/precommit-dispatch.js";
 const CHECKERS = [
-	"scripts/check-guard-registry.js",
-	"scripts/generate-test-read-edges.js",
-	"scripts/check-guard-test-isolation.js",
-	"scripts/check-host-root.js",
+	DISPATCH,
+	"scripts/generate-test-read-edges.js --check",
+	"scripts/check-roadmap-valid.js",
+	"scripts/check-research-added.js",
 ];
 
 const SCRIPT = [
 	LIB,
 	"JS_TEST_ERE='\\.(test|spec)\\.[cm]?[jt]sx?$'",
 	cutHookBlock("wfc_gates=all", "esac"),
-	cutGateFragment("scripts/check-guard-registry.js"),
+	cutHookBlock(`node "\${WFC_PLUGIN_ROOT:-.}"/${DISPATCH}`, ""),
 	cutGateFragment("scripts/generate-test-read-edges.js"),
 	cutHookBlock('if [ "$wfc_gates" = merge ]; then', "fi"),
-	cutGateFragment("scripts/check-guard-test-isolation.js"),
-	cutGateFragment("scripts/check-host-root.js"),
+	cutGateFragment("scripts/check-roadmap-valid.js"),
+	cutGateFragment("scripts/check-research-added.js"),
 ].join("\n\n");
 
-/** The checkers the hook ran on `args`, in order, and its exit code. */
+/** The scripts the hook ran on `args`, each with its arguments, in order,
+ * and its exit code. */
 function run(...args: string[]): { code: number; ran: string[] } {
 	const stub = (name: string) =>
-		`require("node:fs").appendFileSync("ran.log", "${name}\\n");\n`;
+		`require("node:fs").appendFileSync("ran.log", [${JSON.stringify(name)}, ...process.argv.slice(2)].join(" ") + "\\n");\n`;
 	const { root } = stagedRepo(
 		"gate-sets-",
 		temps,
-		Object.fromEntries(CHECKERS.map((c) => [c, stub(c)])),
-		{ "scripts/a.test.ts": "x\n" },
+		Object.fromEntries(
+			CHECKERS.map((c) => c.split(" ")[0] ?? c).map((c) => [c, stub(c)]),
+		),
+		{
+			"scripts/a.test.ts": "x\n",
+			"docs/reference-roadmap.html": "x\n",
+			"docs/research/a.md": "x\n",
+		},
 	);
 	const r = spawnSync("sh", ["-ec", SCRIPT, "pre-commit", ...args], {
 		cwd: root,
@@ -75,22 +86,25 @@ describe("the pre-commit gate sets", () => {
 		expect(run()).toEqual({ code: 0, ran: CHECKERS });
 	});
 
-	it("runs only the guard-registry gate on a lander merge, which has just rendered the test-read-edges manifest (#4573)", () => {
+	it("runs only the dispatcher's merge set on a lander merge, which has just rendered the test-read-edges manifest (#4573)", () => {
 		expect(run("--gates=merge")).toEqual({
 			code: 0,
-			ran: ["scripts/check-guard-registry.js"],
+			ran: [`${DISPATCH} --gates=merge`],
 		});
 	});
 
 	it("runs a gate Actions does not repeat on the batch, and skips one it does", () => {
 		expect(run("--gates=batch")).toEqual({
 			code: 0,
-			ran: ["scripts/check-host-root.js"],
+			ran: [`${DISPATCH} --gates=batch`, "scripts/check-research-added.js"],
 		});
 	});
 
 	it("runs every gate on an argument it does not know", () => {
-		expect(run("--gates=all")).toEqual({ code: 0, ran: CHECKERS });
+		expect(run("--gates=all")).toEqual({
+			code: 0,
+			ran: [`${DISPATCH} --gates=all`, ...CHECKERS.slice(1)],
+		});
 	});
 });
 
@@ -140,7 +154,11 @@ it("skips on the batch only gates a workflow on a lander push repeats, or the me
 				const Lookup = "scripts/lib/workflow-core-config.js";
 				return named.find((n) => n !== Lookup) ?? named[0] ?? body;
 			});
-	expect(skipped("lander_batch").sort()).toEqual(
+	/* A dispatcher row the batch set skips: its lander is `merge` or `none`. */
+	const rows = GATES.filter(
+		(g) => g.lander === "merge" || g.lander === "none",
+	).map((g) => g.script);
+	expect([...skipped("lander_batch"), ...rows].sort()).toEqual(
 		Object.keys(REPEATED_BY).sort(),
 	);
 	for (const [gate, step] of Object.entries(REPEATED_BY))
