@@ -167,9 +167,9 @@ const lastLine = (stderr) =>
  * @typedef {(prompt: string, opts: {boundMs: number, env: NodeJS.ProcessEnv})
  *   => JudgeRun} JudgePort one model call: the prompt in, the launcher's run
  *   out; lib/gate-judge-fake.ts's `judgeServe` in the suites
- * @typedef {(args: string[], opts: {timeout: number}) => string} CitedPort
- *   the cited read's gh call (lib/gh.js `gh`)
- * @typedef {{judge?: JudgePort, cited?: CitedPort}} GatePorts
+ * @typedef {import("./basis-cited-read.js").GhRun} GhRun
+ * @typedef {{judge?: JudgePort, cited?: GhRun}} GatePorts `cited`: the
+ *   cited read's gh call (lib/gh.js `gh`)
  */
 
 /**
@@ -499,14 +499,14 @@ const MIN_BOUND_MS = 5000;
  *
  * @param {string} body
  * @param {{own?: number, before?: string, timeoutMs: number,
- *   env: NodeJS.ProcessEnv, cited?: CitedPort}} opts
+ *   env: NodeJS.ProcessEnv, gh?: GhRun}} opts
  */
-function readCitedPatterns(body, { own, before, timeoutMs, env, cited }) {
+function readCitedPatterns(body, { own, before, timeoutMs, env, gh }) {
 	const read = readBasisFaults([{ body, own, before }], {
 		timeoutMs,
 		root: env.CLAUDE_PROJECT_DIR,
 		env,
-		gh: cited,
+		gh,
 	});
 	const trace = read.traces[0] ?? [];
 	const unread = read.unread.map((w) => w.ref);
@@ -604,7 +604,7 @@ function answer(patterns, read, override, citedNote = "") {
 function readGateWrite(
 	body,
 	{ route, own, before, leftMs = WRITE_BOUND_MS, env = process.env },
-	{ judge, cited: citedGh } = {},
+	{ judge, cited: gh } = {},
 ) {
 	if (before !== undefined && before === body)
 		return { refusal: null, advice: "" };
@@ -614,7 +614,7 @@ function readGateWrite(
 		before,
 		timeoutMs: Math.min(CITED_BOUND_MS, leftMs),
 		env,
-		cited: citedGh,
+		gh,
 	});
 	const { patterns } = cited;
 	const patternsAdded = faultsAdded(patterns, { body, before });

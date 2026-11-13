@@ -24,6 +24,7 @@ import {
 	buildReplyRow,
 	type JudgeFakePlan,
 	judgeServe,
+	LAUNCHED_BOUND_MS,
 	readJudgeCalls,
 	recorded,
 	writeJudgeFake,
@@ -130,11 +131,11 @@ describe("the in-process judge fake", () => {
 			};
 			const prompts: string[] = [];
 			const { ms: _launchedMs, ...launched } = judgedBasisFaults(Body, {
-				boundMs: 60_000,
+				boundMs: LAUNCHED_BOUND_MS,
 				env,
 			});
 			const { ms: _servedMs, ...served } = judgedBasisFaults(Body, {
-				boundMs: 60_000,
+				boundMs: LAUNCHED_BOUND_MS,
 				env,
 				judge: judgeServe(plan, prompts),
 			});

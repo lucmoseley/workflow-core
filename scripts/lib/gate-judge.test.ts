@@ -16,8 +16,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { GhRun } from "./basis-cited-read.js";
 import {
-	type CitedPort,
 	judgedBasisFaults,
 	LAUNCHER_GRACE_MS,
 	readGateWrite,
@@ -28,6 +28,7 @@ import {
 	FALLBACK_LEAD,
 	type JudgeFakePlan,
 	judgeServe,
+	LAUNCHED_BOUND_MS,
 	MODEL_LEAD,
 	OVERRIDE_LEAD,
 	OVERRIDE_LINE,
@@ -35,19 +36,10 @@ import {
 	readJudgeCalls,
 	writeJudgeFake,
 } from "./gate-judge-fake";
-import {
-	CITED_GRAPHQL_FAKE,
-	GH_LOGGED_OUT,
-	type GhAnswer,
-	ghComputed,
-	ghServe,
-} from "./gh-fake";
+import { answerCited, GH_LOGGED_OUT, ghServe } from "./gh-fake";
 import { type CitedFixture, stubGhRoutes } from "./gh-stub";
 import { basisFaults, basisRefusal } from "./issue-gate.js";
 import { readJsonl } from "./jsonl.js";
-
-/* Far over a launched call, which is three Node starts. */
-const BOUND_MS = 60_000;
 
 type Plan = Exclude<JudgeFakePlan, { hang: true }>;
 
@@ -71,7 +63,7 @@ function judge(
 	opts: { own?: number; before?: string; boundMs?: number } = {},
 ) {
 	return judgedBasisFaults(body, {
-		boundMs: BOUND_MS,
+		boundMs: LAUNCHED_BOUND_MS,
 		...opts,
 		judge: judgeServe(plan, prompts),
 	});
@@ -94,7 +86,7 @@ function launch(
 		WFC_CLAUDE_BIN: writeJudgeFake(path.join(dir, "claude"), log, plan),
 		...extraEnv,
 	};
-	return judgedBasisFaults(body, { boundMs: BOUND_MS, ...opts, env });
+	return judgedBasisFaults(body, { boundMs: LAUNCHED_BOUND_MS, ...opts, env });
 }
 
 const reading = (
@@ -108,10 +100,6 @@ const wait = (sentence: string, window: string, basisNamesWindow = false) => ({
 	window,
 	basisNamesWindow,
 });
-
-const answerCited = ghComputed<
-	(argv: string[], issues: Record<string, object>) => GhAnswer
->(CITED_GRAPHQL_FAKE, "answerCited");
 
 const WAIT = "Re-measure once those records hold 500 ticks.";
 const NOTHING = reading();
@@ -820,7 +808,7 @@ describe("a write route words the cited follow (#5007)", () => {
 	/* `cited` omitted, the read is lib/gh.js's own, for the boundary case. */
 	const write = (
 		body: string,
-		cited: CitedPort | undefined,
+		cited: GhRun | undefined,
 		opts: { before?: string; own?: number; leftMs?: number } = {},
 	) =>
 		readGateWrite(
