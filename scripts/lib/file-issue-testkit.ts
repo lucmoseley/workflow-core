@@ -17,6 +17,7 @@ import { readGateWrite } from "./gate-judge.js";
 import { asRecorded, buildJqLines, ghServe } from "./gh-fake";
 import { buildLinkReadArms, stubGhScript } from "./gh-stub";
 import { ORIGINS } from "./issue-origin";
+import { MARKERS_REL } from "./marker-root";
 import { runInProcess } from "./run-in-process";
 import { shellQuote } from "./sh-quote.js";
 import { TAKES_VALUES } from "./takes-label";
@@ -68,6 +69,35 @@ export const filing = (labels: string[], placement = ["--parent", "528"]) => [
 
 export const assignCall = `issue edit ${NEW} --repo acme/widgets --add-assignee @me`;
 
+export interface Row {
+	number: number;
+	state: string;
+	title: string;
+}
+
+/** The issue numbers a similar-title list printed, in its order. */
+export const listed = (stdout: string) =>
+	[...stdout.matchAll(/^ {2}#(\d+) /gm)].map((m) => Number(m[1]));
+
+/*
+ * A small tracker, scored for "Generate a sitemap and robots file": #1 11.7,
+ * #5 and #6 8.8, #2 8.6 — cut as the fourth — and #3 5.8, under 6. A hundred
+ * filler titles make the four shared words rare.
+ */
+export const TRACKER: Row[] = [
+	{ number: 1, state: "OPEN", title: "Generate the sitemap and robots file" },
+	{ number: 2, state: "OPEN", title: "Robots file for the sitemap" },
+	{ number: 3, state: "OPEN", title: "Sitemap and robots crawl budget" },
+	{ number: 4, state: "CLOSED", title: "Generate the sitemap and robots file" },
+	{ number: 5, state: "OPEN", title: "Generate the sitemap file nightly" },
+	{ number: 6, state: "OPEN", title: "Generate a robots file" },
+	...Array.from({ length: 100 }, (_, i) => ({
+		number: 7 + i,
+		state: "OPEN",
+		title: `Filler ticket ${7 + i}`,
+	})),
+];
+
 export interface RunOpts {
 	stdin?: string;
 	sessionId?: string | null;
@@ -108,6 +138,23 @@ export function fileIssueKit() {
 			path.join(at("api"), apiPath.replaceAll("/", "_")),
 			JSON.stringify(body),
 		);
+	};
+
+	/**
+	 * Serve `rows` for the similar-title list's `issue list` fetches — the whole
+	 * tracker, and its open rows for `--state open` — with no closed-title cache,
+	 * so the next call pulls the whole tracker.
+	 */
+	const serveIssues = (rows: Row[]) => {
+		fs.writeFileSync(at("issues"), JSON.stringify(rows));
+		fs.writeFileSync(
+			at("issues-open"),
+			JSON.stringify(rows.filter((r) => r.state === "OPEN")),
+		);
+		fs.rmSync(path.join(sb.repo, MARKERS_REL, "closed-titles"), {
+			recursive: true,
+			force: true,
+		});
 	};
 
 	const setUp = (parentLabels: string[] = ["kind:spec"], over: object = {}) => {
@@ -287,6 +334,7 @@ exit 0
 		sb,
 		at,
 		serve,
+		serveIssues,
 		setUp,
 		ghStub,
 		oracle,

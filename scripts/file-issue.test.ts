@@ -25,9 +25,11 @@ import {
 	DECLARED,
 	fileIssueKit,
 	filing,
+	listed,
 	ME,
 	NEW,
 	SCRIPT,
+	TRACKER,
 } from "./lib/file-issue-testkit";
 import {
 	callLogPath,
@@ -41,14 +43,21 @@ import {
 } from "./lib/gate-judge-fake";
 import { stubGhScript } from "./lib/gh-stub";
 import { readJsonl } from "./lib/jsonl.js";
-import { MARKERS_REL } from "./lib/marker-root";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import { TAKES_VALUES } from "./lib/takes-label";
 
 const kit = fileIssueKit();
-const { sb, at, setUp, readGhCalls, readCreates, readClaimants, readBodySeen } =
-	kit;
+const {
+	sb,
+	at,
+	serveIssues,
+	setUp,
+	readGhCalls,
+	readCreates,
+	readClaimants,
+	readBodySeen,
+} = kit;
 const run = kit.program;
 
 describe("the takes: label", () => {
@@ -416,52 +425,6 @@ describe("usage", () => {
 	});
 });
 
-interface Row {
-	number: number;
-	state: string;
-	title: string;
-}
-
-/**
- * Serve `rows` for the similar-title list's `issue list` fetches — the whole
- * tracker, and its open rows for `--state open` — with no closed-title cache,
- * so the next call pulls the whole tracker.
- */
-const serveIssues = (rows: Row[]) => {
-	fs.writeFileSync(at("issues"), JSON.stringify(rows));
-	fs.writeFileSync(
-		at("issues-open"),
-		JSON.stringify(rows.filter((r) => r.state === "OPEN")),
-	);
-	fs.rmSync(path.join(sb.repo, MARKERS_REL, "closed-titles"), {
-		recursive: true,
-		force: true,
-	});
-};
-
-/** The issue numbers a similar-title list printed, in its order. */
-const listed = (stdout: string) =>
-	[...stdout.matchAll(/^ {2}#(\d+) /gm)].map((m) => Number(m[1]));
-
-/*
- * A small tracker, scored for "Generate a sitemap and robots file": #1 11.7,
- * #5 and #6 8.8, #2 8.6 — cut as the fourth — and #3 5.8, under 6. A hundred
- * filler titles make the four shared words rare.
- */
-const TRACKER: Row[] = [
-	{ number: 1, state: "OPEN", title: "Generate the sitemap and robots file" },
-	{ number: 2, state: "OPEN", title: "Robots file for the sitemap" },
-	{ number: 3, state: "OPEN", title: "Sitemap and robots crawl budget" },
-	{ number: 4, state: "CLOSED", title: "Generate the sitemap and robots file" },
-	{ number: 5, state: "OPEN", title: "Generate the sitemap file nightly" },
-	{ number: 6, state: "OPEN", title: "Generate a robots file" },
-	...Array.from({ length: 100 }, (_, i) => ({
-		number: 7 + i,
-		state: "OPEN",
-		title: `Filler ticket ${7 + i}`,
-	})),
-];
-
 describe("the similar-title list", () => {
 	it("--check prints at most three open issues, best first, and files nothing", () => {
 		serveIssues(TRACKER);
@@ -472,183 +435,10 @@ describe("the similar-title list", () => {
 		expect(readGhCalls()[0]).toContain("--repo acme/widgets --state all");
 	});
 
-	it("reads only the open issues on a call after the first, still listing one filed between them (#2755)", () => {
-		serveIssues(TRACKER);
-		run(["--check", "Generate a sitemap and robots file"]);
-		fs.writeFileSync(
-			at("issues-open"),
-			JSON.stringify([
-				{
-					number: 200,
-					state: "OPEN",
-					title: "Generate a sitemap and robots file",
-				},
-				...TRACKER.filter((row) => row.state === "OPEN"),
-			]),
-		);
-		const r = run(["--check", "Generate a sitemap and robots file"]);
-		expect(listed(r.stdout)).toEqual([200, 1, 5]);
-		expect(readGhCalls()).toHaveLength(2);
-		expect(readGhCalls()[1]).toContain("--repo acme/widgets --state open");
-	});
-
-	it("never shows a closed issue, even one with the very same title", () => {
-		serveIssues(TRACKER);
-		const r = run(["--check", "Generate the sitemap and robots file"]);
-		expect(listed(r.stdout)).not.toContain(4);
-	});
-
-	it("shows nothing scoring under 6, saying none resembles it", () => {
-		serveIssues(TRACKER);
-		const r = run(["--check", "Filler work"]);
-		expect(r.status).toBe(0);
-		expect(listed(r.stdout)).toEqual([]);
-		expect(r.stdout).toContain("No open issue's title resembles this one.");
-	});
-
-	const sitemap = [
-		"--title",
-		"Generate the sitemap and robots file",
-		"--label",
-		"takes:implement",
-		"--parent",
-		"528",
-		"--body-file",
-		"-",
-	];
-
-	// #1073
-	it("refuses while a listed match is left unnamed, printing the list again", () => {
-		setUp();
-		serveIssues(TRACKER);
-		const r = run(sitemap);
-		expect(r.status).toBe(2);
-		expect(listed(r.stderr)).toEqual([1, 5, 6]);
-		expect(r.stderr).toContain("--distinct-from 1,5,6.");
-		expect(readCreates()).toEqual([]);
-	});
-
-	it("still refuses when one listed match is left off --distinct-from, naming the unchecked match and filing nothing", () => {
-		setUp();
-		serveIssues(TRACKER);
-		const r = run([...sitemap, "--distinct-from", "1,#5"]);
-		expect(r.status).toBe(2);
-		expect(r.stderr).toContain("Nothing filed: #6 is not yet checked.");
-		expect(readCreates()).toEqual([]);
-	});
-
-	it("files once every listed match is named, printing the list before the create", () => {
-		setUp();
-		serveIssues(TRACKER);
-		const r = run([
-			...sitemap,
-			"--distinct-from",
-			"1,5",
-			"--distinct-from",
-			"6",
-		]);
-		expect(r.status).toBe(0);
-		expect(listed(r.stdout)).toEqual([1, 5, 6]);
-		expect(r.stdout.indexOf("#1 ")).toBeLessThan(
-			r.stdout.indexOf(`Filed #${NEW}`),
-		);
-		expect(readCreates()).toHaveLength(1);
-	});
-
-	it("counts a listed match taken as --parent as checked", () => {
-		setUp();
-		serveIssues([
-			...TRACKER,
-			{
-				number: 528,
-				state: "OPEN",
-				title: "Generate the sitemap and robots file",
-			},
-		]);
-		const shown = listed(run(["--check", sitemap[1]]).stdout);
-		expect(shown).toContain(528);
-		const others = shown.filter((n) => n !== 528).join(",");
-		const r = run([...sitemap, "--distinct-from", others]);
-		expect(r.status).toBe(0);
-		expect(readCreates()).toHaveLength(1);
-	});
-
-	it("refuses a --distinct-from that is not a list of issue numbers, and makes no gh call", () => {
-		const r = run([...filing(["takes:implement"]), "--distinct-from", "1,two"]);
-		expect(r.status).toBe(2);
-		expect(r.stderr).toContain(
-			"is not a comma-separated list of issue numbers",
-		);
-		expect(readGhCalls()).toEqual([]);
-	});
-
-	it("files anyway, saying so, when the issues cannot be listed", () => {
-		setUp();
-		fs.writeFileSync(at("list-fails"), "");
-		const r = run(filing(["takes:implement"]));
-		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(
-			"Could not list similar open issues (HTTP 502: Bad Gateway) — filing without the check.",
-		);
-		expect(readCreates()).toHaveLength(1);
-	});
-
 	it("--check exits 1 when the issues cannot be listed, naming the repository", () => {
 		fs.writeFileSync(at("list-fails"), "");
 		const r = run(["--check", "Anything"]);
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("could not list acme/widgets's issues");
-	});
-
-	it("--check refuses anything beside its one title with exit 2", () => {
-		for (const extra of [
-			["--label", "takes:implement"],
-			["--check", "Another title"],
-		]) {
-			const r = run(["--check", "A title", ...extra]);
-			expect(r.status).toBe(2);
-		}
-		expect(readGhCalls()).toEqual([]);
-	});
-});
-
-/*
- * #500's measurement, re-run: the 520-title snapshot with each of its 30
- * sampled issues withdrawn in turn, as it was before it was filed, and its
- * title put to --check.
- */
-describe("the #500 dataset", () => {
-	const read = (f: string) =>
-		JSON.parse(fs.readFileSync(path.resolve(__dirname, "..", f), "utf8"));
-	const titles: Row[] = read(
-		"docs/data/issue-title-search-2026-09-27/titles.json",
-	);
-	const queries: {
-		number: number;
-		title: string;
-		overlap: number | null;
-		shown: number[];
-	}[] = read("docs/data/issue-title-search-2026-09-27/queries.json");
-	const check = (q: (typeof queries)[number]) => {
-		serveIssues(titles.filter((t) => t.number !== q.number));
-		const r = run(["--check", q.title]);
-		expect(r.status).toBe(0);
-		return listed(r.stdout);
-	};
-
-	it("holds the 520 titles and the 30 queries the research measured", () => {
-		expect(titles).toHaveLength(520);
-		expect(queries).toHaveLength(30);
-	});
-
-	it("finds all 7 known overlaps", () => {
-		const overlaps = queries.filter((q) => q.overlap !== null);
-		expect(overlaps).toHaveLength(7);
-		for (const q of overlaps) expect(check(q)).toContain(q.overlap);
-	});
-
-	it("shows, for every query, exactly what the research's ranking showed", () => {
-		for (const q of queries)
-			expect([q.number, check(q)]).toEqual([q.number, q.shown]);
 	});
 });
