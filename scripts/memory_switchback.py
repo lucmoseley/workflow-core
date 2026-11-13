@@ -11,7 +11,9 @@ The hold is one more session's launch charge as admission computes it at
 holds half of it and is never read: the low-side start. While a hold runs,
 ~/.claude/memory-hold reads `<MB> <pid> <procStart>`, and lib/meminfo.js
 adds the MB back to MemAvailable for admission, the suite ladder and the reap,
-so launches stay fixed and only the kernel feels the hold. The Windows-memory
+so only the kernel feels the hold. Admission's Windows charge reads MemFree,
+which the add-back leaves alone (#4956), so launches are read, not assumed: the
+readout's balance rows. The Windows-memory
 limb of the suite and tsc gates (lib/windows-memory.js)
 gets no add-back: it guards the VM against freezing, and how much of a guest
 hold reaches Windows is unmeasured. The readout counts its stand-down minutes
@@ -25,12 +27,14 @@ per arm instead, as a balance check.
            unit scripts/memory-switchback.service, which starts it again after
            a boot, a user manager restart or a kill, and removes the hold file
            even on a kill the script cannot see; stopping the unit kills the
-           holder with it:
-             cp scripts/memory-switchback.service ~/.config/systemd/user/
+           holder with it, and `disable --now` ends or pauses it, as a stop
+           alone resumes at the next boot:
+             mkdir -p ~/.config/systemd/user && cp scripts/memory-switchback.service ~/.config/systemd/user/
              systemctl --user daemon-reload
              systemctl --user enable --now memory-switchback.service
-           Restarted, it resumes at the block in progress; after a stop rule
-           or a finished trial it refuses.
+           Restarted after a kill the script cannot see, it resumes at the
+           block in progress, its stop rules' window rebuilt from the event
+           log; after a stop rule or a finished trial it refuses.
   hold     the holder itself: resident anonymous memory, re-touched every
            TOUCH_S seconds at low CPU, `ready` on stdout once every page is in
   readout  print the markdown readout for the ticket
@@ -47,7 +51,9 @@ after it, where its harm would show; any one ends the trial:
 The readout reads each block's last 10 minutes. Decision: the within-pair log
 ratio of block median Bash round-trip, hold over none, by a two-sided sign-flip
 test at ALPHA. Companions: hook-timeout refusals per minute, machine CPU-s per
-Bash call. Guardrail, spending no alpha: closes per hour. A pair counts only
+Bash call. Guardrail, spending no alpha: closes per hour. Balance, spending
+none: active transcripts and Windows floor minutes per arm, and per arm the
+read blocks the usable mask drops. A pair counts only
 where both blocks are usable: a refill-loop tick, a median of >= 3 active
 transcripts over the minutes with a call (#4162's sizing mask) and >= 20 Bash
 calls in the read window.
@@ -427,10 +433,18 @@ def run(
     reading = reading or (lambda t, since: live_reading(p, t, since))
     usable = usable or (lambda pair: pair_usable(p, sched, pair))
     count = sum(bool(e.get("usable")) for e in past if e.get("event") == "pair")
-    guard_until = 0.0  # the end of the washout after the last hold
+    # The end of the washout after the last hold, and that hold's start: a
+    # restart inside the washout rebuilds both from the event log.
+    guard_until = 0.0
     hold_began = None
+    held = [e for e in past if e.get("event") == "block" and e.get("arm") == HOLD]
+    if held:
+        last = sched["blocks"][held[-1]["i"]]
+        guard_until = block_span(sched, last)[1] + WASHOUT_S
+        hold_began = held[-1]["ts"]
 
     def term(*_):
+        # Exits 1, which the unit's RestartPreventExitStatus=1 reads as final.
         raise SystemExit("terminated")
 
     def check():
@@ -503,6 +517,19 @@ def loop_ticks(p, since, until):
     ]
 
 
+def survived(events, began, hi):
+    """Whether the runner that began a block at `began` lived to its end `hi`:
+    it logged an event at or past `hi` before any restart's `start` did."""
+    for e in events:
+        if e["ts"] <= began:
+            continue
+        if e.get("event") == "start":
+            return False
+        if e["ts"] >= hi:
+            return True
+    return False
+
+
 def blocks_read(sched, events, *, minute_rows, mem, ticks, close_ts, until):
     """One row per block that ended by `until`, begun by a runner inside its
     washout and not ended before the block did, read past its washout."""
@@ -516,6 +543,8 @@ def blocks_read(sched, events, *, minute_rows, mem, ticks, close_ts, until):
         if hi > until or not began or not start <= began[-1] <= lo:
             continue
         if any(e.get("event") == "end" and began[-1] <= e["ts"] < hi for e in events):
+            continue
+        if not survived(events, began[-1], hi):
             continue
         mins = [m for k, m in minute_rows.items() if lo <= k < hi]
         bash = [x for m in mins for x in m["bash"]]
@@ -567,7 +596,7 @@ COMPANIONS = (
     ),
     # Launches fixed, read rather than assumed: admission's Windows charge
     # reads MemFree, which the add-back leaves alone (#4956).
-    ("Active transcripts, block median (balance)", "active"),
+    ("Active transcripts, block median, not launches (balance)", "active"),
 )
 
 
@@ -626,6 +655,11 @@ def report(rows, end_why):
             f"| {label} | {_fmt(med(HOLD, key))} | {_fmt(med(NONE, key))} | {_fmt(median(diffs) if diffs else None)} | |"
         )
     read = {r["pair"] for r in rows} - UNREAD_PAIRS
+    for a in (HOLD, NONE):
+        mine = [r for r in rows if r["arm"] == a and r["pair"] in read]
+        out.append(
+            f"| Read blocks the usable mask drops (balance), {a} arm | {sum(not r['usable'] for r in mine)} of {len(mine)} | | | |"
+        )
     out += [
         "",
         f"Ended: {end_why}. {len(pairs)} usable pairs of {len(read)} read; "
@@ -706,6 +740,7 @@ def main(argv=None):
         why = run(p)
         print(f"run: ended — {why}")
         if why.startswith("refused"):
+            # 1: the unit's RestartPreventExitStatus=1 stops restarting here.
             sys.exit(1)
     elif a.cmd == "hold":
         hold(a.mb)
