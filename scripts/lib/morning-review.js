@@ -1,7 +1,7 @@
 /*
  * morning-review.js — the morning review issue's title and body (#2011, spec
- * #1995 §The morning review issue). Pure: the generator,
- * scripts/file-morning-review.js, does every read and the filing.
+ * #1995 §The morning review issue). Pure: scripts/file-morning-review.js's
+ * core, lib/morning-review-filing.js, does every read and the filing.
  *
  * The window runs from where the previous review issue's window ended to now,
  * not a calendar day. Its end is taken before a filing's reads and printed on

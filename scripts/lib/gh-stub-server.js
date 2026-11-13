@@ -90,10 +90,11 @@ function parseRequest(fields) {
 }
 
 /**
+ * The call's status and streams, as the handler gave them.
  * @param {Function} handler
- * @param {NonNullable<ReturnType<typeof parseRequest>>} req
+ * @param {{argv: string[], env: Record<string, string | undefined>, cwd?: string, stdin?: string}} req
  */
-function answer(handler, req) {
+function answerCall(handler, req) {
 	let stdout = "";
 	let stderr = "";
 	let status = 0;
@@ -121,17 +122,62 @@ function answer(handler, req) {
 			stderr += `${e instanceof Error ? e.stack : String(e)}\n`;
 		}
 	}
+	return { status, stdout, stderr };
+}
+
+/**
+ * The answer on the wire.
+ * @param {Function} handler
+ * @param {NonNullable<ReturnType<typeof parseRequest>>} req
+ */
+function answer(handler, req) {
+	const { status, stdout, stderr } = answerCall(handler, req);
 	if (`${stdout}${stderr}`.includes("\0"))
 		return "1\0\0gh stub: the handler answered a NUL, which the wire cannot carry\n\0";
 	return `${status}\0${stdout}\0${stderr}\0`;
 }
 
+/** @param {string} source the handler's body */
+const compileHandler = (source, filename = "gh-handler.js") =>
+	vm.compileFunction(
+		source,
+		["argv", "env", "cwd", "stdin", "out", "err", "exit", "require"],
+		{ filename },
+	);
+
+/**
+ * `source` answering in this process as lib/gh.js's `gh(args, opts)` does, for
+ * a core's gh port in a module test (#5148): the answer the served stub gives,
+ * a non-zero status thrown as execFileSync throws it. Stdin is `opts.input`,
+ * read only where an argument names it, as the client reads it.
+ * @param {string} source
+ * @param {{env: Record<string, string | undefined>, cwd: string}} at
+ * @returns {(args: string[], opts?: import("node:child_process").ExecFileSyncOptions) => string}
+ */
+function handlerPort(source, { env, cwd }) {
+	const handler = compileHandler(source);
+	return (args, opts = {}) => {
+		const piped = args.some((x) => x === "-" || x.endsWith("@-"));
+		const stdin = piped ? String(opts.input ?? "") : "";
+		const { status, stdout, stderr } = answerCall(handler, {
+			argv: args,
+			env,
+			cwd,
+			stdin,
+		});
+		if (status === 0) return stdout;
+		throw Object.assign(
+			new Error(`Command failed: gh ${args.join(" ")}\n${stderr}`),
+			{ status, stdout, stderr, signal: null },
+		);
+	};
+}
+
 /** @param {string} handlerFile */
 function serve(handlerFile) {
-	const handler = vm.compileFunction(
+	const handler = compileHandler(
 		fs.readFileSync(handlerFile, "utf8"),
-		["argv", "env", "cwd", "stdin", "out", "err", "exit", "require"],
-		{ filename: handlerFile },
+		handlerFile,
 	);
 	const server = net.createServer((sock) => {
 		let text = "";
@@ -161,4 +207,4 @@ if (require.main === module) {
 	serve(handlerFile);
 }
 
-module.exports = { buildServerClient };
+module.exports = { buildServerClient, handlerPort };
