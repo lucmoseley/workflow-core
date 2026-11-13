@@ -922,6 +922,39 @@ describe("set (#3856)", () => {
 		expect(readControl().noProgressFrom).toBe(5);
 	});
 
+	describe("logs who sent a pause or resume (#5126)", () => {
+		const readLog = () => {
+			const file = path.join(dir, ".refill-loop.log");
+			return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+		};
+
+		it("names a command typed by hand, and a session's", async () => {
+			writeControl();
+			holdPidfile();
+			await runEnv({ CLAUDE_CODE_SESSION_ID: "" }, "set", "--pause");
+			expect(readLog()).toMatch(/Z paused by a command typed by hand\n$/);
+			await runEnv({ CLAUDE_CODE_SESSION_ID: "s1" }, "set", "--resume");
+			expect(readLog()).toMatch(/Z resumed by a command in session s1\n$/);
+		});
+
+		it("names the panel on its press", async () => {
+			writeControl({ paused });
+			holdPidfile();
+			const { runLoop } = await import("./refill-panel.js");
+			const r = await runLoop(["set", "--resume"], commandEnv());
+			expect(r.code).toBe(0);
+			expect(readLog()).toMatch(/Z resumed by the panel\n$/);
+		});
+
+		it("logs nothing for a repeat that changes nothing", async () => {
+			writeControl({ paused });
+			holdPidfile();
+			expect((await run("set", "--pause")).stdout).toContain("unchanged:");
+			expect((await run("set", "--away")).status).toBe(0);
+			expect(readLog()).toBe("");
+		});
+	});
+
 	it("says a change to a stopped loop holds from its next start", async () => {
 		writeControl();
 		const r = await run("set", "--pause");

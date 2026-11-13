@@ -705,7 +705,11 @@ function set(parsed) {
 				isOptedOut,
 			},
 		);
-		if ("write" in plan && plan.write) writeControlFile(plan.write);
+		if ("write" in plan && plan.write) {
+			writeControlFile(plan.write);
+			const line = commands.buildSetPauseLogLine(plan, process.env);
+			if (line !== null) appendLoopLog(line);
+		}
 		if ("startFrom" in plan && plan.startFrom) updateState(runForgotten(), log);
 		return plan;
 	});

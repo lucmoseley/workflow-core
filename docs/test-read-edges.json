@@ -4143,6 +4143,7 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/statusline.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -4165,6 +4166,7 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/statusline.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -10288,6 +10290,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-run-holds.test.ts",
 			"scripts/refill-loop-run.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/refill-panel-open.test.ts",
 			"scripts/replay-notify-reports.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
@@ -12170,6 +12173,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-run-holds.test.ts",
 			"scripts/refill-loop-run.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/statusline.test.ts",
@@ -12220,6 +12224,7 @@
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/statusline.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -12781,6 +12786,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-run-holds.test.ts",
 			"scripts/refill-loop-run.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/report-new-shared-faults-doc-map.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
@@ -28457,6 +28463,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-run-holds.test.ts",
 			"scripts/refill-loop-run.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/statusline.test.ts",
@@ -31238,6 +31245,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/plan-dirs.js": [
@@ -34892,6 +34900,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-commands.test.ts": [
@@ -35556,6 +35565,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-panel-print.test.ts": [
@@ -35601,6 +35611,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/refill-panel-open.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -35692,6 +35703,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-panel-terminal.test.ts": [
@@ -35737,6 +35749,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-panel-topic.test.ts": [
@@ -35782,6 +35795,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/refill-panel-open.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -35970,6 +35984,7 @@
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/statusline.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -37724,6 +37739,7 @@
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/statusline.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -40084,6 +40100,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-run-holds.test.ts",
 			"scripts/refill-loop-run.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/refill-panel-open.test.ts",
 			"scripts/rescue-sessions-takeover.test.ts",
 			"scripts/review-hold-gate.test.ts",
@@ -47558,6 +47575,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-run-holds.test.ts",
 			"scripts/refill-loop-run.test.ts",
+			"scripts/refill-loop.test.ts",
 			"scripts/refill-panel-open.test.ts",
 			"scripts/report-new-shared-faults-doc-map.test.ts",
 			"scripts/report-new-shared-faults.test.ts",

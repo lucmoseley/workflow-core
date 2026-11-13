@@ -25,6 +25,7 @@ const { isBudgetSpent } = require("./overflow-budget-core.js");
 const { buildNotice, isNotice } = require("./refill-notice.js");
 const {
 	buildOverflowHoldText,
+	buildPauseLogLine,
 	buildPauseText,
 	buildPausedWaitText,
 	buildLaunchHoldText,
@@ -106,6 +107,8 @@ const NOT_RUNNING = buildNotice(
  *   `readExclusionWhy`, why the loop does not serve a root, null where it does;
  *   `isOptedOut`, whether its owner opted it out
  * @typedef {{write: Control|null, lines: string[]}} SetChange
+ * @typedef {SetChange & {pauseSet: boolean|null}} FieldsChange `pauseSet`, the
+ *   pause state this `set` wrote, null where it wrote none
  * @typedef {{write: Control|null, control: Control,
  *   action: "running"|"start"|"stopped", lines: string[]}} StartPlan
  * @typedef {{refused: Notice, exitCode: number}} StartRefusal
@@ -115,10 +118,34 @@ const NOT_RUNNING = buildNotice(
  *   readExclusionWhy: SetContext["readExclusionWhy"],
  *   isOptedOut: SetContext["isOptedOut"]}} StartContext `seats` and
  *   `seatErrors`, the seat file's; `stopped`, the state file's
- * @typedef {SetChange & {startFrom: Control|null, warning: Notice|null}} SetPlan
+ * @typedef {FieldsChange & {startFrom: Control|null, warning: Notice|null}} SetPlan
  *   `startFrom`, the control a process starts from, where a resume found none
  *   running; `warning`, what it changed but no process takes yet
  */
+
+/* Set on the panel's presses, so the loop log names it as their source (#5126). */
+const PANEL_SOURCE_ENV = "REFILL_SET_FROM_PANEL";
+
+/**
+ * Who sent a `set`, as the loop log names it: the panel, a session, or a
+ * command run outside any session, which is one typed by hand.
+ * @param {NodeJS.ProcessEnv} env
+ */
+const readSetSource = (env) => {
+	if (env[PANEL_SOURCE_ENV] === "1") return "the panel";
+	const session = env.CLAUDE_CODE_SESSION_ID;
+	return session
+		? `a command in session ${session}`
+		: "a command typed by hand";
+};
+
+/**
+ * The loop log's line for the pause a `set` wrote, null where it wrote none.
+ * @param {SetPlan} plan
+ * @param {NodeJS.ProcessEnv} env
+ */
+const buildSetPauseLogLine = ({ pauseSet }, env) =>
+	pauseSet === null ? null : buildPauseLogLine(pauseSet, readSetSource(env));
 
 /** @param {SetAsk} ask */
 const asksRepos = ({ repos, tick, untick }) => Boolean(repos || tick || untick);
@@ -144,6 +171,7 @@ function planSet({ control, damaged }, ask, context) {
 	return {
 		write: changed.write,
 		lines: changed.lines,
+		pauseSet: changed.pauseSet,
 		warning: running || ask.pause === false ? null : NOT_RUNNING,
 		startFrom: ask.pause === false && !running ? changed.write : null,
 	};
@@ -179,15 +207,23 @@ function buildSetPlanJson({ lines, warning }, started) {
  * @param {Control} control
  * @param {SetAsk} ask
  * @param {SetContext} context
- * @returns {SetChange|{refused: Notice}}
+ * @returns {FieldsChange|{refused: Notice}}
  */
 function changeFields(control, ask, context) {
 	const { pause, mode, goal, quietBench, holdMinutes, holder = null } = ask;
+	/** @type {boolean|null} */
+	let pauseSet = null;
 	/** @type {((c: Control) => SetChange|{refused: Notice})[]} */
 	const steps = [
 		...(pause === undefined
 			? []
-			: [(/** @type {Control} */ c) => buildPauseChange(c, pause, context)]),
+			: [
+					(/** @type {Control} */ c) => {
+						const change = buildPauseChange(c, pause, context);
+						if (change.write) pauseSet = pause;
+						return change;
+					},
+				]),
 		...(mode === undefined
 			? []
 			: [(/** @type {Control} */ c) => buildModeChange(c, mode, context)]),
@@ -228,7 +264,7 @@ function changeFields(control, ask, context) {
 			write = change.write;
 		}
 	}
-	return { write, lines };
+	return { write, lines, pauseSet };
 }
 
 /**
@@ -1191,6 +1227,8 @@ module.exports = {
 	buildFreshControl,
 	buildUntickedLines,
 	planSet,
+	PANEL_SOURCE_ENV,
+	buildSetPauseLogLine,
 	buildSetJson,
 	buildSetPlanJson,
 };
