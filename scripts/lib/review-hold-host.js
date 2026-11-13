@@ -135,13 +135,19 @@ function buildHoldPorts({ cwd, env, now = Date.now }) {
 		},
 		writeStamp: (stamp, text) => fs.writeFileSync(stamp, text),
 		dropStamp: (stamp) => fs.rmSync(stamp, { force: true }),
-		ruleText: (id) => {
+		ruleText: () => {
+			let root;
 			try {
-				const { hostRoot } = require("./host-root.js");
-				return require("./rule-text.js").readRuleText(id, hostRoot(cwd));
+				root = require("./host-root.js").hostRoot(cwd);
 			} catch {
-				return null;
+				/* readRuleTextOr resolves the root itself, and falls back. */
 			}
+			return require("./rule-text.js").readRuleTextOr(
+				"review-hold",
+				"A commit on a declared sensitive path is held until its escalated review is recorded",
+				"review-hold-gate.js",
+				root,
+			);
 		},
 		log: (what, detail) => {
 			try {
