@@ -15,7 +15,7 @@
  * fragment's Replay, the escalated and hold fragments' `git diff … $t` run
  * against it) and assert on its output; the branch case reads the core's own
  * source. Fragments are read from docs/agents/rules/ and the byte cap from
- * hook-limits.sh, never copied. The hook line and stdin are
+ * hook-limits.js, never copied. The hook line and stdin are
  * scripts/guard-dispatch.test.ts's boundary set. The twin cases (#2971) spawn
  * bash: the twins they hold the core to are bash functions, fed the ledger
  * `session-arbiter.js writes --committed` prints, as the review nags feed them.
@@ -31,7 +31,6 @@ import { initGitRepo, mkDirOutsideRepo } from "./git-fixture";
 import { runCore } from "./guard-core-testkit";
 import { runInProcess } from "./run-in-process";
 import { shellQuote } from "./sh-quote.js";
-import { readShellConst } from "./shell-const-testkit";
 
 const { emissionMatches, RULE_ARG_RE } =
 	require("./rule-emission-calls.js") as {
@@ -48,10 +47,7 @@ const { decide } = require("./review-tier.js") as {
 const CORE = path.resolve(__dirname, "review-tier.js");
 const COMMIT_PATHS = path.resolve(__dirname, "..", "commit-paths.js");
 const RULE_TEXT = path.resolve(__dirname, "rule-text.sh");
-const RULE_CAP = readShellConst(
-	path.join(__dirname, "hook-limits.sh"),
-	"RULE_CAP",
-);
+const { RULE_CAP } = require("./hook-limits.js") as { RULE_CAP: number };
 const ME = "abcdef12-3456";
 /**
  * The longest plugin root the budget charges (#2387): a login name at Linux

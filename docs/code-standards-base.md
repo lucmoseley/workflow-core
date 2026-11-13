@@ -253,7 +253,7 @@ The fixes, best first: return the value, so the caller holds it; pass it in, so 
 
 *House*: a shell caller sources `scripts/lib/rule-text.sh` and calls `rule_text <id>`; a Node caller calls `readRuleText` from `scripts/lib/rule-text.js`, or, where it must not crash, `readRuleTextOr` there or a guard core's `ruleOrFallback` in `scripts/lib/guard-verdict.js`. Their fallback for an unreadable store, one clause naming the rule and then the fragment's path, is no copy.
 
-**The good reason to differ is a place the fragment cannot be printed from**: a byte cap it does not fit, or a measuring tool that reads the text literally, as `scripts/check-context-budget.js` reads `scripts/inject-tracker-docs.sh`'s payload. A shortened copy stays there only where a comment beside it names the fragment and the reason, as `ultra`, `gh_empty_result_rule` and the `standards` texts in that file do. A copy a test pins word for word to the fragment, or to such a shortened copy, cannot drift unseen, and stays where a comment names the test, as `STANDING_LINE` in `scripts/lib/vitest-wrapper.js` and `standards_line` in `scripts/concision-backstop.sh` do.
+**The good reason to differ is a place the fragment cannot be printed from**: a byte cap it does not fit, or a measuring tool that reads the text literally, as `scripts/check-context-budget.js` reads `scripts/lib/tracker-inject-text.js`'s payload. A shortened copy stays there only where a comment beside it names the fragment and the reason, as `GH_EMPTY_RESULT_RULE` and the `standardsText` texts in that file do. A copy a test pins word for word to the fragment, or to such a shortened copy, cannot drift unseen, and stays where a comment names the test, as `STANDING_LINE` in `scripts/lib/vitest-wrapper.js` and `standards_line` in `scripts/concision-backstop.sh` do.
 
 ### §G12 · A hook's JSON output is built by one builder, never an object literal of its own — **hard**
 
@@ -261,7 +261,7 @@ The fixes, best first: return the value, so the caller holds it; pass it in, so 
 
 *House, Node programs only*: that builder is `envelope` in `scripts/lib/hook-envelope.js` (#4025).
 
-**Outside the rule:** a shell hook, which builds the shape with one `jq` expression, as `scripts/inject-tracker-docs.sh` does, since a Node process per run would cost more than the copy.
+**Outside the rule:** a shell hook, which builds the shape with one `jq` expression, as `scripts/place-new-issue.sh` does, since a Node process per run would cost more than the copy.
 
 ---
 

@@ -20,7 +20,6 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { hookIsWired, readCoreHooks } from "./hook-wiring";
-import { readShellConst } from "./shell-const-testkit";
 
 interface CoreRow {
 	core: string;
@@ -72,7 +71,11 @@ interface Figures {
 // biome-ignore lint/suspicious/noExplicitAny: CommonJS module under test
 const lib = require("./rule-emission") as any;
 
-const CAP_FILE = path.join(__dirname, "hook-limits.sh");
+const CAP_FILE = path.join(__dirname, "hook-limits.js");
+const limits = require("./hook-limits.js") as {
+	RULE_CAP: number;
+	HOOK_PERSIST_CHARS: number;
+};
 
 const temps: string[] = [];
 
@@ -450,32 +453,27 @@ describe("the cap", () => {
 		).toThrow(/no fragment for rule id "nosuchrule"/);
 	});
 
-	it("reads RULE_CAP from lib/hook-limits.sh rather than restating it", () => {
-		const src = fs.readFileSync(CAP_FILE, "utf8");
-		expect(lib.readRuleCap(CAP_FILE)).toBe(
-			Number(/^[ \t]*RULE_CAP=(\d+)[ \t]*$/m.exec(src)?.[1]),
-		);
+	it("reads RULE_CAP off lib/hook-limits.js's line, as the module assigns it", () => {
+		expect(lib.readRuleCap(CAP_FILE)).toBe(limits.RULE_CAP);
 	});
 
 	it("holds RULE_CAP at 40% of HOOK_PERSIST_CHARS", () => {
-		expect(lib.readRuleCap(CAP_FILE)).toBe(
-			0.4 * readShellConst(CAP_FILE, "HOOK_PERSIST_CHARS"),
-		);
+		expect(lib.readRuleCap(CAP_FILE)).toBe(0.4 * limits.HOOK_PERSIST_CHARS);
 	});
 
 	it("throws rather than defaulting where the assignment is missing", () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rule-emission-cap-"));
 		temps.push(dir);
-		const file = path.join(dir, "hook-limits.sh");
-		fs.writeFileSync(file, "#!/usr/bin/env bash\n# no cap here\n");
+		const file = path.join(dir, "hook-limits.js");
+		fs.writeFileSync(file, "// no cap here\nconst RULE_CAP = 4e3;\n");
 		expect(() => lib.readRuleCap(file)).toThrow(
-			/^rule-emission: no anchored RULE_CAP=<digits> assignment/,
+			/^rule-emission: no `const RULE_CAP = <n>;` line/,
 		);
 	});
 
 	it("throws where the cap source cannot be read at all, naming the path", () => {
-		expect(() => lib.readRuleCap("/nonexistent/hook-limits.sh")).toThrow(
-			/^rule-emission: cannot read \/nonexistent\/hook-limits\.sh/,
+		expect(() => lib.readRuleCap("/nonexistent/hook-limits.js")).toThrow(
+			/^rule-emission: cannot read \/nonexistent\/hook-limits\.js/,
 		);
 	});
 });

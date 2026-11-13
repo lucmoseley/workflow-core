@@ -3,24 +3,22 @@
  * The pre-commit injector-margin gate and its checker (mantahostels#1915).
  *
  * `.husky/pre-commit` runs `check-injector-margin.sh` only when the commit
- * stages `scripts/inject-tracker-docs.sh`, and fails the commit when it exits
- * non-zero. Two halves are tested here: the gate's wiring and scoping, stubbing
- * the checker so both exit codes can be driven; and the checker itself against
- * synthetic injectors.
+ * stages `scripts/lib/tracker-inject-text.js` or a rule fragment /code-review's
+ * rules read, and fails the commit when it exits non-zero. Two halves are
+ * tested here: the gate's wiring and scoping, stubbing the checker so both exit
+ * codes can be driven; and the checker itself against synthetic text modules.
  *
  * WHAT STAYS UNVERIFIED: that 10,000 is still the harness's threshold (mantahostels#1868).
  *
- * It is a hard gate in `.husky/pre-commit`: loosen a case and an injector whose
+ * It is a hard gate in `.husky/pre-commit`: loosen a case and a text module whose
  * payload crosses the threshold lands, and the tracker commands silently get a
  * ~2 KB preview of their rules instead of the rules.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { commandPath } from "./lib/command-path-testkit";
 import {
 	armingPattern,
 	cutGateFragment,
@@ -34,8 +32,13 @@ import { coreCall, HOOK, LIB, ROOT } from "./lib/precommit-gate-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const CHECKER = "scripts/check-injector-margin.sh";
-const INJECTOR = "scripts/inject-tracker-docs.sh";
-const HOOK_LIMITS = "scripts/lib/hook-limits.sh";
+const INJECTOR = "scripts/lib/tracker-inject-text.js";
+const REVIEW_RULES = [
+	"review-dispatch-shape",
+	"review-deviations-read",
+	"review-finding-destination",
+].map((id) => `docs/agents/rules/${id}.txt`);
+const HOOK_LIMITS = "scripts/lib/hook-limits.js";
 const BUDGET = "scripts/check-context-budget.js";
 
 const gateFragment = () => cutGateFragment(CHECKER);
@@ -107,12 +110,29 @@ describe("the pre-commit injector-margin gate", () => {
 		expect(callOf(CHECKER)).toBeGreaterThan(callOf(BUDGET));
 	});
 
-	it("arms on exactly the file the checker measures", () => {
-		// One path, two spellings. Renaming the injector in the checker alone
-		// would leave a gate that silently never fires.
+	it("arms on exactly the files the checker measures", () => {
+		// Each path, two spellings. Renaming one in the checker alone would leave
+		// a gate that silently never fires on it.
 		const checker = fs.readFileSync(path.join(ROOT, CHECKER), "utf8");
-		expect(checker).toContain(`INJECTOR="${INJECTOR}"`);
-		expect(armingPattern(CHECKER)).toBe(`^${INJECTOR.replaceAll(".", "\\.")}$`);
+		expect(checker).toContain(`TEXT_MODULE="${INJECTOR}"`);
+		const ids = /^REVIEW_RULES=\((.*)\)$/m.exec(checker)?.[1].split(" ");
+		expect(ids?.map((id) => `docs/agents/rules/${id}.txt`)).toEqual(
+			REVIEW_RULES,
+		);
+		const pattern = new RegExp(armingPattern(CHECKER));
+		for (const rel of [INJECTOR, ...REVIEW_RULES])
+			expect(pattern.test(rel), rel).toBe(true);
+	});
+
+	it("runs the checker for a commit staging only a rule fragment it reads", () => {
+		const { root } = fixture({
+			staged: { [REVIEW_RULES[0] as string]: "x\n" },
+			checkerExit: 0,
+		});
+
+		const { code, output } = runGate(root);
+		expect(code).toBe(0);
+		expect(output).toContain(STUB_MARKER);
 	});
 
 	it("runs the checker for a commit staging the injector", () => {
@@ -132,7 +152,7 @@ describe("the pre-commit injector-margin gate", () => {
 	});
 
 	// BROKEN (exit 2) is the checker unable to do its job — an unreadable blob or
-	// an unparseable COMMANDS array — and must block the commit just as an
+	// a module that will not evaluate — and must block the commit just as an
 	// over-threshold payload does, rather than passing vacuously.
 	it("fails the commit when the checker reports BROKEN", () => {
 		const { root } = fixture({ staged: { [INJECTOR]: "x\n" }, checkerExit: 2 });
@@ -142,10 +162,14 @@ describe("the pre-commit injector-margin gate", () => {
 		expect(output).toContain(STUB_MARKER);
 	});
 
-	it("does not run the checker for a commit that leaves the injector alone", () => {
+	it("does not run the checker for a commit that leaves the text module alone", () => {
 		const { root } = fixture({
 			// Exit 1, so a gate that wrongly ran it fails loudly.
-			staged: { "docs/agents/issue-tracker.md": "x\n", "app/page.tsx": "x\n" },
+			staged: {
+				"docs/agents/issue-tracker.md": "x\n",
+				"docs/agents/rules/review-standards-axis.txt": "x\n",
+				"app/page.tsx": "x\n",
+			},
 			checkerExit: 1,
 		});
 
@@ -155,8 +179,8 @@ describe("the pre-commit injector-margin gate", () => {
 	});
 
 	// The pattern is anchored at both ends, so a path merely containing the
-	// injector's name is not the injector.
-	it("does not fire on a path that only resembles the injector", () => {
+	// module's name is not the module.
+	it("does not fire on a path that only resembles the text module", () => {
 		const { root } = fixture({
 			staged: {
 				[`vendor/${INJECTOR}`]: "x\n",
@@ -221,38 +245,46 @@ describe("mutations of the gate are caught by the cases above", () => {
 		expect(
 			runGate(
 				root,
-				mutate("inject-tracker-docs\\.sh", "check-context-budget\\.js"),
+				mutate("tracker-inject-text\\.js", "check-context-budget\\.js"),
 			).code,
 		).toBe(0);
 	});
 });
 
 /*
- * The checker itself, against synthetic injectors.
+ * The checker itself, against synthetic text modules.
  *
- * A fake injector is any script emitting the hook's JSON shape, so a case can
- * choose the exact payload length either side of the threshold. The real
- * injector's own figures are asserted by inject-tracker-docs.test.ts, which owns
- * that ground; pinning one here would go red on every ordinary rule edit.
+ * A fake module is any CommonJS source exporting the composers the checker's
+ * helper calls, so a case can choose the exact payload length either side of
+ * the threshold. The real module's own figures are asserted by
+ * inject-tracker-docs.test.ts, which owns that ground; pinning one here would
+ * go red on every ordinary rule edit.
  */
 describe("check-injector-margin.sh", () => {
 	const realChecker = path.join(ROOT, CHECKER);
 
-	/** A stand-in injector emitting `size` characters for every command named. */
-	const fakeInjector = (commands: string[], size: number) =>
+	/** A stand-in module whose every command's payload is `body`. */
+	const moduleOf = (commands: string[], body: string) =>
 		[
-			"#!/usr/bin/env bash",
-			`COMMANDS=(${commands.join(" ")})`,
-			"cat >/dev/null 2>&1 || true",
-			`printf '{"hookSpecificOutput":{"additionalContext":"%s"}}' \\`,
-			`  "$(head -c ${size} /dev/zero | tr '\\0' 'x')"`,
+			`const COMMANDS = ${JSON.stringify(commands)};`,
+			`const BODY = ${JSON.stringify(body)};`,
+			"module.exports = {",
+			"\tCOMMANDS,",
+			"\tTAKES_READ: [],",
+			'\tpricedOptionsWhole: () => "",',
+			"\ttrackerContext: () => BODY,",
+			"};",
 			"",
 		].join("\n");
 
+	/** A stand-in module emitting `size` characters for every command named. */
+	const fakeModule = (commands: string[], size: number) =>
+		moduleOf(commands, "x".repeat(size));
+
 	/**
-	 * A repo whose staged injector is `staged`, and whose tree copy is `tree`.
+	 * A repo whose staged module is `staged`, and whose tree copy is `tree`.
 	 * `tree: null` removes the working-tree copy, leaving the staged blob alone.
-	 * The live hook-limits.sh is committed beside it, as the checker reads the
+	 * The live hook-limits.js is committed beside it, as the checker reads the
 	 * threshold there.
 	 */
 	function injectorRepo(
@@ -280,7 +312,7 @@ describe("check-injector-margin.sh", () => {
 		env: Record<string, string>,
 		...args: string[]
 	) {
-		// spawnSync, not execFileSync: the SKIP limbs report on stderr and exit 0,
+		// spawnSync, not execFileSync: the SKIP limb reports on stderr and exits 0,
 		// where execFileSync hands back stdout alone and the message vanishes.
 		// CLAUDE_PROJECT_DIR is the fixture: gr_root answers it before the git
 		// top level, and a session exports it as the live checkout (#3311).
@@ -296,7 +328,7 @@ describe("check-injector-margin.sh", () => {
 	}
 
 	it("passes and reports the margin when every payload fits", () => {
-		const { root } = injectorRepo(fakeInjector(["alpha", "beta"], 9000));
+		const { root } = injectorRepo(fakeModule(["alpha", "beta"], 9000));
 
 		const { code, output } = run(root);
 		expect(code).toBe(0);
@@ -305,7 +337,7 @@ describe("check-injector-margin.sh", () => {
 	});
 
 	it("fails on a payload at the threshold, which is already persisted, marking it OVER and saying to replace a paste with a pointer", () => {
-		const { root } = injectorRepo(fakeInjector(["alpha"], 10_000));
+		const { root } = injectorRepo(fakeModule(["alpha"], 10_000));
 
 		const { code, output } = run(root);
 		expect(code).toBe(1);
@@ -315,7 +347,7 @@ describe("check-injector-margin.sh", () => {
 	});
 
 	it("passes one character under it", () => {
-		const { root } = injectorRepo(fakeInjector(["alpha"], 9999));
+		const { root } = injectorRepo(fakeModule(["alpha"], 9999));
 
 		expect(run(root).code).toBe(0);
 	});
@@ -324,13 +356,13 @@ describe("check-injector-margin.sh", () => {
 	// tight. The note rides on the SAME LINE as the margin, so a case asserting
 	// only the margin passes either way.
 	it("does not mark exactly one rule of headroom as tight", () => {
-		const { root } = injectorRepo(fakeInjector(["alpha"], 9000));
+		const { root } = injectorRepo(fakeModule(["alpha"], 9000));
 
 		expect(run(root).output).not.toContain("tight");
 	});
 
 	it("marks one character less than that as tight, without failing", () => {
-		const { root } = injectorRepo(fakeInjector(["alpha"], 9001));
+		const { root } = injectorRepo(fakeModule(["alpha"], 9001));
 
 		const { code, output } = run(root);
 		expect(code).toBe(0);
@@ -338,13 +370,13 @@ describe("check-injector-margin.sh", () => {
 	});
 
 	it("does not mark a comfortable payload as tight", () => {
-		const { root } = injectorRepo(fakeInjector(["alpha"], 5000));
+		const { root } = injectorRepo(fakeModule(["alpha"], 5000));
 
 		expect(run(root).output).not.toContain("tight");
 	});
 
-	it("measures every command the COMMANDS array names, and no list of its own", () => {
-		const { root } = injectorRepo(fakeInjector(["one", "two", "three"], 100));
+	it("measures every command the module's COMMANDS names, and no list of its own", () => {
+		const { root } = injectorRepo(fakeModule(["one", "two", "three"], 100));
 
 		const { output } = run(root);
 		for (const cmd of ["one", "two", "three"])
@@ -352,11 +384,11 @@ describe("check-injector-margin.sh", () => {
 	});
 
 	// The whole reason the checker reads the index rather than the disk: the tree
-	// is repo-global and a neighbour may be mid-save on the injector (mantahostels#250).
+	// is repo-global and a neighbour may be mid-save on the module (mantahostels#250).
 	it("measures the staged blob, not the working tree", () => {
 		const { root } = injectorRepo(
-			fakeInjector(["alpha"], 5000),
-			fakeInjector(["alpha"], 10_500),
+			fakeModule(["alpha"], 5000),
+			fakeModule(["alpha"], 10_500),
 		);
 
 		expect(run(root).code).toBe(0);
@@ -367,31 +399,12 @@ describe("check-injector-margin.sh", () => {
 		expect(run(root, "--tree").code).toBe(1);
 	});
 
-	/* The three routes on which this gate must NOT refuse a commit (mantahostels#1915). */
-	it("skips, rather than refusing the commit, when jq is not on PATH", () => {
-		// The injector fails open without jq (inject-tracker-docs.sh's
-		// `command -v jq` line), so a hard dependency here refuses the commit
-		// while blaming a command.
-		const { root } = injectorRepo(fakeInjector(["alpha"], 5000));
-		const shim = fs.mkdtempSync(path.join(os.tmpdir(), "no-jq-path-"));
-		temps.push(shim);
-		for (const bin of ["bash", "git", "mktemp", "sed", "cat", "grep", "rm"]) {
-			const real = commandPath(bin);
-			fs.symlinkSync(real, path.join(shim, bin));
-		}
-
-		const { code, output } = runWithEnv(root, { PATH: shim });
-		expect(code).toBe(0);
-		expect(output).toContain("SKIPPED");
-		expect(output).toContain("jq");
-		expect(output).not.toContain("chars,");
-	});
-
-	it("skips a commit that stages the injector's deletion", () => {
+	/* The routes on which this gate must NOT refuse a commit (mantahostels#1915). */
+	it("skips a commit that stages the text module's deletion", () => {
 		// `git diff --cached --name-only` names a deleted path, so the gate fires;
 		// `git show :` then has nothing to hand back.
-		const { root, git } = injectorRepo(fakeInjector(["alpha"], 5000));
-		git("commit", "-qm", "add injector");
+		const { root, git } = injectorRepo(fakeModule(["alpha"], 5000));
+		git("commit", "-qm", "add text module");
 		git("rm", "-q", "--", INJECTOR);
 
 		const { code, output } = run(root);
@@ -401,12 +414,12 @@ describe("check-injector-margin.sh", () => {
 	});
 
 	/* git reports a rename as R, never D, so the deletion probe above missed it
-	 * and a moved injector was refused as BROKEN (#1483). */
-	it("skips a commit that renames the injector away (#1483)", () => {
-		const { root, git } = injectorRepo(fakeInjector(["alpha"], 5000));
-		git("commit", "-qm", "add injector");
+	 * and a moved module was refused as BROKEN (#1483). */
+	it("skips a commit that renames the text module away (#1483)", () => {
+		const { root, git } = injectorRepo(fakeModule(["alpha"], 5000));
+		git("commit", "-qm", "add text module");
 		fs.mkdirSync(path.join(root, "bin"));
-		git("mv", "--", INJECTOR, "bin/inject-tracker-docs.sh");
+		git("mv", "--", INJECTOR, "bin/tracker-inject-text.js");
 
 		const { code, output } = run(root);
 		expect(code).toBe(0);
@@ -414,18 +427,31 @@ describe("check-injector-margin.sh", () => {
 		expect(output).not.toContain("BROKEN");
 	});
 
-	it("reports BROKEN, not a pass, when hook-limits.sh names no threshold", () => {
-		const { root, git } = injectorRepo(fakeInjector(["alpha"], 5000));
-		fs.writeFileSync(path.join(root, HOOK_LIMITS), "# emptied\n");
+	it("reports BROKEN, not a pass, when hook-limits.js names no threshold", () => {
+		const { root, git } = injectorRepo(fakeModule(["alpha"], 5000));
+		fs.writeFileSync(path.join(root, HOOK_LIMITS), "// emptied\n");
 		git("add", "--", HOOK_LIMITS);
 
 		const { code, output } = run(root);
 		expect(code).toBe(2);
-		expect(output).toContain("no HOOK_PERSIST_CHARS=<n> line");
+		expect(output).toContain("no const HOOK_PERSIST_CHARS = <n>; line");
+	});
+
+	it("reports BROKEN, not a pass, when hook-limits.js names no RULE_CAP", () => {
+		const { root, git } = injectorRepo(fakeModule(["alpha"], 5000));
+		fs.writeFileSync(
+			path.join(root, HOOK_LIMITS),
+			"const HOOK_PERSIST_CHARS = 10000;\n",
+		);
+		git("add", "--", HOOK_LIMITS);
+
+		const { code, output } = run(root);
+		expect(code).toBe(2);
+		expect(output).toContain("no const RULE_CAP = <n>; line");
 	});
 
 	it("reports BROKEN with the cause when --tree has no file to read", () => {
-		const { root } = injectorRepo(fakeInjector(["alpha"], 5000), null);
+		const { root } = injectorRepo(fakeModule(["alpha"], 5000), null);
 
 		const { code, output } = run(root, "--tree");
 		expect(code).toBe(2);
@@ -435,35 +461,39 @@ describe("check-injector-margin.sh", () => {
 		expect(output).toMatch(/No such file|not read/i);
 	});
 
-	it("reports BROKEN, not a pass, when the COMMANDS array cannot be parsed", () => {
-		const { root } = injectorRepo("#!/usr/bin/env bash\necho hi\n");
+	it("reports BROKEN, not a pass, when the module exports no COMMANDS", () => {
+		const { root } = injectorRepo("module.exports = {};\n");
 
 		const { code, output } = run(root);
 		expect(code).toBe(2);
 		expect(output).toContain("BROKEN");
 	});
 
-	it("reports BROKEN when the injector emits nothing measurable", () => {
+	it("reports BROKEN when the module names no command", () => {
+		const { root } = injectorRepo(fakeModule([], 100));
+
+		const { code, output } = run(root);
+		expect(code).toBe(2);
+		expect(output).toContain("names no command");
+	});
+
+	// The staged blob may be another session's (a merge, a revert), so it is
+	// evaluated with no `require` to reach anything with.
+	it("reports BROKEN, running nothing, when the module reaches for require", () => {
 		const { root } = injectorRepo(
-			"#!/usr/bin/env bash\nCOMMANDS=(alpha)\nexit 0\n",
+			`require("node:fs").writeFileSync("ran", "");\n${fakeModule(["alpha"], 100)}`,
 		);
 
 		const { code, output } = run(root);
 		expect(code).toBe(2);
-		expect(output).toContain("BROKEN");
+		expect(output).toContain("require is not defined");
+		expect(fs.existsSync(path.join(root, "ran"))).toBe(false);
 	});
 
 	it("counts the units the harness slices with, not codepoints", () => {
 		// An astral character is two UTF-16 units and one codepoint.
 		const { root } = injectorRepo(
-			[
-				"#!/usr/bin/env bash",
-				"COMMANDS=(alpha)",
-				"cat >/dev/null 2>&1 || true",
-				`printf '{"hookSpecificOutput":{"additionalContext":"%s"}}' \\`,
-				`  "$(printf '\\xf0\\x9f\\x98\\x80%.0s' $(seq 5000))"`,
-				"",
-			].join("\n"),
+			moduleOf(["alpha"], "\u{1F600}".repeat(5000)),
 		);
 
 		// 5,000 emoji: 5,000 codepoints, 10,000 UTF-16 units — over the line.
@@ -474,25 +504,14 @@ describe("check-injector-margin.sh", () => {
 		expect(run(root).code).toBe(1);
 	});
 
-	// The `sed` parse depends on a shape the injector is free to change, and the
-	// worst break is silent: QUOTED elements survive into the match, no command
-	// matches, and the refusal blames a command rather than the array. So the
-	// live array's shape is asserted here, where a reshape goes red.
-	it("finds a single-line, unquoted COMMANDS array in the live injector", () => {
-		const injector = fs.readFileSync(path.join(ROOT, INJECTOR), "utf8");
-		const m = /^COMMANDS=\((.*)\)$/m.exec(injector);
-		expect(m, `no single-line COMMANDS=(...) in ${INJECTOR}`).not.toBeNull();
-		expect(m?.[1]).not.toContain('"');
-		expect(m?.[1]).not.toContain("'");
-		expect(m?.[1].trim().split(/\s+/).length).toBeGreaterThan(1);
-	});
-
-	it("measures exactly the commands the live injector matches", () => {
-		// The two spellings of the command set — this checker's `sed` and the
-		// injector suite's own list — must not drift apart.
-		const injector = fs.readFileSync(path.join(ROOT, INJECTOR), "utf8");
-		const live = /^COMMANDS=\((.*)\)$/m.exec(injector)?.[1].trim().split(/\s+/);
-		const { output } = run(ROOT, "--tree");
-		for (const cmd of live ?? []) expect(output).toContain(`/${cmd} `);
+	it("measures exactly the commands the live module names", () => {
+		const source = fs.readFileSync(path.join(ROOT, INJECTOR), "utf8");
+		const { root } = injectorRepo(source);
+		const { COMMANDS } = require(path.join(ROOT, INJECTOR)) as {
+			COMMANDS: string[];
+		};
+		const { code, output } = run(root);
+		expect(code).not.toBe(2);
+		for (const cmd of COMMANDS) expect(output).toContain(`/${cmd} `);
 	});
 });

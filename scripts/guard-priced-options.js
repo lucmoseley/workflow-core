@@ -5,7 +5,7 @@
  * form the guard-registry rule in `.claude/output-styles/core-voice.md`
  * requires. That rule is the text of record, and
  * scripts/priced-options-copies.test.ts fails when the style and
- * scripts/inject-tracker-docs.sh's pasted copy stop agreeing with each other or
+ * scripts/inject-tracker-docs.js's pasted copy stop agreeing with each other or
  * with the regexes below (#51).
  *
  * Why writing the rule down keeps losing, and why the fix is a Stop hook rather
@@ -1205,7 +1205,7 @@ function actorOnlyRound(message, { ruleShown = false } = {}) {
  * `reason` renders in the founder's own transcript, so a refusal carrying a
  * round marker, lettered options and priced lines would read to him as a question
  * addressed to him. IT IS NOT THE WHOLE SHAPE: the `Relation:` line is written
- * out only in `scripts/inject-tracker-docs.sh`, which runs on the named skill
+ * out only in `scripts/inject-tracker-docs.js`, which runs on the named skill
  * paths alone, so each defect states its own fix rather than relying on the
  * pointer to carry it. The file is the host's declared output style, else
  * core-voice.md (#448), read only when a block is written. */
@@ -2098,7 +2098,7 @@ function formatReason(count, bad) {
 		bad.length +
 		" of them break the priced-options format that " +
 		pointer +
-		" requires and `scripts/inject-tracker-docs.sh` pasted into this session " +
+		" requires and `scripts/inject-tracker-docs.js` pasted into this session " +
 		"at start. Defective:\n\n" +
 		bad.join("\n") +
 		"\n\nThe lettered priced form is written out in " +

@@ -232,7 +232,7 @@ Key on when the event fires and whether it can block.
   the payload as a string before loading anything.
 - **`UserPromptSubmit`** fires on the prompt before the model reads it, and can
   block it — but the live use here is **injection**: what the hook prints on
-  stdout is prepended to the prompt as context. `scripts/inject-tracker-docs.sh`
+  stdout is prepended to the prompt as context. `scripts/inject-tracker-docs.js`
   is the worked example, handing the tracker rules to the skills that would
   otherwise not carry them. THE TRAP: that text is spent on every matching
   prompt, so this is the wrong event for anything the session could read for

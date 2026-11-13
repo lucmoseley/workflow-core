@@ -55,7 +55,7 @@ const RULES_DIR = "docs/agents/rules";
 const RULE_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /*
- * The spelling ids are QUOTED in — scripts/inject-tracker-docs.sh's per-command
+ * The spelling ids are QUOTED in — scripts/lib/tracker-inject-text.js's per-command
  * index, docs/agents/guard-registry.md §Gotchas, every guard's deny text. It is no part of the id,
  * and it is the only spelling a session is ever shown (mantahostels#2707).
  */

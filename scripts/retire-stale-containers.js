@@ -9,7 +9,7 @@
  *
  * A SPEC REACHING `takes:triage` names its whole-spec review in the retag line
  * (#892) — read on a hand run only, the session-start run's output going to
- * /dev/null. What reaches the `/triage` session is inject-tracker-docs.sh.
+ * /dev/null. What reaches the `/triage` session is inject-tracker-docs.js.
  *
  * WHAT (a) FIXES (mantahostels#1632). `takes:children` means "open a child instead", so a
  * container whose children have all closed routes to no command at all:

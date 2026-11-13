@@ -88,13 +88,12 @@ const guardReviewRules = () => {
 };
 
 const injectTrackerDocs = (host = ROOT) => {
-	const out = execFileSync(path.join(SCRIPTS, "inject-tracker-docs.sh"), {
-		input: JSON.stringify({
+	const r = runInProcess(path.join(SCRIPTS, "inject-tracker-docs.js"), [], {
+		stdin: JSON.stringify({
 			prompt: "/code-review 3458",
 			hook_event_name: "UserPromptSubmit",
 			session_id: ID,
 		}),
-		encoding: "utf8",
 		env: {
 			...process.env,
 			CLAUDE_JOB_DIR: "",
@@ -103,7 +102,8 @@ const injectTrackerDocs = (host = ROOT) => {
 			TMPDIR: dir,
 		},
 	});
-	return JSON.parse(out).hookSpecificOutput.additionalContext as string;
+	expect(r.status, r.stderr).toBe(0);
+	return JSON.parse(r.stdout).hookSpecificOutput.additionalContext as string;
 };
 
 /** The Stop nag, provoked by a code change this session's ledger owns. */
@@ -187,7 +187,7 @@ describe("the review-axis session suffix (mantahostels#3458)", () => {
 	it("is spelled alike by all three routes, for an id needing sanitising", () => {
 		const routes = {
 			"guard-review-rules": suffixes(guardReviewRules()),
-			"inject-tracker-docs.sh": suffixes(injectTrackerDocs()),
+			"inject-tracker-docs.js": suffixes(injectTrackerDocs()),
 			"concision-backstop.sh": suffixes(concisionBackstop()),
 		};
 		for (const [route, found] of Object.entries(routes)) {
@@ -254,7 +254,7 @@ describe("the review subagent type (#741)", () => {
 	it("is the plugin's spelling on every route where the host has no definition", () => {
 		const routes = {
 			"guard-review-rules": agentTypes(guardReviewRules()),
-			"inject-tracker-docs.sh": agentTypes(injectTrackerDocs(dir)),
+			"inject-tracker-docs.js": agentTypes(injectTrackerDocs(dir)),
 			"concision-backstop.sh": agentTypes(concisionBackstop()),
 		};
 		for (const [route, found] of Object.entries(routes)) {
@@ -266,7 +266,7 @@ describe("the review subagent type (#741)", () => {
 		ownReviewer(dir);
 		const routes = {
 			"guard-review-rules": agentTypes(guardReviewRules()),
-			"inject-tracker-docs.sh": agentTypes(injectTrackerDocs(dir)),
+			"inject-tracker-docs.js": agentTypes(injectTrackerDocs(dir)),
 			"concision-backstop.sh": agentTypes(concisionBackstop(ownReviewer)),
 		};
 		for (const [route, found] of Object.entries(routes)) {

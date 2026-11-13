@@ -35,7 +35,7 @@
  *
  * LIMITS
  *  - It fires on the Skill TOOL only. A `/code-review` the founder types is
- *    expanded without one, which is why scripts/inject-tracker-docs.sh keeps
+ *    expanded without one, which is why scripts/inject-tracker-docs.js keeps
  *    its /code-review arm: for that session the prompt is the nearest event. A
  *    review run by hand, with no skill loaded, is told nothing here;
  *    scripts/concision-backstop.sh's Stop nag restates the dispatch shape.

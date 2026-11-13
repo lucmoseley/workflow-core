@@ -9,7 +9,7 @@ no real job or transcript is read.
 
 CI's pytest step runs this file; the scanner
 gates nothing and is re-run after a CLI upgrade. Breaking it misreports whether
-`name-issue-session.sh` and `inject-tracker-docs.sh` see a background job's
+`name-issue-session.sh` and `inject-tracker-docs.js` see a background job's
 opening command, so sessions reason off a hook route that has stopped firing.
 """
 

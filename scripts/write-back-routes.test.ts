@@ -26,7 +26,7 @@ const ROOT = path.resolve(__dirname, "..");
  * in the file cannot stand in for a dropped one. */
 const COPIES = [
 	{
-		file: "scripts/inject-tracker-docs.sh",
+		file: "scripts/lib/tracker-inject-text.js",
 		start: "A RESOLUTION THAT DISPOSES OF A FINDING",
 		end: "Ruled at mantahostels#3205.",
 	},
@@ -69,13 +69,13 @@ const ROUTES = [
  * §X10); the first case holds them to COPIES. */
 const TEXTS = new Map(
 	[
-		"scripts/inject-tracker-docs.sh",
+		"scripts/lib/tracker-inject-text.js",
 		".claude/skills/card-close/SKILL.md",
 		".claude/skills/roadmap-edit/SKILL.md",
 	].map((f) => [f, fs.readFileSync(path.join(ROOT, f), "utf8")]),
 );
 
-/** The passage, unescaped from the shell string and on one line. */
+/** The passage, on one line. */
 function passage(copy: (typeof COPIES)[number]): string {
 	const text = TEXTS.get(copy.file) ?? "";
 	const from = text.indexOf(copy.start);
@@ -85,7 +85,7 @@ function passage(copy: (typeof COPIES)[number]): string {
 			`${copy.file}: passage anchors not found — moved, or reworded?`,
 		);
 	}
-	return text.slice(from, to).replace(/\\`/g, "`").replace(/\s+/g, " ");
+	return text.slice(from, to).replace(/\s+/g, " ");
 }
 
 describe("ADR-0006's write-back routes (#1694)", () => {

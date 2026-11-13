@@ -7,7 +7,7 @@
  * EIGHTEEN RULES, OVER TWENTY-TWO `gh` TABLE ROWS AND ONE NON-`gh` LIMB
  * (mantahostels#2497, mantahostels#2592, mantahostels#2652, #2023). The
  * vendored skills carry a tracker vocabulary this repo does not use, and
- * scripts/inject-tracker-docs.sh can only say so and point at the document —
+ * scripts/inject-tracker-docs.js can only say so and point at the document —
  * which the session reads, or does not, long before it types the call.
  *
  * THE NON-`gh` LIMB IS WHY THE ROW JUDGES EVERY BASH CALL (mantahostels#2592).
@@ -19,7 +19,7 @@
  *
  * WHAT IS NOT ROUTED HERE, deliberately: the background-every-`gh`-call rule,
  * which binds BEFORE the first tool call and so cannot be delivered by a hook
- * on that call. It stays pasted, in scripts/inject-tracker-docs.sh.
+ * on that call. It stays pasted, in scripts/lib/tracker-inject-text.js.
  *
  * INJECTION ONLY — it never denies. The tracker guards that DO deny are
  * the guard-issue-create-label core, the guard-issue-close core, the guard-issue-body core and

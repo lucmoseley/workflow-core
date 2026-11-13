@@ -2,7 +2,7 @@
 """
 scan_rule_fetches.py — does a session handed a per-command rule INDEX go and fetch the rules? (mantahostels#2501)
 
-`scripts/inject-tracker-docs.sh` hands a session a per-command index of rule ids
+`scripts/inject-tracker-docs.js` hands a session a per-command index of rule ids
 (mantahostels#2499), each named with its trigger, and one instruction: fetch with
 `scripts/lib/rule-text.sh <id>` at the moment the trigger fires. So the question
 `scan_doc_reads.py` answers — did the session open
