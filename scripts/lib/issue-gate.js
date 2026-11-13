@@ -1304,11 +1304,12 @@ function openMapsArgs(repo) {
  * The limb's one `gh` call, run.
  *
  * @param {string} [repo]
+ * @param {import("./gh.js").GhRun} [run]
  * @returns {unknown}
  */
-function listOpenMaps(repo) {
-	const { ghJson } = require("./gh.js");
-	return ghJson(openMapsArgs(repo));
+function listOpenMaps(repo, run) {
+	const { gh, ghJson } = require("./gh.js");
+	return ghJson(openMapsArgs(repo), {}, run ?? gh);
 }
 
 /**
