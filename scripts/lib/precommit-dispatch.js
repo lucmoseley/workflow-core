@@ -12,8 +12,9 @@
  *
  * THE FAILURE POLICY, per row (#5171). A `gate` row fails closed: a throw
  * while its module loads, while the list it arms on is computed or while it
- * runs is BROKEN, exit 2, with one line naming the row. A `warn` row never refuses: its output prints, whatever its exit, and
- * its own throw prints one line naming it and the run goes on.
+ * runs is BROKEN, exit 2, with one line naming the row. A `warn` row never
+ * refuses: its output prints, whatever its exit, and its own throw prints
+ * one line naming it and the run goes on.
  *
  * ARMING. The staged entries are read once, by staged_names' own git call
  * (lib/precommit-gate.sh), so a rename arms on both its ends. A row arms

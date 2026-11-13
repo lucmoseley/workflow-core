@@ -28,7 +28,8 @@
 
 const fs = require("node:fs");
 const os = require("node:os");
-const { capture, writeFd } = require("./lib/write-fd.js");
+const { capture } = require("./lib/check-sink.js");
+const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { worktreeRoot } = require("./lib/host-root.js");

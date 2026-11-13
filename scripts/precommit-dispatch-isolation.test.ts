@@ -9,7 +9,9 @@
  *
  * Every row runs, armed or not, and none stops the run: each is set to
  * `always` and `warn` for the pass, since a red would end it early and leave
- * the rows after it unproven.
+ * the rows after it unproven. It runs in a throwaway repo, never this one.
+ * It is the only proof a member is safe to share the process: loosening it
+ * lets a leaking member reach every commit's later gates unseen.
  */
 
 import { execFileSync } from "node:child_process";
@@ -22,7 +24,7 @@ import { buildRepoPorts } from "./lib/precommit-gate-testkit";
 import { GATES } from "./lib/precommit-gates.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: CommonJS module
-const { computed, load } = require("./precommit-dispatch.js") as any;
+const { computed, load } = require("./lib/precommit-dispatch-ports.js") as any;
 
 const dirs: string[] = [];
 afterEach(() => {

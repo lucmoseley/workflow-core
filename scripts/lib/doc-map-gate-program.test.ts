@@ -27,7 +27,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { PROGRAM } from "./doc-map-gate-ports.js";
+import { PROGRAM } from "./doc-map-gate-program.js";
 import { emptyDataFile } from "./doc-map-testkit";
 import { defineTemplate, mkScratchDir } from "./git-fixture";
 import { dispatch } from "./precommit-dispatch.js";
@@ -42,6 +42,7 @@ import { runInProcess } from "./run-in-process.js";
 import { shellQuote } from "./sh-quote.js";
 
 const PORTS = "scripts/lib/doc-map-gate-ports.js";
+const PROGRAM_FILE = "scripts/lib/doc-map-gate-program.js";
 
 const ROW = GATES.find((g) => g.id === "doc-map") as PrecommitGate;
 
@@ -344,7 +345,7 @@ function runProgram(
 describe("the dispatcher row", () => {
 	it("is a program row gating the lander's batch, its script this module", () => {
 		expect(ROW).toMatchObject({
-			script: PORTS,
+			script: PROGRAM_FILE,
 			kind: "program",
 			policy: "gate",
 			lander: "batch",
@@ -574,13 +575,13 @@ describe("PROGRAM's exits and input channels", () => {
 			checkerExit: 1,
 		});
 
-		const run = runInProcess(path.join(ROOT, PORTS), ["--force"], {
+		const run = runInProcess(path.join(ROOT, PROGRAM_FILE), ["--force"], {
 			cwd: repo,
 			env: NO_ANNOTATIONS,
 		});
 		expect(run.status).toBe(2);
 		expect(`${run.stdout}${run.stderr}`).toBe(
-			"unknown flag: --force\n\nusage: node doc-map-gate-ports.js (takes no arguments)\n",
+			"unknown flag: --force\n\nusage: node doc-map-gate-program.js (takes no arguments)\n",
 		);
 	});
 

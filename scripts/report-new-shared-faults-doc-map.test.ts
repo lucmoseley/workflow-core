@@ -34,7 +34,7 @@ const LEFTOVER_ROOT_ENV = "WFC_SHARED_FAULT_TMP";
  * diffs, and the only one that doesn't take --root (readDocMapEnvelope's own
  * docstring in report-new-shared-faults.js).
  *
- * The fixture map is lib/doc-map-gate-ports.test.ts's "pointer count
+ * The fixture map is lib/doc-map-gate-program.test.ts's "pointer count
  * disagreeing with its sidecar" fixture (assertion 11, mantahostels#1474): a one-entry
  * Section B pointer ("Restated in: <n> paths") whose stated count either does
  * or doesn't match docs/doc-map-restatements.json's B1 entry.

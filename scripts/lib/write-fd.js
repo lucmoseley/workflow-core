@@ -74,18 +74,4 @@ function writeFd(fd, text) {
 
 /** @typedef {(fd: number, text: string) => void} Write */
 
-/**
- * Runs `run` against a writer that keeps fds 1 and 2 as strings, for a CLI
- * core the pre-commit dispatcher runs in its own process (#5172).
- * @param {(write: Write) => number} run
- * @returns {{ exit: number, stdout: string, stderr: string }}
- */
-function capture(run) {
-	const out = { 1: "", 2: "" };
-	const exit = run((fd, text) => {
-		out[fd === 1 ? 1 : 2] += text;
-	});
-	return { exit, stdout: out[1], stderr: out[2] };
-}
-
-module.exports = { capture, pauseOrThrow, writeFd };
+module.exports = { pauseOrThrow, writeFd };

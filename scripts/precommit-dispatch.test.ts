@@ -10,6 +10,9 @@
  *
  * The core's policy over stub rows is scripts/lib/precommit-dispatch.test.ts.
  *
+ * Breaking it costs the hook's own contract: a dispatcher whose exit the
+ * hook drops lets every red gate's commit through.
+ *
  * spawn-kept: the hook line is a real `sh` running a real Node process.
  */
 
@@ -378,12 +381,6 @@ describe("the hook's dispatcher line", () => {
 		expect(r.code).toBe(128 + 15);
 		expect(r.loaded).toEqual([]);
 		expect(r.err).toContain(STOPPED_LINE);
-	});
-
-	it("registers no arguments on a program row, as load hands its PROGRAM none", () => {
-		const programs = GATES.filter((g) => g.kind === "program");
-		expect(programs.length).toBeGreaterThan(0);
-		expect(programs.filter((g) => g.args.length > 0)).toEqual([]);
 	});
 
 	it.each([

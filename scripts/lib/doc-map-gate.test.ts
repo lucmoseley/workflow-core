@@ -2,7 +2,7 @@
 /*
  * lib/doc-map-gate.js, the pre-commit doc-map gate's core (mantahostels#390, #5155), over
  * doc-map-gate-fake.ts. doc-map-gate.contract.test.ts holds that fake to the
- * production ports; doc-map-gate-ports.test.ts keeps the program's boundary
+ * production ports; doc-map-gate-program.test.ts keeps the program's boundary
  * set.
  *
  * Loosen a case and a commit leaving docs/doc-map.md dangling, deleted or

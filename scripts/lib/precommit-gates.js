@@ -51,8 +51,9 @@ const SITE_IDENTITY = ["severity", "tag", "file", "match"];
  *   lander's gate sets that run it beside a plain commit (#4545): `every`
  *   both, `merge` the merge set, `batch` the batch set, `none` neither, a
  *   gate the lander's Actions run repeats
- * @property {string[]} args what the dispatcher hands the checker; empty on a
- *   program row, whose PROGRAM takes only its working directory and env
+ * @property {string[]} args what the dispatcher hands the checker; on a
+ *   program row, the arguments under which its script's own process runs
+ *   what PROGRAM runs, which check-in-process.contract.test.ts holds equal
  * @property {import("./precommit-dispatch.js").Arm} arm the staged paths
  *   that run it
  * @property {"gate" | "warn"} policy whether its red refuses the commit
@@ -159,7 +160,7 @@ const GATES = [
 		id: "test-read-edges",
 		script: "scripts/generate-test-read-edges.js",
 		lander: "none",
-		args: [],
+		args: ["--check"],
 		arm: {
 			pattern: new RegExp(String.raw`${JS_TEST}|^docs/test-read-edges\.json$`),
 		},
@@ -322,7 +323,7 @@ const GATES = [
 		id: "plugin-hooks",
 		script: "scripts/generate-plugin-hooks.js",
 		lander: "batch",
-		args: [],
+		args: ["--check"],
 		arm: {
 			pattern:
 				/^(self-plugin\/hooks\/hooks\.json|hooks\/hooks\.json|scripts\/[^/]+|scripts\/lib\/(core-hooks|deny-capable|guard-fires)\.js)$/,
@@ -821,7 +822,7 @@ const GATES = [
 		id: "rule-fragments",
 		script: "scripts/generate-rule-fragments.js",
 		lander: "batch",
-		args: [],
+		args: ["--check"],
 		arm: {
 			pattern: /^docs\/agents\/rules\//,
 			computed: "rule-fragment-sources",
@@ -838,7 +839,7 @@ const GATES = [
 		id: "effort-guide-routing",
 		script: "scripts/generate-effort-guide-routing.js",
 		lander: "batch",
-		args: [],
+		args: ["--check"],
 		arm: {
 			pattern:
 				/^(docs\/effort-guide\.md|scripts\/lib\/model-routing\.json|scripts\/generate-effort-guide-routing\.js|scripts\/lib\/model-table\.js)$/,
@@ -932,11 +933,11 @@ const GATES = [
 	 * roadmap-digest.yml (mantahostels#390); lib/doc-map-gate.js's header holds
 	 * its rules. The pattern spells SCOPE in lib/doc-map.js, a directory member
 	 * as `docs/` and a root file as `AGENTS\.md$`, and
-	 * lib/doc-map-gate-ports.test.ts asserts the parity.
+	 * lib/doc-map-gate-program.test.ts asserts the parity.
 	 */
 	{
 		id: "doc-map",
-		script: "scripts/lib/doc-map-gate-ports.js",
+		script: "scripts/lib/doc-map-gate-program.js",
 		lander: "batch",
 		args: [],
 		arm: {

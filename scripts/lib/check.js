@@ -1790,15 +1790,11 @@ function runCheck(spec) {
  *
  * @param {CheckSpec} spec
  * @param {string[]} argv
- * @param {{ script: string, sink?: InstanceType<typeof BufferSink>,
- *   sides?: SideRun }} opts
+ * @param {{ script: string, sides?: SideRun }} opts
  * @returns {Promise<{ exit: number, stdout: string, stderr: string }>}
  */
-async function checkInProcess(
-	spec,
-	argv,
-	{ script, sink = new BufferSink(), sides = "in-process" },
-) {
+async function checkInProcess(spec, argv, { script, sides = "in-process" }) {
+	const sink = new BufferSink();
 	const started = startRun(spec, argv, {
 		sink,
 		script,

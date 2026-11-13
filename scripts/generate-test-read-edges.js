@@ -31,7 +31,8 @@
  */
 
 const fs = require("node:fs");
-const { capture, writeFd } = require("./lib/write-fd.js");
+const { capture } = require("./lib/check-sink.js");
+const { writeFd } = require("./lib/write-fd.js");
 
 /** @typedef {import("./lib/write-fd.js").Write} Write */
 const path = require("node:path");
