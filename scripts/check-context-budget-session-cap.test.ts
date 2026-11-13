@@ -1302,12 +1302,11 @@ describe("the direction gate over the shared ratchet", () => {
  */
 describe("this repo's own figures", () => {
 	// WFC_MODULES dropped, so the figures are the modules this repo declares
-	// rather than vitest.setup.ts's every-module default (#449). --root, as
-	// hostRoot() maps a linked worktree to its main checkout.
+	// rather than vitest.setup.ts's every-module default (#449).
 	// biome-ignore lint/suspicious/noExplicitAny: envelope is untyped JSON
 	const live = (): any =>
 		JSON.parse(
-			runInProcess(SCRIPT, ["--root", ROOT, "--json"], {
+			runInProcess(SCRIPT, ["--json"], {
 				env: {
 					...process.env,
 					CLAUDE_PROJECT_DIR: ROOT,
