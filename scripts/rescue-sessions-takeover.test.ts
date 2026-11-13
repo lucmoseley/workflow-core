@@ -212,7 +212,7 @@ describe("takeover: the success path", () => {
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(`Worktree: ${wt}`);
 		expect(r.stdout).toContain(
-			`cd ${wt}, or relaunch there with scripts/dispatch-sessions.sh --into ${wt} <model> <prompt>`,
+			`cd ${wt}, or relaunch there with scripts/dispatch-sessions.js --into ${wt} <model> <prompt>`,
 		);
 		expect(
 			fs.readFileSync(path.join(snapshotDir(), "RESUMPTION.md"), "utf8"),
@@ -665,7 +665,7 @@ describe("takeover: a GHOST is stopped and handed back for re-dispatch", () => {
 		expect(r.stdout.split(/\s/)[0]).toBe("GHOST");
 		expect(readLog()).toContain(`stop ${SHORT} snapshot=no`);
 		expect(r.stdout).toContain(
-			`scripts/dispatch-sessions.sh opus '/implement ${N}'`,
+			`scripts/dispatch-sessions.js opus '/implement ${N}'`,
 		);
 		expect(fs.existsSync(path.join(ghostDir(), `${SHORT}.state.json`))).toBe(
 			true,
@@ -692,7 +692,7 @@ describe("takeover: a GHOST is stopped and handed back for re-dispatch", () => {
 		const r = await takeover();
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain(
-			`scripts/dispatch-sessions.sh --force --no-advisor sonnet '/implement ${N}'`,
+			`scripts/dispatch-sessions.js --force --no-advisor sonnet '/implement ${N}'`,
 		);
 	});
 
@@ -702,7 +702,7 @@ describe("takeover: a GHOST is stopped and handed back for re-dispatch", () => {
 		const r = await takeover();
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("claude stop failed");
-		expect(r.stdout).not.toContain("dispatch-sessions.sh");
+		expect(r.stdout).not.toContain("dispatch-sessions.js");
 		expect(readHolders()).toEqual([]);
 	});
 });

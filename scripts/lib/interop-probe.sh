@@ -7,8 +7,8 @@
 #
 # A LIBRARY RATHER THAN JUST THE GUARD (mantahostels#3111). The guard the probe was born in
 # is a `claude` shell FUNCTION, so it reaches interactive shells and nothing
-# else; `scripts/dispatch-sessions.sh` runs the bare binary from a script. Both
-# now source this file.
+# else; `scripts/dispatch-sessions.js` runs the bare binary from a script, and
+# runs this file through bash (lib/dispatch-sessions-host.js).
 #
 # THREE ATTEMPTS AT A FLAT BUDGET (mantahostels#3306; the measurement is docs/environment.md §9).
 #

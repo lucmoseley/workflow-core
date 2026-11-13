@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * Pins dispatch-sessions.sh on an overflow seat (#2610, spec #2570): no
+ * Pins dispatch-sessions.js on an overflow seat (#2610, spec #2570): no
  * `/usage` probe, advisor check or allowance cap; the set sized by the key's
  * budget gate, which --force does not lift; each member launched headless,
  * `claude -p` through lib/headless-sessions.js under its plan seat's dir,
@@ -115,15 +115,11 @@ function dispatch(
 		dispatcher,
 		env: baseEnv(env),
 		run: (call) => {
-			const r = spawnSync(
-				call.file,
-				[call.args[0], ...flags, ...call.args.slice(1)],
-				{
-					cwd: call.cwd,
-					env: call.env,
-					encoding: "utf8",
-				},
-			);
+			const r = spawnSync(call.file, [...flags, ...call.args], {
+				cwd: call.cwd,
+				env: call.env,
+				encoding: "utf8",
+			});
 			return {
 				failed: r.status === 0 ? null : `exit ${r.status}`,
 				out: `${r.stdout}${r.stderr}`.trim(),
@@ -206,7 +202,7 @@ function loopCodeTip(env: Record<string, string>) {
 	return {
 		codeDir,
 		tip,
-		dispatcher: path.join(tip, "scripts", "dispatch-sessions.sh"),
+		dispatcher: path.join(tip, "scripts", "dispatch-sessions.js"),
 	};
 }
 
@@ -242,7 +238,7 @@ function sessionWorktree({ mainCopy = true }: { mainCopy?: boolean } = {}) {
 	return {
 		main,
 		worktree,
-		dispatcher: path.join(worktree, "scripts", "dispatch-sessions.sh"),
+		dispatcher: path.join(worktree, "scripts", "dispatch-sessions.js"),
 	};
 }
 
@@ -400,56 +396,52 @@ describe("an overflow seat (#2610)", () => {
 		expect(readHeadlessLaunches(2)).toHaveLength(2);
 	});
 
-	it("launches an opus member by the standard row with burn mode on, the burn row never reaching it", () => {
+	it("launches an opus member by the standard row with burn mode on, the burn row never reaching it", async () => {
 		stub();
 		fs.writeFileSync(path.join(fx.dir, "burn-mode"), "");
-		const r = spawnSync(
-			"bash",
-			[SCRIPT, "--dry-run", "opus", "/implement 341"],
-			{ encoding: "utf8", env: baseEnv({ ...overflowEnv(200), ...ROUTING }) },
-		);
-		expect(r.status).toBe(0);
+		const r = await fx.coreRun(["--dry-run", "opus", "/implement 341"], {
+			cwd: process.cwd(),
+			env: baseEnv({ ...overflowEnv(200), ...ROUTING }),
+		});
+		expect(r.code).toBe(0);
 		expect(r.stdout).toContain("headless-sessions.js launch");
 		expect(r.stderr).not.toContain("burn mode");
 		expect(`${r.stdout}${r.stderr}`).not.toContain("test-sonnet");
 	});
 
-	it("admits a member the standard row moves onto the overflow alias, with burn mode on", () => {
+	it("admits a member the standard row moves onto the overflow alias, with burn mode on", async () => {
 		stub();
 		fs.writeFileSync(path.join(fx.dir, "burn-mode"), "");
-		const r = spawnSync(
-			"bash",
-			[SCRIPT, "--dry-run", "sonnet", "/implement 341"],
-			{ encoding: "utf8", env: baseEnv({ ...overflowEnv(200), ...ROUTING }) },
-		);
-		expect(r.status).toBe(0);
+		const r = await fx.coreRun(["--dry-run", "sonnet", "/implement 341"], {
+			cwd: process.cwd(),
+			env: baseEnv({ ...overflowEnv(200), ...ROUTING }),
+		});
+		expect(r.code).toBe(0);
 		expect(r.stderr).toContain("model table: sonnet -> test-opus-2[1m]");
 		expect(r.stderr).not.toContain("burn mode");
 	});
 
 	it.each(["opus", "test-opus-2", "test-opus-2[1m]", "opus[1m]"])(
 		"admits %s, a spelling of the overflow alias's current model",
-		(spelling) => {
+		async (spelling) => {
 			stub();
-			const r = spawnSync(
-				"bash",
-				[SCRIPT, "--dry-run", spelling, "/implement 341"],
-				{ encoding: "utf8", env: baseEnv({ ...overflowEnv(200), ...ROUTING }) },
-			);
-			expect(r.status, r.stderr).toBe(0);
+			const r = await fx.coreRun(["--dry-run", spelling, "/implement 341"], {
+				cwd: process.cwd(),
+				env: baseEnv({ ...overflowEnv(200), ...ROUTING }),
+			});
+			expect(r.code, r.stderr).toBe(0);
 		},
 	);
 
 	it.each(["haiku", "test-opus-1", "opusish"])(
 		"refuses %s before the duplicate and budget gates, exit 2",
-		(spelling) => {
+		async (spelling) => {
 			stub();
-			const r = spawnSync("bash", [SCRIPT, spelling, "/implement 341"], {
+			const r = await fx.coreRun([spelling, "/implement 341"], {
 				cwd: fx.dir,
-				encoding: "utf8",
 				env: baseEnv({ ...overflowEnv(200), ...ROUTING }),
 			});
-			expect(r.status).toBe(2);
+			expect(r.code).toBe(2);
 			expect(r.stderr).toContain(
 				`REFUSED: ${label()} is an overflow seat, which launches Opus alone (#1920); ${spelling} is not.`,
 			);
@@ -543,17 +535,13 @@ describe("an overflow seat (#2610)", () => {
 		expect(readAnyLaunches()).toEqual([]);
 	});
 
-	it("prints the overflow launch on a dry run", () => {
+	it("prints the overflow launch on a dry run", async () => {
 		stub();
-		const r = spawnSync(
-			"bash",
-			[SCRIPT, "--dry-run", "opus", "/implement 341"],
-			{
-				encoding: "utf8",
-				env: baseEnv(overflowEnv(200)),
-			},
-		);
-		expect(r.status).toBe(0);
+		const r = await fx.coreRun(["--dry-run", "opus", "/implement 341"], {
+			cwd: process.cwd(),
+			env: baseEnv(overflowEnv(200)),
+		});
+		expect(r.code).toBe(0);
 		expect(r.stdout).toMatch(
 			/^would launch: env -u WFC_REPO_ROOT -u CLAUDE_PROJECT_DIR -u WFC_DISPATCH_ROOT -u ANTHROPIC_API_KEY -u WFC_TEST_OVERFLOW_KEY -u CLAUDE_CODE_SESSION_ID node \S+\/lib\/headless-sessions\.js launch --key WFC_TEST_OVERFLOW_KEY --cwd \. --budget 200 --name=\/implement\\ 341 -- \/implement\\ 341$/m,
 		);
@@ -562,7 +550,7 @@ describe("an overflow seat (#2610)", () => {
 });
 
 describe("an overflow line naming a dir with no plan line (#3701)", () => {
-	it("refuses the dispatch, naming the line", () => {
+	it("refuses the dispatch, naming the line", async () => {
 		stub();
 		const env = overflowEnv(200);
 		const file = path.join(fx.dir, ".claude", "refill-seats");
@@ -570,41 +558,35 @@ describe("an overflow line naming a dir with no plan line (#3701)", () => {
 			file,
 			`~/.claude3\n~/.claude2 api key=${KEY_VAR} grant=200 cycle-day=20\n`,
 		);
-		const r = spawnSync(
-			"bash",
-			[SCRIPT, "--dry-run", "opus", "/implement 341"],
-			{
-				encoding: "utf8",
-				env: baseEnv(env),
-			},
-		);
-		expect(r.status).toBe(2);
+		const r = await fx.coreRun(["--dry-run", "opus", "/implement 341"], {
+			cwd: process.cwd(),
+			env: baseEnv(env),
+		});
+		expect(r.code).toBe(2);
 		expect(r.stderr).toContain(`${file}:2: ~/.claude2 has no plan seat line`);
 		expect(readArgvLines()).toEqual([]);
 	});
 });
 
 describe("a plan seat on an overflow seat's dir (#3693)", () => {
-	it("launches as a plan member where no key is named: no helper, no prefix", () => {
+	it("launches as a plan member where no key is named: no helper, no prefix", async () => {
 		stub();
-		const r = spawnSync("bash", [SCRIPT, "opus", "/implement 341"], {
+		const r = await fx.coreRun(["opus", "/implement 341"], {
 			cwd: fx.dir,
-			encoding: "utf8",
 			env: baseEnv({ ...overflowEnv(200), WFC_SEAT_KEY: "" }),
 		});
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		expect(r.stdout).toContain("Allowance OK");
 		expect(readBgLaunches()).toEqual(["--bg -- /implement 341"]);
 	});
 
-	it("launches a prompt opening with a dash as the prompt, never an option (#4820)", () => {
+	it("launches a prompt opening with a dash as the prompt, never an option (#4820)", async () => {
 		stub();
-		const r = spawnSync("bash", [SCRIPT, "opus", "--resume /implement 341"], {
+		const r = await fx.coreRun(["opus", "--resume /implement 341"], {
 			cwd: fx.dir,
-			encoding: "utf8",
 			env: baseEnv({ ...overflowEnv(200), WFC_SEAT_KEY: "" }),
 		});
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		expect(readBgLaunches()).toEqual(["--bg -- --resume /implement 341"]);
 	});
 });
@@ -632,14 +614,13 @@ describe("the launch record that marks a session overflow (#3694)", () => {
 		expect(readLookup()({ jobId: first })).toMatchObject({ keyVar: KEY_VAR });
 	});
 
-	it("leaves a plan launch's row as it was, and reads it as no overflow session", () => {
+	it("leaves a plan launch's row as it was, and reads it as no overflow session", async () => {
 		stub();
-		const r = spawnSync("bash", [SCRIPT, "opus", "/implement 341"], {
+		const r = await fx.coreRun(["opus", "/implement 341"], {
 			cwd: fx.dir,
-			encoding: "utf8",
 			env: baseEnv({ ...overflowEnv(200), WFC_SEAT_KEY: "" }),
 		});
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		const [entry] = readRecentEntries(fx.dir, 1).entries;
 		expect(Object.keys(entry ?? {}).sort()).toEqual(
 			[

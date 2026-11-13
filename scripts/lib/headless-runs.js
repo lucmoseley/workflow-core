@@ -30,7 +30,7 @@ const { refillPath } = require("./refill-dir.js");
 
 /* Untraced: long enough for a session to finish its current write. */
 const STOP_GRACE_MS = 10_000;
-/* 4 bytes print as the 8 hex characters dispatch-sessions.sh's job-id parse
+/* 4 bytes print as the 8 hex characters dispatch-sessions.js's job-id parse
  * takes from a launch's first line. */
 const JOB_ID_BYTES = 4;
 const JOB_ID = /^[0-9a-f]{8}$/;

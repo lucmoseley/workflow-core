@@ -31,7 +31,7 @@
  *
  * WFC_CLAUDE_BIN names the `claude` to spawn.
  *
- * dispatch-sessions.sh launches through the CLI.
+ * dispatch-sessions.js launches through the CLI.
  */
 
 const crypto = require("node:crypto");

@@ -24,7 +24,7 @@
  * the dispatcher against a real origin and a stub `npm`, seam 1's fixture
  * (#4229), which no in-process call reaches.
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -203,16 +203,15 @@ describe("the session's directory (#4245)", () => {
 		expect(launchCwds()).toEqual([fs.realpathSync(fx.dir)]);
 	});
 
-	it("refuses a member it finds no directory for, naming why", () => {
+	it("refuses a member it finds no directory for, naming why", async () => {
 		const outside = fs.mkdtempSync(path.join(os.tmpdir(), "not-a-repo-"));
 		stubClaude({});
-		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
+		const r = await fx.coreRun(["sonnet", "/implement 341"], {
 			cwd: outside,
-			encoding: "utf8",
 			env: baseEnv(),
 		});
 		fs.rmSync(outside, { recursive: true });
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		expect(r.stderr).toContain(
 			`REFUSED: /implement 341 — not launching this member.\n  session checkout: ${outside} is in no main checkout git can name — run this from inside the repository\n`,
 		);
@@ -290,17 +289,16 @@ describe("the WFC_CLAUDE_BIN fallback (mantahostels#1401)", () => {
 		return shadow;
 	}
 
-	it("resolves the bare `claude` default through PATH, never the founder's real CLI", () => {
+	it("resolves the bare `claude` default through PATH, never the founder's real CLI", async () => {
 		const env = baseEnv({ PATH: `${shadowDir()}:${process.env.PATH}` });
 		delete env.WFC_CLAUDE_BIN;
 
-		const r = spawnSync(
-			"bash",
-			[SCRIPT, "--dry-run", "sonnet", "/implement 341"],
-			{ encoding: "utf8", env },
-		);
+		const r = await fx.coreRun(["--dry-run", "sonnet", "/implement 341"], {
+			cwd: process.cwd(),
+			env,
+		});
 
-		expect(r.status).toBe(0);
+		expect(r.code).toBe(0);
 		expect(r.stdout).toContain(
 			"would launch: env -u WFC_REPO_ROOT -u CLAUDE_PROJECT_DIR -u WFC_DISPATCH_ROOT claude ",
 		);
@@ -319,7 +317,7 @@ describe("the WFC_CLAUDE_BIN seam (mantahostels#1374)", () => {
 		expect(launchArgv()).toContain("--bg");
 	});
 
-	it("ignores a `claude` found on PATH when WFC_CLAUDE_BIN names another", () => {
+	it("ignores a `claude` found on PATH when WFC_CLAUDE_BIN names another", async () => {
 		stubClaude({});
 		/* A launcher still resolving the bare name would record to this stub
 		 * instead. Under `fx.dir`, so afterEach takes it even when an expectation
@@ -332,13 +330,12 @@ describe("the WFC_CLAUDE_BIN seam (mantahostels#1374)", () => {
 			`#!/bin/bash\nprintf '%s\\n' "$*" >> ${shellQuote(shadowArgv)}\nprintf 'launched\\n'\n`,
 			{ mode: 0o755 },
 		);
-		const r = spawnSync("bash", [SCRIPT, "sonnet", "/implement 341"], {
-			cwd: fx.dir,
-			encoding: "utf8",
+		const r = await fx.runCore(
+			["sonnet", "/implement 341"],
 			// claude-route-exempt: asserts a bare `claude` on PATH goes unread
-			env: baseEnv({ PATH: `${shadowDir}:${process.env.PATH}` }),
-		});
-		expect(r.status).toBe(0);
+			{ PATH: `${shadowDir}:${process.env.PATH}` },
+		);
+		expect(r.code).toBe(0);
 		expect(fs.existsSync(shadowArgv)).toBe(false);
 		expect(launchArgv()).toContain("--bg");
 	});

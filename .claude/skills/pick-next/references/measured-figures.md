@@ -84,7 +84,7 @@ whole interval from the first session's start, predicting first launch at
 separately-measured stages, not a stopwatch on a two-wave run**: nobody has
 timed one yet. **Record the real
 one on the next live `/pick-next`** — the clock runs from invocation to
-`dispatch-sessions.sh` returning on the wave-1 call — and replace this
+`dispatch-sessions.js` returning on the wave-1 call — and replace this
 paragraph with it. **Invalidated by** any run whose nomination and cold lists
 are both empty: that run has no wave 1 at all (mantahostels#1485) and its first launch is
 the ordinary single-wave one.

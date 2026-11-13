@@ -10,7 +10,7 @@
  * THE CLOSURE a tip must change to be adopted: every module the loop has
  * loaded, and everything under scripts/ bar the tests. The second stands in
  * for the scripts the loop spawns each tick, whose own requires and sourced
- * files (dispatch-sessions.sh's) no static reading follows.
+ * files (dispatch-sessions.js's) no static reading follows.
  *
  * ADOPTION checks the tip out into its own worktree, has a child node require
  * the new program, and only on its exit 0 calls process.execve: same pid, so

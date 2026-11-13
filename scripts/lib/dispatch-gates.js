@@ -1,5 +1,5 @@
 /*
- * dispatch-gates.js — dispatch-sessions.sh's seat, key and auth gates in one
+ * dispatch-gates.js — dispatch-sessions.js's seat, key and auth gates in one
  * node start (#4321). Each gate keeps its own module and its own refusal; this
  * file only runs them in the script's order.
  *

@@ -84,7 +84,7 @@ one short brief per ticket, `<ticket>-brief.md`, carrying only:
 Dispatch one ticket first, into its dead session's worktree, and read its
 result:
 
-    scripts/dispatch-sessions.sh --into <cwd> \
+    scripts/dispatch-sessions.js --into <cwd> \
       opus "/implement <n> — RESUMED from <plan> session <short-id>; read .claude/tmp/rescue/RESUMPTION.md then <n>-brief.md FIRST"
 
 `--into` starts the successor with that worktree as its cwd, and refuses one
@@ -124,7 +124,7 @@ arguments: it stops nothing.
 **On GHOST** (exit 9 from `probe`; exit 0 from `takeover`) — the job never
 started: its record reads `working`, no plan lists a process for it, and it
 wrote no transcript. `takeover` keeps its record under `.claude/tmp/rescue/`,
-stops it, and prints the `dispatch-sessions.sh` command that re-launches its
+stops it, and prints the `dispatch-sessions.js` command that re-launches its
 intent. Run that command rather than continuing the work here.
 
 **On LIMITED** (exit 10 from `probe`) — it is blocked at its seat's session or
@@ -156,7 +156,7 @@ narration path, worktree, death point, commits landed, artefacts survived and
 file claims. **Read `RESUMPTION.md` and the narration file yourself, then
 continue that intent in its `Worktree:`**, where its orphaned edits sit: `cd`
 there, or, for a session worktree, relaunch a successor in it with
-`scripts/dispatch-sessions.sh --into <worktree> <model> <prompt>` (#4385). An
+`scripts/dispatch-sessions.js --into <worktree> <model> <prompt>` (#4385). An
 `/implement` stays an `/implement`, from where it died. Its dirty files are now
 yours to finish: your next write to each takes its claim, unless the takeover says its claims stay held — then they
 stay listed, and your writes go ahead with a conflict warning, until its host

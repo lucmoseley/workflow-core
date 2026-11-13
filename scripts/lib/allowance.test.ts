@@ -5,7 +5,7 @@
  * CLI wrapper (argv, stdin, exit codes) over the same lib. The rulings it
  * holds are #280's and #293's; `capSet` is #371's.
  *
- * Its readings gate `dispatch-sessions.sh`'s launch and `admission.js`'s
+ * Its readings gate `dispatch-sessions.js`'s launch and `admission.js`'s
  * per-spawn re-read: loosen a case here and a stale or misread bar launches
  * sessions past the allowance, or refuses a set the allowance had room for.
  */
