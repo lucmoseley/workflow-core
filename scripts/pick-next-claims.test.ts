@@ -343,7 +343,7 @@ describe("admission", () => {
 			const m = (await run({ issues: [{ number: 1 }] }, ["--json"])).json()
 				.memory;
 			expect(m.totalMb).toBe(10_000);
-			expect(m.working).toEqual({ count: 2, mb: 957, unknown: null });
+			expect(m.live).toEqual({ count: 2, mb: 957, unknown: null });
 			expect(m.finished).toMatchObject({ count: 1, mb: 410, reapable: 1 });
 		});
 	});

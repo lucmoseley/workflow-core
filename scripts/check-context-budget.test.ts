@@ -883,7 +883,7 @@ describe("the injected tracker docs", () => {
 		it("counts the longest standards state, with the glossary sentence", () => {
 			expect(
 				headroomWith(
-					'standardsText: (state) => (state === "neither" ? "s".repeat(90) : "s"), withGlossary: (s, g) => s + g,',
+					'codeReviewParts: (h) => [h.standardsState === "neither" ? "s".repeat(90) : "s", h.glossary],',
 				),
 			).toBe(500 - 90 - "GLOSSARY.md".length);
 		});
@@ -891,7 +891,7 @@ describe("the injected tracker docs", () => {
 		it("counts each fixed string once", () => {
 			expect(
 				headroomWith(
-					'WAYFINDER_CLAUSES: "w".repeat(60), ULTRA: "u".repeat(40),',
+					'WAYFINDER_CLAUSES: "w".repeat(60), PRICED_OPTIONS_POINTER: "u".repeat(40),',
 				),
 			).toBe(400);
 		});
@@ -916,10 +916,12 @@ describe("the injected tracker docs", () => {
 			);
 
 		it("counts each from the root's store, its trailing newlines dropped", () => {
+			/* vitest.setup.ts defaults the store to the live one. */
+			vi.stubEnv("WFC_RULES_DIR", path.join(dir, "docs", "agents", "rules"));
 			pool(CAP - 1000);
 			injector(
 				INJECTION_CAP - 500,
-				"dispatchText: (type, suffix, shape) => shape,",
+				'codeReviewParts: (h) => ["review-dispatch-shape", "review-deviations-read", "review-finding-destination"].map(h.fragment),',
 			);
 			rule("review-dispatch-shape", `${"d".repeat(100)}\n`);
 			rule("review-deviations-read", `${"v".repeat(50)}\n\n`);
@@ -927,11 +929,11 @@ describe("the injected tracker docs", () => {
 			expect(run("--json").json().injection.headroom).toBe(325);
 		});
 
-		it("hands dispatchText the plugin reviewer type and a session suffix", () => {
+		it("hands codeReviewParts the plugin reviewer type and a session suffix", () => {
 			pool(CAP - 1000);
 			injector(
 				INJECTION_CAP - 500,
-				"dispatchText: (type, suffix) => type + suffix,",
+				"codeReviewParts: (h) => [h.reviewType + h.sidSuffix],",
 			);
 			expect(run("--json").json().injection.headroom).toBe(
 				500 - "workflow-core:code-reviewer".length - "-check-co".length,
@@ -941,18 +943,18 @@ describe("the injected tracker docs", () => {
 
 	it("is BROKEN, naming each, when the module lacks an export the union reads", () => {
 		pool(CAP - 1000);
-		injector(INJECTION_CAP - 500, "ULTRA: undefined, INDEX: null,");
+		injector(INJECTION_CAP - 500, "codeReviewParts: undefined, INDEX: null,");
 		const r = run("--json");
 		expect(r.json().outcome).toBe("BROKEN");
 		expect(r.json().summary).toContain("INDEX (an object)");
-		expect(r.json().summary).toContain("ULTRA (a string)");
+		expect(r.json().summary).toContain("codeReviewParts (a function)");
 	});
 
 	it("is BROKEN, never short, when a part's export throws", () => {
 		pool(CAP - 1000);
 		injector(
 			INJECTION_CAP - 500,
-			'standardsText: () => { throw new Error("no standards"); },',
+			'codeReviewParts: () => { throw new Error("no standards"); },',
 		);
 		const r = run("--json");
 		expect(r.json().outcome).toBe("BROKEN");

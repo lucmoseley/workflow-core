@@ -590,7 +590,7 @@ function settleRoom(
 			launches: judged,
 			slots: 0,
 			admission: null,
-			workingChange: 0,
+			liveChange: 0,
 			seats: [],
 			probes: [],
 			overflow: [],
@@ -611,7 +611,7 @@ function settleRoom(
 	const {
 		launches,
 		slots: limitLeft,
-		workingChange,
+		liveChange,
 	} = acts.actOnLimits(judged, control.scope.mode, {
 		...seen,
 		typedSeat,
@@ -656,7 +656,7 @@ function settleRoom(
 		launches,
 		slots,
 		admission,
-		workingChange,
+		liveChange,
 		seats,
 		probes,
 		overflow,
@@ -793,7 +793,7 @@ function settleDecided(
 			input,
 			decision: settled,
 			admission,
-			workingChange: limitChange + launched,
+			liveChange: limitChange + launched,
 			agents: seen.agents,
 		}),
 	);
@@ -913,7 +913,7 @@ const SKIPPED_LAUNCH_ACTS = {
 	actOnLimits: (launches, _mode, { slots }) => ({
 		launches,
 		slots,
-		workingChange: 0,
+		liveChange: 0,
 	}),
 	releaseEndedHolds: doNothing,
 };
@@ -1035,7 +1035,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		launches,
 		slots,
 		admission,
-		workingChange: limitChange,
+		liveChange: limitChange,
 		seats,
 		probes,
 		overflow,

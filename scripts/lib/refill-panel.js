@@ -373,8 +373,8 @@ const gapOf = (from, less) =>
  * and the sessions that fit now. An unread count reads `?`, as unknown is never calm.
  * @param {PanelStatus} status
  */
-const buildCountText = ({ concurrency: { stateWorking, working, ceiling } }) =>
-	`${stateWorking ?? "?"} working · ${gapOf(working, stateWorking)} idle · room for ${gapOf(ceiling, working)}`;
+const buildCountText = ({ concurrency: { working, live, ceiling } }) =>
+	`${working ?? "?"} working · ${gapOf(live, working)} idle · room for ${gapOf(ceiling, live)}`;
 
 /**
  * Line 1 and line 2 of the loop block, from the observed status alone.
