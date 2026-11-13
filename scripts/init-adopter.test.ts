@@ -3,8 +3,15 @@
  * init-adopter.js writes a fresh repository's day-one skeleton — config, rules
  * file, hooks, .gitignore — that commits green through its own gate stack.
  *
- * init is run as a process against a throwaway repository, because what it
- * promises is a repo that COMMITS (#5).
+ * init runs against a throwaway repository, because what it promises is a
+ * repo that COMMITS (#5). The branch cases call its core in-process
+ * (`adoptWith`, `init`). The program cases are its boundary set (§X11): each
+ * exit with its stream (--help, an unknown flag, a settings file that does not
+ * parse), the env it reads (WFC_GITLEAKS and PATH, WFC_CLAUDE_BIN, WFC_GH, the
+ * cwd as the default root), and each production adapter crossed once (the
+ * `claude plugin` install, the cost measurer, the gh probes, and the plugin
+ * scripts run as children, which init-adopter-commit.test.ts's program runs
+ * cross).
  *
  * The plugin root is this checkout, which is what an install resolves it to.
  * `--no-tracker` throughout, but for the tracker block, which fakes `gh` at
@@ -22,10 +29,13 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+	adoptWith,
 	CORE,
 	init,
 	initIn,
 	initialised,
+	initProgram,
+	initProgramIn,
 	made,
 	repo,
 	SCRIPT,
@@ -86,8 +96,7 @@ describe("init in a fresh repository", () => {
 		const { dir } = repo();
 		const { WFC_GITLEAKS: _unused, ...rest } = process.env;
 		const env = { ...rest, PATH: "" };
-		const r = runInProcess(
-			SCRIPT,
+		const r = adoptWith(
 			[
 				"--root",
 				dir,
@@ -166,8 +175,7 @@ describe("init in a fresh repository", () => {
 				mode: 0o755,
 			});
 		}
-		const r = runInProcess(
-			SCRIPT,
+		const r = adoptWith(
 			[
 				"--root",
 				dir,
@@ -324,8 +332,7 @@ describe("init in a fresh repository", () => {
 				].join("\n"),
 				{ mode: 0o755 },
 			);
-			const r = runInProcess(
-				SCRIPT,
+			const r = adoptWith(
 				[
 					"--root",
 					dir,
@@ -363,8 +370,7 @@ describe("init in a fresh repository", () => {
 			const { dir } = repo();
 			const log = path.join(dir, "claude-calls.log");
 			const stub = stubClaude(log);
-			const r = runInProcess(
-				SCRIPT,
+			const r = adoptWith(
 				[
 					"--root",
 					dir,
@@ -400,8 +406,7 @@ describe("init in a fresh repository", () => {
 				{ mode: 0o755 },
 			);
 			const { WFC_CLAUDE_BIN: _unused, ...withoutClaudeBin } = process.env;
-			const r = runInProcess(
-				SCRIPT,
+			const r = adoptWith(
 				[
 					"--root",
 					dir,
@@ -464,8 +469,7 @@ describe("init in a fresh repository", () => {
 
 		it("prints what it would run under --dry-run, without a claude on PATH", () => {
 			const { dir } = repo();
-			const r = runInProcess(
-				SCRIPT,
+			const r = adoptWith(
 				[
 					"--root",
 					dir,
@@ -525,8 +529,7 @@ describe("init in a fresh repository", () => {
 				path.join(os.tmpdir(), "adopter-config-"),
 			);
 			made.push(configDir);
-			const r = runInProcess(
-				SCRIPT,
+			const r = adoptWith(
 				[
 					"--root",
 					dir,
@@ -559,8 +562,7 @@ describe("init in a fresh repository", () => {
 				path.join(os.tmpdir(), "adopter-config-"),
 			);
 			made.push(configDir);
-			const r = runInProcess(
-				SCRIPT,
+			const r = adoptWith(
 				[
 					"--root",
 					dir,
@@ -593,8 +595,7 @@ describe("init in a fresh repository", () => {
 			const { dir } = repo();
 			const bareRoot = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-nogit-"));
 			made.push(bareRoot);
-			const r = runInProcess(
-				SCRIPT,
+			const r = adoptWith(
 				[
 					"--root",
 					dir,
@@ -632,8 +633,7 @@ describe("init in a fresh repository", () => {
 			git("commit", "-q", "-m", "seed");
 			const nested = path.join(ancestorRoot, "a", "b");
 			fs.mkdirSync(nested, { recursive: true });
-			const r = runInProcess(
-				SCRIPT,
+			const r = adoptWith(
 				[
 					"--root",
 					dir,
@@ -689,8 +689,7 @@ describe("init in a fresh repository", () => {
 				].join("\n"),
 				{ mode: 0o755 },
 			);
-			const r = runInProcess(
-				SCRIPT,
+			const r = adoptWith(
 				[
 					"--root",
 					dir,
@@ -785,8 +784,7 @@ describe("init in a fresh repository", () => {
 				{ mode: 0o755 },
 			);
 
-			const r = runInProcess(
-				SCRIPT,
+			const r = adoptWith(
 				[
 					"--root",
 					dir,
@@ -843,8 +841,7 @@ describe("init in a fresh repository", () => {
 					},
 				}),
 			);
-			const r = runInProcess(
-				SCRIPT,
+			const r = adoptWith(
 				[
 					"--root",
 					dir,
@@ -928,8 +925,7 @@ describe("init in a fresh repository", () => {
 				cwd: CORE,
 				encoding: "utf8",
 			}).trim();
-			const r = runInProcess(
-				SCRIPT,
+			const r = adoptWith(
 				[
 					"--root",
 					dir,
@@ -1001,8 +997,7 @@ describe("init in a fresh repository", () => {
 				path.join(os.tmpdir(), "adopter-config-"),
 			);
 			made.push(configDir);
-			const r = runInProcess(
-				SCRIPT,
+			const r = adoptWith(
 				[
 					"--root",
 					dir,
@@ -1090,7 +1085,7 @@ describe("init in a fresh repository", () => {
 		const { dir } = repo();
 		fs.mkdirSync(path.join(dir, ".claude"));
 		fs.writeFileSync(path.join(dir, ".claude/settings.json"), "{ nope,\n");
-		const r = init(dir, "--founder", "A Founder", "--no-tracker");
+		const r = initProgram(dir, "--founder", "A Founder", "--no-tracker");
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("does not parse");
 		expect(
@@ -1821,7 +1816,7 @@ describe("a complete day-one config (#715)", () => {
 		delete env.CLAUDE_PROJECT_DIR;
 		delete env.CLAUDE_PLUGIN_ROOT;
 		const bare = () =>
-			runInProcess(SCRIPT, ["--no-plugin-install", "--no-tracker"], {
+			adoptWith(["--no-plugin-install", "--no-tracker"], {
 				cwd: dir,
 				env,
 			});
@@ -1955,11 +1950,10 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 		return { configDir, env };
 	}
 	const bare = (env: NodeJS.ProcessEnv, dir: string, ...args: string[]) =>
-		runInProcess(
-			SCRIPT,
-			["--root", dir, "--founder", "A", "--no-tracker", ...args],
-			{ cwd: dir, env },
-		);
+		adoptWith(["--root", dir, "--founder", "A", "--no-tracker", ...args], {
+			cwd: dir,
+			env,
+		});
 	/** The cache copy an install lands, standing in as a link to this checkout. */
 	function cacheCopy(configDir: string, version: string) {
 		const at = installPathFor(
@@ -2104,12 +2098,21 @@ exit 0
 		env: Record<string, string>,
 		...args: string[]
 	) {
+		return adoptFromWith(initIn, origin, env, ...args);
+	}
+
+	function adoptFromWith(
+		run: typeof initIn,
+		origin: string,
+		env: Record<string, string>,
+		...args: string[]
+	) {
 		const { dir, git } = repo();
 		git("remote", "add", "origin", origin);
 		const log = path.join(dir, "gh-calls.log");
 		fs.writeFileSync(log, "");
 		const stub = stubGhScript(dir, ghStub);
-		const r = initIn(
+		const r = run(
 			{ ...process.env, ...stub.env, GH_LOG: log, ...env },
 			dir,
 			"--founder",
@@ -2124,7 +2127,11 @@ exit 0
 		adoptFrom("https://github.com/acme/widget.git", env, ...args);
 
 	it("points gh at the origin and probes the newest issue, never a hard-coded #1", () => {
-		const { r, calls } = adopt({ GH_ISSUE: "7" });
+		const { r, calls } = adoptFromWith(
+			initProgramIn,
+			"https://github.com/acme/widget.git",
+			{ GH_ISSUE: "7" },
+		);
 		expect(r.status).toBe(0);
 		expect(calls).toContain("repo set-default acme/widget");
 		expect(r.stdout).toContain("gh       default repo set to acme/widget");
@@ -2300,7 +2307,13 @@ describe("a run refused before it writes anything (#743)", () => {
 
 	it("prints the usage line for --help and exits 0", () => {
 		const { dir } = repo();
-		const r = init(dir, "--founder", "A Founder", "--no-tracker", "--help");
+		const r = initProgram(
+			dir,
+			"--founder",
+			"A Founder",
+			"--no-tracker",
+			"--help",
+		);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/^usage: node scripts\/init-adopter\.js /);
 		expect(readTree(dir)).toEqual([]);
@@ -2308,7 +2321,7 @@ describe("a run refused before it writes anything (#743)", () => {
 
 	it("refuses an unknown flag with the usage line, exit 2", () => {
 		const { dir } = repo();
-		const r = init(
+		const r = initProgram(
 			dir,
 			"--founder",
 			"A Founder",
@@ -2364,8 +2377,7 @@ describe("a run refused before it writes anything (#743)", () => {
 				path.join(other, ".claude-plugin", file),
 				JSON.stringify(body),
 			);
-		const r = runInProcess(
-			SCRIPT,
+		const r = adoptWith(
 			[
 				"--root",
 				dir,
@@ -2391,8 +2403,7 @@ describe("a run refused before it writes anything (#743)", () => {
 		fs.rmSync(link, { force: true });
 		fs.symlinkSync(dir, link);
 		made.push(link);
-		const r = runInProcess(
-			SCRIPT,
+		const r = adoptWith(
 			[
 				"--root",
 				dir,

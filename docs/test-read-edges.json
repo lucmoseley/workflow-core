@@ -8424,8 +8424,6 @@
 			"scripts/checker-registrations.test.ts",
 			"scripts/cut-mantahostels.test.ts",
 			"scripts/governance-empty-corpus.test.ts",
-			"scripts/init-adopter-commit.test.ts",
-			"scripts/init-adopter-subjects.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",

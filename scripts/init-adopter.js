@@ -29,4 +29,6 @@ const PORTS = {
 	measurerFor,
 };
 
+module.exports = { PORTS };
+
 if (require.main === module) process.exit(adopt(process.argv.slice(2), PORTS));
