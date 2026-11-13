@@ -10,7 +10,6 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { spawnSync } = require("node:child_process");
 const { trimEndRun } = require("./trim-run.js");
 
 /* The `gh` give-up: past the hook's 10 s the harness would drop the whole
@@ -71,7 +70,7 @@ function buildHostPorts(log) {
 				process.env.WFC_REVIEW_TIER_HOOK ||
 				path.join(__dirname, "..", "guard-dispatch.js");
 			if (!fs.statSync(hook, { throwIfNoEntry: false })?.isFile()) return "";
-			const r = spawnSync(
+			const r = require("node:child_process").spawnSync(
 				"timeout",
 				[
 					String(TIER_HOOK_TIMEOUT_S),
@@ -100,8 +99,8 @@ function buildHostPorts(log) {
 				return "";
 			}
 		},
-		/* WFC_NOW pins it (lib/check.js now()), loaded only once a command matched. */
-		now: () => Math.floor(require("./check.js").now() / 1000),
+		/* WFC_NOW pins it (lib/clock.js), loaded only once a command matched. */
+		now: () => Math.floor(require("./clock.js").now() / 1000),
 		log,
 	};
 }

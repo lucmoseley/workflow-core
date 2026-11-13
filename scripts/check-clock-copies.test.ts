@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * Pins which sites check-clock-copies.js finds reading WFC_NOW outside
- * lib/check.js's now(), over the whole tree, and that its refusal names the
+ * lib/clock.js's now(), over the whole tree, and that its refusal names the
  * clock and its exemplar (#3457).
  *
  * Fabricated programs in a throwaway directory, never this checkout, so a
@@ -56,7 +56,7 @@ describe("check-clock-copies", () => {
 			"1 site(s) read WFC_NOW outside now(): scripts/copy.js:2.",
 		);
 		expect(r.out).toContain(
-			"Fix: call now() from scripts/lib/check.js, as scripts/check-history-trim.js does,",
+			"Fix: call now() from scripts/lib/clock.js, as scripts/check-history-trim.js does,",
 		);
 	});
 
@@ -77,13 +77,13 @@ describe("check-clock-copies", () => {
 		);
 	});
 
-	it("passes a program on now(), a pin set for a child, one in a comment, a test and lib/check.js itself", () => {
+	it("passes a program on now(), a pin set for a child, one in a comment, a test and lib/clock.js itself", () => {
 		program("on.js", ON_CLOCK);
 		program("pins.js", 'spawn("x", { env: { WFC_NOW: "2026-01-01" } });\n');
 		program("cites.js", "/* process.env.WFC_NOW */\n");
 		program("copy.test.js", COPY);
 		program("copy.spec.js", COPY); // #3618
-		program("lib/check.js", COPY);
+		program("lib/clock.js", COPY);
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("OK: 4 program(s), no WFC_NOW read outside now().");
