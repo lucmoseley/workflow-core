@@ -43,31 +43,31 @@ import {
 	upgradeAfterInit,
 } from "./init-adopter-fixture";
 import { HOOKS, renderHookShim, TOOLS } from "./lib/adopter-skeleton.js";
+import {
+	type PluginFake,
+	recorded,
+	writeClaudePluginFake,
+} from "./lib/claude-plugin-fake";
 import { skeletonPaths } from "./lib/core-owned-files.js";
 import { RUFF_INSTALL } from "./lib/formatters.js";
 import { stubGhScript } from "./lib/gh-stub";
 import { initPaths } from "./lib/init-adopter-core.js";
 import { installPathFor } from "./lib/plugin-state.js";
 import { runInProcess } from "./lib/run-in-process.js";
-import { shellQuote } from "./lib/sh-quote.js";
 import { MODULES } from "./lib/workflow-core-config.js";
 
 /**
- * A stub `claude` that logs its own argv, one line per call, to `log`.
+ * The `claude plugin` fake (lib/claude-plugin-fake.ts), held to the real
+ * binary by lib/claude-plugin.contract.test.ts, in a directory of its own.
  *
- * Exits 0 for every call alike, so a passing test below proves the right
- * commands were sent, never that `update` actually re-pulled an
- * already-installed plugin (#120).
+ * `update` answers as recorded and writes nothing, so a passing test below
+ * proves the right commands were sent, never that `update` actually re-pulled
+ * an already-installed plugin (#120).
  */
-function stubClaude(log: string) {
+function fakeClaude(fake: PluginFake = {}) {
 	const stub = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-claude-"));
 	made.push(stub);
-	fs.writeFileSync(
-		path.join(stub, "claude"),
-		`#!/bin/sh\necho "$@" >> ${shellQuote(log)}\n`,
-		{ mode: 0o755 },
-	);
-	return stub;
+	return writeClaudePluginFake(stub, fake);
 }
 
 describe("init in a fresh repository", () => {
@@ -195,7 +195,7 @@ describe("init in a fresh repository", () => {
 		it("runs marketplace add then install then update, not just settingsKeys, by default (#103)", () => {
 			const { dir } = repo();
 			const log = path.join(dir, "claude-calls.log");
-			const stub = stubClaude(log);
+			const claude = fakeClaude({ log });
 			const r = runInProcess(
 				SCRIPT,
 				[
@@ -211,7 +211,7 @@ describe("init in a fresh repository", () => {
 					cwd: dir,
 					env: {
 						...process.env,
-						WFC_CLAUDE_BIN: path.join(stub, "claude"),
+						WFC_CLAUDE_BIN: claude,
 					},
 				},
 			);
@@ -237,14 +237,7 @@ describe("init in a fresh repository", () => {
 
 		/** Runs init through a `claude` whose `plugin details` prints ~2,273 tok. */
 		const initMeasuring = (dir: string) => {
-			const stub = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-claude-"));
-			made.push(stub);
-			const bin = path.join(stub, "claude");
-			fs.writeFileSync(
-				bin,
-				'#!/bin/sh\n[ "$2" = details ] && echo "  Always-on:   ~2,273 tok   added to every session"\nexit 0\n',
-				{ mode: 0o755 },
-			);
+			const bin = fakeClaude({ alwaysOn: "2,273" });
 			const env = { ...process.env, WFC_CLAUDE_BIN: bin };
 			const r = runInProcess(
 				SCRIPT,
@@ -303,10 +296,9 @@ describe("init in a fresh repository", () => {
 			const { dir } = repo();
 			/* Simulates the real CLI's own side effect: `marketplace add` rewrites
 			 * the marketplace's settings.json entry, and a caller that did not
-			 * pass `ref` via the source URL's `#ref` syntax loses it. A JS stub,
-			 * not a shell one, because this needs real JSON surgery. */
-			const stub = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-claude-"));
-			made.push(stub);
+			 * pass `ref` via the source URL's `#ref` syntax loses it. The
+			 * rewritten url source's shape is unrecorded: a url source's add
+			 * needs the network (record-claude-plugin.js). */
 			/* An empty CLAUDE_CONFIG_DIR, so #258's own cross-scope check reads no
 			 * real user-scope settings.json this machine happens to carry. */
 			const configDir = fs.mkdtempSync(
@@ -314,24 +306,13 @@ describe("init in a fresh repository", () => {
 			);
 			made.push(configDir);
 			const log = path.join(dir, "claude-calls.log");
-			fs.writeFileSync(
-				path.join(stub, "claude"),
-				[
-					"#!/usr/bin/env node",
-					"const fs = require('node:fs');",
-					"const args = process.argv.slice(2);",
-					`fs.appendFileSync(${JSON.stringify(log)}, args.join(' ') + '\\n');`,
-					"if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'add') {",
-					"  const at = '.claude/settings.json';",
-					"  const existing = fs.existsSync(at) ? JSON.parse(fs.readFileSync(at, 'utf8')) : {};",
-					"  existing.extraKnownMarketplaces = existing.extraKnownMarketplaces || {};",
-					"  existing.extraKnownMarketplaces['workflow-core'] = { source: { source: 'git', url: 'https://example.invalid/x.git' } };",
-					"  fs.mkdirSync('.claude', { recursive: true });",
-					"  fs.writeFileSync(at, JSON.stringify(existing));",
-					"}",
-				].join("\n"),
-				{ mode: 0o755 },
-			);
+			const claude = fakeClaude({
+				log,
+				marketplaceSource: {
+					source: "git",
+					url: "https://example.invalid/x.git",
+				},
+			});
 			const r = adoptWith(
 				[
 					"--root",
@@ -348,7 +329,7 @@ describe("init in a fresh repository", () => {
 					cwd: dir,
 					env: {
 						...process.env,
-						WFC_CLAUDE_BIN: path.join(stub, "claude"),
+						WFC_CLAUDE_BIN: claude,
 						CLAUDE_CONFIG_DIR: configDir,
 					},
 				},
@@ -369,7 +350,7 @@ describe("init in a fresh repository", () => {
 		it("skips it under --no-plugin-install, saying so", () => {
 			const { dir } = repo();
 			const log = path.join(dir, "claude-calls.log");
-			const stub = stubClaude(log);
+			const claude = fakeClaude({ log });
 			const r = adoptWith(
 				[
 					"--root",
@@ -385,7 +366,7 @@ describe("init in a fresh repository", () => {
 					cwd: dir,
 					env: {
 						...process.env,
-						WFC_CLAUDE_BIN: path.join(stub, "claude"),
+						WFC_CLAUDE_BIN: claude,
 					},
 				},
 			);
@@ -398,13 +379,7 @@ describe("init in a fresh repository", () => {
 
 		it("names the fallback command rather than failing the bootstrap, on a claude that refuses", () => {
 			const { dir } = repo();
-			const stub = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-claude-"));
-			made.push(stub);
-			fs.writeFileSync(
-				path.join(stub, "claude"),
-				"#!/bin/sh\necho boom >&2\nexit 1\n",
-				{ mode: 0o755 },
-			);
+			const stub = path.dirname(fakeClaude({ refuse: true }));
 			const { WFC_CLAUDE_BIN: _unused, ...withoutClaudeBin } = process.env;
 			const r = adoptWith(
 				[
@@ -429,7 +404,9 @@ describe("init in a fresh repository", () => {
 				},
 			);
 			expect(r.status).toBe(0);
-			expect(r.stdout).toContain("FAILED materialising the plugin: boom");
+			expect(r.stdout).toContain(
+				`FAILED materialising the plugin: ${recorded.responses.refusal.stderr}`,
+			);
 			expect(r.stdout).toContain(
 				`claude plugin marketplace add ${CORE} --scope project && ` +
 					"claude plugin install workflow-core@workflow-core -y --scope project && " +
@@ -654,8 +631,8 @@ describe("init in a fresh repository", () => {
 
 		it("resolves and records a url source's sha once install actually runs", () => {
 			const { dir } = repo();
-			/* A JS stub `claude`, so `plugin install` can write the same side
-			 * effect the real CLI leaves: an `installed_plugins.json` row for
+			/* The fake's `plugin install` writes the same side effect the real
+			 * CLI leaves: an `installed_plugins.json` row for
 			 * this repo and release carrying `gitCommitSha`, which installedSha()
 			 * reads (#108: the marketplace clone's own HEAD tracks a
 			 * moving branch and isn't the installed commit). Writes nothing on
@@ -667,28 +644,10 @@ describe("init in a fresh repository", () => {
 			made.push(configDir);
 			fs.mkdirSync(path.join(configDir, "plugins"), { recursive: true });
 			const resolvedSha = "a".repeat(40);
-			const stub = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-claude-"));
-			made.push(stub);
-			const log = path.join(dir, "claude-calls.log");
-			fs.writeFileSync(
-				path.join(stub, "claude"),
-				[
-					"#!/usr/bin/env node",
-					"const fs = require('node:fs');",
-					"const path = require('node:path');",
-					"const args = process.argv.slice(2);",
-					`fs.appendFileSync(${JSON.stringify(log)}, args.join(' ') + '\\n');`,
-					"if (args[0] === 'plugin' && args[1] === 'install') {",
-					`  const at = ${JSON.stringify(path.join(configDir, "plugins", "installed_plugins.json"))};`,
-					"  const doc = { version: 2, plugins: {} };",
-					"  doc.plugins[args[2]] = [{ projectPath: process.env.CLAUDE_PROJECT_DIR, installPath: '/installed', version: '1.1.0', gitCommitSha: " +
-						JSON.stringify(resolvedSha) +
-						" }];",
-					"  fs.writeFileSync(at, JSON.stringify(doc));",
-					"}",
-				].join("\n"),
-				{ mode: 0o755 },
-			);
+			const claude = fakeClaude({
+				log: path.join(dir, "claude-calls.log"),
+				install: { version: "1.1.0", gitCommitSha: resolvedSha },
+			});
 			const r = adoptWith(
 				[
 					"--root",
@@ -705,7 +664,7 @@ describe("init in a fresh repository", () => {
 					cwd: dir,
 					env: {
 						...process.env,
-						WFC_CLAUDE_BIN: path.join(stub, "claude"),
+						WFC_CLAUDE_BIN: claude,
 						CLAUDE_CONFIG_DIR: configDir,
 					},
 				},
@@ -758,31 +717,15 @@ describe("init in a fresh repository", () => {
 				recursive: true,
 			});
 			const resolvedSha = "c".repeat(40);
-			const stub = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-claude-"));
-			made.push(stub);
 			const log = path.join(dir, "claude-calls.log");
-			fs.writeFileSync(
-				path.join(stub, "claude"),
-				[
-					"#!/usr/bin/env node",
-					"const fs = require('node:fs');",
-					"const path = require('node:path');",
-					"const args = process.argv.slice(2);",
-					`fs.appendFileSync(${JSON.stringify(log)}, (process.env.CLAUDE_CONFIG_DIR || '') + ' ' + args.join(' ') + '\\n');`,
-					/* Mirrors the real binary: it writes under whatever
-					 * CLAUDE_CONFIG_DIR it was actually invoked with, never a
-					 * path the fixture hardcodes. */
-					"if (args[0] === 'plugin' && args[1] === 'install') {",
-					"  const at = path.join(process.env.CLAUDE_CONFIG_DIR, 'plugins', 'installed_plugins.json');",
-					"  const doc = { version: 2, plugins: {} };",
-					"  doc.plugins[args[2]] = [{ projectPath: process.env.CLAUDE_PROJECT_DIR, installPath: '/installed', version: '1.1.0', gitCommitSha: " +
-						JSON.stringify(resolvedSha) +
-						" }];",
-					"  fs.writeFileSync(at, JSON.stringify(doc));",
-					"}",
-				].join("\n"),
-				{ mode: 0o755 },
-			);
+			/* The fake writes under whatever CLAUDE_CONFIG_DIR it was invoked
+			 * with, as the real binary does, never a path the fixture
+			 * hardcodes. */
+			const claude = fakeClaude({
+				log,
+				logConfigDir: true,
+				install: { version: "1.1.0", gitCommitSha: resolvedSha },
+			});
 
 			const r = adoptWith(
 				[
@@ -802,7 +745,7 @@ describe("init in a fresh repository", () => {
 					cwd: dir,
 					env: {
 						...process.env,
-						WFC_CLAUDE_BIN: path.join(stub, "claude"),
+						WFC_CLAUDE_BIN: claude,
 						CLAUDE_CONFIG_DIR: sessionRegistry,
 					},
 				},
@@ -920,7 +863,7 @@ describe("init in a fresh repository", () => {
 		it("prints the same description on the `installed …` line", () => {
 			const { dir } = repo();
 			const log = path.join(dir, "claude-calls.log");
-			const stub = stubClaude(log);
+			const claude = fakeClaude({ log });
 			const headSha = execFileSync("git", ["rev-parse", "HEAD"], {
 				cwd: CORE,
 				encoding: "utf8",
@@ -939,7 +882,7 @@ describe("init in a fresh repository", () => {
 					cwd: dir,
 					env: {
 						...process.env,
-						WFC_CLAUDE_BIN: path.join(stub, "claude"),
+						WFC_CLAUDE_BIN: claude,
 					},
 				},
 			);
@@ -2032,15 +1975,9 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 			"workflow-core",
 			"7.8.0",
 		);
-		const stub = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-claude-"));
-		made.push(stub);
-		fs.writeFileSync(
-			path.join(stub, "claude"),
-			`#!/bin/sh\nif [ "$1 $2" = "plugin install" ]; then mkdir -p ${shellQuote(path.dirname(at))} && ln -s ${shellQuote(CORE)} ${shellQuote(at)}; fi\n`,
-			{ mode: 0o755 },
-		);
+		const claude = fakeClaude({ install: { version: "7.8.0", place: CORE } });
 		const r = bare(
-			{ ...env, WFC_CLAUDE_BIN: path.join(stub, "claude") },
+			{ ...env, WFC_CLAUDE_BIN: claude },
 			dir,
 			"--plugin-root",
 			at,

@@ -204,8 +204,11 @@ function seedCoreCost({
 	);
 }
 
+/* `parseAlwaysOn` is exported for lib/claude-plugin.contract.test.ts, which
+ * reads the recorded `details` line through it (#5146). */
 module.exports = {
 	COST_TABLE,
+	parseAlwaysOn,
 	SELF_PLUGIN_COST,
 	measurerFor,
 	seedCoreCost,

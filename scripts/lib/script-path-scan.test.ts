@@ -49,6 +49,7 @@ describe("messages a shipped script prints", () => {
 		/^\t"node scripts\/lib\/resolve-core\.js scripts\/status-report\.js";$/,
 		/^\t\t\t\trecordedBy: "node scripts\/record-headless-run\.js",$/,
 		/^const RECORDED_BY = "node scripts\/record-claude-responses\.js";$/,
+		/^const RECORDED_BY = "node scripts\/record-claude-plugin\.js";$/,
 		/^\t\t"writing, amending or reading a spec, .*`node scripts\/promote-spec\.js <brief>`",$/,
 	];
 
