@@ -168,6 +168,52 @@ describe("the admission gate at --against HEAD", () => {
 		expect(r.status).toBe(0);
 	});
 
+	it("matches a headline's core command at any plugin root, seat or version, and still refuses a reworded one (#5140)", () => {
+		const cache = "plugins/cache/workflow-core/workflow-core";
+		const wait = (root: string) =>
+			`Wait with \`node ${root}scripts/landing-status.js --wait\`.`;
+		const rendered = wait(`/home/u/.claude/${cache}/2.3.0/`);
+		claude(KEPT);
+		ledger({ headline: "Keep the tree on `main`." });
+		baseline();
+		claude(KEPT, `**${rendered}** Then land.`);
+		stage("CLAUDE.md");
+		for (const root of [
+			`/home/u/.claude2/${cache}/2.2.0/`,
+			`${shellQuote("/home/u/my seat/plugins")}/`,
+			"",
+		]) {
+			ledger(
+				{ headline: "Keep the tree on `main`." },
+				{ headline: wait(root) },
+			);
+			stage(LEDGER);
+			const r = gate();
+			expect(r.json.added, root).toEqual([]);
+			expect(r.status, root).toBe(0);
+		}
+
+		ledger(
+			{ headline: "Keep the tree on `main`." },
+			{ headline: rendered.replace("Wait with", "Block on") },
+		);
+		stage(LEDGER);
+		expect(gate().status).not.toBe(0);
+	});
+
+	it("reads a rule unadmitted at <rev> as inherited where only its plugin root moved (#5140)", () => {
+		const rule = (version: string) =>
+			`**Wait with \`node /home/u/.claude/plugins/cache/workflow-core/workflow-core/${version}/scripts/landing-status.js --wait\`.** Then land.`;
+		claude(KEPT, rule("2.2.0"));
+		ledger({ headline: "Keep the tree on `main`." });
+		baseline();
+		claude(KEPT, rule("2.3.0"));
+		stage("CLAUDE.md");
+		const r = gate();
+		expect(r.json.added).toEqual([]);
+		expect(r.status).toBe(0);
+	});
+
 	it("passes everything with the switch off, and with it absent", () => {
 		claude(KEPT);
 		baseline();

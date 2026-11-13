@@ -16426,6 +16426,7 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/deref.js": [
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -16440,6 +16441,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/init-adopter.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
