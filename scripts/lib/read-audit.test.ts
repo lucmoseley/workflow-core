@@ -745,6 +745,27 @@ describe("a child outside the checkout that is handed it (#4982)", () => {
 			);
 		});
 
+		it("weighs afresh a path a moved value adds to the standing one's, though it was looked up before (#5139)", () => {
+			const root = checkout();
+			const cwd = outsideDir();
+			const link = path.join(cwd, "in");
+			const other = outsideDir();
+			const linker = `require("node:fs").symlinkSync(${quoted(root)}, ${quoted(link)})`;
+			const moved = { RULES: `${link}${path.delimiter}${other}` };
+			const body = [
+				spawns("cat", [], cwd, { env: moved }),
+				`require("node:child_process").execFileSync(process.execPath, ["-e", ${quoted(linker)}]);`,
+				spawns("cat", [], cwd, { env: moved }),
+			].join("\n");
+			const log = audited(root, T, body, {
+				env: { RULES: other },
+				trace: false,
+			});
+			expect(readAudits(log, root).get(T).doubt).toMatch(
+				/a child \(cat \) was handed a path in the checkout by its environment \(RULES\)/,
+			);
+		});
+
 		it("weighs afresh a standing variable's path once the process made a link (#5050)", () => {
 			const root = checkout();
 			const cwd = outsideDir();

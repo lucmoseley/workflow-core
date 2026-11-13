@@ -45,10 +45,11 @@
  *   hook, an alias, a helper — off the event log git kept for it
  *   (lib/read-audit-git-events.js, #4997);
  * - a symlink, socket or other non-file, non-directory path;
- * - a link a child process makes on an absolute path a variable left at
- *   its settled value names, once a child was spawned with it: the preload
- *   looks those up again only after its own process links, moves or
- *   removes a path (#5050).
+ * - a link a child process makes on an absolute path, spelt as a
+ *   variable's settled value spells it, once a child was spawned with it:
+ *   the preload looks those up again, whatever value the variable is
+ *   handed, only after its own process links, moves or removes a path
+ *   (#5050, #5139).
  */
 
 const fs = require("node:fs");
