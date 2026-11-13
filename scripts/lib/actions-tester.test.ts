@@ -15,12 +15,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
-import {
-	type Job,
-	queueTester,
-	RUNNER_STEPS,
-	type Run,
-} from "./actions-tester.js";
+import { type Job, queueTester, type Run } from "./actions-tester.js";
 import { stubGhScript } from "./gh-stub.js";
 import { markersDir } from "./marker-root.js";
 import type { Placement } from "./queue-lander.js";
@@ -1593,19 +1588,31 @@ it("cancels every unfinished run on a batch ref but those at the sha kept, namin
 	expect(all.cancelled).toEqual([2]);
 });
 
-it("names as runner steps only steps ci.yml's Vitest job carries (#5138)", () => {
-	const ci = fs.readFileSync(
-		path.join(__dirname, "../../.github/workflows/ci.yml"),
-		"utf8",
-	);
-	const vitest = ci.slice(
-		ci.indexOf("\n  vitest:\n"),
-		ci.indexOf("\n  python:\n"),
-	);
-	const named = (step: string) => vitest.includes(`- name: ${step}\n`);
-	const generated = (step: string) =>
-		step === "Set up job" || step.startsWith("Run actions/");
-	expect([...RUNNER_STEPS].filter((s) => !generated(s) && !named(s))).toEqual(
-		[],
-	);
-});
+/* ci.yml's own spelling of each step that readies a runner, so renaming one
+ * there without the tester fails here (#5138). */
+it.each(["Install test tools", "Full history"])(
+	"reads a failure at ci.yml's %s step as the runner's",
+	async (step) => {
+		const ci = fs.readFileSync(
+			path.join(import.meta.dirname, "../../.github/workflows/ci.yml"),
+			"utf8",
+		);
+		const vitest = ci.slice(
+			ci.indexOf("\n  vitest:\n"),
+			ci.indexOf("\n  python:\n"),
+		);
+		expect(vitest).toContain(`- name: ${step}\n`);
+		const r = reads(
+			[
+				() => [run(5, "failure")],
+				() => [run(5, "failure", { attempt: 2 })],
+				() => [run(5, "failure", { attempt: 3 })],
+			],
+			unreadied(step),
+		);
+		expect(await verdictOf(r)).toMatchObject({
+			kind: "unknown",
+			reason: expect.stringContaining(`'${step}' step, which judges no code`),
+		});
+	},
+);
