@@ -3,7 +3,6 @@
  * across its files (#5191): a checker run in-process through lib/check.js's
  * checkInProcess() gives the same exit code, stdout and stderr as the same
  * checker spawned as `node <checker> <args>`, over the same fixture tree.
- * The cases are split across files only so they run on separate workers.
  *
  * FOR TESTS ONLY.
  *
@@ -140,7 +139,6 @@ const dispatcherRowCase = async (row: GateRow) => {
 	).toEqual(settled(spawned(file, row.args, repo)));
 };
 
-/** Each row's case, one per dispatcher row, for a contract file to declare. */
 export const describeDispatcherRows = (rows: GateRow[]) =>
 	describe.each(rows)("the $id dispatcher row", (row) => {
 		it("runs in-process exactly as spawned over a change to its arming path", () =>
