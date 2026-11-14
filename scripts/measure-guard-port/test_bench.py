@@ -19,6 +19,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 import bench
+import gitop
 from bench import (
     one_call,
     payload,
@@ -420,9 +421,137 @@ assert seen == {{"reread": True}}, seen
 
 
 def test_the_program_refuses_a_bad_invocation():
-    for args in (["x"], ["--paired", "a", "b"], ["--paired", "--old-root"]):
+    for args in (
+        ["x"],
+        ["--paired", "a", "b"],
+        ["--paired", "--old-root"],
+        ["--paired", "--git", "push"],
+        ["--paired", "--git", "commit", "extra"],
+    ):
         done = subprocess.run(
             [sys.executable, str(HERE / "bench.py"), *args], capture_output=True
         )
         assert done.returncode == 1
         assert b"--paired" in done.stderr
+
+
+def stub_root(tmp_path, name, hooks):
+    """A side root whose `.husky` holds `hooks`, {name: shell body}, not
+    executable, as the repo's are: git reaches them only through husky."""
+    root = tmp_path / name
+    (root / ".husky").mkdir(parents=True)
+    for hook, body in hooks.items():
+        (root / ".husky" / hook).write_text(f"{body}\n")
+    # The side's own husky install, as a real side root has one.
+    (root / "node_modules").symlink_to(HERE.parent.parent / "node_modules")
+    return str(root)
+
+
+# Writes a stray stamp in the git dir and an untracked file in the tree, as the
+# real hooks' stamps and reports do.
+STRAY = 'touch "$(git rev-parse --git-dir)/wfc-precommit-stamp" stray.txt'
+
+
+def test_each_git_shape_is_reset_to_the_same_state_after_every_call(tmp_path):
+    hooks = {
+        h: STRAY
+        for h in (
+            "pre-commit",
+            "post-commit",
+            "post-merge",
+            "post-applypatch",
+            "post-rewrite",
+        )
+    }
+    root = stub_root(tmp_path, "side", hooks)
+    for shape in gitop.SHAPES:
+        work = tmp_path / shape
+        work.mkdir()
+        fx = gitop.Fixture(str(work), root, shape)
+        start, entries = fx.state(), set(os.listdir(fx.gitdir))
+        for _ in range(2):
+            done = gitop.timed_call(fx, lambda: 0)
+            assert done["exit"] == 0, (shape, done["stderr"])
+            assert fx.state() == start, shape
+            assert set(os.listdir(fx.gitdir)) == entries, shape
+
+
+def test_a_git_pair_whose_exit_codes_differ_is_refused(tmp_path):
+    old = stub_root(tmp_path, "old", {"pre-commit": "exit 0"})
+    new = stub_root(tmp_path, "new", {"pre-commit": "exit 1"})
+    fx = {}
+    for name, root in (("old", old), ("new", new)):
+        (tmp_path / name / "work").mkdir()
+        fx[name] = gitop.Fixture(str(tmp_path / name / "work"), root, "commit")
+    out = run_paired(
+        lambda: gitop.timed_call(fx["old"], lambda: 0),
+        lambda: gitop.timed_call(fx["new"], lambda: 0),
+        False,
+        random.Random(0),
+    )
+    assert out == {
+        "verdict": "REFUSED",
+        "reason": "exit codes differ: old 0, new 1",
+        "pairs": 1,
+    }
+
+
+def test_a_hook_wrapper_records_the_hooks_cpu_and_passes_its_exit_through(tmp_path):
+    root = stub_root(
+        tmp_path,
+        "side",
+        {"commit-msg": f'read line; [ "$1" = msgfile ] || exit 9; {BURN}; exit 3'},
+    )
+    log = tmp_path / "cpu.jsonl"
+    dispatch = gitop.husky_dispatch(root, str(tmp_path / "husky" / "_"))
+    names = gitop.write_wrappers(
+        dispatch, os.path.join(root, ".husky"), str(tmp_path / "wrapped"), str(log)
+    )
+    assert names == ["commit-msg"]
+    done = subprocess.run(
+        [str(tmp_path / "wrapped" / "commit-msg"), "msgfile"], input=b"line\n"
+    )
+    assert done.returncode == 3
+    row = json.loads(log.read_text())
+    assert row["hook"] == "commit-msg" and row["exit"] == 3
+    assert row["cpu"] > BURN_CPU_FLOOR_MS
+
+
+def test_hook_cpu_reports_each_hook_that_fired_by_name(tmp_path):
+    root = stub_root(tmp_path, "side", {"pre-commit": BURN, "pre-push": "exit 1"})
+    (tmp_path / "work").mkdir()
+    fx = gitop.Fixture(str(tmp_path / "work"), root, "commit")
+    cpu = gitop.hook_cpu(fx, 2, str(tmp_path / "work"), lambda: 0)
+    assert list(cpu) == ["pre-commit"] and cpu["pre-commit"] > BURN_CPU_FLOOR_MS
+    assert gitop.git(fx.repo, "config", "--local", "core.hooksPath") == fx.hooks
+
+
+def test_a_refused_git_am_is_read_and_reported_ungated(tmp_path):
+    # Run in a child, since main makes its process a subreaper.
+    roots = [
+        stub_root(tmp_path, name, {"pre-applypatch": "exit 1"})
+        for name in ("old", "new")
+    ]
+    (tmp_path / ".claude").mkdir()
+    probe = f"""
+import json, sys
+sys.path.insert(0, {str(HERE)!r})
+import bench
+bench.HOOK_CPU_CALLS, bench.RESAMPLES = 2, 200
+args = ["--paired", "--git", "am-refused",
+        "--old-root", {roots[0]!r}, "--new-root", {roots[1]!r}]
+assert bench.main(args) == 0
+"""
+    done = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        env=dict(os.environ, CLAUDE_PROJECT_DIR=str(tmp_path)),
+    )
+    assert done.returncode == 0, done.stderr
+    out = json.loads(done.stdout)
+    assert out["shape"] == "am-refused" and out["gated"] is False
+    assert out["exit"] == [1, 1] and out["verdict"] != "REFUSED"
+    assert set(out["hook_cpu_ms"]["old"]) == {"pre-applypatch"}
+    assert out["before"]["load1"] and out["after"]["load1"]
+    assert not list((tmp_path / ".claude" / "tmp").iterdir())

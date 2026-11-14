@@ -8,6 +8,8 @@ read by (#2733, #3216).
   python3 scripts/measure-guard-port/bench.py hooks.txt PreToolUse Bash 'ls -la' 15
   python3 scripts/measure-guard-port/bench.py --paired [--narrowed] [--reread] [--old-root DIR] [--new-root DIR] \
       old.txt new.txt PreToolUse Bash 'ls -la'
+  python3 scripts/measure-guard-port/bench.py --paired --git <shape> [--reread] \
+      --old-root DIR --new-root DIR
 
 Each call starts every command under `/bin/sh -c` at once, writes one hook
 payload to each stdin, and waits for all; CPU and faults are the children's
@@ -32,6 +34,17 @@ children's rusage cannot count. `--old-root` and `--new-root` run a side from
 another work tree (its `CLAUDE_PROJECT_DIR` and payload `cwd`), for a
 before/after read across commits; each defaults to the host root.
 
+`--git` times a git operation in place of a hook set (#5207): `commit` (a `-m`
+commit), `merge` (a `--no-ff` merge commit), `cherry-pick`, `rebase` (one
+commit) and `am` (one patch) are gated; `am-refused`, a patch gitleaks refuses,
+is read the same way but marked `"gated": false`. Each side runs in its own
+throwaway repo under `.claude/tmp/` whose hooks are its root's `.husky`, run
+through husky's dispatch shim as git runs them, with
+`WFC_PLUGIN_ROOT` at that root and no session id; an untimed reset to the same
+state follows every call (scripts/measure-guard-port/gitop.py). A pair whose
+exit codes differ is REFUSED. After the pairs, 15 more calls a side through
+wrapper hooks give each hook's median CPU, `hook_cpu_ms`, beside the ratios.
+
 Prints one JSON line, the machine state before and after beside the figures.
 Exits 0 on any finished read, its verdict included, so a harness branches on
 `.verdict`; 1 on a bad invocation.
@@ -44,14 +57,18 @@ import json
 import os
 import random
 import resource
+import shutil
+import signal
 import statistics
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import gitop
 from host_root import host_root
 from machine import machine_state
 
@@ -70,6 +87,8 @@ PF_EXITING = 0x4
 # A child already exiting is gone in milliseconds; one still unwaitable after a
 # second is stuck, and counts as running (#3657).
 EXIT_WAIT_S = 1.0
+# The per-hook CPU phase's calls per side: a report, never gated (#5207).
+HOOK_CPU_CALLS = 15
 
 
 def tool_call(event: str, tool: str, cmd: str) -> dict:
@@ -298,6 +317,8 @@ def judge_pairs(
 
 def refusal(pair: tuple[dict, dict]) -> str | None:
     old, new = pair
+    if "exit" in old and old["exit"] != new["exit"]:
+        return f"exit codes differ: old {old['exit']}, new {new['exit']}"
     if old["denies"] != new["denies"]:
         return f"deny counts differ: old {old['denies']}, new {new['denies']}"
     if old["detached"] or new["detached"]:
@@ -352,21 +373,77 @@ def side(root: str, event: str, tool: str, cmd: str) -> tuple[bytes, dict]:
     return payload(root, str(transcript), event=event, tool=tool, cmd=cmd), env
 
 
+def run_git_paired(shape: str, old_root: str, new_root: str, reread: bool) -> dict:
+    """The paired read over one git operation, then each side's per-hook CPU."""
+    # A SIGTERM unwinds through the finally, so no fixture outlives the read.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
+    work = tempfile.mkdtemp(prefix="bench-git-", dir=tmp_dir())
+    try:
+        fx = {}
+        for name, root in (("old", old_root), ("new", new_root)):
+            os.mkdir(os.path.join(work, name))
+            fx[name] = gitop.Fixture(os.path.join(work, name), root, shape)
+        last = {}
+
+        def call(name):
+            last[name] = gitop.timed_call(fx[name], reap_orphans)
+            return last[name]
+
+        out = run_paired(
+            lambda: call("old"),
+            lambda: call("new"),
+            False,
+            random.Random(),
+            reread=reread,
+        )
+        out["exit"] = [last["old"]["exit"], last["new"]["exit"]]
+        if out["verdict"] == "REFUSED":
+            out["stderr"] = [last["old"]["stderr"], last["new"]["stderr"]]
+        else:
+            out["hook_cpu_ms"] = {
+                name: gitop.hook_cpu(
+                    fx[name], HOOK_CPU_CALLS, os.path.join(work, name), reap_orphans
+                )
+                for name in ("old", "new")
+            }
+        return {"shape": shape, "gated": shape not in gitop.UNGATED, **out}
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+
+
+def tmp_dir() -> str:
+    d = os.path.join(host_root(), ".claude", "tmp")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
 def main(argv: list[str] | None = None) -> int:
     args = list(sys.argv[1:] if argv is None else argv)
     paired = args[:1] == ["--paired"]
     narrowed = reread = False
+    shape = None
     roots = {"--old-root": host_root(), "--new-root": host_root()}
     if paired:
         args.pop(0)
-        while args and args[0] in ("--narrowed", "--reread", *roots):
+        while args and args[0] in ("--narrowed", "--reread", "--git", *roots):
             flag = args.pop(0)
             if flag == "--narrowed":
                 narrowed = True
             elif flag == "--reread":
                 reread = True
+            elif args and flag == "--git":
+                shape = args.pop(0)
             elif args:
                 roots[flag] = os.path.realpath(args.pop(0))
+    if shape is not None:
+        if args or narrowed or shape not in gitop.SHAPES:
+            print(__doc__, file=sys.stderr)
+            return 1
+        become_subreaper()
+        before = machine_state()
+        out = run_git_paired(shape, roots["--old-root"], roots["--new-root"], reread)
+        print(json.dumps({**out, "before": before, "after": machine_state()}))
+        return 0
     if paired and len(args) == 5:
         sets = [read_set(args[0]), read_set(args[1])]
         event, tool, cmd = args[2:]
