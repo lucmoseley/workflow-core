@@ -13,7 +13,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnGitSync } = require("./git.js");
-const { stripNewlines } = require("./strip-newlines.js");
+const { trimEndRun } = require("./trim-run.js");
 
 const HOOKS_WITH_ROWS = new Set([
 	"pre-commit",
@@ -83,8 +83,9 @@ function sequencing(hook, dir) {
 	if (!fs.existsSync(path.join(dir, "sequencer"))) return false;
 	let safety;
 	try {
-		safety = stripNewlines(
+		safety = trimEndRun(
 			fs.readFileSync(path.join(dir, "sequencer", "abort-safety"), "utf8"),
+			"\n",
 		);
 	} catch {
 		return false;

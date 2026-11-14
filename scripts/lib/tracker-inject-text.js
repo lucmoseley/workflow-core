@@ -372,7 +372,6 @@ module.exports = {
 	PRICED_OPTIONS_POINTER,
 	WAYFINDER_CLAUSES,
 	INDEX,
-	INDEX_LINES,
 	CLOSING_STEPS,
 	pricedOptionsWhole,
 	codeReviewParts,
