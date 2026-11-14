@@ -63,7 +63,7 @@ describe("cutGateFragment", () => {
 
 	it("cuts a different block for each anchor", () => {
 		expect(cutGateFragment("command typecheck")).not.toBe(
-			cutGateFragment("scripts/check-injector-margin.js"),
+			cutGateFragment("scripts/check-vendored-skills.js"),
 		);
 	});
 
@@ -103,12 +103,11 @@ describe("cutGateFragment", () => {
 
 describe("gateHead and armingPattern (#1597)", () => {
 	it("reads a one-line head and its pattern", () => {
-		const pattern =
-			"^(scripts/lib/tracker-inject-text\\.js|docs/agents/rules/review-(dispatch-shape|deviations-read|finding-destination)\\.txt)$";
-		expect(gateHead("scripts/check-injector-margin.js")).toBe(
+		const pattern = "^skills-lock\\.json$";
+		expect(gateHead("scripts/check-vendored-skills.js")).toBe(
 			`if armed '${pattern}'; then\n`,
 		);
-		expect(armingPattern("scripts/check-injector-margin.js")).toBe(pattern);
+		expect(armingPattern("scripts/check-vendored-skills.js")).toBe(pattern);
 	});
 
 	it("reads a head wrapped across lines through its `then`", () => {
@@ -216,9 +215,9 @@ describe("the scripts a gate invokes", () => {
 
 	it.each([
 		[
-			"injector-margin",
-			"scripts/check-injector-margin.js",
-			["scripts/check-injector-margin.js"],
+			"upstream-record",
+			"scripts/check-vendored-skills.js",
+			["scripts/check-vendored-skills.js"],
 		],
 		[
 			"digest-version",

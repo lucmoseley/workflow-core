@@ -1,4 +1,4 @@
-"""Tests for scripts/dense_minute.py — the per-minute counts #3223's switchback reads.
+"""Tests for scripts/dense_minute.py — the per-minute counts the throughput readout reads.
 
 Each case writes literal transcript records through conftest's `corpus`
 fixture, which points every seat at a temp dir, so no case reads a real
@@ -132,4 +132,5 @@ def test_program_prints_one_line_a_minute_and_the_skip_counts(corpus):
     )
     (row,) = [json.loads(line) for line in out.stdout.splitlines()]
     assert row["bash_n"] == 2 and row["bash_p50"] == 3.0
+    assert row["bash_s"] == [2.0, 4.0]
     assert "unreadable files: 0, unparsed lines: 0" in out.stderr

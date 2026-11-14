@@ -78,7 +78,7 @@ const SPREAD_CAP = 10;
 /** @typedef {import("./admission.js").AdmissionJson} AdmissionJson */
 /** @typedef {ReturnType<typeof buildTickMemory>} TickMemory */
 
-/** @typedef {{ts: string, sessions: number|null}} MinuteLine */
+/** @typedef {{ts: string, sessions: number|null, load1?: number|null}} MinuteLine */
 /** @typedef {{dir: string, count: number}} UnlistedDir */
 /** The breakdown's unlisted row; `count` null where it went unread, `unknown`
  * then saying why where known.
@@ -202,6 +202,40 @@ function resourceFailing(a) {
 			why: `${cpu.sessions} sessions fill the ceiling of ${cpu.ceiling}`,
 		});
 	return out;
+}
+
+/** @typedef {"load" | "sessions" | "memory" | "Windows memory" | "none"} Limb */
+
+/**
+ * The admission limb a tick record shows binding first: `load` or `sessions`
+ * for CPU, read off resourceFailing's reason text, `memory` or
+ * `Windows memory`; `none` where admission read and no limb failed. Null
+ * where which limb bound is unknown: the tick read no admission, or its CPU
+ * reading was missing.
+ * @param {TickRecord} t
+ * @returns {Limb | null}
+ */
+function tickLimb(t) {
+	for (const f of [t.binding, ...(t.also ?? [])]) {
+		if (!f) continue;
+		const limb = failingLimb(f, t);
+		if (limb !== undefined) return limb;
+	}
+	return t.memory ? NONE : null;
+}
+
+/**
+ * The limb one failing limit names: undefined where it is no admission limb.
+ * @param {Failing} f
+ * @param {TickRecord} t
+ * @returns {Limb | null | undefined}
+ */
+function failingLimb(f, t) {
+	if (f.limit === "memory") return t.memory ? "memory" : null;
+	if (f.limit === WINDOWS_MEMORY) return WINDOWS_MEMORY;
+	if (f.limit !== "CPU") return;
+	if (f.why.startsWith("load1 ")) return "load";
+	return f.why.includes(" sessions fill ") ? "sessions" : null;
 }
 
 /**
@@ -486,15 +520,19 @@ function readTicks() {
 	return { ticks, unreadable };
 }
 
+/**
+ * The minute log's lines, null where it is missing or would not read.
+ * @param {string[]} [unreadable] accumulator, as readJsonLines takes it
+ */
+function readMinuteLines(unreadable = []) {
+	return /** @type {MinuteLine[]|null} */ (
+		readJsonLines(concurrencyFiles().minutes, unreadable)
+	);
+}
+
 function readRecords() {
 	const { ticks, unreadable } = readTicks();
-	return {
-		ticks,
-		minutes: /** @type {MinuteLine[]|null} */ (
-			readJsonLines(concurrencyFiles().minutes, unreadable)
-		),
-		unreadable,
-	};
+	return { ticks, minutes: readMinuteLines(unreadable), unreadable };
 }
 
 /**
@@ -545,15 +583,19 @@ function appendTick(record) {
 }
 
 module.exports = {
+	LOOP_OFF,
 	NONE,
+	STALE_MS,
 	SPREAD_CAP,
 	appendTick,
 	buildBlockText,
 	buildTickRecord,
 	concurrencyFiles,
 	readConcurrencyStatus,
+	readMinuteLines,
 	readRecords,
 	readout,
 	buildVerdict,
 	readTicks,
+	tickLimb,
 };

@@ -16,8 +16,9 @@
 import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import type { dispatch } from "./precommit-dispatch.js";
+import { dispatch } from "./precommit-dispatch.js";
 import { existsUnder, readStaged } from "./precommit-dispatch-ports.js";
+import { GATES } from "./precommit-gates.js";
 import { shellQuote } from "./sh-quote.js";
 
 /** The repository root, for a suite reading a checker it compares the hook against. */
@@ -55,6 +56,54 @@ export const buildRepoPorts = (
 	interrupted: async () => null,
 	...over,
 });
+
+/** One row of lib/precommit-gates.js. */
+export type GateRow = (typeof GATES)[number];
+
+type PatternRow = GateRow & { arm: { pattern: RegExp } };
+
+/** The dispatcher row running `script`, which arms on a pattern. */
+export function patternRow(script: string): PatternRow {
+	const row = GATES.find((g) => g.script === script);
+	if (!row || !("pattern" in row.arm))
+		throw new Error(`no pattern row for ${script} in lib/precommit-gates.js`);
+	return row as PatternRow;
+}
+
+/**
+ * The dispatcher's run of `row` alone over the repo at `root`, its member
+ * stubbed to answer `result` and its ports overridden by `ports`: the exit,
+ * whether the member ran, and the output written.
+ */
+export async function dispatchStubbed(
+	root: string,
+	row: GateRow,
+	{
+		result = { exit: 0, stdout: "", stderr: "" },
+		ports = {},
+	}: {
+		result?: { exit: number; stdout: string; stderr: string };
+		ports?: Partial<DispatchPorts>;
+	} = {},
+): Promise<{ code: number; ran: boolean; output: string }> {
+	let ran = false;
+	let output = "";
+	const code = await dispatch({
+		rows: [row],
+		gates: "all",
+		ports: buildRepoPorts(root, {
+			load: () => () => {
+				ran = true;
+				return result;
+			},
+			write: (_fd, text) => {
+				output += text;
+			},
+			...ports,
+		}),
+	});
+	return { code, ran, output };
+}
 
 /** The lines of the hook from the first starting `first` to the first after it equal to `last`. */
 export function cutHookBlock(first: string, last: string): string {

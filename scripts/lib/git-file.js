@@ -2,13 +2,15 @@
  * git-file.js — a linked worktree's `.git` file read without spawning git: for
  * a hook-path caller that spawns none (lib/overflow-key.js), and for one whose
  * git will not answer for that worktree (lib/repo-holds.js, #4402), and a
- * common dir's registrations read back to the worktrees they name (#4880).
+ * common dir's registrations read back to the worktrees they name (#4880),
+ * and a worktree's own registration checked for each tick of a loop (#5209).
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
 
 const { caught } = require("./caught.js");
+const { readText } = require("./file-read.js");
 
 const ABSENT_CODES = new Set(["ENOENT", "ENOTDIR", "EISDIR"]);
 
@@ -108,11 +110,71 @@ function readGitFile(start) {
 	}
 }
 
+/** @param {string} file */
+function realPathOrNull(file) {
+	try {
+		return fs.realpathSync(file);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Why `dir`'s own registration is broken, as a linked worktree whose `.git`
+ * file names one that is gone or names another tree; null where it holds, or
+ * where `dir` has no `.git` file to break: a main checkout, or none at all
+ * (#5209). A registration naming another worktree is one a later checkout
+ * took the name of after this one's went. Never throws: a file that will not
+ * read is a reason too.
+ * @param {string} dir
+ */
+function readRegistrationFault(dir) {
+	const dotGit = path.join(dir, ".git");
+	const file = readText(dotGit);
+	if (file.state === "absent") return null;
+	if (file.state === "unreadable")
+		return caught(file.error).code === "EISDIR"
+			? null
+			: `${dotGit} will not read: ${file.message}`;
+	const registration = parseGitFileTarget(dir, file.data);
+	if (registration === null) return `${dotGit} names no registration`;
+	const back = readText(path.join(registration, "gitdir"));
+	if (back.state === "unreadable")
+		return `its registration ${registration} will not read: ${back.message}`;
+	const gitFile = back.state === "read" ? back.data.trim() : "";
+	if (!gitFile) return `its registration ${registration} is gone`;
+	const tree = path.dirname(path.resolve(registration, gitFile));
+	return realPathOrNull(path.join(tree, ".git")) === realPathOrNull(dotGit)
+		? null
+		: `its registration ${registration} names ${tree}`;
+}
+
+/**
+ * A check, each call, whether git reads `dir` as a checkout, passing
+ * readRegistrationFault's reason to `say` once until it changes: for a loop
+ * whose every tick would otherwise report the same failure (#5209).
+ * @param {string} dir
+ * @param {(fault: string) => void} say
+ * @returns {() => boolean}
+ */
+function registrationGate(dir, say) {
+	/** @type {string|null} */
+	let said = null;
+	return () => {
+		const fault = readRegistrationFault(dir);
+		if (fault !== null && fault !== said) say(fault);
+		said = fault;
+		return fault === null;
+	};
+}
+
 module.exports = {
 	parseGitFileTarget,
 	readGitFile,
 	readGitFileCommonDir,
 	readRegisteredTree,
 	readRegistrationCommonDir,
+	readRegistrationFault,
 	readRegistrations,
+	registrationGate,
 };

@@ -3,9 +3,9 @@
  * Pins the queue lander's two pre-commit gate sets (#4545): `--gates=merge`
  * runs only the merge set, `--gates=batch` every gate bar one the lander's
  * Actions run repeats or a lander merge renders, and no argument every gate.
- * The parse, the dispatcher line, the merge set's exit and two later gates — swallowed-errors, which Actions repeats, and
- * injector-margin, which it does not — are cut from the real hook and run over
- * stub scripts; the dispatcher's own lander sets are
+ * The parse, the dispatcher line, the merge set's exit and two later gates —
+ * swallowed-errors, which Actions repeats, and upstream-record, which it does
+ * not — are cut from the real hook and run over stub scripts; the dispatcher's own lander sets are
  * scripts/precommit-dispatch.test.ts's. A last case maps every gate the batch
  * set skips to the step of a workflow a lander push runs that repeats it, and
  * every gate both sets skip to a generator each lander merge runs, read off
@@ -33,7 +33,7 @@ const temps = registerTempCleanup();
 const DISPATCH = "scripts/precommit-dispatch.js";
 const CHECKERS = [
 	DISPATCH,
-	"scripts/check-injector-margin.js --index",
+	"scripts/check-vendored-skills.js --covered <dir>",
 	"scripts/check-swallowed-errors.js",
 ];
 
@@ -42,7 +42,7 @@ const SCRIPT = [
 	cutHookBlock("wfc_gates=all", "esac"),
 	cutHookBlock(`node "\${WFC_PLUGIN_ROOT:-.}"/${DISPATCH}`, ""),
 	cutHookBlock('if [ "$wfc_gates" = merge ]; then', "fi"),
-	cutGateFragment("scripts/check-injector-margin.js"),
+	cutGateFragment("scripts/check-vendored-skills.js"),
 	cutGateFragment("scripts/check-swallowed-errors.js"),
 ].join("\n\n");
 
@@ -50,7 +50,7 @@ const SCRIPT = [
  * and its exit code. */
 function run(...args: string[]): { code: number; ran: string[] } {
 	const stub = (name: string) =>
-		`require("node:fs").appendFileSync("ran.log", [${JSON.stringify(name)}, ...process.argv.slice(2)].join(" ") + "\\n");\n`;
+		`require("node:fs").appendFileSync("ran.log", [${JSON.stringify(name)}, ...process.argv.slice(2).map((a) => (require("node:path").isAbsolute(a) ? "<dir>" : a))].join(" ") + "\\n");\n`;
 	const { root } = stagedRepo(
 		"gate-sets-",
 		temps,
@@ -58,7 +58,7 @@ function run(...args: string[]): { code: number; ran: string[] } {
 			CHECKERS.map((c) => c.split(" ")[0] ?? c).map((c) => [c, stub(c)]),
 		),
 		{
-			"scripts/lib/tracker-inject-text.js": "x\n",
+			"skills-lock.json": "{}\n",
 			"scripts/a.py": "x\n",
 		},
 	);
@@ -93,7 +93,7 @@ describe("the pre-commit gate sets", () => {
 			code: 0,
 			ran: [
 				`${DISPATCH} --gates=batch`,
-				"scripts/check-injector-margin.js --index",
+				"scripts/check-vendored-skills.js --covered <dir>",
 			],
 		});
 	});

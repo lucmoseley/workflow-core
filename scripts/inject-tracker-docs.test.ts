@@ -14,6 +14,7 @@ import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { readJsConst } from "./lib/const-testkit";
 import { stubGhScript } from "./lib/gh-stub";
+import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { registrationsOf } from "./lib/hook-wiring";
 import { runInProcess } from "./lib/run-in-process.js";
 
@@ -89,6 +90,46 @@ describe("the entry's input channels", () => {
 		expect(r.status).toBe(0);
 		expect(r.stdout.startsWith("You invoked /triage")).toBe(true);
 	});
+});
+
+describe("the entry's fail-open (§N5, §X11 item 4)", () => {
+	/* Root searches any directory, so the stat would not throw. */
+	it.skipIf(process.getuid?.() === 0)(
+		"exits 0 printing nothing, the core's throw logged, where the marker directory cannot be searched",
+		() => {
+			/* Its search permission taken, the core's stat of the session's
+			 * marker throws EACCES, past every catch of its own. */
+			const tmp = fs.mkdtempSync(path.join(SCRATCH, "unsearchable-"));
+			const fire = (session: string) =>
+				entry(
+					JSON.stringify({
+						prompt: "/implement 5203",
+						hook_event_name: "UserPromptSubmit",
+						session_id: session,
+					}),
+					{ TMPDIR: tmp, CLAUDE_CONFIG_DIR: tmp },
+				);
+			expect(fire("first").status).toBe(0);
+			const [markers, ...more] = fs
+				.readdirSync(tmp)
+				.filter((n) => n.startsWith("wfc-tracker-inject-"))
+				.map((n) => path.join(tmp, n));
+			expect(more).toHaveLength(0);
+			if (!markers)
+				throw new Error("the first firing made no marker directory");
+			fs.chmodSync(markers, 0o600);
+			try {
+				const r = fire("unsearchable");
+				expect(r.status).toBe(0);
+				expect(r.stdout).toBe("");
+				expect(readGuardErrorsLog(tmp)).toMatch(
+					/\tinject-tracker-docs\tinject-tracker-docs threw\tError: EACCES: permission denied, stat '[^']*unsearchable\.implement'/,
+				);
+			} finally {
+				fs.chmodSync(markers, 0o700);
+			}
+		},
+	);
 });
 
 describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", () => {
