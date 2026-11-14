@@ -17,6 +17,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent))
 import bench
 import gitop
@@ -442,9 +444,23 @@ def stub_root(tmp_path, name, hooks):
     (root / ".husky").mkdir(parents=True)
     for hook, body in hooks.items():
         (root / ".husky" / hook).write_text(f"{body}\n")
-    # The side's own husky install, as a real side root has one.
-    (root / "node_modules").symlink_to(HERE.parent.parent / "node_modules")
+    # The side's own husky install, as a real side root has one: husky's
+    # shim, from the fixture CI's pytest job (which runs no npm ci) can read.
+    shim = root / "node_modules" / "husky" / "husky"
+    shim.parent.mkdir(parents=True)
+    shim.write_text(HUSKY_SHIM.read_text())
     return str(root)
+
+
+# husky 9's `h` shim, held to the installed copy by the case below.
+HUSKY_SHIM = HERE / "husky-h-shim.fixture"
+
+
+def test_the_husky_shim_fixture_is_the_installed_one():
+    installed = HERE.parent.parent / "node_modules" / "husky" / "husky"
+    if not installed.is_file():
+        pytest.skip("no npm install here; a local run with one holds the fixture")
+    assert HUSKY_SHIM.read_text() == installed.read_text()
 
 
 STRAY = 'touch "$(git rev-parse --git-dir)/wfc-precommit-stamp" stray.txt'

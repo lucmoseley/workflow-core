@@ -49785,6 +49785,10 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
+		"scripts/measure-guard-port/husky-h-shim.fixture": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
 		"scripts/measure-guard-port/machine.py": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
