@@ -7,7 +7,9 @@
  * it has one, where the row names no `staged` of its own; an always-armed row's is any path. `fault` is owed by exactly the
  * rows comparing an `--against` or `--index` side: `inherited` the files the
  * tree's one commit holds, one fault among them, and `added` the files the
- * index then stages, adding a second.
+ * index then stages, adding a second. `names` is what the added fault's
+ * findings print, where that is not its files' paths: a checker whose
+ * findings name something else, such as a command.
  *
  * FOR TESTS ONLY.
  */
@@ -16,7 +18,7 @@ export type Files = Record<string, string>;
 
 export interface RowFixture {
 	path?: string;
-	fault?: { inherited: Files; added: Files };
+	fault?: { inherited: Files; added: Files; names?: string[] };
 }
 
 /* Joined, so this file's own lines hold none of the faults they write for
@@ -24,6 +26,18 @@ export interface RowFixture {
 const env = (name: string) => ["process", "env", name].join(".");
 const envWrite = (name: string) => `${env(name)} = "x";\n`;
 const GH = ["g", "h"].join("");
+
+/* A text module whose every command's payload is at the threshold
+ * hook-limits.js sets, so each command is one PAYLOAD-OVER finding. */
+const HOOK_LIMITS =
+	"const HOOK_PERSIST_CHARS = 10000;\nconst RULE_CAP = 500;\n";
+const textModule = (commands: string[]) =>
+	[
+		`const COMMANDS = ${JSON.stringify(commands)};`,
+		'const BODY = "x".repeat(10000);',
+		'module.exports = { COMMANDS, TAKES_READ: [], pricedOptionsWhole: () => "", trackerContext: () => BODY };',
+		"",
+	].join("\n");
 
 export const ROW_FIXTURES: Record<string, RowFixture> = {
 	"main-checkout-commit": { path: "README.md" },
@@ -218,6 +232,19 @@ export const ROW_FIXTURES: Record<string, RowFixture> = {
 		fault: {
 			inherited: { "docs/working-contract.md": `${"x".repeat(40_000)}\n` },
 			added: { "docs/working-contract.md": `${"x".repeat(40_100)}\n` },
+		},
+	},
+	"injector-margin": {
+		path: "docs/agents/rules/review-dispatch-shape.txt",
+		fault: {
+			inherited: {
+				"scripts/lib/hook-limits.js": HOOK_LIMITS,
+				"scripts/lib/tracker-inject-text.js": textModule(["alpha"]),
+			},
+			added: {
+				"scripts/lib/tracker-inject-text.js": textModule(["alpha", "beta"]),
+			},
+			names: ["/beta "],
 		},
 	},
 };

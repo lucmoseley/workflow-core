@@ -183,7 +183,7 @@ const treesOf = (row: GateRow): RowTree[] => {
 			verdict: {
 				exit: 1,
 				says: against ? / adds them:/ : /FAIL/,
-				names: Object.keys(fault.added),
+				names: fault.names ?? Object.keys(fault.added),
 			},
 		},
 	];
