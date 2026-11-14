@@ -25,6 +25,10 @@
  * A WORKTREE A LIVE PROCESS RUNS FROM is kept until it exits (#4548): a queue
  * lander or levelling pass an older image started spawns its children from
  * its own worktree, and they fail to load where that is gone.
+ *
+ * THE IMAGE'S OWN REGISTRATION is checked each tick and made again where it is
+ * gone (#5209): git then answers for the worktree again, so the loop still
+ * adopts tips, and the children it runs there still name a common dir.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -50,10 +54,12 @@ const {
 	readLink,
 	readVerifiedSha,
 	removeWorktree,
+	reregister,
 	short,
 	whyOf,
 	worktreeAt,
 } = require("./pinned-code.js");
+const { readRegistrationFault } = require("./git-file.js");
 const { VERIFIED_REF } = require("./landing-refs.js");
 const { isTestKind } = require("./test-kind.js");
 
@@ -269,6 +275,34 @@ function pruneCodeDir({ root, codeDir, realCodeDir, kept, log }) {
 }
 
 /**
+ * A check, each call, that `root`, an image's worktree in the code directory,
+ * is still registered with git, registering it again where it is not; a no-op
+ * for an image elsewhere. A failure is logged once until its reason changes.
+ * @param {string} root
+ * @param {string} codeDir
+ * @param {(line: string) => void} log
+ * @returns {() => void}
+ */
+function registrationKeeper(root, codeDir, log) {
+	if (path.dirname(root) !== realPathOf(codeDir)) return () => undefined;
+	/** @type {string|null} */
+	let failed = null;
+	return () => {
+		const fault = readRegistrationFault(root);
+		if (fault === null) return;
+		try {
+			reregister(root, path.basename(root));
+			failed = null;
+			log(`registered ${root} with git again: ${fault}`);
+		} catch (err) {
+			const line = `${root} is not registered with git (${fault}), and registering it again failed: ${whyOf(err)}`;
+			if (line !== failed) log(line);
+			failed = line;
+		}
+	};
+}
+
+/**
  * process.execve, missing from the Node types this repo pins; it returns only
  * by throwing.
  * @typedef {(file: string, args: string[], env: NodeJS.ProcessEnv) => void} Exec
@@ -282,6 +316,8 @@ const proc = /** @type {NodeJS.Process & {execve: Exec}} */ (process);
  */
 function codeUpdater({ program, codeDir, log }) {
 	const root = rootOf(program);
+	const keepRegistered = registrationKeeper(root, codeDir, log);
+	keepRegistered();
 	let running;
 	try {
 		if (checkoutOf(root) === null) return null;
@@ -360,12 +396,15 @@ function codeUpdater({ program, codeDir, log }) {
 			if (tip !== null) adopt(tip);
 		},
 		/**
-		 * After the first tick of an image from the code directory, point the
-		 * boot link at it; then, each tick until none is left, remove every
-		 * worktree there but its own and those a live process runs from. A
-		 * link that will not move keeps the worktree it names.
+		 * Each tick, register the image's worktree again where its
+		 * registration is gone. After the first tick of an image from the code
+		 * directory, point the boot link at it; then, each tick until none is
+		 * left, remove every worktree there but its own and those a live
+		 * process runs from. A link that will not move keeps the worktree it
+		 * names.
 		 */
 		afterTick() {
+			keepRegistered();
 			if (settled) return;
 			const realCodeDir = realPathOf(codeDir);
 			if (path.dirname(root) !== realCodeDir) {

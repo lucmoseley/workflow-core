@@ -140,6 +140,7 @@ const { pidLock } = require("./pid-lock.js");
 const { tendQuietBench } = require("./quiet-bench-tick.js");
 const { parkedPromptOf } = require("./loop-prompts.js");
 const { files, log, servedRoots } = require("./refill-io.js");
+const { registrationGate } = require("./git-file.js");
 
 /* The probe's ceiling plus node's start, so the probe meets its own ceiling
  * and stops its group before this one kills the wrapper; the 15 s is a guess. */
@@ -151,6 +152,9 @@ const SCRIPTS = path.dirname(__dirname);
  * runs no review. */
 const REVIEW_ROOT = path.dirname(SCRIPTS);
 const DISPATCHER = path.join(SCRIPTS, "dispatch-sessions.js");
+const reviewRootReads = registrationGate(REVIEW_ROOT, (fault) =>
+	log(`machine children not run: git does not read ${REVIEW_ROOT}, ${fault}`),
+);
 
 /**
  * The spawn options of a child run in checkout `root`.
@@ -241,12 +245,14 @@ const startReapPass = (root) =>
  * is the machine's, so one checkout runs them. Logged only where it printed or
  * failed. Earlyoom kills (scripts/file-memory-kill-tickets.js, #3094);
  * memwatch's process runaways (scripts/file-process-runaway-tickets.js, #3807);
- * the sweep's slot repair (scripts/repair-sweep-slot.js, #4447).
+ * the sweep's slot repair (scripts/repair-sweep-slot.js, #4447). None runs
+ * where git would not read the checkout, which is logged once until its
+ * reason changes, as each would fail on it every tick (#5209).
  * @param {string} script
  * @param {string} label
  */
 function runMachineChild(script, label) {
-	if (!hasConfig(REVIEW_ROOT)) return;
+	if (!hasConfig(REVIEW_ROOT) || !reviewRootReads()) return;
 	const r = runChild(
 		process.execPath,
 		[path.join(SCRIPTS, script)],

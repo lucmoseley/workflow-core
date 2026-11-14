@@ -2,7 +2,8 @@
  * git-file.js — a linked worktree's `.git` file read without spawning git: for
  * a hook-path caller that spawns none (lib/overflow-key.js), and for one whose
  * git will not answer for that worktree (lib/repo-holds.js, #4402), and a
- * common dir's registrations read back to the worktrees they name (#4880).
+ * common dir's registrations read back to the worktrees they name (#4880),
+ * and a worktree's own registration checked for each tick of a loop (#5209).
  */
 
 const fs = require("node:fs");
@@ -108,11 +109,72 @@ function readGitFile(start) {
 	}
 }
 
+/**
+ * `file`'s real path, or null where it does not resolve.
+ * @param {string} file
+ */
+function realPathOrNull(file) {
+	try {
+		return fs.realpathSync(file);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Null where git reads `dir` as a checkout: its `.git` a directory, or a file
+ * naming a registration whose `gitdir` names that file back; else why not
+ * (#5209). A registration naming another worktree is one a later checkout
+ * took the name of after this one's went. Never throws: an unreadable `.git`
+ * is a reason too.
+ * @param {string} dir
+ */
+function readRegistrationFault(dir) {
+	const dotGit = path.join(dir, ".git");
+	let text;
+	try {
+		text = fs.readFileSync(dotGit, "utf8");
+	} catch (err) {
+		const { code = "" } = caught(err);
+		if (code === "EISDIR") return null;
+		if (ABSENT_CODES.has(code)) return `${dir} has no .git`;
+		return `${dotGit} will not read: ${code || caught(err).message}`;
+	}
+	const registration = parseGitFileTarget(dir, text);
+	if (registration === null) return `${dotGit} names no registration`;
+	const tree = readRegisteredTree(registration);
+	if (tree === null) return `its registration ${registration} is gone`;
+	return realPathOrNull(path.join(tree, ".git")) === realPathOrNull(dotGit)
+		? null
+		: `its registration ${registration} names ${tree}`;
+}
+
+/**
+ * A check, each call, whether git reads `dir` as a checkout, passing
+ * readRegistrationFault's reason to `say` once until it changes: for a loop
+ * whose every tick would otherwise report the same failure (#5209).
+ * @param {string} dir
+ * @param {(fault: string) => void} say
+ * @returns {() => boolean}
+ */
+function registrationGate(dir, say) {
+	/** @type {string|null} */
+	let said = null;
+	return () => {
+		const fault = readRegistrationFault(dir);
+		if (fault !== null && fault !== said) say(fault);
+		said = fault;
+		return fault === null;
+	};
+}
+
 module.exports = {
 	parseGitFileTarget,
 	readGitFile,
 	readGitFileCommonDir,
 	readRegisteredTree,
 	readRegistrationCommonDir,
+	readRegistrationFault,
 	readRegistrations,
+	registrationGate,
 };

@@ -14,9 +14,12 @@
 
 const { execGit, GIT_TIMEOUT_MS } = require("./git.js");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
+const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { commitSha } = require("./commit-sha.js");
+const { readGitFileCommonDir } = require("./git-file.js");
 const {
 	REMOTE,
 	trackingRefspec,
@@ -155,6 +158,32 @@ function removeWorktree(repo, dir) {
 }
 
 /**
+ * Register `dir` again in place, a checkout of `sha` whose registration is
+ * gone (#5209): a fresh one made for an empty stand-in, named in `dir`'s `.git`
+ * and repaired to name `dir` back, its index read from `sha`. The files in
+ * `dir`, which a running program loads from, are never touched.
+ * @param {string} dir
+ * @param {string} sha
+ * @throws where `dir`'s `.git` names no common dir, or git refuses a step
+ */
+function reregister(dir, sha) {
+	const common = readGitFileCommonDir(dir);
+	if (common === null) throw new Error(`${dir}/.git names no common dir`);
+	const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "reregister-"));
+	try {
+		/* Named as `dir` is, so the registration takes its name. */
+		const standIn = path.join(scratch, path.basename(dir));
+		git(common, ["worktree", "add", "--no-checkout", "--detach", standIn, sha]);
+		const text = fs.readFileSync(path.join(standIn, ".git"), "utf8");
+		writeFileAtomic(path.join(dir, ".git"), text);
+		git(common, ["worktree", "repair", dir]);
+	} finally {
+		fs.rmSync(scratch, { recursive: true, force: true });
+	}
+	git(dir, ["reset", "--quiet"]);
+}
+
+/**
  * @param {string} codeDir
  * @param {string} name
  */
@@ -196,6 +225,7 @@ module.exports = {
 	readLink,
 	readVerifiedSha,
 	removeWorktree,
+	reregister,
 	short,
 	whyOf,
 	worktreeAt,

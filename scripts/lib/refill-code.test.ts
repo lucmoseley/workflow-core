@@ -538,6 +538,47 @@ describe("the boot link (#3891)", () => {
 		await until(() => !fs.existsSync(held), "the held worktree's removal");
 	});
 
+	it("registers its worktree again where the registration goes, and adopts after (#5209)", async () => {
+		const tree = path.dirname(path.dirname(await startLoop()));
+		await moreTicks(1);
+		fs.rmSync(git(tree, "rev-parse", "--absolute-git-dir"), {
+			recursive: true,
+		});
+		await until(
+			() => readLogLines().some((l) => l.startsWith(`registered ${tree} `)),
+			"the registration made again",
+		);
+		expect(git(tree, "rev-parse", "--git-common-dir")).toBe(
+			path.join(checkout, ".git"),
+		);
+		expect(git(tree, "status", "--porcelain")).toBe("");
+		push({ "scripts/lib/marker.js": 'module.exports = "two";\n' });
+		await until(() => readTicks().some((l) => l.includes(" two ")), "two");
+	});
+
+	it("registers its worktree again before a restart's first tick (#5209)", async () => {
+		const program = await startLoop();
+		const tree = path.dirname(path.dirname(program));
+		loopProc?.kill("SIGKILL");
+		fs.rmSync(git(tree, "rev-parse", "--absolute-git-dir"), {
+			recursive: true,
+		});
+		fs.rmSync(path.join(dir, "log"));
+		// spawn-kept: the loop restarted from its unregistered worktree
+		loopProc = spawn(process.execPath, [program, "run"], {
+			env: { ...gitEnv, FIXTURE_DIR: dir },
+			stdio: "ignore",
+		});
+		await until(() => readTicks().length > 0, "the first tick");
+		expect(readLogLines()[0]).toMatch(
+			new RegExp(
+				`^registered ${tree} with git again: its registration .* is gone$`,
+			),
+		);
+		push({ "scripts/lib/marker.js": 'module.exports = "two";\n' });
+		await until(() => readTicks().some((l) => l.includes(" two ")), "two");
+	});
+
 	it("keeps every worktree where /proc will not read, logging it once (#4548)", async () => {
 		const idle = path.join(codeDir, "idle");
 		fs.mkdirSync(idle, { recursive: true });
