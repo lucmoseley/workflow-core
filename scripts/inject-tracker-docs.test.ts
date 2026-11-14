@@ -93,39 +93,44 @@ describe("the entry's input channels", () => {
 });
 
 describe("the entry's fail-open (§N5, §X11 item 4)", () => {
-	it("exits 0 printing nothing, the core's throw logged, where the marker directory cannot be searched", () => {
-		/* The marker directory a first firing makes, its search permission
-		 * then taken: the core's stat of the session's marker throws EACCES,
-		 * past every catch of its own. */
-		const tmp = fs.mkdtempSync(path.join(SCRATCH, "unsearchable-"));
-		const fire = (session: string) =>
-			entry(
-				JSON.stringify({
-					prompt: "/implement 5203",
-					hook_event_name: "UserPromptSubmit",
-					session_id: session,
-				}),
-				{ TMPDIR: tmp, CLAUDE_CONFIG_DIR: tmp },
-			);
-		expect(fire("first").status).toBe(0);
-		const [markers, ...more] = fs
-			.readdirSync(tmp)
-			.filter((n) => n.startsWith("wfc-tracker-inject-"))
-			.map((n) => path.join(tmp, n));
-		expect(more).toHaveLength(0);
-		if (!markers) throw new Error("the first firing made no marker directory");
-		fs.chmodSync(markers, 0o600);
-		try {
-			const r = fire("unsearchable");
-			expect(r.status).toBe(0);
-			expect(r.stdout).toBe("");
-			expect(readGuardErrorsLog(tmp)).toMatch(
-				/\tinject-tracker-docs\tinject-tracker-docs threw\tError: EACCES: permission denied, stat '[^']*unsearchable\.implement'/,
-			);
-		} finally {
-			fs.chmodSync(markers, 0o700);
-		}
-	});
+	/* Root searches any directory, so the stat would not throw. */
+	it.skipIf(process.getuid?.() === 0)(
+		"exits 0 printing nothing, the core's throw logged, where the marker directory cannot be searched",
+		() => {
+			/* The marker directory a first firing makes, its search permission
+			 * then taken: the core's stat of the session's marker throws EACCES,
+			 * past every catch of its own. */
+			const tmp = fs.mkdtempSync(path.join(SCRATCH, "unsearchable-"));
+			const fire = (session: string) =>
+				entry(
+					JSON.stringify({
+						prompt: "/implement 5203",
+						hook_event_name: "UserPromptSubmit",
+						session_id: session,
+					}),
+					{ TMPDIR: tmp, CLAUDE_CONFIG_DIR: tmp },
+				);
+			expect(fire("first").status).toBe(0);
+			const [markers, ...more] = fs
+				.readdirSync(tmp)
+				.filter((n) => n.startsWith("wfc-tracker-inject-"))
+				.map((n) => path.join(tmp, n));
+			expect(more).toHaveLength(0);
+			if (!markers)
+				throw new Error("the first firing made no marker directory");
+			fs.chmodSync(markers, 0o600);
+			try {
+				const r = fire("unsearchable");
+				expect(r.status).toBe(0);
+				expect(r.stdout).toBe("");
+				expect(readGuardErrorsLog(tmp)).toMatch(
+					/\tinject-tracker-docs\tinject-tracker-docs threw\tError: EACCES: permission denied, stat '[^']*unsearchable\.implement'/,
+				);
+			} finally {
+				fs.chmodSync(markers, 0o700);
+			}
+		},
+	);
 });
 
 describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", () => {
