@@ -132,28 +132,29 @@ Findings:
 - Q3.2. **On the 5 test files' own time, the pilot IS readable.** Here the cut is 72% to 87% of those files. The noise of one file's wall is 22% to 47% (range) at load1 5 to 16 (Q2). Locally, the 5 files took 369 s together in this session; the predicted cut is about 263 to 319 s. A cut of that size is 1.5 to 4 times the measured wall range of one file (22% to 47%), and 5 to 12 times its CV (7% to 14%). Thus it is readable in one before-and-after pair, and safely readable on the median of 3 runs each. Read it on CI as the file-seconds of the 5 files in one run, against the same 5 files in the F4 run or in the next untouched run.
 - Q3.3. **The best reading is the count and share, not the wall.** After the port, the guard runs of each test file fall from a known count (commit-form 486, push-rules 86, suite-concurrency 376, issue-create-label 441, pull-form 354) to the kept contract tests. The guard share falls from 0.84 to 0.97 to near the kept fraction.
 
-## Q5. Shell subjects in the second class: the method over-predicts (#5135, #5199)
+## Q5. Shell subjects in #5135's non-guard class: three of four under their bands (#5135, #5199)
 
-**LABEL: measured.** #5135's rule: a measured CPU cut below the prediction's low edge means the method is off for that kind of subject, and the next ticket of that kind re-fits it before predicting. All three shell-script subjects in #5135's tier 1 measured below their bands. Every Node subject landed inside or above its band (#5146, #5148, #5149, #5150, #5156, #5157).
+**LABEL: measured.** #5135's rule: a measured CPU cut below the prediction's low edge means the method is off for that kind of subject, and the next ticket of that kind re-fits it before predicting. Three of the four shell-script subjects in #5135's tier 1 measured below their bands. The Node subjects landed inside or above theirs (#5146, #5148, #5149, #5150, #5156, #5157), measured on wall only. Figures marked #2729 are from #5199's class report there (comment 6868953761).
 
 | Subject (ticket) | Predicted | Measured | How measured |
 | --- | --- | --- | --- |
 | `dispatch-sessions.sh` (#5145) | 58–68% | **45–46% CPU**, 52–56% wall | 2 concurrent CPU pairs, load1 6–8 |
-| `review-hold-gate.sh` (#5153) | 28–34% | **8% wall cut**; the same file's CI file-s cut 31% | local: sequential pairs, wall only, no CPU pair. CI: median of 4 sweeps each side (#5199) |
-| pre-commit's doc-map `sh` block (#5155) | 55–63% | **43% CPU** (ratio 0.572, 0.567–0.585), 46% wall | 6 concurrent CPU pairs, alternating first, load1 9–16 (#5199) |
+| `review-hold-gate.sh` (#5153) | 28–34% | **8% wall**; the same file's CI file-s cut 31% (#2729) | local: sequential pairs, wall only. CI: median of 4 sweeps a side |
+| pre-commit's doc-map `sh` block (#5155) | 55–63% | **43% CPU** (ratio 0.572, 0.567–0.585), 46% wall (#2729) | 6 concurrent CPU pairs, alternating first, load1 9–16 |
+| `inject-tracker-docs.sh` (#5151) | 73–88% | 83–87% wall | sequential pairs, wall only |
 
 Causes, from each ticket's own reading:
 
-- Q5.1. **The share counts children the core still spawns.** A shell subject's spawn wall includes its own children: the hold's git calls (#5153), the real checker processes (#5155), the stubs, `git` and `gh` the dispatcher's Node helpers call (#5145, residual 0.26 of the helpers' time). A Node core keeps every one. The 0.80–0.97 factor assumes they go.
-- Q5.2. **A wall share overstates a CPU cut where the removed time sleeps.** `dispatch-sessions-bridge-budget.test.ts` saved 36 s of wall and no CPU, its stubbed probe budget being a sleep.
-- Q5.3. **#5153's wall-share ceiling counted `git commit`'s own work** (marked an upper bound on the ticket), and the test file's commits stayed real at the boundary.
+- Q5.1. **#5153 applied share × 0.80–0.97 to a share holding children the core keeps:** the hold's git calls, and `git commit`'s own work (marked an upper bound on the ticket).
+- Q5.2. **#5145 and #5155 priced what stays (#2238's split) and still missed.** Both priced in wall, against a CPU headline. #5145's `dispatch-sessions-bridge-budget.test.ts` saved 36 s of wall and no CPU, its probe budget being a sleep. #5155's kept work (the real checker, git) is CPU-dense, while what went was partly process-start wait: 46–55% off the wall, 43% off the CPU.
+- Q5.3. **#5151 held because its children went with the bash:** `jq`, `date`, `stat` and `find`, which a Node core does in-process. Two cases stayed spawned.
 
-**The re-fit a shell-subject ticket runs before predicting:** price what stays rather than share × 0.80–0.97. Trace the subject at depth 3, so its children are timed. Remove only bash, its utilities and Node starts, and keep every child the core still runs (real git, real checkers, stubs behind the helpers). Predict in CPU, counting no saving for sleeps and timeouts. Back-test the re-fit against the three rows above before using it.
+**The re-fit a shell-subject ticket runs before predicting:** predict in CPU, not wall. Read the before files' CPU, and the CPU of every child the core keeps (real git, real checkers, stubs behind helpers) from a depth-3 trace. Count no saving for sleeps or timeouts. This re-fit is unproven: back-test it against the four rows above before relying on it.
 
 ## Headline
 
 - **Predicted cut for the bash-guard class: 72% to 87% of the class (wide band 59% to 96%), that is 790 to 960 CI file-seconds, 19.5% to 23.6% of the suite, about 280 to 340 s of CI Vitest wall.** Estimate on 11 measured files (58% of the class's CI file-seconds). The old prediction (80 to 95%, 21 to 25%) is a little high at its top.
-- **For a shell-script subject outside the guard class, the band over-predicts: re-fit it per Q5 before predicting.**
+- **For a shell-script subject whose children survive the port, the wall-priced band over-predicts the CPU cut: re-fit per Q5 before predicting.**
 - **A 5-guard pilot (plus the parser) is readable above noise on its own files' time and, better, on the guard-run count and share. It is not readable on the CI suite wall** (110 to 133 s against a runner noise of up to 400 s).
 
 ## Appendix: the instrument
