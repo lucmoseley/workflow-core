@@ -922,7 +922,7 @@ function peakOf(waiters, w) {
  * every touching exit but a skipped one, matched to its run.
  *
  * @param {Logs} logs
- * @param {Window} w
+ * @param {Pick<Window, "since" | "until">} w
  */
 function waitersOf(logs, w) {
 	const touching = logs.exits.filter((e) => {
@@ -945,7 +945,7 @@ function waitersOf(logs, w) {
  * reading that sets queued time beside other figures (throughput-readout.js).
  *
  * @param {Logs} logs
- * @param {Window} w
+ * @param {Pick<Window, "since" | "until">} w
  * @returns {{ st: number, en: number }[]}
  */
 const waitSpans = (logs, w) =>

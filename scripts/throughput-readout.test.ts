@@ -96,8 +96,11 @@ function run(
 	);
 }
 
-/** A checkout whose default branch holds a commit citing #1 and its revert. */
-function writeCheckout() {
+/**
+ * A checkout whose default branch holds a commit citing #1 and its revert,
+ * the revert's body line kept or edited out.
+ */
+function writeCheckout(bodyLine = true) {
 	const code = path.join(dir, "code");
 	initGitRepo(code, "/dev/null");
 	const git = (...a: string[]) =>
@@ -112,25 +115,40 @@ function writeCheckout() {
 	git("add", "a");
 	git("commit", "-q", "--no-verify", "-m", "Build it (#1)");
 	git("revert", "--no-edit", "HEAD");
+	if (!bodyLine)
+		git(
+			"commit",
+			"-q",
+			"--amend",
+			"--no-verify",
+			"-m",
+			'Revert "Build it (#1)"',
+		);
 }
 
-it("prints the bands as JSON, a reverted close subtracted through the checkout's log", () => {
-	writeMinuteLog();
-	writeCheckout();
-	const r = run(["--since", SINCE, "--until", UNTIL, "--json"]);
-	expect(r.status).toBe(0);
-	const out = JSON.parse(r.stdout);
-	expect(out.sessions).toHaveLength(1);
-	expect(out.sessions[0]).toMatchObject({
-		band: "3",
-		hours: 48,
-		closes: 1,
-		reverted: 1,
-		counted: 0,
-		thin: false,
-	});
-	expect(out.load[0].band).toBe("<16");
-});
+it.each([
+	["its body line", true],
+	["its subject alone", false],
+])(
+	"prints the bands as JSON, a close reverted by %s subtracted through the checkout's log",
+	(_, bodyLine) => {
+		writeMinuteLog();
+		writeCheckout(bodyLine);
+		const r = run(["--since", SINCE, "--until", UNTIL, "--json"]);
+		expect(r.status).toBe(0);
+		const out = JSON.parse(r.stdout);
+		expect(out.sessions).toHaveLength(1);
+		expect(out.sessions[0]).toMatchObject({
+			band: "3",
+			hours: 48,
+			closes: 1,
+			reverted: 1,
+			counted: 0,
+			thin: false,
+		});
+		expect(out.load[0].band).toBe("<16");
+	},
+);
 
 it("names a missing minute log with the hours it lacks and still exits 0", () => {
 	const r = run(["--since", SINCE, "--until", UNTIL]);
@@ -175,12 +193,13 @@ it("reports a day at the search cap as truncated", () => {
 });
 
 it.each([
-	[["--since", "yesterday", "--until", UNTIL]],
-	[["--since", UNTIL, "--until", SINCE]],
-	[["--since", SINCE, "--until", UNTIL, "--era", "after"]],
-	[["--since", SINCE, "--until", UNTIL, "--checkout", "nodir"]],
-])("exits 2 on a bad argument: %j", (args) => {
+	[["--since", "yesterday", "--until", UNTIL], "--since first"],
+	[["--since", UNTIL, "--until", SINCE], "--since first"],
+	[["--since", SINCE, "--until", UNTIL, "--era", "after"], "after is not"],
+	[["--since", SINCE, "--until", UNTIL, "--checkout", "nodir"], "nodir is not"],
+])("exits 2 on a bad argument: %j", (args, names) => {
 	const r = run(args);
 	expect(r.status).toBe(2);
+	expect(r.stderr).toContain(names);
 	expect(r.stderr).toContain("usage:");
 });

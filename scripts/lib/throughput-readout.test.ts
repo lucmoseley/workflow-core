@@ -226,8 +226,29 @@ describe("throughput readout", () => {
 		expect(m?.slope).toBeCloseTo(10);
 		expect(m?.ci?.[0]).toBeCloseTo(10);
 		expect(m?.ci?.[1]).toBeCloseTo(10);
+		expect(m?.thin).toBe(false);
 		const low = readout(records());
 		expect(low.marginalQueueWait[0]?.slope).toBe(null);
+	});
+
+	it("fits the marginal wait over every hour its 5-session band holds, and marks it thin under 10 hours", () => {
+		const sessionsAt = (t: number) => ((t - T0) / HOUR < 3 ? 4.6 : 6.6);
+		const queue = Array.from({ length: 6 }, (_, h) => {
+			const st = T0 + h * HOUR;
+			return { st, en: st + (h < 3 ? 6 : 26) * MIN };
+		});
+		const r = readout(
+			records({
+				until: T0 + 6 * HOUR,
+				minutes: minutes(T0, 6, (t) => ({ sessions: sessionsAt(t) })),
+				queue,
+			}),
+		);
+		expect(band(r.sessions, "5").hours).toBe(3);
+		const [m] = r.marginalQueueWait;
+		expect(m?.hours).toBe(6);
+		expect(m?.slope).toBeCloseTo(10);
+		expect(m?.thin).toBe(true);
 	});
 
 	it("reports the median Bash round-trip and hook-timeout refusals per hour", () => {

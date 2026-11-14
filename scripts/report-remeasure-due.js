@@ -177,6 +177,7 @@ const {
 	parseGhFailureReason,
 	ghJson,
 	unreachableRemedy,
+	SEARCH_CAP,
 } = require("./lib/gh");
 const { readCommit } = require("./lib/commit-sha");
 const { gitOutcome, gitReader } = require("./lib/git");
@@ -222,7 +223,6 @@ const FLOOR = "2026-10-14";
 const PINNED_FROM = "2026-10-29";
 /* 591ef1a74's commit time (#3664): no commit before it carries a trailer. */
 const TRAILER_FROM = "2026-10-29T22:57:18+08:00";
-const SEARCH_CAP = 1000;
 /* GitHub's largest page: GraphQL's, for tickets and each ticket's comments,
  * and REST search's, for reverts. */
 const PAGE = 100;

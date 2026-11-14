@@ -31,6 +31,8 @@ const LOAD_EDGES_PER_CORE = [2, 3, 4];
 /* Untraced: the marginal queue wait is fitted from 5 sessions up, #5185's
  * analysis range. */
 const MARGINAL_FROM_SESSIONS = 5;
+/* Untraced: a guess, enough draws that the 2.5th and 97.5th percentiles
+ * settle to the second figure on a rerun with another seed. */
 const BOOTSTRAP_RESAMPLES = 2000;
 /* Fixed so a rerun over the same records prints the same interval. */
 const BOOTSTRAP_SEED = 5196;
@@ -64,8 +66,9 @@ const LIMBS = /** @type {const} */ ([
  *   ticks: TickRow[] | null, closes: CloseRow[], days: DayRow[],
  *   commits: CommitRow[], logRepos: string[], queue: Span[] | null,
  *   transcripts: TranscriptMinute[] | null, jobs: JobRow[] | null,
- *   dispatched: string[] }} Records `logRepos` the trackers whose
- *   commit log was read; null where a source would not read
+ *   dispatched: string[], transcriptsWhy?: string }} Records `logRepos`
+ *   the trackers whose commit log was read; null where a source would not
+ *   read, `transcriptsWhy` saying why dense_minute.py gave none
  */
 
 /**
@@ -82,6 +85,12 @@ const LIMBS = /** @type {const} */ ([
 /** @param {number} t */
 const minuteOf = (t) => Math.floor(t / MINUTE_MS) * MINUTE_MS;
 
+/**
+ * The session band an hour's time-weighted mean sessions falls in.
+ * @param {number} x
+ */
+const sessionBand = (x) => Math.round(x);
+
 /** @param {number[]} xs */
 const sum = (xs) => xs.reduce((a, b) => a + b, 0);
 
@@ -90,9 +99,11 @@ function median(xs) {
 	if (xs.length === 0) return null;
 	const s = [...xs].sort((a, b) => a - b);
 	const mid = Math.floor(s.length / 2);
-	return s.length % 2
-		? (s[mid] ?? null)
-		: ((s[mid - 1] ?? 0) + (s[mid] ?? 0)) / 2;
+	const hi = s[mid];
+	const lo = s[mid - 1];
+	if (hi === undefined) return null;
+	if (s.length % 2 || lo === undefined) return hi;
+	return (lo + hi) / 2;
 }
 
 /** @param {number} a @param {number} b */
@@ -125,19 +136,19 @@ function bootstrap(items, stat) {
 	/** @type {number[]} */
 	const out = [];
 	for (let b = 0; b < BOOTSTRAP_RESAMPLES; b++) {
-		const draw = items.map(
-			() => /** @type {T} */ (items[Math.floor(rand() * items.length)]),
-		);
+		/** @type {T[]} */
+		const draw = [];
+		for (const _ of items) {
+			const pick = items[Math.floor(rand() * items.length)];
+			if (pick !== undefined) draw.push(pick);
+		}
 		const v = stat(draw);
 		if (v !== null) out.push(v);
 	}
-	if (out.length === 0) return null;
 	out.sort((a, b) => a - b);
-	const at = (/** @type {number} */ p) =>
-		/** @type {number} */ (
-			out[Math.min(out.length - 1, Math.floor(p * out.length))]
-		);
-	return [at(0.025), at(0.975)];
+	const lo = out[Math.floor(0.025 * out.length)];
+	const hi = out[Math.min(out.length - 1, Math.floor(0.975 * out.length))];
+	return lo === undefined || hi === undefined ? null : [lo, hi];
 }
 
 /**
@@ -235,8 +246,8 @@ function freshAt(rows) {
 	let held = null;
 	/** @param {number} t @returns {T | null} */
 	return (t) => {
-		while (i < rows.length && /** @type {T} */ (rows[i]).t <= t) {
-			held = /** @type {T} */ (rows[i]);
+		for (let row = rows[i]; row !== undefined && row.t <= t; row = rows[i]) {
+			held = row;
 			i++;
 		}
 		return held && t - held.t <= STALE_MS ? held : null;
@@ -486,7 +497,8 @@ function marginalOf(era, buckets) {
 	const pts = buckets.flatMap((b) => {
 		const x = meanOf(b, (m) => m.sessions);
 		const q = b.minutes.filter((m) => m.queuedS !== null);
-		if (x === null || x < MARGINAL_FROM_SESSIONS || q.length === 0) return [];
+		if (x === null || sessionBand(x) < MARGINAL_FROM_SESSIONS || q.length === 0)
+			return [];
 		const y = sum(q.map((m) => m.queuedS ?? 0)) / 60 / (q.length / 60);
 		return [{ x, y }];
 	});
@@ -495,6 +507,7 @@ function marginalOf(era, buckets) {
 		return {
 			era,
 			hours: pts.length,
+			thin: pts.length < THIN_HOURS,
 			slope: null,
 			ci: null,
 			none: `${pts.length} hour(s) at ${MARGINAL_FROM_SESSIONS}+ sessions with the queue log read, too few or too alike to fit`,
@@ -502,6 +515,7 @@ function marginalOf(era, buckets) {
 	return {
 		era,
 		hours: pts.length,
+		thin: pts.length < THIN_HOURS,
 		slope,
 		ci: bootstrap(pts, slopeOf),
 		none: null,
@@ -581,7 +595,11 @@ function lackingOf(r, minutes) {
 	if (!r.queue)
 		lack("queue-exit log", coveredH, "the queue-exit log would not read");
 	if (!r.transcripts)
-		lack("transcripts", coveredH, "dense_minute.py gave no per-minute output");
+		lack(
+			"transcripts",
+			coveredH,
+			r.transcriptsWhy ?? "dense_minute.py gave no per-minute output",
+		);
 	if (!r.jobs) lack("job records", coveredH, "no job store would read");
 	return out;
 }
@@ -596,15 +614,14 @@ function readout(r) {
 	const buckets = bucketsOf(minutes, closes);
 	const edges = LOAD_EDGES_PER_CORE.map((e) => e * r.cores);
 	const loadLabels = [
-		`<${edges[0]}`,
-		...edges.slice(1).map((e, i) => `${edges[i]}–${e}`),
+		...edges.map((e, i) => (i === 0 ? `<${e}` : `${edges[i - 1]}–${e}`)),
 		`${edges.at(-1)}+`,
 	];
 	const sessionsBands = banded(
 		buckets,
 		(b) => {
 			const x = meanOf(b, (m) => m.sessions);
-			return x === null ? null : String(Math.round(x));
+			return x === null ? null : String(sessionBand(x));
 		},
 		(a, b) => Number(a) - Number(b),
 	);
@@ -614,7 +631,7 @@ function readout(r) {
 			const x = meanOf(b, (m) => m.load1);
 			if (x === null) return null;
 			const i = edges.findIndex((e) => x < e);
-			return /** @type {string} */ (loadLabels[i < 0 ? edges.length : i]);
+			return loadLabels[i < 0 ? edges.length : i] ?? null;
 		},
 		(a, b) => loadLabels.indexOf(a) - loadLabels.indexOf(b),
 	);
@@ -653,4 +670,4 @@ function readout(r) {
 
 /** @typedef {ReturnType<typeof readout>} Readout */
 
-module.exports = { LIMBS, THIN_HOURS, readout };
+module.exports = { LIMBS, MARGINAL_FROM_SESSIONS, THIN_HOURS, readout };

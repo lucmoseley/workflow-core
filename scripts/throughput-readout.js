@@ -35,7 +35,7 @@ const { childFailure, childVerdict } = require("./lib/child-failure.js");
 const { citedIssues } = require("./lib/cited-issues.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { readTicks, tickLimb } = require("./lib/concurrency.js");
-const { gh, parseErrLine } = require("./lib/gh.js");
+const { gh, parseErrLine, SEARCH_CAP } = require("./lib/gh.js");
 const { gitOrNull } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
 const {
@@ -48,7 +48,12 @@ const { queueExitLogPath } = require("./lib/queue-exit-log.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { seatsFrom } = require("./lib/seat-args.js");
 const { readLogs, waitSpans } = require("./lib/suite-queue-replay.js");
-const { LIMBS, THIN_HOURS, readout } = require("./lib/throughput-readout.js");
+const {
+	LIMBS,
+	MARGINAL_FROM_SESSIONS,
+	THIN_HOURS,
+	readout,
+} = require("./lib/throughput-readout.js");
 const { minuteLogPath } = require("./lib/windows-memory.js");
 const { resolveKey } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
@@ -67,8 +72,7 @@ const USAGE = `usage: node ${scriptPath("throughput-readout.js")} --since <utc> 
                         (default: every seat)`;
 
 const DAY_MS = 864e5;
-/** GitHub's silent search cap: a day returning this many was truncated. */
-const SEARCH_CAP = 1000;
+
 /* Untraced: how far before the window the commit log is read, so a close's
  * commits landed before it are joined. */
 const COMMIT_LOOKBACK_MS = 30 * DAY_MS;
@@ -76,6 +80,8 @@ const COMMIT_LOOKBACK_MS = 30 * DAY_MS;
  * 6; the cap allows a month at load 30. */
 const DENSE_TIMEOUT_MS = 60 * 60_000;
 const REVERTS = /This reverts commit ([0-9a-f]{40})/;
+/* A revert whose body line was edited out names its target by subject. */
+const REVERT_SUBJECT = /^Revert "(.+)"$/;
 
 /**
  * @param {string | undefined} s
@@ -132,6 +138,7 @@ function daysOf(since, until) {
  *   closes: import("./lib/throughput-readout.js").CloseRow[] }}
  */
 function fetchDay(owner, date) {
+	/** @type {unknown} */
 	let rows;
 	try {
 		rows = JSON.parse(
@@ -157,22 +164,43 @@ function fetchDay(owner, date) {
 			closes: [],
 		};
 	}
+	if (!Array.isArray(rows))
+		return {
+			day: { date, state: "failed", why: "gh printed no list of issues" },
+			closes: [],
+		};
 	if (rows.length >= SEARCH_CAP)
 		return { day: { date, state: "truncated" }, closes: [] };
-	return {
-		day: { date, state: "read" },
-		closes: rows.map(
-			(
-				/** @type {{ number: number, closedAt: string,
-				 *   repository: { nameWithOwner: string } }} */ r,
-			) => ({
-				repo: r.repository.nameWithOwner,
-				number: r.number,
-				closedAt: Date.parse(r.closedAt),
-				reason: "COMPLETED",
-			}),
-		),
-	};
+	const closes = rows.flatMap(closeRow);
+	if (closes.length < rows.length)
+		return {
+			day: {
+				date,
+				state: "failed",
+				why: `${rows.length - closes.length} issue(s) lacked a repository, number or close time`,
+			},
+			closes: [],
+		};
+	return { day: { date, state: "read" }, closes };
+}
+
+/**
+ * One searched issue as a close; none where gh's row lacks a field.
+ * @param {unknown} r
+ * @returns {import("./lib/throughput-readout.js").CloseRow[]}
+ */
+function closeRow(r) {
+	if (typeof r !== "object" || r === null) return [];
+	const { number, closedAt, repository } =
+		/** @type {Record<string, unknown>} */ (r);
+	const repo =
+		typeof repository === "object" && repository !== null
+			? /** @type {Record<string, unknown>} */ (repository).nameWithOwner
+			: undefined;
+	const t = typeof closedAt === "string" ? Date.parse(closedAt) : Number.NaN;
+	if (typeof number !== "number" || typeof repo !== "string" || Number.isNaN(t))
+		return [];
+	return [{ repo, number, closedAt: t, reason: "COMPLETED" }];
 }
 
 /**
@@ -198,19 +226,31 @@ function readCommits(repo, dir, from) {
 		{ cwd: dir },
 	);
 	if (out === null) return null;
-	return out
+	const rows = out
 		.split("\x1e")
 		.filter((x) => x.trim())
 		.map((x) => {
 			const [sha = "", at = "", message = ""] = x.split("\x1f");
 			return {
-				repo,
 				sha: sha.trim(),
 				t: Date.parse(at),
-				cites: [...citedIssues(message)],
-				reverts: REVERTS.exec(message)?.[1] ?? null,
+				subject: message.split("\n", 1)[0] ?? "",
+				message,
 			};
 		});
+	/** @type {Map<string, string>} */
+	const bySubject = new Map();
+	for (const c of [...rows].reverse()) bySubject.set(c.subject, c.sha);
+	return rows.map((c) => ({
+		repo,
+		sha: c.sha,
+		t: c.t,
+		cites: [...citedIssues(c.message)],
+		reverts:
+			REVERTS.exec(c.message)?.[1] ??
+			bySubject.get(REVERT_SUBJECT.exec(c.subject)?.[1] ?? "") ??
+			null,
+	}));
 }
 
 /**
@@ -230,7 +270,7 @@ function readJobs(seats, since) {
 			ids = fs.readdirSync(jobStorePath(seat));
 		} catch {
 			/* A seat with no job store holds no job; the readout names a
-			 * window where none read at all. */
+			 * window where none read at all (#5196). */
 			continue;
 		}
 		read = true;
@@ -290,7 +330,9 @@ function readTranscripts(since, until) {
 		return { rows: null, why: childFailure(childVerdict(r)) || "no output" };
 	const rows = parseJsonl(r.stdout).rows.map((m) => ({
 		t: Date.parse(String(m.minute)),
-		bash: Array.isArray(m.bash_s) ? m.bash_s : [],
+		bash: Array.isArray(m.bash_s)
+			? m.bash_s.filter((/** @type {unknown} */ x) => typeof x === "number")
+			: [],
 		hto: typeof m.hto === "number" ? m.hto : 0,
 	}));
 	return { rows, why: null };
@@ -340,13 +382,7 @@ function readQueue(markers, since, until) {
 	});
 	if (logs.unread.absent.some((f) => f.endsWith(".suite-queue-exits.jsonl")))
 		return null;
-	return waitSpans(logs, {
-		since,
-		until,
-		eras: [],
-		memTotalMb: 0,
-		loadCeiling: null,
-	});
+	return waitSpans(logs, { since, until });
 }
 
 /** @param {number | null} x @param {number} [dp] */
@@ -422,7 +458,7 @@ function render(r) {
 		out.push(
 			m.slope === null
 				? `Marginal queue wait, era ${m.era}: none — ${m.none}.`
-				: `Marginal queue wait, era ${m.era}: ${num(m.slope)} queued min/h per added session, 95% [${num(m.ci?.[0] ?? null)}, ${num(m.ci?.[1] ?? null)}], over ${m.hours} hour(s) at 5+ sessions.`,
+				: `Marginal queue wait, era ${m.era}: ${num(m.slope)} queued min/h per added session, 95% [${num(m.ci?.[0] ?? null)}, ${num(m.ci?.[1] ?? null)}], over ${m.hours} hour(s) at ${MARGINAL_FROM_SESSIONS}+ sessions${m.thin ? `, thin: under ${THIN_HOURS} hours, no plateau read from it` : ""}.`,
 		);
 	for (const x of r.lacking)
 		out.push(`Lacking — ${x.source}: ${num(x.hours, 1)} h, ${x.why}.`);
@@ -582,18 +618,17 @@ function readRecords(o) {
 			typeof x.jobId === "string" ? [x.jobId] : [],
 		),
 	};
-	return { records, transcriptsWhy: transcripts.why };
+	if (transcripts.why)
+		records.transcriptsWhy = `dense_minute.py gave no per-minute output: ${transcripts.why}`;
+	return records;
 }
 
 /** @returns {0 | 2} */
 function main() {
 	const o = readArgs(process.argv.slice(2));
 	if (typeof o === "number") return o;
-	const { records, transcriptsWhy } = readRecords(o);
-	const r = readout(records);
-	const row = r.lacking.find((x) => x.source === "transcripts");
-	if (row && transcriptsWhy)
-		row.why = `dense_minute.py gave no per-minute output: ${transcriptsWhy}`;
+	const r = readout(readRecords(o));
+
 	writeFd(1, `${o.json ? JSON.stringify(r, null, "\t") : render(r)}\n`);
 	return 0;
 }

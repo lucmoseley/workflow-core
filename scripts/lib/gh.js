@@ -55,6 +55,9 @@ const MAX_BUFFER = 256e6;
  */
 const ISSUE_LIST_LIMIT = 20_000;
 
+/** GitHub search's silent cap: a query returning this many was truncated. */
+const SEARCH_CAP = 1000;
+
 /*
  * Every call's wall-clock cap unless its caller sets its own (#2677). Under
  * load 32-52 on 8 cores, 114 measured calls took 8-187 s, the CPU starved
@@ -708,6 +711,7 @@ module.exports = {
 	 * (#1566). */
 	MAX_BUFFER,
 	ISSUE_LIST_LIMIT,
+	SEARCH_CAP,
 	assertWholeTracker,
 	assertOpenRead,
 	ghIssueListAll,
