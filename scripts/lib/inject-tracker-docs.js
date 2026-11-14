@@ -18,6 +18,17 @@
  *
  * Never blocks: an unreadable payload or no command matched returns nothing.
  *
+ * READ IN PLACE, NOT THROUGH PORTS (§T7): its Ports carry gh, the tier core's
+ * spawn, the clock and the fail-open log. The filesystem stays real, as #2733's
+ * boundary table rules it gets no fake, so this reads and writes it itself:
+ * the job record's `intent`, the de-dup markers (concision-backstop.sh's input
+ * too), the host's settings, config and rule texts, and the standards. It also
+ * reads the env vars that say where those files are, since a port would only
+ * pass one path string along and a test sets each one with vi.stubEnv:
+ * CLAUDE_JOB_DIR, TMPDIR, and the roots hostRoot(), configDir() and coreRoot()
+ * resolve. CLAUDE_CODE_SESSION_ID is read too, as the session id where the
+ * payload carries none.
+ *
  * THE NO-MATCH PATH REQUIRES NOTHING BEYOND THE TEXT MODULE. It runs on every
  * prompt, and the latency gate (#2733, bench.py --paired) reads it; the config, rule and review libraries load only once
  * a command has matched.

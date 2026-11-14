@@ -13,6 +13,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
+import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { registrationsOf } from "./lib/hook-wiring";
 import { runInProcess } from "./lib/run-in-process.js";
 import { readJsConst } from "./lib/shell-const-testkit";
@@ -88,6 +89,36 @@ describe("the entry's input channels", () => {
 		const r = entry(JSON.stringify({ prompt: "/triage 1" }));
 		expect(r.status).toBe(0);
 		expect(r.stdout.startsWith("You invoked /triage")).toBe(true);
+	});
+});
+
+describe("the entry's fail-open (§N5)", () => {
+	it("exits 0 printing nothing, the core's throw logged, where the marker directory cannot be searched", () => {
+		/* A marker directory without search permission: the core's stat of the
+		 * session's marker throws EACCES, past every catch of its own. */
+		const tmp = fs.mkdtempSync(path.join(SCRATCH, "unsearchable-"));
+		const markers = path.join(
+			tmp,
+			`wfc-tracker-inject-${process.getuid?.() ?? 0}`,
+		);
+		fs.mkdirSync(markers, { mode: 0o600 });
+		try {
+			const r = entry(
+				JSON.stringify({
+					prompt: "/implement 5203",
+					hook_event_name: "UserPromptSubmit",
+					session_id: "unsearchable",
+				}),
+				{ TMPDIR: tmp, CLAUDE_CONFIG_DIR: tmp },
+			);
+			expect(r.status).toBe(0);
+			expect(r.stdout).toBe("");
+			expect(readGuardErrorsLog(tmp)).toMatch(
+				/\tinject-tracker-docs\tinject-tracker-docs threw\tError: EACCES: permission denied, stat '[^']*unsearchable\.implement'/,
+			);
+		} finally {
+			fs.chmodSync(markers, 0o700);
+		}
 	});
 });
 
