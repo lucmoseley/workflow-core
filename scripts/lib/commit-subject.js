@@ -23,8 +23,9 @@
  * tells it from git's nested `Revert "Revert "x""`.
  */
 
-const fs = require("node:fs");
+const { caught } = require("./caught.js");
 const { recordedLines } = require("./commit-message.js");
+const { readText } = require("./file-read.js");
 const { readRuleTextOr } = require("./rule-text.js");
 
 /* GitHub cuts a subject at 72, and gitlint caps there by default
@@ -61,7 +62,7 @@ function generated(subject) {
 	return ["fixup! ", "squash! ", "amend! "].some((p) => subject.startsWith(p));
 }
 
-/* awk's [[:space:]], as the shell check's subject read used. */
+/* POSIX [[:space:]]: the trailing run the subject drops. */
 const SPACE = " \t\n\v\f\r";
 
 /**
@@ -95,24 +96,30 @@ const unmeasured = (context, why) => ({
  */
 function checkSubject(argv) {
 	const [file = "", context = "commit"] = argv;
-	try {
-		if (file === "") throw new Error("no file");
-		fs.accessSync(file, fs.constants.R_OK);
-	} catch {
+	const read = readText(file);
+	/* A directory opens and fails the read itself, which reads as the parse's
+	 * refusal below rather than a file nobody could open. */
+	if (
+		read.state === "absent" ||
+		(read.state === "unreadable" && caught(read.error).code !== "EISDIR")
+	)
 		return unmeasured(
 			context,
 			`cannot read the commit message file ('${file}').`,
 		);
-	}
-	let lines;
-	try {
-		lines = recordedLines(fs.readFileSync(file, "utf8"));
-	} catch {
+	/** @type {string[] | null} */
+	let lines = null;
+	if (read.state === "read")
+		try {
+			lines = recordedLines(read.data);
+		} catch {
+			/* Refused below, as the read that would not give text is. */
+		}
+	if (lines === null)
 		return unmeasured(
 			context,
 			"scripts/lib/commit-message.js did not read the message.",
 		);
-	}
 	const subject = trimSpace(lines.find((l) => trimSpace(l) !== "") ?? "");
 	if (generated(subject)) return { code: 0, stderr: "" };
 	const length = charCount(subject);
@@ -128,4 +135,4 @@ function checkSubject(argv) {
 	};
 }
 
-module.exports = { checkSubject, LIMIT };
+module.exports = { checkSubject };

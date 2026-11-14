@@ -8,9 +8,9 @@
  *   node scripts/prepare-commit-msg-dispatch.js --husky <dir> [<message-file> [<source> [<sha>]]]
  *
  * `--husky` is the hook's own directory, which holds the `pre-commit` the
- * inline path runs; the steps' scripts are read from
- * `${WFC_PLUGIN_ROOT:-<dir>/..}`, as the shell hook read them. The rest is
- * what git hands the hook; only the message file is read.
+ * inline path runs; the steps' scripts are read from WFC_PLUGIN_ROOT, else
+ * the directory above it. The rest is what git hands the hook; only the
+ * message file is read.
  *
  * BEFORE ANY ROW, in this order: the pre-commit stamp is read and DELETED,
  * so a stamp that outlived its commit stands down no later one; the route is
@@ -47,12 +47,12 @@ function runPrepareCommitMsg(
 	const path = require("node:path");
 	const { commitRoute, inRouteSet } = require("./lib/commit-route.js");
 	const { spawnGitSync } = require("./lib/git.js");
-	const { hookGitDir } = require("./lib/hook-entry.js");
+	const { readHookGitDir } = require("./lib/hook-entry.js");
 	const { dispatch } = require("./lib/precommit-dispatch.js");
 	const { takePrecommitStamp } = require("./lib/precommit-stamp.js");
 	const { ROWS, trailerArmed } = require("./lib/prepare-commit-msg-rows.js");
 
-	const gitDir = hookGitDir(io.cwd, io.env);
+	const gitDir = readHookGitDir(io.cwd, io.env);
 	const recorded = takePrecommitStamp(gitDir);
 	const route = commitRoute("prepare-commit-msg", gitDir, { env: io.env });
 	const written = spawnGitSync(["write-tree"], {
@@ -84,9 +84,6 @@ function runPrepareCommitMsg(
 		gates: "all",
 		voice: { hook: "prepare-commit-msg", noun: "step" },
 		ports: {
-			staged: () => [],
-			computed: () => [],
-			exists: () => false,
 			load: (row) => () => row.run(ctx),
 			write,
 			interrupted,
@@ -127,13 +124,8 @@ async function main() {
 module.exports = { runPrepareCommitMsg };
 
 if (require.main === module)
-	main().then(
-		(code) => process.exit(code),
-		(e) => {
-			writeFd(
-				2,
-				`prepare-commit-msg: the dispatcher threw: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}\n`,
-			);
-			process.exit(2);
-		},
-	);
+	require("./lib/hook-entry.js").exitWhenSettled(main, {
+		hook: "prepare-commit-msg",
+		said: "threw",
+		exit: 2,
+	});

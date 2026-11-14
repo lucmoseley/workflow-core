@@ -11,8 +11,6 @@
  * load prints one line naming the fault.
  */
 
-const { writeFd } = require("./lib/write-fd.js");
-
 /** @typedef {{ cwd: string, env: NodeJS.ProcessEnv }} HookIo */
 
 /**
@@ -23,12 +21,16 @@ const { writeFd } = require("./lib/write-fd.js");
  *   write: (fd: number, text: string) => void,
  *   interrupted?: () => Promise<number | null>,
  *   rows?: import("./lib/post-commit-rows.js").PostCommitRow[],
- * }} opts
+ *   programs?: import("./lib/post-commit-steps.js").Programs,
+ * }} opts `programs` absent, each row runs the real programs
  * @returns {Promise<number>}
  */
-function runPostCommit(io, { write, interrupted = async () => null, rows }) {
+function runPostCommit(
+	io,
+	{ write, interrupted = async () => null, rows, programs },
+) {
 	const { commitRoute } = require("./lib/commit-route.js");
-	const { hookGitDir } = require("./lib/hook-entry.js");
+	const { readHookGitDir } = require("./lib/hook-entry.js");
 	const { dispatch } = require("./lib/precommit-dispatch.js");
 	const { ROWS } = require("./lib/post-commit-rows.js");
 	return dispatch({
@@ -36,36 +38,30 @@ function runPostCommit(io, { write, interrupted = async () => null, rows }) {
 		gates: "all",
 		voice: { hook: "post-commit", noun: "step" },
 		ports: {
-			staged: () => [],
-			computed: () => [],
-			exists: () => false,
-			load: (row) => () => row.run(io),
+			load: (row) => () => row.run(io, programs),
 			write,
 			interrupted,
-			route: () => commitRoute("post-commit", hookGitDir(io.cwd, io.env)),
+			route: () => commitRoute("post-commit", readHookGitDir(io.cwd, io.env)),
 		},
 	});
 }
 
-/** @returns {Promise<void>} */
+/** @returns {Promise<number>} 0, whatever the rows did */
 async function main() {
+	const { writeFd } = require("./lib/write-fd.js");
 	const { catchSignals } = require("./lib/hook-entry.js");
 	await runPostCommit(
 		{ cwd: process.cwd(), env: process.env },
 		{ write: writeFd, interrupted: catchSignals() },
 	);
+	return 0;
 }
 
 module.exports = { runPostCommit };
 
 if (require.main === module)
-	main().then(
-		() => process.exit(0),
-		(e) => {
-			writeFd(
-				2,
-				`post-commit: the dispatcher did not run: ${e instanceof Error ? e.message.split("\n")[0] : String(e)}\n`,
-			);
-			process.exit(0);
-		},
-	);
+	require("./lib/hook-entry.js").exitWhenSettled(main, {
+		hook: "post-commit",
+		said: "did not run",
+		exit: 0,
+	});

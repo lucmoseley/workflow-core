@@ -759,27 +759,33 @@ function readWiringCorpus() {
 }
 
 /* Each git-hook dispatcher, the registry beside it in scripts/lib/, and the
- * scripts that registry's rows run. */
+ * export holding that registry's rows. */
 const DISPATCHERS = [
 	{
 		entry: "scripts/precommit-dispatch.js",
 		registry: "precommit-gates.js",
-		/** @param {{ GATES: { script: string }[] }} m */
-		scripts: (m) => m.GATES.map((g) => g.script),
+		rows: "GATES",
 	},
 	{
 		entry: "scripts/commit-msg-dispatch.js",
 		registry: "commit-msg-rows.js",
-		/** @param {{ ROWS: { script: string }[] }} m */
-		scripts: (m) => m.ROWS.map((r) => r.script),
+		rows: "ROWS",
 	},
 	{
 		entry: "scripts/prepare-commit-msg-dispatch.js",
 		registry: "prepare-commit-msg-rows.js",
-		/** @param {{ ROWS: { script: string }[] }} m */
-		scripts: (m) => m.ROWS.map((r) => r.script),
+		rows: "ROWS",
 	},
 ];
+
+/**
+ * The script each row of a loaded registry runs.
+ * @param {Record<string, { script: string }[]>} registry
+ * @param {string} rows the export holding the rows
+ * @returns {string[]}
+ */
+const rowScripts = (registry, rows) =>
+	(registry[rows] ?? []).map((r) => r.script);
 
 /**
  * The script of every dispatcher row, where a hook runs that dispatcher
@@ -792,10 +798,10 @@ const DISPATCHERS = [
  * @returns {string[]}
  */
 function dispatcherRowScripts(corpus) {
-	return DISPATCHERS.flatMap(({ entry, registry, scripts }) => {
+	return DISPATCHERS.flatMap(({ entry, registry, rows }) => {
 		if (!corpus.includes(entry)) return [];
 		try {
-			return scripts(
+			return rowScripts(
 				require(
 					path.join(
 						rootIsCore() ? root : CORE_ROOT,
@@ -804,6 +810,7 @@ function dispatcherRowScripts(corpus) {
 						registry,
 					),
 				),
+				rows,
 			);
 		} catch {
 			/* absent or unloadable wires nothing; an Enforced claim then reports UNWIRED */

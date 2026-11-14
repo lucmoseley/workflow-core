@@ -86,6 +86,7 @@ const path = require("node:path");
 const { Writable } = require("node:stream");
 const { TEST_TIMEOUT_MS } = require("./test-ceiling");
 const { caught } = require("./caught.js");
+const { replaceEnv, takeWrites, toText } = require("./fd-capture.js");
 
 const NODE_MODULES = `${path.sep}node_modules${path.sep}`;
 
@@ -376,36 +377,6 @@ function refuseLeaks(script, leaked) {
 		);
 }
 
-/* Buffer.isEncoding, not `typeof enc === "string"`: a Writable hands its _write
- * the chunk as a Buffer under the encoding "buffer", which is a string and is
- * not an encoding Buffer.toString will take. */
-/** @type {(chunk: unknown, enc?: unknown) => string} */
-const toText = (chunk, enc) =>
-	typeof chunk === "string"
-		? chunk
-		: // `any`: Buffer.from has no overload taking `unknown`, and a stream
-			// hands its write whatever the script passed.
-			Buffer.from(/** @type {any} */ (chunk)).toString(
-				typeof enc === "string" && Buffer.isEncoding(enc)
-					? /** @type {BufferEncoding} */ (enc)
-					: "utf8",
-			);
-
-/**
- * Replaces process.env in place. Mutation, not reassignment: a plain object
- * assigned over process.env stops child processes inheriting it natively, and
- * the scripts under test spawn git constantly.
- *
- * @param {Record<string, string | undefined>} env
- */
-function replaceEnv(env) {
-	for (const key of Object.keys(process.env))
-		if (!(key in env)) delete process.env[key];
-	for (const [key, value] of Object.entries(env))
-		if (value === undefined) delete process.env[key];
-		else process.env[key] = value;
-}
-
 /**
  * A stream that appends to the capture buffer instead of reaching a fd. Its
  * write callback fires synchronously, so console output keeps its position
@@ -685,48 +656,21 @@ function mutatePatches({ saved }, { script, args, options }, state) {
 			throw new ExitSignal(state.exited);
 		}
 	);
-	/* `any`: writeSync's overloads cannot be assigned one arrow without a
-	 * cast, and `data` and the rest are whatever the script passes, handed on
-	 * untouched to the real function. */
-	/** @type {any} */ (fs).writeSync = (
-		/** @type {number} */ fd,
-		/** @type {any} */ data,
-		/** @type {any[]} */ ...rest
-	) => {
-		if (fd !== 1 && fd !== 2) return saved.writeSync(fd, data, ...rest);
-		const text = toText(data);
-		if (state.exited !== null) return Buffer.byteLength(text);
+	/* What the script writes after its exit is dropped. The restore
+	 * `takeWrites` returns is not kept: the snapshot's own puts these back. */
+	takeWrites((fd, text) => {
+		if (state.exited !== null) return;
 		if (fd === 1) state.stdout += text;
 		else state.stderr += text;
-		return Buffer.byteLength(text);
-	};
-	/* The callback forms are honoured because a script that passes one and
-	 * never sees it called can wait forever. The `any`s, as on writeSync's:
-	 * write's overloads take a chunk, an encoding or a callback in either
-	 * second place. */
-	process.stdout.write = /** @type {any} */ (
-		(/** @type {any} */ c, /** @type {any} */ e, /** @type {any} */ cb) => {
-			if (state.exited === null) state.stdout += toText(c, e);
-			const done = typeof e === "function" ? e : cb;
-			if (done) done();
-			return true;
-		}
-	);
-	process.stderr.write = /** @type {any} */ (
-		(/** @type {any} */ c, /** @type {any} */ e, /** @type {any} */ cb) => {
-			if (state.exited === null) state.stderr += toText(c, e);
-			const done = typeof e === "function" ? e : cb;
-			if (done) done();
-			return true;
-		}
-	);
+	});
 
 	/* Only fd 0: everything else has to keep reading the real filesystem, the
 	 * script's own fixture included. The worker's real fd 0 is never reached:
 	 * lib/read-fd.js would wait out its EAGAIN ceiling on an idle one (#4072).
-	 * The `any`s, as on writeSync's patch: neither function's overloads can be
-	 * assigned one arrow without a cast, and each argument is whatever the
-	 * script passes, handed on to the real function untouched off fd 0. */
+	 * The `any`s, as on lib/fd-capture.js's writeSync patch: neither
+	 * function's overloads can be assigned one arrow without a cast, and each
+	 * argument is whatever the script passes, handed on to the real function
+	 * untouched off fd 0. */
 	const stdin = Buffer.from(options.stdin ?? "");
 	/** @type {any} */ (fs).readFileSync = (
 		/** @type {fs.PathOrFileDescriptor} */ target,

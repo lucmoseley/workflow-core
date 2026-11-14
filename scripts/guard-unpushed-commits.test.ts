@@ -24,6 +24,7 @@ import { ROWS } from "./lib/post-commit-rows.js";
 import {
 	hookEnv,
 	linkedCommit,
+	programs,
 	quietPrograms,
 	rowOf,
 	runPostCommit,
@@ -525,7 +526,7 @@ describe(".husky/post-commit's record step", () => {
 	/** The step alone. */
 	function runStep(cwd: string, env: NodeJS.ProcessEnv) {
 		stubArbiter();
-		const r = STEPS.recordCommitRow({ cwd, env: hookEnv(env) });
+		const r = STEPS.recordCommitRow({ cwd, env: hookEnv(env) }, programs);
 		expect(r.exit).toBe(0);
 		return { head: headOf(cwd), out: r.stdout };
 	}

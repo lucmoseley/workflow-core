@@ -27,6 +27,7 @@ import {
 	hookEnv,
 	linkedCommit,
 	plantSentinel,
+	programs,
 	quietPrograms,
 	REPLAY_SENTINELS,
 	type Result,
@@ -659,7 +660,7 @@ describe(".husky/post-commit's fault-notice step", () => {
 	/** The step on `cwd`, the program answering `answer`. */
 	function runStep(cwd: string, answer: Result, env: NodeJS.ProcessEnv = {}) {
 		const program = stubProgram("report-new-shared-faults.js", () => answer);
-		const r = STEPS.newSharedFaultsRow({ cwd, env: hookEnv(env) });
+		const r = STEPS.newSharedFaultsRow({ cwd, env: hookEnv(env) }, programs);
 		// Exit 0 whatever the program did — git ignores post-commit's status.
 		expect(r.exit).toBe(0);
 		return { ...r, program };
@@ -820,15 +821,18 @@ process.stdout.write(JSON.stringify({ findings }));
 `,
 		);
 
-		const r = STEPS.newSharedFaultsRow({
-			cwd: wt,
-			env: {
-				...env,
-				// hook-root.sh's answer for a linked worktree: the main tree.
-				CLAUDE_PROJECT_DIR: repo.root,
-				[CHECKERS_ENV]: JSON.stringify({ "guard-registry": probe }),
+		const r = STEPS.newSharedFaultsRow(
+			{
+				cwd: wt,
+				env: {
+					...env,
+					// hook-root.sh's answer for a linked worktree: the main tree.
+					CLAUDE_PROJECT_DIR: repo.root,
+					[CHECKERS_ENV]: JSON.stringify({ "guard-registry": probe }),
+				},
 			},
-		});
+			programs,
+		);
 
 		expect(r.exit).toBe(0);
 		expect(r.stdout, "the probe's git read no hook index").toContain(

@@ -5,9 +5,9 @@
  * for where a case is about the row's half rather than the program's answer.
  *
  * A stand-in replaces a program's PROGRAM export, or lib/check.js's
- * checkInProcess, on the module object Node's own require cache holds — the
- * one lib/post-commit-steps.js requires at each call — and is put back after
- * every case.
+ * checkInProcess, in `programs`, the steps' Programs port this kit hands
+ * every row it runs; a program no case stood in for runs for real. The
+ * stand-ins are dropped after every case.
  *
  * FOR TESTS ONLY.
  */
@@ -16,24 +16,22 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { afterEach, vi } from "vitest";
+import { afterEach, type Mock, vi } from "vitest";
 import { runPostCommit as runDispatcher } from "../post-commit-dispatch.js";
+import { scrubbedGitEnv } from "./hook-entry.js";
 import { ROWS } from "./post-commit-rows.js";
-import { scrubbedGitEnv } from "./post-commit-steps.js";
+import type { Programs } from "./post-commit-steps.js";
 
 const load = createRequire(__filename);
 
 export const SCRIPTS = path.join(__dirname, "..");
 
 /** lib/post-commit-steps.js as the registry's rows hold it: the instance in
- * Node's own require cache, which an ESM import of the file is not. */
+ * Node's own require cache, which an ESM import of the file is not, so a
+ * case can compare a row's `run` with its step. */
 export const STEPS: typeof import("./post-commit-steps.js") = load(
 	"./post-commit-steps.js",
 );
-
-afterEach(() => {
-	vi.restoreAllMocks();
-});
 
 export interface Io {
 	cwd: string;
@@ -56,19 +54,36 @@ export const PROGRAMS = [
 ] as const;
 export type Program = (typeof PROGRAMS)[number];
 
+type CheckInProcess = Programs["check"];
+
+const programFakes = new Map<string, Mock<(io: ProgramIo) => Result>>();
+const checkFake: { now: Mock<CheckInProcess> | null } = { now: null };
+
+afterEach(() => {
+	programFakes.clear();
+	checkFake.now = null;
+});
+
+/**
+ * The Programs port every row this kit runs is handed: each program's own
+ * module and lib/check.js's checkInProcess, but for what the case stood in.
+ */
+export const programs: Programs = {
+	load: (script) => {
+		const real = load(path.join(SCRIPTS, script));
+		const fake = programFakes.get(script);
+		return fake ? { ...real, PROGRAM: fake } : real;
+	},
+	check: (spec, argv, opts) =>
+		(checkFake.now ?? load("./check.js").checkInProcess)(spec, argv, opts),
+};
+
 /** Stand `impl` in for `script`'s PROGRAM until the case ends. */
 export function stubProgram(script: Program, impl: (io: ProgramIo) => Result) {
-	const mod: { PROGRAM: (io: ProgramIo) => Result } = load(
-		path.join(SCRIPTS, script),
-	);
-	return vi.spyOn(mod, "PROGRAM").mockImplementation(impl);
+	const fake = vi.fn(impl);
+	programFakes.set(script, fake);
+	return fake;
 }
-
-type CheckInProcess = (
-	spec: unknown,
-	argv: string[],
-	opts: { script: string },
-) => Promise<Result>;
 
 /**
  * Stand `impl` in for lib/check.js's checkInProcess, which the two
@@ -77,18 +92,17 @@ type CheckInProcess = (
 export function stubCheck(
 	impl: (...a: Parameters<CheckInProcess>) => Result | Promise<Result>,
 ) {
-	const mod: { checkInProcess: CheckInProcess } = load("./check.js");
-	return vi
-		.spyOn(mod, "checkInProcess")
-		.mockImplementation(async (...a) => impl(...a));
+	const fake = vi.fn<CheckInProcess>(async (...a) => impl(...a));
+	checkFake.now = fake;
+	return fake;
 }
 
 /** Every program the rows reach, silent: the rows of git alone stay real. */
 export function quietPrograms() {
-	const programs = Object.fromEntries(
+	const quiet = Object.fromEntries(
 		PROGRAMS.map((p) => [p, stubProgram(p, () => SILENT)]),
 	) as Record<Program, ReturnType<typeof stubProgram>>;
-	return { ...programs, check: stubCheck(() => SILENT) };
+	return { ...quiet, check: stubCheck(() => SILENT) };
 }
 
 /** A stand-in program writing its argv, one per line, to stdout. */
@@ -116,6 +130,7 @@ export async function runPostCommit(
 	const out = { 1: "", 2: "" };
 	const exit = await runDispatcher(io, {
 		rows,
+		programs,
 		write: (fd: number, text: string) => {
 			out[fd === 1 ? 1 : 2] += text;
 		},

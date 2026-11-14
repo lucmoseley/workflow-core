@@ -14,17 +14,21 @@
  * otherwise; 128 + n on signal n.
  */
 
-const { caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { commitRoute } = require("./lib/commit-route.js");
 const { ROWS } = require("./lib/commit-msg-rows.js");
-const { catchSignals, hookGitDir } = require("./lib/hook-entry.js");
+const {
+	catchSignals,
+	exitWhenSettled,
+	readHookGitDir,
+} = require("./lib/hook-entry.js");
 const { dispatch } = require("./lib/precommit-dispatch.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 /** This commit's route, as commit-msg reads it. */
-const readRoute = () => commitRoute("commit-msg", hookGitDir(process.cwd()));
+const readRoute = () =>
+	commitRoute("commit-msg", readHookGitDir(process.cwd()));
 
 /** @returns {Promise<number>} */
 async function main() {
@@ -48,9 +52,6 @@ async function main() {
 		gates: "all",
 		voice: { hook: "commit-msg", noun: "check" },
 		ports: {
-			staged: () => [],
-			computed: () => [],
-			exists: () => false,
 			load: (row) => () => row.run(file),
 			write: writeFd,
 			interrupted,
@@ -60,10 +61,4 @@ async function main() {
 }
 
 if (require.main === module)
-	main().then(
-		(code) => process.exit(code),
-		(e) => {
-			writeFd(2, `commit-msg: the dispatcher threw: ${caught(e).message}\n`);
-			process.exit(2);
-		},
-	);
+	exitWhenSettled(main, { hook: "commit-msg", said: "threw", exit: 2 });

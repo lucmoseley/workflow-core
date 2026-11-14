@@ -27,12 +27,14 @@ import {
 	gitRepo,
 	live,
 } from "./lib/arbiter-testkit";
-import { releaseClaimsRow, scrubbedGitEnv } from "./lib/post-commit-steps.js";
+import { scrubbedGitEnv } from "./lib/hook-entry.js";
+import { releaseClaimsRow } from "./lib/post-commit-steps.js";
 import {
 	echoArgv,
 	hookEnv,
 	linkedCommit,
 	plantSentinel,
+	programs,
 	quietPrograms,
 	REPLAY_SENTINELS,
 	rowOf,
@@ -64,7 +66,7 @@ const headOf = (repo: { git: (...a: string[]) => Buffer }) =>
 /** The step on `cwd`, the arbiter echoing the argv it was handed. */
 function runStep(cwd: string, env: NodeJS.ProcessEnv = {}) {
 	const arbiter = stubProgram("session-arbiter.js", echoArgv);
-	const r = releaseClaimsRow({ cwd, env: hookEnv(env) });
+	const r = releaseClaimsRow({ cwd, env: hookEnv(env) }, programs);
 	expect(r.exit).toBe(0);
 	return { ...r, arbiter, argv: r.stdout.split("\n").filter(Boolean) };
 }
@@ -160,9 +162,9 @@ describe(".husky/post-commit's release-on-commit step", () => {
 		const repo = hookRepo("post-commit-release-nonzero-", ["docs/doc-map.md"]);
 		stubProgram("session-arbiter.js", () => ({ ...SILENT, exit: 3 }));
 
-		expect(releaseClaimsRow({ cwd: repo.root, env: hookEnv() })).toEqual(
-			SILENT,
-		);
+		expect(
+			releaseClaimsRow({ cwd: repo.root, env: hookEnv() }, programs),
+		).toEqual(SILENT);
 	});
 
 	it("names an arbiter that throws in one line, and the steps after it still run", async () => {
@@ -186,9 +188,9 @@ describe(".husky/post-commit's release-on-commit step", () => {
 			stderr: "session-arbiter: clobbered\n",
 		}));
 
-		expect(releaseClaimsRow({ cwd: repo.root, env: hookEnv() }).stderr).toBe(
-			"session-arbiter: clobbered\n",
-		);
+		expect(
+			releaseClaimsRow({ cwd: repo.root, env: hookEnv() }, programs).stderr,
+		).toBe("session-arbiter: clobbered\n");
 	});
 
 	it("hands the arbiter none of the three git redirects, so its cleanliness check reads the real tree", () => {
@@ -226,7 +228,7 @@ describe("the release and the record under a linked worktree's hook redirects", 
 		live(sb, "alice");
 		const session = { ...env, CLAUDE_CODE_SESSION_ID: "alice" };
 
-		const release = releaseClaimsRow({ cwd: wt, env: session });
+		const release = releaseClaimsRow({ cwd: wt, env: session }, programs);
 		expect(release.exit).toBe(0);
 		expect(release.stdout).toContain("docs/wt.md");
 
@@ -238,7 +240,10 @@ describe("the release and the record under a linked worktree's hook redirects", 
 		expect(ledger()).not.toContain("docs/wt.md");
 		/* The ledger the Stop hook reads, at the main tree, bills the
 		 * worktree's commit. */
-		const record = rowOf("commit-record").run({ cwd: wt, env: session });
+		const record = rowOf("commit-record").run(
+			{ cwd: wt, env: session },
+			programs,
+		);
 		expect(record).toEqual(SILENT);
 		expect(ledger()).toContain("docs/wt.md");
 		expect(

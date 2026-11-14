@@ -33,7 +33,7 @@ import {
 	live,
 } from "./arbiter-testkit";
 import { checkInProcess } from "./check";
-import { scrubbedGitEnv } from "./post-commit-steps.js";
+import { scrubbedGitEnv } from "./hook-entry.js";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const SCRIPTS = path.join(ROOT, "scripts");

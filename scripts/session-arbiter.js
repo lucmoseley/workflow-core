@@ -141,7 +141,8 @@ const {
  * off it. `oracle-cache.js` is single-flight, not a plain cache (mantahostels#1960), so a
  * second reader here would pay a second ~465 ms spawn rather than a hit.
  * `wait` alone replaces it, every 30 s off the shared reading (#3561), its
- * command outliving any one read.
+ * command outliving any one read; and `runCli` drops it at each run's start,
+ * where one process runs several (#5208).
  */
 /** @type {ReturnType<typeof listedSessionIds>|undefined} */
 let listedMemo;
@@ -156,6 +157,10 @@ function listedOnce() {
 function relistSessions(read) {
 	listedMemo = read();
 	return listedMemo;
+}
+/** Drops the memo, so the next `listedOnce` reads the oracle afresh. */
+function forgetListed() {
+	listedMemo = undefined;
 }
 
 /**
@@ -2745,7 +2750,7 @@ function passThrough(argv, sessionId) {
 function runCli(argv) {
 	/* A fresh oracle read per run, as a fresh process has: the dispatcher
 	 * runs several in one process (#5208). */
-	listedMemo = undefined;
+	forgetListed();
 	try {
 		return main(argv);
 	} catch (e) {

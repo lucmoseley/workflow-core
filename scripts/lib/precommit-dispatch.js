@@ -21,7 +21,11 @@
  * a list a port computes, any member of which is staged. Its `when`, where
  * set, narrows that further to the commit routes and hook facts it names; a
  * route that will not read arms no row whose `when` names routes. The staged
- * paths are read only where some row arms on a path.
+ * paths are read only where some row arms on a path, so a hook whose rows
+ * all arm `always` passes no `staged`, `computed` or `exists` port. A row
+ * arming on a path in a run with no `staged` port refuses as git not naming
+ * the staged paths does, and one arming on a list with no `computed` port is
+ * BROKEN as a list that will not compute is.
  *
  * A SIGNAL (#5188). A row runs to its end, so its own cleanup runs; the
  * `interrupted` port is asked before each row, after a gating red and after
@@ -54,9 +58,9 @@ const { armed } = require("./precommit-arm.js");
 /**
  * @template {Row} R
  * @typedef {{
- *   staged: () => StagedEntry[],
- *   computed: (name: string) => string[],
- *   exists: (rel: string) => boolean,
+ *   staged?: () => StagedEntry[],
+ *   computed?: (name: string) => string[],
+ *   exists?: (rel: string) => boolean,
  *   load: (row: R) => () => RowResult | Promise<RowResult>,
  *   write: (fd: number, text: string) => void,
  *   interrupted: () => Promise<number | null>,
@@ -66,6 +70,15 @@ const { armed } = require("./precommit-arm.js");
  *   `interrupted` answers the code a caught signal owes, 128 + n, else null;
  *   `route` the commit route, null where it will not read
  */
+
+/**
+ * The throw a read makes where the run has no port to answer it.
+ * @param {string} name the port
+ * @returns {never}
+ */
+function missingPort(name) {
+	throw new Error(`a row arms on a path, and this hook passes no ${name} port`);
+}
 
 /** @param {string} hook @param {string} noun */
 const stoppedLine = (hook, noun) =>
@@ -131,12 +144,15 @@ function armingOf(row, staged, ports, voice) {
 	let list = [];
 	if ("computed" in row.arm && row.arm.computed !== undefined)
 		try {
-			list = ports.computed(row.arm.computed);
+			list = ports.computed
+				? ports.computed(row.arm.computed)
+				: missingPort("computed");
 		} catch (e) {
 			ports.write(2, crashLine(voice, row, "load", e));
 			return "broken";
 		}
-	return armed(row.arm, staged, list, ports.exists) ? "armed" : "unarmed";
+	const exists = ports.exists ?? (() => missingPort("exists"));
+	return armed(row.arm, staged, list, exists) ? "armed" : "unarmed";
 }
 
 /**
@@ -220,7 +236,7 @@ async function runRows(rows, staged, ports, voice) {
  */
 async function readStagedOrRefuse(ports, voice) {
 	try {
-		return { staged: ports.staged() };
+		return { staged: ports.staged ? ports.staged() : missingPort("staged") };
 	} catch (e) {
 		const code = await ports.interrupted();
 		ports.write(
@@ -273,5 +289,4 @@ module.exports = {
 	dispatch,
 	gateSetOf,
 	STOPPED_LINE,
-	stoppedLine,
 };

@@ -448,6 +448,46 @@ describe("the staged port, read only where a row arms on a path", () => {
 		expect(r.ran).toEqual(["a"]);
 		expect(r.stagedReads).toBe(1);
 	});
+
+	/** The core under a hook that passes none of the three path ports. */
+	async function pathless(rows: StubRow[]) {
+		const ran: string[] = [];
+		let err = "";
+		const exit = await dispatch({
+			rows,
+			gates: "all",
+			voice: { hook: "post-commit", noun: "step" },
+			ports: {
+				load: (r: StubRow) => () => {
+					ran.push(r.id);
+					return { exit: 0, stdout: "", stderr: "" };
+				},
+				write: (fd: number, text: string) => {
+					if (fd === 2) err += text;
+				},
+				interrupted: async () => null,
+			},
+		});
+		return { exit, ran, err };
+	}
+
+	it("runs every always row where the hook passes no path port", async () => {
+		expect(await pathless([row("a"), row("b")])).toEqual({
+			exit: 0,
+			ran: ["a", "b"],
+			err: "",
+		});
+	});
+
+	it("refuses with exit 1, running no row, where a row arms on a path and the hook passes no staged port", async () => {
+		expect(
+			await pathless([row("a"), row("docs", { arm: { pattern: /^d/ } })]),
+		).toEqual({
+			exit: 1,
+			ran: [],
+			err: "post-commit: a row arms on a path, and this hook passes no staged port\n",
+		});
+	});
 });
 
 describe("route arming", () => {

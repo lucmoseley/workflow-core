@@ -252,7 +252,6 @@ module.exports = {
 	commitRoute,
 	inRouteSet,
 	isReplayRoute,
-	ROUTE_SETS,
 	routeAbort,
 	routeName,
 	scanRefusal,

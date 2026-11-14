@@ -22,8 +22,10 @@ const steps = require("./post-commit-steps.js");
 /**
  * @typedef {import("./precommit-dispatch.js").RowResult} RowResult
  * @typedef {import("./precommit-dispatch.js").Row & {
- *   run: (io: { cwd: string, env: NodeJS.ProcessEnv }) =>
- *     RowResult | Promise<RowResult>,
+ *   run: (
+ *     io: { cwd: string, env: NodeJS.ProcessEnv },
+ *     programs?: import("./post-commit-steps.js").Programs,
+ *   ) => RowResult | Promise<RowResult>,
  * }} PostCommitRow
  */
 

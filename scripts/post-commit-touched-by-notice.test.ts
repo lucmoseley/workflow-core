@@ -20,6 +20,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	hookEnv,
+	programs,
 	quietPrograms,
 	type Result,
 	rowOf,
@@ -67,7 +68,10 @@ describe.each(CHECKERS)(
 			env: NodeJS.ProcessEnv = {},
 		) {
 			const check = stubCheck((_spec, argv) => answer(argv));
-			const r = await STEPS.touchedByRow(checker)({ cwd, env: hookEnv(env) });
+			const r = await STEPS.touchedByRow(checker)(
+				{ cwd, env: hookEnv(env) },
+				programs,
+			);
 			expect(r.exit).toBe(0);
 			expect(r.stderr).toBe("");
 			return { out: r.stdout, check };
@@ -78,7 +82,7 @@ describe.each(CHECKERS)(
 			expect(row.when).toEqual({ unlessRoutes: ["post-commit-stand-down"] });
 			const { root } = hookRepo("post-commit-touched-by-wired-");
 			const check = stubCheck(() => SILENT);
-			await row.run({ cwd: root, env: hookEnv() });
+			await row.run({ cwd: root, env: hookEnv() }, programs);
 			const [spec, , opts] = check.mock.calls[0];
 			expect(opts.script).toBe(path.join(SCRIPTS, checker));
 			expect(spec).toBe(load(path.join(SCRIPTS, checker)).SPEC);
@@ -90,7 +94,10 @@ describe.each(CHECKERS)(
 		it("runs the real checker in-process, silent on a repo it cannot read", async () => {
 			const { root } = hookRepo("post-commit-touched-by-real-");
 			expect(
-				await STEPS.touchedByRow(checker)({ cwd: root, env: hookEnv() }),
+				await STEPS.touchedByRow(checker)(
+					{ cwd: root, env: hookEnv() },
+					programs,
+				),
 			).toEqual(SILENT);
 		}, 60_000);
 

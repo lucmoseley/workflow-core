@@ -3,7 +3,7 @@
  * each, run in order by scripts/prepare-commit-msg-dispatch.js through
  * lib/precommit-dispatch.js (#5207). Every row gates: its red refuses the
  * commit with its own code, and prints its own epilogue after what the step
- * said, so the lines read in the order the shell hook printed them.
+ * said, so a refusal's reason follows the step's own output.
  *
  * THE CLOSING-KEYWORD SCAN (#138) reads the finished message file, so it sees
  * `-F <file>`, a `-c`/`-C` reuse and the founder's own terminal, which the
@@ -46,6 +46,7 @@ const fs = require("node:fs");
 const { constants } = require("node:os");
 const path = require("node:path");
 const { routeAbort, routeName, scanRefusal } = require("./commit-route.js");
+const { readText } = require("./file-read.js");
 const { precommitStamp } = require("./precommit-stamp.js");
 
 const HOOK = "prepare-commit-msg";
@@ -99,8 +100,8 @@ function readable(file) {
 }
 
 /**
- * The program `file` exports, loaded from the context's root as the shell
- * hook ran that root's copy.
+ * The program `file` exports, `file` being under the context's root:
+ * WFC_PLUGIN_ROOT, else the tree holding the hook's directory.
  * @param {string} file
  * @returns {{ PROGRAM?: Function, main?: Function }}
  */
@@ -275,14 +276,12 @@ function trailerIdle(ctx) {
 	const { reviewTierStamp } = require("./review-tier-stamp.js");
 	const stamp = reviewTierStamp(ctx.gitDir, ctx.env.CLAUDE_CODE_SESSION_ID);
 	if (stamp !== null && fs.existsSync(stamp)) return false;
-	let text;
-	try {
-		text = fs.readFileSync(ctx.file, "utf8");
-	} catch {
-		return false;
-	}
+	/* A message that will not read is no proof the trailer is there: not
+	 * idle, so the trailer runs. */
+	const read = readText(ctx.file);
+	if (read.state !== "read") return false;
 	const { KEY } = require("./review-tier-trailer.js");
-	return !text.split("\n").some((line) => KEY.test(line));
+	return !read.data.split("\n").some((line) => KEY.test(line));
 }
 
 /**

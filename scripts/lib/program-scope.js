@@ -11,13 +11,10 @@
  *
  * WHAT IS SWAPPED, AND PUT BACK IN A `finally`:
  *
- *   env     replaced in place, never reassigned: a plain object assigned over
- *           process.env stops child processes inheriting it natively
- *           (lib/run-in-process.js's own reason).
+ *   env     replaced in place, lib/fd-capture.js's replaceEnv.
  *   cwd     process.chdir to the caller's directory.
- *   output  `fs.writeSync` on fd 1 and fd 2, which lib/write-fd.js writes
- *           through, and `process.stdout.write` / `process.stderr.write`,
- *           which console goes through. Every other fd writes as it would.
+ *   output  fd 1 and fd 2, by both routes, taken by lib/fd-capture.js's
+ *           takeWrites. Every other fd writes as it would.
  *
  * NOT REPRODUCED: a `process.exit` inside the body ends this process, and a
  * grandchild spawned with `stdio: "inherit"` writes to the real fd. The
@@ -28,22 +25,12 @@
  * sequence.
  */
 
-const fs = require("node:fs");
+const { replaceEnv, takeWrites } = require("./fd-capture.js");
 
 /**
  * @typedef {{ cwd: string, env: NodeJS.ProcessEnv }} ProcessIo
  * @typedef {{ exit: number, stdout: string, stderr: string }} ProgramResult
  */
-
-/** @param {NodeJS.ProcessEnv} env */
-function replaceEnv(env) {
-	for (const key of Object.keys(process.env))
-		if (!(key in env)) delete process.env[key];
-	for (const [key, value] of Object.entries(env)) {
-		if (value === undefined) delete process.env[key];
-		else process.env[key] = value;
-	}
-}
 
 /**
  * Enter `io`, returning the restore.
@@ -88,88 +75,24 @@ function inProgramScope(io, body) {
 }
 
 /**
- * The bytes a `fs.writeSync` call writes, by either of its signatures.
- * @param {unknown} data
- * @param {unknown[]} rest
- * @returns {Buffer}
- */
-function bytesOf(data, rest) {
-	if (typeof data === "string")
-		return Buffer.from(
-			data,
-			/** @type {BufferEncoding} */ (
-				typeof rest[1] === "string" ? rest[1] : "utf8"
-			),
-		);
-	const view = /** @type {NodeJS.ArrayBufferView} */ (data);
-	const offset = typeof rest[0] === "number" ? rest[0] : 0;
-	const length =
-		typeof rest[1] === "number" ? rest[1] : view.byteLength - offset;
-	return Buffer.from(
-		Buffer.from(view.buffer, view.byteOffset + offset, length),
-	);
-}
-
-/**
  * Run `body`, an exit code's producer, with its fd 1 and fd 2 writes
  * captured.
  * @param {() => number} body
  * @returns {ProgramResult}
  */
 function captured(body) {
-	/** @type {Record<1 | 2, Buffer[]>} */
-	const taken = { 1: [], 2: [] };
-	const realWriteSync = fs.writeSync;
-	const realOut = process.stdout.write;
-	const realErr = process.stderr.write;
-	/** @param {1 | 2} fd */
-	const streamWrite =
-		(fd) =>
-		/** @param {string | Uint8Array} chunk @param {...unknown} rest */
-		(chunk, ...rest) => {
-			const encoding = typeof rest[0] === "string" ? rest[0] : "utf8";
-			taken[fd].push(
-				typeof chunk === "string"
-					? Buffer.from(chunk, /** @type {BufferEncoding} */ (encoding))
-					: Buffer.from(chunk),
-			);
-			const done = rest.find((r) => typeof r === "function");
-			if (done) /** @type {() => void} */ (done)();
-			return true;
-		};
-	fs.writeSync = /** @type {typeof fs.writeSync} */ (
-		/** @param {number} fd @param {unknown} data @param {...unknown} rest */
-		(fd, data, ...rest) => {
-			if (fd !== 1 && fd !== 2)
-				return realWriteSync(
-					fd,
-					/** @type {string} */ (data),
-					.../** @type {[]} */ (rest),
-				);
-			const bytes = bytesOf(data, rest);
-			taken[fd].push(bytes);
-			return bytes.length;
-		}
-	);
-	process.stdout.write = /** @type {typeof process.stdout.write} */ (
-		streamWrite(1)
-	);
-	process.stderr.write = /** @type {typeof process.stderr.write} */ (
-		streamWrite(2)
-	);
+	/** @type {Record<1 | 2, string>} */
+	const taken = { 1: "", 2: "" };
+	const restore = takeWrites((fd, text) => {
+		taken[fd] += text;
+	});
 	let exit;
 	try {
 		exit = body();
 	} finally {
-		fs.writeSync = realWriteSync;
-		process.stdout.write = realOut;
-		process.stderr.write = realErr;
+		restore();
 	}
-	return {
-		exit,
-		stdout: Buffer.concat(taken[1]).toString("utf8"),
-		stderr: Buffer.concat(taken[2]).toString("utf8"),
-	};
+	return { exit, stdout: taken[1], stderr: taken[2] };
 }
 
 /**

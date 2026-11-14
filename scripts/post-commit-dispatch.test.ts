@@ -25,6 +25,7 @@ import { ROWS } from "./lib/post-commit-rows.js";
 import {
 	hookEnv,
 	linkedCommit,
+	programs,
 	quietPrograms,
 	runPostCommit,
 	SILENT,
@@ -69,7 +70,9 @@ describe("the registry", () => {
 		const row = ROWS.find((r) => r.id === "hook-shims");
 		expect(row?.run).toBe(STEPS.keepShimsRow);
 
-		expect(STEPS.keepShimsRow({ cwd: repo.root, env: hookEnv() })).toEqual({
+		expect(
+			STEPS.keepShimsRow({ cwd: repo.root, env: hookEnv() }, programs),
+		).toEqual({
 			exit: 0,
 			stdout: "kept\n",
 			stderr: "a shim\n",

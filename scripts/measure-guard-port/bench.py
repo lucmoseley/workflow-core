@@ -87,7 +87,10 @@ PF_EXITING = 0x4
 # A child already exiting is gone in milliseconds; one still unwaitable after a
 # second is stuck, and counts as running (#3657).
 EXIT_WAIT_S = 1.0
-# The per-hook CPU phase's calls per side: a report, never gated (#5207).
+# The per-hook CPU phase's calls per side, each hook's figure their median: a
+# report, never gated (#5207). 15 is a guess, stated as one, sized to keep the
+# phase short beside the gated pairs; the spread of that median across repeat
+# runs would refine it.
 HOOK_CPU_CALLS = 15
 
 

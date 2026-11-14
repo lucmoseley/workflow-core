@@ -616,7 +616,7 @@ describe("routeAbort, routeName and the post-commit stand-down set", () => {
 		},
 	);
 
-	it("reads a name ROUTE_SETS lacks as the one route it spells", () => {
+	it("reads a name that is no route set as the one route it spells", () => {
 		expect(inRouteSet("merge", "merge")).toBe(true);
 		expect(inRouteSet("merge", "commit")).toBe(false);
 		expect(inRouteSet("replay", "cherry-pick")).toBe(true);

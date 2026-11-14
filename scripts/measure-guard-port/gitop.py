@@ -247,6 +247,9 @@ def timed_call(fx: Fixture, reap) -> dict:
         "denies": int(done.returncode != 0),
         "exit": done.returncode,
         "detached": detached,
+        # The tail a refused pair reports: a guess, stated as one, at room for a
+        # hook's last few lines, where its refusal says why; a refusal cut short
+        # in a real run would refine it.
         "stderr": done.stderr[-400:].decode(errors="replace"),
     }
 
