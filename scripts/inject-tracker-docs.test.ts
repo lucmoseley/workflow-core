@@ -12,11 +12,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { readJsConst } from "./lib/const-testkit";
 import { stubGhScript } from "./lib/gh-stub";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { registrationsOf } from "./lib/hook-wiring";
 import { runInProcess } from "./lib/run-in-process.js";
-import { readJsConst } from "./lib/shell-const-testkit";
 
 const ROOT = path.resolve(__dirname, "..");
 const HOOK = path.join(ROOT, "scripts", "inject-tracker-docs.js");

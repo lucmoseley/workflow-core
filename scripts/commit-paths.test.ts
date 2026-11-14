@@ -30,6 +30,7 @@ import {
 	plantSequencer,
 	ROOT,
 } from "./lib/precommit-gate-testkit";
+import { reviewTierStamp } from "./lib/review-tier-stamp.js";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -1285,7 +1286,7 @@ describe("--check: the verdict a commit would get, nothing written (#4207)", () 
 	};
 	const gitDir = () => path.join(sb.repo, ".git");
 	const Sid = "check-session";
-	const reviewStamp = () => path.join(gitDir(), `wfc-review-tier-${Sid}`);
+	const reviewStamp = () => reviewTierStamp(gitDir(), Sid) as string;
 	const hookScript = (name: string, body: string) => {
 		const hook = path.join(hooks, name);
 		fs.writeFileSync(hook, `#!/bin/sh\n${body}\n`);
@@ -1299,7 +1300,7 @@ describe("--check: the verdict a commit would get, nothing written (#4207)", () 
 				`echo "index=$GIT_INDEX_FILE" >> ${shellQuote(runs())}`,
 				'if [ -f gate-refuses ]; then echo "lint: a.md:1 unused widget" >&2; exit 1; fi',
 				'd="$(git rev-parse --absolute-git-dir)"',
-				`printf '%s\\nunheld\\n' "$(git write-tree)" > "$d/wfc-review-tier-${Sid}"`,
+				`printf '%s\\nunheld\\n' "$(git write-tree)" > "${reviewTierStamp("$d", Sid)}"`,
 				'git write-tree > "$d/wfc-precommit-stamp"',
 			].join("\n"),
 		);

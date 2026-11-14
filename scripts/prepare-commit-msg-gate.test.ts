@@ -1280,10 +1280,15 @@ describe("the review hold's Review-Tier: trailer (#3664)", () => {
 		expect(r.output).toContain("the hold refused the moved tree");
 	});
 
-	/** The hold's stamp path as a shell word, its name review-tier-stamp.js's. */
-	const shellStamp = (reviewTierStamp("GITDIR", "SID") as string)
-		.replace("GITDIR", "$(git rev-parse --absolute-git-dir)")
-		.replace("SID", "$CLAUDE_CODE_SESSION_ID");
+	/** The hold's stamp path as a shell word, its name review-tier-stamp.js's: the dummy id cut off leaves the prefix. */
+	const dummyId = "x";
+	const stampPrefix = path
+		.basename(reviewTierStamp(".", dummyId) as string)
+		.slice(0, -dummyId.length);
+	const shellStamp = path.join(
+		"$(git rev-parse --absolute-git-dir)",
+		`${stampPrefix}$CLAUDE_CODE_SESSION_ID`,
+	);
 	/** A pre-commit that leaves the stamp the review hold leaves on a pass. */
 	const holding = (p: Probe) =>
 		p.precommitBody(

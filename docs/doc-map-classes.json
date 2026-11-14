@@ -2066,7 +2066,7 @@
 		"section": "Research runs",
 		"class": "free-edit",
 		"classQualifier": null,
-		"role": "How much of the bash-guard test time a Node core removes (#2202): guard is 74-99% of 11 measured files' time, predicted class cut 72-87% (wide 59-96%), about 280-340 s of CI Vitest; read a port on its own files' guard share, never CI wall. Holds the measuring instrument.",
+		"role": "How much of the bash-guard test time a Node core removes (#2202): guard is 74-99% of 11 measured files' time, predicted class cut 70-87% (wide 42-96%), about 275-340 s of CI Vitest; read a port on its own files' guard share, never CI wall. Q5: three of four shell subjects in #5135's class missed their bands; re-fit in CPU before predicting one. Holds the measuring instrument.",
 		"route": null,
 		"consumes": null,
 		"reader": "agent"

@@ -33,7 +33,7 @@ Findings:
 - Q4.2. A test that goes through `runInProcess` costs **about 8 to 16 ms** a call, for a module tree the size of `guard-inventory.js`. Most of this cost is the cold `require` after the cache purge (4.5 to 13 ms). A Node port of `lib/guard-parse.sh` (3,367 lines of bash) is a larger module tree. Thus its `runInProcess` cost is probably higher (estimate: 15 to 40 ms; not measured, because no port exists).
 - Q4.3. Thus the saving per guard run depends on the test style after the port:
   - A case that calls the core function: saves about 100% of the guard call.
-  - A case that goes through `runInProcess` (the hook entry in-process): saves the guard call minus about 10 to 40 ms. At a guard call of 60 to 250 ms, that is about 60 to 95% of the call.
+  - A case that goes through `runInProcess` (the hook entry in-process): saves the guard call minus about 10 to 40 ms. Over guard calls of 60 to 250 ms, that is 83 to 96% of the call at 10 ms, and 33 to 84% at 40 ms. It reaches 60% only on a call at least 2.5 times the in-process cost: 25 ms or longer at 10 ms, 100 ms or longer at 40 ms.
   - A boundary contract test that keeps the real spawn: saves nothing.
 - Q4.4. Caution: the decision logic of `guard-inventory.js` took its early return on some of the 3 messages. The proxy (row 2) is synthetic. These two rows are a floor for a direct call.
 
@@ -64,13 +64,13 @@ Findings:
 - Q1.3. The low two files have a known cause:
   - `guard-parse.test.ts` (0.739): each case is a short `bash -c 'source guard-parse.sh; <snippet>'`. The mean run is 55 ms, so vitest's own cost for each test is a larger part.
   - `guard-npm-install.test.ts` (0.742): the test builds git fixtures (git calls: 5.1 s, 20% of the file). An in-process core does not remove fixture work unless the test also changes to a fake git port.
-- Q1.4. The cost of one guard run is not one figure. The mean is 55 ms (`guard-parse` snippets) to 532 ms (`guard-push-rules`). F8's 254 ms is in the middle. Large guards on a commit or push path run real git in their fixture (`guard-commit-form`: 26 runs over 1 s, 40.6 s together).
+- Q1.4. The mean is 55 ms (`guard-parse` snippets) to 532 ms (`guard-push-rules`). F8's 254 ms is in the middle. Large guards on a commit or push path run real git in their fixture (`guard-commit-form`: 26 runs over 1 s, 40.6 s together).
 - Q1.5. The share is not the cut. The cut is the share less what stays after the port:
   - (a) the boundary contract tests that keep a real spawn (estimate: 3 to 10% of the guard runs of each file);
   - (b) the in-process cost of each moved case (Q4: about 0.01 ms for a direct call, 10 to 40 ms through `runInProcess`);
   - (c) the fixture git work, where the test keeps a real repo.
-- Q1.6. **Estimate of the cut for each file: guard share × 0.80 to 0.97.** Low end: 10% of the runs stay real and the rest go through `runInProcess` at about 20 ms against a mean run of 100 to 500 ms (about 0.80 of the share). High end: 3% stay and the rest call the core directly (about 0.97). On the measured spread of the share (0.73 to 0.99), **the cut is 59% to 96% of a file's time. On the CI-weighted share (0.896): 72% to 87%.**
-- Q1.7. **The band for the class.** The programme scope (the 55 `.sh` files that source `lib/guard-parse.sh`, plus the library) has 56 test files on CI, 1,101.5 CI file-seconds, 27.2% of 4,053 (F4 run). At a cut of 72% to 87% (CI-weighted) the class saves **about 790 to 960 file-seconds, 19.5% to 23.6% of the suite's file-seconds**. On F4's rule (Vitest wall ≈ file-seconds / 2.8), that is **about 280 to 340 s of CI Vitest wall** at the 18 Oct speed of the runner. Wide band (the file spread, 59% to 96%): 650 to 1,060 file-seconds, 16% to 26%.
+- Q1.6. **Estimate of the cut for each file: guard share × its low factor to 0.97.** Low factor: 10% of the runs stay real and the rest go through `runInProcess` at about 20 ms against the file's mean run (Q1 table), that is 0.9 × (1 − 20 / mean ms): **0.57 (`guard-parse`, 55 ms) to 0.87 (`guard-push-rules`, 532 ms)**. The 20 ms is mid-range of Q4.2's 15 to 40 ms, so this low end is not a floor: at 40 ms for a `guard-parse`-sized port, the low factor is 0.25 to 0.83 and the CI-weighted cut falls to 58%. High end: 3% stay and the rest call the core directly (about 0.97). Over the 11 files, **the cut is 42% (`guard-parse`) to 96% of a file's time. CI-weighted: 70% to 87%.**
+- Q1.7. **The band for the class.** The programme scope (the 55 `.sh` files that source `lib/guard-parse.sh`, plus the library) has 56 test files on CI, 1,101.5 CI file-seconds, 27.2% of 4,053 (F4 run). At a cut of 70% to 87% (CI-weighted) the class saves **about 770 to 960 file-seconds, 19.0% to 23.6% of the suite's file-seconds**. On F4's rule (Vitest wall ≈ file-seconds / 2.8), that is **about 275 to 340 s of CI Vitest wall** at the 18 Oct speed of the runner. Wide band (the file spread, 42% to 96%): 460 to 1,060 file-seconds, 11.4% to 26%.
 
 ## Q2. Noise: 3 files, 6 runs each
 
@@ -107,58 +107,57 @@ Findings:
 
 - Q2.1. **The wall of one file moves by 22% to 47% of its median between runs (CV 7% to 14%)**, at load1 5 to 16.
 - Q2.2. **The guard share moves by 0.03 or less (CV 0.1% to 1.3%).** The guard-run count does not move at all. Thus the ratio is about 10 to 100 times more stable than the wall. Use the share (or the count of guard runs) to read a port, not the wall.
-- Q2.3. The load in this window (5 to 16) was lower than the 12 to 15 in the brief. A run at load1 20 or more can give a wider wall spread (F4 and mantahostels#2255 record up to ×1.7 on CI and a median ×39.6 for one spawning test under heavy local load). The share figure is safe from this, because both of its parts come from the same run.
+- Q2.3. A run at load1 20 or more can give a wider wall spread (F4 and mantahostels#2255 record up to ×1.7 on CI and a median ×39.6 for one spawning test under heavy local load). The share figure is safe from this, because both of its parts come from the same run.
 
 ## Q3. Pilot sizing
 
 Choice: after `lib/guard-parse.sh` (the parser that all guards source), the 5 guards whose test files have the largest CI file-seconds (F4 run) and a measured guard share:
 
-| Guard (test file) | CI file-s | Guard share (measured) | Predicted cut, CI file-s (share × 0.80 to 0.97) |
+| Guard (test file) | CI file-s | Guard share (measured) | Predicted cut, CI file-s (share × Q1.6 low factor to 0.97) |
 | --- | --- | --- | --- |
-| guard-commit-form | 171.7 | 0.872 | 120 to 145 |
-| guard-push-rules | 76.8 | 0.895 | 55 to 67 |
-| guard-suite-concurrency | 62.3 | 0.973 | 48 to 59 |
-| guard-issue-create-label | 58.1 | 0.973 | 45 to 55 |
-| guard-pull-form | 57.4 | 0.844 | 39 to 47 |
-| **5 guards** | **426.3** | | **307 to 373 (72% to 87% of the 5 files; 7.6% to 9.2% of the suite)** |
-| lib/guard-parse (step 0) | 55.9 | 0.739 | 33 to 40 |
-| **5 guards + parser** | **482.2** | | **340 to 413 (8.4% to 10.2% of the suite)** |
+| guard-commit-form | 171.7 | 0.872 | 127 to 145 |
+| guard-push-rules | 76.8 | 0.895 | 60 to 67 |
+| guard-suite-concurrency | 62.3 | 0.973 | 43 to 59 |
+| guard-issue-create-label | 58.1 | 0.973 | 37 to 55 |
+| guard-pull-form | 57.4 | 0.844 | 37 to 47 |
+| **5 guards** | **426.3** | | **304 to 373 (71% to 87% of the 5 files; 7.5% to 9.2% of the suite)** |
+| lib/guard-parse (step 0) | 55.9 | 0.739 | 24 to 40 |
+| **5 guards + parser** | **482.2** | | **328 to 413 (8.1% to 10.2% of the suite)** |
 
-The cut is an estimate. Its inputs are measured (shares: Q1) and estimated (the 0.80 to 0.97 factor: Q1.6, Q4).
+The cut is an estimate. Its inputs are measured (shares: Q1) and estimated (the low factor to 0.97: Q1.6, Q4).
 
 Findings:
 
-- Q3.1. **On CI Vitest wall**, the 5-guard cut is about 307 to 373 / 2.8 = **110 to 133 s** (estimate). F4 records neighbour CI runs that differ by up to 400 s and a p50-to-max range of 689 to 1,546 s. It is under the CI runner noise.
-- Q3.2. **On the 5 test files' own time, the pilot IS readable.** Here the cut is 72% to 87% of those files. The noise of one file's wall is 22% to 47% (range) at load1 5 to 16 (Q2). Locally, the 5 files took 369 s together in this session; the predicted cut is about 263 to 319 s. A cut of that size is 1.5 to 4 times the measured wall range of one file (22% to 47%), and 5 to 12 times its CV (7% to 14%). Thus it is readable in one before-and-after pair, and safely readable on the median of 3 runs each. Read it on CI as the file-seconds of the 5 files in one run, against the same 5 files in the F4 run or in the next untouched run.
+- Q3.1. **On CI Vitest wall**, the 5-guard cut is about 304 to 373 / 2.8 = **109 to 133 s** (estimate). F4 records neighbour CI runs that differ by up to 400 s and a p50-to-max range of 689 to 1,546 s. It is under the CI runner noise.
+- Q3.2. **On the 5 test files' own time, the pilot IS readable.** Here the cut is 71% to 87% of those files. The noise of one file's wall is 22% to 47% (range) at load1 5 to 16 (Q2). Locally, the 5 files took 369 s together in this session; the predicted cut is about 263 to 322 s. A cut of that size is 1.5 to 4 times the measured wall range of one file (22% to 47%), and 5 to 12 times its CV (7% to 14%). Thus it is readable in one before-and-after pair, and safely readable on the median of 3 runs each. Read it on CI as the file-seconds of the 5 files in one run, against the same 5 files in the F4 run or in the next untouched run.
 - Q3.3. **The best reading is the count and share, not the wall.** After the port, the guard runs of each test file fall from a known count (commit-form 486, push-rules 86, suite-concurrency 376, issue-create-label 441, pull-form 354) to the kept contract tests. The guard share falls from 0.84 to 0.97 to near the kept fraction.
 
-## Q5. Shell subjects in the second class: the method over-predicts (#5135, #5199)
+## Q5. Shell subjects in #5135's non-guard class: both CPU-measured ones under their bands (#5135, #5199)
 
-**LABEL: measured.** #5135's rule: a measured CPU cut below the prediction's low edge means the method is off for that kind of subject, and the next ticket of that kind re-fits it before predicting. All three shell-script subjects in #5135's tier 1 measured below their bands. Every Node subject landed inside or above its band (#5146, #5148, #5149, #5150, #5156, #5157).
+**LABEL: measured.** #5135's rule: a measured CPU cut below the prediction's low edge means the method is off for that kind of subject, and the next ticket of that kind re-fits it before predicting. The Node subjects landed inside or above theirs (#5146, #5148, #5149, #5150, #5156, #5157), measured on wall only. Figures marked #2729 are from #5199's class report there (comment 6868953761).
 
 | Subject (ticket) | Predicted | Measured | How measured |
 | --- | --- | --- | --- |
 | `dispatch-sessions.sh` (#5145) | 58–68% | **45–46% CPU**, 52–56% wall | 2 concurrent CPU pairs, load1 6–8 |
-| `review-hold-gate.sh` (#5153) | 28–34% | **8% wall cut**; the same file's CI file-s cut 31% | local: sequential pairs, wall only, no CPU pair. CI: median of 4 sweeps each side (#5199) |
-| pre-commit's doc-map `sh` block (#5155) | 55–63% | **43% CPU** (ratio 0.572, 0.567–0.585), 46% wall | 6 concurrent CPU pairs, alternating first, load1 9–16 (#5199) |
+| `review-hold-gate.sh` (#5153) | 28–34% | **8% wall**; the same file's CI file-s cut 31% (#2729) | local: sequential pairs, wall only. CI: median of 4 sweeps a side. No CPU pair, so the rule's firing is unconfirmed |
+| pre-commit's doc-map `sh` block (#5155) | 55–63% | **43% CPU** (ratio 0.572, 0.567–0.585), 46% wall (#2729) | 6 concurrent CPU pairs, alternating first, load1 9–16 |
+| `inject-tracker-docs.sh` (#5151) | 73–88% | 83–87% wall | sequential pairs, wall only |
 
 Causes, from each ticket's own reading:
 
-- Q5.1. **The share counts children the core still spawns.** A shell subject's spawn wall includes its own children: the hold's git calls (#5153), the real checker processes (#5155), the stubs, `git` and `gh` the dispatcher's Node helpers call (#5145, residual 0.26 of the helpers' time). A Node core keeps every one. The 0.80–0.97 factor assumes they go.
-- Q5.2. **A wall share overstates a CPU cut where the removed time sleeps.** `dispatch-sessions-bridge-budget.test.ts` saved 36 s of wall and no CPU, its stubbed probe budget being a sleep.
-- Q5.3. **#5153's wall-share ceiling counted `git commit`'s own work** (marked an upper bound on the ticket), and the test file's commits stayed real at the boundary.
+- Q5.1. **#5153's local wall cut missed, though its CI cut held; if a CPU pair confirms the miss, the cause is that it applied share × 0.80–0.97 to a share holding children the core keeps:** the hold's git calls, and `git commit`'s own work (marked an upper bound on the ticket).
+- Q5.2. **#5145 and #5155 priced what stays (#2238's split) and still missed.** Both priced in wall, against a CPU headline. #5145's `dispatch-sessions-bridge-budget.test.ts` saved 36 s of wall and no CPU, its probe budget being a sleep. #5155's kept work (the real checker, git) is CPU-dense, while what went was partly process-start wait: 46–55% off the wall, 43% off the CPU.
+- Q5.3. **#5151 held because its children went with the bash:** `jq`, `date`, `stat` and `find`, which a Node core does in-process.
 
-**The re-fit a shell-subject ticket runs before predicting:** price what stays rather than share × 0.80–0.97. Trace the subject at depth 3, so its children are timed. Remove only bash, its utilities and Node starts, and keep every child the core still runs (real git, real checkers, stubs behind the helpers). Predict in CPU, counting no saving for sleeps and timeouts. Back-test the re-fit against the three rows above before using it.
+**The re-fit a shell-subject ticket runs before predicting:** predict in CPU, not wall. Read the before files' CPU, and the CPU of every child the core keeps (real git, real checkers, stubs behind helpers) from a trace that also times the subject's own children (the Appendix preload logging at depth 3, as #5147 did). Count no saving for sleeps or timeouts. This re-fit is unproven: back-test it against #5145's and #5155's CPU rows before relying on it; #5153 and #5151 join the back-test only once a concurrent CPU pair is taken on their files.
 
 ## Headline
 
-- **Predicted cut for the bash-guard class: 72% to 87% of the class (wide band 59% to 96%), that is 790 to 960 CI file-seconds, 19.5% to 23.6% of the suite, about 280 to 340 s of CI Vitest wall.** Estimate on 11 measured files (58% of the class's CI file-seconds). The old prediction (80 to 95%, 21 to 25%) is a little high at its top.
-- **For a shell-script subject outside the guard class, the band over-predicts: re-fit it per Q5 before predicting.**
-- **A 5-guard pilot (plus the parser) is readable above noise on its own files' time and, better, on the guard-run count and share. It is not readable on the CI suite wall** (110 to 133 s against a runner noise of up to 400 s).
+- **Predicted cut for the bash-guard class: 70% to 87% of the class (58% low end at a 40 ms in-process cost, Q1.6; wide band 42% to 96%), that is 770 to 960 CI file-seconds, 19.0% to 23.6% of the suite, about 275 to 340 s of CI Vitest wall.** Estimate on 11 measured files (58% of the class's CI file-seconds).
+- **For a shell-script subject whose children survive the port, the wall-priced band over-predicts the CPU cut: re-fit per Q5 before predicting.**
+- **A 5-guard pilot (plus the parser) is readable above noise on its own files' time and, better, on the guard-run count and share. It is not readable on the CI suite wall** (109 to 133 s against a runner noise of up to 400 s).
 
 ## Appendix: the instrument
-
-Kept here so a port ticket can re-measure by the same method (§Method).
 
 `preload.js`:
 

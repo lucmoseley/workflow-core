@@ -54,6 +54,7 @@ const KEY = /^review-tier[ \t]*:/i;
  * @returns {string | null}
  */
 function stripUnvouched(msg, vouching) {
+	// Newlines only: a last line's trailing blanks stay, so a line differing only in them stays unvouched (#5153).
 	const vouched = new Set(trimEndRun(vouching, "\n").split("\n"));
 	const lines = msg.split("\n");
 	if (lines.at(-1) === "") lines.pop();

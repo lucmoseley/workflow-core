@@ -976,7 +976,7 @@ index a538d07a98e363a00ce25eaaaed6e8d7dea9da8f..2a26a56eb43459477daa09f75e7fa4b3
  });
 -
 diff --git a/scripts/mutation-hold-gate.js b/scripts/mutation-hold-gate.js
-index ffc6a4d7c1f287acc9a4bae4a259c1a461215745..da2b21005e1183b9ef42e9b32f6b0cd5a0b4ff00 100644
+index 04976fcd81b3a57a0b13d7b35d574f177f069008..d9a319b68d7193c2e335d1398b448cbca0ad8d84 100644
 --- a/scripts/mutation-hold-gate.js
 +++ b/scripts/mutation-hold-gate.js
 @@ -4,9 +4,9 @@
@@ -1007,11 +1007,12 @@ index ffc6a4d7c1f287acc9a4bae4a259c1a461215745..da2b21005e1183b9ef42e9b32f6b0cd5
   * MISSING TOOLS refuse, never pass (#1911): either Stryker package, or vitest,
   * absent from the checkout's own `node_modules`, the one the run's worktree
   * links, or a Stryker package older than STRYKER_VERSION (#5180). The refusal
-@@ -108,18 +117,20 @@
+@@ -108,19 +117,21 @@ const { pathToFileURL } = require("node:url");
  const { writeFileAtomic } = require("./lib/atomic-write.js");
  const { parseOrCode } = require("./lib/cli-args.js");
  const { caught } = require("./lib/caught.js");
 +const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
+ const { commitRoute, isReplayRoute } = require("./lib/commit-route.js");
  const { readText } = require("./lib/file-read.js");
  const { compareVersions } = require("./lib/compare-versions.js");
  const { shellQuote } = require("./lib/sh-quote.js");
@@ -1030,7 +1031,7 @@ index ffc6a4d7c1f287acc9a4bae4a259c1a461215745..da2b21005e1183b9ef42e9b32f6b0cd5
  const { CONFIG_PATH, readConfig } = require("./lib/workflow-core-config.js");
  const { writeFd } = require("./lib/write-fd.js");
  
-@@ -143,7 +154,12 @@
+@@ -144,7 +155,12 @@ const isMutable = (p) => MUTABLE.test(p) && !TEST_NAME.test(p);
  const RED_INITIAL = "There were failed tests in the initial test run";
  
  /** @typedef {{start: number, end: number}} LineRange 1-based, inclusive */
@@ -1043,7 +1044,7 @@ index ffc6a4d7c1f287acc9a4bae4a259c1a461215745..da2b21005e1183b9ef42e9b32f6b0cd5
  
  const REFUSING = new Set(["Survived", "NoCoverage"]);
  const PASSING = new Set(["Killed", "Timeout", "Ignored"]);
-@@ -201,7 +217,26 @@
+@@ -202,7 +218,26 @@ const CORE_DEFAULT = { testRunner: TEST_RUNNER, coverageAnalysis: "perTest" };
  const POOL = "forks";
  const DISABLE_TYPE_CHECKS = false;
  
@@ -1070,10 +1071,11 @@ index ffc6a4d7c1f287acc9a4bae4a259c1a461215745..da2b21005e1183b9ef42e9b32f6b0cd5
  
  const CACHE_NAME = "wfc-mutation-incremental.json";
  
-@@ -388,6 +423,24 @@
+@@ -373,6 +408,24 @@ const addedRanges = (hunks) =>
+ 		.filter((h) => h.newCount > 0)
  		.map((h) => ({ start: h.newStart, end: h.newStart + h.newCount - 1 }));
  
- /**
++/**
 + * The line HEAD holds where the staged file holds `line`, or null where the
 + * commit adds it.
 + * @param {HunkHeader[]} hunks the file's, from a zero-context diff
@@ -1091,14 +1093,14 @@ index ffc6a4d7c1f287acc9a4bae4a259c1a461215745..da2b21005e1183b9ef42e9b32f6b0cd5
 +	return line + shift;
 +}
 +
-+/**
+ /**
   * Says a fail-open on stderr and writes it to the fail-open log.
   * @param {string} stderrLine after its `pre-commit: ` prefix
-  * @param {string} logLine
-@@ -398,6 +451,376 @@
+@@ -383,6 +436,376 @@ function reportFailOpen(stderrLine, logLine) {
+ 	failOpenLogger("mutation-hold-gate.js")?.(logLine);
  }
  
- /**
++/**
 + * Says on stderr and in the fail-open log that the disable comments `where`
 + * names went unread, and `why`.
 + * @param {string} where
@@ -1468,11 +1470,10 @@ index ffc6a4d7c1f287acc9a4bae4a259c1a461215745..da2b21005e1183b9ef42e9b32f6b0cd5
 +	});
 +}
 +
-+/**
+ /**
   * The mutated span's source text. A location outside the source is a report
   * that will not read, so the hold fails open on it (#2078, #1871 §Faults).
-  * @param {string[]} lines
-@@ -720,7 +1143,8 @@
+@@ -706,7 +1129,8 @@ function judge(report, ranges) {
  
  /**
   * The areas the staged paths touch, under the declaration at HEAD or as
@@ -1482,7 +1483,7 @@ index ffc6a4d7c1f287acc9a4bae4a259c1a461215745..da2b21005e1183b9ef42e9b32f6b0cd5
   * @param {ConfigCopy[]} copies
   * @param {string[]} staged
   */
-@@ -737,11 +1161,16 @@
+@@ -723,11 +1147,16 @@ function readHeldRanges(copies, staged) {
  		}
  	/** @type {Map<string, LineRange[]>} */
  	const ranges = new Map();
@@ -1502,7 +1503,7 @@ index ffc6a4d7c1f287acc9a4bae4a259c1a461215745..da2b21005e1183b9ef42e9b32f6b0cd5
  }
  
  /**
-@@ -873,6 +1302,16 @@
+@@ -859,6 +1288,16 @@ function readRuleOrPointer() {
  	);
  }
  
@@ -1519,7 +1520,7 @@ index ffc6a4d7c1f287acc9a4bae4a259c1a461215745..da2b21005e1183b9ef42e9b32f6b0cd5
  /**
   * The refusal for a run's outcome, or null where it passes.
   * @param {ReturnType<typeof runStryker>} run
-@@ -926,6 +1365,12 @@
+@@ -912,6 +1351,12 @@ function hold(mode) {
  		const missing = missingToolRefusal(root, HOOK_VOICE);
  		if (missing !== null) return refuse(missing);
  		const tree = gitOr(["write-tree"], "could not read the staged tree").trim();

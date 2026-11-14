@@ -59,7 +59,7 @@ const { scriptPath } = require("./lib/script-path.js");
 const path = require("node:path");
 const { writeFd } = require("./lib/write-fd.js");
 const { parse, exitWith, CliExit } = require("./lib/cli-args");
-const { gh, parseErrLine } = require("./lib/gh");
+const { gh, parseErrLine, SEARCH_CAP } = require("./lib/gh");
 const { commitsSince } = require("./lib/seat-utilisation");
 const { worktreeRoot } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
@@ -106,10 +106,6 @@ const WINDOW_DAYS = 30;
 
 /** How often a reading is taken. Weekly, per mantahostels#1740. */
 const CADENCE_DAYS = 7;
-
-/** GitHub's silent search cap. A day returning exactly this was truncated, and
- *  its count is a floor rather than a count. */
-const SEARCH_CAP = 1000;
 
 const DAY_MS = 864e5;
 

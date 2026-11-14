@@ -7,7 +7,8 @@
 # Callers in two shells: the .husky hooks under `sh -e`, and the session gates
 # .husky/pre-commit runs (scripts/*-gate.sh) under bash with `set -u`. POSIX sh throughout, no `local`, and every positional read
 # defaulted. Each caller keeps its own list of the routes it stands down on,
-# built on wfc_commit_route_replays, so a new replay route is one edit here.
+# built on wfc_commit_route_replays, so a new replay route is one edit here
+# and one in commit-route.js's REPLAY_ROUTES, and a row in commit-route.test.ts.
 #
 # Sourced, never run: it defines functions and nothing else.
 #
