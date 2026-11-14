@@ -25,7 +25,11 @@ const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { childFailure, childVerdict } = require("./lib/child-failure.js");
 const { citedIssues } = require("./lib/cited-issues.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
-const { readTicks, tickLimb } = require("./lib/concurrency.js");
+const {
+	concurrencyFiles,
+	readRecords: readConcurrencyRecords,
+	tickLimb,
+} = require("./lib/concurrency.js");
 const { gh, parseErrLine, SEARCH_CAP } = require("./lib/gh.js");
 const { gitOrNull } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -35,6 +39,7 @@ const {
 	readJobRecordAt,
 } = require("./lib/job-paths.js");
 const { parseJsonl, readJsonl } = require("./lib/jsonl.js");
+const { pythonBin } = require("./lib/python-bin.js");
 const { queueExitLogPath } = require("./lib/queue-exit-log.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { seatsFrom } = require("./lib/seat-args.js");
@@ -45,7 +50,6 @@ const {
 	THIN_HOURS,
 	readout,
 } = require("./lib/throughput-readout.js");
-const { minuteLogPath } = require("./lib/windows-memory.js");
 const { resolveKey } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -96,7 +100,7 @@ function refuse(message) {
  * `<left>=<right>` split at its last `=`; null where either side is empty.
  * @param {string} spec
  */
-function pairOf(spec) {
+function parsePair(spec) {
 	const i = spec.lastIndexOf("=");
 	return i < 1 || i === spec.length - 1
 		? null
@@ -162,7 +166,7 @@ function fetchDay(owner, date) {
 		};
 	if (rows.length >= SEARCH_CAP)
 		return { day: { date, state: "truncated" }, closes: [] };
-	const closes = rows.flatMap(closeRow);
+	const closes = rows.flatMap(parseCloseRow);
 	if (closes.length < rows.length)
 		return {
 			day: {
@@ -180,7 +184,7 @@ function fetchDay(owner, date) {
  * @param {unknown} r
  * @returns {import("./lib/throughput-readout.js").CloseRow[]}
  */
-function closeRow(r) {
+function parseCloseRow(r) {
 	if (typeof r !== "object" || r === null) return [];
 	const { number, closedAt, repository } =
 		/** @type {Record<string, unknown>} */ (r);
@@ -217,31 +221,22 @@ function readCommits(repo, dir, from) {
 		{ cwd: dir },
 	);
 	if (out === null) return null;
-	const rows = out
+	return out
 		.split("\x1e")
 		.filter((x) => x.trim())
 		.map((x) => {
 			const [sha = "", at = "", message = ""] = x.split("\x1f");
+			const subject = message.split("\n", 1)[0] ?? "";
 			return {
+				repo,
 				sha: sha.trim(),
 				t: Date.parse(at),
-				subject: message.split("\n", 1)[0] ?? "",
-				message,
+				subject,
+				cites: [...citedIssues(message)],
+				reverts: REVERTS.exec(message)?.[1] ?? null,
+				revertsSubject: REVERT_SUBJECT.exec(subject)?.[1] ?? null,
 			};
 		});
-	/** @type {Map<string, string>} */
-	const bySubject = new Map();
-	for (const c of [...rows].reverse()) bySubject.set(c.subject, c.sha);
-	return rows.map((c) => ({
-		repo,
-		sha: c.sha,
-		t: c.t,
-		cites: [...citedIssues(c.message)],
-		reverts:
-			REVERTS.exec(c.message)?.[1] ??
-			bySubject.get(REVERT_SUBJECT.exec(c.subject)?.[1] ?? "") ??
-			null,
-	}));
 }
 
 /**
@@ -266,7 +261,7 @@ function readJobs(seats, since) {
 		}
 		read = true;
 		for (const id of ids) {
-			const row = jobRow(seat, id);
+			const row = readJobRow(seat, id);
 			if (row && row.en >= since) out.push(row);
 		}
 	}
@@ -280,7 +275,7 @@ function readJobs(seats, since) {
  * @param {string} id
  * @returns {import("./lib/throughput-readout.js").JobRow | null}
  */
-function jobRow(seat, id) {
+function readJobRow(seat, id) {
 	const r = readJobRecordAt(jobDirPath(seat, id));
 	if (r.state !== "read" || !r.data) return null;
 	const st = Date.parse(r.data.createdAt);
@@ -303,7 +298,7 @@ function jobRow(seat, id) {
  */
 function readTranscripts(since, until) {
 	const r = spawnSync(
-		"python3",
+		pythonBin(),
 		[
 			path.join(__dirname, "dense_minute.py"),
 			"--since",
@@ -330,47 +325,52 @@ function readTranscripts(since, until) {
 }
 
 /**
- * The minute log's load1 and session count per line; null where it would not
- * read.
+ * The minute log's load1 and session count per line, and the refill tick
+ * record's rows, through concurrency.js's reader; each null where it is
+ * missing or would not read (the tick record, only where it would not read).
  */
-function readMinutes() {
-	const read = readJsonl(minuteLogPath());
-	return read
-		? read.rows.map((m) => ({
+function readAdmissionRecords() {
+	const { ticks, minutes, unreadable } = readConcurrencyRecords();
+	const tickFile = concurrencyFiles().record;
+	return {
+		minutes:
+			minutes?.map((m) => ({
 				t: Date.parse(String(m.ts)),
 				load1: typeof m.load1 === "number" ? m.load1 : null,
 				sessions: typeof m.sessions === "number" ? m.sessions : null,
-			}))
-		: null;
-}
-
-/** The refill tick record's rows; null where it would not read. */
-function readTickRows() {
-	const { ticks, unreadable } = readTicks();
-	if (unreadable.length > 0) return null;
-	return ticks.map((t) => ({
-		t: Date.parse(t.at),
-		live: t.live ?? null,
-		loop: t.binding?.limit ?? null,
-		limb: tickLimb(t),
-	}));
+			})) ?? null,
+		ticks: unreadable.some((u) => u.startsWith(tickFile))
+			? null
+			: ticks.map((t) => ({
+					t: Date.parse(t.at),
+					live: t.live ?? null,
+					limit: t.binding?.limit ?? null,
+					limb: tickLimb(t),
+				})),
+	};
 }
 
 /**
  * The queue's wait spans over the window; null where the queue-exit log is
- * absent.
+ * absent or a log it reads would not read.
  * @param {string} markers
  * @param {number} since
  * @param {number} until
  */
 function readQueue(markers, since, until) {
-	const logs = readLogs({
-		markers,
-		memwatch: [],
-		minuteLog: minuteLogPath(),
-		since,
-		until,
-	});
+	let logs;
+	try {
+		logs = readLogs({
+			markers,
+			memwatch: [],
+			minuteLog: concurrencyFiles().minutes,
+			since,
+			until,
+		});
+	} catch {
+		/* The readout names the queue-exit log's hours as lacking. */
+		return null;
+	}
 	if (logs.unread.absent.some((f) => f.endsWith(".suite-queue-exits.jsonl")))
 		return null;
 	return waitSpans(logs, { since, until });
@@ -482,10 +482,10 @@ function render(r) {
  * @param {string} shape
  * @returns {T[] | 2}
  */
-function pairsOf(specs, check, shape) {
+function parsePairs(specs, check, shape) {
 	const out = [];
 	for (const spec of specs ?? []) {
-		const p = pairOf(spec);
+		const p = parsePair(spec);
 		const v = p && check(p);
 		if (v === null) return refuse(`${spec} is not ${shape}`);
 		out.push(v);
@@ -543,7 +543,7 @@ function readArgs(argv) {
 	const until = parseUtc(flagValue(flags, "--until"));
 	if (since === null || until === null || since >= until)
 		return refuse("--since and --until must each be a time, --since first");
-	const eras = pairsOf(
+	const eras = parsePairs(
 		lists["--era"],
 		(p) => {
 			const from = parseUtc(p.right);
@@ -552,7 +552,7 @@ function readArgs(argv) {
 		"<label>=<utc>",
 	);
 	if (eras === 2) return 2;
-	const checkouts = pairsOf(
+	const checkouts = parsePairs(
 		lists["--checkout"],
 		(p) => (p.left.includes("/") ? { repo: p.left, dir: p.right } : null),
 		"<owner/repo>=<dir>",
@@ -572,6 +572,25 @@ function readArgs(argv) {
 }
 
 /**
+ * pick-next's dispatch log's job ids: none where it is absent, as no session
+ * was dispatched; null where it would not read.
+ * @param {string} markers
+ * @returns {string[] | null}
+ */
+function readDispatched(markers) {
+	let read;
+	try {
+		read = readJsonl(path.join(markers, ".pick-next", "dispatched.jsonl"));
+	} catch {
+		/* The readout names the dispatch log's hours as lacking. */
+		return null;
+	}
+	return (read?.rows ?? []).flatMap((x) =>
+		typeof x.jobId === "string" ? [x.jobId] : [],
+	);
+}
+
+/**
  * Every source read over the window.
  * @param {Options} o
  */
@@ -587,17 +606,13 @@ function readRecords(o) {
 		logRepos.push(c.repo);
 	}
 	const transcripts = readTranscripts(o.since, o.until);
-	const dispatchLog = readJsonl(
-		path.join(o.markers, ".pick-next", "dispatched.jsonl"),
-	);
 	/** @type {import("./lib/throughput-readout.js").Records} */
 	const records = {
 		since: o.since,
 		until: o.until,
 		cores: os.cpus().length,
 		eras: o.eras,
-		minutes: readMinutes(),
-		ticks: readTickRows(),
+		...readAdmissionRecords(),
 		closes: fetched.flatMap((f) => f.closes),
 		days: fetched.map((f) => f.day),
 		commits,
@@ -605,9 +620,7 @@ function readRecords(o) {
 		queue: readQueue(o.markers, o.since, o.until),
 		transcripts: transcripts.rows,
 		jobs: readJobs(o.seats, o.since),
-		dispatched: (dispatchLog?.rows ?? []).flatMap((x) =>
-			typeof x.jobId === "string" ? [x.jobId] : [],
-		),
+		dispatched: readDispatched(o.markers),
 	};
 	if (transcripts.why)
 		records.transcriptsWhy = `dense_minute.py gave no per-minute output: ${transcripts.why}`;

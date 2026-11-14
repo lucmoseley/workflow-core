@@ -7,7 +7,8 @@
  * core plain records; the reads of each source are reached only from here.
  *
  * Each case runs the command in-process against a throwaway directory, its
- * `gh` stubbed at WFC_GH and every seat, record and log pointed into that
+ * `gh` stubbed at WFC_GH, its python at WFC_PYTHON where a case feeds
+ * dense_minute.py's output, and every seat, record and log pointed into that
  * directory, so nothing reaches the network or this machine's records.
  */
 
@@ -20,7 +21,7 @@ import { writeJobRecord } from "./lib/background-start-testkit";
 import { appendTick } from "./lib/concurrency.js";
 import { record } from "./lib/dispatch-ledger.js";
 import { printed, refused, stubGhRoutes } from "./lib/gh-stub";
-import { initGitRepo } from "./lib/git-fixture";
+import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import { jobDirPath } from "./lib/job-paths.js";
 import { markersDir } from "./lib/marker-root.js";
 import { queueExitLogger } from "./lib/queue-exit-log.js";
@@ -108,40 +109,48 @@ function run(
 	);
 }
 
-function writeCheckout(bodyLine = true) {
-	const code = path.join(dir, "code");
-	initGitRepo(code, "/dev/null");
-	const git = (...a: string[]) =>
-		spawnSync("git", ["-C", code, ...a], {
-			encoding: "utf8",
-			env: {
-				...process.env,
-				GIT_COMMITTER_DATE: "2026-11-10T00:30:00Z",
-			},
-		});
-	fs.writeFileSync(path.join(code, "a"), "a");
-	git("add", "a");
-	git("commit", "-q", "--no-verify", "-m", "Build it (#1)");
-	git("revert", "--no-edit", "HEAD");
-	if (!bodyLine)
-		git(
-			"commit",
-			"-q",
-			"--amend",
-			"--no-verify",
-			"-m",
-			'Revert "Build it (#1)"',
-		);
+/* A checkout whose one close is built then reverted, the revert naming its
+ * target by its body line or by its subject alone. */
+function buildRevertedCheckout(bodyLine: boolean) {
+	return (code: string) => {
+		initGitRepo(code, "/dev/null");
+		const git = (...a: string[]) =>
+			spawnSync("git", ["-C", code, ...a], {
+				encoding: "utf8",
+				env: {
+					...process.env,
+					GIT_COMMITTER_DATE: "2026-11-10T00:30:00Z",
+				},
+			});
+		fs.writeFileSync(path.join(code, "a"), "a");
+		git("add", "a");
+		git("commit", "-q", "--no-verify", "-m", "Build it (#1)");
+		git("revert", "--no-edit", "HEAD");
+		if (!bodyLine)
+			git(
+				"commit",
+				"-q",
+				"--amend",
+				"--no-verify",
+				"-m",
+				'Revert "Build it (#1)"',
+			);
+	};
 }
 
+const checkouts = defineTemplate({
+	bodyLine: buildRevertedCheckout(true),
+	subject: buildRevertedCheckout(false),
+});
+
 it.each([
-	["its body line", true],
-	["its subject alone", false],
+	["its body line", "bodyLine"],
+	["its subject alone", "subject"],
 ])(
 	"prints the bands as JSON, a close reverted by %s subtracted through the checkout's log",
-	(_, bodyLine) => {
+	(_, variant) => {
 		writeMinuteLog();
-		writeCheckout(bodyLine);
+		checkouts.instantiate(path.join(dir, "code"), variant);
 		const r = run(["--since", SINCE, "--until", UNTIL, "--json"]);
 		expect(r.status).toBe(0);
 		const out = JSON.parse(r.stdout);
@@ -260,6 +269,31 @@ it("reads the limb, queue share and session split off a tick, a queue exit, a di
 	);
 	expect(band.dispatchedHours).toBeCloseTo(2);
 	expect(band.handOpenedHours).toBeCloseTo(1);
+});
+
+it("reads each minute's Bash round-trips and hook-timeout refusals off dense_minute.py's output", () => {
+	writeMinuteLog();
+	const python = path.join(dir, "python3");
+	const minute = (t: number, bash: number[], hto: number) =>
+		JSON.stringify({ minute: at(t), bash_s: bash, hto });
+	fs.writeFileSync(
+		python,
+		`#!/bin/sh\ncat <<'EOF'\n${minute(T0, [1, 3], 0)}\n${minute(T0 + MIN, [5], 2)}\nEOF\n`,
+		{ mode: 0o755 },
+	);
+	vi.stubEnv("WFC_PYTHON", python);
+	const r = run(["--since", SINCE, "--until", UNTIL, "--json"]);
+	expect(r.status).toBe(0);
+	const b = JSON.parse(r.stdout).sessions[0];
+	expect(b.bashMedianS).toBe(3);
+	expect(b.refusalsPerHour).toBeCloseTo(2 / WINDOW_HOURS);
+});
+
+it("names a minute log that will not read with the hours it lacks and still exits 0", () => {
+	fs.mkdirSync(path.join(dir, "minute.jsonl"));
+	const r = run(["--since", SINCE, "--until", UNTIL]);
+	expect(r.status).toBe(0);
+	expect(r.stdout).toContain("Lacking — minute log: 48.0 h");
 });
 
 it("names a missing minute log with the hours it lacks and still exits 0", () => {

@@ -44,16 +44,18 @@ const LIMBS = /** @type {const} */ ([
 /**
  * @typedef {import("./concurrency.js").Limb} Limb
  * @typedef {{ t: number, load1: number | null, sessions: number | null }} MinuteRow
- * @typedef {{ t: number, live: number | null, loop: string | null,
- *   limb: Limb | null }} TickRow `loop` the binding limit's name, LOOP_OFF
+ * @typedef {{ t: number, live: number | null, limit: string | null,
+ *   limb: Limb | null }} TickRow `limit` the binding limit's name, LOOP_OFF
  *   where the loop was not running
  * @typedef {{ repo: string, number: number, closedAt: number,
  *   reason: string }} CloseRow
  * @typedef {{ date: string, state: "read" | "failed" | "truncated",
  *   why?: string }} DayRow one UTC day's close fetch
- * @typedef {{ repo: string, sha: string, t: number, cites: number[],
- *   reverts: string | null }} CommitRow `repo` the tracker whose issues its
- *   bare `#<n>` cites; `reverts` the sha a `git revert` names
+ * @typedef {{ repo: string, sha: string, t: number, subject: string,
+ *   cites: number[], reverts: string | null,
+ *   revertsSubject: string | null }} CommitRow `repo` the tracker whose
+ *   issues its bare `#<n>` cites; `reverts` the sha a `git revert`'s body
+ *   names, `revertsSubject` the subject its `Revert "<subject>"` names
  * @typedef {{ t: number, bash: number[], hto: number }} TranscriptMinute
  * @typedef {{ id: string, template: string | null, st: number,
  *   en: number }} JobRow
@@ -63,9 +65,9 @@ const LIMBS = /** @type {const} */ ([
  *   ticks: TickRow[] | null, closes: CloseRow[], days: DayRow[],
  *   commits: CommitRow[], logRepos: string[], queue: Span[] | null,
  *   transcripts: TranscriptMinute[] | null, jobs: JobRow[] | null,
- *   dispatched: string[], transcriptsWhy?: string }} Records `logRepos`
- *   the trackers whose commit log was read; null where a source would not
- *   read, `transcriptsWhy` saying why dense_minute.py gave none
+ *   dispatched: string[] | null, transcriptsWhy?: string }} Records
+ *   `logRepos` the trackers whose commit log was read; null where a source
+ *   would not read, `transcriptsWhy` saying why dense_minute.py gave none
  */
 
 /**
@@ -162,6 +164,33 @@ function slopeOf(pts) {
 	return sum(pts.map((p) => (p.x - mx) * (p.y - my))) / sxx;
 }
 
+/** @param {CommitRow} c */
+const isRevert = (c) => c.reverts !== null || c.revertsSubject !== null;
+
+/**
+ * The sha a revert undoes: the one its body names, else the newest commit in
+ * its repo with the subject it names that landed before it, so a re-land
+ * keeping the subject is never read as the one undone.
+ * @param {CommitRow} c
+ * @param {CommitRow[]} commits
+ * @returns {string | null}
+ */
+function revertTarget(c, commits) {
+	if (c.reverts) return c.reverts;
+	/** @type {CommitRow | null} */
+	let best = null;
+	for (const x of commits)
+		if (
+			x.repo === c.repo &&
+			x.sha !== c.sha &&
+			x.subject === c.revertsSubject &&
+			x.t <= c.t &&
+			(!best || x.t > best.t)
+		)
+			best = x;
+	return best?.sha ?? null;
+}
+
 /**
  * Whether each commit's work stands: one is undone where a commit that
  * itself stands reverts it, so a revert's own revert restores it.
@@ -171,9 +200,11 @@ function slopeOf(pts) {
 function standing(commits) {
 	/** @type {Map<string, string[]>} */
 	const revertedBy = new Map();
-	for (const c of commits)
-		if (c.reverts)
-			revertedBy.set(c.reverts, [...(revertedBy.get(c.reverts) ?? []), c.sha]);
+	for (const c of commits) {
+		const target = isRevert(c) ? revertTarget(c, commits) : null;
+		if (target)
+			revertedBy.set(target, [...(revertedBy.get(target) ?? []), c.sha]);
+	}
 	/** @type {Map<string, boolean>} */
 	const memo = new Map();
 	/** @param {string} sha @returns {boolean} */
@@ -209,7 +240,7 @@ function joinCloses(r) {
 	/** @type {Map<string, CommitRow[]>} */
 	const naming = new Map();
 	for (const c of r.commits) {
-		if (c.reverts) continue;
+		if (isRevert(c)) continue;
 		for (const n of c.cites) {
 			const key = `${c.repo}#${n}`;
 			naming.set(key, [...(naming.get(key) ?? []), c]);
@@ -272,7 +303,7 @@ function secondsPerMinute(spans, covered) {
  * @param {TickRow | null} tick
  */
 const loopLive = (tick) =>
-	tick && tick.loop !== LOOP_OFF && typeof tick.live === "number"
+	tick && tick.limit !== LOOP_OFF && typeof tick.live === "number"
 		? tick.live
 		: null;
 
@@ -292,7 +323,7 @@ function jobsAt(jobs, t) {
  * @param {Records} r
  * @returns {Minute[]}
  */
-function readMinutes(r) {
+function buildMinutes(r) {
 	const eras = [...r.eras].sort((a, b) => a.from - b.from);
 	const eraOf = (/** @type {number} */ t) =>
 		eras.findLast((e) => t >= e.from)?.label ?? "window start";
@@ -308,7 +339,7 @@ function readMinutes(r) {
 	const queued = r.queue ? secondsPerMinute(r.queue, covered) : null;
 	/** @type {Map<number, TranscriptMinute>} */
 	const said = new Map((r.transcripts ?? []).map((x) => [minuteOf(x.t), x]));
-	const dispatched = new Set(r.dispatched);
+	const dispatched = new Set(r.dispatched ?? []);
 	const jobs = (r.jobs ?? []).map((j) => ({
 		...j,
 		sent: dispatched.has(j.id) || j.template === "bg",
@@ -328,7 +359,9 @@ function readMinutes(r) {
 				queuedS: queued ? (queued.get(t) ?? 0) : null,
 				bash: r.transcripts ? (words?.bash ?? []) : null,
 				hto: r.transcripts ? (words?.hto ?? 0) : null,
-				...(r.jobs ? jobsAt(jobs, t) : { hand: null, dispatched: null }),
+				...(r.jobs && r.dispatched
+					? jobsAt(jobs, t)
+					: { hand: null, dispatched: null }),
 			};
 		});
 }
@@ -494,7 +527,7 @@ function marginalOf(era, buckets) {
 		const q = b.minutes.filter((m) => m.queuedS !== null);
 		if (x === null || sessionBand(x) < MARGINAL_FROM_SESSIONS || q.length === 0)
 			return [];
-		const y = sum(q.map((m) => m.queuedS ?? 0)) / 60 / (q.length / 60);
+		const y = sum(q.map((m) => m.queuedS ?? 0)) / q.length;
 		return [{ x, y }];
 	});
 	const slope = slopeOf(pts);
@@ -520,6 +553,8 @@ function marginalOf(era, buckets) {
 /**
  * Where total closes per hour plateaus in one era: the fewest-session band,
  * thin bands left out, whose interval reaches the peak band's figure.
+ * Untraced: the rule reading "the fewest sessions holding the total at its
+ * plateau" (#3212), the 95% interval borrowed from the marginal wait's.
  * @param {string} era
  * @param {Band[]} bands the era's session bands, fewest sessions first
  */
@@ -596,6 +631,8 @@ function lackingOf(r, minutes) {
 			r.transcriptsWhy ?? "dense_minute.py gave no per-minute output",
 		);
 	if (!r.jobs) lack("job records", coveredH, "no job store would read");
+	if (!r.dispatched)
+		lack("dispatch log", coveredH, "pick-next's dispatch log would not read");
 	return out;
 }
 
@@ -604,7 +641,7 @@ function lackingOf(r, minutes) {
  */
 function readout(r) {
 	const closes = joinCloses(r);
-	const minutes = readMinutes(r);
+	const minutes = buildMinutes(r);
 	const buckets = bucketsOf(minutes, closes);
 	const edges = LOAD_EDGES_PER_CORE.map((e) => e * r.cores);
 	const loadLabels = [

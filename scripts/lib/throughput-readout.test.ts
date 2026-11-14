@@ -66,7 +66,22 @@ const commit = (
 	at: number,
 	cites: number[],
 	reverts: string | null = null,
-) => ({ repo: REPO, sha, t: at, cites, reverts });
+) => ({
+	repo: REPO,
+	sha,
+	t: at,
+	subject: `Commit ${sha}`,
+	cites,
+	reverts,
+	revertsSubject: null,
+});
+
+/* A revert whose body line was edited out, naming its target by subject. */
+const subjectRevert = (sha: string, at: number, subject: string) => ({
+	...commit(sha, at, []),
+	subject: `Revert "${subject}"`,
+	revertsSubject: subject,
+});
 
 const band = (bands: Band[], label: string, era?: string) => {
 	const b = bands.find((x) => x.band === label && (!era || x.era === era));
@@ -182,6 +197,25 @@ describe("throughput readout", () => {
 		expect(three.commitsPerClose).toBeCloseTo((1 + 1 + 2 + 2) / 4);
 	});
 
+	it("ties a revert named by subject alone to the commit before it, never a re-land keeping the subject", () => {
+		const build = { ...commit("a", T0, [1]), subject: "Build it (#1)" };
+		const r = readout(
+			records({
+				closes: [close(1, T0 + 4 * HOUR), close(2, T0 + HOUR)],
+				commits: [
+					build,
+					subjectRevert("ra", T0 + HOUR, "Build it (#1)"),
+					{ ...build, sha: "a2", t: T0 + 2 * HOUR },
+					{ ...commit("b", T0, [2]), subject: "Other (#2)" },
+					subjectRevert("rb", T0 + 2 * HOUR, "Other (#2)"),
+				],
+			}),
+		);
+		const three = band(r.sessions, "3");
+		expect(three.reverted).toBe(1);
+		expect(three.counted).toBe(1);
+	});
+
 	it("names the repos whose commit log went unread and leaves them out of commits per close", () => {
 		const r = readout(
 			records({
@@ -269,13 +303,13 @@ describe("throughput readout", () => {
 		const r = readout(
 			records({
 				ticks: [
-					{ t: T0, live: 3, loop: null, limb: "load" as const },
-					{ t: T0 + 6 * HOUR, live: 3, loop: null, limb: "memory" as const },
-					{ t: T0 + 12 * HOUR, live: 9, loop: null, limb: "none" as const },
+					{ t: T0, live: 3, limit: null, limb: "load" as const },
+					{ t: T0 + 6 * HOUR, live: 3, limit: null, limb: "memory" as const },
+					{ t: T0 + 12 * HOUR, live: 9, limit: null, limb: "none" as const },
 					{
 						t: T0 + 18 * HOUR,
 						live: 9,
-						loop: LOOP_OFF,
+						limit: LOOP_OFF,
 						limb: "sessions" as const,
 					},
 				].flatMap((x) =>
@@ -308,6 +342,19 @@ describe("throughput readout", () => {
 		const three = band(r.sessions, "3");
 		expect(three.handOpenedHours).toBe(2);
 		expect(three.dispatchedHours).toBe(4);
+	});
+
+	it("splits no session-hours where the dispatch log would not read, and names it", () => {
+		const r = readout(
+			records({
+				jobs: [{ id: "x", template: "claude", st: T0, en: T0 + HOUR }],
+				dispatched: null,
+			}),
+		);
+		expect(band(r.sessions, "3").handOpenedHours).toBeNull();
+		expect(r.lacking).toContainEqual(
+			expect.objectContaining({ source: "dispatch log", hours: 24 }),
+		);
 	});
 
 	it("splits bands at an era cut", () => {

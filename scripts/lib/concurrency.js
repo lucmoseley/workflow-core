@@ -78,7 +78,7 @@ const SPREAD_CAP = 10;
 /** @typedef {import("./admission.js").AdmissionJson} AdmissionJson */
 /** @typedef {ReturnType<typeof buildTickMemory>} TickMemory */
 
-/** @typedef {{ts: string, sessions: number|null}} MinuteLine */
+/** @typedef {{ts: string, sessions: number|null, load1?: number|null}} MinuteLine */
 /** @typedef {{dir: string, count: number}} UnlistedDir */
 /** The breakdown's unlisted row; `count` null where it went unread, `unknown`
  * then saying why where known.
