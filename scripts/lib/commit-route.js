@@ -3,7 +3,8 @@
  * about: its commit route (GLOSSARY.md), for Node callers.
  * scripts/lib/commit-route.sh is the shell callers' copy, and
  * lib/commit-route.test.ts holds the two to the same answer on every row of
- * that file's marker table. Change the two together.
+ * that file's marker table and every route's replay answer. Change the two
+ * together.
  *
  * The marker table, the order its checks run in and why, and the leftover
  * `sequencer` (#3298), are commit-route.sh's header.
@@ -112,4 +113,13 @@ function sequencing(hook, dir) {
 	return r.status === 0 && String(r.stdout).trim() === safety;
 }
 
-module.exports = { commitRoute };
+const REPLAY_ROUTES = new Set(["rebase", "rebase-apply", "am", "cherry-pick"]);
+
+/**
+ * Whether `route` replays commits already made and reaches no pre-commit:
+ * commit-route.sh's wfc_commit_route_replays.
+ * @param {string} route
+ */
+const replaysCommits = (route) => REPLAY_ROUTES.has(route);
+
+module.exports = { commitRoute, replaysCommits };

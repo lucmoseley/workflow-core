@@ -19,7 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderHookShim } from "./adopter-skeleton";
-import { commitRoute } from "./commit-route.js";
+import { commitRoute, replaysCommits } from "./commit-route.js";
 import { newRepo, registerTempCleanup } from "./precommit-gate-harness";
 import { ROOT } from "./precommit-gate-testkit";
 import { shellQuote } from "./sh-quote.js";
@@ -532,10 +532,11 @@ describe("wfc_commit_route_replays", () => {
 		["merge", 1],
 		["bisect", 1],
 		["commit", 1],
-	])("answers %s with exit %i", (route, exitCode) => {
+	])("answers %s with exit %i, and the Node copy agrees", (route, exitCode) => {
 		expect(inShell("sh", `wfc_commit_route_replays ${route}`).code).toBe(
 			exitCode,
 		);
+		expect(replaysCommits(route)).toBe(exitCode === 0);
 	});
 });
 
