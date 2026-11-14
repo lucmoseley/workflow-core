@@ -12,14 +12,17 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { readJsConst } from "./lib/const-testkit";
 import { stubGhScript } from "./lib/gh-stub";
 import { registrationsOf } from "./lib/hook-wiring";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const ROOT = path.resolve(__dirname, "..");
 const HOOK = path.join(ROOT, "scripts", "inject-tracker-docs.js");
-const { TAKES_GH_TIMEOUT_S } =
-	require("./lib/inject-tracker-docs-host.js") as typeof import("./lib/inject-tracker-docs-host.js");
+const TAKES_GH_TIMEOUT_S = readJsConst(
+	path.join(ROOT, "scripts", "lib", "inject-tracker-docs-host.js"),
+	"TAKES_GH_TIMEOUT_S",
+);
 
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), "inject-entry-"));
 afterAll(() => fs.rmSync(SCRATCH, { recursive: true, force: true }));

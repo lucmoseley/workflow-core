@@ -79,8 +79,9 @@ const { scriptPath } = require("./lib/script-path.js");
 
 /* The host repository's own `.github/workflows` (#1) — never `__dirname`,
  * which in a plugin install names the plugin cache, not the repo whose
- * workflows are under the ceiling. */
-const DEFAULT_DIR = path.join(hostRoot(), ".github", "workflows");
+ * workflows are under the ceiling. Read per run, never at load: an
+ * in-process run is loaded before it is pointed at its repo (#5195). */
+const defaultDir = () => path.join(hostRoot(), ".github", "workflows");
 
 /* Widening this set is a change to the ceiling and belongs to the founder, via
  * docs/agents/autonomy-ceiling.md. */
@@ -346,7 +347,7 @@ function judgeWorkflow(ctx, dir, file, { yaml, apart }) {
 
 /** @param {import("./lib/check").Ctx} ctx */
 function run(ctx) {
-	const dir = ctx.args[0] ? path.resolve(ctx.args[0]) : DEFAULT_DIR;
+	const dir = ctx.args[0] ? path.resolve(ctx.args[0]) : defaultDir();
 
 	const files = readWorkflowFiles(ctx, dir);
 	/* Loaded only where there is a workflow to parse. */

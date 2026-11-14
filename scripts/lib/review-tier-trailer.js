@@ -10,7 +10,7 @@
  * header.
  */
 
-const { stripNewlines } = require("./strip-newlines.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /**
  * @typedef {object} TrailerPorts
@@ -54,7 +54,7 @@ const KEY = /^review-tier[ \t]*:/i;
  * @returns {string | null}
  */
 function stripUnvouched(msg, vouching) {
-	const vouched = new Set(stripNewlines(vouching).split("\n"));
+	const vouched = new Set(trimEndRun(vouching, "\n").split("\n"));
 	const lines = msg.split("\n");
 	if (lines.at(-1) === "") lines.pop();
 	/** @type {string[]} */
@@ -68,8 +68,8 @@ function stripUnvouched(msg, vouching) {
 		dropping = false;
 		kept.push(line);
 	}
-	const keptText = stripNewlines(kept.join("\n"));
-	return keptText === stripNewlines(msg) ? null : `${keptText}\n`;
+	const keptText = trimEndRun(kept.join("\n"), "\n");
+	return keptText === trimEndRun(msg, "\n") ? null : `${keptText}\n`;
 }
 
 class Stop extends Error {

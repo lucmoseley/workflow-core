@@ -5,7 +5,7 @@
  * stderr as the same checker spawned as `node <checker> <args>`, over the same
  * fixture tree. It is what licenses each pre-commit dispatcher row: a row
  * whose checker fails it keeps its own process. The per-dispatcher-row cases
- * are check-in-process-armed-rows and check-in-process-always-rows (#5191).
+ * are check-in-process-armed-rows, -always-rows and -side-rows (#5191).
  *
  * Each row is one checker and the trees it is judged on; each tree runs both
  * ways and the two are compared, never against a hand-written expectation.

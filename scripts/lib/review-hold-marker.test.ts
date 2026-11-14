@@ -10,10 +10,10 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { readShellConst } from "./const-testkit";
 import { mkScratchDir } from "./git-fixture";
 import { markerFault, refusal, stampValue } from "./review-hold-marker.js";
 import { shellQuote } from "./sh-quote.js";
-import { readShellConst } from "./shell-const-testkit";
 
 const MARKER_LIB = path.join(__dirname, "concision-marker.sh");
 const TREE = "t".repeat(40);

@@ -6,7 +6,7 @@
  * these exports, word for word.
  */
 
-const { stripNewlines } = require("./strip-newlines.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /**
  * concision-marker.sh's NAMED_PATHS_MAX, which the Stop nag lists paths up
@@ -119,7 +119,7 @@ function refusal({ areas, offSides, marker, fault, stagedFault, rule }) {
 		);
 	lines.push(
 		"",
-		stripNewlines(rule),
+		trimEndRun(rule, "\n"),
 		"",
 		"pre-commit: the review hold refused this commit (rule:review-hold). Nothing was committed.",
 	);
