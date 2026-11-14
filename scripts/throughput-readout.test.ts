@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * throughput-readout.test.ts — the throughput readout's command line
- * (#5196). Break it and a source that would not read passes as a quiet
+ * (#5196, #5205). Break it and a source that would not read passes as a quiet
  * window, or a bad argument prints a reading over nothing. The bands
  * themselves are pinned in lib/throughput-readout.test.ts, which hands the
  * core plain records; the reads of each source are reached only from here.
@@ -15,17 +15,28 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { writeJobRecord } from "./lib/background-start-testkit";
+import { appendTick } from "./lib/concurrency.js";
+import { record } from "./lib/dispatch-ledger.js";
 import { printed, refused, stubGhRoutes } from "./lib/gh-stub";
 import { initGitRepo } from "./lib/git-fixture";
+import { jobDirPath } from "./lib/job-paths.js";
+import { markersDir } from "./lib/marker-root.js";
+import { queueExitLogger } from "./lib/queue-exit-log.js";
 import { runInProcess } from "./lib/run-in-process";
+import { appendLedgerLine } from "./lib/run-ledger.js";
 
 const SCRIPT = path.join(__dirname, "throughput-readout.js");
 const SINCE = "2026-11-10T00:00:00Z";
 const UNTIL = "2026-11-12T00:00:00Z";
 const T0 = Date.parse(SINCE);
 const MIN = 60_000;
+const HOUR = 60 * MIN;
 const REPO = "owner/tracker";
+/* The minute log's span and the session count on each of its lines. */
+const WINDOW_HOURS = 48;
+const SESSIONS = 3;
 
 let dir: string;
 beforeEach(() => {
@@ -34,10 +45,12 @@ beforeEach(() => {
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 const at = (t: number) => new Date(t).toISOString();
+const seatDir = () => path.join(dir, "seat");
+const refillDir = () => path.join(dir, "refill");
 
-function writeMinuteLog() {
-	const lines = Array.from({ length: 48 * 60 }, (_, i) =>
-		JSON.stringify({ ts: at(T0 + i * MIN), load1: 4, sessions: 3 }),
+function writeMinuteLog(from = T0) {
+	const lines = Array.from({ length: WINDOW_HOURS * 60 }, (_, i) =>
+		JSON.stringify({ ts: at(from + i * MIN), load1: 4, sessions: SESSIONS }),
 	);
 	fs.writeFileSync(path.join(dir, "minute.jsonl"), `${lines.join("\n")}\n`);
 }
@@ -61,9 +74,9 @@ function run(
 		"search issues*--closed 2026-11-11 *": day([]),
 	},
 ) {
-	const seat = path.join(dir, "seat");
+	const seat = seatDir();
 	fs.mkdirSync(path.join(seat, "jobs"), { recursive: true });
-	fs.mkdirSync(path.join(dir, "refill"), { recursive: true });
+	fs.mkdirSync(refillDir(), { recursive: true });
 	const stub = stubGhRoutes(dir, routes);
 	return runInProcess(
 		SCRIPT,
@@ -71,7 +84,7 @@ function run(
 			"--owner",
 			"owner",
 			"--markers",
-			dir,
+			markersDir(dir),
 			"--config-dir",
 			seat,
 			"--checkout",
@@ -89,7 +102,7 @@ function run(
 				WFC_CLAUDE_CONFIG_B: seat,
 				WFC_CLAUDE_CONFIG_C: seat,
 				MEMWATCH_MINUTE_LOG: path.join(dir, "minute.jsonl"),
-				WFC_REFILL_DIR: path.join(dir, "refill"),
+				WFC_REFILL_DIR: refillDir(),
 			},
 		},
 	);
@@ -144,6 +157,108 @@ it.each([
 		expect(out.load[0].band).toBe("<16");
 	},
 );
+
+it("reads the limb, queue share and session split off a tick, a queue exit, a dispatch row and two job records", () => {
+	/* The writers stamp the wall clock, and the tick and run writers prune
+	 * lines a month old, so the window sits about now (#5205). */
+	const now = Date.now();
+	const h = now - (now % HOUR);
+	const since = h - 24 * HOUR;
+	writeMinuteLog(since);
+	const markers = markersDir(dir);
+	fs.mkdirSync(refillDir(), { recursive: true });
+	vi.stubEnv("WFC_REFILL_DIR", refillDir());
+	/* The loop's live count overrides the minute line's while the tick is
+	 * fresh, its first 16 minutes of the hour: a mean of ~3.5 there, band 4. */
+	appendTick({
+		at: at(h - 2 * HOUR),
+		live: SESSIONS + 2,
+		ceiling: 12,
+		working: SESSIONS + 2,
+		binding: { limit: "CPU", why: "load1 30.0 is over the ceiling of 24" },
+		also: [],
+		memory: null,
+	});
+	queueExitLogger({
+		file: path.join(markers, ".suite-queue-exits.jsonl"),
+		kind: "touched",
+		slotFree: true,
+		session: "s1",
+		label: "test",
+		err: process.stderr,
+	})("opened", 10 * MIN);
+	appendLedgerLine(
+		dir,
+		{
+			sha: "a".repeat(40),
+			at: at(now + MIN),
+			startedAt: at(now),
+			durationMs: MIN,
+			suite: "vitest",
+			sessionId: "s1",
+			scope: {
+				resolvedFiles: 1,
+				wholeSlot: false,
+				modulesRun: 1,
+				modulesTotal: 1,
+				tests: 1,
+				skipped: 0,
+			},
+		},
+		true,
+	);
+	record({
+		root: dir,
+		issues: [1],
+		model: "opus",
+		prompt: "/implement 1",
+		jobId: "sent",
+		launchedAt: h - 10 * HOUR,
+	});
+	const seat = seatDir();
+	/* A finished job's record keeps updating: its life ends at its first
+	 * terminal state, 2 h after it started, not at its last update. */
+	writeJobRecord(jobDirPath(seat, "sent"), "implement", {
+		createdAt: at(h - 10 * HOUR),
+		firstTerminalAt: at(h - 8 * HOUR),
+		updatedAt: at(h - HOUR),
+	});
+	writeJobRecord(jobDirPath(seat, "mine"), "claude", {
+		createdAt: at(h - 6 * HOUR),
+		updatedAt: at(h - 5 * HOUR),
+	});
+	const r = run(
+		[
+			"--since",
+			at(since),
+			"--until",
+			at(since + WINDOW_HOURS * HOUR),
+			"--json",
+		],
+		{ "search issues*": day([]) },
+	);
+	expect(r.status).toBe(0);
+	const bands = JSON.parse(r.stdout).sessions;
+	const looped = bands.find((b: { band: string }) => b.band === "4");
+	const band = bands.find((b: { band: string }) => b.band === String(SESSIONS));
+	expect(looped).toMatchObject({ hours: 1 });
+	expect(looped.limbShare).toEqual({
+		load: 1,
+		sessions: 0,
+		memory: 0,
+		"Windows memory": 0,
+		none: 0,
+	});
+	expect(band.hours).toBe(WINDOW_HOURS - 1);
+	/* toBeCloseTo's default 2 digits would pass 0, a queue reader that read
+	 * nothing, against this ~0.0012. */
+	expect(band.queueShare).toBeCloseTo(
+		(10 * 60) / (SESSIONS * (WINDOW_HOURS - 1) * 3600),
+		8,
+	);
+	expect(band.dispatchedHours).toBeCloseTo(2);
+	expect(band.handOpenedHours).toBeCloseTo(1);
+});
 
 it("names a missing minute log with the hours it lacks and still exits 0", () => {
 	const r = run(["--since", SINCE, "--until", UNTIL]);
