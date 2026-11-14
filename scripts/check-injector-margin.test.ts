@@ -23,7 +23,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { inProcess, spawned } from "./lib/check-in-process-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
@@ -319,6 +319,29 @@ describe("--index: the commit's bytes", () => {
 			"fragment review-dispatch-shape",
 		);
 		expect(store()).toEqual(before);
+	});
+
+	/* A store an earlier row or the caller left in the environment is never
+	 * the one measured (#5202): the pin outranks it for the read alone. */
+	it("reads the measured root's fragments over a stale WFC_RULES_DIR, leaving it set", async () => {
+		write(
+			TEXT,
+			moduleOf(["code-review"], "").replace(
+				"module.exports = {",
+				'const codeReviewRules = (h) => h.fragment("review-dispatch-shape");\nmodule.exports = {\n\tcodeReviewRules,',
+			),
+		);
+		write("docs/agents/rules/review-dispatch-shape.txt", "shape\n");
+		git("add", TEXT, "docs/agents/rules/review-dispatch-shape.txt");
+		const stale = path.join(root, "stale-rules");
+		fs.mkdirSync(stale);
+		vi.stubEnv("WFC_RULES_DIR", stale);
+		vi.stubEnv("WFC_RULES_FALLBACK_DIR", stale);
+
+		const { stdout, stderr } = await inProcess(SCRIPT, ["--index"], root);
+		expect(`${stdout}${stderr}`).not.toContain("unreadable fragment");
+		expect(process.env.WFC_RULES_DIR).toBe(stale);
+		expect(process.env.WFC_RULES_FALLBACK_DIR).toBe(stale);
 	});
 
 	/* The routes on which this gate must NOT refuse a commit (mantahostels#1915). */
