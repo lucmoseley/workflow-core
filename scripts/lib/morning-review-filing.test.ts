@@ -15,7 +15,9 @@
  * reviews (#3813), or a repo that did not read loses its events (#3831).
  *
  * Near the 10 s file budget (§X8 (5)): many cases file three or four days in
- * a row, each filing paying two journalctl fake starts and its real git.
+ * a row, each filing paying two journalctl fake starts and its real git, and
+ * the three answering cases pay the real answering's gh stub and file-issue.js
+ * starts, some 0.5 s each.
  */
 
 import { execFileSync } from "node:child_process";
