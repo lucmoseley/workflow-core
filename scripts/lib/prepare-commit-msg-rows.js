@@ -164,6 +164,9 @@ function closingKeyword(ctx) {
 	return { exit: r.code === 0 ? 0 : 1, stdout: "", stderr: r.stderr };
 }
 
+/** gitleaks' arguments: a scan of the staged content, findings redacted. */
+const GITLEAKS_STAGED = ["git", "--staged", "--redact"];
+
 /**
  * The secrets scan alone, the command .husky/pre-commit runs, its output
  * straight to the terminal (mantahostels#1706, #224).
@@ -172,7 +175,7 @@ function closingKeyword(ctx) {
  */
 function replayScan(ctx) {
 	const bin = ctx.env.WFC_GITLEAKS || "gitleaks";
-	const r = spawnSync(bin, ["git", "--staged", "--redact"], {
+	const r = spawnSync(bin, GITLEAKS_STAGED, {
 		cwd: ctx.cwd,
 		env: ctx.env,
 		stdio: "inherit",

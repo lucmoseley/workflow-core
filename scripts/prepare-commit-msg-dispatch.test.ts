@@ -13,6 +13,11 @@
  *
  * spawn-kept: the hook cases spawn git to fire the real hook; no node is
  * spawned.
+ *
+ * Over the 10 s budget (base §X8 (5)): its nine hook cases are each a real
+ * git operation firing the real hook, 0.5–1 s apiece, which is the boundary
+ * under test; the row cases build a real repo for the route markers at
+ * ~0.25 s each.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
