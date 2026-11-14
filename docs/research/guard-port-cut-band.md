@@ -132,24 +132,24 @@ Findings:
 - Q3.2. **On the 5 test files' own time, the pilot IS readable.** Here the cut is 72% to 87% of those files. The noise of one file's wall is 22% to 47% (range) at load1 5 to 16 (Q2). Locally, the 5 files took 369 s together in this session; the predicted cut is about 263 to 319 s. A cut of that size is 1.5 to 4 times the measured wall range of one file (22% to 47%), and 5 to 12 times its CV (7% to 14%). Thus it is readable in one before-and-after pair, and safely readable on the median of 3 runs each. Read it on CI as the file-seconds of the 5 files in one run, against the same 5 files in the F4 run or in the next untouched run.
 - Q3.3. **The best reading is the count and share, not the wall.** After the port, the guard runs of each test file fall from a known count (commit-form 486, push-rules 86, suite-concurrency 376, issue-create-label 441, pull-form 354) to the kept contract tests. The guard share falls from 0.84 to 0.97 to near the kept fraction.
 
-## Q5. Shell subjects in #5135's non-guard class: three of four under their bands (#5135, #5199)
+## Q5. Shell subjects in #5135's non-guard class: both CPU-measured ones under their bands (#5135, #5199)
 
 **LABEL: measured.** #5135's rule: a measured CPU cut below the prediction's low edge means the method is off for that kind of subject, and the next ticket of that kind re-fits it before predicting. The Node subjects landed inside or above theirs (#5146, #5148, #5149, #5150, #5156, #5157), measured on wall only. Figures marked #2729 are from #5199's class report there (comment 6868953761).
 
 | Subject (ticket) | Predicted | Measured | How measured |
 | --- | --- | --- | --- |
 | `dispatch-sessions.sh` (#5145) | 58–68% | **45–46% CPU**, 52–56% wall | 2 concurrent CPU pairs, load1 6–8 |
-| `review-hold-gate.sh` (#5153) | 28–34% | **8% wall**; the same file's CI file-s cut 31% (#2729) | local: sequential pairs, wall only. CI: median of 4 sweeps a side |
+| `review-hold-gate.sh` (#5153) | 28–34% | **8% wall**; the same file's CI file-s cut 31% (#2729) | local: sequential pairs, wall only. CI: median of 4 sweeps a side. No CPU pair, so the rule's firing is unconfirmed |
 | pre-commit's doc-map `sh` block (#5155) | 55–63% | **43% CPU** (ratio 0.572, 0.567–0.585), 46% wall (#2729) | 6 concurrent CPU pairs, alternating first, load1 9–16 |
 | `inject-tracker-docs.sh` (#5151) | 73–88% | 83–87% wall | sequential pairs, wall only |
 
 Causes, from each ticket's own reading:
 
-- Q5.1. **#5153 applied share × 0.80–0.97 to a share holding children the core keeps:** the hold's git calls, and `git commit`'s own work (marked an upper bound on the ticket).
+- Q5.1. **#5153's local wall cut missed, though its CI cut held; if a CPU pair confirms the miss, the cause is that it applied share × 0.80–0.97 to a share holding children the core keeps:** the hold's git calls, and `git commit`'s own work (marked an upper bound on the ticket).
 - Q5.2. **#5145 and #5155 priced what stays (#2238's split) and still missed.** Both priced in wall, against a CPU headline. #5145's `dispatch-sessions-bridge-budget.test.ts` saved 36 s of wall and no CPU, its probe budget being a sleep. #5155's kept work (the real checker, git) is CPU-dense, while what went was partly process-start wait: 46–55% off the wall, 43% off the CPU.
 - Q5.3. **#5151 held because its children went with the bash:** `jq`, `date`, `stat` and `find`, which a Node core does in-process.
 
-**The re-fit a shell-subject ticket runs before predicting:** predict in CPU, not wall. Read the before files' CPU, and the CPU of every child the core keeps (real git, real checkers, stubs behind helpers) from a trace that also times the subject's own children (the Appendix preload logging at depth 3, as #5147 did). Count no saving for sleeps or timeouts. This re-fit is unproven: back-test it against the four rows above before relying on it.
+**The re-fit a shell-subject ticket runs before predicting:** predict in CPU, not wall. Read the before files' CPU, and the CPU of every child the core keeps (real git, real checkers, stubs behind helpers) from a trace that also times the subject's own children (the Appendix preload logging at depth 3, as #5147 did). Count no saving for sleeps or timeouts. This re-fit is unproven: back-test it against #5145's and #5155's CPU rows before relying on it; #5153 and #5151 join the back-test only once a concurrent CPU pair is taken on their files.
 
 ## Headline
 
