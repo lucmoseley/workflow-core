@@ -290,9 +290,10 @@ describe("--index: the commit's bytes", () => {
 		expect(JSON.parse(run("--json").output).findings).toEqual([]);
 	});
 
-	/* The dispatcher runs the row in its own process (#5194): the fragment
-	 * store pinned to the measured root for the read alone, so the run reads
-	 * as its spawned CLI and leaves the environment as it found it. */
+	/* The dispatcher runs the row in the process every row shares (#5194):
+	 * the fragment store is pinned to the measured root for the read alone,
+	 * so the run reads as its spawned CLI and leaves the environment as it
+	 * found it. */
 	it("runs in-process exactly as spawned, its fragment store pinned to the measured root", async () => {
 		write(
 			TEXT,
