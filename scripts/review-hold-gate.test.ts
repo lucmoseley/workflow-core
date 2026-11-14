@@ -25,6 +25,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ledgerHead } from "./lib/arbiter-testkit";
+import { readShellConst } from "./lib/const-testkit";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { ENTRY_BUDGET_MS } from "./lib/hook-deadline.js";
 import { GATES } from "./lib/precommit-gates.js";
@@ -36,7 +37,6 @@ import { runTrailer as trailerCore } from "./lib/review-tier-trailer.js";
 import { buildTrailerPorts } from "./lib/review-tier-trailer-host.js";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
-import { readShellConst } from "./lib/shell-const-testkit";
 
 const GATE = path.resolve(__dirname, "review-hold-gate.js");
 const HOOK_ROOT = path.resolve(__dirname, "lib", "hook-root.sh");
@@ -1114,7 +1114,7 @@ describe("review-hold-gate.js — passes", () => {
 		git("add", "--", PLAIN);
 		/* A directory where the stamp goes, which neither a remove nor a write
 		 * of the file can clear. */
-		const stampAt = path.join(repo, ".git", `wfc-review-tier-${SID}`);
+		const stampAt = reviewTierStamp(path.join(repo, ".git"), SID) as string;
 		fs.mkdirSync(path.join(stampAt, "held"), { recursive: true });
 		expect(hold([])).toEqual({
 			status: 0,
@@ -1409,7 +1409,7 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 		"utf8",
 	);
 	const stamp = (sid = SID) =>
-		path.join(repo, ".git", `wfc-review-tier-${sid}`);
+		reviewTierStamp(path.join(repo, ".git"), sid) as string;
 	const trailers = () =>
 		git("log", "-1", "--format=%(trailers:key=Review-Tier,valueonly)");
 
@@ -1503,10 +1503,10 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 				"--format=%(trailers:key=Review-Tier,valueonly)",
 			);
 		const wtStamp = () =>
-			path.join(
+			reviewTierStamp(
 				git("-C", wt, "rev-parse", "--absolute-git-dir"),
-				`wfc-review-tier-${SID}`,
-			);
+				SID,
+			) as string;
 
 		/** write-review-marker.js from the worktree, for SECRET; `env` over quietEnv(). */
 		const writeWtMarker = (env: NodeJS.ProcessEnv = {}) =>

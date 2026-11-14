@@ -9,9 +9,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, vi } from "vitest";
 import { ledgerHead } from "./arbiter-testkit";
+import { readShellConst } from "./const-testkit";
 import { declareArea } from "./declare-area-testkit";
 import { defineTemplate, mkScratchDir, trioTemplate } from "./git-fixture";
-import { readShellConst } from "./shell-const-testkit";
 
 type Owed = {
 	tier: string;
