@@ -107,14 +107,12 @@ const settled = (r: {
 	return { exit: r.exit, stdout: settle(r.stdout), stderr: settle(r.stderr) };
 };
 
-/** Whether a row compares an `--against` or `--index` side with its own. */
 export const sideOf = (row: GateRow) => {
 	if (row.args.includes("--against")) return "against";
 	if (row.args.includes("--index")) return "index";
 	return null;
 };
 
-/** The row's fixture path: its own `staged`, else its ROW_FIXTURES entry's. */
 const pathOf = (row: GateRow) => {
 	const own = "staged" in row ? row.staged : undefined;
 	const fx = ROW_FIXTURES[row.id];
@@ -144,7 +142,7 @@ interface RowTree extends Tree {
 /* The trees a row is judged on. Every row: one commit holding its fixture
  * path, the index changing it. A row with a side also: that commit holding a
  * fault besides, the index changing the path alone (the fault inherited) or
- * adding a second fault (one inherited, one added). An `--against` row passes
+ * adding a second fault. An `--against` row passes
  * the inherited fault over and refuses the added one; an `--index` row,
  * having no baseline, refuses both, an added file named among its findings. */
 const treesOf = (row: GateRow): RowTree[] => {
@@ -191,7 +189,6 @@ const treesOf = (row: GateRow): RowTree[] => {
 	];
 };
 
-/** The paths whose staging arms `row`: its computed list, where it has one. */
 const listOf = (row: GateRow) =>
 	"computed" in row.arm && row.arm.computed !== undefined
 		? computed(row.arm.computed)
@@ -226,8 +223,6 @@ const dispatcherRowCase = async (row: GateRow, tree: RowTree) => {
 		);
 		return;
 	}
-	/* The fault tree holds the faults it names: asserted on the spawned run,
-	 * the in-process one being held equal to it. */
 	if (tree.verdict) {
 		const out = own.stdout + own.stderr;
 		expect(own.exit).toBe(tree.verdict.exit);
@@ -245,7 +240,6 @@ const dispatcherRowCase = async (row: GateRow, tree: RowTree) => {
 	).toEqual(settled(own));
 };
 
-/** Every ROW_FIXTURES entry names a dispatcher row, so none outlives its row. */
 export const describeRowFixtures = (rows: GateRow[]) =>
 	it("keys every row fixture by a dispatcher row's id", () =>
 		expect(

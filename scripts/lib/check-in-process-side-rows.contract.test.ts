@@ -11,7 +11,7 @@
  * workers (#5191).
  *
  * Its cost, ~35 s, is three trees for each of some twenty rows, each run twice
- * over materialised sides: a fault tree per row is what this file proves.
+ * over materialised sides.
  */
 
 import { afterEach } from "vitest";

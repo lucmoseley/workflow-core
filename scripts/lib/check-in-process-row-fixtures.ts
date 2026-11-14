@@ -1,13 +1,13 @@
 /*
  * The fixture each pre-commit dispatcher row's equivalence case (#5172) is
  * judged on (#5195), one entry per row of lib/precommit-gates.js: a row with
- * no entry fails its case rather than passing on a tree that never arms it.
+ * no entry fails its case.
  *
- * `path` is a path the row's arm matches, where the row names no `staged` of
- * its own; an always-armed row's is any path. `fault` is owed by exactly the
+ * `path` is a path the row's arm matches, a member of its computed list where
+ * it has one, where the row names no `staged` of its own; an always-armed row's is any path. `fault` is owed by exactly the
  * rows comparing an `--against` or `--index` side: `inherited` the files the
  * tree's one commit holds, one fault among them, and `added` the files the
- * index then stages, adding a second. Each is specific to its checker's rules.
+ * index then stages, adding a second.
  *
  * FOR TESTS ONLY.
  */
@@ -20,8 +20,7 @@ export interface RowFixture {
 }
 
 /* Joined, so this file's own lines hold none of the faults they write for
- * the checkers that read scripts/ .ts (check-test-env-writes, check-gh-route)
- * to find. */
+ * the checkers that read scripts/ .ts to find. */
 const env = (name: string) => ["process", "env", name].join(".");
 const envWrite = (name: string) => `${env(name)} = "x";\n`;
 const GH = ["g", "h"].join("");
