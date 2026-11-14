@@ -1,7 +1,7 @@
 /*
  * arbiter-store.js — everything the session arbiter keeps on disk, as one name.
  *
- * session-arbiter.js is a CLI that exports nothing (mantahostels#158); this module owns the
+ * session-arbiter.js is a CLI exporting only a subcommand runner (mantahostels#158); this module owns the
  * whole STATE DIRECTORY under CLAUDE_CONFIG_DIR — `locks/`, `writes/` and
  * `guard-errors.log` — plus the sessions registry it reads to tell a live
  * session from a finished one, and the path derivation all of them share.

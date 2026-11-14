@@ -3,7 +3,8 @@
  * session-arbiter.js — the file-claim CLI.
  *
  * THE SUBCOMMANDS ARE THE WHOLE PRODUCTION INTERFACE (mantahostels#158).
- * This file exports NOTHING. lib/file-claim.js calls `check`,
+ * This file exports only PROGRAM, which runs a subcommand in the caller's
+ * process (#5208). lib/file-claim.js calls `check`,
  * concision-backstop.sh calls `writes`, lib/code-signal.sh calls `own-paths`,
  * settings.json calls `prune-markers --detach`, lib/resume-io.js calls
  * `move-issue`, and a session calls `release` and `wait` (#540) for itself; .husky/post-commit calls
@@ -56,6 +57,7 @@ const { recordRun, JOB_PRUNE_MARKERS } = require("./lib/detached-run.js");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
+const { runProgram } = require("./lib/program-scope.js");
 const { caught } = require("./lib/caught.js");
 const { envelope } = require("./lib/hook-envelope.js");
 const { readOwnPaths } = require("./lib/own-work.js");
@@ -229,8 +231,8 @@ const nameSession = (id) =>
  *
  * The null limb is UNVERIFIED and, from the CLI, unreachable: every verdict
  * that reaches a call here carries a lock. It is typed in because ClaimResult
- * cannot say which verdicts those are, and this file exports nothing, so no
- * test can drive the limb that would prove it.
+ * cannot say which verdicts those are, and this file's one export runs whole
+ * subcommands, so no test can drive the limb that would prove it.
  * @param {LockRecord|null} lock
  * @param {SessionNames} [names]
  */
@@ -2734,25 +2736,55 @@ function passThrough(argv, sessionId) {
 	return refuseUnhandled();
 }
 
-/** @type {number|Promise<number>} */
-let code = 0;
-try {
-	code = main(process.argv.slice(2));
-} catch (e) {
-	// Fail open (mantahostels#103 §6).
-	store.logError(process.argv.slice(2).join(" "), e);
-	code = 0;
+/**
+ * The CLI's run up to its exit code. A throw fails open (mantahostels#103 §6),
+ * logged and exiting 0.
+ * @param {string[]} argv
+ * @returns {number|Promise<number>}
+ */
+function runCli(argv) {
+	/* A fresh oracle read per run, as a fresh process has: the dispatcher
+	 * runs several in one process (#5208). */
+	listedMemo = undefined;
+	try {
+		return main(argv);
+	} catch (e) {
+		// Fail open (mantahostels#103 §6).
+		store.logError(argv.join(" "), e);
+		return 0;
+	}
 }
-// `wait` alone returns a promise; every other subcommand still exits in the
-// same tick, which lib/run-in-process.js relies on. The wait's fault exits 1,
-// never the fail-open 0, which is RELEASED's code and would wake the session
-// onto an issue still claimed.
-if (typeof code === "number") process.exit(code);
-else
-	code.then(
-		(c) => process.exit(c),
-		(/** @type {unknown} */ e) => {
-			store.logError(process.argv.slice(2).join(" "), e);
-			process.exit(1);
-		},
-	);
+
+/**
+ * A subcommand as the post-commit dispatcher runs it in its own process
+ * (#5208): `node session-arbiter.js <args>`'s exit code and output, under
+ * `cwd` and `env` — the session id and CLAUDE_PROJECT_DIR among it — which its
+ * git children inherit. `wait`, the one subcommand outliving its tick, keeps
+ * its process.
+ * @param {{ cwd: string, env: NodeJS.ProcessEnv, args: string[] }} io
+ */
+const PROGRAM = (io) => {
+	if (io.args[0] === "wait")
+		throw new Error("session-arbiter.js wait runs in its own process.");
+	return runProgram(io, () => /** @type {number} */ (runCli(io.args)));
+};
+
+module.exports = { PROGRAM };
+
+if (require.main === module) {
+	const argv = process.argv.slice(2);
+	const code = runCli(argv);
+	// `wait` alone returns a promise; every other subcommand still exits in the
+	// same tick, which lib/run-in-process.js relies on. The wait's fault exits 1,
+	// never the fail-open 0, which is RELEASED's code and would wake the session
+	// onto an issue still claimed.
+	if (typeof code === "number") process.exit(code);
+	else
+		code.then(
+			(c) => process.exit(c),
+			(/** @type {unknown} */ e) => {
+				store.logError(argv.join(" "), e);
+				process.exit(1);
+			},
+		);
+}

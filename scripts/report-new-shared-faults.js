@@ -34,7 +34,8 @@ const { writeFd } = require("./lib/write-fd.js");
 const os = require("node:os");
 const path = require("node:path");
 const { PROFILES } = require("./lib/fault-profiles.js");
-const { parseOrExit } = require("./lib/cli-args");
+const { parseOrCode } = require("./lib/cli-args");
+const { runProgram } = require("./lib/program-scope.js");
 const { newFaults } = require("./lib/fault-diff");
 const { hostRoot } = require("./lib/host-root.js");
 const { requiredGroup } = require("./lib/regex-group");
@@ -628,18 +629,34 @@ function run(ref, cwd) {
 	}
 }
 
-function main() {
-	const { positionals } = parseOrExit(process.argv.slice(2), {
+/**
+ * The CLI's run up to its exit code, printing what the CLI prints.
+ * @param {string[]} argv
+ * @returns {number}
+ */
+function exitCode(argv) {
+	const parsed = parseOrCode(argv, {
 		usage: `usage: node ${scriptPath("report-new-shared-faults.js")} [<sha>]   (default HEAD)`,
 		max: 1,
 	});
-	const ref = positionals[0] || "HEAD";
+	if (typeof parsed === "number") return parsed;
+	const ref = parsed.positionals[0] || "HEAD";
 	const { code, out, err } = run(ref, hostRoot());
 	/* writeFd, not console: same reason as checker-new-faults.js — a caller
 	 * may read this through a pipe, and node drops buffered writes on exit. */
 	if (out.length > 0) writeFd(1, `${out.join("\n")}\n`);
 	if (err.length > 0) writeFd(2, `${err.join("\n")}\n`);
-	process.exit(code);
+	return code;
 }
 
-if (require.main === module) main();
+/**
+ * The program as the post-commit dispatcher runs it in its own process
+ * (#5208): `node report-new-shared-faults.js <args>`'s exit code and output,
+ * under `cwd` and `env`, which its checkers and git children inherit.
+ * @param {{ cwd: string, env: NodeJS.ProcessEnv, args: string[] }} io
+ */
+const PROGRAM = (io) => runProgram(io, () => exitCode(io.args));
+
+module.exports = { PROGRAM };
+
+if (require.main === module) process.exit(exitCode(process.argv.slice(2)));

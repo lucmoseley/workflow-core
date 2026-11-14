@@ -1150,7 +1150,8 @@ function runTouched(ctx, root, file, baseline) {
 	return { noun: "census row this commit expired", count: keys.length };
 }
 
-runCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = {
 	name: "instruction-surface",
 	usage: `node check-instruction-surface.js [--root <dir>] [--baseline <file>] [--threshold <pct>] [--json] [--warn] | --touched-by <rev> (BROKEN past ${TOUCHED_BY_CEILING_MS / 1000}s) | --rebaseline [--at <rev>] [--no-claim] [--only <key>[,<key>...]]`,
 	valueFlags: [
@@ -1171,7 +1172,7 @@ runCheck({
 			throw e;
 		}
 	},
-});
+};
 
 /** @param {import("./lib/check").Ctx} ctx */
 function runChecks(ctx) {
@@ -1269,3 +1270,6 @@ function runChecks(ctx) {
 	);
 	return { noun: "expired census row", count: ctx.findings.length, data };
 }
+
+module.exports = { SPEC };
+if (require.main === module) runCheck(SPEC);

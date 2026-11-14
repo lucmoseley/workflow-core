@@ -26,6 +26,7 @@ const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { gitCommonDir, gitOrNull } = require("./lib/git.js");
 const { keepShims } = require("./lib/hook-shims.js");
+const { runProgram } = require("./lib/program-scope.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 /* The files whose hook lines a session loads at its start. */
@@ -215,6 +216,14 @@ function main(argv) {
 	return 0;
 }
 
-module.exports = { main };
+/**
+ * The program as the post-commit dispatcher runs it in its own process
+ * (#5208): `node keep-hook-shims.js <args>`'s exit code and output, under
+ * `cwd` and `env`, which its git children inherit.
+ * @param {{ cwd: string, env: NodeJS.ProcessEnv, args: string[] }} io
+ */
+const PROGRAM = (io) => runProgram(io, () => main(io.args));
+
+module.exports = { PROGRAM, main };
 
 if (require.main === module) process.exit(main(process.argv.slice(2)));

@@ -73,7 +73,7 @@ const {
 } = require("./lib/stranded-count");
 const { worktreeLabel } = require("./lib/session-worktrees.js");
 
-// The arbiter's module, not its CLI: session-arbiter.js exports nothing (mantahostels#158).
+// The arbiter's module, not its CLI: session-arbiter.js exports only a subcommand runner (mantahostels#158).
 const { readLocks, paths } = require("./lib/arbiter-store");
 
 /**

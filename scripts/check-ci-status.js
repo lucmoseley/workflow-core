@@ -187,7 +187,7 @@ const {
 	spentToday,
 } = require("./lib/sweep-budget");
 
-// The arbiter's store, not its CLI: session-arbiter.js exports nothing (mantahostels#158,
+// The arbiter's store, not its CLI: session-arbiter.js exports only a subcommand runner (mantahostels#158,
 // built by mantahostels#159).
 const deliveryStamp = require("./lib/delivery-stamp");
 const { hostRoot } = require("./lib/host-root.js");

@@ -55,8 +55,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
 
-// The arbiter's own modules, not its CLI: session-arbiter.js exports nothing
-// (mantahostels#158, built by mantahostels#159).
+// The arbiter's own modules, not its CLI: session-arbiter.js exports only a
+// subcommand runner (mantahostels#158, built by mantahostels#159).
 const { errorLog, rootlessErrorLog } = require("./lib/arbiter-store");
 const { readProcStartOf } = require("./lib/arbiter-proc");
 const { rotateLog } = require("./lib/log-rotate");

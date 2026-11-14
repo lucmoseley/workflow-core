@@ -283,6 +283,7 @@ module.exports = {
 	LANDER_ISO_PREFIX,
 	LANDER_ISO_SUITE_PREFIX,
 	LANDER_PREFIX,
+	hostOf,
 	landingOn,
 	pushedRef,
 	ownQueueName,

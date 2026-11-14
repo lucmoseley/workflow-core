@@ -60,8 +60,8 @@ export const implementRan = (sid = ME) => {
  */
 // biome-ignore lint/suspicious/noExplicitAny: the store is untyped CommonJS.
 export const storePath = (pick: (store: any) => string) => {
-	// The store, not the CLI: session-arbiter.js exports nothing (mantahostels#158),
-	// and requiring it would run a subcommand and exit this process.
+	// The store, not the CLI: session-arbiter.js exports only a subcommand
+	// runner (mantahostels#158), never the store's functions.
 	return withStubbedEnv(
 		{ CLAUDE_PROJECT_DIR: repo, CLAUDE_CONFIG_DIR: cfg },
 		() => pick(createRequire(__filename)("./arbiter-store.js")),
