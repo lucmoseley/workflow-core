@@ -24,6 +24,7 @@ import { STOPPED_LINE } from "./lib/precommit-dispatch.js";
 import { registerTempCleanup, stagedRepo } from "./lib/precommit-gate-harness";
 import {
 	coreCall,
+	type GateRow,
 	HOOK,
 	HOOK_BOUND_LIB,
 	ROOT,
@@ -248,19 +249,54 @@ describe("the hook's dispatcher line", () => {
 	 * arguments, runs twice, its second process paying the startup the
 	 * dispatcher exists to share (#5194). Another mode of the same script,
 	 * such as check-vendored-skills.js --covered, is a different check. */
-	it("is the hook's only caller of a row's check", () => {
-		const calls = HOOK.split("\n").filter(
-			(l) => !l.trimStart().startsWith("#"),
+	/* The non-comment lines of `text` calling `row`'s script with exactly its
+	 * args: a further argument word makes another mode, anything else (an
+	 * operator, a redirection, a closing quote, the line's end) does not. */
+	const callsOfRow = (row: GateRow, text: string) => {
+		const call = new RegExp(
+			`${escapeRe([row.script, ...row.args].join(" "))}(?![\\w./-]|\\s+[^\\s|&;<>)\\\\])`,
 		);
-		for (const g of GATES) {
-			const call = new RegExp(
-				`${escapeRe([g.script, ...g.args].join(" "))}(?=\\s*(\\|\\||;|['"]|$))`,
+		return text
+			.split("\n")
+			.filter((l) => !l.trimStart().startsWith("#") && call.test(l));
+	};
+
+	it("is the hook's only caller of a row's check", () => {
+		for (const g of GATES) expect(callsOfRow(g, HOOK), g.id).toEqual([]);
+	});
+
+	it("finds a row's own call however it ends, and not another mode", () => {
+		const margin = GATES.find((g) => g.id === "injector-margin");
+		const skills = GATES.find(
+			(g) => g.script === "scripts/check-vendored-skills.js",
+		);
+		if (!margin || !skills) throw new Error("a row this case reads is gone");
+		const at = (tail: string) =>
+			callsOfRow(
+				margin,
+				`node scripts/check-injector-margin.js --index${tail}`,
 			);
-			expect(
-				calls.filter((l) => call.test(l)),
-				g.id,
-			).toEqual([]);
-		}
+		for (const tail of [
+			' || exit "$?"',
+			" && :",
+			" | cat",
+			" >log",
+			")",
+			" \\",
+			"",
+		])
+			expect(at(tail), tail).toHaveLength(1);
+		expect(at(" --json")).toEqual([]);
+		expect(at("x")).toEqual([]);
+		expect(
+			callsOfRow(
+				skills,
+				`'node scripts/check-vendored-skills.js --covered "$sg_dir"' ""`,
+			),
+		).toEqual([]);
+		expect(
+			callsOfRow(margin, "# node scripts/check-injector-margin.js --index"),
+		).toEqual([]);
 	});
 
 	it("exits 0 where every armed row passes, loading them in registry order", () => {

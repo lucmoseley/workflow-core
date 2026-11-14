@@ -53,8 +53,10 @@ async function fires(
 	pool: string[] = [],
 ): Promise<boolean> {
 	const { root } = stagedRepo("ctx-budget-gate-", temps, {}, staged);
-	const { ran } = await dispatchStubbed(root, ROW, undefined, {
-		computed: (name) => (name === "always-loaded-pool" ? pool : []),
+	const { ran } = await dispatchStubbed(root, ROW, {
+		ports: {
+			computed: (name) => (name === "always-loaded-pool" ? pool : []),
+		},
 	});
 	return ran;
 }

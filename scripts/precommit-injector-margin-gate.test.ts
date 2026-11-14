@@ -17,7 +17,11 @@
 
 import { describe, expect, it } from "vitest";
 import { registerTempCleanup, stagedRepo } from "./lib/precommit-gate-harness";
-import { dispatchStubbed, patternRow } from "./lib/precommit-gate-testkit";
+import {
+	dispatchStubbed,
+	type GateRow,
+	patternRow,
+} from "./lib/precommit-gate-testkit";
 import { GATES } from "./lib/precommit-gates.js";
 
 const CHECKER = "scripts/check-injector-margin.js";
@@ -34,7 +38,6 @@ const temps = registerTempCleanup();
 
 const ROW = patternRow(CHECKER);
 const PATTERN = ROW.arm.pattern;
-type GateRow = (typeof GATES)[number];
 
 const STUB_MARKER = "STUB-TRACKER_TEXT-MARGIN-RAN";
 
@@ -49,9 +52,7 @@ async function runRow(opts: {
 }): Promise<{ code: number; output: string }> {
 	const { root } = stagedRepo("injector-margin-gate-", temps, {}, opts.staged);
 	return dispatchStubbed(root, opts.row ?? ROW, {
-		exit: opts.checkerExit,
-		stdout: `${STUB_MARKER}\n`,
-		stderr: "",
+		result: { exit: opts.checkerExit, stdout: `${STUB_MARKER}\n`, stderr: "" },
 	});
 }
 

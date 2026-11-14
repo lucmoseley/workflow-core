@@ -57,9 +57,10 @@ export const buildRepoPorts = (
 	...over,
 });
 
-type PatternRow = (typeof GATES)[number] & {
-	arm: { pattern: RegExp };
-};
+/** One row of lib/precommit-gates.js. */
+export type GateRow = (typeof GATES)[number];
+
+type PatternRow = GateRow & { arm: { pattern: RegExp } };
 
 /** The dispatcher row running `script`, which arms on a pattern. */
 export function patternRow(script: string): PatternRow {
@@ -71,14 +72,19 @@ export function patternRow(script: string): PatternRow {
 
 /**
  * The dispatcher's run of `row` alone over the repo at `root`, its member
- * stubbed to answer `result`: the exit, whether the member ran, and the
- * output written.
+ * stubbed to answer `result` and its ports overridden by `ports`: the exit,
+ * whether the member ran, and the output written.
  */
 export async function dispatchStubbed(
 	root: string,
-	row: (typeof GATES)[number],
-	result = { exit: 0, stdout: "", stderr: "" },
-	over: Partial<DispatchPorts> = {},
+	row: GateRow,
+	{
+		result = { exit: 0, stdout: "", stderr: "" },
+		ports = {},
+	}: {
+		result?: { exit: number; stdout: string; stderr: string };
+		ports?: Partial<DispatchPorts>;
+	} = {},
 ): Promise<{ code: number; ran: boolean; output: string }> {
 	let ran = false;
 	let output = "";
@@ -93,7 +99,7 @@ export async function dispatchStubbed(
 			write: (_fd, text) => {
 				output += text;
 			},
-			...over,
+			...ports,
 		}),
 	});
 	return { code, ran, output };
