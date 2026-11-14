@@ -15,6 +15,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { defineTemplate, mkScratchDir } from "./git-fixture";
 import { dispatch, gateSetOf, STOPPED_LINE } from "./precommit-dispatch.js";
+import { readStaged } from "./precommit-dispatch-ports.js";
 import { buildRepoPorts } from "./precommit-gate-testkit";
 
 type Arm =
@@ -23,8 +24,14 @@ type Arm =
 	| { computed: string };
 interface StubRow {
 	id: string;
-	lander: "every" | "merge" | "batch" | "none";
+	lander?: "every" | "merge" | "batch" | "none";
 	arm: Arm;
+	when?: {
+		routes?: string[];
+		unlessRoutes?: string[];
+		facts?: string[];
+		unlessFacts?: string[];
+	};
 	policy: "gate" | "warn";
 	quietPass?: boolean;
 	/** What the stub's runner answers, or how it fails. */
@@ -98,8 +105,13 @@ async function run(
 		signalIn?: string;
 		/** Git will not name the staged paths, killed by a signal where "signal". */
 		stagedFails?: "git" | "signal";
+		/** The commit route the route port answers; an Error throws. */
+		route?: string | null | Error;
+		facts?: string[];
+		voice?: { hook: string; noun: string };
 	} = {},
 ) {
+	let stagedReads = 0;
 	const dir = opts.dir ?? repo({}, { "a.txt": "a\n" });
 	const ran: string[] = [];
 	let caught: number | null = opts.stagedFails === "signal" ? 128 + 15 : null;
@@ -108,12 +120,20 @@ async function run(
 	const exit = await dispatch({
 		rows,
 		gates: opts.gates ?? "all",
+		...(opts.voice && { voice: opts.voice }),
 		ports: buildRepoPorts(dir, {
-			...(opts.stagedFails && {
-				staged: () => {
-					throw new Error("git will not list them");
+			staged: () => {
+				stagedReads++;
+				if (opts.stagedFails) throw new Error("git will not list them");
+				return readStaged(dir);
+			},
+			...("route" in opts && {
+				route: () => {
+					if (opts.route instanceof Error) throw opts.route;
+					return opts.route ?? null;
 				},
 			}),
+			fact: (name: string) => opts.facts?.includes(name) ?? false,
 			computed: (name: string) => {
 				const list = opts.computed?.[name] ?? [];
 				if (list instanceof Error) throw list;
@@ -139,7 +159,7 @@ async function run(
 			interrupted: async () => caught,
 		}),
 	});
-	return { exit, ran, out, err };
+	return { exit, ran, out, err, stagedReads };
 }
 
 describe("arming", () => {
@@ -394,17 +414,104 @@ describe("the lander sets (#4545)", () => {
 });
 
 describe("a staged list git will not name", () => {
+	const onPaths = row("a", { arm: { pattern: /./ } });
+
 	it("refuses with exit 1 and the staged port's message, running no row", async () => {
-		const r = await run([row("a")], { stagedFails: "git" });
+		const r = await run([row("always"), onPaths], { stagedFails: "git" });
 		expect(r.exit).toBe(1);
 		expect(r.ran).toEqual([]);
 		expect(r.err).toBe("pre-commit: git will not list them\n");
 	});
 
 	it("exits 128 + n, saying a signal stopped it, where one killed git", async () => {
-		const r = await run([row("a")], { stagedFails: "signal" });
+		const r = await run([onPaths], { stagedFails: "signal" });
 		expect(r.exit).toBe(128 + 15);
 		expect(r.ran).toEqual([]);
 		expect(r.err).toBe(STOPPED_LINE);
+	});
+});
+
+/*
+ * A hook other than pre-commit (#5207): rows narrowed to commit routes and
+ * hook facts, and a staged list read only where some row arms on a path.
+ */
+describe("the staged port, read only where a row arms on a path", () => {
+	it("never reads it where every row arms always", async () => {
+		const r = await run([row("a"), row("b")], { stagedFails: "git" });
+		expect(r.exit).toBe(0);
+		expect(r.ran).toEqual(["a", "b"]);
+		expect(r.stagedReads).toBe(0);
+	});
+
+	it("reads it once, before any row, where one row arms on a path", async () => {
+		const r = await run([row("a"), row("docs", { arm: { pattern: /^d/ } })]);
+		expect(r.ran).toEqual(["a"]);
+		expect(r.stagedReads).toBe(1);
+	});
+});
+
+describe("route arming", () => {
+	const rows = [
+		row("unless-replay", { when: { unlessRoutes: ["replay"] } }),
+		row("unless-replay-or-merge", {
+			when: { unlessRoutes: ["replay", "merge"] },
+		}),
+		row("cherry-pick-only", { when: { routes: ["cherry-pick"] } }),
+		row("any-route"),
+	];
+
+	it.each([
+		["commit", ["unless-replay", "unless-replay-or-merge", "any-route"]],
+		["merge", ["unless-replay", "any-route"]],
+		["rebase", ["any-route"]],
+		["cherry-pick", ["cherry-pick-only", "any-route"]],
+	])("on a %s runs %j", async (route, ran) => {
+		expect((await run(rows, { route })).ran).toEqual(ran);
+	});
+
+	it("stands every route-narrowed row down where the route will not read", async () => {
+		expect((await run(rows, { route: null })).ran).toEqual(["any-route"]);
+		expect((await run(rows, { route: new Error("no git dir") })).ran).toEqual([
+			"any-route",
+		]);
+	});
+
+	it("reads the post-commit stand-down set by name", async () => {
+		const gated = [
+			row("gated", { when: { unlessRoutes: ["post-commit-stand-down"] } }),
+		];
+		expect((await run(gated, { route: "bisect" })).ran).toEqual([]);
+		expect((await run(gated, { route: "commit" })).ran).toEqual(["gated"]);
+	});
+});
+
+describe("hook-fact arming", () => {
+	const rows = [
+		row("message", { when: { facts: ["message-given"] } }),
+		row("no-stamp", { when: { unlessFacts: ["stamp-matches"] } }),
+		row("both", {
+			when: { facts: ["message-given"], unlessFacts: ["stamp-matches"] },
+		}),
+	];
+
+	it.each([
+		[[], ["no-stamp"]],
+		[["message-given"], ["message", "no-stamp", "both"]],
+		[["message-given", "stamp-matches"], ["message"]],
+		[["stamp-matches"], []],
+	])("with facts %j runs %j", async (facts, ran) => {
+		expect((await run(rows, { facts })).ran).toEqual(ran);
+	});
+
+	it("names the hook and its noun in a crash line", async () => {
+		const r = await run(
+			[row("report", { policy: "warn", throws: "run" }), row("next")],
+			{ voice: { hook: "post-commit", noun: "step" } },
+		);
+		expect(r.exit).toBe(0);
+		expect(r.ran).toEqual(["report", "next"]);
+		expect(r.err).toContain(
+			"post-commit: the report step threw: report blew up\n",
+		);
 	});
 });
