@@ -237,6 +237,24 @@ describe("--index: the commit's bytes", () => {
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: root, stdio: "pipe" });
 
+	/* Stages a /code-review composer whose body is `composer`, beside a
+	 * review-dispatch-shape fragment holding "shape". */
+	const stageCodeReview = (composer: string) => {
+		write(
+			TEXT,
+			moduleOf(["code-review"], "").replace(
+				"module.exports = {",
+				`const codeReviewRules = (h) => ${composer};\nmodule.exports = {\n\tcodeReviewRules,`,
+			),
+		);
+		write("docs/agents/rules/review-dispatch-shape.txt", "shape\n");
+		git("add", TEXT, "docs/agents/rules/review-dispatch-shape.txt");
+	};
+	const store = () => [
+		process.env.WFC_RULES_DIR,
+		process.env.WFC_RULES_FALLBACK_DIR,
+	];
+
 	beforeEach(() => {
 		git("init", "-q");
 		git("config", "user.email", "test@example.com");
@@ -271,15 +289,7 @@ describe("--index: the commit's bytes", () => {
 	});
 
 	it("measures a fragment the index lacks as its fallback, never the working copy", () => {
-		write(
-			TEXT,
-			moduleOf(["code-review"], "").replace(
-				"module.exports = {",
-				'const codeReviewRules = (h) => h.fragment("review-dispatch-shape");\nmodule.exports = {\n\tcodeReviewRules,',
-			),
-		);
-		write("docs/agents/rules/review-dispatch-shape.txt", "shape\n");
-		git("add", TEXT, "docs/agents/rules/review-dispatch-shape.txt");
+		stageCodeReview('h.fragment("review-dispatch-shape")');
 		git("rm", "-q", "--cached", "docs/agents/rules/review-dispatch-shape.txt");
 
 		const { code, output } = run("--index", "--json");
@@ -295,19 +305,9 @@ describe("--index: the commit's bytes", () => {
 	 * so the run reads as its spawned CLI and leaves the environment as it
 	 * found it. */
 	it("runs in-process exactly as spawned, its fragment store pinned to the measured root", async () => {
-		write(
-			TEXT,
-			moduleOf(["code-review"], "").replace(
-				"module.exports = {",
-				'const codeReviewRules = (h) => ["review-dispatch-shape", "review-deviations-read"].map(h.fragment).join("");\nmodule.exports = {\n\tcodeReviewRules,',
-			),
+		stageCodeReview(
+			'["review-dispatch-shape", "review-deviations-read"].map(h.fragment).join("")',
 		);
-		write("docs/agents/rules/review-dispatch-shape.txt", "shape\n");
-		git("add", TEXT, "docs/agents/rules/review-dispatch-shape.txt");
-		const store = () => [
-			process.env.WFC_RULES_DIR,
-			process.env.WFC_RULES_FALLBACK_DIR,
-		];
 		const before = store();
 
 		const inside = await inProcess(SCRIPT, ["--index"], root);
@@ -322,26 +322,23 @@ describe("--index: the commit's bytes", () => {
 	});
 
 	/* A store an earlier row or the caller left in the environment is never
-	 * the one measured (#5202): the pin outranks it for the read alone. */
+	 * the one measured (#5202): the pin outranks it for the read alone. The
+	 * "runs in-process exactly as spawned" case above is this negative
+	 * assertion's positive pair, printing the fallback note it looks for. */
 	it("reads the measured root's fragments over a stale WFC_RULES_DIR, leaving it set", async () => {
-		write(
-			TEXT,
-			moduleOf(["code-review"], "").replace(
-				"module.exports = {",
-				'const codeReviewRules = (h) => h.fragment("review-dispatch-shape");\nmodule.exports = {\n\tcodeReviewRules,',
-			),
-		);
-		write("docs/agents/rules/review-dispatch-shape.txt", "shape\n");
-		git("add", TEXT, "docs/agents/rules/review-dispatch-shape.txt");
+		stageCodeReview('h.fragment("review-dispatch-shape")');
+		const clean = await inProcess(SCRIPT, ["--index"], root);
+		expect(clean.exit).toBe(0);
+		const report = `${clean.stdout}${clean.stderr}`;
+		expect(report).toContain("/code-review");
+		expect(report).not.toContain("unreadable fragment");
 		const stale = path.join(root, "stale-rules");
 		fs.mkdirSync(stale);
 		vi.stubEnv("WFC_RULES_DIR", stale);
 		vi.stubEnv("WFC_RULES_FALLBACK_DIR", stale);
 
-		const { stdout, stderr } = await inProcess(SCRIPT, ["--index"], root);
-		expect(`${stdout}${stderr}`).not.toContain("unreadable fragment");
-		expect(process.env.WFC_RULES_DIR).toBe(stale);
-		expect(process.env.WFC_RULES_FALLBACK_DIR).toBe(stale);
+		expect(await inProcess(SCRIPT, ["--index"], root)).toEqual(clean);
+		expect(store()).toEqual([stale, stale]);
 	});
 
 	/* The routes on which this gate must NOT refuse a commit (mantahostels#1915). */
