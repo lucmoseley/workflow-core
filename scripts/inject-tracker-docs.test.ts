@@ -18,8 +18,15 @@ import { runInProcess } from "./lib/run-in-process.js";
 
 const ROOT = path.resolve(__dirname, "..");
 const HOOK = path.join(ROOT, "scripts", "inject-tracker-docs.js");
-const { TAKES_GH_TIMEOUT_S } =
-	require("./lib/inject-tracker-docs-host.js") as typeof import("./lib/inject-tracker-docs-host.js");
+/** The host's `gh` budget, read from its source: no caller but this one wants it. */
+const TAKES_GH_TIMEOUT_S = Number(
+	/^const TAKES_GH_TIMEOUT_S = (\d+);$/m.exec(
+		fs.readFileSync(
+			path.join(ROOT, "scripts", "lib", "inject-tracker-docs-host.js"),
+			"utf8",
+		),
+	)?.[1],
+);
 
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), "inject-entry-"));
 afterAll(() => fs.rmSync(SCRATCH, { recursive: true, force: true }));
