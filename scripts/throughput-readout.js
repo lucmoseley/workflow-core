@@ -36,6 +36,7 @@ const { citedIssues } = require("./lib/cited-issues.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const { readTicks, tickLimb } = require("./lib/concurrency.js");
 const { gh, parseErrLine } = require("./lib/gh.js");
+const { gitOrNull } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
 const {
 	jobDirPath,
@@ -183,26 +184,21 @@ function fetchDay(owner, date) {
  * @returns {import("./lib/throughput-readout.js").CommitRow[] | null}
  */
 function readCommits(repo, dir, from) {
-	const head = spawnSync(
-		"git",
-		["-C", dir, "rev-parse", "--abbrev-ref", "origin/HEAD"],
-		{ encoding: "utf8" },
-	);
-	const branch = head.status === 0 ? head.stdout.trim() : "HEAD";
-	const r = spawnSync(
-		"git",
+	const branch =
+		gitOrNull(["rev-parse", "--abbrev-ref", "origin/HEAD"], {
+			cwd: dir,
+		})?.trim() || "HEAD";
+	const out = gitOrNull(
 		[
-			"-C",
-			dir,
 			"log",
 			`--since=${new Date(from).toISOString()}`,
 			"--format=%x1e%H%x1f%cI%x1f%B",
 			branch,
 		],
-		{ encoding: "utf8", maxBuffer: CHILD_MAX_BUFFER },
+		{ cwd: dir },
 	);
-	if (r.status !== 0) return null;
-	return r.stdout
+	if (out === null) return null;
+	return out
 		.split("\x1e")
 		.filter((x) => x.trim())
 		.map((x) => {
