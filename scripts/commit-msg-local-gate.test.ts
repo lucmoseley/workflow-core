@@ -116,7 +116,7 @@ describe(".husky/commit-msg's commit-msg.local seam (#5142)", () => {
 
 	it("runs on a replay with $route naming it, while the core's checks stay stood down", () => {
 		writeLocal('echo "local route=$route" >&2\n');
-		/* A cherry-pick's `--continue`: CHERRY_PICK_HEAD at commit-msg (scripts/lib/commit-route.sh). */
+		/* A cherry-pick's `--continue`: CHERRY_PICK_HEAD at commit-msg (scripts/lib/commit-route.js). */
 		fs.writeFileSync(
 			path.join(dir, ".git", "CHERRY_PICK_HEAD"),
 			`${readHead()}\n`,

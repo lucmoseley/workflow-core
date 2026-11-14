@@ -1,14 +1,17 @@
 // @vitest-environment node
 
 /*
- * scripts/lib/commit-route.sh (#1503): which git operation made the commit a
- * hook is asked about, the route's abort, and the replay secrets scan.
+ * scripts/lib/commit-route.js (#1503): which git operation made the commit a
+ * hook is asked about, the route's abort and name, and the replay secrets
+ * scan's refusal.
  *
  * The route cases drive REAL git operations in a throwaway repo whose every
- * hook sources the live module and logs the route it reads, because what the
+ * hook asks the live module and logs the route it reads, because what the
  * module encodes is git's own behaviour per hook — which a constructed $GIT_DIR
- * can only restate. pre-commit runs under bash with `set -u`, as the two inner
- * gates do; every other hook under `sh`, as husky runs them.
+ * can only restate.
+ *
+ * spawn-kept: the route cases spawn git to fire real hooks, each of which
+ * starts node on the module as a dispatcher hook does.
  *
  * A loosened row lets a hook gate a replay as an ordinary commit or stand an
  * ordinary commit down as a replay, on a route git does not show it as.
@@ -18,19 +21,19 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { renderHookShim } from "./adopter-skeleton";
 import {
 	commitRoute,
 	inRouteSet,
 	isReplayRoute,
 	routeAbort,
 	routeName,
+	scanRefusal,
 } from "./commit-route.js";
 import { newRepo, registerTempCleanup } from "./precommit-gate-harness";
 import { ROOT } from "./precommit-gate-testkit";
 import { shellQuote } from "./sh-quote.js";
 
-const LIB = path.join(ROOT, "scripts", "lib", "commit-route.sh");
+const MODULE = path.join(ROOT, "scripts", "lib", "commit-route.js");
 const temps = registerTempCleanup(afterEach);
 
 /** The hooks a commit route can reach; pre-push and post-merge never ask. */
@@ -45,19 +48,21 @@ const HOOKS = [
 	"post-commit",
 ];
 
-/** A marker hook logging `<hook> <route>` for each step a case labels `act`. */
+/** Prints commitRoute(argv[1], argv[2]) from the live module. */
+const ASK = `process.stdout.write(require(${JSON.stringify(MODULE)}).commitRoute(process.argv[1], process.argv[2]))`;
+
+/** A marker hook logging `<hook> <route>` for each step a case labels `act`;
+ * node starts only then, so a case's setup pays none. */
 function markerHook(hook: string): string {
-	const ask = `route="$(wfc_commit_route ${shellQuote(hook)} "$(git rev-parse --absolute-git-dir)")"`;
-	const log = `[ "$LABEL" != act ] || echo "\${WFC_ASKER:+$WFC_ASKER>}${hook} $route" >> "$ROUTE_LOG"`;
-	if (hook === "pre-commit")
-		return `#!/usr/bin/env bash\nset -uo pipefail\nsource ${shellQuote(LIB)}\n${ask}\n${log}\n`;
+	const ask = `route="$(node -e ${shellQuote(ASK)} ${shellQuote(hook)} "$(git rev-parse --absolute-git-dir)")"`;
+	const log = `echo "\${WFC_ASKER:+$WFC_ASKER>}${hook} $route" >> "$ROUTE_LOG"`;
 	// pre-merge-commit runs pre-commit as the real one does, so the merge
 	// that has not written MERGE_HEAD yet is asked about from inside it too.
 	const nested =
 		hook === "pre-merge-commit"
 			? `WFC_ASKER=pre-merge-commit "$(dirname "$0")/pre-commit"\n`
 			: "";
-	return `#!/bin/sh\n. ${shellQuote(LIB)}\n${ask}\n${log}\n${nested}`;
+	return `#!/bin/sh\n[ "$LABEL" = act ] || exit 0\n${ask}\n${log}\n${nested}`;
 }
 
 type Git = (...args: string[]) => string;
@@ -128,7 +133,7 @@ const COMMIT_HOOKS = (route: string, from = "pre-commit") =>
 const twice = (lines: string[]) => [...lines, ...lines];
 
 /*
- * Each row is the marker table in commit-route.sh's header, driven: the hooks
+ * Each row is the marker table in commit-route.js's header, driven: the hooks
  * that fire on the route, in firing order, and the route each one reads.
  */
 const CASES: [string, (r: Repo) => void, string[]][] = [
@@ -396,26 +401,6 @@ describe("the route each hook reads, through real git (#1503)", () => {
 	);
 });
 
-/** Runs `script` with the module sourced, under `shell`, in `cwd`. */
-function inShell(
-	shell: "sh" | "bash",
-	script: string,
-	env: Record<string, string> = {},
-	cwd = ROOT,
-) {
-	const prelude = shell === "bash" ? "set -u\n" : "";
-	const r = spawnSync(
-		shell,
-		["-c", `${prelude}. ${shellQuote(LIB)}\n${script}`],
-		{
-			cwd,
-			encoding: "utf8",
-			env: { ...process.env, GIT_REFLOG_ACTION: "", ...env },
-		},
-	);
-	return { code: r.status, out: r.stdout.trim(), err: r.stderr };
-}
-
 /** A $GIT_DIR holding exactly `markers`; a path ending in `/` is a directory. */
 function gitDir(markers: string[]): string {
 	const { root } = newRepo("commit-route-dir-", temps);
@@ -431,13 +416,45 @@ function gitDir(markers: string[]): string {
 	return dir;
 }
 
-describe.each(["sh", "bash"] as const)("wfc_commit_route under %s", (shell) => {
-	const route = (hook: string, markers: string[], env = {}) =>
-		inShell(
-			shell,
-			`wfc_commit_route ${hook} ${shellQuote(gitDir(markers))}`,
-			env,
-		).out;
+/**
+ * A repo two commits deep whose git directory carries `markers`, each
+ * `<path>[=<rev>]` or `reflog=<verb>`: a file naming `<rev>`'s commit, or
+ * with `other` one git cannot match.
+ */
+function laid(markers: string[]): string {
+	const { root } = newRepo("commit-route-js-", temps);
+	const git = (...a: string[]) =>
+		execFileSync("git", a, { cwd: root, encoding: "utf8" }).trim();
+	fs.writeFileSync(path.join(root, "f"), "1\n");
+	git("add", "f");
+	git("commit", "-qm", "one");
+	fs.writeFileSync(path.join(root, "f"), "2\n");
+	git("commit", "-qam", "two");
+	const dir = git("rev-parse", "--absolute-git-dir");
+	for (const m of markers) {
+		if (m.startsWith("reflog=")) {
+			fs.appendFileSync(
+				path.join(dir, "logs", "HEAD"),
+				`a b t <t> 0 +0000\t${m.slice("reflog=".length)}: x\n`,
+			);
+			continue;
+		}
+		const [rel, rev] = m.split("=");
+		const file = path.join(dir, rel);
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		let body = "x";
+		if (rev === "other") body = "0".repeat(40);
+		else if (rev !== undefined) body = git("rev-parse", rev);
+		fs.writeFileSync(file, `${body}\n`);
+	}
+	return dir;
+}
+
+describe("commitRoute on a git directory laid by hand", () => {
+	const route = (hook: string, markers: string[], GitReflogAction = "") =>
+		commitRoute(hook, gitDir(markers), {
+			env: { GIT_REFLOG_ACTION: GitReflogAction },
+		});
 
 	it.each([
 		[
@@ -489,25 +506,17 @@ describe.each(["sh", "bash"] as const)("wfc_commit_route under %s", (shell) => {
 	});
 
 	it("names `git am --abort` for prepare-commit-msg's `rebase-apply/applying`", () => {
-		const out = inShell(
-			shell,
-			`wfc_commit_route_abort "$(wfc_commit_route prepare-commit-msg ${shellQuote(gitDir(["rebase-apply/applying"]))})"`,
-		).out;
-		expect(out).toBe("git am --abort");
+		expect(
+			routeAbort(route("prepare-commit-msg", ["rebase-apply/applying"])),
+		).toBe("git am --abort");
 	});
 
 	it("reads GIT_REFLOG_ACTION as a merge at pre-commit alone", () => {
 		// `pull …` is `git pull`'s merge.
 		for (const action of ["merge side", "pull . side"])
-			expect(route("pre-commit", [], { GIT_REFLOG_ACTION: action })).toBe(
-				"merge",
-			);
-		expect(
-			route("prepare-commit-msg", [], { GIT_REFLOG_ACTION: "merge side" }),
-		).toBe("commit");
-		expect(
-			route("pre-commit", [], { GIT_REFLOG_ACTION: "rebase (reword)" }),
-		).toBe("commit");
+			expect(route("pre-commit", [], action)).toBe("merge");
+		expect(route("prepare-commit-msg", [], "merge side")).toBe("commit");
+		expect(route("pre-commit", [], "rebase (reword)")).toBe("commit");
 	});
 
 	it("reads pre-merge-commit as a merge whatever $GIT_DIR holds", () => {
@@ -515,41 +524,77 @@ describe.each(["sh", "bash"] as const)("wfc_commit_route under %s", (shell) => {
 	});
 
 	it("reads an empty git dir, a git that would not answer, as no marker", () => {
-		expect(inShell(shell, 'wfc_commit_route commit-msg ""').out).toBe("commit");
-		expect(inShell(shell, 'wfc_commit_route pre-applypatch ""').out).toBe("am");
+		expect(commitRoute("commit-msg", "", { env: {} })).toBe("commit");
+		expect(commitRoute("pre-commit", "", { env: {} })).toBe("commit");
+		expect(commitRoute("pre-applypatch", "", { env: {} })).toBe("am");
 	});
 
-	it("exits 2 naming a hook it has no row for, so a caller under set -e refuses", () => {
-		const r = inShell(shell, 'wfc_commit_route pre-push ""');
-		expect(r.code).toBe(2);
-		expect(r.out).toBe("");
-		expect(r.err).toContain("no marker table for the hook 'pre-push'");
+	it("throws naming a hook it has no row for, so a caller refuses", () => {
+		expect(() => commitRoute("pre-push", gitDir([]))).toThrow(
+			"no marker table for the hook 'pre-push'",
+		);
+	});
+
+	/*
+	 * A leftover `sequencer` is not a sequence (#3298): live only where its
+	 * abort-safety names the commit this one is made on, and at post-commit
+	 * only after the sequence's own reflog entry.
+	 */
+	it.each([
+		["prepare-commit-msg", ["sequencer/abort-safety=HEAD"], "revert-sequence"],
+		["prepare-commit-msg", ["sequencer/abort-safety=other"], "commit"],
+		[
+			"prepare-commit-msg",
+			["CHERRY_PICK_HEAD", "sequencer/abort-safety=HEAD"],
+			"cherry-pick",
+		],
+		[
+			"prepare-commit-msg",
+			["MERGE_HEAD", "sequencer/abort-safety=HEAD"],
+			"merge",
+		],
+		[
+			"post-commit",
+			["sequencer/abort-safety=HEAD^", "reflog=revert"],
+			"revert-sequence",
+		],
+		[
+			"post-commit",
+			["sequencer/abort-safety=HEAD^", "reflog=cherry-pick"],
+			"revert-sequence",
+		],
+		[
+			"post-commit",
+			["sequencer/abort-safety=HEAD^", "reflog=commit"],
+			"commit",
+		],
+		["post-commit", ["sequencer/abort-safety=HEAD"], "commit"],
+	])("reads %s over %j as %s", (hook, markers, expected) => {
+		expect(commitRoute(hook, laid(markers), { env: {} })).toBe(expected);
 	});
 });
 
-describe("wfc_commit_route_replays", () => {
+describe("isReplayRoute", () => {
 	it.each([
-		["rebase", 0],
-		["rebase-apply", 0],
-		["am", 0],
-		["cherry-pick", 0],
-		["revert-sequence", 1],
-		["revert-continue", 1],
-		["merge", 1],
-		["bisect", 1],
-		["commit", 1],
-	])("answers %s with exit %i, and the Node copy agrees", (route, exitCode) => {
-		expect(inShell("sh", `wfc_commit_route_replays ${route}`).code).toBe(
-			exitCode,
-		);
-		expect(isReplayRoute(route)).toBe(exitCode === 0);
+		["rebase", true],
+		["rebase-apply", true],
+		["am", true],
+		["cherry-pick", true],
+		["revert-sequence", false],
+		["revert-continue", false],
+		["merge", false],
+		["bisect", false],
+		["commit", false],
+	])("answers %s with %s", (route, replays) => {
+		expect(isReplayRoute(route)).toBe(replays);
+		expect(inRouteSet("replay", route)).toBe(replays);
 	});
 });
 
 /*
- * Each route's abort, display name and post-commit stand-down answer: Node's
- * export, and the shell copy's function where it has one. A wrong abort
- * strands the tree, and a wrong stand-down releases claims over a replay.
+ * Each route's abort, display name and post-commit stand-down answer. A wrong
+ * abort strands the tree, and a wrong stand-down releases claims over a
+ * replay.
  */
 describe("routeAbort, routeName and the post-commit stand-down set", () => {
 	it.each([
@@ -568,8 +613,6 @@ describe("routeAbort, routeName and the post-commit stand-down set", () => {
 			expect(routeAbort(route)).toBe(abort);
 			expect(routeName(route)).toBe(name);
 			expect(inRouteSet("post-commit-stand-down", route)).toBe(standsDown);
-			expect(inShell("sh", `wfc_commit_route_abort ${route}`).out).toBe(abort);
-			expect(inShell("sh", `wfc_commit_route_name ${route}`).out).toBe(name);
 		},
 	);
 
@@ -581,38 +624,7 @@ describe("routeAbort, routeName and the post-commit stand-down set", () => {
 	});
 });
 
-/** A stand-in for gitleaks at the module's WFC_GITLEAKS seam, exiting `exitCode`. */
-function scanner(exitCode: number): string {
-	const { root } = newRepo("commit-route-scan-", temps);
-	const bin = path.join(root, `scanner-${exitCode}`);
-	fs.writeFileSync(
-		bin,
-		`#!/bin/sh\necho "STUB SCANNER $*" >&2\nexit ${exitCode}\n`,
-	);
-	fs.chmodSync(bin, 0o755);
-	return bin;
-}
-
-describe("wfc_replay_scan", () => {
-	it("runs the command .husky/pre-commit runs, spelled once, here", () => {
-		// The literal is never derived from either file, which would make this
-		// tautological.
-		const scan = `"\${WFC_GITLEAKS:-gitleaks}" git --staged --redact`;
-		const module = fs.readFileSync(LIB, "utf8");
-		expect(module.split(scan).length - 1).toBe(1);
-		expect(
-			fs.readFileSync(path.join(ROOT, ".husky", "pre-commit"), "utf8"),
-		).toContain(scan);
-	});
-
-	it("passes silently where the scan passes", () => {
-		const r = inShell("sh", "wfc_replay_scan pre-applypatch am", {
-			WFC_GITLEAKS: scanner(0),
-		});
-		expect(r.code).toBe(0);
-		expect(r.err).toBe("STUB SCANNER git --staged --redact\n");
-	});
-
+describe("scanRefusal", () => {
 	it.each([
 		["pre-applypatch", "am", "git am", "git am --abort"],
 		[
@@ -631,256 +643,12 @@ describe("wfc_replay_scan", () => {
 	])(
 		"refuses for %s on a %s, naming %s and `%s`",
 		(hook, route, name, abort) => {
-			const r = inShell("sh", `wfc_replay_scan ${hook} ${route}`, {
-				WFC_GITLEAKS: scanner(1),
-			});
-			expect(r.code).toBe(1);
-			expect(r.err).toContain(
-				`${hook}: the secrets scan did not pass on this ${name}`,
-			);
-			expect(r.err).toContain("gitleaks itself is missing");
-			expect(r.err).toContain(
-				`The ${name} is left IN PROGRESS. Clear it with:  ${abort}`,
+			// Spelled here, never derived, so a drift in the text fails.
+			expect(scanRefusal(hook, route)).toBe(
+				`${hook}: the secrets scan did not pass on this ${name} (mantahostels#1706).\n` +
+					"  Its own output is above — a finding, or gitleaks itself is missing.\n" +
+					`  The ${name} is left IN PROGRESS. Clear it with:  ${abort}\n`,
 			);
 		},
 	);
-});
-
-/** Every line that is neither a comment nor blank. */
-const readCodeLines = (rel: string) =>
-	fs
-		.readFileSync(path.join(ROOT, rel), "utf8")
-		.split("\n")
-		.filter((l) => !/^\s*(#|$)/.test(l))
-		.join("\n");
-
-const CALLERS = [".husky/pre-applypatch"];
-
-describe("the callers", () => {
-	it.each(CALLERS)(
-		"%s reads its route from the module and spells no marker of its own",
-		(rel) => {
-			const text = readCodeLines(rel);
-			expect(text).toMatch(/lib\/commit-route\.sh/);
-			expect(text).not.toMatch(
-				/rebase-merge|\/rebase-apply|rebase-apply\/|CHERRY_PICK_HEAD|REVERT_HEAD|sequencer|MERGE_HEAD|AUTO_MERGE|BISECT_LOG|GIT_REFLOG_ACTION/,
-			);
-		},
-	);
-});
-
-describe("an adopter's hooks, run from the plugin through their shims (#1839)", () => {
-	const HookCallers = CALLERS.filter((c) => c.startsWith(".husky/"));
-
-	it.each(HookCallers)(
-		"%s sources the module from $WFC_PLUGIN_ROOT where set",
-		(rel) => {
-			const out = fs.readFileSync(path.join(ROOT, rel), "utf8");
-			expect(out).toContain(
-				// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell parameter expansion under test, not a JS placeholder
-				'"${WFC_PLUGIN_ROOT:-$here/..}/scripts/lib/commit-route.sh"',
-			);
-		},
-	);
-
-	/** An adopter-shaped repo — core.hooksPath at `.husky`, no `.husky/_` —
-	 * whose pre-applypatch shim runs the core's, from a plugin root holding the
-	 * module that WORKFLOW_CORE_DIR names. */
-	function adopter() {
-		const { root, git } = newRepo("commit-route-adopter-", temps);
-		const plugin = fs.mkdtempSync(`${root}-plugin-`);
-		temps.push(plugin);
-		fs.mkdirSync(path.join(plugin, "scripts", "lib"), { recursive: true });
-		fs.copyFileSync(
-			LIB,
-			path.join(plugin, "scripts", "lib", "commit-route.sh"),
-		);
-		fs.mkdirSync(path.join(plugin, ".husky"));
-		fs.copyFileSync(
-			path.join(ROOT, ".husky", "pre-applypatch"),
-			path.join(plugin, ".husky", "pre-applypatch"),
-		);
-		fs.mkdirSync(path.join(root, "scripts", "lib"), { recursive: true });
-		fs.copyFileSync(
-			path.join(ROOT, "scripts", "lib", "resolve-core.js"),
-			path.join(root, "scripts", "lib", "resolve-core.js"),
-		);
-		fs.mkdirSync(path.join(root, ".husky"));
-		fs.writeFileSync(
-			path.join(root, ".husky", "pre-applypatch"),
-			renderHookShim("pre-applypatch"),
-			{ mode: 0o755 },
-		);
-		fs.writeFileSync(path.join(root, "base.txt"), "base\n");
-		git("add", "--", "base.txt");
-		git("commit", "-qm", "base");
-		git("checkout", "-q", "-b", "side");
-		fs.writeFileSync(path.join(root, "side.txt"), "side\n");
-		git("add", "--", "side.txt");
-		git("commit", "-qm", "side");
-		git("format-patch", "-q", "-1", "-o", path.join(root, ".git", "p"));
-		git("checkout", "-q", "-");
-		git("config", "core.hooksPath", ".husky");
-		const am = () => {
-			const dir = path.join(root, ".git", "p");
-			const r = spawnSync(
-				"git",
-				["am", ...fs.readdirSync(dir).map((f) => path.join(dir, f))],
-				{
-					cwd: root,
-					encoding: "utf8",
-					env: {
-						...process.env,
-						WFC_GITLEAKS: scanner(1),
-						WORKFLOW_CORE_DIR: plugin,
-					},
-				},
-			);
-			return { code: r.status, out: `${r.stdout}${r.stderr}` };
-		};
-		return { plugin, am };
-	}
-
-	it("runs the plugin's module, naming `git am --abort` on a refused `git am`", () => {
-		const r = adopter().am();
-		expect(r.code).not.toBe(0);
-		expect(r.out).toContain("STUB SCANNER");
-		expect(r.out).toContain("Clear it with:  git am --abort");
-	});
-
-	it("refuses, naming the plugin's path, where the plugin has no module", () => {
-		const a = adopter();
-		fs.rmSync(path.join(a.plugin, "scripts", "lib", "commit-route.sh"));
-		const r = a.am();
-		expect(r.code).not.toBe(0);
-		expect(r.out).toContain(
-			`${a.plugin}/scripts/lib/commit-route.sh is missing`,
-		);
-		expect(r.out).not.toContain("STUB SCANNER");
-	});
-});
-
-/*
- * lib/commit-route.js, the Node callers' copy (#5153): the same route as the
- * shell copy for every marker the table reads, each hook, and the leftover
- * and live `sequencer` (#3298). One git directory per row, its markers laid
- * by hand, since the claim is the two copies' agreement on the same markers.
- */
-describe("commit-route.js answers as commit-route.sh does", () => {
-	const markerSets = [
-		[],
-		["rebase-merge/"],
-		["rebase-apply/rebasing"],
-		["rebase-apply/applying"],
-		["CHERRY_PICK_HEAD"],
-		["REVERT_HEAD"],
-		["MERGE_HEAD"],
-		["BISECT_LOG"],
-		["sequencer/abort-safety=HEAD"],
-		["sequencer/abort-safety=other"],
-		["sequencer/"],
-		["rebase-merge/", "CHERRY_PICK_HEAD"],
-		["CHERRY_PICK_HEAD", "sequencer/abort-safety=HEAD"],
-		["MERGE_HEAD", "sequencer/abort-safety=HEAD"],
-		["sequencer/abort-safety=HEAD^", "reflog=revert"],
-		["sequencer/abort-safety=HEAD^", "reflog=commit"],
-	];
-
-	/** Lays one marker, `<path>[=<rev>]` or `reflog=<verb>`, in `dir`. */
-	function layMarker(dir: string, m: string, git: (...a: string[]) => string) {
-		if (m.startsWith("reflog=")) {
-			fs.appendFileSync(
-				path.join(dir, "logs", "HEAD"),
-				`a b t <t> 0 +0000\t${m.slice("reflog=".length)}: x\n`,
-			);
-			return;
-		}
-		const [rel, rev] = m.split("=");
-		const file = path.join(dir, rel);
-		if (rel.endsWith("/")) {
-			fs.mkdirSync(file, { recursive: true });
-			return;
-		}
-		fs.mkdirSync(path.dirname(file), { recursive: true });
-		let body = "";
-		if (rev === "other") body = "0".repeat(40);
-		else if (rev !== undefined) body = git("rev-parse", rev);
-		fs.writeFileSync(file, `${body}\n`);
-	}
-
-	/** A repo two commits deep whose git directory carries `markers`. */
-	function laid(markers: string[]) {
-		const { root } = newRepo("commit-route-js-", temps);
-		const git = (...a: string[]) =>
-			execFileSync("git", a, { cwd: root, encoding: "utf8" }).trim();
-		fs.writeFileSync(path.join(root, "f"), "1\n");
-		git("add", "f");
-		git("commit", "-qm", "one");
-		fs.writeFileSync(path.join(root, "f"), "2\n");
-		git("commit", "-qam", "two");
-		const dir = git("rev-parse", "--absolute-git-dir");
-		for (const m of markers) layMarker(dir, m, git);
-		return { root, dir };
-	}
-
-	const Actions = ["", "merge side", "pull . side"];
-	/**
-	 * The shell copy's route on every hook under every GIT_REFLOG_ACTION, one
-	 * sh for all.
-	 */
-	const shellRoutes = (dir: string, cwd: string) => {
-		const sh = spawnSync(
-			"sh",
-			[
-				"-c",
-				`. "$1" && shift && dir="$1" && shift && for hook in ${HOOKS.join(" ")}; do for action in "$@"; do printf '%s %s\\n' "$hook" "$(GIT_REFLOG_ACTION="$action" wfc_commit_route "$hook" "$dir")" || exit 1; done; done`,
-				"sh",
-				LIB,
-				dir,
-				...Actions,
-			],
-			{ cwd, encoding: "utf8" },
-		);
-		expect(sh.stderr).toBe("");
-		expect(sh.status).toBe(0);
-		return sh.stdout.split("\n").filter(Boolean);
-	};
-
-	it.each(markerSets.map((m) => [m.join(" ") || "no marker", m]))(
-		"agrees on every hook with %s",
-		(_, markers) => {
-			const { root, dir } = laid(markers as string[]);
-			const prev = process.cwd();
-			process.chdir(root);
-			try {
-				expect(
-					HOOKS.flatMap((hook) =>
-						Actions.map(
-							(action) =>
-								`${hook} ${commitRoute(hook, dir, { env: { GIT_REFLOG_ACTION: action } })}`,
-						),
-					),
-				).toEqual(shellRoutes(dir, root));
-			} finally {
-				process.chdir(prev);
-			}
-		},
-	);
-
-	it("reads an empty git directory as no marker, as the shell copy does", () => {
-		expect(commitRoute("pre-commit", "", { env: {} })).toBe("commit");
-	});
-
-	it("throws on a hook with no row, where the shell copy exits 2", () => {
-		const { root, dir } = laid([]);
-		const sh = spawnSync(
-			"sh",
-			["-c", '. "$1" && wfc_commit_route pre-push "$2"', "sh", LIB, dir],
-			{ cwd: root, encoding: "utf8" },
-		);
-		expect(sh.status).toBe(2);
-		expect(() => commitRoute("pre-push", dir)).toThrow(
-			"no marker table for the hook 'pre-push'",
-		);
-	});
 });

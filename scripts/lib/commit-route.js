@@ -1,10 +1,8 @@
 /*
  * commit-route.js — which git operation made the commit a hook is asked
- * about: its commit route (GLOSSARY.md), for Node callers.
- * scripts/lib/commit-route.sh is the shell callers' copy, and
- * lib/commit-route.test.ts holds the two to the same answer on every row of
- * the marker table below and every route's replay answer, abort and name.
- * Change the two together.
+ * about: its commit route (GLOSSARY.md), the route's abort and name, and
+ * the replay secrets scan's refusal (#1503). lib/commit-route.test.ts drives
+ * every row of the marker table below through real git.
  *
  * THE MARKER TABLE: what each hook sees in $GIT_DIR per route, measured on git
  * 2.43.0 (#1503). A hook missing from a row
@@ -96,7 +94,7 @@ const MARKER_ROUTES = [
 /**
  * The route of the commit `hook` is asked about, reading `gitDir`'s markers.
  * An empty `gitDir` reads as no marker at all. Throws on a hook with no row
- * in the marker table, as the shell copy exits 2.
+ * in the marker table, so a caller refuses rather than guessing.
  * @param {string} hook
  * @param {string} gitDir
  * @param {{ env?: RouteEnv }} [opts]
@@ -168,7 +166,7 @@ const REPLAY_ROUTES = new Set(["rebase", "rebase-apply", "am", "cherry-pick"]);
 
 /**
  * Whether `route` replays commits already made and reaches no pre-commit:
- * commit-route.sh's wfc_commit_route_replays.
+ * the stack's narrow replay path (mantahostels#1706, mantahostels#1707).
  * @param {string} route
  */
 const isReplayRoute = (route) => REPLAY_ROUTES.has(route);
@@ -233,6 +231,23 @@ const NAMES = new Map([
  */
 const routeName = (route) => NAMES.get(route) ?? "commit";
 
+/**
+ * What `hook` prints when the secrets scan refuses a replay on `route`,
+ * naming the abort: .husky/pre-applypatch's refusal printer and
+ * prepare-commit-msg's replay scan (mantahostels#1706). "Did not pass", not
+ * "found a secret": a missing gitleaks fails too.
+ * @param {string} hook
+ * @param {string} route
+ */
+function scanRefusal(hook, route) {
+	const name = routeName(route);
+	return (
+		`${hook}: the secrets scan did not pass on this ${name} (mantahostels#1706).\n` +
+		"  Its own output is above — a finding, or gitleaks itself is missing.\n" +
+		`  The ${name} is left IN PROGRESS. Clear it with:  ${routeAbort(route)}\n`
+	);
+}
+
 module.exports = {
 	commitRoute,
 	inRouteSet,
@@ -240,4 +255,5 @@ module.exports = {
 	ROUTE_SETS,
 	routeAbort,
 	routeName,
+	scanRefusal,
 };

@@ -45,7 +45,7 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const { constants } = require("node:os");
 const path = require("node:path");
-const { routeAbort, routeName } = require("./commit-route.js");
+const { routeAbort, routeName, scanRefusal } = require("./commit-route.js");
 const { precommitStamp } = require("./precommit-stamp.js");
 
 const HOOK = "prepare-commit-msg";
@@ -178,16 +178,12 @@ function replayScan(ctx) {
 		stdio: "inherit",
 	});
 	if (!r.error && r.status === 0) return PASS;
-	const name = routeName(ctx.route);
-	/* "did not pass", not "found a secret": a missing gitleaks fails too. */
 	return {
 		exit: 1,
 		stdout: "",
 		stderr:
 			(r.error ? `${HOOK}: ${bin} would not start: ${r.error.message}\n` : "") +
-			`${HOOK}: the secrets scan did not pass on this ${name} (mantahostels#1706).\n` +
-			"  Its own output is above — a finding, or gitleaks itself is missing.\n" +
-			`  The ${name} is left IN PROGRESS. Clear it with:  ${routeAbort(ctx.route)}\n`,
+			scanRefusal(HOOK, ctx.route),
 	};
 }
 

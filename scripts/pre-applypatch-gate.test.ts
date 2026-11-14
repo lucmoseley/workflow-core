@@ -17,22 +17,30 @@
  * with its own `core.hooksPath`, because the class of bug this file guards
  * against is one layer out from the hook's logic — a hook that is correct and
  * never invoked (`docs/agents/guard-authoring.md` §The proving discipline).
+ *
+ * spawn-kept: every case spawns git to fire the real hook, which starts node
+ * only through its refusal printer, as git would.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { renderHookShim } from "./lib/adopter-skeleton";
 import { commandPath } from "./lib/command-path-testkit";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { huskyHooks, installHuskyShim } from "./lib/husky-testkit";
-import { registerTempCleanup } from "./lib/precommit-gate-harness";
+import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
 import { ROOT } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const HOOK_REL = path.join(".husky", "pre-applypatch");
 const HOOK = fs.readFileSync(path.join(ROOT, HOOK_REL), "utf8");
+const PRINTER_REL = path.join("scripts", "pre-applypatch-refusal.js");
+
+/** The hook's one line where its refusal printer would not run. */
+const UNNAMED = "its route could not be named";
 
 const temps = registerTempCleanup();
 
@@ -80,8 +88,10 @@ interface Probe {
  * `core.hooksPath` at `.husky/_`, the real shim files copied in (rather than
  * written, so a husky upgrade that changed how `_/h` resolves the user hook
  * fails here instead of silently disarming the gate), and the repo's own
- * `pre-applypatch` beside STUBBED `pre-commit` and `prepare-commit-msg` that
- * only log.
+ * `pre-applypatch` and its refusal printer beside STUBBED `pre-commit` and
+ * `prepare-commit-msg` that only log. `scripts/lib` is a symlink to the live
+ * one, so the printer requires the real lib/commit-route.js; the printer
+ * itself is a copy, so a case may delete it.
  *
  * The two stubs exist to prove a NEGATIVE — that neither fires on these routes —
  * so they must be present and armed, not merely absent.
@@ -106,12 +116,12 @@ const buildTemplate = (root: string) => {
 		path.join(ROOT, HOOK_REL),
 		path.join(husky, "pre-applypatch"),
 	);
-	// The route module the hook sources from beside it, and refuses without.
-	const lib = path.join(root, "scripts", "lib");
-	fs.mkdirSync(lib, { recursive: true });
-	fs.copyFileSync(
-		path.join(ROOT, "scripts", "lib", "commit-route.sh"),
-		path.join(lib, "commit-route.sh"),
+	// The printer a refusal runs from beside the hook, and the lib it reads.
+	fs.mkdirSync(path.join(root, "scripts"));
+	fs.copyFileSync(path.join(ROOT, PRINTER_REL), path.join(root, PRINTER_REL));
+	fs.symlinkSync(
+		path.join(ROOT, "scripts", "lib"),
+		path.join(root, "scripts", "lib"),
 	);
 
 	const log = path.join(root, LOG);
@@ -220,8 +230,8 @@ function scannerStub(dir: string, code: number): string {
 
 /**
  * A `PATH` on which no gitleaks can be found: the host-git guard, a scratch dir
- * holding only the `bash` it needs (#3403), and real git's own directory for
- * the hook's `sh` and `dirname`. The `bash` is the one on `PATH`, ahead of
+ * holding only the `bash` it needs (#3403) and the `node` a refusal's printer
+ * runs on, and real git's own directory for the hook's `sh` and `dirname`. The `bash` is the one on `PATH`, ahead of
  * git's directory, because the guard needs bash 4 and git's directory may hold
  * 3.2. Throws where git's directory also holds gitleaks, which no such `PATH`
  * can hide.
@@ -239,6 +249,7 @@ function pathWithoutGitleaks(): string {
 	const bashBin = mkScratchDir("pre-applypatch-bash-");
 	temps.push(bashBin);
 	fs.symlinkSync(commandPath("bash"), path.join(bashBin, "bash"));
+	fs.symlinkSync(process.execPath, path.join(bashBin, "node"));
 	return [guardBin, bashBin, gitBin].join(path.delimiter);
 }
 
@@ -287,13 +298,40 @@ describe(".husky/pre-applypatch", () => {
 		// full stacks, and an intermediate state can fail a cross-file check that
 		// only the final state satisfies (mantahostels#1706, restated at mantahostels#1707).
 		const code = HOOK.split("\n").filter((l) => !l.trimStart().startsWith("#"));
-		expect(code.join("\n")).not.toMatch(
-			/sh -e|node scripts\/|npm run|gitleaks/,
-		);
-		// The scan is the route module's, called once (#1503).
+		expect(code.join("\n")).not.toMatch(/sh -e|npm run/);
+		expect(code.filter((l) => l.includes("gitleaks")).length).toBe(1);
+	});
+
+	it("runs the command .husky/pre-commit runs, spelled once, and exits 0 on its pass", () => {
+		// The literal is never derived from either file, which would make this
+		// tautological.
+		const scan = `"\${WFC_GITLEAKS:-gitleaks}" git --staged --redact`;
+		expect(HOOK.split(scan).length - 1).toBe(1);
+		expect(HOOK).toContain(`${scan} && exit 0`);
 		expect(
-			code.filter((l) => l.includes("wfc_replay_scan pre-applypatch")).length,
-		).toBe(1);
+			fs.readFileSync(path.join(ROOT, ".husky", "pre-commit"), "utf8"),
+		).toContain(scan);
+	});
+
+	it.each([HOOK_REL, PRINTER_REL])(
+		"%s reads its route from lib/commit-route.js and spells no marker of its own",
+		(rel) => {
+			const text = fs
+				.readFileSync(path.join(ROOT, rel), "utf8")
+				.split("\n")
+				.filter((l) => !/^\s*(#|\/?\*|$)/.test(l))
+				.join("\n");
+			expect(text).not.toMatch(
+				/rebase-merge|\/rebase-apply|rebase-apply\/|CHERRY_PICK_HEAD|REVERT_HEAD|sequencer|MERGE_HEAD|AUTO_MERGE|BISECT_LOG|GIT_REFLOG_ACTION/,
+			);
+		},
+	);
+
+	it("refuses through the printer, which names the route through lib/commit-route.js", () => {
+		const printer = fs.readFileSync(path.join(ROOT, PRINTER_REL), "utf8");
+		expect(printer).toContain('require("./lib/commit-route.js")');
+		expect(printer).toContain('commitRoute("pre-applypatch"');
+		expect(HOOK).toContain("/scripts/pre-applypatch-refusal.js");
 	});
 });
 
@@ -456,22 +494,126 @@ describe("what a refusal actually stops", () => {
 		expect(r.output).not.toContain("git am --abort");
 	});
 
-	it("refuses the apply when scripts/lib/commit-route.sh is missing", () => {
-		// The module holds the scan itself, so without it nothing scans (#1503).
+	it("still refuses when the refusal printer is missing, in one line", () => {
+		// The scan is the hook's own; the printer only names the route, so its
+		// absence costs the name, never the refusal.
 		const p = probe();
 		sideBranch(p, { "side.txt": "side\n" });
 		const patch = patchOfSide(p);
 		p.git("reset", "-q", "--hard", "HEAD");
-		fs.rmSync(path.join(p.root, "scripts/lib/commit-route.sh"));
+		fs.rmSync(path.join(p.root, PRINTER_REL));
 		const before = gitLog(p, "--format=%H", "-1").trim();
 
 		const r = run(p.root, ["am", patch], {
-			WFC_GITLEAKS: scannerStub(p.root, 0),
+			WFC_GITLEAKS: scannerStub(p.root, 1),
 		});
 		expect(r.code).not.toBe(0);
-		expect(r.output).toContain("commit-route.sh is missing");
-		expect(r.output).not.toContain("STUB SCANNER RAN");
+		expect(r.output).toContain("STUB SCANNER RAN");
+		const lines = r.output
+			.split("\n")
+			.filter((l) => l.startsWith("pre-applypatch:"));
+		expect(lines).toEqual([
+			expect.stringContaining(
+				"the secrets scan did not pass, so the apply is refused",
+			),
+		]);
+		expect(lines[0]).toContain(UNNAMED);
+		expect(lines[0]).toContain("pre-applypatch-refusal.js would not run");
+		expect(r.output).not.toContain("IN PROGRESS");
 		expect(gitLog(p, "--format=%H", "-1").trim()).toBe(before);
+	});
+
+	it("still refuses in one line when the printer fails, never printing a stack", () => {
+		const p = probe();
+		sideBranch(p, { "side.txt": "side\n" });
+		const patch = patchOfSide(p);
+		p.git("reset", "-q", "--hard", "HEAD");
+		fs.writeFileSync(
+			path.join(p.root, PRINTER_REL),
+			'throw new Error("PRINTER BROKE");\n',
+		);
+		const before = gitLog(p, "--format=%H", "-1").trim();
+
+		const r = run(p.root, ["am", patch], {
+			WFC_GITLEAKS: scannerStub(p.root, 1),
+		});
+		expect(r.code).not.toBe(0);
+		expect(r.output).toContain(UNNAMED);
+		expect(r.output).not.toContain("PRINTER BROKE");
+		expect(r.output).not.toContain("IN PROGRESS");
+		expect(gitLog(p, "--format=%H", "-1").trim()).toBe(before);
+	});
+
+	it.each([
+		["am", "git am", "git am --abort"],
+		["rebase-apply", "git rebase --apply", "git rebase --abort"],
+	])(
+		"prints scanRefusal's three lines byte for byte on a refused %s",
+		(route, name, abort) => {
+			const p = probe();
+			sideBranch(p, { "side.txt": "side\n" });
+			let args: string[];
+			if (route === "am") {
+				const patch = patchOfSide(p);
+				p.git("reset", "-q", "--hard", "HEAD");
+				args = ["am", patch];
+			} else {
+				diverge(p);
+				p.git("checkout", "-q", "side");
+				args = ["rebase", "--apply", p.base];
+			}
+			const r = run(p.root, args, { WFC_GITLEAKS: scannerStub(p.root, 1) });
+			expect(r.code).not.toBe(0);
+			// Spelled here, not imported, so a drift in scanRefusal fails.
+			expect(r.output).toContain(
+				`STUB SCANNER RAN\npre-applypatch: the secrets scan did not pass on this ${name} (mantahostels#1706).\n` +
+					"  Its own output is above — a finding, or gitleaks itself is missing.\n" +
+					`  The ${name} is left IN PROGRESS. Clear it with:  ${abort}\n`,
+			);
+			expect(r.output).not.toContain(UNNAMED);
+		},
+	);
+
+	/** A PATH whose `node` logs each start to `log` before running the real one. */
+	function nodeSpyPath(dir: string, log: string): string {
+		const bin = path.join(dir, "node-spy");
+		fs.mkdirSync(bin);
+		fs.writeFileSync(
+			path.join(bin, "node"),
+			`#!/bin/sh\necho node >> ${shellQuote(log)}\nexec ${shellQuote(process.execPath)} "$@"\n`,
+			{ mode: 0o755 },
+		);
+		return [bin, process.env.PATH].join(path.delimiter);
+	}
+
+	it("starts no node on a passing apply, and starts it once on a refusal", () => {
+		// The latency gate times `git am`: a pass must cost the scan alone.
+		const p = probe();
+		sideBranch(p, { "side.txt": "side\n" });
+		const patch = patchOfSide(p);
+		p.git("reset", "-q", "--hard", "HEAD");
+		const log = path.join(p.root, "node-starts.log");
+		const Path = nodeSpyPath(p.root, log);
+		const starts = () =>
+			fs.existsSync(log) ? fs.readFileSync(log, "utf8") : "";
+
+		const refused = run(p.root, ["am", patch], {
+			PATH: Path,
+			WFC_GITLEAKS: scannerStub(p.root, 1),
+		});
+		expect(refused.code).not.toBe(0);
+		expect(refused.output).toContain("Clear it with:  git am --abort");
+		// The paired positive: the spy is the node the hook would start.
+		expect(starts()).toBe("node\n");
+		p.git("am", "--abort");
+		fs.rmSync(log);
+
+		const passed = run(p.root, ["am", patch], {
+			PATH: Path,
+			WFC_GITLEAKS: scannerStub(p.root, 0),
+		});
+		expect(passed.code).toBe(0);
+		expect(starts()).toBe("");
 	});
 
 	it("lets the apply through when the scanner WFC_GITLEAKS names passes it", () => {
@@ -489,6 +631,87 @@ describe("what a refusal actually stops", () => {
 		expect(r.code).toBe(0);
 		expect(r.output).toContain("STUB SCANNER RAN");
 		expect(gitLog(p, "--format=%s", "-1").trim()).toBe("side.txt");
+	});
+});
+
+describe("an adopter's pre-applypatch, run from the plugin through its shim (#1839)", () => {
+	it("finds its printer under $WFC_PLUGIN_ROOT where set", () => {
+		expect(HOOK).toContain(
+			// biome-ignore lint/suspicious/noTemplateCurlyInString: a shell parameter expansion under test, not a JS placeholder
+			'"${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/pre-applypatch-refusal.js"',
+		);
+	});
+
+	/** An adopter-shaped repo — core.hooksPath at `.husky`, no `.husky/_` —
+	 * whose pre-applypatch shim runs the core's, from a plugin root holding the
+	 * printer that WORKFLOW_CORE_DIR names. */
+	function adopter() {
+		const { root, git } = newRepo("pre-applypatch-adopter-", temps);
+		const plugin = fs.mkdtempSync(`${root}-plugin-`);
+		temps.push(plugin);
+		fs.mkdirSync(path.join(plugin, "scripts"));
+		fs.copyFileSync(
+			path.join(ROOT, PRINTER_REL),
+			path.join(plugin, PRINTER_REL),
+		);
+		fs.symlinkSync(
+			path.join(ROOT, "scripts", "lib"),
+			path.join(plugin, "scripts", "lib"),
+		);
+		fs.mkdirSync(path.join(plugin, ".husky"));
+		fs.copyFileSync(
+			path.join(ROOT, HOOK_REL),
+			path.join(plugin, ".husky", "pre-applypatch"),
+		);
+		fs.mkdirSync(path.join(root, "scripts", "lib"), { recursive: true });
+		fs.copyFileSync(
+			path.join(ROOT, "scripts", "lib", "resolve-core.js"),
+			path.join(root, "scripts", "lib", "resolve-core.js"),
+		);
+		fs.mkdirSync(path.join(root, ".husky"));
+		fs.writeFileSync(
+			path.join(root, ".husky", "pre-applypatch"),
+			renderHookShim("pre-applypatch"),
+			{ mode: 0o755 },
+		);
+		fs.writeFileSync(path.join(root, "base.txt"), "base\n");
+		git("add", "--", "base.txt");
+		git("commit", "-qm", "base");
+		git("checkout", "-q", "-b", "side");
+		fs.writeFileSync(path.join(root, "side.txt"), "side\n");
+		git("add", "--", "side.txt");
+		git("commit", "-qm", "side");
+		git("format-patch", "-q", "-1", "-o", path.join(root, ".git", "p"));
+		git("checkout", "-q", "-");
+		git("config", "core.hooksPath", ".husky");
+		const am = () => {
+			const dir = path.join(root, ".git", "p");
+			return run(
+				root,
+				["am", ...fs.readdirSync(dir).map((f) => path.join(dir, f))],
+				{ WFC_GITLEAKS: scannerStub(plugin, 1), WORKFLOW_CORE_DIR: plugin },
+			);
+		};
+		return { plugin, am };
+	}
+
+	it("runs the plugin's printer, naming `git am --abort` on a refused `git am`", () => {
+		const r = adopter().am();
+		expect(r.code).not.toBe(0);
+		expect(r.output).toContain("STUB SCANNER");
+		expect(r.output).toContain("Clear it with:  git am --abort");
+	});
+
+	it("still refuses, naming the plugin's path, where the plugin has no printer", () => {
+		const a = adopter();
+		fs.rmSync(path.join(a.plugin, PRINTER_REL));
+		const r = a.am();
+		expect(r.code).not.toBe(0);
+		expect(r.output).toContain("STUB SCANNER");
+		expect(r.output).toContain(
+			`its route could not be named (${a.plugin}/scripts/pre-applypatch-refusal.js would not run)`,
+		);
+		expect(r.output).not.toContain("IN PROGRESS");
 	});
 });
 

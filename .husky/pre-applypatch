@@ -3,13 +3,16 @@
 # (mantahostels#1707).
 #
 # Neither route reaches `pre-commit` or `prepare-commit-msg` (the marker table
-# in scripts/lib/commit-route.sh), and `pre-applypatch` is the only hook either
+# in scripts/lib/commit-route.js), and `pre-applypatch` is the only hook either
 # offers that can refuse: git aborts the apply on a non-zero exit, before the
 # commit is written.
 #
 # IMPLICIT:  runs gitleaks over the applied patch's staged content, on every
-#            `git am` and every `git rebase --apply` replay, through
-#            scripts/lib/commit-route.sh, whose absence refuses the apply.
+#            `git am` and every `git rebase --apply` replay, and refuses the
+#            apply on anything but a pass. Only a refusal starts node:
+#            scripts/pre-applypatch-refusal.js names the route and its abort;
+#            where it is missing, node is missing or it fails, the hook still
+#            refuses, printing one line that the route could not be named.
 # JUSTIFIED: fail-safe — a patch applied from a file is bytes no commit in this
 #            repository ever carried, which is the shape a pasted credential
 #            arrives in, and AGENTS.md §Secrets boundary makes a committed key
@@ -31,25 +34,24 @@
 # THE RESIDUAL is everything else in .husky/pre-commit, unrun on these two
 # routes.
 #
-# A refusal leaves the operation IN PROGRESS with `rebase-apply/` set, so the
-# message names the abort, which differs between the two routes:
-# scripts/lib/commit-route.sh tells them apart and owns the scan.
+# A PASS READS NO ROUTE AND STARTS NO NODE, so a clean apply is no slower than
+# its scan. A refusal leaves the operation IN PROGRESS with `rebase-apply/`
+# set, so the message names the abort, which differs between the two routes.
+# The printer writes that refusal to stdout and exits 0 once it has; any other
+# exit, node's own startup failures included, means it printed nothing, and
+# the hook prints its one line instead. Node's stderr is dropped, so a fault
+# reads as that line, not a stack.
 
 set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
 # The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
 # shellcheck source=scripts/lib/hook-root.sh
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
 
-here="$(dirname "$0")"
-route_lib="${WFC_PLUGIN_ROOT:-$here/..}/scripts/lib/commit-route.sh"
-if [ ! -r "$route_lib" ]; then
-  echo "pre-applypatch: $route_lib is missing, so the secrets scan did not run." >&2
-  echo "  Refusing rather than applying the patch unscanned (#1503)." >&2
-  exit 1
-fi
-# shellcheck source=scripts/lib/commit-route.sh
-. "$route_lib"
+"${WFC_GITLEAKS:-gitleaks}" git --staged --redact && exit 0
 
+printer="${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/pre-applypatch-refusal.js"
 gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null || :)"
-wfc_replay_scan pre-applypatch "$(wfc_commit_route pre-applypatch "$gitdir")" && exit 0
+[ -r "$printer" ] && command -v node >/dev/null 2>&1 &&
+  node "$printer" "$gitdir" >&2 2>/dev/null && exit 1
+echo "pre-applypatch: the secrets scan did not pass, so the apply is refused; its route could not be named ($printer would not run). Clear it with git am --abort, or git rebase --abort on a git rebase --apply." >&2
 exit 1
