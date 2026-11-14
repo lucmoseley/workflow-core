@@ -7,7 +7,8 @@ less the assistant record's). Per minute it counts:
 
   calls    tool results
   active   transcripts with a result in that minute
-  bash     each Bash round-trip, in seconds
+  bash     each Bash round-trip, in seconds, each printed as `bash_s` for
+           scripts/throughput-readout.js's median
   hto      hook-timeout refusals (a blocking hook that timed out)
   refused  test runs `run-vitest.js` refused at the load ceiling after its
            5-minute hold
@@ -128,6 +129,7 @@ def main(argv=None):
                     "calls": m["calls"],
                     "active": m["active"],
                     "bash_n": len(b),
+                    "bash_s": [round(x, 2) for x in b],
                     "bash_p50": median(b) and round(median(b), 2),
                     "bash_p90": round(statistics.quantiles(b, n=10)[-1], 2)
                     if len(b) > 1

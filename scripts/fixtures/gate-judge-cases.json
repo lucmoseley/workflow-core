@@ -2340,15 +2340,6 @@
 			"note": "\"the trial starts once that day ends\"; the day read is #4791's, but this ticket's own trial is held until it passes"
 		},
 		{
-			"id": "non-wait-4862-h2",
-			"source": 4862,
-			"own": 4862,
-			"label": "non-wait",
-			"kind": "machinery",
-			"part": "held-out",
-			"text": "- **Blocks:** 15 min in pairs, one fair coin per pair, first 5 min a washout, decided on the last 10 (`scripts/load_switchback.py`'s shape)."
-		},
-		{
 			"id": "wait-4852-h1",
 			"source": 4852,
 			"own": 4852,

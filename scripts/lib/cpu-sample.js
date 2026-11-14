@@ -231,12 +231,10 @@ function readLoadCeilingOverride(env) {
 }
 
 /*
- * THE SESSION CEILING (#2141): 1.5 live sessions per core, 12 on this machine.
- * Work slows about 3.5% per point of load1 with no knee, and load1 runs about
- * 2.2 per session, a session being a `bg-pty-host` process, the unit admission
- * counts. So total progress peaks near 13 sessions and falls past it;
- * at 12 each session runs about 1.5x slower than on an idle machine. The
- * measurement is on #2141. Where load1 lags a burst, this counts the burst.
+ * THE SESSION CEILING (#2141): 1.5 live sessions per core, 12 on this
+ * machine, a session being a `bg-pty-host` process, the unit admission counts.
+ * It is cover for load1's one-minute lag: where load1 lags a burst, this counts
+ * the burst — why, in `docs/environment.md` §6 *The session ceiling*.
  * `WFC_SESSION_CEILING` overrides it; `0` turns it off.
  */
 const SESSIONS_PER_CORE_CEILING = 1.5;

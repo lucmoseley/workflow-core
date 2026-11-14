@@ -204,6 +204,40 @@ function resourceFailing(a) {
 	return out;
 }
 
+/** @typedef {"load" | "sessions" | "memory" | "Windows memory" | "none"} Limb */
+
+/**
+ * The admission limb a tick record shows binding first: `load` or `sessions`
+ * for CPU, read off resourceFailing's reason text, `memory` or
+ * `Windows memory`; `none` where admission read and no limb failed. Null
+ * where which limb bound is unknown: the tick read no admission, or its CPU
+ * reading was missing.
+ * @param {TickRecord} t
+ * @returns {Limb | null}
+ */
+function tickLimb(t) {
+	for (const f of [t.binding, ...(t.also ?? [])]) {
+		if (!f) continue;
+		const limb = failingLimb(f, t);
+		if (limb !== undefined) return limb;
+	}
+	return t.memory ? NONE : null;
+}
+
+/**
+ * The limb one failing limit names: undefined where it is no admission limb.
+ * @param {Failing} f
+ * @param {TickRecord} t
+ * @returns {Limb | null | undefined}
+ */
+function failingLimb(f, t) {
+	if (f.limit === "memory") return t.memory ? "memory" : null;
+	if (f.limit === WINDOWS_MEMORY) return WINDOWS_MEMORY;
+	if (f.limit !== "CPU") return;
+	if (f.why.startsWith("load1 ")) return "load";
+	return f.why.includes(" sessions fill ") ? "sessions" : null;
+}
+
 /**
  * Every limit failing at this tick, in the verdict's order.
  * @param {Tick} tick
@@ -545,7 +579,9 @@ function appendTick(record) {
 }
 
 module.exports = {
+	LOOP_OFF,
 	NONE,
+	STALE_MS,
 	SPREAD_CAP,
 	appendTick,
 	buildBlockText,
@@ -556,4 +592,5 @@ module.exports = {
 	readout,
 	buildVerdict,
 	readTicks,
+	tickLimb,
 };
