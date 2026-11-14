@@ -658,7 +658,6 @@ const CALLERS = [
 	".husky/prepare-commit-msg",
 	".husky/commit-msg",
 	".husky/pre-applypatch",
-	".husky/post-commit",
 ];
 
 describe("the callers", () => {

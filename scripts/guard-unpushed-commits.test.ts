@@ -2,7 +2,7 @@
 /*
  * Pins the Stop guard that names this session's own unpushed commits, the
  * `session-arbiter.js record-commit` ledger it reads, and the .husky/post-commit
- * block that writes it.
+ * step that writes it (lib/post-commit-steps.js's recordCommitRow, #5208).
  *
  * Each test builds a throwaway repo with a bare origin and its own Claude
  * config dir, because the guard's answer turns on what the pushed ref holds and
@@ -13,22 +13,26 @@
  * or warns a session about a neighbour's commits (#766).
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { cutWorktree } from "./lib/git-fixture";
-import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
+import { ROWS } from "./lib/post-commit-rows.js";
 import {
-	commitOverSequencer,
-	cutInReplay,
-	cutShellFunction,
-	POST_COMMIT,
-} from "./lib/precommit-gate-testkit";
+	hookEnv,
+	linkedCommit,
+	quietPrograms,
+	rowOf,
+	runPostCommit,
+	STEPS,
+	stubProgram,
+} from "./lib/post-commit-testkit";
+import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
+import { commitOverSequencer } from "./lib/precommit-gate-testkit";
 import { runInProcess } from "./lib/run-in-process";
-import { shellQuote } from "./lib/sh-quote.js";
 import { readStopGuardBlock } from "./lib/stop-guard-testkit";
 import { buildBashCall } from "./lib/transcript-testkit";
 
@@ -437,28 +441,26 @@ describe("session-arbiter.js record-commit", () => {
 		expect(r.stderr).toContain("usage: session-arbiter.js record-commit");
 	});
 });
-
 describe(".husky/post-commit's unpushed count (#2408)", () => {
-	const block = cutShellFunction("report_unpushed");
-
-	/** `sh -e`, as husky runs every hook. */
+	/** lib/post-commit-steps.js's unpushedReport, as the registry runs it. */
 	function count(env: NodeJS.ProcessEnv = {}, cwd = root): string {
-		const r = spawnSync("sh", ["-e", "-c", `${block}\nreport_unpushed`], {
-			cwd,
-			encoding: "utf8",
-			env: {
-				...process.env,
-				WFC_PLUGIN_ROOT: path.join(__dirname, ".."),
-				...env,
-			},
-		});
-		expect(r.status).toBe(0);
+		const r = STEPS.unpushedReport({ cwd, env: { ...process.env, ...env } });
+		expect(r.exit).toBe(0);
+		expect(r.stderr).toBe("");
 		return r.stdout;
 	}
 
+	it("is wired: the registry's first row runs it, on every route, a replay included", () => {
+		expect(ROWS[0].id).toBe("unpushed-report");
+		expect(ROWS[0].run).toBe(STEPS.unpushedReport);
+		expect(ROWS[0].when).toBeUndefined();
+	});
+
 	it("counts the commits not on origin/main with the module off", () => {
 		commit("mine");
-		expect(count()).toContain("1 commit not pushed to origin/main.");
+		expect(count()).toBe(
+			"\u001b[33m!\u001b[0m 1 commit not pushed to origin/main.\n",
+		);
 	});
 
 	it("counts a session worktree's commits not on its queue ref with the module on", () => {
@@ -477,59 +479,75 @@ describe(".husky/post-commit's unpushed count (#2408)", () => {
 	it("says the pushed ref is missing rather than counting against nothing", () => {
 		git("update-ref", "-d", "refs/remotes/origin/main");
 		commit("mine");
-		expect(count({ WFC_MODULES: "landing" })).toContain(
-			"origin/main does not exist here",
+		expect(count({ WFC_MODULES: "landing" })).toBe(
+			"\u001b[33m!\u001b[0m origin/main does not exist here — nothing is tracking these commits.\n",
+		);
+	});
+
+	it("says nothing with every commit pushed", () => {
+		expect(count()).toBe("");
+	});
+
+	it("counts a linked worktree's commit under the redirects git hands its hook", () => {
+		const { wt, env } = linkedCommit(root, path.dirname(root));
+		execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD~1"], {
+			cwd: wt,
+		});
+		expect(STEPS.unpushedReport({ cwd: wt, env }).stdout).toContain(
+			"1 commit not pushed to origin/main.",
 		);
 	});
 });
 
-describe(".husky/post-commit's record block", () => {
+describe(".husky/post-commit's record step", () => {
 	const temps = registerTempCleanup(afterEach);
-	const block = `${cutInReplay()}\n${cutShellFunction("record_session_commit")}`;
 
-	/** A stub arbiter printing its argv and the project dir it was handed. */
-	const stub =
-		'process.stdout.write(process.argv.slice(2).join(" ") + " @ " + process.env.CLAUDE_PROJECT_DIR + "\\n");\n';
+	/** A stand-in arbiter printing its argv and the project dir it was handed. */
+	const stubArbiter = () =>
+		stubProgram("session-arbiter.js", ({ args, env }) => ({
+			exit: 0,
+			stdout: `${args.join(" ")} @ ${env.CLAUDE_PROJECT_DIR}\n`,
+			stderr: "",
+		}));
 
 	function hookRepo() {
 		const repo = newRepo("post-commit-record-", temps);
 		repo.git("commit", "-q", "--allow-empty", "-m", "one");
-		fs.mkdirSync(path.join(repo.root, "scripts"));
-		fs.writeFileSync(
-			path.join(repo.root, "scripts", "session-arbiter.js"),
-			stub,
-		);
 		return repo;
 	}
 
-	/** `sh -e`, as husky runs every hook. */
-	function runBlock(cwd: string, env: Record<string, string>) {
-		const head = execFileSync("git", ["rev-parse", "HEAD"], {
+	const headOf = (cwd: string) =>
+		execFileSync("git", ["rev-parse", "HEAD"], {
 			cwd,
 			encoding: "utf8",
 		}).trim();
-		const r = spawnSync(
-			"sh",
-			[
-				"-e",
-				"-c",
-				`committed=${shellQuote(head)}\n${block}\nrecord_session_commit\nprintf "reached-end\\n"`,
-			],
-			{ cwd, encoding: "utf8", env: { ...process.env, ...env } },
-		);
-		expect(r.stdout).toContain("reached-end");
-		return { head, out: r.stdout.replace("reached-end\n", "") };
+
+	/** The step alone. */
+	function runStep(cwd: string, env: NodeJS.ProcessEnv) {
+		stubArbiter();
+		const r = STEPS.recordCommitRow({ cwd, env: hookEnv(env) });
+		expect(r.exit).toBe(0);
+		return { head: headOf(cwd), out: r.stdout };
 	}
 
-	it("is called at column zero in the live hook", () => {
-		expect(POST_COMMIT.split("\n")).toContain("record_session_commit");
+	/** The whole registry, every other program quiet, on the real route. */
+	async function runRegistry(cwd: string, env: NodeJS.ProcessEnv) {
+		quietPrograms();
+		stubArbiter();
+		const r = await runPostCommit({ cwd, env: hookEnv(env) });
+		expect(r.exit).toBe(0);
+		return { head: headOf(cwd), out: r.stdout };
+	}
+
+	it("is wired: the registry's commit-record row runs it, standing down on the post-commit stand-down set", () => {
+		const row = rowOf("commit-record");
+		expect(row.run).toBe(STEPS.recordCommitRow);
+		expect(row.when).toEqual({ unlessRoutes: ["post-commit-stand-down"] });
 	});
 
 	it("hands the arbiter the commit, rooted at the main worktree", () => {
 		const repo = hookRepo();
-		const { head, out } = runBlock(repo.root, {
-			CLAUDE_CODE_SESSION_ID: "s1",
-		});
+		const { head, out } = runStep(repo.root, { CLAUDE_CODE_SESSION_ID: "s1" });
 		expect(out.trim()).toBe(
 			`record-commit ${head} @ ${fs.realpathSync(repo.root)}`,
 		);
@@ -540,38 +558,40 @@ describe(".husky/post-commit's record block", () => {
 		const linked = path.join(repo.root, "..", `${path.basename(repo.root)}-wt`);
 		temps.push(linked);
 		repo.git("worktree", "add", "-q", "--detach", linked);
-		fs.mkdirSync(path.join(linked, "scripts"), { recursive: true });
-		fs.writeFileSync(path.join(linked, "scripts", "session-arbiter.js"), stub);
-		const { out } = runBlock(linked, { CLAUDE_CODE_SESSION_ID: "s1" });
+		const { out } = runStep(linked, { CLAUDE_CODE_SESSION_ID: "s1" });
 		expect(out.trim().endsWith(`@ ${fs.realpathSync(repo.root)}`)).toBe(true);
 	});
 
 	it("records nothing without a session id", () => {
 		const repo = hookRepo();
-		const { out } = runBlock(repo.root, { CLAUDE_CODE_SESSION_ID: "" });
+		const { out } = runStep(repo.root, { CLAUDE_CODE_SESSION_ID: "" });
 		expect(out).toBe("");
 	});
 
-	it("records a commit made over a leftover sequencer (#3298)", () => {
+	it("records a commit made over a leftover sequencer (#3298)", async () => {
 		const repo = hookRepo();
 		commitOverSequencer(repo.root, false);
-		const { head, out } = runBlock(repo.root, {
+		const { head, out } = await runRegistry(repo.root, {
 			CLAUDE_CODE_SESSION_ID: "s1",
 		});
 		expect(out).toContain(`record-commit ${head}`);
 	});
 
-	it("records nothing mid revert sequence", () => {
+	it("records nothing mid revert sequence", async () => {
 		const repo = hookRepo();
 		commitOverSequencer(repo.root, true);
-		const { out } = runBlock(repo.root, { CLAUDE_CODE_SESSION_ID: "s1" });
-		expect(out).toBe("");
+		const { out } = await runRegistry(repo.root, {
+			CLAUDE_CODE_SESSION_ID: "s1",
+		});
+		expect(out).not.toContain("record-commit");
 	});
 
-	it("records nothing mid-replay", () => {
+	it("records nothing mid-replay", async () => {
 		const repo = hookRepo();
 		fs.writeFileSync(path.join(repo.root, ".git", "CHERRY_PICK_HEAD"), "x\n");
-		const { out } = runBlock(repo.root, { CLAUDE_CODE_SESSION_ID: "s1" });
-		expect(out).toBe("");
+		const { out } = await runRegistry(repo.root, {
+			CLAUDE_CODE_SESSION_ID: "s1",
+		});
+		expect(out).not.toContain("record-commit");
 	});
 });

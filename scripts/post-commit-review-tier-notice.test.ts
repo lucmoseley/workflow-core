@@ -1,22 +1,21 @@
 // @vitest-environment node
 /*
- * .husky/post-commit's notice after an amend that dropped the amended commit's
- * `Review-Tier:` line, its block cut from the hook's own text and run
- * as post-commit-touched-by-notice.test.ts runs the blocks beside it. Loosen a
- * case and a reviewed commit's record goes with no word, or an empty commit on
- * a reviewed HEAD is told it amended something.
+ * .husky/post-commit's notice after an amend that dropped the amended
+ * commit's `Review-Tier:` line: lib/post-commit-steps.js's droppedReviewTier
+ * and its row in lib/post-commit-rows.js (#5208), beside
+ * post-commit-touched-by-notice.test.ts's steps. Loosen a case and a reviewed
+ * commit's record goes with no word, or an empty commit on a reviewed HEAD is
+ * told it amended something.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { hookEnv, rowOf, STEPS } from "./lib/post-commit-testkit";
 import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
-import { cutShellFunction, POST_COMMIT } from "./lib/precommit-gate-testkit";
 
 const temps = registerTempCleanup();
 
-const NAME = "report_dropped_review_tier";
 const Trailer =
 	"Review-Tier: escalated; areas=secrets; base=b; tree=t; paths=s";
 
@@ -29,21 +28,19 @@ function reviewed() {
 	return repo;
 }
 
-/** `sh -e`, as .husky/_/h runs every hook. */
-function runBlock(cwd: string) {
-	const r = spawnSync(
-		"sh",
-		["-e", "-c", `${cutShellFunction(NAME)}\n${NAME}\nprintf "reached-end\\n"`],
-		{ cwd, encoding: "utf8" },
-	);
-	expect(r.stdout).toBe("reached-end\n");
-	expect(r.status).toBe(0);
+/** The step on `cwd`: its stderr, the stream it speaks on. */
+function runStep(cwd: string) {
+	const r = STEPS.droppedReviewTier({ cwd, env: hookEnv() });
+	expect(r.exit).toBe(0);
+	expect(r.stdout).toBe("");
 	return r.stderr;
 }
 
 describe(".husky/post-commit's dropped Review-Tier: notice (#4051)", () => {
-	it("is invoked at column zero, not only defined", () => {
-		expect(POST_COMMIT.split("\n")).toContain(NAME);
+	it("is wired: its registry row runs it on every route, a replay included", () => {
+		const row = rowOf("dropped-review-tier");
+		expect(row.run).toBe(STEPS.droppedReviewTier);
+		expect(row.when).toBeUndefined();
 	});
 
 	it.each([
@@ -54,7 +51,20 @@ describe(".husky/post-commit's dropped Review-Tier: notice (#4051)", () => {
 		for (const f of extra) fs.writeFileSync(path.join(repo.root, f), "y");
 		repo.git("add", "-A");
 		repo.git("commit", "-q", "--amend", "-m", "reworded");
-		expect(runBlock(repo.root)).toContain(
+		expect(runStep(repo.root)).toBe(
+			"post-commit: this amend dropped the Review-Tier: line the amended commit carried, so the review it recorded is now unrecorded. On an unchanged tree, amend again with that line in the message to keep it.\n",
+		);
+	});
+
+	it("reads the line in any case, with blanks before its colon, on both sides of the amend", () => {
+		const repo = newRepo("post-commit-review-tier-spelt-", temps);
+		fs.writeFileSync(path.join(repo.root, "a.txt"), "a\n");
+		repo.git("add", "-A");
+		repo.git("commit", "-q", "-m", "a\n\nreview-tier  : light");
+		repo.git("commit", "-q", "--amend", "-m", "a again\n\nReview-Tier: light");
+		expect(runStep(repo.root)).toBe("");
+		repo.git("commit", "-q", "--amend", "-m", "a, its tier dropped");
+		expect(runStep(repo.root)).toContain(
 			"this amend dropped the Review-Tier: line",
 		);
 	});
@@ -62,12 +72,12 @@ describe(".husky/post-commit's dropped Review-Tier: notice (#4051)", () => {
 	it("says nothing after an amend that keeps the line", () => {
 		const repo = reviewed();
 		repo.git("commit", "-q", "--amend", "--no-edit");
-		expect(runBlock(repo.root)).toBe("");
+		expect(runStep(repo.root)).toBe("");
 	});
 
 	it("says nothing after an empty commit on a reviewed HEAD", () => {
 		const repo = reviewed();
 		repo.git("commit", "-q", "--allow-empty", "-m", "empty");
-		expect(runBlock(repo.root)).toBe("");
+		expect(runStep(repo.root)).toBe("");
 	});
 });

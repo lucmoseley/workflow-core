@@ -29,11 +29,11 @@
  * git call, and every program's environment, is scrubbedGitEnv's.
  */
 
-const { trimEndRun } = require("./trim-run.js");
 const path = require("node:path");
 const { spawnGitSync } = require("./git.js");
 const { readTopLevel } = require("./git-tree.js");
 const { inProgramScope } = require("./program-scope.js");
+const { trimEndRun } = require("./trim-run.js");
 
 /** @typedef {{ cwd: string, env: NodeJS.ProcessEnv }} HookIo */
 /** @typedef {import("./program-scope.js").ProgramResult} ProgramResult */

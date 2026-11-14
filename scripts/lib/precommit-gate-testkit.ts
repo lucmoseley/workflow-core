@@ -135,11 +135,6 @@ export const LIB_COMMANDS = [
 	"rm",
 ];
 
-export const POST_COMMIT = fs.readFileSync(
-	path.join(ROOT, ".husky", "post-commit"),
-	"utf8",
-);
-
 /**
  * A `.git/sequencer` in `root` whose `abort-safety` names `rev`: HEAD as a
  * single pick over a leftover leaves it, an older commit as a stopped range
@@ -171,36 +166,6 @@ export function commitOverSequencer(
 		cwd: root,
 		env: live ? { ...env, GIT_REFLOG_ACTION: "revert" } : env,
 	});
-}
-
-/** A `name() { … }` shell function of `hook`, verbatim, to its closing `}` at column zero. */
-export function cutShellFunction(name: string, hook = POST_COMMIT): string {
-	const lines = hook.split("\n");
-	const start = lines.findIndex((l) => l.startsWith(`${name}() {`));
-	if (start === -1) throw new Error(`the hook defines no ${name}()`);
-	const end = lines.findIndex((l, i) => i > start && l === "}");
-	if (end === -1) throw new Error(`the hook's ${name}() is unclosed`);
-	return lines.slice(start, end + 1).join("\n");
-}
-
-/** The line where post-commit reads which commit it runs for, ahead of every
- * block. */
-export const COMMITTED_READ = POST_COMMIT.split("\n").findIndex((l) =>
-	l.startsWith("committed="),
-);
-
-/** post-commit's `in_replay`, behind the source of the route module it calls,
- * which the live hook loads at its top and a cut function would lose. */
-export function cutInReplay(): string {
-	const lib = path.join(ROOT, "scripts", "lib", "commit-route.sh");
-	return `. ${shellQuote(lib)}\n${cutShellFunction("in_replay")}`;
-}
-
-/** A post-commit block as the live hook runs it: behind the commit read and the
- * replay test, which a cut function would lose. */
-export function cutPostCommitBlock(name: string): string {
-	if (COMMITTED_READ === -1) throw new Error("the hook never sets committed");
-	return `${POST_COMMIT.split("\n")[COMMITTED_READ]}\n${cutInReplay()}\n${cutShellFunction(name)}`;
 }
 
 /** The line opening the hook's `.husky/pre-commit.local` load block (#437). */

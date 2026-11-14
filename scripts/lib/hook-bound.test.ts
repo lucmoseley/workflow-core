@@ -119,19 +119,15 @@ describe("a checker that never returns (#4187)", () => {
 	});
 
 	it("is killed and reported by the real post-commit, which then returns", () => {
-		/* A plugin root whose fault reporter loops, beside the real libraries. */
+		/* A plugin root whose step dispatcher loops, beside the real libraries. */
 		const plugin = path.join(dir, "plugin");
 		fs.mkdirSync(path.join(plugin, "scripts"), { recursive: true });
 		fs.symlinkSync(
 			path.join(ROOT, "scripts", "lib"),
 			path.join(plugin, "scripts", "lib"),
 		);
-		const reporter = path.join(
-			plugin,
-			"scripts",
-			"report-new-shared-faults.js",
-		);
-		fs.writeFileSync(reporter, LOOP_SOURCE);
+		const dispatcher = path.join(plugin, "scripts", "post-commit-dispatch.js");
+		fs.writeFileSync(dispatcher, LOOP_SOURCE);
 		const repo = path.join(dir, "repo");
 		const hooks = path.join(dir, "no-hooks");
 		fs.mkdirSync(hooks);
@@ -148,7 +144,7 @@ describe("a checker that never returns (#4187)", () => {
 		});
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain(
-			`post-commit: ${reporter} ran past its 1 s limit`,
+			`post-commit: ${dispatcher} ran past its 1 s limit`,
 		);
 	});
 });

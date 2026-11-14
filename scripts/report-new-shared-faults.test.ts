@@ -18,16 +18,25 @@
  * unannounced, or a session is blamed for one it inherited.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
 import {
-	commitOverSequencer,
-	cutPostCommitBlock,
-} from "./lib/precommit-gate-testkit";
+	hookEnv,
+	linkedCommit,
+	plantSentinel,
+	quietPrograms,
+	REPLAY_SENTINELS,
+	type Result,
+	rowOf,
+	runPostCommit,
+	STEPS,
+	stubProgram,
+} from "./lib/post-commit-testkit";
+import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
+import { commitOverSequencer } from "./lib/precommit-gate-testkit";
 import { GATES } from "./lib/precommit-gates.js";
 import {
 	CHECKERS_ENV,
@@ -626,230 +635,204 @@ describe("lib/shared-fault-notices.js's NOTICES", () => {
 });
 
 /*
- * HOOK PARITY (mantahostels#1825): .husky/post-commit's own text is read and its fault
- * block is CUT AND RUN.
+ * THE POST-COMMIT STEP (mantahostels#1825, #5208): lib/post-commit-steps.js's
+ * newSharedFaultsRow, and its new-shared-faults row in lib/post-commit-rows.js
+ * run through dispatch() on the real route where the gating is the point.
  *
- * The cases stub `scripts/report-new-shared-faults.js` inside a throwaway repo:
- * what is under test is the hook's guarding, not the script's answer.
+ * The cases stand a program in for this one through its PROGRAM export
+ * (lib/post-commit-testkit.ts): what is under test is the step's guarding,
+ * not the program's answer — but for the linked-worktree case, which runs the
+ * real one.
  */
-describe(".husky/post-commit's fault-notice block", () => {
-	const hookText = fs.readFileSync(
-		path.join(REPO_ROOT, ".husky", "post-commit"),
-		"utf8",
-	);
-
-	/** A throwaway repo with one commit and, optionally, a stub reporter at the
-	 * path the hook looks for. */
-	function hookRepo(prefix: string, stub?: string) {
+describe(".husky/post-commit's fault-notice step", () => {
+	/** A throwaway repo with one commit. */
+	function hookRepo(prefix: string) {
 		const repo = newRepo(prefix, temps);
 		fs.writeFileSync(path.join(repo.root, "a.txt"), "a");
 		repo.git("add", "-A");
 		repo.git("commit", "-q", "-m", "one");
-		if (stub !== undefined) {
-			fs.mkdirSync(path.join(repo.root, "scripts"), { recursive: true });
-			fs.writeFileSync(
-				path.join(repo.root, "scripts", "report-new-shared-faults.js"),
-				stub,
-			);
-		}
 		return repo;
 	}
 
-	/**
-	 * Runs the cut block in `cwd`, under the shell and the environment husky and
-	 * git actually give it.
-	 *
-	 * `sh -e`, NOT `sh`: .husky/_/h:18 runs every hook as `sh -e "$s"`, where an
-	 * unprotected `out=$(...)` aborts the shell the moment the command inside
-	 * exits non-zero — and this script's non-zero exits are its faults-found (1)
-	 * and could-not-answer (2), the only two runs that print anything. A plain
-	 * `sh` here passes against a block that cannot work in production.
-	 */
-	function runBlock(cwd: string, env: Record<string, string> = {}) {
-		const r = spawnSync(
-			"sh",
-			[
-				"-e",
-				"-c",
-				`${cutPostCommitBlock("report_new_shared_faults")}\nreport_new_shared_faults\nprintf "reached-end\\n"`,
-			],
-			{
-				cwd,
-				encoding: "utf8",
-				// The relative index path git exports into every hook.
-				env: { ...process.env, GIT_INDEX_FILE: ".git/index", ...env },
-			},
-		);
-		return {
-			code: r.status ?? -1,
-			// The trailing marker proves the block RETURNED rather than taking the
-			// shell down with it.
-			reachedEnd: r.stdout.includes("reached-end"),
-			out: r.stdout.replace("reached-end\n", ""),
-			err: r.stderr,
-		};
+	const Notice: Result = { exit: 1, stdout: "a fault notice\n", stderr: "" };
+
+	/** The step on `cwd`, the program answering `answer`. */
+	function runStep(cwd: string, answer: Result, env: NodeJS.ProcessEnv = {}) {
+		const program = stubProgram("report-new-shared-faults.js", () => answer);
+		const r = STEPS.newSharedFaultsRow({ cwd, env: hookEnv(env) });
+		// Exit 0 whatever the program did — git ignores post-commit's status.
+		expect(r.exit).toBe(0);
+		return { ...r, program };
 	}
 
-	function expectSurvived(r: { code: number; reachedEnd: boolean }) {
-		expect(r.reachedEnd).toBe(true);
-		expect(r.code).toBe(0);
+	/** The whole registry on `cwd`, the program printing NOTICE, the rest quiet. */
+	async function runRegistry(cwd: string) {
+		quietPrograms();
+		stubProgram("report-new-shared-faults.js", () => Notice);
+		const r = await runPostCommit({ cwd, env: hookEnv() });
+		expect(r.exit).toBe(0);
+		return r;
 	}
 
-	it("calls scripts/report-new-shared-faults.js, and CALLS the function it defines", () => {
-		const uncommented = hookText
-			.split("\n")
-			.filter((l) => !l.trimStart().startsWith("#"));
-		const text = uncommented.join("\n");
-
-		expect(text).toContain("report-new-shared-faults.js");
-		// A bare `report_new_shared_faults` at column zero: the INVOCATION, not
-		// the `report_new_shared_faults() {` that defines it.
-		expect(uncommented).toContain("report_new_shared_faults");
+	it("is wired: its registry row runs it, standing down on the post-commit stand-down set", () => {
+		const row = rowOf("new-shared-faults");
+		expect(row.run).toBe(STEPS.newSharedFaultsRow);
+		expect(row.when).toEqual({ unlessRoutes: ["post-commit-stand-down"] });
 	});
 
-	it("prints what the script printed on stdout", () => {
-		const repo = hookRepo(
-			"post-commit-prints-",
-			`process.stdout.write("a fault notice\\n"); process.exit(1);\n`,
+	it("prints what the program printed on stdout, run on this commit", () => {
+		const repo = hookRepo("post-commit-prints-");
+
+		const r = runStep(repo.root, Notice);
+
+		expect(r.stdout).toBe("a fault notice\n");
+		expect(r.program.mock.calls[0][0].args).toEqual([
+			repo.git("rev-parse", "HEAD").toString().trim(),
+		]);
+	});
+
+	it("says nothing where the program printed nothing", () => {
+		const repo = hookRepo("post-commit-silent-");
+
+		expect(
+			runStep(repo.root, { exit: 0, stdout: "", stderr: "" }),
+		).toMatchObject({ stdout: "", stderr: "" });
+	});
+
+	it("swallows a program that crashed rather than reported — no stack trace after a landed commit", () => {
+		const repo = hookRepo("post-commit-crash-");
+
+		const r = runStep(repo.root, {
+			exit: 1,
+			stdout: "",
+			stderr:
+				"Error: reporter exploded\n    at Object.<anonymous> (x.js:1:7)\n",
+		});
+
+		expect(r.stdout).toBe("");
+		expect(r.stderr).toBe("");
+	});
+
+	it("names a program that throws in one line, never its stack, and the steps after it still run", async () => {
+		const repo = hookRepo("post-commit-throw-");
+		const quiet = quietPrograms();
+		stubProgram("report-new-shared-faults.js", () => {
+			throw new Error("reporter exploded");
+		});
+
+		const r = await runPostCommit({ cwd: repo.root, env: hookEnv() });
+
+		expect(r.exit).toBe(0);
+		expect(r.stderr).toBe(
+			"post-commit: the new-shared-faults step threw: reporter exploded\n",
 		);
-
-		const r = runBlock(repo.root);
-
-		expect(r.out).toContain("a fault notice");
-		// Returns 0 whatever the script did — git ignores post-commit's status.
-		expectSurvived(r);
+		expect(quiet.check).toHaveBeenCalledTimes(2);
 	});
 
-	it("says nothing where the script printed nothing", () => {
-		const repo = hookRepo("post-commit-silent-", "process.exit(0);\n");
+	/* The other half of the crash case: exit 2 is the program SAYING it could
+	 * not answer, which mantahostels#1750 wants rather than the silence a clean
+	 * run gives — on the hook's stdout, as the block's `cat` put it. */
+	it("prints the program's stderr on its exit 2, the could-not-answer code", () => {
+		const repo = hookRepo("post-commit-unanswerable-");
 
-		const r = runBlock(repo.root);
+		const r = runStep(repo.root, {
+			exit: 2,
+			stdout: "",
+			stderr: "could not read the parent\n",
+		});
 
-		expect(r.out).toBe("");
-		expect(r.err).toBe("");
-		expectSurvived(r);
+		expect(r.stdout).toBe("could not read the parent\n");
 	});
 
-	it("says nothing where the script is missing altogether", () => {
-		const repo = hookRepo("post-commit-missing-");
+	it("hands the program none of the git redirects, the relative GIT_INDEX_FILE git exports into every hook among them", () => {
+		const repo = hookRepo("post-commit-env-");
 
-		const r = runBlock(repo.root);
+		const { program } = runStep(repo.root, Notice, {
+			GIT_DIR: ".git",
+			GIT_WORK_TREE: ".",
+		});
 
-		expect(r.out).toBe("");
-		expect(r.err).toBe("");
-		expectSurvived(r);
+		const handed = program.mock.calls[0][0].env;
+		for (const k of ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE"])
+			expect(handed[k], k).toBeUndefined();
 	});
 
-	it("swallows a crashing script — no stack trace after a landed commit", () => {
-		const repo = hookRepo(
-			"post-commit-crash-",
-			`throw new Error("reporter exploded");\n`,
-		);
-
-		const r = runBlock(repo.root);
-
-		expect(r.out).toBe("");
-		expect(r.err).not.toContain("reporter exploded");
-		expectSurvived(r);
-	});
-
-	/* The other half of the crash case: exit 2 is the script SAYING it could not
-	 * answer, which mantahostels#1750 wants rather than the silence a clean run gives. */
-	it("prints the script's stderr on its exit 2, the could-not-answer code", () => {
-		const repo = hookRepo(
-			"post-commit-unanswerable-",
-			`process.stderr.write("could not read the parent\\n"); process.exit(2);\n`,
-		);
-
-		const r = runBlock(repo.root);
-
-		expect(`${r.out}${r.err}`).toContain("could not read the parent");
-		expectSurvived(r);
-	});
-
-	it("unsets the relative GIT_INDEX_FILE git exports into every hook", () => {
-		const repo = hookRepo(
-			"post-commit-env-",
-			`process.stdout.write("GIT_INDEX_FILE=" + (process.env.GIT_INDEX_FILE ?? "<unset>") + "\\n");\n`,
-		);
-
-		const r = runBlock(repo.root);
-
-		expect(r.out).toContain("GIT_INDEX_FILE=<unset>");
-		expectSurvived(r);
-	});
-
-	/* Every sentinel the block lists, one case each: what an in-progress
-	 * rebase, cherry-pick, revert or bisect leave in the git dir. `sequencer`,
-	 * a multi-commit revert's, is below. */
-	it.each([
-		["rebase-merge", "dir"],
-		["rebase-apply", "dir"],
-		["CHERRY_PICK_HEAD", "file"],
-		["REVERT_HEAD", "file"],
-		["BISECT_LOG", "file"],
-	])(
+	/* Every sentinel the stand-down set reads, one case each: what an
+	 * in-progress rebase, cherry-pick, revert or bisect leave in the git dir.
+	 * `sequencer`, a multi-commit revert's, is below. */
+	it.each(REPLAY_SENTINELS)(
 		"stays quiet while %s is in the git dir, rather than attributing a replayed range one commit at a time",
-		(sentinel, kind) => {
-			const repo = hookRepo(
-				`post-commit-replay-${sentinel}-`,
-				`process.stdout.write("a fault notice\\n"); process.exit(1);\n`,
+		async (sentinel, kind) => {
+			const repo = hookRepo(`post-commit-replay-${sentinel}-`);
+			plantSentinel(repo.root, sentinel, kind);
+
+			expect((await runRegistry(repo.root)).stdout).not.toContain(
+				"a fault notice",
 			);
-			const at = path.join(repo.root, ".git", sentinel);
-			if (kind === "dir") fs.mkdirSync(at);
-			else fs.writeFileSync(at, "\n");
-
-			const r = runBlock(repo.root);
-
-			expect(r.out).toBe("");
-			expectSurvived(r);
 		},
 	);
 
 	it.each([
-		["stays quiet mid revert sequence", true, ""],
-		["prints over a leftover sequencer (#3298)", false, "a fault notice\n"],
-	])("%s", (_name, live, expected) => {
-		const repo = hookRepo(
-			"post-commit-sequencer-",
-			`process.stdout.write("a fault notice\\n"); process.exit(1);\n`,
-		);
+		["stays quiet mid revert sequence", true, false],
+		["prints over a leftover sequencer (#3298)", false, true],
+	])("%s", async (_name, live, prints) => {
+		const repo = hookRepo("post-commit-sequencer-");
 		commitOverSequencer(repo.root, live);
 
-		const r = runBlock(repo.root);
+		const r = await runRegistry(repo.root);
 
-		expect(r.out).toBe(expected);
-		expectSurvived(r);
+		expect(r.stdout.includes("a fault notice\n")).toBe(prints);
 	});
 
 	/* The inverse: with no sentinel present the same fixture DOES print. */
-	it("prints where no replay is in progress", () => {
-		const repo = hookRepo(
-			"post-commit-no-replay-",
-			`process.stdout.write("a fault notice\\n"); process.exit(1);\n`,
-		);
+	it("prints where no replay is in progress", async () => {
+		const repo = hookRepo("post-commit-no-replay-");
 
-		expect(runBlock(repo.root).out).toContain("a fault notice");
+		expect((await runRegistry(repo.root)).stdout).toContain("a fault notice\n");
 	});
 
-	/* Two halves, and the `git status` one alone is not enough: mktemp writes
-	 * OUTSIDE the repository by construction, so deleting the `rm -f` leaves the
-	 * porcelain assertion green. A private TMPDIR is what makes the leak
-	 * visible. */
-	it("removes its temp file, in the repository and out of it", () => {
-		const repo = hookRepo(
-			"post-commit-no-writes-",
-			`process.stdout.write("a fault notice\\n"); process.exit(1);\n`,
+	/*
+	 * The real program, under the redirects git hands a linked worktree's
+	 * post-commit hook: its checker's own `git ls-files`, run from a
+	 * materialised tree that is no repository, lists nothing and so finds the
+	 * worktree's file — where one still carrying the hook's GIT_DIR and
+	 * GIT_INDEX_FILE would list the hook's index and find nothing.
+	 */
+	it("reads a linked worktree's commit from a clean environment, never the hook's index", () => {
+		const repo = hookRepo("post-commit-linked-");
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "post-commit-linked-"));
+		temps.push(dir);
+		const { wt, env, redirects } = linkedCommit(repo.root, dir);
+		expect(redirects.GIT_INDEX_FILE).toBeTruthy();
+		const probe = path.join(dir, "git-probe-checker.js");
+		fs.writeFileSync(
+			probe,
+			`const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+const root = process.argv[process.argv.indexOf("--root") + 1];
+const listed = spawnSync("git", ["ls-files"], { cwd: root, encoding: "utf8" });
+const known = new Set(listed.status === 0 ? listed.stdout.split("\\n") : []);
+const docs = path.join(root, "docs");
+const files = fs.existsSync(docs) ? fs.readdirSync(docs).map((f) => "docs/" + f) : [];
+const findings = files.filter((f) => !known.has(f)).map((f) => (${fail.toString()})({ file: f }));
+process.stdout.write(JSON.stringify({ findings }));
+`,
 		);
-		const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), "post-commit-tmp-"));
-		temps.push(tmpdir);
-		const before = repo.git("status", "--porcelain").toString();
 
-		const r = runBlock(repo.root, { TMPDIR: tmpdir });
+		const r = STEPS.newSharedFaultsRow({
+			cwd: wt,
+			env: {
+				...env,
+				// hook-root.sh's answer for a linked worktree: the main tree.
+				CLAUDE_PROJECT_DIR: repo.root,
+				[CHECKERS_ENV]: JSON.stringify({ "guard-registry": probe }),
+			},
+		});
 
-		expect(r.out).toContain("a fault notice");
-		expect(fs.readdirSync(tmpdir)).toEqual([]);
-
-		expect(repo.git("status", "--porcelain").toString()).toBe(before);
+		expect(r.exit).toBe(0);
+		expect(r.stdout, "the probe's git read no hook index").toContain(
+			"docs/wt.md",
+		);
 	});
 });

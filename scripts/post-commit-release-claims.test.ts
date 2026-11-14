@@ -1,40 +1,53 @@
 // @vitest-environment node
 /*
- * .husky/post-commit's release-on-commit block (mantahostels#2336, #2058), cut from the hook's own
- * text and run — the parity discipline report-new-shared-faults.test.ts states
- * for the block above it.
+ * .husky/post-commit's release-on-commit step (mantahostels#2336, #2058):
+ * lib/post-commit-steps.js's releaseClaimsRow, and its claim-release row in
+ * lib/post-commit-rows.js run through dispatch() on the real route (#5208).
  *
- * What is under test is the HOOK'S GUARDING: which commits it stands down on,
- * how it spells the paths, what environment it hands the arbiter, and that it
- * can never take the shell down. The arbiter is a stub throughout; its own
- * narrowing is session-arbiter.test.ts's.
+ * What is under test is the STEP'S GUARDING: which commits it stands down
+ * on, how it spells the paths, what environment it hands the arbiter, and
+ * that a fault in it never stops the steps after it. The arbiter stands in
+ * through its PROGRAM export (lib/post-commit-testkit.ts) wherever its own
+ * answer is not the point; its narrowing is session-arbiter.test.ts's.
  *
- * The block runs after every commit in the shared tree: loosen a case and a
+ * The step runs after every commit in the shared tree: loosen a case and a
  * committed file's claim is never given back, so neighbours stay denied on it
  * until this session's process ends, or the arbiter judges cleanliness against
  * the wrong tree.
  */
 
-import { spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
 import {
-	commitOverSequencer,
-	cutPostCommitBlock,
-	POST_COMMIT,
-} from "./lib/precommit-gate-testkit";
+	arbiterCli,
+	commitAll,
+	freshSandbox,
+	gitRepo,
+	live,
+} from "./lib/arbiter-testkit";
+import { releaseClaimsRow, scrubbedGitEnv } from "./lib/post-commit-steps.js";
+import {
+	echoArgv,
+	hookEnv,
+	linkedCommit,
+	plantSentinel,
+	quietPrograms,
+	REPLAY_SENTINELS,
+	rowOf,
+	runPostCommit,
+	SILENT,
+	STEPS,
+	stubProgram,
+} from "./lib/post-commit-testkit";
+import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
+import { commitOverSequencer } from "./lib/precommit-gate-testkit";
 
 const temps = registerTempCleanup();
 
-const cutBlock = () => cutPostCommitBlock("release_committed_claims");
-
-/**
- * A throwaway repo whose HEAD commit touches `files`, with a stub arbiter at the
- * path the hook looks for.
- */
-function hookRepo(prefix: string, files: string[], stub?: string) {
+/** A throwaway repo whose HEAD commit touches `files`. */
+function hookRepo(prefix: string, files: string[]) {
 	const repo = newRepo(prefix, temps);
 	for (const f of files) {
 		fs.mkdirSync(path.join(repo.root, path.dirname(f)), { recursive: true });
@@ -42,213 +55,198 @@ function hookRepo(prefix: string, files: string[], stub?: string) {
 	}
 	repo.git("add", "-A");
 	repo.git("commit", "-q", "--allow-empty", "-m", "one");
-	if (stub !== undefined) {
-		fs.mkdirSync(path.join(repo.root, "scripts"), { recursive: true });
-		fs.writeFileSync(
-			path.join(repo.root, "scripts", "session-arbiter.js"),
-			stub,
-		);
-	}
 	return repo;
 }
 
-/**
- * `sh -e`, never a plain `sh`: .husky/_/h runs every hook that way, and a block
- * green under `sh` can still abort the whole hook in production.
- */
-function runBlock(cwd: string, env: Record<string, string> = {}) {
-	const r = spawnSync(
-		"sh",
-		[
-			"-e",
-			"-c",
-			`${cutBlock()}\nrelease_committed_claims\nprintf "reached-end\\n"`,
-		],
-		{
-			cwd,
-			encoding: "utf8",
-			// The relative index path git exports into every hook.
-			env: { ...process.env, GIT_INDEX_FILE: ".git/index", ...env },
-		},
-	);
-	return {
-		code: r.status ?? -1,
-		// The trailing marker proves the block RETURNED rather than taking the
-		// shell down with it.
-		reachedEnd: r.stdout.includes("reached-end"),
-		out: r.stdout.replace("reached-end\n", ""),
-		err: r.stderr,
-	};
+const headOf = (repo: { git: (...a: string[]) => Buffer }) =>
+	repo.git("rev-parse", "HEAD").toString().trim();
+
+/** The step on `cwd`, the arbiter echoing the argv it was handed. */
+function runStep(cwd: string, env: NodeJS.ProcessEnv = {}) {
+	const arbiter = stubProgram("session-arbiter.js", echoArgv);
+	const r = releaseClaimsRow({ cwd, env: hookEnv(env) });
+	expect(r.exit).toBe(0);
+	return { ...r, arbiter, argv: r.stdout.split("\n").filter(Boolean) };
 }
 
-function expectSurvived(r: { code: number; reachedEnd: boolean }) {
-	expect(r.reachedEnd).toBe(true);
-	expect(r.code).toBe(0);
+/** The whole registry on `cwd`, every program quiet but an echoing arbiter. */
+async function runRegistry(cwd: string) {
+	quietPrograms();
+	const arbiter = stubProgram("session-arbiter.js", echoArgv);
+	const r = await runPostCommit({ cwd, env: hookEnv() });
+	expect(r.exit).toBe(0);
+	return { ...r, arbiter };
 }
 
-/** A stub arbiter writing its own argv, one per line, to stdout. */
-const ECHO_ARGV = `for (const a of process.argv.slice(2)) process.stdout.write(a + "\\n");\n`;
-
-describe(".husky/post-commit's release-on-commit block", () => {
-	it("calls session-arbiter.js release-committed, and CALLS the function it defines", () => {
-		const uncommented = POST_COMMIT.split("\n").filter(
-			(l) => !l.trimStart().startsWith("#"),
-		);
-
-		expect(uncommented.join("\n")).toContain("release-committed");
-		// The INVOCATION at column zero, not the line that defines it.
-		expect(uncommented).toContain("release_committed_claims");
+describe(".husky/post-commit's release-on-commit step", () => {
+	it("is wired: the registry's claim-release row runs it, standing down on the post-commit stand-down set", () => {
+		const row = rowOf("claim-release");
+		expect(row.run).toBe(STEPS.releaseClaimsRow);
+		expect(row.when).toEqual({ unlessRoutes: ["post-commit-stand-down"] });
 	});
 
 	it("hands the arbiter the subcommand and every path the commit touched", () => {
-		const repo = hookRepo(
-			"post-commit-release-paths-",
-			["docs/doc-map.md", "app/page.tsx"],
-			ECHO_ARGV,
-		);
+		const repo = hookRepo("post-commit-release-paths-", [
+			"docs/doc-map.md",
+			"app/page.tsx",
+		]);
 
-		const r = runBlock(repo.root);
-
-		expect(r.out.split("\n").filter(Boolean)).toEqual([
+		expect(runStep(repo.root).argv).toEqual([
 			"release-committed",
 			"--commit",
-			repo.git("rev-parse", "HEAD").toString().trim(),
+			headOf(repo),
 			"app/page.tsx",
 			"docs/doc-map.md",
 		]);
-		expectSurvived(r);
 	});
 
 	it("keeps a path containing a space as ONE argument", () => {
-		const repo = hookRepo(
-			"post-commit-release-space-",
-			["docs/a file.md"],
-			ECHO_ARGV,
-		);
+		const repo = hookRepo("post-commit-release-space-", ["docs/a file.md"]);
 
-		const r = runBlock(repo.root);
-
-		expect(r.out.split("\n").filter(Boolean)).toEqual([
+		expect(runStep(repo.root).argv).toEqual([
 			"release-committed",
 			"--commit",
-			repo.git("rev-parse", "HEAD").toString().trim(),
+			headOf(repo),
 			"docs/a file.md",
 		]);
-		expectSurvived(r);
 	});
 
-	// All six, not a representative one: the states are a hand-written list, and
-	// a name dropped from it is exactly the regression this catches. Two are
-	// directories in production (`rebase-merge`, `rebase-apply`) — the block
-	// tests `-e`, so a file stands in. The sixth, `sequencer`, is below.
-	it.each([
-		"rebase-merge",
-		"rebase-apply",
-		"CHERRY_PICK_HEAD",
-		"REVERT_HEAD",
-		"BISECT_LOG",
-	])(
+	// All five sentinels, not a representative one: the stand-down set is a
+	// hand-written list, and a name dropped from it is exactly the regression
+	// this catches. The sixth, `sequencer`, is below.
+	it.each(REPLAY_SENTINELS)(
 		"stands down mid-replay under %s, where the paths are somebody else's",
-		(state) => {
-			const repo = hookRepo(
-				`post-commit-release-replay-${state}-`,
-				["docs/doc-map.md"],
-				ECHO_ARGV,
-			);
-			fs.writeFileSync(path.join(repo.root, ".git", state), "x");
+		async (sentinel, kind) => {
+			const repo = hookRepo(`post-commit-release-replay-${sentinel}-`, [
+				"docs/doc-map.md",
+			]);
+			plantSentinel(repo.root, sentinel, kind);
 
-			const r = runBlock(repo.root);
+			const r = await runRegistry(repo.root);
 
-			expect(r.out).toBe("");
-			expectSurvived(r);
+			expect(r.arbiter).not.toHaveBeenCalled();
+			expect(r.stdout).not.toContain("release-committed");
 		},
 	);
 
 	/** A second commit on doc-map.md, by commitOverSequencer. */
-	function sequencedRepo(prefix: string, live: boolean) {
-		const repo = hookRepo(prefix, ["docs/doc-map.md"], ECHO_ARGV);
+	function sequencedRepo(prefix: string, liveSequence: boolean) {
+		const repo = hookRepo(prefix, ["docs/doc-map.md"]);
 		fs.writeFileSync(path.join(repo.root, "docs", "doc-map.md"), "y");
-		commitOverSequencer(repo.root, live, ["-a"]);
+		commitOverSequencer(repo.root, liveSequence, ["-a"]);
 		return repo;
 	}
 
-	it("stands down mid revert sequence, where the paths are somebody else's", () => {
-		const r = runBlock(
+	it("stands down mid revert sequence, where the paths are somebody else's", async () => {
+		const r = await runRegistry(
 			sequencedRepo("post-commit-release-sequence-", true).root,
 		);
 
-		expect(r.out).toBe("");
-		expectSurvived(r);
+		expect(r.arbiter).not.toHaveBeenCalled();
+		expect(r.stdout).not.toContain("release-committed");
 	});
 
-	it("releases a commit made over a leftover sequencer (#3298)", () => {
+	it("releases a commit made over a leftover sequencer (#3298)", async () => {
 		const repo = sequencedRepo("post-commit-release-leftover-", false);
-		const r = runBlock(repo.root);
 
-		expect(r.out.split("\n").filter(Boolean)).toEqual([
-			"release-committed",
-			"--commit",
-			repo.git("rev-parse", "HEAD").toString().trim(),
-			"docs/doc-map.md",
-		]);
-		expectSurvived(r);
+		const r = await runRegistry(repo.root);
+
+		expect(r.stdout).toContain(
+			`release-committed\n--commit\n${headOf(repo)}\ndocs/doc-map.md\n`,
+		);
 	});
 
-	it("says nothing where the arbiter is missing altogether", () => {
-		const repo = hookRepo("post-commit-release-missing-", ["docs/doc-map.md"]);
+	it("says nothing, exit 0, where the arbiter exits non-zero", () => {
+		const repo = hookRepo("post-commit-release-nonzero-", ["docs/doc-map.md"]);
+		stubProgram("session-arbiter.js", () => ({ ...SILENT, exit: 3 }));
 
-		const r = runBlock(repo.root);
-
-		expect(r.out).toBe("");
-		expectSurvived(r);
+		expect(releaseClaimsRow({ cwd: repo.root, env: hookEnv() })).toEqual(
+			SILENT,
+		);
 	});
 
-	it("survives an arbiter that exits non-zero, and one that throws", () => {
-		for (const [prefix, stub] of [
-			["post-commit-release-nonzero-", "process.exit(3);\n"],
-			["post-commit-release-throw-", "throw new Error('boom');\n"],
-		] as const) {
-			const repo = hookRepo(prefix, ["docs/doc-map.md"], stub);
-			expectSurvived(runBlock(repo.root));
-		}
+	it("names an arbiter that throws in one line, and the steps after it still run", async () => {
+		const repo = hookRepo("post-commit-release-throw-", ["docs/doc-map.md"]);
+		const quiet = quietPrograms();
+		stubProgram("session-arbiter.js", () => {
+			throw new Error("boom");
+		});
+
+		const r = await runPostCommit({ cwd: repo.root, env: hookEnv() });
+
+		expect(r.exit).toBe(0);
+		expect(r.stderr).toBe("post-commit: the claim-release step threw: boom\n");
+		expect(quiet["keep-hook-shims.js"]).toHaveBeenCalledOnce();
 	});
 
 	it("passes the arbiter's stderr through — a clobber notice is said once", () => {
-		const repo = hookRepo(
-			"post-commit-release-stderr-",
-			["docs/doc-map.md"],
-			`process.stderr.write("session-arbiter: clobbered\\n");\n`,
+		const repo = hookRepo("post-commit-release-stderr-", ["docs/doc-map.md"]);
+		stubProgram("session-arbiter.js", () => ({
+			...SILENT,
+			stderr: "session-arbiter: clobbered\n",
+		}));
+
+		expect(releaseClaimsRow({ cwd: repo.root, env: hookEnv() }).stderr).toBe(
+			"session-arbiter: clobbered\n",
 		);
-
-		const r = runBlock(repo.root);
-
-		expect(r.err).toContain("session-arbiter: clobbered");
-		expectSurvived(r);
 	});
 
-	it("unsets the three git redirects, so the arbiter's cleanliness check reads the real tree", () => {
-		const repo = hookRepo(
-			"post-commit-release-env-",
-			["docs/doc-map.md"],
-			`for (const k of ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE"])
-				if (process.env[k] !== undefined) process.stdout.write(k + " leaked\\n");\n`,
-		);
+	it("hands the arbiter none of the three git redirects, so its cleanliness check reads the real tree", () => {
+		const repo = hookRepo("post-commit-release-env-", ["docs/doc-map.md"]);
 
-		const r = runBlock(repo.root, {
+		const { arbiter } = runStep(repo.root, {
 			GIT_DIR: ".git",
 			GIT_WORK_TREE: ".",
 		});
 
-		expect(r.out).toBe("");
-		expectSurvived(r);
+		const handed = arbiter.mock.calls[0][0].env;
+		for (const k of ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE"])
+			expect(handed[k], k).toBeUndefined();
 	});
 
 	it("says nothing on a commit that touched nothing", () => {
-		const repo = hookRepo("post-commit-release-empty-", [], ECHO_ARGV);
+		const repo = hookRepo("post-commit-release-empty-", []);
 
-		const r = runBlock(repo.root);
+		const r = runStep(repo.root);
 
-		expect(r.out).toBe("");
-		expectSurvived(r);
+		expect(r.stdout).toBe("");
+		expect(r.arbiter).not.toHaveBeenCalled();
+	});
+});
+
+describe("the release and the record under a linked worktree's hook redirects", () => {
+	const sb = freshSandbox();
+	const { cli } = arbiterCli(sb);
+
+	it("releases the worktree commit's paths and records it at the main tree", () => {
+		gitRepo(sb);
+		fs.writeFileSync(path.join(sb.repo, "docs", "notes.md"), "seed\n");
+		commitAll(sb);
+		const { wt, env } = linkedCommit(sb.repo, sb.dir);
+		live(sb, "alice");
+		const session = { ...env, CLAUDE_CODE_SESSION_ID: "alice" };
+
+		const release = releaseClaimsRow({ cwd: wt, env: session });
+		expect(release.exit).toBe(0);
+		expect(release.stdout).toContain("docs/wt.md");
+
+		const ledger = () =>
+			cli(["writes", "--committed"], {
+				...scrubbedGitEnv(session),
+				CLAUDE_PROJECT_DIR: sb.repo,
+			}).stdout.split("\n");
+		expect(ledger()).not.toContain("docs/wt.md");
+		/* The ledger the Stop hook reads, at the main tree, bills the
+		 * worktree's commit. */
+		const record = rowOf("commit-record").run({ cwd: wt, env: session });
+		expect(record).toEqual(SILENT);
+		expect(ledger()).toContain("docs/wt.md");
+		expect(
+			execFileSync("git", ["status", "--porcelain"], {
+				cwd: wt,
+				encoding: "utf8",
+				env: scrubbedGitEnv(process.env),
+			}),
+		).toBe("");
 	});
 });

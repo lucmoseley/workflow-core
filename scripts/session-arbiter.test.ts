@@ -46,7 +46,7 @@ import { throughFullPipe } from "./lib/full-pipe-testkit";
 import { printed as ghPrinted } from "./lib/gh-stub";
 import { writeFaultyGit } from "./lib/git-fault-fake";
 import { runCore } from "./lib/guard-core-testkit";
-import { cutPostCommitBlock } from "./lib/precommit-gate-testkit";
+import { releaseClaimsRow } from "./lib/post-commit-steps.js";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import { writeSystemdRun } from "./lib/systemd-run-fake";
@@ -4119,31 +4119,20 @@ describe("releasing once the holder's own hunks have landed (#2148)", () => {
 		fs.writeFileSync(inRepo(notes), theirs);
 	});
 
-	it("gives the claim back at the commit, through .husky/post-commit's release path, with the neighbour's hunk still uncommitted", () => {
+	it("gives the claim back at the commit, through .husky/post-commit's release step, with the neighbour's hunk still uncommitted", () => {
 		aliceWrites(both);
 		commitOnly(herHunkOnly);
 
-		const root = path.resolve(path.dirname(SCRIPT), "..");
-		const r = spawnSync(
-			"sh",
-			[
-				"-e",
-				"-c",
-				`${cutPostCommitBlock("release_committed_claims")}\nrelease_committed_claims`,
-			],
-			{
-				cwd: sb.repo,
-				encoding: "utf8",
-				env: {
-					...process.env,
-					CLAUDE_CODE_SESSION_ID: "alice",
-					WFC_PLUGIN_ROOT: root,
-					GIT_INDEX_FILE: ".git/index",
-				},
+		const r = releaseClaimsRow({
+			cwd: sb.repo,
+			env: {
+				...process.env,
+				CLAUDE_CODE_SESSION_ID: "alice",
+				GIT_INDEX_FILE: ".git/index",
 			},
-		);
+		});
 
-		expect(r.status).toBe(0);
+		expect(r.exit).toBe(0);
 		expect(r.stdout).toContain(`Released ${notes}`);
 		expect(r.stdout).toContain(
 			`Still carrying other sessions' uncommitted changes, none of this session's: ${notes}.`,

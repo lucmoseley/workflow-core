@@ -10,7 +10,9 @@
  * Every refusal also asserts the index is untouched.
  *
  * spawn-kept: one case asserts the process boundary — module resolution must
- * start from a tree with no node_modules above it and no NODE_PATH.
+ * start from a tree with no node_modules above it and no NODE_PATH — and the
+ * claim-release cases run the real .husky/post-commit as git fires it, mid
+ * commit, while the index still holds what the commit replaced (#3565).
  *
  * It is the commit route `CLAUDE.md`'s pathspec rule and
  * the guard-commit-form core send every session down: loosen a case and a
@@ -25,11 +27,7 @@ import { freshSandbox, live, store } from "./lib/arbiter-testkit";
 import { readText } from "./lib/file-read.js";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import { installLib } from "./lib/lib-install-testkit";
-import {
-	cutPostCommitBlock,
-	plantSequencer,
-	ROOT,
-} from "./lib/precommit-gate-testkit";
+import { plantSequencer, ROOT } from "./lib/precommit-gate-testkit";
 import { reviewTierStamp } from "./lib/review-tier-stamp.js";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -967,12 +965,14 @@ describe("post-commit's claim release after a commit-paths commit (#3254)", () =
 	// Three files, one on the detect-only scripts/ tier.
 	const held = ["a.md", "scripts/lib/one.js", "notes.md"];
 
-	// The fixture's post-commit: the real hook's release block, calling the real arbiter.
+	// The fixture's post-commit: the real hook, whose dispatcher's claim-release
+	// row calls the real arbiter on the real route. The fault notice's checker
+	// table is emptied: what it would say is not this case's.
 	beforeEach(() => {
 		const hook = path.join(hooks, "post-commit");
 		fs.writeFileSync(
 			hook,
-			`#!/bin/sh\nset -e\nWFC_PLUGIN_ROOT=${shellQuote(ROOT)}\n${cutPostCommitBlock("release_committed_claims")}\nrelease_committed_claims\n`,
+			`#!/bin/sh\nWFC_PLUGIN_ROOT=${shellQuote(ROOT)} WFC_SHARED_FAULT_CHECKERS='{}' exec sh ${shellQuote(path.join(ROOT, ".husky", "post-commit"))}\n`,
 		);
 		fs.chmodSync(hook, 0o755);
 	});
