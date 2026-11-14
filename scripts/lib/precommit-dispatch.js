@@ -26,6 +26,7 @@
  */
 
 const { caught } = require("./caught.js");
+const { armed } = require("./precommit-arm.js");
 
 /**
  * @typedef {"all" | "merge" | "batch"} GateSet
@@ -63,25 +64,6 @@ const SETS = {
 	batch: ["all", "batch"],
 	none: ["all"],
 };
-
-/**
- * Whether `arm` arms on `staged`, `list` being its computed list's paths.
- * @param {Arm} arm
- * @param {StagedEntry[]} staged
- * @param {string[]} list
- * @param {(path: string) => boolean} exists
- */
-function armed(arm, staged, list, exists) {
-	if ("always" in arm) return true;
-	const computed = new Set(list);
-	if (staged.some((e) => computed.has(e.path))) return true;
-	if (!("pattern" in arm)) return false;
-	return staged.some(
-		(e) =>
-			arm.pattern.test(e.path) &&
-			(!arm.live || ((e.status === "A" || e.status === "M") && exists(e.path))),
-	);
-}
 
 /**
  * Whether `row` runs on this commit: `broken` where the list it arms on will
@@ -210,7 +192,6 @@ function gateSetOf(value) {
 }
 
 module.exports = {
-	armed,
 	dispatch,
 	gateSetOf,
 	STOPPED_LINE,

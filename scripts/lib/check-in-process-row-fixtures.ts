@@ -203,7 +203,7 @@ export const ROW_FIXTURES: Record<string, RowFixture> = {
 			},
 		},
 	},
-	"rule-fragments": { path: "docs/agents/rules/x.txt" },
+	"rule-fragments": { path: "docs/agents/dependabot.md" },
 	"effort-guide-routing": { path: "docs/effort-guide.md" },
 	"user-settings-drift": { path: "README.md" },
 	"code-standards": { path: "README.md" },
@@ -213,8 +213,9 @@ export const ROW_FIXTURES: Record<string, RowFixture> = {
 	"doc-map": { path: "docs/notes.md" },
 	"context-budget": {
 		path: "CLAUDE.md",
-		/* A pool member under vitest.setup.ts's WFC_ALWAYS_LOADED, over its cap
-		 * at HEAD, then 100 B more. */
+		/* A pool member under vitest.setup.ts's WFC_ALWAYS_LOADED, well over
+		 * check-context-budget.js's CAP_BYTES at HEAD, then 100 B more: the cap
+		 * is on the pool's total, so a second fault is the same total grown. */
 		fault: {
 			inherited: { "docs/working-contract.md": `${"x".repeat(40_000)}\n` },
 			added: { "docs/working-contract.md": `${"x".repeat(40_100)}\n` },

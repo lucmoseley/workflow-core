@@ -10,7 +10,7 @@
  * check-in-process-armed-rows, files of their own so they run on separate
  * workers (#5191).
  *
- * Its cost, ~30 s, is three trees for each of some twenty rows, each run twice
+ * Its cost, ~35 s, is three trees for each of some twenty rows, each run twice
  * over materialised sides: a fault tree per row is what this file proves.
  */
 

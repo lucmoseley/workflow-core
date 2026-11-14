@@ -16,7 +16,8 @@ import { describe, expect, it, vi } from "vitest";
 import { checkInProcess } from "./check";
 import { type Files, ROW_FIXTURES } from "./check-in-process-row-fixtures";
 import { defineTemplate, mkScratchDir } from "./git-fixture";
-import { armed } from "./precommit-dispatch.js";
+import { armed } from "./precommit-arm.js";
+import { computed } from "./precommit-dispatch-ports.js";
 import type { GATES } from "./precommit-gates.js";
 
 type GateRow = (typeof GATES)[number];
@@ -135,18 +136,25 @@ const writeAll = (repo: string, files: Files) => {
 	for (const [file, text] of Object.entries(files)) stage(repo, file, text);
 };
 
+/** A tree, and the verdict its spawned run gives where it holds a fault. */
+interface RowTree extends Tree {
+	verdict?: { exit: number; says: RegExp; names: string[] };
+}
+
 /* The trees a row is judged on. Every row: one commit holding its fixture
  * path, the index changing it. A row with a side also: that commit holding a
  * fault besides, the index changing the path alone (the fault inherited) or
- * adding a second fault (one inherited, one added). */
-const treesOf = (row: GateRow): Tree[] => {
+ * adding a second fault (one inherited, one added). An `--against` row passes
+ * the inherited fault over and refuses the added one; an `--index` row,
+ * having no baseline, refuses both, an added file named among its findings. */
+const treesOf = (row: GateRow): RowTree[] => {
 	const at = pathOf(row);
 	const base = (r: string, held: Files) => {
 		writeAll(r, held);
 		stage(r, at, versionOf(at, 1));
 		git(r, "commit", "-qm", "init");
 	};
-	const change: Tree = {
+	const change: RowTree = {
 		name: `a change to ${at}`,
 		build: (r) => {
 			base(r, {});
@@ -155,6 +163,7 @@ const treesOf = (row: GateRow): Tree[] => {
 	};
 	const fault = ROW_FIXTURES[row.id]?.fault;
 	if (!fault) return [change];
+	const against = sideOf(row) === "against";
 	return [
 		change,
 		{
@@ -163,6 +172,9 @@ const treesOf = (row: GateRow): Tree[] => {
 				base(r, fault.inherited);
 				stage(r, at, versionOf(at, 2));
 			},
+			verdict: against
+				? { exit: 0, says: /is already in /, names: [] }
+				: { exit: 1, says: /FAIL/, names: [] },
 		},
 		{
 			name: "a fault the commit holds, the index adding a second",
@@ -170,39 +182,30 @@ const treesOf = (row: GateRow): Tree[] => {
 				base(r, fault.inherited);
 				writeAll(r, fault.added);
 			},
+			verdict: {
+				exit: 1,
+				says: against ? / adds them:/ : /FAIL/,
+				names: Object.keys(fault.added),
+			},
 		},
 	];
 };
 
-/* What makes a fault tree hold the faults it names: an `--against` row passes
- * an inherited fault over and refuses an added one; an `--index` row refuses
- * both, it having no baseline. Asserted on the spawned run alone, the
- * in-process one being held equal to it. */
-const holdsItsFault = (
-	row: GateRow,
-	tree: number,
-	r: { exit: number | null; stderr: string },
-) => {
-	if (tree === 0) return;
-	if (sideOf(row) === "index") {
-		expect(r.exit).toBe(1);
-		return;
-	}
-	if (tree === 1) {
-		expect(r.exit).toBe(0);
-		expect(r.stderr).toMatch(/is already in /);
-	} else {
-		expect(r.exit).toBe(1);
-		expect(r.stderr).toMatch(/ adds them:/);
-	}
-};
+/** The paths whose staging arms `row`: its computed list, where it has one. */
+const listOf = (row: GateRow) =>
+	"computed" in row.arm && row.arm.computed !== undefined
+		? computed(row.arm.computed)
+		: [];
 
 /* Every dispatcher row as the dispatcher runs it (#5172): its args, its sides
- * spawned where the row keeps a `side`, over each tree treesOf builds. */
-const dispatcherRowCase = async (row: GateRow, tree: number) => {
+ * spawned where the row keeps a `side`, over a tree treesOf builds. A row with
+ * a computed arm stages a member of its list, never only a pattern match. */
+const dispatcherRowCase = async (row: GateRow, tree: RowTree) => {
 	const at = pathOf(row);
+	const list = listOf(row);
+	if ("computed" in row.arm) expect(list).toContain(at);
 	expect(
-		armed(row.arm, [{ status: "M", path: at }], [], () => true),
+		armed(row.arm, [{ status: "M", path: at }], list, () => true),
 		`${row.id}'s fixture path ${at} does not arm it`,
 	).toBe(true);
 	expect(
@@ -211,7 +214,7 @@ const dispatcherRowCase = async (row: GateRow, tree: number) => {
 			? `${row.id} compares a side, so it owes a fault`
 			: `${row.id} compares no side, so a fault proves nothing`,
 	).toBe(sideOf(row) !== null);
-	const repo = fixture(treesOf(row)[tree] as Tree);
+	const repo = fixture(tree);
 	const file = path.join(SCRIPTS, path.relative("scripts", row.script));
 	const own = spawned(file, row.args, repo);
 	/* A program row: its PROGRAM against its own process shell, in the
@@ -223,7 +226,18 @@ const dispatcherRowCase = async (row: GateRow, tree: number) => {
 		);
 		return;
 	}
-	holdsItsFault(row, tree, own);
+	/* The fault tree holds the faults it names: asserted on the spawned run,
+	 * the in-process one being held equal to it. */
+	if (tree.verdict) {
+		const out = own.stdout + own.stderr;
+		expect(own.exit).toBe(tree.verdict.exit);
+		expect(out).toMatch(tree.verdict.says);
+		if (tree.verdict.names.length > 0)
+			expect(
+				tree.verdict.names.some((name) => out.includes(name)),
+				"the added fault is among the findings",
+			).toBe(true);
+	}
 	expect(
 		settled(
 			await inProcess(file, row.args, repo, row.side ? "spawn" : "in-process"),
@@ -231,10 +245,19 @@ const dispatcherRowCase = async (row: GateRow, tree: number) => {
 	).toEqual(settled(own));
 };
 
+/** Every ROW_FIXTURES entry names a dispatcher row, so none outlives its row. */
+export const describeRowFixtures = (rows: GateRow[]) =>
+	it("keys every row fixture by a dispatcher row's id", () =>
+		expect(
+			Object.keys(ROW_FIXTURES).filter(
+				(id) => !rows.some((row) => row.id === id),
+			),
+		).toEqual([]));
+
 export const describeDispatcherRows = (rows: GateRow[]) =>
 	describe.each(rows)("the $id dispatcher row", (row) => {
-		it.each(treesOf(row).map((t, i) => ({ name: t.name, i })))(
+		it.each(treesOf(row))(
 			"runs in-process exactly as spawned over $name",
-			({ i }) => dispatcherRowCase(row, i),
+			(tree) => dispatcherRowCase(row, tree),
 		);
 	});
