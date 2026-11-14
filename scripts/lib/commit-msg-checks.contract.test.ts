@@ -14,7 +14,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { main as scanCloses } from "../check-commit-message-closes.js";
 import { SPEC as WEAKENS } from "../check-weakens-line.js";
 import { checkInProcess } from "./check.js";
@@ -40,10 +40,18 @@ const message = (body: string) => {
 	return file;
 };
 
+const STAND_DOWN = /^WFC_[A-Z0-9_]+_OFF$/;
+
 /** process.env less any gate stand-down a developer has exported. */
 const ENV = Object.fromEntries(
-	Object.entries(process.env).filter(([k]) => !/^WFC_[A-Z0-9_]+_OFF$/.test(k)),
+	Object.entries(process.env).filter(([k]) => !STAND_DOWN.test(k)),
 );
+
+/* The in-process side reads process.env, so it sheds the same stand-downs. */
+beforeEach(() => {
+	for (const k of Object.keys(process.env))
+		if (STAND_DOWN.test(k)) vi.stubEnv(k, undefined);
+});
 
 const spawned = (cmd: string, args: string[], cwd = SCRIPTS) => {
 	const r = spawnSync(cmd, args, { cwd, encoding: "utf8", env: ENV });
