@@ -64,7 +64,9 @@ const SPEC = {
 	run(/** @type {Ctx} */ ctx) {
 		const root = path.resolve(ctx.value("--root") ?? hostRoot());
 		/* The root's own fragments and no other layer, so --index never reads a
-		 * fragment off the working tree. */
+		 * fragment off the working tree. Pinned in rule-text.js rather than set
+		 * in the environment, since the pre-commit dispatcher runs this in a
+		 * process every later row shares (#5194). */
 		const { limit, sizes, fallbacks } = withRuleStore(
 			path.join(root, RULES_DIR),
 			"",

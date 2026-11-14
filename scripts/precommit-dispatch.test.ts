@@ -30,6 +30,7 @@ import {
 } from "./lib/precommit-gate-testkit";
 import { GATES } from "./lib/precommit-gates.js";
 import { isDead } from "./lib/process-fixture";
+import { escapeRe } from "./lib/regex-group.js";
 
 const temps = registerTempCleanup();
 
@@ -241,6 +242,25 @@ const ALL = armedBy("scripts/a.js", ["every", "merge", "batch", "none"]);
 describe("the hook's dispatcher line", () => {
 	it("is in .husky/pre-commit, once", () => {
 		expect(HOOK.split("\n").filter((l) => l === LINE)).toHaveLength(1);
+	});
+
+	/* A row's check called from the hook as well, with the row's own
+	 * arguments, runs twice, its second process paying the startup the
+	 * dispatcher exists to share (#5194). Another mode of the same script,
+	 * such as check-vendored-skills.js --covered, is a different check. */
+	it("is the hook's only caller of a row's check", () => {
+		const calls = HOOK.split("\n").filter(
+			(l) => !l.trimStart().startsWith("#"),
+		);
+		for (const g of GATES) {
+			const call = new RegExp(
+				`${escapeRe([g.script, ...g.args].join(" "))}(?=\\s*(\\|\\||;|['"]|$))`,
+			);
+			expect(
+				calls.filter((l) => call.test(l)),
+				g.id,
+			).toEqual([]);
+		}
 	});
 
 	it("exits 0 where every armed row passes, loading them in registry order", () => {

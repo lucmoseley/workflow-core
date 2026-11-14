@@ -16,9 +16,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { dispatch } from "./lib/precommit-dispatch.js";
 import { registerTempCleanup, stagedRepo } from "./lib/precommit-gate-harness";
-import { buildRepoPorts } from "./lib/precommit-gate-testkit";
+import { dispatchStubbed, patternRow } from "./lib/precommit-gate-testkit";
 import { GATES } from "./lib/precommit-gates.js";
 
 const CHECKER = "scripts/check-injector-margin.js";
@@ -33,41 +32,27 @@ const REVIEW_RULES = MARGIN_INPUTS.filter((rel) =>
 
 const temps = registerTempCleanup();
 
-const row = GATES.find((g) => g.script === CHECKER);
-if (!row || !("pattern" in row.arm))
-	throw new Error(`no pattern row for ${CHECKER} in lib/precommit-gates.js`);
-const ROW = row;
-const PATTERN = row.arm.pattern;
-type GateRow = typeof ROW;
+const ROW = patternRow(CHECKER);
+const PATTERN = ROW.arm.pattern;
+type GateRow = (typeof GATES)[number];
 
 const STUB_MARKER = "STUB-TRACKER_TEXT-MARGIN-RAN";
 
 /**
- * The dispatcher's exit and output for `rule` over a repo staging `staged`,
+ * The dispatcher's exit and output for `row` over a repo staging `staged`,
  * its checker stubbed to print STUB_MARKER and exit `checkerExit`.
  */
 async function runRow(opts: {
 	staged: Record<string, string>;
 	checkerExit: number;
-	rule?: GateRow;
+	row?: GateRow;
 }): Promise<{ code: number; output: string }> {
 	const { root } = stagedRepo("injector-margin-gate-", temps, {}, opts.staged);
-	let output = "";
-	const code = await dispatch({
-		rows: [opts.rule ?? ROW],
-		gates: "all",
-		ports: buildRepoPorts(root, {
-			load: () => () => ({
-				exit: opts.checkerExit,
-				stdout: `${STUB_MARKER}\n`,
-				stderr: "",
-			}),
-			write: (_fd, text) => {
-				output += text;
-			},
-		}),
+	return dispatchStubbed(root, opts.row ?? ROW, {
+		exit: opts.checkerExit,
+		stdout: `${STUB_MARKER}\n`,
+		stderr: "",
 	});
-	return { code, output };
 }
 
 describe("the pre-commit injector-margin row", () => {
@@ -181,7 +166,7 @@ describe("mutations of the row are caught by the cases above", () => {
 		const { code } = await runRow({
 			staged: { [TRACKER_TEXT]: "x\n" },
 			checkerExit: 1,
-			rule: { ...ROW, policy: "warn" },
+			row: { ...ROW, policy: "warn" },
 		});
 		expect(code).toBe(0);
 	});
@@ -190,7 +175,7 @@ describe("mutations of the row are caught by the cases above", () => {
 		const { code, output } = await runRow({
 			staged: { "app/page.tsx": "x\n" },
 			checkerExit: 1,
-			rule: { ...ROW, arm: { always: true } },
+			row: { ...ROW, arm: { always: true } },
 		});
 		expect(code).not.toBe(0);
 		expect(output).toContain(STUB_MARKER);
@@ -200,7 +185,7 @@ describe("mutations of the row are caught by the cases above", () => {
 		const { code, output } = await runRow({
 			staged: { [`vendor/${TRACKER_TEXT}`]: "x\n" },
 			checkerExit: 1,
-			rule: withPattern(/^\^/, ""),
+			row: withPattern(/^\^/, ""),
 		});
 		expect(code).not.toBe(0);
 		expect(output).toContain(STUB_MARKER);
@@ -210,10 +195,7 @@ describe("mutations of the row are caught by the cases above", () => {
 		const { code } = await runRow({
 			staged: { [TRACKER_TEXT]: "x\n" },
 			checkerExit: 1,
-			rule: withPattern(
-				"tracker-inject-text\\.js",
-				"check-context-budget\\.js",
-			),
+			row: withPattern("tracker-inject-text\\.js", "check-context-budget\\.js"),
 		});
 		expect(code).toBe(0);
 	});
