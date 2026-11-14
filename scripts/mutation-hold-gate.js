@@ -75,7 +75,7 @@
  * refuses only where it will not run.
  *
  * SKIPPED, silently: during a rebase, a cherry-pick or `git am`, and on a merge
- * commit, as scripts/lib/commit-route.sh reads the route — replayed and merged
+ * commit, as scripts/lib/commit-route.js reads the route — replayed and merged
  * lines were held when first committed. NOT skipped in the founder's terminal
  * or a linked worktree (#1851).
  *
@@ -118,6 +118,7 @@ const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { caught } = require("./lib/caught.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
+const { commitRoute, isReplayRoute } = require("./lib/commit-route.js");
 const { readText } = require("./lib/file-read.js");
 const { compareVersions } = require("./lib/compare-versions.js");
 const { shellQuote } = require("./lib/sh-quote.js");
@@ -290,30 +291,15 @@ function orFault(fault, read) {
 const gitOr = (args, fault) => orFault(fault, () => git(args));
 
 /**
- * Whether the commit route commit-route.sh reads is a replay or a merge, read
- * through the library itself so a new replay route reaches this gate with no
- * edit here.
+ * Whether the commit route is a replay or a merge. No orFault: commitRoute
+ * reads an unreadable marker as none and cannot throw at pre-commit (#5201);
+ * a throw anyway reaches faultOf as the generic fault, still failing open.
  * @param {string} gitDir
  */
-function isSkippedRoute(gitDir) {
-	const r = spawnSync(
-		"sh",
-		[
-			"-c",
-			'. "$1" && route="$(wfc_commit_route pre-commit "$2")" || exit 2\nif wfc_commit_route_replays "$route" || [ "$route" = merge ]; then echo skip; else echo hold; fi',
-			"sh",
-			path.join(__dirname, "lib", "commit-route.sh"),
-			gitDir,
-		],
-		{ encoding: "utf8" },
-	);
-	const verdict = (r.stdout ?? "").trim();
-	if (r.status !== 0 || !["skip", "hold"].includes(verdict))
-		throw new HoldFaultError("could not read the commit route", {
-			detail: (r.stderr ?? "").trim(),
-		});
-	return verdict === "skip";
-}
+const isSkippedRoute = (gitDir) => {
+	const route = commitRoute("pre-commit", gitDir);
+	return isReplayRoute(route) || route === "merge";
+};
 
 /**
  * The text of `file` at `rev`, an empty `rev` the index, or null where its

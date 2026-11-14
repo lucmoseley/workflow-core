@@ -125,6 +125,6 @@ it("runs every member twice in one process as it runs once, leaving the process 
 	} finally {
 		process.chdir(was);
 	}
-	/* Two passes over every member row, each a full dispatcher run; a first
-	 * guess at a loaded machine's worst, unmeasured. */
+	/* Two passes over every member row, each a full dispatcher run: one took
+	 * 22.8 s at load 2 (#5171), so about 46 s, with 2.6x headroom for load. */
 }, 120_000);

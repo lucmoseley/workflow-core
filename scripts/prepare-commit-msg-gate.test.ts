@@ -29,6 +29,7 @@ import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { huskyHooks, installHuskyShim } from "./lib/husky-testkit";
 import { registerTempCleanup } from "./lib/precommit-gate-harness";
 import { ROOT } from "./lib/precommit-gate-testkit";
+import { reviewTierStamp } from "./lib/review-tier-stamp.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -1199,10 +1200,10 @@ describe("the review hold's Review-Tier: trailer (#3664)", () => {
 			'process.stderr.write("the hold refused the moved tree\\n");\nprocess.exit(1);\n',
 		);
 	};
-	/** A stamp of `sid`'s in the git directory, named as review-tier-stamp.js names it. */
+	/** A stamp of `sid`'s in the git directory, named by review-tier-stamp.js. */
 	const stampFor = (p: Probe, name: string) =>
 		fs.writeFileSync(
-			path.join(p.root, ".git", `wfc-review-tier-${name}`),
+			reviewTierStamp(path.join(p.root, ".git"), name) as string,
 			"t\nescalated\n",
 		);
 	/** Commits `f.txt` under `message`; the exit, output and whether HEAD moved. */
@@ -1262,10 +1263,14 @@ describe("the review hold's Review-Tier: trailer (#3664)", () => {
 		expect(r.output).toContain("the hold refused the moved tree");
 	});
 
+	/** The hold's stamp path as a shell word, its name review-tier-stamp.js's. */
+	const shellStamp = (reviewTierStamp("GITDIR", "SID") as string)
+		.replace("GITDIR", "$(git rev-parse --absolute-git-dir)")
+		.replace("SID", "$CLAUDE_CODE_SESSION_ID");
 	/** A pre-commit that leaves the stamp the review hold leaves on a pass. */
 	const holding = (p: Probe) =>
 		p.precommitBody(
-			`t="$(git write-tree)"\nprintf '%s\\nescalated; areas=secrets; base=b; tree=%s; paths=f.txt\\n' "$t" "$t" >"$(git rev-parse --absolute-git-dir)/wfc-review-tier-$CLAUDE_CODE_SESSION_ID"\n${precommitStub(path.join(p.root, LOG), 0)}`,
+			`t="$(git write-tree)"\nprintf '%s\\nescalated; areas=secrets; base=b; tree=%s; paths=f.txt\\n' "$t" "$t" >"${shellStamp}"\n${precommitStub(path.join(p.root, LOG), 0)}`,
 		);
 	const trailer = (p: Probe) =>
 		gitLog(p, "-1", "--format=%(trailers:key=Review-Tier,valueonly)").trim();
