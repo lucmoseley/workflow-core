@@ -47,7 +47,7 @@ const { queueExitLogPath } = require("./lib/queue-exit-log.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { seatsFrom } = require("./lib/seat-args.js");
 const { readLogs, waitSpans } = require("./lib/suite-queue-replay.js");
-const { LIMBS, readout } = require("./lib/throughput-readout.js");
+const { LIMBS, THIN_HOURS, readout } = require("./lib/throughput-readout.js");
 const { minuteLogPath } = require("./lib/windows-memory.js");
 const { resolveKey } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
@@ -409,7 +409,7 @@ function renderBands(title, bands) {
 function render(r) {
 	const out = [
 		`Throughput readout, ${r.since} to ${r.until} UTC — a reading, never a target (#3212).`,
-		"Closes are COMPLETED only, reverted closes subtracted. A band under 10 hours is thin and states no plateau.",
+		`Closes are COMPLETED only, reverted closes subtracted. A band under ${THIN_HOURS} hours is thin and states no plateau.`,
 		"",
 		...renderBands("By sessions", r.sessions),
 		"",
