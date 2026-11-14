@@ -2,7 +2,8 @@
 /*
  * check-injector-margin.js against synthetic text modules (mantahostels#1915):
  * its exits, the margin it prints, --index's staged reading, and the
- * evaluation that runs nothing of the module. The gate's wiring is
+ * evaluation that runs nothing of the module, and its in-process run as
+ * the pre-commit dispatcher makes it. The row's arming is
  * precommit-injector-margin-gate.test.ts's.
  *
  * A fake module is any CommonJS source exporting the composers the measure
@@ -13,7 +14,7 @@
  * WHAT STAYS UNVERIFIED: that 10,000 is still the harness's threshold
  * (mantahostels#1868).
  *
- * It is a hard gate in `.husky/pre-commit`: loosen a case and a text module
+ * It is a hard pre-commit gate: loosen a case and a text module
  * whose payload crosses the threshold lands, and the tracker commands silently
  * get a ~2 KB preview of their rules instead of the rules.
  */
@@ -23,6 +24,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { inProcess, spawned } from "./lib/check-in-process-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-injector-margin.js");
@@ -286,6 +288,37 @@ describe("--index: the commit's bytes", () => {
 			{ tag: "FRAGMENT-FALLBACK", id: "review-dispatch-shape" },
 		]);
 		expect(JSON.parse(run("--json").output).findings).toEqual([]);
+	});
+
+	/* The dispatcher runs the row in the process every row shares (#5194):
+	 * the fragment store is pinned to the measured root for the read alone,
+	 * so the run reads as its spawned CLI and leaves the environment as it
+	 * found it. */
+	it("runs in-process exactly as spawned, its fragment store pinned to the measured root", async () => {
+		write(
+			TEXT,
+			moduleOf(["code-review"], "").replace(
+				"module.exports = {",
+				'const codeReviewRules = (h) => ["review-dispatch-shape", "review-deviations-read"].map(h.fragment).join("");\nmodule.exports = {\n\tcodeReviewRules,',
+			),
+		);
+		write("docs/agents/rules/review-dispatch-shape.txt", "shape\n");
+		git("add", TEXT, "docs/agents/rules/review-dispatch-shape.txt");
+		const store = () => [
+			process.env.WFC_RULES_DIR,
+			process.env.WFC_RULES_FALLBACK_DIR,
+		];
+		const before = store();
+
+		const inside = await inProcess(SCRIPT, ["--index"], root);
+		expect(inside).toEqual(spawned(SCRIPT, ["--index"], root));
+		expect(`${inside.stdout}${inside.stderr}`).toContain(
+			"fallback for unreadable fragment review-deviations-read.",
+		);
+		expect(`${inside.stdout}${inside.stderr}`).not.toContain(
+			"fragment review-dispatch-shape",
+		);
+		expect(store()).toEqual(before);
 	});
 
 	/* The routes on which this gate must NOT refuse a commit (mantahostels#1915). */

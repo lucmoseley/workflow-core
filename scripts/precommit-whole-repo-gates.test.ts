@@ -172,6 +172,7 @@ const HOOK_ERE: Record<string, string> = {
 	"scripts/generate-effort-guide-routing.js": String.raw`^(docs/effort-guide\.md|scripts/lib/model-routing\.json|scripts/generate-effort-guide-routing\.js|scripts/lib/model-table\.js)$`,
 	"scripts/lib/doc-map-gate-program.js": String.raw`^(docs/|\.claude/|hooks/|self-plugin/|AGENTS\.md$|CLAUDE\.md$|PRODUCT\.md$|DESIGN\.md$|GLOSSARY\.md$)`,
 	"scripts/check-context-budget.js": String.raw`^(CLAUDE\.md$|AGENTS\.md$|docs/|\.claude/|scripts/|self-plugin/)`,
+	"scripts/check-injector-margin.js": String.raw`^(scripts/lib/tracker-inject-text\.js|docs/agents/rules/review-(dispatch-shape|deviations-read|finding-destination)\.txt)$`,
 };
 
 /** Every row arming on a path pattern, which HOOK_ERE pins. */
@@ -239,6 +240,11 @@ const PATHS = [
 	"scripts/lib/guard-fires.js",
 	"scripts/lib/other.js",
 	"docs/agents/rules/x.txt",
+	"docs/agents/rules/review-dispatch-shape.txt",
+	"docs/agents/rules/review-standards-axis.txt",
+	"scripts/lib/tracker-inject-text.js",
+	"scripts/lib/tracker-inject-text.js.bak",
+	"vendor/scripts/lib/tracker-inject-text.js",
 	"docs/agents/rules.md",
 	"docs/effort-guide.md",
 	"scripts/lib/model-routing.json",

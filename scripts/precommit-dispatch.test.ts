@@ -24,12 +24,14 @@ import { STOPPED_LINE } from "./lib/precommit-dispatch.js";
 import { registerTempCleanup, stagedRepo } from "./lib/precommit-gate-harness";
 import {
 	coreCall,
+	type GateRow,
 	HOOK,
 	HOOK_BOUND_LIB,
 	ROOT,
 } from "./lib/precommit-gate-testkit";
 import { GATES } from "./lib/precommit-gates.js";
 import { isDead } from "./lib/process-fixture";
+import { escapeRe } from "./lib/regex-group.js";
 
 const temps = registerTempCleanup();
 
@@ -241,6 +243,60 @@ const ALL = armedBy("scripts/a.js", ["every", "merge", "batch", "none"]);
 describe("the hook's dispatcher line", () => {
 	it("is in .husky/pre-commit, once", () => {
 		expect(HOOK.split("\n").filter((l) => l === LINE)).toHaveLength(1);
+	});
+
+	/* A row's check called from the hook as well, with the row's own
+	 * arguments, runs twice, its second process paying the startup the
+	 * dispatcher exists to share (#5194). Another mode of the same script,
+	 * such as check-vendored-skills.js --covered, is a different check. */
+	/* The non-comment lines of `text` calling `row`'s script with exactly its
+	 * args: a further argument word makes another mode, anything else (an
+	 * operator, a redirection, a closing quote, the line's end) does not. */
+	const callsOfRow = (row: GateRow, text: string) => {
+		const call = new RegExp(
+			`${escapeRe([row.script, ...row.args].join(" "))}(?![\\w./-]|\\s+[^\\s|&;<>)\\\\])`,
+		);
+		return text
+			.split("\n")
+			.filter((l) => !l.trimStart().startsWith("#") && call.test(l));
+	};
+
+	it("is the hook's only caller of a row's check", () => {
+		for (const g of GATES) expect(callsOfRow(g, HOOK), g.id).toEqual([]);
+	});
+
+	it("finds a row's own call however it ends, and not another mode", () => {
+		const margin = GATES.find((g) => g.id === "injector-margin");
+		const skills = GATES.find(
+			(g) => g.script === "scripts/check-vendored-skills.js",
+		);
+		if (!margin || !skills) throw new Error("a row this case reads is gone");
+		const at = (tail: string) =>
+			callsOfRow(
+				margin,
+				`node scripts/check-injector-margin.js --index${tail}`,
+			);
+		for (const tail of [
+			' || exit "$?"',
+			" && :",
+			" | cat",
+			" >log",
+			")",
+			" \\",
+			"",
+		])
+			expect(at(tail), tail).toHaveLength(1);
+		expect(at(" --json")).toEqual([]);
+		expect(at("x")).toEqual([]);
+		expect(
+			callsOfRow(
+				skills,
+				`'node scripts/check-vendored-skills.js --covered "$sg_dir"' ""`,
+			),
+		).toEqual([]);
+		expect(
+			callsOfRow(margin, "# node scripts/check-injector-margin.js --index"),
+		).toEqual([]);
 	});
 
 	it("exits 0 where every armed row passes, loading them in registry order", () => {
