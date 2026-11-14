@@ -120,8 +120,9 @@ function realPathOrNull(file) {
 }
 
 /**
- * Null where git reads `dir` as a checkout: its `.git` a directory, or a file
- * naming a registration whose `gitdir` names that file back; else why not
+ * Why `dir`'s own registration is broken, as a linked worktree whose `.git`
+ * file names one that is gone or names another tree; null where it holds, or
+ * where `dir` has no `.git` file to break: a main checkout, or none at all
  * (#5209). A registration naming another worktree is one a later checkout
  * took the name of after this one's went. Never throws: a file that will not
  * read is a reason too.
@@ -130,7 +131,7 @@ function realPathOrNull(file) {
 function readRegistrationFault(dir) {
 	const dotGit = path.join(dir, ".git");
 	const file = readText(dotGit);
-	if (file.state === "absent") return `${dir} has no .git`;
+	if (file.state === "absent") return null;
 	if (file.state === "unreadable")
 		return caught(file.error).code === "EISDIR"
 			? null

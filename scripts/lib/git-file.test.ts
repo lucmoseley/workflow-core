@@ -116,11 +116,11 @@ describe("readRegistrationFault (#5209)", () => {
 		);
 	});
 
-	it("names a .git file gone or naming nothing", () => {
+	it("names a .git file naming nothing, and passes a directory with none", () => {
 		fs.writeFileSync(path.join(worktree, ".git"), "nonsense\n");
 		expect(readRegistrationFault(worktree)).toMatch(/names no registration$/);
 		fs.rmSync(path.join(worktree, ".git"));
-		expect(readRegistrationFault(worktree)).toBe(`${worktree} has no .git`);
+		expect(readRegistrationFault(worktree)).toBeNull();
 	});
 
 	it("names a .git file that will not read, never throwing", () => {
