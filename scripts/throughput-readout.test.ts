@@ -10,6 +10,9 @@
  * `gh` stubbed at WFC_GH, its python at WFC_PYTHON where a case feeds
  * dense_minute.py's output, and every seat, record and log pointed into that
  * directory, so nothing reaches the network or this machine's records.
+ *
+ * Its wall time tracks the machine's load, each case but one running
+ * dense_minute.py for real: 3.7 s at load 7.5, 11.0 s at load 18 (#5196).
  */
 
 import { spawnSync } from "node:child_process";
@@ -289,12 +292,54 @@ it("reads each minute's Bash round-trips and hook-timeout refusals off dense_min
 	expect(b.refusalsPerHour).toBeCloseTo(2 / WINDOW_HOURS);
 });
 
-it("names a minute log that will not read with the hours it lacks and still exits 0", () => {
+/* #5196: an unreadable log crashed the readout; the missing-log case below is
+ * its positive pair. */
+it("names a minute log that will not read with the hours it lacks and still exits 0 (#5196)", () => {
 	fs.mkdirSync(path.join(dir, "minute.jsonl"));
 	const r = run(["--since", SINCE, "--until", UNTIL]);
 	expect(r.status).toBe(0);
 	expect(r.stdout).toContain("Lacking — minute log: 48.0 h");
+	expect(r.stdout).toContain("the minute log would not read");
+	expect(r.stdout).not.toContain("Lacking — queue logs");
 });
+
+it.each([
+	[
+		"the queue-exit log",
+		path.join("markers", ".suite-queue-exits.jsonl"),
+		"queue logs",
+		"a log the queue replay reads would not read (EISDIR)",
+	],
+	[
+		"pick-next's dispatch log",
+		path.join("markers", ".pick-next", "dispatched.jsonl"),
+		"dispatch log",
+		"pick-next's dispatch log would not read",
+	],
+	[
+		"the refill tick record",
+		path.join("refill", "concurrency.jsonl"),
+		"binding limb",
+		"the refill tick record would not read",
+	],
+])(
+	"names %s that will not read with the hours it lacks and still exits 0 (#5196)",
+	(_, file, source, why) => {
+		writeMinuteLog();
+		const [root, ...rest] = file.split(path.sep);
+		fs.mkdirSync(
+			path.join(root === "markers" ? markersDir(dir) : refillDir(), ...rest),
+			{ recursive: true },
+		);
+		const r = run(["--since", SINCE, "--until", UNTIL, "--json"]);
+		expect(r.status).toBe(0);
+		expect(JSON.parse(r.stdout).lacking).toContainEqual({
+			source,
+			hours: WINDOW_HOURS,
+			why,
+		});
+	},
+);
 
 it("names a missing minute log with the hours it lacks and still exits 0", () => {
 	const r = run(["--since", SINCE, "--until", UNTIL]);

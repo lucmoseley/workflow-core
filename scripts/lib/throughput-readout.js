@@ -51,11 +51,13 @@ const LIMBS = /** @type {const} */ ([
  *   reason: string }} CloseRow
  * @typedef {{ date: string, state: "read" | "failed" | "truncated",
  *   why?: string }} DayRow one UTC day's close fetch
- * @typedef {{ repo: string, sha: string, t: number, subject: string,
- *   cites: number[], reverts: string | null,
+ * @typedef {{ repo: string, sha: string, t: number, seq: number,
+ *   subject: string, cites: number[], reverts: string | null,
  *   revertsSubject: string | null }} CommitRow `repo` the tracker whose
- *   issues its bare `#<n>` cites; `reverts` the sha a `git revert`'s body
- *   names, `revertsSubject` the subject its `Revert "<subject>"` names
+ *   issues its bare `#<n>` cites; `seq` its place in that repo's log in
+ *   topological order, oldest 0, so a parent sorts before its child whatever
+ *   the commit times; `reverts` the sha a `git revert`'s body names,
+ *   `revertsSubject` the subject its `Revert "<subject>"` names
  * @typedef {{ t: number, bash: number[], hto: number }} TranscriptMinute
  * @typedef {{ id: string, template: string | null, st: number,
  *   en: number }} JobRow
@@ -65,9 +67,10 @@ const LIMBS = /** @type {const} */ ([
  *   ticks: TickRow[] | null, closes: CloseRow[], days: DayRow[],
  *   commits: CommitRow[], logRepos: string[], queue: Span[] | null,
  *   transcripts: TranscriptMinute[] | null, jobs: JobRow[] | null,
- *   dispatched: string[] | null, transcriptsWhy?: string }} Records
- *   `logRepos` the trackers whose commit log was read; null where a source
- *   would not read, `transcriptsWhy` saying why dense_minute.py gave none
+ *   dispatched: string[] | null, queueWhy?: string,
+ *   transcriptsWhy?: string }} Records `logRepos` the trackers whose commit
+ *   log was read; null where a source would not read, `queueWhy` and
+ *   `transcriptsWhy` saying why the queue logs or dense_minute.py gave none
  */
 
 /**
@@ -168,9 +171,10 @@ function slopeOf(pts) {
 const isRevert = (c) => c.reverts !== null || c.revertsSubject !== null;
 
 /**
- * The sha a revert undoes: the one its body names, else the newest commit in
- * its repo with the subject it names that landed before it, so a re-land
- * keeping the subject is never read as the one undone.
+ * The sha a revert undoes: the one its body names, else the latest commit
+ * before it in its repo's log with the subject it names, so a re-land
+ * keeping the subject is never read as the one undone. Log order, not commit
+ * time: a rebase-merge stamps a whole branch with one time.
  * @param {CommitRow} c
  * @param {CommitRow[]} commits
  * @returns {string | null}
@@ -184,8 +188,8 @@ function revertTarget(c, commits) {
 			x.repo === c.repo &&
 			x.sha !== c.sha &&
 			x.subject === c.revertsSubject &&
-			x.t <= c.t &&
-			(!best || x.t > best.t)
+			x.seq < c.seq &&
+			(!best || x.seq > best.seq)
 		)
 			best = x;
 	return best?.sha ?? null;
@@ -222,7 +226,8 @@ function standing(commits) {
 /**
  * Each counted close, once per issue at its last close, with whether it was
  * reverted and the commits naming it. A close is reverted where a commit
- * naming its issue was undone and no standing commit naming it landed after.
+ * naming its issue was undone and no standing commit naming it comes after it
+ * in the log.
  * A revert's own commits are no work and count toward neither.
  * @param {Records} r
  */
@@ -249,10 +254,10 @@ function joinCloses(r) {
 	return [...last].map(([key, c]) => {
 		const named = naming.get(key) ?? [];
 		const undone = named.filter((x) => !stands(x.sha));
-		const lastUndone = Math.max(...undone.map((x) => x.t));
+		const lastUndone = Math.max(...undone.map((x) => x.seq));
 		const reverted =
 			undone.length > 0 &&
-			!named.some((x) => stands(x.sha) && x.t > lastUndone);
+			!named.some((x) => stands(x.sha) && x.seq > lastUndone);
 		return {
 			...c,
 			joined: logged.has(c.repo),
@@ -623,7 +628,7 @@ function lackingOf(r, minutes) {
 			: "the refill tick record would not read",
 	);
 	if (!r.queue)
-		lack("queue-exit log", coveredH, "the queue-exit log would not read");
+		lack("queue logs", coveredH, r.queueWhy ?? "the queue logs would not read");
 	if (!r.transcripts)
 		lack(
 			"transcripts",

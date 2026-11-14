@@ -520,15 +520,19 @@ function readTicks() {
 	return { ticks, unreadable };
 }
 
+/**
+ * The minute log's lines, null where it is missing or would not read.
+ * @param {string[]} [unreadable] accumulator, as readJsonLines takes it
+ */
+function readMinuteLines(unreadable = []) {
+	return /** @type {MinuteLine[]|null} */ (
+		readJsonLines(concurrencyFiles().minutes, unreadable)
+	);
+}
+
 function readRecords() {
 	const { ticks, unreadable } = readTicks();
-	return {
-		ticks,
-		minutes: /** @type {MinuteLine[]|null} */ (
-			readJsonLines(concurrencyFiles().minutes, unreadable)
-		),
-		unreadable,
-	};
+	return { ticks, minutes: readMinuteLines(unreadable), unreadable };
 }
 
 /**
@@ -588,6 +592,7 @@ module.exports = {
 	buildTickRecord,
 	concurrencyFiles,
 	readConcurrencyStatus,
+	readMinuteLines,
 	readRecords,
 	readout,
 	buildVerdict,

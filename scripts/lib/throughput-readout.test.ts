@@ -70,6 +70,7 @@ const commit = (
 	repo: REPO,
 	sha,
 	t: at,
+	seq: at,
 	subject: `Commit ${sha}`,
 	cites,
 	reverts,
@@ -77,7 +78,7 @@ const commit = (
 });
 
 /* A revert whose body line was edited out, naming its target by subject. */
-const subjectRevert = (sha: string, at: number, subject: string) => ({
+const buildSubjectRevert = (sha: string, at: number, subject: string) => ({
 	...commit(sha, at, []),
 	subject: `Revert "${subject}"`,
 	revertsSubject: subject,
@@ -197,17 +198,28 @@ describe("throughput readout", () => {
 		expect(three.commitsPerClose).toBeCloseTo((1 + 1 + 2 + 2) / 4);
 	});
 
-	it("ties a revert named by subject alone to the commit before it, never a re-land keeping the subject", () => {
-		const build = { ...commit("a", T0, [1]), subject: "Build it (#1)" };
+	it("ties a revert named by subject alone to the commit before it in the log, never a re-land keeping the subject (#5196)", () => {
+		/* One commit time for all, as a rebase-merge stamps a branch: only log
+		 * order tells them apart. #2's revert has no re-land, its positive pair. */
+		const at = (
+			sha: string,
+			seq: number,
+			subject: string,
+			cites: number[],
+		) => ({
+			...commit(sha, T0, cites),
+			seq,
+			subject,
+		});
 		const r = readout(
 			records({
 				closes: [close(1, T0 + 4 * HOUR), close(2, T0 + HOUR)],
 				commits: [
-					build,
-					subjectRevert("ra", T0 + HOUR, "Build it (#1)"),
-					{ ...build, sha: "a2", t: T0 + 2 * HOUR },
-					{ ...commit("b", T0, [2]), subject: "Other (#2)" },
-					subjectRevert("rb", T0 + 2 * HOUR, "Other (#2)"),
+					at("a", 0, "Build it (#1)", [1]),
+					{ ...buildSubjectRevert("ra", T0, "Build it (#1)"), seq: 1 },
+					at("a2", 2, "Build it (#1)", [1]),
+					at("b", 3, "Other (#2)", [2]),
+					{ ...buildSubjectRevert("rb", T0, "Other (#2)"), seq: 4 },
 				],
 			}),
 		);
@@ -344,7 +356,7 @@ describe("throughput readout", () => {
 		expect(three.dispatchedHours).toBe(4);
 	});
 
-	it("splits no session-hours where the dispatch log would not read, and names it", () => {
+	it("splits no session-hours where the dispatch log would not read, and names it (#5196)", () => {
 		const r = readout(
 			records({
 				jobs: [{ id: "x", template: "claude", st: T0, en: T0 + HOUR }],
@@ -435,7 +447,7 @@ describe("throughput readout", () => {
 		expect(three.handOpenedHours).toBe(null);
 		expect(r.lacking.map((x) => x.source)).toEqual([
 			"binding limb",
-			"queue-exit log",
+			"queue logs",
 			"transcripts",
 			"job records",
 		]);

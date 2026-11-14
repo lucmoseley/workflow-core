@@ -27,7 +27,8 @@ const { citedIssues } = require("./lib/cited-issues.js");
 const { flagValue, parseOrCode } = require("./lib/cli-args.js");
 const {
 	concurrencyFiles,
-	readRecords: readConcurrencyRecords,
+	readMinuteLines,
+	readTicks,
 	tickLimb,
 } = require("./lib/concurrency.js");
 const { gh, parseErrLine, SEARCH_CAP } = require("./lib/gh.js");
@@ -38,6 +39,7 @@ const {
 	jobStorePath,
 	readJobRecordAt,
 } = require("./lib/job-paths.js");
+const { caught } = require("./lib/caught.js");
 const { parseJsonl, readJsonl } = require("./lib/jsonl.js");
 const { pythonBin } = require("./lib/python-bin.js");
 const { queueExitLogPath } = require("./lib/queue-exit-log.js");
@@ -215,6 +217,7 @@ function readCommits(repo, dir, from) {
 		[
 			"log",
 			`--since=${new Date(from).toISOString()}`,
+			"--topo-order",
 			"--format=%x1e%H%x1f%cI%x1f%B",
 			branch,
 		],
@@ -224,13 +227,14 @@ function readCommits(repo, dir, from) {
 	return out
 		.split("\x1e")
 		.filter((x) => x.trim())
-		.map((x) => {
+		.map((x, i, all) => {
 			const [sha = "", at = "", message = ""] = x.split("\x1f");
 			const subject = message.split("\n", 1)[0] ?? "";
 			return {
 				repo,
 				sha: sha.trim(),
 				t: Date.parse(at),
+				seq: all.length - 1 - i,
 				subject,
 				cites: [...citedIssues(message)],
 				reverts: REVERTS.exec(message)?.[1] ?? null,
@@ -326,33 +330,33 @@ function readTranscripts(since, until) {
 
 /**
  * The minute log's load1 and session count per line, and the refill tick
- * record's rows, through concurrency.js's reader; each null where it is
+ * record's rows, through concurrency.js's readers; each null where it is
  * missing or would not read (the tick record, only where it would not read).
  */
 function readAdmissionRecords() {
-	const { ticks, minutes, unreadable } = readConcurrencyRecords();
-	const tickFile = concurrencyFiles().record;
+	const { ticks, unreadable } = readTicks();
 	return {
 		minutes:
-			minutes?.map((m) => ({
+			readMinuteLines()?.map((m) => ({
 				t: Date.parse(String(m.ts)),
 				load1: typeof m.load1 === "number" ? m.load1 : null,
 				sessions: typeof m.sessions === "number" ? m.sessions : null,
 			})) ?? null,
-		ticks: unreadable.some((u) => u.startsWith(tickFile))
-			? null
-			: ticks.map((t) => ({
-					t: Date.parse(t.at),
-					live: t.live ?? null,
-					limit: t.binding?.limit ?? null,
-					limb: tickLimb(t),
-				})),
+		ticks:
+			unreadable.length > 0
+				? null
+				: ticks.map((t) => ({
+						t: Date.parse(t.at),
+						live: t.live ?? null,
+						limit: t.binding?.limit ?? null,
+						limb: tickLimb(t),
+					})),
 	};
 }
 
 /**
- * The queue's wait spans over the window; null where the queue-exit log is
- * absent or a log it reads would not read.
+ * The queue's wait spans over the window; null, and why, where the
+ * queue-exit log is absent or a log the replay reads would not read.
  * @param {string} markers
  * @param {number} since
  * @param {number} until
@@ -367,13 +371,19 @@ function readQueue(markers, since, until) {
 			since,
 			until,
 		});
-	} catch {
-		/* The readout names the queue-exit log's hours as lacking. */
-		return null;
+	} catch (e) {
+		/* An errno failure is a log that would not read, named as lacking
+		 * (#5196); anything else is a fault and throws. */
+		const { code } = caught(e);
+		if (!code) throw e;
+		return {
+			spans: null,
+			why: `a log the queue replay reads would not read (${code})`,
+		};
 	}
 	if (logs.unread.absent.some((f) => f.endsWith(".suite-queue-exits.jsonl")))
-		return null;
-	return waitSpans(logs, { since, until });
+		return { spans: null, why: "the queue-exit log is absent" };
+	return { spans: waitSpans(logs, { since, until }), why: null };
 }
 
 /** @param {number | null} x @param {number} [dp] */
@@ -582,7 +592,7 @@ function readDispatched(markers) {
 	try {
 		read = readJsonl(path.join(markers, ".pick-next", "dispatched.jsonl"));
 	} catch {
-		/* The readout names the dispatch log's hours as lacking. */
+		/* The readout names the dispatch log's hours as lacking (#5196). */
 		return null;
 	}
 	return (read?.rows ?? []).flatMap((x) =>
@@ -606,6 +616,7 @@ function readRecords(o) {
 		logRepos.push(c.repo);
 	}
 	const transcripts = readTranscripts(o.since, o.until);
+	const queue = readQueue(o.markers, o.since, o.until);
 	/** @type {import("./lib/throughput-readout.js").Records} */
 	const records = {
 		since: o.since,
@@ -617,11 +628,12 @@ function readRecords(o) {
 		days: fetched.map((f) => f.day),
 		commits,
 		logRepos,
-		queue: readQueue(o.markers, o.since, o.until),
+		queue: queue.spans,
 		transcripts: transcripts.rows,
 		jobs: readJobs(o.seats, o.since),
 		dispatched: readDispatched(o.markers),
 	};
+	if (queue.why) records.queueWhy = queue.why;
 	if (transcripts.why)
 		records.transcriptsWhy = `dense_minute.py gave no per-minute output: ${transcripts.why}`;
 	return records;
