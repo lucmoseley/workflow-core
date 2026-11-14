@@ -206,19 +206,6 @@ if armed '^skills-lock\.json$'; then
     'node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-vendored-skills.js --covered "$sg_dir"' ""
 fi
 
-# The limit that actually binds the injected payload, which the context-budget
-# cap (the dispatcher's context-budget row) cannot read: it is PER COMMAND, and check-context-budget.js sums a union larger than
-# any real variant (mantahostels#1915). This composes each command's payload from the
-# STAGED text module and the rule fragments /code-review's rules read, and prints
-# every command's margin against the harness's 10,000-character persistence
-# threshold.
-#
-# IT PRINTS ON SUCCESS, unlike the context-budget row: crossing the threshold
-# raises no error anywhere.
-if armed '^(scripts/lib/tracker-inject-text\.js|docs/agents/rules/review-(dispatch-shape|deviations-read|finding-destination)\.txt)$'; then
-  node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-injector-margin.js --index || exit "$?"
-fi
-
 # check-superseded-values.js exits BROKEN — not WARN — when a §B entry carries a
 # `Supersedes` bullet with no key in docs/doc-map-superseded.json (mantahostels#861).
 #

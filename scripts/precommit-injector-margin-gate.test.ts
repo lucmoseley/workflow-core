@@ -1,33 +1,28 @@
 // @vitest-environment node
 /*
- * The pre-commit injector-margin gate and its checker (mantahostels#1915).
+ * The pre-commit injector-margin gate (mantahostels#1915), a pre-commit
+ * dispatcher row (#5194).
  *
- * `.husky/pre-commit` runs `check-injector-margin.js` only when the commit
- * stages `scripts/lib/tracker-inject-text.js` or a rule fragment /code-review's
- * rules read, and fails the commit when it exits non-zero. The gate's wiring
- * and scoping are tested here, stubbing the checker so every exit code can be
- * driven; the checker itself is check-injector-margin.test.ts's.
+ * The row runs `check-injector-margin.js --index` only when the commit stages
+ * `scripts/lib/tracker-inject-text.js` or a rule fragment /code-review's rules
+ * read, prints its output on a pass, and refuses the commit with the
+ * checker's own code. The row's arming and outcomes are tested here, the
+ * checker stubbed so every exit code can be driven; what the checker FINDS is
+ * check-injector-margin.test.ts's.
  *
- * It is a hard gate in `.husky/pre-commit`: loosen a case and a text module whose
- * payload crosses the threshold lands, and the tracker commands silently get a
- * ~2 KB preview of their rules instead of the rules.
+ * It is a hard gate: loosen a case and a text module whose payload crosses
+ * the threshold lands, and the tracker commands silently get a ~2 KB preview
+ * of their rules instead of the rules.
  */
 
-import { execFileSync } from "node:child_process";
 import { describe, expect, it } from "vitest";
-import {
-	armingPattern,
-	cutGateFragment,
-	expectFixtureSupplies,
-	gateHead,
-	registerTempCleanup,
-	stagedRepo,
-	type TempRepo,
-} from "./lib/precommit-gate-harness";
-import { coreCall, HOOK, LIB } from "./lib/precommit-gate-testkit";
+import { dispatch } from "./lib/precommit-dispatch.js";
+import { registerTempCleanup, stagedRepo } from "./lib/precommit-gate-harness";
+import { buildRepoPorts } from "./lib/precommit-gate-testkit";
 import { GATES } from "./lib/precommit-gates.js";
 
 const CHECKER = "scripts/check-injector-margin.js";
+const BUDGET = "scripts/check-context-budget.js";
 const { TRACKER_TEXT } =
 	require("./lib/load-text-module.js") as typeof import("./lib/load-text-module.js");
 const { MARGIN_INPUTS } =
@@ -35,77 +30,62 @@ const { MARGIN_INPUTS } =
 const REVIEW_RULES = MARGIN_INPUTS.filter((rel) =>
 	rel.startsWith("docs/agents/rules/"),
 );
-const BUDGET = "scripts/check-context-budget.js";
-
-const gateFragment = () => cutGateFragment(CHECKER);
 
 const temps = registerTempCleanup();
+
+const row = GATES.find((g) => g.script === CHECKER);
+if (!row || !("pattern" in row.arm))
+	throw new Error(`no pattern row for ${CHECKER} in lib/precommit-gates.js`);
+const ROW = row;
+const PATTERN = row.arm.pattern;
+type GateRow = typeof ROW;
 
 const STUB_MARKER = "STUB-TRACKER_TEXT-MARGIN-RAN";
 
 /**
- * A git repo with one commit, plus a stubbed checker whose exit code is ours to
- * choose. `staged` is written and staged; nothing else is.
+ * The dispatcher's exit and output for `rule` over a repo staging `staged`,
+ * its checker stubbed to print STUB_MARKER and exit `checkerExit`.
  */
-function fixture(opts: {
+async function runRow(opts: {
 	staged: Record<string, string>;
 	checkerExit: number;
-}): TempRepo {
-	return stagedRepo(
-		"injector-margin-gate-",
-		temps,
-		{
-			[CHECKER]: `process.stdout.write(${JSON.stringify(`${STUB_MARKER}\n`)});\nprocess.exit(${opts.checkerExit});\n`,
-		},
-		opts.staged,
-	);
+	rule?: GateRow;
+}): Promise<{ code: number; output: string }> {
+	const { root } = stagedRepo("injector-margin-gate-", temps, {}, opts.staged);
+	let output = "";
+	const code = await dispatch({
+		rows: [opts.rule ?? ROW],
+		gates: "all",
+		ports: buildRepoPorts(root, {
+			load: () => () => ({
+				exit: opts.checkerExit,
+				stdout: `${STUB_MARKER}\n`,
+				stderr: "",
+			}),
+			write: (_fd, text) => {
+				output += text;
+			},
+		}),
+	});
+	return { code, output };
 }
 
-function runGate(
-	cwd: string,
-	fragment: string = gateFragment(),
-): { code: number; output: string } {
-	try {
-		// A trailing no-op stands in for the rest of the hook, which really does
-		// continue past this gate. Without it the fragment's own exit status is the
-		// checker's, and `|| exit "$?"` could be deleted with every case still green.
-		const out = execFileSync("sh", ["-c", `${LIB}\n${fragment}\n:\n`], {
-			cwd,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "pipe"],
+describe("the pre-commit injector-margin row", () => {
+	it("is a gating checker row on the staged index, printing its pass", () => {
+		expect(ROW).toMatchObject({
+			id: "injector-margin",
+			lander: "batch",
+			policy: "gate",
+			kind: "checker",
+			args: ["--index"],
 		});
-		return { code: 0, output: out };
-	} catch (e) {
-		const err = e as { status?: number; stdout?: string; stderr?: string };
-		return {
-			code: err.status ?? 1,
-			output: `${err.stdout ?? ""}${err.stderr ?? ""}`,
-		};
-	}
-}
-
-describe("the pre-commit injector-margin gate", () => {
-	it("is wired into .husky/pre-commit", () => {
-		expect(HOOK).toContain(`${coreCall("node", CHECKER)} --index`);
+		expect("quietPass" in ROW).toBe(false);
 	});
 
-	it("supplies exactly the scripts the gate invokes", () => {
-		expectFixtureSupplies(CHECKER, [CHECKER]);
-	});
-
-	it("runs after the context-budget gate, which is the cheaper, broader one", () => {
-		// The budget is a dispatcher row, so the dispatcher's CALL line comes
-		// first — never a comment naming either checker.
-		const lines = HOOK.split("\n");
-		const callOf = (needle: string) =>
-			lines.findIndex(
-				(l) => l.includes(needle) && !l.trimStart().startsWith("#"),
-			);
-		expect(GATES.some((g) => g.script === BUDGET)).toBe(true);
-		expect(callOf("scripts/precommit-dispatch.js")).toBeGreaterThan(-1);
-		expect(callOf(CHECKER)).toBeGreaterThan(
-			callOf("scripts/precommit-dispatch.js"),
-		);
+	it("runs after the context-budget row, which is the cheaper, broader one", () => {
+		const at = (script: string) => GATES.findIndex((g) => g.script === script);
+		expect(at(BUDGET)).toBeGreaterThan(-1);
+		expect(at(CHECKER)).toBeGreaterThan(at(BUDGET));
 	});
 
 	it("arms on exactly the files the checker measures", () => {
@@ -113,61 +93,52 @@ describe("the pre-commit injector-margin gate", () => {
 		// a gate that silently never fires on it.
 		expect(MARGIN_INPUTS).toContain(TRACKER_TEXT);
 		expect(REVIEW_RULES).toHaveLength(3);
-		const pattern = new RegExp(armingPattern(CHECKER));
 		for (const rel of [TRACKER_TEXT, ...REVIEW_RULES])
-			expect(pattern.test(rel), rel).toBe(true);
+			expect(PATTERN.test(rel), rel).toBe(true);
 	});
 
-	it("runs the checker for a commit staging only a rule fragment it reads", () => {
-		const { root } = fixture({
+	it("runs the checker for a commit staging only a rule fragment it reads", async () => {
+		const { code, output } = await runRow({
 			staged: { [REVIEW_RULES[0] as string]: "x\n" },
 			checkerExit: 0,
 		});
-
-		const { code, output } = runGate(root);
 		expect(code).toBe(0);
 		expect(output).toContain(STUB_MARKER);
 	});
 
-	it("runs the checker for a commit staging the injector", () => {
-		const { root } = fixture({
+	it("runs the checker for a commit staging the injector", async () => {
+		const { code, output } = await runRow({
 			staged: { [TRACKER_TEXT]: "x\n" },
 			checkerExit: 0,
 		});
-
-		const { code, output } = runGate(root);
 		expect(code).toBe(0);
 		expect(output).toContain(STUB_MARKER);
 	});
 
-	it("fails the commit when a payload is over the threshold", () => {
-		const { root } = fixture({
+	it("fails the commit when a payload is over the threshold", async () => {
+		const { code, output } = await runRow({
 			staged: { [TRACKER_TEXT]: "x\n" },
 			checkerExit: 1,
 		});
-
-		const { code, output } = runGate(root);
-		expect(code).not.toBe(0);
+		expect(code).toBe(1);
 		expect(output).toContain(STUB_MARKER);
 	});
 
 	// BROKEN (exit 2) is the checker unable to do its job — an unreadable blob or
 	// a module that will not evaluate — and must block the commit just as an
 	// over-threshold payload does, rather than passing vacuously.
-	it("fails the commit when the checker reports BROKEN", () => {
-		const { root } = fixture({
+	it("fails the commit when the checker reports BROKEN", async () => {
+		const { code, output } = await runRow({
 			staged: { [TRACKER_TEXT]: "x\n" },
 			checkerExit: 2,
 		});
-
-		const { code, output } = runGate(root);
-		expect(code).not.toBe(0);
+		expect(code).toBe(2);
 		expect(output).toContain(STUB_MARKER);
 	});
 
-	it("does not run the checker for a commit that leaves the text module alone", () => {
-		const { root } = fixture({
-			// Exit 1, so a gate that wrongly ran it fails loudly.
+	it("does not run the checker for a commit that leaves the text module alone", async () => {
+		const { code, output } = await runRow({
+			// Exit 1, so a row that wrongly ran it fails loudly.
 			staged: {
 				"docs/agents/issue-tracker.md": "x\n",
 				"docs/agents/rules/review-standards-axis.txt": "x\n",
@@ -175,87 +146,75 @@ describe("the pre-commit injector-margin gate", () => {
 			},
 			checkerExit: 1,
 		});
-
-		const { code, output } = runGate(root);
 		expect(code).toBe(0);
 		expect(output).not.toContain(STUB_MARKER);
 	});
 
 	// The pattern is anchored at both ends, so a path merely containing the
 	// module's name is not the module.
-	it("does not fire on a path that only resembles the text module", () => {
-		const { root } = fixture({
+	it("does not fire on a path that only resembles the text module", async () => {
+		const { code } = await runRow({
 			staged: {
 				[`vendor/${TRACKER_TEXT}`]: "x\n",
 				[`${TRACKER_TEXT}.bak`]: "x\n",
 			},
 			checkerExit: 1,
 		});
-
-		expect(runGate(root).code).toBe(0);
+		expect(code).toBe(0);
 	});
 });
 
-describe("mutations of the gate are caught by the cases above", () => {
+describe("mutations of the row are caught by the cases above", () => {
 	/*
-	 * Each mutation is applied to the fragment IN MEMORY — the live
-	 * `.husky/pre-commit` is read by every session in this tree and by every
-	 * worktree (mantahostels#344) — and asserts the mutation actually changed the text, since
-	 * a `.replace()` matching nothing would silently re-test the real gate and
+	 * Each mutation is applied to a copy of the row, never the registry every
+	 * other test reads, and asserts the mutation actually changed it, since a
+	 * `.replace()` matching nothing would silently re-test the real row and
 	 * pass vacuously.
 	 */
-	const mutate = (find: string | RegExp, replace: string): string => {
-		const mutant = gateFragment().replace(find, replace);
-		expect(mutant, `mutation '${find}' did not apply`).not.toBe(gateFragment());
-		return mutant;
+	const withPattern = (find: string | RegExp, replace: string): GateRow => {
+		const source = PATTERN.source.replace(find, replace);
+		expect(source, `mutation '${find}' did not apply`).not.toBe(PATTERN.source);
+		return { ...ROW, arm: { pattern: new RegExp(source) } };
 	};
 
-	it('stops failing the commit when `|| exit "$?"` is dropped', () => {
-		const { root } = fixture({
+	it("stops failing the commit when the row only warns", async () => {
+		const { code } = await runRow({
 			staged: { [TRACKER_TEXT]: "x\n" },
 			checkerExit: 1,
+			rule: { ...ROW, policy: "warn" },
 		});
-
-		expect(runGate(root, mutate(' || exit "$?"', "")).code).toBe(0);
+		expect(code).toBe(0);
 	});
 
-	it("runs the checker out of scope when the path filter is dropped", () => {
-		const { root } = fixture({
+	it("runs the checker out of scope when the path filter is dropped", async () => {
+		const { code, output } = await runRow({
 			staged: { "app/page.tsx": "x\n" },
 			checkerExit: 1,
+			rule: { ...ROW, arm: { always: true } },
 		});
-
-		const mutant = mutate(gateHead(CHECKER), "if true; then\n");
-		const { code, output } = runGate(root, mutant);
 		expect(code).not.toBe(0);
 		expect(output).toContain(STUB_MARKER);
 	});
 
-	it("fires on a look-alike path when the pattern loses its leading anchor", () => {
-		const { root } = fixture({
+	it("fires on a look-alike path when the pattern loses its leading anchor", async () => {
+		const { code, output } = await runRow({
 			staged: { [`vendor/${TRACKER_TEXT}`]: "x\n" },
 			checkerExit: 1,
+			rule: withPattern(/^\^/, ""),
 		});
-
-		const { code, output } = runGate(
-			root,
-			mutate(armingPattern(CHECKER), armingPattern(CHECKER).replace(/^\^/, "")),
-		);
 		expect(code).not.toBe(0);
 		expect(output).toContain(STUB_MARKER);
 	});
 
-	it("stops firing at all when the grep names another file", () => {
-		const { root } = fixture({
+	it("stops firing at all when the pattern names another file", async () => {
+		const { code } = await runRow({
 			staged: { [TRACKER_TEXT]: "x\n" },
 			checkerExit: 1,
+			rule: withPattern(
+				"tracker-inject-text\\.js",
+				"check-context-budget\\.js",
+			),
 		});
-
-		expect(
-			runGate(
-				root,
-				mutate("tracker-inject-text\\.js", "check-context-budget\\.js"),
-			).code,
-		).toBe(0);
+		expect(code).toBe(0);
 	});
 });

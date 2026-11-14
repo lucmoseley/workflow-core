@@ -971,6 +971,29 @@ const GATES = [
 		kind: "checker",
 		quietPass: true,
 	},
+	/*
+	 * The limit that binds the injected payload, which the context-budget row
+	 * cannot read: it is per command, and check-context-budget.js sums a union
+	 * larger than any real variant (mantahostels#1915). --index composes each
+	 * command's payload from the staged text module and the rule fragments
+	 * /code-review's rules read, against the harness's 10,000-character
+	 * persistence threshold.
+	 *
+	 * It prints on a pass, unlike the context-budget row: crossing the
+	 * threshold raises no error anywhere else.
+	 */
+	{
+		id: "injector-margin",
+		script: "scripts/check-injector-margin.js",
+		lander: "batch",
+		args: ["--index"],
+		arm: {
+			pattern:
+				/^(scripts\/lib\/tracker-inject-text\.js|docs\/agents\/rules\/review-(dispatch-shape|deviations-read|finding-destination)\.txt)$/,
+		},
+		policy: "gate",
+		kind: "checker",
+	},
 ];
 
 /**
