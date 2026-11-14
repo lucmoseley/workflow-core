@@ -118,7 +118,7 @@ const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { caught } = require("./lib/caught.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
-const { commitRoute, replaysCommits } = require("./lib/commit-route.js");
+const { commitRoute, isReplayRoute } = require("./lib/commit-route.js");
 const { readText } = require("./lib/file-read.js");
 const { compareVersions } = require("./lib/compare-versions.js");
 const { shellQuote } = require("./lib/sh-quote.js");
@@ -291,12 +291,14 @@ function orFault(fault, read) {
 const gitOr = (args, fault) => orFault(fault, () => git(args));
 
 /**
- * Whether the commit route is a replay or a merge.
+ * Whether the commit route is a replay or a merge. No orFault: commitRoute
+ * reads an unreadable marker as none and cannot throw at pre-commit (#5201);
+ * a throw anyway reaches faultOf as the generic fault, still failing open.
  * @param {string} gitDir
  */
 const isSkippedRoute = (gitDir) => {
 	const route = commitRoute("pre-commit", gitDir);
-	return replaysCommits(route) || route === "merge";
+	return isReplayRoute(route) || route === "merge";
 };
 
 /**

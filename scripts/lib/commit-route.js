@@ -120,6 +120,6 @@ const REPLAY_ROUTES = new Set(["rebase", "rebase-apply", "am", "cherry-pick"]);
  * commit-route.sh's wfc_commit_route_replays.
  * @param {string} route
  */
-const replaysCommits = (route) => REPLAY_ROUTES.has(route);
+const isReplayRoute = (route) => REPLAY_ROUTES.has(route);
 
-module.exports = { commitRoute, replaysCommits };
+module.exports = { commitRoute, isReplayRoute };
