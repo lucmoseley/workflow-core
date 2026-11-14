@@ -447,8 +447,6 @@ def stub_root(tmp_path, name, hooks):
     return str(root)
 
 
-# Writes a stray stamp in the git dir and an untracked file in the tree, as the
-# real hooks' stamps and reports do.
 STRAY = 'touch "$(git rev-parse --git-dir)/wfc-precommit-stamp" stray.txt'
 
 

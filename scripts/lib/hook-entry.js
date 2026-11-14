@@ -33,8 +33,7 @@ function catchSignals() {
 }
 
 /**
- * The hook's absolute git directory, "" where git will not name one: the
- * empty directory lib/commit-route.js reads as no marker at all.
+ * The hook's absolute git directory, "" where git will not name one.
  * @param {string} cwd
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {string}
@@ -51,7 +50,7 @@ function readHookGitDir(cwd, env = process.env) {
 
 /* The variables git exports into a hook that redirect a read: GIT_INDEX_FILE
  * — a RELATIVE `.git/index` — into every hook, GIT_DIR into a commit's in a
- * linked worktree, and GIT_WORK_TREE, the third of the class. A git call made
+ * linked worktree, and GIT_WORK_TREE. A git call made
  * from a cwd of its own under them reads the wrong index or the hook's gitdir. */
 const GIT_REDIRECTS = ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE"];
 
@@ -68,8 +67,7 @@ function scrubbedGitEnv(env) {
 
 /**
  * Runs an entry's `main` and exits with the code it settles on. Where it
- * throws, prints one line naming the hook and the fault's first line, and
- * exits `exit`.
+ * throws, prints one line naming the hook and the fault's first line.
  * @param {() => Promise<number>} main
  * @param {{ hook: string, said: "threw" | "did not run", exit: number }} crash
  *   `said`, what the line says the dispatcher did; `exit`, the crash's code

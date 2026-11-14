@@ -141,8 +141,7 @@ const {
  * off it. `oracle-cache.js` is single-flight, not a plain cache (mantahostels#1960), so a
  * second reader here would pay a second ~465 ms spawn rather than a hit.
  * `wait` alone replaces it, every 30 s off the shared reading (#3561), its
- * command outliving any one read; and `runCli` drops it at each run's start,
- * where one process runs several (#5208).
+ * command outliving any one read; and `runCli` drops it at each run's start.
  */
 /** @type {ReturnType<typeof listedSessionIds>|undefined} */
 let listedMemo;
@@ -158,7 +157,6 @@ function relistSessions(read) {
 	listedMemo = read();
 	return listedMemo;
 }
-/** Drops the memo, so the next `listedOnce` reads the oracle afresh. */
 function forgetListed() {
 	listedMemo = undefined;
 }
@@ -2742,14 +2740,12 @@ function passThrough(argv, sessionId) {
 }
 
 /**
- * The CLI's run up to its exit code. A throw fails open (mantahostels#103 §6),
- * logged and exiting 0.
+ * The CLI's run up to its exit code.
  * @param {string[]} argv
  * @returns {number|Promise<number>}
  */
 function runCli(argv) {
-	/* A fresh oracle read per run, as a fresh process has: the dispatcher
-	 * runs several in one process (#5208). */
+	/* The dispatcher runs several in one process (#5208). */
 	forgetListed();
 	try {
 		return main(argv);
@@ -2764,8 +2760,7 @@ function runCli(argv) {
  * A subcommand as the post-commit dispatcher runs it in its own process
  * (#5208): `node session-arbiter.js <args>`'s exit code and output, under
  * `cwd` and `env` — the session id and CLAUDE_PROJECT_DIR among it — which its
- * git children inherit. `wait`, the one subcommand outliving its tick, keeps
- * its process.
+ * git children inherit.
  * @param {{ cwd: string, env: NodeJS.ProcessEnv, args: string[] }} io
  */
 const PROGRAM = (io) => {

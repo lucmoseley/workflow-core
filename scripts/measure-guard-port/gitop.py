@@ -3,16 +3,14 @@ hook set (#5207): a throwaway repo per side whose hooks are that side's
 `.husky`, one timed operation per call, and an untimed reset back to the same
 state after it.
 
-Git reaches a `.husky` hook only through husky's dispatch directory: its
-`pre-commit`, `commit-msg`, `prepare-commit-msg` and `pre-merge-commit` are not
-executable, so `core.hooksPath` names a per-side copy of husky's `_/` whose
-shim runs `sh -e <side>/.husky/<hook>`, as the host's own `.husky/_` does.
+Git reaches a `.husky` hook only through husky's dispatch directory: some hooks
+are not executable, so `core.hooksPath` names a per-side copy of husky's `_/`
+whose shim runs `sh -e <side>/.husky/<hook>`, as the host's own `.husky/_` does.
 
-The fixture is built with its hooks off, on `main` in a main work tree (the
-pre-commit branch pin's case), with a repo-local identity, and carries no
-`.claude/workflow-core.json`, so the adopter's declared commands, identical on
-both sides, stay out of the read. Every git command the bench itself runs, the
-reset included, runs with hooks off.
+The fixture is built on `main` in a main work tree, with a repo-local identity,
+and carries no `.claude/workflow-core.json`, so the adopter's declared commands,
+identical on both sides, stay out of the read. Every git command the bench
+itself runs, the reset included, runs with hooks off.
 """
 
 from __future__ import annotations
@@ -36,7 +34,7 @@ IDENTITY = {
     "GIT_COMMITTER_NAME": "bench",
     "GIT_COMMITTER_EMAIL": "bench@example.invalid",
 }
-# Gitleaks' github-pat rule refuses it; nothing accepts it (#5207).
+# Gitleaks' github-pat rule refuses it (#5207).
 # Joined at run time, so this file carries no token for the scan to find.
 FAKE_SECRET = "ghp" + "_Z7VdR3InO7QbjVXdxBpX3E07M9bf82SZZ1iQ"
 # Reported beside the gated shapes, never gated (#5207 §Latency gate).
@@ -97,7 +95,7 @@ def call_env(side_root: str, repo: str) -> dict:
 
 def husky_template(side_root: str) -> str:
     """husky's `h` shim as installed: the side's, else the bench's own
-    checkout's, the same package version either way in practice."""
+    checkout's."""
     for root in (Path(side_root), Path(host_root())):
         shim = root / "node_modules" / "husky" / "husky"
         if shim.is_file():

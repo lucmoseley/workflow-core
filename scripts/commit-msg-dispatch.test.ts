@@ -3,10 +3,7 @@
  * scripts/commit-msg-dispatch.js and lib/commit-msg-rows.js (#5208, spec
  * #5207): the registry's order and route gating, and the boundary set through
  * the real .husky/commit-msg as git fires it — a pass, a refusal ending the
- * run at the first red, and a dispatcher that is missing. The replay
- * stand-down with `.local` still running, `$route` naming the replay, is
- * commit-msg-local-gate.test.ts's; each check's own verdicts are its own
- * file's and lib/commit-msg-checks.contract.test.ts's.
+ * run at the first red, and a dispatcher that is missing.
  *
  * Breaking it costs all three message checks at once: the hook's one line
  * runs them all.
@@ -60,7 +57,7 @@ const commit = (message: string) => {
 const head = () => git(["rev-parse", "-q", "--verify", "HEAD"]).out.trim();
 
 describe("the registry", () => {
-	it("gates on all three checks in the hook's order, the scan and the subject standing down on a replay and the Weakens: check on a merge too", () => {
+	it("gates on all three checks in the hook's order", () => {
 		expect(
 			ROWS.map((r) => [r.id, r.policy, r.when?.unlessRoutes ?? null]),
 		).toEqual([
@@ -72,7 +69,7 @@ describe("the registry", () => {
 });
 
 describe("the real hook", () => {
-	it("lands a clean message, printing the Weakens: check's pass line alone", () => {
+	it("lands a clean message", () => {
 		const r = commit("Add a line");
 		expect(r).toEqual({ status: 0, out: "OK: no weakened check staged.\n" });
 	});

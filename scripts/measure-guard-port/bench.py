@@ -37,11 +37,8 @@ before/after read across commits; each defaults to the host root.
 `--git` times a git operation in place of a hook set (#5207): `commit` (a `-m`
 commit), `merge` (a `--no-ff` merge commit), `cherry-pick`, `rebase` (one
 commit) and `am` (one patch) are gated; `am-refused`, a patch gitleaks refuses,
-is read the same way but marked `"gated": false`. Each side runs in its own
-throwaway repo under `.claude/tmp/` whose hooks are its root's `.husky`, run
-through husky's dispatch shim as git runs them, with
-`WFC_PLUGIN_ROOT` at that root and no session id; an untimed reset to the same
-state follows every call (scripts/measure-guard-port/gitop.py). A pair whose
+is read the same way but marked `"gated": false`. Each side runs as
+scripts/measure-guard-port/gitop.py describes. A pair whose
 exit codes differ is REFUSED. After the pairs, 15 more calls a side through
 wrapper hooks give each hook's median CPU, `hook_cpu_ms`, beside the ratios.
 

@@ -27,8 +27,7 @@ const { recordedLines } = require("./commit-message.js");
 const { readText } = require("./file-read.js");
 const { readRuleTextOr } = require("./rule-text.js");
 
-/* GitHub cuts a subject at 72, and gitlint caps there by default
- * (docs/practice/ci-and-repo-quality-gates.md). */
+/* Why 72: docs/practice/ci-and-repo-quality-gates.md. */
 const LIMIT = 72;
 
 const MERGE_FORMS = [
@@ -65,7 +64,6 @@ function generated(subject) {
 const SPACE = " \t\n\v\f\r";
 
 /**
- * `line` less its trailing SPACE run.
  * @param {string} line
  */
 function trimSpace(line) {
@@ -88,8 +86,7 @@ const unmeasured = (context, why) => ({
 });
 
 /**
- * The subject check over `<message-file> [<context>]`, `<context>` naming the
- * seam for the refusal text.
+ * The subject check over `<message-file> [<context>]`.
  * @param {string[]} argv
  * @returns {{ code: 0 | 1, stderr: string }}
  */

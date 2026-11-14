@@ -7,7 +7,8 @@
  * THE EXIT CONTRACT. Rows run in order, and the first gating red ends the
  * run with that row's code: 1 for FAIL, 2 for BROKEN, a program's own code.
  * 0 means every armed row passed, skipped or only warned; 1 where git will
- * not name the staged paths. Each row's stdout and stderr reach fds 1 and 2
+ * not name the staged paths, or a row arms on a path and the hook passes no
+ * path port. Each row's stdout and stderr reach fds 1 and 2
  * when it finishes, before the next starts — except a `quietPass` row's pass
  * with no WARN in it, whose output is dropped.
  *
@@ -18,14 +19,11 @@
  * one line naming it and the run goes on.
  *
  * ARMING. A row arms `always`, on a pattern any staged path matches, or on
- * a list a port computes, any member of which is staged. Its `when`, where
- * set, narrows that further to the commit routes and hook facts it names; a
- * route that will not read arms no row whose `when` names routes. The staged
- * paths are read only where some row arms on a path, so a hook whose rows
- * all arm `always` passes no `staged`, `computed` or `exists` port. A row
- * arming on a path in a run with no `staged` port refuses as git not naming
- * the staged paths does, and one arming on a list with no `computed` port is
- * BROKEN as a list that will not compute is.
+ * a list a port computes, any member of which is staged. A route that will
+ * not read arms no row whose `when` names routes. The staged paths are read
+ * only where some row arms on a path, so a hook whose rows all arm `always`
+ * passes no `staged`, `computed` or `exists` port; a run missing any of the
+ * three where a row arms on a path refuses, exit 1.
  *
  * A SIGNAL (#5188). A row runs to its end, so its own cleanup runs; the
  * `interrupted` port is asked before each row, after a gating red and after
@@ -72,7 +70,6 @@ const { armed } = require("./precommit-arm.js");
  */
 
 /**
- * The throw a read makes where the run has no port to answer it.
  * @param {string} name the port
  * @returns {never}
  */
@@ -84,8 +81,7 @@ function missingPort(name) {
 const PATH_PORTS = /** @type {const} */ (["staged", "computed", "exists"]);
 
 /**
- * A path port, present once readStagedOrRefuse has passed: it refuses a run
- * missing any of PATH_PORTS before a path-armed row is weighed.
+ * A path port, present once readStagedOrRefuse has passed.
  * @template {Function} F
  * @param {F | undefined} port
  * @returns {F}
@@ -176,9 +172,7 @@ const crashLine = (voice, row, at, e) =>
 	`${voice.hook}: the ${row.id} ${voice.noun} ${at === "load" ? "could not load" : "threw"}: ${caught(e).message}\n`;
 
 /**
- * The hook's exit code for this commit's armed rows. The staged paths are
- * read before any row runs where some row in `gates` arms on a path, and
- * never otherwise.
+ * The hook's exit code for this commit's armed rows.
  *
  * @template {Row} R
  * @param {{ rows: R[], gates: GateSet, ports: Ports<R>, voice?: Voice }} input

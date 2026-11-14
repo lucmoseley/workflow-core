@@ -2,13 +2,11 @@
  * process-globals.js — a program's process-wide output and environment, swapped
  * so it can run inside another process (#5208): its fd 1 and fd 2 writes
  * handed to a taker rather than printed, and process.env replaced in place.
- * lib/program-scope.js runs a hook's programs in the post-commit dispatcher
- * on it, and lib/run-in-process.js a test's.
  *
  * THE TWO ROUTES this repo writes by are both taken: `fs.writeSync` on fd 1
  * and fd 2, which lib/write-fd.js writes through, and
  * `process.stdout.write` / `process.stderr.write`, which console goes
- * through. Every other fd writes as it would. A `fs.writeSync` is taken as
+ * through. A `fs.writeSync` is taken as
  * the text its data decodes to, whole.
  */
 
@@ -21,8 +19,7 @@ const fs = require("node:fs");
 const toText = (chunk, enc) =>
 	typeof chunk === "string"
 		? chunk
-		: // `any`: Buffer.from has no overload taking `unknown`, and a stream
-			// hands its write whatever the script passed.
+		: // `any`: Buffer.from has no overload taking `unknown`.
 			Buffer.from(/** @type {any} */ (chunk)).toString(
 				typeof enc === "string" && Buffer.isEncoding(enc)
 					? /** @type {BufferEncoding} */ (enc)
@@ -30,9 +27,8 @@ const toText = (chunk, enc) =>
 			);
 
 /**
- * Replaces process.env in place. Mutation, not reassignment: a plain object
- * assigned over process.env stops child processes inheriting it natively,
- * and the programs run under it spawn git constantly.
+ * Replaces process.env in place: a plain object assigned over process.env
+ * stops child processes inheriting it natively.
  *
  * @param {Record<string, string | undefined>} env
  */

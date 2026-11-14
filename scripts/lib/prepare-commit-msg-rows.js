@@ -3,7 +3,7 @@
  * each, run in order by scripts/prepare-commit-msg-dispatch.js through
  * lib/precommit-dispatch.js (#5207). Every row gates: its red refuses the
  * commit with its own code, and prints its own epilogue after what the step
- * said, so a refusal's reason follows the step's own output.
+ * said.
  *
  * THE CLOSING-KEYWORD SCAN (#138) reads the finished message file, so it sees
  * `-F <file>`, a `-c`/`-C` reuse and the founder's own terminal, which the
@@ -12,10 +12,9 @@
  * hands it an empty file — which is what `.husky/commit-msg` exists for.
  * It stands down on a replay, where a rebase or cherry-pick replaying a
  * pre-#129 commit carries a keyword nobody is writing now and refusing would
- * strand the sequence; a `git revert` is no replay, and the scanner drops its
- * `Revert "…"` subject instead. With no message file given — the direct
- * `sh -e .husky/prepare-commit-msg` a test or a person makes — there is no
- * message to judge, and it skips rather than refusing.
+ * strand the sequence; a `git revert` is no replay. With no message file
+ * given — the direct `sh -e .husky/prepare-commit-msg` a test or a person
+ * makes — it skips rather than refusing.
  *
  * THEN ONE OF THREE PATHS, by the entry's facts:
  *   - a pre-commit stamp matching the index (`stamped`): `pre-commit` already
@@ -33,9 +32,7 @@
  *     can strand on an intermediate state as a rebase would (#1503).
  *
  * The trailer row (#3664) writes the hold's `Review-Tier:` trailer and
- * refuses a tree that moved after the hold passed (#3905). Its arming is
- * the entry's `trailer` fact: due on each path above that passed, and
- * skipped where it would write and strip nothing (#5153).
+ * refuses a tree that moved after the hold passed (#3905).
  *
  * A step whose script is missing: the scanner refuses (#138); the hold and
  * the trailer say so, log it for check-guard-errors.js and pass (#4051).
@@ -100,8 +97,7 @@ function readable(file) {
 }
 
 /**
- * The program `file` exports, `file` being under the context's root:
- * WFC_PLUGIN_ROOT, else the tree holding the hook's directory.
+ * The program `file` exports, `file` being under the context's root.
  * @param {string} file
  * @returns {{ PROGRAM?: Function, main?: Function }}
  */
@@ -233,8 +229,8 @@ function inlinePreCommit(ctx) {
 	if (r.error) throw r.error;
 	const status = shellStatus(r);
 	if (status === 0) return PASS;
-	/* A refusal here can strand a sequence. A merge and a multi-commit revert
-	 * are readable; a clean single revert is not (mantahostels#1706). */
+	/* A merge and a multi-commit revert are readable; a clean single revert is
+	 * not (mantahostels#1706). */
 	return {
 		exit: status,
 		stdout: "",
@@ -265,9 +261,7 @@ function trailer(ctx) {
 /**
  * Whether the trailer would write and strip nothing: no message, or no stamp
  * of this session's in the git directory and no `Review-Tier:` line in the
- * message, so its run is skipped (#5153). The stamp's name is
- * lib/review-tier-stamp.js's, the line's spelling the trailer's own KEY; an
- * unreadable message runs the trailer.
+ * message, so its run is skipped (#5153).
  * @param {PrepareCommitMsgContext} ctx
  */
 function trailerIdle(ctx) {
@@ -285,10 +279,6 @@ function trailerIdle(ctx) {
 }
 
 /**
- * Whether the trailer row runs, once the rows before it passed: due on the
- * stamped path, on the inline pre-commit's, and on a cherry-pick whose hold
- * script is there to run; then wherever its script is missing, to say so, or
- * it would not be idle.
  * @param {PrepareCommitMsgContext} ctx
  * @param {{ stamped: boolean, replay: boolean }} path
  */

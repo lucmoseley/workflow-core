@@ -46,7 +46,7 @@ function runPostCommit(
 	});
 }
 
-/** @returns {Promise<number>} 0, whatever the rows did */
+/** @returns {Promise<number>} */
 async function main() {
 	const { writeFd } = require("./lib/write-fd.js");
 	const { catchSignals } = require("./lib/hook-entry.js");

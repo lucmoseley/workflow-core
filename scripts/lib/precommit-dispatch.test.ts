@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * The pre-commit dispatcher's core (#5172), seam 1 of #5171: arming, order,
+ * The git-hook dispatcher's core (#5172), seam 1 of #5171: arming, order,
  * stop-on-first-red, the exit alphabet, the warn policy, crash and load-fault
  * refusal, a caught signal's stop (#5188), and the lander sets, over stub
  * rows and the staged entries real git reads in the test's temp directory.
@@ -14,7 +14,12 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { defineTemplate, mkScratchDir } from "./git-fixture";
-import { dispatch, gateSetOf, STOPPED_LINE } from "./precommit-dispatch.js";
+import {
+	dispatch,
+	gateSetOf,
+	type Ports,
+	STOPPED_LINE,
+} from "./precommit-dispatch.js";
 import { readStaged } from "./precommit-dispatch-ports.js";
 import { buildRepoPorts } from "./precommit-gate-testkit";
 
@@ -432,8 +437,7 @@ describe("a staged list git will not name", () => {
 });
 
 /*
- * A hook other than pre-commit (#5207): rows narrowed to commit routes and
- * hook facts, and a staged list read only where some row arms on a path.
+ * A hook other than pre-commit (#5207).
  */
 describe("the staged port, read only where a row arms on a path", () => {
 	it("never reads it where every row arms always", async () => {
@@ -449,8 +453,10 @@ describe("the staged port, read only where a row arms on a path", () => {
 		expect(r.stagedReads).toBe(1);
 	});
 
-	/** The core under a hook that passes none of the three path ports. */
-	async function pathless(rows: StubRow[]) {
+	async function postCommit(
+		rows: StubRow[],
+		paths: Partial<Pick<Ports<StubRow>, "staged" | "computed" | "exists">> = {},
+	) {
 		const ran: string[] = [];
 		let err = "";
 		const exit = await dispatch({
@@ -458,6 +464,7 @@ describe("the staged port, read only where a row arms on a path", () => {
 			gates: "all",
 			voice: { hook: "post-commit", noun: "step" },
 			ports: {
+				...paths,
 				load: (r: StubRow) => () => {
 					ran.push(r.id);
 					return { exit: 0, stdout: "", stderr: "" };
@@ -472,7 +479,7 @@ describe("the staged port, read only where a row arms on a path", () => {
 	}
 
 	it("runs every always row where the hook passes no path port", async () => {
-		expect(await pathless([row("a"), row("b")])).toEqual({
+		expect(await postCommit([row("a"), row("b")])).toEqual({
 			exit: 0,
 			ran: ["a", "b"],
 			err: "",
@@ -481,11 +488,24 @@ describe("the staged port, read only where a row arms on a path", () => {
 
 	it("refuses with exit 1, running no row, where a row arms on a path and the hook passes no staged port", async () => {
 		expect(
-			await pathless([row("a"), row("docs", { arm: { pattern: /^d/ } })]),
+			await postCommit([row("a"), row("docs", { arm: { pattern: /^d/ } })]),
 		).toEqual({
 			exit: 1,
 			ran: [],
 			err: "post-commit: a row arms on a path, and this hook passes no staged port\n",
+		});
+	});
+
+	it("refuses with exit 1, running no row, where a row arms on a path and the hook passes no computed port", async () => {
+		expect(
+			await postCommit([row("a"), row("docs", { arm: { pattern: /^d/ } })], {
+				staged: () => [],
+				exists: () => true,
+			}),
+		).toEqual({
+			exit: 1,
+			ran: [],
+			err: "post-commit: a row arms on a path, and this hook passes no computed port\n",
 		});
 	});
 });

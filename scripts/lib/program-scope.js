@@ -17,12 +17,10 @@
  *           takeWrites. Every other fd writes as it would.
  *
  * NOT REPRODUCED: a `process.exit` inside the body ends this process, and a
- * grandchild spawned with `stdio: "inherit"` writes to the real fd. The
- * programs run here return their exit code and spawn neither way.
+ * grandchild spawned with `stdio: "inherit"` writes to the real fd.
  *
  * One body at a time: the swap is global to the process, so two overlapping
- * bodies would restore each other's state. The dispatcher runs its rows in
- * sequence.
+ * bodies would restore each other's state.
  */
 
 const { replaceEnv, takeWrites } = require("./process-globals.js");
@@ -33,7 +31,6 @@ const { replaceEnv, takeWrites } = require("./process-globals.js");
  */
 
 /**
- * Enter `io`, returning the restore.
  * @param {ProcessIo} io
  */
 function enter({ cwd, env }) {
@@ -75,8 +72,6 @@ function inProgramScope(io, body) {
 }
 
 /**
- * Run `body`, an exit code's producer, with its fd 1 and fd 2 writes
- * captured.
  * @param {() => number} body
  * @returns {ProgramResult}
  */

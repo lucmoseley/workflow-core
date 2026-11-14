@@ -1,13 +1,7 @@
 // @vitest-environment node
 /*
  * scripts/post-commit-dispatch.js and lib/post-commit-rows.js (#5208, spec
- * #5207): the registry's order and gating, its run under a linked worktree's
- * hook redirects, and the boundary set through the real .husky/post-commit
- * as git fires it — a pass, a replay route standing down, and a dispatcher
- * that will not load. A row that throws is named in one line while the rest
- * run: that is a registry case in each step's own file
- * (post-commit-release-claims, post-commit-touched-by-notice and
- * report-new-shared-faults tests), and precommit-dispatch.test.ts's policy.
+ * #5207).
  *
  * Breaking it costs every after-commit notice, release and record at once:
  * the hook's one line runs them all.
@@ -118,11 +112,6 @@ describe("the registry", () => {
 });
 
 describe("the real .husky/post-commit, as git fires it", () => {
-	/**
-	 * A repo with one commit pushed to origin/main, its hooks at a copy of
-	 * .husky/post-commit, and a fault-notice checker table whose one checker
-	 * appends to `ran` each time it runs: the gated rows' witness.
-	 */
 	function hookedRepo(pluginRoot = ROOT) {
 		const dir = tmp("post-commit-hook-");
 		const repo = newRepo("post-commit-hook-repo-", temps);

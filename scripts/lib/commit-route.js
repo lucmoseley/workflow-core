@@ -165,8 +165,8 @@ function sequencing(hook, dir) {
 const REPLAY_ROUTES = new Set(["rebase", "rebase-apply", "am", "cherry-pick"]);
 
 /**
- * Whether `route` replays commits already made and reaches no pre-commit:
- * the stack's narrow replay path (mantahostels#1706, mantahostels#1707).
+ * Whether `route` replays commits already made and reaches no pre-commit
+ * (mantahostels#1706, mantahostels#1707).
  * @param {string} route
  */
 const isReplayRoute = (route) => REPLAY_ROUTES.has(route);
@@ -209,8 +209,6 @@ const ABORTS = new Map([
 
 /**
  * The command that clears `route`'s operation, or "" where there is none.
- * Naming the wrong one strands the tree: `git am --abort` does not clear a
- * rebase.
  * @param {string} route
  */
 const routeAbort = (route) => ABORTS.get(route) ?? "";
@@ -233,9 +231,8 @@ const routeName = (route) => NAMES.get(route) ?? "commit";
 
 /**
  * What `hook` prints when the secrets scan refuses a replay on `route`,
- * naming the abort: .husky/pre-applypatch's refusal printer and
- * prepare-commit-msg's replay scan (mantahostels#1706). "Did not pass", not
- * "found a secret": a missing gitleaks fails too.
+ * naming the abort (mantahostels#1706). "Did not pass", not "found a
+ * secret".
  * @param {string} hook
  * @param {string} route
  */

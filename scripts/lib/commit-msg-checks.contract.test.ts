@@ -3,8 +3,7 @@
  * The equivalence contract for two of .husky/commit-msg's checks (#5207):
  * the closing-keyword scan and the `Weakens:` check, each run in-process as
  * its dispatcher row runs it, give the same exit code, stdout and stderr as
- * the program its CLI spawns, over the same message and tree. Each case runs both ways and compares them, never against a
- * hand-written expectation.
+ * the program its CLI spawns, over the same message and tree.
  *
  * Loosen a case and a check whose in-process run drifts from its program
  * refuses, or passes, a commit differently from the hook it replaced.
@@ -35,7 +34,6 @@ const scratch = () => {
 	return d;
 };
 
-/** A message file holding `body`. */
 const message = (body: string) => {
 	const file = path.join(scratch(), "MSG");
 	fs.writeFileSync(file, body);

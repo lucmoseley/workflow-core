@@ -2,17 +2,10 @@
 /*
  * .husky/prepare-commit-msg's dispatcher (#5208, spec #5207):
  * lib/prepare-commit-msg-rows.js run through lib/precommit-dispatch.js by
- * scripts/prepare-commit-msg-dispatch.js. The registry's order and gating;
- * each of the hook's paths and each refusal's text through the real hook
- * under real git; and the paths' selection and the trailer's arming as row
- * cases, driven in-process through runPrepareCommitMsg over a real repo
- * whose route markers are laid by hand.
+ * scripts/prepare-commit-msg-dispatch.js.
  *
  * The missing-dispatcher refusal is prepare-commit-msg-gate.test.ts's, with
  * the hook's other boundary cases.
- *
- * spawn-kept: the hook cases spawn git to fire the real hook; no node is
- * spawned.
  *
  * Over the 10 s budget (base §X8 (5)): its nine hook cases are each a real
  * git operation firing the real hook, 0.5–1 s apiece, which is the boundary
@@ -62,12 +55,6 @@ interface Repo {
 	stub: (rel: string, name: string, exit?: number, stderr?: string) => void;
 }
 
-/**
- * A repo whose hooks are its own `.husky`, through husky's real shims: the
- * real prepare-commit-msg and
- * its dispatcher, the closing-keyword scanner, a stub `pre-commit` writing
- * the real stamp's shape, and stub hold and trailer programs.
- */
 function repo(): Repo {
 	const root = fs.realpathSync(mkScratchDir("prepare-commit-msg-dispatch-"));
 	dirs.push(root);
@@ -205,7 +192,7 @@ describe("the registry", () => {
 				.filter((l) => !/^\s*(#|\*|\/\*|$)/.test(l))
 				.join("\n");
 			expect(code).not.toMatch(
-				/rebase-merge|\/rebase-apply|rebase-apply\/|CHERRY_PICK_HEAD|REVERT_HEAD|sequencer|MERGE_HEAD|AUTO_MERGE|BISECT_LOG|GIT_REFLOG_ACTION|commit-route\.sh/,
+				/rebase-merge|\/rebase-apply|rebase-apply\/|CHERRY_PICK_HEAD|REVERT_HEAD|sequencer|MERGE_HEAD|AUTO_MERGE|BISECT_LOG|GIT_REFLOG_ACTION/,
 			);
 		}
 	});

@@ -5,8 +5,7 @@
  * .husky/prepare-commit-msg's dispatcher row runs it, gives the same exit
  * code, stdout and stderr, and leaves the same message file and stamp, as
  * the same program spawned as `node review-tier-trailer.js <args>` over an
- * identical fixture. What the hook prints around it is
- * prepare-commit-msg-dispatch.test.ts's.
+ * identical fixture.
  *
  * Every case compares the two runs, never a hand-written expectation.
  *
@@ -77,7 +76,6 @@ function fixture(message: string, stamped: boolean): Fixture {
 	return { repo, msg, env, stamp };
 }
 
-/** What a run leaves: its result, the message file and whether the stamp stands. */
 const left = (f: Fixture) => ({
 	message: fs.readFileSync(f.msg, "utf8"),
 	stamp: fs.existsSync(f.stamp),

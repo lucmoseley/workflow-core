@@ -4,13 +4,7 @@
  * #5207 seam 3): each program the hook's steps run, run in-process through
  * its PROGRAM export or, for the two `--touched-by` checkers, lib/check.js's
  * checkInProcess(), gives the same exit code, stdout and stderr as the same
- * program spawned as `node <script> <args>` over the same fixture. What each
- * step of lib/post-commit-steps.js prints from its program's run is the row
- * cases' (post-commit-release-claims, post-commit-touched-by-notice,
- * post-commit-review-tier-notice, report-new-shared-faults,
- * guard-unpushed-commits and post-commit-dispatch tests).
- *
- * Every case compares the two runs, never a hand-written expectation.
+ * program spawned as `node <script> <args>` over the same fixture.
  *
  * Breaking it costs the licence for the post-commit dispatcher's rows: a
  * program whose in-process run drifts from its spawned one says, or keeps
@@ -94,7 +88,6 @@ const spawnedNode = (
 const program = (script: string, args: string[], cwd: string, env: Env) =>
 	load(path.join(SCRIPTS, script)).PROGRAM({ cwd, env, args }) as Run;
 
-/** The same program both ways, in-process and spawned. */
 const bothWays = (script: string, args: string[], cwd: string, env: Env) => ({
 	inProcess: program(script, args, cwd, env),
 	spawned: spawnedNode(path.join(SCRIPTS, script), args, cwd, env),

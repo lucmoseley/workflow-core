@@ -4,21 +4,12 @@
  * each returning what that row prints and exiting 0, post-commit never
  * refusing.
  *
- *   1. unpushedReport           commits not yet pushed
- *   2. newSharedFaultsRow       whole-repo faults this commit added
- *   3–4. touchedByRow(script)   what this commit expired, per checker
- *   5. releaseClaimsRow         this session's claims on the paths committed
- *   6. recordCommitRow          this commit, recorded as the session's own
- *   7. keepShimsRow             the hook-shim keeper's lazy run
- *   8. droppedReviewTier        an amend that dropped `Review-Tier:`
- *
  * Each takes `{ cwd, env }`, the hook's own, computes the arguments its
  * program takes (the commit, the top level, the committed paths, the main
  * tree) and stands down where its own preconditions fail. The route gate
  * the gated rows share is their `when` in lib/post-commit-rows.js, which the
  * dispatcher applies. A program's own run is its PROGRAM export (2, 5–7) or
- * its lib/check.js SPEC (3–4), reached through the `Programs` port; the
- * translation of its output into what the row prints is here.
+ * its lib/check.js SPEC (3–4), reached through the `Programs` port.
  *
  * NO GIT CALL SEES THE HOOK'S REDIRECTS. A program reading from a cwd of its
  * own (a throwaway worktree, a materialised tree, the main checkout) under
@@ -99,7 +90,6 @@ const readTopLevelOf = (/** @type {HookIo} */ io) =>
 	inProgramScope(scrubbed(io), () => readTopLevel(io.cwd));
 
 /**
- * A program's PROGRAM, run under `io` with the redirects scrubbed.
  * @param {Programs} programs
  * @param {string} script a file under scripts/
  * @param {HookIo} io
@@ -205,7 +195,7 @@ const touchedByRow =
 /**
  * Row 5: release this session's whole-file claims on the paths THIS commit
  * touched. A merge, naming no path under this form, releases nothing. Both
- * streams pass through: the arbiter's stderr names a clobber it finds.
+ * streams pass through.
  * @param {HookIo} io
  * @param {Programs} [programs]
  * @returns {ProgramResult}
@@ -272,8 +262,6 @@ function keepShimsRow(io, programs = PROGRAMS) {
 	return { exit: 0, stdout: r.stdout, stderr: r.stderr };
 }
 
-/* A line opening on `Review-Tier`, any case, then POSIX [[:space:]] short of
- * a newline, a line never holding one, then `:`. */
 const REVIEW_TIER_LINE = /^Review-Tier[ \t\v\f\r]*:/i;
 
 /** @param {string | null} message */

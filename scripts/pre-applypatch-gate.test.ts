@@ -13,18 +13,16 @@
  * refuse: git aborts the apply on a non-zero exit, before the commit is
  * written.
  *
- * Every case drives a REAL `git am`/`git rebase --apply` in a throwaway repo
- * with its own `core.hooksPath`, because the class of bug this file guards
- * against is one layer out from the hook's logic — a hook that is correct and
- * never invoked (`docs/agents/guard-authoring.md` §The proving discipline).
+ * Each case that fires the hook drives a REAL `git am`/`git rebase --apply`
+ * in a throwaway repo with its own `core.hooksPath`, because the class of bug
+ * this file guards against is one layer out from the hook's logic — a hook
+ * that is correct and never invoked (`docs/agents/guard-authoring.md` §The
+ * proving discipline).
  *
- * spawn-kept: every case spawns git to fire the real hook, which starts node
- * only through its refusal printer, as git would.
+ * spawn-kept: each case that fires the hook spawns git to fire the real hook.
  *
- * Past 2.5x its CI record (base §X8 (5)): it holds the refusal-text and
- * scan-call cases commit-route.test.ts held for the shell library (#5208),
- * 11 cases grown to 18, each a real git apply firing the real hook at
- * 0.3–0.8 s apiece, the boundary under test.
+ * Past 2.5x its CI record (base §X8 (5)): 17 cases each fire the real hook
+ * through a real git apply, at 0.3–0.8 s apiece (#5208).
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -121,7 +119,6 @@ const buildTemplate = (root: string) => {
 		path.join(ROOT, HOOK_REL),
 		path.join(husky, "pre-applypatch"),
 	);
-	// The printer a refusal runs from beside the hook, and the lib it reads.
 	fs.mkdirSync(path.join(root, "scripts"));
 	fs.copyFileSync(path.join(ROOT, PRINTER_REL), path.join(root, PRINTER_REL));
 	fs.symlinkSync(
@@ -332,7 +329,7 @@ describe(".husky/pre-applypatch", () => {
 		},
 	);
 
-	it("refuses through the printer, which names the route through lib/commit-route.js", () => {
+	it("refuses through the printer", () => {
 		const printer = fs.readFileSync(path.join(ROOT, PRINTER_REL), "utf8");
 		expect(printer).toContain('require("./lib/commit-route.js")');
 		expect(printer).toContain('commitRoute("pre-applypatch"');
@@ -500,8 +497,7 @@ describe("what a refusal actually stops", () => {
 	});
 
 	it("still refuses when the refusal printer is missing, in one line", () => {
-		// The scan is the hook's own; the printer only names the route, so its
-		// absence costs the name, never the refusal.
+		// The scan is the hook's own; the printer only names the route.
 		const p = probe();
 		sideBranch(p, { "side.txt": "side\n" });
 		const patch = patchOfSide(p);

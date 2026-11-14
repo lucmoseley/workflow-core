@@ -64,10 +64,6 @@ afterEach(() => {
 	checkFake.now = null;
 });
 
-/**
- * The Programs port every row this kit runs is handed: each program's own
- * module and lib/check.js's checkInProcess, but for what the case stood in.
- */
 export const programs: Programs = {
 	load: (script) => {
 		const real = load(path.join(SCRIPTS, script));
@@ -78,7 +74,7 @@ export const programs: Programs = {
 		(checkFake.now ?? load("./check.js").checkInProcess)(spec, argv, opts),
 };
 
-/** Stand `impl` in for `script`'s PROGRAM until the case ends. */
+/** Stand `impl` in for `script`'s PROGRAM. */
 export function stubProgram(script: Program, impl: (io: ProgramIo) => Result) {
 	const fake = vi.fn(impl);
 	programFakes.set(script, fake);
@@ -87,7 +83,7 @@ export function stubProgram(script: Program, impl: (io: ProgramIo) => Result) {
 
 /**
  * Stand `impl` in for lib/check.js's checkInProcess, which the two
- * `--touched-by` rows run their checker through, until the case ends.
+ * `--touched-by` rows run their checker through.
  */
 export function stubCheck(
 	impl: (...a: Parameters<CheckInProcess>) => Result | Promise<Result>,
@@ -119,10 +115,6 @@ export function hookEnv(extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv {
 	return { ...env, GIT_INDEX_FILE: ".git/index", ...extra };
 }
 
-/**
- * The registry's run as scripts/post-commit-dispatch.js runs it, under
- * `io`. What it writes comes back per stream.
- */
 export async function runPostCommit(
 	io: Io,
 	rows: typeof ROWS = ROWS,
@@ -138,15 +130,13 @@ export async function runPostCommit(
 	return { exit, stdout: out[1], stderr: out[2] };
 }
 
-/** The registry's row `id`. */
 export function rowOf(id: string) {
 	const row = ROWS.find((r) => r.id === id);
 	if (!row) throw new Error(`post-commit-rows.js has no ${id} row`);
 	return row;
 }
 
-/** What a replay leaves in the git dir, one per route-gated sentinel: a
- * rebase's and an apply's are directories, the rest files. */
+/** What a replay leaves in the git dir, one per route-gated sentinel. */
 export const REPLAY_SENTINELS = [
 	["rebase-merge", "dir"],
 	["rebase-apply", "dir"],
@@ -165,8 +155,7 @@ export function plantSentinel(root: string, sentinel: string, kind: string) {
 /**
  * A linked worktree of `repo` (made under `dir`) whose commit of `docs/wt.md`
  * fires a post-commit hook recording the GIT_* variables git hands it;
- * returns the worktree and the caller's env with those variables in it, as a
- * hook's own process has them.
+ * returns the worktree and the caller's env with those variables in it.
  */
 export function linkedCommit(repo: string, dir: string) {
 	const git = (cwd: string, ...args: string[]) =>

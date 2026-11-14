@@ -1,12 +1,7 @@
 /*
  * commit-msg-rows.js — .husky/commit-msg's Node steps, one row each, run in
  * order by scripts/commit-msg-dispatch.js through lib/precommit-dispatch.js
- * (#5207). Every row gates: its red refuses the commit with its own code.
- *
- * The closing-keyword scan and the subject check stand down on a replay, a
- * replayed message being one nobody is writing now (#138); the `Weakens:`
- * check on a merge too, the lines a merge joins having been judged at their
- * own commits (#2235).
+ * (#5207).
  */
 
 const path = require("node:path");

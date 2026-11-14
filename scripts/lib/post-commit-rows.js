@@ -12,9 +12,9 @@
  * (mantahostels#1825), the release would drop a live claim over somebody
  * else's paths (mantahostels#2336), and the record would take a replayed
  * commit, which may be a neighbour's, as this session's own (#766). A route
- * that will not read stands them down too. The clean single cherry-pick costs
- * one missed notice, accepted because a multi-commit pick reads the same way
- * between its commits, which is the case worth suppressing.
+ * that will not read stands them down too. The clean single cherry-pick
+ * costs that commit's stand-down rows: new-shared-faults, instruction-surface,
+ * guard-registry, claim-release and commit-record.
  */
 
 const steps = require("./post-commit-steps.js");
@@ -46,9 +46,6 @@ const row = (id, run, gated) => ({
 	run,
 });
 
-/* Since mantahostels#316 a session pushes once, when its work is done, so a
- * non-zero unpushed count mid-session is a reminder that commits are still
- * local, never a prompt to push now. */
 /** @type {PostCommitRow[]} */
 const ROWS = [
 	row("unpushed-report", steps.unpushedReport, false),
