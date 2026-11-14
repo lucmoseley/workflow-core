@@ -1404,10 +1404,6 @@ describe("review-hold-gate.js — the marker's other readers", () => {
 
 describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)", () => {
 	const Trailer = path.resolve(__dirname, "review-tier-trailer.js");
-	const Prepare = fs.readFileSync(
-		path.resolve(__dirname, "..", ".husky", "prepare-commit-msg"),
-		"utf8",
-	);
 	const stamp = (sid = SID) =>
 		reviewTierStamp(path.join(repo, ".git"), sid) as string;
 	const trailers = () =>
@@ -1481,15 +1477,6 @@ describe("review-tier-trailer.js — the trailer a passing hold leaves (#3664)",
 			expect(trailers()).toBe("");
 			expect(fs.existsSync(stamp())).toBe(false);
 		});
-	});
-
-	it("is run by .husky/prepare-commit-msg on each of a passing commit's exits, through the plugin root", () => {
-		expect(Prepare).toMatch(
-			/^ {2}trailer="\$\{WFC_PLUGIN_ROOT:-\$here\/\.\.\}\/scripts\/review-tier-trailer\.js"$/m,
-		);
-		expect(Prepare.match(/^ +review_tier_trailer "\$\{1-\}"$/gm)).toHaveLength(
-			3,
-		);
 	});
 
 	describe("in a linked worktree", () => {

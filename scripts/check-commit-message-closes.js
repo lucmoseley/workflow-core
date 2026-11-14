@@ -8,8 +8,7 @@
  *
  * Usage: check-commit-message-closes.js <message-file> <context>
  *   <context> names the seam for the refusal text: `commit-msg` or
- *   `prepare-commit-msg`. The git hooks reach it through
- *   check-commit-message-closes.sh, the path they run with `bash`.
+ *   `prepare-commit-msg`. The git hooks' dispatchers run main in-process.
  *
  * cli-args-exempt: a git hook's helper taking two positionals; parseOrExit's
  * exit 2 on an unknown flag would refuse the commit on a usage error.

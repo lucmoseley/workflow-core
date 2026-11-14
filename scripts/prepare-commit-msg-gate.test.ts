@@ -35,6 +35,10 @@ import { shellQuote } from "./lib/sh-quote.js";
 
 const HOOK_REL = path.join(".husky", "prepare-commit-msg");
 const HOOK = fs.readFileSync(path.join(ROOT, HOOK_REL), "utf8");
+const ROWS_SOURCE = fs.readFileSync(
+	path.join(ROOT, "scripts", "lib", "prepare-commit-msg-rows.js"),
+	"utf8",
+);
 const PRECOMMIT = fs.readFileSync(
 	path.join(ROOT, ".husky", "pre-commit"),
 	"utf8",
@@ -47,6 +51,11 @@ const SCAN = `"\${WFC_GITLEAKS:-gitleaks}" git --staged --redact`;
 const STAMP = "wfc-precommit-stamp";
 
 const temps = registerTempCleanup();
+
+/** A stub program the dispatcher loads in-process: exits `exit`, saying
+ * `stderr`. */
+const programStub = (exit: number, stderr: string) =>
+	`module.exports = { PROGRAM: () => ({ exit: ${exit}, stdout: "", stderr: ${JSON.stringify(stderr)} }) };\n`;
 
 /** Where a stubbed hook appends the line proving it ran. */
 // isolation-exempt: every fixture holds a stub at this path, which logs nothing.
@@ -151,39 +160,29 @@ const buildTemplate = (root: string) => {
 	for (const f of ["prepare-commit-msg", "pre-merge-commit", "commit-msg"])
 		fs.copyFileSync(path.join(ROOT, ".husky", f), path.join(husky, f));
 
-	// The closing-keyword scanner's launcher (#138), the route module (#1503)
-	// and commit-msg's local-file check (#5142): the hooks FAIL CLOSED when
-	// one is absent, so without these copies every commit
-	// in this fixture is refused.
-	for (const rel of [
-		"scripts/lib/commit-route.sh",
-		"scripts/lib/local-hook.sh",
-		"scripts/check-commit-message-closes.sh",
-		"scripts/lib/rule-text.sh",
-		"docs/agents/rules/commit-closes-keyword.txt",
-	]) {
+	// commit-msg's local-file check (#5142): the hook FAILS CLOSED when it is
+	// absent, so without this copy every commit in this fixture is refused.
+	for (const rel of ["scripts/lib/local-hook.sh"]) {
 		const dest = path.join(root, rel);
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
 		fs.copyFileSync(path.join(ROOT, rel), dest);
 	}
-	fs.chmodSync(
-		path.join(root, "scripts/check-commit-message-closes.sh"),
-		0o755,
-	);
-	// The scanner the launcher runs, commit-msg's dispatcher (#5207) and the
-	// review-tier trailer (#3664), linked rather than copied: node resolves
-	// their requires from the link's target, so their lib closure comes with
-	// them.
+	// The two hooks' dispatchers (#5207), the closing-keyword scanner (#138)
+	// and the review-tier trailer (#3664), linked rather than copied: node
+	// resolves their requires from the link's target, so their lib closure
+	// comes with them. The dispatcher reads the scanner and the trailer at
+	// the fixture's own paths, so a case can remove or replace either.
 	for (const rel of [
 		"scripts/check-commit-message-closes.js",
 		"scripts/commit-msg-dispatch.js",
+		"scripts/prepare-commit-msg-dispatch.js",
 		"scripts/review-tier-trailer.js",
 	])
 		fs.symlinkSync(path.join(ROOT, rel), path.join(root, rel));
 
 	const log = path.join(root, LOG);
 	fs.writeFileSync(path.join(husky, "pre-commit"), precommitStub(log, 0));
-	fs.writeFileSync(path.join(root, HOLD), "process.exit(0);\n");
+	fs.writeFileSync(path.join(root, HOLD), programStub(0, ""));
 
 	fs.writeFileSync(path.join(root, "base.txt"), "base\n");
 	git("add", "--", "base.txt");
@@ -278,31 +277,31 @@ describe(".husky/prepare-commit-msg", () => {
 
 	it("runs the whole of .husky/pre-commit rather than a copied gate list", () => {
 		// A copied gate list goes stale (mantahostels#1261).
-		expect(HOOK).toMatch(/sh -e "\$here\/pre-commit"/);
+		expect(ROWS_SOURCE).toMatch(
+			/spawnSync\("sh", \["-e", path\.join\(ctx\.husky, "pre-commit"\)\]/,
+		);
 		// Comments strip out first: the header names its gates, and matching a
 		// comment would pass on a hook that ran nothing.
 		const code = HOOK.split("\n").filter((l) => !l.trimStart().startsWith("#"));
 		expect(code.join("\n")).not.toMatch(/node scripts\/|npm run|gitleaks/);
-		// The replay path's scan is the route module's, called once
-		// (mantahostels#1706, #1503).
-		expect(
-			code.filter((l) => l.includes("wfc_replay_scan prepare-commit-msg"))
-				.length,
-		).toBe(1);
+		// The replay path's scan is spelt once, in its row (mantahostels#1706).
+		expect(ROWS_SOURCE.split('["git", "--staged", "--redact"]').length).toBe(2);
 	});
 
-	it("refuses every commit when scripts/lib/commit-route.sh is missing", () => {
+	it("refuses every commit when its dispatcher is missing", () => {
 		// The route decides between the whole stack and gitleaks alone, so an
 		// unreadable route refuses rather than guessing either (#1503).
 		const p = probe();
-		fs.rmSync(path.join(p.root, "scripts/lib/commit-route.sh"));
+		fs.rmSync(path.join(p.root, "scripts/prepare-commit-msg-dispatch.js"));
 		fs.writeFileSync(path.join(p.root, "m.txt"), "m\n");
 		p.git("add", "--", "m.txt");
 		const before = gitLog(p, "--format=%H", "-1").trim();
 
 		const r = attempt(p.root, "commit", "-m", "m");
 		expect(r.code).not.toBe(0);
-		expect(r.output).toContain("commit-route.sh is missing");
+		expect(r.output).toContain(
+			"prepare-commit-msg-dispatch.js is missing, so this commit's route cannot be read.\n  Refusing rather than gating it as an ordinary commit (#1503).",
+		);
 		expect(gitLog(p, "--format=%H", "-1").trim()).toBe(before);
 	});
 });
@@ -1061,11 +1060,13 @@ describe("the closing-keyword refusal (#138)", () => {
 
 	it("fails closed when the scanner is missing", () => {
 		const p = probe();
-		fs.rmSync(path.join(p.root, "scripts/check-commit-message-closes.sh"));
+		fs.rmSync(path.join(p.root, "scripts/check-commit-message-closes.js"));
 		stage(p, "h\n");
 		const r = attempt(p.root, "commit", "-qm", "an ordinary message");
 		expect(r.code).not.toBe(0);
-		expect(r.output).toContain("missing");
+		expect(r.output).toContain(
+			"check-commit-message-closes.js is missing, so the closing-keyword scan did not run.\n  Refusing rather than passing the message unread (#138).",
+		);
 	});
 
 	it("keeps .husky/commit-msg in check:sh's file set", () => {
@@ -1099,7 +1100,7 @@ describe("the review hold on a cherry-pick's replay path (#3905)", () => {
 	const refusing = (p: Probe) =>
 		fs.writeFileSync(
 			path.join(p.root, HOLD),
-			'process.stderr.write("the hold refused this pick\\n");\nprocess.exit(1);\n',
+			programStub(1, "the hold refused this pick\n"),
 		);
 	/** A commit on a side branch, the probe back where it started. */
 	const sideCommit = (p: Probe, rel: string) => {
@@ -1192,7 +1193,7 @@ describe("the review hold's Review-Tier: trailer (#3664)", () => {
 		fs.rmSync(trailer);
 		fs.writeFileSync(
 			trailer,
-			'process.stderr.write("the hold refused the moved tree\\n");\nprocess.exit(1);\n',
+			programStub(1, "the hold refused the moved tree\n"),
 		);
 	};
 	/** A stamp of `sid`'s in the git directory, named by review-tier-stamp.js. */

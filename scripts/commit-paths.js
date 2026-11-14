@@ -150,6 +150,7 @@ const { isHoldArmable, readConfig } = require("./lib/workflow-core-config.js");
 const { runInTree } = require("./lib/isolated-worktree.js");
 const { trimEndRun } = require("./lib/trim-run.js");
 const { readText } = require("./lib/file-read.js");
+const { precommitStamp } = require("./lib/precommit-stamp.js");
 const { reviewTierStamp } = require("./lib/review-tier-stamp.js");
 
 const NAME = "commit-paths";
@@ -243,7 +244,7 @@ function removeHookStamps() {
 			"a hook's stamp",
 			`git could not write the checked tree: ${(tree.stderr ?? "").trim()}`,
 		);
-	const stamps = [path.join(gitDir, "wfc-precommit-stamp")];
+	const stamps = [precommitStamp(gitDir)];
 	const review = reviewTierStamp(gitDir, process.env.CLAUDE_CODE_SESSION_ID);
 	if (review !== null) stamps.push(review);
 	for (const stamp of stamps) {

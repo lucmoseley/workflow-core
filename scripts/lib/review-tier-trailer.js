@@ -43,6 +43,7 @@ const { trimEndRun } = require("./trim-run.js");
  * @property {string} stderr
  */
 
+/** A `Review-Tier:` line's start, in any spelling git reads as this key. */
 const KEY = /^review-tier[ \t]*:/i;
 
 /**
@@ -244,4 +245,4 @@ function consume(ports, stamp) {
 	return [lines[0] ?? "", lines[1] ?? ""];
 }
 
-module.exports = { runTrailer };
+module.exports = { KEY, runTrailer };

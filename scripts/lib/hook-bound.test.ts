@@ -23,11 +23,12 @@ const ROOT = path.join(__dirname, "..", "..");
 const SOURCE_LINE =
 	// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
 	'[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"';
-/* pre-merge-commit and pre-applypatch start no checker of their own: the
- * first runs pre-commit, which sources the library. */
+/* pre-merge-commit, prepare-commit-msg and pre-applypatch start no bounded
+ * checker of their own: the first two run pre-commit, which sources the
+ * library, and prepare-commit-msg's dispatcher runs it inline, past any
+ * checker limit. */
 const HOOKS = [
 	".husky/pre-commit",
-	".husky/prepare-commit-msg",
 	".husky/commit-msg",
 	".husky/post-commit",
 	".husky/post-merge",

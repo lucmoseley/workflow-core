@@ -3,8 +3,7 @@
  * The equivalence contract for two of .husky/commit-msg's checks (#5207):
  * the closing-keyword scan and the `Weakens:` check, each run in-process as
  * its dispatcher row runs it, give the same exit code, stdout and stderr as
- * the program prepare-commit-msg and the CLI still spawn, over the same
- * message and tree. Each case runs both ways and compares them, never against a
+ * the program its CLI spawns, over the same message and tree. Each case runs both ways and compares them, never against a
  * hand-written expectation.
  *
  * Loosen a case and a check whose in-process run drifts from its program
@@ -53,7 +52,7 @@ const spawned = (cmd: string, args: string[], cwd = SCRIPTS) => {
 	return { exit: r.status, stdout: r.stdout, stderr: r.stderr };
 };
 
-describe("the closing-keyword scan in-process equals check-commit-message-closes.sh", () => {
+describe("the closing-keyword scan in-process equals check-commit-message-closes.js", () => {
 	it.each([
 		["a clean message", "Add the thing\n\nBody.\n"],
 		["a closing keyword", "Add the thing\n\nFixes #12\n"],
@@ -62,8 +61,8 @@ describe("the closing-keyword scan in-process equals check-commit-message-closes
 		const file = message(body);
 		const r = scanCloses([file, "commit-msg"]);
 		expect({ exit: r.code, stdout: "", stderr: r.stderr }).toEqual(
-			spawned("bash", [
-				path.join(SCRIPTS, "check-commit-message-closes.sh"),
+			spawned(process.execPath, [
+				path.join(SCRIPTS, "check-commit-message-closes.js"),
 				file,
 				"commit-msg",
 			]),
@@ -73,8 +72,8 @@ describe("the closing-keyword scan in-process equals check-commit-message-closes
 	it("on an unreadable message file", () => {
 		const r = scanCloses(["/nonexistent/MSG", "commit-msg"]);
 		expect({ exit: r.code, stdout: "", stderr: r.stderr }).toEqual(
-			spawned("bash", [
-				path.join(SCRIPTS, "check-commit-message-closes.sh"),
+			spawned(process.execPath, [
+				path.join(SCRIPTS, "check-commit-message-closes.js"),
 				"/nonexistent/MSG",
 				"commit-msg",
 			]),

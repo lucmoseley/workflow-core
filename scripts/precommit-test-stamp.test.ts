@@ -97,9 +97,8 @@ const COPIED = [
 	"scripts/lib/test-gate.js",
 	"scripts/lib/commit-key.js",
 	"scripts/lib/isolated-worktree.js",
-	// prepare-commit-msg fails closed without its route and scanner.
-	"scripts/lib/commit-route.sh",
-	"scripts/check-commit-message-closes.sh",
+	// prepare-commit-msg fails closed without its dispatcher and scanner.
+	"scripts/prepare-commit-msg-dispatch.js",
 	"scripts/check-commit-message-closes.js",
 	"scripts/lib/rule-text.sh",
 	"docs/agents/rules/commit-closes-keyword.txt",

@@ -654,7 +654,7 @@ const readCodeLines = (rel: string) =>
 		.filter((l) => !/^\s*(#|$)/.test(l))
 		.join("\n");
 
-const CALLERS = [".husky/prepare-commit-msg", ".husky/pre-applypatch"];
+const CALLERS = [".husky/pre-applypatch"];
 
 describe("the callers", () => {
 	it.each(CALLERS)(

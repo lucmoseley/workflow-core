@@ -10,8 +10,8 @@
  * otherwise fire: its own `#` template block, and the `--verbose` diff below
  * the scissors line, which is NOT comment-prefixed.
  *
- * Its branch cases call main in process; its boundary set runs the .sh path
- * the hooks run, through `bash`, over a file on disk.
+ * Every case calls main in process, over a file on disk, as the two hooks'
+ * dispatchers run it.
  *
  * .husky/commit-msg and .husky/prepare-commit-msg refuse a commit on its hit:
  * a false pass lets a message close an issue server-side on the push, with no
@@ -19,19 +19,16 @@
  * a commit that only mentions an issue.
  */
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { mkScratchDir } from "./lib/git-fixture";
 import { registerTempCleanup } from "./lib/precommit-gate-harness";
-import { ROOT } from "./lib/precommit-gate-testkit";
 
 const { main } = require("./check-commit-message-closes.js") as {
 	main: (argv: string[]) => { code: number; stderr: string };
 };
 
-const SCANNER = path.join(ROOT, "scripts", "check-commit-message-closes.sh");
 const temps = registerTempCleanup();
 
 /** `message` written to a message file on disk; its path. */
@@ -54,24 +51,6 @@ beforeEach(() => {
 function scan(message: string) {
 	const { code, stderr } = main([messageFile(message), "test"]);
 	return { code, output: stderr };
-}
-
-/** The scanner as the hooks run it: `bash` on the .sh path. */
-function scanSpawned(file: string, env: NodeJS.ProcessEnv = {}) {
-	try {
-		execFileSync("bash", [SCANNER, file, "test"], {
-			encoding: "utf8",
-			env: { ...process.env, ...env },
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		return { code: 0, output: "" };
-	} catch (e) {
-		const err = e as { status?: number; stdout?: string; stderr?: string };
-		return {
-			code: err.status ?? 1,
-			output: `${err.stdout ?? ""}${err.stderr ?? ""}`,
-		};
-	}
 }
 
 describe("check-commit-message-closes.js (#138)", () => {
@@ -118,9 +97,9 @@ describe("check-commit-message-closes.js (#138)", () => {
 	});
 });
 
-describe("the .sh path the hooks run (boundary set)", () => {
+describe("as the hooks run it", () => {
 	it("refuses a closing message on stderr with exit 1", () => {
-		const r = scanSpawned(messageFile("Fixes #12 do a thing\n"));
+		const r = scan("Fixes #12 do a thing\n");
 		expect(r.code).toBe(1);
 		expect(r.output).toContain("test: this commit message closes an issue");
 		expect(r.output).toContain("What matched: `Fixes #12`");
@@ -130,24 +109,14 @@ describe("the .sh path the hooks run (boundary set)", () => {
 	});
 
 	it("passes a clean message silently with exit 0", () => {
-		expect(scanSpawned(messageFile("Refs #12 do a thing\n"))).toEqual({
-			code: 0,
-			output: "",
-		});
+		expect(scan("Refs #12 do a thing\n")).toEqual({ code: 0, output: "" });
 	});
 
 	it.each([
 		["-m or -F (no editor), keeping it as the subject, so refuses", ":", 1],
 		["the editor, dropping it as a comment, so passes", "vi", 0],
 	])("reads a #N line as git records it on %s (#3075)", (_, editor, code) => {
-		const file = messageFile("#3 Fixes #12 do a thing\n");
-		expect(scanSpawned(file, { GIT_EDITOR: editor as string }).code).toBe(code);
-	});
-
-	it("refuses an unreadable message file with exit 1", () => {
-		const r = scanSpawned("/nonexistent/COMMIT_EDITMSG");
-		expect(r.code).toBe(1);
-		expect(r.output).toContain("cannot read the commit message file");
-		expect(r.output).toContain("Refusing rather than passing a message");
+		vi.stubEnv("GIT_EDITOR", editor as string);
+		expect(scan("#3 Fixes #12 do a thing\n").code).toBe(code);
 	});
 });

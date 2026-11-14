@@ -5,9 +5,9 @@
  * gitignored and exists only in the shared checkout, so a fixture copying it
  * fails in every linked worktree (#4360).
  *
- * Importing it unsets `HUSKY` for every case in the importing file, so build
- * the shim inside a case: from a `beforeAll` husky skips the install and
- * `shimDir` throws.
+ * Importing it unsets `HUSKY` and points CLAUDE_CONFIG_DIR at a scratch
+ * directory for every case in the importing file, so build the shim inside a
+ * case: from a `beforeAll` husky skips the install and `shimDir` throws.
  *
  * FOR TESTS ONLY.
  */
@@ -21,19 +21,27 @@ import { mkScratchDir } from "./git-fixture";
 
 const require = createRequire(import.meta.url);
 
-// Husky's `_/h` exits 0 before any hook runs under an inherited `HUSKY=0`,
-// so every suite that installs the shim runs its `git` calls without it (#4715).
-beforeEach(() => {
-	vi.stubEnv("HUSKY", undefined);
-});
-
 let repo: string | null = null;
 let generated: string | null = null;
+let configDir: string | null = null;
+
+// Husky's `_/h` exits 0 before any hook runs under an inherited `HUSKY=0`,
+// so every suite that installs the shim runs its `git` calls without it
+// (#4715). The hooks those calls fire log their fail-opens under
+// CLAUDE_CONFIG_DIR, so it points at the file's own scratch directory, never
+// the developer's live log (mantahostels#1452).
+beforeEach(() => {
+	vi.stubEnv("HUSKY", undefined);
+	configDir ??= mkScratchDir("husky-config-");
+	vi.stubEnv("CLAUDE_CONFIG_DIR", configDir);
+});
 
 afterAll(() => {
-	if (repo) fs.rmSync(repo, { recursive: true, force: true });
+	for (const dir of [repo, configDir])
+		if (dir) fs.rmSync(dir, { recursive: true, force: true });
 	repo = null;
 	generated = null;
+	configDir = null;
 });
 
 function shimDir(): string {

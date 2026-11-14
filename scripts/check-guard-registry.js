@@ -773,6 +773,12 @@ const DISPATCHERS = [
 		/** @param {{ ROWS: { script: string }[] }} m */
 		scripts: (m) => m.ROWS.map((r) => r.script),
 	},
+	{
+		entry: "scripts/prepare-commit-msg-dispatch.js",
+		registry: "prepare-commit-msg-rows.js",
+		/** @param {{ ROWS: { script: string }[] }} m */
+		scripts: (m) => m.ROWS.map((r) => r.script),
+	},
 ];
 
 /**
