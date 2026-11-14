@@ -6,19 +6,26 @@
  * through the fixture's handler in-process (`ghPort`, held by
  * gh-stub-server.test.ts), filing through lib/file-issue-fake.ts (held by
  * file-issue.contract.test.ts) and the checkers through
- * lib/checker-run-fake.ts (held by checker-run.contract.test.ts). The program's
- * boundary set stays in file-morning-review.test.ts. Break the core and the
- * loop files no review, or two in a day, or loses an event between two
+ * lib/checker-run-fake.ts (held by checker-run.contract.test.ts). The
+ * answering is answer-review-reversals.js's real answerReversals in the cases
+ * on it, with gh at the fixture's stub; elsewhere a port answering nothing,
+ * which no case asserts on and which spares each filing two gh spawns. The
+ * program's boundary set stays in file-morning-review.test.ts. Break the core
+ * and the loop files no review, or two in a day, or loses an event between two
  * reviews (#3813), or a repo that did not read loses its events (#3831).
  *
- * Near the 10 s file budget (§X8 (5)): many cases file three or four days in
- * a row, each filing paying two journalctl fake starts and its real git.
+ * Near the 10 s file budget (§X8 (5)) on CI, some 5.5 s there; a loaded
+ * machine runs it past, some 10 s at a load of 6 and 18 s at 15. Many cases
+ * file three or four days in a row, each filing paying two journalctl fake
+ * starts and its real git, and the three answering cases pay the real
+ * answering's gh stub and file-issue.js starts.
  */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { answerReversals } from "../answer-review-reversals.js";
 import { freshSandbox } from "./arbiter-testkit";
 import { checkerFake, WSL_UNREAD_ENVELOPE } from "./checker-run-fake";
 import { fileIssueFake } from "./file-issue-fake";
@@ -27,6 +34,7 @@ import { buildReviewTitle } from "./morning-review.js";
 import { fileMorningReview } from "./morning-review-filing.js";
 import { HOUR, morningReviewFixture } from "./morning-review-fixture";
 import { raiseHold } from "./repo-holds.js";
+import { restoreStderr, spyStderr } from "./write-fd-testkit";
 
 const sb = freshSandbox();
 
@@ -53,10 +61,14 @@ const file = async ({
 	dryRun = false,
 	at,
 	envelopes = {},
+	answer = () => 0,
+	fileFails,
 }: {
 	dryRun?: boolean;
 	at?: string;
 	envelopes?: Record<string, object>;
+	answer?: (tracker: string, dryRun: boolean) => number;
+	fileFails?: (argv: string[], body: string) => never;
 } = {}) => {
 	if (at) vi.useFakeTimers({ toFake: ["Date"], now: new Date(at) });
 	const gh = ghPort();
@@ -74,8 +86,9 @@ const file = async ({
 					streams.stderr += text;
 				},
 				gh,
-				file: fileIssueFake(gh, "acme/wfc"),
+				file: fileFails ?? fileIssueFake(gh, "acme/wfc"),
 				...checkerFake(envelopes),
+				answer,
 			},
 		});
 		return { status, ...streams };
@@ -1277,6 +1290,82 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 			fs.writeFileSync(lockFile(), "999999999");
 			expect((await file()).status).toBe(0);
 			expect(readCreated()).toHaveLength(1);
+		});
+	});
+
+	describe("answering reversals after the filing (#3388)", () => {
+		const reviewWithRequest = () => ({
+			number: 5,
+			title: "Morning review — 2000-01-01",
+			state: "OPEN",
+			createdAt: ago(24),
+			body: "1. acme/wfc#2 — `Inside the window` — taken: `(A) keep` (52%) — [#2 comment](https://github.com/acme/wfc/issues/2#issuecomment-1)\n",
+			comments: [
+				{
+					url: "https://github.com/acme/wfc/issues/5#issuecomment-50",
+					body: "reverse 1",
+				},
+			],
+		});
+		const readReplies = () =>
+			JSON.parse(fs.readFileSync(stub("reviews.json"), "utf8"))
+				.find((i: { number: number }) => i.number === 5)
+				.comments.slice(1);
+
+		const fileAnswering = async (opts: Parameters<typeof file>[0] = {}) => {
+			const env = runEnv();
+			for (const key of ["WFC_GH", "STUB_DIR", "WFC_SCRIPT_ROOT"] as const)
+				vi.stubEnv(key, env[key]);
+			const fd2 = spyStderr();
+			try {
+				const r = await file({ ...opts, answer: answerReversals });
+				return {
+					...r,
+					stderr: r.stderr + fd2.mock.calls.map(([t]) => t).join(""),
+				};
+			} finally {
+				restoreStderr();
+			}
+		};
+
+		it("exits 1 when the answering fails after a filing, the reply's failure on stderr", async () => {
+			seed([reviewWithRequest()]);
+			fs.writeFileSync(stub("fail-comment"), "");
+			const r = await fileAnswering();
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain(
+				"the reply failed (GraphQL: Could not resolve",
+			);
+			expect(readCreated().map((c) => c.title)).toContain(TODAY);
+		});
+
+		it("answers reversals and exits 1 when the filing fails", async () => {
+			seed([reviewWithRequest()]);
+			fs.writeFileSync(stub("fail-review-create"), "");
+			const r = await fileAnswering();
+			expect(r.status).toBe(1);
+			expect(r.stderr).toContain("GraphQL: Could not resolve");
+			expect(readCreated().map((c) => c.title)).toEqual([
+				"Reverse a delegated decision on #2: Inside the window",
+			]);
+			expect(readReplies()).toHaveLength(1);
+		});
+
+		it("answers reversals and exits 1 with the stack when the filing throws", async () => {
+			seed([reviewWithRequest()]);
+			const r = await fileAnswering({
+				fileFails: () => {
+					throw new Error("filer gone");
+				},
+			});
+			expect(r.status).toBe(1);
+			expect(r.stderr).toMatch(
+				/^file-morning-review: Error: filer gone\n {4}at /m,
+			);
+			expect(readCreated().map((c) => c.title)).toEqual([
+				"Reverse a delegated decision on #2: Inside the window",
+			]);
+			expect(readReplies()).toHaveLength(1);
 		});
 	});
 });

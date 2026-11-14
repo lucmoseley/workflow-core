@@ -29,12 +29,12 @@ const GH = ["g", "h"].join("");
 
 /* A text module whose every command's payload is at the threshold
  * hook-limits.js sets, so each command is one PAYLOAD-OVER finding. */
-const HOOK_LIMITS =
-	"const HOOK_PERSIST_CHARS = 10000;\nconst RULE_CAP = 500;\n";
+const THRESHOLD = 10_000;
+const HOOK_LIMITS = `const HOOK_PERSIST_CHARS = ${THRESHOLD};\nconst RULE_CAP = 500;\n`;
 const textModule = (commands: string[]) =>
 	[
 		`const COMMANDS = ${JSON.stringify(commands)};`,
-		'const BODY = "x".repeat(10000);',
+		`const BODY = "x".repeat(${THRESHOLD});`,
 		'module.exports = { COMMANDS, TAKES_READ: [], pricedOptionsWhole: () => "", trackerContext: () => BODY };',
 		"",
 	].join("\n");
@@ -244,7 +244,7 @@ export const ROW_FIXTURES: Record<string, RowFixture> = {
 			added: {
 				"scripts/lib/tracker-inject-text.js": textModule(["alpha", "beta"]),
 			},
-			names: ["/beta "],
+			names: ["FAIL: 2 payload(s)"],
 		},
 	},
 };
