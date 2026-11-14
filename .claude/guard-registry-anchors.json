@@ -7,7 +7,7 @@
 	".husky/pre-commit": "029e16611395583f",
 	".husky/pre-merge-commit": "e22bf185596f0991",
 	".husky/pre-push": "bec59ba36c1906e8",
-	".husky/prepare-commit-msg": "70f248a5c4d7bf23",
+	".husky/prepare-commit-msg": "e6395fea26042945",
 	"scripts/audit-escape-lines.js": "36b81d61d405c211",
 	"scripts/check-ci-status.js": "2221b70d57f859d5",
 	"scripts/check-citation-tracker.js": "06308a26629be5e9",

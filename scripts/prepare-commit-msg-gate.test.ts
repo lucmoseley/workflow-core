@@ -1253,6 +1253,23 @@ describe("the review hold's Review-Tier: trailer (#3664)", () => {
 		},
 	);
 
+	it("spells the Review-Tier: line as lib/review-tier-trailer.js's KEY does, so the idle skip passes over no line the trailer strips (#5153)", () => {
+		const key = /^const KEY = \/(.+)\/([a-z]*);$/m.exec(
+			fs.readFileSync(
+				path.join(ROOT, "scripts", "lib", "review-tier-trailer.js"),
+				"utf8",
+			),
+		);
+		const idle = /^trailer_idle\(\) \{[\s\S]*?grep -q(i?)E '([^']+)'/m.exec(
+			HOOK,
+		);
+		expect(key).not.toBeNull();
+		expect(idle).not.toBeNull();
+		/* POSIX ERE's [[:blank:]] is the space and the tab, KEY's [ \t]. */
+		expect(idle?.[2]?.replaceAll("[[:blank:]]", "[ \\t]")).toBe(key?.[1]);
+		expect(idle?.[1] === "i").toBe(key?.[2]?.includes("i"));
+	});
+
 	it("starts the trailer on this session's stamp, the id's other characters read as _ (#5153)", () => {
 		vi.stubEnv("CLAUDE_CODE_SESSION_ID", "a.b/c");
 		const p = probe();
