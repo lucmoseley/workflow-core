@@ -40,7 +40,7 @@
 	"scripts/check-vendored-skills.js": "f9b52e815a3ad989",
 	"scripts/check-weakens-line.js": "3687b2752e552118",
 	"scripts/check-website-copy.js": "fd4bea5ea8d6f63a",
-	"scripts/check-workflow-permissions.js": "38d03c7eea71b518",
+	"scripts/check-workflow-permissions.js": "50cce17aede34ad7",
 	"scripts/claim-issue.js": "54703b6860738205",
 	"scripts/clear-rule-latch.sh": "e4189281d65f5f84",
 	"scripts/commit-paths.js": "453bb33be0b34efa",
