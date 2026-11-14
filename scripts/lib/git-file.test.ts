@@ -126,8 +126,8 @@ describe("readRegistrationFault (#5209)", () => {
 	it("names a .git file that will not read, never throwing", () => {
 		fs.chmodSync(path.join(worktree, ".git"), 0o000);
 
-		expect(readRegistrationFault(worktree)).toBe(
-			`${path.join(worktree, ".git")} will not read: EACCES`,
+		expect(readRegistrationFault(worktree)).toMatch(
+			new RegExp(`^${path.join(worktree, ".git")} will not read: EACCES`),
 		);
 	});
 });

@@ -170,13 +170,19 @@ function reregister(dir, sha) {
 	const common = readGitFileCommonDir(dir);
 	if (common === null) throw new Error(`${dir}/.git names no common dir`);
 	const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "reregister-"));
+	/* Named as `dir` is, so the registration takes its name. */
+	const standIn = path.join(scratch, path.basename(dir));
 	try {
-		/* Named as `dir` is, so the registration takes its name. */
-		const standIn = path.join(scratch, path.basename(dir));
 		git(common, ["worktree", "add", "--no-checkout", "--detach", standIn, sha]);
-		const text = fs.readFileSync(path.join(standIn, ".git"), "utf8");
-		writeFileAtomic(path.join(dir, ".git"), text);
-		git(common, ["worktree", "repair", dir]);
+		try {
+			const text = fs.readFileSync(path.join(standIn, ".git"), "utf8");
+			writeFileAtomic(path.join(dir, ".git"), text);
+			git(common, ["worktree", "repair", dir]);
+		} catch (err) {
+			/* Else each retry leaves one more registration naming a stand-in. */
+			removeWorktree(common, standIn);
+			throw err;
+		}
 	} finally {
 		fs.rmSync(scratch, { recursive: true, force: true });
 	}

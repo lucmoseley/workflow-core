@@ -10,6 +10,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { caught } = require("./caught.js");
+const { readText } = require("./file-read.js");
 
 const ABSENT_CODES = new Set(["ENOENT", "ENOTDIR", "EISDIR"]);
 
@@ -125,25 +126,26 @@ function realPathOrNull(file) {
  * Null where git reads `dir` as a checkout: its `.git` a directory, or a file
  * naming a registration whose `gitdir` names that file back; else why not
  * (#5209). A registration naming another worktree is one a later checkout
- * took the name of after this one's went. Never throws: an unreadable `.git`
- * is a reason too.
+ * took the name of after this one's went. Never throws: a file that will not
+ * read is a reason too.
  * @param {string} dir
  */
 function readRegistrationFault(dir) {
 	const dotGit = path.join(dir, ".git");
-	let text;
-	try {
-		text = fs.readFileSync(dotGit, "utf8");
-	} catch (err) {
-		const { code = "" } = caught(err);
-		if (code === "EISDIR") return null;
-		if (ABSENT_CODES.has(code)) return `${dir} has no .git`;
-		return `${dotGit} will not read: ${code || caught(err).message}`;
-	}
-	const registration = parseGitFileTarget(dir, text);
+	const file = readText(dotGit);
+	if (file.state === "absent") return `${dir} has no .git`;
+	if (file.state === "unreadable")
+		return caught(file.error).code === "EISDIR"
+			? null
+			: `${dotGit} will not read: ${file.message}`;
+	const registration = parseGitFileTarget(dir, file.data);
 	if (registration === null) return `${dotGit} names no registration`;
-	const tree = readRegisteredTree(registration);
-	if (tree === null) return `its registration ${registration} is gone`;
+	const back = readText(path.join(registration, "gitdir"));
+	if (back.state === "unreadable")
+		return `its registration ${registration} will not read: ${back.message}`;
+	const gitFile = back.state === "read" ? back.data.trim() : "";
+	if (!gitFile) return `its registration ${registration} is gone`;
+	const tree = path.dirname(path.resolve(registration, gitFile));
 	return realPathOrNull(path.join(tree, ".git")) === realPathOrNull(dotGit)
 		? null
 		: `its registration ${registration} names ${tree}`;

@@ -541,13 +541,14 @@ describe("the boot link (#3891)", () => {
 	it("registers its worktree again where the registration goes, and adopts after (#5209)", async () => {
 		const tree = path.dirname(path.dirname(await startLoop()));
 		await moreTicks(1);
+		const registered = () =>
+			readLogLines().filter((l) => l.startsWith("registered "));
+		expect(registered()).toEqual([]);
 		fs.rmSync(git(tree, "rev-parse", "--absolute-git-dir"), {
 			recursive: true,
 		});
-		await until(
-			() => readLogLines().some((l) => l.startsWith(`registered ${tree} `)),
-			"the registration made again",
-		);
+		await until(() => registered().length > 0, "the registration made again");
+		expect(registered()[0]).toMatch(new RegExp(`^registered ${tree} `));
 		expect(git(tree, "rev-parse", "--git-common-dir")).toBe(
 			path.join(checkout, ".git"),
 		);

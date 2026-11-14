@@ -277,7 +277,8 @@ function pruneCodeDir({ root, codeDir, realCodeDir, kept, log }) {
 /**
  * A check, each call, that `root`, an image's worktree in the code directory,
  * is still registered with git, registering it again where it is not; a no-op
- * for an image elsewhere. A failure is logged once until its reason changes.
+ * for an image elsewhere. A failure is logged, once until its reason changes,
+ * and never thrown: the loop ticks on, its git calls failing as before (#5209).
  * @param {string} root
  * @param {string} codeDir
  * @param {(line: string) => void} log
@@ -291,6 +292,7 @@ function registrationKeeper(root, codeDir, log) {
 		const fault = readRegistrationFault(root);
 		if (fault === null) return;
 		try {
+			/* Named for the sha it is detached at (lib/pinned-code.js's worktreeAt). */
 			reregister(root, path.basename(root));
 			failed = null;
 			log(`registered ${root} with git again: ${fault}`);
