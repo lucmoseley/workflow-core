@@ -1264,9 +1264,11 @@ describe("the review hold's Review-Tier: trailer (#3664)", () => {
 	});
 
 	/** The hold's stamp path as a shell word, its name review-tier-stamp.js's. */
-	const shellStamp = (reviewTierStamp("GITDIR", "SID") as string)
-		.replace("GITDIR", "$(git rev-parse --absolute-git-dir)")
-		.replace("SID", "$CLAUDE_CODE_SESSION_ID");
+	const shellStamp = path.join(
+		"$(git rev-parse --absolute-git-dir)",
+		path.basename(reviewTierStamp(".", "x") as string).slice(0, -1) +
+			"$CLAUDE_CODE_SESSION_ID",
+	);
 	/** A pre-commit that leaves the stamp the review hold leaves on a pass. */
 	const holding = (p: Probe) =>
 		p.precommitBody(
