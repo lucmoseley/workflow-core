@@ -6,10 +6,12 @@
  * code.
  *
  * Ports (§T7): `now`, `out`, `err` and `gh`; `file`, file-issue.js through
- * lib/file-through.js; `runChecker` and
- * `startChecker`, a core checker's `--json` run, the second left running
- * beside the reads. The filesystem, git and journalctl are read in place, and
- * the filing lock and the day's kept reads are written in place:
+ * lib/file-through.js; `runChecker` and `startChecker`, a core checker's
+ * `--json` run, the second left running beside the reads; `answer`,
+ * answer-review-reversals.js's answerReversals, run after the filing (#3388)
+ * whether it filed, failed or threw. The filesystem, git and journalctl are
+ * read in place, and the filing lock and the day's kept reads are written in
+ * place:
  * #2733's boundary table gives the filesystem no fake, git runs real in a
  * test's temp directory, and journalctl is reached at WFC_JOURNALCTL, its
  * owned fake held by journalctl.contract.test.ts.
@@ -95,8 +97,9 @@
  * own only where one is open. Read apart from readRepo, so a tracker outage,
  * when a hold is likeliest, costs none of them.
  *
- * Exit: 0 for a filing or a day already filed; 1 where the review issues will
- * not list, the filing lock is held or the filing failed on gh; file-issue.js's
+ * Exit: the worse of the filing's and the answering's. The filing's is 0 for
+ * a filing or a day already filed; 1 where the review issues will not list,
+ * the filing lock is held, the filing failed on gh or threw; file-issue.js's
  * own code where it refused.
  */
 
@@ -151,6 +154,7 @@ const WSL_CURRENCY_SCRIPT = "check-wsl-currency.js";
  *   file: (argv: string[], body: string) => {status: number | null, stdout?: string | null, stderr?: string | null, error?: Error},
  *   runChecker: (script: string, args: string[], cwd: string) => CheckerRun,
  *   startChecker: (script: string) => Started,
+ *   answer: (tracker: string, dryRun: boolean) => number,
  * }} Ports
  */
 /**
@@ -743,18 +747,32 @@ function readTimelineAge(ctx, repo, number, label) {
 }
 
 /**
+ * The line a run that threw ends on, its stack where it has one.
+ * @param {unknown} e
+ */
+const buildCrashLine = (e) =>
+	`file-morning-review: ${e instanceof Error ? e.stack : String(e)}\n`;
+
+/**
  * @param {{tracker: string, dryRun: boolean, ports: Ports}} at
  * @returns {Promise<number>}
  */
-function fileMorningReview({ tracker, dryRun, ports }) {
-	return fileReview({
-		ports,
-		gh: buildGhReaders(ports.gh),
-		now: ports.now(),
-		tracker,
-		dryRun,
-		reads: freshReads(),
-	});
+async function fileMorningReview({ tracker, dryRun, ports }) {
+	/* A filing that throws still answers, and counts as a failure (#3388, #5203). */
+	let filed = 1;
+	try {
+		filed = await fileReview({
+			ports,
+			gh: buildGhReaders(ports.gh),
+			now: ports.now(),
+			tracker,
+			dryRun,
+			reads: freshReads(),
+		});
+	} catch (e) {
+		ports.err(buildCrashLine(e));
+	}
+	return Math.max(filed, ports.answer(tracker, dryRun));
 }
 
 /** @param {Ctx} ctx */
@@ -904,4 +922,4 @@ async function fileUnlessFiledToday(ctx) {
 	return filed.status ?? 1;
 }
 
-module.exports = { fileMorningReview };
+module.exports = { buildCrashLine, fileMorningReview };

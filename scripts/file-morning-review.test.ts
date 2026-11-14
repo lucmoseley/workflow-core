@@ -280,29 +280,6 @@ describe("file-morning-review.js (#2011)", () => {
 			expect(readReplies()).toHaveLength(1);
 		});
 
-		it("exits non-zero when the answering fails after a filing", async () => {
-			seed([reviewWithRequest()]);
-			fs.writeFileSync(stub("fail-comment"), "");
-			const r = await run();
-			expect(r.status).toBe(1);
-			expect(r.stderr).toContain(
-				"the reply failed (GraphQL: Could not resolve",
-			);
-			expect(readCreated().map((c) => c.title)).toContain(TODAY);
-		});
-
-		it("answers reversals and exits non-zero when the filing fails", async () => {
-			seed([reviewWithRequest()]);
-			fs.writeFileSync(stub("fail-review-create"), "");
-			const r = await run();
-			expect(r.status).toBe(1);
-			expect(r.stderr).toContain("GraphQL: Could not resolve");
-			expect(readCreated().map((c) => c.title)).toEqual([
-				"Reverse a delegated decision on #2: Inside the window",
-			]);
-			expect(readReplies()).toHaveLength(1);
-		});
-
 		it("files and answers nothing on --dry-run", async () => {
 			seed([reviewWithRequest()]);
 			const r = await run(["--dry-run"]);

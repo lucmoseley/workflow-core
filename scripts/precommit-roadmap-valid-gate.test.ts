@@ -24,9 +24,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { dispatch } from "./lib/precommit-dispatch.js";
 import { registerTempCleanup, stagedRepo } from "./lib/precommit-gate-harness";
-import { buildRepoPorts, ROOT } from "./lib/precommit-gate-testkit";
+import {
+	dispatchStubbed,
+	patternRow,
+	ROOT,
+} from "./lib/precommit-gate-testkit";
 import { GATES } from "./lib/precommit-gates.js";
 
 const CHECKER = "scripts/check-roadmap-valid.js";
@@ -35,11 +38,8 @@ const ROADMAP = "docs/reference-roadmap.html";
 
 const temps = registerTempCleanup();
 
-const row = GATES.find((g) => g.script === CHECKER);
-if (!row || !("pattern" in row.arm))
-	throw new Error(`no pattern row for ${CHECKER} in lib/precommit-gates.js`);
-const ROW = row;
-const PATTERN = row.arm.pattern;
+const ROW = patternRow(CHECKER);
+const PATTERN = ROW.arm.pattern;
 
 /**
  * How the row's arm differs from the path `check-roadmap-valid.js` itself
@@ -60,18 +60,7 @@ function parityGap(pattern: RegExp): string | null {
 
 /** Whether the dispatcher runs the row on what is staged in `root`. */
 async function arms(root: string): Promise<boolean> {
-	let ran = false;
-	await dispatch({
-		rows: [ROW],
-		gates: "all",
-		ports: buildRepoPorts(root, {
-			load: () => () => {
-				ran = true;
-				return { exit: 0, stdout: "", stderr: "" };
-			},
-		}),
-	});
-	return ran;
+	return (await dispatchStubbed(root, ROW)).ran;
 }
 
 const repo = (staged: Record<string, string>, committed = {}) =>
