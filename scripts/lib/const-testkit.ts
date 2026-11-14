@@ -4,6 +4,7 @@
  *
  * Callers pass the path composed at the call site, `path.join(__dirname, …)`,
  * so the read-edge extractor still attributes the read file to the test.
+ * Both readers throw where `file` holds no such line.
  */
 
 import fs from "node:fs";
