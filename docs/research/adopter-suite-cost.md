@@ -35,7 +35,7 @@ Classes of a boundary call:
 | `browser` | Playwright calls, the driver start and stop, and the Playwright time inside a child program | **(c)** a real render is the thing under test; a core does not remove it |
 | `shell-c`, `node-eval`, `python-c`, other tools | All other spawns | **(d)** |
 
-Share rule: **share (a) = sum of the (a) call walls / file time** (the union of the intervals where calls overlap). The predicted cut uses the cut-band conversion as #2202 first set it (`guard-port-cut-band.md` Q1.5; #5206 since made Q1.6's low end per file): **cut ≈ share (a) × 0.80 to 0.97.** The low end keeps 10% of the calls as real boundary contract tests and puts the rest through a `runInProcess`-style entry at 10 to 40 ms each. The high end keeps 3% and calls the core directly (about 0.01 ms).
+Share rule: **share (a) = sum of the (a) call walls / file time** (the union of the intervals where calls overlap). The predicted cut uses the flat cut-band conversion #2202 set (`guard-port-cut-band.md` Q1.5): **cut ≈ share (a) × 0.80 to 0.97.** The low end keeps 10% of the calls as real boundary contract tests and puts the rest through a `runInProcess`-style entry at 10 to 40 ms each. The high end keeps 3% and calls the core directly (about 0.01 ms).
 
 ## F1. fantasy-books
 
