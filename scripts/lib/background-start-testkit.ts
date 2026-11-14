@@ -14,12 +14,19 @@ export const buildStartEnv = (jobDir = "") => ({
 	CLAUDE_CODE_ENTRYPOINT: "cli",
 });
 
-/** Writes `jobDir`'s record as the harness does; returns `jobDir`. */
-export const writeJobRecord = (jobDir: string, template: string) => {
+/**
+ * Writes `jobDir`'s record as the harness does, with any further `fields`
+ * (its times, say); returns `jobDir`.
+ */
+export const writeJobRecord = (
+	jobDir: string,
+	template: string,
+	fields: Record<string, unknown> = {},
+) => {
 	fs.mkdirSync(jobDir, { recursive: true });
 	fs.writeFileSync(
 		path.join(jobDir, "state.json"),
-		JSON.stringify({ template }),
+		JSON.stringify({ ...fields, template }),
 	);
 	return jobDir;
 };
