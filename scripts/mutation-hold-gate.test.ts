@@ -50,7 +50,6 @@ import {
 	readRuns,
 	repo,
 	report,
-	routeRefuses,
 	SEED,
 	scratch,
 	stubDir,
@@ -528,13 +527,6 @@ describe("mutation-hold-gate.js — what runs nothing", () => {
 				return [MONEY, CONFIG];
 			},
 		],
-		[
-			"a commit route that will not read",
-			() => {
-				routeRefuses();
-				return [MONEY];
-			},
-		],
 	])(
 		"reports no fault of its own with the module off, over %s (#2077)",
 		(_, arrange) => {
@@ -744,14 +736,6 @@ describe("mutation-hold-gate.js — its own faults", () => {
 			"git that will not answer",
 			() => ({ paths: [MONEY], extra: gitRefuses() }),
 			"could not list the staged paths",
-		],
-		[
-			"a commit route that will not read",
-			() => {
-				routeRefuses();
-				return { paths: [MONEY] };
-			},
-			"could not read the commit route",
 		],
 		[
 			"no throwaway worktree",

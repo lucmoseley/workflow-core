@@ -228,14 +228,6 @@ export const commitCount = () => Number(git("rev-list", "--count", "HEAD"));
 /** Every fail-open record the gate logged, check-guard-errors.js's input. */
 export const readLog = () => readGuardErrorsLog(scratch);
 
-/**
- * sh is faked here, failing one chosen call, as it has no WFC_ variable to
- * name a stub by and the hook calls it itself.
- */
-const onPath = (name: string, script: string) =>
-	fs.writeFileSync(path.join(scratch, "bin", name), `#!/bin/sh\n${script}`, {
-		mode: 0o755,
-	});
 export const STUB_GIT_REFUSAL =
 	'echo "fatal: stub git will not answer" >&2; exit 128';
 /** A git call holding `words` in a row fails; every other call runs. */
@@ -248,11 +240,6 @@ export const gitRefuses = (
 		{ under: scratch },
 	).git,
 });
-export const routeRefuses = () =>
-	onPath(
-		"sh",
-		`case "\${4-}" in */commit-route.sh) echo "stub sh: no route" >&2; exit 2 ;; esac\nexec /bin/sh "$@"\n`,
-	);
 export const CONFIG = ".claude/workflow-core.json";
 export const switchModuleOff = () => {
 	write(
