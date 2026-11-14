@@ -15,17 +15,13 @@ import { afterAll, describe, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
 import { registrationsOf } from "./lib/hook-wiring";
 import { runInProcess } from "./lib/run-in-process.js";
+import { readJsConst } from "./lib/shell-const-testkit";
 
 const ROOT = path.resolve(__dirname, "..");
 const HOOK = path.join(ROOT, "scripts", "inject-tracker-docs.js");
-/** The host's `gh` budget, read from its source: no caller but this one wants it. */
-const TAKES_GH_TIMEOUT_S = Number(
-	/^const TAKES_GH_TIMEOUT_S = (\d+);$/m.exec(
-		fs.readFileSync(
-			path.join(ROOT, "scripts", "lib", "inject-tracker-docs-host.js"),
-			"utf8",
-		),
-	)?.[1],
+const TAKES_GH_TIMEOUT_S = readJsConst(
+	path.join(ROOT, "scripts", "lib", "inject-tracker-docs-host.js"),
+	"TAKES_GH_TIMEOUT_S",
 );
 
 const SCRATCH = fs.mkdtempSync(path.join(os.tmpdir(), "inject-entry-"));
