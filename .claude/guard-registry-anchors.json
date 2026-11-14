@@ -1,5 +1,5 @@
 {
-	".husky/commit-msg": "b5ae2283493e5197",
+	".husky/commit-msg": "c9e0e083dac58fc7",
 	".husky/post-checkout": "56796fedbeeaa54c",
 	".husky/post-commit": "2c1d0f25457a5f42",
 	".husky/post-merge": "0b9627da5e1196b9",
@@ -38,7 +38,7 @@
 	"scripts/check-stray-scratch.js": "3ab24a95a436009c",
 	"scripts/check-superseded-values.js": "73516cca51f65f41",
 	"scripts/check-vendored-skills.js": "f9b52e815a3ad989",
-	"scripts/check-weakens-line.js": "3687b2752e552118",
+	"scripts/check-weakens-line.js": "b094b45fb83bcdc0",
 	"scripts/check-website-copy.js": "fd4bea5ea8d6f63a",
 	"scripts/check-workflow-permissions.js": "50cce17aede34ad7",
 	"scripts/claim-issue.js": "54703b6860738205",

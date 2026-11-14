@@ -375,10 +375,12 @@ function run(ctx) {
 	return { noun: "unnamed weakening(s)", count: unnamed.length };
 }
 
-if (require.main === module) {
-	runCheck({
-		name: "weakens-line",
-		usage: "node check-weakens-line.js <message-file> [--json] [--warn]",
-		run,
-	});
-}
+const SPEC = {
+	name: "weakens-line",
+	usage: "node check-weakens-line.js <message-file> [--json] [--warn]",
+	run,
+};
+
+module.exports = { SPEC };
+
+if (require.main === module) runCheck(SPEC);
