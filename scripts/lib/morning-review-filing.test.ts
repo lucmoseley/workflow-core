@@ -9,15 +9,15 @@
  * lib/checker-run-fake.ts (held by checker-run.contract.test.ts). The
  * answering is answer-review-reversals.js's real answerReversals in the cases
  * on it, with gh at the fixture's stub; elsewhere a port answering nothing,
- * which no case asserts on and which spares each filing two gh spawns. The program's
- * boundary set stays in file-morning-review.test.ts. Break the core and the
+ * which no case asserts on and which spares each filing two gh spawns. The
+ * program's boundary set stays in file-morning-review.test.ts. Break the core and the
  * loop files no review, or two in a day, or loses an event between two
  * reviews (#3813), or a repo that did not read loses its events (#3831).
  *
- * Near the 10 s file budget (§X8 (5)): many cases file three or four days in
- * a row, each filing paying two journalctl fake starts and its real git, and
- * the three answering cases pay the real answering's gh stub and file-issue.js
- * starts, some 0.5 s each.
+ * Over the 10 s file budget (§X8 (5)), some 10 s at a load of 6 and 18 s at
+ * 15: many cases file three or four days in a row, each filing paying two
+ * journalctl fake starts and its real git, and the three answering cases pay
+ * the real answering's gh stub and file-issue.js starts, some 0.5 s each.
  */
 
 import { execFileSync } from "node:child_process";
@@ -33,6 +33,7 @@ import { buildReviewTitle } from "./morning-review.js";
 import { fileMorningReview } from "./morning-review-filing.js";
 import { HOUR, morningReviewFixture } from "./morning-review-fixture";
 import { raiseHold } from "./repo-holds.js";
+import { restoreStderr, spyStderr } from "./write-fd-testkit";
 
 const sb = freshSandbox();
 
@@ -60,13 +61,13 @@ const file = async ({
 	at,
 	envelopes = {},
 	answer = () => 0,
-	fileThrough,
+	fileFails,
 }: {
 	dryRun?: boolean;
 	at?: string;
 	envelopes?: Record<string, object>;
 	answer?: (tracker: string, dryRun: boolean) => number;
-	fileThrough?: (argv: string[], body: string) => never;
+	fileFails?: (argv: string[], body: string) => never;
 } = {}) => {
 	if (at) vi.useFakeTimers({ toFake: ["Date"], now: new Date(at) });
 	const gh = ghPort();
@@ -84,7 +85,7 @@ const file = async ({
 					streams.stderr += text;
 				},
 				gh,
-				file: fileThrough ?? fileIssueFake(gh, "acme/wfc"),
+				file: fileFails ?? fileIssueFake(gh, "acme/wfc"),
 				...checkerFake(envelopes),
 				answer,
 			},
@@ -1310,29 +1311,20 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 				.find((i: { number: number }) => i.number === 5)
 				.comments.slice(1);
 
-		/* The real answering, its gh at the stub, writing through fds 1 and 2. */
+		/* The real answering, its gh at the stub, its stderr through writeFd. */
 		const fileAnswering = async (opts: Parameters<typeof file>[0] = {}) => {
 			const env = runEnv();
 			for (const key of ["WFC_GH", "STUB_DIR", "WFC_SCRIPT_ROOT"] as const)
 				vi.stubEnv(key, env[key]);
-			const fds: Record<number, string> = { 1: "", 2: "" };
-			const realWriteSync = fs.writeSync;
-			const spy = vi
-				.spyOn(fs, "writeSync")
-				.mockImplementation((fd: number, ...rest: unknown[]) => {
-					if (!(fd in fds))
-						return (realWriteSync as (...a: unknown[]) => number)(fd, ...rest);
-					const [bytes] = rest as [Uint8Array | string];
-					fds[fd] += Buffer.from(bytes).toString();
-					return typeof bytes === "string"
-						? Buffer.byteLength(bytes)
-						: bytes.length;
-				});
+			const fd2 = spyStderr();
 			try {
 				const r = await file({ ...opts, answer: answerReversals });
-				return { ...r, stdout: r.stdout + fds[1], stderr: r.stderr + fds[2] };
+				return {
+					...r,
+					stderr: r.stderr + fd2.mock.calls.map(([t]) => t).join(""),
+				};
 			} finally {
-				spy.mockRestore();
+				restoreStderr();
 			}
 		};
 
@@ -1362,7 +1354,7 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 		it("answers reversals and exits 1 with the stack when the filing throws", async () => {
 			seed([reviewWithRequest()]);
 			const r = await fileAnswering({
-				fileThrough: () => {
+				fileFails: () => {
 					throw new Error("filer gone");
 				},
 			});

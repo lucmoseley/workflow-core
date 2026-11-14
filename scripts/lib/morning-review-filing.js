@@ -6,11 +6,12 @@
  * code.
  *
  * Ports (§T7): `now`, `out`, `err` and `gh`; `file`, file-issue.js through
- * lib/file-through.js; `runChecker` and
- * `startChecker`, a core checker's `--json` run, the second left running
- * beside the reads; `answer`, answer-review-reversals.js's answerReversals,
- * run after the filing (#3388) whether it filed, failed or threw. The filesystem, git and journalctl are read in place, and
- * the filing lock and the day's kept reads are written in place:
+ * lib/file-through.js; `runChecker` and `startChecker`, a core checker's
+ * `--json` run, the second left running beside the reads; `answer`,
+ * answer-review-reversals.js's answerReversals, run after the filing (#3388)
+ * whether it filed, failed or threw. The filesystem, git and journalctl are
+ * read in place, and the filing lock and the day's kept reads are written in
+ * place:
  * #2733's boundary table gives the filesystem no fake, git runs real in a
  * test's temp directory, and journalctl is reached at WFC_JOURNALCTL, its
  * owned fake held by journalctl.contract.test.ts.
@@ -746,11 +747,18 @@ function readTimelineAge(ctx, repo, number, label) {
 }
 
 /**
+ * The line a run that threw ends on, its stack where it has one.
+ * @param {unknown} e
+ */
+const buildCrashLine = (e) =>
+	`file-morning-review: ${e instanceof Error ? e.stack : String(e)}\n`;
+
+/**
  * @param {{tracker: string, dryRun: boolean, ports: Ports}} at
  * @returns {Promise<number>}
  */
 async function fileMorningReview({ tracker, dryRun, ports }) {
-	/* A filing that throws still answers, and counts as a failure. */
+	/* A filing that throws still answers, and counts as a failure (#3388, #5203). */
 	let filed = 1;
 	try {
 		filed = await fileReview({
@@ -762,9 +770,7 @@ async function fileMorningReview({ tracker, dryRun, ports }) {
 			reads: freshReads(),
 		});
 	} catch (e) {
-		ports.err(
-			`file-morning-review: ${e instanceof Error ? e.stack : String(e)}\n`,
-		);
+		ports.err(buildCrashLine(e));
 	}
 	return Math.max(filed, ports.answer(tracker, dryRun));
 }
@@ -916,4 +922,4 @@ async function fileUnlessFiledToday(ctx) {
 	return filed.status ?? 1;
 }
 
-module.exports = { fileMorningReview };
+module.exports = { buildCrashLine, fileMorningReview };

@@ -26,7 +26,10 @@ const { hostRoot } = require("./lib/host-root.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { fileThrough } = require("./lib/file-through.js");
 const { writeFd } = require("./lib/write-fd.js");
-const { fileMorningReview } = require("./lib/morning-review-filing.js");
+const {
+	buildCrashLine,
+	fileMorningReview,
+} = require("./lib/morning-review-filing.js");
 const { scriptIo } = require("./lib/tracker-ops.js");
 const { runChecker, startChecker } = require("./lib/checker-run.js");
 
@@ -61,9 +64,6 @@ module.exports = { main };
 
 if (require.main === module)
 	main().catch((e) => {
-		writeFd(
-			2,
-			`file-morning-review: ${e instanceof Error ? e.stack : String(e)}\n`,
-		);
+		writeFd(2, buildCrashLine(e));
 		process.exitCode = 1;
 	});
