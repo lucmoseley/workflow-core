@@ -86,7 +86,7 @@ const path = require("node:path");
 const { Writable } = require("node:stream");
 const { TEST_TIMEOUT_MS } = require("./test-ceiling");
 const { caught } = require("./caught.js");
-const { replaceEnv, takeWrites, toText } = require("./fd-capture.js");
+const { replaceEnv, takeWrites, toText } = require("./process-globals.js");
 
 const NODE_MODULES = `${path.sep}node_modules${path.sep}`;
 
@@ -667,7 +667,7 @@ function mutatePatches({ saved }, { script, args, options }, state) {
 	/* Only fd 0: everything else has to keep reading the real filesystem, the
 	 * script's own fixture included. The worker's real fd 0 is never reached:
 	 * lib/read-fd.js would wait out its EAGAIN ceiling on an idle one (#4072).
-	 * The `any`s, as on lib/fd-capture.js's writeSync patch: neither
+	 * The `any`s, as on lib/process-globals.js's writeSync patch: neither
 	 * function's overloads can be assigned one arrow without a cast, and each
 	 * argument is whatever the script passes, handed on to the real function
 	 * untouched off fd 0. */

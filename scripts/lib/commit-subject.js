@@ -23,7 +23,6 @@
  * tells it from git's nested `Revert "Revert "x""`.
  */
 
-const { caught } = require("./caught.js");
 const { recordedLines } = require("./commit-message.js");
 const { readText } = require("./file-read.js");
 const { readRuleTextOr } = require("./rule-text.js");
@@ -97,29 +96,12 @@ const unmeasured = (context, why) => ({
 function checkSubject(argv) {
 	const [file = "", context = "commit"] = argv;
 	const read = readText(file);
-	/* A directory opens and fails the read itself, which reads as the parse's
-	 * refusal below rather than a file nobody could open. */
-	if (
-		read.state === "absent" ||
-		(read.state === "unreadable" && caught(read.error).code !== "EISDIR")
-	)
+	if (read.state !== "read")
 		return unmeasured(
 			context,
 			`cannot read the commit message file ('${file}').`,
 		);
-	/** @type {string[] | null} */
-	let lines = null;
-	if (read.state === "read")
-		try {
-			lines = recordedLines(read.data);
-		} catch {
-			/* Refused below, as the read that would not give text is. */
-		}
-	if (lines === null)
-		return unmeasured(
-			context,
-			"scripts/lib/commit-message.js did not read the message.",
-		);
+	const lines = recordedLines(read.data);
 	const subject = trimSpace(lines.find((l) => trimSpace(l) !== "") ?? "");
 	if (generated(subject)) return { code: 0, stderr: "" };
 	const length = charCount(subject);

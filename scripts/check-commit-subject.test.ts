@@ -178,12 +178,11 @@ describe(".husky/commit-msg refuses a subject over 72 characters (#2332)", () =>
 		expect(viaM(`${subject(40)}\n\n${"y".repeat(200)}\n`).status).toBe(0);
 	});
 
-	/* A directory passes the read-access probe and fails the read itself. */
-	it("refuses rather than passing a subject when lib/commit-message.js cannot read the message", () => {
+	it("refuses rather than passing a subject when the message file is a directory", () => {
 		const r = checkSubject([hooks, "t"]);
 		expect(r.code).toBe(1);
 		expect(r.stderr).toBe(
-			"t: scripts/lib/commit-message.js did not read the message.\n  Refusing rather than passing a subject nothing has measured (#2332).\n",
+			`t: cannot read the commit message file ('${hooks}').\n  Refusing rather than passing a subject nothing has measured (#2332).\n`,
 		);
 	});
 

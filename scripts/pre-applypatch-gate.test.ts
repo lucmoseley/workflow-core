@@ -20,6 +20,11 @@
  *
  * spawn-kept: every case spawns git to fire the real hook, which starts node
  * only through its refusal printer, as git would.
+ *
+ * Past 2.5x its CI record (base §X8 (5)): it holds the refusal-text and
+ * scan-call cases commit-route.test.ts held for the shell library (#5208),
+ * 11 cases grown to 18, each a real git apply firing the real hook at
+ * 0.3–0.8 s apiece, the boundary under test.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";

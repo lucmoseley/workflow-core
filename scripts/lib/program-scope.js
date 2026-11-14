@@ -11,9 +11,9 @@
  *
  * WHAT IS SWAPPED, AND PUT BACK IN A `finally`:
  *
- *   env     replaced in place, lib/fd-capture.js's replaceEnv.
+ *   env     replaced in place, lib/process-globals.js's replaceEnv.
  *   cwd     process.chdir to the caller's directory.
- *   output  fd 1 and fd 2, by both routes, taken by lib/fd-capture.js's
+ *   output  fd 1 and fd 2, by both routes, taken by lib/process-globals.js's
  *           takeWrites. Every other fd writes as it would.
  *
  * NOT REPRODUCED: a `process.exit` inside the body ends this process, and a
@@ -25,7 +25,7 @@
  * sequence.
  */
 
-const { replaceEnv, takeWrites } = require("./fd-capture.js");
+const { replaceEnv, takeWrites } = require("./process-globals.js");
 
 /**
  * @typedef {{ cwd: string, env: NodeJS.ProcessEnv }} ProcessIo

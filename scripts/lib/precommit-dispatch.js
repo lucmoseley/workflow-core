@@ -80,6 +80,18 @@ function missingPort(name) {
 	throw new Error(`a row arms on a path, and this hook passes no ${name} port`);
 }
 
+/** The ports a path-armed row reads: a hook passes all three or none. */
+const PATH_PORTS = /** @type {const} */ (["staged", "computed", "exists"]);
+
+/**
+ * A path port, present once readStagedOrRefuse has passed: it refuses a run
+ * missing any of PATH_PORTS before a path-armed row is weighed.
+ * @template {Function} F
+ * @param {F | undefined} port
+ * @returns {F}
+ */
+const pathPort = (port) => /** @type {F} */ (port);
+
 /** @param {string} hook @param {string} noun */
 const stoppedLine = (hook, noun) =>
 	`${hook}: a signal stopped the run; no ${noun} ran after it.\n`;
@@ -144,15 +156,14 @@ function armingOf(row, staged, ports, voice) {
 	let list = [];
 	if ("computed" in row.arm && row.arm.computed !== undefined)
 		try {
-			list = ports.computed
-				? ports.computed(row.arm.computed)
-				: missingPort("computed");
+			list = pathPort(ports.computed)(row.arm.computed);
 		} catch (e) {
 			ports.write(2, crashLine(voice, row, "load", e));
 			return "broken";
 		}
-	const exists = ports.exists ?? (() => missingPort("exists"));
-	return armed(row.arm, staged, list, exists) ? "armed" : "unarmed";
+	return armed(row.arm, staged, list, pathPort(ports.exists))
+		? "armed"
+		: "unarmed";
 }
 
 /**
@@ -236,7 +247,9 @@ async function runRows(rows, staged, ports, voice) {
  */
 async function readStagedOrRefuse(ports, voice) {
 	try {
-		return { staged: ports.staged ? ports.staged() : missingPort("staged") };
+		const missing = PATH_PORTS.find((name) => !ports[name]);
+		if (missing) missingPort(missing);
+		return { staged: pathPort(ports.staged)() };
 	} catch (e) {
 		const code = await ports.interrupted();
 		ports.write(

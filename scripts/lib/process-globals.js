@@ -1,5 +1,5 @@
 /*
- * fd-capture.js — a program's process-wide output and environment, swapped
+ * process-globals.js — a program's process-wide output and environment, swapped
  * so it can run inside another process (#5208): its fd 1 and fd 2 writes
  * handed to a taker rather than printed, and process.env replaced in place.
  * lib/program-scope.js runs a hook's programs in the post-commit dispatcher

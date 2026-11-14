@@ -276,8 +276,8 @@ function trailerIdle(ctx) {
 	const { reviewTierStamp } = require("./review-tier-stamp.js");
 	const stamp = reviewTierStamp(ctx.gitDir, ctx.env.CLAUDE_CODE_SESSION_ID);
 	if (stamp !== null && fs.existsSync(stamp)) return false;
-	/* A message that will not read is no proof the trailer is there: not
-	 * idle, so the trailer runs. */
+	/* A message that will not read is no proof it lacks a Review-Tier: line:
+	 * not idle, so the trailer runs. */
 	const read = readText(ctx.file);
 	if (read.state !== "read") return false;
 	const { KEY } = require("./review-tier-trailer.js");
