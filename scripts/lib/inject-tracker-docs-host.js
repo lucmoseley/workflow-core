@@ -116,7 +116,6 @@ function logFailOpen(what, detail) {
 }
 
 module.exports = {
-	TAKES_GH_TIMEOUT_S,
 	buildHostPorts,
 	logFailOpen,
 };
