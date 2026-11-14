@@ -17,55 +17,8 @@
 # hook bytes that call what the other half does not yet define. A hook refuses
 # every commit when this file is missing; the two gates fail open.
 #
-# THE MARKER TABLE: what each hook sees in $GIT_DIR per route, measured on git
-# 2.43.0 (#1503). A hook missing from a row
-# does not fire on that route. `--no-verify` skips pre-commit, commit-msg and
-# pre-merge-commit, never prepare-commit-msg (mantahostels#1705).
-#
-#   commit           nothing, at pre-commit, prepare-commit-msg, commit-msg and
-#                    post-commit
-#   single revert    AUTO_MERGE and MERGE_MSG at prepare-commit-msg and
-#                    post-commit; a killed merge can strand both, so this reads
-#                    as `commit`
-#   merge            pre-merge-commit: AUTO_MERGE and GIT_REFLOG_ACTION
-#                    (`merge …`, or `pull …` from a pull), no MERGE_HEAD yet;
-#                    prepare-commit-msg and commit-msg: MERGE_HEAD; no
-#                    post-commit. The `git commit` resolving a conflicted merge:
-#                    MERGE_HEAD at pre-commit through commit-msg, nothing at
-#                    post-commit
-#   cherry-pick      CHERRY_PICK_HEAD at prepare-commit-msg and post-commit, plus
-#                    `sequencer` on a range; no pre-commit. `--continue`:
-#                    CHERRY_PICK_HEAD at pre-commit through commit-msg, nothing
-#                    at post-commit
-#   revert-sequence  `git revert A B`: `sequencer` at prepare-commit-msg and
-#                    post-commit, its `abort-safety` naming the commit this one
-#                    is made on, and at post-commit a `revert:` HEAD reflog
-#                    entry; no pre-commit
-#   revert-continue  REVERT_HEAD at pre-commit through commit-msg, nothing at
-#                    post-commit
-#   rebase           a replay: rebase-merge and CHERRY_PICK_HEAD at
-#                    prepare-commit-msg and post-commit; no pre-commit.
-#                    `--continue`: rebase-merge alone at the same two. A reword,
-#                    or a `git commit` by hand mid-rebase: rebase-merge at
-#                    pre-commit through post-commit
-#   rebase-apply     `git rebase --apply`: rebase-apply/rebasing at
-#                    applypatch-msg, pre-applypatch and post-applypatch only
-#   am               `git am`: rebase-apply/applying at the same three only
-#   bisect           a commit by hand mid-bisect: BISECT_LOG at all four commit
-#                    hooks
-#
-# So the order matters: rebase-merge before CHERRY_PICK_HEAD, which a rebase
-# replay sets too; CHERRY_PICK_HEAD and REVERT_HEAD before `sequencer`, which a
-# range of either sets; and MERGE_HEAD before `sequencer`, which a cherry-pick
-# range stopped on a conflict and finished by a plain `git commit` leaves behind,
-# so that a later merge still reads as one.
-#
-# A LEFTOVER `sequencer` IS NOT A SEQUENCE (#3298): a stopped range finished by
-# hand leaves one until `git revert --quit`. A single pick or revert over it
-# rewrites its `abort-safety` as a sequence's own step does, so post-commit
-# also asks the HEAD reflog (wfc_cr_sequencing). The hooks before it, with no
-# reflog entry yet, read a commit right after such a pick as `revert-sequence`;
-# none of them acts on that route.
+# THE MARKER TABLE, the order its checks run in and why, and the leftover
+# `sequencer` (#3298): scripts/lib/commit-route.js's header.
 
 # wfc_commit_route <hook> <gitdir> — prints the route. An empty <gitdir>, a git
 # that would not answer, reads as no marker at all. Exits 2 on a hook with no

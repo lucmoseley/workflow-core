@@ -19,7 +19,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderHookShim } from "./adopter-skeleton";
-import { commitRoute, isReplayRoute } from "./commit-route.js";
+import {
+	commitRoute,
+	inRouteSet,
+	isReplayRoute,
+	routeAbort,
+	routeName,
+} from "./commit-route.js";
 import { newRepo, registerTempCleanup } from "./precommit-gate-harness";
 import { ROOT } from "./precommit-gate-testkit";
 import { shellQuote } from "./sh-quote.js";
@@ -540,19 +546,38 @@ describe("wfc_commit_route_replays", () => {
 	});
 });
 
-describe("wfc_commit_route_abort", () => {
+/*
+ * Each route's abort, display name and post-commit stand-down answer: Node's
+ * export, and the shell copy's function where it has one. A wrong abort
+ * strands the tree, and a wrong stand-down releases claims over a replay.
+ */
+describe("routeAbort, routeName and the post-commit stand-down set", () => {
 	it.each([
-		["rebase", "git rebase --abort"],
-		["rebase-apply", "git rebase --abort"],
-		["am", "git am --abort"],
-		["cherry-pick", "git cherry-pick --abort"],
-		["revert-sequence", "git revert --abort"],
-		["revert-continue", "git revert --abort"],
-		["merge", "git merge --abort"],
-		["bisect", ""],
-		["commit", ""],
-	])("clears %s with `%s`", (route, abort) => {
-		expect(inShell("sh", `wfc_commit_route_abort ${route}`).out).toBe(abort);
+		["rebase", "git rebase --abort", "git rebase", true],
+		["rebase-apply", "git rebase --abort", "git rebase --apply", true],
+		["am", "git am --abort", "git am", true],
+		["cherry-pick", "git cherry-pick --abort", "git cherry-pick", true],
+		["revert-sequence", "git revert --abort", "git revert", true],
+		["revert-continue", "git revert --abort", "git revert", true],
+		["merge", "git merge --abort", "git merge", false],
+		["bisect", "", "commit", true],
+		["commit", "", "commit", false],
+	])(
+		"%s clears with `%s`, reads as `%s`, and stands post-commit down: %s",
+		(route, abort, name, standsDown) => {
+			expect(routeAbort(route)).toBe(abort);
+			expect(routeName(route)).toBe(name);
+			expect(inRouteSet("post-commit-stand-down", route)).toBe(standsDown);
+			expect(inShell("sh", `wfc_commit_route_abort ${route}`).out).toBe(abort);
+			expect(inShell("sh", `wfc_commit_route_name ${route}`).out).toBe(name);
+		},
+	);
+
+	it("reads a name ROUTE_SETS lacks as the one route it spells", () => {
+		expect(inRouteSet("merge", "merge")).toBe(true);
+		expect(inRouteSet("merge", "commit")).toBe(false);
+		expect(inRouteSet("replay", "cherry-pick")).toBe(true);
+		expect(inRouteSet("replay", "merge")).toBe(false);
 	});
 });
 
