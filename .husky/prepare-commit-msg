@@ -151,7 +151,11 @@ unchecked() {
 # nothing: no message, or no stamp of this session's in the git directory and no
 # `Review-Tier:` line in the message, so the node start it costs is skipped
 # (#5153). The stamp's name is lib/review-tier-stamp.js's, the line's spelling
-# review-tier-trailer.js's KEY; an unreadable message runs the trailer.
+# lib/review-tier-trailer.js's KEY, each held to it by
+# prepare-commit-msg-gate.test.ts; an unreadable message runs the trailer.
+# §X11 departure: a hook line holds no logic, but this one decides whether the
+# trailer core runs at all. The founder ruled the skip in for latency (#5153
+# Q1 (A)): most commits carry neither, and each would otherwise pay a node start.
 trailer_idle() {
   [ -n "$1" ] || return 0
   [ -n "$gitdir" ] || return 1
