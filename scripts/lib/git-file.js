@@ -110,10 +110,7 @@ function readGitFile(start) {
 	}
 }
 
-/**
- * `file`'s real path, or null where it does not resolve.
- * @param {string} file
- */
+/** @param {string} file */
 function realPathOrNull(file) {
 	try {
 		return fs.realpathSync(file);

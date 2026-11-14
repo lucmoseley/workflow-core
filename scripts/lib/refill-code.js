@@ -278,7 +278,7 @@ function pruneCodeDir({ root, codeDir, realCodeDir, kept, log }) {
  * A check, each call, that `root`, an image's worktree in the code directory,
  * is still registered with git, registering it again where it is not; a no-op
  * for an image elsewhere. A failure is logged, once until its reason changes,
- * and never thrown: the loop ticks on, its git calls failing as before (#5209).
+ * and never thrown (#5209).
  * @param {string} root
  * @param {string} codeDir
  * @param {(line: string) => void} log
@@ -398,12 +398,10 @@ function codeUpdater({ program, codeDir, log }) {
 			if (tip !== null) adopt(tip);
 		},
 		/**
-		 * Each tick, register the image's worktree again where its
-		 * registration is gone. After the first tick of an image from the code
-		 * directory, point the boot link at it; then, each tick until none is
-		 * left, remove every worktree there but its own and those a live
-		 * process runs from. A link that will not move keeps the worktree it
-		 * names.
+		 * After the first tick of an image from the code directory, point the
+		 * boot link at it; then, each tick until none is left, remove every
+		 * worktree there but its own and those a live process runs from. A
+		 * link that will not move keeps the worktree it names.
 		 */
 		afterTick() {
 			keepRegistered();
