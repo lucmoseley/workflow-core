@@ -35,7 +35,6 @@ afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 const at = (t: number) => new Date(t).toISOString();
 
-/** A minute line a minute over the whole window, 3 sessions at load 4. */
 function writeMinuteLog() {
 	const lines = Array.from({ length: 48 * 60 }, (_, i) =>
 		JSON.stringify({ ts: at(T0 + i * MIN), load1: 4, sessions: 3 }),
@@ -96,10 +95,6 @@ function run(
 	);
 }
 
-/**
- * A checkout whose default branch holds a commit citing #1 and its revert,
- * the revert's body line kept or edited out.
- */
 function writeCheckout(bodyLine = true) {
 	const code = path.join(dir, "code");
 	initGitRepo(code, "/dev/null");

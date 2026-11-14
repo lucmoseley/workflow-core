@@ -1,6 +1,7 @@
 // @vitest-environment node
 /*
- * throughput-readout.test.ts — the throughput readout's core (#5196). Break
+ * The throughput readout's core (#5196). Each case builds its records inline
+ * and hands them to the pure core, so no file, log or process is read. Break
  * it and a band misreads the objective: rework passes as output, a junk close
  * counts, a truncated day reads as a slow one, or a plateau is read off a
  * handful of hours.
@@ -18,7 +19,6 @@ const HOUR = 60 * MIN;
 const T0 = Date.parse("2026-11-10T00:00:00Z");
 const REPO = "owner/tracker";
 
-/** One minute line a minute over [from, from + hours), as `at` says. */
 function minutes(
 	from: number,
 	hours: number,

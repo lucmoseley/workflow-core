@@ -3,27 +3,18 @@
  * throughput-readout.js — the throughput readout's command line (#5196):
  * total `COMPLETED` closes per hour over a window, banded by concurrent
  * sessions and by load1, beside the readings that judge admission's limits.
- * lib/throughput-readout.js is its core; this reads the records and renders.
  *
  * THE READING IS NEVER A TARGET (#3212): no session, loop or filing rule aims
- * at it. A trial reads Bash round-trip, with closes as its guardrail (#4160).
+ * at it.
  *
  * IN NO FAMILY (code-standards §N3, §G4): it files nothing and gates nothing;
- * it prints a reading on demand and exits 0, or 2 on a bad argument. A source
+ * it prints a reading and exits 0, or 2 on a bad argument. A source
  * that will not read is named with the hours it lacks, never a failure. It
  * runs nowhere at session start: the transcript scan and the day-by-day
  * close fetch take minutes.
  *
- * Its sources, each through its existing reader:
- *   closes        `gh search issues`, one UTC day at a time across the
- *                 owner's repos, as report-cost-per-unit.js fetches, so the
- *                 1,000-result search cap cannot truncate the window silently
- *   commits       each `--checkout`'s default branch, for reverts and work size
- *   minutes       memwatch's minute log (load1, sessions, coverage)
- *   ticks         the refill tick record (live sessions, binding limb)
- *   queue         lib/suite-queue-replay.js over the queue-exit log
- *   transcripts   dense_minute.py's per-minute output over the window alone
- *   jobs          each seat's job records, and pick-next's dispatch log
+ * Closes are fetched one UTC day at a time across the owner's repos, so the
+ * 1,000-result search cap cannot truncate the window silently.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -581,7 +572,7 @@ function readArgs(argv) {
 }
 
 /**
- * Every source read over the window, as the core takes them.
+ * Every source read over the window.
  * @param {Options} o
  */
 function readRecords(o) {

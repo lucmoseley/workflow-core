@@ -2,16 +2,13 @@
  * throughput-readout.js — the throughput readout's pure core (#5196):
  * total `COMPLETED` closes per hour, banded by concurrent sessions and by
  * load1, beside the readings needed to judge admission's limits.
- * scripts/throughput-readout.js reads the records and renders; this takes
- * them as plain arrays and returns the bands.
  *
  * THE OBJECTIVE IS A READING, NEVER A TARGET (#3212): closes are counted
  * unweighted, a reverted close subtracted and a re-land counted once, with
  * commits per close beside them so a fall in work size shows.
  *
  * THE BUCKET IS THE CLOCK HOUR, cut again at each era, and holds only the
- * minutes the minute log covers, so an hour spanning a WSL restart keeps its
- * covered minutes alone. Each minute's sessions come from a fresh refill tick
+ * minutes the minute log covers. Each minute's sessions come from a fresh refill tick
  * where the loop ran, else the minute line's count; means are time-weighted
  * over those minutes (docs/practice/capacity-planning-and-admission.md
  * §Reading out why work waits). A figure is taken only over the minutes its
@@ -26,7 +23,7 @@ const HOUR_MS = 60 * MINUTE_MS;
  * plateau (#5196). */
 const THIN_HOURS = 10;
 /* Load bands' edges per core: <16, 16–24, 24–32, 32+ on 8 cores. Untraced:
- * the 27 Oct read's bins (#5196). */
+ * #5196's bins. */
 const LOAD_EDGES_PER_CORE = [2, 3, 4];
 /* Untraced: the marginal queue wait is fitted from 5 sessions up, #5185's
  * analysis range. */
@@ -110,7 +107,7 @@ function median(xs) {
 const ratio = (a, b) => (b > 0 ? a / b : null);
 
 /**
- * A seeded generator, so the bootstrap repeats: mulberry32.
+ * A seeded generator: mulberry32.
  * @param {number} seed
  */
 function seeded(seed) {
@@ -272,7 +269,6 @@ function secondsPerMinute(spans, covered) {
 }
 
 /**
- * A fresh tick's live count where the loop ran, else null.
  * @param {TickRow | null} tick
  */
 const loopLive = (tick) =>
@@ -338,8 +334,8 @@ function readMinutes(r) {
 }
 
 /**
- * The minutes cut into clock-hour buckets, again at each era, each holding
- * the joined closes that landed in one of its minutes.
+ * The minutes cut into clock-hour buckets, each holding the closes that
+ * landed in one of its minutes whose day's fetch read.
  * @param {Minute[]} minutes
  * @param {ReturnType<typeof joinCloses>} closes
  */
@@ -407,7 +403,6 @@ function closesPerHour(bs) {
 }
 
 /**
- * The figures of one band.
  * @param {string} era
  * @param {string} band
  * @param {Bucket[]} bs
@@ -605,7 +600,6 @@ function lackingOf(r, minutes) {
 }
 
 /**
- * The readout over `r`.
  * @param {Records} r
  */
 function readout(r) {
