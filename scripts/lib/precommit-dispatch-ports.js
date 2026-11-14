@@ -1,7 +1,6 @@
 /*
  * precommit-dispatch-ports.js — the pre-commit dispatcher's real ports
- * (#5172): the staged paths, what runs a row in this process, the lists a
- * computed arm reads, and whether a path is on disk.
+ * (#5172).
  */
 
 const fs = require("node:fs");
@@ -15,8 +14,7 @@ const { fromCoreRoot } = require("./precommit-gates.js");
 
 /*
  * A full collection before each row. The members share one heap, and the
- * garbage an earlier row leaves makes a later one slower (#5172; measured
- * on #5166). Exposed from inside the process, as the hook's `node` line
+ * garbage an earlier row leaves makes a later one slower (#5172). Exposed from inside the process, as the hook's `node` line
  * carries no flag.
  */
 v8.setFlagsFromString("--expose-gc");
@@ -49,10 +47,9 @@ function load(row) {
 
 /**
  * The lists a `computed` arm names, each read in-process from the library
- * that computes it. The always-loaded pool is the host config's
- * `alwaysLoaded`, else the default; a config that will not read lists
- * nothing (#5171), and the row's
- * pattern still arms on `.claude/`, where the config lives. The
+ * that computes it. A pool config that will not read lists nothing
+ * (#5171), and the row's pattern still arms on `.claude/`, where the config
+ * lives. The
  * rule-fragment sources are the generator's own list, so the row cannot arm
  * on fewer than it scans.
  * @type {Record<string, () => string[]>}
@@ -95,13 +92,18 @@ function readStaged(cwd) {
 	/* Every field ends in a NUL, so a whole list splits to status-path pairs
 	 * and one trailing "". */
 	const fields = String(r.stdout).split("\0");
-	if (fields.pop() !== "" || fields.length % 2 !== 0)
-		throw new Error(
+	const brokeOff = () =>
+		new Error(
 			"git's staged path list broke off mid-entry — refusing, since no gate could arm on it.",
 		);
+	if (fields.pop() !== "") throw brokeOff();
 	const entries = [];
-	for (let i = 0; i < fields.length; i += 2)
-		entries.push({ status: String(fields[i]), path: String(fields[i + 1]) });
+	for (let i = 0; i < fields.length; i += 2) {
+		const status = fields[i];
+		const rel = fields[i + 1];
+		if (status === undefined || rel === undefined) throw brokeOff();
+		entries.push({ status, path: rel });
+	}
 	return entries;
 }
 
