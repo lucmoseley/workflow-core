@@ -141,7 +141,7 @@ it.each([
 			counted: 0,
 			thin: false,
 		});
-		expect(out.load[0].band).toBe("<16");
+		expect(out.load[0].band).toBe(`<${2 * os.cpus().length}`);
 	},
 );
 
