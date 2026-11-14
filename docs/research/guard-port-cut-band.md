@@ -33,7 +33,7 @@ Findings:
 - Q4.2. A test that goes through `runInProcess` costs **about 8 to 16 ms** a call, for a module tree the size of `guard-inventory.js`. Most of this cost is the cold `require` after the cache purge (4.5 to 13 ms). A Node port of `lib/guard-parse.sh` (3,367 lines of bash) is a larger module tree. Thus its `runInProcess` cost is probably higher (estimate: 15 to 40 ms; not measured, because no port exists).
 - Q4.3. Thus the saving per guard run depends on the test style after the port:
   - A case that calls the core function: saves about 100% of the guard call.
-  - A case that goes through `runInProcess` (the hook entry in-process): saves the guard call minus about 10 to 40 ms. Over guard calls of 60 to 250 ms, that is 83 to 96% of the call at 10 ms, and 33 to 84% at 40 ms. It reaches 60% only on a call at least 2.5 times the in-process cost: 25 ms or longer at 10 ms, 100 ms or longer at 40 ms. Five of the 11 measured files have a mean run under 100 ms (Q1 table).
+  - A case that goes through `runInProcess` (the hook entry in-process): saves the guard call minus about 10 to 40 ms. Over guard calls of 60 to 250 ms, that is 83 to 96% of the call at 10 ms, and 33 to 84% at 40 ms. It reaches 60% only on a call at least 2.5 times the in-process cost: 25 ms or longer at 10 ms, 100 ms or longer at 40 ms.
   - A boundary contract test that keeps the real spawn: saves nothing.
 - Q4.4. Caution: the decision logic of `guard-inventory.js` took its early return on some of the 3 messages. The proxy (row 2) is synthetic. These two rows are a floor for a direct call.
 
