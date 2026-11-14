@@ -97,9 +97,8 @@ describe("the entry's fail-open (§N5, §X11 item 4)", () => {
 	it.skipIf(process.getuid?.() === 0)(
 		"exits 0 printing nothing, the core's throw logged, where the marker directory cannot be searched",
 		() => {
-			/* The marker directory a first firing makes, its search permission
-			 * then taken: the core's stat of the session's marker throws EACCES,
-			 * past every catch of its own. */
+			/* Its search permission taken, the core's stat of the session's
+			 * marker throws EACCES, past every catch of its own. */
 			const tmp = fs.mkdtempSync(path.join(SCRATCH, "unsearchable-"));
 			const fire = (session: string) =>
 				entry(

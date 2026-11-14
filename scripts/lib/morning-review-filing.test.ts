@@ -10,14 +10,15 @@
  * answering is answer-review-reversals.js's real answerReversals in the cases
  * on it, with gh at the fixture's stub; elsewhere a port answering nothing,
  * which no case asserts on and which spares each filing two gh spawns. The
- * program's boundary set stays in file-morning-review.test.ts. Break the core and the
- * loop files no review, or two in a day, or loses an event between two
+ * program's boundary set stays in file-morning-review.test.ts. Break the core
+ * and the loop files no review, or two in a day, or loses an event between two
  * reviews (#3813), or a repo that did not read loses its events (#3831).
  *
- * Over the 10 s file budget (§X8 (5)), some 10 s at a load of 6 and 18 s at
- * 15: many cases file three or four days in a row, each filing paying two
- * journalctl fake starts and its real git, and the three answering cases pay
- * the real answering's gh stub and file-issue.js starts, some 0.5 s each.
+ * Near the 10 s file budget (§X8 (5)) on CI, some 5.5 s there; a loaded
+ * machine runs it past, some 10 s at a load of 6 and 18 s at 15. Many cases
+ * file three or four days in a row, each filing paying two journalctl fake
+ * starts and its real git, and the three answering cases pay the real
+ * answering's gh stub and file-issue.js starts.
  */
 
 import { execFileSync } from "node:child_process";
@@ -1311,7 +1312,6 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 				.find((i: { number: number }) => i.number === 5)
 				.comments.slice(1);
 
-		/* The real answering, its gh at the stub, its stderr through writeFd. */
 		const fileAnswering = async (opts: Parameters<typeof file>[0] = {}) => {
 			const env = runEnv();
 			for (const key of ["WFC_GH", "STUB_DIR", "WFC_SCRIPT_ROOT"] as const)

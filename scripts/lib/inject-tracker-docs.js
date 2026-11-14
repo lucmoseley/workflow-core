@@ -21,8 +21,7 @@
  * READ IN PLACE, NOT THROUGH PORTS (§T7): its Ports carry gh, the tier core's
  * spawn, the clock and the fail-open log. The filesystem stays real, as #2733's
  * boundary table rules it gets no fake, so this reads and writes it itself:
- * the job record's `intent`, the de-dup markers (concision-backstop.sh's input
- * too), the host's settings, config and rule texts, and the standards. It also
+ * the job record's `intent`, the de-dup markers, the host's settings, config and rule texts, and the standards. It also
  * reads the env vars that say where those files are, since a port would only
  * pass one path string along and a test sets each one with vi.stubEnv:
  * CLAUDE_JOB_DIR, TMPDIR, and the roots hostRoot(), configDir() and coreRoot()
