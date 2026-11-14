@@ -20,6 +20,7 @@ const {
 	readout,
 	buildTickRecord,
 	readConcurrencyStatus,
+	tickLimb,
 } = require("./concurrency.js");
 
 const T0 = Date.parse("2026-10-28T00:00:00Z");
@@ -800,5 +801,29 @@ describe("what status --json carries for the panel (#4062)", () => {
 
 	it("falls back to the tick before a torn last line", () => {
 		expect(statusOf(line(), '{"at": "2026-').live).toBe(9);
+	});
+});
+
+describe("tickLimb (#5196)", () => {
+	const limbOf = (a: ReturnType<typeof admission> | null) =>
+		tickLimb(
+			record({ input: input(), decision: idle("no free slot"), admission: a }),
+		);
+
+	it.each([
+		["load", admission({ load: { overloaded: true, load1: 60, ceiling: 48 } })],
+		[
+			"sessions",
+			admission({ cpu: { full: true, slots: 0, sessions: 12, ceiling: 12 } }),
+		],
+		["memory", admission({ memorySlots: 0 })],
+		["Windows memory", admission({ testsHeld: 2 })],
+		["none", admission()],
+	])("reads %s off the tick's failing limits", (limb, a) => {
+		expect(limbOf(a)).toBe(limb);
+	});
+
+	it("reads no limb off a tick that read no admission", () => {
+		expect(limbOf(null)).toBe(null);
 	});
 });
