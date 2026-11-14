@@ -918,12 +918,13 @@ function peakOf(waiters, w) {
 }
 
 /**
- * The replay over `w`. Every figure is in seconds.
+ * The exits touching `w`, the runs weighed, and the waits the replay tallies:
+ * every touching exit but a skipped one, matched to its run.
  *
  * @param {Logs} logs
- * @param {Window} w
+ * @param {Pick<Window, "since" | "until">} w
  */
-function replay(logs, w) {
+function waitersOf(logs, w) {
 	const touching = logs.exits.filter((e) => {
 		const en = Date.parse(e.at);
 		return en <= w.until && en >= w.since && en - e.waitS * 1000 < w.until;
@@ -936,6 +937,28 @@ function replay(logs, w) {
 		touching.filter((e) => e.skipped !== true),
 		runs,
 	);
+	return { touching, runs, waiters };
+}
+
+/**
+ * Each wait the replay tallies over `w`, as its span in epoch ms, for a
+ * reading that sets queued time beside other figures (throughput-readout.js).
+ *
+ * @param {Logs} logs
+ * @param {Pick<Window, "since" | "until">} w
+ * @returns {{ st: number, en: number }[]}
+ */
+const waitSpans = (logs, w) =>
+	waitersOf(logs, w).waiters.map((e) => ({ st: e.st, en: e.en }));
+
+/**
+ * The replay over `w`. Every figure is in seconds.
+ *
+ * @param {Logs} logs
+ * @param {Window} w
+ */
+function replay(logs, w) {
+	const { touching, runs, waiters } = waitersOf(logs, w);
 	const admitting = waiters.filter((e) => e.gap > 0);
 	const eras = erasOf(w);
 	const eraOf = (/** @type {number} */ t) =>
@@ -1158,4 +1181,4 @@ function render(r, w) {
 	return lines.join("\n");
 }
 
-module.exports = { readLogs, replay, render };
+module.exports = { readLogs, replay, render, waitSpans };
