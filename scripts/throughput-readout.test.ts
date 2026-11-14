@@ -50,7 +50,7 @@ const refillDir = () => path.join(dir, "refill");
 
 function writeMinuteLog(from = T0) {
 	const lines = Array.from({ length: WINDOW_HOURS * 60 }, (_, i) =>
-		JSON.stringify({ ts: at(from + i * MIN), load1: 4, sessions: SESSIONS }),
+		JSON.stringify({ ts: at(from + i * MIN), load1: 1, sessions: SESSIONS }),
 	);
 	fs.writeFileSync(path.join(dir, "minute.jsonl"), `${lines.join("\n")}\n`);
 }
@@ -154,7 +154,9 @@ it.each([
 			counted: 0,
 			thin: false,
 		});
-		expect(out.load[0].band).toBe("<16");
+		/* The load edges scale per core, 2 a core the lowest; load 1 is under
+		 * it on any host. */
+		expect(out.load[0].band).toBe(`<${2 * os.cpus().length}`);
 	},
 );
 
