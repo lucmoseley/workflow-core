@@ -2,9 +2,10 @@
 /*
  * file-morning-review.js — file the day's morning review issue (#2011, spec
  * #1995 §The morning review issue). Its core, lib/morning-review-filing.js,
- * does the once-a-day check, the reads, the rendering and the filing, and its
- * header says what the review holds. This shell wires the production
- * adapters, lib/checker-run.js's among them, then answers the reversals.
+ * does the once-a-day check, the reads, the rendering, the filing and the
+ * reversals' answering, and its header says what the review holds and its
+ * exit. This shell wires the production adapters, lib/checker-run.js's among
+ * them.
  *
  *   node scripts/file-morning-review.js [--dry-run]
  *
@@ -15,8 +16,7 @@
  * Joins no §N3 family: it files an issue as `report-*` does, but a run whose
  * filing failed on gh or found the filing lock held exits 1, and one
  * file-issue.js refused exits with its code, so the loop that runs it can tell
- * a filing from a failure. The exit code is the worse of the filing's and the
- * answering's.
+ * a filing from a failure.
  */
 
 const { answerReversals } = require("./answer-review-reversals.js");
@@ -43,6 +43,7 @@ const PORTS = {
 	file: (argv, body) => fileThrough(argv, body, hostRoot()),
 	runChecker,
 	startChecker,
+	answer: answerReversals,
 };
 
 /** @param {string[]} argv */
@@ -53,13 +54,7 @@ async function main(argv = process.argv.slice(2)) {
 	});
 	const tracker = io.trackerOrFail();
 	const dryRun = flags["--dry-run"] === true;
-	/* A filing that throws still answers before the throw ends the run. */
-	let filed = 1;
-	try {
-		filed = await fileMorningReview({ tracker, dryRun, ports: PORTS });
-	} finally {
-		process.exitCode = Math.max(filed, answerReversals(tracker, dryRun));
-	}
+	process.exitCode = await fileMorningReview({ tracker, dryRun, ports: PORTS });
 }
 
 module.exports = { main };
@@ -70,6 +65,5 @@ if (require.main === module)
 			2,
 			`file-morning-review: ${e instanceof Error ? e.stack : String(e)}\n`,
 		);
-		/* main's finally has already set the answering's code; a failure is no better. */
-		process.exitCode = Math.max(1, Number(process.exitCode ?? 0));
+		process.exitCode = 1;
 	});
