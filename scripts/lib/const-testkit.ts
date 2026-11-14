@@ -9,28 +9,23 @@
 import fs from "node:fs";
 import { escapeRe } from "./regex-group.js";
 
-/** The integer `file`'s column-zero line `<before><n><after>` spells, or a
- *  throw naming `shape` where none does, so a renamed constant fails loudly
- *  rather than as NaN. */
-function readConst(
-	file: string,
-	before: string,
-	after: string,
-	shape: string,
-): number {
+/** The integer `file`'s column-zero line `<before><n><after>` spells. Throws
+ *  where none does, so a renamed constant fails loudly rather than as NaN. */
+function readConst(file: string, before: string, after: string): number {
 	const found = new RegExp(
 		`^${escapeRe(before)}(\\d+)${escapeRe(after)}$`,
 		"m",
 	).exec(fs.readFileSync(file, "utf8"))?.[1];
-	if (found === undefined) throw new Error(`no ${shape} line in ${file}`);
+	if (found === undefined)
+		throw new Error(`no ${before}<n>${after} line in ${file}`);
 	return Number(found);
 }
 
 /** The integer a `<name>=<n>` line at column zero of `file` assigns. */
 export const readShellConst = (file: string, name: string): number =>
-	readConst(file, `${name}=`, "", `${name}=<n>`);
+	readConst(file, `${name}=`, "");
 
 /** The integer a `const <name> = <n>;` line at column zero of `file`
  *  assigns, for a constant its module keeps file-local. */
 export const readJsConst = (file: string, name: string): number =>
-	readConst(file, `const ${name} = `, ";", `const ${name} = <n>;`);
+	readConst(file, `const ${name} = `, ";");
