@@ -14,7 +14,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { checkInProcess } from "./check";
+import { type Files, ROW_FIXTURES } from "./check-in-process-row-fixtures";
 import { defineTemplate, mkScratchDir } from "./git-fixture";
+import { armed } from "./precommit-dispatch.js";
 import type { GATES } from "./precommit-gates.js";
 
 type GateRow = (typeof GATES)[number];
@@ -104,42 +106,135 @@ const settled = (r: {
 	return { exit: r.exit, stdout: settle(r.stdout), stderr: settle(r.stderr) };
 };
 
-/* Every dispatcher row as the dispatcher runs it (#5172): its args, its sides
- * spawned where the row keeps a `side`, over a tree whose one commit holds the
- * row's arming path and whose index changes it. */
-const dispatcherRowCase = async (row: GateRow) => {
-	/* An always-armed row has no arming path: any change arms it. */
-	const at = "staged" in row ? row.staged : "notes.txt";
-	const repo = fixture({
-		name: at,
+/** Whether a row compares an `--against` or `--index` side with its own. */
+export const sideOf = (row: GateRow) => {
+	if (row.args.includes("--against")) return "against";
+	if (row.args.includes("--index")) return "index";
+	return null;
+};
+
+/** The row's fixture path: its own `staged`, else its ROW_FIXTURES entry's. */
+const pathOf = (row: GateRow) => {
+	const own = "staged" in row ? row.staged : undefined;
+	const fx = ROW_FIXTURES[row.id];
+	if (!fx)
+		throw new Error(
+			`${row.id} has no ROW_FIXTURES entry in check-in-process-row-fixtures.ts`,
+		);
+	if (own && fx.path) throw new Error(`${row.id} names its fixture path twice`);
+	const at = own ?? fx.path;
+	if (!at) throw new Error(`${row.id} has no fixture path`);
+	return at;
+};
+
+const BODIES = { 1: "one\n", 2: "two\n" };
+const versionOf = (at: string, n: 1 | 2) =>
+	at.endsWith(".json") ? `{ "v": ${n} }\n` : BODIES[n];
+
+const writeAll = (repo: string, files: Files) => {
+	for (const [file, text] of Object.entries(files)) stage(repo, file, text);
+};
+
+/* The trees a row is judged on. Every row: one commit holding its fixture
+ * path, the index changing it. A row with a side also: that commit holding a
+ * fault besides, the index changing the path alone (the fault inherited) or
+ * adding a second fault (one inherited, one added). */
+const treesOf = (row: GateRow): Tree[] => {
+	const at = pathOf(row);
+	const base = (r: string, held: Files) => {
+		writeAll(r, held);
+		stage(r, at, versionOf(at, 1));
+		git(r, "commit", "-qm", "init");
+	};
+	const change: Tree = {
+		name: `a change to ${at}`,
 		build: (r) => {
-			const json = at.endsWith(".json");
-			stage(r, at, json ? '{ "v": 1 }\n' : "one\n");
-			git(r, "commit", "-qm", "init");
-			stage(r, at, json ? '{ "v": 2 }\n' : "two\n");
+			base(r, {});
+			stage(r, at, versionOf(at, 2));
 		},
-	});
+	};
+	const fault = ROW_FIXTURES[row.id]?.fault;
+	if (!fault) return [change];
+	return [
+		change,
+		{
+			name: "a fault the commit holds, the index changing the path alone",
+			build: (r) => {
+				base(r, fault.inherited);
+				stage(r, at, versionOf(at, 2));
+			},
+		},
+		{
+			name: "a fault the commit holds, the index adding a second",
+			build: (r) => {
+				base(r, fault.inherited);
+				writeAll(r, fault.added);
+			},
+		},
+	];
+};
+
+/* What makes a fault tree hold the faults it names: an `--against` row passes
+ * an inherited fault over and refuses an added one; an `--index` row refuses
+ * both, it having no baseline. Asserted on the spawned run alone, the
+ * in-process one being held equal to it. */
+const holdsItsFault = (
+	row: GateRow,
+	tree: number,
+	r: { exit: number | null; stderr: string },
+) => {
+	if (tree === 0) return;
+	if (sideOf(row) === "index") {
+		expect(r.exit).toBe(1);
+		return;
+	}
+	if (tree === 1) {
+		expect(r.exit).toBe(0);
+		expect(r.stderr).toMatch(/is already in /);
+	} else {
+		expect(r.exit).toBe(1);
+		expect(r.stderr).toMatch(/ adds them:/);
+	}
+};
+
+/* Every dispatcher row as the dispatcher runs it (#5172): its args, its sides
+ * spawned where the row keeps a `side`, over each tree treesOf builds. */
+const dispatcherRowCase = async (row: GateRow, tree: number) => {
+	const at = pathOf(row);
+	expect(
+		armed(row.arm, [{ status: "M", path: at }], [], () => true),
+		`${row.id}'s fixture path ${at} does not arm it`,
+	).toBe(true);
+	expect(
+		Boolean(ROW_FIXTURES[row.id]?.fault),
+		sideOf(row)
+			? `${row.id} compares a side, so it owes a fault`
+			: `${row.id} compares no side, so a fault proves nothing`,
+	).toBe(sideOf(row) !== null);
+	const repo = fixture(treesOf(row)[tree] as Tree);
 	const file = path.join(SCRIPTS, path.relative("scripts", row.script));
+	const own = spawned(file, row.args, repo);
 	/* A program row: its PROGRAM against its own process shell, in the
 	 * fixture as the dispatcher runs it in the hook's repo. */
 	if (row.kind === "program") {
 		const { PROGRAM } = require(file);
 		await inRepo(repo, () =>
-			expect(PROGRAM({ cwd: repo, env: process.env })).toEqual(
-				spawned(file, row.args, repo),
-			),
+			expect(PROGRAM({ cwd: repo, env: process.env })).toEqual(own),
 		);
 		return;
 	}
+	holdsItsFault(row, tree, own);
 	expect(
 		settled(
 			await inProcess(file, row.args, repo, row.side ? "spawn" : "in-process"),
 		),
-	).toEqual(settled(spawned(file, row.args, repo)));
+	).toEqual(settled(own));
 };
 
 export const describeDispatcherRows = (rows: GateRow[]) =>
 	describe.each(rows)("the $id dispatcher row", (row) => {
-		it("runs in-process exactly as spawned over a change to its arming path", () =>
-			dispatcherRowCase(row));
+		it.each(treesOf(row).map((t, i) => ({ name: t.name, i })))(
+			"runs in-process exactly as spawned over $name",
+			({ i }) => dispatcherRowCase(row, i),
+		);
 	});

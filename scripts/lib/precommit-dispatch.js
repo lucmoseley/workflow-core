@@ -210,6 +210,7 @@ function gateSetOf(value) {
 }
 
 module.exports = {
+	armed,
 	dispatch,
 	gateSetOf,
 	STOPPED_LINE,
