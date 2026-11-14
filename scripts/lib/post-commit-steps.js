@@ -30,7 +30,7 @@
  */
 
 const path = require("node:path");
-const { spawnGitSync } = require("./git.js");
+const { gitCommonDir, spawnGitSync } = require("./git.js");
 const { readTopLevel } = require("./git-tree.js");
 const { inProgramScope } = require("./program-scope.js");
 const { trimEndRun } = require("./trim-run.js");
@@ -231,11 +231,7 @@ function recordCommitRow(io) {
 	if (!io.env.CLAUDE_CODE_SESSION_ID) return SILENT;
 	const committed = committedOf(io);
 	if (!committed || toplevelOf(io) === null) return SILENT;
-	const common = git(io, [
-		"rev-parse",
-		"--path-format=absolute",
-		"--git-common-dir",
-	]);
+	const common = gitCommonDir(io.cwd, { env: scrubbedGitEnv(io.env) });
 	if (common === null || !common.endsWith("/.git")) return SILENT;
 	const r = runProgramAt(
 		"session-arbiter.js",

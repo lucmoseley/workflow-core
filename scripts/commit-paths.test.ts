@@ -1306,7 +1306,7 @@ describe("--check: the verdict a commit would get, nothing written (#4207)", () 
 		);
 		hookScript(
 			"commit-msg",
-			`bash ${shellQuote(path.join(ROOT, "scripts/check-commit-subject.sh"))} "$1" commit-msg`,
+			`WFC_PLUGIN_ROOT=${shellQuote(ROOT)} exec sh ${shellQuote(path.join(ROOT, ".husky", "commit-msg"))} "$1"`,
 		);
 	});
 	const check = (args: string[]) =>

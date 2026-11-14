@@ -10,11 +10,12 @@
 # IMPLICIT:  scans this commit's finished message for a GitHub closing keyword
 #            before an issue reference and refuses the commit on a hit
 #            (docs/agents/rules/commit-closes-keyword.txt), and a subject over
-#            72 characters (scripts/check-commit-subject.sh), on every route
-#            but a replay. A missing scanner, subject check or
-#            scripts/lib/commit-route.sh refuses every commit. Then, but on a merge, refuses a commit whose
+#            72 characters (scripts/lib/commit-subject.js), on every route
+#            but a replay. Then, but on a merge, refuses a commit whose
 #            staged diff weakens a check its message names on no `Weakens:`
-#            line (scripts/check-weakens-line.js). Last, on every route a
+#            line (scripts/check-weakens-line.js). All three run in one Node
+#            process, scripts/commit-msg-dispatch.js (lib/commit-msg-rows.js,
+#            #5207), whose absence refuses every commit. Last, on every route a
 #            replay included, sources the adopter's own
 #            `.husky/commit-msg.local` where it exists, after
 #            refusing every commit on a script it names that the repo lacks
@@ -43,9 +44,7 @@ set -e # an adopter's git runs this file itself, outside husky's errexit wrapper
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"
 
 here="$(dirname "$0")"
-scanner="${WFC_PLUGIN_ROOT:-$here/..}/scripts/check-commit-message-closes.sh"
-subject_check="${WFC_PLUGIN_ROOT:-$here/..}/scripts/check-commit-subject.sh"
-route_lib="${WFC_PLUGIN_ROOT:-$here/..}/scripts/lib/commit-route.sh"
+dispatcher="${WFC_PLUGIN_ROOT:-$here/..}/scripts/commit-msg-dispatch.js"
 local_lib="${WFC_PLUGIN_ROOT:-$here/..}/scripts/lib/local-hook.sh"
 
 # FAIL CLOSED on a missing script rather than passing the message unread.
@@ -59,32 +58,15 @@ require() {
   echo "  Refusing rather than $3." >&2
   exit 1
 }
-require "$scanner" "the closing-keyword scan did not run" "passing the message unread (#138)"
-require "$subject_check" "the subject was not measured" "passing the subject unmeasured (#2332)"
-require "$route_lib" "this commit's route cannot be read" "scanning a replayed message as a new one (#1503)"
+require "$dispatcher" "the message checks did not run" "passing the message unread (#138)"
 require "$local_lib" ".husky/commit-msg.local cannot be checked" "running the adopter's refusals unchecked (#5142)"
-# shellcheck source=scripts/lib/commit-route.sh
-. "$route_lib"
 # shellcheck source=scripts/lib/local-hook.sh
 . "$local_lib"
 
-# THE REPLAY STAND-DOWN (#138): on the replay routes that reach this hook the
-# core's checks stand down as in `.husky/prepare-commit-msg`, for the reasons
-# its own header gives.
-gitdir="$(git rev-parse --absolute-git-dir 2>/dev/null || :)"
-route="$(wfc_commit_route commit-msg "$gitdir")"
-if ! wfc_commit_route_replays "$route"; then
-  bash "$scanner" "$1" commit-msg
-  bash "$subject_check" "$1" commit-msg
-
-  # A commit that weakens a check names each weakening on a `Weakens:` line
-  # (#2235). This is the one hook holding both the finished message and the
-  # commit's index. A merge stands down: the lines it joins were judged at
-  # their own commits.
-  if [ "$route" != merge ]; then
-    node "${WFC_PLUGIN_ROOT:-$here/..}/scripts/check-weakens-line.js" "$1"
-  fi
-fi
+# The closing-keyword scan and the subject check stand down on a replay, and
+# the Weakens: check on a merge too: lib/commit-msg-rows.js. A refusal aborts
+# the commit with the dispatcher's own code, through `set -e`.
+node "$dispatcher" "$1"
 
 # THE ADOPTER'S OWN REFUSALS: `.husky/commit-msg.local` (#5142), on
 # `.husky/pre-commit.local`'s contract (#437): last, only where it exists,
@@ -93,6 +75,8 @@ fi
 # names that the repo lacks refuses every commit. It runs on every route, a
 # replay included: `$route` names it, and the adopter stands down for itself.
 if [ -f .husky/commit-msg.local ]; then
+  # shellcheck disable=SC2034 # read by the sourced .local file below
+  route="$(node "$dispatcher" --print-route)"
   wfc_local_hook_refuse_missing .husky/commit-msg.local \
     "commit-msg: .husky/commit-msg.local calls a script this repo does not have:"
   # shellcheck source=/dev/null # the adopter's own optional gate, absent from most repos

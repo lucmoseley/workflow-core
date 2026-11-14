@@ -142,7 +142,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | Reading or writing an arbiter record | `paths`, `readRecord` and `writeRecord` and their kin in `scripts/lib/arbiter-core.js` | `scripts/lib/arbiter-issue-claims.js` | §N10 | Standards axis criterion |
 | Holding a lock for a program's whole run, which a crashed holder cannot wedge | `pidLock` in `scripts/lib/pid-lock.js`, stale only once its holder has gone | `scripts/file-morning-review.js` | §G1 | Standards axis criterion |
 | Asking whether a pid is alive | `pidAlive` in `scripts/lib/arbiter-proc.js`, which reads EPERM as alive | `scripts/lib/pid-lock.js` | §G1 | Standards axis criterion |
-| Printing a rule the rule-text store holds | `rule_text` in `scripts/lib/rule-text.sh`; `readRuleText` or `readRuleTextOr` in `scripts/lib/rule-text.js`; a guard core's `ruleOrFallback` in `scripts/lib/guard-verdict.js` | `scripts/check-commit-subject.sh`, `scripts/check-weakens-line.js` | §G11 | Standards axis criterion |
+| Printing a rule the rule-text store holds | `rule_text` in `scripts/lib/rule-text.sh`; `readRuleText` or `readRuleTextOr` in `scripts/lib/rule-text.js`; a guard core's `ruleOrFallback` in `scripts/lib/guard-verdict.js` | `scripts/lib/commit-subject.js`, `scripts/check-weakens-line.js` | §G11 | Standards axis criterion |
 
 ---
 

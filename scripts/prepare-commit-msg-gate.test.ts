@@ -154,16 +154,13 @@ const buildTemplate = (root: string) => {
 	// The closing-keyword scanner's launcher (#138), the route module (#1503)
 	// and commit-msg's local-file check (#5142): the hooks FAIL CLOSED when
 	// one is absent, so without these copies every commit
-	// in this fixture is refused. commit-msg alone also fails closed without
-	// the subject check (#2332), and prints commit-message.txt on its refusal.
+	// in this fixture is refused.
 	for (const rel of [
 		"scripts/lib/commit-route.sh",
 		"scripts/lib/local-hook.sh",
 		"scripts/check-commit-message-closes.sh",
-		"scripts/check-commit-subject.sh",
 		"scripts/lib/rule-text.sh",
 		"docs/agents/rules/commit-closes-keyword.txt",
-		"docs/agents/rules/commit-message.txt",
 	]) {
 		const dest = path.join(root, rel);
 		fs.mkdirSync(path.dirname(dest), { recursive: true });
@@ -173,15 +170,13 @@ const buildTemplate = (root: string) => {
 		path.join(root, "scripts/check-commit-message-closes.sh"),
 		0o755,
 	);
-	// The scanner the launcher runs, commit-msg's Weakens: gate (#2235) and the
-	// message reader the subject check spawns (#3075) and the review-tier
-	// trailer (#3664), linked rather than
-	// copied: node resolves their requires from the link's target, so their lib
-	// closure comes with them.
+	// The scanner the launcher runs, commit-msg's dispatcher (#5207) and the
+	// review-tier trailer (#3664), linked rather than copied: node resolves
+	// their requires from the link's target, so their lib closure comes with
+	// them.
 	for (const rel of [
 		"scripts/check-commit-message-closes.js",
-		"scripts/check-weakens-line.js",
-		"scripts/lib/commit-message.js",
+		"scripts/commit-msg-dispatch.js",
 		"scripts/review-tier-trailer.js",
 	])
 		fs.symlinkSync(path.join(ROOT, rel), path.join(root, rel));

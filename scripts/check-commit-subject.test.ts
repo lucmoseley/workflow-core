@@ -1,24 +1,25 @@
 // @vitest-environment node
 /*
  * .husky/commit-msg refuses a commit whose subject runs over 72 characters
- * (#2332, through scripts/check-commit-subject.sh). A case loosened here lets
+ * (#2332, through scripts/lib/commit-subject.js). A case loosened here lets
  * a long subject land on one route while the others refuse it; a case
  * tightened refuses a revert, merge or fixup subject git wrote itself.
  *
  * Each case commits through the real hook in a throwaway repo, since the
  * routes differ in what git hands the hook: `-m` text, a `-F` file, or the
- * editor's file with git's `#` template block in it.
+ * editor's file with git's `#` template block in it. The two unreadable-file
+ * cases run the check in-process: no git route reaches them.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installCommitMsgHook } from "./lib/commit-msg-testkit";
+import { checkSubject } from "./lib/commit-subject.js";
 import { initGitRepo, mkScratchDir } from "./lib/git-fixture";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const ROOT = path.join(__dirname, "..");
-const SCRIPT = path.join(ROOT, "scripts", "check-commit-subject.sh");
 const RULE = fs
 	.readFileSync(
 		path.join(ROOT, "docs", "agents", "rules", "commit-message.txt"),
@@ -177,33 +178,18 @@ describe(".husky/commit-msg refuses a subject over 72 characters (#2332)", () =>
 		expect(viaM(`${subject(40)}\n\n${"y".repeat(200)}\n`).status).toBe(0);
 	});
 
-	it("refuses rather than passing a subject when lib/commit-message.js fails", () => {
-		const bin = path.join(hooks, "bin");
-		fs.mkdirSync(bin);
-		fs.writeFileSync(path.join(bin, "node"), "#!/bin/sh\nexit 1\n", {
-			mode: 0o755,
-		});
-		const file = path.join(hooks, "msg.txt");
-		fs.writeFileSync(file, `${subject(10)}\n`);
-		const r = spawnSync("bash", [SCRIPT, file, "t"], {
-			encoding: "utf8",
-			env: {
-				...process.env,
-				CLAUDE_PROJECT_DIR: dir,
-				PATH: `${bin}:${process.env.PATH}`,
-			},
-		});
-		expect(r.status).toBe(1);
-		expect(r.stderr).toContain(
-			"lib/commit-message.js did not read the message",
+	/* A directory passes the read-access probe and fails the read itself. */
+	it("refuses rather than passing a subject when lib/commit-message.js cannot read the message", () => {
+		const r = checkSubject([hooks, "t"]);
+		expect(r.code).toBe(1);
+		expect(r.stderr).toBe(
+			"t: scripts/lib/commit-message.js did not read the message.\n  Refusing rather than passing a subject nothing has measured (#2332).\n",
 		);
 	});
 
 	it("refuses rather than passing a message file it cannot read", () => {
-		const r = spawnSync("bash", [SCRIPT, "/nonexistent/COMMIT_EDITMSG", "t"], {
-			encoding: "utf8",
-		});
-		expect(r.status).toBe(1);
+		const r = checkSubject(["/nonexistent/COMMIT_EDITMSG", "t"]);
+		expect(r.code).toBe(1);
 		expect(r.stderr).toContain("cannot read the commit message file");
 	});
 });

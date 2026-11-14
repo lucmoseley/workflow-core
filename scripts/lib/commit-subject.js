@@ -25,7 +25,7 @@
 
 const fs = require("node:fs");
 const { recordedLines } = require("./commit-message.js");
-const { readRuleText } = require("./rule-text.js");
+const { readRuleTextOr } = require("./rule-text.js");
 
 /* GitHub cuts a subject at 72, and gitlint caps there by default
  * (docs/practice/ci-and-repo-quality-gates.md). */
@@ -117,12 +117,11 @@ function checkSubject(argv) {
 	if (generated(subject)) return { code: 0, stderr: "" };
 	const length = charCount(subject);
 	if (length <= LIMIT) return { code: 0, stderr: "" };
-	let rule;
-	try {
-		rule = readRuleText("commit-message");
-	} catch {
-		rule = `A commit subject is at most ${LIMIT} characters; the rule could not be read from docs/agents/rules/commit-message.txt. Restore that file from origin/main, or revert the change that removed it, then read it before committing again.`;
-	}
+	const rule = readRuleTextOr(
+		"commit-message",
+		"A commit subject is at most 72 characters",
+		"commit-subject",
+	);
 	return {
 		code: 1,
 		stderr: `${context}: this commit's subject is ${length} characters, over the ${LIMIT}-character limit.\n\nSubject: ${subject}\n\n${rule}\n\nShorten the subject, move the why into the body, and commit again.\n`,

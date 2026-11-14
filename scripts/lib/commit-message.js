@@ -18,12 +18,8 @@
  * `strip` only under `--verbose`, which no hook sees, but there the line is
  * git's own, with the diff below it UNPREFIXED, so a commit editing a rule's
  * own text would match its own diff.
- *
- * Run as `node commit-message.js <file>`, it prints those lines, for
- * scripts/check-commit-subject.sh.
  */
 
-const fs = require("node:fs");
 const { gitOrNull } = require("./git.js");
 
 const SCISSORS = /^# -+ >8 -+/;
@@ -54,20 +50,6 @@ function recordedLines(raw) {
 		if (!(mode === "strip" && line.startsWith("#"))) kept.push(line);
 	}
 	return kept;
-}
-
-if (require.main === module) {
-	const file = process.argv[2];
-	if (file === undefined) {
-		process.stderr.write("usage: node commit-message.js <message-file>\n");
-		process.exitCode = 2;
-	} else {
-		process.stdout.write(
-			recordedLines(fs.readFileSync(file, "utf8"))
-				.map((line) => `${line}\n`)
-				.join(""),
-		);
-	}
 }
 
 module.exports = { recordedLines };

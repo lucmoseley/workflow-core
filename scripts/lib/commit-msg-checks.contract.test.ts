@@ -1,10 +1,10 @@
 // @vitest-environment node
 /*
- * The equivalence contract for .husky/commit-msg's three checks (#5207): the
- * closing-keyword scan, the subject check and the `Weakens:` check, each run
- * in-process as its dispatcher row runs it, give the same exit code, stdout
- * and stderr as the program the hook spawned, over the same message and
- * tree. Each case runs both ways and compares them, never against a
+ * The equivalence contract for two of .husky/commit-msg's checks (#5207):
+ * the closing-keyword scan and the `Weakens:` check, each run in-process as
+ * its dispatcher row runs it, give the same exit code, stdout and stderr as
+ * the program prepare-commit-msg and the CLI still spawn, over the same
+ * message and tree. Each case runs both ways and compares them, never against a
  * hand-written expectation.
  *
  * Loosen a case and a check whose in-process run drifts from its program
@@ -20,7 +20,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { main as scanCloses } from "../check-commit-message-closes.js";
 import { SPEC as WEAKENS } from "../check-weakens-line.js";
 import { checkInProcess } from "./check.js";
-import { checkSubject } from "./commit-subject.js";
 import { initGitRepo, mkScratchDir } from "./git-fixture";
 
 const SCRIPTS = path.join(__dirname, "..");
@@ -54,8 +53,6 @@ const spawned = (cmd: string, args: string[], cwd = SCRIPTS) => {
 	return { exit: r.status, stdout: r.stdout, stderr: r.stderr };
 };
 
-const LONG = "x".repeat(73);
-
 describe("the closing-keyword scan in-process equals check-commit-message-closes.sh", () => {
 	it.each([
 		["a clean message", "Add the thing\n\nBody.\n"],
@@ -82,39 +79,6 @@ describe("the closing-keyword scan in-process equals check-commit-message-closes
 				"commit-msg",
 			]),
 		);
-	});
-});
-
-describe("the subject check in-process equals check-commit-subject.sh", () => {
-	const both = (args: string[]) => {
-		const r = checkSubject(args);
-		expect({ exit: r.code, stdout: "", stderr: r.stderr }).toEqual(
-			spawned("bash", [path.join(SCRIPTS, "check-commit-subject.sh"), ...args]),
-		);
-		return r.code;
-	};
-
-	it.each([
-		["72 characters", `${"x".repeat(72)}\n`, 0],
-		["73 characters", `${LONG}\n`, 1],
-		["72 two-byte characters", `${"é".repeat(72)}\n`, 0],
-		["73 two-byte characters", `${"é".repeat(73)}\n`, 1],
-		["a subject below blank lines", `\n  \n${LONG}  \n\nbody\n`, 1],
-		["trailing whitespace past 72", `${"x".repeat(72)}   \t\n`, 0],
-		["a `#` line, dropped as a comment", `#2332 ${LONG}\n`, 0],
-		["git's Revert", `Revert "${LONG}"\n`, 0],
-		["a Revert with no closing quote", `Revert "${LONG}\n`, 1],
-		["the lander's merge", `Merge queue/${LONG} into the batch\n`, 0],
-		["a fixup", `fixup! ${LONG}\n`, 0],
-		["an empty message", "", 0],
-	])("on %s", (_name, body, code) => {
-		expect(both([message(body), "commit-msg"])).toBe(code);
-	});
-
-	it("on an unreadable file, and on no context given", () => {
-		expect(both(["/nonexistent/MSG", "commit-msg"])).toBe(1);
-		expect(both([message(`${LONG}\n`)])).toBe(1);
-		expect(both([])).toBe(1);
 	});
 });
 
