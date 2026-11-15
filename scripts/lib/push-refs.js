@@ -7,9 +7,8 @@
  * delete pushes the all-zero local sha and has no bytes to check; a new branch
  * carries the all-zero remote sha, for the caller to read as "no remote tip".
  *
- * The landing queue's pre-push gates (landing-registry-gate.js,
- * log-queue-push.js) share one filter of these lines, parseQueuePushes, so
- * neither spells which pushes reach a queue ref its own way.
+ * The landing queue's pre-push gates share one filter of these lines,
+ * parseQueuePushes, so no gate picks out queue pushes its own way.
  */
 
 const { isQueueHead } = require("./landing-refs.js");

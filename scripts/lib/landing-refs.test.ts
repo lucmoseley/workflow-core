@@ -256,8 +256,6 @@ describe("the CLI", () => {
 	it("prints its usage to stdout on --help, answering nothing", () => {
 		const r = cli(["pushed", "--help"]);
 		expect(r.status).toBe(0);
-		expect(r.stdout).toContain(
-			"usage: landing-refs.js pushed|unpushed [<tree>]",
-		);
+		expect(r.stdout).toBe("usage: landing-refs.js pushed|unpushed [<tree>]\n");
 	});
 });
