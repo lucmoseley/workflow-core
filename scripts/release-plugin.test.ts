@@ -39,20 +39,37 @@ const write = (rel: string, body: string) => {
 /* Main holds HEAD unless a case says otherwise: a release ships only a commit
  * `origin/main` holds. */
 const landed = () => git("update-ref", "refs/remotes/origin/main", "HEAD");
-const run = (env: NodeJS.ProcessEnv = {}, { onMain = true } = {}) => {
+/* The clock every cut reads, so a gap since a prior tag is exact. */
+const NOW = Date.parse("2026-11-15T12:00:00Z");
+/* A prior release tag at HEAD, cut `daysAgo` before now: past the 7-day
+ * cadence by default, so only the cadence cases meet its refusal (#5231). */
+const priorRelease = (tag: string, daysAgo = 8) =>
+	execFileSync("git", ["tag", "-a", tag, "-m", "prior release", "HEAD"], {
+		cwd: dir,
+		env: {
+			...process.env,
+			GIT_COMMITTER_DATE: new Date(
+				NOW - daysAgo * 24 * 60 * 60 * 1000,
+			).toISOString(),
+		},
+	});
+const run = (
+	env: NodeJS.ProcessEnv = {},
+	{ onMain = true, args = [] as string[] } = {},
+) => {
 	if (onMain) landed();
-	return runInProcess(SCRIPT, [], {
+	return runInProcess(SCRIPT, args, {
 		cwd: dir,
-		env: { ...process.env, CLAUDE_PROJECT_DIR: dir, ...env },
+		env: {
+			...process.env,
+			CLAUDE_PROJECT_DIR: dir,
+			WFC_NOW: new Date(NOW).toISOString(),
+			...env,
+		},
 	});
 };
-const dryRunAdopter = (adopter: string, env: NodeJS.ProcessEnv = {}) => {
-	landed();
-	return runInProcess(SCRIPT, ["--dry-run-adopter", adopter], {
-		cwd: dir,
-		env: { ...process.env, CLAUDE_PROJECT_DIR: dir, ...env },
-	});
-};
+const dryRunAdopter = (adopter: string, env: NodeJS.ProcessEnv = {}) =>
+	run(env, { args: ["--dry-run-adopter", adopter] });
 const buildMigrationNote = (verify: string, residue = "{}") =>
 	[
 		"# v2.0.0",
@@ -231,6 +248,61 @@ describe("release-plugin", () => {
 		expect(git("tag", "--list")).toBe("");
 	});
 
+	it("reports no last release before the first cut", () => {
+		const r = run();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("last release: none");
+	});
+
+	it("reports the days since the last tag on a cut a week or more after it (#5231)", () => {
+		priorRelease("v2.3.3", 8);
+		const r = run();
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/last release: v2\.3\.3, 8\.0 days ago/);
+		expect(r.stdout).not.toContain("early cut");
+	});
+
+	it("refuses a cut under 7 days after the last tag with no reason, naming the gap and tagging nothing (#5231)", () => {
+		priorRelease("v2.3.3", 2);
+		const r = run();
+		expect(r.status).toBe(1);
+		expect(r.stderr).toMatch(
+			/v2\.3\.3 was cut 2\.0 days ago, under the 7-day release cadence/,
+		);
+		expect(r.stderr).toContain("--reason");
+		expect(git("tag", "--list", "v2.3.4")).toBe("");
+	});
+
+	it("refuses a blank --reason as no reason (#5231)", () => {
+		priorRelease("v2.3.3", 2);
+		const r = run({}, { args: ["--reason", "  "] });
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("under the 7-day release cadence");
+	});
+
+	it("cuts under 7 days given a reason, reporting it and writing it into the tag's annotation (#5231)", () => {
+		priorRelease("v2.3.3", 2);
+		const r = run({}, { args: ["--reason", "v2.3.3 breaks session start"] });
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/last release: v2\.3\.3, 2\.0 days ago/);
+		expect(r.stdout).toContain("early cut: v2.3.3 breaks session start");
+		expect(git("tag", "-l", "--format=%(contents)", "v2.3.4")).toContain(
+			"Early cut: v2.3.3 breaks session start",
+		);
+	});
+
+	it("writes no early-cut annotation for a reason given a week or more after the last tag (#5231)", () => {
+		priorRelease("v2.3.3", 8);
+		const r = run({}, { args: ["--reason", "not needed"] });
+		expect(r.status).toBe(0);
+		expect(r.stdout).not.toContain("early cut");
+		expect(git("tag", "-l", "--format=%(contents)", "v2.3.4")).not.toContain(
+			"Early cut",
+		);
+	});
+
 	it("refuses a version already tagged, naming the tag", () => {
 		expect(run().status).toBe(0);
 		const r = run();
@@ -363,7 +435,7 @@ describe("release-plugin", () => {
 					},
 				}),
 			);
-			git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+			priorRelease("v1.0.0");
 			manifests("2.0.0", "v2.0.0");
 			write(
 				"migrations/v2.0.0.md",
@@ -390,7 +462,7 @@ describe("release-plugin", () => {
 	});
 
 	it("refuses a major bump with no migrations note, naming the note it expects", () => {
-		git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+		priorRelease("v1.0.0");
 		manifests("2.0.0", "v2.0.0");
 		git("add", "--all");
 		git("commit", "-qm", "bump to a major with no note");
@@ -410,7 +482,7 @@ describe("release-plugin", () => {
 		surface(["kept", "dropped"]);
 		git("add", "--all");
 		git("commit", "-qm", "declare a surface");
-		git("tag", "-a", "v2.3.3", "-m", "prior release", "HEAD");
+		priorRelease("v2.3.3");
 		surface(["kept"]);
 		git("add", "--all");
 		git("commit", "-qm", "drop an export on a minor bump");
@@ -423,7 +495,7 @@ describe("release-plugin", () => {
 	});
 
 	it("refuses a malformed note, naming it", () => {
-		git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+		priorRelease("v1.0.0");
 		manifests("2.0.0", "v2.0.0");
 		write(
 			"migrations/v2.0.0.md",
@@ -437,7 +509,7 @@ describe("release-plugin", () => {
 	});
 
 	it("refuses a note whose manual step carries no type, naming the bullet (#246)", () => {
-		git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+		priorRelease("v1.0.0");
 		manifests("2.0.0", "v2.0.0");
 		write(
 			"migrations/v2.0.0.md",
@@ -455,7 +527,7 @@ describe("release-plugin", () => {
 	});
 
 	it("refuses where a required note's Verify fails, naming the version and tagging nothing, and passes a note through when it succeeds", () => {
-		git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+		priorRelease("v1.0.0");
 		manifests("2.0.0", "v2.0.0");
 		write("migrations/v2.0.0.md", buildMigrationNote("exit 1"));
 		git("add", "--all");
@@ -582,7 +654,7 @@ describe("release-plugin", () => {
 	 * the cut then deletes, and advancing its `walkedTo`.
 	 */
 	it("leaves the adopter's own tree byte-identical (#291)", () => {
-		git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+		priorRelease("v1.0.0");
 		manifests("2.0.0", "v2.0.0");
 		write("migrations/v2.0.0.md", buildMigrationNote("true"));
 		write(
@@ -638,7 +710,7 @@ describe("release-plugin", () => {
 		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dry-run-adopter-"));
 		try {
 			const log = path.join(tmp, "verify-cwds.log");
-			git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+			priorRelease("v1.0.0");
 			manifests("2.0.0", "v2.0.0");
 			write(
 				"migrations/v2.0.0.md",
@@ -670,7 +742,7 @@ describe("release-plugin", () => {
 	/* #780: the negation case is the one a plain read of `.gitignore` would
 	 * have passed. */
 	it("gives the adopter copy a git repository, so a Verify's git check-ignore reads the copy's .gitignore (#780)", () => {
-		git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+		priorRelease("v1.0.0");
 		manifests("2.0.0", "v2.0.0");
 		/* Not a path the core's own `.gitignore` block names: every run writes
 		 * that block into the copy (#1501), which would ignore it either way. */
@@ -708,7 +780,7 @@ describe("release-plugin", () => {
 	 * above, whose fixture has no symlink.
 	 */
 	it("follows an adopter's symlinks into the copy, not back out (#296)", () => {
-		git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+		priorRelease("v1.0.0");
 		manifests("2.0.0", "v2.0.0");
 		write("migrations/v2.0.0.md", buildMigrationNote("true"));
 		write(
@@ -765,7 +837,7 @@ describe("release-plugin", () => {
 		);
 		vi.stubEnv("WFC_GH", stub.gh);
 		try {
-			git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+			priorRelease("v1.0.0");
 			manifests("2.0.0", "v2.0.0");
 			write(
 				"migrations/v2.0.0.md",
@@ -797,7 +869,7 @@ describe("release-plugin", () => {
 	it("refuses where a note's Verify fails against the adopter copy, quoting the Verify output and tagging nothing (#296)", () => {
 		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dry-run-adopter-"));
 		try {
-			git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+			priorRelease("v1.0.0");
 			manifests("2.0.0", "v2.0.0");
 			/* Passes against the core, which has a package.json, and fails
 			 * against the adopter copy, which does not. */
@@ -943,16 +1015,54 @@ process.stdout.write(JSON.stringify([posted]));
 		);
 	};
 
-	const fileBumps = (gh: string, repos: string) =>
-		runInProcess(SCRIPT, ["--file-bump-issues", repos], {
-			cwd: dir,
-			env: {
-				...process.env,
-				CLAUDE_PROJECT_DIR: dir,
-				WFC_GH: gh,
-				WFC_LINK_SLEEP: "0",
-			},
+	/* A home of adopter checkouts, one per `repos` entry in order, each
+	 * declaring that tracker; `null` declares none, a `core:` prefix makes
+	 * that checkout workflow-core itself, and `worktree:` a linked worktree. */
+	const adopterHome = (repos: (string | null)[]) => {
+		const home = fs.mkdtempSync(path.join(os.tmpdir(), "bump-home-"));
+		repos.forEach((tracker, i) => {
+			const root = path.join(home, `a${i}`);
+			fs.mkdirSync(path.join(root, ".git"), { recursive: true });
+			if (tracker === "worktree:") {
+				fs.rmdirSync(path.join(root, ".git"));
+				fs.writeFileSync(path.join(root, ".git"), "gitdir: elsewhere\n");
+			}
+			fs.mkdirSync(path.join(root, ".claude"));
+			const core = tracker?.startsWith("core:") === true;
+			if (core) {
+				fs.mkdirSync(path.join(root, ".claude-plugin"));
+				fs.writeFileSync(
+					path.join(root, ".claude-plugin", "plugin.json"),
+					JSON.stringify({ name: "workflow-core" }),
+				);
+			}
+			fs.writeFileSync(
+				path.join(root, ".claude", "workflow-core.json"),
+				JSON.stringify(
+					tracker === null ? {} : { tracker: tracker.replace(/^core:/, "") },
+				),
+			);
 		});
+		return home;
+	};
+
+	const fileBumps = (gh: string, repos: (string | null)[]) => {
+		const home = adopterHome(repos);
+		try {
+			return runInProcess(SCRIPT, ["--file-bump-issues"], {
+				cwd: dir,
+				env: {
+					...process.env,
+					CLAUDE_PROJECT_DIR: dir,
+					HOME: home,
+					WFC_GH: gh,
+					WFC_LINK_SLEEP: "0",
+				},
+			});
+		} finally {
+			fs.rmSync(home, { recursive: true, force: true });
+		}
+	};
 
 	const withBumpStub = (
 		listed: string,
@@ -972,7 +1082,7 @@ process.stdout.write(JSON.stringify([posted]));
 
 	it("files one bump issue per adopter tracker, labelled for /pick-next, urgent and its origin", () =>
 		withBumpStub("[]", (gh, calls) => {
-			const r = fileBumps(gh, "lucmoseley/workflow-core-dryrun-adopter");
+			const r = fileBumps(gh, ["lucmoseley/workflow-core-dryrun-adopter"]);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toContain(
 				"filed bump issues: lucmoseley/workflow-core-dryrun-adopter",
@@ -992,10 +1102,11 @@ process.stdout.write(JSON.stringify([posted]));
 
 	it("files the other trackers' bump issues where one tracker refuses, and reports the retry command (#242)", () =>
 		withBumpStub("[]", (gh, calls) => {
-			const r = fileBumps(
-				gh,
-				"adopter-a/repo,adopter-b/forbidden-repo,adopter-c/repo",
-			);
+			const r = fileBumps(gh, [
+				"adopter-a/repo",
+				"adopter-b/forbidden-repo",
+				"adopter-c/repo",
+			]);
 			expect(r.status).toBe(1);
 			expect(r.stdout).toContain("git push origin v2.3.4");
 			expect(r.stdout).toContain(
@@ -1013,7 +1124,7 @@ process.stdout.write(JSON.stringify([posted]));
 
 	it("exits 0 where every bump issue files cleanly", () =>
 		withBumpStub("[]", (gh) => {
-			const r = fileBumps(gh, "adopter-a/repo,adopter-c/repo");
+			const r = fileBumps(gh, ["adopter-a/repo", "adopter-c/repo"]);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toContain(
 				"filed bump issues: adopter-a/repo, adopter-c/repo",
@@ -1037,7 +1148,7 @@ process.stdout.write(JSON.stringify([posted]));
 				{ ...bump(94, "v2.3.3"), pull_request: {} },
 			]),
 			(gh, calls) => {
-				const r = fileBumps(gh, "o/r");
+				const r = fileBumps(gh, ["o/r"]);
 				expect(r.stderr).toBe("");
 				expect(r.status).toBe(0);
 				expect(calls()).toContain(
@@ -1058,7 +1169,7 @@ process.stdout.write(JSON.stringify([posted]));
 		withBumpStub(
 			JSON.stringify([bump(91, "v2.3.2", ["someone"])]),
 			(gh, calls) => {
-				const r = fileBumps(gh, "o/r");
+				const r = fileBumps(gh, ["o/r"]);
 				expect(r.status).toBe(0);
 				expect(calls()).toContain(
 					"api --method POST repos/o/r/issues/100/dependencies/blocked_by -F issue_id=9100",
@@ -1070,12 +1181,56 @@ process.stdout.write(JSON.stringify([posted]));
 
 	it("files nothing on a tracker whose open bumps it cannot read, and files the next", () =>
 		withBumpStub("[]", (gh, calls) => {
-			const r = fileBumps(gh, "o/garbled-repo,o/r");
+			const r = fileBumps(gh, ["o/garbled-repo", "o/r"]);
 			expect(r.status).toBe(1);
 			expect(r.stdout).toContain("filed bump issues: o/r\n");
 			expect(r.stdout).toContain(
 				"retry: gh api 'repos/o/garbled-repo/issues?state=open&labels=takes:implement&per_page=100'",
 			);
 			expect(calls()).not.toContain("repos/o/garbled-repo/issues -f");
+		}));
+
+	it("files one bump per tracker where two adopter checkouts share it, and none on the core's (#5229)", () =>
+		withBumpStub("[]", (gh, calls) => {
+			const r = fileBumps(gh, ["o/r", "O/R", "core:o/core"]);
+			expect(r.status).toBe(0);
+			expect(r.stdout).toContain("filed bump issues: o/r\n");
+			expect(calls().match(/POST repos\/[^ ]+\/issues -f/gi)).toHaveLength(1);
+		}));
+
+	it("fails the run where an adopter's tracker will not resolve, and files the rest (#5229)", () =>
+		withBumpStub("[]", (gh) => {
+			const r = fileBumps(gh, [null, "o/r"]);
+			expect(r.status).toBe(1);
+			expect(r.stdout).toContain("filed bump issues: o/r\n");
+			expect(r.stdout).toMatch(/a0 \(.+\)\n {4}retry: declare "tracker" in /);
+		}));
+
+	it("says so where no adopter checkout but the core is found, naming each one left out", () =>
+		withBumpStub("[]", (gh) => {
+			const r = fileBumps(gh, ["core:o/core", "worktree:"]);
+			expect(r.status).toBe(0);
+			expect(r.stdout).toMatch(
+				/bump issue skipped: .+a1 \(not a main checkout\)\n/,
+			);
+			expect(r.stdout).toContain(
+				"filed bump issues: none, since no adopter checkout other than workflow-core is under",
+			);
+		}));
+
+	it("reports an unreadable home as a tracker failure after the cut, not a refusal (#242)", () =>
+		withBumpStub("[]", (gh) => {
+			const r = runInProcess(SCRIPT, ["--file-bump-issues"], {
+				cwd: dir,
+				env: {
+					...process.env,
+					CLAUDE_PROJECT_DIR: dir,
+					HOME: path.join(dir, "no-such-home"),
+					WFC_GH: gh,
+				},
+			});
+			expect(r.status).toBe(1);
+			expect(r.stdout).toContain("tagged v2.3.4");
+			expect(r.stdout).toMatch(/failed bump issues:\n {2}.+no-such-home \(/);
 		}));
 });

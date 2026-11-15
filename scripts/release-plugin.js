@@ -7,7 +7,7 @@
  *
  * Usage:
  *   node scripts/release-plugin.js [--push] [--dry-run-adopter <path>]
- *     [--file-bump-issues <owner/repo,...>]
+ *     [--file-bump-issues] [--reason <why>]
  *
  * Joins no §N3 family: it writes git objects and a tag rather than a file,
  * exiting 0 on a cut and 1, reason on stderr, on a refusal — and 1 for a
@@ -37,6 +37,11 @@
  * #463 adds one more: a helper-surface export the last release promised,
  * dropped without a major bump and its note (check-surface-contract.js).
  *
+ * RELEASES ARE BATCHED, ABOUT ONE A WEEK (founder ruling #5223 Q1 (A)): each
+ * cut reports the days since the last tag, and one under CADENCE_DAYS after it
+ * refuses unless `--reason <why>` states one, such as a broken release or an
+ * adopter blocked on a fix. The reason rides in the tag's annotation.
+ *
  * #4252 adds one more: a `migrations/hold.txt` at HEAD or on `origin/main`
  * holds every cut, its text the reason and what lifts it. The commit that
  * lifts the hold deletes it.
@@ -63,12 +68,15 @@
  * no node_modules, so the command must need none — the surface requires no
  * npm package, and the resolver only builtins.
  *
- * PUSHING AND BUMP-ISSUE FILING STAY OPT-IN (`--push`, `--file-bump-issues
- * <owner/repo,...>`): the spec has `release` do both unconditionally, but
- * cutting a real tag, pushing it and opening issues on other trackers are
- * irreversible and this repo's own guard rules gate pushes on a human
- * decision — so the default call still only prints the publish command, and
- * an adopter list only gets bump issues where the caller names it.
+ * PUSHING AND BUMP-ISSUE FILING STAY OPT-IN (`--push`, `--file-bump-issues`):
+ * the spec has `release` do both unconditionally, but cutting a real tag,
+ * pushing it and opening issues on other trackers are irreversible and this
+ * repo's own guard rules gate pushes on a human decision — so the default
+ * call still only prints the publish command.
+ *
+ * THE BUMP TRACKERS ARE DERIVED, never typed (#5229): every adopter checkout
+ * lib/refill-repos.js finds under `$HOME`, save the core itself, by the
+ * tracker its config resolves.
  */
 
 const fs = require("node:fs");
@@ -84,6 +92,7 @@ const {
 	readLatestTag,
 	buildReleaseMessage,
 } = require("./lib/release-tags.js");
+const { now } = require("./lib/clock.js");
 const { runVerify } = require("./lib/verify-run.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
 const {
@@ -102,19 +111,31 @@ const { shellQuote } = require("./lib/sh-quote.js");
 const { originLabel } = require("./lib/issue-origin.js");
 const { takesLabel } = require("./lib/takes-label.js");
 const { URGENT_LABEL } = require("./lib/urgent-label.js");
+const {
+	homeDir,
+	readAdopterCheckouts,
+	readHostTracker,
+} = require("./lib/refill-repos.js");
+const { isCoreHost } = require("./lib/plugin-state.js");
+const { caught } = require("./lib/caught.js");
+const { isSameRepo } = require("./lib/issue-ref.js");
 
 const MIGRATION_LABEL = takesLabel("implement");
 const HOLD_REL = `${MIGRATIONS_DIR}/hold.txt`;
 
 const CLI = {
 	usage:
-		"usage: node scripts/release-plugin.js [--push] [--dry-run-adopter <path>] [--file-bump-issues <owner/repo,...>]",
+		"usage: node scripts/release-plugin.js [--push] [--dry-run-adopter <path>] [--file-bump-issues] [--reason <why>]",
 	flags: {
 		"--push": /** @type {const} */ ("boolean"),
 		"--dry-run-adopter": /** @type {const} */ ("value"),
-		"--file-bump-issues": /** @type {const} */ ("value"),
+		"--file-bump-issues": /** @type {const} */ ("boolean"),
+		"--reason": /** @type {const} */ ("value"),
 	},
 };
+
+const CADENCE_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * @param {string} cwd
@@ -384,6 +405,34 @@ function refuseIfHeld(root) {
 }
 
 /**
+ * The report line on the gap since the last tag, and whether the cut is early;
+ * refuses an early cut that no `reason` explains.
+ * @param {string} root
+ * @param {string} [reason]
+ * @returns {{line: string, early: boolean}}
+ */
+function cadenceOrThrow(root, reason) {
+	const last = readLatestTag(root);
+	if (last === null) return { line: "last release: none\n", early: false };
+	const cutSec = Number(
+		git(root, [
+			"for-each-ref",
+			"--format=%(creatordate:unix)",
+			`refs/tags/${last}`,
+		]),
+	);
+	const days = (now() - cutSec * 1000) / DAY_MS;
+	const line = `last release: ${last}, ${days.toFixed(1)} days ago\n`;
+	if (days >= CADENCE_DAYS) return { line, early: false };
+	if (!reason) {
+		throw new Error(
+			`${last} was cut ${days.toFixed(1)} days ago, under the ${CADENCE_DAYS}-day release cadence (#5223) — batch the change into the next weekly cut, or pass --reason "<why>", such as a broken release or an adopter blocked on a fix`,
+		);
+	}
+	return { line: `${line}early cut: ${reason}\n`, early: true };
+}
+
+/**
  * Refuses a HEAD that `origin/main` does not hold.
  * @param {string} root
  */
@@ -400,10 +449,10 @@ function verifiedOrThrow(root) {
 
 /**
  * @param {string} root
- * @param {{dryRunAdopter?: string}} [opts]
- * @returns {{tag: string, commit: string, adopterLine: string}}
+ * @param {{dryRunAdopter?: string, reason?: string}} [opts]
+ * @returns {{tag: string, commit: string, adopterLine: string, cadenceLine: string}}
  */
-function release(root, { dryRunAdopter } = {}) {
+function release(root, { dryRunAdopter, reason } = {}) {
 	if (git(root, ["status", "--porcelain"]) !== "") {
 		throw new Error(
 			"the working tree is dirty — commit or stash before releasing",
@@ -413,6 +462,7 @@ function release(root, { dryRunAdopter } = {}) {
 	verifiedOrThrow(root);
 	refuseIfHeld(root);
 	const { plugin, tag } = readReleaseTarget(root);
+	const cadence = cadenceOrThrow(root, reason);
 
 	/* Cheapest refusals first — no point running the whole suite before a
 	 * missing or malformed note refuses the release outright. */
@@ -479,14 +529,25 @@ function release(root, { dryRunAdopter } = {}) {
 			"-m",
 			buildReleaseMessage(plugin.name, tag, source),
 		]);
-		git(root, ["tag", "-a", tag, commit, "-m", `${plugin.name} ${tag}`]);
-		return { tag, commit, adopterLine };
+		const annotation = cadence.early
+			? `${plugin.name} ${tag}\n\nEarly cut: ${reason}`
+			: `${plugin.name} ${tag}`;
+		git(root, ["tag", "-a", tag, commit, "-m", annotation]);
+		return { tag, commit, adopterLine, cadenceLine: cadence.line };
 	} finally {
 		fs.rmSync(tmp, { recursive: true, force: true });
 	}
 }
 
 const BUMP_TITLE = "Bump workflow-core to ";
+
+/**
+ * @typedef {object} BumpFailure
+ * @property {string} where the tracker, or the checkout whose tracker would
+ *   not resolve
+ * @property {string} reason
+ * @property {string} retry
+ */
 
 /**
  * Opens "Bump workflow-core to vX" on each adopter tracker, labelled for
@@ -508,12 +569,12 @@ const BUMP_TITLE = "Bump workflow-core to ";
  * the older bumps files nothing, since filing blind would reopen the race.
  * @param {string[]} repos `owner/name` per tracker
  * @param {string} tag
- * @returns {{filed: string[], failed: {repo: string, reason: string, retry: string}[]}}
+ * @returns {{filed: string[], failed: BumpFailure[]}}
  */
 function fileBumpIssues(repos, tag) {
 	/** @type {string[]} */
 	const filed = [];
-	/** @type {{repo: string, reason: string, retry: string}[]} */
+	/** @type {BumpFailure[]} */
 	const failed = [];
 	/**
 	 * @template T
@@ -527,7 +588,7 @@ function fileBumpIssues(repos, tag) {
 			return run(args);
 		} catch (err) {
 			failed.push({
-				repo,
+				where: repo,
 				reason: parseErrLine(err),
 				retry: `gh ${args.map(shellQuote).join(" ")}`,
 			});
@@ -547,7 +608,7 @@ function fileBumpIssues(repos, tag) {
 		if (r.warning) writeFd(2, `${r.warning}\n`);
 		if (r.code !== 0)
 			failed.push({
-				repo,
+				where: repo,
 				reason: r.err,
 				retry: `node ${shellQuote(scriptPath("link-blocker.js"))} ${args.map(shellQuote).join(" ")}`,
 			});
@@ -603,19 +664,77 @@ function fileBumpIssues(repos, tag) {
 }
 
 /**
- * @param {string[]} repos
+ * Each adopter's tracker, once; each adopter whose tracker will not resolve,
+ * which files nothing and so fails the run; and each config-carrying checkout
+ * discovery left out, with why.
+ * @param {string} home
+ * @returns {{repos: string[], unresolved: BumpFailure[], excluded: import("./lib/refill-repos").LeftOut[]}}
+ */
+function readBumpTrackers(home) {
+	/** @type {string[]} */
+	const repos = [];
+	/** @type {BumpFailure[]} */
+	const unresolved = [];
+	const adopters = readAdopterCheckouts(home);
+	for (const root of adopters.included) {
+		if (isCoreHost(root)) continue;
+		/** @type {string|null} */
+		let tracker;
+		let why = "no tracker resolves";
+		try {
+			tracker = readHostTracker(root);
+		} catch (err) {
+			tracker = null;
+			why = caught(err).message;
+		}
+		if (tracker === null) {
+			unresolved.push({
+				where: root,
+				reason: why,
+				retry: `declare "tracker" in ${path.join(root, ".claude", "workflow-core.json")}, then open its bump issue by hand`,
+			});
+			continue;
+		}
+		const seen = tracker;
+		if (!repos.some((r) => isSameRepo(r, seen))) repos.push(seen);
+	}
+	return {
+		repos,
+		unresolved,
+		excluded: adopters.excluded,
+	};
+}
+
+/**
  * @param {string} tag
+ * @param {string} home where the adopter checkouts sit
  * @returns {{report: string, trackerFailure: boolean}}
  */
-function buildBumpIssueReport(repos, tag) {
+function buildBumpIssueReport(tag, home) {
 	let report = "";
-	if (repos.length === 0) return { report, trackerFailure: false };
+	/* Thrown here, the tag is already cut, so it reports as a tracker
+	 * failure, never as main's no-tag refusal (#242). */
+	let trackers;
+	try {
+		trackers = readBumpTrackers(home);
+	} catch (err) {
+		return {
+			report: `failed bump issues:\n  ${home} (${caught(err).message})\n    retry: open each adopter's bump issue by hand\n`,
+			trackerFailure: true,
+		};
+	}
+	const { repos, unresolved, excluded } = trackers;
 	const { filed, failed } = fileBumpIssues(repos, tag);
+	failed.unshift(...unresolved);
+	for (const e of excluded)
+		report += `bump issue skipped: ${e.root} (${e.why})\n`;
 	if (filed.length > 0) report += `filed bump issues: ${filed.join(", ")}\n`;
+	if (filed.length === 0 && failed.length === 0)
+		report += `filed bump issues: none, since no adopter checkout other than workflow-core is under ${home}\n`;
 	if (failed.length === 0) return { report, trackerFailure: false };
 	report += "failed bump issues:\n";
 	for (const f of failed)
-		report += `  ${f.repo} (${f.reason})\n    retry: ${f.retry}\n`;
+		report += `  ${f.where} (${f.reason})\n    retry: ${f.retry}\n`;
 	return { report, trackerFailure: true };
 }
 
@@ -629,16 +748,16 @@ function main(argv) {
 	const args = {
 		dryRunAdopter: flagValue(flags, "--dry-run-adopter"),
 		push: flags["--push"] === true,
-		fileBumpIssues: (flagValue(flags, "--file-bump-issues") ?? "")
-			.split(",")
-			.filter(Boolean),
+		fileBumpIssues: flags["--file-bump-issues"] === true,
+		reason: flagValue(flags, "--reason")?.trim() || undefined,
 	};
 	try {
 		const root = worktreeRoot();
-		const { tag, commit, adopterLine } = release(root, {
+		const { tag, commit, adopterLine, cadenceLine } = release(root, {
 			dryRunAdopter: args.dryRunAdopter,
+			reason: args.reason,
 		});
-		let report = `tagged ${tag} at ${commit}\n${adopterLine}`;
+		let report = `tagged ${tag} at ${commit}\n${cadenceLine}${adopterLine}`;
 		if (args.push) {
 			git(root, ["push", "origin", tag]);
 			report += `pushed ${tag}\n`;
@@ -647,7 +766,9 @@ function main(argv) {
 		}
 		/* Distinct from the refusals below (#242), which mean no tag was cut
 		 * at all. */
-		const bump = buildBumpIssueReport(args.fileBumpIssues, tag);
+		const bump = args.fileBumpIssues
+			? buildBumpIssueReport(tag, homeDir())
+			: { report: "", trackerFailure: false };
 		report += bump.report;
 		const trackerFailure = bump.trackerFailure;
 		writeFd(1, report);
