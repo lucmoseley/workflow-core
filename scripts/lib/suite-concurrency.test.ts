@@ -194,6 +194,8 @@ interface Over {
 	launchWeight?: Weight | null;
 	windows?: WindowsRead;
 	tscPeakMb?: number;
+	/** The compiler peak each launch directory resolves to. */
+	tscPeaks?: Record<string, number>;
 }
 
 /** A context of fakes: a quiet machine, no package.json, no config. */
@@ -209,7 +211,8 @@ function harness(over: Over = {}) {
 		availableMb: () => (over.mb === undefined ? ROOMY_MB : over.mb),
 		windowsMemory: () => over.windows ?? { state: "absent" },
 		climbMb: (scope: ClimbScope) => over.climb?.[scope] ?? 0,
-		tscLaunchPeakMb: () => over.tscPeakMb ?? TSC_PEAKS_MB[5],
+		tscLaunchPeakMb: (dir: string) =>
+			over.tscPeaks?.[dir] ?? over.tscPeakMb ?? TSC_PEAKS_MB[5],
 		psRows: () => {
 			const text = over.ps === undefined ? psWith(0) : over.ps;
 			return text
@@ -3137,6 +3140,26 @@ describe("a bare `tsc` the type-check slot would hold is sent to `queue-run.js -
 			outcome(judge("tsc --noEmit", reading, psWith(0), { tscPeakMb }).verdict);
 		expect(on(TSC_PEAKS_MB[7])).toBe("allow");
 		expect(on(TSC_PEAKS_MB[5])).not.toBe("allow");
+	});
+
+	describe("charges the compiler of the directory it launches in (#5216)", () => {
+		const reading = between(rungMb(TSC_PEAKS_MB[7]), tscRung);
+		const tscPeaks = { "/repo": TSC_PEAKS_MB[7], "/other": TSC_PEAKS_MB[5] };
+		const on = (command: string) =>
+			outcome(judge(command, reading, psWith(0), { tscPeaks }).verdict);
+
+		it("a `cd` into a 5.x tree from a 7.0 session is charged 5.x", () => {
+			expect(on("cd /other && npx tsc --noEmit")).toBe("deny");
+		});
+
+		it("no `cd` is charged the session tree's compiler", () => {
+			expect(on("npx tsc --noEmit")).toBe("allow");
+		});
+
+		it("a directory the walk cannot name is charged the session tree, logged", () => {
+			expect(on('cd "$DIR" && npx tsc --noEmit')).toBe("allow");
+			expect(readRecords()).toContain("a `tsc` launch's directory unknown");
+		});
 	});
 
 	it("is denied under its rung, naming the reading and the rung", () => {
