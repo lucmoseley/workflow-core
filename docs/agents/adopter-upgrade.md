@@ -53,9 +53,7 @@ The walk runs under four conditions:
 
 ## The install is the session's, not the founder's
 
-The founder ruled at #5223 that the session finishes the install itself
-(#5230). Once the pin is moved, the install that follows is owed no question.
-The session runs the gap's commands as the reporter prints them, bare, one per
+The session finishes the install itself (#5223, #5230). It runs the gap's commands as the reporter prints them, bare, one per
 call. These three `permissions.allow` rules in user settings
 (`~/.claude/settings.json`, which the seats `~/.claude2` and `~/.claude3` share
 by symlink) match exactly those spellings, so they run with no prompt:
@@ -69,16 +67,11 @@ Bash(claude plugin update workflow-core@workflow-core --scope project -y)
 The `*` stands for any text, so the first also passes extra flags after the
 tag. The URL and the plugin stay fixed.
 
-A bump session runs them right after its pin commit: the report at its
-session start came before the pin moved, so it names none of them.
+A bump session runs them right after its pin commit.
 They are user rules, not project ones, so the one file reaches every adopter
 under every config dir. A rule in an adopter's own `.claude/settings.json`
 could only arrive through the install it was meant to unprompt. A chained
-command (`&&`, `;`, `|`) defeats the match and goes to the classifier, which
-has refused it as self-modification (fantasy-books#2125).
-
-`rule:adopter-pin-consent` is untouched: the pin still moves only by a
-deliberate act.
+command (`&&`, `;`, `|`) defeats the match and goes to the classifier.
 
 ## The accept and the decline, on disk
 
@@ -98,8 +91,7 @@ A **decline** is permanent for that `<repo>@<tag>` — this reporter checks it
 first and stays silent for exactly that tag; a different tag in the same
 repo, or the same tag in a different adopter, still reports. A **pending
 consent**, written by the accept, is read and cleared by the `SessionEnd`
-materialiser (#247) once its migration walk lands, the install being already
-at the pin where the session ran it, or materialised there first where not.
+materialiser (#247) once its migration walk lands.
 **Nothing in the store can express "accepted and completed"** — a failed
 materialise leaves the pending record in place, so this reporter (which never
 reads pending, only decline) keeps speaking and the next session runs the
