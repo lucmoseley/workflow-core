@@ -127,6 +127,7 @@ const callsOf = (command: string, reg: Partial<PyPI> = {}, over: Over = {}) => {
 };
 
 const BIN = "--only-binary :all:";
+const PIPX = "--pip-args='--only-binary :all:'";
 
 describe("what it does not judge", () => {
 	it.each([
@@ -505,8 +506,6 @@ ${ESCAPE}`,
 });
 
 describe("the tool runners (#5239)", () => {
-	const pipxShut = "--pip-args='--only-binary :all:'";
-
 	it.each([
 		["uvx left-pad", "left-pad", "--no-build"],
 		["uvx left-pad@1.0 --flag", "left-pad", "--no-build"],
@@ -517,12 +516,12 @@ describe("the tool runners (#5239)", () => {
 		["uv tool install ruff --with left-pad", "left-pad", "--no-build"],
 		["uv run --with left-pad pytest", "left-pad", "--no-build"],
 		["uv run -w left-pad pytest", "left-pad", "--no-build"],
-		["pipx install left-pad", "left-pad", pipxShut],
-		["pipx install ruff --preinstall left-pad", "left-pad", pipxShut],
-		["pipx run left-pad", "left-pad", pipxShut],
-		["pipx run --spec left-pad lp", "left-pad", pipxShut],
-		["pipx run --with left-pad ruff", "left-pad", pipxShut],
-		["pipx inject ruff left-pad", "left-pad", pipxShut],
+		["pipx install left-pad", "left-pad", PIPX],
+		["pipx install ruff --preinstall left-pad", "left-pad", PIPX],
+		["pipx run left-pad", "left-pad", PIPX],
+		["pipx run --spec left-pad lp", "left-pad", PIPX],
+		["pipx run --with left-pad ruff", "left-pad", PIPX],
+		["pipx inject ruff left-pad", "left-pad", PIPX],
 	])("refuses `%s` its window open, naming the flag", (command, name, flag) => {
 		expect(denial(command)).toContain(
 			`declare — ${name} — and does not carry \`${flag}\`:`,
@@ -535,9 +534,9 @@ describe("the tool runners (#5239)", () => {
 		"uv tool run --no-build left-pad",
 		"uv tool install --no-build 'left-pad[cli]>=1'",
 		"uv run --no-build --with left-pad pytest",
-		`pipx install ${pipxShut} left-pad`,
+		`pipx install ${PIPX} left-pad`,
 		"pipx run --pip-args=--only-binary=:all: left-pad",
-		`pipx inject ${pipxShut} ruff left-pad`,
+		`pipx inject ${PIPX} ruff left-pad`,
 	])("asks PyPI of `%s` once its window is shut", (command) => {
 		expect(callsOf(command)).toEqual(["pypi left-pad", "stats left-pad"]);
 	});
@@ -577,12 +576,10 @@ describe("the tool runners (#5239)", () => {
 			"uvx --no-build --from git+https://example.com/x.git x",
 			"git+https://example.com/x.git",
 		],
-		[`pipx install ${pipxShut} --editable evil`, "evil"],
-		[
-			`pipx run ${pipxShut} https://example.com/s.py`,
-			"https://example.com/s.py",
-		],
-		[`pipx run ${pipxShut} script.py`, "script.py"],
+		[`pipx install ${PIPX} --editable evil`, "evil"],
+		[`pipx install ${PIPX} -e evil`, "evil"],
+		[`pipx run ${PIPX} https://example.com/s.py`, "https://example.com/s.py"],
+		[`pipx run ${PIPX} script.py`, "script.py"],
 	])("refuses `%s` as unvettable", (command, spec) => {
 		expect(denial(command)).toContain(
 			`its legitimacy is unverifiable: \`${spec}\``,
@@ -601,9 +598,9 @@ describe("the tool runners (#5239)", () => {
 	});
 
 	it.each([
-		[`pipx install ${pipxShut} -e mydir`, "mydir"],
-		[`pipx install ${pipxShut} tool.py`, "tool.py"],
-		[`pipx run ${pipxShut} --path script`, "script"],
+		[`pipx install ${PIPX} -e mydir`, "mydir"],
+		[`pipx install ${PIPX} tool.py`, "tool.py"],
+		[`pipx run ${PIPX} --path script`, "script"],
 	])("refuses the pipx local tree `%s` as unvettable", (command, spec) => {
 		expect(denial(command)).toContain(
 			`its legitimacy is unverifiable: \`${spec}\``,
@@ -611,8 +608,8 @@ describe("the tool runners (#5239)", () => {
 	});
 
 	it.each([
-		`pipx install ${pipxShut} -i https://example.com/simple left-pad`,
-		`pipx inject ${pipxShut} --requirement r.txt ruff left-pad`,
+		`pipx install ${PIPX} -i https://example.com/simple left-pad`,
+		`pipx inject ${PIPX} --requirement r.txt ruff left-pad`,
 	])("reads pipx's value-taking `-i` and `--requirement`: `%s`", (command) => {
 		expect(callsOf(command)).toEqual(["pypi left-pad", "stats left-pad"]);
 	});
@@ -626,6 +623,68 @@ describe("the tool runners (#5239)", () => {
 	it("passes a declared tool", () => {
 		expect(allows("uvx ruff@0.16.4", { created: "404" })).toBe(true);
 		expect(allows("pipx install ruff", { created: "404" })).toBe(true);
+	});
+});
+
+describe("pipx runpip and pipx upgrade --install (#5242)", () => {
+	it.each([
+		["pipx runpip ruff install left-pad", "left-pad", BIN],
+		["pipx runpip --verbose ruff install left-pad", "left-pad", BIN],
+		["pipx runpip ruff -v install left-pad", "left-pad", BIN],
+		["pipx runpip ruff -- 'install left-pad'", "left-pad", BIN],
+		["pipx runpip ruff -- -- install left-pad", "left-pad", BIN],
+		["pipx runpip -- ruff install left-pad", "left-pad", BIN],
+		["pipx runpip ruff 'install left-pad'", "left-pad", BIN],
+		["pipx upgrade --install left-pad", "left-pad", PIPX],
+		["pipx upgrade left-pad --ins", "left-pad", PIPX],
+		[
+			"pipx upgrade -i https://example.com/simple --install left-pad",
+			"left-pad",
+			PIPX,
+		],
+	])("refuses `%s` its window open, naming the flag", (command, name, flag) => {
+		expect(denial(command)).toContain(
+			`declare — ${name} — and does not carry \`${flag}\`:`,
+		);
+	});
+
+	it.each([
+		`pipx runpip ruff install ${BIN} left-pad`,
+		`pipx runpip ruff 'install ${BIN} left-pad'`,
+		`pipx upgrade --install ${PIPX} left-pad`,
+	])("asks PyPI of `%s` once its window is shut", (command) => {
+		expect(callsOf(command)).toEqual(["pypi left-pad", "stats left-pad"]);
+	});
+
+	it.each([
+		[`pipx runpip ruff install ${BIN} -e ./evil`, "./evil"],
+		[`pipx upgrade --install ${PIPX} -e evil`, "evil"],
+	])("refuses `%s` as unvettable", (command, spec) => {
+		expect(denial(command)).toContain(
+			`its legitimacy is unverifiable: \`${spec}\``,
+		);
+	});
+
+	it("reads pipx's `-i` as taking the index URL", () => {
+		expect(
+			denial("pipx install -i https://example.com/simple left-pad"),
+		).toContain("declare — left-pad — and does not carry");
+		expect(
+			callsOf(`pipx install ${PIPX} -i https://example.com/simple left-pad`),
+		).toEqual(["pypi left-pad", "stats left-pad"]);
+	});
+
+	it.each([
+		"pipx upgrade left-pad",
+		"pipx upgrade --include-injected left-pad",
+		"pipx runpip ruff list",
+		"pipx runpip ruff",
+		"pipx runpip ruff install -r requirements.txt",
+		"pipx runpip --help",
+		"pipx upgrade --install --help left-pad",
+		"pipx runpip ruff install requests",
+	])("allows `%s`", (command) => {
+		expect(allows(command, { created: "404" })).toBe(true);
 	});
 });
 
