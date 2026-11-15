@@ -127,6 +127,7 @@ const callsOf = (command: string, reg: Partial<PyPI> = {}, over: Over = {}) => {
 };
 
 const BIN = "--only-binary :all:";
+const Pipx = "--pip-args='--only-binary :all:'";
 
 describe("what it does not judge", () => {
 	it.each([
@@ -505,8 +506,6 @@ ${ESCAPE}`,
 });
 
 describe("the tool runners (#5239)", () => {
-	const Pipx = "--pip-args='--only-binary :all:'";
-
 	it.each([
 		["uvx left-pad", "left-pad", "--no-build"],
 		["uvx left-pad@1.0 --flag", "left-pad", "--no-build"],
@@ -578,6 +577,7 @@ describe("the tool runners (#5239)", () => {
 			"git+https://example.com/x.git",
 		],
 		[`pipx install ${Pipx} --editable evil`, "evil"],
+		[`pipx install ${Pipx} -e evil`, "evil"],
 		[`pipx run ${Pipx} https://example.com/s.py`, "https://example.com/s.py"],
 		[`pipx run ${Pipx} script.py`, "script.py"],
 	])("refuses `%s` as unvettable", (command, spec) => {
@@ -599,12 +599,13 @@ describe("the tool runners (#5239)", () => {
 });
 
 describe("pipx runpip and pipx upgrade --install (#5242)", () => {
-	const Pipx = "--pip-args='--only-binary :all:'";
-
 	it.each([
 		["pipx runpip ruff install left-pad", "left-pad", BIN],
 		["pipx runpip --verbose ruff install left-pad", "left-pad", BIN],
 		["pipx runpip ruff -v install left-pad", "left-pad", BIN],
+		["pipx runpip ruff -- 'install left-pad'", "left-pad", BIN],
+		["pipx runpip ruff -- -- install left-pad", "left-pad", BIN],
+		["pipx runpip -- ruff install left-pad", "left-pad", BIN],
 		["pipx runpip ruff 'install left-pad'", "left-pad", BIN],
 		["pipx upgrade --install left-pad", "left-pad", Pipx],
 		["pipx upgrade left-pad --ins", "left-pad", Pipx],
@@ -630,11 +631,19 @@ describe("pipx runpip and pipx upgrade --install (#5242)", () => {
 	it.each([
 		[`pipx runpip ruff install ${BIN} -e ./evil`, "./evil"],
 		[`pipx upgrade --install ${Pipx} -e evil`, "evil"],
-		[`pipx install ${Pipx} -e evil`, "evil"],
 	])("refuses `%s` as unvettable", (command, spec) => {
 		expect(denial(command)).toContain(
 			`its legitimacy is unverifiable: \`${spec}\``,
 		);
+	});
+
+	it("reads pipx's `-i` as taking the index URL", () => {
+		expect(
+			denial("pipx install -i https://example.com/simple left-pad"),
+		).toContain("declare — left-pad — and does not carry");
+		expect(
+			callsOf(`pipx install ${Pipx} -i https://example.com/simple left-pad`),
+		).toEqual(["pypi left-pad", "stats left-pad"]);
 	});
 
 	it.each([

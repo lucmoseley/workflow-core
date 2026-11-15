@@ -602,7 +602,8 @@ const UV_TOOL_INSTALL_ARGV = `${UV_TOOL_SHARED} -w --with --with-requirements
 const PIPX_ARGV = `--include-resources-from --upgrade-strategy --suffix
 --python --fetch-python --preinstall --app --lock --index-url -i --pip-args
 --cooldown --backend --output --python-args --with --spec -r`;
-/* `--install` and each abbreviation argparse takes for it. */
+/* `--install` and each abbreviation argparse takes for it: `--in` is shared
+ * with `--include-injected` and `--index-url` (pipx 1.18.16). */
 const PIPX_INSTALL_RE = /^--ins(t(a(l(l)?)?)?)?$/;
 
 /** @typedef {{ name: string, value: string }} Opt */
@@ -846,7 +847,7 @@ function parsePipx(words, ctx) {
 	/** @type {{ named: string[], local: boolean }} */
 	let target;
 	const editable = read.has("--editable") || read.has("-e");
-	if (sub === "install" || (sub === "upgrade" && pipxInstalls(read.opts)))
+	if (sub === "install" || (sub === "upgrade" && hasInstallFlag(read.opts)))
 		target = { named: read.args.slice(1), local: editable };
 	else if (sub === "inject")
 		target = { named: read.args.slice(2), local: editable };
@@ -869,21 +870,26 @@ function parsePipx(words, ctx) {
  * package no venv holds yet.
  * @param {Opt[]} opts
  */
-const pipxInstalls = (opts) => opts.some((o) => PIPX_INSTALL_RE.test(o.name));
+const hasInstallFlag = (opts) => opts.some((o) => PIPX_INSTALL_RE.test(o.name));
 
 /**
  * What `pipx runpip <venv> <pipargs>` installs: its pip argv, which pipx hands
  * to the venv's pip, or to `uv pip` under the uv backend, judged as
  * `pip install`. pipx's own options, none taking a value, come before the
  * venv; a lone pip argument holding whitespace is a whole command line, which
- * pipx splits shell-style.
+ * pipx splits shell-style. shlex keeps `;` and `&&` as words of that one argv,
+ * so every command the shell parser splits it into is rejoined. argparse drops
+ * the first `--`, wherever it stands.
  * @param {string[]} words the words after `runpip`
  * @param {PipInstallContext} ctx
  * @returns {Install | null}
  */
 function pipxRunpip(words, ctx) {
-	const venv = words.findIndex((w) => !w.startsWith("-"));
-	const pipargs = words.slice(venv + 1);
+	const dash = words.indexOf("--");
+	const rest =
+		dash < 0 ? words : [...words.slice(0, dash), ...words.slice(dash + 1)];
+	const venv = rest.findIndex((w) => !w.startsWith("-"));
+	const pipargs = rest.slice(venv + 1);
 	const [line] = pipargs;
 	return venv < 0
 		? null
