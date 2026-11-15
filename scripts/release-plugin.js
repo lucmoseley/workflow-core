@@ -112,6 +112,7 @@ const {
 } = require("./lib/refill-repos.js");
 const { isCoreHost } = require("./lib/plugin-state.js");
 const { caught } = require("./lib/caught.js");
+const { isSameRepo } = require("./lib/issue-ref.js");
 
 const MIGRATION_LABEL = takesLabel("implement");
 const HOLD_REL = `${MIGRATIONS_DIR}/hold.txt`;
@@ -499,6 +500,14 @@ function release(root, { dryRunAdopter } = {}) {
 const BUMP_TITLE = "Bump workflow-core to ";
 
 /**
+ * @typedef {object} BumpFailure
+ * @property {string} where the tracker, or the checkout whose tracker would
+ *   not resolve
+ * @property {string} reason
+ * @property {string} retry
+ */
+
+/**
  * Opens "Bump workflow-core to vX" on each adopter tracker, labelled for
  * `/pick-next` and `urgent`, so a bump outranks the adopter's other work, and
  * `origin:release-bump`, so the ticket-mix review counts it (#4867). Opt-in — see the header. The binary is `scripts/lib/gh.js`'s
@@ -518,12 +527,12 @@ const BUMP_TITLE = "Bump workflow-core to ";
  * the older bumps files nothing, since filing blind would reopen the race.
  * @param {string[]} repos `owner/name` per tracker
  * @param {string} tag
- * @returns {{filed: string[], failed: {repo: string, reason: string, retry: string}[]}}
+ * @returns {{filed: string[], failed: BumpFailure[]}}
  */
 function fileBumpIssues(repos, tag) {
 	/** @type {string[]} */
 	const filed = [];
-	/** @type {{repo: string, reason: string, retry: string}[]} */
+	/** @type {BumpFailure[]} */
 	const failed = [];
 	/**
 	 * @template T
@@ -537,7 +546,7 @@ function fileBumpIssues(repos, tag) {
 			return run(args);
 		} catch (err) {
 			failed.push({
-				repo,
+				where: repo,
 				reason: parseErrLine(err),
 				retry: `gh ${args.map(shellQuote).join(" ")}`,
 			});
@@ -557,7 +566,7 @@ function fileBumpIssues(repos, tag) {
 		if (r.warning) writeFd(2, `${r.warning}\n`);
 		if (r.code !== 0)
 			failed.push({
-				repo,
+				where: repo,
 				reason: r.err,
 				retry: `node ${shellQuote(scriptPath("link-blocker.js"))} ${args.map(shellQuote).join(" ")}`,
 			});
@@ -613,17 +622,19 @@ function fileBumpIssues(repos, tag) {
 }
 
 /**
- * Each adopter's tracker, once, and each adopter whose tracker will not
- * resolve, which files nothing and so fails the run.
+ * Each adopter's tracker, once; each adopter whose tracker will not resolve,
+ * which files nothing and so fails the run; and each config-carrying checkout
+ * discovery left out, with why.
  * @param {string} home
- * @returns {{repos: string[], unresolved: {repo: string, reason: string, retry: string}[]}}
+ * @returns {{repos: string[], unresolved: BumpFailure[], excluded: import("./lib/refill-repos").LeftOut[]}}
  */
 function readBumpTrackers(home) {
-	/** @type {Map<string, string>} */
-	const repos = new Map();
-	/** @type {{repo: string, reason: string, retry: string}[]} */
+	/** @type {string[]} */
+	const repos = [];
+	/** @type {BumpFailure[]} */
 	const unresolved = [];
-	for (const root of readAdopterCheckouts(home).included) {
+	const adopters = readAdopterCheckouts(home);
+	for (const root of adopters.included) {
 		if (isCoreHost(root)) continue;
 		/** @type {string|null} */
 		let tracker;
@@ -636,34 +647,52 @@ function readBumpTrackers(home) {
 		}
 		if (tracker === null) {
 			unresolved.push({
-				repo: root,
+				where: root,
 				reason: why,
 				retry: `declare "tracker" in ${path.join(root, ".claude", "workflow-core.json")}, then open its bump issue by hand`,
 			});
 			continue;
 		}
-		const key = tracker.toLowerCase();
-		if (!repos.has(key)) repos.set(key, tracker);
+		const seen = tracker;
+		if (!repos.some((r) => isSameRepo(r, seen))) repos.push(seen);
 	}
-	return { repos: [...repos.values()], unresolved };
+	return {
+		repos,
+		unresolved,
+		excluded: adopters.excluded,
+	};
 }
 
 /**
  * @param {string} tag
+ * @param {string} home where the adopter checkouts sit
  * @returns {{report: string, trackerFailure: boolean}}
  */
-function buildBumpIssueReport(tag) {
+function buildBumpIssueReport(tag, home) {
 	let report = "";
-	const { repos, unresolved } = readBumpTrackers(homeDir());
+	/* Thrown here, the tag is already cut, so it reports as a tracker
+	 * failure, never as main's no-tag refusal (#242). */
+	let trackers;
+	try {
+		trackers = readBumpTrackers(home);
+	} catch (err) {
+		return {
+			report: `failed bump issues:\n  ${home} (${caught(err).message})\n    retry: open each adopter's bump issue by hand\n`,
+			trackerFailure: true,
+		};
+	}
+	const { repos, unresolved, excluded } = trackers;
 	const { filed, failed } = fileBumpIssues(repos, tag);
 	failed.unshift(...unresolved);
+	for (const e of excluded)
+		report += `bump issue skipped: ${e.root} (${e.why})\n`;
 	if (filed.length > 0) report += `filed bump issues: ${filed.join(", ")}\n`;
 	if (filed.length === 0 && failed.length === 0)
-		report += `filed bump issues: none, since no adopter checkout is under ${homeDir()}\n`;
+		report += `filed bump issues: none, since no adopter checkout other than workflow-core is under ${home}\n`;
 	if (failed.length === 0) return { report, trackerFailure: false };
 	report += "failed bump issues:\n";
 	for (const f of failed)
-		report += `  ${f.repo} (${f.reason})\n    retry: ${f.retry}\n`;
+		report += `  ${f.where} (${f.reason})\n    retry: ${f.retry}\n`;
 	return { report, trackerFailure: true };
 }
 
@@ -694,7 +723,7 @@ function main(argv) {
 		/* Distinct from the refusals below (#242), which mean no tag was cut
 		 * at all. */
 		const bump = args.fileBumpIssues
-			? buildBumpIssueReport(tag)
+			? buildBumpIssueReport(tag, homeDir())
 			: { report: "", trackerFailure: false };
 		report += bump.report;
 		const trackerFailure = bump.trackerFailure;

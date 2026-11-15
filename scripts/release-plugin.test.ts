@@ -944,13 +944,17 @@ process.stdout.write(JSON.stringify([posted]));
 	};
 
 	/* A home of adopter checkouts, one per `repos` entry in order, each
-	 * declaring that tracker; `null` declares none, and a `core:` prefix
-	 * makes that checkout workflow-core itself. */
+	 * declaring that tracker; `null` declares none, a `core:` prefix makes
+	 * that checkout workflow-core itself, and `worktree:` a linked worktree. */
 	const adopterHome = (repos: (string | null)[]) => {
 		const home = fs.mkdtempSync(path.join(os.tmpdir(), "bump-home-"));
 		repos.forEach((tracker, i) => {
 			const root = path.join(home, `a${i}`);
 			fs.mkdirSync(path.join(root, ".git"), { recursive: true });
+			if (tracker === "worktree:") {
+				fs.rmdirSync(path.join(root, ".git"));
+				fs.writeFileSync(path.join(root, ".git"), "gitdir: elsewhere\n");
+			}
 			fs.mkdirSync(path.join(root, ".claude"));
 			const core = tracker?.startsWith("core:") === true;
 			if (core) {
@@ -970,10 +974,8 @@ process.stdout.write(JSON.stringify([posted]));
 		return home;
 	};
 
-	const fileBumps = (gh: string, repos: string | (string | null)[]) => {
-		const home = adopterHome(
-			typeof repos === "string" ? repos.split(",") : repos,
-		);
+	const fileBumps = (gh: string, repos: (string | null)[]) => {
+		const home = adopterHome(repos);
 		try {
 			return runInProcess(SCRIPT, ["--file-bump-issues"], {
 				cwd: dir,
@@ -1008,7 +1010,7 @@ process.stdout.write(JSON.stringify([posted]));
 
 	it("files one bump issue per adopter tracker, labelled for /pick-next, urgent and its origin", () =>
 		withBumpStub("[]", (gh, calls) => {
-			const r = fileBumps(gh, "lucmoseley/workflow-core-dryrun-adopter");
+			const r = fileBumps(gh, ["lucmoseley/workflow-core-dryrun-adopter"]);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toContain(
 				"filed bump issues: lucmoseley/workflow-core-dryrun-adopter",
@@ -1026,10 +1028,11 @@ process.stdout.write(JSON.stringify([posted]));
 
 	it("files the other trackers' bump issues where one tracker refuses, and reports the retry command (#242)", () =>
 		withBumpStub("[]", (gh, calls) => {
-			const r = fileBumps(
-				gh,
-				"adopter-a/repo,adopter-b/forbidden-repo,adopter-c/repo",
-			);
+			const r = fileBumps(gh, [
+				"adopter-a/repo",
+				"adopter-b/forbidden-repo",
+				"adopter-c/repo",
+			]);
 			expect(r.status).toBe(1);
 			expect(r.stdout).toContain("git push origin v2.3.4");
 			expect(r.stdout).toContain(
@@ -1047,7 +1050,7 @@ process.stdout.write(JSON.stringify([posted]));
 
 	it("exits 0 where every bump issue files cleanly", () =>
 		withBumpStub("[]", (gh) => {
-			const r = fileBumps(gh, "adopter-a/repo,adopter-c/repo");
+			const r = fileBumps(gh, ["adopter-a/repo", "adopter-c/repo"]);
 			expect(r.status).toBe(0);
 			expect(r.stdout).toContain(
 				"filed bump issues: adopter-a/repo, adopter-c/repo",
@@ -1071,7 +1074,7 @@ process.stdout.write(JSON.stringify([posted]));
 				{ ...bump(94, "v2.3.3"), pull_request: {} },
 			]),
 			(gh, calls) => {
-				const r = fileBumps(gh, "o/r");
+				const r = fileBumps(gh, ["o/r"]);
 				expect(r.stderr).toBe("");
 				expect(r.status).toBe(0);
 				expect(calls()).toContain(
@@ -1092,7 +1095,7 @@ process.stdout.write(JSON.stringify([posted]));
 		withBumpStub(
 			JSON.stringify([bump(91, "v2.3.2", ["someone"])]),
 			(gh, calls) => {
-				const r = fileBumps(gh, "o/r");
+				const r = fileBumps(gh, ["o/r"]);
 				expect(r.status).toBe(0);
 				expect(calls()).toContain(
 					"api --method POST repos/o/r/issues/100/dependencies/blocked_by -F issue_id=9100",
@@ -1104,7 +1107,7 @@ process.stdout.write(JSON.stringify([posted]));
 
 	it("files nothing on a tracker whose open bumps it cannot read, and files the next", () =>
 		withBumpStub("[]", (gh, calls) => {
-			const r = fileBumps(gh, "o/garbled-repo,o/r");
+			const r = fileBumps(gh, ["o/garbled-repo", "o/r"]);
 			expect(r.status).toBe(1);
 			expect(r.stdout).toContain("filed bump issues: o/r\n");
 			expect(r.stdout).toContain(
@@ -1129,12 +1132,31 @@ process.stdout.write(JSON.stringify([posted]));
 			expect(r.stdout).toMatch(/a0 \(.+\)\n {4}retry: declare "tracker" in /);
 		}));
 
-	it("says so where no adopter checkout is found", () =>
+	it("says so where no adopter checkout but the core is found, naming each one left out", () =>
 		withBumpStub("[]", (gh) => {
-			const r = fileBumps(gh, []);
+			const r = fileBumps(gh, ["core:o/core", "worktree:"]);
 			expect(r.status).toBe(0);
-			expect(r.stdout).toContain(
-				"filed bump issues: none, since no adopter checkout is under",
+			expect(r.stdout).toMatch(
+				/bump issue skipped: .+a1 \(not a main checkout\)\n/,
 			);
+			expect(r.stdout).toContain(
+				"filed bump issues: none, since no adopter checkout other than workflow-core is under",
+			);
+		}));
+
+	it("reports an unreadable home as a tracker failure after the cut, not a refusal (#242)", () =>
+		withBumpStub("[]", (gh) => {
+			const r = runInProcess(SCRIPT, ["--file-bump-issues"], {
+				cwd: dir,
+				env: {
+					...process.env,
+					CLAUDE_PROJECT_DIR: dir,
+					HOME: path.join(dir, "no-such-home"),
+					WFC_GH: gh,
+				},
+			});
+			expect(r.status).toBe(1);
+			expect(r.stdout).toContain("tagged v2.3.4");
+			expect(r.stdout).toMatch(/failed bump issues:\n {2}.+no-such-home \(/);
 		}));
 });
