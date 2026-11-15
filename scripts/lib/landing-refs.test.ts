@@ -242,10 +242,21 @@ describe("the CLI", () => {
 		}
 	});
 
-	it("refuses anything else with its usage", () => {
-		const r = cli(["verified"]);
-		expect(r.status).toBe(2);
-		expect(r.stderr).toContain(
+	it("refuses anything else with its usage, a stray argument after the tree included", () => {
+		for (const args of [["verified"], [], ["pushed", root, "extra"]]) {
+			const r = cli(args);
+			expect(r.status).toBe(2);
+			expect(r.stdout).toBe("");
+			expect(r.stderr).toContain(
+				"usage: landing-refs.js pushed|unpushed [<tree>]",
+			);
+		}
+	});
+
+	it("prints its usage to stdout on --help, answering nothing", () => {
+		const r = cli(["pushed", "--help"]);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(
 			"usage: landing-refs.js pushed|unpushed [<tree>]",
 		);
 	});

@@ -247,8 +247,8 @@ if (is("issue", "list")) {
 	return { store, refuseReland, gh, readStore };
 };
 
-/** A seeded batch record's red-path fields before any red, as the lander's
- *  take writes them: a fresh object per call, so no two batches share a list. */
+/** A seeded batch record's red-path fields before any red: a fresh object per
+ *  call, so no two batches share a list. */
 export const redPathAtRest = (): Pick<
 	Batch,
 	"ahead" | "blame" | "isolated" | "serial" | "hold" | "bases"

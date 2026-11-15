@@ -1,6 +1,7 @@
 // @vitest-environment node
 /*
- * lib/local-tester.js against a fixture repo (#2403).
+ * lib/local-tester.js against a fixture repo (#2403), and the production
+ * suite slot it holds each run under, lib/suite-slot.js, beside it.
  *
  * Loosen it and the lander can land a sha it never tested, test a session's
  * unsaved edit, reinstall on every batch, or run a suite past a shut gate.

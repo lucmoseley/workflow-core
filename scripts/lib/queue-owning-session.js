@@ -20,7 +20,9 @@ const fs = require("node:fs");
 const { parseErrorFirstLine } = require("./first-line.js");
 const { admissionSessionIds, isListedLive } = require("./agent-liveness.js");
 const { ownQueueRef, queueBranch } = require("./landing-refs.js");
-const { worktreeOwners } = require("./session-worktrees.js");
+const {
+	worktreeOwners: sessionsInWorktrees,
+} = require("./session-worktrees.js");
 const { readLinkedWorktrees } = require("./worktree-paths.js");
 const { writeFd } = require("./write-fd.js");
 
@@ -68,7 +70,7 @@ function readOwningSession(root, name, deps = liveOwningSessionDeps(root)) {
 		if (tree === undefined || !fs.existsSync(tree)) return "stopped";
 		const listed = deps.listed();
 		if (listed.why !== undefined) return unread(listed.why);
-		const session = worktreeOwners([tree], listed).owners.get(tree);
+		const session = sessionsInWorktrees([tree], listed).owners.get(tree);
 		return session &&
 			isListedLive(session.sessionId, listed.ids, listed.terminal)
 			? "working"
