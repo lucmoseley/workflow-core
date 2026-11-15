@@ -584,7 +584,7 @@ function fileBumpIssues(repos, tag) {
 				"-f",
 				`title=${BUMP_TITLE}${tag}`,
 				"-f",
-				`body=Migration note: ${MIGRATIONS_DIR}/${tag}.md in ${UPSTREAM_CODE_REPO}. Closed by the bump commit.${closesCovered}`,
+				`body=Migration note: ${MIGRATIONS_DIR}/${tag}.md in ${UPSTREAM_CODE_REPO}. Closed by the bump commit. After it, run the install commands and the accept that docs/agents/adopter-upgrade.md §The install is the session's names, each bare (#5230).${closesCovered}`,
 				"-f",
 				`labels[]=${MIGRATION_LABEL}`,
 				"-f",

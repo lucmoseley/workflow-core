@@ -38,8 +38,8 @@ function labelPin({ ref, source }) {
  */
 
 /**
- * A pin moves on a bump; the install is a separate act awaiting the
- * founder's yes (#5228).
+ * A pin moves on a bump; the install is a separate act, the session's own
+ * (#5228, #5230).
  * Judged as lib/plugin-state.js's `installAtPin` judges it: anything but the
  * pinned release, an install ahead of the pin or of no version's shape
  * included, is off the pin.

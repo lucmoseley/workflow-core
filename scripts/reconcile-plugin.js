@@ -96,7 +96,7 @@
  *            reality to the state the pin already declares (#238); the walk
  *            is the same argument one step further, since a migration note
  *            is itself pinned content the plugin ships (#249). What it buys
- *            is no session leaving a five-step sequence half done, and no
+ *            is no session leaving the install and walk half done, and no
  *            one landing on a stale, mid-migration repo;
  *            nothing breaks if it never runs.
  * DEFEAT:    decline the tag (`node scripts/adopter-consent.js decline <repo>

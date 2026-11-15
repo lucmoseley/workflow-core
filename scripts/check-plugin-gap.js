@@ -442,7 +442,7 @@ function buildReport({ root, pluginRoot, runningRoot }) {
 	const consentCli = `${pluginRoot}/scripts/adopter-consent.js`;
 	lines.push(
 		"",
-		"These commands are this session's to run, not the founder's (#5230): run each bare, one per call, as printed, since the user-settings allow rules for them match only these spellings. Then record the tag accepted, so the session-end reconciler walks its migration notes:",
+		"The `claude plugin` commands under the gap line above are this session's to run, not the founder's (#5230): run each bare, one per call, as printed, since the user-settings allow rules for them match only these spellings. Then record the tag accepted, so the session-end reconciler walks its migration notes:",
 		`  node ${shellQuote(consentCli)} accept  ${shellQuote(root)} ${shellQuote(state.pin.ref)}`,
 		"Only where the founder has said not to install this tag here, record that instead:",
 		`  node ${shellQuote(consentCli)} decline ${shellQuote(root)} ${shellQuote(state.pin.ref)}`,

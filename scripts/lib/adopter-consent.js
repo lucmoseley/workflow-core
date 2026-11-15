@@ -153,7 +153,7 @@ function isDeclined(repo, tag, { configDir } = {}) {
 }
 
 /**
- * Record a pending consent — the founder said yes, materialise still owed.
+ * Record a pending consent — the tag is accepted, its walk still owed.
  * @param {string} repo @param {string} tag
  * @param {{configDir?: string}} [opts]
  * @returns {boolean} whether the write landed

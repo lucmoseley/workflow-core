@@ -981,6 +981,8 @@ process.stdout.write(JSON.stringify([posted]));
 				"api --method POST repos/lucmoseley/workflow-core-dryrun-adopter/issues",
 			);
 			expect(calls()).toContain("title=Bump workflow-core to v2.3.4");
+			// the bump session runs the install itself (#5230)
+			expect(calls()).toContain("run the install commands and the accept");
 			expect(calls()).toContain("labels[]=takes:implement");
 			expect(calls()).toContain("labels[]=urgent");
 			expect(calls()).toContain("labels[]=origin:release-bump");

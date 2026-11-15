@@ -56,10 +56,21 @@ The walk runs under four conditions:
 The founder ruled at #5223 that the session finishes the install itself
 (#5230). Once the pin is moved, the install that follows is owed no question.
 The session runs the gap's commands as the reporter prints them, bare, one per
-call. Three `permissions.allow` rules in user settings (`~/.claude/settings.json`,
-which every `~/.claude*` config dir shares by symlink) match exactly those
-spellings for `workflow-core@workflow-core` and
-`https://github.com/lucmoseley/workflow-core.git`, so they run with no prompt.
+call. These three `permissions.allow` rules in user settings
+(`~/.claude/settings.json`, which the seats `~/.claude2` and `~/.claude3` share
+by symlink) match exactly those spellings, so they run with no prompt:
+
+```
+Bash(claude plugin marketplace add https://github.com/lucmoseley/workflow-core.git#v* --scope project)
+Bash(claude plugin install workflow-core@workflow-core -y --scope project)
+Bash(claude plugin update workflow-core@workflow-core --scope project -y)
+```
+
+The `*` stands for any text, so the first also passes extra flags after the
+tag. The URL and the plugin stay fixed.
+
+A bump session runs them right after its pin commit: the report at its
+session start came before the pin moved, so it names none of them.
 They are user rules, not project ones, so the one file reaches every adopter
 under every config dir. A rule in an adopter's own `.claude/settings.json`
 could only arrive through the install it was meant to unprompt. A chained

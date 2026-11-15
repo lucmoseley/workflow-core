@@ -9,7 +9,8 @@
  * directory, so the founder's real consent store is never touched, and
  * `fs.writeSync` is spied on to read what the CLI prints and to which stream.
  *
- * A session runs this CLI on the founder's yes or no to an upgrade; the
+ * A session runs this CLI to accept an upgrade it installed, or on the
+ * founder's no; the
  * adopter's SessionStart check-plugin-gap.js and session-end
  * reconcile-plugin.js act on what it writes. Loosen a case and an accepted
  * upgrade is never applied, or a declined one is nagged about every session.
