@@ -1652,6 +1652,11 @@
 					"id": "release-lag-unread",
 					"kind": "notice",
 					"text": "'s lag is unread: "
+				},
+				{
+					"id": "install-off-pin",
+					"kind": "notice",
+					"text": "Install not at pin, pin / installed: "
 				}
 			]
 		},

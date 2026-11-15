@@ -1,13 +1,15 @@
 // @vitest-environment node
 /*
- * lib/release-lag.js (#4448): the pin labels, the lag reading and its
- * verdict. In-process over a fake git port and literal readings; the
+ * lib/release-lag.js (#4448, #5228): the pin labels, the lag reading and its
+ * verdict, and the installs judged against their pins. In-process over a fake git port and literal readings; the
  * program's test crosses real git. Loosened, a lag past the threshold reads
- * WITHIN, or an unread lag gives no way out.
+ * WITHIN, an unread lag gives no way out, or an install off its pin reads
+ * level.
  */
 import { describe, expect, it } from "vitest";
 import {
 	formatAdopters,
+	judgeInstalls,
 	judgeLag,
 	LAG_WARN_DAYS,
 	labelPin,
@@ -30,17 +32,55 @@ describe("labelPin", () => {
 	});
 });
 
+const adopter = (name: string, pin: string, installed: string | null) => ({
+	name,
+	pin,
+	installed,
+});
+
 describe("formatAdopters", () => {
-	it("counts each label, in version order", () => {
-		expect(formatAdopters(["v2.0.10", "v2.0.9", "v2.0.10"])).toBe(
-			"Adopters per tag: v2.0.9 ×1, v2.0.10 ×2.",
+	it("states each adopter's pin beside its install, by name", () => {
+		expect(
+			formatAdopters([
+				adopter("b", "v2.0.10", "2.0.9"),
+				adopter("a", "no pin", null),
+			]),
+		).toBe(
+			"Adopters, pin / installed: a no pin / not installed, b v2.0.10 / v2.0.9.",
 		);
 	});
 
 	it("says so where there is no adopter", () => {
-		expect(formatAdopters([])).toBe(
-			"Adopters per tag: no adopter checkout found.",
-		);
+		expect(formatAdopters([])).toBe("Adopters: no adopter checkout found.");
+	});
+});
+
+describe("judgeInstalls", () => {
+	it("names only the adopters whose install is off the pin, pin beside install", () => {
+		expect(
+			judgeInstalls([
+				adopter("level", "v2.3.0", "2.3.0"),
+				adopter("old", "v2.3.0", "2.1.0"),
+			]),
+		).toEqual({
+			finding: "INSTALL-OFF-PIN",
+			line: expect.stringMatching(
+				/^Install not at pin, pin \/ installed: old v2\.3\.0 \/ v2\.1\.0\. /,
+			),
+		});
+	});
+
+	it.each([
+		["v2.0.10", "2.0.9", true],
+		["v2.3.0", null, true],
+		["v2.3.0", "2.3.0", false],
+		["v2.3.0", "2.4.0", true],
+		["v2.3.0", "d75011fca2a3", true],
+		["2.3.0-rc.1", "2.3.0-rc.1", false],
+		["untagged ref main", "2.0.1", false],
+		["no pin", null, false],
+	])("pin %s, installed %s: off the pin %s", (pin, installed, off) => {
+		expect(judgeInstalls([adopter("a", pin, installed)]) !== null).toBe(off);
 	});
 });
 

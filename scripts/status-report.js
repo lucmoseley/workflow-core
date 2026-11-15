@@ -78,7 +78,7 @@ const POOL_WIDTH = 4;
  * last few sweeps' vitest reports, ~11 MB each. `compaction-backstop` (#4410)
  * reads one comment page per ticket closed in its window, so it is among the
  * slowest. `release-lag` (#4448) also runs at SessionStart, which prints only a
- * lag past its threshold: here every reading is a standing.
+ * lag past its threshold or an install not at its pin: here every reading is a standing.
  * `landing-switch-on` (#4688) also runs at SessionStart, which prints only a
  * FAIL: here an OK or SKIP shows too.
  * `orphan-reaps` (#4342) reads the reaper's kill logs rather than running the
