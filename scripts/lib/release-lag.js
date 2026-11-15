@@ -3,6 +3,7 @@
  * only through the port the program hands in; nothing here reads a file.
  */
 
+const { compareVersions } = require("./compare-versions.js");
 const { isTagRef } = require("./plugin-state.js");
 const { scriptPath } = require("./script-path.js");
 
@@ -31,17 +32,56 @@ function labelPin({ ref, source }) {
 	return "no pin";
 }
 
-/** @param {string[]} labels */
-function formatAdopters(labels) {
-	if (labels.length === 0)
-		return "Adopters per tag: no adopter checkout found.";
-	/** @type {Map<string, number>} */
-	const counts = new Map();
-	for (const label of labels) counts.set(label, (counts.get(label) ?? 0) + 1);
-	const parts = [...counts]
-		.sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
-		.map(([label, n]) => `${label} ×${n}`);
-	return `Adopters per tag: ${parts.join(", ")}.`;
+/**
+ * @typedef {{name: string, pin: string, installed: string|null}} Adopter
+ *   `pin` is labelPin's label; `installed` the version
+ *   `installed_plugins.json` records for the checkout, or null where it
+ *   records none.
+ */
+
+/** @param {string} v `v1.2.3`, `1.2.3` or either with a suffix */
+const versionParts = (v) =>
+	(v.replace(/^v/, "").split(/[-+]/)[0] ?? "").split(".").map(Number);
+
+/**
+ * A pin moves on a bump; the install is a separate act awaiting the
+ * founder's yes (#5228), so the pin alone overstates what an adopter runs.
+ * @param {Adopter} adopter
+ */
+function installBehindPin({ pin, installed }) {
+	if (!isTagRef(pin)) return false;
+	if (installed === null) return true;
+	return compareVersions(versionParts(installed), versionParts(pin)) < 0;
+}
+
+/** @param {string|null} installed */
+const labelInstalled = (installed) =>
+	installed === null ? "not installed" : `v${installed.replace(/^v/, "")}`;
+
+/** @param {Adopter[]} adopters */
+const listAdopters = (adopters) =>
+	[...adopters]
+		.sort((a, b) => a.name.localeCompare(b.name))
+		.map((a) => `${a.name} ${a.pin} / ${labelInstalled(a.installed)}`)
+		.join(", ");
+
+/** @param {Adopter[]} adopters */
+function formatAdopters(adopters) {
+	if (adopters.length === 0) return "Adopters: no adopter checkout found.";
+	return `Adopters, pin / installed: ${listAdopters(adopters)}.`;
+}
+
+/**
+ * @param {Adopter[]} adopters
+ * @returns {{finding: string, line: string}|null}
+ */
+function judgeInstalls(adopters) {
+	const behind = adopters.filter(installBehindPin);
+	if (behind.length === 0) return null;
+	return {
+		finding: "INSTALL-BEHIND-PIN",
+		line: `Install behind pin, pin / installed: ${listAdopters(behind)}. The pinned release is not what runs there; each checkout's own session start names the commands that install it (${scriptPath("check-plugin-gap.js")}).`,
+	};
 }
 
 /**
@@ -116,6 +156,7 @@ module.exports = {
 	LAG_WARN_DAYS,
 	MAIN,
 	formatAdopters,
+	judgeInstalls,
 	judgeLag,
 	labelPin,
 	readLag,

@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import {
 	formatAdopters,
+	judgeInstalls,
 	judgeLag,
 	LAG_WARN_DAYS,
 	labelPin,
@@ -30,17 +31,54 @@ describe("labelPin", () => {
 	});
 });
 
+const adopter = (name: string, pin: string, installed: string | null) => ({
+	name,
+	pin,
+	installed,
+});
+
 describe("formatAdopters", () => {
-	it("counts each label, in version order", () => {
-		expect(formatAdopters(["v2.0.10", "v2.0.9", "v2.0.10"])).toBe(
-			"Adopters per tag: v2.0.9 ×1, v2.0.10 ×2.",
+	it("states each adopter's pin beside its install, by name", () => {
+		expect(
+			formatAdopters([
+				adopter("b", "v2.0.10", "2.0.9"),
+				adopter("a", "no pin", null),
+			]),
+		).toBe(
+			"Adopters, pin / installed: a no pin / not installed, b v2.0.10 / v2.0.9.",
 		);
 	});
 
 	it("says so where there is no adopter", () => {
-		expect(formatAdopters([])).toBe(
-			"Adopters per tag: no adopter checkout found.",
-		);
+		expect(formatAdopters([])).toBe("Adopters: no adopter checkout found.");
+	});
+});
+
+describe("judgeInstalls", () => {
+	it("names only the adopters whose install is behind, pin beside install", () => {
+		expect(
+			judgeInstalls([
+				adopter("level", "v2.3.0", "2.3.0"),
+				adopter("old", "v2.3.0", "2.1.0"),
+			]),
+		).toEqual({
+			finding: "INSTALL-BEHIND-PIN",
+			line: expect.stringMatching(
+				/^Install behind pin, pin \/ installed: old v2\.3\.0 \/ v2\.1\.0\. /,
+			),
+		});
+	});
+
+	it.each([
+		["v2.0.10", "2.0.9", true],
+		["v2.3.0", null, true],
+		["v2.3.0", "2.3.0", false],
+		["v2.3.0", "2.4.0", false],
+		["2.3.0-rc.1", "2.2.9", true],
+		["untagged ref main", "2.0.1", false],
+		["no pin", null, false],
+	])("pin %s, installed %s: behind %s", (pin, installed, behind) => {
+		expect(judgeInstalls([adopter("a", pin, installed)]) !== null).toBe(behind);
 	});
 });
 

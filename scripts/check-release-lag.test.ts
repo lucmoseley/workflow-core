@@ -89,7 +89,13 @@ const buildCore = ({
 	return source;
 };
 
-const addAdopter = (name: string, ref: string | null) => {
+/** `installed` is the version installed_plugins.json records; it defaults
+ * to the pin, so an adopter is level unless a test says otherwise. */
+const addAdopter = (
+	name: string,
+	ref: string | null,
+	installed: string | null = ref,
+) => {
 	const root = path.join(home, name);
 	fs.mkdirSync(path.join(root, ".git"), { recursive: true });
 	fs.mkdirSync(path.join(root, ".claude"));
@@ -107,6 +113,23 @@ const addAdopter = (name: string, ref: string | null) => {
 		path.join(root, ".claude", "settings.json"),
 		JSON.stringify(settings),
 	);
+	if (installed === null) return;
+	const registry = path.join(
+		home,
+		".claude",
+		"plugins",
+		"installed_plugins.json",
+	);
+	const doc = fs.existsSync(registry)
+		? JSON.parse(fs.readFileSync(registry, "utf8"))
+		: { plugins: { "workflow-core@wfc": [] } };
+	doc.plugins["workflow-core@wfc"].push({
+		projectPath: root,
+		installPath: path.join(home, "cache", installed),
+		version: installed.replace(/^v/, ""),
+	});
+	fs.mkdirSync(path.dirname(registry), { recursive: true });
+	fs.writeFileSync(registry, JSON.stringify(doc));
 };
 
 const run = (args: string[] = ["--json"]) =>
@@ -116,6 +139,7 @@ const run = (args: string[] = ["--json"]) =>
 			GITHUB_ACTIONS: "",
 			WFC_REPO_ROOT: repo,
 			HOME: home,
+			CLAUDE_CONFIG_DIR: path.join(home, ".claude"),
 		},
 	});
 
@@ -131,7 +155,9 @@ describe("a lag within the threshold", () => {
 		expect(env.outcome).toBe("OK");
 		expect(env).toMatchObject({ commits: 3, days: 3, source });
 		expect(env.summary).toContain("3 commit(s) and 3 day(s) behind");
-		expect(env.summary).toContain("v0.9.0 ×1, v1.0.0 ×2");
+		expect(env.summary).toContain(
+			"Adopters, pin / installed: a v1.0.0 / v1.0.0, b v1.0.0 / v1.0.0, c v0.9.0 / v0.9.0.",
+		);
 	});
 
 	it("prints nothing at SessionStart", () => {
@@ -154,7 +180,22 @@ describe("a lag past the threshold", () => {
 		expect(r.stdout).toContain(
 			"-day threshold: no fix since reaches an adopter",
 		);
-		expect(r.stdout).toContain("no pin ×1, v1.0.0 ×1");
+		expect(r.stdout).toContain("a v1.0.0 / v1.0.0, d no pin / not installed");
+	});
+});
+
+describe("an install behind its pin", () => {
+	it("warns at SessionStart within the lag threshold, naming pin and install", () => {
+		buildCore({ lagDays: 1 });
+		addAdopter("level", "v1.0.0");
+		addAdopter("old", "v1.0.0", "v0.9.0");
+		addAdopter("absent", "v1.0.0", null);
+		const r = run(["--notify"]);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(
+			"INSTALL-BEHIND-PIN — Install behind pin, pin / installed: absent v1.0.0 / not installed, old v1.0.0 / v0.9.0. The pinned release is not what runs there",
+		);
+		expect(r.stdout).not.toContain("level v1.0.0");
 	});
 });
 
