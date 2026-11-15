@@ -67,7 +67,7 @@ const {
 	turnOf,
 } = require("./suite-queue");
 const { chargeMb } = require("./launch-charge");
-const { TSC_MAX, isTscRunner } = require("./tsc-slot");
+const { TSC_MAX, isCutTscRunner } = require("./tsc-slot");
 const {
 	isWindowsFresh,
 	windowsReadingOf,
@@ -304,7 +304,7 @@ function parseMemwatch(text, mem) {
 		}
 		const row = MEMWATCH_ROW.exec(line);
 		if (!block || !row) continue;
-		if (isTscRunner(requiredGroup(row, 2, MEMWATCH_ROW)))
+		if (isCutTscRunner(requiredGroup(row, 2, MEMWATCH_ROW)))
 			tscPids.add(Number(requiredGroup(row, 1, MEMWATCH_ROW)));
 		block.tsc = tscPids.size;
 	}

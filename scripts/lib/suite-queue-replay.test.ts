@@ -788,6 +788,46 @@ describe("reading the logs", () => {
 		expect(out).toMatch(/Not found, so read as empty: .*absent\.log/);
 	});
 
+	it("counts a 7.0 native `tsc` off memwatch's cut rows once, a 5.x runner once, a waiter never (#5217)", () => {
+		/* Recorded in ~/memwatch.log, 14 Nov 2026: one native compiler in the RSS
+		 * list and the CPU list, each cut at its own column width. */
+		const store =
+			"/home/lucmo/workflow-core/.claude/worktrees/.dep-stores/8a38214acca573b5/node_modules";
+		const memwatch = path.join(dir, "memwatch.log");
+		fs.writeFileSync(
+			memwatch,
+			[
+				`=== ${local(T0)} 4462MB used | cpu: 607% busy of 800% (sys 261%), load 9.73 | claude sessions: 5 ===`,
+				"    PID    RSS COMMAND",
+				`  91476 1311104 ${store}/@typescr`,
+				"  9012 1200 node scripts/queue-run.js --tsc -- /repo/node_modules/.bin/tsc",
+				"    PID S  %CPU     RSS COMMAND",
+				`  91476 S 131.4 1323264 ${store}/`,
+				`=== ${local(T0 + MIN)} 4462MB used | cpu: 607% busy of 800% (sys 261%), load 9.73 | claude sessions: 5 ===`,
+				"    PID    RSS COMMAND",
+				`1975479 478516 ${store}/@typescri`,
+				"  5678 1600000 node /repo/node_modules/.bin/tsc --noEmit",
+				"    PID S  %CPU     RSS COMMAND",
+				"  5678 R  12.8 1600000 node /repo/node_modules/.bin/tsc --noEmit",
+				`=== ${local(T0 + 2 * MIN)} 4462MB used | cpu: 607% busy of 800% (sys 261%), load 9.73 | claude sessions: 5 ===`,
+				"  9012 1200 node scripts/queue-run.js --tsc -- /repo/node_modules/.bin/tsc",
+			].join("\n"),
+		);
+		const logs = readLogs({
+			markers: dir,
+			memwatch: [memwatch],
+			minuteLog: path.join(dir, "memwatch-minute.jsonl"),
+			since: T0,
+			until: T0 + 60 * MIN,
+		});
+		const minute = Math.floor(T0 / MIN);
+		expect([...logs.mem].map(([t, { tsc }]) => [t - minute, tsc])).toEqual([
+			[0, 1],
+			[1, 2],
+			[2, 0],
+		]);
+	});
+
 	it("weighs a run logged before `resolvedFiles` by its vitest marker", () => {
 		const st = Date.parse("2026-10-25T09:00:00Z");
 		jsonl(".test-runs.jsonl", [

@@ -78,6 +78,35 @@ const TSC_NATIVE =
 /** @param {string} args  a process's command line */
 const isTscRunner = (args) => TSC_LAUNCHER.test(args) || TSC_NATIVE.test(args);
 
+/*
+ * A command cut short inside 7.0's native compiler's path, as memwatch's
+ * process lists write it (#5217): the first word an absolute path ending past
+ * a `node_modules/@t`, no arguments left. Where the cut falls moves with the
+ * path's length. Residual: a line cut at `node_modules/` or before cannot be
+ * told from any other binary there, so it counts nothing.
+ */
+const TSC_NATIVE_CUT = /^ *\/\S*\/node_modules\/(@t\S*)$/;
+const NATIVE_HEAD = "@typescript/typescript-";
+/* Past the head: a cut `<os>-<arch>`, or a whole one and a cut `/lib/tsc`. */
+const NATIVE_REST = /^[a-z0-9]+(?:-[a-z0-9]*)?$|^[a-z0-9]+-[a-z0-9]+(\/.*)$/;
+
+/**
+ * Whether a cut command line can only be a runner's: 7.0's native compiler.
+ * @param {string} args  a process's command line, cut short
+ */
+function isCutTscRunner(args) {
+	if (isTscRunner(args)) return true;
+	const m = TSC_NATIVE_CUT.exec(args);
+	if (m === null) return false;
+	const tail = requiredGroup(m, 1, TSC_NATIVE_CUT);
+	if (tail.length <= NATIVE_HEAD.length) return NATIVE_HEAD.startsWith(tail);
+	if (!tail.startsWith(NATIVE_HEAD)) return false;
+	const rest = NATIVE_REST.exec(tail.slice(NATIVE_HEAD.length));
+	return (
+		rest !== null && (rest[1] === undefined || "/lib/tsc".startsWith(rest[1]))
+	);
+}
+
 /**
  * The `node_modules/` a path sits under, through its last one; the path itself
  * where it names none.
@@ -300,6 +329,7 @@ module.exports = {
 	TSC_MAX,
 	TSC_SLOT_ENV,
 	defaultTscQueueDir,
+	isCutTscRunner,
 	isTscRunner,
 	launchPeakMb,
 	checkoutPeakMb,
