@@ -6,8 +6,10 @@
  * `python -m pip install` (any `python`, `python3`, `python3.12`), `uv add`,
  * `uv pip install`, and the tool runners that fetch a package to run it:
  * `uvx` and `uv tool run`, `uv tool install`, `uv run --with`, and
- * `pipx install`, `pipx run` and `pipx inject` (#5239). Two refusals, both
- * denies (mantahostels#103), in the order they run.
+ * `pipx install`, `pipx run`, `pipx inject` (#5239) and `pipx upgrade
+ * --install`; and `pipx runpip <venv> install`, judged as the `pip install`
+ * it hands its words to (#5242). Two refusals, both denies
+ * (mantahostels#103), in the order they run.
  *
  *   1. THE EXECUTION WINDOW. An install naming a package the repo does not
  *      already declare must carry `--only-binary :all:` (uv: `--no-build`, or
@@ -50,7 +52,8 @@
  *  - Options are read by their whole spelling. pip's parser (optparse) also
  *    takes an unambiguous abbreviation: `--only-bin :all:` reads as no
  *    `--only-binary`, and refuses; `--req file` reads `file` as a spec.
- *    pipx's argparse takes them too. `PIP_ONLY_BINARY`, `UV_NO_BUILD`,
+ *    pipx's argparse takes them too, and is read in them for `pipx upgrade`'s
+ *    `--install` alone. `PIP_ONLY_BINARY`, `UV_NO_BUILD`,
  *    `PIPX_DEFAULT_BACKEND` and a pip.conf are not read either.
  *  - uv's options are its measured 0.13.8 `--help`, pipx's its 1.18.16. A
  *    tool runner's options end at the command it runs: `uvx ruff --with x`
@@ -594,11 +597,13 @@ const UV_TOOL_INSTALL_ARGV = `${UV_TOOL_SHARED} -w --with --with-requirements
 --with-editable --with-executables-from -c --constraints --overrides
 --excludes -b --build-constraints --torch-backend`;
 
-/* pipx's options that take a value, across `install`, `run` and `inject`
- * (pipx 1.18.16). */
+/* pipx's options that take a value, across `install`, `run`, `inject` and
+ * `upgrade` (pipx 1.18.16); `runpip` takes none. */
 const PIPX_ARGV = `--include-resources-from --upgrade-strategy --suffix
---python --fetch-python --preinstall --app --lock --index-url --pip-args
+--python --fetch-python --preinstall --app --lock --index-url -i --pip-args
 --cooldown --backend --output --python-args --with --spec -r`;
+/* `--install` and each abbreviation argparse takes for it. */
+const PIPX_INSTALL_RE = /^--ins(t(a(l(l)?)?)?)?$/;
 
 /** @typedef {{ name: string, value: string }} Opt */
 
@@ -822,8 +827,8 @@ function atVersion(spec) {
 }
 
 /**
- * The specs a pipx argv's `install`, `run` or `inject` names, or null where
- * it is none of them.
+ * The specs a pipx argv's `install`, `run`, `inject`, `upgrade --install` or
+ * `runpip … install` names, or null where it is none of them.
  * @param {string[]} words the words after `pipx`
  * @param {PipInstallContext} ctx
  * @returns {Install | null}
@@ -836,10 +841,12 @@ function parsePipx(words, ctx) {
 		sub === "run" ? 2 : Number.POSITIVE_INFINITY,
 	);
 	if (read.help) return null;
+	if (sub === "runpip")
+		return pipxRunpip(words.slice(words.indexOf(sub) + 1), ctx);
 	/** @type {{ named: string[], local: boolean }} */
 	let target;
-	const editable = read.has("--editable");
-	if (sub === "install")
+	const editable = read.has("--editable") || read.has("-e");
+	if (sub === "install" || (sub === "upgrade" && pipxInstalls(read.opts)))
 		target = { named: read.args.slice(1), local: editable };
 	else if (sub === "inject")
 		target = { named: read.args.slice(2), local: editable };
@@ -855,6 +862,36 @@ function parsePipx(words, ctx) {
 		shut: pipArgsShut(read.all("--pip-args").at(-1), ctx),
 		tool: "--pip-args='--only-binary :all:'",
 	};
+}
+
+/**
+ * Whether `pipx upgrade`'s options carry `--install`, which installs each
+ * package no venv holds yet.
+ * @param {Opt[]} opts
+ */
+const pipxInstalls = (opts) => opts.some((o) => PIPX_INSTALL_RE.test(o.name));
+
+/**
+ * What `pipx runpip <venv> <pipargs>` installs: its pip argv, which pipx hands
+ * to the venv's pip, or to `uv pip` under the uv backend, judged as
+ * `pip install`. pipx's own options, none taking a value, come before the
+ * venv; a lone pip argument holding whitespace is a whole command line, which
+ * pipx splits shell-style.
+ * @param {string[]} words the words after `runpip`
+ * @param {PipInstallContext} ctx
+ * @returns {Install | null}
+ */
+function pipxRunpip(words, ctx) {
+	const venv = words.findIndex((w) => !w.startsWith("-"));
+	const pipargs = words.slice(venv + 1);
+	const [line] = pipargs;
+	return venv < 0
+		? null
+		: parsePip(
+				pipargs.length === 1 && line !== undefined && /\s/.test(line)
+					? shellWords(line, ctx).flat()
+					: pipargs,
+			);
 }
 
 /**
@@ -882,6 +919,23 @@ function pipxRunTarget({ args, all }, editable) {
  */
 function pipArgsShut(value, ctx) {
 	if (value === undefined) return false;
+	const argvs = shellWords(value, ctx);
+	const [argv] = argvs;
+	return (
+		argvs.length === 1 &&
+		argv !== undefined &&
+		isBinaryOnly(parseArgv(argv, PIP_ARGV).opts)
+	);
+}
+
+/**
+ * A string pipx splits shell-style, read as the literal words of each command
+ * it holds.
+ * @param {string} value
+ * @param {PipInstallContext} ctx
+ * @returns {string[][]}
+ */
+function shellWords(value, ctx) {
 	const parsed = parseCommand(value);
 	/** @type {string[][]} */
 	const argvs = [];
@@ -890,12 +944,7 @@ function pipArgsShut(value, ctx) {
 		(cmd) => argvs.push(cmd.words.map((w) => literal(w, parsed.spans).text)),
 		ctx,
 	);
-	const [argv] = argvs;
-	return (
-		argvs.length === 1 &&
-		argv !== undefined &&
-		isBinaryOnly(parseArgv(argv, PIP_ARGV).opts)
-	);
+	return argvs;
 }
 
 /**

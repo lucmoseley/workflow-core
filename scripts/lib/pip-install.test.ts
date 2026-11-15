@@ -598,6 +598,59 @@ describe("the tool runners (#5239)", () => {
 	});
 });
 
+describe("pipx runpip and pipx upgrade --install (#5242)", () => {
+	const Pipx = "--pip-args='--only-binary :all:'";
+
+	it.each([
+		["pipx runpip ruff install left-pad", "left-pad", BIN],
+		["pipx runpip --verbose ruff install left-pad", "left-pad", BIN],
+		["pipx runpip ruff -v install left-pad", "left-pad", BIN],
+		["pipx runpip ruff 'install left-pad'", "left-pad", BIN],
+		["pipx upgrade --install left-pad", "left-pad", Pipx],
+		["pipx upgrade left-pad --ins", "left-pad", Pipx],
+		[
+			"pipx upgrade -i https://example.com/simple --install left-pad",
+			"left-pad",
+			Pipx,
+		],
+	])("refuses `%s` its window open, naming the flag", (command, name, flag) => {
+		expect(denial(command)).toContain(
+			`declare — ${name} — and does not carry \`${flag}\`:`,
+		);
+	});
+
+	it.each([
+		`pipx runpip ruff install ${BIN} left-pad`,
+		`pipx runpip ruff 'install ${BIN} left-pad'`,
+		`pipx upgrade --install ${Pipx} left-pad`,
+	])("asks PyPI of `%s` once its window is shut", (command) => {
+		expect(callsOf(command)).toEqual(["pypi left-pad", "stats left-pad"]);
+	});
+
+	it.each([
+		[`pipx runpip ruff install ${BIN} -e ./evil`, "./evil"],
+		[`pipx upgrade --install ${Pipx} -e evil`, "evil"],
+		[`pipx install ${Pipx} -e evil`, "evil"],
+	])("refuses `%s` as unvettable", (command, spec) => {
+		expect(denial(command)).toContain(
+			`its legitimacy is unverifiable: \`${spec}\``,
+		);
+	});
+
+	it.each([
+		"pipx upgrade left-pad",
+		"pipx upgrade --include-injected left-pad",
+		"pipx runpip ruff list",
+		"pipx runpip ruff",
+		"pipx runpip ruff install -r requirements.txt",
+		"pipx runpip --help",
+		"pipx upgrade --install --help left-pad",
+		"pipx runpip ruff install requests",
+	])("allows `%s`", (command) => {
+		expect(allows(command, { created: "404" })).toBe(true);
+	});
+});
+
 describe("the escape", () => {
 	it("stands down check 2 alone", () => {
 		expect(
