@@ -61,11 +61,13 @@ DEFAULT_UA = (
 )
 
 # Both exit-3 causes end at the same two commands, so the lead line says which
-# one happened and this says what to do about either.
+# one happened and this says what to do about either. The pip line carries
+# `--only-binary :all:`, the only form guard-pip-install passes for an
+# undeclared package (#5232).
 INSTALL_HINT = (
     "On this machine Playwright is the Python package under miniforge,\n"
     "installed once per machine rather than per repo:\n"
-    "    python3 -m pip install playwright\n"
+    "    python3 -m pip install --only-binary :all: playwright\n"
     "    python3 -m playwright install chromium"
 )
 

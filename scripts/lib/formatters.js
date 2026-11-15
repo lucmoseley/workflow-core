@@ -69,10 +69,12 @@ const RUFF = process.env.WFC_RUFF || "ruff";
 const SHFMT_MODULE = process.env.WFC_SHFMT;
 
 /** The one line that installs each formatter in any repo, at the core's pins
- * (package.json, requirements-dev.txt); formatters.test.ts pins them equal. */
+ * (package.json, requirements-dev.txt); formatters.test.ts pins them equal.
+ * Ruff's carries `--only-binary :all:`, the only form guard-pip-install passes
+ * in an adopter that does not declare ruff (#5232). */
 const SHFMT_INSTALL =
 	"npm install --ignore-scripts --save-dev --save-exact @wasm-fmt/shfmt@0.2.7";
-const RUFF_INSTALL = "python3 -m pip install ruff==0.16.4";
+const RUFF_INSTALL = "python3 -m pip install --only-binary :all: ruff==0.16.4";
 
 /** @typedef {(source: string, path?: string, options?: object) => string} ShfmtFormat */
 
