@@ -1,11 +1,18 @@
 /*
  * queue-tickets.js — the refill loop's landing-queue tickets: their fixed
  * titles, by which lib/queue-issue.js finds the open one and
- * lib/queue-wait-alarm.js names it. A leaf, so the off-machine alarm loads no
- * tracker; the record each keeps is lib/record-ticket.js's (#4485, spec #4458).
+ * lib/queue-wait-alarm.js names it, and the stall figure the first one names.
+ * A leaf, so the off-machine alarm loads no tracker and no lander; the record
+ * each keeps is lib/record-ticket.js's (#4485, spec #4458).
  */
 
-/* `main` stood past lib/landing-stall.js's STALL_MS (lib/stall-ticket.js). */
+/* How long `main` stands with a queue ref waiting before lib/landing-stall.js
+ * calls the queue stalled: about 3.6 median whole-suite runs of 1987 s
+ * (#2672, from #2666's measurement); not measured against red batches. */
+const STALL_MS = 2 * 60 * 60 * 1000;
+
+/* `main` stood past STALL_MS (lib/stall-ticket.js). Spelt by hand, since
+ * lib/queue-issue.js finds the open ticket by this exact title. */
 const STALL_TITLE = "Landing queue stalled: main has not moved for 2 h";
 
 /* An off-machine queue alarm red at `main`'s sha (lib/alarm-ticket.js). */
@@ -21,5 +28,6 @@ const QUEUE_ALERT_TITLES = {
 module.exports = {
 	ALARM_TITLE,
 	QUEUE_ALERT_TITLES,
+	STALL_MS,
 	STALL_TITLE,
 };

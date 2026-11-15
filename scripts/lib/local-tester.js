@@ -21,7 +21,6 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { readPsRows, readTreePssKb } = require("./admission.js");
-const { readAvailableMb } = require("./meminfo.js");
 const { caught } = require("./caught.js");
 const { markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
@@ -33,12 +32,8 @@ const {
 	parsePlainLines,
 } = require("./suite-output.js");
 const { chargeMb: launchChargeMb } = require("./launch-charge.js");
-const { rungMb } = require("./suite-ladder.js");
-const {
-	gateDenies,
-	readLiveRoleMarkers,
-	queueSeat,
-} = require("./suite-queue.js");
+const { readLiveRoleMarkers } = require("./suite-queue.js");
+const { LANDER_ROLE, suiteSlot } = require("./suite-slot.js");
 const { LANDER_WORKTREE } = require("./worktree-dirs.js");
 const { readConfig } = require("./workflow-core-config.js");
 const { latestTimings } = require("./latest-timings.js");
@@ -66,8 +61,6 @@ const rootlessEnv = () => {
 /** @typedef {import("./queue-lander.js").Verdict} Verdict */
 /** @typedef {import("./queue-lander.js").QueueTester} QueueTester */
 
-/* The queue marker's role, which session admission reads (#2416). */
-const LANDER_ROLE = "lander";
 /* Untraced: room for a checkout of the whole tree. */
 const CHECKOUT_TIMEOUT_MS = 120 * 1000;
 /* Untraced: how often a run's tree PSS is sampled for its peak. */
@@ -88,9 +81,7 @@ const HOLDER_COMMAND_CHARS = 120;
 const STAMP = path.join("node_modules", ".lander-lock-hash");
 
 /**
- * @typedef {{ok: true, spawned: () => void, release: () => void}
- *   | {ok: false, reason: string, memoryShut?: boolean}} Admission
- *   `memoryShut` where the memory limb still denied at the ceiling
+ * @typedef {import("./suite-slot.js").Admission} Admission
  * @typedef {{code: number|null, signal: string|null, out: string,
  *   error: string|null, peakKb: number, samples: number}} RunResult
  *   `peakKb` the run's tree-PSS peak over `samples` reads
@@ -122,65 +113,6 @@ const STAMP = path.join("node_modules", ".lander-lock-hash");
 function parseCeilingKillReason(out) {
 	const line = parsePlainLines(out).find((l) => l.startsWith(CEILING_LINE));
 	return line === undefined ? null : `killed: ${line}`;
-}
-
-/**
- * One suite slot: a place in the suite queue, the suite gate open, and
- * MemAvailable at `rungMb(chargeMb)` (docs/environment.md §6, #2416), all
- * three at once. Memory that cannot be read holds the slot shut. An open slot
- * is stamped admitted, so no other waiter launches beside it before its suite
- * spawns (#2650). At the ceiling it
- * refuses on either limb: the lander then exits with no verdict, leaving the
- * batch for its next run (#2542).
- * @param {{chargeMb: number, pollMs?: number, timeoutMs?: number,
- *   gate?: (climbMb: number) => import("./suite-queue.js").GateDenial | null,
- *   memory?: () => import("./meminfo.js").MbResult, queueDir?: string}}
- *   options `gate` answers which limb of the suite gate denies a suite, if
- *   any; the poll and ceiling default to the suite queue's
- * @returns {Promise<Admission>}
- */
-async function suiteSlot({
-	chargeMb,
-	pollMs,
-	timeoutMs,
-	gate = (climbMb) => gateDenies([], undefined, null, climbMb),
-	memory = readAvailableMb,
-	queueDir,
-}) {
-	const seat = queueSeat({
-		queue: { queueDir },
-		join: { role: LANDER_ROLE, chargeMb },
-	});
-	const rung = rungMb(chargeMb);
-	let mem = memory();
-	let memoryShut = false;
-	const outcome = await seat.wait({
-		pollMs,
-		timeoutMs,
-		gate: (climbMb) => {
-			mem = memory();
-			memoryShut = !mem.ok || mem.mb - climbMb < rung;
-			if (memoryShut)
-				return {
-					limb: "memory",
-					...(mem.ok ? { mb: mem.mb } : {}),
-					rungMb: rung,
-					...(climbMb > 0 ? { climbMb } : {}),
-				};
-			return gate(climbMb);
-		},
-		label: "lander",
-	});
-	if (outcome !== "refused")
-		return { ok: true, spawned: seat.spawned, release: seat.leave };
-	const memoryRead = mem.ok
-		? `${mem.mb} MB available against ${rung} MB`
-		: `memory unread: ${mem.error}`;
-	return {
-		ok: false,
-		reason: `no suite slot by the ceiling (${memoryRead})`,
-		memoryShut,
-	};
 }
 
 /**
@@ -753,5 +685,4 @@ module.exports = {
 	commandTester,
 	readLiveLanders,
 	localTester,
-	suiteSlot,
 };

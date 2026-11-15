@@ -9,21 +9,26 @@ Land from your session's worktree:
 
   node scripts/session-checkout.js land   # merges origin/main, pushes your queue ref; refused? do as it says, land again
 
-After the push, `node scripts/landing-status.js` reads each commit as landed,
-or queued on your queue ref.
+After the push, `node scripts/landing-status.js` reads each commit as landed
+or queued, and your queue ref as testing or dropped, naming its fix ticket.
 
 WHAT PASSES: a push creating or fast-forwarding your own queue ref, a tag
 (`git push origin v1.2.3`, `--tags`), a deletion of any branch but `main`, a
 queue ref and the lander's own, and a branch under `spike/` — a
 data branch kept off `main` on purpose and never merged. A bare tag name passes
 only where the tag already exists locally when the push is judged: push it as
-`refs/tags/<name>`, or create the tag in a separate call first.
+`refs/tags/<name>`, or create the tag in a separate call first. A push or
+deletion whose destination the guard cannot read (`git push origin "HEAD:$R"`)
+is refused: spell the ref out.
 
 A SECOND LIMB: `.husky/pre-push` refuses a push to `main` of any sha the
-lander's green ledger does not hold, from any route. `git push --no-verify`
-defeats it.
+lander's green ledger does not hold, from any route, and judges it so even
+where the module config will not read, once that ledger exists. `git push
+--no-verify` defeats it.
 
 WHAT THIS DOES NOT CATCH: a push or pull request made outside Claude Code or in
 the GitHub web UI, one reached through a script, and a push steered by a
-`remote.<name>.push` refspec in git config, save a push to `main`, which the
-pre-push limb still refuses. Its silence there is not leave.
+`remote.<name>.push` refspec in git config, and any push at all where
+`.claude/workflow-core.json` will not read, which this guard takes as the
+module off — save a push to `main`, which the pre-push limb still refuses. Its
+silence there is not leave.

@@ -3,7 +3,7 @@
 /*
  * .github/workflows/landing-quiet.yml's step, run as the shell it is (#3964),
  * under the `-eo pipefail` GitHub gives `shell: bash`, with GitHub's activity
- * endpoint stubbed as a `curl` on PATH. Run from YAML, because no other test or
+ * endpoint stubbed as a `curl` at WFC_CURL. Run from YAML, because no other test or
  * check executes a workflow's shell. Break this and the one alarm that outlives
  * the machine can stay green through a stall, unnoticed.
  */
@@ -48,7 +48,8 @@ const runStep = (body: string | null, forceFailure = "") => {
 	return spawnSync("bash", ["-eo", "pipefail", "-c", script], {
 		encoding: "utf8",
 		env: {
-			PATH: `${dir}:${process.env.PATH}`,
+			PATH: process.env.PATH,
+			WFC_CURL: path.join(dir, "curl"),
 			GH_TOKEN: "token",
 			GITHUB_API_URL: "https://api.github.test",
 			GITHUB_REPOSITORY: "owner/repo",
@@ -67,10 +68,6 @@ describe("landing-quiet.yml", () => {
 	it("runs hourly, in the code repo alone", () => {
 		expect(workflow.on?.schedule).toEqual([{ cron: "17 * * * *" }]);
 		expect(job?.if).toContain("lucmoseley/workflow-core");
-	});
-
-	it("asks the ref switch which branch it watches, from this checkout", () => {
-		expect(script).toContain("node scripts/lib/landing-refs.js pushed-branch");
 	});
 
 	it("names the threshold it applies on the run page the notice links", () => {

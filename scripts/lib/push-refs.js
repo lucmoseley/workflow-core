@@ -6,7 +6,12 @@
  * git writes `<local ref> <local sha> <remote ref> <remote sha>` per ref. A
  * delete pushes the all-zero local sha and has no bytes to check; a new branch
  * carries the all-zero remote sha, for the caller to read as "no remote tip".
+ *
+ * The landing queue's pre-push gates share one filter of these lines,
+ * parseQueuePushes, so no gate picks out queue pushes its own way.
  */
+
+const { isQueueHead } = require("./landing-refs.js");
 
 const ZERO = /^0+$/;
 
@@ -52,4 +57,18 @@ function parsePushes(stdin, { skipTags = false } = {}) {
 	return out;
 }
 
-module.exports = { isZeroSha, parsePushes, parseRefLines };
+/**
+ * Each push to a queue ref, in order, deletions dropped.
+ * @param {string} stdin
+ * @returns {Array<RefLine & { remoteRef: string }>}
+ */
+function parseQueuePushes(stdin) {
+	return parseRefLines(stdin).flatMap((r) =>
+		!isZeroSha(r.sha) && isQueueHead(r.remoteRef)
+			? /* restated so the guard's narrowing reaches the returned type */
+				[{ ...r, remoteRef: r.remoteRef }]
+			: [],
+	);
+}
+
+module.exports = { isZeroSha, parsePushes, parseQueuePushes, parseRefLines };

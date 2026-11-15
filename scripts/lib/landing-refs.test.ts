@@ -223,13 +223,6 @@ describe("the CLI", () => {
 		expect(r.stdout).toBe("origin/main\n");
 	});
 
-	it("prints the pushed ref's branch for a workflow, main with landing on", () => {
-		host(["landing"]);
-		const r = cli(["pushed-branch", root]);
-		expect(r.status).toBe(0);
-		expect(r.stdout).toBe("main\n");
-	});
-
 	it("reads the host's config for a linked worktree, not the worktree's own copy (#4692)", () => {
 		host(["suites", "landing"]);
 		const tree = sessionWorktree("fix-it");
@@ -242,7 +235,6 @@ describe("the CLI", () => {
 		for (const [verb, out] of [
 			["pushed", "origin/queue/fix-it"],
 			["unpushed", "origin/queue/fix-it"],
-			["pushed-branch", "queue/fix-it"],
 		]) {
 			const r = cli([verb, tree]);
 			expect(r.status).toBe(0);
@@ -250,18 +242,20 @@ describe("the CLI", () => {
 		}
 	});
 
-	it("fails the pushed branch on a config that will not read, never naming main", () => {
-		host(null, "{ not json");
-		const r = cli(["pushed-branch", root]);
-		expect(r.status).not.toBe(0);
-		expect(r.stdout).toBe("");
+	it("refuses anything else with its usage, a stray argument after the tree included", () => {
+		for (const args of [["verified"], [], ["pushed", root, "extra"]]) {
+			const r = cli(args);
+			expect(r.status).toBe(2);
+			expect(r.stdout).toBe("");
+			expect(r.stderr).toContain(
+				"usage: landing-refs.js pushed|unpushed [<tree>]",
+			);
+		}
 	});
 
-	it("refuses anything else with its usage", () => {
-		const r = cli(["verified"]);
-		expect(r.status).toBe(2);
-		expect(r.stderr).toContain(
-			"usage: landing-refs.js pushed|unpushed|pushed-branch [<tree>]",
-		);
+	it("prints its usage to stdout on --help, answering nothing", () => {
+		const r = cli(["pushed", "--help"]);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toBe("usage: landing-refs.js pushed|unpushed [<tree>]\n");
 	});
 });
