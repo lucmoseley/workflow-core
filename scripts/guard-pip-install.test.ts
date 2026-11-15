@@ -2,18 +2,13 @@
 /*
  * The guard-pip-install core of guard-dispatch.js vets a new Python package
  * with a deny at the install boundary (#5232). These are its boundary cases
- * (§X11), the dispatcher entry run on it alone: the payload, a real git
- * checkout holding requirements.txt and pyproject.toml, and curl, end to
- * end. Which command earns which verdict is lib/pip-install.test.ts's.
+ * (§X11), the dispatcher entry run on it alone, end to end.
  *
  * NOTHING HERE TOUCHES THE NETWORK. curl is lib/pypi-registry-fake.ts's stub
- * injected at WFC_CURL (§N7), held to the real services by
- * lib/pypi-registry.contract.test.ts. It sits off PATH, so a bare call that
- * skips the var reaches the real curl and fails the test.
+ * injected at WFC_CURL (§N7).
  *
  * NOT DRIVEN: curl's 8 s timeout, which only a stub hanging past it would
- * reach (§X9); the core reads a killed call as unreachable, a case
- * lib/pip-install.test.ts holds.
+ * reach (§X9).
  */
 
 import { execFileSync } from "node:child_process";
@@ -22,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readFailOpenLog } from "./guard-log-fixture";
+import { readText } from "./lib/file-read.js";
 import {
 	buildBashPayload,
 	dispatchCoreOutput,
@@ -41,8 +37,11 @@ let shared: string;
 let serve: ReturnType<typeof writePyPIStub>;
 
 const calls = () => path.join(dir, "stub-calls.log");
-const readStubCalls = () =>
-	fs.existsSync(calls()) ? fs.readFileSync(calls(), "utf8") : "";
+const readStubCalls = () => {
+	const got = readText(calls());
+	if (got.state === "unreadable") throw got.error;
+	return got.state === "read" ? got.data : "";
+};
 
 const emission = (
 	command: string,
@@ -99,6 +98,9 @@ describe("the guard, end to end", () => {
 		);
 		expect(why).toMatch(/^No package named `wfc-nope-5232` exists on PyPI: /);
 		expect(why).toContain(readRuleText("new-package-vetted"));
+		expect(denial("python3 -m pip install wfc-nope-5232")).toContain(
+			readRuleText("new-package-vetted"),
+		);
 	});
 
 	it("asks PyPI and pypistats about a known package, and passes one that clears both", () => {
@@ -111,6 +113,7 @@ describe("the guard, end to end", () => {
 		);
 	});
 
+	/* Sits through the host's real 1 s wait: the host's pause is no port. */
 	it("waits out one pypistats 429 and asks again", () => {
 		expect(
 			emission("pip install --only-binary :all: playwright", {

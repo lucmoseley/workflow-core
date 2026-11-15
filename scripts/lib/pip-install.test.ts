@@ -3,18 +3,9 @@
  * lib/pip-install.js, the guard-pip-install core (#5232), in process: the
  * Python install boundary, the twin of lib/npm-install.js's checks 1 and 2.
  *
- * TWO CHECKS, tested in both directions each: the build window
- * (`--only-binary :all:` or uv's `--no-build` on an install that adds a
- * package), and new-package legitimacy against PyPI (the name exists, its
- * first upload clears 180 days, last month's downloads clear 1,000, inside
- * a 30 s budget). The floors are lib/package-vetting.js's, so each threshold
- * case pins the boundary from both sides.
+ * The floors are lib/package-vetting.js's.
  *
- * NOTHING HERE TOUCHES THE NETWORK OR THE DISK. The declaring files, git's
- * listing of them, both PyPI calls and the clock are fakes passed as values,
- * the calls lib/pypi-registry-fake.ts's, which lib/pypi-registry.contract.test.ts
- * holds to the real services; the production adapters are crossed in
- * guard-pip-install.test.ts.
+ * NOTHING HERE TOUCHES THE NETWORK OR THE DISK.
  */
 
 import { describe, expect, it } from "vitest";
@@ -201,7 +192,9 @@ Without it, a package published as a source distribution runs its own build code
 
 Re-run with \`--only-binary :all:\`. A package that publishes no wheel then fails to install, and whether to build it from source is the founder's call.
 
-Then declare it in the repo's requirements or \`pyproject.toml\`.`,
+Then declare it in the repo's requirements or \`pyproject.toml\`.
+
+${RULE}`,
 		);
 	});
 
@@ -237,6 +230,7 @@ Then declare it in the repo's requirements or \`pyproject.toml\`.`,
 		"pip install --only-binary numpy left-pad",
 		"pip install --only-bin :all: left-pad",
 		"uv add --only-binary :all: left-pad",
+		"uv add --no-build --no-binary left-pad",
 	])("refuses the window reopened or never shut: `%s`", (command) => {
 		expect(denial(command)).toMatch(/does not carry/);
 	});
@@ -260,7 +254,21 @@ Then declare it in the repo's requirements or \`pyproject.toml\`.`,
 			),
 		).toBe(true);
 		expect(allows("uv add --group dev --optional docs mkdocs")).toBe(true);
+		expect(allows("pip install --local-log out.log requests")).toBe(true);
+		expect(
+			allows("uv pip install --no-build --no-install-package x requests"),
+		).toBe(true);
 	});
+
+	it.each([
+		["uv add --no-build --no-binary left-pad", "left-pad"],
+		["uv add --no-build --editable ./evil", "./evil"],
+	])(
+		"reads `uv add`'s plain flags as taking no value: `%s`",
+		(command, spec) => {
+			expect(denial(command)).toContain(spec);
+		},
+	);
 });
 
 describe("check 2 — new-package legitimacy", () => {

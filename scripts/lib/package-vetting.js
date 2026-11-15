@@ -3,9 +3,7 @@
  * package against its registry: lib/npm-install.js against npm, and
  * lib/pip-install.js against PyPI (#5232).
  *
- * Each core reads its own commands and asks its own registry; this holds the
- * floors a package must clear, the wall-clock budget the asking runs inside,
- * the refusal texts and the escape both cores honour.
+ * Each core reads its own commands and asks its own registry.
  *
  * THE THRESHOLDS, and what in them is a judgement.
  *
@@ -116,8 +114,7 @@ was started in — NOT on this command line, which is read but never honoured: $
 founder to run the install from their own terminal, which sees no hook.`;
 
 /**
- * The rule a legitimacy refusal prints whole, so no always-loaded file need
- * carry it (#5232).
+ * The rule a refusal prints whole (#5232).
  * @param {VettingContext} ctx
  */
 const vettedRule = (ctx) =>
@@ -220,10 +217,6 @@ function legitimacy(fresh, ctx, verdictOf, texts) {
 }
 
 module.exports = {
-	BUDGET_S,
-	MIN_AGE_DAYS,
-	MIN_DOWNLOADS,
-	OK,
 	UNREACHABLE,
 	ageOf,
 	downloadsOf,
@@ -231,4 +224,5 @@ module.exports = {
 	legitimacy,
 	registryTexts,
 	unvettableText,
+	vettedRule,
 };

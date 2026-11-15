@@ -9,9 +9,7 @@
  *
  *   1. THE EXECUTION WINDOW. An install naming a package the repo does not
  *      already declare must carry `--only-binary :all:` (uv: `--no-build`, or
- *      `--only-binary :all:` on `uv pip install`). A source distribution runs
- *      its own build code as the founder at install time; a wheel runs none.
- *      pip's own "Secure installs" guidance sets the flag
+ *      `--only-binary :all:` on `uv pip install`). pip's own "Secure installs" guidance sets the flag
  *      (docs/practice/dependency-and-release-management.md). This runs FIRST
  *      because it is local and certain.
  *
@@ -35,8 +33,7 @@
  * `[dependency-groups]`, tracked or untracked, at the session tree's root. An
  * install naming only declared packages, or none — `pip install -r <file>`,
  * `pip install --group dev` — is untouched. A file that will not read
- * declares nothing, so its packages are vetted like any new one: a false
- * refusal, never a false pass.
+ * declares nothing, so its packages are vetted like any new one.
  *
  * LIMITS
  *  - Its lib/guard-cores.json row runs it only on a call one of its `if`
@@ -49,7 +46,7 @@
  *  - Options are read by their whole spelling. pip's parser (optparse) also
  *    takes an unambiguous abbreviation: `--only-bin :all:` reads as no
  *    `--only-binary`, and refuses; `--req file` reads `file` as a spec.
- *    Both err towards the deny. `PIP_ONLY_BINARY`, `UV_NO_BUILD` and a
+ *    `PIP_ONLY_BINARY`, `UV_NO_BUILD` and a
  *    pip.conf are not read either.
  *  - A wrapper hides the install: `sudo`, `env`, `xargs`, a script. Only a
  *    command's own first word is read. `pipx`, `uv tool install`, `uv run
@@ -61,6 +58,7 @@
 
 const path = require("node:path");
 const { spliceCmd } = require("./guard-verdict.js");
+const { requiredGroup } = require("./regex-group.js");
 const {
 	UNREACHABLE,
 	ageOf,
@@ -69,9 +67,10 @@ const {
 	legitimacy,
 	registryTexts,
 	unvettableText,
+	vettedRule,
 } = require("./package-vetting.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
-const { literal } = require("./shell-words.js");
+const { literal, scanFlags } = require("./shell-words.js");
 
 /**
  * @typedef {{ missing: true } | { code: number | null, body: string }} Http
@@ -102,15 +101,18 @@ const PYPI_TEXTS = registryTexts({
  * @param {string[]} fresh
  * @param {string[]} unvettable
  * @param {string} flag
+ * @param {PipInstallContext} ctx
  */
-const windowText = (fresh, unvettable, flag) =>
+const windowText = (fresh, unvettable, flag, ctx) =>
 	`This install adds ${fresh.length + unvettable.length} package(s) this repo does not yet declare — ${[...fresh, ...unvettable].join(" ")} — and does not carry \`${flag}\`: @CMD@
 
 Without it, a package published as a source distribution runs its own build code — \`setup.py\` or its build backend — as you, before anything reads a byte of it. A wheel runs nothing at install.
 
 Re-run with \`${flag}\`. A package that publishes no wheel then fails to install, and whether to build it from source is the founder's call.
 
-Then declare it in the repo's requirements or \`pyproject.toml\`.`;
+Then declare it in the repo's requirements or \`pyproject.toml\`.
+
+${vettedRule(ctx)}`;
 
 /**
  * @param {string} text
@@ -136,7 +138,7 @@ const normalise = (name) => name.toLowerCase().replace(/[-_.]+/g, "-");
 
 /**
  * The normalised PyPI name a requirement spec names, or null where the spec
- * is no PyPI requirement: a path, an archive, a URL, a direct reference.
+ * is no PyPI requirement.
  * @param {string} spec
  * @returns {string | null}
  */
@@ -268,7 +270,8 @@ function pyprojectSpecs(text) {
 		if (/^\s*\[/.test(line)) table = tableOf(line);
 		else if (kv !== null) {
 			const read = arrayStrings(text, at + kv[0].length - 1);
-			if (isDependencyArray(table, kv[1] ?? "")) specs.push(...read.strings);
+			if (isDependencyArray(table, requiredGroup(kv, 1, KEY_ARRAY_RE)))
+				specs.push(...read.strings);
 			at = lineEnd(text, read.end) + 1;
 			continue;
 		}
@@ -307,6 +310,15 @@ const isDependencyArray = (table, key) =>
 	TARGET_TABLES.has(table);
 
 /**
+ * A string token's text: group 1 for a basic string, 2 for a literal one.
+ * @param {RegExpExecArray} m
+ */
+const stringOf = (m) =>
+	m[0].startsWith('"')
+		? requiredGroup(m, 1, TOKEN_RE)
+		: requiredGroup(m, 2, TOKEN_RE);
+
+/**
  * The strings of the TOML array opening at `open`, outside any inline table,
  * and where it closes.
  * @param {string} text
@@ -327,7 +339,7 @@ function arrayStrings(text, open) {
 		else if (t === "{") braces++;
 		else if (t === "}") braces--;
 		else if (t !== "]" && !t.startsWith("#") && braces === 0)
-			strings.push(m[1] ?? m[2] ?? "");
+			strings.push(stringOf(m));
 	}
 	return { strings, end: text.length };
 }
@@ -442,14 +454,17 @@ const PIP_VALUED = new Set(
 --target --platform --python-version --implementation --abi --root --prefix
 --src --upgrade-strategy --config-settings --global-option --no-binary
 --only-binary --progress-bar --root-user-action --report --index-url
---extra-index-url --find-links --group --build-constraint`.split(/\s+/),
+--extra-index-url --find-links --group --build-constraint --local-log`.split(
+		/\s+/,
+	),
 );
-const PIP_SHORT_VALUED = new Set("r c e t C i f".split(" "));
-/** @type {Valued} */
-const PIP_ARGV = { long: PIP_VALUED, short: PIP_SHORT_VALUED };
+/** The scanFlags spec of pip's value-taking options. */
+const PIP_ARGV = [...PIP_VALUED, ..."-r -c -e -t -C -i -f".split(" ")].join(
+	" ",
+);
 
 /* uv's options that take a value, across its global options, `uv add` and
- * `uv pip install` (uv 0.9). */
+ * `uv pip install` (uv 0.9), less `UV_PIP_ONLY`. */
 const UV_VALUED = new Set(
 	`--cache-dir --directory --project --config-file --color --python-preference
 --allow-insecure-host --python --requirements --requirement --constraints
@@ -459,86 +474,38 @@ const UV_VALUED = new Set(
 --keyring-provider --config-setting --config-settings --resolution
 --prerelease --exclude-newer --exclude-newer-package --link-mode
 --reinstall-package --refresh-package --upgrade-package --no-build-package
---no-binary-package --only-binary --no-binary --no-build-isolation-package
---python-version --python-platform --target --prefix --editable
---torch-backend --fork-strategy`.split(/\s+/),
+--no-binary-package --no-build-isolation-package --no-install-package
+--config-settings-package --python-version --python-platform --target
+--prefix --torch-backend --fork-strategy`.split(/\s+/),
 );
-const UV_SHORT_VALUED = new Set("r c m b i f C P p e".split(" "));
-/** @type {Valued} */
-const UV_ARGV = { long: UV_VALUED, short: UV_SHORT_VALUED };
+/* The ones that take a value on `uv pip install` and are plain flags on
+ * `uv add`. */
+const UV_PIP_ONLY = "--only-binary --no-binary --editable -e";
+/** The scanFlags specs of uv's value-taking options, by subcommand. */
+const UV_ADD_ARGV = [
+	...UV_VALUED,
+	..."-r -c -m -b -i -f -C -P -p".split(" "),
+].join(" ");
+const UV_PIP_ARGV = `${UV_ADD_ARGV} ${UV_PIP_ONLY}`;
+
+/** @typedef {{ name: string, value: string }} Opt */
 
 /**
- * @typedef {{ name: string, value: string }} Opt
- * @typedef {{ long: Set<string>, short: Set<string> }} Valued the long
- *   options and the short letters that take a value
- */
-
-/**
- * An argv read into its option values, by name, and its positional words.
- * `--name=value`, `--name value`, `-xvalue` and `-x value` all read.
+ * An argv read into its option values, by name, and its positional words,
+ * through scanFlags.
  * @param {string[]} words
- * @param {Valued} valued
+ * @param {string} spec the value-taking options, as scanFlags reads them
  */
-function readArgv(words, valued) {
+function parseArgv(words, spec) {
 	/** @type {Opt[]} */
 	const opts = [];
 	/** @type {string[]} */
 	const args = [];
-	for (let i = 0; i < words.length; i++) {
-		const w = words[i] ?? "";
-		if (w === "--") {
-			args.push(...words.slice(i + 1));
-			break;
-		}
-		if (!w.startsWith("-") || w === "-") {
-			args.push(w);
-			continue;
-		}
-		const read = w.startsWith("--") ? longOption(w, valued) : shorts(w, valued);
-		opts.push(...read.opts);
-		const last = read.opts.at(-1);
-		if (read.takesNext && last) last.value = words[++i] ?? "";
-	}
+	scanFlags(spec, words, (kind, name, value) => {
+		if (kind === "arg") args.push(value);
+		else opts.push({ name, value });
+	});
 	return { opts, args };
-}
-
-/**
- * One long option word, and whether it takes the next word as its value.
- * @param {string} w
- * @param {Valued} valued
- * @returns {{ opts: Opt[], takesNext: boolean }}
- */
-function longOption(w, valued) {
-	const eq = w.indexOf("=");
-	if (eq >= 0)
-		return {
-			opts: [{ name: w.slice(0, eq), value: w.slice(eq + 1) }],
-			takesNext: false,
-		};
-	return { opts: [{ name: w, value: "" }], takesNext: valued.long.has(w) };
-}
-
-/**
- * A short-option cluster, `-qU` or `-rreq.txt`: its options, and whether the
- * last takes the next word as its value.
- * @param {string} w
- * @param {Valued} valued
- * @returns {{ opts: Opt[], takesNext: boolean }}
- */
-function shorts(w, valued) {
-	/** @type {Opt[]} */
-	const opts = [];
-	for (let j = 1; j < w.length; j++) {
-		const letter = w[j] ?? "";
-		if (!valued.short.has(letter)) {
-			opts.push({ name: `-${letter}`, value: "" });
-			continue;
-		}
-		const rest = w.slice(j + 1).replace(/^=/, "");
-		opts.push({ name: `-${letter}`, value: rest });
-		return { opts, takesNext: rest === "" };
-	}
-	return { opts, takesNext: false };
 }
 
 /**
@@ -546,7 +513,7 @@ function shorts(w, valued) {
  * list holding `:all:`, not reopened by `:none:` or a later `--no-binary`.
  * @param {Opt[]} opts
  */
-function binaryOnly(opts) {
+function isBinaryOnly(opts) {
 	let shut = false;
 	for (const { name, value } of opts) {
 		const list = value.split(",");
@@ -565,13 +532,13 @@ function binaryOnly(opts) {
  * @param {string[]} words the words after `pip`
  * @returns {Install | null}
  */
-function readPip(words) {
-	const { opts, args } = readArgv(words, PIP_ARGV);
+function parsePip(words) {
+	const { opts, args } = parseArgv(words, PIP_ARGV);
 	if (args[0] !== "install") return null;
 	if (opts.some((o) => o.name === "--help" || o.name === "-h")) return null;
 	return {
 		specs: [...args.slice(1), ...editables(opts)],
-		shut: binaryOnly(opts),
+		shut: isBinaryOnly(opts),
 		tool: "--only-binary :all:",
 	};
 }
@@ -591,16 +558,23 @@ const editables = (opts) =>
  * @param {string[]} words the words after `uv`
  * @returns {Install | null}
  */
-function readUv(words) {
-	const { opts, args } = readArgv(words, UV_ARGV);
-	if (opts.some((o) => o.name === "--help" || o.name === "-h")) return null;
-	const noBuild = opts.some((o) => o.name === "--no-build");
-	if (args[0] === "add")
-		return { specs: args.slice(1), shut: noBuild, tool: "--no-build" };
+function parseUv(words) {
+	const { args: sub } = parseArgv(words, UV_ADD_ARGV);
+	const add = sub[0] === "add";
+	const { opts, args } = parseArgv(words, add ? UV_ADD_ARGV : UV_PIP_ARGV);
+	const has = (/** @type {string} */ name) => opts.some((o) => o.name === name);
+	if (has("--help") || has("-h")) return null;
+	const noBuild = has("--no-build");
+	if (add)
+		return {
+			specs: args.slice(1),
+			shut: noBuild && !has("--no-binary"),
+			tool: "--no-build",
+		};
 	if (args[0] === "pip" && args[1] === "install")
 		return {
 			specs: [...args.slice(2), ...editables(opts)],
-			shut: noBuild || binaryOnly(opts),
+			shut: noBuild || isBinaryOnly(opts),
 			tool: "--no-build",
 		};
 	return null;
@@ -608,13 +582,13 @@ function readUv(words) {
 
 /**
  * The words after a Python interpreter's `-m pip`, or null where it runs no
- * pip: a script, `-c`, or another module.
+ * pip.
  * @param {string[]} words the words after the interpreter
  * @returns {string[] | null}
  */
 function pythonPip(words) {
-	for (let i = 0; i < words.length; ) {
-		const step = pythonOption(words, i);
+	for (let i = 0, w = words[0]; w !== undefined; w = words[i]) {
+		const step = pythonOption(w, words, i);
 		if ("pip" in step) return step.pip;
 		i = step.next;
 	}
@@ -628,12 +602,12 @@ const NO_PIP = { pip: null };
  * What the interpreter word at `i` makes of the command: the words after
  * `-m pip`, no pip at all (a script, `-`, `--`, `-c`, another module), or the
  * index of the next word to read, past an option's value.
+ * @param {string} w the word at `i`
  * @param {string[]} words
  * @param {number} i
  * @returns {{ pip: string[] | null } | { next: number }}
  */
-function pythonOption(words, i) {
-	const w = words[i] ?? "";
+function pythonOption(w, words, i) {
 	if (!w.startsWith("-") || w === "-" || w === "--") return NO_PIP;
 	if (w === "--check-hash-based-pycs") return { next: i + 2 };
 	const ends = w.startsWith("--") ? null : clusterEnd(w);
@@ -656,19 +630,19 @@ function clusterEnd(w) {
 }
 
 /**
- * What a command installs, read off its first word.
+ * What a command installs.
  * @param {string[]} words literal
  * @returns {Install | null}
  */
-function readInstall(words) {
+function parseInstall(words) {
 	const [head = "", ...rest] = words;
 	const name = path.basename(head);
-	if (/^pip(\d+(\.\d+)*)?$/.test(name)) return readPip(rest);
+	if (/^pip(\d+(\.\d+)*)?$/.test(name)) return parsePip(rest);
 	if (/^python(\d+(\.\d+)*)?$/.test(name)) {
 		const pip = pythonPip(rest);
-		return pip === null ? null : readPip(pip);
+		return pip === null ? null : parsePip(pip);
 	}
-	if (name === "uv") return readUv(rest);
+	if (name === "uv") return parseUv(rest);
 	return null;
 }
 
@@ -699,7 +673,7 @@ function judge(install, segment, declared, ctx) {
 	/* Check 1. It counts the unvettable specs too: a local path or a URL
 	 * builds as readily as an sdist. */
 	if (!install.shut)
-		return refuse(windowText(fresh, unvettable, install.tool), segment);
+		return refuse(windowText(fresh, unvettable, install.tool, ctx), segment);
 
 	/* Check 2. The stand-down comes before every refusal it can raise. */
 	if (ctx.allowNewPackage) return null;
@@ -743,7 +717,7 @@ function decide(command, ctx) {
 			if (verdict !== null) return;
 			/* Quoted spans put back: `"requests>=2"` is judged by its name. */
 			const words = cmd.words.map((w) => literal(w, parsed.spans).text);
-			const install = readInstall(words);
+			const install = parseInstall(words);
 			if (install !== null)
 				verdict = judge(install, cmd.segment, declared, ctx);
 		},

@@ -2,35 +2,34 @@
  * pip-install-host.js — the production ports the dispatcher wires into the
  * guard-pip-install core, lib/pip-install.js (#5232).
  *
- * THE SEAM. WFC_CURL names curl, never PATH (#2266, #2422).
+ * THE SEAM. WFC_CURL names curl (lib/registry-call.js).
  *
  * THE TIMEOUTS. Each GET gets curl's own `--max-time` of 8 s and the
- * spawn's, two a package. pypistats rate-limits a burst with a 429 and
- * `retry-after: 1` (60 a window, measured 2026-11-15, #5232), so a 429 waits
- * 1 s and retries once with 3 s: 8 + 8 + 1 + 3, the 20 s a package
- * lib/package-vetting.js's 30 s budget is sized against. The 8 s is a guess
- * carried from the npm host; PyPI's JSON answered in under a second for
- * boto3's 3.3 MB and pypistats in under 1.5 s (measured 2026-11-15).
+ * spawn's, two a package. pypistats rate-limits a burst (#5232), so its 429
+ * waits 1 s and retries once with 3 s: 8 + 8 + 1 + 3, the 20 s a package
+ * lib/package-vetting.js's 30 s budget is sized against. PyPI's JSON is not
+ * retried, which holds that 20 s. The 8 s is a guess carried from the npm
+ * host.
  */
 
 const { entryStartedAt } = require("./hook-deadline.js");
-const { call } = require("./registry-call.js");
+const { call, curlBin } = require("./registry-call.js");
+const { sleepSync } = require("./sleep-sync.js");
 
 const CURL_MAX_TIME_S = 8;
 const RETRY_WAIT_MS = 1000;
 const RETRY_MAX_TIME_S = 3;
 
 /**
- * One GET through curl, its status code written after the body; a 429
- * waited out and asked again once.
+ * One GET through curl, a 429 waited out and asked again once.
  * @param {string} curl
  * @param {string} url
  * @returns {import("./pip-install.js").Http}
  */
-function get(curl, url) {
+function getRetrying(curl, url) {
 	const first = getOnce(curl, url, CURL_MAX_TIME_S);
 	if ("missing" in first || first.code !== 429) return first;
-	Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, RETRY_WAIT_MS);
+	sleepSync(RETRY_WAIT_MS);
 	return getOnce(curl, url, RETRY_MAX_TIME_S);
 }
 
@@ -61,12 +60,16 @@ function getOnce(curl, url, maxTimeS) {
  *   & import("./package-vetting.js").VettingPorts}
  */
 function buildHostPorts() {
-	const curl = process.env.WFC_CURL || "curl";
+	const curl = curlBin();
 	return {
 		pypi: (name) =>
-			get(curl, `https://pypi.org/pypi/${encodeURIComponent(name)}/json`),
+			getOnce(
+				curl,
+				`https://pypi.org/pypi/${encodeURIComponent(name)}/json`,
+				CURL_MAX_TIME_S,
+			),
 		stats: (name) =>
-			get(
+			getRetrying(
 				curl,
 				`https://pypistats.org/api/packages/${encodeURIComponent(name)}/recent`,
 			),

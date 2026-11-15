@@ -3,6 +3,8 @@
  * lib/npm-install-host.js and lib/pip-install-host.js (#5232): the program
  * run with stdout piped and stderr dropped, and a program that will not
  * start told apart from one that answered.
+ *
+ * THE SEAM. WFC_CURL names curl (#2266, #2422); unset, curl is PATH's.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -28,4 +30,7 @@ function call(program, args, timeoutMs) {
 	return { status: r.status, stdout: r.stdout ?? "" };
 }
 
-module.exports = { call };
+/** The curl the hosts run. */
+const curlBin = () => process.env.WFC_CURL || "curl";
+
+module.exports = { call, curlBin };

@@ -32,13 +32,11 @@ export interface PyPI {
 	statsFirstCode?: number;
 }
 
-/** A package clearing both floors by a wide margin. */
 export const buildPassingPyPI = (now: number): PyPI => ({
 	created: new Date(now - 4000 * 86_400_000).toISOString(),
 	downloads: 9_000_000,
 });
 
-/** PyPI's JSON for a project whose first file went up at `created`. */
 export const pypiBody = (created: string) =>
 	JSON.stringify({
 		info: { name: "the-package", version: "2.0.0" },

@@ -8,11 +8,6 @@
  * Loosened, the guard's tests stay green on a fake while the guard misreads
  * what PyPI or pypistats really answers.
  *
- * The unreachable case points curl's proxy at a closed local port, and the
- * not-starting case points WFC_CURL at no program, so both need no network.
- * The other two ask the public services, and skip, saying so, where they do
- * not answer.
- *
  * Red after an API change: re-run the case's URL by hand, copy what changed
  * into lib/pypi-registry-fake.ts.
  */
@@ -110,7 +105,6 @@ function verdictOf(port: Port, pkg: string, answer: Get): string | null {
 	return decide(`pip install --only-binary :all: ${pkg}`, ctx)?.deny ?? null;
 }
 
-/** The answer's code and the types of the fields the core reads. */
 function shapeOf(answer: Get): unknown {
 	if ("missing" in answer) return "missing";
 	let body: unknown;
