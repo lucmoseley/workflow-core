@@ -241,6 +241,15 @@
 			"if": ["Bash(*npm *)", "Bash(*npx *)"]
 		},
 		{
+			"name": "guard-pip-install",
+			"core": "pip-install.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"tree": "session",
+			"host": "pip-install-host.js",
+			"if": ["Bash(*pip*)", "Bash(*uv *)"]
+		},
+		{
 			"name": "guard-anthropic-report",
 			"core": "anthropic-report.js",
 			"tools": "Bash",
