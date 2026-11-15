@@ -46,7 +46,7 @@ import { throughFullPipe } from "./lib/full-pipe-testkit";
 import { printed as ghPrinted } from "./lib/gh-stub";
 import { writeFaultyGit } from "./lib/git-fault-fake";
 import { runCore } from "./lib/guard-core-testkit";
-import { hookRun, releaseClaimsRow } from "./lib/post-commit-steps.js";
+import { buildRunIo, releaseClaimsRow } from "./lib/post-commit-steps.js";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import { writeSystemdRun } from "./lib/systemd-run-fake";
@@ -4124,7 +4124,7 @@ describe("releasing once the holder's own hunks have landed (#2148)", () => {
 		commitOnly(herHunkOnly);
 
 		const r = releaseClaimsRow(
-			hookRun({
+			buildRunIo({
 				cwd: sb.repo,
 				env: {
 					...process.env,

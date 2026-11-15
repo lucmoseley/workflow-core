@@ -661,7 +661,7 @@ describe(".husky/post-commit's fault-notice step", () => {
 	function runStep(cwd: string, answer: Result, env: NodeJS.ProcessEnv = {}) {
 		const program = stubProgram("report-new-shared-faults.js", () => answer);
 		const r = STEPS.newSharedFaultsRow(
-			STEPS.hookRun({ cwd, env: hookEnv(env) }),
+			STEPS.buildRunIo({ cwd, env: hookEnv(env) }),
 			programs,
 		);
 		// Exit 0 whatever the program did — git ignores post-commit's status.
@@ -825,7 +825,7 @@ process.stdout.write(JSON.stringify({ findings }));
 		);
 
 		const r = STEPS.newSharedFaultsRow(
-			STEPS.hookRun({
+			STEPS.buildRunIo({
 				cwd: wt,
 				env: {
 					...env,

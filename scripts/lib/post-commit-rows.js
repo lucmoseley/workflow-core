@@ -120,7 +120,7 @@ function runPostCommit(
 	io,
 	{ write, interrupted = async () => null, rows, programs },
 ) {
-	const run = steps.hookRun(io);
+	const run = steps.buildRunIo(io);
 	return dispatch({
 		rows: rows ?? ROWS,
 		gates: "all",

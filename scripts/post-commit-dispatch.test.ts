@@ -77,14 +77,10 @@ describe("the registry", () => {
 		])
 			programs.load(checker);
 		vi.stubEnv("WFC_GIT", shim);
-		try {
-			await runPostCommit({
-				cwd: repo.root,
-				env: hookEnv({ WFC_GIT: shim, CLAUDE_CODE_SESSION_ID: "s1" }),
-			});
-		} finally {
-			vi.unstubAllEnvs();
-		}
+		await runPostCommit({
+			cwd: repo.root,
+			env: hookEnv({ WFC_GIT: shim, CLAUDE_CODE_SESSION_ID: "s1" }),
+		});
 
 		const spawns = fs.readFileSync(log, "utf8").split("\n");
 		const count = (args: string) =>
@@ -106,7 +102,7 @@ describe("the registry", () => {
 
 		expect(
 			STEPS.keepShimsRow(
-				STEPS.hookRun({ cwd: repo.root, env: hookEnv() }),
+				STEPS.buildRunIo({ cwd: repo.root, env: hookEnv() }),
 				programs,
 			),
 		).toEqual({
@@ -150,7 +146,7 @@ describe("the registry", () => {
 		expect(quiet.check).toHaveBeenCalledTimes(2);
 		expect(process.cwd()).toBe(before.cwd);
 		expect(process.env).toEqual(before.env);
-		expect(STEPS.droppedReviewTier(STEPS.hookRun({ cwd: wt, env }))).toEqual(
+		expect(STEPS.droppedReviewTier(STEPS.buildRunIo({ cwd: wt, env }))).toEqual(
 			SILENT,
 		);
 	});

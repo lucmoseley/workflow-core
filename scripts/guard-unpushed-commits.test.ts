@@ -446,7 +446,7 @@ describe(".husky/post-commit's unpushed count (#2408)", () => {
 	/** lib/post-commit-steps.js's unpushedReport, as the registry runs it. */
 	function count(env: NodeJS.ProcessEnv = {}, cwd = root): string {
 		const r = STEPS.unpushedReport(
-			STEPS.hookRun({ cwd, env: { ...process.env, ...env } }),
+			STEPS.buildRunIo({ cwd, env: { ...process.env, ...env } }),
 		);
 		expect(r.exit).toBe(0);
 		expect(r.stderr).toBe("");
@@ -497,7 +497,7 @@ describe(".husky/post-commit's unpushed count (#2408)", () => {
 			cwd: wt,
 		});
 		expect(
-			STEPS.unpushedReport(STEPS.hookRun({ cwd: wt, env })).stdout,
+			STEPS.unpushedReport(STEPS.buildRunIo({ cwd: wt, env })).stdout,
 		).toContain("1 commit not pushed to origin/main.");
 	});
 });
@@ -529,7 +529,7 @@ describe(".husky/post-commit's record step", () => {
 	function runStep(cwd: string, env: NodeJS.ProcessEnv) {
 		stubArbiter();
 		const r = STEPS.recordCommitRow(
-			STEPS.hookRun({ cwd, env: hookEnv(env) }),
+			STEPS.buildRunIo({ cwd, env: hookEnv(env) }),
 			programs,
 		);
 		expect(r.exit).toBe(0);

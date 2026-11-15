@@ -8,8 +8,9 @@
  * and the top level read once for every row (#5214), computes the arguments
  * its program takes (the committed paths, the main tree) and stands down
  * where its own preconditions fail. The route gate the gated rows share is
- * their `when` in lib/post-commit-rows.js, which the dispatcher applies. A program's own run is its PROGRAM export (2, 5–7) or
- * its lib/check.js SPEC (3–4), reached through the `Programs` port.
+ * their `when` in lib/post-commit-rows.js, which the dispatcher applies. A
+ * program's own run is its PROGRAM export (2, 5–7) or its lib/check.js SPEC
+ * (3–4), reached through the `Programs` port.
  *
  * NO GIT CALL SEES THE HOOK'S REDIRECTS. A program reading from a cwd of its
  * own (a throwaway worktree, a materialised tree, the main checkout) under
@@ -28,9 +29,12 @@ const { trimEndRun } = require("./trim-run.js");
 /** @typedef {{ cwd: string, env: NodeJS.ProcessEnv }} HookIo */
 /**
  * A post-commit run's io: THIS commit, or "" where HEAD does not resolve,
- * read at first ask and kept for the run's other rows; and the tree the hook
- * runs in, or null where git names none, which lib/git-tree.js keeps.
- * @typedef {HookIo & { committed: () => string, toplevel: () => string | null }} RunIo
+ * and the tree the hook runs in, or null where git names none, each read at
+ * first ask and kept for the run's other rows.
+ * @typedef {HookIo & {
+ *   readCommitted: () => string,
+ *   readTopLevel: () => string | null,
+ * }} RunIo
  */
 /** @typedef {import("./program-scope.js").ProgramResult} ProgramResult */
 
@@ -107,11 +111,15 @@ const once = (read) => {
  * @param {HookIo} io
  * @returns {RunIo}
  */
-const hookRun = (io) => ({
+const buildRunIo = (io) => ({
 	cwd: io.cwd,
 	env: io.env,
-	committed: once(() => git(io, ["rev-parse", "--verify", "-q", "HEAD"]) ?? ""),
-	toplevel: () => inProgramScope(scrubbed(io), () => readTopLevel(io.cwd)),
+	readCommitted: once(
+		() => git(io, ["rev-parse", "--verify", "-q", "HEAD"]) ?? "",
+	),
+	readTopLevel: once(() =>
+		inProgramScope(scrubbed(io), () => readTopLevel(io.cwd)),
+	),
 });
 
 /** The programs the steps run, under scripts/: one spelling, which
@@ -150,7 +158,7 @@ const BANG = "\u001b[33m!\u001b[0m";
  * @returns {ProgramResult}
  */
 function unpushedReport(io) {
-	const toplevel = io.toplevel();
+	const toplevel = io.readTopLevel();
 	if (toplevel === null) return SILENT;
 	const ref = inProgramScope(scrubbed(io), () => {
 		const { hostOf, readUnpushedRef } = require("./landing-refs.js");
@@ -184,8 +192,8 @@ function unpushedReport(io) {
  * @returns {ProgramResult}
  */
 function newSharedFaultsRow(io, programs = PROGRAMS) {
-	const committed = io.committed();
-	if (!committed || io.toplevel() === null) return SILENT;
+	const committed = io.readCommitted();
+	if (!committed || io.readTopLevel() === null) return SILENT;
 	const r = runProgramAt(programs, PROGRAM_FILES.newSharedFaults, io, [
 		committed,
 	]);
@@ -209,8 +217,8 @@ function newSharedFaultsRow(io, programs = PROGRAMS) {
 const touchedByRow =
 	(script) =>
 	async (io, programs = PROGRAMS) => {
-		const toplevel = io.toplevel();
-		const committed = io.committed();
+		const toplevel = io.readTopLevel();
+		const committed = io.readCommitted();
 		if (toplevel === null || !committed) return SILENT;
 		const { SPEC } = programs.load(script);
 		if (!SPEC) throw new Error(`${script} exports no SPEC`);
@@ -236,8 +244,8 @@ const touchedByRow =
  * @returns {ProgramResult}
  */
 function releaseClaimsRow(io, programs = PROGRAMS) {
-	const committed = io.committed();
-	if (!committed || io.toplevel() === null) return SILENT;
+	const committed = io.readCommitted();
+	if (!committed || io.readTopLevel() === null) return SILENT;
 	const listed = git(io, [
 		"-c",
 		"core.quotePath=false",
@@ -269,8 +277,8 @@ function releaseClaimsRow(io, programs = PROGRAMS) {
  */
 function recordCommitRow(io, programs = PROGRAMS) {
 	if (!io.env.CLAUDE_CODE_SESSION_ID) return SILENT;
-	const committed = io.committed();
-	if (!committed || io.toplevel() === null) return SILENT;
+	const committed = io.readCommitted();
+	if (!committed || io.readTopLevel() === null) return SILENT;
 	const common = gitCommonDir(io.cwd, { env: scrubbedGitEnv(io.env) });
 	if (common === null || !common.endsWith("/.git")) return SILENT;
 	const r = runProgramAt(
@@ -292,7 +300,7 @@ function recordCommitRow(io, programs = PROGRAMS) {
  * @returns {ProgramResult}
  */
 function keepShimsRow(io, programs = PROGRAMS) {
-	if (io.toplevel() === null) return SILENT;
+	if (io.readTopLevel() === null) return SILENT;
 	const r = runProgramAt(programs, PROGRAM_FILES.keepShims, io, ["--lazy"]);
 	return { exit: 0, stdout: r.stdout, stderr: r.stderr };
 }
@@ -325,8 +333,8 @@ function droppedReviewTier(io) {
 
 module.exports = {
 	PROGRAM_FILES,
+	buildRunIo,
 	droppedReviewTier,
-	hookRun,
 	keepShimsRow,
 	newSharedFaultsRow,
 	recordCommitRow,
