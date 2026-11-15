@@ -660,7 +660,10 @@ describe(".husky/post-commit's fault-notice step", () => {
 	/** The step on `cwd`, the program answering `answer`. */
 	function runStep(cwd: string, answer: Result, env: NodeJS.ProcessEnv = {}) {
 		const program = stubProgram("report-new-shared-faults.js", () => answer);
-		const r = STEPS.newSharedFaultsRow({ cwd, env: hookEnv(env) }, programs);
+		const r = STEPS.newSharedFaultsRow(
+			STEPS.buildRunIo({ cwd, env: hookEnv(env) }),
+			programs,
+		);
 		// Exit 0 whatever the program did — git ignores post-commit's status.
 		expect(r.exit).toBe(0);
 		return { ...r, program };
@@ -822,7 +825,7 @@ process.stdout.write(JSON.stringify({ findings }));
 		);
 
 		const r = STEPS.newSharedFaultsRow(
-			{
+			STEPS.buildRunIo({
 				cwd: wt,
 				env: {
 					...env,
@@ -830,7 +833,7 @@ process.stdout.write(JSON.stringify({ findings }));
 					CLAUDE_PROJECT_DIR: repo.root,
 					[CHECKERS_ENV]: JSON.stringify({ "guard-registry": probe }),
 				},
-			},
+			}),
 			programs,
 		);
 

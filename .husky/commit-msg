@@ -19,7 +19,8 @@
 #            replay included, sources the adopter's own
 #            `.husky/commit-msg.local` where it exists, after
 #            refusing every commit on a script it names that the repo lacks
-#            (scripts/lib/local-hook.sh).
+#            (scripts/lib/local-hook.sh) or where mktemp cannot make the file
+#            that hands it `$route`.
 # JUSTIFIED: fail-safe — the keyword closes the issue server-side on the push,
 #            so the guard-issue-close core never fires and the issue closes with no
 #            resolution comment and no `**Outstanding:**` line (#118); a
@@ -66,7 +67,26 @@ require "$local_lib" ".husky/commit-msg.local cannot be checked" "running the ad
 # The closing-keyword scan and the subject check stand down on a replay, and
 # the Weakens: check on a merge too: lib/commit-msg-rows.js. A refusal aborts
 # the commit with the dispatcher's own code, through `set -e`.
-node "$dispatcher" "$1"
+#
+# Where `.husky/commit-msg.local` exists, the same run writes the route to a
+# temp file for it (#5215), removed on every exit: dash runs no EXIT trap on a
+# fatal signal, so each signal also gets an `exit` at its 128+n status. The
+# traps go first, so no signal falls between the file and its removal.
+route_file=""
+if [ -f .husky/commit-msg.local ]; then
+  trap 'rm -f "$route_file"' EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  route_file="$(mktemp)" || {
+    echo "commit-msg: mktemp could not make a file for .husky/commit-msg.local's \$route." >&2
+    echo "  Refusing every commit until TMPDIR (${TMPDIR:-/tmp}) is writable." >&2
+    exit 1
+  }
+  node "$dispatcher" --route-file "$route_file" "$1"
+else
+  node "$dispatcher" "$1"
+fi
 
 # THE ADOPTER'S OWN REFUSALS: `.husky/commit-msg.local` (#5142), on
 # `.husky/pre-commit.local`'s contract (#437): last, only where it exists,
@@ -74,9 +94,11 @@ node "$dispatcher" "$1"
 # command or `exit 1` refuses the commit; core never writes it; and a script it
 # names that the repo lacks refuses every commit. It runs on every route, a
 # replay included: `$route` names it, and the adopter stands down for itself.
-if [ -f .husky/commit-msg.local ]; then
+if [ -n "$route_file" ]; then
   # shellcheck disable=SC2034 # read by the sourced .local file below
-  route="$(node "$dispatcher" --print-route)"
+  IFS= read -r route <"$route_file"
+  # Gone before the adopter's code runs, so a trap of its own cannot leak it.
+  rm -f "$route_file"
   wfc_local_hook_refuse_missing .husky/commit-msg.local \
     "commit-msg: .husky/commit-msg.local calls a script this repo does not have:"
   # shellcheck source=/dev/null # the adopter's own optional gate, absent from most repos
