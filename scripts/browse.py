@@ -65,7 +65,7 @@ DEFAULT_UA = (
 INSTALL_HINT = (
     "On this machine Playwright is the Python package under miniforge,\n"
     "installed once per machine rather than per repo:\n"
-    "    python3 -m pip install playwright\n"
+    "    python3 -m pip install --only-binary :all: playwright\n"
     "    python3 -m playwright install chromium"
 )
 
