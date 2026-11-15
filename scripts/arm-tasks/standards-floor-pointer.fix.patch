@@ -20,7 +20,7 @@ index 7111e544240b5f69bb9729eae903a28b1071d2dc..cec8e82dd48c34f4ee6af9565da43c4b
  
  ### Which checker sees which surface
  
-@@ -70,21 +70,23 @@ Shell is shellcheck's (mantahostels#1134), which `npm run check:sh` runs in CI a
+@@ -70,21 +70,24 @@ Shell is shellcheck's (mantahostels#1134), which `npm run check:sh` runs in CI a
  
  Excluded from everything: `docs/`, `public/`, `skills-lock.json`, `hooks/hooks.json` (#946 — the plugin hook manifest, rendered by `scripts/generate-plugin-hooks.js`), `scripts/fixtures`, `scripts/templates` (#5 — an adopter skeleton's templates, whose `{{placeholder}}` does not parse as the language they template), `.claude/worktrees`, `.claude/tmp`, `.claude/settings*.json`, `.claude/skills/*/.claude-plugin/types` (#854 — a mod's untracked copy of the engine's API declarations, #1960), `.local` (mantahostels#2206 — sessions put throwaway git worktrees there, and a worktree's own `biome.json` reads as a nested root configuration Biome refuses on repo-wide, blocking every commit in the tree). `.claude/` as a whole is not excluded (mantahostels#1138), and Biome cannot re-include inside an excluded path, so no narrower spelling exists.
  
@@ -55,7 +55,8 @@ index 7111e544240b5f69bb9729eae903a28b1071d2dc..cec8e82dd48c34f4ee6af9565da43c4b
 +| shfmt, `ruff format` | refuse — shfmt in this job, `ruff format` in the `python` job |
 +| Vitest, pytest | refuses |
 +| The read-shape warning, `scripts/generate-test-read-edges.js --check` | not run; `--unseen` lists every read the diff selector cannot attribute, on demand |
-+| The run-cost report, `scripts/run-vitest.js` and `scripts/run-pytest.js` (a new or changed test file over 10 s of its own wall time, or an existing one grown past 2.5× its CI record, base §X8 (5); pytest's in worker-seconds) | **reports only, never refuses** (#1797): printed after every suite run through either wrapper, never at commit, and never changing the suite's exit code (#1883, #1884). Under `CI` it names each file of the CI record grown past 2.5× its row, changed or not (#4289) |
++| The run-cost report, `scripts/run-vitest.js` and `scripts/run-pytest.js` (a new or changed test file over 10 s of its own wall time, or an existing one grown past 2.5× its CI record, base §X8 (5); pytest's in worker-seconds) | **reports only** (#1797): printed after every suite run through either wrapper, never at commit, and never changing the suite's exit code (#1883, #1884). Under `CI` it names each file of the CI record grown past 2.5× its row, changed or not (#4289) |
++| The per-file CI time check, `scripts/check-file-ci-time.js` (a test file whose median CI time over its last three sweeps is over `FILE_LIMIT_MS`, 60 s) | not run here; **refuses in the scheduled sweep**, its `Test file CI times` job a need of `Suite passed` there, and skipped on every push run (#4293) |
  
  Every push to a `lander/batch-<k>` ref, a queue lander batch, runs the full suite, and the lander reads that run as its tester (#2413, #4458), so a pushed head's CI verdict lags it by one run: 8.2 min at worst, or up to 30 min where a red is re-run (measured on #3349). Four scheduled sweeps a day (mantahostels#3490) re-test the still tree. The cron asks for a 6h gap; GitHub delivers the slots late, and the gap is not this repo's to set (mantahostels#2204).
  

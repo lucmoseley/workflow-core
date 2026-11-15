@@ -14,9 +14,11 @@
  * FEWER THAN THREE SWEEPS READABLE IS A SKIP THAT SAYS IT JUDGED NOTHING,
  * never an OK.
  *
- * WARN-ONLY until #4293 (fail the sweep while any file is over) lands.
+ * A FILE WHOSE MEDIAN IS OVER THE LIMIT FAILS (#4293, on #4283's 4 Nov
+ * ruling). A file timed in fewer than three sweeps has no median, so one over
+ * the limit in a sweep only warns.
  *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js) and in the scheduled sweep (scheduled-checks.yml), names each test file whose median CI time over its last three sweeps is over the limit scripts/lib/suite-ceiling.js sets, downloading those sweeps' vitest reports. It refuses nothing.
+ * IMPLICIT:  on `npm run status` (scripts/status-report.js) and in the scheduled sweep (scheduled-checks.yml), fails on each test file whose median CI time over its last three sweeps is over the limit scripts/lib/suite-ceiling.js sets, downloading those sweeps' vitest reports, and so turns the sweep red.
  * JUSTIFIED: fail-safe — a file over the limit holds the whole suite over its 180 s target (#2729) and is otherwise counted only by hand.
  * DEFEAT:    convenience — --reports judges sweeps already downloaded, with no gh call.
  */
@@ -63,7 +65,7 @@ runCheck({
 				`FILE-CI-TIME — ${over.length} test file(s) whose median CI time over their last ${SWEEPS_JUDGED} sweeps (${window}) is over ${LIMIT}, slowest first:`,
 			);
 		for (const f of over) {
-			ctx.warn(
+			ctx.fail(
 				"FILE-CI-TIME-OVER",
 				`${f.file}: median ${secs(f.medianSeconds)}, over ${LIMIT}.`,
 				f,
@@ -87,11 +89,10 @@ runCheck({
 			ctx.say(`  ${u.file} — ${timesText(u.readings)}`);
 		}
 		ctx.say(
-			"  Cut each by measured cost (#4290). The limit gates nothing until it is switched on (#4293).",
+			"  Cut each by measured cost (#4290), profiled first. The scheduled sweep stays red while any median is over.",
 		);
 		return {
 			noun: `file(s) over ${LIMIT}`,
-			count: over.length + slowUnjudged.length,
 			data: { over, unjudged },
 		};
 	},
