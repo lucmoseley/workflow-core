@@ -1087,6 +1087,28 @@ describe("rewinding main is refused (#765)", () => {
 		},
 	);
 
+	/* #5234: with landing on only the lander moves `main`, so the local
+	 * refusal prints the shared rule, whose reading holds either way, and
+	 * not the remote route's lander twin. The quoted clause pins #5234's
+	 * wording on purpose: the rule read back would match any reword. */
+	it.each([
+		[
+			"git update-ref refs/heads/main HEAD~1",
+			"writes `main` directly, dropping whatever came after the commit it names",
+		],
+		["git branch -D main", "deletes `main`"],
+	])(
+		"with landing on, %s from a worktree prints the shared rule, true of who moves main",
+		(command, what) => {
+			const reason = readDenyReason(command, {
+				cwd: LINKED,
+				modules: ["landing"],
+			});
+			expect(reason).toBe(`This ${what}: ${command}\n\n${readRewindRule()}`);
+			expect(reason).toContain("every session's work lands on");
+		},
+	);
+
 	it("reaches the shared tree through -C from a worktree", () => {
 		expect(
 			readDenyReason(`git -C ${SHARED} reset --hard HEAD~1`, { cwd: LINKED }),
