@@ -586,6 +586,34 @@ describe("the tool runners (#5239)", () => {
 		);
 	});
 
+	it.each([
+		"uv run --trusted-host h --with left-pad pytest",
+		"uvx --no-build --trusted-host h left-pad",
+		"uv tool install --no-build --python-preference only-system left-pad",
+		"uv --trusted-host h tool install --no-build left-pad",
+		"uv tool run --no-build --constraint c.txt left-pad",
+		"uv tool uvx --no-build left-pad",
+	])("reads uv's hidden options and aliases: `%s`", (command) => {
+		expect(denial(command, { created: "404" })).toMatch(/left-pad/);
+	});
+
+	it.each([
+		[`pipx install ${PIPX} -e mydir`, "mydir"],
+		[`pipx install ${PIPX} tool.py`, "tool.py"],
+		[`pipx run ${PIPX} --path script`, "script"],
+	])("refuses the pipx local tree `%s` as unvettable", (command, spec) => {
+		expect(denial(command)).toContain(
+			`its legitimacy is unverifiable: \`${spec}\``,
+		);
+	});
+
+	it.each([
+		`pipx install ${PIPX} -i https://example.com/simple left-pad`,
+		`pipx inject ${PIPX} --requirement r.txt ruff left-pad`,
+	])("reads pipx's value-taking `-i` and `--requirement`: `%s`", (command) => {
+		expect(callsOf(command)).toEqual(["pypi left-pad", "stats left-pad"]);
+	});
+
 	it("refuses a pip editable named like a package as unvettable", () => {
 		expect(denial(`pip install ${BIN} -e requests`)).toContain(
 			"its legitimacy is unverifiable: `requests`",
@@ -709,6 +737,61 @@ describe("the declaring files", () => {
 		expect(h.logs).toEqual([
 			"requirements.txt did not read — its packages are vetted as new",
 		]);
+	});
+
+	const withPyproject = (text: string) => ({
+		files: { "pyproject.toml": text },
+	});
+
+	it.each([
+		["a key", `[project]\ndescription = """\ndependencies = ["evil"]\n"""\n`],
+		[
+			"a key, the string's escaped quotes and a closing run of quotes read past",
+			`[project]\ndescription = """ \\""" ""\ndependencies = ["evil"]\n""""\n`,
+		],
+		[
+			"a header",
+			`[tool.x]\nnote = '''\n[dependency-groups]\ndev = ["evil"]\n'''\n`,
+		],
+		[
+			"a header, in a string never closed",
+			`[tool.x]\nnote = """\n[dependency-groups]\ndev = ["evil"]\n`,
+		],
+		[
+			"a header, after an array the string's ] would have closed",
+			`[tool.x]\nnotes = ["""\n]\n[dependency-groups]\ndev = ["evil"]\n"""]\n`,
+		],
+	])(
+		"reads nothing in a multi-line string as declared: %s (#5241)",
+		(_, text) => {
+			expect(denial("pip install evil", {}, withPyproject(text))).toMatch(
+				/does not yet declare — evil/,
+			);
+		},
+	);
+
+	it("reads an opener inside a comment as no string (#5241)", () => {
+		const text = `[project]\n# a note """\ndependencies = ["httpx"]\n`;
+		expect(
+			allows("pip install httpx", { created: "404" }, withPyproject(text)),
+		).toBe(true);
+	});
+
+	it("reads on past a multi-line string to the next key (#5241)", () => {
+		const text = `[project]\ndescription = """\nx\n"""\ndependencies = ["httpx"]\n`;
+		expect(
+			allows("pip install httpx", { created: "404" }, withPyproject(text)),
+		).toBe(true);
+	});
+
+	it("reads a CRLF header with a trailing comment as its table, and only its own packages (#5241)", () => {
+		const text = `[project] # main\r\ndependencies = [\r\n  "httpx",\r\n]\r\n`;
+		expect(
+			allows("pip install httpx", { created: "404" }, withPyproject(text)),
+		).toBe(true);
+		expect(denial("pip install evil", {}, withPyproject(text))).toMatch(
+			/does not yet declare — evil/,
+		);
 	});
 
 	it("lists the declaring files once a command, and only for an install naming a package", () => {
