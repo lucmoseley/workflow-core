@@ -4,8 +4,7 @@
  * row script of a git-hook dispatcher's registry reads as wired through the
  * hook that runs that dispatcher. Each fixture carries the real registry,
  * copied with its require closure, so a DISPATCHERS row deleted reads that
- * dispatcher's row scripts UNWIRED, and a row's `script` deleted fails the
- * every-row-has-a-script case.
+ * dispatcher's row scripts UNWIRED.
  *
  * The checker is a hard gate in .husky/pre-commit: loosen a case and a rule
  * citing a dispatcher-run script can claim **Enforced** while nothing runs it,
@@ -22,7 +21,8 @@ afterEach(removeTemps);
 
 type Rows = { script: unknown }[];
 
-/* Spelled out, not imported: an imported list would drop a deleted row from the test too. */
+/* Spelled out, not imported: an imported list would drop a deleted row from the test too.
+ * Each path is __dirname-anchored so the read-edge selector ties it to this test (§X10). */
 const DISPATCHERS = [
 	{
 		hook: ".husky/pre-commit",
@@ -55,7 +55,7 @@ describe.each(DISPATCHERS)(
 	({ hook, name, rows }) => {
 		const scripts = [...new Set(rows.map((r) => r.script))] as string[];
 
-		/* A row without its `script` would vanish from `scripts` unseen. */
+		/* A row whose `script` is gone drops its path from `scripts`, so no wiring case notices. */
 		it("gives every row a script", () => {
 			expect(rows.filter((r) => typeof r.script !== "string")).toEqual([]);
 		});
@@ -91,9 +91,9 @@ describe.each(DISPATCHERS)(
 		};
 
 		it("reads every row script wired through the hook that runs the dispatcher", () => {
-			const { r, unwired } = runFixture(true);
-			expect(unwired).toEqual([]);
-			expect(r.kinds).not.toContain("UNWIRED");
+			/* No exit code: the fixture's bare hook and copied libs raise unrelated
+			 * UNANNOTATED, UNANCHORED and EMITTED-MISSING findings. */
+			expect(runFixture(true).unwired).toEqual([]);
 		});
 
 		it("reads each row script unwired where no hook runs the dispatcher", () => {
