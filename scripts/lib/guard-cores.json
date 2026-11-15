@@ -247,7 +247,7 @@
 			"failure": "closed",
 			"tree": "session",
 			"host": "pip-install-host.js",
-			"if": ["Bash(*pip*)", "Bash(*uv *)"]
+			"if": ["Bash(*pip*)", "Bash(*uv *)", "Bash(*uvx*)"]
 		},
 		{
 			"name": "guard-anthropic-report",
