@@ -86,7 +86,6 @@ const HOLD = "scripts/review-hold-gate.js";
 const TRAILER = "scripts/review-tier-trailer.js";
 
 /**
- * `rel` under `ctx.root`.
  * @param {PrepareCommitMsgContext} ctx
  * @param {string} rel
  */
@@ -106,8 +105,8 @@ function readable(file) {
 }
 
 /**
- * The function `file` exports as `name`, `file` being under the context's
- * root. Throws where it exports none, so the row is BROKEN naming the file.
+ * The function `file` exports as `name`. Throws where it exports none, so
+ * the row is BROKEN naming the file.
  * @param {string} file
  * @param {string} name
  * @returns {Function}
@@ -177,7 +176,6 @@ function closingKeyword(ctx) {
 	return { exit: r.code === 0 ? 0 : 1, stdout: "", stderr: r.stderr };
 }
 
-/** gitleaks' arguments: a scan of the staged content, findings redacted. */
 const GITLEAKS_STAGED = ["git", "--staged", "--redact"];
 
 /**
@@ -351,9 +349,8 @@ const ROWS = [
 ];
 
 /**
- * The registry's run under `io`, each row's output through `write`: the
- * wiring scripts/prepare-commit-msg-dispatch.js and the tests share. Throws where the route will
- * not read.
+ * Runs the registry for one prepare-commit-msg call. Throws where the route
+ * will not read.
  * @param {{ cwd: string, env: NodeJS.ProcessEnv }} io
  * @param {{
  *   write: (fd: number, text: string) => void,
