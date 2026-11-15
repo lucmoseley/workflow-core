@@ -271,7 +271,7 @@ describe("check-format-staged — a formatter that is not installed (#1354)", ()
 			{ ...noRuff, args: ["--skip-python"] },
 		);
 		expect(output).toMatch(
-			/SKIPPED 1 path\(s\) at --skip-python: \/nonexistent\/ruff is not on PATH, and a workflow runs it — python3 -m pip install ruff==/,
+			/SKIPPED 1 path\(s\) at --skip-python: \/nonexistent\/ruff is not on PATH, and a workflow runs it — python3 -m pip install --only-binary :all: ruff==/,
 		);
 		expect(output).toMatch(/scripts\/a\.sh: not shfmt-formatted/);
 		expect(code).toBe(1);

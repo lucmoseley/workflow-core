@@ -72,7 +72,7 @@ const SHFMT_MODULE = process.env.WFC_SHFMT;
  * (package.json, requirements-dev.txt); formatters.test.ts pins them equal. */
 const SHFMT_INSTALL =
 	"npm install --ignore-scripts --save-dev --save-exact @wasm-fmt/shfmt@0.2.7";
-const RUFF_INSTALL = "python3 -m pip install ruff==0.16.4";
+const RUFF_INSTALL = "python3 -m pip install --only-binary :all: ruff==0.16.4";
 
 /** @typedef {(source: string, path?: string, options?: object) => string} ShfmtFormat */
 

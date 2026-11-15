@@ -342,7 +342,9 @@ describe("the install lines a refusal names, and CI's ruff install, at the core'
 			new RegExp(`@wasm-fmt/shfmt@${pkg.devDependencies["@wasm-fmt/shfmt"]}$`),
 		);
 		const pin = read("requirements-dev.in").match(/^ruff==(\S+)$/m)?.[1];
-		expect(RUFF_INSTALL).toBe(`python3 -m pip install ruff==${pin}`);
+		expect(RUFF_INSTALL).toBe(
+			`python3 -m pip install --only-binary :all: ruff==${pin}`,
+		);
 	});
 
 	it("has CI's Vitest job install ruff from requirements-dev.txt's pin, never a version of its own (#1590)", () => {
