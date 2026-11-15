@@ -270,8 +270,8 @@ describe("check-format-staged — a formatter that is not installed (#1354)", ()
 			repo({ "pkg/a.py": PY_BAD, "scripts/a.sh": SH_BAD }),
 			{ ...noRuff, args: ["--skip-python"] },
 		);
-		expect(output).toMatch(
-			/SKIPPED 1 path\(s\) at --skip-python: \/nonexistent\/ruff is not on PATH, and a workflow runs it — python3 -m pip install --only-binary :all: ruff==/,
+		expect(output).toContain(
+			`SKIPPED 1 path(s) at --skip-python: /nonexistent/ruff is not on PATH, and a workflow runs it — ${RUFF_INSTALL}`,
 		);
 		expect(output).toMatch(/scripts\/a\.sh: not shfmt-formatted/);
 		expect(code).toBe(1);
