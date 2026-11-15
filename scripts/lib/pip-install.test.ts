@@ -147,7 +147,16 @@ describe("what it does not judge", () => {
 		"uv pip sync requirements.txt",
 		"uv pip compile requirements.in",
 		"uvx ruff check",
-		"pipx install left-pad",
+		"uvx --help left-pad",
+		"uvx python -c 1",
+		"uvx python3.12 -c 1",
+		"uvx python@3.12",
+		"uv tool list",
+		"uv tool run",
+		"uv run --with-requirements requirements.txt pytest",
+		"pipx list",
+		"pipx install --help left-pad",
+		"pipx inject -r requirements.txt venv",
 		"echo pip install left-pad",
 		"grep 'pip install left-pad' README.md",
 	])("allows `%s`", (command) => {
@@ -416,6 +425,100 @@ ${ESCAPE}`,
 		expect(
 			denial(`cd /tmp && pip install ${BIN} requests && pip install x-y`),
 		).toMatch(/— x-y — and does not carry/);
+	});
+});
+
+describe("the tool runners (#5239)", () => {
+	const Pipx = "--pip-args='--only-binary :all:'";
+
+	it.each([
+		["uvx left-pad", "left-pad", "--no-build"],
+		["uvx left-pad@1.0 --flag", "left-pad", "--no-build"],
+		["uvx --from left-pad lp", "left-pad", "--no-build"],
+		["uvx --with left-pad ruff", "left-pad", "--no-build"],
+		["uv tool run left-pad", "left-pad", "--no-build"],
+		["uv tool install left-pad", "left-pad", "--no-build"],
+		["uv tool install ruff --with left-pad", "left-pad", "--no-build"],
+		["uv run --with left-pad pytest", "left-pad", "--no-build"],
+		["uv run -w left-pad pytest", "left-pad", "--no-build"],
+		["pipx install left-pad", "left-pad", Pipx],
+		["pipx install ruff --preinstall left-pad", "left-pad", Pipx],
+		["pipx run left-pad", "left-pad", Pipx],
+		["pipx run --spec left-pad lp", "left-pad", Pipx],
+		["pipx run --with left-pad ruff", "left-pad", Pipx],
+		["pipx inject ruff left-pad", "left-pad", Pipx],
+	])("refuses `%s` its window open, naming the flag", (command, name, flag) => {
+		expect(denial(command)).toContain(
+			`declare — ${name} — and does not carry \`${flag}\`:`,
+		);
+	});
+
+	it.each([
+		"uvx --no-build left-pad",
+		"uvx --no-build left-pad@latest",
+		"uv tool run --no-build left-pad",
+		"uv tool install --no-build 'left-pad[cli]>=1'",
+		"uv run --no-build --with left-pad pytest",
+		`pipx install ${Pipx} left-pad`,
+		"pipx run --pip-args=--only-binary=:all: left-pad",
+		`pipx inject ${Pipx} ruff left-pad`,
+	])("asks PyPI of `%s` once its window is shut", (command) => {
+		expect(callsOf(command)).toEqual(["pypi left-pad", "stats left-pad"]);
+	});
+
+	it.each([
+		"uvx --no-build --no-binary left-pad",
+		`pipx install --pip-args='--only-binary :all: --no-binary left-pad' left-pad`,
+		"pipx install --pip-args='--only-binary numpy' left-pad",
+		"pipx install --pip-args='--only-binary :all:; x' left-pad",
+	])("refuses the window reopened or never shut: `%s`", (command) => {
+		expect(denial(command)).toMatch(/does not carry/);
+	});
+
+	it("reads uv's `--with` commas as uv splits them", () => {
+		expect(callsOf("uvx --no-build --with 'aaa[x,y]>=1,<2,bbb' ruff")).toEqual([
+			"pypi aaa",
+			"stats aaa",
+			"pypi bbb",
+			"stats bbb",
+		]);
+	});
+
+	it.each([
+		"uvx ruff --with left-pad",
+		"uv run pytest --with left-pad",
+		"uv run -m pytest --with left-pad",
+		"pipx run ruff --spec left-pad",
+	])("reads nothing after the command it runs: `%s`", (command) => {
+		expect(allows(command, { created: "404" })).toBe(true);
+	});
+
+	it.each([
+		["uvx --no-build --with-editable ./evil ruff", "./evil"],
+		["uv tool install --no-build -e evil", "evil"],
+		["uv run --no-build --with-editable evil pytest", "evil"],
+		[
+			"uvx --no-build --from git+https://example.com/x.git x",
+			"git+https://example.com/x.git",
+		],
+		[`pipx install ${Pipx} --editable evil`, "evil"],
+		[`pipx run ${Pipx} https://example.com/s.py`, "https://example.com/s.py"],
+		[`pipx run ${Pipx} script.py`, "script.py"],
+	])("refuses `%s` as unvettable", (command, spec) => {
+		expect(denial(command)).toContain(
+			`its legitimacy is unverifiable: \`${spec}\``,
+		);
+	});
+
+	it("refuses a pip editable named like a package as unvettable", () => {
+		expect(denial(`pip install ${BIN} -e requests`)).toContain(
+			"its legitimacy is unverifiable: `requests`",
+		);
+	});
+
+	it("passes a declared tool", () => {
+		expect(allows("uvx ruff@0.16.4", { created: "404" })).toBe(true);
+		expect(allows("pipx install ruff", { created: "404" })).toBe(true);
 	});
 });
 

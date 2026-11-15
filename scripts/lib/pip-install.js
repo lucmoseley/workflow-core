@@ -3,13 +3,17 @@
  * boundary, the twin of lib/npm-install.js's checks 1 and 2.
  *
  * It judges `pip install` (`pip`, `pip3`, `pip3.12`, a venv's `bin/pip`),
- * `python -m pip install` (any `python`, `python3`, `python3.12`), `uv add`
- * and `uv pip install`. Two refusals, both denies (mantahostels#103), in the
- * order they run.
+ * `python -m pip install` (any `python`, `python3`, `python3.12`), `uv add`,
+ * `uv pip install`, and the tool runners that fetch a package to run it:
+ * `uvx` and `uv tool run`, `uv tool install`, `uv run --with`, and
+ * `pipx install`, `pipx run` and `pipx inject` (#5239). Two refusals, both
+ * denies (mantahostels#103), in the order they run.
  *
  *   1. THE EXECUTION WINDOW. An install naming a package the repo does not
  *      already declare must carry `--only-binary :all:` (uv: `--no-build`, or
- *      `--only-binary :all:` on `uv pip install`). pip's own "Secure installs" guidance sets the flag
+ *      `--only-binary :all:` on `uv pip install`; pipx:
+ *      `--pip-args='--only-binary :all:'`, which pipx hands to `pip install`
+ *      or `uv pip install` on either backend, pipx 1.18.16). pip's own "Secure installs" guidance sets the flag
  *      (docs/practice/dependency-and-release-management.md). This runs FIRST
  *      because it is local and certain.
  *
@@ -37,7 +41,7 @@
  *
  * LIMITS
  *  - Its lib/guard-cores.json row runs it only on a call one of its `if`
- *    clauses admits: `if: Bash(*pip*)`, `if: Bash(*uv *)`.
+ *    clauses admits: `if: Bash(*pip*)`, `if: Bash(*uv *)`, `if: Bash(*uvx*)`.
  *  - Only a PyPI requirement is vetted. A local path, a wheel or sdist file,
  *    a VCS or other URL and a `name @ url` direct reference cannot be asked of
  *    PyPI, so they are DENIED as unvettable — `pip install -e .` included.
@@ -46,11 +50,19 @@
  *  - Options are read by their whole spelling. pip's parser (optparse) also
  *    takes an unambiguous abbreviation: `--only-bin :all:` reads as no
  *    `--only-binary`, and refuses; `--req file` reads `file` as a spec.
- *    `PIP_ONLY_BINARY`, `UV_NO_BUILD` and a
- *    pip.conf are not read either.
+ *    pipx's argparse takes them too. `PIP_ONLY_BINARY`, `UV_NO_BUILD`,
+ *    `PIPX_DEFAULT_BACKEND` and a pip.conf are not read either.
+ *  - uv's options are its measured 0.13.8 `--help`, pipx's its 1.18.16. A
+ *    tool runner's options end at the command it runs: `uvx ruff --with x`
+ *    hands `--with x` to ruff, and nothing after the command is read.
+ *  - `uvx python`, `uvx python3.12` and `uvx python@3.12` fetch an
+ *    interpreter, not a package, and are untouched.
+ *  - A file of requirements a command names — `--with-requirements`, pipx
+ *    inject's `-r` — is not read, as `pip install -r` is not; nor is a
+ *    script's inline metadata, which `uv run script.py` installs.
+ *    `pipx run script.py` is DENIED as unvettable.
  *  - A wrapper hides the install: `sudo`, `env`, `xargs`, a script. Only a
- *    command's own first word is read. `pipx`, `uv tool install`, `uv run
- *    --with` and `uvx` are not read.
+ *    command's own first word is read.
  *  - Only the named packages are vetted, never what they depend on.
  *  - A PyPI call the host cannot start (`curl` missing) reads as an
  *    unreachable registry, so it DENIES, and is logged.
@@ -83,9 +95,10 @@ const { literal, scanFlags } = require("./shell-words.js");
  *   & import("./package-vetting.js").VettingPorts
  *   & Pick<import("./core-contract.js").CoreContext, "tree">} PipInstallContext
  * @typedef {import("./package-vetting.js").RegistryVerdict} RegistryVerdict
- * @typedef {{ specs: string[], shut: boolean, tool: string }} Install
- *   the specs an install names, whether its build window is shut, and the
- *   flag that shuts it, as the refusal names it
+ * @typedef {{ specs: string[], local: string[], shut: boolean, tool: string }} Install
+ *   the specs an install names, those it installs from a local tree
+ *   (editable), whether its build window is shut, and the flag that shuts it,
+ *   as the refusal names it
  */
 
 /* ----------------------------------------------------------------------- */
@@ -488,6 +501,32 @@ const UV_ADD_ARGV = [
 ].join(" ");
 const UV_PIP_ARGV = `${UV_ADD_ARGV} ${UV_PIP_ONLY}`;
 
+/* uv's options that take a value on its tool runners (uv 0.13.8, measured
+ * from each one's `--help`): the tail they share, then each one's own. */
+const UV_TOOL_SHARED = `--index --default-index -i --index-url --extra-index-url -f
+--find-links --index-strategy --keyring-provider -P --upgrade-package
+--upgrade-group --resolution --prerelease --prerelease-package --fork-strategy
+--exclude-newer --exclude-newer-package --no-sources-package
+--reinstall-package --link-mode -C --config-setting --config-settings-package
+--no-build-isolation-package --no-build-package --no-binary-package
+--cache-dir --refresh-package -p --python --color --allow-insecure-host
+--directory --project --config-file --python-platform`;
+const UV_TOOL_RUN_ARGV = `${UV_TOOL_SHARED} --from -w --with --with-editable
+--with-requirements -c --constraints -b --build-constraints --overrides
+--env-file --torch-backend`;
+const UV_RUN_ARGV = `${UV_TOOL_SHARED} --extra --no-extra --group --no-group
+--only-group --no-editable-package --env-file -w --with --with-editable
+--with-requirements --package`;
+const UV_TOOL_INSTALL_ARGV = `${UV_TOOL_SHARED} -w --with --with-requirements
+--with-editable --with-executables-from -c --constraints --overrides
+--excludes -b --build-constraints --torch-backend`;
+
+/* pipx's options that take a value, across `install`, `run` and `inject`
+ * (pipx 1.18.16). */
+const PIPX_ARGV = `--include-resources-from --upgrade-strategy --suffix
+--python --fetch-python --preinstall --app --lock --index-url --pip-args
+--cooldown --backend --output --python-args --with --spec -r`;
+
 /** @typedef {{ name: string, value: string }} Opt */
 
 /**
@@ -495,17 +534,23 @@ const UV_PIP_ARGV = `${UV_ADD_ARGV} ${UV_PIP_ONLY}`;
  * through scanFlags.
  * @param {string[]} words
  * @param {string} spec the value-taking options, as scanFlags reads them
+ * @param {number} [stopAfter] the positional word the reading ends on: a tool
+ *   runner's command, whose own options follow it
  */
-function parseArgv(words, spec) {
+function parseArgv(words, spec, stopAfter = Number.POSITIVE_INFINITY) {
 	/** @type {Opt[]} */
 	const opts = [];
 	/** @type {string[]} */
 	const args = [];
-	scanFlags(spec, words, (kind, name, value) => {
-		if (kind === "arg") args.push(value);
-		else opts.push({ name, value });
+	scanFlags(spec.replace(/\s+/g, " "), words, (kind, name, value) => {
+		if (kind === "arg") return args.push(value) < stopAfter;
+		opts.push({ name, value });
+		return true;
 	});
-	return { opts, args };
+	const has = (/** @type {string} */ n) => opts.some((o) => o.name === n);
+	const all = (/** @type {string} */ n) =>
+		opts.filter((o) => o.name === n).map((o) => o.value);
+	return { opts, args, has, all, help: has("--help") || has("-h") };
 }
 
 /**
@@ -528,56 +573,256 @@ function isBinaryOnly(opts) {
 
 /**
  * The specs a pip argv's `install` names, or null where it is no install.
- * `-e` names a spec of its own.
+ * `-e` names a local tree of its own.
  * @param {string[]} words the words after `pip`
  * @returns {Install | null}
  */
 function parsePip(words) {
-	const { opts, args } = parseArgv(words, PIP_ARGV);
-	if (args[0] !== "install") return null;
-	if (opts.some((o) => o.name === "--help" || o.name === "-h")) return null;
+	const { opts, args, all, help } = parseArgv(words, PIP_ARGV);
+	if (args[0] !== "install" || help) return null;
 	return {
-		specs: [...args.slice(1), ...editables(opts)],
+		specs: args.slice(1),
+		local: [...all("--editable"), ...all("-e")],
 		shut: isBinaryOnly(opts),
 		tool: "--only-binary :all:",
 	};
 }
 
 /**
- * @param {Opt[]} opts
- * @returns {string[]}
- */
-const editables = (opts) =>
-	opts
-		.filter((o) => o.name === "--editable" || o.name === "-e")
-		.map((o) => o.value);
-
-/**
- * The specs a uv argv's `add` or `pip install` names, or null where it is
- * neither.
+ * The specs a uv argv's `add`, `pip install`, `run`, `tool run` or
+ * `tool install` names, or null where it is none of them.
  * @param {string[]} words the words after `uv`
  * @returns {Install | null}
  */
 function parseUv(words) {
-	const { args: sub } = parseArgv(words, UV_ADD_ARGV);
-	const add = sub[0] === "add";
-	const { opts, args } = parseArgv(words, add ? UV_ADD_ARGV : UV_PIP_ARGV);
-	const has = (/** @type {string} */ name) => opts.some((o) => o.name === name);
-	if (has("--help") || has("-h")) return null;
-	const noBuild = has("--no-build");
-	if (add)
-		return {
-			specs: args.slice(1),
-			shut: noBuild && !has("--no-binary"),
-			tool: "--no-build",
-		};
-	if (args[0] === "pip" && args[1] === "install")
-		return {
-			specs: [...args.slice(2), ...editables(opts)],
-			shut: noBuild || isBinaryOnly(opts),
-			tool: "--no-build",
-		};
+	const [sub, verb] = parseArgv(words, UV_ADD_ARGV).args;
+	if (sub === "add") {
+		const { args, has, help } = parseArgv(words, UV_ADD_ARGV);
+		return help ? null : uvInstall(args.slice(1), [], has);
+	}
+	if (sub === "pip" && verb === "install") {
+		const { opts, args, has, all, help } = parseArgv(words, UV_PIP_ARGV);
+		if (help) return null;
+		const install = uvInstall(
+			args.slice(2),
+			[...all("--editable"), ...all("-e")],
+			has,
+		);
+		return { ...install, shut: has("--no-build") || isBinaryOnly(opts) };
+	}
+	if (sub === "run") return uvRun(words);
+	if (sub === "tool" && verb === "run") return uvToolRun(words, 3);
+	if (sub === "tool" && verb === "install") return uvToolInstall(words);
 	return null;
+}
+
+/**
+ * A uv install's verdict on its window: `--no-build`, not reopened by
+ * `--no-binary`.
+ * @param {string[]} specs
+ * @param {string[]} local
+ * @param {(name: string) => boolean} has
+ * @returns {Install}
+ */
+const uvInstall = (specs, local, has) => ({
+	specs,
+	local,
+	shut: has("--no-build") && !has("--no-binary"),
+	tool: "--no-build",
+});
+
+/**
+ * The packages uv's `--with`-style options name: each value split on its
+ * commas, as uv splits it — not inside `[extras]`, nor before a version
+ * clause, so `x>=1,<2` stays one (measured, uv 0.13.8).
+ * @param {(name: string) => string[]} all
+ * @param {string} name
+ * @returns {string[]}
+ */
+const withSpecs = (all, name) => all(name).flatMap(splitWith);
+
+/**
+ * @param {string} value
+ * @returns {string[]}
+ */
+function splitWith(value) {
+	/** @type {string[]} */
+	const parts = [];
+	let depth = 0;
+	let from = 0;
+	for (let i = 0; i < value.length; i++) {
+		const c = value[i];
+		if (c === "[") depth++;
+		else if (c === "]") depth--;
+		else if (
+			c === "," &&
+			depth === 0 &&
+			/^\s*[A-Za-z0-9]/.test(value.slice(i + 1))
+		) {
+			parts.push(value.slice(from, i));
+			from = i + 1;
+		}
+	}
+	return [...parts, value.slice(from)];
+}
+
+/**
+ * `uv run`'s `--with` packages, read up to the command it runs.
+ * @param {string[]} words the words after `uv`
+ * @returns {Install | null}
+ */
+function uvRun(words) {
+	const { all, has, help } = parseArgv(words, UV_RUN_ARGV, 2);
+	if (help) return null;
+	return uvInstall(
+		[...withSpecs(all, "--with"), ...withSpecs(all, "-w")],
+		all("--with-editable"),
+		has,
+	);
+}
+
+/* The command `uv tool run` reads as an interpreter, not a package. */
+const UV_PYTHON_RE = /^python(\d+(\.\d+)*)?(@.*)?$/;
+
+/**
+ * `uvx` or `uv tool run`'s packages: its `--from`, else the command it runs,
+ * and each `--with`.
+ * @param {string[]} words the words after `uvx`, or after `uv`
+ * @param {number} at the positional word naming the command
+ * @returns {Install | null}
+ */
+function uvToolRun(words, at) {
+	const { args, all, has, help } = parseArgv(words, UV_TOOL_RUN_ARGV, at);
+	const command = args[at - 1];
+	if (help || command === undefined) return null;
+	const from = all("--from").at(-1);
+	const target =
+		from ?? (UV_PYTHON_RE.test(command) ? undefined : atVersion(command));
+	return uvInstall(
+		[
+			...(target === undefined ? [] : [target]),
+			...withSpecs(all, "--with"),
+			...withSpecs(all, "-w"),
+		],
+		all("--with-editable"),
+		has,
+	);
+}
+
+/**
+ * `uv tool install`'s package, and each one its `--with` and
+ * `--with-executables-from` name. `-e` installs the package from a tree.
+ * @param {string[]} words the words after `uv`
+ * @returns {Install | null}
+ */
+function uvToolInstall(words) {
+	const { args, all, has, help } = parseArgv(words, UV_TOOL_INSTALL_ARGV);
+	const target = args[2];
+	if (help || target === undefined) return null;
+	const editable = has("-e") || has("--editable");
+	return uvInstall(
+		[
+			...(editable ? [] : [atVersion(target)]),
+			...withSpecs(all, "--with"),
+			...withSpecs(all, "-w"),
+			...withSpecs(all, "--with-executables-from"),
+		],
+		[...(editable ? [target] : []), ...all("--with-editable")],
+		has,
+	);
+}
+
+const AT_VERSION_RE =
+	/^([A-Za-z0-9][A-Za-z0-9._-]*(?:\[[^\]]*\])?)@([^\s:/@]+)$/;
+
+/**
+ * A uv tool's `name@version` as the requirement it stands for: `@latest` is
+ * the bare name. Any other spec comes back as written.
+ * @param {string} spec
+ */
+function atVersion(spec) {
+	const m = AT_VERSION_RE.exec(spec);
+	if (m === null) return spec;
+	const name = requiredGroup(m, 1, AT_VERSION_RE);
+	const version = requiredGroup(m, 2, AT_VERSION_RE);
+	return version === "latest" ? name : `${name}==${version}`;
+}
+
+/**
+ * The specs a pipx argv's `install`, `run` or `inject` names, or null where
+ * it is none of them.
+ * @param {string[]} words the words after `pipx`
+ * @param {PipInstallContext} ctx
+ * @returns {Install | null}
+ */
+function parsePipx(words, ctx) {
+	const sub = parseArgv(words, PIPX_ARGV, 1).args[0];
+	const read = parseArgv(
+		words,
+		PIPX_ARGV,
+		sub === "run" ? 2 : Number.POSITIVE_INFINITY,
+	);
+	if (read.help) return null;
+	/** @type {{ named: string[], local: boolean }} */
+	let target;
+	const editable = read.has("--editable");
+	if (sub === "install")
+		target = { named: read.args.slice(1), local: editable };
+	else if (sub === "inject")
+		target = { named: read.args.slice(2), local: editable };
+	else if (sub === "run") target = pipxRunTarget(read, editable);
+	else return null;
+	return {
+		specs: [
+			...(target.local ? [] : target.named),
+			...read.all("--preinstall"),
+			...read.all("--with"),
+		],
+		local: target.local ? target.named : [],
+		shut: pipArgsShut(read.all("--pip-args").at(-1), ctx),
+		tool: "--pip-args='--only-binary :all:'",
+	};
+}
+
+/**
+ * The package `pipx run` installs: its `--spec`, else the app it runs. A
+ * `.py` script it runs installs what the script's own metadata names, so it
+ * reads as local, for the guard to refuse as unvettable; a URL is refused as
+ * one by its spelling.
+ * @param {{ args: string[], all: (name: string) => string[] }} read
+ * @param {boolean} editable
+ * @returns {{ named: string[], local: boolean }}
+ */
+function pipxRunTarget({ args, all }, editable) {
+	const spec = all("--spec").at(-1);
+	const app = args[1];
+	if (spec !== undefined) return { named: [spec], local: editable };
+	if (app === undefined) return { named: [], local: false };
+	return { named: [app], local: editable || /\.py$/i.test(app) };
+}
+
+/**
+ * Whether a `--pip-args` value shuts the build window, read as pipx splits
+ * it, shell-style, into one pip argv.
+ * @param {string | undefined} value
+ * @param {PipInstallContext} ctx
+ */
+function pipArgsShut(value, ctx) {
+	if (value === undefined) return false;
+	const parsed = parseCommand(value);
+	/** @type {string[][]} */
+	const argvs = [];
+	walkCommands(
+		parsed,
+		(cmd) => argvs.push(cmd.words.map((w) => literal(w, parsed.spans).text)),
+		ctx,
+	);
+	const [argv] = argvs;
+	return (
+		argvs.length === 1 &&
+		argv !== undefined &&
+		isBinaryOnly(parseArgv(argv, PIP_ARGV).opts)
+	);
 }
 
 /**
@@ -632,9 +877,10 @@ function clusterEnd(w) {
 /**
  * What a command installs.
  * @param {string[]} words literal
+ * @param {PipInstallContext} ctx
  * @returns {Install | null}
  */
-function parseInstall(words) {
+function parseInstall(words, ctx) {
 	const [head = "", ...rest] = words;
 	const name = path.basename(head);
 	if (/^pip(\d+(\.\d+)*)?$/.test(name)) return parsePip(rest);
@@ -643,6 +889,8 @@ function parseInstall(words) {
 		return pip === null ? null : parsePip(pip);
 	}
 	if (name === "uv") return parseUv(rest);
+	if (name === "uvx") return uvToolRun(rest, 1);
+	if (name === "pipx") return parsePipx(rest, ctx);
 	return null;
 }
 
@@ -658,7 +906,7 @@ function parseInstall(words) {
  * @returns {{ deny: string } | null}
  */
 function judge(install, segment, declared, ctx) {
-	if (install.specs.length === 0) return null;
+	if (install.specs.length + install.local.length === 0) return null;
 	/** @type {string[]} */
 	const fresh = [];
 	/** @type {string[]} */
@@ -668,6 +916,7 @@ function judge(install, segment, declared, ctx) {
 		if (name === null) unvettable.push(spec);
 		else if (!declared().has(name) && !fresh.includes(name)) fresh.push(name);
 	}
+	unvettable.push(...install.local);
 	if (fresh.length + unvettable.length === 0) return null;
 
 	/* Check 1. It counts the unvettable specs too: a local path or a URL
@@ -717,7 +966,7 @@ function decide(command, ctx) {
 			if (verdict !== null) return;
 			/* Quoted spans put back: `"requests>=2"` is judged by its name. */
 			const words = cmd.words.map((w) => literal(w, parsed.spans).text);
-			const install = parseInstall(words);
+			const install = parseInstall(words, ctx);
 			if (install !== null)
 				verdict = judge(install, cmd.segment, declared, ctx);
 		},
