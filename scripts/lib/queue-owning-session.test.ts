@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ListedSessions } from "./agent-liveness.js";
-import { readOwningSession } from "./queue-owning-session.js";
+import { readOwningSessionState } from "./queue-owning-session.js";
 
 let tmp: string;
 let root: string;
@@ -68,13 +68,13 @@ const read = (
 	listed: () => ListedSessions,
 	worktrees: () => string[] | null = () => [tree],
 ) =>
-	readOwningSession(root, "wt-1", {
+	readOwningSessionState(root, "wt-1", {
 		worktrees,
 		listed,
 		say: (line) => said.push(line),
 	});
 
-describe("readOwningSession", () => {
+describe("readOwningSessionState", () => {
 	it("reads working where a listed, unended session's cwd lies in the queue ref's worktree", () => {
 		expect(read(() => listing({ s1: path.join(tree, "scripts") }))).toBe(
 			"working",
