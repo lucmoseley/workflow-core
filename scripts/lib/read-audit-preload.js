@@ -57,7 +57,11 @@ const {
 } = require("./read-audit-paths.js");
 const { GIT_READS, stepGitOptions } = require("./read-audit-git.js");
 const { buildVerdictOf, GUARD } = require("./read-audit-provenance.js");
-const { buildTraceArgv, realOf } = require("./read-audit-trace.js");
+const {
+	awaitCopied,
+	buildTraceArgv,
+	realOf,
+} = require("./read-audit-trace.js");
 const SELF = require("node:url").pathToFileURL(__filename).href;
 
 /* Loaded by `--import`, which sends the main script through the ESM loader;
@@ -961,6 +965,30 @@ function install() {
 				...route,
 			});
 		});
+	/**
+	 * Wait out the copying of a traced child's output, so that the spawner's
+	 * next write lands after it, as it would untraced (#5218).
+	 * @param {Route} route
+	 */
+	const awaitOutput = (route) =>
+		guard(() => {
+			if (route && "trace" in route)
+				awaitCopied(path.join(dir, route.trace), realStatSync);
+		});
+	/**
+	 * Hold an async child's exit until its output is copied out.
+	 * @param {Untyped} handle the child's process handle
+	 * @param {Route} route
+	 */
+	const awaitOutputOnExit = (handle, route) =>
+		guard(() => {
+			const { onexit } = handle;
+			if (!route || !("trace" in route) || typeof onexit !== "function") return;
+			handle.onexit = function (/** @type {Untyped[]} */ ...args) {
+				awaitOutput(route);
+				return onexit.apply(this, args);
+			};
+		});
 	const bindings = /** @type {Untyped} */ (process).binding;
 	const quiet = process.noDeprecation;
 	process.noDeprecation = true;
@@ -970,6 +998,7 @@ function install() {
 		sync.spawn = function (/** @type {Untyped[]} */ ...args) {
 			const spawned = buildTracedSpawn(args[0]);
 			const out = syncSpawn.apply(this, [spawned.opts, ...args.slice(1)]);
+			awaitOutput(spawned.route);
 			logChild(args[0], out?.pid, spawned);
 			return out;
 		};
@@ -994,6 +1023,7 @@ function install() {
 			logChild(asked, this.pid, spawned);
 			watchIfUnseen(asked, this.pid, spawned);
 			markOnKill(this, spawned.events);
+			awaitOutputOnExit(this, spawned.route);
 			return err;
 		};
 	} catch {

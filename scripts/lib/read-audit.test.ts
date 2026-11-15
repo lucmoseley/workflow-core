@@ -27,7 +27,7 @@ import { watched } from "./pass-store-testkit";
 
 const require = createRequire(import.meta.url);
 const { install, readAudits, remove } = require("./read-audit.js");
-const { findStrace } = require("./read-audit-trace.js");
+const { awaitCopied, findStrace } = require("./read-audit-trace.js");
 const { buildVerdictOf } = require("./read-audit-provenance.js");
 const { listingId } = require("./listing-id.js");
 const { lookup, record } = require("./pass-store.js");
@@ -103,17 +103,27 @@ const harnessEnv = () =>
 		Object.entries(process.env).filter(([name]) => HARNESS_VAR.test(name)),
 	);
 
+interface AuditOpts {
+	env?: Record<string, string>;
+	trace?: boolean;
+	settle?: boolean;
+}
+
 /**
  * Run `body` as the test file `file` in a process under the audit armed over
  * `root`; returns the audit's log dir. `trace: false` arms it as on a machine
  * with no tracer; `settle: false` leaves the environment unsettled, as no
  * setup ran.
  */
-function audited(
+const audited = (root: string, file: string, body: string, opts?: AuditOpts) =>
+	runAudited(root, file, body, opts).log;
+
+/** `audited`, with what the process wrote to its stdout. */
+function runAudited(
 	root: string,
 	file: string,
 	body: string,
-	{ env = {} as Record<string, string>, trace = true, settle = true } = {},
+	{ env = {}, trace = true, settle = true }: AuditOpts = {},
 ) {
 	const scope: NodeJS.ProcessEnv = { ...harnessEnv(), ...env };
 	delete scope.WFC_READ_AUDIT_OWNER;
@@ -134,7 +144,7 @@ function audited(
 	});
 	expect(r.stderr).toBe("");
 	expect(r.status).toBe(0);
-	return log as string;
+	return { log: log as string, stdout: r.stdout };
 }
 
 const T = "scripts/x.test.js";
@@ -465,6 +475,47 @@ const runsTool = (root: string, stub: string) =>
 
 const READS_SETTINGS = "#!/bin/sh\ncat .claude/settings.json\n";
 
+describe("waiting out a traced child's copied output (#5218)", () => {
+	const Absent = Object.assign(new Error("absent"), { code: "ENOENT" });
+	const Pipe = { isFile: () => false, isDirectory: () => false };
+	const clock = () => {
+		const c = {
+			t: 0,
+			now: () => c.t,
+			sleep: (ms: number) => {
+				c.t += ms;
+			},
+		};
+		return c;
+	};
+
+	it("returns as each output's pipe goes, and gives up at its ceiling on one that stays", () => {
+		const gone = clock();
+		awaitCopied(
+			"/t",
+			() => {
+				throw Absent;
+			},
+			gone,
+		);
+		expect(gone.t).toBe(0);
+		const draining = clock();
+		let left = 3;
+		awaitCopied(
+			"/t",
+			(abs: string) => {
+				if (abs === "/t.2" && left-- > 0) return Pipe;
+				throw Absent;
+			},
+			draining,
+		);
+		expect(draining.t).toBe(15);
+		const held = clock();
+		awaitCopied("/t", () => Pipe, held);
+		expect(held.t).toBe(2000);
+	});
+});
+
 describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 	const reads = (root: string, body: string) =>
 		readAudits(audited(root, T, body), root).get(T);
@@ -548,6 +599,26 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 			].join("\n"),
 		);
 		expect(audit).toHaveProperty("reads");
+	});
+
+	it("copies out a traced child's inherited output before its spawn returns, so the spawner's next write lands after it (#5218)", () => {
+		const root = checkout();
+		/* 20 rounds: before #5218 most runs lost the race in one. */
+		const body = [
+			'const cp = require("node:child_process");',
+			'const fs = require("node:fs");',
+			"for (let i = 0; i < 20; i++) {",
+			`	cp.spawnSync("sh", ["-c", \`echo child\${i}\`], { cwd: ${quoted(root)}, stdio: "inherit" });`,
+			'	fs.writeSync(1, "parent" + i + "\\n");',
+			"}",
+		].join("\n");
+		const { log, stdout } = runAudited(root, T, body);
+		expect(stdout).toBe(
+			Array.from({ length: 20 }, (_, i) => `child${i}\nparent${i}\n`).join(""),
+		);
+		expect(fs.readdirSync(log).filter((f) => /\.trace\.[12]$/.test(f))).toEqual(
+			[],
+		);
 	});
 
 	it("returns from a shell that left a detached process running, while it runs", () => {

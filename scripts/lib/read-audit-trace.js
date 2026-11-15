@@ -104,16 +104,18 @@ const INNER =
  * a named pipe a `cat` copies from, started before the tracer and so not
  * followed; the tracer itself gets /dev/null. No other child is started
  * first: the tracer waits on one of its own before it runs the program,
- * and a stray one ending answers that wait early. `$1` the CPU to pin to
- * or empty, `$2` the tracer, `$3` the trace, the rest the child's words. */
+ * and a stray one ending answers that wait early. Each `cat` removes its
+ * named pipe once it has copied the last byte, which `awaitCopied` waits
+ * on. `$1` the CPU to pin to or empty, `$2` the tracer, `$3` the trace, the
+ * rest the child's words. */
 const OUTER = [
 	"c=$1 s=$2 o=$3; shift 3; a= b=",
 	"if [ -p /dev/fd/1 ] || [ -S /dev/fd/1 ]; then a=$o.1; fi",
 	"if [ -p /dev/fd/2 ] || [ -S /dev/fd/2 ]; then b=$o.2; fi",
 	'[ -z "$a" ] || /usr/bin/mkfifo "$a" || exit 127',
 	'[ -z "$b" ] || /usr/bin/mkfifo "$b" || exit 127',
-	'if [ -n "$a" ]; then /bin/cat <"$a" 2>/dev/null & fi',
-	'if [ -n "$b" ]; then /bin/cat <"$b" 1>&2 & fi',
+	'if [ -n "$a" ]; then { /bin/cat <"$a" 2>/dev/null; /bin/rm -f "$a"; } & fi',
+	'if [ -n "$b" ]; then { /bin/cat <"$b" 1>&2; /bin/rm -f "$b"; } & fi',
 	'[ -z "$a" ] || exec >/dev/null',
 	'[ -z "$b" ] || exec 2>/dev/null',
 	`set -- "$s" ${FLAGS.join(" ")} -o "$o" -- ${SH} -c '${INNER}' sh "$a" "$b" "$@"`,
@@ -137,6 +139,32 @@ const buildTraceArgv = (strace, out, argv) => [
 	out,
 	...argv,
 ];
+
+/* How long a spawn's return waits for a traced child's output to be copied
+ * out: a guess, far above the scheduling delay of a `cat` on a loaded
+ * machine. Only a detached process still holding the output reaches it. */
+const COPY_MS = 2000;
+const COPY_STEP_MS = 5;
+
+/**
+ * Wait until the `cat`s of the child traced to `out` have copied all its
+ * output (#5218). With `-DD` the program is the spawn's own child, so the
+ * spawn returns on its exit while a `cat` may still hold its last line:
+ * a write the spawner makes next would land first, which untraced it never
+ * does.
+ * @param {string} out the trace `buildTraceArgv` was handed
+ * @param {(abs: string) => unknown} stat a stat no audit hook logs
+ * @param {Clock} [clock]
+ */
+function awaitCopied(out, stat, clock = REAL_CLOCK) {
+	const deadline = clock.now() + COPY_MS;
+	const pending = () =>
+		[`${out}.1`, `${out}.2`].some(
+			(abs) =>
+				pathKind(abs, /** @type {typeof fs.statSync} */ (stat)) !== "absent",
+		);
+	while (pending() && clock.now() < deadline) clock.sleep(COPY_STEP_MS);
+}
 
 /* How long the trial trace may take: a guess, far above the ~20 ms it takes. */
 const TRIAL_MS = 5000;
@@ -661,4 +689,10 @@ function escapeAt(s, at) {
 	return { byte: ESCAPES[c] ?? c.charCodeAt(0), length: 1 };
 }
 
-module.exports = { buildTraceArgv, buildTraceReader, findStrace, realOf };
+module.exports = {
+	awaitCopied,
+	buildTraceArgv,
+	buildTraceReader,
+	findStrace,
+	realOf,
+};
