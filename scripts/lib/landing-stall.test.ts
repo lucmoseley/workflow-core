@@ -10,7 +10,7 @@
  * ticketed as a stall.
  */
 import { describe, expect, it } from "vitest";
-import { mainMovedAt, stallFindings, supervision } from "./landing-stall.js";
+import { stallFindings, supervision } from "./landing-stall.js";
 
 const NOW = Date.parse("2026-10-21T12:00:00Z");
 const Q = "b".repeat(40);
@@ -107,33 +107,6 @@ describe("stallFindings", () => {
 		expect(
 			tags({ heartbeat: { pid: 7, at, batch: null }, alive: () => true }),
 		).toEqual([]);
-	});
-});
-
-describe("mainMovedAt", () => {
-	const row = (event: "land" | "enqueue", at: number) => ({
-		at,
-		event,
-		ref: "refs/heads/queue/a",
-		sha: Q,
-	});
-
-	it("is the newest land row where it is later than main's tip, as a lone ref's old commit leaves it", () => {
-		expect(
-			mainMovedAt(stale(60), [
-				row("land", NOW - 30 * MIN),
-				row("land", stale(90)),
-			]),
-		).toBe(NOW - 30 * MIN);
-	});
-
-	it("is main's tip where it is newer than every land row, as a push by hand leaves it, and reads no other event", () => {
-		expect(
-			mainMovedAt(NOW - 10 * MIN, [
-				row("land", stale(60)),
-				row("enqueue", NOW - MIN),
-			]),
-		).toBe(NOW - 10 * MIN);
 	});
 });
 

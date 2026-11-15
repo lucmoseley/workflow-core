@@ -29,6 +29,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { dropTicketFiler } from "./fix-ticket.js";
 import { SHORT_SHA } from "./git.js";
+import { redPathAtRest } from "./lander-testkit.js";
 import {
 	type Batch,
 	type Drop,
@@ -36,12 +37,11 @@ import {
 	type LanderEvent,
 	type Member,
 	type MergeResult,
-	type OwnerRead,
+	type OwningSessionRead,
 	type Pipeline,
 	type Placement,
 	type QueueAction,
 	type QueueLanderDeps,
-	redPathAtRest,
 	runQueueLander,
 	type Verdict,
 } from "./queue-lander.js";
@@ -181,8 +181,8 @@ interface Options {
 	findFault?: () => Error | undefined;
 	/** Throws in place of closing a fix ticket, while it returns an error. */
 	closeFault?: () => Error | undefined;
-	/** The owner read of a queue ref's name; stopped where absent. */
-	owner?: (name: string) => OwnerRead;
+	/** The owning-session read of a queue ref's name; stopped where absent. */
+	owningSession?: (name: string) => OwningSessionRead;
 	/** The shas `main` holds, beyond `main` itself. */
 	onMain?: readonly string[];
 	acquired?: boolean;
@@ -460,7 +460,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 				disk.landedAt.push({ name: m.name, at: o.now ?? NOW });
 		},
 		landings: () => disk.landedAt,
-		ownerOf: (name) => o.owner?.(name) ?? "stopped",
+		owningSessionOf: (name) => o.owningSession?.(name) ?? "stopped",
 		lock: { acquire: () => o.acquired ?? true, release: () => undefined },
 		beat: () => undefined,
 		wait: async () => undefined,
@@ -1533,7 +1533,7 @@ describe("a drop owed a decision (#4950)", () => {
 		});
 		const disk = freshDisk();
 
-		const first = await land(remote, disk, { owner: () => "working" });
+		const first = await land(remote, disk, { owningSession: () => "working" });
 
 		expect(first.end).toEqual(NO_QUEUE);
 		expect(disk.filed).toEqual([]);
@@ -1542,7 +1542,7 @@ describe("a drop owed a decision (#4950)", () => {
 			["open", null],
 		]);
 
-		const second = await land(remote, disk, { owner: () => "stopped" });
+		const second = await land(remote, disk, { owningSession: () => "stopped" });
 
 		expect(second.end).toEqual(NO_QUEUE);
 		expect(disk.filed).toEqual([
@@ -1612,7 +1612,7 @@ describe("a drop owed a decision (#4950)", () => {
 		]);
 	});
 
-	it("holds a drop behind a newer push of its queue ref, though its owner stopped, and settles it once that push lands", async () => {
+	it("holds a drop behind a newer push of its queue ref, though its owning session stopped, and settles it once that push lands", async () => {
 		const remote = remoteOf(
 			"m0",
 			{ a: { sha: "a2", pushedAt: 2, onMain: true } },
@@ -1692,7 +1692,7 @@ describe("a drop owed a decision (#4950)", () => {
 
 		const { end } = await land(remote, disk, {
 			onMain: ["a1"],
-			owner: () => "working",
+			owningSession: () => "working",
 		});
 
 		expect(end).toEqual(NO_QUEUE);

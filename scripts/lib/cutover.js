@@ -22,11 +22,11 @@
  * stays.
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
 const { gitReader, GIT_TIMEOUT_MS, SHORT_SHA } = require("./git.js");
 const { REMOTE, VERIFIED_BRANCH, VERIFIED_REF } = require("./landing-refs.js");
 const { scriptPath } = require("./script-path.js");
+const { realKey } = require("./deref.js");
 const { isUnder } = require("./is-under.js");
 const { worktreePaths } = require("./worktree-paths.js");
 
@@ -64,18 +64,9 @@ const buildCutCommand = (at = scriptPath) =>
  * @param {string[]} worktrees
  */
 function standsIn(cwd, root, worktrees) {
-	const real = realOr(cwd);
+	const real = realKey(cwd);
 	const inside = (/** @type {string} */ dir) => isUnder(real, [dir], path.sep);
-	return inside(realOr(root)) && !worktrees.some(inside);
-}
-
-/** @param {string} p */
-function realOr(p) {
-	try {
-		return fs.realpathSync(p);
-	} catch {
-		return path.resolve(p);
-	}
+	return inside(realKey(root)) && !worktrees.some(inside);
 }
 
 /**
@@ -84,9 +75,9 @@ function realOr(p) {
  * @param {(args: string[]) => string} git run in `root`
  */
 function linkedWorktrees(root, git) {
-	const home = realOr(root);
+	const home = realKey(root);
 	return worktreePaths(git)
-		.map(realOr)
+		.map(realKey)
 		.filter((d) => d !== home);
 }
 

@@ -75,7 +75,7 @@ def test_names_the_install_command_when_playwright_is_absent(capsys):
         == 3
     )
     err = capsys.readouterr().err
-    assert "python3 -m pip install playwright" in err
+    assert "python3 -m pip install --only-binary :all: playwright" in err
     assert "python3 -m playwright install chromium" in err
 
 

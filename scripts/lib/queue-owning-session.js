@@ -1,11 +1,11 @@
 /*
- * queue-owner.js — whether a queue ref's owning session is still working,
+ * queue-owning-session.js — whether a queue ref's owning session is still working,
  * for the queue lander, which files no fix ticket for a drop while it is
  * (#4950, spec #4947).
  *
  * A queue ref is named after its owning session's worktree
  * (lib/landing-refs.js), so the read finds that worktree among the host's
- * linked worktrees, takes its owner from lib/session-worktrees.js, the
+ * linked worktrees, takes the session in it from lib/session-worktrees.js, the
  * session whose cwd lies in it, and asks lib/agent-liveness.js whether that
  * session is listed and not terminal.
  *
@@ -25,8 +25,8 @@ const { readLinkedWorktrees } = require("./worktree-paths.js");
 const { writeFd } = require("./write-fd.js");
 
 /**
- * @typedef {import("./queue-lander.js").OwnerRead} OwnerRead
- * @typedef {object} OwnerDeps
+ * @typedef {import("./queue-lander.js").OwningSessionRead} OwningSessionRead
+ * @typedef {object} OwningSessionDeps
  * @property {() => string[]|null} worktrees the host's linked worktrees,
  *   null where git will not list them
  * @property {() => import("./agent-liveness.js").ListedSessions} listed the
@@ -37,9 +37,9 @@ const { writeFd } = require("./write-fd.js");
 /**
  * The lander runs as no session, so an empty listing reads as nothing live.
  * @param {string} root the canonical checkout
- * @returns {OwnerDeps}
+ * @returns {OwningSessionDeps}
  */
-const liveOwnerDeps = (root) => ({
+const liveOwningSessionDeps = (root) => ({
 	worktrees: () => readLinkedWorktrees(root),
 	listed: () => admissionSessionIds(),
 	say: (line) => writeFd(2, `${line}\n`),
@@ -49,10 +49,10 @@ const liveOwnerDeps = (root) => ({
  * Whether the owning session of `queue/<name>` is working.
  * @param {string} root the canonical checkout
  * @param {string} name after `queue/`
- * @param {OwnerDeps} [deps]
- * @returns {OwnerRead}
+ * @param {OwningSessionDeps} [deps]
+ * @returns {OwningSessionRead}
  */
-function readOwner(root, name, deps = liveOwnerDeps(root)) {
+function readOwningSession(root, name, deps = liveOwningSessionDeps(root)) {
 	const queued = queueBranch(name);
 	/** @param {string} why */
 	const unread = (why) => {
@@ -68,8 +68,9 @@ function readOwner(root, name, deps = liveOwnerDeps(root)) {
 		if (tree === undefined || !fs.existsSync(tree)) return "stopped";
 		const listed = deps.listed();
 		if (listed.why !== undefined) return unread(listed.why);
-		const owner = worktreeOwners([tree], listed).owners.get(tree);
-		return owner && isListedLive(owner.sessionId, listed.ids, listed.terminal)
+		const session = worktreeOwners([tree], listed).owners.get(tree);
+		return session &&
+			isListedLive(session.sessionId, listed.ids, listed.terminal)
 			? "working"
 			: "stopped";
 	} catch (err) {
@@ -77,4 +78,4 @@ function readOwner(root, name, deps = liveOwnerDeps(root)) {
 	}
 }
 
-module.exports = { readOwner };
+module.exports = { readOwningSession };

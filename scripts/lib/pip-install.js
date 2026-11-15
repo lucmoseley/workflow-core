@@ -246,31 +246,41 @@ function requirementLines(text) {
 		.filter((line) => line !== "" && !line.startsWith("-"));
 }
 
-const TARGET_TABLES = new Set([
-	"project.optional-dependencies",
-	"dependency-groups",
-]);
+/* Each a table's key path, JSON-spelt, so a quoted `.` stays inside its key. */
+const TARGET_TABLES = new Set(
+	[["project", "optional-dependencies"], ["dependency-groups"]].map((keys) =>
+		JSON.stringify(keys),
+	),
+);
+
+/** @param {string[]} keys */
+const isTarget = (keys) => TARGET_TABLES.has(JSON.stringify(keys));
 
 /**
  * The requirement strings of `pyproject.toml`'s three dependency tables. A
- * reader of just that much TOML: a table header, a `key = [` array, the
- * strings in it outside an inline table, and a multi-line string, read past
- * whole. What it misreads it drops, so the package is vetted as new.
+ * reader of just that much TOML: a table header, a `key = [` array, a
+ * `key = {` inline table read as the table `<header>.key` (#5238), the
+ * strings in their arrays outside any further inline table, which is PEP 735's
+ * `{ include-group = … }` and names no package, and a multi-line string, read
+ * past whole. What it misreads it drops, so the package is vetted as new.
  * @param {string} text
  * @returns {string[]}
  */
 function pyprojectSpecs(text) {
 	/** @type {string[]} */
 	const specs = [];
-	let table = "";
+	/** @type {string[] | null} */
+	let table = [];
 	for (let at = 0; at < text.length; ) {
 		const end = lineEnd(text, at);
 		const line = text.slice(at, end);
-		const kv = KEY_ARRAY_RE.exec(line);
+		const kv = KEY_VALUE_RE.exec(line);
 		if (/^\s*\[/.test(line)) table = tableOf(line);
 		else if (kv !== null) {
-			const read = arrayStrings(text, at + kv[0].length - 1);
-			if (isDependencyArray(table, requiredGroup(kv, 1, KEY_ARRAY_RE)))
+			const open = at + kv[0].length - 1;
+			const read = valueStrings(text, open);
+			const key = requiredGroup(kv, 1, KEY_VALUE_RE);
+			if (isDependencyValue(table, key, text[open]))
 				specs.push(...read.strings);
 			at = lineEnd(text, read.end) + 1;
 			continue;
@@ -344,7 +354,7 @@ function multiLineClose(text, open) {
 const MULTI_LINE_OPENER = /"""|'''/;
 /* Anchored: a comment token may hold an opener. */
 const OPENER_TOKEN_RE = new RegExp(`^(?:${MULTI_LINE_OPENER.source})$`);
-const KEY_ARRAY_RE = /^\s*("[^"]*"|'[^']*'|[A-Za-z0-9_-]+)\s*=\s*\[/;
+const KEY_VALUE_RE = /^\s*("[^"]*"|'[^']*'|[A-Za-z0-9_-]+)\s*=\s*[[{]/;
 /* `[^\n]`, not `.`, so a CRLF line's `\r` ends a comment (#5241). */
 const HEADER_RE = /^\s*\[([^[\]]+)\]\s*(#[^\n]*)?$/;
 /*
@@ -363,19 +373,53 @@ const lineEnd = (text, at) => {
 };
 
 /**
- * A header line's table, "" for an array of tables, `[[…]]`.
+ * A header line's table path: null for an array of tables, `[[…]]`, or a
+ * header it cannot parse, which no key under it escapes into a target table.
  * @param {string} line
+ * @returns {string[] | null}
  */
-const tableOf = (line) =>
-	(HEADER_RE.exec(line)?.[1] ?? "").replace(/["'\s]/g, "");
+const tableOf = (line) => {
+	const name = HEADER_RE.exec(line)?.[1];
+	return name === undefined ? null : keyPath(name);
+};
+
+/* One key of a dotted key: basic with no escape, literal, or bare. */
+const KEY_PART_RE = /\s*(?:"([^"\\]*)"|'([^']*)'|([A-Za-z0-9_-]+))\s*(\.|$)/y;
 
 /**
- * @param {string} table
- * @param {string} key as written, quoted or bare
+ * A dotted key's keys, unquoted: null where it is not one this reader spells.
+ * @param {string} spelt
+ * @returns {string[] | null}
  */
-const isDependencyArray = (table, key) =>
-	(table === "project" && key.replace(/["']/g, "") === "dependencies") ||
-	TARGET_TABLES.has(table);
+function keyPath(spelt) {
+	/** @type {string[]} */
+	const keys = [];
+	const part = new RegExp(KEY_PART_RE.source, "y");
+	for (;;) {
+		const m = part.exec(spelt);
+		if (m === null) return null;
+		keys.push(m[1] ?? m[2] ?? requiredGroup(m, 3, KEY_PART_RE));
+		if (m[4] !== ".") return keys;
+	}
+}
+
+/**
+ * Whether `key = [` under `table` is `[project]`'s `dependencies` or an array
+ * of a target table, or `key = {` is an inline target table.
+ * @param {string[] | null} table [] above the first header
+ * @param {string} key as written, quoted or bare
+ * @param {string | undefined} opener `[` or `{`
+ */
+const isDependencyValue = (table, key, opener) => {
+	const name = keyPath(key);
+	if (table === null || name === null) return false;
+	if (opener === "[")
+		return (
+			(JSON.stringify(table) === '["project"]' && name[0] === "dependencies") ||
+			isTarget(table)
+		);
+	return isTarget([...table, ...name]);
+};
 
 /**
  * A string token's text: group 1 for a basic string, 2 for a literal one.
@@ -387,28 +431,58 @@ const stringOf = (m) =>
 		: requiredGroup(m, 2, TOKEN_RE);
 
 /**
- * The strings of the TOML array opening at `open`, outside any inline table,
- * and where it closes.
+ * What each bracket and brace adds to the array and inline-table depths.
+ * @type {Record<string, [number, number]>}
+ */
+const NESTING = { "[": [1, 0], "]": [-1, 0], "{": [0, 1], "}": [0, -1] };
+
+/**
+ * The strings directly in the arrays of the TOML array or inline table opening
+ * at `open`, and where it closes. A value that never closes, or an inline table
+ * a header line breaks into, reads as no strings, ending where the header
+ * starts.
  * @param {string} text
- * @param {number} open the index of its `[`
+ * @param {number} open the index of its `[` or `{`
  * @returns {{ strings: string[], end: number }}
  */
-function arrayStrings(text, open) {
+function valueStrings(text, open) {
 	/** @type {string[]} */
 	const strings = [];
-	let depth = 0;
+	const stringBraces = text[open] === "{" ? 1 : 0;
+	let brackets = 0;
 	let braces = 0;
 	for (const { match: m, multiLine } of tokensFrom(text, open)) {
-		const t = m[0];
-		if (t === "[") depth++;
-		else if (t === "]" && --depth === 0) return { strings, end: m.index };
-		else if (t === "{") braces++;
-		else if (t === "}") braces--;
-		else if (t !== "]" && !multiLine && !t.startsWith("#") && braces === 0)
+		if (stringBraces === 1 && opensHeader(text, m, brackets))
+			return { strings: [], end: text.lastIndexOf("\n", m.index) };
+		const step = NESTING[m[0]];
+		if (step !== undefined) {
+			brackets += step[0];
+			braces += step[1];
+		} else if (
+			!multiLine &&
+			!m[0].startsWith("#") &&
+			brackets === 1 &&
+			braces === stringBraces
+		)
 			strings.push(stringOf(m));
+		if ((stringBraces === 1 ? braces : brackets) === 0)
+			return { strings, end: m.index };
 	}
-	return { strings, end: text.length };
+	return { strings: [], end: text.length };
 }
+
+/**
+ * Whether token `m`, met outside any array, is a `[` opening a later line: a
+ * table header.
+ * @param {string} text
+ * @param {RegExpExecArray} m
+ * @param {number} brackets
+ */
+const opensHeader = (text, m, brackets) => {
+	if (m[0] !== "[" || brackets !== 0) return false;
+	const nl = text.lastIndexOf("\n", m.index - 1);
+	return nl >= 0 && text.slice(nl + 1, m.index).trim() === "";
+};
 
 /* ----------------------------------------------------------------------- */
 /* PyPI.                                                                    */
