@@ -289,9 +289,13 @@ function pyprojectSpecs(text) {
  * @param {number} end the line's end
  */
 function pastLine(text, at, end) {
-	for (const { m, close } of tokensFrom(text, at)) {
-		if (m.index >= end) break;
-		if (close > end) return lineEnd(text, close) + 1;
+	/* A line opening no string skips the token search, which runs on to the
+	   file's next token and so is quadratic over token-free lines. */
+	const line = text.slice(at, end);
+	if (!line.includes('"""') && !line.includes("'''")) return end + 1;
+	for (const token of tokensFrom(text, at)) {
+		if (token.match.index >= end) break;
+		if (token.end > end) return lineEnd(text, token.end) + 1;
 	}
 	return end + 1;
 }
@@ -301,26 +305,27 @@ function pastLine(text, at, end) {
  * string's closing delimiter for its opener.
  * @param {string} text
  * @param {number} at
- * @returns {Generator<{ m: RegExpExecArray, close: number }>}
+ * @returns {Generator<{ match: RegExpExecArray, end: number, multiLine: boolean }>}
  */
 function* tokensFrom(text, at) {
 	const tokens = new RegExp(TOKEN_RE.source, "g");
 	tokens.lastIndex = at;
 	for (let m = tokens.exec(text); m !== null; m = tokens.exec(text)) {
 		const multiLine = m[0] === '"""' || m[0] === "'''";
-		const close = multiLine
+		const end = multiLine
 			? multiLineClose(text, m.index)
 			: m.index + m[0].length;
-		tokens.lastIndex = close;
-		yield { m, close };
+		tokens.lastIndex = end;
+		yield { match: m, end, multiLine };
 	}
 }
 
 /**
  * The index past the closing delimiter of the multi-line string opening at
  * `open`, the last of up to five quotes (TOML 1.0.0), or the file's end where
- * none closes it. A scan, not a regex: a lazy match to the delimiter is
- * quadratic on a run of quotes.
+ * none closes it, so an unclosed string's packages are vetted as new. A scan,
+ * not a regex: a lazy match to the delimiter is quadratic on a run of quotes
+ * (#5241).
  * @param {string} text
  * @param {number} open
  */
@@ -339,7 +344,7 @@ function multiLineClose(text, open) {
 }
 
 const KEY_ARRAY_RE = /^\s*("[^"]*"|'[^']*'|[A-Za-z0-9_-]+)\s*=\s*\[/;
-/* `[^\n]`, not `.`, so a CRLF line's `\r` ends a comment. */
+/* `[^\n]`, not `.`, so a CRLF line's `\r` ends a comment (#5241). */
 const HEADER_RE = /^\s*\[([^[\]]+)\]\s*(#[^\n]*)?$/;
 /*
  * A comment, a multi-line string's opener, a basic or literal one-line string,
@@ -392,13 +397,13 @@ function arrayStrings(text, open) {
 	const strings = [];
 	let depth = 0;
 	let braces = 0;
-	for (const { m } of tokensFrom(text, open)) {
+	for (const { match: m, multiLine } of tokensFrom(text, open)) {
 		const t = m[0];
 		if (t === "[") depth++;
 		else if (t === "]" && --depth === 0) return { strings, end: m.index };
 		else if (t === "{") braces++;
 		else if (t === "}") braces--;
-		else if (t !== "]" && !/^(#|"""|''')/.test(t) && braces === 0)
+		else if (t !== "]" && !multiLine && !t.startsWith("#") && braces === 0)
 			strings.push(stringOf(m));
 	}
 	return { strings, end: text.length };

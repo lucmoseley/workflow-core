@@ -492,24 +492,30 @@ describe("the declaring files", () => {
 			"a header, after an array the string's ] would have closed",
 			`[tool.x]\nnotes = ["""\n]\n[dependency-groups]\ndev = ["evil"]\n"""]\n`,
 		],
-	])("reads nothing in a multi-line string as declared: %s", (_, text) => {
-		expect(denial("pip install evil", {}, withPyproject(text))).toMatch(
-			/does not yet declare — evil/,
-		);
-	});
+	])(
+		"reads nothing in a multi-line string as declared: %s (#5241)",
+		(_, text) => {
+			expect(denial("pip install evil", {}, withPyproject(text))).toMatch(
+				/does not yet declare — evil/,
+			);
+		},
+	);
 
-	it("reads on past a multi-line string to the next key", () => {
+	it("reads on past a multi-line string to the next key (#5241)", () => {
 		const text = `[project]\ndescription = """\nx\n"""\ndependencies = ["httpx"]\n`;
 		expect(
 			allows("pip install httpx", { created: "404" }, withPyproject(text)),
 		).toBe(true);
 	});
 
-	it("reads a CRLF header with a trailing comment as its table", () => {
+	it("reads a CRLF header with a trailing comment as its table, and only its own packages (#5241)", () => {
 		const text = `[project] # main\r\ndependencies = [\r\n  "httpx",\r\n]\r\n`;
 		expect(
 			allows("pip install httpx", { created: "404" }, withPyproject(text)),
 		).toBe(true);
+		expect(denial("pip install evil", {}, withPyproject(text))).toMatch(
+			/does not yet declare — evil/,
+		);
 	});
 
 	it("lists the declaring files once a command, and only for an install naming a package", () => {
