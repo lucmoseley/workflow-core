@@ -43,17 +43,13 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { now } = require("./lib/clock.js");
 const { commitSha } = require("./lib/commit-sha.js");
-const {
-	SHORT_SHA,
-	execGit,
-	gitCommonDir,
-	gitOrNull,
-	spawnGitSync,
-} = require("./lib/git.js");
+const { SHORT_SHA, execGit, gitCommonDir, gitOrNull } = require("./lib/git.js");
 const { readJsonl } = require("./lib/jsonl.js");
+const { isAncestor } = require("./lib/lander-git.js");
 const { landerLog, parseStartedCode } = require("./lib/lander-start.js");
 const { findPin, isCoreHost, readJsonSafe } = require("./lib/plugin-state.js");
 const { queueLogFile, readQueueRows } = require("./lib/queue-log.js");
@@ -73,6 +69,7 @@ const {
 	windowOf,
 } = require("./lib/time-to-land.js");
 const { DAY_MS } = require("./lib/retained-jsonl.js");
+const { readConfig } = require("./lib/workflow-core-config.js");
 const { REAPED_RECORD } = require("./lib/worktree-reaper.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -105,20 +102,6 @@ const CLI = {
 
 /** @param {number} t */
 const iso = (t) => new Date(t).toISOString();
-
-/**
- * @param {string} cwd
- * @param {string} ancestor
- * @param {string} rev
- */
-function isAncestor(cwd, ancestor, rev) {
-	const r = spawnGitSync(["merge-base", "--is-ancestor", ancestor, rev], {
-		cwd,
-		stdio: "ignore",
-	});
-	if (r.status === 0 || r.status === 1) return r.status === 0;
-	throw new Error(`git merge-base failed on ${rev} in ${cwd}`);
-}
 
 /**
  * @typedef {{carries: boolean} | {unread: string}} Carry
@@ -230,12 +213,20 @@ function readCarriedSince(root, carry) {
 	return { from: from ?? fs.statSync(file).mtimeMs, pin };
 }
 
-/** @param {string} root */
-function hasLanding(root) {
-	const cfg = /** @type {{modules?: unknown}|null} */ (
-		readJsonSafe(path.join(root, ".claude", "workflow-core.json"))
-	);
-	return Array.isArray(cfg?.modules) && cfg.modules.includes("landing");
+/**
+ * Why `root` is left out of the pool for its config, else null: its
+ * `landing` module off, or a config that does not read.
+ * @param {string} root
+ * @returns {string|null}
+ */
+function landingOff(root) {
+	try {
+		return readConfig({ root, quiet: true }).modules.includes("landing")
+			? null
+			: "landing is off";
+	} catch (e) {
+		return `its config does not read: ${caught(e).message}`;
+	}
 }
 
 /**
@@ -253,7 +244,8 @@ function readPool(home, carry, sha) {
 	const left = [];
 	for (const root of readAdopterCheckouts(home).included) {
 		const name = path.basename(root);
-		if (!hasLanding(root)) left.push({ name, why: "landing is off" });
+		const off = landingOff(root);
+		if (off !== null) left.push({ name, why: off });
 		else if (isCoreHost(root))
 			members.push({
 				name,

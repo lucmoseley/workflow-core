@@ -196,6 +196,10 @@ beforeAll(() => {
 	);
 
 	checkout("quiet", []);
+	write(
+		path.join(checkout("broken", ["landing"]), ".claude", "workflow-core.json"),
+		"{",
+	);
 
 	const reap = (t: number) => JSON.stringify({ at: iso(t), path: "x" });
 	write(
@@ -236,13 +240,17 @@ it("pools every landing checkout running the sha, an adopter only from when its 
 	expect(
 		d.repos.find((r: { name: string }) => r.name === "lodge").unnamedFrom,
 	).toBe(iso(Math.floor(CARRIED / S) * S));
-	expect(d.left).toEqual([
+	expect(d.left.filter((l: { name: string }) => l.name !== "broken")).toEqual([
 		{
 			name: "behind",
 			why: "its pin v2.2.0 does not carry the sha, and no lander run names code carrying it",
 		},
 		{ name: "quiet", why: "landing is off" },
 	]);
+	expect(d.left).toContainEqual({
+		name: "broken",
+		why: expect.stringMatching(/^its config does not read: .*does not parse/),
+	});
 });
 
 it("judges each checkout's stays against its own target and pools the counts", () => {

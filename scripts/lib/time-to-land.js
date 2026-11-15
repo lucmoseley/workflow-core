@@ -34,8 +34,11 @@
  */
 
 const { readTail } = require("./file-read.js");
+const { LANDER_BATCH_PREFIX, QUEUE_PREFIX } = require("./landing-refs.js");
+const { RED_PATH_KINDS } = require("./queue-lander.js");
 const { BASELINE_MS, percentile } = require("./queue-log.js");
 const { DAY_MS } = require("./retained-jsonl.js");
+const { escapeRe } = require("./regex-group.js");
 
 /* The stays' p90 over the green suite's p50 (#4951's design comment). */
 const TARGET_MULTIPLE = 3;
@@ -162,7 +165,7 @@ function greenSuiteSpans(events) {
 	for (const e of events) {
 		const sha = e.rest.trim();
 		if (e.kind === "test-sha") tested.set(sha, e.t);
-		if (RED_KINDS.has(e.kind)) tested.delete(sha.split(" ")[0] ?? "");
+		if (RED_PATH_KINDS.has(e.kind)) tested.delete(sha.split(" ")[0] ?? "");
 		const from = tested.get(sha);
 		if (e.kind !== "fast-forward-main" || from === undefined) continue;
 		spans.push({ sha, from, at: e.t });
@@ -223,7 +226,7 @@ function windowOf(flags, at) {
  * @param {number} to
  * @returns {boolean}
  */
-const spanIn = (w, from, to) => from >= w.since && to < w.until;
+const isSpanIn = (w, from, to) => from >= w.since && to < w.until;
 
 /**
  * The fewest of `n` stays over the time that a queue on target, each stay
@@ -270,10 +273,10 @@ const secs = (ms) => (ms === null ? "-" : String(Math.round(ms / 1000)));
  */
 function judgeTimeToLand(stays, greens, w) {
 	const times = stays
-		.filter((s) => spanIn(w, s.take, s.at))
+		.filter((s) => isSpanIn(w, s.take, s.at))
 		.map((s) => s.at - s.take);
 	const runs = greens
-		.filter((g) => spanIn(w, g.from, g.at))
+		.filter((g) => isSpanIn(w, g.from, g.at))
 		.map((g) => g.at - g.from);
 	const greenP50Ms = percentile(runs, 50);
 	const targetMs = greenP50Ms === null ? null : TARGET_MULTIPLE * greenP50Ms;
@@ -294,28 +297,14 @@ function judgeTimeToLand(stays, greens, w) {
 	};
 }
 
-const RED_KINDS = new Set([
-	"rerun-files",
-	"check-base",
-	"file-base-red",
-	"hold",
-	"start-isolation",
-	"start-serial",
-	"merge-iso",
-	"serial-land-step",
-	"isolate-members",
-	"confirm-members",
-	"rebatch-passers",
-	"land-step",
-	"record-step",
-]);
+const REF_RE = new RegExp(`${escapeRe(QUEUE_PREFIX)}([^\\s,@]+)`, "g");
+const SLOT_RE = new RegExp(`${escapeRe(LANDER_BATCH_PREFIX)}(\\d+)`);
 
 /** @param {string} rest */
-const refsIn = (rest) =>
-	[...rest.matchAll(/queue\/([^\s,@]+)/g)].map((m) => String(m[1]));
+const refsIn = (rest) => [...rest.matchAll(REF_RE)].map((m) => String(m[1]));
 
 /** @param {string} rest */
-const slotIn = (rest) => Number(/lander\/batch-(\d+)/.exec(rest)?.[1] ?? 0);
+const slotIn = (rest) => Number(SLOT_RE.exec(rest)?.[1] ?? 0);
 
 /**
  * @param {ReplayedBatch} b
@@ -491,7 +480,7 @@ function replayBatches(events) {
 	for (const e of events) {
 		const handler = HANDLERS[e.kind];
 		if (handler) replay[handler](e);
-		else if (RED_KINDS.has(e.kind)) replay.red(e);
+		else if (RED_PATH_KINDS.has(e.kind)) replay.red(e);
 	}
 	return replay.batches;
 }
@@ -507,7 +496,7 @@ module.exports = {
 	readLogSince,
 	judgeTimeToLand,
 	secs,
-	spanIn,
+	isSpanIn,
 	windowOf,
 	replayBatches,
 };

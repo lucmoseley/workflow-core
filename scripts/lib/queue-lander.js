@@ -306,10 +306,6 @@ class TransientFault extends Error {}
  *   which no run takes, a batch whose next step waits on another's;
  *   `relaunch`, the `main` a fresh run on the new code takes the queue on from
  * @typedef {Extract<QueueAction, {kind: "exit"}>} QueueEnd
- * @typedef {"rerun-files" | "check-base" | "file-base-red" | "hold"
- *   | "start-isolation" | "start-serial" | "merge-iso" | "serial-land-step" | "isolate-members"
- *   | "confirm-members" | "rebatch-passers" | "land-step" | "record-step"}
- *   RedKind the red path's steps
  * @typedef {{readonly sha: string, readonly files: readonly string[],
  *   readonly pass: number}} TestRun a run at `sha` on `files`, the whole
  *   suite where none, on its `pass`: 1 the first, 2 the rerun or confirm,
@@ -839,8 +835,10 @@ function baseAction(s, main, { base, baseOnly, noRun }, land) {
 	/* GitHub's `main: suite passed` ruleset, with no bypass, takes no sha
 	 * whose `Suite passed` failed, so where `main` takes only a sha a CI run
 	 * passed the batch is held, never ledgered green, and the first batch
-	 * carrying the fix lands the rest (#4458 story 26, #4854). The local
-	 * tester lands past `main`'s reds, its base-red ticket their one trace. */
+	 * carrying the fix lands the rest (#4458 story 26, #4854). Residual:
+	 * held, the queue waits on that fix, a new ref or a move of `main`. The
+	 * local tester lands past `main`'s reds, its base-red ticket their one
+	 * trace. */
 	return s.requiresRun
 		? {
 				kind: "hold",
@@ -1059,7 +1057,6 @@ function isolationAction(b, s, blame) {
 			? [{ ...i, k }]
 			: [],
 	);
-	/** @param {Isolated} i @param {number} pass */
 	const at = isolatedVerdict(s, blame.files);
 	const asked = isolationAsk(s, blame, isolated);
 	if (asked) return asked;
@@ -3062,6 +3059,28 @@ async function runQueueLander(deps) {
 	}
 }
 
+/** The action kinds of a red batch's search, from its first rerun to its
+ * last serial step: lib/time-to-land.js times a batch's red path by them. */
+const RED_KINDS = /** @type {const} */ ([
+	"rerun-files",
+	"check-base",
+	"file-base-red",
+	"hold",
+	"start-isolation",
+	"start-serial",
+	"merge-iso",
+	"serial-land-step",
+	"isolate-members",
+	"confirm-members",
+	"rebatch-passers",
+	"land-step",
+	"record-step",
+]);
+/** @typedef {typeof RED_KINDS[number]} RedKind */
+
+/** @type {ReadonlySet<string>} */
+const RED_PATH_KINDS = new Set(RED_KINDS);
+
 /**
  * @param {QueueAction} a
  * @returns {string}
@@ -3122,6 +3141,7 @@ function buildQueueActionLine(a) {
 }
 
 module.exports = {
+	RED_PATH_KINDS,
 	TransientFault,
 	batchesOf,
 	buildQueueActionLine,
