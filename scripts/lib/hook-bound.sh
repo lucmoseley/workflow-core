@@ -26,13 +26,17 @@
 # runs its command unbounded and `node` and `bash` stay the binaries, so a
 # hook's `command -v node` still answers for the binary.
 #
+# A hook that sets hb_pausable=1 before sourcing this file runs each command
+# --pausable: the command may stop the clock over a stretch the limit does not
+# own, through run-budgeted.js's takeHookPause (#5213).
+#
 # DEFEAT:    WFC_HOOK_LIMIT_S raises or lowers the limit for the run that sets
 #            it; HUSKY=0 skips the hooks altogether.
 hb_runner="$(cd "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}" 2>/dev/null && pwd)/scripts/lib/run-budgeted.js" || hb_runner=""
 if [ -n "$hb_runner" ] && [ -r "$hb_runner" ] && command -v node >/dev/null 2>&1; then
   hb_hook=${0##*/}
   exec 8>&2
-  hook_bound() { command node "$hb_runner" --hook "$hb_hook" "$@"; }
+  hook_bound() { command node "$hb_runner" --hook "$hb_hook" ${hb_pausable:+--pausable} "$@"; }
   node() { hook_bound node "$@"; }
   bash() { hook_bound bash "$@"; }
 else

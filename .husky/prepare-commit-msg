@@ -63,7 +63,8 @@ if [ ! -r "$dispatcher" ]; then
 fi
 
 # Every step under the one wall-clock limit (#4187) but the inline
-# .husky/pre-commit, which the dispatcher runs off its clock (#5213).
+# .husky/pre-commit, which the dispatcher runs with the clock paused (#5213).
+hb_pausable=1
 # shellcheck source=scripts/lib/hook-bound.sh
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"
 node "$dispatcher" --husky "$here" "$@"
