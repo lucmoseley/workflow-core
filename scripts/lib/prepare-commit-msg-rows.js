@@ -45,6 +45,7 @@ const path = require("node:path");
 const { routeAbort, routeName, scanRefusal } = require("./commit-route.js");
 const { readText } = require("./file-read.js");
 const { precommitStamp } = require("./precommit-stamp.js");
+const { outsideHookLimit } = require("./run-budgeted.js");
 
 const HOOK = "prepare-commit-msg";
 
@@ -220,17 +221,21 @@ function reviewHold(ctx) {
  * The whole of .husky/pre-commit, under `sh -e` as its own process and its
  * status passed through rather than collapsed to 1 — both for the reasons
  * `.husky/pre-merge-commit` records; git itself discards the code and
- * reports 1. WFC_INDEX_FROZEN: git read this commit's index before this hook
- * ran, so a gate staging a fix here would not reach the commit (#4514).
+ * reports 1. Off the hook limit's clock: pre-commit bounds its own checkers
+ * and runs its slow gates under ceilings of their own, past that limit
+ * (#4187, #5213). WFC_INDEX_FROZEN: git read this commit's index before this
+ * hook ran, so a gate staging a fix here would not reach the commit (#4514).
  * @param {PrepareCommitMsgContext} ctx
  * @returns {RowResult}
  */
 function inlinePreCommit(ctx) {
-	const r = spawnSync("sh", ["-e", path.join(ctx.husky, "pre-commit")], {
-		cwd: ctx.cwd,
-		env: { ...ctx.env, WFC_INDEX_FROZEN: "1" },
-		stdio: "inherit",
-	});
+	const r = outsideHookLimit(ctx.env, (env) =>
+		spawnSync("sh", ["-e", path.join(ctx.husky, "pre-commit")], {
+			cwd: ctx.cwd,
+			env: { ...env, WFC_INDEX_FROZEN: "1" },
+			stdio: "inherit",
+		}),
+	);
 	/* pre-commit stamps its own success, and leaving that stamp would let
 	 * this run stand down a later `--no-verify` commit. */
 	if (ctx.gitDir) fs.rmSync(precommitStamp(ctx.gitDir), { force: true });

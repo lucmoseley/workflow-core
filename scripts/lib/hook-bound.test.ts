@@ -23,12 +23,11 @@ const ROOT = path.join(__dirname, "..", "..");
 const SOURCE_LINE =
 	// biome-ignore lint/suspicious/noTemplateCurlyInString: shell text
 	'[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"';
-/* pre-merge-commit, prepare-commit-msg and pre-applypatch start no bounded
- * checker of their own: the first two run pre-commit, which sources the
- * library, and prepare-commit-msg's dispatcher runs it inline, past any
- * checker limit. */
+/* pre-merge-commit and pre-applypatch start no bounded checker of their
+ * own: they run pre-commit, which sources the library. */
 const HOOKS = [
 	".husky/pre-commit",
+	".husky/prepare-commit-msg",
 	".husky/commit-msg",
 	".husky/post-commit",
 	".husky/post-merge",
@@ -146,6 +145,102 @@ describe("a checker that never returns (#4187)", () => {
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain(
 			`post-commit: ${dispatcher} ran past its 1 s limit`,
+		);
+	});
+});
+
+describe("prepare-commit-msg's steps (#5213)", () => {
+	/* A step module whose export never returns, waiting on a child as a hung
+	 * step does: the limit's TERM ends it, where a spin would wait out the
+	 * 10 s KILL grace. */
+	const hung = (name: string) =>
+		`module.exports = { ${name}: () => require("node:child_process").spawnSync("sleep", ["30"]) };\n`;
+
+	/**
+	 * Run the real hook as a commit's prepare-commit-msg, from a hooks
+	 * directory holding a copy of it and a `pre-commit` running `preCommit`,
+	 * against a plugin root of the real libraries and dispatcher, each script
+	 * in `steps` replaced.
+	 */
+	function prepareCommitMsg(
+		preCommit: string,
+		message: string,
+		steps: Record<string, string>,
+	) {
+		const plugin = path.join(dir, "plugin");
+		const scripts = path.join(plugin, "scripts");
+		fs.mkdirSync(scripts, { recursive: true });
+		fs.symlinkSync(
+			path.join(ROOT, "scripts", "lib"),
+			path.join(scripts, "lib"),
+		);
+		for (const name of [
+			"prepare-commit-msg-dispatch.js",
+			"check-commit-message-closes.js",
+			"review-tier-trailer.js",
+		])
+			if (steps[name] === undefined)
+				fs.symlinkSync(
+					path.join(ROOT, "scripts", name),
+					path.join(scripts, name),
+				);
+			else fs.writeFileSync(path.join(scripts, name), steps[name]);
+		const husky = path.join(dir, "husky");
+		fs.mkdirSync(husky);
+		fs.copyFileSync(
+			path.join(ROOT, ".husky", "prepare-commit-msg"),
+			path.join(husky, "prepare-commit-msg"),
+		);
+		fs.writeFileSync(path.join(husky, "pre-commit"), preCommit);
+		const repo = path.join(dir, "repo");
+		const hooks = path.join(dir, "no-hooks");
+		fs.mkdirSync(hooks);
+		initGitRepo(repo, hooks);
+		const file = path.join(dir, "COMMIT_EDITMSG");
+		fs.writeFileSync(file, message);
+		const env: NodeJS.ProcessEnv = boundEnv(plugin);
+		delete env.CLAUDE_CODE_SESSION_ID;
+		delete env.CLAUDE_PROJECT_DIR;
+		// spawn-kept: a timeout — the library's limit kills a real process group
+		return spawnSync("sh", [path.join(husky, "prepare-commit-msg"), file], {
+			cwd: repo,
+			encoding: "utf8",
+			env,
+			timeout: HOOK_RUN_TIMEOUT_MS,
+		});
+	}
+
+	const dispatcher = () =>
+		path.join(dir, "plugin", "scripts", "prepare-commit-msg-dispatch.js");
+
+	it("refuses a commit whose closing-keyword scan hangs, killed at the limit", () => {
+		const r = prepareCommitMsg("exit 0\n", "subject\n", {
+			"check-commit-message-closes.js": hung("main"),
+		});
+		expect(r.status).not.toBe(0);
+		expect(r.stderr).toContain(
+			`prepare-commit-msg: ${dispatcher()} ran past its 1 s limit`,
+		);
+	});
+
+	it("does not time the inline pre-commit, and times the trailer after it", () => {
+		/* Past the 1 s limit, so only a stopped clock lets it finish. */
+		const slow = "sleep 2\necho PRE-COMMIT-DONE\n";
+		const passed = prepareCommitMsg(slow, "subject\n", {});
+		expect(passed.stderr).not.toContain("ran past its");
+		expect(passed.stdout).toContain("PRE-COMMIT-DONE");
+		expect(passed.status).toBe(0);
+
+		fs.rmSync(dir, { recursive: true, force: true });
+		fs.mkdirSync(dir);
+		/* A Review-Tier: line arms the trailer, which then never returns. */
+		const r = prepareCommitMsg(slow, "subject\n\nReview-Tier: light\n", {
+			"review-tier-trailer.js": hung("PROGRAM"),
+		});
+		expect(r.stdout).toContain("PRE-COMMIT-DONE");
+		expect(r.status).not.toBe(0);
+		expect(r.stderr).toContain(
+			`prepare-commit-msg: ${dispatcher()} ran past its 1 s limit`,
 		);
 	});
 });

@@ -25,12 +25,15 @@
 #            scripts/lib/prepare-commit-msg-rows.js, run in one Node process
 #            by scripts/prepare-commit-msg-dispatch.js (#5207), which reads
 #            the route through scripts/lib/commit-route.js; a missing
-#            dispatcher refuses every commit.
+#            dispatcher refuses every commit. Every step but the inline
+#            pre-commit runs under scripts/lib/hook-bound.sh's wall-clock
+#            limit, and one that hangs refuses the commit (#5213).
 # JUSTIFIED: fail-safe — this is the one hook that can refuse a commit and
 #            that `--no-verify` leaves running, and a gate skipped here runs next
 #            only in CI, after the push.
 # DEFEAT:    `HUSKY=0`, and `core.hooksPath` pointed off `.husky/_`, which
-#            turn off every hook in the repo at once.
+#            turn off every hook in the repo at once; WFC_HOOK_LIMIT_S moves
+#            the limit.
 #            `scripts/guard-dispatch.js` (its `guard-commit-form` core) denies `--no-verify`
 #            on `git commit`, `git merge`, `git rebase`, `git cherry-pick` and
 #            `git revert` in an agent session unless wrapped;
@@ -59,7 +62,8 @@ if [ ! -r "$dispatcher" ]; then
   exit 1
 fi
 
-# Unbounded, so no scripts/lib/hook-bound.sh: the dispatcher runs the whole
-# of .husky/pre-commit inline, which bounds its own checkers and runs its slow
-# gates under ceilings of their own, past any checker limit (#4187).
+# Every step under the one wall-clock limit (#4187) but the inline
+# .husky/pre-commit, which the dispatcher runs off its clock (#5213).
+# shellcheck source=scripts/lib/hook-bound.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"
 node "$dispatcher" --husky "$here" "$@"

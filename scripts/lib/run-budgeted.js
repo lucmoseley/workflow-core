@@ -29,7 +29,8 @@
  * the budget is HOOK_LIMIT_MS, or WFC_HOOK_LIMIT_S seconds where that is set,
  * stdin is inherited, as pre-push hands its refs on it, and a budget kill
  * writes one line naming the hook, the checker and the limit to
- * HOOK_STDERR_FD, else to stderr.
+ * HOOK_STDERR_FD, else to stderr. Its command may stop the clock over a
+ * stretch the limit does not own, through outsideHookLimit (#5213).
  * Exit: GNU `timeout`'s codes — the command's own status where it ended inside
  * the budget, and the same signal where a signal ended it; past the budget,
  * 124 where the TERM ended it and 137 where the KILL had to. 125 where this
@@ -53,21 +54,27 @@ const APPARATUS_PREFIX = "run-budgeted: ";
 const FORWARDED = /** @type {const} */ (["SIGTERM", "SIGINT", "SIGHUP"]);
 
 /* A hook checker's limit: HOOK_LIMIT_FACTOR times the slowest bounded hook
- * run measured, HOOK_SLOWEST_MS. Measured 2026-11-04 on this repo's 8-core
- * ARM64 WSL2 machine at load average 12-15 (#4187 close comment): post-commit's
- * report-new-shared-faults.js took 24.8 s. Pre-commit's one bounded run of
- * its Node gates, scripts/precommit-dispatch.js, took 21.8-22.8 s on a
- * scripts/*.js commit at load 2 (2026-11-14, #5171): a lighter load than
- * the 24.8 s figure's, so at load 12-15 it may be the slowest run, and
- * HOOK_SLOWEST_MS is a guess until it is re-measured there. The factor is UNTRACED:
- * headroom for a slower adopter machine or a heavier load. Re-measure where a
- * hook gains a run of whole-repo checkers. */
-const HOOK_SLOWEST_MS = 25_000;
+ * run measured, HOOK_SLOWEST_MS. Measured 2026-11-15 on this repo's 8-core
+ * ARM64 WSL2 machine at load average 12-15 (#5213): post-commit's one bounded
+ * run, scripts/post-commit-dispatch.js under scripts/lib/hook-bound.sh, took
+ * 26.6-31.9 s over four runs on 99ac72de0, a commit to the hook dispatchers.
+ * Pre-commit's scripts/precommit-dispatch.js took 21.8-22.8 s at load 2
+ * (#5171), unmeasured at load 12-15. The factor is UNTRACED: headroom for a
+ * slower adopter machine or a heavier load. Re-measure where a hook gains a
+ * run of whole-repo checkers. */
+const HOOK_SLOWEST_MS = 32_000;
 const HOOK_LIMIT_FACTOR = 6;
 const HOOK_LIMIT_MS = HOOK_SLOWEST_MS * HOOK_LIMIT_FACTOR;
 const SCRIPT = /\.(?:[cm]?js|sh)$/;
 /* The hook's own stderr, kept by scripts/lib/hook-bound.sh. */
 const HOOK_STDERR_FD = 8;
+/* --hook's command gets a pipe back to this runner at HOLD_FD, named in its
+ * environment by HOLD_FD_ENV: a PAUSE byte stops the limit's clock and a
+ * RESUME byte restarts it on what was left (#5213). */
+const HOLD_FD = 3;
+const HOLD_FD_ENV = "WFC_HOOK_HOLD_FD";
+const PAUSE = "p";
+const RESUME = "r";
 
 function hookStderr() {
 	try {
@@ -181,11 +188,14 @@ async function main(argv) {
 
 	const child = spawn(command, args, {
 		detached: true,
-		stdio: [hook ? "inherit" : "ignore", "inherit", "inherit"],
+		stdio: hook
+			? ["inherit", "inherit", "inherit", "pipe"]
+			: ["ignore", "inherit", "inherit"],
+		...(hook && { env: { ...process.env, [HOLD_FD_ENV]: String(HOLD_FD) } }),
 	});
 	pgid = child.pid;
 
-	const budget = setTimeout(() => {
+	const expire = () => {
 		sent = "TERM";
 		if (hook)
 			writeFd(
@@ -197,7 +207,27 @@ async function main(argv) {
 			sent = "KILL";
 			signalGroup("SIGKILL");
 		}, killAfterMs);
-	}, budgetMs);
+	};
+	/** @type {NodeJS.Timeout | undefined} */
+	let budget = setTimeout(expire, budgetMs);
+	let left = budgetMs;
+	let since = Date.now();
+	const hold = child.stdio[HOLD_FD];
+	hold?.on("error", () => {
+		/* The pipe closing under a write is the command's end, read by "exit". */
+	});
+	hold?.on("data", (/** @type {Buffer} */ bytes) => {
+		for (const byte of bytes.toString("latin1")) {
+			if (byte === PAUSE && budget && !sent) {
+				clearTimeout(budget);
+				budget = undefined;
+				left -= Date.now() - since;
+			} else if (byte === RESUME && !budget && !sent) {
+				since = Date.now();
+				budget = setTimeout(expire, Math.max(left, 0));
+			}
+		}
+	});
 
 	return new Promise((resolve) => {
 		child.on("error", (e) => {
@@ -217,6 +247,36 @@ async function main(argv) {
 			else resolve(code ?? 1);
 		});
 	});
+}
+
+/**
+ * `run`'s result, its time off the clock of the --hook run this process is
+ * the command of, where it is one: `run` gets the environment its children
+ * take, with no hold pipe named, so none of them reaches the clock. Where the
+ * pipe will not take the byte, `run` runs on the clock.
+ * @template T
+ * @param {NodeJS.ProcessEnv} env
+ * @param {(env: NodeJS.ProcessEnv) => T} run
+ * @returns {T}
+ */
+function outsideHookLimit(env, run) {
+	const { [HOLD_FD_ENV]: named, ...rest } = env;
+	const fd = named ? Number(named) : Number.NaN;
+	/** @param {string} byte */
+	const send = (byte) => {
+		try {
+			fs.writeSync(fd, byte);
+		} catch {
+			/* Not under a --hook run's pipe: no clock to stop. */
+		}
+	};
+	if (!Number.isInteger(fd)) return run(rest);
+	send(PAUSE);
+	try {
+		return run(rest);
+	} finally {
+		send(RESUME);
+	}
 }
 
 /**
@@ -246,4 +306,5 @@ module.exports = {
 	APPARATUS_EXIT,
 	APPARATUS_PREFIX,
 	isRunnerFailure,
+	outsideHookLimit,
 };
