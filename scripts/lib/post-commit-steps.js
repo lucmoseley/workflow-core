@@ -22,15 +22,15 @@
 const path = require("node:path");
 const { gitCommonDir, spawnGitSync } = require("./git.js");
 const { scrubbedGitEnv } = require("./hook-entry.js");
-const { readTopLevel } = require("./git-tree.js");
+const { readTopLevel: readTreeTopLevel } = require("./git-tree.js");
 const { inProgramScope } = require("./program-scope.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /** @typedef {{ cwd: string, env: NodeJS.ProcessEnv }} HookIo */
 /**
  * A post-commit run's io: THIS commit, or "" where HEAD does not resolve,
- * and the tree the hook runs in, or null where git names none, each read at
- * first ask and kept for the run's other rows.
+ * read at first ask and kept for the run's other rows; and the tree the hook
+ * runs in, or null where git names none, which lib/git-tree.js keeps.
  * @typedef {HookIo & {
  *   readCommitted: () => string,
  *   readTopLevel: () => string | null,
@@ -117,9 +117,8 @@ const buildRunIo = (io) => ({
 	readCommitted: once(
 		() => git(io, ["rev-parse", "--verify", "-q", "HEAD"]) ?? "",
 	),
-	readTopLevel: once(() =>
-		inProgramScope(scrubbed(io), () => readTopLevel(io.cwd)),
-	),
+	readTopLevel: () =>
+		inProgramScope(scrubbed(io), () => readTreeTopLevel(io.cwd)),
 });
 
 /** The programs the steps run, under scripts/: one spelling, which
