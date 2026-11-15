@@ -1,9 +1,10 @@
 // @vitest-environment node
 /*
- * lib/release-lag.js (#4448): the pin labels, the lag reading and its
- * verdict. In-process over a fake git port and literal readings; the
+ * lib/release-lag.js (#4448, #5228): the pin labels, the lag reading and its
+ * verdict, and the installs judged against their pins. In-process over a fake git port and literal readings; the
  * program's test crosses real git. Loosened, a lag past the threshold reads
- * WITHIN, or an unread lag gives no way out.
+ * WITHIN, an unread lag gives no way out, or an install off its pin reads
+ * level.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -55,16 +56,16 @@ describe("formatAdopters", () => {
 });
 
 describe("judgeInstalls", () => {
-	it("names only the adopters whose install is behind, pin beside install", () => {
+	it("names only the adopters whose install is off the pin, pin beside install", () => {
 		expect(
 			judgeInstalls([
 				adopter("level", "v2.3.0", "2.3.0"),
 				adopter("old", "v2.3.0", "2.1.0"),
 			]),
 		).toEqual({
-			finding: "INSTALL-BEHIND-PIN",
+			finding: "INSTALL-OFF-PIN",
 			line: expect.stringMatching(
-				/^Install behind pin, pin \/ installed: old v2\.3\.0 \/ v2\.1\.0\. /,
+				/^Install not at pin, pin \/ installed: old v2\.3\.0 \/ v2\.1\.0\. /,
 			),
 		});
 	});
@@ -73,12 +74,13 @@ describe("judgeInstalls", () => {
 		["v2.0.10", "2.0.9", true],
 		["v2.3.0", null, true],
 		["v2.3.0", "2.3.0", false],
-		["v2.3.0", "2.4.0", false],
-		["2.3.0-rc.1", "2.2.9", true],
+		["v2.3.0", "2.4.0", true],
+		["v2.3.0", "d75011fca2a3", true],
+		["2.3.0-rc.1", "2.3.0-rc.1", false],
 		["untagged ref main", "2.0.1", false],
 		["no pin", null, false],
-	])("pin %s, installed %s: behind %s", (pin, installed, behind) => {
-		expect(judgeInstalls([adopter("a", pin, installed)]) !== null).toBe(behind);
+	])("pin %s, installed %s: off the pin %s", (pin, installed, off) => {
+		expect(judgeInstalls([adopter("a", pin, installed)]) !== null).toBe(off);
 	});
 });
 

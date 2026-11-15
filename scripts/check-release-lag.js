@@ -15,12 +15,12 @@
  * ADOPTERS are lib/refill-repos.js's: each main checkout under `$HOME` with a
  * `.claude/workflow-core.json`, its pin read from `.claude/settings.json` and
  * its installed version from the config dir's `installed_plugins.json`, as
- * lib/plugin-state.js reads both. An install behind its pin is a finding.
+ * lib/plugin-state.js reads both. An install not at its pin is a finding.
  *
  * WFC_REPO_ROOT, HOME and CLAUDE_CONFIG_DIR inject the repo, the adopters'
  * home and the install registry.
  *
- * IMPLICIT:  at every session start, reads the newest release tag's source, `origin/main`, each adopter checkout's pin and its installed version, and where the source is more than LAG_WARN_DAYS behind `origin/main`, or unreadable, or an adopter's install is behind its pin, prints that with the pins and installs it concerns; prints nothing otherwise.
+ * IMPLICIT:  at every session start, reads the newest release tag's source, `origin/main`, each adopter checkout's pin and its installed version, and where the source is more than LAG_WARN_DAYS behind `origin/main`, or unreadable, or an adopter's install is not at its pin, prints that with the pins and installs it concerns; prints nothing otherwise.
  * JUSTIFIED: convenience — it only reports; nothing else says that no fix has reached an adopter.
  * DEFEAT:    none at the hook; cutting a release clears the lag, installing the pinned release clears an adopter's.
  * TREE:      host — reads the main checkout's tags and `origin/main`, the adopters' main checkouts and the config dir's install registry
@@ -37,6 +37,7 @@ const {
 	findPin,
 	isCoreHost,
 	readJsonSafe,
+	readRunningPlugin,
 	resolveConfigDir,
 } = require("./lib/plugin-state.js");
 const { homeDir, readAdopterCheckouts } = require("./lib/refill-repos.js");
@@ -74,6 +75,18 @@ const gitPort = (root, renderedFrom) => ({
 	time: (rev) => Number(git(root, ["log", "-1", "--format=%ct", rev])),
 });
 
+/**
+ * The row's recorded version, else the manifest its `installPath` holds.
+ * @param {string} pluginsDir @param {string|null} marketplace @param {string} root
+ * @returns {string|null}
+ */
+function installedVersion(pluginsDir, marketplace, root) {
+	const row = findInstallRecord(pluginsDir, PLUGIN, marketplace, root);
+	return (
+		row?.version ?? readRunningPlugin(row?.installPath ?? null)?.version ?? null
+	);
+}
+
 /** @param {string} home @returns {import("./lib/release-lag").Adopter[]} */
 function readAdopters(home) {
 	const pluginsDir = path.join(resolveConfigDir(), "plugins");
@@ -88,9 +101,7 @@ function readAdopters(home) {
 			return {
 				name: path.basename(root),
 				pin: labelPin(pin),
-				installed:
-					findInstallRecord(pluginsDir, PLUGIN, pin.marketplace, root)
-						?.version ?? null,
+				installed: installedVersion(pluginsDir, pin.marketplace, root),
 			};
 		});
 }
@@ -126,13 +137,15 @@ runCheck({
 			threshold: LAG_WARN_DAYS,
 			adopters,
 		};
-		/** @type {{finding: string, line: string}[]} */
+		/** @type {import("./lib/release-lag").Finding[]} */
 		const findings = [];
 		if (lag.finding !== null)
 			findings.push({ finding: lag.finding, line: lag.line });
 		const installs = judgeInstalls(adopters);
 		if (installs !== null) findings.push(installs);
 		if (findings.length === 0) return { okLine: lag.line, data };
+		/* The lag line carries every adopter's pin and install, level ones too. */
+		if (lag.finding === null) ctx.say(lag.line);
 		for (const { finding, line } of findings) {
 			/* lib/check.js records a finding but prints none of it. */
 			ctx.warn(finding, line);

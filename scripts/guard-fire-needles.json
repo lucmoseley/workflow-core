@@ -1654,9 +1654,9 @@
 					"text": "'s lag is unread: "
 				},
 				{
-					"id": "install-behind-pin",
+					"id": "install-off-pin",
 					"kind": "notice",
-					"text": "Install behind pin, pin / installed: "
+					"text": "Install not at pin, pin / installed: "
 				}
 			]
 		},

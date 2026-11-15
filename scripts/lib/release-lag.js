@@ -1,10 +1,9 @@
 /*
- * release-lag.js — the core of check-release-lag.js (#4448). Git is reached
+ * release-lag.js — the core of check-release-lag.js (#4448, #5228). Git is reached
  * only through the port the program hands in; nothing here reads a file.
  */
 
-const { compareVersions } = require("./compare-versions.js");
-const { isTagRef } = require("./plugin-state.js");
+const { isTagRef, sameRelease } = require("./plugin-state.js");
 const { scriptPath } = require("./script-path.js");
 
 /**
@@ -39,20 +38,16 @@ function labelPin({ ref, source }) {
  *   records none.
  */
 
-/** @param {string} v `v1.2.3`, `1.2.3` or either with a suffix */
-const versionParts = (v) =>
-	(v.replace(/^v/, "").split(/[-+]/)[0] ?? "").split(".").map(Number);
-
 /**
  * A pin moves on a bump; the install is a separate act awaiting the
  * founder's yes (#5228), so the pin alone overstates what an adopter runs.
+ * Judged as lib/plugin-state.js's `installAtPin` judges it: anything but the
+ * pinned release, an install ahead of the pin or of no version's shape
+ * included, is off the pin.
  * @param {Adopter} adopter
  */
-function installBehindPin({ pin, installed }) {
-	if (!isTagRef(pin)) return false;
-	if (installed === null) return true;
-	return compareVersions(versionParts(installed), versionParts(pin)) < 0;
-}
+const isInstallOffPin = ({ pin, installed }) =>
+	isTagRef(pin) && !sameRelease(installed, pin);
 
 /** @param {string|null} installed */
 const labelInstalled = (installed) =>
@@ -73,14 +68,14 @@ function formatAdopters(adopters) {
 
 /**
  * @param {Adopter[]} adopters
- * @returns {{finding: string, line: string}|null}
+ * @returns {Finding|null}
  */
 function judgeInstalls(adopters) {
-	const behind = adopters.filter(installBehindPin);
-	if (behind.length === 0) return null;
+	const off = adopters.filter(isInstallOffPin);
+	if (off.length === 0) return null;
 	return {
-		finding: "INSTALL-BEHIND-PIN",
-		line: `Install behind pin, pin / installed: ${listAdopters(behind)}. The pinned release is not what runs there; each checkout's own session start names the commands that install it (${scriptPath("check-plugin-gap.js")}).`,
+		finding: "INSTALL-OFF-PIN",
+		line: `Install not at pin, pin / installed: ${listAdopters(off)}. The pinned release is not what runs there; each checkout's own session start names the commands that install it (${scriptPath("check-plugin-gap.js")}).`,
 	};
 }
 
@@ -96,6 +91,7 @@ function judgeInstalls(adopters) {
  *   | {kind: "source-absent", source: string}
  *   | {kind: "measured", source: string, commits: number, days: number}} Reading
  * @typedef {{state: "UNREAD"|"BEHIND"|"WITHIN", finding: string|null, line: string}} Verdict
+ * @typedef {{finding: string, line: string}} Finding
  */
 
 /**
