@@ -9,35 +9,42 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const { checkoutPeakMb, launchPeakMb, runnerPeakMb, tscDenial, tscLaunchBin } =
-	require("./tsc-slot.js") as {
-		checkoutPeakMb: (dir: string) => number;
-		launchPeakMb: (dir: string, launch?: { bin?: string }) => number;
-		runnerPeakMb: (
-			row: { pid: number | null; args: string },
-			readMajor?: (bin: string) => number | null,
-		) => number;
-		tscDenial: (
-			rows: { pid: number | null; args: string }[] | null,
-			mb: number | null,
-			climbMb?: number,
-			limbs?: {
-				windows?:
-					| { state: "fresh"; mb: number; ageS: number }
-					| { state: "absent" }
-					| { state: "stale"; why: string };
-				peakMb?: number;
-			},
-		) => {
-			limb: string;
-			pids?: (number | null)[];
-			memory?: { mb: number; rungMb: number; climbMb?: number };
-			mb?: number;
-			rungMb?: number;
-			climbMb?: number;
-		} | null;
-		tscLaunchBin: (words: string[]) => string | null;
-	};
+const {
+	checkoutPeakMb,
+	isCutTscRunner,
+	launchPeakMb,
+	runnerPeakMb,
+	tscDenial,
+	tscLaunchBin,
+} = require("./tsc-slot.js") as {
+	checkoutPeakMb: (dir: string) => number;
+	isCutTscRunner: (args: string) => boolean;
+	launchPeakMb: (dir: string, launch?: { bin?: string }) => number;
+	runnerPeakMb: (
+		row: { pid: number | null; args: string },
+		readMajor?: (bin: string) => number | null,
+	) => number;
+	tscDenial: (
+		rows: { pid: number | null; args: string }[] | null,
+		mb: number | null,
+		climbMb?: number,
+		limbs?: {
+			windows?:
+				| { state: "fresh"; mb: number; ageS: number }
+				| { state: "absent" }
+				| { state: "stale"; why: string };
+			peakMb?: number;
+		},
+	) => {
+		limb: string;
+		pids?: (number | null)[];
+		memory?: { mb: number; rungMb: number; climbMb?: number };
+		mb?: number;
+		rungMb?: number;
+		climbMb?: number;
+	} | null;
+	tscLaunchBin: (words: string[]) => string | null;
+};
 const { rungMb } = require("./suite-ladder.js") as {
 	rungMb: (peakMb: number) => number;
 };
@@ -140,6 +147,32 @@ describe("lib/tsc-slot.js", () => {
 			`timeout 300 ${native7}`,
 		);
 		expect(tscDenial(decoys, 9000)).toBeNull();
+	});
+
+	it("reads a command memwatch cut inside the native compiler's path as a runner, and no other (#5217)", () => {
+		/* Recorded in ~/memwatch.log, 14 Nov 2026: a 7.0.2 pass's native
+		 * compiler, its command cut at memwatch's column width. */
+		const store =
+			"/home/u/workflow-core/.claude/worktrees/.dep-stores/8a38214acca573b5/node_modules";
+		for (const cut of [
+			`${store}/@typescr`,
+			`${store}/@typescri`,
+			`${store}/@typescript/typescript-linux-ar`,
+			`${store}/@typescript/typescript-linux-arm64/lib/t`,
+			native7,
+			`node ${root}/.bin/tsc --noEmit`,
+		])
+			expect(isCutTscRunner(cut), cut).toBe(true);
+		for (const other of [
+			`${store}/`,
+			`${store}/@esbuild/linux-arm64/bin/es`,
+			`${store}/@typescript-eslint/pa`,
+			`${store}/@typescript/typescript-linux-arm64/bin/t`,
+			`${store}/@typescr --noEmit`,
+			`node scripts/queue-run.js --tsc -- ${store}/@typescr`,
+			`sh -c ${store}/@typescr`,
+		])
+			expect(isCutTscRunner(other), other).toBe(false);
 	});
 
 	it("charges a running `tsc` its own compiler's peak (#4892)", () => {
