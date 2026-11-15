@@ -35,7 +35,7 @@
  */
 
 const { caught } = require("./caught.js");
-const { inRouteSet } = require("./commit-route.js");
+const { checkRouteSetName, inRouteSet } = require("./commit-route.js");
 const { armed } = require("./precommit-arm.js");
 
 /**
@@ -184,6 +184,11 @@ const crashLine = (voice, row, at, e) =>
  * @returns {Promise<number>}
  */
 async function dispatch({ rows, gates, ports, voice = PRE_COMMIT }) {
+	/* Every name, before any row runs: a `some` stops at its first match, so
+	 * a misspelt name after it would otherwise pass on that route. */
+	for (const { when } of rows)
+		for (const name of [...(when?.routes ?? []), ...(when?.unlessRoutes ?? [])])
+			checkRouteSetName(name);
 	const inSet = rows.filter(
 		(row) => !row.lander || SETS[row.lander].includes(gates),
 	);

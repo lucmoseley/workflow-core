@@ -76,8 +76,16 @@ function scrubbedGitEnv(env) {
  * @param {Crash} crash
  * @param {unknown} e
  */
-const crashLine = ({ hook, said }, e) =>
-	`${hook}: the dispatcher ${said}: ${(e instanceof Error ? e.message : String(e)).split("\n")[0]}\n`;
+function crashLine({ hook, said }, e) {
+	let message;
+	try {
+		message = require("./caught.js").caught(e).message;
+	} catch {
+		/* caught.js is what would not load: read the fault bare. */
+		message = e instanceof Error ? e.message : String(e);
+	}
+	return `${hook}: the dispatcher ${said}: ${message.split("\n")[0]}\n`;
+}
 
 /**
  * Writes `line` to fd 2 through writeFd, else through a bare writeSync where
@@ -107,8 +115,12 @@ function exitWhenSettled(main, crash) {
 	main().then(
 		(code) => process.exit(code),
 		(e) => {
-			writeCrashLine(crashLine(crash, e));
-			process.exit(crash.exit);
+			/* finally: a write that throws, EPIPE say, still exits crash.exit. */
+			try {
+				writeCrashLine(crashLine(crash, e));
+			} finally {
+				process.exit(crash.exit);
+			}
 		},
 	);
 }
