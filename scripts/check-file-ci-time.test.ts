@@ -2,7 +2,8 @@
 /*
  * Pins check-file-ci-time.js end to end over `--reports`, sweeps already on
  * disk as `gh run download` leaves them. The judging arithmetic is
- * scripts/lib/file-ci-time.test.ts's.
+ * scripts/lib/file-ci-time.test.ts's. Its exit gates the scheduled sweep's
+ * `Suite passed` (#4293), so a case loosened here loosens that gate.
  *
  * A PLAIN TEMP DIR, NOT A TEMP GIT REPO: the script reads JSON files and asks
  * git nothing of the temp dir.
@@ -53,18 +54,47 @@ const run = () => {
 };
 
 describe("check-file-ci-time.js", () => {
-	it("names each file over the limit with its median and three times, and exits 0", () => {
+	it("fails on each file over the limit, naming its median and three times", () => {
 		writeSweep("103", { [SLOW]: 340, [FAST]: 1 });
 		writeSweep("102", { [SLOW]: 61, [FAST]: 90 });
 		writeSweep("101", { [SLOW]: 89, [FAST]: 2 });
 		const { status, out } = run();
-		expect(status).toBe(0);
+		expect(status).toBe(1);
 		expect(out).toContain(
 			`89 s  ${SLOW} — 340 s (run 103), 61 s (run 102), 89 s (run 101)`,
 		);
 		expect(out).not.toContain(`${FAST} —`);
-		expect(out).toContain("WARN: 1 file(s) over 60 s");
-		expect(out).toContain("Cut each by measured cost (#4290).");
+		expect(out).toContain("FAIL: 1 file(s) over 60 s");
+		expect(out).toContain(
+			"Cut each by measured cost (#4290), profiled first. The scheduled sweep stays red while any median is over.",
+		);
+	});
+
+	it("fails on a 61 s median and passes a 59 s one", () => {
+		for (const r of ["3", "2", "1"]) writeSweep(r, { [SLOW]: 61, [FAST]: 59 });
+		const { status, out } = run();
+		expect(status).toBe(1);
+		expect(out).toContain(`61 s  ${SLOW}`);
+		expect(out).not.toContain(`${FAST} —`);
+		for (const r of ["3", "2", "1"]) writeSweep(r, { [SLOW]: 59 });
+		const passed = run();
+		expect(passed.status).toBe(0);
+		expect(passed.out).toContain("OK: no test file's median CI time");
+	});
+
+	it("passes a median of exactly 60 s", () => {
+		for (const r of ["3", "2", "1"]) writeSweep(r, { [SLOW]: 60 });
+		expect(run().status).toBe(0);
+	});
+
+	it("counts only the failing files in its FAIL line, an unjudged slow one warned", () => {
+		writeSweep("3", { [SLOW]: 90, [SPOTTY]: 200 });
+		writeSweep("2", { [SLOW]: 90 });
+		writeSweep("1", { [SLOW]: 90 });
+		const { status, out } = run();
+		expect(status).toBe(1);
+		expect(out).toContain("FAIL: 1 file(s) over 60 s");
+		expect(out).toContain(`  ${SPOTTY} — 200 s (run 3)`);
 	});
 
 	it("judges a file missing from a sweep on the latest three it ran in", () => {
@@ -73,7 +103,7 @@ describe("check-file-ci-time.js", () => {
 		writeSweep("102", { [SLOW]: 1, [SPOTTY]: 80 });
 		writeSweep("101", { [SLOW]: 1, [SPOTTY]: 5 });
 		const { status, out } = run();
-		expect(status).toBe(0);
+		expect(status).toBe(1);
 		expect(out).toContain(
 			`70 s  ${SPOTTY} — 70 s (run 104), 80 s (run 102), 5 s (run 101)`,
 		);
@@ -88,7 +118,7 @@ describe("check-file-ci-time.js", () => {
 		);
 	});
 
-	it("warns on an unjudged file that was over the limit in a sweep, never OK", () => {
+	it("only warns on an unjudged file that was over the limit in a sweep, never OK", () => {
 		writeSweep("3", { [SLOW]: 1, [SPOTTY]: 200 });
 		writeSweep("2", { [SLOW]: 1 });
 		writeSweep("1", { [SLOW]: 1 });
@@ -164,7 +194,7 @@ exit(1);`,
 		const r = runInProcess(SCRIPT, [], {
 			env: { ...process.env, ...stub.env },
 		});
-		expect(r.status).toBe(0);
+		expect(r.status).toBe(1);
 		expect(`${r.stdout}${r.stderr}`).toContain(
 			`89 s  ${SLOW} — 340 s (run 103), 61 s (run 102), 89 s (run 101)`,
 		);

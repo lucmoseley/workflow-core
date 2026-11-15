@@ -128,16 +128,15 @@ jobs:
     uses: ./.github/workflows/roadmap-digest.yml
 
   # After the suite, a red one included, so this sweep's own shard reports are
-  # among the three it judges. Report-only (#4292): `verdict` does not need it,
-  # and `continue-on-error` keeps a broken run from turning the sweep red. Not
-  # on a `lander/batch-<k>` push: the lander's tester waits on the whole run's
-  # conclusion (scripts/lib/actions-tester.js), and that run's reports are read
-  # by the next sweep regardless.
+  # among the three it judges. A file whose median is over the limit fails it,
+  # and `verdict` with it (#4293). Not on a push: the lander's
+  # tester waits on the whole run's conclusion (scripts/lib/actions-tester.js),
+  # so one slow file already on `main` would hold every push red. That run's
+  # reports are read by the next sweep.
   file-times:
     name: Test file CI times
     needs: [suite]
     if: ${{ !cancelled() && github.event_name != 'push' && github.repository == 'lucmoseley/workflow-core' }}
-    continue-on-error: true
     runs-on: ubuntu-latest
     permissions:
       actions: read
@@ -191,7 +190,7 @@ jobs:
   # token scope.
   verdict:
     name: Suite passed
-    needs: [suite, documents]
+    needs: [suite, documents, file-times]
     if: ${{ always() && github.repository == 'lucmoseley/workflow-core' }}
     runs-on: ubuntu-latest
     permissions: {}
@@ -213,9 +212,14 @@ jobs:
           echo "$planned of $shards shards wrote their timings; $records distinct"
           [ "$shards" = "$planned" ] && [ "$records" = 1 ]
 
+      # `file-times` skips by design on a push, so only a push may pass it
+      # skipped.
       - env:
           SUITE: ${{ needs.suite.result }}
           DOCUMENTS: ${{ needs.documents.result }}
+          FILE_TIMES: ${{ needs.file-times.result }}
+          EVENT: ${{ github.event_name }}
         run: |
-          echo "suite=$SUITE documents=$DOCUMENTS"
-          [ "$DOCUMENTS" = success ] && [ "$SUITE" = success ]
+          echo "suite=$SUITE documents=$DOCUMENTS file-times=$FILE_TIMES"
+          [ "$DOCUMENTS" = success ] && [ "$SUITE" = success ] &&
+            { [ "$FILE_TIMES" = success ] || { [ "$EVENT" = push ] && [ "$FILE_TIMES" = skipped ]; }; }

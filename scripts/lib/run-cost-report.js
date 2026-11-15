@@ -29,7 +29,8 @@
  * evidence for base §X8 (5), never a verdict: any failure inside prints one
  * fail-open line and the suite's own verdict stands, and the program exits 0 on
  * every path, malformed input included (§N5). Not a `report-*` program, which
- * files an issue: it joins no family (§N3).
+ * files an issue: it joins no family (§N3). A file's CI time is refused in the
+ * scheduled sweep instead, by `scripts/check-file-ci-time.js` (#4293).
  */
 
 const fs = require("node:fs");

@@ -158,8 +158,8 @@ const { scriptPath } = require("./lib/script-path");
 const VERDICT_JOB = "Suite passed";
 /* scheduled-checks.yml's jobs that judge medians over three sweeps, which no
  * single commit causes, each with where its red is answered: the per-file CI
- * time job, red once #4293 makes it a need of `Suite passed`, and the suite's
- * growth budget, red once armed (#5137). */
+ * time job, a need of `Suite passed` (#4293), and the suite's growth budget,
+ * red once armed (#5137). */
 const FILE_TIMES_JOB = "Test file CI times";
 const SUITE_BUDGET_JOB = "Suite growth budget";
 /** @type {Map<string, string>} */
