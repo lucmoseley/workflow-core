@@ -697,10 +697,10 @@ function subjectOf(st, words, cmd) {
 
 /**
  * The peak of the compiler `bin` resolves to in each directory the launch may
- * stand in, the highest taken: a `cd` may have failed (#4980), and an
- * under-charge is what lets it through (#5216). A directory the walk cannot
- * name is charged the session's tree (#4892). Residual: a launch whose `cd`
- * did reach a lighter tree is over-charged, and may queue where it would fit.
+ * stand in, the highest taken: a `cd` may have failed (#4980, #5216). A
+ * directory the walk cannot name is charged the session's tree (#4892).
+ * Residual: a launch whose `cd` did reach a lighter tree is over-charged, and
+ * may queue where it would fit.
  * @param {St} st
  * @param {Command["cwds"]} cwds
  * @param {string} bin
