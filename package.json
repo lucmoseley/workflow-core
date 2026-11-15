@@ -138,8 +138,8 @@
 		"biome.json.overrides.mod-tests": "`noDoneCallback` is off for every mod's tests, `.claude/skills/wfc-*/tests/` (#854, #865): the `claude plugin test` kit hands every test body `($, on)`, and the rule reads that second parameter as a done-callback.",
 		"biome.json.linter.rules.info-severity-pins": "Rules across complexity, correctness and style are pinned to \"error\" on purpose (mantahostels#1447, #1381). WHY: they are `recommended` rules whose DEFAULT SEVERITY IS INFO, and --error-on-warnings promotes warnings only — an info-only run exits 0 with the flag on — so they were on, reported and gating nothing. All score ZERO findings on this corpus; that is a clean corpus, not a dead rule, so never prune one for never firing. The seventeen dead-code complexity rules (noExtraBooleanCast, noFlatMapIdentity and the fifteen noUseless*) flag code that is provably dead or a provable no-op, which this repo already treats as a defect class: mantahostels#1444 pinned tsc's allowUnreachableCode and allowUnusedLabels flat at zero on the same ground. useParseIntRadix is a defect rule outright (omitting the radix changes what the string parses to). useNodejsImportProtocol rests on the client bundle, NOT on shadowing — Node resolves core modules ahead of node_modules, so an npm package named `fs` cannot shadow the builtin; the risk is a bare `fs` reachable from a 'use client' file getting a silent empty browser stub where `node:fs` fails loudly. useLiteralKeys stays unpinned (on at info, gating nothing), clashing with noPropertyAccessFromIndexSignature (#1316). DECLINED at mantahostels#1447, do not add them: noDuplicateFields — GraphQL only, and a framework's rules are turned on by the commit that adds it; useArrayLiterals — measured to MISS its own defect class, since it ignores `new Array(n)`, the hole-creating form, and fires only on `new Array()` and `new Array(a, b)`.",
 		"biome.json.linter.rules.repo-wide": "#1318 ruled 32 Biome rules on at \"error\" repo-wide, on merit. DEFECT RULES (#1318 Q4 (A)) refuse code that is wrong wherever it sits: a rethrow dropping its cause, a shadowed name, an empty block with no reason, an element id that collides when its component renders twice, an undeclared import. SPELLING RULES (#1318 Q1 (A)): one tool-enforced spelling is a merit where it reads at least as clearly as the alternative and raises no false findings, so an agent copies one form from the code around it. Never switch either group off on the old corpus-size or fix-up-cost grounds; re-judge a rule on merit only. docs/code-standards.md §W lists them.",
-		"config.tscCheckers": "TypeScript 7.0's checker threads for every type-check pass, set here once because tsconfig.json cannot carry it: TypeScript 6.0, which next build and the editor load it with, refuses the option. Two, not four (#4887). Should a local run and CI ever disagree at 2, the fallback is 1, re-measured (#4891).",
-		"devDependencies.typescript": "Two TypeScripts side by side: `typescript` is @typescript/typescript6, the 6.0 JavaScript API that @typescript-eslint/parser (peer typescript <6.1.0, typescript-eslint#12518), next build, the editor's language server and the API-loading tests require; @typescript/native is the 7.0 compiler, whose `tsc` the type-check runs. Collapse back to one `typescript` entry only once typescript-eslint supports a 7.x API (typescript-eslint#10940) (#4891, #4892)."
+		"config.tscCheckers": "TypeScript 7.0's checker threads for every type-check pass, set here once because tsconfig.json cannot carry it: TypeScript 6.0, which next build and the editor load it with, refuses the option. Two, not four: 2 halves the cold wall time of 1 for ~95 MB more, and 4 adds little over 2 for ~130 MB more (#4887). Should a local run and CI ever disagree at 2, the fallback is 1, re-measured (#4891).",
+		"devDependencies.typescript": "Two TypeScripts side by side: `typescript` is @typescript/typescript6, the 6.0 JavaScript API that @typescript-eslint/parser (peer typescript <6.1.0, typescript-eslint#12518), next build, the editor's language server and the API-loading tests require; @typescript/native is the 7.0 compiler, whose `tsc` the type-check runs. Both held to their minor (`~`): a 7.1 needs its own peak measured before the slot charges it (scripts/lib/launch-charge.js), and a 6.1 falls outside the parser's peer range. Collapse back to one `typescript` entry only once typescript-eslint supports a 7.x API (typescript-eslint#10940) (#4891, #4892)."
 	},
 	"allowScripts": {
 		"unrs-resolver": false
@@ -158,7 +158,7 @@
 		"@types/react": "^19",
 		"@types/react-dom": "^19",
 		"@typescript-eslint/parser": "8.62.0",
-		"@typescript/native": "npm:typescript@^7.0.2",
+		"@typescript/native": "npm:typescript@~7.0.2",
 		"@vitejs/plugin-react": "^6.0.3",
 		"@wasm-fmt/shfmt": "0.2.7",
 		"ai": "^7.0.107",
@@ -170,7 +170,7 @@
 		"js-yaml": "4.3.2",
 		"jsdom": "^29.1.1",
 		"marked": "^18.0.13",
-		"typescript": "npm:@typescript/typescript6@^6.0.2",
+		"typescript": "npm:@typescript/typescript6@~6.0.2",
 		"vitest": "^4.1.10"
 	}
 }
