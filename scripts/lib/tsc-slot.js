@@ -15,7 +15,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { chargeMb } = require("./launch-charge.js");
-const { requiredGroup } = require("./regex-group.js");
+const { escapeRe, requiredGroup } = require("./regex-group.js");
 const { rungMb } = require("./suite-ladder.js");
 const { windowsShortfall } = require("./windows-memory.js");
 
@@ -72,23 +72,32 @@ function defaultTscQueueDir() {
  * running holds the slot it waits on (#3276).
  */
 const TSC_LAUNCHER = /^ *(?:\S*\/)?node +(\S*bin\/tsc6?)((?: .*)?)$/;
-const TSC_NATIVE =
-	/^ *(\S*\/node_modules\/)@typescript\/typescript-[a-z0-9]+-[a-z0-9]+\/lib\/tsc((?: .*)?)$/;
+/* 7.0's native compiler's path under its `node_modules/`, in three parts:
+ * the package scope and prefix, its `<os>-<arch>`, and the binary. */
+const NATIVE_HEAD = "@typescript/typescript-";
+const NATIVE_PLATFORM = "[a-z0-9]+-[a-z0-9]+";
+const NATIVE_BIN = "/lib/tsc";
+const TSC_NATIVE = new RegExp(
+	`^ *(\\S*/node_modules/)${escapeRe(NATIVE_HEAD)}${NATIVE_PLATFORM}${escapeRe(NATIVE_BIN)}((?: .*)?)$`,
+);
 
 /** @param {string} args  a process's command line */
 const isTscRunner = (args) => TSC_LAUNCHER.test(args) || TSC_NATIVE.test(args);
 
 /*
  * A command cut short inside 7.0's native compiler's path, as memwatch's
- * process lists write it (#5217): the first word an absolute path ending past
- * a `node_modules/@t`, no arguments left. Where the cut falls moves with the
- * path's length. Residual: a line cut at `node_modules/` or before cannot be
- * told from any other binary there, so it counts nothing.
+ * process lists write it (#5217): the first word an absolute path ending at
+ * or past a `node_modules/@t`, no arguments left. Where the cut falls moves
+ * with the path's length. Residuals: a line cut at `node_modules/` or before
+ * counts nothing, as it cannot be told from any other binary there; one cut
+ * inside `@typescript/` counts, though another `@t…` package's binary cut
+ * there reads the same.
  */
 const TSC_NATIVE_CUT = /^ *\/\S*\/node_modules\/(@t\S*)$/;
-const NATIVE_HEAD = "@typescript/typescript-";
-/* Past the head: a cut `<os>-<arch>`, or a whole one and a cut `/lib/tsc`. */
-const NATIVE_REST = /^[a-z0-9]+(?:-[a-z0-9]*)?$|^[a-z0-9]+-[a-z0-9]+(\/.*)$/;
+/* Past the head: a cut `<os>-<arch>`, or a whole one and a cut binary. */
+const NATIVE_REST = new RegExp(
+	`^[a-z0-9]+(?:-[a-z0-9]*)?$|^${NATIVE_PLATFORM}(/.*)$`,
+);
 
 /**
  * Whether a cut command line can only be a runner's: 7.0's native compiler.
@@ -103,7 +112,7 @@ function isCutTscRunner(args) {
 	if (!tail.startsWith(NATIVE_HEAD)) return false;
 	const rest = NATIVE_REST.exec(tail.slice(NATIVE_HEAD.length));
 	return (
-		rest !== null && (rest[1] === undefined || "/lib/tsc".startsWith(rest[1]))
+		rest !== null && (rest[1] === undefined || NATIVE_BIN.startsWith(rest[1]))
 	);
 }
 
