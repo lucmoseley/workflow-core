@@ -141,29 +141,69 @@ const buildTraceArgv = (strace, out, argv) => [
 ];
 
 /* How long a spawn's return waits for a traced child's output to be copied
- * out: a guess, far above the scheduling delay of a `cat` on a loaded
- * machine. Only a detached process still holding the output reaches it. */
+ * out, and how often it looks: guesses, the first far above the scheduling
+ * delay of a `cat` on a loaded machine. Only a detached process still
+ * holding the output reaches the ceiling.
+ * Residual: such a spawn returns 2 s late, and that process's later output
+ * can still land after the spawner's next write. */
 const COPY_MS = 2000;
 const COPY_STEP_MS = 5;
 
 /**
- * Wait until the `cat`s of the child traced to `out` have copied all its
- * output (#5218). With `-DD` the program is the spawn's own child, so the
- * spawn returns on its exit while a `cat` may still hold its last line:
- * a write the spawner makes next would land first, which untraced it never
- * does.
+ * @typedef {{
+ *   openSync: typeof fs.openSync,
+ *   closeSync: typeof fs.closeSync,
+ *   unlinkSync: typeof fs.unlinkSync,
+ * }} FifoIo file calls no audit hook logs
+ */
+
+/**
+ * Whether the named pipe at `abs` still has its `cat`: opening it to write
+ * without blocking finds a reader or fails ENXIO. The open also releases a
+ * `cat` still waiting for a writer that will never come, as where the
+ * tracer would not start, which then copies nothing and removes the pipe.
+ * A pipe no `cat` reads, as after its process group was killed, is
+ * removed here.
+ * @param {string} abs
+ * @param {FifoIo} io
+ */
+function isCopying(abs, io) {
+	let fd;
+	try {
+		fd = io.openSync(abs, fs.constants.O_WRONLY | fs.constants.O_NONBLOCK);
+	} catch (e) {
+		if (caught(e).code === "ENXIO")
+			try {
+				io.unlinkSync(abs);
+			} catch {
+				// Its `cat` removed it first.
+			}
+		return false;
+	}
+	io.closeSync(fd);
+	return true;
+}
+
+/**
+ * Wait until the `cat`s of the child traced to `out` have copied the
+ * outputs `fds` names (#5218). With `-DD` the program is the spawn's own
+ * child, so the spawn returns on its exit while a `cat` may still hold its
+ * last line: a write the spawner makes next to an output it shares would
+ * land first, which untraced it never does.
  * @param {string} out the trace `buildTraceArgv` was handed
- * @param {(abs: string) => unknown} stat a stat no audit hook logs
+ * @param {number[]} fds the outputs, 1 and 2, the child shares with its
+ *   spawner
+ * @param {FifoIo} io
  * @param {Clock} [clock]
  */
-function awaitCopied(out, stat, clock = REAL_CLOCK) {
+function awaitCopied(out, fds, io, clock = REAL_CLOCK) {
 	const deadline = clock.now() + COPY_MS;
-	const pending = () =>
-		[`${out}.1`, `${out}.2`].some(
-			(abs) =>
-				pathKind(abs, /** @type {typeof fs.statSync} */ (stat)) !== "absent",
-		);
-	while (pending() && clock.now() < deadline) clock.sleep(COPY_STEP_MS);
+	let left = fds.map((n) => `${out}.${n}`);
+	for (;;) {
+		left = left.filter((abs) => isCopying(abs, io));
+		if (left.length === 0 || clock.now() >= deadline) return;
+		clock.sleep(COPY_STEP_MS);
+	}
 }
 
 /* How long the trial trace may take: a guess, far above the ~20 ms it takes. */
