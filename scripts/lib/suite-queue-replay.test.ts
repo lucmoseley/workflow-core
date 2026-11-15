@@ -789,7 +789,7 @@ describe("reading the logs", () => {
 	});
 
 	it("counts a 7.0 native `tsc` off memwatch's cut rows once, a 5.x runner once, a waiter never (#5217)", () => {
-		/* Recorded in ~/memwatch.log, 14 Nov 2026: one native compiler in the RSS
+		/* Recorded in ~/memwatch.log: one native compiler in the RSS
 		 * list and the CPU list, each cut at its own column width. */
 		const store =
 			"/home/lucmo/workflow-core/.claude/worktrees/.dep-stores/8a38214acca573b5/node_modules";

@@ -72,8 +72,8 @@ function defaultTscQueueDir() {
  * running holds the slot it waits on (#3276).
  */
 const TSC_LAUNCHER = /^ *(?:\S*\/)?node +(\S*bin\/tsc6?)((?: .*)?)$/;
-/* 7.0's native compiler's path under its `node_modules/`, in three parts:
- * the package scope and prefix, its `<os>-<arch>`, and the binary. */
+/* 7.0's native compiler's path in three parts; the middle is a regex
+ * source, the other two literal strings. */
 const NATIVE_HEAD = "@typescript/typescript-";
 const NATIVE_PLATFORM = "[a-z0-9]+-[a-z0-9]+";
 const NATIVE_BIN = "/lib/tsc";
@@ -86,8 +86,7 @@ const isTscRunner = (args) => TSC_LAUNCHER.test(args) || TSC_NATIVE.test(args);
 
 /*
  * A command cut short inside 7.0's native compiler's path, as memwatch's
- * process lists write it (#5217): the first word an absolute path ending at
- * or past a `node_modules/@t`, no arguments left. Where the cut falls moves
+ * process lists write it (#5217). Where the cut falls moves
  * with the path's length. Residuals: a line cut at `node_modules/` or before
  * counts nothing, as it cannot be told from any other binary there; one cut
  * inside `@typescript/` counts, though another `@t…` package's binary cut
@@ -100,7 +99,7 @@ const NATIVE_REST = new RegExp(
 );
 
 /**
- * Whether a cut command line can only be a runner's: 7.0's native compiler.
+ * Whether a cut command line reads as a runner's: 7.0's native compiler.
  * @param {string} args  a process's command line, cut short
  */
 function isCutTscRunner(args) {
