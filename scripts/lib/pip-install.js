@@ -253,9 +253,10 @@ const TARGET_TABLES = new Set([
 
 /**
  * The requirement strings of `pyproject.toml`'s three dependency tables. A
- * reader of just that much TOML: a table header, a `key = [` array, and the
- * strings in it outside an inline table. What it misreads it drops, so the
- * package is vetted as new.
+ * reader of just that much TOML: a table header, a `key = [` array, the
+ * strings in it outside an inline table, and a multi-line string, read past
+ * whole so nothing in it counts as a header or a key. What it misreads it
+ * drops, so the package is vetted as new.
  * @param {string} text
  * @returns {string[]}
  */
@@ -275,15 +276,76 @@ function pyprojectSpecs(text) {
 			at = lineEnd(text, read.end) + 1;
 			continue;
 		}
-		at = end + 1;
+		at = pastLine(text, at, end);
 	}
 	return specs;
 }
 
+/**
+ * Where the next line starts: past the closing delimiter of a multi-line
+ * string the line at `at` opens.
+ * @param {string} text
+ * @param {number} at
+ * @param {number} end the line's end
+ */
+function pastLine(text, at, end) {
+	for (const { m, close } of tokensFrom(text, at)) {
+		if (m.index >= end) break;
+		if (close > end) return lineEnd(text, close) + 1;
+	}
+	return end + 1;
+}
+
+/**
+ * The tokens from `at` on, each with the index past it: past a multi-line
+ * string's closing delimiter for its opener.
+ * @param {string} text
+ * @param {number} at
+ * @returns {Generator<{ m: RegExpExecArray, close: number }>}
+ */
+function* tokensFrom(text, at) {
+	const tokens = new RegExp(TOKEN_RE.source, "g");
+	tokens.lastIndex = at;
+	for (let m = tokens.exec(text); m !== null; m = tokens.exec(text)) {
+		const multiLine = m[0] === '"""' || m[0] === "'''";
+		const close = multiLine
+			? multiLineClose(text, m.index)
+			: m.index + m[0].length;
+		tokens.lastIndex = close;
+		yield { m, close };
+	}
+}
+
+/**
+ * The index past the closing delimiter of the multi-line string opening at
+ * `open`, the last of up to five quotes (TOML 1.0.0), or the file's end where
+ * none closes it. A scan, not a regex: a lazy match to the delimiter is
+ * quadratic on a run of quotes.
+ * @param {string} text
+ * @param {number} open
+ */
+function multiLineClose(text, open) {
+	const quote = text[open];
+	const delimiter = text.slice(open, open + 3);
+	for (let i = open + 3; i < text.length; ) {
+		if (quote === '"' && text[i] === "\\") i += 2;
+		else if (text.startsWith(delimiter, i)) {
+			let close = i + 3;
+			for (let extra = 0; extra < 2 && text[close] === quote; extra++) close++;
+			return close;
+		} else i++;
+	}
+	return text.length;
+}
+
 const KEY_ARRAY_RE = /^\s*("[^"]*"|'[^']*'|[A-Za-z0-9_-]+)\s*=\s*\[/;
-const HEADER_RE = /^\s*\[([^[\]]+)\]\s*(#.*)?$/;
-/* A comment, a basic or literal one-line string, or a bracket or brace. */
-const TOKEN_RE = /#[^\n]*|"((?:\\.|[^"\\\n])*)"|'([^'\n]*)'|[{}[\]]/g;
+/* `[^\n]`, not `.`, so a CRLF line's `\r` ends a comment. */
+const HEADER_RE = /^\s*\[([^[\]]+)\]\s*(#[^\n]*)?$/;
+/*
+ * A comment, a multi-line string's opener, a basic or literal one-line string,
+ * or a bracket or brace.
+ */
+const TOKEN_RE = /#[^\n]*|"""|'''|"((?:\\.|[^"\\\n])*)"|'([^'\n]*)'|[{}[\]]/g;
 
 /**
  * @param {string} text
@@ -330,15 +392,13 @@ function arrayStrings(text, open) {
 	const strings = [];
 	let depth = 0;
 	let braces = 0;
-	const tokens = new RegExp(TOKEN_RE.source, "g");
-	tokens.lastIndex = open;
-	for (let m = tokens.exec(text); m !== null; m = tokens.exec(text)) {
+	for (const { m } of tokensFrom(text, open)) {
 		const t = m[0];
 		if (t === "[") depth++;
 		else if (t === "]" && --depth === 0) return { strings, end: m.index };
 		else if (t === "{") braces++;
 		else if (t === "}") braces--;
-		else if (t !== "]" && !t.startsWith("#") && braces === 0)
+		else if (t !== "]" && !/^(#|"""|''')/.test(t) && braces === 0)
 			strings.push(stringOf(m));
 	}
 	return { strings, end: text.length };

@@ -470,6 +470,48 @@ describe("the declaring files", () => {
 		]);
 	});
 
+	const withPyproject = (text: string) => ({
+		files: { "pyproject.toml": text },
+	});
+
+	it.each([
+		["a key", `[project]\ndescription = """\ndependencies = ["evil"]\n"""\n`],
+		[
+			"a key, the string's escaped quotes and a closing run of quotes read past",
+			`[project]\ndescription = """ \\""" ""\ndependencies = ["evil"]\n""""\n`,
+		],
+		[
+			"a header",
+			`[tool.x]\nnote = '''\n[dependency-groups]\ndev = ["evil"]\n'''\n`,
+		],
+		[
+			"a header, in a string never closed",
+			`[tool.x]\nnote = """\n[dependency-groups]\ndev = ["evil"]\n`,
+		],
+		[
+			"a header, after an array the string's ] would have closed",
+			`[tool.x]\nnotes = ["""\n]\n[dependency-groups]\ndev = ["evil"]\n"""]\n`,
+		],
+	])("reads nothing in a multi-line string as declared: %s", (_, text) => {
+		expect(denial("pip install evil", {}, withPyproject(text))).toMatch(
+			/does not yet declare — evil/,
+		);
+	});
+
+	it("reads on past a multi-line string to the next key", () => {
+		const text = `[project]\ndescription = """\nx\n"""\ndependencies = ["httpx"]\n`;
+		expect(
+			allows("pip install httpx", { created: "404" }, withPyproject(text)),
+		).toBe(true);
+	});
+
+	it("reads a CRLF header with a trailing comment as its table", () => {
+		const text = `[project] # main\r\ndependencies = [\r\n  "httpx",\r\n]\r\n`;
+		expect(
+			allows("pip install httpx", { created: "404" }, withPyproject(text)),
+		).toBe(true);
+	});
+
 	it("lists the declaring files once a command, and only for an install naming a package", () => {
 		const h = harness();
 		decide(`pip install ${BIN} a && pip install ${BIN} b`, h.ctx);
