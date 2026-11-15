@@ -7,7 +7,7 @@
  *
  * Usage:
  *   node scripts/release-plugin.js [--push] [--dry-run-adopter <path>]
- *     [--file-bump-issues <owner/repo,...>]
+ *     [--file-bump-issues]
  *
  * Joins no §N3 family: it writes git objects and a tag rather than a file,
  * exiting 0 on a cut and 1, reason on stderr, on a refusal — and 1 for a
@@ -63,12 +63,15 @@
  * no node_modules, so the command must need none — the surface requires no
  * npm package, and the resolver only builtins.
  *
- * PUSHING AND BUMP-ISSUE FILING STAY OPT-IN (`--push`, `--file-bump-issues
- * <owner/repo,...>`): the spec has `release` do both unconditionally, but
- * cutting a real tag, pushing it and opening issues on other trackers are
- * irreversible and this repo's own guard rules gate pushes on a human
- * decision — so the default call still only prints the publish command, and
- * an adopter list only gets bump issues where the caller names it.
+ * PUSHING AND BUMP-ISSUE FILING STAY OPT-IN (`--push`, `--file-bump-issues`):
+ * the spec has `release` do both unconditionally, but cutting a real tag,
+ * pushing it and opening issues on other trackers are irreversible and this
+ * repo's own guard rules gate pushes on a human decision — so the default
+ * call still only prints the publish command.
+ *
+ * THE BUMP TRACKERS ARE DERIVED, never typed (#5229): every adopter checkout
+ * lib/refill-repos.js finds under `$HOME`, save the core itself, by the
+ * tracker its config resolves, so no adopter is left out of a release.
  */
 
 const fs = require("node:fs");
@@ -102,17 +105,24 @@ const { shellQuote } = require("./lib/sh-quote.js");
 const { originLabel } = require("./lib/issue-origin.js");
 const { takesLabel } = require("./lib/takes-label.js");
 const { URGENT_LABEL } = require("./lib/urgent-label.js");
+const {
+	homeDir,
+	readAdopterCheckouts,
+	readHostTracker,
+} = require("./lib/refill-repos.js");
+const { isCoreHost } = require("./lib/plugin-state.js");
+const { caught } = require("./lib/caught.js");
 
 const MIGRATION_LABEL = takesLabel("implement");
 const HOLD_REL = `${MIGRATIONS_DIR}/hold.txt`;
 
 const CLI = {
 	usage:
-		"usage: node scripts/release-plugin.js [--push] [--dry-run-adopter <path>] [--file-bump-issues <owner/repo,...>]",
+		"usage: node scripts/release-plugin.js [--push] [--dry-run-adopter <path>] [--file-bump-issues]",
 	flags: {
 		"--push": /** @type {const} */ ("boolean"),
 		"--dry-run-adopter": /** @type {const} */ ("value"),
-		"--file-bump-issues": /** @type {const} */ ("value"),
+		"--file-bump-issues": /** @type {const} */ ("boolean"),
 	},
 };
 
@@ -603,15 +613,53 @@ function fileBumpIssues(repos, tag) {
 }
 
 /**
- * @param {string[]} repos
+ * Each adopter's tracker, once, and each adopter whose tracker will not
+ * resolve, which files nothing and so fails the run.
+ * @param {string} home
+ * @returns {{repos: string[], unresolved: {repo: string, reason: string, retry: string}[]}}
+ */
+function readBumpTrackers(home) {
+	/** @type {Map<string, string>} */
+	const repos = new Map();
+	/** @type {{repo: string, reason: string, retry: string}[]} */
+	const unresolved = [];
+	for (const root of readAdopterCheckouts(home).included) {
+		if (isCoreHost(root)) continue;
+		/** @type {string|null} */
+		let tracker;
+		let why = "no tracker resolves";
+		try {
+			tracker = readHostTracker(root);
+		} catch (err) {
+			tracker = null;
+			why = caught(err).message;
+		}
+		if (tracker === null) {
+			unresolved.push({
+				repo: root,
+				reason: why,
+				retry: `declare "tracker" in ${path.join(root, ".claude", "workflow-core.json")}, then open its bump issue by hand`,
+			});
+			continue;
+		}
+		const key = tracker.toLowerCase();
+		if (!repos.has(key)) repos.set(key, tracker);
+	}
+	return { repos: [...repos.values()], unresolved };
+}
+
+/**
  * @param {string} tag
  * @returns {{report: string, trackerFailure: boolean}}
  */
-function buildBumpIssueReport(repos, tag) {
+function buildBumpIssueReport(tag) {
 	let report = "";
-	if (repos.length === 0) return { report, trackerFailure: false };
+	const { repos, unresolved } = readBumpTrackers(homeDir());
 	const { filed, failed } = fileBumpIssues(repos, tag);
+	failed.unshift(...unresolved);
 	if (filed.length > 0) report += `filed bump issues: ${filed.join(", ")}\n`;
+	if (filed.length === 0 && failed.length === 0)
+		report += `filed bump issues: none, since no adopter checkout is under ${homeDir()}\n`;
 	if (failed.length === 0) return { report, trackerFailure: false };
 	report += "failed bump issues:\n";
 	for (const f of failed)
@@ -629,9 +677,7 @@ function main(argv) {
 	const args = {
 		dryRunAdopter: flagValue(flags, "--dry-run-adopter"),
 		push: flags["--push"] === true,
-		fileBumpIssues: (flagValue(flags, "--file-bump-issues") ?? "")
-			.split(",")
-			.filter(Boolean),
+		fileBumpIssues: flags["--file-bump-issues"] === true,
 	};
 	try {
 		const root = worktreeRoot();
@@ -647,7 +693,9 @@ function main(argv) {
 		}
 		/* Distinct from the refusals below (#242), which mean no tag was cut
 		 * at all. */
-		const bump = buildBumpIssueReport(args.fileBumpIssues, tag);
+		const bump = args.fileBumpIssues
+			? buildBumpIssueReport(tag)
+			: { report: "", trackerFailure: false };
 		report += bump.report;
 		const trackerFailure = bump.trackerFailure;
 		writeFd(1, report);
