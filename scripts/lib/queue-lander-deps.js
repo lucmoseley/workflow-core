@@ -30,7 +30,7 @@ const { liveQueueDeps } = require("./queue-issue.js");
 const { dropRecord, pipelineRecord } = require("./lander-records.js");
 const { isQueueHead, queueNameOf } = require("./landing-refs.js");
 const { queueLogFile, readQueueRows } = require("./queue-log.js");
-const { readOwningSession } = require("./queue-owning-session.js");
+const { readOwningSessionState } = require("./queue-owning-session.js");
 const {
 	queueGit,
 	queueLogger,
@@ -137,7 +137,7 @@ function buildLanderDeps(
 			readQueueRows(queueLogFile(root))
 				.filter((r) => r.event === "land" && isQueueHead(r.ref))
 				.map((r) => ({ name: queueNameOf(r.ref), at: r.at })),
-		owningSessionOf: (name) => readOwningSession(root, name),
+		owningSessionStateOf: (name) => readOwningSessionState(root, name),
 		lock: landerLock(root),
 		beat: heartbeatWriter(files.heartbeat),
 		log: (action) =>

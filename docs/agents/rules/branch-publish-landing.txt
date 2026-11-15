@@ -30,5 +30,5 @@ WHAT THIS DOES NOT CATCH: a push or pull request made outside Claude Code or in
 the GitHub web UI, one reached through a script, and a push steered by a
 `remote.<name>.push` refspec in git config, and any push at all where
 `.claude/workflow-core.json` will not read, which this guard takes as the
-module off — save a push to `main`, which the pre-push limb still refuses. Its
-silence there is not leave.
+module off — save a push to `main`, which the pre-push limb still refuses
+once the green ledger exists. Its silence there is not leave.

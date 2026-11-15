@@ -27,11 +27,11 @@ const { spawnSync } = require("node:child_process");
 const { readCommit } = require("./lib/commit-sha.js");
 const { gitReader } = require("./lib/git.js");
 const {
+	parseQueuePushes,
 	queueBranch,
 	queueNameOf,
 	VERIFIED_REF,
 } = require("./lib/landing-refs.js");
-const { parseQueuePushes } = require("./lib/push-refs.js");
 const {
 	buildUnchecked,
 	isModuleOnAtHead,

@@ -25,7 +25,7 @@ const { readLinkedWorktrees } = require("./worktree-paths.js");
 const { writeFd } = require("./write-fd.js");
 
 /**
- * @typedef {import("./queue-lander.js").OwningSessionRead} OwningSessionRead
+ * @typedef {import("./queue-lander.js").OwningSessionState} OwningSessionState
  * @typedef {object} OwningSessionDeps
  * @property {() => string[]|null} worktrees the host's linked worktrees,
  *   null where git will not list them
@@ -50,9 +50,13 @@ const liveOwningSessionDeps = (root) => ({
  * @param {string} root the canonical checkout
  * @param {string} name after `queue/`
  * @param {OwningSessionDeps} [deps]
- * @returns {OwningSessionRead}
+ * @returns {OwningSessionState}
  */
-function readOwningSession(root, name, deps = liveOwningSessionDeps(root)) {
+function readOwningSessionState(
+	root,
+	name,
+	deps = liveOwningSessionDeps(root),
+) {
 	const queued = queueBranch(name);
 	/** @param {string} why */
 	const unread = (why) => {
@@ -78,4 +82,4 @@ function readOwningSession(root, name, deps = liveOwningSessionDeps(root)) {
 	}
 }
 
-module.exports = { readOwningSession };
+module.exports = { readOwningSessionState };

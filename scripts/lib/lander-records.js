@@ -571,6 +571,20 @@ const isOwedDrop = (d) =>
  */
 const readOwedDrops = (file) => dropRecord(file).read().filter(isOwedDrop);
 
+/**
+ * A batch record's red-path fields before any red: a fresh object per call,
+ * so no two batches share a list.
+ * @returns {Pick<Batch, "ahead" | "blame" | "isolated" | "serial" | "hold" | "bases">}
+ */
+const redPathAtRest = () => ({
+	ahead: [],
+	blame: null,
+	isolated: [],
+	serial: null,
+	hold: null,
+	bases: [],
+});
+
 module.exports = {
 	dropRecord,
 	readOwedDrops,
@@ -578,4 +592,5 @@ module.exports = {
 	parseVerdict,
 	pipelineRecord,
 	readDropFile,
+	redPathAtRest,
 };

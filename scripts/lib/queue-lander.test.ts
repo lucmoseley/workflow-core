@@ -29,7 +29,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { dropTicketFiler } from "./fix-ticket.js";
 import { SHORT_SHA } from "./git.js";
-import { redPathAtRest } from "./lander-testkit.js";
+import { redPathAtRest } from "./lander-records.js";
 import {
 	type Batch,
 	type Drop,
@@ -37,7 +37,7 @@ import {
 	type LanderEvent,
 	type Member,
 	type MergeResult,
-	type OwningSessionRead,
+	type OwningSessionState,
 	type Pipeline,
 	type Placement,
 	type QueueAction,
@@ -181,8 +181,8 @@ interface Options {
 	findFault?: () => Error | undefined;
 	/** Throws in place of closing a fix ticket, while it returns an error. */
 	closeFault?: () => Error | undefined;
-	/** The owning-session read of a queue ref's name; stopped where absent. */
-	owningSession?: (name: string) => OwningSessionRead;
+	/** The owning-session state of a queue ref's name; stopped where absent. */
+	owningSessionState?: (name: string) => OwningSessionState;
 	/** The shas `main` holds, beyond `main` itself. */
 	onMain?: readonly string[];
 	acquired?: boolean;
@@ -460,7 +460,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 				disk.landedAt.push({ name: m.name, at: o.now ?? NOW });
 		},
 		landings: () => disk.landedAt,
-		owningSessionOf: (name) => o.owningSession?.(name) ?? "stopped",
+		owningSessionStateOf: (name) => o.owningSessionState?.(name) ?? "stopped",
 		lock: { acquire: () => o.acquired ?? true, release: () => undefined },
 		beat: () => undefined,
 		wait: async () => undefined,
@@ -1533,7 +1533,9 @@ describe("a drop owed a decision (#4950)", () => {
 		});
 		const disk = freshDisk();
 
-		const first = await land(remote, disk, { owningSession: () => "working" });
+		const first = await land(remote, disk, {
+			owningSessionState: () => "working",
+		});
 
 		expect(first.end).toEqual(NO_QUEUE);
 		expect(disk.filed).toEqual([]);
@@ -1542,7 +1544,9 @@ describe("a drop owed a decision (#4950)", () => {
 			["open", null],
 		]);
 
-		const second = await land(remote, disk, { owningSession: () => "stopped" });
+		const second = await land(remote, disk, {
+			owningSessionState: () => "stopped",
+		});
 
 		expect(second.end).toEqual(NO_QUEUE);
 		expect(disk.filed).toEqual([
@@ -1692,7 +1696,7 @@ describe("a drop owed a decision (#4950)", () => {
 
 		const { end } = await land(remote, disk, {
 			onMain: ["a1"],
-			owningSession: () => "working",
+			owningSessionState: () => "working",
 		});
 
 		expect(end).toEqual(NO_QUEUE);

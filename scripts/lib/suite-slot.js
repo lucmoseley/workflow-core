@@ -1,7 +1,9 @@
 /*
  * suite-slot.js — the queue lander's suite slot (#2416, #2542, #2650): the
  * production `admit` lib/local-tester.js holds each group of runs under;
- * lib/suite-slot-fake.ts is the test one.
+ * lib/suite-slot-fake.ts is the test one. A module of its own so the slot is
+ * tested through this export, not a test-only one off local-tester.js
+ * (#5237).
  */
 
 const { readAvailableMb } = require("./meminfo.js");

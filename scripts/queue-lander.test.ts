@@ -35,13 +35,16 @@ import {
 	run as runRegistry,
 	SELF_PLUGIN_HOOKS,
 } from "./lib/guard-registry-testkit";
-import { dropRecord, pipelineRecord } from "./lib/lander-records.js";
+import {
+	dropRecord,
+	pipelineRecord,
+	redPathAtRest,
+} from "./lib/lander-records.js";
 import {
 	commit,
 	git,
 	landerSandbox,
 	markers,
-	redPathAtRest,
 	remote,
 	runLander,
 	stubRedWhile,

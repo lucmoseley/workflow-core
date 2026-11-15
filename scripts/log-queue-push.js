@@ -18,9 +18,8 @@
 const { parseErrorText } = require("./lib/caught.js");
 const { now } = require("./lib/check.js");
 const { parseOrCode } = require("./lib/cli-args.js");
-const { REMOTE } = require("./lib/landing-refs.js");
+const { parseQueuePushes, REMOTE } = require("./lib/landing-refs.js");
 const { isModuleOnAtHead, runPrePushGate } = require("./lib/pre-push-gate.js");
-const { parseQueuePushes } = require("./lib/push-refs.js");
 const { logEnqueue, queueLogFile } = require("./lib/queue-log.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
