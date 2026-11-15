@@ -16,18 +16,25 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { installCommitMsgHook } from "./lib/commit-msg-testkit";
 import { initGitRepo, mkScratchDir } from "./lib/git-fixture";
+import { shellQuote } from "./lib/sh-quote.js";
 
 const ROOT = path.join(__dirname, "..");
 
 let dir: string;
 let hooks: string;
+let extraEnv: NodeJS.ProcessEnv = {};
 
 // CLAUDE_PROJECT_DIR is the fixture, never a session's live checkout (#3311).
 const git = (args: string[]) => {
 	const r = spawnSync("git", args, {
 		cwd: dir,
 		encoding: "utf8",
-		env: { ...process.env, CLAUDE_PROJECT_DIR: dir, WFC_PLUGIN_ROOT: ROOT },
+		env: {
+			...process.env,
+			CLAUDE_PROJECT_DIR: dir,
+			WFC_PLUGIN_ROOT: ROOT,
+			...extraEnv,
+		},
 	});
 	return { status: r.status, out: `${r.stdout}${r.stderr}` };
 };
@@ -56,6 +63,7 @@ beforeEach(() => {
 	installCommitMsgHook(hooks);
 });
 afterEach(() => {
+	extraEnv = {};
 	fs.rmSync(dir, { recursive: true, force: true });
 	fs.rmSync(hooks, { recursive: true, force: true });
 });
@@ -125,5 +133,55 @@ describe(".husky/commit-msg's commit-msg.local seam (#5142)", () => {
 		expect(r.out).toContain("local route=cherry-pick");
 		expect(r.out).not.toContain("over the 72-character limit");
 		expect(r.status).toBe(0);
+	});
+
+	it("starts node no more often than with no local file (#5215)", () => {
+		const bin = mkScratchDir("commit-msg-local-bin-");
+		const log = path.join(bin, "starts.log");
+		fs.writeFileSync(
+			path.join(bin, "node"),
+			`#!/bin/sh\necho start >>${shellQuote(log)}\nexec ${shellQuote(process.execPath)} "$@"\n`,
+			{ mode: 0o755 },
+		);
+		extraEnv = { PATH: `${bin}${path.delimiter}${process.env.PATH}` };
+		const starts = () => fs.readFileSync(log, "utf8").split("\n").length - 1;
+		try {
+			expect(commit("Add a line").status).toBe(0);
+			const bare = starts();
+			writeLocal('echo "local route=$route" >&2\n');
+			const r = commit("Add a line");
+			expect(r.out).toContain("local route=commit");
+			expect(starts() - bare).toBe(bare);
+		} finally {
+			fs.rmSync(bin, { recursive: true, force: true });
+		}
+	});
+
+	it("refuses, naming it, where mktemp cannot make the route file (#5215)", () => {
+		extraEnv = { TMPDIR: path.join(dir, "no-such-dir") };
+		writeLocal('echo "local ran" >&2\n');
+		const r = commit("Add a line");
+		expect(r.status).toBe(1);
+		expect(r.out).toContain("commit-msg: mktemp could not make a file");
+		expect(r.out).not.toContain("local ran");
+	});
+
+	it("removes the route file on a pass, a local refusal and a core refusal (#5215)", () => {
+		const tmp = mkScratchDir("commit-msg-local-tmp-");
+		extraEnv = { TMPDIR: tmp };
+		try {
+			writeLocal('echo "rf=$route_file" >&2\ngrep -q ok "$1"\n');
+			const passed = commit("Add an ok line");
+			expect(passed.status).toBe(0);
+			expect(passed.out).toContain(`rf=${tmp}`);
+			expect(fs.readdirSync(tmp)).toEqual([]);
+			expect(commit("Add a line").status).toBe(1);
+			expect(fs.readdirSync(tmp)).toEqual([]);
+			const refused = commit(`Add ${"x".repeat(80)}`);
+			expect(refused.out).toContain("over the 72-character limit");
+			expect(fs.readdirSync(tmp)).toEqual([]);
+		} finally {
+			fs.rmSync(tmp, { recursive: true, force: true });
+		}
 	});
 });

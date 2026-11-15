@@ -54,6 +54,7 @@ const { spawnGitSync } = require("./git.js");
 const { readHookGitDir } = require("./hook-entry.js");
 const { dispatch } = require("./precommit-dispatch.js");
 const { precommitStamp, takePrecommitStamp } = require("./precommit-stamp.js");
+const { takeHookPause } = require("./run-budgeted.js");
 
 const HOOK = "prepare-commit-msg";
 
@@ -69,6 +70,8 @@ const HOOK = "prepare-commit-msg";
  * @property {string} file the message file git hands, "" where none
  * @property {string} gitDir the absolute git directory, "" where git names none
  * @property {string} route the commit route, lib/commit-route.js's
+ * @property {<T>(run: () => T) => T} outsideLimit runs `run` with the hook
+ *   limit's clock stopped, run-budgeted.js's takeHookPause
  */
 
 /**
@@ -226,17 +229,21 @@ function reviewHold(ctx) {
  * The whole of .husky/pre-commit, under `sh -e` as its own process and its
  * status passed through rather than collapsed to 1 — both for the reasons
  * `.husky/pre-merge-commit` records; git itself discards the code and
- * reports 1. WFC_INDEX_FROZEN: git read this commit's index before this hook
- * ran, so a gate staging a fix here would not reach the commit (#4514).
+ * reports 1. With the hook limit's clock stopped: pre-commit bounds its own checkers
+ * and runs its slow gates under ceilings of their own, past that limit
+ * (#4187, #5213). WFC_INDEX_FROZEN: git read this commit's index before this
+ * hook ran, so a gate staging a fix here would not reach the commit (#4514).
  * @param {PrepareCommitMsgContext} ctx
  * @returns {RowResult}
  */
 function inlinePreCommit(ctx) {
-	const r = spawnSync("sh", ["-e", path.join(ctx.husky, "pre-commit")], {
-		cwd: ctx.cwd,
-		env: { ...ctx.env, WFC_INDEX_FROZEN: "1" },
-		stdio: "inherit",
-	});
+	const r = ctx.outsideLimit(() =>
+		spawnSync("sh", ["-e", path.join(ctx.husky, "pre-commit")], {
+			cwd: ctx.cwd,
+			env: { ...ctx.env, WFC_INDEX_FROZEN: "1" },
+			stdio: "inherit",
+		}),
+	);
 	/* pre-commit stamps its own success, and leaving that stamp would let
 	 * this run stand down a later `--no-verify` commit. */
 	if (ctx.gitDir) fs.rmSync(precommitStamp(ctx.gitDir), { force: true });
@@ -365,21 +372,25 @@ function runPrepareCommitMsg(
 	io,
 	{ write, husky, file, interrupted = async () => null, rows },
 ) {
-	const gitDir = readHookGitDir(io.cwd, io.env);
+	const pause = takeHookPause(io.env);
+	const env = pause.env;
+	const gitDir = readHookGitDir(io.cwd, env);
 	const recorded = takePrecommitStamp(gitDir);
-	const route = commitRoute("prepare-commit-msg", gitDir, { env: io.env });
+	const route = commitRoute("prepare-commit-msg", gitDir, { env });
 	const written = spawnGitSync(["write-tree"], {
 		cwd: io.cwd,
-		env: io.env,
+		env,
 		encoding: "utf8",
 	});
 	const tree = written.status === 0 ? String(written.stdout).trim() : "";
 	const huskyDir = path.resolve(io.cwd, husky);
 	/** @type {PrepareCommitMsgContext} */
 	const ctx = {
-		...io,
+		cwd: io.cwd,
+		env,
+		outsideLimit: pause.outside,
 		husky: huskyDir,
-		root: io.env.WFC_PLUGIN_ROOT || path.dirname(huskyDir),
+		root: env.WFC_PLUGIN_ROOT || path.dirname(huskyDir),
 		file,
 		gitDir,
 		route,
