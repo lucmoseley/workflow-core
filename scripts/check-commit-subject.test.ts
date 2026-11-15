@@ -31,7 +31,7 @@ let dir: string;
 let hooks: string;
 
 // CLAUDE_PROJECT_DIR is the fixture, never a session's live checkout: the
-// hook's rule_text roots through gr_root (#3311).
+// rule text roots through lib/host-root.js (#3311).
 const git = (args: string[], env: NodeJS.ProcessEnv = {}) => {
 	const r = spawnSync("git", args, {
 		cwd: dir,
