@@ -91,9 +91,10 @@ const isTscRunner = (args) => TSC_LAUNCHER.test(args) || TSC_NATIVE.test(args);
  * A command cut short inside 7.0's native compiler's path, as memwatch's
  * process lists write it (#5217). Where the cut falls moves with the path's
  * length; NATIVE_CUT_FLOOR is the shortest cut recorded. Residuals: a line
- * cut before it counts nothing, as it cannot be told from `@types/` or any
- * other `@t…` package there; one cut inside `@typescript` counts, though
- * `@typescript-eslint/`'s binary cut there reads the same.
+ * cut before it counts nothing, at `@types` or before as it reads as
+ * `@types/`, and past that as no such cut has been recorded; one cut inside
+ * `@typescript` counts, though `@typescript-eslint/`'s binary cut there reads
+ * the same.
  */
 const NATIVE_CUT_FLOOR = "@typescr";
 const TSC_NATIVE_CUT = new RegExp(

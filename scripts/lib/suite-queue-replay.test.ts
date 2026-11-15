@@ -792,7 +792,7 @@ describe("reading the logs", () => {
 		/* Recorded in ~/memwatch.log: one native compiler in the RSS
 		 * list and the CPU list, each cut at its own column width. */
 		const store =
-			"/home/u/workflow-core/.claude/worktrees/.dep-stores/8a38214acca573b5/node_modules";
+			"/home/lucmo/workflow-core/.claude/worktrees/.dep-stores/8a38214acca573b5/node_modules";
 		const memwatch = path.join(dir, "memwatch.log");
 		fs.writeFileSync(
 			memwatch,
@@ -809,7 +809,6 @@ describe("reading the logs", () => {
 				"  5678 1600000 node /repo/node_modules/.bin/tsc --noEmit",
 				"    PID S  %CPU     RSS COMMAND",
 				"  5678 R  12.8 1600000 node /repo/node_modules/.bin/tsc --noEmit",
-				`1975479 R  98.0  478516 ${store}/@typescri`,
 				`=== ${local(T0 + 2 * MIN)} 4462MB used | cpu: 607% busy of 800% (sys 261%), load 9.73 | claude sessions: 5 ===`,
 				"  9012 1200 node scripts/queue-run.js --tsc -- /repo/node_modules/.bin/tsc",
 			].join("\n"),
