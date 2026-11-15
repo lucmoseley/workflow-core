@@ -15,7 +15,7 @@
  * ADOPTERS are lib/refill-repos.js's: each main checkout under `$HOME` with a
  * `.claude/workflow-core.json`, its pin read from `.claude/settings.json` and
  * its installed version from the config dir's `installed_plugins.json`, as
- * lib/plugin-state.js reads both. An install not at its pin is a finding.
+ * lib/plugin-state.js reads both.
  *
  * WFC_REPO_ROOT, HOME and CLAUDE_CONFIG_DIR inject the repo, the adopters'
  * home and the install registry.

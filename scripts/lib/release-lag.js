@@ -8,10 +8,9 @@ const { scriptPath } = require("./script-path.js");
 
 /**
  * Warn once the newest release's source is more than this many days behind
- * `origin/main`. The longest gap between consecutive release sources from
- * v1.1.18 to v2.0.1 was ~6.3 days, so it fires only on a lag the release
- * habit has not produced before. Days, not commits: a burst of commits
- * inside seven days stays silent by design.
+ * `origin/main`, above the longest gap between release sources (#4448).
+ * Days, not commits: a burst of commits inside seven days stays silent by
+ * design.
  */
 const LAG_WARN_DAYS = 7;
 
@@ -40,7 +39,7 @@ function labelPin({ ref, source }) {
 
 /**
  * A pin moves on a bump; the install is a separate act awaiting the
- * founder's yes (#5228), so the pin alone overstates what an adopter runs.
+ * founder's yes (#5228).
  * Judged as lib/plugin-state.js's `installAtPin` judges it: anything but the
  * pinned release, an install ahead of the pin or of no version's shape
  * included, is off the pin.

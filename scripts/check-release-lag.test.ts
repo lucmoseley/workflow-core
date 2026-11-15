@@ -19,7 +19,7 @@ const T0 = 1_790_000_000;
 let dir: string;
 let repo: string;
 let home: string;
-/** The install registry addAdopter fills, written whole on each add. */
+/** The install registry addAdopter fills. */
 let registry: { plugins: Record<string, object[]> };
 beforeEach(() => {
 	registry = { plugins: { "workflow-core@wfc": [] } };
@@ -93,8 +93,7 @@ const buildCore = ({
 	return source;
 };
 
-/** `installed` is the version installed_plugins.json records; it defaults
- * to the pin, so an adopter is level unless a test says otherwise. */
+/** `installed` is the version installed_plugins.json records. */
 const addAdopter = (
 	name: string,
 	ref: string | null,
