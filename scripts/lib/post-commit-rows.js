@@ -17,11 +17,15 @@
  * guard-registry, claim-release and commit-record.
  */
 
+const { commitRoute } = require("./commit-route.js");
+const { readHookGitDir } = require("./hook-entry.js");
+const { dispatch } = require("./precommit-dispatch.js");
 const steps = require("./post-commit-steps.js");
 
 /**
  * @typedef {import("./precommit-dispatch.js").RowResult} RowResult
  * @typedef {import("./precommit-dispatch.js").Row & {
+ *   script: string,
  *   run: (
  *     io: { cwd: string, env: NodeJS.ProcessEnv },
  *     programs?: import("./post-commit-steps.js").Programs,
@@ -34,12 +38,14 @@ const GATED = { unlessRoutes: ["post-commit-stand-down"] };
 
 /**
  * @param {string} id
+ * @param {string} script the file the row runs, for check-guard-registry.js
  * @param {PostCommitRow["run"]} run
  * @param {boolean} gated
  * @returns {PostCommitRow}
  */
-const row = (id, run, gated) => ({
+const row = (id, script, run, gated) => ({
 	id,
+	script,
 	arm: { always: true },
 	...(gated && { when: GATED }),
 	policy: "warn",
@@ -48,18 +54,49 @@ const row = (id, run, gated) => ({
 
 /** @type {PostCommitRow[]} */
 const ROWS = [
-	row("unpushed-report", steps.unpushedReport, false),
-	row("new-shared-faults", steps.newSharedFaultsRow, true),
+	row(
+		"unpushed-report",
+		"scripts/lib/landing-refs.js",
+		steps.unpushedReport,
+		false,
+	),
+	row(
+		"new-shared-faults",
+		"scripts/report-new-shared-faults.js",
+		steps.newSharedFaultsRow,
+		true,
+	),
 	row(
 		"instruction-surface",
+		"scripts/check-instruction-surface.js",
 		steps.touchedByRow("check-instruction-surface.js"),
 		true,
 	),
-	row("guard-registry", steps.touchedByRow("check-guard-registry.js"), true),
-	row("claim-release", steps.releaseClaimsRow, true),
-	row("commit-record", steps.recordCommitRow, true),
-	row("hook-shims", steps.keepShimsRow, false),
-	row("dropped-review-tier", steps.droppedReviewTier, false),
+	row(
+		"guard-registry",
+		"scripts/check-guard-registry.js",
+		steps.touchedByRow("check-guard-registry.js"),
+		true,
+	),
+	row(
+		"claim-release",
+		"scripts/session-arbiter.js",
+		steps.releaseClaimsRow,
+		true,
+	),
+	row(
+		"commit-record",
+		"scripts/session-arbiter.js",
+		steps.recordCommitRow,
+		true,
+	),
+	row("hook-shims", "scripts/keep-hook-shims.js", steps.keepShimsRow, false),
+	row(
+		"dropped-review-tier",
+		"scripts/lib/post-commit-steps.js",
+		steps.droppedReviewTier,
+		false,
+	),
 ];
 
 /**
@@ -78,9 +115,6 @@ function runPostCommit(
 	io,
 	{ write, interrupted = async () => null, rows, programs },
 ) {
-	const { commitRoute } = require("./commit-route.js");
-	const { readHookGitDir } = require("./hook-entry.js");
-	const { dispatch } = require("./precommit-dispatch.js");
 	return dispatch({
 		rows: rows ?? ROWS,
 		gates: "all",
