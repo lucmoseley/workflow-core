@@ -71,8 +71,6 @@ function scrubbedGitEnv(env) {
  */
 
 /**
- * The one line a crash prints: the hook, what the dispatcher did, and the
- * fault's first line.
  * @param {Crash} crash
  * @param {unknown} e
  */
@@ -81,16 +79,12 @@ function crashLine({ hook, said }, e) {
 	try {
 		message = require("./caught.js").caught(e).message;
 	} catch {
-		/* caught.js is what would not load: read the fault bare. */
 		message = e instanceof Error ? e.message : String(e);
 	}
 	return `${hook}: the dispatcher ${said}: ${message.split("\n")[0]}\n`;
 }
 
-/**
- * Writes `line` to fd 2 through writeFd, else through a bare writeSync where
- * write-fd.js will not load.
- * @param {string} line
+/** @param {string} line
  */
 function writeCrashLine(line) {
 	/** @type {(fd: number, text: string) => void} */
@@ -98,7 +92,6 @@ function writeCrashLine(line) {
 	try {
 		write = require("./write-fd.js").writeFd;
 	} catch {
-		/* Bare: write-fd.js is what would not load, and the line must print. */
 		write = (fd, text) => require("node:fs").writeSync(fd, text);
 	}
 	write(2, line);

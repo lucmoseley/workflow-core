@@ -25,8 +25,7 @@
  * throws, so a misspelt name fails the run rather than standing a row down
  * or arming it everywhere. The staged paths are read
  * only where some row arms on a path, so a hook whose rows all arm `always`
- * passes no `staged`, `computed` or `exists` port; a run missing any of the
- * three where a row arms on a path refuses, exit 2.
+ * passes no `staged`, `computed` or `exists` port.
  *
  * A SIGNAL (#5188). A row runs to its end, so its own cleanup runs; the
  * `interrupted` port is asked before each row, after a gating red and after
@@ -249,9 +248,7 @@ async function runRows(rows, staged, ports, voice) {
 }
 
 /**
- * The commit's staged entries, else the exit code where they will not read:
- * 2 where the hook passes no path port, 1 where git will not name them, or
- * the 128 + n of a caught signal, which kills git too.
+ * The commit's staged entries, else the exit code where they will not read.
  * @template {Row} R
  * @param {Ports<R>} ports
  * @param {Voice} voice
