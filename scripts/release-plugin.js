@@ -71,7 +71,7 @@
  *
  * THE BUMP TRACKERS ARE DERIVED, never typed (#5229): every adopter checkout
  * lib/refill-repos.js finds under `$HOME`, save the core itself, by the
- * tracker its config resolves, so no adopter is left out of a release.
+ * tracker its config resolves.
  */
 
 const fs = require("node:fs");
