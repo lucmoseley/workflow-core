@@ -200,11 +200,7 @@ describe("the rule reaches a session BEFORE it trips the guard (mantahostels#164
 		expect(handed(d)).toEqual(["pull-fast-forward"]);
 	});
 
-	it.each([
-		"git pull --ff-only",
-		"git pull --rebase",
-		"git merge origin/landing",
-	])(
+	it.each(["git pull --ff-only", "git pull --rebase", "git merge origin/main"])(
 		"%s passes once landing is on and the main checkout cut over, the write guard owning that tree (#4229)",
 		(command) => {
 			expect(run(command, { modules: ["landing"] })).toBeNull();
@@ -212,7 +208,7 @@ describe("the rule reaches a session BEFORE it trips the guard (mantahostels#164
 	);
 
 	it("refuses a merge before cutover with the worktree land route (#4229)", () => {
-		const reason = readDenyReason("git merge origin/landing", {
+		const reason = readDenyReason("git merge origin/main", {
 			modules: ["landing"],
 			cutOver: false,
 		});

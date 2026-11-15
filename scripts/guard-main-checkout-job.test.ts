@@ -153,7 +153,7 @@ beforeEach(() => {
 		fs.writeFileSync(path.join(main, name), text);
 	git(main, "add", "-A");
 	git(main, "commit", "-qm", "seed");
-	git(main, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
+	git(main, "push", "-q", "origin", "HEAD:main");
 	writeRecord(RECORD);
 });
 
@@ -171,7 +171,7 @@ it("relaunches a job started in the main checkout in a worktree cut for its prom
 	expect(name).toMatch(/^implement-4340-[0-9a-f]{6}$/);
 	const dir = path.join(worktrees(), name);
 	expect(git(dir, "rev-parse", "HEAD")).toBe(
-		git(main, "rev-parse", "origin/landing"),
+		git(main, "rev-parse", "origin/main"),
 	);
 	const [launch, removal] = readCalls();
 	expect(launch).toEqual({

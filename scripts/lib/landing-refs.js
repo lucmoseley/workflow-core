@@ -26,6 +26,7 @@
 const path = require("node:path");
 const { deref } = require("./deref.js");
 const { WORKTREES } = require("./worktree-dirs.js");
+const { isZeroSha, parseRefLines } = require("./push-refs.js");
 
 /* The config and git load where an answer first needs them, so a reader of
  * the names alone, a hook among them, pays for neither. */
@@ -64,6 +65,22 @@ const isQueueHead = (ref) =>
 	typeof ref === "string" &&
 	ref.startsWith(QUEUE_HEADS) &&
 	ref.length > QUEUE_HEADS.length;
+/**
+ * Each push to a queue ref in a pre-push hook's ref lines, in order, deletions
+ * dropped: the one filter the landing queue's pre-push gates share, so no gate
+ * picks out queue pushes its own way.
+ * @param {string} stdin
+ * @returns {Array<import("./push-refs.js").RefLine & { remoteRef: string }>}
+ */
+function parseQueuePushes(stdin) {
+	return parseRefLines(stdin).flatMap((r) =>
+		!isZeroSha(r.sha) && isQueueHead(r.remoteRef)
+			? /* restated so the guard's narrowing reaches the returned type */
+				[{ ...r, remoteRef: r.remoteRef }]
+			: [],
+	);
+}
+
 /**
  * The name of the queue ref whose head is `ref`, a full ref.
  * @param {string} ref
@@ -261,6 +278,7 @@ module.exports = {
 	ownQueueName,
 	ownQueueRef,
 	isQueueHead,
+	parseQueuePushes,
 	queueBranch,
 	queueHead,
 	queueNameOf,

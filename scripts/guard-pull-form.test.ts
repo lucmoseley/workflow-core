@@ -309,10 +309,10 @@ describe("each production read, crossed once", () => {
 
 	it("stands the reconciliation down on a resolved tree once levelled, still judging an unresolved one (#4229)", () => {
 		const env = { WFC_MODULES: "landing" };
-		expect(emission("git merge origin/landing", { env })).toBeNull();
-		expect(
-			readDenyReason('git -C "$W" merge origin/landing', { env }),
-		).toContain("session-checkout.js land");
+		expect(emission("git merge origin/main", { env })).toBeNull();
+		expect(readDenyReason('git -C "$W" merge origin/main', { env })).toContain(
+			"session-checkout.js land",
+		);
 	});
 
 	it("refuses with the rule's fallback sentence where the store cannot give it (mantahostels#1648)", () => {
