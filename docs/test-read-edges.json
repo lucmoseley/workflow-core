@@ -7454,6 +7454,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/commit-msg-dispatch.js": [
+			"scripts/check-guard-registry-dispatchers.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-msg-dispatch.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -36678,6 +36679,7 @@
 		],
 		"scripts/lib/precommit-gates.js": [
 			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-dispatchers.test.ts",
 			"scripts/check-injector-margin.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-msg-dispatch.test.ts",
@@ -56708,6 +56710,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/post-commit-dispatch.js": [
+			"scripts/check-guard-registry-dispatchers.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -56828,6 +56831,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/precommit-dispatch.js": [
+			"scripts/check-guard-registry-dispatchers.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/husky-script-refs.test.ts",
 			"scripts/lib/arm-secondary.test.ts",
@@ -56940,6 +56944,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/prepare-commit-msg-dispatch.js": [
+			"scripts/check-guard-registry-dispatchers.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
