@@ -18,9 +18,9 @@
 const { parseErrorText } = require("./lib/caught.js");
 const { now } = require("./lib/check.js");
 const { parseOrCode } = require("./lib/cli-args.js");
-const { isQueueHead, REMOTE } = require("./lib/landing-refs.js");
+const { REMOTE } = require("./lib/landing-refs.js");
 const { isModuleOnAtHead, runPrePushGate } = require("./lib/pre-push-gate.js");
-const { isZeroSha, parseRefLines } = require("./lib/push-refs.js");
+const { parseQueuePushes } = require("./lib/push-refs.js");
 const { logEnqueue, queueLogFile } = require("./lib/queue-log.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
@@ -39,9 +39,7 @@ function main(argv = process.argv.slice(2)) {
 	if (typeof parsed === "number") return parsed;
 	if (parsed.positionals[0] !== REMOTE) return 0;
 	return runPrePushGate(unlogged, (stdin, tree) => {
-		const pushes = parseRefLines(stdin).filter(
-			(r) => isQueueHead(r.remoteRef) && !isZeroSha(r.sha),
-		);
+		const pushes = parseQueuePushes(stdin);
 		if (pushes.length === 0 || !isModuleOnAtHead("landing", tree, unlogged))
 			return 0;
 		const root = repoRoot();
@@ -52,7 +50,7 @@ function main(argv = process.argv.slice(2)) {
 		const file = queueLogFile(root);
 		const at = now();
 		for (const { remoteRef, sha } of pushes)
-			if (remoteRef && !logEnqueue(file, { ref: remoteRef, sha, at }))
+			if (!logEnqueue(file, { ref: remoteRef, sha, at }))
 				unlogged(`could not write ${file}`);
 		return 0;
 	});

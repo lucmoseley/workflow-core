@@ -88,6 +88,8 @@ const { RELEASE_READS } = require("./wsl-currency.js") as {
 	RELEASE_READS: { latest: string[]; releases: string[] };
 };
 const REPO_VIEW = path.join(__dirname, "fixtures/gh/repo-view.json");
+const RUN_LIST = path.join(__dirname, "fixtures/gh/run-list.json");
+const RUN_JOBS = path.join(__dirname, "fixtures/gh/run-jobs.json");
 const LABELS_PAGE = path.join(__dirname, "fixtures/gh/labels-page.json");
 const ISSUE_LIST_ROWS = path.join(
 	__dirname,
@@ -500,6 +502,29 @@ describe("live: read-only calls", () => {
 			what: "the default-repo read",
 			fixture: REPO_VIEW,
 			args: ["repo", "view", "--json", "nameWithOwner"],
+		},
+		{
+			what: "a suite run listing, with every field lib/actions-tester.js's listings ask for",
+			fixture: RUN_LIST,
+			args: [
+				"run",
+				"list",
+				"--workflow",
+				"scheduled-checks.yml",
+				"--status",
+				"completed",
+				"--limit",
+				"1",
+				"--json",
+				"databaseId,headSha,attempt,conclusion,displayTitle",
+			],
+		},
+		{
+			what: "a run's jobs, as lib/actions-tester.js's jobsOf reads them",
+			fixture: RUN_JOBS,
+			// A failed scheduled-checks run of 22 Oct 2026, whose jobs no longer
+			// move. Residual: a run GitHub deletes turns this red.
+			args: ["run", "view", "39747307904", "--json", "jobs"],
 		},
 		{
 			what: "a check-runs read, which the founder's fine-grained token is refused",
@@ -1007,6 +1032,8 @@ describe("offline: the recorded shapes", () => {
 			ISSUE_LIST_ROWS,
 			ISSUE_VIEW,
 			IDLE_ISSUES_PAGE,
+			RUN_LIST,
+			RUN_JOBS,
 		])
 			expect(RECORDED_SHAPES).toContain(
 				JSON.stringify(readGhAnswer(fixture).stdout),

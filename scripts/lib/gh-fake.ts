@@ -52,6 +52,8 @@ import REPO_FULL_NAME from "./fixtures/gh/repo-full-name.json" with {
 	type: "json",
 };
 import REPO_VIEW from "./fixtures/gh/repo-view.json" with { type: "json" };
+import RUN_JOBS from "./fixtures/gh/run-jobs.json" with { type: "json" };
+import RUN_LIST from "./fixtures/gh/run-list.json" with { type: "json" };
 import SUB_ISSUE_NUMBERS from "./fixtures/gh/sub-issue-numbers.json" with {
 	type: "json",
 };
@@ -382,6 +384,10 @@ export const RECORDED_SHAPES = `function asRecorded(kind, value) {
 		issueView: JSON.parse(${JSON.stringify(ISSUE_VIEW.stdout)}),
 		// lib/idle-efforts.js's QUERY, --paginate --slurp.
 		idleIssuesPage: JSON.parse(${JSON.stringify(IDLE_ISSUES_PAGE.stdout)}),
+		// gh run list --json with every field lib/actions-tester.js's listings ask for.
+		runList: JSON.parse(${JSON.stringify(RUN_LIST.stdout)}),
+		// gh run view <run> --json jobs.
+		runJobs: JSON.parse(${JSON.stringify(RUN_JOBS.stdout)}),
 	};
 	// This tracker holds no pull request to record, so a listed one's key is
 	// GitHub's documented pull_request object (REST, "List repository issues").

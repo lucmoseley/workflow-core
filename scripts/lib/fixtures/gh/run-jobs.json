@@ -1,0 +1,5 @@
+{
+	"status": 0,
+	"stdout": "{\"jobs\":[{\"completedAt\":\"synthetic\",\"conclusion\":\"synthetic\",\"databaseId\":1,\"name\":\"synthetic\",\"startedAt\":\"synthetic\",\"status\":\"synthetic\",\"steps\":[{\"completedAt\":\"synthetic\",\"conclusion\":\"synthetic\",\"name\":\"synthetic\",\"number\":1,\"startedAt\":\"synthetic\",\"status\":\"synthetic\"}],\"url\":\"synthetic\"}]}\n",
+	"stderr": ""
+}

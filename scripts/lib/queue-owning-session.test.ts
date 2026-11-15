@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * lib/queue-owner.js's owner read (#4950, spec #4947), at its own seam: a
+ * lib/queue-owning-session.js's owning-session read (#4950, spec #4947), at its own seam: a
  * fixture worktree under a sandbox host, job records under a sandbox config
  * dir, and oracle listings handed in.
  *
@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ListedSessions } from "./agent-liveness.js";
-import { readOwner } from "./queue-owner.js";
+import { readOwningSession } from "./queue-owning-session.js";
 
 let tmp: string;
 let root: string;
@@ -23,7 +23,9 @@ let seat: string;
 let said: string[];
 
 beforeEach(() => {
-	tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "queue-owner-")));
+	tmp = fs.realpathSync(
+		fs.mkdtempSync(path.join(os.tmpdir(), "queue-owning-session-")),
+	);
 	root = path.join(tmp, "repo");
 	tree = path.join(root, ".claude", "worktrees", "wt-1");
 	seat = path.join(tmp, "home", ".claude");
@@ -66,13 +68,13 @@ const read = (
 	listed: () => ListedSessions,
 	worktrees: () => string[] | null = () => [tree],
 ) =>
-	readOwner(root, "wt-1", {
+	readOwningSession(root, "wt-1", {
 		worktrees,
 		listed,
 		say: (line) => said.push(line),
 	});
 
-describe("readOwner", () => {
+describe("readOwningSession", () => {
 	it("reads working where a listed, unended session's cwd lies in the queue ref's worktree", () => {
 		expect(read(() => listing({ s1: path.join(tree, "scripts") }))).toBe(
 			"working",
