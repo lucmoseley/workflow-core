@@ -877,8 +877,9 @@ const hasInstallFlag = (opts) => opts.some((o) => PIPX_INSTALL_RE.test(o.name));
  * `pip install`. pipx's own options, none taking a value, come before the
  * venv; a lone pip argument holding whitespace is a whole command line, which
  * pipx splits shell-style. shlex keeps `;` and `&&` as words of that one argv,
- * so every command the shell parser splits it into is rejoined. argparse drops
- * the first `--`, wherever it stands.
+ * so every command the shell parser splits it into is rejoined, less the
+ * operator: `x;` is vetted as `x`. argparse drops the first `--`, wherever it
+ * stands (pipx 1.18.16, #5242).
  * @param {string[]} words the words after `runpip`
  * @param {PipInstallContext} ctx
  * @returns {Install | null}
