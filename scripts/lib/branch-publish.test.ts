@@ -439,7 +439,6 @@ describe("with the landing module on, a session pushes its own queue ref (#4458)
 		return why;
 	};
 
-	/* Paired with the landing-off "allows %s, and records it" case below. */
 	it.each([
 		['git push origin "HEAD:$R"', "pushes to a ref this guard cannot read"],
 		['git push origin --delete "$R"', "deletes a ref this guard cannot read"],
@@ -644,7 +643,6 @@ it("passes a push to main with landing off", () => {
 });
 
 describe("an adopter", () => {
-	/* The rule left the rules file for this guard, which prints it (#2035). */
 	it("is handed the rule by the guard, not its rendered session rules", () => {
 		const text = renderSessionRules({
 			modules: [],
@@ -696,7 +694,6 @@ describe("the fail-open record", () => {
 
 describe("a config that will not read (#5235, #5243)", () => {
 	const Own = "queue/q1";
-	let own: string;
 	let ledger: string;
 	const breakConfig = () => {
 		fs.mkdirSync(path.join(shared, ".claude"), { recursive: true });
@@ -706,13 +703,15 @@ describe("a config that will not read (#5235, #5243)", () => {
 		fs.mkdirSync(path.dirname(ledger), { recursive: true });
 		fs.writeFileSync(ledger, "");
 	};
-	const notice = () =>
-		`\`.claude/workflow-core.json\` will not read, and the lander's green ledger ${ledger} exists, so this push is judged as with the landing module on.`;
-	beforeEach(() => {
-		own = path.join(shared, ".claude", "worktrees", "q1");
+	/** The session's own worktree, whose queue ref is `Own`. */
+	const ownTree = () => {
+		const own = path.join(shared, ".claude", "worktrees", "q1");
 		execFileSync("git", ["worktree", "add", "-q", "--detach", own], {
 			cwd: shared,
 		});
+		return own;
+	};
+	beforeEach(() => {
 		ledger = queueLanderFiles(shared).ledger;
 	});
 
@@ -720,15 +719,23 @@ describe("a config that will not read (#5235, #5243)", () => {
 		["git push origin HEAD:queue/other", "another session's queue ref"],
 		["git push origin HEAD:lander/x", "which only the lander writes"],
 		["git push origin HEAD:dropped/x", "which only the lander writes"],
+		["git push origin :queue/other", "which only the lander deletes"],
+		["git push origin --delete lander/x", "which only the lander writes"],
+		["git push origin --delete dropped/x", "which only the lander writes"],
 		['git push origin "HEAD:$R"', "pushes to a ref this guard cannot read"],
 	])(
 		"with the green ledger present, %s is refused as with landing on, naming the fault",
 		(command, what) => {
 			breakConfig();
 			writeLedger();
-			const why = denial(command, own);
+			const why = denial(command, ownTree());
 			expect(why).toContain(what);
-			expect(why).toContain(notice());
+			expect(why).toContain(
+				`${path.join(shared, ".claude", "workflow-core.json")} does not parse: `,
+			);
+			expect(why).toContain(
+				`and the lander's green ledger ${ledger} exists, so this push is judged as with the landing module on.`,
+			);
 			expect(why).toContain(`Your session's queue ref is \`${Own}\``);
 			expect(logs.join("\n")).not.toContain("allowed unchecked");
 		},
@@ -737,21 +744,25 @@ describe("a config that will not read (#5235, #5243)", () => {
 	it("with the green ledger present, its own queue ref passes", () => {
 		breakConfig();
 		writeLedger();
-		expect(denial(`git push origin HEAD:${Own}`, own)).toBeNull();
+		expect(denial(`git push origin HEAD:${Own}`, ownTree())).toBeNull();
 	});
 
 	it("with the green ledger present, a push to main is refused, naming the leftover ledger to delete where landing is off", () => {
 		breakConfig();
 		writeLedger();
-		expect(denial("git push origin HEAD:main", own)).toContain(
+		expect(denial("git push origin HEAD:main", ownTree())).toContain(
 			"where landing is off here, delete that leftover ledger too",
 		);
 	});
 
-	it("with no green ledger, allows an unreadable refspec and another queue ref, logged: the stated residual", () => {
+	it("with no green ledger, allows an unreadable refspec, main and a lander ref's deletion, logged, and refuses another queue ref as a branch", () => {
 		breakConfig();
 		expect(denial('git push origin "HEAD:$R"')).toBeNull();
 		expect(denial("git push origin HEAD:main")).toBeNull();
+		expect(denial("git push origin --delete lander/x")).toBeNull();
+		expect(denial("git push origin HEAD:queue/other")).toContain(
+			readRuleText("branch-publish"),
+		);
 		expect(logs).toContain("unreadable push refspec — push allowed unchecked");
 		expect(logs.join("\n")).toContain(
 			"module landing read as off on a config fault",

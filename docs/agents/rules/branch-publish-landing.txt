@@ -28,6 +28,7 @@ where the module config will not read, once that ledger exists. `git push
 
 WHAT THIS DOES NOT CATCH: a push or pull request made outside Claude Code or in
 the GitHub web UI, one reached through a script, and a push steered by a
-`remote.<name>.push` refspec in git config, and any push at all where
+`remote.<name>.push` refspec in git config, and, where
 `.claude/workflow-core.json` will not read before the lander's first landing,
-which this guard then takes as the module off. Its silence there is not leave.
+a push to `main` or to a destination it cannot read and a deletion of a queue
+ref, `lander/*` or `dropped/*`. Its silence there is not leave.

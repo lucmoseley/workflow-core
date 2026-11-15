@@ -4,6 +4,8 @@
  * that never merges a Dependabot PR (mantahostels#3351). One core, because
  * both limbs read the same `gh pr` walk. Its production port, the `gh pr view`
  * lookup, is lib/branch-publish-host.js; git reads go through `ctx.git`.
+ * With `landing` read as off it stats the lander's green ledger and, where
+ * that exists, reads the config again to tell a fault from the module off.
  *
  * DENY, not warn (mantahostels#103): a push's destination ref, a `gh pr
  * create` and a merge of a PR whose author is Dependabot are structured facts,
@@ -50,7 +52,7 @@
  *   `lander/*`, a queue ref's compare-and-delete — run from its process, never
  *   through Claude Code's Bash tool, so none reaches this core.
  *
- * THE FIRST REFUSAL WINS, as the bash guard's exit on its first deny did: the
+ * THE FIRST REFUSAL WINS: the
  * push walk runs before the gh walk, and once a refusal stands no later
  * segment is judged, looked up or recorded.
  *
@@ -76,11 +78,14 @@
  *  - The `landing` module is read through moduleReader, which reads a config
  *    fault as off, logged. Where the canonical checkout's green ledger exists
  *    the guard judges as with `landing` on, each refusal naming the fault and
- *    the leftover ledger to delete where `landing` is off (#5243). Before
- *    the lander's first landing no ledger exists: the guard then takes the
- *    straight-to-`main` route and judges no queue ref.
+ *    the leftover ledger to delete where `landing` is off (#5243). With
+ *    `landing` truly off, that leftover ledger lets the session's own queue
+ *    ref pass, silent. Before the lander's first landing no ledger exists:
+ *    the guard then takes the straight-to-`main` route, judging no queue
+ *    ref, so an unreadable destination, `main` and a deletion of a queue
+ *    ref, `lander/*` or `dropped/*` pass.
  *  - A `gh pr merge` naming no `dependabot/` branch costs one `gh pr view`,
- *    under the host's 8 s timeout: 0.95–1.45 s over five measured calls.
+ *    under the host's 8 s timeout.
  *    Where the lookup fails — or cannot be aimed: a PR or repo word it
  *    cannot read, a `GH_REPO` override, an unknown directory — the merge is allowed
  *    and recorded. The lookup runs
@@ -104,6 +109,7 @@
  */
 
 const fs = require("node:fs");
+const { caught } = require("./caught.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const path = require("node:path");
 const {
@@ -112,7 +118,7 @@ const {
 	ownQueueRef,
 	QUEUE_PREFIX,
 } = require("./landing-refs.js");
-const { queueLanderFiles } = require("./lander-files.js");
+const { queueLanderFiles, standInNotice } = require("./lander-files.js");
 const { landingRewindRule, rewindReason } = require("./main-rewind.js");
 const { readPush } = require("./push-dests.js");
 const { shellQuote } = require("./sh-quote.js");
@@ -132,7 +138,7 @@ const {
 } = require("./shell-words.js");
 const { treeOr } = require("./tree-or.js");
 const { trimEndRun } = require("./trim-run.js");
-const { CONFIG_PATH, readConfig } = require("./workflow-core-config.js");
+const { readConfig } = require("./workflow-core-config.js");
 const { WORKTREES } = require("./worktree-dirs.js");
 
 /**
@@ -209,30 +215,30 @@ const DIRECT = {
 };
 
 /** @type {WeakMap<BranchPublishContext["moduleOn"], string | null>} */
-const ledgerSeen = new WeakMap();
+const standIns = new WeakMap();
 
 /**
- * The lander's green ledger where `landing` reads as off only because the
- * config will not read and that ledger exists, else null: only the lander
- * writes it, so it stands as the module on, as the pre-push limb reads it
- * (#5235, #5243). Read once a module reader's life, keyed on that reader
- * since decide() spreads the context.
+ * The refusal's notice where `landing` reads as off only because the config
+ * will not read and the lander's green ledger exists, else null: the ledger
+ * then stands in for the module on, as the pre-push limb reads it (#5235,
+ * #5243). Read once a module reader's life, keyed on that reader since
+ * decide() spreads the context.
  * @param {BranchPublishContext} ctx
  * @returns {string | null}
  */
 function ledgerStandIn(ctx) {
-	const seen = ledgerSeen.get(ctx.moduleOn);
+	const seen = standIns.get(ctx.moduleOn);
 	if (seen !== undefined) return seen;
 	const ledger = queueLanderFiles(ctx.root).ledger;
-	let standIn = null;
+	let notice = null;
 	if (fs.existsSync(ledger))
 		try {
 			readConfig({ root: ctx.root, quiet: true });
-		} catch {
-			standIn = ledger;
+		} catch (e) {
+			notice = standInNotice(caught(e).message, ledger, "this push");
 		}
-	ledgerSeen.set(ctx.moduleOn, standIn);
-	return standIn;
+	standIns.set(ctx.moduleOn, notice);
+	return notice;
 }
 
 /** @param {BranchPublishContext} ctx @returns {Route} */
@@ -266,28 +272,18 @@ const mainRewind = (ctx, what, segment) => ({
 
 /**
  * A refusal's reason naming the session's own queue ref, or the launch where
- * it has none, between its opening and `rule`.
+ * it has none, between its opening and `rule`, after ledgerStandIn's notice
+ * where there is one.
  * @param {BranchPublishContext} ctx
  * @param {string} what the refusal's opening, "This …"
  * @param {string} rule
  * @param {string | null} [own]
  * @returns {string}
  */
-const buildOwnRefReason = (ctx, what, rule, own = sessionQueueRef(ctx)) =>
-	`${what}: @CMD@\n\n${standInLine(ctx)}${ownRefLine(ctx, own)}\n\n${rule}`;
-
-/**
- * The notice that the green ledger stood in for an unreadable config, and its
- * fix, or nothing where the config read.
- * @param {BranchPublishContext} ctx
- */
-function standInLine(ctx) {
-	if (ctx.moduleOn("landing")) return "";
-	const ledger = ledgerStandIn(ctx);
-	return ledger === null
-		? ""
-		: `\`${CONFIG_PATH}\` will not read, and the lander's green ledger ${ledger} exists, so this push is judged as with the landing module on. Fix the config; where landing is off here, delete that leftover ledger too.\n\n`;
-}
+const buildOwnRefReason = (ctx, what, rule, own = sessionQueueRef(ctx)) => {
+	const notice = ledgerStandIn(ctx);
+	return `${what}: @CMD@\n\n${notice ? `${notice}\n\n` : ""}${ownRefLine(ctx, own)}\n\n${rule}`;
+};
 
 /**
  * The session's own queue ref, lib/landing-refs.js's answer, or null where

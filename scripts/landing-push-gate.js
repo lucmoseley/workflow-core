@@ -42,7 +42,11 @@
 
 const { readText } = require("./lib/file-read.js");
 const { VERIFIED_BRANCH } = require("./lib/landing-refs.js");
-const { parseLedgerShas, queueLanderFiles } = require("./lib/lander-files.js");
+const {
+	parseLedgerShas,
+	queueLanderFiles,
+	standInNotice,
+} = require("./lib/lander-files.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 const { isZeroSha, parseRefLines } = require("./lib/push-refs.js");
@@ -114,7 +118,7 @@ function judge(stdin, { tree, root }) {
 		/* Judged as on, not passed, as the header's second exception (#5235). */
 		writeFd(
 			2,
-			`landing-push-gate: ${landing.fault}, and the lander's green ledger ${file} exists, so the push to ${VERIFIED_BRANCH} is judged as with the landing module on. Fix the config; where landing is off here, delete that leftover ledger too.\n`,
+			`landing-push-gate: ${standInNotice(landing.fault, file, `the push to ${VERIFIED_BRANCH}`)}\n`,
 		);
 	} else if (!landing.on) return 0;
 	if (ledger.state === "unreadable") {

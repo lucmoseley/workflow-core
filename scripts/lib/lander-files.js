@@ -129,6 +129,17 @@ function readHeartbeat(file) {
 	}
 }
 
+/**
+ * The notice that a green ledger stood in for a config that will not read:
+ * only the lander writes the ledger, so it reads as the `landing` module on
+ * (#5235, #5243).
+ * @param {string} fault why the config will not read
+ * @param {string} ledger the ledger's path
+ * @param {string} push what is judged, "the push to main"
+ */
+const standInNotice = (fault, ledger, push) =>
+	`${fault}, and the lander's green ledger ${ledger} exists, so ${push} is judged as with the landing module on. Fix the config; where landing is off here, delete that leftover ledger too.`;
+
 module.exports = {
 	HEARTBEAT_MS,
 	fileLedger,
@@ -137,4 +148,5 @@ module.exports = {
 	parseLedgerShas,
 	queueLanderFiles,
 	readHeartbeat,
+	standInNotice,
 };
