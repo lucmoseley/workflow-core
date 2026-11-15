@@ -501,6 +501,13 @@ describe("the declaring files", () => {
 		},
 	);
 
+	it("reads an opener inside a comment as no string (#5241)", () => {
+		const text = `[project]\n# a note """\ndependencies = ["httpx"]\n`;
+		expect(
+			allows("pip install httpx", { created: "404" }, withPyproject(text)),
+		).toBe(true);
+	});
+
 	it("reads on past a multi-line string to the next key (#5241)", () => {
 		const text = `[project]\ndescription = """\nx\n"""\ndependencies = ["httpx"]\n`;
 		expect(

@@ -255,8 +255,7 @@ const TARGET_TABLES = new Set([
  * The requirement strings of `pyproject.toml`'s three dependency tables. A
  * reader of just that much TOML: a table header, a `key = [` array, the
  * strings in it outside an inline table, and a multi-line string, read past
- * whole so nothing in it counts as a header or a key. What it misreads it
- * drops, so the package is vetted as new.
+ * whole. What it misreads it drops, so the package is vetted as new.
  * @param {string} text
  * @returns {string[]}
  */
@@ -290,9 +289,8 @@ function pyprojectSpecs(text) {
  */
 function pastLine(text, at, end) {
 	/* A line opening no string skips the token search, which runs on to the
-	   file's next token and so is quadratic over token-free lines. */
-	const line = text.slice(at, end);
-	if (!line.includes('"""') && !line.includes("'''")) return end + 1;
+	   file's next token and so is quadratic over token-free lines (#5241). */
+	if (!MULTI_LINE_OPENER.test(text.slice(at, end))) return end + 1;
 	for (const token of tokensFrom(text, at)) {
 		if (token.match.index >= end) break;
 		if (token.end > end) return lineEnd(text, token.end) + 1;
@@ -311,7 +309,7 @@ function* tokensFrom(text, at) {
 	const tokens = new RegExp(TOKEN_RE.source, "g");
 	tokens.lastIndex = at;
 	for (let m = tokens.exec(text); m !== null; m = tokens.exec(text)) {
-		const multiLine = m[0] === '"""' || m[0] === "'''";
+		const multiLine = OPENER_TOKEN_RE.test(m[0]);
 		const end = multiLine
 			? multiLineClose(text, m.index)
 			: m.index + m[0].length;
@@ -343,6 +341,9 @@ function multiLineClose(text, open) {
 	return text.length;
 }
 
+const MULTI_LINE_OPENER = /"""|'''/;
+/* Anchored: a comment token may hold an opener. */
+const OPENER_TOKEN_RE = new RegExp(`^(?:${MULTI_LINE_OPENER.source})$`);
 const KEY_ARRAY_RE = /^\s*("[^"]*"|'[^']*'|[A-Za-z0-9_-]+)\s*=\s*\[/;
 /* `[^\n]`, not `.`, so a CRLF line's `\r` ends a comment (#5241). */
 const HEADER_RE = /^\s*\[([^[\]]+)\]\s*(#[^\n]*)?$/;
