@@ -867,10 +867,19 @@ function redAction(b, s, main, { sha, whole }) {
 	const land = { kind: "fast-forward-main", sha };
 	const rerun = { sha, files: whole.files, pass: 2 };
 	/* Retried in its own run already: red again there, so no re-run (#4545). */
-	const again = whole.retried
+	let again = whole.retried
 		? { v: whole }
 		: verdictOr(s, rerun, { kind: "rerun-files", ...rerun });
 	if ("action" in again) return again.action;
+	/* A files rerun the slot ref no longer lists a run for is judged off
+	 * `named-rerun.yml`, naming no run, so where `main` takes only a sha a
+	 * run passed the whole suite is asked again, which always names one
+	 * (#5236). */
+	if (again.v.kind === "green" && !isLandable(again.v, s)) {
+		const suite = { sha, files: [], pass: 2 };
+		again = verdictOr(s, suite, { kind: "rerun-files", ...suite });
+		if ("action" in again) return again.action;
+	}
 	if (again.v.kind === "green") return landGreen(again.v, s, land);
 	const files = again.v.files.length > 0 ? again.v.files : whole.files;
 	const checked = baseCheck(b, s, main, { ...again.v, files });

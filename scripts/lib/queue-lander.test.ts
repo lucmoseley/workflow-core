@@ -2135,6 +2135,70 @@ describe("the red path", () => {
 		expect(isoPlaced(remote)).toEqual([]);
 	});
 
+	it("lands a batch whose rerun passed with no CI run once a whole-suite rerun passes, where main takes only a sha a run passed (#5236)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		const integration = "merge(m0;a1,b1)";
+		const verdict = (
+			_: string,
+			__: Remote,
+			files: readonly string[],
+			nth: number,
+		): Verdict => {
+			if (files.length > 0) return { kind: "green" };
+			return nth === 1 ? red("scripts/x.test.ts") : Green;
+		};
+
+		const { end, asked } = await land(remote, disk, { verdict });
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(asked).toEqual([
+			integration,
+			`${integration}:scripts/x.test.ts`,
+			integration,
+		]);
+		expect(remote.main).toBe(integration);
+		expect(isoPlaced(remote)).toEqual([]);
+	});
+
+	it("asks that whole-suite rerun again on the next start where the first reached no verdict, reading the run-less green it ledgered (#5236)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		const integration = "merge(m0;a1,b1)";
+		let started = 1;
+		const verdict = (
+			_: string,
+			__: Remote,
+			files: readonly string[],
+			nth: number,
+		): Verdict => {
+			if (files.length > 0) return { kind: "green" };
+			if (started === 2) return Green;
+			return nth === 1
+				? red("scripts/x.test.ts")
+				: { kind: "unknown", reason: "no run" };
+		};
+
+		const first = await land(remote, disk, { verdict });
+		expect(first.end).toEqual({
+			kind: "exit",
+			reason: "no verdict at merge(m0;: no run",
+		});
+		expect(remote.main).toBe("m0");
+		started = 2;
+		const again = await land(remote, disk, { verdict });
+
+		expect(again.end).toEqual(NO_QUEUE);
+		expect(again.asked).toEqual([integration]);
+		expect(remote.main).toBe(integration);
+	});
+
 	it("takes no rerun of a red its own run retried, going straight to the base check (#4545)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },
