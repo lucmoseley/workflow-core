@@ -59,8 +59,7 @@ function parsePushes(stdin, { skipTags = false } = {}) {
 }
 
 /**
- * Each push to a queue ref, in order, deletions dropped: what every pre-push
- * gate on the landing queue judges.
+ * Each push to a queue ref, in order, deletions dropped.
  * @param {string} stdin
  * @returns {Array<RefLine & { remoteRef: string }>}
  */
