@@ -182,8 +182,9 @@ const { treeOrHost } = require("./tree-or.js");
  * @property {(scope: ClimbScope) => number} climbMb what the queues'
  *   running launches in `scope` have yet to draw, in MB, which MemAvailable
  *   does not yet count (#3488, #4111)
- * @property {(tree: string, bin: string) => number} tscLaunchPeakMb the peak
- *   a `bin` launch from `tree` is charged, by the compiler it resolves to (#4892)
+ * @property {(dir: string, bin: string) => number} tscLaunchPeakMb the peak
+ *   a `bin` launch from `dir` is charged, by the compiler it resolves to
+ *   there (#4892, #5216)
  * @property {() => import("./suite-ladder.js").PsRow[] | null} psRows `ps`,
  *   read once a call
  * @property {(pid: number | null) => import("./suite-handoff.js").CarriedWeight | null} carriedOf
@@ -655,10 +656,11 @@ function isTouchedLaunch(st, launch, words) {
  * reached on the words alone — undefined where the walk goes on.
  * @param {St} st
  * @param {string[]} words
- * @param {string} segment
+ * @param {Command} cmd
  * @returns {{ subject: Subject } | { verdict: Verdict | undefined }}
  */
-function subjectOf(st, words, segment) {
+function subjectOf(st, words, cmd) {
+	const { segment } = cmd;
 	const launch = launchOf(st, words);
 	if (launch?.kind === "npm-py") {
 		const argv = words
@@ -689,8 +691,28 @@ function subjectOf(st, words, segment) {
 	if (isNextLaunch("dev", words))
 		return { verdict: denySecondNext(st, "dev", " server", segment) };
 	const tscBin = tscLaunchBin(words);
-	if (tscBin !== null) return { verdict: denyBareTsc(st, segment, tscBin) };
+	if (tscBin !== null) return { verdict: denyBareTsc(st, cmd, tscBin) };
 	return { verdict: undefined };
+}
+
+/**
+ * The peak of the compiler `bin` resolves to in each directory the launch may
+ * stand in, the highest taken: a `cd` may have failed (#4980, #5216). A
+ * directory the walk cannot name is charged the session's tree (#4892).
+ * Residual: a launch whose `cd` did reach a lighter tree is over-charged, and
+ * may queue where it would fit.
+ * @param {St} st
+ * @param {Command["cwds"]} cwds
+ * @param {string} bin
+ */
+function launchDirPeakMb(st, cwds, bin) {
+	if (cwds.includes(""))
+		st.ctx.log(
+			"a `tsc` launch's directory unknown — charged the session tree's compiler",
+		);
+	return Math.max(
+		...cwds.map((dir) => st.ctx.tscLaunchPeakMb(dir || treeRoot(st.ctx), bin)),
+	);
 }
 
 /**
@@ -699,11 +721,11 @@ function subjectOf(st, words, segment) {
  * launch the slot would admit passes; no escape stands the deny down, the
  * queue being the way through.
  * @param {St} st
- * @param {string} segment
+ * @param {Command} cmd
  * @param {string} bin the `tsc` binary it launches
  * @returns {Verdict | undefined}
  */
-function denyBareTsc(st, segment, bin) {
+function denyBareTsc(st, { segment, cwds }, bin) {
 	const ps = st.readPs();
 	const mb = st.ctx.availableMb();
 	if (ps === null)
@@ -717,10 +739,9 @@ function denyBareTsc(st, segment, bin) {
 		st.ctx.log,
 		"a `tsc` launch",
 	);
-	/* Charged the compiler npm would run in the session's tree (#4892). */
 	const denial = tscDenial(ps, mb, mb === null ? 0 : st.readClimb("all"), {
 		windows,
-		peakMb: st.ctx.tscLaunchPeakMb(treeRoot(st.ctx), bin),
+		peakMb: launchDirPeakMb(st, cwds, bin),
 	});
 	if (denial === null) return;
 	const launch = queuedLaunch(
@@ -1174,7 +1195,7 @@ function judge(st, cmd) {
  */
 function judgeRun(st, cmd, { words, scripted }) {
 	if (words.length === 0) return;
-	const got = subjectOf(st, words, cmd.segment);
+	const got = subjectOf(st, words, cmd);
 	if (!("subject" in got)) return got.verdict;
 	const s = got.subject;
 	const mb = st.ctx.availableMb();

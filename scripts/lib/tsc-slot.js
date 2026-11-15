@@ -9,6 +9,9 @@
  * Both read MemAvailable live, less what the other queue's launches have yet
  * to draw as they climb (#3416); a launch admitted and not yet up is held by
  * lib/suite-queue.js, which reads both queues' admission stamps (#3203).
+ *
+ * It also reads a runner's line, live or as memwatch cut it, for the slot's
+ * count and the queue-wait replay (lib/suite-queue-replay.js).
  */
 
 const fs = require("node:fs");
@@ -86,14 +89,19 @@ const isTscRunner = (args) => TSC_LAUNCHER.test(args) || TSC_NATIVE.test(args);
 
 /*
  * A command cut short inside 7.0's native compiler's path, as memwatch's
- * process lists write it (#5217). Where the cut falls moves
- * with the path's length. Residuals: a line cut at `node_modules/` or before
- * counts nothing, as it cannot be told from any other binary there; one cut
- * inside `@typescript/` counts, though another `@t…` package's binary cut
- * there reads the same.
+ * process lists write it (#5217). Where the cut falls moves with the path's
+ * length; NATIVE_CUT_FLOOR is the shortest cut recorded. Residuals: a line
+ * cut before it counts nothing, at `@types` or before as it reads as
+ * `@types/`, and past that as no such cut has been recorded; one cut inside
+ * `@typescript` counts, though `@typescript-eslint/`'s binary cut there reads
+ * the same.
  */
-const TSC_NATIVE_CUT = /^ *\/\S*\/node_modules\/(@t\S*)$/;
-/* Past the head: a cut `<os>-<arch>`, or a whole one and a cut binary. */
+const NATIVE_CUT_FLOOR = "@typescr";
+const TSC_NATIVE_CUT = new RegExp(
+	`^ */\\S*/node_modules/(${escapeRe(NATIVE_CUT_FLOOR)}\\S*)$`,
+);
+/* Past the head: a cut `<os>-<arch>`, or a whole one and a cut binary. The
+ * first branch is NATIVE_PLATFORM cut short, so changes with it. */
 const NATIVE_REST = new RegExp(
 	`^[a-z0-9]+(?:-[a-z0-9]*)?$|^${NATIVE_PLATFORM}(/.*)$`,
 );
