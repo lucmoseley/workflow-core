@@ -246,10 +246,15 @@ function requirementLines(text) {
 		.filter((line) => line !== "" && !line.startsWith("-"));
 }
 
-const TARGET_TABLES = new Set([
-	"project.optional-dependencies",
-	"dependency-groups",
-]);
+/* Each a table's key path, JSON-spelt, so a quoted `.` stays inside its key. */
+const TARGET_TABLES = new Set(
+	[["project", "optional-dependencies"], ["dependency-groups"]].map((keys) =>
+		JSON.stringify(keys),
+	),
+);
+
+/** @param {string[]} keys */
+const isTarget = (keys) => TARGET_TABLES.has(JSON.stringify(keys));
 
 /**
  * The requirement strings of `pyproject.toml`'s three dependency tables. A
@@ -264,8 +269,8 @@ const TARGET_TABLES = new Set([
 function pyprojectSpecs(text) {
 	/** @type {string[]} */
 	const specs = [];
-	/** @type {string | null} */
-	let table = "";
+	/** @type {string[] | null} */
+	let table = [];
 	for (let at = 0; at < text.length; ) {
 		const end = lineEnd(text, at);
 		const line = text.slice(at, end);
@@ -300,36 +305,52 @@ const lineEnd = (text, at) => {
 };
 
 /**
- * A header line's table: null for an array of tables, `[[…]]`, or a header it
- * cannot parse, which no key under it escapes into a target table.
+ * A header line's table path: null for an array of tables, `[[…]]`, or a
+ * header it cannot parse, which no key under it escapes into a target table.
  * @param {string} line
- * @returns {string | null}
+ * @returns {string[] | null}
  */
 const tableOf = (line) => {
 	const name = HEADER_RE.exec(line)?.[1];
-	return name === undefined ? null : name.replace(/["'\s]/g, "");
+	return name === undefined ? null : keyPath(name);
 };
+
+/* One key of a dotted key: basic with no escape, literal, or bare. */
+const KEY_PART_RE = /\s*(?:"([^"\\]*)"|'([^']*)'|([A-Za-z0-9_-]+))\s*(\.|$)/y;
+
+/**
+ * A dotted key's keys, unquoted: null where it is not one this reader spells.
+ * @param {string} spelt
+ * @returns {string[] | null}
+ */
+function keyPath(spelt) {
+	/** @type {string[]} */
+	const keys = [];
+	const part = new RegExp(KEY_PART_RE.source, "y");
+	for (;;) {
+		const m = part.exec(spelt);
+		if (m === null) return null;
+		keys.push(m[1] ?? m[2] ?? requiredGroup(m, 3, KEY_PART_RE));
+		if (m[4] !== ".") return keys;
+	}
+}
 
 /**
  * Whether `key = [` under `table` is `[project]`'s `dependencies` or an array
- * of a target table, or `key = {` is an inline target table. A quoted key
- * holding a `.` is one key, never a path into a table.
- * @param {string | null} table "" above the first header
+ * of a target table, or `key = {` is an inline target table.
+ * @param {string[] | null} table [] above the first header
  * @param {string} key as written, quoted or bare
  * @param {string | undefined} opener `[` or `{`
  */
 const isDependencyValue = (table, key, opener) => {
-	if (table === null) return false;
-	const name = key.replace(/["']/g, "");
+	const name = keyPath(key);
+	if (table === null || name === null) return false;
 	if (opener === "[")
 		return (
-			(table === "project" && name === "dependencies") ||
-			TARGET_TABLES.has(table)
+			(JSON.stringify(table) === '["project"]' && name[0] === "dependencies") ||
+			isTarget(table)
 		);
-	return (
-		!name.includes(".") &&
-		TARGET_TABLES.has(table === "" ? name : `${table}.${name}`)
-	);
+	return isTarget([...table, ...name]);
 };
 
 /**
@@ -366,7 +387,7 @@ function valueStrings(text, open) {
 	tokens.lastIndex = open;
 	for (let m = tokens.exec(text); m !== null; m = tokens.exec(text)) {
 		if (stringBraces === 1 && opensHeader(text, m, brackets))
-			return { strings: [], end: m.index - 1 };
+			return { strings: [], end: text.lastIndexOf("\n", m.index) };
 		const step = NESTING[m[0]];
 		if (step !== undefined) {
 			brackets += step[0];

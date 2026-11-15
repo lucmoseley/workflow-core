@@ -211,6 +211,26 @@ optional-dependencies = { docs = ["mkdocs", { x = "not-a-dep" }], "themes" = [
 			`[project]\noptional-dependencies = { docs = ["a"]\n[dependency-groups]\nb = ["c"]\n[tool.x]\nfoo = ["evil"]\n`,
 		],
 		["a nested array", `[project.optional-dependencies]\ndocs = [["evil"]]\n`],
+		[
+			"a key after an indented header an inline table breaks into",
+			`[project]\noptional-dependencies = { docs = ["a"]\n  [tool.x]\ndependencies = ["evil"]\n`,
+		],
+		[
+			"a key under a quoted empty header",
+			`[""]\ndependency-groups = { a = ["evil"] }\n`,
+		],
+		[
+			"a key with a quote inside its quotes",
+			`"dependency-'groups" = { a = ["evil"] }\n`,
+		],
+		[
+			"a header with a quoted dotted key",
+			`["project.optional-dependencies"]\ndocs = ["evil"]\n`,
+		],
+		[
+			"an array key with a quote inside its quotes",
+			`[project]\n"depend'encies" = ["evil"]\n`,
+		],
 		["an array that never closes", `[project]\ndependencies = ["evil"\n`],
 	])("does not read %s as declared (#5238)", (_what, pyproject) => {
 		const files = { "pyproject.toml": pyproject };
