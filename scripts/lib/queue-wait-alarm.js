@@ -15,14 +15,15 @@ const {
 	queueBranch,
 	queueNameOf,
 } = require("./landing-refs.js");
+const { STALL_MS } = require("./landing-stall.js");
 const { formatHoursMin, oldestWaiting } = require("./queue-gauge.js");
 const { QUEUE_ALERT_TITLES } = require("./queue-tickets.js");
 
 /* GitHub's ceiling for one page of the activity feed. */
 const PUSH_PAGE = 100;
-/* An unmeasured first guess, at the figure of landing-stall.js's
- * STALL_MS: a dead-machine backstop, so later than the machine's own alert. */
-const QUEUE_BACKSTOP_MS = 2 * 60 * 60 * 1000;
+/* landing-stall.js's STALL_MS, unmeasured as a backstop: a dead machine
+ * raises no alert of its own, so this one fires at the same wait. */
+const QUEUE_BACKSTOP_MS = STALL_MS;
 
 /**
  * @typedef {{timestamp: string, after: string}} Push

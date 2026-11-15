@@ -27,13 +27,12 @@ const os = require("node:os");
 const path = require("node:path");
 const { pidAlive } = require("./arbiter-proc.js");
 const { writeFileAtomic } = require("./atomic-write.js");
-const { execGit } = require("./git.js");
 const {
 	HEARTBEAT_MS,
 	queueLanderFiles,
 	readHeartbeat,
 } = require("./lander-files.js");
-const { LANDER_GIT_TIMEOUT_MS, short } = require("./lander-git.js");
+const { readGit, short } = require("./lander-git.js");
 const { queueBranch } = require("./landing-refs.js");
 const { readOwedDrops } = require("./lander-records.js");
 const { markersDir } = require("./marker-root.js");
@@ -170,14 +169,7 @@ function readQueue(root, now) {
  */
 function committedAt(root, sha) {
 	const at =
-		Number(
-			execGit(["log", "-1", "--format=%ct", sha], {
-				cwd: root,
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "pipe"],
-				timeout: LANDER_GIT_TIMEOUT_MS,
-			}).trim(),
-		) * 1000;
+		Number(readGit(root, ["log", "-1", "--format=%ct", sha]).trim()) * 1000;
 	if (!Number.isFinite(at) || at === 0)
 		throw new Error(`git log printed no committer time for ${sha}`);
 	return at;

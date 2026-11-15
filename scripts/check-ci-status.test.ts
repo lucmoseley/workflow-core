@@ -2439,7 +2439,7 @@ describe("what fills a slot, and what merely covers the tree (mantahostels#1024)
 		);
 	});
 
-	it("judges slots off main's runs alone, which landing's pushes cannot crowd out (#4447)", () => {
+	it("judges slots off main's runs alone, which the lander's pushes cannot crowd out (#4447)", () => {
 		setSweeps([sweepAt("03:00"), sweepAt("09:00"), sweepAt("15:00")]);
 		fs.writeFileSync(ghArgsFile, "");
 
@@ -2467,8 +2467,8 @@ describe("what fills a slot, and what merely covers the tree (mantahostels#1024)
 	});
 
 	it("does not let a push run fill a slot either (#1994)", () => {
-		// Every push to `landing` runs this workflow (#2413), so a push run
-		// landing just after a slot is the ordinary case, not a rare one.
+		// Every push to a `lander/batch-*` ref runs this workflow (#4556), so a
+		// push run landing just after a slot is the ordinary case, not a rare one.
 		setSweeps([
 			sweepAt("03:00"),
 			sweepAt("09:00"),

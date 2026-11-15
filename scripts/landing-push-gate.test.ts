@@ -4,7 +4,7 @@
  *
  * Each case runs the gate on a throwaway repo's ref list and ledger, and the
  * last two run .husky/pre-push itself through `sh`, as git does: one tests
- * the hook's wiring of the gate, the other that a push to `landing` meets no
+ * the hook's wiring of the gate, the other that a push to a queue ref meets no
  * coverage warning (#2929).
  *
  * Loosen it and a push from the founder's terminal or a script moves `main`
@@ -116,8 +116,8 @@ describe("with the landing module on", () => {
 		expect(r.status, r.stderr).toBe(0);
 	});
 
-	it("passes a push to landing of an unledgered sha", () => {
-		expect(check(buildRefLine(sha, "refs/heads/landing")).status).toBe(0);
+	it("passes a push to a queue ref of an unledgered sha", () => {
+		expect(check(buildRefLine(sha, "refs/heads/queue/s1")).status).toBe(0);
 	});
 
 	it("passes a push to main of an unledgered root whose tree a ledgered sha holds (#1954)", () => {
@@ -163,8 +163,8 @@ it("makes .husky/pre-push refuse an unledgered push to main and pass a ledgered 
 	expect(r.status, r.stderr).toBe(0);
 });
 
-it("makes .husky/pre-push pass a push to landing with no coverage warning, suites on (#2929)", () => {
-	const r = hook(buildRefLine(sha, "refs/heads/landing"), "suites,landing");
+it("makes .husky/pre-push pass a push to a queue ref with no coverage warning, suites on (#2929)", () => {
+	const r = hook(buildRefLine(sha, "refs/heads/queue/s1"), "suites,landing");
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stderr).not.toContain("CERTIFICATE:");
 	expect(r.stderr).toContain('SKIP: module "landing" is on');

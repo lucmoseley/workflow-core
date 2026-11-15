@@ -9,8 +9,8 @@ Land from your session's worktree:
 
   node scripts/session-checkout.js land   # merges origin/main, pushes your queue ref; refused? do as it says, land again
 
-After the push, `node scripts/landing-status.js` reads each commit as landed,
-or queued on your queue ref.
+After the push, `node scripts/landing-status.js` reads each commit as landed
+or queued, and your queue ref as testing or dropped, naming its fix ticket.
 
 WHAT PASSES: a push creating or fast-forwarding your own queue ref, a tag
 (`git push origin v1.2.3`, `--tags`), a deletion of any branch but `main`, a
