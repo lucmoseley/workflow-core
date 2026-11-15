@@ -7,49 +7,28 @@
  *
  * THE TIMEOUTS. `npm view` gets 12 s and curl 8 s, both its own `--max-time`
  * and the spawn's: 20 s a package, which the core's 30 s budget is sized
- * against under the hook's 60 s ceiling. Both are guesses, never measured,
+ * against under the hook's 60 s ceiling (lib/package-vetting.js). Both are guesses, never measured,
  * carried from the bash guard that set them at #1803: generous beside a
  * registry answer's usual second or so.
  */
 
-const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
-const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { entryStartedAt } = require("./hook-deadline.js");
 const { npmBin } = require("./npm-bin.js");
+const { call } = require("./registry-call.js");
 const { STORES } = require("./worktree-dirs.js");
 
 const NPM_TIMEOUT_MS = 12_000;
 const CURL_MAX_TIME_S = 8;
 
 /**
- * One registry call: `missing` where the program could not be started, else
- * its status (null where the timeout killed it) and stdout. stderr is
- * dropped.
- * @param {string} program
- * @param {string[]} args
- * @param {number} timeoutMs
- * @returns {import("./npm-install.js").Call}
- */
-function call(program, args, timeoutMs) {
-	const r = spawnSync(program, args, {
-		encoding: "utf8",
-		timeout: timeoutMs,
-		maxBuffer: CHILD_MAX_BUFFER,
-		stdio: ["ignore", "pipe", "ignore"],
-	});
-	const code = /** @type {NodeJS.ErrnoException | undefined} */ (r.error)?.code;
-	if (code === "ENOENT") return { missing: true };
-	return { status: r.status, stdout: r.stdout ?? "" };
-}
-
-/**
  * The dependency stores are the host root's; the session tree's package.json
  * and manifests the core reads through its tree ports (#4242).
  * @param {string} root the host root
- * @returns {import("./npm-install.js").NpmInstallPorts}
+ * @returns {import("./npm-install.js").NpmInstallPorts
+ *   & import("./package-vetting.js").VettingPorts}
  */
 function buildHostPorts(root) {
 	const npm = npmBin();
