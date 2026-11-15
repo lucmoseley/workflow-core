@@ -7,8 +7,8 @@
  *   node scripts/commit-msg-dispatch.js [--route-file <path>] <message-file>
  *
  * `--route-file` writes the route to <path>, one line, before any row runs:
- * the hook hands it to the adopter's `.husky/commit-msg.local` as `$route`,
- * with no second Node start (#5215).
+ * the hook hands it to the adopter's `.husky/commit-msg.local` as `$route`
+ * (#5215).
  *
  * Exit 0 every armed row passed or stood down; a refusing row's own code
  * otherwise; 128 + n on signal n.
