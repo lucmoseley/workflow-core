@@ -544,6 +544,14 @@ describe("route arming", () => {
 		);
 	});
 
+	it("fails the run on a misspelt route name a matching one ahead of it would hide", async () => {
+		await expect(
+			run([row("typo", { when: { routes: ["cherry-pick", "replays"] } })], {
+				route: "cherry-pick",
+			}),
+		).rejects.toThrow("commit-route.js: 'replays' names no route or route set");
+	});
+
 	it("fails the run where a row names no route or route set", async () => {
 		await expect(
 			run([row("typo", { when: { unlessRoutes: ["replays"] } })], {

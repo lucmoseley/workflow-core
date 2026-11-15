@@ -25,8 +25,7 @@
  * throws, so a misspelt name fails the run rather than standing a row down
  * or arming it everywhere. The staged paths are read
  * only where some row arms on a path, so a hook whose rows all arm `always`
- * passes no `staged`, `computed` or `exists` port; a run missing any of the
- * three where a row arms on a path refuses, exit 2.
+ * passes no `staged`, `computed` or `exists` port.
  *
  * A SIGNAL (#5188). A row runs to its end, so its own cleanup runs; the
  * `interrupted` port is asked before each row, after a gating red and after
@@ -35,7 +34,7 @@
  */
 
 const { caught } = require("./caught.js");
-const { inRouteSet } = require("./commit-route.js");
+const { checkRouteSetName, inRouteSet } = require("./commit-route.js");
 const { armed } = require("./precommit-arm.js");
 
 /**
@@ -184,6 +183,11 @@ const crashLine = (voice, row, at, e) =>
  * @returns {Promise<number>}
  */
 async function dispatch({ rows, gates, ports, voice = PRE_COMMIT }) {
+	/* Every name, before any row runs: a `some` stops at its first match, so
+	 * a misspelt name after it would otherwise pass on that route. */
+	for (const { when } of rows)
+		for (const name of [...(when?.routes ?? []), ...(when?.unlessRoutes ?? [])])
+			checkRouteSetName(name);
 	const inSet = rows.filter(
 		(row) => !row.lander || SETS[row.lander].includes(gates),
 	);
@@ -244,9 +248,7 @@ async function runRows(rows, staged, ports, voice) {
 }
 
 /**
- * The commit's staged entries, else the exit code where they will not read:
- * 2 where the hook passes no path port, 1 where git will not name them, or
- * the 128 + n of a caught signal, which kills git too.
+ * The commit's staged entries, else the exit code where they will not read.
  * @template {Row} R
  * @param {Ports<R>} ports
  * @param {Voice} voice

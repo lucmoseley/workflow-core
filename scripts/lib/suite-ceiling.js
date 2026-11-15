@@ -45,7 +45,8 @@ const TARGET_MS = 180_000;
 /* The limit one test file's CI time is held to, judged on its median over the
  * last `SWEEPS_JUDGED` sweeps (`scripts/lib/file-ci-time.js`): delegated on
  * #4283, 4 Nov 2026, resting on Bazel's 60 s short-test timeout and the
- * TARGET_MS above. `check-file-ci-time.js` reports a file over it. */
+ * TARGET_MS above. `check-file-ci-time.js` fails the scheduled sweep on a
+ * file over it (#4293). */
 const FILE_LIMIT_MS = 60_000;
 /* #3290's bench on #2729: 1,497 s of file and setup time summed over a 343 s
  * run at 5 workers. */

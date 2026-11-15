@@ -23,13 +23,15 @@
  * cleanup unfinished.
  *
  * Usage: node scripts/lib/run-budgeted.js <budget-ms> <kill-after-ms> <command> [args…]
- *        node scripts/lib/run-budgeted.js --hook <hook> <command> [args…]
+ *        node scripts/lib/run-budgeted.js --hook <hook> [--pausable] <command> [args…]
  *
  * --hook is a git hook's checker run (#4187), through scripts/lib/hook-bound.sh:
  * the budget is HOOK_LIMIT_MS, or WFC_HOOK_LIMIT_S seconds where that is set,
  * stdin is inherited, as pre-push hands its refs on it, and a budget kill
  * writes one line naming the hook, the checker and the limit to
- * HOOK_STDERR_FD, else to stderr.
+ * HOOK_STDERR_FD, else to stderr. --pausable gives the command a pause pipe,
+ * which takeHookPause reads, to stop the clock over a stretch the limit does
+ * not own (#5213).
  * Exit: GNU `timeout`'s codes — the command's own status where it ended inside
  * the budget, and the same signal where a signal ended it; past the budget,
  * 124 where the TERM ended it and 137 where the KILL had to. 125 where this
@@ -53,21 +55,28 @@ const APPARATUS_PREFIX = "run-budgeted: ";
 const FORWARDED = /** @type {const} */ (["SIGTERM", "SIGINT", "SIGHUP"]);
 
 /* A hook checker's limit: HOOK_LIMIT_FACTOR times the slowest bounded hook
- * run measured, HOOK_SLOWEST_MS. Measured 2026-11-04 on this repo's 8-core
- * ARM64 WSL2 machine at load average 12-15 (#4187 close comment): post-commit's
- * report-new-shared-faults.js took 24.8 s. Pre-commit's one bounded run of
- * its Node gates, scripts/precommit-dispatch.js, took 21.8-22.8 s on a
- * scripts/*.js commit at load 2 (2026-11-14, #5171): a lighter load than
- * the 24.8 s figure's, so at load 12-15 it may be the slowest run, and
- * HOOK_SLOWEST_MS is a guess until it is re-measured there. The factor is UNTRACED:
- * headroom for a slower adopter machine or a heavier load. Re-measure where a
- * hook gains a run of whole-repo checkers. */
-const HOOK_SLOWEST_MS = 25_000;
+ * run measured, HOOK_SLOWEST_MS. Measured 2026-11-15 on this repo's 8-core
+ * ARM64 WSL2 machine at load average 12-15 (#5213): post-commit's one bounded
+ * run, scripts/post-commit-dispatch.js under scripts/lib/hook-bound.sh, took
+ * 26.6-31.9 s over four runs. Pre-commit's scripts/precommit-dispatch.js
+ * took 21.8-22.8 s at load 2 (#5171), and prepare-commit-msg's bounded steps
+ * are unmeasured: either may be the slowest at load 12-15, so HOOK_SLOWEST_MS
+ * is partly a guess until they are measured there. The factor is UNTRACED: headroom for a
+ * slower adopter machine or a heavier load. Re-measure where a hook gains a
+ * run of whole-repo checkers. */
+const HOOK_SLOWEST_MS = 32_000;
 const HOOK_LIMIT_FACTOR = 6;
 const HOOK_LIMIT_MS = HOOK_SLOWEST_MS * HOOK_LIMIT_FACTOR;
 const SCRIPT = /\.(?:[cm]?js|sh)$/;
 /* The hook's own stderr, kept by scripts/lib/hook-bound.sh. */
 const HOOK_STDERR_FD = 8;
+/* A --pausable command's pipe back to this runner, at PAUSE_FD and named in
+ * its environment by PAUSE_FD_ENV: a PAUSE byte stops the limit's clock and
+ * a RESUME byte restarts it on what was left (#5213). */
+const PAUSE_FD = 3;
+const PAUSE_FD_ENV = "WFC_HOOK_PAUSE_FD";
+const PAUSE = "p";
+const RESUME = "r";
 
 function hookStderr() {
 	try {
@@ -119,10 +128,12 @@ function checkerOf(command, args) {
  */
 function parseRun(argv) {
 	if (argv[0] === "--hook") {
-		const [, hook, command, ...args] = argv;
+		const pausable = argv[2] === "--pausable";
+		const [command, ...args] = argv.slice(pausable ? 3 : 2);
 		const limitS = process.env.WFC_HOOK_LIMIT_S;
 		return {
-			hook,
+			hook: argv[1],
+			pausable,
 			budgetMs: limitS ? Number(limitS) * 1000 : HOOK_LIMIT_MS,
 			killAfterMs: HOOK_GRACE_MS,
 			command,
@@ -132,6 +143,7 @@ function parseRun(argv) {
 	const [budgetRaw, killAfterRaw, command, ...args] = argv;
 	return {
 		hook: undefined,
+		pausable: false,
 		budgetMs: Number(budgetRaw),
 		killAfterMs: Number(killAfterRaw),
 		command,
@@ -145,10 +157,11 @@ function parseRun(argv) {
  *   process first
  */
 async function main(argv) {
-	const { hook, budgetMs, killAfterMs, command, args } = parseRun(argv);
+	const { hook, pausable, budgetMs, killAfterMs, command, args } =
+		parseRun(argv);
 	if (!command || !(budgetMs > 0) || !(killAfterMs > 0))
 		apparatusFailed(
-			"usage: run-budgeted.js <budget-ms> <kill-after-ms> <command> [args…] | --hook <hook> <command> [args…], WFC_HOOK_LIMIT_S a positive number where set",
+			"usage: run-budgeted.js <budget-ms> <kill-after-ms> <command> [args…] | --hook <hook> [--pausable] <command> [args…], WFC_HOOK_LIMIT_S a positive number where set",
 		);
 
 	/** @type {"TERM"|"KILL"|null} */
@@ -181,11 +194,19 @@ async function main(argv) {
 
 	const child = spawn(command, args, {
 		detached: true,
-		stdio: [hook ? "inherit" : "ignore", "inherit", "inherit"],
+		stdio: [
+			hook ? "inherit" : "ignore",
+			"inherit",
+			"inherit",
+			...(pausable ? /** @type {const} */ (["pipe"]) : []),
+		],
+		...(pausable && {
+			env: { ...process.env, [PAUSE_FD_ENV]: String(PAUSE_FD) },
+		}),
 	});
 	pgid = child.pid;
 
-	const budget = setTimeout(() => {
+	const expire = () => {
 		sent = "TERM";
 		if (hook)
 			writeFd(
@@ -197,7 +218,29 @@ async function main(argv) {
 			sent = "KILL";
 			signalGroup("SIGKILL");
 		}, killAfterMs);
-	}, budgetMs);
+	};
+	/** @type {NodeJS.Timeout | undefined} */
+	let budget = setTimeout(expire, budgetMs);
+	let left = budgetMs;
+	let since = performance.now();
+	/* RESIDUAL: a PAUSE is read on this loop's next turn, so a budget that
+	 * runs out between the command's write and that read still kills it. */
+	const pausePipe = child.stdio[PAUSE_FD];
+	pausePipe?.on("error", () => {
+		/* The pipe failing is the command's end, which "exit" reports (#5213). */
+	});
+	pausePipe?.on("data", (/** @type {Buffer} */ bytes) => {
+		for (const byte of bytes.toString("latin1")) {
+			if (byte === PAUSE && budget && !sent) {
+				clearTimeout(budget);
+				budget = undefined;
+				left -= performance.now() - since;
+			} else if (byte === RESUME && !budget && !sent) {
+				since = performance.now();
+				budget = setTimeout(expire, Math.max(left, 0));
+			}
+		}
+	});
 
 	return new Promise((resolve) => {
 		child.on("error", (e) => {
@@ -217,6 +260,51 @@ async function main(argv) {
 			else resolve(code ?? 1);
 		});
 	});
+}
+
+/**
+ * The pause pipe a --pausable run named in `env`, taken out of it: `env`
+ * without the name, for every child this process starts, so none reaches the
+ * clock; and `outside`, which runs its argument with the clock stopped.
+ * Under no such run, `outside` runs it on the clock, as it does where the
+ * pipe will not take the PAUSE, saying so on stderr (#5213).
+ * @param {NodeJS.ProcessEnv} env
+ */
+function takeHookPause(env) {
+	const { [PAUSE_FD_ENV]: named, ...rest } = env;
+	const piped = named === String(PAUSE_FD);
+	/** @param {string} byte */
+	const send = (byte) => {
+		try {
+			fs.writeSync(PAUSE_FD, byte);
+			return true;
+		} catch (e) {
+			const code = caught(e).code ?? "unknown";
+			writeFd(
+				2,
+				byte === PAUSE
+					? `${APPARATUS_PREFIX}the hook limit's clock would not pause (${code}), so this stretch runs on it (#5213).\n`
+					: `${APPARATUS_PREFIX}the hook limit's clock would not resume (${code}), so the rest of this run is unbounded (#5213).\n`,
+			);
+			return false;
+		}
+	};
+	return {
+		env: rest,
+		/**
+		 * @template T
+		 * @param {() => T} run
+		 * @returns {T}
+		 */
+		outside(run) {
+			if (!piped || !send(PAUSE)) return run();
+			try {
+				return run();
+			} finally {
+				send(RESUME);
+			}
+		},
+	};
 }
 
 /**
@@ -246,4 +334,5 @@ module.exports = {
 	APPARATUS_EXIT,
 	APPARATUS_PREFIX,
 	isRunnerFailure,
+	takeHookPause,
 };
