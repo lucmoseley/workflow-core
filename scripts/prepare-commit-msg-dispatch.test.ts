@@ -21,10 +21,9 @@ import { mkScratchDir } from "./lib/git-fixture";
 import { readGuardErrorsLog } from "./lib/guard-errors-log";
 import { scrubbedGitEnv } from "./lib/hook-entry.js";
 import { installHuskyShim } from "./lib/husky-testkit";
-import { ROWS } from "./lib/prepare-commit-msg-rows.js";
+import { ROWS, runPrepareCommitMsg } from "./lib/prepare-commit-msg-rows.js";
 import { reviewTierStamp } from "./lib/review-tier-stamp.js";
 import { shellQuote } from "./lib/sh-quote.js";
-import { runPrepareCommitMsg } from "./prepare-commit-msg-dispatch.js";
 
 const ROOT = path.join(__dirname, "..");
 const SID = "dispatch-session";
@@ -455,6 +454,16 @@ describe("the rows, in-process", () => {
 		expect(readGuardErrorsLog(process.env.CLAUDE_CONFIG_DIR as string)).toMatch(
 			/\tprepare-commit-msg\treview-tier-trailer\.js is missing — this commit lands with no Review-Tier: trailer and no check that its tree stayed put\n$/,
 		);
+	});
+
+	it("refuses BROKEN, naming the file, where the trailer is present but exports no PROGRAM", async () => {
+		const r = repo();
+		stage(r, true);
+		const trailer = path.join(r.root, "scripts", "review-tier-trailer.js");
+		fs.writeFileSync(trailer, "module.exports = {};\n");
+		const { code, out } = await run(r, "land\n\nReview-Tier: x\n");
+		expect(code).toBe(2);
+		expect(out).toContain(`${trailer} exports no PROGRAM`);
 	});
 
 	it("refuses where the trailer refuses, its text then the route's abort", async () => {

@@ -486,24 +486,24 @@ describe("the staged port, read only where a row arms on a path", () => {
 		});
 	});
 
-	it("refuses with exit 1, running no row, where a row arms on a path and the hook passes no staged port", async () => {
+	it("refuses BROKEN, exit 2, running no row, where a row arms on a path and the hook passes no staged port", async () => {
 		expect(
 			await postCommit([row("a"), row("docs", { arm: { pattern: /^d/ } })]),
 		).toEqual({
-			exit: 1,
+			exit: 2,
 			ran: [],
 			err: "post-commit: a row arms on a path, and this hook passes no staged port\n",
 		});
 	});
 
-	it("refuses with exit 1, running no row, where a row arms on a path and the hook passes no computed port", async () => {
+	it("refuses BROKEN, exit 2, running no row, where a row arms on a path and the hook passes no computed port", async () => {
 		expect(
 			await postCommit([row("a"), row("docs", { arm: { pattern: /^d/ } })], {
 				staged: () => [],
 				exists: () => true,
 			}),
 		).toEqual({
-			exit: 1,
+			exit: 2,
 			ran: [],
 			err: "post-commit: a row arms on a path, and this hook passes no computed port\n",
 		});
@@ -531,9 +531,25 @@ describe("route arming", () => {
 
 	it("stands every route-narrowed row down where the route will not read", async () => {
 		expect((await run(rows, { route: null })).ran).toEqual(["any-route"]);
-		expect((await run(rows, { route: new Error("no git dir") })).ran).toEqual([
-			"any-route",
-		]);
+	});
+
+	it("stands every route-narrowed row down where the route port throws, saying so once", async () => {
+		const r = await run(rows, {
+			route: new Error("no git dir\nat stack"),
+			voice: { hook: "post-commit", noun: "step" },
+		});
+		expect(r).toMatchObject({ exit: 0, ran: ["any-route"] });
+		expect(r.err.split("\n")[0]).toBe(
+			"post-commit: the commit route would not read (no git dir), so every step that arms on a route stood down.",
+		);
+	});
+
+	it("fails the run where a row names no route or route set", async () => {
+		await expect(
+			run([row("typo", { when: { unlessRoutes: ["replays"] } })], {
+				route: "commit",
+			}),
+		).rejects.toThrow("commit-route.js: 'replays' names no route or route set");
 	});
 
 	it("reads the post-commit stand-down set by name", async () => {
@@ -561,6 +577,23 @@ describe("hook-fact arming", () => {
 		[["stamp-matches"], []],
 	])("with facts %j runs %j", async (facts, ran) => {
 		expect((await run(rows, { facts })).ran).toEqual(ran);
+	});
+
+	it("fails the run where a row arms on a fact and the hook passes no fact port", async () => {
+		const dir = repo({}, { "a.txt": "a\n" });
+		await expect(
+			dispatch({
+				rows: [row("message", { when: { facts: ["message-given"] } })],
+				gates: "all",
+				ports: buildRepoPorts(dir, {
+					load: () => () => ({ exit: 0, stdout: "", stderr: "" }),
+					write: () => undefined,
+					interrupted: async () => null,
+				}),
+			}),
+		).rejects.toThrow(
+			"row message arms on the fact 'message-given', and this hook passes no fact port",
+		);
 	});
 
 	it("names the hook and its noun in a crash line", async () => {

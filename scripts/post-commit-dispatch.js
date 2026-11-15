@@ -11,45 +11,11 @@
  * load prints one line naming the fault.
  */
 
-/** @typedef {{ cwd: string, env: NodeJS.ProcessEnv }} HookIo */
-
-/**
- * The registry's run under `io`, each row's output through `write`: the
- * wiring the entry below and the tests share.
- * @param {HookIo} io
- * @param {{
- *   write: (fd: number, text: string) => void,
- *   interrupted?: () => Promise<number | null>,
- *   rows?: import("./lib/post-commit-rows.js").PostCommitRow[],
- *   programs?: import("./lib/post-commit-steps.js").Programs,
- * }} opts `programs` absent, each row runs the real programs
- * @returns {Promise<number>}
- */
-function runPostCommit(
-	io,
-	{ write, interrupted = async () => null, rows, programs },
-) {
-	const { commitRoute } = require("./lib/commit-route.js");
-	const { readHookGitDir } = require("./lib/hook-entry.js");
-	const { dispatch } = require("./lib/precommit-dispatch.js");
-	const { ROWS } = require("./lib/post-commit-rows.js");
-	return dispatch({
-		rows: rows ?? ROWS,
-		gates: "all",
-		voice: { hook: "post-commit", noun: "step" },
-		ports: {
-			load: (row) => () => row.run(io, programs),
-			write,
-			interrupted,
-			route: () => commitRoute("post-commit", readHookGitDir(io.cwd, io.env)),
-		},
-	});
-}
-
 /** @returns {Promise<number>} */
 async function main() {
-	const { writeFd } = require("./lib/write-fd.js");
 	const { catchSignals } = require("./lib/hook-entry.js");
+	const { writeFd } = require("./lib/write-fd.js");
+	const { runPostCommit } = require("./lib/post-commit-rows.js");
 	await runPostCommit(
 		{ cwd: process.cwd(), env: process.env },
 		{ write: writeFd, interrupted: catchSignals() },
@@ -57,11 +23,21 @@ async function main() {
 	return 0;
 }
 
-module.exports = { runPostCommit };
-
-if (require.main === module)
-	require("./lib/hook-entry.js").exitWhenSettled(main, {
+if (require.main === module) {
+	const crash = /** @type {const} */ ({
 		hook: "post-commit",
 		said: "did not run",
 		exit: 0,
 	});
+	try {
+		require("./lib/hook-entry.js").exitWhenSettled(main, crash);
+	} catch (e) {
+		/* hook-entry.js prints the crash line, so a fault loading it prints
+		 * here: bare, as write-fd.js may be what will not load (#5207). */
+		require("node:fs").writeSync(
+			2,
+			`${crash.hook}: the dispatcher ${crash.said}: ${(e instanceof Error ? e.message : String(e)).split("\n")[0]}\n`,
+		);
+		process.exit(crash.exit);
+	}
+}

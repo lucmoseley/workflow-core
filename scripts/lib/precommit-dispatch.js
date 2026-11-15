@@ -7,8 +7,8 @@
  * THE EXIT CONTRACT. Rows run in order, and the first gating red ends the
  * run with that row's code: 1 for FAIL, 2 for BROKEN, a program's own code.
  * 0 means every armed row passed, skipped or only warned; 1 where git will
- * not name the staged paths, or a row arms on a path and the hook passes no
- * path port. Each row's stdout and stderr reach fds 1 and 2
+ * not name the staged paths; 2 where a row arms on a path and the hook
+ * passes no path port, a fault of the hook's own wiring. Each row's stdout and stderr reach fds 1 and 2
  * when it finishes, before the next starts — except a `quietPass` row's pass
  * with no WARN in it, whose output is dropped.
  *
@@ -20,10 +20,13 @@
  *
  * ARMING. A row arms `always`, on a pattern any staged path matches, or on
  * a list a port computes, any member of which is staged. A route that will
- * not read arms no row whose `when` names routes. The staged paths are read
+ * not read arms no row whose `when` names routes, and says so on fd 2
+ * (#5207). A `when` naming a route, route set or fact nothing answers
+ * throws, so a misspelt name fails the run rather than standing a row down
+ * or arming it everywhere. The staged paths are read
  * only where some row arms on a path, so a hook whose rows all arm `always`
  * passes no `staged`, `computed` or `exists` port; a run missing any of the
- * three where a row arms on a path refuses, exit 1.
+ * three where a row arms on a path refuses, exit 2.
  *
  * A SIGNAL (#5188). A row runs to its end, so its own cleanup runs; the
  * `interrupted` port is asked before each row, after a gating red and after
@@ -69,13 +72,9 @@ const { armed } = require("./precommit-arm.js");
  *   `route` the commit route, null where it will not read
  */
 
-/**
- * @param {string} name the port
- * @returns {never}
- */
-function missingPort(name) {
-	throw new Error(`a row arms on a path, and this hook passes no ${name} port`);
-}
+/** @param {string} name the port */
+const missingPortLine = (name) =>
+	`a row arms on a path, and this hook passes no ${name} port`;
 
 /** The ports a path-armed row reads: a hook passes all three or none. */
 const PATH_PORTS = /** @type {const} */ (["staged", "computed", "exists"]);
@@ -132,7 +131,13 @@ function whenHolds(row, ports, route) {
 		if (w.routes && !w.routes.some((name) => inRouteSet(name, r))) return false;
 		if (w.unlessRoutes?.some((name) => inRouteSet(name, r))) return false;
 	}
-	const fact = (/** @type {string} */ name) => ports.fact?.(name) ?? false;
+	const fact = (/** @type {string} */ name) => {
+		if (!ports.fact)
+			throw new Error(
+				`row ${row.id} arms on the fact '${name}', and this hook passes no fact port`,
+			);
+		return ports.fact(name);
+	};
 	if (w.facts && !w.facts.every(fact)) return false;
 	return !w.unlessFacts?.some(fact);
 }
@@ -208,8 +213,15 @@ async function runRows(rows, staged, ports, voice) {
 			let value = null;
 			try {
 				value = ports.route?.() ?? null;
-			} catch {
-				/* A route that will not read arms no route-narrowed row. */
+			} catch (e) {
+				/* Fail-open by design (#5207): a route that will not read arms no
+				 * route-narrowed row. The gating hooks read their route before
+				 * the run and refuse on its fault, so only post-commit, which
+				 * never refuses, reaches this. */
+				ports.write(
+					2,
+					`${voice.hook}: the commit route would not read (${caught(e).message.split("\n")[0]}), so every ${voice.noun} that arms on a route stood down.\n`,
+				);
 			}
 			routeRead = { value };
 		}
@@ -232,8 +244,9 @@ async function runRows(rows, staged, ports, voice) {
 }
 
 /**
- * The commit's staged entries, else the exit code where git will not name
- * them: 1, or the 128 + n of a caught signal, which kills git too.
+ * The commit's staged entries, else the exit code where they will not read:
+ * 2 where the hook passes no path port, 1 where git will not name them, or
+ * the 128 + n of a caught signal, which kills git too.
  * @template {Row} R
  * @param {Ports<R>} ports
  * @param {Voice} voice
@@ -242,7 +255,10 @@ async function runRows(rows, staged, ports, voice) {
 async function readStagedOrRefuse(ports, voice) {
 	try {
 		const missing = PATH_PORTS.find((name) => !ports[name]);
-		if (missing) missingPort(missing);
+		if (missing) {
+			ports.write(2, `${voice.hook}: ${missingPortLine(missing)}\n`);
+			return { exit: 2 };
+		}
 		return { staged: pathPort(ports.staged)() };
 	} catch (e) {
 		const code = await ports.interrupted();

@@ -97,11 +97,21 @@ function readable(file) {
 }
 
 /**
- * The program `file` exports, `file` being under the context's root.
+ * The function `file` exports as `name`, `file` being under the context's
+ * root. Throws where it exports none, so the row is BROKEN naming the file.
+ * @template {(...args: never[]) => unknown} F
  * @param {string} file
- * @returns {{ PROGRAM?: Function, main?: Function }}
+ * @param {string} name
+ * @returns {F}
  */
-const loadScript = (file) => require(file);
+function exportOf(file, name) {
+	const fn = require(file)[name];
+	if (typeof fn !== "function") throw new Error(`${file} exports no ${name}`);
+	return fn;
+}
+
+/** @typedef {(args: string[]) => { code: number, stderr: string }} ScannerMain */
+/** @typedef {(opts: { cwd: string, env: NodeJS.ProcessEnv, args?: string[] }) => RowResult} StepProgram */
 
 /**
  * The line naming the abort of an operation a refusal leaves open, "" where
@@ -154,10 +164,8 @@ function closingKeyword(ctx) {
 			stdout: "",
 			stderr: `${HOOK}: ${scanner} is missing, so the closing-keyword scan did not run.\n  Refusing rather than passing the message unread (#138).\n`,
 		};
-	const { main } = loadScript(scanner);
-	const r = /** @type {{ code: number, stderr: string }} */ (
-		main?.([ctx.file, HOOK])
-	);
+	const main = /** @type {ScannerMain} */ (exportOf(scanner, "main"));
+	const r = main([ctx.file, HOOK]);
 	return { exit: r.code === 0 ? 0 : 1, stdout: "", stderr: r.stderr };
 }
 
@@ -204,8 +212,8 @@ function reviewHold(ctx) {
 			hold,
 			"this cherry-pick went unchecked for a sensitive-path review",
 		);
-	const { PROGRAM } = loadScript(hold);
-	return withEpilogue(PROGRAM?.({ cwd: ctx.cwd, env: ctx.env }), ctx.route);
+	const program = /** @type {StepProgram} */ (exportOf(hold, "PROGRAM"));
+	return withEpilogue(program({ cwd: ctx.cwd, env: ctx.env }), ctx.route);
 }
 
 /**
@@ -251,9 +259,9 @@ function trailer(ctx) {
 			script,
 			"this commit lands with no Review-Tier: trailer and no check that its tree stayed put",
 		);
-	const { PROGRAM } = loadScript(script);
+	const program = /** @type {StepProgram} */ (exportOf(script, "PROGRAM"));
 	return withEpilogue(
-		PROGRAM?.({ cwd: ctx.cwd, env: ctx.env, args: [ctx.file] }),
+		program({ cwd: ctx.cwd, env: ctx.env, args: [ctx.file] }),
 		ctx.route,
 	);
 }
@@ -334,4 +342,73 @@ const ROWS = [
 	},
 ];
 
-module.exports = { ROWS, trailerArmed };
+/**
+ * The registry's run under `io`, each row's output through `write`: the
+ * wiring scripts/prepare-commit-msg-dispatch.js and the tests share. Throws where the route will
+ * not read.
+ * @param {{ cwd: string, env: NodeJS.ProcessEnv }} io
+ * @param {{
+ *   write: (fd: number, text: string) => void,
+ *   husky: string,
+ *   file: string,
+ *   interrupted?: () => Promise<number | null>,
+ *   rows?: PrepareCommitMsgRow[],
+ * }} opts
+ * @returns {Promise<number>}
+ */
+function runPrepareCommitMsg(
+	io,
+	{ write, husky, file, interrupted = async () => null, rows },
+) {
+	const { commitRoute, inRouteSet } = require("./commit-route.js");
+	const { spawnGitSync } = require("./git.js");
+	const { readHookGitDir } = require("./hook-entry.js");
+	const { dispatch } = require("./precommit-dispatch.js");
+	const { takePrecommitStamp } = require("./precommit-stamp.js");
+
+	const gitDir = readHookGitDir(io.cwd, io.env);
+	const recorded = takePrecommitStamp(gitDir);
+	const route = commitRoute("prepare-commit-msg", gitDir, { env: io.env });
+	const written = spawnGitSync(["write-tree"], {
+		cwd: io.cwd,
+		env: io.env,
+		encoding: "utf8",
+	});
+	const tree = written.status === 0 ? String(written.stdout).trim() : "";
+	const huskyDir = path.resolve(io.cwd, husky);
+	/** @type {PrepareCommitMsgContext} */
+	const ctx = {
+		...io,
+		husky: huskyDir,
+		root: io.env.WFC_PLUGIN_ROOT || path.dirname(huskyDir),
+		file,
+		gitDir,
+		route,
+	};
+	const stamped = recorded !== "" && tree !== "" && recorded === tree;
+	/** @type {Record<string, () => boolean>} */
+	const facts = {
+		message: () => file !== "",
+		stamped: () => stamped,
+		trailer: () =>
+			trailerArmed(ctx, { stamped, replay: inRouteSet("replay", route) }),
+	};
+	return dispatch({
+		rows: rows ?? ROWS,
+		gates: "all",
+		voice: { hook: "prepare-commit-msg", noun: "step" },
+		ports: {
+			load: (row) => () => row.run(ctx),
+			write,
+			interrupted,
+			route: () => route,
+			fact: (name) => {
+				const answer = facts[name];
+				if (!answer) throw new Error(`no fact is named '${name}'`);
+				return answer();
+			},
+		},
+	});
+}
+
+module.exports = { ROWS, runPrepareCommitMsg };

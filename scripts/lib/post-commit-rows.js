@@ -62,4 +62,36 @@ const ROWS = [
 	row("dropped-review-tier", steps.droppedReviewTier, false),
 ];
 
-module.exports = { ROWS };
+/**
+ * The registry's run under `io`, each row's output through `write`: the
+ * wiring scripts/post-commit-dispatch.js and the tests share.
+ * @param {import("./post-commit-steps.js").HookIo} io
+ * @param {{
+ *   write: (fd: number, text: string) => void,
+ *   interrupted?: () => Promise<number | null>,
+ *   rows?: PostCommitRow[],
+ *   programs?: import("./post-commit-steps.js").Programs,
+ * }} opts `programs` absent, each row runs the real programs
+ * @returns {Promise<number>}
+ */
+function runPostCommit(
+	io,
+	{ write, interrupted = async () => null, rows, programs },
+) {
+	const { commitRoute } = require("./commit-route.js");
+	const { readHookGitDir } = require("./hook-entry.js");
+	const { dispatch } = require("./precommit-dispatch.js");
+	return dispatch({
+		rows: rows ?? ROWS,
+		gates: "all",
+		voice: { hook: "post-commit", noun: "step" },
+		ports: {
+			load: (step) => () => step.run(io, programs),
+			write,
+			interrupted,
+			route: () => commitRoute("post-commit", readHookGitDir(io.cwd, io.env)),
+		},
+	});
+}
+
+module.exports = { ROWS, runPostCommit };

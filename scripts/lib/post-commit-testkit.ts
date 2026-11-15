@@ -17,9 +17,8 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { afterEach, type Mock, vi } from "vitest";
-import { runPostCommit as runDispatcher } from "../post-commit-dispatch.js";
 import { scrubbedGitEnv } from "./hook-entry.js";
-import { ROWS } from "./post-commit-rows.js";
+import { ROWS, runPostCommit as runDispatcher } from "./post-commit-rows.js";
 import type { Programs } from "./post-commit-steps.js";
 
 const load = createRequire(__filename);

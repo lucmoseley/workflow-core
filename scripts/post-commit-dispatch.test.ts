@@ -201,4 +201,36 @@ describe("the real .husky/post-commit, as git fires it", () => {
 		);
 		expect(repo.git("rev-parse", "HEAD").stdout).not.toBe(head);
 	});
+
+	it.each([
+		["hook-entry.js", "Cannot find module './lib/hook-entry.js'"],
+		["post-commit-rows.js", "Cannot find module './lib/post-commit-rows.js'"],
+	])(
+		"says in one line that it did not run where the plugin lacks lib/%s, and the commit lands",
+		(lib, fault) => {
+			const plugin = tmp("post-commit-plugin-");
+			const libDir = path.join(plugin, "scripts", "lib");
+			fs.mkdirSync(libDir, { recursive: true });
+			fs.copyFileSync(
+				path.join(ROOT, "scripts", "post-commit-dispatch.js"),
+				path.join(plugin, "scripts", "post-commit-dispatch.js"),
+			);
+			for (const name of fs.readdirSync(path.join(ROOT, "scripts", "lib")))
+				if (name !== lib)
+					fs.symlinkSync(
+						path.join(ROOT, "scripts", "lib", name),
+						path.join(libDir, name),
+					);
+			const repo = hookedRepo(plugin);
+			const head = repo.git("rev-parse", "HEAD").stdout;
+
+			const r = repo.git("commit", "-q", "--allow-empty", "-m", "mine");
+
+			expect(r.status).toBe(0);
+			expect(r.stderr).toBe(
+				`post-commit: the dispatcher did not run: ${fault}\n`,
+			);
+			expect(repo.git("rev-parse", "HEAD").stdout).not.toBe(head);
+		},
+	);
 });

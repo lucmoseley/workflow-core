@@ -14,24 +14,25 @@
  * otherwise; 128 + n on signal n.
  */
 
-const { parseOrCode } = require("./lib/cli-args.js");
-const { commitRoute } = require("./lib/commit-route.js");
-const { ROWS } = require("./lib/commit-msg-rows.js");
-const {
-	catchSignals,
-	exitWhenSettled,
-	readHookGitDir,
-} = require("./lib/hook-entry.js");
-const { dispatch } = require("./lib/precommit-dispatch.js");
-const { scriptPath } = require("./lib/script-path.js");
-const { writeFd } = require("./lib/write-fd.js");
-
 /** This commit's route, as commit-msg reads it. */
-const readRoute = () =>
-	commitRoute("commit-msg", readHookGitDir(process.cwd()));
+function readRoute() {
+	const { commitRoute } = require("./lib/commit-route.js");
+	const { readHookGitDir } = require("./lib/hook-entry.js");
+	return commitRoute("commit-msg", readHookGitDir(process.cwd()));
+}
 
-/** @returns {Promise<number>} */
+/**
+ * Every lib is loaded here, not at the top, so a lib that will not load
+ * prints the one crash line.
+ * @returns {Promise<number>}
+ */
 async function main() {
+	const { parseOrCode } = require("./lib/cli-args.js");
+	const { ROWS } = require("./lib/commit-msg-rows.js");
+	const { catchSignals } = require("./lib/hook-entry.js");
+	const { dispatch } = require("./lib/precommit-dispatch.js");
+	const { scriptPath } = require("./lib/script-path.js");
+	const { writeFd } = require("./lib/write-fd.js");
 	const parsed = parseOrCode(process.argv.slice(2), {
 		usage: `node ${scriptPath("commit-msg-dispatch.js")} <message-file> | --print-route`,
 		flags: { "--print-route": "boolean" },
@@ -60,5 +61,21 @@ async function main() {
 	});
 }
 
-if (require.main === module)
-	exitWhenSettled(main, { hook: "commit-msg", said: "threw", exit: 2 });
+if (require.main === module) {
+	const crash = /** @type {const} */ ({
+		hook: "commit-msg",
+		said: "threw",
+		exit: 2,
+	});
+	try {
+		require("./lib/hook-entry.js").exitWhenSettled(main, crash);
+	} catch (e) {
+		/* hook-entry.js prints the crash line, so a fault loading it prints
+		 * here: bare, as write-fd.js may be what will not load (#5207). */
+		require("node:fs").writeSync(
+			2,
+			`${crash.hook}: the dispatcher ${crash.said}: ${(e instanceof Error ? e.message : String(e)).split("\n")[0]}\n`,
+		);
+		process.exit(crash.exit);
+	}
+}

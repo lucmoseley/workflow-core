@@ -4,13 +4,12 @@
  * (#5188), the hook's git directory, the hook's environment less git's
  * redirects, and the exit once the run settles.
  *
- * lib/git.js is loaded at the first read, not with this file, so an entry's
- * crash line still prints where git.js itself will not load.
+ * This file loads no lib of its own until it needs one, so an entry's crash
+ * line still prints where a lib will not load; the entry itself prints the
+ * line where this file will not (#5207).
  */
 
 const { constants } = require("node:os");
-const { caught } = require("./caught.js");
-const { writeFd } = require("./write-fd.js");
 
 /**
  * Catches SIGINT, SIGTERM and SIGHUP for the rest of the process, and answers
@@ -66,21 +65,47 @@ function scrubbedGitEnv(env) {
 }
 
 /**
- * Runs an entry's `main` and exits with the code it settles on. Where it
- * throws, prints one line naming the hook and the fault's first line.
- * @param {() => Promise<number>} main
- * @param {{ hook: string, said: "threw" | "did not run", exit: number }} crash
- *   `said`, what the line says the dispatcher did; `exit`, the crash's code
+ * @typedef {{ hook: string, said: "threw" | "did not run", exit: number }}
+ *   Crash `said`, what the crash line says the dispatcher did; `exit`, the
+ *   crash's code
  */
-function exitWhenSettled(main, { hook, said, exit }) {
+
+/**
+ * The one line a crash prints: the hook, what the dispatcher did, and the
+ * fault's first line.
+ * @param {Crash} crash
+ * @param {unknown} e
+ */
+const crashLine = ({ hook, said }, e) =>
+	`${hook}: the dispatcher ${said}: ${(e instanceof Error ? e.message : String(e)).split("\n")[0]}\n`;
+
+/**
+ * Writes `line` to fd 2 through writeFd, else through a bare writeSync where
+ * write-fd.js will not load.
+ * @param {string} line
+ */
+function writeCrashLine(line) {
+	try {
+		require("./write-fd.js").writeFd(2, line);
+	} catch {
+		/* Bare: write-fd.js is what would not load, and the line must print. */
+		require("node:fs").writeSync(2, line);
+	}
+}
+
+/**
+ * Runs an entry's `main` and exits with the code it settles on. Where it
+ * throws, a lib it loads included, prints one line naming the hook and the
+ * fault's first line, and exits `crash.exit`.
+ * @param {() => Promise<number>} main
+ * @param {Crash} crash
+ */
+function exitWhenSettled(main, crash) {
 	main().then(
 		(code) => process.exit(code),
 		(e) => {
-			writeFd(
-				2,
-				`${hook}: the dispatcher ${said}: ${caught(e).message.split("\n")[0]}\n`,
-			);
-			process.exit(exit);
+			writeCrashLine(crashLine(crash, e));
+			process.exit(crash.exit);
 		},
 	);
 }
