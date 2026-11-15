@@ -172,21 +172,57 @@ it("warns of no stall where the oldest queue ref was pushed within 2 h, though m
 	expect(r.stdout).toBe("");
 });
 
-it("warns of no stall where the queue log's land row is within 2 h, though main's tip is older", () => {
+/** The queue log holding one row per `[event, ago]`, for a ref no queue ref
+ *  holds, in the order given. */
+const logRows = (...rows: ["land" | "enqueue", number][]) => {
+	fs.mkdirSync(markers(), { recursive: true });
+	fs.writeFileSync(
+		path.join(markers(), ".queue-log.jsonl"),
+		rows
+			.map(([event, ago]) =>
+				JSON.stringify({
+					at: new Date(Date.now() - ago).toISOString(),
+					event,
+					ref: "refs/heads/queue/earlier",
+					sha: "c".repeat(40),
+				}),
+			)
+			.join("\n")
+			.concat("\n"),
+	);
+};
+
+it("warns of no stall where the queue log's newest land row is within 2 h, though main's tip and an older row are not", () => {
 	mainAt(5 * 60 * MIN);
 	queueRef("old", 5 * 60 * MIN);
 	beat(0);
-	writeMarker(".queue-log.jsonl", {
-		at: new Date(Date.now() - 30 * MIN).toISOString(),
-		event: "land",
-		ref: "refs/heads/queue/earlier",
-		sha: "c".repeat(40),
-	});
+	logRows(["land", 30 * MIN], ["land", 4 * 60 * MIN]);
 
 	const r = check();
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout).not.toContain("LANDING-STALLED");
+});
+
+it("warns of no stall where main's tip is within 2 h, though every land row is older, as a push by hand leaves it", () => {
+	mainAt(30 * MIN);
+	queueRef("old", 5 * 60 * MIN);
+	beat(0);
+	logRows(["land", 5 * 60 * MIN]);
+
+	const r = check();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout).not.toContain("LANDING-STALLED");
+});
+
+it("warns of a stall where only an enqueue row is within 2 h, which never moves main", () => {
+	mainAt(5 * 60 * MIN);
+	queueRef("old", 5 * 60 * MIN);
+	beat(0);
+	logRows(["land", 5 * 60 * MIN], ["enqueue", MIN]);
+
+	expect(check().stdout).toContain("LANDING-STALLED");
 });
 
 it("names a dead lander where a queue ref waits and no markers directory exists yet", () => {

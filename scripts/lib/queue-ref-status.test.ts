@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { redPathAtRest } from "./queue-lander.js";
+import { redPathAtRest } from "./lander-testkit.js";
 import type { QueueEvent } from "./queue-log.js";
 import { buildQueueRefLine, readQueueRefStates } from "./queue-ref-status.js";
 

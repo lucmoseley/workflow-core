@@ -492,7 +492,12 @@ function takeBatch(queue, onto, ahead, p) {
 		onto,
 		integration: null,
 		phase: "merging",
-		...redPathAtRest(),
+		ahead: [],
+		blame: null,
+		isolated: [],
+		serial: null,
+		hold: null,
+		bases: [],
 	};
 	/* A done search, held or re-batched, is replaced by the take, which
 	 * takes its members. */
@@ -501,22 +506,6 @@ function takeBatch(queue, onto, ahead, p) {
 		kind: "take-batch",
 		batch,
 		pipeline: { ...p, search, line: [...p.line, batch] },
-	};
-}
-
-/**
- * A batch's red-path fields before any red: a fresh object per call, so no
- * two batches share its lists.
- * @returns {Pick<Batch, "ahead"|"blame"|"isolated"|"serial"|"hold"|"bases">}
- */
-function redPathAtRest() {
-	return {
-		ahead: [],
-		blame: null,
-		isolated: [],
-		serial: null,
-		hold: null,
-		bases: [],
 	};
 }
 
@@ -3146,6 +3135,5 @@ module.exports = {
 	batchesOf,
 	buildQueueActionLine,
 	fileSetKey,
-	redPathAtRest,
 	runQueueLander,
 };

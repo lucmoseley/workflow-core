@@ -17,6 +17,7 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, beforeEach } from "vitest";
 import { RECORDED_SHAPES } from "./gh-fake.js";
 import { stubGhScript } from "./gh-stub.js";
+import type { Batch } from "./lander-records.js";
 import { runInProcessAsync } from "./run-in-process.js";
 import { shellQuote } from "./sh-quote.js";
 
@@ -245,3 +246,17 @@ if (is("issue", "list")) {
 	const readStore = () => JSON.parse(fs.readFileSync(store, "utf8"));
 	return { store, refuseReland, gh, readStore };
 };
+
+/** A seeded batch record's red-path fields before any red, as the lander's
+ *  take writes them: a fresh object per call, so no two batches share a list. */
+export const redPathAtRest = (): Pick<
+	Batch,
+	"ahead" | "blame" | "isolated" | "serial" | "hold" | "bases"
+> => ({
+	ahead: [],
+	blame: null,
+	isolated: [],
+	serial: null,
+	hold: null,
+	bases: [],
+});

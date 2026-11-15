@@ -41,6 +41,7 @@ import {
 	git,
 	landerSandbox,
 	markers,
+	redPathAtRest,
 	remote,
 	runLander,
 	stubRedWhile,
@@ -49,7 +50,6 @@ import {
 	tmp,
 	work,
 } from "./lib/lander-testkit";
-import { redPathAtRest } from "./lib/queue-lander.js";
 import {
 	queueGit,
 	queueLogger,

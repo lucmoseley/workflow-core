@@ -11,13 +11,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chargeMb as launchChargeMb } from "./launch-charge";
-import { localTester, readLiveLanders, suiteSlot } from "./local-tester.js";
+import { localTester, readLiveLanders } from "./local-tester.js";
 import { markersDir } from "./marker-root.js";
 import { writePsStub } from "./ps-stub.js";
 import type { QueueTester } from "./queue-lander.js";
 import { shellQuote } from "./sh-quote.js";
 import { rungMb } from "./suite-ladder.js";
 import { queueSeat } from "./suite-queue.js";
+import { suiteSlot } from "./suite-slot.js";
 import { admitted } from "./suite-slot-fake";
 import { LANDER_WORKTREE } from "./worktree-dirs.js";
 

@@ -215,7 +215,6 @@ function recordWake(file, { startedAt, now }) {
 }
 
 module.exports = {
-	mainMovedAt,
 	readQueue,
 	stallFindings,
 	supervision,

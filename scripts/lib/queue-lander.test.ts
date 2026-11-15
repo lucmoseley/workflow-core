@@ -28,6 +28,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { dropTicketFiler } from "./fix-ticket.js";
 import { SHORT_SHA } from "./git.js";
+import { redPathAtRest } from "./lander-testkit.js";
 import {
 	type Batch,
 	type Drop,
@@ -40,7 +41,6 @@ import {
 	type Placement,
 	type QueueAction,
 	type QueueLanderDeps,
-	redPathAtRest,
 	runQueueLander,
 	type Verdict,
 } from "./queue-lander.js";
