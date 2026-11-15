@@ -104,4 +104,31 @@ describe("the real hook", () => {
 			fs.rmSync(plugin, { recursive: true, force: true });
 		}
 	});
+
+	it("refuses in one line where the dispatcher's lib/hook-entry.js will not load", () => {
+		plugin = mkScratchDir("commit-msg-dispatch-plugin-");
+		const lib = path.join(plugin, "scripts", "lib");
+		fs.mkdirSync(lib, { recursive: true });
+		fs.copyFileSync(
+			path.join(ROOT, "scripts", "commit-msg-dispatch.js"),
+			path.join(plugin, "scripts", "commit-msg-dispatch.js"),
+		);
+		for (const name of fs.readdirSync(path.join(ROOT, "scripts", "lib")))
+			if (name !== "hook-entry.js")
+				fs.symlinkSync(
+					path.join(ROOT, "scripts", "lib", name),
+					path.join(lib, name),
+				);
+		try {
+			const before = head();
+			const r = commit("Add a line");
+			expect(r.status).not.toBe(0);
+			expect(r.out).toBe(
+				"commit-msg: the dispatcher threw: Cannot find module './lib/hook-entry.js'\n",
+			);
+			expect(head()).toBe(before);
+		} finally {
+			fs.rmSync(plugin, { recursive: true, force: true });
+		}
+	});
 });

@@ -304,6 +304,35 @@ describe(".husky/prepare-commit-msg", () => {
 		);
 		expect(gitLog(p, "--format=%H", "-1").trim()).toBe(before);
 	});
+
+	it("refuses in one line when the dispatcher's lib/hook-entry.js will not load", () => {
+		// The dispatcher is a link, which resolves its requires from ROOT: a
+		// real copy beside a lib with no hook-entry.js resolves them here.
+		const p = probe();
+		const entry = path.join(p.root, "scripts/prepare-commit-msg-dispatch.js");
+		fs.rmSync(entry);
+		fs.copyFileSync(
+			path.join(ROOT, "scripts/prepare-commit-msg-dispatch.js"),
+			entry,
+		);
+		for (const name of fs.readdirSync(path.join(ROOT, "scripts/lib")))
+			if (!["hook-entry.js", "local-hook.sh"].includes(name))
+				fs.symlinkSync(
+					path.join(ROOT, "scripts/lib", name),
+					path.join(p.root, "scripts/lib", name),
+				);
+		fs.writeFileSync(path.join(p.root, "m.txt"), "m\n");
+		p.git("add", "--", "m.txt");
+		const before = gitLog(p, "--format=%H", "-1").trim();
+
+		const r = attempt(p.root, "commit", "-m", "m");
+		expect(r.code).not.toBe(0);
+		expect(r.output).toContain(
+			"prepare-commit-msg: the dispatcher threw: Cannot find module './lib/hook-entry.js'\n",
+		);
+		expect(r.output).not.toContain("    at ");
+		expect(gitLog(p, "--format=%H", "-1").trim()).toBe(before);
+	});
 });
 
 describe("the premise: what --no-verify does and does not skip", () => {

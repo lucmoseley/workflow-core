@@ -85,12 +85,15 @@ const crashLine = ({ hook, said }, e) =>
  * @param {string} line
  */
 function writeCrashLine(line) {
+	/** @type {(fd: number, text: string) => void} */
+	let write;
 	try {
-		require("./write-fd.js").writeFd(2, line);
+		write = require("./write-fd.js").writeFd;
 	} catch {
 		/* Bare: write-fd.js is what would not load, and the line must print. */
-		require("node:fs").writeSync(2, line);
+		write = (fd, text) => require("node:fs").writeSync(fd, text);
 	}
+	write(2, line);
 }
 
 /**
