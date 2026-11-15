@@ -3,7 +3,8 @@
  * scripts/commit-msg-dispatch.js and lib/commit-msg-rows.js (#5208, spec
  * #5207): the registry's order and route gating, and the boundary set through
  * the real .husky/commit-msg as git fires it — a pass, a refusal ending the
- * run at the first red, and a dispatcher that is missing.
+ * run at the first red, a dispatcher that is missing, and one whose
+ * lib/hook-entry.js will not load.
  *
  * Breaking it costs all three message checks at once: the hook's one line
  * runs them all.
@@ -98,6 +99,33 @@ describe("the real hook", () => {
 			expect(r.status).toBe(1);
 			expect(r.out).toBe(
 				`commit-msg: ${dispatcher} is missing, so the message checks did not run.\n  Refusing rather than passing the message unread (#138).\n`,
+			);
+			expect(head()).toBe(before);
+		} finally {
+			fs.rmSync(plugin, { recursive: true, force: true });
+		}
+	});
+
+	it("refuses in one line where the dispatcher's lib/hook-entry.js will not load", () => {
+		plugin = mkScratchDir("commit-msg-dispatch-plugin-");
+		const lib = path.join(plugin, "scripts", "lib");
+		fs.mkdirSync(lib, { recursive: true });
+		fs.copyFileSync(
+			path.join(ROOT, "scripts", "commit-msg-dispatch.js"),
+			path.join(plugin, "scripts", "commit-msg-dispatch.js"),
+		);
+		for (const name of fs.readdirSync(path.join(ROOT, "scripts", "lib")))
+			if (name !== "hook-entry.js")
+				fs.symlinkSync(
+					path.join(ROOT, "scripts", "lib", name),
+					path.join(lib, name),
+				);
+		try {
+			const before = head();
+			const r = commit("Add a line");
+			expect(r.status).not.toBe(0);
+			expect(r.out).toBe(
+				"commit-msg: the dispatcher threw: Cannot find module './lib/hook-entry.js'\n",
 			);
 			expect(head()).toBe(before);
 		} finally {

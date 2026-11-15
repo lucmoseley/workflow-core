@@ -89,6 +89,16 @@ const scrubbed = (io) => ({ cwd: io.cwd, env: scrubbedGitEnv(io.env) });
 const readTopLevelOf = (/** @type {HookIo} */ io) =>
 	inProgramScope(scrubbed(io), () => readTopLevel(io.cwd));
 
+/** The programs the steps run, under scripts/: one spelling, which
+ * lib/post-commit-rows.js names as each row's script. */
+const PROGRAM_FILES = /** @type {const} */ ({
+	newSharedFaults: "report-new-shared-faults.js",
+	arbiter: "session-arbiter.js",
+	keepShims: "keep-hook-shims.js",
+	instructionSurface: "check-instruction-surface.js",
+	guardRegistry: "check-guard-registry.js",
+});
+
 /**
  * @param {Programs} programs
  * @param {string} script a file under scripts/
@@ -151,7 +161,7 @@ function unpushedReport(io) {
 function newSharedFaultsRow(io, programs = PROGRAMS) {
 	const committed = readCommitted(io);
 	if (!committed || readTopLevelOf(io) === null) return SILENT;
-	const r = runProgramAt(programs, "report-new-shared-faults.js", io, [
+	const r = runProgramAt(programs, PROGRAM_FILES.newSharedFaults, io, [
 		committed,
 	]);
 	const out = trimEndRun(r.stdout, "\n");
@@ -215,7 +225,7 @@ function releaseClaimsRow(io, programs = PROGRAMS) {
 	]);
 	if (!listed) return SILENT;
 	const paths = listed.split("\n").filter((rel) => rel !== "");
-	const r = runProgramAt(programs, "session-arbiter.js", io, [
+	const r = runProgramAt(programs, PROGRAM_FILES.arbiter, io, [
 		"release-committed",
 		"--commit",
 		committed,
@@ -240,7 +250,7 @@ function recordCommitRow(io, programs = PROGRAMS) {
 	if (common === null || !common.endsWith("/.git")) return SILENT;
 	const r = runProgramAt(
 		programs,
-		"session-arbiter.js",
+		PROGRAM_FILES.arbiter,
 		{
 			cwd: io.cwd,
 			env: { ...io.env, CLAUDE_PROJECT_DIR: common.slice(0, -"/.git".length) },
@@ -258,7 +268,7 @@ function recordCommitRow(io, programs = PROGRAMS) {
  */
 function keepShimsRow(io, programs = PROGRAMS) {
 	if (readTopLevelOf(io) === null) return SILENT;
-	const r = runProgramAt(programs, "keep-hook-shims.js", io, ["--lazy"]);
+	const r = runProgramAt(programs, PROGRAM_FILES.keepShims, io, ["--lazy"]);
 	return { exit: 0, stdout: r.stdout, stderr: r.stderr };
 }
 
@@ -289,6 +299,7 @@ function droppedReviewTier(io) {
 }
 
 module.exports = {
+	PROGRAM_FILES,
 	droppedReviewTier,
 	keepShimsRow,
 	newSharedFaultsRow,

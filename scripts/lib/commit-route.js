@@ -198,18 +198,23 @@ const ROUTES = new Set([
 ]);
 
 /**
+ * Throws where `name` is neither a set ROUTE_SETS names nor one route, so a
+ * misspelt name is a fault, not a set no route is in.
+ * @param {string} name
+ */
+function checkRouteSetName(name) {
+	if (!ROUTE_SETS.has(name) && !ROUTES.has(name))
+		throw new Error(`commit-route.js: '${name}' names no route or route set`);
+}
+
+/**
  * Whether `route` is in `name`: a set ROUTE_SETS names, else one route.
- * Throws where `name` is neither, so a misspelt name is a fault, not a set
- * no route is in.
  * @param {string} name
  * @param {string} route
  */
 function inRouteSet(name, route) {
-	const set = ROUTE_SETS.get(name);
-	if (set) return set.has(route);
-	if (!ROUTES.has(name))
-		throw new Error(`commit-route.js: '${name}' names no route or route set`);
-	return name === route;
+	checkRouteSetName(name);
+	return ROUTE_SETS.get(name)?.has(route) ?? name === route;
 }
 
 const ABORTS = new Map([
@@ -261,6 +266,7 @@ function scanRefusal(hook, route) {
 }
 
 module.exports = {
+	checkRouteSetName,
 	commitRoute,
 	inRouteSet,
 	isReplayRoute,

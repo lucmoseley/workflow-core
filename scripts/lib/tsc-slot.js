@@ -117,6 +117,17 @@ const realOr = (file) => {
 };
 
 /**
+ * What pairs a launcher with its native child: the `node_modules/` both run
+ * from, through its real path, and their arguments.
+ * @param {string} modulesDir  a `node_modules/`, its trailing slash optional
+ * @param {string} args
+ */
+const pairKey = (modulesDir, args) => {
+	const root = realOr(modulesDir);
+	return `${root.endsWith("/") ? root : `${root}/`}\0${args}`;
+};
+
+/**
  * The `tsc` runners on `ps`, each by its PID, null where `ps` gave none. A
  * native compiler is left out where a launcher resolving into the same
  * `node_modules` with the same arguments is running: its parent, on a node
@@ -134,7 +145,10 @@ function runningTsc(rows) {
 		const script = scriptOf(row, requiredGroup(m, 1, TSC_LAUNCHER));
 		if (script !== null)
 			launchers.add(
-				`${modulesRootOf(realOr(script))}\0${requiredGroup(m, 2, TSC_LAUNCHER)}`,
+				pairKey(
+					modulesRootOf(realOr(script)),
+					requiredGroup(m, 2, TSC_LAUNCHER),
+				),
 			);
 	}
 	return rows
@@ -142,9 +156,11 @@ function runningTsc(rows) {
 			if (TSC_LAUNCHER.test(args)) return true;
 			const m = TSC_NATIVE.exec(args);
 			if (m === null) return false;
-			const root = realOr(requiredGroup(m, 1, TSC_NATIVE));
 			return !launchers.has(
-				`${root.endsWith("/") ? root : `${root}/`}\0${requiredGroup(m, 2, TSC_NATIVE)}`,
+				pairKey(
+					requiredGroup(m, 1, TSC_NATIVE),
+					requiredGroup(m, 2, TSC_NATIVE),
+				),
 			);
 		})
 		.map(({ pid }) => pid);
@@ -201,14 +217,11 @@ function findBin(dir, name) {
  * The peak a `tsc` launched from `dir` is charged: the compiler of the first
  * `node_modules/.bin/<bin>` from `dir` up.
  * @param {string} dir
- * @param {{ bin?: string, readMajor?: (binTsc: string) => number | null }} [launch]
+ * @param {{ bin?: string }} [launch]
  */
-function launchPeakMb(
-	dir,
-	{ bin: name = "tsc", readMajor = readTscMajor } = {},
-) {
+function launchPeakMb(dir, { bin: name = "tsc" } = {}) {
 	const bin = findBin(dir, name);
-	return tscPeakMb(bin === null ? null : readMajor(bin));
+	return tscPeakMb(bin === null ? null : readTscMajor(bin));
 }
 
 /**

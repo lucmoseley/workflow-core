@@ -42,9 +42,18 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const { constants } = require("node:os");
 const path = require("node:path");
-const { routeAbort, routeName, scanRefusal } = require("./commit-route.js");
+const {
+	commitRoute,
+	inRouteSet,
+	routeAbort,
+	routeName,
+	scanRefusal,
+} = require("./commit-route.js");
 const { readText } = require("./file-read.js");
-const { precommitStamp } = require("./precommit-stamp.js");
+const { spawnGitSync } = require("./git.js");
+const { readHookGitDir } = require("./hook-entry.js");
+const { dispatch } = require("./precommit-dispatch.js");
+const { precommitStamp, takePrecommitStamp } = require("./precommit-stamp.js");
 const { takeHookPause } = require("./run-budgeted.js");
 
 const HOOK = "prepare-commit-msg";
@@ -80,7 +89,6 @@ const HOLD = "scripts/review-hold-gate.js";
 const TRAILER = "scripts/review-tier-trailer.js";
 
 /**
- * `rel` under `ctx.root`.
  * @param {PrepareCommitMsgContext} ctx
  * @param {string} rel
  */
@@ -100,12 +108,11 @@ function readable(file) {
 }
 
 /**
- * The function `file` exports as `name`, `file` being under the context's
- * root. Throws where it exports none, so the row is BROKEN naming the file.
- * @template {(...args: never[]) => unknown} F
+ * The function `file` exports as `name`. Throws where it exports none, so
+ * the row is BROKEN naming the file.
  * @param {string} file
  * @param {string} name
- * @returns {F}
+ * @returns {Function}
  */
 function exportOf(file, name) {
 	const fn = require(file)[name];
@@ -172,7 +179,6 @@ function closingKeyword(ctx) {
 	return { exit: r.code === 0 ? 0 : 1, stdout: "", stderr: r.stderr };
 }
 
-/** gitleaks' arguments: a scan of the staged content, findings redacted. */
 const GITLEAKS_STAGED = ["git", "--staged", "--redact"];
 
 /**
@@ -350,9 +356,8 @@ const ROWS = [
 ];
 
 /**
- * The registry's run under `io`, each row's output through `write`: the
- * wiring scripts/prepare-commit-msg-dispatch.js and the tests share. Throws where the route will
- * not read.
+ * Runs the registry for one prepare-commit-msg call. Throws where the route
+ * will not read.
  * @param {{ cwd: string, env: NodeJS.ProcessEnv }} io
  * @param {{
  *   write: (fd: number, text: string) => void,
@@ -367,12 +372,6 @@ function runPrepareCommitMsg(
 	io,
 	{ write, husky, file, interrupted = async () => null, rows },
 ) {
-	const { commitRoute, inRouteSet } = require("./commit-route.js");
-	const { spawnGitSync } = require("./git.js");
-	const { readHookGitDir } = require("./hook-entry.js");
-	const { dispatch } = require("./precommit-dispatch.js");
-	const { takePrecommitStamp } = require("./precommit-stamp.js");
-
 	const pause = takeHookPause(io.env);
 	const env = pause.env;
 	const gitDir = readHookGitDir(io.cwd, env);
