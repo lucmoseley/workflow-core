@@ -35,6 +35,9 @@ import { shellQuote } from "./sh-quote.js";
 const { readRuleText } = require("./rule-text") as any;
 // biome-ignore lint/suspicious/noExplicitAny: untyped CommonJS helpers
 const { renderSessionRules } = require("./adopter-skeleton") as any;
+const { queueLanderFiles } = require("./lander-files.js") as {
+	queueLanderFiles: (root: string) => { ledger: string };
+};
 const { loadCores } = require("./guard-core-load.js") as {
 	loadCores: (event: string) => Record<string, unknown>[];
 };
@@ -691,14 +694,74 @@ describe("the fail-open record", () => {
 	});
 });
 
-it("allows an unreadable refspec, logged, where the config will not read: the publish guard's stated residual (#5235)", () => {
-	fs.mkdirSync(path.join(shared, ".claude"), { recursive: true });
-	fs.writeFileSync(path.join(shared, ".claude", "workflow-core.json"), "{ x");
-	expect(denial('git push origin "HEAD:$R"')).toBeNull();
-	expect(logs).toContain("unreadable push refspec — push allowed unchecked");
-	expect(logs.join("\n")).toContain(
-		"module landing read as off on a config fault",
+describe("a config that will not read (#5235, #5243)", () => {
+	const Own = "queue/q1";
+	let own: string;
+	let ledger: string;
+	const breakConfig = () => {
+		fs.mkdirSync(path.join(shared, ".claude"), { recursive: true });
+		fs.writeFileSync(path.join(shared, ".claude", "workflow-core.json"), "{ x");
+	};
+	const writeLedger = () => {
+		fs.mkdirSync(path.dirname(ledger), { recursive: true });
+		fs.writeFileSync(ledger, "");
+	};
+	const notice = () =>
+		`\`.claude/workflow-core.json\` will not read, and the lander's green ledger ${ledger} exists, so this push is judged as with the landing module on.`;
+	beforeEach(() => {
+		own = path.join(shared, ".claude", "worktrees", "q1");
+		execFileSync("git", ["worktree", "add", "-q", "--detach", own], {
+			cwd: shared,
+		});
+		ledger = queueLanderFiles(shared).ledger;
+	});
+
+	it.each([
+		["git push origin HEAD:queue/other", "another session's queue ref"],
+		["git push origin HEAD:lander/x", "which only the lander writes"],
+		["git push origin HEAD:dropped/x", "which only the lander writes"],
+		['git push origin "HEAD:$R"', "pushes to a ref this guard cannot read"],
+	])(
+		"with the green ledger present, %s is refused as with landing on, naming the fault",
+		(command, what) => {
+			breakConfig();
+			writeLedger();
+			const why = denial(command, own);
+			expect(why).toContain(what);
+			expect(why).toContain(notice());
+			expect(why).toContain(`Your session's queue ref is \`${Own}\``);
+			expect(logs.join("\n")).not.toContain("allowed unchecked");
+		},
 	);
+
+	it("with the green ledger present, its own queue ref passes", () => {
+		breakConfig();
+		writeLedger();
+		expect(denial(`git push origin HEAD:${Own}`, own)).toBeNull();
+	});
+
+	it("with the green ledger present, a push to main is refused, naming the leftover ledger to delete where landing is off", () => {
+		breakConfig();
+		writeLedger();
+		expect(denial("git push origin HEAD:main", own)).toContain(
+			"where landing is off here, delete that leftover ledger too",
+		);
+	});
+
+	it("with no green ledger, allows an unreadable refspec and another queue ref, logged: the stated residual", () => {
+		breakConfig();
+		expect(denial('git push origin "HEAD:$R"')).toBeNull();
+		expect(denial("git push origin HEAD:main")).toBeNull();
+		expect(logs).toContain("unreadable push refspec — push allowed unchecked");
+		expect(logs.join("\n")).toContain(
+			"module landing read as off on a config fault",
+		);
+	});
+
+	it("with a config that reads and landing off, a leftover ledger changes nothing", () => {
+		writeLedger();
+		expect(denial("git push origin HEAD:main")).toBeNull();
+	});
 });
 
 describe("the cases a mutant must not survive (#2792)", () => {

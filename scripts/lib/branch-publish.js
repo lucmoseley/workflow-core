@@ -74,9 +74,11 @@
  *    the own queue ref: no pre-push limb backstops a queue ref, `lander/*` or
  *    `dropped/*` it could reach (#5235).
  *  - The `landing` module is read through moduleReader, which reads a config
- *    fault as off, logged: the guard then takes the straight-to-`main` route
- *    and judges no queue ref. The pre-push limb still refuses an unledgered
- *    push to `main` there, once a green ledger exists (#5235).
+ *    fault as off, logged. Where the canonical checkout's green ledger exists
+ *    the guard judges as with `landing` on, each refusal naming the fault and
+ *    the leftover ledger to delete where `landing` is off (#5243). Before
+ *    the lander's first landing no ledger exists: the guard then takes the
+ *    straight-to-`main` route and judges no queue ref.
  *  - A `gh pr merge` naming no `dependabot/` branch costs one `gh pr view`,
  *    under the host's 8 s timeout: 0.95–1.45 s over five measured calls.
  *    Where the lookup fails — or cannot be aimed: a PR or repo word it
@@ -101,6 +103,7 @@
  * check-guard-registry.js's assertion.
  */
 
+const fs = require("node:fs");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const path = require("node:path");
 const {
@@ -109,6 +112,7 @@ const {
 	ownQueueRef,
 	QUEUE_PREFIX,
 } = require("./landing-refs.js");
+const { queueLanderFiles } = require("./lander-files.js");
 const { landingRewindRule, rewindReason } = require("./main-rewind.js");
 const { readPush } = require("./push-dests.js");
 const { shellQuote } = require("./sh-quote.js");
@@ -128,6 +132,7 @@ const {
 } = require("./shell-words.js");
 const { treeOr } = require("./tree-or.js");
 const { trimEndRun } = require("./trim-run.js");
+const { CONFIG_PATH, readConfig } = require("./workflow-core-config.js");
 const { WORKTREES } = require("./worktree-dirs.js");
 
 /**
@@ -203,8 +208,36 @@ const DIRECT = {
 	rewind: rewindReason,
 };
 
+/** @type {WeakMap<BranchPublishContext["moduleOn"], string | null>} */
+const ledgerSeen = new WeakMap();
+
+/**
+ * The lander's green ledger where `landing` reads as off only because the
+ * config will not read and that ledger exists, else null: only the lander
+ * writes it, so it stands as the module on, as the pre-push limb reads it
+ * (#5235, #5243). Read once a module reader's life, keyed on that reader
+ * since decide() spreads the context.
+ * @param {BranchPublishContext} ctx
+ * @returns {string | null}
+ */
+function ledgerStandIn(ctx) {
+	const seen = ledgerSeen.get(ctx.moduleOn);
+	if (seen !== undefined) return seen;
+	const ledger = queueLanderFiles(ctx.root).ledger;
+	let standIn = null;
+	if (fs.existsSync(ledger))
+		try {
+			readConfig({ root: ctx.root, quiet: true });
+		} catch {
+			standIn = ledger;
+		}
+	ledgerSeen.set(ctx.moduleOn, standIn);
+	return standIn;
+}
+
 /** @param {BranchPublishContext} ctx @returns {Route} */
-const routeOf = (ctx) => (ctx.moduleOn("landing") ? QUEUED : DIRECT);
+const routeOf = (ctx) =>
+	ctx.moduleOn("landing") || ledgerStandIn(ctx) !== null ? QUEUED : DIRECT;
 
 /**
  * A refusal under the publish rule, naming the session's own queue ref with
@@ -241,7 +274,20 @@ const mainRewind = (ctx, what, segment) => ({
  * @returns {string}
  */
 const buildOwnRefReason = (ctx, what, rule, own = sessionQueueRef(ctx)) =>
-	`${what}: @CMD@\n\n${ownRefLine(ctx, own)}\n\n${rule}`;
+	`${what}: @CMD@\n\n${standInLine(ctx)}${ownRefLine(ctx, own)}\n\n${rule}`;
+
+/**
+ * The notice that the green ledger stood in for an unreadable config, and its
+ * fix, or nothing where the config read.
+ * @param {BranchPublishContext} ctx
+ */
+function standInLine(ctx) {
+	if (ctx.moduleOn("landing")) return "";
+	const ledger = ledgerStandIn(ctx);
+	return ledger === null
+		? ""
+		: `\`${CONFIG_PATH}\` will not read, and the lander's green ledger ${ledger} exists, so this push is judged as with the landing module on. Fix the config; where landing is off here, delete that leftover ledger too.\n\n`;
+}
 
 /**
  * The session's own queue ref, lib/landing-refs.js's answer, or null where
