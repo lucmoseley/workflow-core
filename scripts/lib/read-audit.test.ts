@@ -27,7 +27,7 @@ import { watched } from "./pass-store-testkit";
 
 const require = createRequire(import.meta.url);
 const { install, readAudits, remove } = require("./read-audit.js");
-const { findStrace } = require("./read-audit-trace.js");
+const { awaitCopied, findStrace } = require("./read-audit-trace.js");
 const { buildVerdictOf } = require("./read-audit-provenance.js");
 const { listingId } = require("./listing-id.js");
 const { lookup, record } = require("./pass-store.js");
@@ -103,17 +103,27 @@ const harnessEnv = () =>
 		Object.entries(process.env).filter(([name]) => HARNESS_VAR.test(name)),
 	);
 
+interface AuditOpts {
+	env?: Record<string, string>;
+	trace?: boolean;
+	settle?: boolean;
+}
+
 /**
  * Run `body` as the test file `file` in a process under the audit armed over
  * `root`; returns the audit's log dir. `trace: false` arms it as on a machine
  * with no tracer; `settle: false` leaves the environment unsettled, as no
  * setup ran.
  */
-function audited(
+const audited = (root: string, file: string, body: string, opts?: AuditOpts) =>
+	runAudited(root, file, body, opts).log;
+
+/** `audited`, with what the process wrote to its stdout. */
+function runAudited(
 	root: string,
 	file: string,
 	body: string,
-	{ env = {} as Record<string, string>, trace = true, settle = true } = {},
+	{ env = {}, trace = true, settle = true }: AuditOpts = {},
 ) {
 	const scope: NodeJS.ProcessEnv = { ...harnessEnv(), ...env };
 	delete scope.WFC_READ_AUDIT_OWNER;
@@ -134,10 +144,22 @@ function audited(
 	});
 	expect(r.stderr).toBe("");
 	expect(r.status).toBe(0);
-	return log as string;
+	return { log: log as string, stdout: r.stdout };
 }
 
 const T = "scripts/x.test.js";
+
+/** A clock whose sleep only moves its `t` on. */
+const fakeClock = () => {
+	const c = {
+		t: 0,
+		now: () => c.t,
+		sleep: (ms: number) => {
+			c.t += ms;
+		},
+	};
+	return c;
+};
 
 /* A child's verdict as the preload logs it (lib/read-audit-provenance.js),
  * for a log seeded by hand: nothing it is, but what `is` names. */
@@ -465,6 +487,53 @@ const runsTool = (root: string, stub: string) =>
 
 const READS_SETTINGS = "#!/bin/sh\ncat .claude/settings.json\n";
 
+describe("waiting out a traced child's copied output (#5218)", () => {
+	const fail = (code: string) => Object.assign(new Error(code), { code });
+	/** Named pipes whose `cat` reads for `reads[path]` more probes, then
+	 * ends; every other path absent. */
+	const fifos = (reads: Record<string, number>) => {
+		const unlinked: string[] = [];
+		const probed: string[] = [];
+		const io = {
+			openSync: (abs: string) => {
+				probed.push(abs);
+				if (!(abs in reads)) throw fail("ENOENT");
+				if (reads[abs]-- > 0) return 7;
+				throw fail("ENXIO");
+			},
+			closeSync: () => undefined,
+			unlinkSync: (abs: string) => {
+				unlinked.push(abs);
+				delete reads[abs];
+			},
+		};
+		return { io, unlinked, probed };
+	};
+
+	it("returns at once on outputs already copied, and probes only the outputs it is named", () => {
+		const clock = fakeClock();
+		const { io, probed } = fifos({});
+		awaitCopied("/t", [2], io, clock);
+		expect(clock.t).toBe(0);
+		expect(probed).toEqual(["/t.2"]);
+	});
+
+	it("waits while a pipe has its reader, and removes one whose reader is gone", () => {
+		const clock = fakeClock();
+		const { io, unlinked } = fifos({ "/t.1": 0, "/t.2": 3 });
+		awaitCopied("/t", [1, 2], io, clock);
+		expect(clock.t).toBe(15);
+		expect(unlinked).toEqual(["/t.1", "/t.2"]);
+	});
+
+	it("gives up at its ceiling on a pipe whose reader stays", () => {
+		const clock = fakeClock();
+		const { io } = fifos({ "/t.1": Number.POSITIVE_INFINITY });
+		awaitCopied("/t", [1], io, clock);
+		expect(clock.t).toBe(2000);
+	});
+});
+
 describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 	const reads = (root: string, body: string) =>
 		readAudits(audited(root, T, body), root).get(T);
@@ -548,6 +617,63 @@ describe.skipIf(!STRACE)("a child run under the tracer (#4966)", () => {
 			].join("\n"),
 		);
 		expect(audit).toHaveProperty("reads");
+	});
+
+	/* 20 rounds: before #5218 most runs lost the race in one. The audit
+	 * reading back with no doubt is the positive pair: the wait keeps the
+	 * child traced. */
+	const Rounds = 20;
+	const interleaved = Array.from(
+		{ length: Rounds },
+		(_, i) => `child${i}\nparent${i}\n`,
+	).join("");
+	const leftPipes = (log: string) =>
+		fs.readdirSync(log).filter((f) => /\.trace\.[12]$/.test(f));
+
+	it.each([
+		[
+			"a sync spawn returns",
+			`for (let i = 0; i < ${Rounds}; i++) {\n\tcp.spawnSync("sh", ["-c", "echo child" + i], at);\n\tfs.writeSync(1, "parent" + i + "\\n");\n}`,
+		],
+		[
+			"an async child's exit is delivered",
+			`const run = (i) => {\n\tif (i === ${Rounds}) return;\n\tcp.spawn("sh", ["-c", "echo child" + i], at).on("exit", () => {\n\t\tfs.writeSync(1, "parent" + i + "\\n");\n\t\trun(i + 1);\n\t});\n};\nrun(0);`,
+		],
+	])(
+		"copies out a traced child's inherited output before %s, so the spawner's next write lands after it (#5218)",
+		(_, loop) => {
+			const root = checkout();
+			const body = [
+				'const cp = require("node:child_process");',
+				'const fs = require("node:fs");',
+				`const at = { cwd: ${quoted(root)}, stdio: "inherit" };`,
+				loop,
+			].join("\n");
+			const { log, stdout } = runAudited(root, T, body);
+			expect(stdout).toBe(interleaved);
+			expect(leftPipes(log)).toEqual([]);
+			expect(readAudits(log, root).get(T)).toHaveProperty("reads");
+		},
+	);
+
+	it("delivers the exit of a traced child whose process group was killed, its pipes' readers with it, and leaves no pipe (#5218)", () => {
+		const root = checkout();
+		/* The 30 s sleep is one far past the case: the kill is what it tests. */
+		const body = [
+			'const cp = require("node:child_process");',
+			'const fs = require("node:fs");',
+			"const dir = process.env.WFC_READ_AUDIT;",
+			`const c = cp.spawn("sh", ["-c", "exec sleep 30"], { cwd: ${quoted(root)}, stdio: "inherit", detached: true });`,
+			'c.on("exit", () => fs.writeSync(1, "exited\\n"));',
+			"const poll = setInterval(() => {",
+			"\tif (!fs.readdirSync(dir).some((f) => /\\.trace\\.1$/.test(f))) return;",
+			"\tclearInterval(poll);",
+			'\tprocess.kill(-c.pid, "SIGKILL");',
+			"}, 5);",
+		].join("\n");
+		const { log, stdout } = runAudited(root, T, body);
+		expect(stdout).toBe("exited\n");
+		expect(leftPipes(log)).toEqual([]);
 	});
 
 	it("returns from a shell that left a detached process running, while it runs", () => {
@@ -1889,14 +2015,7 @@ describe("a read it cannot charge to one test file records no row for it", () =>
 				],
 			});
 			if (trace !== null) fs.writeFileSync(path.join(dir, "t"), trace);
-			let now = 0;
-			const clock = {
-				now: () => now,
-				sleep: (ms: number) => {
-					now += ms;
-				},
-			};
-			return readAudits(dir, root, clock).get("a.test.ts");
+			return readAudits(dir, root, fakeClock()).get("a.test.ts");
 		};
 
 		it("holds the link a child read, and nothing for where it points", () => {

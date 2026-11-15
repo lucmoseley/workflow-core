@@ -1,8 +1,9 @@
 // @vitest-environment node
 /*
- * The check-release-lag.js program (#4448) over a throwaway clone and $HOME.
- * Loosened, the lag reads from the tag rather than its source and counts all
- * of main's history, or a lag past the threshold stays silent at SessionStart.
+ * The check-release-lag.js program (#4448, #5228) over a throwaway clone and
+ * $HOME. Loosened, the lag reads from the tag rather than its source and
+ * counts all of main's history, a lag past the threshold stays silent at
+ * SessionStart, or an install off its pin reads as the pin.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -18,7 +19,10 @@ const T0 = 1_790_000_000;
 let dir: string;
 let repo: string;
 let home: string;
+/** The install registry addAdopter fills. */
+let registry: { plugins: Record<string, object[]> };
 beforeEach(() => {
+	registry = { plugins: { "workflow-core@wfc": [] } };
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "release-lag-"));
 	repo = path.join(dir, "repo");
 	home = path.join(dir, "home");
@@ -89,7 +93,12 @@ const buildCore = ({
 	return source;
 };
 
-const addAdopter = (name: string, ref: string | null) => {
+/** `installed` is the version installed_plugins.json records. */
+const addAdopter = (
+	name: string,
+	ref: string | null,
+	installed: string | null = ref,
+) => {
 	const root = path.join(home, name);
 	fs.mkdirSync(path.join(root, ".git"), { recursive: true });
 	fs.mkdirSync(path.join(root, ".claude"));
@@ -107,6 +116,15 @@ const addAdopter = (name: string, ref: string | null) => {
 		path.join(root, ".claude", "settings.json"),
 		JSON.stringify(settings),
 	);
+	if (installed === null) return;
+	registry.plugins["workflow-core@wfc"]?.push({
+		projectPath: root,
+		installPath: path.join(home, "cache", installed),
+		version: installed.replace(/^v/, ""),
+	});
+	const at = path.join(home, ".claude", "plugins", "installed_plugins.json");
+	fs.mkdirSync(path.dirname(at), { recursive: true });
+	fs.writeFileSync(at, JSON.stringify(registry));
 };
 
 const run = (args: string[] = ["--json"]) =>
@@ -116,6 +134,7 @@ const run = (args: string[] = ["--json"]) =>
 			GITHUB_ACTIONS: "",
 			WFC_REPO_ROOT: repo,
 			HOME: home,
+			CLAUDE_CONFIG_DIR: path.join(home, ".claude"),
 		},
 	});
 
@@ -131,7 +150,9 @@ describe("a lag within the threshold", () => {
 		expect(env.outcome).toBe("OK");
 		expect(env).toMatchObject({ commits: 3, days: 3, source });
 		expect(env.summary).toContain("3 commit(s) and 3 day(s) behind");
-		expect(env.summary).toContain("v0.9.0 ×1, v1.0.0 ×2");
+		expect(env.summary).toContain(
+			"Adopters, pin / installed: a v1.0.0 / v1.0.0, b v1.0.0 / v1.0.0, c v0.9.0 / v0.9.0.",
+		);
 	});
 
 	it("prints nothing at SessionStart", () => {
@@ -154,7 +175,24 @@ describe("a lag past the threshold", () => {
 		expect(r.stdout).toContain(
 			"-day threshold: no fix since reaches an adopter",
 		);
-		expect(r.stdout).toContain("no pin ×1, v1.0.0 ×1");
+		expect(r.stdout).toContain("a v1.0.0 / v1.0.0, d no pin / not installed");
+	});
+});
+
+describe("an install off its pin", () => {
+	it("warns at SessionStart within the lag threshold, naming pin and install", () => {
+		buildCore({ lagDays: 1 });
+		addAdopter("level", "v1.0.0");
+		addAdopter("old", "v1.0.0", "v0.9.0");
+		addAdopter("absent", "v1.0.0", null);
+		const r = run(["--notify"]);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain(
+			"INSTALL-OFF-PIN — Install not at pin, pin / installed: absent v1.0.0 / not installed, old v1.0.0 / v0.9.0. The pinned release is not what runs there; each checkout's own session start names the commands that install it (scripts/check-plugin-gap.js).",
+		);
+		expect(r.stdout).toContain(
+			"Adopters, pin / installed: absent v1.0.0 / not installed, level v1.0.0 / v1.0.0, old v1.0.0 / v0.9.0.",
+		);
 	});
 });
 

@@ -57,7 +57,11 @@ const {
 } = require("./read-audit-paths.js");
 const { GIT_READS, stepGitOptions } = require("./read-audit-git.js");
 const { buildVerdictOf, GUARD } = require("./read-audit-provenance.js");
-const { buildTraceArgv, realOf } = require("./read-audit-trace.js");
+const {
+	awaitCopied,
+	buildTraceArgv,
+	realOf,
+} = require("./read-audit-trace.js");
 const SELF = require("node:url").pathToFileURL(__filename).href;
 
 /* Loaded by `--import`, which sends the main script through the ESM loader;
@@ -212,6 +216,12 @@ function install() {
 	const realRealpathSync = fs.realpathSync;
 	const realReadFileSync = fs.readFileSync;
 	const realOpenSync = fs.openSync;
+	/** @type {import("./read-audit-trace.js").FifoIo} */
+	const fifoIo = {
+		openSync: fs.openSync,
+		closeSync: fs.closeSync,
+		unlinkSync: fs.unlinkSync,
+	};
 
 	/** @type {import("./read-audit-handed.js").Settled} */
 	const settled = readSettled(process.env[SETTLED]);
@@ -926,10 +936,9 @@ function install() {
 				killedGit ||= isGitNow(handle.pid);
 				return kill.apply(this, args);
 			};
-			handle.onexit = function (/** @type {Untyped[]} */ ...args) {
+			wrapOnExit(handle, () => {
 				if (killedGit) markExited(events, handle.pid);
-				return onexit.apply(this, args);
-			};
+			});
 		});
 	/** @param {unknown} pid whether that process runs a binary named git */
 	const isGitNow = (pid) => {
@@ -961,6 +970,38 @@ function install() {
 				...route,
 			});
 		});
+	/**
+	 * Wait out the copying of a traced child's outputs it shares with this
+	 * process, so that this process's next write lands after them, as it
+	 * would untraced (#5218). An output this process reads through a pipe
+	 * of its own owes no order: a sync spawn already waits for its end, and
+	 * an async one's exit may come before its data.
+	 * @param {Spawn} spawned
+	 */
+	const awaitOutput = ({ opts, route }) =>
+		guard(() => {
+			if (!route || !("trace" in route)) return;
+			const stdio = Array.isArray(opts?.stdio) ? opts.stdio : [];
+			const shared = [1, 2].filter((n) => {
+				const type = stdio[n]?.type;
+				return type !== undefined && type !== "pipe" && type !== "ignore";
+			});
+			if (shared.length > 0)
+				awaitCopied(path.join(dir, route.trace), shared, fifoIo);
+		});
+	/**
+	 * Run `before` ahead of an async child's exit reaching its listeners.
+	 * @param {Untyped} handle the child's process handle: Node calls only
+	 *   the handle's own `onexit`, so it is wrapped in place
+	 * @param {() => void} before
+	 */
+	const wrapOnExit = (handle, before) => {
+		const { onexit } = handle;
+		handle.onexit = function (/** @type {Untyped[]} */ ...args) {
+			before();
+			return onexit.apply(this, args);
+		};
+	};
 	const bindings = /** @type {Untyped} */ (process).binding;
 	const quiet = process.noDeprecation;
 	process.noDeprecation = true;
@@ -970,6 +1011,7 @@ function install() {
 		sync.spawn = function (/** @type {Untyped[]} */ ...args) {
 			const spawned = buildTracedSpawn(args[0]);
 			const out = syncSpawn.apply(this, [spawned.opts, ...args.slice(1)]);
+			awaitOutput(spawned);
 			logChild(args[0], out?.pid, spawned);
 			return out;
 		};
@@ -994,6 +1036,8 @@ function install() {
 			logChild(asked, this.pid, spawned);
 			watchIfUnseen(asked, this.pid, spawned);
 			markOnKill(this, spawned.events);
+			if (typeof this.onexit === "function")
+				wrapOnExit(this, () => awaitOutput(spawned));
 			return err;
 		};
 	} catch {

@@ -1,17 +1,16 @@
 /*
- * release-lag.js — the core of check-release-lag.js (#4448). Git is reached
+ * release-lag.js — the core of check-release-lag.js (#4448, #5228). Git is reached
  * only through the port the program hands in; nothing here reads a file.
  */
 
-const { isTagRef } = require("./plugin-state.js");
+const { isTagRef, sameRelease } = require("./plugin-state.js");
 const { scriptPath } = require("./script-path.js");
 
 /**
  * Warn once the newest release's source is more than this many days behind
- * `origin/main`. The longest gap between consecutive release sources from
- * v1.1.18 to v2.0.1 was ~6.3 days, so it fires only on a lag the release
- * habit has not produced before. Days, not commits: a burst of commits
- * inside seven days stays silent by design.
+ * `origin/main`, above the longest gap between release sources (#4448).
+ * Days, not commits: a burst of commits inside seven days stays silent by
+ * design.
  */
 const LAG_WARN_DAYS = 7;
 
@@ -31,17 +30,52 @@ function labelPin({ ref, source }) {
 	return "no pin";
 }
 
-/** @param {string[]} labels */
-function formatAdopters(labels) {
-	if (labels.length === 0)
-		return "Adopters per tag: no adopter checkout found.";
-	/** @type {Map<string, number>} */
-	const counts = new Map();
-	for (const label of labels) counts.set(label, (counts.get(label) ?? 0) + 1);
-	const parts = [...counts]
-		.sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
-		.map(([label, n]) => `${label} ×${n}`);
-	return `Adopters per tag: ${parts.join(", ")}.`;
+/**
+ * @typedef {{name: string, pin: string, installed: string|null}} Adopter
+ *   `pin` is labelPin's label; `installed` the version
+ *   `installed_plugins.json` records for the checkout, or null where it
+ *   records none.
+ */
+
+/**
+ * A pin moves on a bump; the install is a separate act awaiting the
+ * founder's yes (#5228).
+ * Judged as lib/plugin-state.js's `installAtPin` judges it: anything but the
+ * pinned release, an install ahead of the pin or of no version's shape
+ * included, is off the pin.
+ * @param {Adopter} adopter
+ */
+const isInstallOffPin = ({ pin, installed }) =>
+	isTagRef(pin) && !sameRelease(installed, pin);
+
+/** @param {string|null} installed */
+const labelInstalled = (installed) =>
+	installed === null ? "not installed" : `v${installed.replace(/^v/, "")}`;
+
+/** @param {Adopter[]} adopters */
+const listAdopters = (adopters) =>
+	[...adopters]
+		.sort((a, b) => a.name.localeCompare(b.name))
+		.map((a) => `${a.name} ${a.pin} / ${labelInstalled(a.installed)}`)
+		.join(", ");
+
+/** @param {Adopter[]} adopters */
+function formatAdopters(adopters) {
+	if (adopters.length === 0) return "Adopters: no adopter checkout found.";
+	return `Adopters, pin / installed: ${listAdopters(adopters)}.`;
+}
+
+/**
+ * @param {Adopter[]} adopters
+ * @returns {Finding|null}
+ */
+function judgeInstalls(adopters) {
+	const off = adopters.filter(isInstallOffPin);
+	if (off.length === 0) return null;
+	return {
+		finding: "INSTALL-OFF-PIN",
+		line: `Install not at pin, pin / installed: ${listAdopters(off)}. The pinned release is not what runs there; each checkout's own session start names the commands that install it (${scriptPath("check-plugin-gap.js")}).`,
+	};
 }
 
 /**
@@ -56,6 +90,7 @@ function formatAdopters(labels) {
  *   | {kind: "source-absent", source: string}
  *   | {kind: "measured", source: string, commits: number, days: number}} Reading
  * @typedef {{state: "UNREAD"|"BEHIND"|"WITHIN", finding: string|null, line: string}} Verdict
+ * @typedef {{finding: string, line: string}} Finding
  */
 
 /**
@@ -116,6 +151,7 @@ module.exports = {
 	LAG_WARN_DAYS,
 	MAIN,
 	formatAdopters,
+	judgeInstalls,
 	judgeLag,
 	labelPin,
 	readLag,
