@@ -67,11 +67,11 @@ const boundEnv = (pluginRoot: string) => ({
 	WFC_HOOK_LIMIT_S: "1",
 });
 
-function runHook(name: string, body: string) {
+function runHook(name: string, body: string, prelude = "") {
 	const hook = path.join(dir, name);
 	fs.writeFileSync(
 		hook,
-		`#!/usr/bin/env sh\nset -e\n${SOURCE_LINE}\n${body}\n`,
+		`#!/usr/bin/env sh\nset -e\n${prelude}${SOURCE_LINE}\n${body}\n`,
 	);
 	// spawn-kept: a timeout — the library's limit kills a real process group
 	return spawnSync("sh", ["-e", hook], {
@@ -272,12 +272,9 @@ describe("a checker inside the limit (#4187)", () => {
 	it("gets no pause pipe unless its hook asks for one (#5213)", () => {
 		const probe = `node -e 'process.stdout.write(String(process.env.WFC_HOOK_PAUSE_FD))'`;
 		expect(runHook("pre-commit", probe).stdout).toBe("undefined");
-		expect(
-			runHook(
-				"prepare-commit-msg",
-				`hb_pausable=1\n. "${ROOT}/scripts/lib/hook-bound.sh"\n${probe}`,
-			).stdout,
-		).toBe("3");
+		expect(runHook("prepare-commit-msg", probe, "hb_pausable=1\n").stdout).toBe(
+			"3",
+		);
 	});
 
 	it("runs unbounded, `node` the binary, where the runner is missing", () => {

@@ -279,9 +279,12 @@ function takeHookPause(env) {
 			fs.writeSync(PAUSE_FD, byte);
 			return true;
 		} catch (e) {
+			const code = caught(e).code ?? "unknown";
 			writeFd(
 				2,
-				`${APPARATUS_PREFIX}the hook limit's clock would not ${byte === PAUSE ? "pause" : "resume"} (${caught(e).code ?? "unknown"}), so it runs on (#5213).\n`,
+				byte === PAUSE
+					? `${APPARATUS_PREFIX}the hook limit's clock would not pause (${code}), so this stretch runs on it (#5213).\n`
+					: `${APPARATUS_PREFIX}the hook limit's clock would not resume (${code}), so the rest of this run is unbounded (#5213).\n`,
 			);
 			return false;
 		}

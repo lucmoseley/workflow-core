@@ -373,24 +373,25 @@ function runPrepareCommitMsg(
 	const { dispatch } = require("./precommit-dispatch.js");
 	const { takePrecommitStamp } = require("./precommit-stamp.js");
 
-	const gitDir = readHookGitDir(io.cwd, io.env);
+	const pause = takeHookPause(io.env);
+	const env = pause.env;
+	const gitDir = readHookGitDir(io.cwd, env);
 	const recorded = takePrecommitStamp(gitDir);
-	const route = commitRoute("prepare-commit-msg", gitDir, { env: io.env });
+	const route = commitRoute("prepare-commit-msg", gitDir, { env });
 	const written = spawnGitSync(["write-tree"], {
 		cwd: io.cwd,
-		env: io.env,
+		env,
 		encoding: "utf8",
 	});
 	const tree = written.status === 0 ? String(written.stdout).trim() : "";
 	const huskyDir = path.resolve(io.cwd, husky);
-	const pause = takeHookPause(io.env);
 	/** @type {PrepareCommitMsgContext} */
 	const ctx = {
 		cwd: io.cwd,
-		env: pause.env,
+		env,
 		outsideLimit: pause.outside,
 		husky: huskyDir,
-		root: io.env.WFC_PLUGIN_ROOT || path.dirname(huskyDir),
+		root: env.WFC_PLUGIN_ROOT || path.dirname(huskyDir),
 		file,
 		gitDir,
 		route,
