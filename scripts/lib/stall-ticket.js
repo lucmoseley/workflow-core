@@ -14,9 +14,8 @@
  */
 
 const path = require("node:path");
-const { STALL_MS } = require("./landing-stall.js");
 const { formatHoursMin } = require("./queue-gauge.js");
-const { STALL_TITLE: TITLE } = require("./queue-tickets.js");
+const { STALL_MS, STALL_TITLE: TITLE } = require("./queue-tickets.js");
 const { recordTicket } = require("./record-ticket.js");
 
 /**

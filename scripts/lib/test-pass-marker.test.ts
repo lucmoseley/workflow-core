@@ -2121,8 +2121,9 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 			}
 		});
 
-		it("runs from the merge-base with origin/main where the landing module is on (#4458)", () => {
+		it("runs from the merge-base with origin/main where the landing module is on, never a queue ref (#4458)", () => {
 			const { dir, root, b, c1, c2 } = twoSessions();
+			git(dir, "update-ref", "refs/remotes/origin/queue/s1", c2);
 			vi.stubEnv("WFC_MODULES", "landing");
 			git(dir, "update-ref", "refs/remotes/origin/main", root);
 			const r = attestationOf(c2, [b], { root: dir });

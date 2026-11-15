@@ -39,10 +39,8 @@ const { markersDir } = require("./marker-root.js");
 const { queueGit } = require("./queue-lander-adapters.js");
 const { oldestWaiting, queueGaugeOf } = require("./queue-gauge.js");
 const { queueLogFile, readQueueRows } = require("./queue-log.js");
+const { STALL_MS } = require("./queue-tickets.js");
 
-/* About 3.6 median whole-suite runs of 1987 s (#2672, from #2666's
- * measurement); not measured against red batches. */
-const STALL_MS = 2 * 60 * 60 * 1000;
 /* Untraced: five missed beats, so one slow tester tick is never read as a
  * death. */
 const STALE_MS = 5 * HEARTBEAT_MS;
@@ -217,7 +215,6 @@ function recordWake(file, { startedAt, now }) {
 }
 
 module.exports = {
-	STALL_MS,
 	mainMovedAt,
 	readQueue,
 	stallFindings,
