@@ -370,9 +370,9 @@ const NESTING = { "[": [1, 0], "]": [-1, 0], "{": [0, 1], "}": [0, -1] };
 
 /**
  * The strings directly in the arrays of the TOML array or inline table opening
- * at `open`, never in a nested array or inline table, and where it closes. A
- * value that never closes, or an inline table a header line breaks into, reads
- * as no strings, ending where the header starts.
+ * at `open`, and where it closes. A value that never closes, or an inline table
+ * a header line breaks into, reads as no strings, ending where the header
+ * starts.
  * @param {string} text
  * @param {number} open the index of its `[` or `{`
  * @returns {{ strings: string[], end: number }}
