@@ -171,6 +171,26 @@ describe("what it does not judge", () => {
 	});
 
 	it.each([
+		"pip install mkdocs pydata-sphinx-theme ruff",
+		"pip install not-a-dep",
+	])(
+		"reads an inline `optional-dependencies` or `dependency-groups` table: `%s`",
+		(command) => {
+			const pyproject = `dependency-groups = { lint = ["ruff"] }
+
+[project]
+name = "the-repo"
+optional-dependencies = { docs = ["mkdocs", { x = "not-a-dep" }], "themes" = [
+  "pydata-sphinx-theme",  # a comment
+] }
+`;
+			const files = { "pyproject.toml": pyproject };
+			const declared = !command.includes("not-a-dep");
+			expect(allows(command, { created: "404" }, { files })).toBe(declared);
+		},
+	);
+
+	it.each([
 		"pip install not-a-dep",
 		"pip install not-declared",
 		"pip install lint",

@@ -253,9 +253,10 @@ const TARGET_TABLES = new Set([
 
 /**
  * The requirement strings of `pyproject.toml`'s three dependency tables. A
- * reader of just that much TOML: a table header, a `key = [` array, and the
- * strings in it outside an inline table. What it misreads it drops, so the
- * package is vetted as new.
+ * reader of just that much TOML: a table header, a `key = [` array, a
+ * `key = {` inline table read as the table `<header>.key`, and the strings in
+ * their arrays outside any further inline table. What it misreads it drops, so
+ * the package is vetted as new.
  * @param {string} text
  * @returns {string[]}
  */
@@ -266,11 +267,13 @@ function pyprojectSpecs(text) {
 	for (let at = 0; at < text.length; ) {
 		const end = lineEnd(text, at);
 		const line = text.slice(at, end);
-		const kv = KEY_ARRAY_RE.exec(line);
+		const kv = KEY_VALUE_RE.exec(line);
 		if (/^\s*\[/.test(line)) table = tableOf(line);
 		else if (kv !== null) {
-			const read = arrayStrings(text, at + kv[0].length - 1);
-			if (isDependencyArray(table, requiredGroup(kv, 1, KEY_ARRAY_RE)))
+			const open = at + kv[0].length - 1;
+			const read = valueStrings(text, open);
+			const key = requiredGroup(kv, 1, KEY_VALUE_RE).replace(/["']/g, "");
+			if (holdsDependencies(table, key, text[open]))
 				specs.push(...read.strings);
 			at = lineEnd(text, read.end) + 1;
 			continue;
@@ -280,7 +283,7 @@ function pyprojectSpecs(text) {
 	return specs;
 }
 
-const KEY_ARRAY_RE = /^\s*("[^"]*"|'[^']*'|[A-Za-z0-9_-]+)\s*=\s*\[/;
+const KEY_VALUE_RE = /^\s*("[^"]*"|'[^']*'|[A-Za-z0-9_-]+)\s*=\s*[[{]/;
 const HEADER_RE = /^\s*\[([^[\]]+)\]\s*(#.*)?$/;
 /* A comment, a basic or literal one-line string, or a bracket or brace. */
 const TOKEN_RE = /#[^\n]*|"((?:\\.|[^"\\\n])*)"|'([^'\n]*)'|[{}[\]]/g;
@@ -302,12 +305,17 @@ const tableOf = (line) =>
 	(HEADER_RE.exec(line)?.[1] ?? "").replace(/["'\s]/g, "");
 
 /**
+ * Whether `key = [` under `table` is `[project]`'s `dependencies` or an array
+ * of a target table, or `key = {` is an inline target table.
  * @param {string} table
- * @param {string} key as written, quoted or bare
+ * @param {string} key unquoted
+ * @param {string | undefined} opener `[` or `{`
  */
-const isDependencyArray = (table, key) =>
-	(table === "project" && key.replace(/["']/g, "") === "dependencies") ||
-	TARGET_TABLES.has(table);
+const holdsDependencies = (table, key, opener) =>
+	opener === "["
+		? (table === "project" && key === "dependencies") ||
+			TARGET_TABLES.has(table)
+		: TARGET_TABLES.has(table === "" ? key : `${table}.${key}`);
 
 /**
  * A string token's text: group 1 for a basic string, 2 for a literal one.
@@ -319,27 +327,34 @@ const stringOf = (m) =>
 		: requiredGroup(m, 2, TOKEN_RE);
 
 /**
- * The strings of the TOML array opening at `open`, outside any inline table,
- * and where it closes.
+ * What each bracket and brace adds to the array and inline-table depths.
+ * @type {Record<string, [number, number]>}
+ */
+const NESTING = { "[": [1, 0], "]": [-1, 0], "{": [0, 1], "}": [0, -1] };
+
+/**
+ * The strings in the arrays of the TOML array or inline table opening at
+ * `open`, outside any inline table inside it, and where it closes.
  * @param {string} text
- * @param {number} open the index of its `[`
+ * @param {number} open the index of its `[` or `{`
  * @returns {{ strings: string[], end: number }}
  */
-function arrayStrings(text, open) {
+function valueStrings(text, open) {
 	/** @type {string[]} */
 	const strings = [];
-	let depth = 0;
+	const inTable = text[open] === "{";
+	let brackets = 0;
 	let braces = 0;
 	const tokens = new RegExp(TOKEN_RE.source, "g");
 	tokens.lastIndex = open;
 	for (let m = tokens.exec(text); m !== null; m = tokens.exec(text)) {
-		const t = m[0];
-		if (t === "[") depth++;
-		else if (t === "]" && --depth === 0) return { strings, end: m.index };
-		else if (t === "{") braces++;
-		else if (t === "}") braces--;
-		else if (t !== "]" && !t.startsWith("#") && braces === 0)
+		const step = NESTING[m[0]];
+		if (step !== undefined) {
+			brackets += step[0];
+			braces += step[1];
+		} else if (!m[0].startsWith("#") && brackets > 0 && braces === +inTable)
 			strings.push(stringOf(m));
+		if ((inTable ? braces : brackets) === 0) return { strings, end: m.index };
 	}
 	return { strings, end: text.length };
 }
