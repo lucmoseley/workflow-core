@@ -12,10 +12,7 @@ import { describe, expect, it } from "vitest";
 const { checkoutPeakMb, launchPeakMb, runnerPeakMb, tscDenial, tscLaunchBin } =
 	require("./tsc-slot.js") as {
 		checkoutPeakMb: (dir: string) => number;
-		launchPeakMb: (
-			dir: string,
-			launch?: { bin?: string; readMajor?: (bin: string) => number | null },
-		) => number;
+		launchPeakMb: (dir: string, launch?: { bin?: string }) => number;
 		runnerPeakMb: (
 			row: { pid: number | null; args: string },
 			readMajor?: (bin: string) => number | null,
@@ -45,12 +42,14 @@ const { rungMb } = require("./suite-ladder.js") as {
 	rungMb: (peakMb: number) => number;
 };
 const { chargeMb } = require("./launch-charge.js") as {
-	chargeMb: (launch: { kind: "tsc"; major: number }) => number;
+	chargeMb: (launch: { kind: "tsc"; major?: number }) => number;
 };
 const TSC_PEAKS_MB = {
 	5: chargeMb({ kind: "tsc", major: 5 }),
 	7: chargeMb({ kind: "tsc", major: 7 }),
 };
+/* What a compiler unread, or a major with no measured peak, is charged. */
+const HIGHEST_PEAK_MB = chargeMb({ kind: "tsc" });
 
 const rung5 = rungMb(TSC_PEAKS_MB[5]);
 
@@ -149,10 +148,10 @@ describe("lib/tsc-slot.js", () => {
 		expect(runnerPeakMb(line(native7), major(null))).toBe(TSC_PEAKS_MB[7]);
 		expect(runnerPeakMb(line(launcher7), major(7))).toBe(TSC_PEAKS_MB[7]);
 		const bin = "node /r/node_modules/.bin/tsc";
-		expect(runnerPeakMb(line(bin), major(5))).toBe(2045);
+		expect(runnerPeakMb(line(bin), major(5))).toBe(TSC_PEAKS_MB[5]);
 		// A version that will not read, 6.0 among them, is charged the highest.
-		expect(runnerPeakMb(line(bin), major(null))).toBe(2045);
-		expect(runnerPeakMb(line(`${bin}6`), major(6))).toBe(2045);
+		expect(runnerPeakMb(line(bin), major(null))).toBe(HIGHEST_PEAK_MB);
+		expect(runnerPeakMb(line(`${bin}6`), major(6))).toBe(HIGHEST_PEAK_MB);
 	});
 
 	it("reads a relative launcher path against its own process's directory, never the reader's (#4892)", () => {
@@ -167,7 +166,9 @@ describe("lib/tsc-slot.js", () => {
 		);
 		expect(seen).toEqual(["/proc/42/cwd/node_modules/.bin/tsc"]);
 		// With no PID to read its directory by, the highest.
-		expect(runnerPeakMb({ pid: null, args: relative }, read)).toBe(2045);
+		expect(runnerPeakMb({ pid: null, args: relative }, read)).toBe(
+			HIGHEST_PEAK_MB,
+		);
 		expect(seen).toHaveLength(1);
 	});
 
@@ -195,9 +196,9 @@ describe("lib/tsc-slot.js", () => {
 				path.join(dir, "six", "node_modules", ".bin", "tsc6"),
 			);
 			// 6.0, launched as `tsc6`, is charged the highest.
-			expect(launchPeakMb(six, { bin: "tsc6" })).toBe(2045);
-			expect(launchPeakMb(tree("five", "5.9.3"))).toBe(2045);
-			expect(launchPeakMb(dir)).toBe(2045);
+			expect(launchPeakMb(six, { bin: "tsc6" })).toBe(HIGHEST_PEAK_MB);
+			expect(launchPeakMb(tree("five", "5.9.3"))).toBe(TSC_PEAKS_MB[5]);
+			expect(launchPeakMb(dir)).toBe(HIGHEST_PEAK_MB);
 			// A checkout's own type-check, none where it holds no compiler (#4956).
 			expect(checkoutPeakMb(path.join(dir, "seven", "sub"))).toBe(
 				TSC_PEAKS_MB[7],
@@ -219,7 +220,7 @@ describe("lib/tsc-slot.js", () => {
 		).toEqual({ limb: "memory", mb: rung7 - 1, rungMb: rung7 });
 		// The same reading holds a 5.x launch.
 		expect(
-			tscDenial(rows("bash -l"), rung7, 0, { peakMb: 2045 }),
+			tscDenial(rows("bash -l"), rung7, 0, { peakMb: TSC_PEAKS_MB[5] }),
 		).toMatchObject({
 			limb: "memory",
 			rungMb: rung5,
