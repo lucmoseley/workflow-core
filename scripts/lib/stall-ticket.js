@@ -1,6 +1,6 @@
 /*
  * stall-ticket.js — the one ticket the refill loop keeps open while `main`
- * has not moved for lib/landing-stall.js's STALL_MS with a queue ref waiting
+ * has not moved for lib/queue-tickets.js's STALL_MS with a queue ref waiting
  * (#2692, ruled at #2672), filed as lib/queue-issue.js files it, and closed
  * with the stall's length once `main` moves, so a later stall files a new one
  * (#4443).

@@ -11,7 +11,8 @@
  * (#2672, from #2666's measurement); not measured against red batches. */
 const STALL_MS = 2 * 60 * 60 * 1000;
 
-/* `main` stood past STALL_MS (lib/stall-ticket.js). */
+/* `main` stood past STALL_MS (lib/stall-ticket.js). Spelt by hand, since
+ * lib/queue-issue.js finds the open ticket by this exact title. */
 const STALL_TITLE = "Landing queue stalled: main has not moved for 2 h";
 
 /* An off-machine queue alarm red at `main`'s sha (lib/alarm-ticket.js). */
