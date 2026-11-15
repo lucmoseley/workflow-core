@@ -1169,6 +1169,30 @@
 					"text": "by bare name, which resolves to two different things"
 				},
 				{
+					"id": "pip-build-window",
+					"core": "guard-pip-install",
+					"kind": "deny",
+					"text": "package(s) this repo does not yet declare"
+				},
+				{
+					"id": "pypi-name-missing",
+					"core": "guard-pip-install",
+					"kind": "deny",
+					"text": "exists on PyPI"
+				},
+				{
+					"id": "pypi-unreachable",
+					"core": "guard-pip-install",
+					"kind": "deny",
+					"text": "PyPI could not be reached to check"
+				},
+				{
+					"id": "pypi-unvettable-spec",
+					"core": "guard-pip-install",
+					"kind": "deny",
+					"text": "a `name @ url` direct reference"
+				},
+				{
 					"id": "low-memory",
 					"core": "guard-suite-concurrency",
 					"kind": "warn",
