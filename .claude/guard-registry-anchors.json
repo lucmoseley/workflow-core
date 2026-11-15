@@ -1,5 +1,5 @@
 {
-	".husky/commit-msg": "3c0a3251e6fea3a3",
+	".husky/commit-msg": "8e90b4ffeb3914b8",
 	".husky/post-checkout": "2550e7843b754db4",
 	".husky/post-commit": "0d619f5ba816b4c9",
 	".husky/post-merge": "2e213be892014803",
@@ -42,7 +42,7 @@
 	"scripts/check-workflow-permissions.js": "be92690231618db1",
 	"scripts/claim-issue.js": "930f88de760ec58d",
 	"scripts/clear-rule-latch.sh": "e4189281d65f5f84",
-	"scripts/commit-msg-dispatch.js": "2e7793d7c4d85b38",
+	"scripts/commit-msg-dispatch.js": "06254759bc5af823",
 	"scripts/commit-paths.js": "fd41346990c86cee",
 	"scripts/concision-backstop.sh": "6482560150803a32",
 	"scripts/cutover-main-checkout.js": "90c297638f8a816e",
