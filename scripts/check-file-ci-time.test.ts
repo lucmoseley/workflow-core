@@ -84,7 +84,9 @@ describe("check-file-ci-time.js", () => {
 
 	it("passes a median of exactly 60 s", () => {
 		for (const r of ["3", "2", "1"]) writeSweep(r, { [SLOW]: 60 });
-		expect(run().status).toBe(0);
+		const { status, out } = run();
+		expect(status).toBe(0);
+		expect(out).toContain("OK: no test file's median CI time");
 	});
 
 	it("counts only the failing files in its FAIL line, an unjudged slow one warned", () => {

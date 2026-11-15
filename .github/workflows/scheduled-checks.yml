@@ -129,7 +129,8 @@ jobs:
 
   # After the suite, a red one included, so this sweep's own shard reports are
   # among the three it judges. A file whose median is over the limit fails it,
-  # and `verdict` with it (#4293). Not on a push: the lander's
+  # and `verdict` with it (#4293); so does the check crashing, though a failed
+  # report download is a SKIP and passes. Not on a push: the lander's
   # tester waits on the whole run's conclusion (scripts/lib/actions-tester.js),
   # so one slow file already on `main` would hold every push red. That run's
   # reports are read by the next sweep.
