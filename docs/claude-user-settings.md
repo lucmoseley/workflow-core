@@ -1,6 +1,6 @@
 # Claude Code user settings — reference copy
 
-Snapshot of `~/.claude/settings.json` as of **12 November 2026**.
+Snapshot of `~/.claude/settings.json` as of **15 November 2026**.
 
 That file is not under version control and exists on one laptop, so this copy is
 its only backup.
@@ -49,7 +49,10 @@ tool if a deny ever matters.
   "permissions": {
     "allow": [
       "Bash(node /home/lucmo/.claude*/plugins/cache/workflow-core/workflow-core/*/scripts/resolve-ticket.js *)",
-      "Bash(git config core.bare false)"
+      "Bash(git config core.bare false)",
+      "Bash(claude plugin marketplace add https://github.com/lucmoseley/workflow-core.git#v* --scope project)",
+      "Bash(claude plugin install workflow-core@workflow-core -y --scope project)",
+      "Bash(claude plugin update workflow-core@workflow-core --scope project -y)"
     ],
     "deny": [
       "AskUserQuestion",
@@ -1225,9 +1228,11 @@ The founder only clicks Authorize; a session does the rest.
 - `defaultMode: auto` — tools run without per-call prompting, so the deny list
   and the auto-mode classifier's rules (`autoMode`), rather than the prompt,
   constrain the agent.
-- `permissions.allow` — two narrow rules that skip the classifier: the
+- `permissions.allow` — narrow rules that skip the classifier: the
   versioned plugin copy of `resolve-ticket.js`, and `git config core.bare false`
-  (the repair for #1677) (#2043).
+  (the repair for #1677) (#2043); and the three workflow-core `claude plugin`
+  install commands a bump session runs itself, in the exact spellings the gap
+  reporter prints (#5230).
 - `autoMode` — the classifier's rules, each list keeping `$defaults`: two `allow` entries
   (plugin pin adoption, product edits to hooks, guards and skills), two
   `soft_deny` entries (forcing or deleting `main`, rewriting commits in a
