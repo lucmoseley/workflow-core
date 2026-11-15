@@ -47,25 +47,15 @@
  *      resolves (mantahostels#1538), which is why it rides on this guard
  *      rather than its own.
  *
- * THE THRESHOLDS, and what in them is a judgement.
- *
- *   MIN_AGE_DAYS=180, MIN_DOWNLOADS=1000 per month.
- *
- * Neither is a measurement; both are chosen for margin (mantahostels#1767).
- * The margin over mantahostels' own dependencies is on mantahostels#1803.
- *
- * THE ESCAPE, `allowNewPackage`, is `WFC_ALLOW_NEW_PACKAGE` in the HOOK's
- * environment (lib/npm-install-host.js), never a leading assignment on the
- * command, which is read but not honoured: an escape a session can spell for
- * itself is not a deny (mantahostels#109). It stands down check 2 alone.
- *
- * WHAT THIS DOES NOT COVER (mantahostels#1767): a legitimate package LATER
- * COMPROMISED. Nothing here is a substitute for a committed lockfile.
+ * Its floors, budget, escape (`WFC_ALLOW_NEW_PACKAGE` in the hook's
+ * environment, lib/npm-install-host.js) and legitimacy refusals are
+ * lib/package-vetting.js's, shared with lib/pip-install.js.
  *
  * LIMITS
  *  - Its lib/guard-cores.json row runs it only on a call one of its `if`
  *    clauses admits: `if: Bash(*npm *)`, `if: Bash(*npx *)` (#3226).
- *  - npm only. `pnpm add`, `yarn add` and `bun add` are not read.
+ *  - npm only. `pnpm add`, `yarn add` and `bun add` are not read; pip and uv
+ *    are lib/pip-install.js's.
  *  - Only a registry spec is vetted. `npm i ./local`, `github:user/repo`, a
  *    tarball URL and a `file:` spec cannot be asked of the registry, so they
  *    are DENIED as unvettable rather than waved through.
@@ -104,26 +94,19 @@ const {
 	treeCommandOf,
 } = require("./npm-options.js");
 const { ruleOrFallback, spliceCmd } = require("./guard-verdict.js");
+const {
+	UNREACHABLE,
+	ageOf,
+	downloadsOf,
+	jsonOf,
+	legitimacy,
+	registryTexts,
+	unvettableText,
+} = require("./package-vetting.js");
 const { isUnder } = require("./is-under.js");
 const { readOrNull } = require("./file-read.js");
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { literal, scanFlags } = require("./shell-words.js");
-
-const MIN_AGE_DAYS = 180;
-const MIN_DOWNLOADS = 1000;
-
-/* THE WALL-CLOCK BUDGET, in seconds. The dispatcher's 60 s timeout is not a
- * verdict: a hook killed at the ceiling refuses through `"onFailure":
- * "block"`, naming nothing it checked. So it stops asking the registry at 30 s
- * and refuses on what it could not check, saying which.
- *
- * 30 s, not 40: the budget is tested BEFORE each package and one package costs
- * up to the npm call's 12 s and curl's 8 s (lib/npm-install-host.js), so a
- * 40 s budget could start a package at 39 s and finish at 59 s — inside the
- * ceiling only by luck (mantahostels#1803's review, H4). The 30 s run from
- * the dispatcher's start, not this core's, so the cores ahead of it spend from
- * them, and 30 + 20 leaves 10 s for the output write. */
-const BUDGET_S = 30;
 
 /* npx rewrites its argv before npm's parser sees it (npm 11.16.0's
  * `bin/npx-cli.js`): it matches each option's key exactly, never as an
@@ -145,18 +128,11 @@ const NPX_REMOVED = new Set(
 );
 
 /**
- * @typedef {{ missing: true } | { status: number | null, stdout: string }} Call
- *   a registry call: `missing` where its program could not be started, else
- *   its exit status (null where it was killed) and stdout
+ * @typedef {import("./package-vetting.js").Call} Call
  * @typedef {object} NpmInstallPorts
  * @property {(pkg: string) => Call} npmView `npm view <pkg> time.created --json`
  * @property {(pkg: string) => Call} downloads last month's downloads endpoint
  *   for `pkg`
- * @property {() => number} now the clock, in epoch milliseconds
- * @property {() => number} startedAt when the dispatcher started, in epoch
- *   milliseconds; the budget runs from it
- * @property {boolean} allowNewPackage `WFC_ALLOW_NEW_PACKAGE` set in the
- *   hook's own environment
  * @property {(p: string) => boolean} pathExists an entry at `p`, a dangling
  *   link included
  * @property {(p: string) => string | null} linkTarget the target `p` links
@@ -164,6 +140,7 @@ const NPX_REMOVED = new Set(
  * @property {() => string} storesDir the host root's dependency-store
  *   directory, absolute
  * @typedef {import("./kit-context.js").KitContext & NpmInstallPorts
+ *   & import("./package-vetting.js").VettingPorts
  *   & Pick<import("./core-contract.js").CoreContext, "tree">} NpmInstallContext
  *   `tree` the session's, whose package.json and `node_modules` are read
  * @typedef {{ deny: string }} Verdict
@@ -172,12 +149,6 @@ const NPX_REMOVED = new Set(
 /* ----------------------------------------------------------------------- */
 /* The refusals.                                                           */
 /* ----------------------------------------------------------------------- */
-
-/** @param {NpmInstallContext} ctx */
-const escapeNote = (ctx) =>
-	`The escape is \`WFC_ALLOW_NEW_PACKAGE=1\` in the environment Claude Code itself
-was started in — NOT on this command line, which is read but never honoured: ${ruleOrFallback(ctx, "self-spelt-escape", "an escape a session can spell for itself is not a deny")} Otherwise ask the
-founder to run the install from their own terminal, which sees no hook.`;
 
 /**
  * @param {string[]} fresh
@@ -192,56 +163,6 @@ Without \`--ignore-scripts\`: ${ruleOrFallback(ctx, "install-scripts-first", "an
 Re-run with \`--ignore-scripts\`; it is per-invocation, so husky's \`prepare\` bootstrap on a fresh clone is untouched (mantahostels#1767 rejected the repo-wide \`.npmrc\` form for exactly that reason).
 
 Then commit the lockfile.`;
-
-/**
- * @param {string} spec
- * @param {string} note the escape's note
- */
-const unvettableText = (spec, note) =>
-	`This install names a spec the registry cannot be asked about, so its legitimacy is unverifiable: \`${spec}\`
-
-@CMD@
-
-A path, a tarball URL, a \`git:\`/\`github:\` spec and an \`npm:\` alias all bypass the checks this guard runs on a new package — that the name exists, its age, its download history. None of them can be answered for a spec that never touches the registry.
-
-${note}`;
-
-/**
- * @typedef {"missing" | "young" | "thin" | "budget" | "unreachable"} Refusal
- * @typedef {{ kind: "ok" } | { kind: Refusal, n: string }} RegistryVerdict
- */
-
-/** @type {Record<Refusal, (name: string, n: string, note: string) => string>} */
-const REGISTRY_TEXT = {
-	missing: (name) =>
-		`No package named \`${name}\` exists on the npm registry: @CMD@
-
-That is the shape of a hallucinated name. Roughly one in five package references generated by a code model does not exist (Spracklen et al., USENIX Security 2025), and 43% of those names recur across re-runs — which is what makes pre-registering them worth an attacker's time. Check the name against the tool's own documentation before trying again.`,
-	young: (name, days, note) =>
-		`\`${name}\` was first published ${days} days ago, under this guard's ${MIN_AGE_DAYS}-day floor: @CMD@
-
-A squat registered against a hallucinated name is days old. A genuinely new package that this project needs is a founder decision, not a session's.
-
-${note}`,
-	thin: (name, dl, note) =>
-		`\`${name}\` was downloaded ${dl} time(s) last month, under this guard's floor of ${MIN_DOWNLOADS}: @CMD@
-
-A package worth installing has real download history. This has none, which is what a squatted name looks like from the outside.
-
-${note}`,
-	budget: (name, _n, note) =>
-		`This guard ran out of its own time budget before it could check \`${name}\`, so nothing is known about it: @CMD@
-
-The budget is ${BUDGET_S} s from the hook's start, under its 60 s ceiling — a hook killed at that ceiling is refused without saying which package was unchecked. Install one package at a time and each gets checked.
-
-${note}`,
-	unreachable: (name, _n, note) =>
-		`The npm registry could not be reached to check \`${name}\`, so this install proceeds on nothing: @CMD@
-
-An install whose name, age and download history went unchecked is what this guard exists to prevent, so an unreachable registry refuses rather than waving it through (mantahostels#1767).
-
-${note}`,
-};
 
 /**
  * @param {string} subject
@@ -464,13 +385,12 @@ function specName(spec) {
 /* The registry.                                                            */
 /* ----------------------------------------------------------------------- */
 
-/** @param {number} ms */
-const seconds = (ms) => Math.floor(ms / 1000);
+/** @typedef {import("./package-vetting.js").RegistryVerdict} RegistryVerdict */
 
-/** @type {RegistryVerdict} */
-const UNREACHABLE = { kind: "unreachable", n: "" };
-/** @type {RegistryVerdict} */
-const OK = { kind: "ok" };
+const NPM_TEXTS = registryTexts({
+	exists: "exists on the npm registry",
+	unreached: "The npm registry could not be reached to check",
+});
 
 /**
  * One package's registry verdict: ok, missing, unreachable, young or thin,
@@ -503,14 +423,7 @@ function ageVerdict(pkg, ctx) {
 		return view.stdout.includes("E404")
 			? { kind: "missing", n: "" }
 			: UNREACHABLE;
-	const created = jsonOf(view.stdout);
-	if (typeof created !== "string" || !created) return UNREACHABLE;
-	const epochMs = Date.parse(created);
-	if (Number.isNaN(epochMs)) return UNREACHABLE;
-	/* Whole seconds each side and a division truncating towards zero. */
-	const days = Math.trunc((seconds(ctx.now()) - seconds(epochMs)) / 86_400);
-	if (days < MIN_AGE_DAYS) return { kind: "young", n: String(days) };
-	return OK;
+	return ageOf(jsonOf(view.stdout), ctx);
 }
 
 /**
@@ -529,27 +442,11 @@ function downloadsVerdict(pkg, ctx) {
 	}
 	if (got.status !== 0) return UNREACHABLE;
 	const body = jsonOf(got.stdout);
-	const dl =
+	return downloadsOf(
 		body !== null && typeof body === "object" && "downloads" in body
 			? body.downloads
-			: undefined;
-	const figure =
-		typeof dl === "number" || typeof dl === "string" ? String(dl) : "";
-	if (!/^[0-9]+$/.test(figure)) return UNREACHABLE;
-	if (Number(figure) < MIN_DOWNLOADS) return { kind: "thin", n: figure };
-	return OK;
-}
-
-/**
- * @param {string} text
- * @returns {unknown} the parsed value, or null where it is not JSON
- */
-function jsonOf(text) {
-	try {
-		return JSON.parse(text);
-	} catch {
-		return null;
-	}
+			: undefined,
+	);
 }
 
 /* ----------------------------------------------------------------------- */
@@ -734,9 +631,21 @@ function judgeNpm(segment, args, cwd, st) {
 	if (st.ctx.allowNewPackage) return null;
 	const [first] = unvettable;
 	if (first !== undefined)
-		return refuse(unvettableText(first, escapeNote(st.ctx)), segment);
+		return refuse(
+			unvettableText(
+				first,
+				"A path, a tarball URL, a `git:`/`github:` spec and an `npm:` alias",
+				st.ctx,
+			),
+			segment,
+		);
 
-	const failed = legitimacy(fresh, st.ctx);
+	const failed = legitimacy(
+		fresh,
+		st.ctx,
+		(name) => registryVerdict(name, st.ctx),
+		NPM_TEXTS,
+	);
 	return failed === null ? null : refuse(failed, segment);
 }
 
@@ -757,27 +666,6 @@ function sortSpecs(specs, deps) {
 		else if (!deps.includes(name)) fresh.push(name);
 	}
 	return { fresh, unvettable };
-}
-
-/**
- * The refusal for the first new package the registry does not vouch for, or
- * null where every one clears. The budget is tested BEFORE each package.
- * @param {string[]} fresh
- * @param {NpmInstallContext} ctx
- * @returns {string | null}
- */
-function legitimacy(fresh, ctx) {
-	const deadline = seconds(ctx.startedAt()) + BUDGET_S;
-	for (const name of fresh) {
-		/** @type {RegistryVerdict} */
-		const v =
-			seconds(ctx.now()) >= deadline
-				? { kind: "budget", n: "" }
-				: registryVerdict(name, ctx);
-		if (v.kind !== "ok")
-			return REGISTRY_TEXT[v.kind](name, v.n, escapeNote(ctx));
-	}
-	return null;
 }
 
 /* ----------------------------------------------------------------------- */

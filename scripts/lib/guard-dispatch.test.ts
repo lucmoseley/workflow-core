@@ -956,6 +956,7 @@ describe("the manifest", () => {
 			["guard-review-comment", "Bash", "open", "function"],
 			["guard-rm-unchecked", "Bash", "open", "function"],
 			["guard-npm-install", "Bash", "closed", "function"],
+			["guard-pip-install", "Bash", "closed", "function"],
 			["guard-anthropic-report", "Bash", "closed", "function"],
 			["guard-cpu-load", "Bash", "closed", "function"],
 			["guard-check-sh", "Bash", "open", "function"],
@@ -1005,6 +1006,7 @@ describe("the manifest", () => {
 			"guard-review-comment": ["Bash(gh *)"],
 			"guard-rm-unchecked": ["Bash(*rm *)"],
 			"guard-npm-install": ["Bash(*npm *)", "Bash(*npx *)"],
+			"guard-pip-install": ["Bash(*pip*)", "Bash(*uv *)"],
 			"guard-anthropic-report": ["Bash(*gh *)"],
 			"guard-cpu-load": [
 				"Bash(*yes*)",
