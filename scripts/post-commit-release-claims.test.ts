@@ -28,7 +28,7 @@ import {
 	live,
 } from "./lib/arbiter-testkit";
 import { scrubbedGitEnv } from "./lib/hook-entry.js";
-import { releaseClaimsRow } from "./lib/post-commit-steps.js";
+import { buildRunIo, releaseClaimsRow } from "./lib/post-commit-steps.js";
 import {
 	echoArgv,
 	hookEnv,
@@ -66,7 +66,7 @@ const headOf = (repo: { git: (...a: string[]) => Buffer }) =>
 /** The step on `cwd`, the arbiter echoing the argv it was handed. */
 function runStep(cwd: string, env: NodeJS.ProcessEnv = {}) {
 	const arbiter = stubProgram("session-arbiter.js", echoArgv);
-	const r = releaseClaimsRow({ cwd, env: hookEnv(env) }, programs);
+	const r = releaseClaimsRow(buildRunIo({ cwd, env: hookEnv(env) }), programs);
 	expect(r.exit).toBe(0);
 	return { ...r, arbiter, argv: r.stdout.split("\n").filter(Boolean) };
 }
@@ -163,7 +163,10 @@ describe(".husky/post-commit's release-on-commit step", () => {
 		stubProgram("session-arbiter.js", () => ({ ...SILENT, exit: 3 }));
 
 		expect(
-			releaseClaimsRow({ cwd: repo.root, env: hookEnv() }, programs),
+			releaseClaimsRow(
+				buildRunIo({ cwd: repo.root, env: hookEnv() }),
+				programs,
+			),
 		).toEqual(SILENT);
 	});
 
@@ -189,7 +192,8 @@ describe(".husky/post-commit's release-on-commit step", () => {
 		}));
 
 		expect(
-			releaseClaimsRow({ cwd: repo.root, env: hookEnv() }, programs).stderr,
+			releaseClaimsRow(buildRunIo({ cwd: repo.root, env: hookEnv() }), programs)
+				.stderr,
 		).toBe("session-arbiter: clobbered\n");
 	});
 
@@ -228,7 +232,10 @@ describe("the release and the record under a linked worktree's hook redirects", 
 		live(sb, "alice");
 		const session = { ...env, CLAUDE_CODE_SESSION_ID: "alice" };
 
-		const release = releaseClaimsRow({ cwd: wt, env: session }, programs);
+		const release = releaseClaimsRow(
+			buildRunIo({ cwd: wt, env: session }),
+			programs,
+		);
 		expect(release.exit).toBe(0);
 		expect(release.stdout).toContain("docs/wt.md");
 
@@ -241,7 +248,7 @@ describe("the release and the record under a linked worktree's hook redirects", 
 		/* The ledger the Stop hook reads, at the main tree, bills the
 		 * worktree's commit. */
 		const record = rowOf("commit-record").run(
-			{ cwd: wt, env: session },
+			STEPS.buildRunIo({ cwd: wt, env: session }),
 			programs,
 		);
 		expect(record).toEqual(SILENT);

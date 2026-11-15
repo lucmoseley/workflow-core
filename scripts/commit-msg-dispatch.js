@@ -4,11 +4,11 @@
  * row of lib/commit-msg-rows.js in this one process, through
  * lib/precommit-dispatch.js, on the commit route lib/commit-route.js reads.
  *
- *   node scripts/commit-msg-dispatch.js <message-file>
- *   node scripts/commit-msg-dispatch.js --print-route
+ *   node scripts/commit-msg-dispatch.js [--route-file <path>] <message-file>
  *
- * `--print-route` prints the route, one line, and runs no row: the hook hands
- * it to the adopter's `.husky/commit-msg.local` as `$route`.
+ * `--route-file` writes the route to <path>, one line, before any row runs:
+ * the hook hands it to the adopter's `.husky/commit-msg.local` as `$route`
+ * (#5215).
  *
  * Exit 0 every armed row passed or stood down; a refusing row's own code
  * otherwise; 128 + n on signal n.
@@ -34,19 +34,19 @@ async function main() {
 	const { scriptPath } = require("./lib/script-path.js");
 	const { writeFd } = require("./lib/write-fd.js");
 	const parsed = parseOrCode(process.argv.slice(2), {
-		usage: `node ${scriptPath("commit-msg-dispatch.js")} <message-file> | --print-route`,
-		flags: { "--print-route": "boolean" },
+		usage: `node ${scriptPath("commit-msg-dispatch.js")} [--route-file <path>] <message-file>`,
+		flags: { "--route-file": "value" },
 		max: 1,
 	});
 	if (typeof parsed === "number") return parsed;
-	if (parsed.flags["--print-route"]) {
-		writeFd(1, `${readRoute()}\n`);
-		return 0;
-	}
 	const file = parsed.positionals[0] ?? "";
 	/* Read here, not in the port, so a route that will not read refuses: the
 	 * port's fault would stand every row down. */
 	const route = readRoute();
+	const routeFile = parsed.flags["--route-file"];
+	if (typeof routeFile === "string") {
+		require("node:fs").writeFileSync(routeFile, `${route}\n`);
+	}
 	const interrupted = catchSignals();
 	return dispatch({
 		rows: ROWS,

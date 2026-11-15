@@ -30,7 +30,7 @@ function reviewed() {
 
 /** The step on `cwd`: its stderr, the stream it speaks on. */
 function runStep(cwd: string) {
-	const r = STEPS.droppedReviewTier({ cwd, env: hookEnv() });
+	const r = STEPS.droppedReviewTier(STEPS.buildRunIo({ cwd, env: hookEnv() }));
 	expect(r.exit).toBe(0);
 	expect(r.stdout).toBe("");
 	return r.stderr;
