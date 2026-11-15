@@ -140,9 +140,8 @@ it("re-runs nothing where the report cannot be read, naming the error (#5233)", 
 	fs.mkdirSync(report);
 	const r = run(root, report);
 	expect(r.status).toBe(1);
-	expect(r.stderr).toMatch(
-		new RegExp(`the report at ${report} cannot be read: .*EISDIR`),
-	);
+	expect(r.stderr).toContain(`the report at ${report} cannot be read: `);
+	expect(r.stderr).toContain("EISDIR");
 	expect(fs.existsSync(path.join(root, "ran.log"))).toBe(false);
 });
 
