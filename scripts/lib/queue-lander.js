@@ -69,8 +69,8 @@
  * - **Red.** The failing files are rerun once at the integration sha, and
  *   where they pass the batch is green; where that green names no CI run
  *   and the tester's `requiresRun` is set, the whole suite is run again
- *   there, and its verdict stands in for the rerun's. Those still red are run anew at
- *   `main`, its base check: the ones red there too are base
+ *   there, and its verdict stands in for the rerun's. Those still red are
+ *   run anew at `main`, its base check: the ones red there too are base
  *   failures, blamed on no member, and the one base-red ticket is filed or
  *   refreshed for them. Where none is left the batch lands, unless the
  *   tester's `requiresRun` is set, where it is held instead and retaken once

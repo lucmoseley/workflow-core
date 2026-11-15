@@ -2165,7 +2165,7 @@ describe("the red path", () => {
 		expect(isoPlaced(remote)).toEqual([]);
 	});
 
-	it("asks the whole-suite rerun after a run-less files rerun green on the next start where the first reached no verdict (#5236)", async () => {
+	it("asks the whole-suite rerun after a files rerun green naming no CI run on the next start where the first reached no verdict (#5236)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },
 			b: { sha: "b1", pushedAt: 2 },
@@ -2200,7 +2200,7 @@ describe("the red path", () => {
 		expect(remote.main).toBe(integration);
 	});
 
-	it("takes a red whole-suite rerun after a run-less files rerun green to the base check (#5236)", async () => {
+	it("takes a red whole-suite rerun after a files rerun green naming no CI run to the base check (#5236)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },
 			b: { sha: "b1", pushedAt: 2 },
@@ -2224,7 +2224,7 @@ describe("the red path", () => {
 		]);
 	});
 
-	it("takes a no-run red whole-suite rerun after a run-less files rerun green to the base check on the files first red (#5236)", async () => {
+	it("takes a no-run red whole-suite rerun after a files rerun green naming no CI run to the base check on the files first red (#5236)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },
 			b: { sha: "b1", pushedAt: 2 },
@@ -2363,7 +2363,6 @@ describe("the red path", () => {
 		});
 		const disk = freshDisk();
 		const x = "scripts/x.test.ts";
-		/* x fails everywhere but where the fix f1 is merged. */
 		const verdict = (sha: string) => (sha.includes("f1") ? Green : red(x));
 		const held = {
 			kind: "exit",
