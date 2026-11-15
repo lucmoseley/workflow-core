@@ -104,10 +104,8 @@ const INNER =
  * a named pipe a `cat` copies from, started before the tracer and so not
  * followed; the tracer itself gets /dev/null. No other child is started
  * first: the tracer waits on one of its own before it runs the program,
- * and a stray one ending answers that wait early. Each `cat` removes its
- * named pipe once it has copied the last byte, which `awaitCopied` waits
- * on. `$1` the CPU to pin to or empty, `$2` the tracer, `$3` the trace, the
- * rest the child's words. */
+ * and a stray one ending answers that wait early. `$1` the CPU to pin to
+ * or empty, `$2` the tracer, `$3` the trace, the rest the child's words. */
 const OUTER = [
 	"c=$1 s=$2 o=$3; shift 3; a= b=",
 	"if [ -p /dev/fd/1 ] || [ -S /dev/fd/1 ]; then a=$o.1; fi",
@@ -162,8 +160,6 @@ const COPY_STEP_MS = 5;
  * without blocking finds a reader or fails ENXIO. The open also releases a
  * `cat` still waiting for a writer that will never come, as where the
  * tracer would not start, which then copies nothing and removes the pipe.
- * A pipe no `cat` reads, as after its process group was killed, is
- * removed here.
  * @param {string} abs
  * @param {FifoIo} io
  */
