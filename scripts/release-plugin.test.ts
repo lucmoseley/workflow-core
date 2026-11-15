@@ -39,6 +39,25 @@ const write = (rel: string, body: string) => {
 /* Main holds HEAD unless a case says otherwise: a release ships only a commit
  * `origin/main` holds. */
 const landed = () => git("update-ref", "refs/remotes/origin/main", "HEAD");
+/* A prior release tag at HEAD, cut `daysAgo` before now: past the 7-day
+ * cadence by default, so only the cadence cases meet its refusal (#5231). */
+const priorRelease = (tag: string, daysAgo = 8) =>
+	execFileSync("git", ["tag", "-a", tag, "-m", "prior release", "HEAD"], {
+		cwd: dir,
+		env: {
+			...process.env,
+			GIT_COMMITTER_DATE: new Date(
+				Date.now() - daysAgo * 24 * 60 * 60 * 1000,
+			).toISOString(),
+		},
+	});
+const runWith = (args: string[]) => {
+	landed();
+	return runInProcess(SCRIPT, args, {
+		cwd: dir,
+		env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+	});
+};
 const run = (env: NodeJS.ProcessEnv = {}, { onMain = true } = {}) => {
 	if (onMain) landed();
 	return runInProcess(SCRIPT, [], {
@@ -231,6 +250,51 @@ describe("release-plugin", () => {
 		expect(git("tag", "--list")).toBe("");
 	});
 
+	it("reports no last release before the first cut", () => {
+		const r = run();
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("last release: none");
+	});
+
+	it("reports the days since the last tag on a cut a week or more after it (#5231)", () => {
+		priorRelease("v2.3.3", 8);
+		const r = run();
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/last release: v2\.3\.3, 8\.0 days ago/);
+		expect(r.stdout).not.toContain("early cut");
+	});
+
+	it("refuses a cut under 7 days after the last tag with no reason, naming the gap and tagging nothing (#5231)", () => {
+		priorRelease("v2.3.3", 2);
+		const r = run();
+		expect(r.status).toBe(1);
+		expect(r.stderr).toMatch(
+			/v2\.3\.3 was cut 2\.0 days ago, under the 7-day release cadence/,
+		);
+		expect(r.stderr).toContain("--reason");
+		expect(git("tag", "--list", "v2.3.4")).toBe("");
+	});
+
+	it("refuses a blank --reason as no reason (#5231)", () => {
+		priorRelease("v2.3.3", 2);
+		const r = runWith(["--reason", "  "]);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("under the 7-day release cadence");
+	});
+
+	it("cuts under 7 days given a reason, reporting it and writing it into the tag's annotation (#5231)", () => {
+		priorRelease("v2.3.3", 2);
+		const r = runWith(["--reason", "v2.3.3 breaks session start"]);
+		expect(r.stderr).toBe("");
+		expect(r.status).toBe(0);
+		expect(r.stdout).toMatch(/last release: v2\.3\.3, 2\.0 days ago/);
+		expect(r.stdout).toContain("early cut: v2.3.3 breaks session start");
+		expect(git("tag", "-l", "--format=%(contents)", "v2.3.4")).toContain(
+			"Early cut: v2.3.3 breaks session start",
+		);
+	});
+
 	it("refuses a version already tagged, naming the tag", () => {
 		expect(run().status).toBe(0);
 		const r = run();
@@ -363,7 +427,7 @@ describe("release-plugin", () => {
 					},
 				}),
 			);
-			git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+			priorRelease("v1.0.0");
 			manifests("2.0.0", "v2.0.0");
 			write(
 				"migrations/v2.0.0.md",
@@ -390,7 +454,7 @@ describe("release-plugin", () => {
 	});
 
 	it("refuses a major bump with no migrations note, naming the note it expects", () => {
-		git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+		priorRelease("v1.0.0");
 		manifests("2.0.0", "v2.0.0");
 		git("add", "--all");
 		git("commit", "-qm", "bump to a major with no note");
@@ -410,7 +474,7 @@ describe("release-plugin", () => {
 		surface(["kept", "dropped"]);
 		git("add", "--all");
 		git("commit", "-qm", "declare a surface");
-		git("tag", "-a", "v2.3.3", "-m", "prior release", "HEAD");
+		priorRelease("v2.3.3");
 		surface(["kept"]);
 		git("add", "--all");
 		git("commit", "-qm", "drop an export on a minor bump");
@@ -423,7 +487,7 @@ describe("release-plugin", () => {
 	});
 
 	it("refuses a malformed note, naming it", () => {
-		git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+		priorRelease("v1.0.0");
 		manifests("2.0.0", "v2.0.0");
 		write(
 			"migrations/v2.0.0.md",
@@ -437,7 +501,7 @@ describe("release-plugin", () => {
 	});
 
 	it("refuses a note whose manual step carries no type, naming the bullet (#246)", () => {
-		git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+		priorRelease("v1.0.0");
 		manifests("2.0.0", "v2.0.0");
 		write(
 			"migrations/v2.0.0.md",
@@ -455,7 +519,7 @@ describe("release-plugin", () => {
 	});
 
 	it("refuses where a required note's Verify fails, naming the version and tagging nothing, and passes a note through when it succeeds", () => {
-		git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+		priorRelease("v1.0.0");
 		manifests("2.0.0", "v2.0.0");
 		write("migrations/v2.0.0.md", buildMigrationNote("exit 1"));
 		git("add", "--all");
@@ -582,7 +646,7 @@ describe("release-plugin", () => {
 	 * the cut then deletes, and advancing its `walkedTo`.
 	 */
 	it("leaves the adopter's own tree byte-identical (#291)", () => {
-		git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+		priorRelease("v1.0.0");
 		manifests("2.0.0", "v2.0.0");
 		write("migrations/v2.0.0.md", buildMigrationNote("true"));
 		write(
@@ -638,7 +702,7 @@ describe("release-plugin", () => {
 		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dry-run-adopter-"));
 		try {
 			const log = path.join(tmp, "verify-cwds.log");
-			git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+			priorRelease("v1.0.0");
 			manifests("2.0.0", "v2.0.0");
 			write(
 				"migrations/v2.0.0.md",
@@ -670,7 +734,7 @@ describe("release-plugin", () => {
 	/* #780: the negation case is the one a plain read of `.gitignore` would
 	 * have passed. */
 	it("gives the adopter copy a git repository, so a Verify's git check-ignore reads the copy's .gitignore (#780)", () => {
-		git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+		priorRelease("v1.0.0");
 		manifests("2.0.0", "v2.0.0");
 		/* Not a path the core's own `.gitignore` block names: every run writes
 		 * that block into the copy (#1501), which would ignore it either way. */
@@ -708,7 +772,7 @@ describe("release-plugin", () => {
 	 * above, whose fixture has no symlink.
 	 */
 	it("follows an adopter's symlinks into the copy, not back out (#296)", () => {
-		git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+		priorRelease("v1.0.0");
 		manifests("2.0.0", "v2.0.0");
 		write("migrations/v2.0.0.md", buildMigrationNote("true"));
 		write(
@@ -765,7 +829,7 @@ describe("release-plugin", () => {
 		);
 		vi.stubEnv("WFC_GH", stub.gh);
 		try {
-			git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+			priorRelease("v1.0.0");
 			manifests("2.0.0", "v2.0.0");
 			write(
 				"migrations/v2.0.0.md",
@@ -797,7 +861,7 @@ describe("release-plugin", () => {
 	it("refuses where a note's Verify fails against the adopter copy, quoting the Verify output and tagging nothing (#296)", () => {
 		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "dry-run-adopter-"));
 		try {
-			git("tag", "-a", "v1.0.0", "-m", "prior release", "HEAD");
+			priorRelease("v1.0.0");
 			manifests("2.0.0", "v2.0.0");
 			/* Passes against the core, which has a package.json, and fails
 			 * against the adopter copy, which does not. */

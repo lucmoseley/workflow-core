@@ -7,7 +7,7 @@
  *
  * Usage:
  *   node scripts/release-plugin.js [--push] [--dry-run-adopter <path>]
- *     [--file-bump-issues <owner/repo,...>]
+ *     [--file-bump-issues <owner/repo,...>] [--reason <why>]
  *
  * Joins no §N3 family: it writes git objects and a tag rather than a file,
  * exiting 0 on a cut and 1, reason on stderr, on a refusal — and 1 for a
@@ -36,6 +36,11 @@
  *
  * #463 adds one more: a helper-surface export the last release promised,
  * dropped without a major bump and its note (check-surface-contract.js).
+ *
+ * RELEASES ARE BATCHED, ABOUT ONE A WEEK (founder ruling #5223 Q1 (A)): each
+ * cut reports the days since the last tag, and one under CADENCE_DAYS after it
+ * refuses unless `--reason <why>` states one, such as a broken release or an
+ * adopter blocked on a fix. The reason rides in the tag's annotation.
  *
  * #4252 adds one more: a `migrations/hold.txt` at HEAD or on `origin/main`
  * holds every cut, its text the reason and what lifts it. The commit that
@@ -108,13 +113,17 @@ const HOLD_REL = `${MIGRATIONS_DIR}/hold.txt`;
 
 const CLI = {
 	usage:
-		"usage: node scripts/release-plugin.js [--push] [--dry-run-adopter <path>] [--file-bump-issues <owner/repo,...>]",
+		"usage: node scripts/release-plugin.js [--push] [--dry-run-adopter <path>] [--file-bump-issues <owner/repo,...>] [--reason <why>]",
 	flags: {
 		"--push": /** @type {const} */ ("boolean"),
 		"--dry-run-adopter": /** @type {const} */ ("value"),
 		"--file-bump-issues": /** @type {const} */ ("value"),
+		"--reason": /** @type {const} */ ("value"),
 	},
 };
+
+const CADENCE_DAYS = 7;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * @param {string} cwd
@@ -384,6 +393,34 @@ function refuseIfHeld(root) {
 }
 
 /**
+ * The report line on the gap since the last tag; refuses a gap under
+ * CADENCE_DAYS that no `reason` explains.
+ * @param {string} root
+ * @param {string} [reason]
+ * @returns {string}
+ */
+function cadenceLineOrThrow(root, reason) {
+	const last = readLatestTag(root);
+	if (last === null) return "last release: none\n";
+	const cutSec = Number(
+		git(root, [
+			"for-each-ref",
+			"--format=%(creatordate:unix)",
+			`refs/tags/${last}`,
+		]),
+	);
+	const days = (Date.now() - cutSec * 1000) / DAY_MS;
+	const line = `last release: ${last}, ${days.toFixed(1)} days ago\n`;
+	if (days >= CADENCE_DAYS) return line;
+	if (!reason) {
+		throw new Error(
+			`${last} was cut ${days.toFixed(1)} days ago, under the ${CADENCE_DAYS}-day release cadence (#5223) — batch the change into the next weekly cut, or pass --reason "<why>", such as a broken release or an adopter blocked on a fix`,
+		);
+	}
+	return `${line}early cut: ${reason}\n`;
+}
+
+/**
  * Refuses a HEAD that `origin/main` does not hold.
  * @param {string} root
  */
@@ -400,10 +437,10 @@ function verifiedOrThrow(root) {
 
 /**
  * @param {string} root
- * @param {{dryRunAdopter?: string}} [opts]
- * @returns {{tag: string, commit: string, adopterLine: string}}
+ * @param {{dryRunAdopter?: string, reason?: string}} [opts]
+ * @returns {{tag: string, commit: string, adopterLine: string, cadenceLine: string}}
  */
-function release(root, { dryRunAdopter } = {}) {
+function release(root, { dryRunAdopter, reason } = {}) {
 	if (git(root, ["status", "--porcelain"]) !== "") {
 		throw new Error(
 			"the working tree is dirty — commit or stash before releasing",
@@ -413,6 +450,7 @@ function release(root, { dryRunAdopter } = {}) {
 	verifiedOrThrow(root);
 	refuseIfHeld(root);
 	const { plugin, tag } = readReleaseTarget(root);
+	const cadenceLine = cadenceLineOrThrow(root, reason);
 
 	/* Cheapest refusals first — no point running the whole suite before a
 	 * missing or malformed note refuses the release outright. */
@@ -479,8 +517,11 @@ function release(root, { dryRunAdopter } = {}) {
 			"-m",
 			buildReleaseMessage(plugin.name, tag, source),
 		]);
-		git(root, ["tag", "-a", tag, commit, "-m", `${plugin.name} ${tag}`]);
-		return { tag, commit, adopterLine };
+		const annotation = reason
+			? `${plugin.name} ${tag}\n\nEarly cut: ${reason}`
+			: `${plugin.name} ${tag}`;
+		git(root, ["tag", "-a", tag, commit, "-m", annotation]);
+		return { tag, commit, adopterLine, cadenceLine };
 	} finally {
 		fs.rmSync(tmp, { recursive: true, force: true });
 	}
@@ -632,13 +673,15 @@ function main(argv) {
 		fileBumpIssues: (flagValue(flags, "--file-bump-issues") ?? "")
 			.split(",")
 			.filter(Boolean),
+		reason: flagValue(flags, "--reason")?.trim() || undefined,
 	};
 	try {
 		const root = worktreeRoot();
-		const { tag, commit, adopterLine } = release(root, {
+		const { tag, commit, adopterLine, cadenceLine } = release(root, {
 			dryRunAdopter: args.dryRunAdopter,
+			reason: args.reason,
 		});
-		let report = `tagged ${tag} at ${commit}\n${adopterLine}`;
+		let report = `tagged ${tag} at ${commit}\n${cadenceLine}${adopterLine}`;
 		if (args.push) {
 			git(root, ["push", "origin", tag]);
 			report += `pushed ${tag}\n`;
