@@ -165,6 +165,9 @@ describe("lib/tsc-slot.js", () => {
 			expect(isCutTscRunner(cut), cut).toBe(true);
 		for (const other of [
 			`${store}/`,
+			`${store}/@t`,
+			`${store}/@types`,
+			`${store}/@typesc`,
 			`${store}/@esbuild/linux-arm64/bin/es`,
 			`${store}/@typescript-eslint/pa`,
 			`${store}/@typescript/typescript-linux-arm64/bin/t`,
