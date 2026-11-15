@@ -67,8 +67,10 @@
  *   holds its snapshot is then deleted, compare-and-delete against that sha;
  *   a moved one is kept and joins the next batch.
  * - **Red.** The failing files are rerun once at the integration sha, and
- *   where they pass the batch is green. Those still red are run anew at
- *   `main`, its base check: the ones red there too are base
+ *   where they pass the batch is green; where that green names no CI run
+ *   and the tester's `requiresRun` is set, the whole suite is run again
+ *   there, and its verdict stands in for the rerun's. Those still red are
+ *   run anew at `main`, its base check: the ones red there too are base
  *   failures, blamed on no member, and the one base-red ticket is filed or
  *   refreshed for them. Where none is left the batch lands, unless the
  *   tester's `requiresRun` is set, where it is held instead and retaken once
@@ -106,7 +108,7 @@
  *   #4947). Each drop not yet settled is decided, the newest first: its sha
  *   on `main` settles it; else, with no ticket, a push of its queue ref
  *   waiting holds it, with no act; a push of its queue ref landed since
- *   settles it; else, with no ticket, an owner the injected owner read calls
+ *   settles it; else, with no ticket, an owning session the injected read calls
  *   working defers it, with no act; else its branch's one fix ticket is
  *   filed, or the open one updated, through the injected tracker, naming the
  *   branch's newest drop and every dropped ref it holds, and each of the
@@ -352,7 +354,7 @@ class TransientFault extends Error {}
  * @property {(sha: string) => boolean} isOnMain whether `main` holds `sha`
  * @property {(name: string, at: number) => boolean} hasLandedAfter whether a
  *   push of `queue/<name>` landed after `at`, in ms
- * @property {(name: string) => OwnerRead} ownerOf whether the owning session
+ * @property {(name: string) => OwningSessionRead} owningSessionOf whether the owning session
  *   of `queue/<name>` is working
  * @property {readonly string[]} baseFiled the base reds this run filed or
  *   refreshed the base-red ticket for, by baseKey
@@ -386,11 +388,12 @@ const DEPTH_CEILING = 3;
 const DEPTH_FLOOR = 1;
 
 /**
- * The first run of `sha`'s whole suite.
+ * A run of `sha`'s whole suite on `pass`, the first where absent.
  * @param {string} sha
+ * @param {number} [pass]
  * @returns {TestRun}
  */
-const wholeRun = (sha) => ({ sha, files: [], pass: 1 });
+const wholeRun = (sha, pass = 1) => ({ sha, files: [], pass });
 
 /** @type {Extract<QueueAction, {kind: "wait"}>} */
 const WAIT = { kind: "wait" };
@@ -492,7 +495,12 @@ function takeBatch(queue, onto, ahead, p) {
 		onto,
 		integration: null,
 		phase: "merging",
-		...redPathAtRest(),
+		ahead: [],
+		blame: null,
+		isolated: [],
+		serial: null,
+		hold: null,
+		bases: [],
 	};
 	/* A done search, held or re-batched, is replaced by the take, which
 	 * takes its members. */
@@ -501,22 +509,6 @@ function takeBatch(queue, onto, ahead, p) {
 		kind: "take-batch",
 		batch,
 		pipeline: { ...p, search, line: [...p.line, batch] },
-	};
-}
-
-/**
- * A batch's red-path fields before any red: a fresh object per call, so no
- * two batches share its lists.
- * @returns {Pick<Batch, "ahead"|"blame"|"isolated"|"serial"|"hold"|"bases">}
- */
-function redPathAtRest() {
-	return {
-		ahead: [],
-		blame: null,
-		isolated: [],
-		serial: null,
-		hold: null,
-		bases: [],
 	};
 }
 
@@ -867,9 +859,21 @@ function redAction(b, s, main, { sha, whole }) {
 	const land = { kind: "fast-forward-main", sha };
 	const rerun = { sha, files: whole.files, pass: 2 };
 	/* Retried in its own run already: red again there, so no re-run (#4545). */
-	const again = whole.retried
+	const filesAgain = whole.retried
 		? { v: whole }
 		: verdictOr(s, rerun, { kind: "rerun-files", ...rerun });
+	if ("action" in filesAgain) return filesAgain.action;
+	/* A files rerun the slot ref no longer lists a run for is judged off
+	 * `named-rerun.yml`, naming no run; where `main` takes only a sha a run
+	 * passed, the whole suite is asked again, which always names one
+	 * (#5236). Residual: one more whole-suite run each time. */
+	const again =
+		filesAgain.v.kind === "green" && !isLandable(filesAgain.v, s)
+			? verdictOr(s, wholeRun(sha, 2), {
+					kind: "rerun-files",
+					...wholeRun(sha, 2),
+				})
+			: filesAgain;
 	if ("action" in again) return again.action;
 	if (again.v.kind === "green") return landGreen(again.v, s, land);
 	const files = again.v.files.length > 0 ? again.v.files : whole.files;
@@ -1141,7 +1145,7 @@ function stepAction(b, s, { sha, onto, member }, { blame, landed, rebatch }) {
 	const first = verdictOr(s, wholeRun(sha), { kind: "test-sha", sha });
 	if ("action" in first) return first.action;
 	if (first.v.kind === "green") return landGreen(first.v, s, land);
-	const confirm = { sha, files: [], pass: 2 };
+	const confirm = wholeRun(sha, 2);
 	const again = verdictOr(s, confirm, { kind: "rerun-files", ...confirm });
 	if ("action" in again) return again.action;
 	const { v } = again;
@@ -1558,7 +1562,7 @@ function dropDecision(s, main, skip) {
 		const ticketed = d.ticket !== null;
 		if (!ticketed && s.queue.some((q) => q.name === d.name)) continue;
 		if (s.hasLandedAfter(d.name, d.at)) return settleAction(s, d, main);
-		if (ticketed || s.ownerOf(d.name) === "working") continue;
+		if (ticketed || s.owningSessionOf(d.name) === "working") continue;
 		const filing = filingOf(s, d);
 		if (!skip.includes(filing.drop.ref)) return filing;
 	}
@@ -1845,7 +1849,7 @@ function stepOrEnd(s) {
  * @property {(n: number) => "open" | "closed"} stateOf the ticket's state,
  *   throwing where it cannot be read
  * @typedef {"take" | "land" | "drop" | "settle" | "close"} LanderEvent
- * @typedef {"working" | "stopped"} OwnerRead
+ * @typedef {"working" | "stopped"} OwningSessionRead
  * @typedef {{readonly name: string, readonly at: number}} Landing a land
  *   row of the queue log: `queue/<name>` landed at `at`, in ms
  * @typedef {{readonly verdict: Verdict, readonly at: number}} Ledgered a
@@ -1874,7 +1878,7 @@ function stepOrEnd(s) {
  * @property {(event: LanderEvent, m: Pick<Member, "name" | "sha">) => void}
  *   logQueue
  * @property {() => readonly Landing[]} landings the queue log's land rows
- * @property {(name: string) => OwnerRead} ownerOf whether the owning session
+ * @property {(name: string) => OwningSessionRead} owningSessionOf whether the owning session
  *   of `queue/<name>` is working; `stopped` where it is not or the read is
  *   in doubt, and it never throws
  * @property {{acquire: () => boolean, release: () => void}} lock
@@ -1894,10 +1898,10 @@ function stepOrEnd(s) {
  * @typedef {Pick<QueueState, "pipeline" | "unread" | "unmerged" | "alone"
  *   | "deferrals" | "kept" | "unfiled" | "leftToNextRun" | "isClosed" | "baseFiled"
  *   | "baseTicket" | "superseded"> & {pending: Map<string, Pending>,
- *   acting: Batch|null, owners: Map<string, OwnerRead>}} QueueRun what a run
+ *   acting: Batch|null, owningSessions: Map<string, OwningSessionRead>}} QueueRun what a run
  *   carries between actions; `pending` its asks awaiting their verdicts, by
  *   their runs, shared by every copy of the run; `acting` the batch the
- *   action under way acts on; `owners` each owner read it took, by queue
+ *   action under way acts on; `owningSessions` each owning-session read it took, by queue
  *   ref name, shared by every copy of the run
  * @typedef {{readonly runs: readonly TestRun[],
  *   readonly settled: Promise<Settled>, got: Settled|null}} Pending an ask
@@ -2878,8 +2882,8 @@ async function actOnPipeline(deps, action, run) {
  * run's end where it is an exit. Waiting on a verdict is no action, so it is
  * not logged.
  * @param {QueueLanderDeps} deps
- * @param {QueueRun} before accumulator: each owner read is set in its
- *   `owners`
+ * @param {QueueRun} before accumulator: each owning-session read is set in its
+ *   `owningSessions`
  * @param {(action: QueueAction) => void} log
  * @returns {Promise<QueueRun | QueueEnd>}
  */
@@ -2900,9 +2904,9 @@ async function step(deps, before, log) {
 			landings ??= deps.landings();
 			return landings.some((l) => l.name === name && l.at > at);
 		},
-		ownerOf: (name) => {
-			const read = run.owners.get(name) ?? deps.ownerOf(name);
-			run.owners.set(name, read);
+		owningSessionOf: (name) => {
+			const read = run.owningSessions.get(name) ?? deps.owningSessionOf(name);
+			run.owningSessions.set(name, read);
 			return read;
 		},
 		now: deps.now(),
@@ -3031,7 +3035,7 @@ async function runQueueLander(deps) {
 			kept: [],
 			unfiled: [],
 			leftToNextRun: [],
-			owners: new Map(),
+			owningSessions: new Map(),
 			isClosed: readClosedTickets(deps),
 			baseFiled: [],
 			baseTicket: null,
@@ -3146,6 +3150,5 @@ module.exports = {
 	batchesOf,
 	buildQueueActionLine,
 	fileSetKey,
-	redPathAtRest,
 	runQueueLander,
 };

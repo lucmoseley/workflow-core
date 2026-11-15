@@ -11,7 +11,8 @@
  * that conflicts with another is dropped or one that conflicts with `main`
  * stops the queue, a dropped sha is lost or its fix ticket goes unfiled, a
  * crash mid-drop lands the member or a crash after the push loses its land
- * rows, a dropped ref outlives its closed ticket, or a run whose landing
+ * rows, a rerun green naming no CI run stops every restart until `main`
+ * moves, a dropped ref outlives its closed ticket, or a run whose landing
  * changed its own code takes another batch on it; or a flake or a failure
  * `main` shares starts an isolation or drops a member, one on another
  * signature than `main`'s is read as `main`'s, a member red alone once is
@@ -28,6 +29,7 @@ import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
 import { dropTicketFiler } from "./fix-ticket.js";
 import { SHORT_SHA } from "./git.js";
+import { redPathAtRest } from "./lander-testkit.js";
 import {
 	type Batch,
 	type Drop,
@@ -35,12 +37,11 @@ import {
 	type LanderEvent,
 	type Member,
 	type MergeResult,
-	type OwnerRead,
+	type OwningSessionRead,
 	type Pipeline,
 	type Placement,
 	type QueueAction,
 	type QueueLanderDeps,
-	redPathAtRest,
 	runQueueLander,
 	type Verdict,
 } from "./queue-lander.js";
@@ -180,8 +181,8 @@ interface Options {
 	findFault?: () => Error | undefined;
 	/** Throws in place of closing a fix ticket, while it returns an error. */
 	closeFault?: () => Error | undefined;
-	/** The owner read of a queue ref's name; stopped where absent. */
-	owner?: (name: string) => OwnerRead;
+	/** The owning-session read of a queue ref's name; stopped where absent. */
+	owningSession?: (name: string) => OwningSessionRead;
 	/** The shas `main` holds, beyond `main` itself. */
 	onMain?: readonly string[];
 	acquired?: boolean;
@@ -459,7 +460,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 				disk.landedAt.push({ name: m.name, at: o.now ?? NOW });
 		},
 		landings: () => disk.landedAt,
-		ownerOf: (name) => o.owner?.(name) ?? "stopped",
+		owningSessionOf: (name) => o.owningSession?.(name) ?? "stopped",
 		lock: { acquire: () => o.acquired ?? true, release: () => undefined },
 		beat: () => undefined,
 		wait: async () => undefined,
@@ -1532,7 +1533,7 @@ describe("a drop owed a decision (#4950)", () => {
 		});
 		const disk = freshDisk();
 
-		const first = await land(remote, disk, { owner: () => "working" });
+		const first = await land(remote, disk, { owningSession: () => "working" });
 
 		expect(first.end).toEqual(NO_QUEUE);
 		expect(disk.filed).toEqual([]);
@@ -1541,7 +1542,7 @@ describe("a drop owed a decision (#4950)", () => {
 			["open", null],
 		]);
 
-		const second = await land(remote, disk, { owner: () => "stopped" });
+		const second = await land(remote, disk, { owningSession: () => "stopped" });
 
 		expect(second.end).toEqual(NO_QUEUE);
 		expect(disk.filed).toEqual([
@@ -1611,7 +1612,7 @@ describe("a drop owed a decision (#4950)", () => {
 		]);
 	});
 
-	it("holds a drop behind a newer push of its queue ref, though its owner stopped, and settles it once that push lands", async () => {
+	it("holds a drop behind a newer push of its queue ref, though its owning session stopped, and settles it once that push lands", async () => {
 		const remote = remoteOf(
 			"m0",
 			{ a: { sha: "a2", pushedAt: 2, onMain: true } },
@@ -1691,7 +1692,7 @@ describe("a drop owed a decision (#4950)", () => {
 
 		const { end } = await land(remote, disk, {
 			onMain: ["a1"],
-			owner: () => "working",
+			owningSession: () => "working",
 		});
 
 		expect(end).toEqual(NO_QUEUE);
@@ -2135,6 +2136,119 @@ describe("the red path", () => {
 		expect(isoPlaced(remote)).toEqual([]);
 	});
 
+	it("lands a batch whose rerun passed with no CI run once a whole-suite rerun passes, where main takes only a sha a run passed (#5236)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		const integration = "merge(m0;a1,b1)";
+		const verdict = (
+			_: string,
+			__: Remote,
+			files: readonly string[],
+			nth: number,
+		): Verdict => {
+			if (files.length > 0) return { kind: "green", named: 7 };
+			return nth === 1 ? red("scripts/x.test.ts") : Green;
+		};
+
+		const { end, asked } = await land(remote, disk, { verdict });
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(asked).toEqual([
+			integration,
+			`${integration}:scripts/x.test.ts`,
+			integration,
+		]);
+		expect(remote.main).toBe(integration);
+		expect(isoPlaced(remote)).toEqual([]);
+	});
+
+	it("asks the whole-suite rerun after a files rerun green naming no CI run on the next start where the first reached no verdict (#5236)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const disk = freshDisk();
+		const integration = "merge(m0;a1,b1)";
+		let started = 1;
+		const verdict = (
+			_: string,
+			__: Remote,
+			files: readonly string[],
+			nth: number,
+		): Verdict => {
+			if (files.length > 0) return { kind: "green", named: 7 };
+			if (started === 2) return Green;
+			return nth === 1
+				? red("scripts/x.test.ts")
+				: { kind: "unknown", reason: "no run" };
+		};
+
+		const first = await land(remote, disk, { verdict });
+		expect(first.end).toEqual({
+			kind: "exit",
+			reason: "no verdict at merge(m0;: no run",
+		});
+		expect(remote.main).toBe("m0");
+		started = 2;
+		const again = await land(remote, disk, { verdict });
+
+		expect(again.end).toEqual(NO_QUEUE);
+		expect(again.asked).toEqual([integration]);
+		expect(remote.main).toBe(integration);
+	});
+
+	it("takes a red whole-suite rerun after a files rerun green naming no CI run to the base check (#5236)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const integration = "merge(m0;a1,b1)";
+
+		const { asked } = await land(remote, freshDisk(), {
+			verdict: (sha, __, files) => {
+				if (sha !== integration) return Green;
+				return files.length > 0
+					? { kind: "green", named: 7 }
+					: red("scripts/x.test.ts");
+			},
+		});
+
+		expect(asked.slice(0, 4)).toEqual([
+			integration,
+			`${integration}:scripts/x.test.ts`,
+			integration,
+			"m0:scripts/x.test.ts",
+		]);
+	});
+
+	it("takes a no-run red whole-suite rerun after a files rerun green naming no CI run to the base check on the files first red (#5236)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const integration = "merge(m0;a1,b1)";
+
+		const { asked } = await land(remote, freshDisk(), {
+			verdict: (sha, __, files, nth) => {
+				if (sha !== integration) return Green;
+				if (files.length > 0) return { kind: "green", named: 7 };
+				return nth === 1
+					? red("scripts/x.test.ts")
+					: { kind: "red", files: [], noRun: true };
+			},
+		});
+
+		expect(asked.slice(0, 4)).toEqual([
+			integration,
+			`${integration}:scripts/x.test.ts`,
+			integration,
+			"m0:scripts/x.test.ts",
+		]);
+	});
+
 	it("takes no rerun of a red its own run retried, going straight to the base check (#4545)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },
@@ -2249,7 +2363,6 @@ describe("the red path", () => {
 		});
 		const disk = freshDisk();
 		const x = "scripts/x.test.ts";
-		/* x fails everywhere but where the fix f1 is merged. */
 		const verdict = (sha: string) => (sha.includes("f1") ? Green : red(x));
 		const held = {
 			kind: "exit",

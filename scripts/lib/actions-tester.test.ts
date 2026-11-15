@@ -16,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { type Job, queueTester, type Run } from "./actions-tester.js";
+import { RECORDED_SHAPES } from "./gh-fake.js";
 import { stubGhScript } from "./gh-stub.js";
 import { markersDir } from "./marker-root.js";
 import type { Placement } from "./queue-lander.js";
@@ -563,10 +564,10 @@ it("reads a failed run through gh and the tree through git", async () => {
 	const sha = git("rev-parse", "HEAD");
 	git("update-ref", "refs/heads/lander/batch-0", sha);
 	const answers = {
-		list: JSON.stringify([run(7, "failure", { headSha: sha })]),
-		jobs: JSON.stringify({
+		list: [run(7, "failure", { headSha: sha })],
+		jobs: {
 			jobs: [{ name: "Full suite / Vitest (2/6)", conclusion: "failure" }],
-		}),
+		},
 		log: FAILED_LOG,
 	};
 	vi.stubEnv(
@@ -574,9 +575,10 @@ it("reads a failed run through gh and the tree through git", async () => {
 		stubGhScript(
 			tmp,
 			`#!/usr/bin/env node
+${RECORDED_SHAPES}
 const a = ${JSON.stringify(answers)};
 const argv = process.argv.slice(2);
-process.stdout.write(argv[1] === "list" ? a.list : argv.includes("--log-failed") ? a.log : a.jobs);
+process.stdout.write(argv[1] === "list" ? asRecorded("runList", a.list) : argv.includes("--log-failed") ? a.log : asRecorded("runJobs", a.jobs));
 `,
 		).gh,
 	);
@@ -1457,9 +1459,10 @@ it("pushes and reads lander/batch-<k> and lander/iso-suite-* runs through git an
 			tmp,
 			`#!/usr/bin/env node
 const fs = require("node:fs");
+${RECORDED_SHAPES}
 const a = ${JSON.stringify(answers)};
 const argv = process.argv.slice(2);
-const out = (v) => process.stdout.write(JSON.stringify(v));
+const out = (v) => process.stdout.write(asRecorded("runList", v));
 if (argv[0] === "run" && argv[1] === "cancel") {
 	fs.writeFileSync(${JSON.stringify(cancelFile)}, argv[2]);
 } else if (argv[0] === "workflow") {
@@ -1473,7 +1476,7 @@ if (argv[0] === "run" && argv[1] === "cancel") {
 	if (branch === "lander/iso-suite-0") out(a.suite);
 	else if (branch !== "lander/batch-1") process.exit(1);
 	else out(a.list);
-} else out(a.jobs);
+} else process.stdout.write(asRecorded("runJobs", a.jobs));
 `,
 		).gh,
 	);

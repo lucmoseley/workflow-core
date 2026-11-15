@@ -1,6 +1,7 @@
 // @vitest-environment node
 /*
- * lib/local-tester.js against a fixture repo (#2403).
+ * lib/local-tester.js against a fixture repo (#2403), and the production
+ * suite slot it holds each run under, lib/suite-slot.js, beside it.
  *
  * Loosen it and the lander can land a sha it never tested, test a session's
  * unsaved edit, reinstall on every batch, or run a suite past a shut gate.
@@ -11,13 +12,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { chargeMb as launchChargeMb } from "./launch-charge";
-import { localTester, readLiveLanders, suiteSlot } from "./local-tester.js";
+import { localTester, readLiveLanders } from "./local-tester.js";
 import { markersDir } from "./marker-root.js";
 import { writePsStub } from "./ps-stub.js";
 import type { QueueTester } from "./queue-lander.js";
 import { shellQuote } from "./sh-quote.js";
 import { rungMb } from "./suite-ladder.js";
 import { queueSeat } from "./suite-queue.js";
+import { suiteSlot } from "./suite-slot.js";
 import { admitted } from "./suite-slot-fake";
 import { LANDER_WORKTREE } from "./worktree-dirs.js";
 
