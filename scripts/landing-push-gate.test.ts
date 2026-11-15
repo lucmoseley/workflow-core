@@ -158,6 +158,7 @@ describe("with the module config at HEAD unreadable (#5235)", () => {
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("could not read the landing module's state");
 		expect(r.stderr).toContain("judged as with the landing module on");
+		expect(r.stderr).toContain("Fix the config");
 		expect(r.stderr).toContain("session-checkout.js land");
 	});
 

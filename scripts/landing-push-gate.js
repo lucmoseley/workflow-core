@@ -28,21 +28,21 @@
  * refuses and every other path exits 0. A fault it cannot judge through lets
  * the push through, printed, since a refusal there would refuse every push for
  * a fault that is not the push's. The same config fault opens the publish
- * guard's landing limb, logged there. Two exceptions refuse. A green ledger
- * that exists and will not read refuses, since only the lander pushes `main`
- * and it cannot land on a ledger it cannot read either (#4856). A config that
+ * guard's landing limb, logged there. Two exceptions. A green ledger that
+ * exists and will not read refuses, since only the lander pushes `main` and
+ * it cannot land on a ledger it cannot read either (#4856). A config that
  * will not read, where the canonical checkout's ledger exists, is judged as
- * `landing` on, since only the lander writes that file: one committed
- * malformed config would otherwise open `main` to any push (#5235). A
- * ledgered sha still passes, so the lander lands through the fault. LIMIT:
+ * `landing` on, since only the lander writes that file (#5235): a ledgered
+ * sha still passes, so the lander lands through the fault. Nothing deletes
+ * the ledger when `landing` is turned off, so there a broken config refuses
+ * every push to `main`, its notice naming the fix. LIMIT:
  * before the lander's first landing no ledger exists, and that fault passes,
  * printed.
  */
 
-const fs = require("node:fs");
-const { caught } = require("./lib/caught.js");
+const { readText } = require("./lib/file-read.js");
 const { VERIFIED_BRANCH } = require("./lib/landing-refs.js");
-const { fileLedger, queueLanderFiles } = require("./lib/lander-files.js");
+const { parseLedgerShas, queueLanderFiles } = require("./lib/lander-files.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 const { isZeroSha, parseRefLines } = require("./lib/push-refs.js");
@@ -104,31 +104,28 @@ function judge(stdin, { tree, root }) {
 	const pushes = parseMainPushes(stdin);
 	if (pushes.length === 0) return 0;
 	const file = queueLanderFiles(root).ledger;
+	const ledger = readText(file);
 	const landing = readModuleAtHead("landing", tree);
 	if ("fault" in landing) {
-		const why = `could not read the landing module's state (${landing.fault})`;
-		if (!fs.existsSync(file)) {
-			unchecked(why);
+		if (ledger.state === "absent") {
+			unchecked(landing.fault);
 			return 0;
 		}
 		/* Judged as on, not passed, as the header's second exception (#5235). */
 		writeFd(
 			2,
-			`landing-push-gate: ${why}, and the lander's green ledger ${file} exists, so the push to ${VERIFIED_BRANCH} is judged as with the landing module on.\n`,
+			`landing-push-gate: ${landing.fault}, and the lander's green ledger ${file} exists, so the push to ${VERIFIED_BRANCH} is judged as with the landing module on. Fix the config; where landing is off here, delete that leftover ledger too.\n`,
 		);
 	} else if (!landing.on) return 0;
-	/** @type {string[]} */
-	let ledgered;
-	try {
-		ledgered = fileLedger(file).readShas();
-	} catch (err) {
-		/* Refused, not passed, as the header's one exception (#4856). */
+	if (ledger.state === "unreadable") {
+		/* Refused, not passed, as the header's first exception (#4856). */
 		writeFd(
 			2,
-			`pre-push: refused — the lander's green ledger ${file} will not read (${caught(err).message}), so no push to ${VERIFIED_BRANCH} can be shown tested. Fix the file, then push again.\n`,
+			`pre-push: refused — the lander's green ledger ${file} will not read (${ledger.message}), so no push to ${VERIFIED_BRANCH} can be shown tested. Fix the file, then push again.\n`,
 		);
 		return REFUSE;
 	}
+	const ledgered = parseLedgerShas(ledger.state === "read" ? ledger.data : "");
 	const held = new Set(ledgered);
 	const green = new Set(readTreesOf(ledgered).filter((t) => t !== null));
 	const pushed = readTreesOf(pushes);

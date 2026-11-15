@@ -24,7 +24,7 @@ const buildUnchecked = (gate, unjudged) => (why) =>
 
 /**
  * Whether `module` is on in the config committed at `tree`'s HEAD (#3128,
- * #3132), or the fault's message where the config cannot be read.
+ * #3132), or the fault, as printed, where the config cannot be read.
  * @param {import("./workflow-core-config.js").Module} module
  * @param {string} tree the pushing tree
  * @returns {{ on: boolean } | { fault: string }}
@@ -33,7 +33,9 @@ function readModuleAtHead(module, tree) {
 	try {
 		return { on: moduleOn(module, { root: tree, rev: "HEAD" }) };
 	} catch (e) {
-		return { fault: caught(e).message };
+		return {
+			fault: `could not read the ${module} module's state (${caught(e).message})`,
+		};
 	}
 }
 
@@ -47,7 +49,7 @@ function readModuleAtHead(module, tree) {
 function isModuleOnAtHead(module, tree, unchecked) {
 	const state = readModuleAtHead(module, tree);
 	if ("on" in state) return state.on;
-	unchecked(`could not read the ${module} module's state (${state.fault})`);
+	unchecked(state.fault);
 	return false;
 }
 

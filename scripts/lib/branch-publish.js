@@ -443,8 +443,6 @@ function judgePush(ctx, spans, { segment, tree, args }) {
 function judgeRow(ctx, segment, row) {
 	if (row.kind === "unread-delete" || row.kind === "unread-push") {
 		const deleted = row.kind === "unread-delete";
-		/* Refused with `landing` on: no pre-push limb covers a queue ref,
-		 * `lander/*` or `dropped/*` behind it (#5235). */
 		if (routeOf(ctx).queued)
 			return queueRefusal(
 				ctx,
