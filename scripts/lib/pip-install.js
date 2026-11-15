@@ -873,8 +873,7 @@ function parsePipx(words, ctx) {
 const hasInstallFlag = (opts) => opts.some((o) => PIPX_INSTALL_RE.test(o.name));
 
 /**
- * What `pipx runpip <venv> <pipargs>` installs: its pip argv, which pipx hands
- * to the venv's pip, or to `uv pip` under the uv backend, judged as
+ * What `pipx runpip <venv> <pipargs>` installs: its pip argv, judged as
  * `pip install`. pipx's own options, none taking a value, come before the
  * venv; a lone pip argument holding whitespace is a whole command line, which
  * pipx splits shell-style. shlex keeps `;` and `&&` as words of that one argv,
