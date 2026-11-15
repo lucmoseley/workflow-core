@@ -254,8 +254,9 @@ const TARGET_TABLES = new Set([
 /**
  * The requirement strings of `pyproject.toml`'s three dependency tables. A
  * reader of just that much TOML: a table header, a `key = [` array, a
- * `key = {` inline table read as the table `<header>.key`, and the strings in
- * their arrays outside any further inline table. What it misreads it drops, so
+ * `key = {` inline table read as the table `<header>.key` (#5238), and the
+ * strings in their arrays outside any further inline table, which is PEP 735's
+ * `{ include-group = … }` and names no package. What it misreads it drops, so
  * the package is vetted as new.
  * @param {string} text
  * @returns {string[]}
@@ -263,6 +264,7 @@ const TARGET_TABLES = new Set([
 function pyprojectSpecs(text) {
 	/** @type {string[]} */
 	const specs = [];
+	/** @type {string | null} */
 	let table = "";
 	for (let at = 0; at < text.length; ) {
 		const end = lineEnd(text, at);
@@ -272,8 +274,8 @@ function pyprojectSpecs(text) {
 		else if (kv !== null) {
 			const open = at + kv[0].length - 1;
 			const read = valueStrings(text, open);
-			const key = requiredGroup(kv, 1, KEY_VALUE_RE).replace(/["']/g, "");
-			if (holdsDependencies(table, key, text[open]))
+			const key = requiredGroup(kv, 1, KEY_VALUE_RE);
+			if (isDependencyValue(table, key, text[open]))
 				specs.push(...read.strings);
 			at = lineEnd(text, read.end) + 1;
 			continue;
@@ -298,24 +300,37 @@ const lineEnd = (text, at) => {
 };
 
 /**
- * A header line's table, "" for an array of tables, `[[…]]`.
+ * A header line's table: null for an array of tables, `[[…]]`, or a header it
+ * cannot parse, which no key under it escapes into a target table.
  * @param {string} line
+ * @returns {string | null}
  */
-const tableOf = (line) =>
-	(HEADER_RE.exec(line)?.[1] ?? "").replace(/["'\s]/g, "");
+const tableOf = (line) => {
+	const name = HEADER_RE.exec(line)?.[1];
+	return name === undefined ? null : name.replace(/["'\s]/g, "");
+};
 
 /**
  * Whether `key = [` under `table` is `[project]`'s `dependencies` or an array
- * of a target table, or `key = {` is an inline target table.
- * @param {string} table
- * @param {string} key unquoted
+ * of a target table, or `key = {` is an inline target table. A quoted key
+ * holding a `.` is one key, never a path into a table.
+ * @param {string | null} table "" above the first header
+ * @param {string} key as written, quoted or bare
  * @param {string | undefined} opener `[` or `{`
  */
-const holdsDependencies = (table, key, opener) =>
-	opener === "["
-		? (table === "project" && key === "dependencies") ||
+const isDependencyValue = (table, key, opener) => {
+	if (table === null) return false;
+	const name = key.replace(/["']/g, "");
+	if (opener === "[")
+		return (
+			(table === "project" && name === "dependencies") ||
 			TARGET_TABLES.has(table)
-		: TARGET_TABLES.has(table === "" ? key : `${table}.${key}`);
+		);
+	return (
+		!name.includes(".") &&
+		TARGET_TABLES.has(table === "" ? name : `${table}.${name}`)
+	);
+};
 
 /**
  * A string token's text: group 1 for a basic string, 2 for a literal one.
@@ -333,8 +348,10 @@ const stringOf = (m) =>
 const NESTING = { "[": [1, 0], "]": [-1, 0], "{": [0, 1], "}": [0, -1] };
 
 /**
- * The strings in the arrays of the TOML array or inline table opening at
- * `open`, outside any inline table inside it, and where it closes.
+ * The strings directly in the arrays of the TOML array or inline table opening
+ * at `open`, never in a nested array or inline table, and where it closes. A
+ * value that never closes, or an inline table a header line breaks into, reads
+ * as no strings, ending where the header starts.
  * @param {string} text
  * @param {number} open the index of its `[` or `{`
  * @returns {{ strings: string[], end: number }}
@@ -342,22 +359,42 @@ const NESTING = { "[": [1, 0], "]": [-1, 0], "{": [0, 1], "}": [0, -1] };
 function valueStrings(text, open) {
 	/** @type {string[]} */
 	const strings = [];
-	const inTable = text[open] === "{";
+	const stringBraces = text[open] === "{" ? 1 : 0;
 	let brackets = 0;
 	let braces = 0;
 	const tokens = new RegExp(TOKEN_RE.source, "g");
 	tokens.lastIndex = open;
 	for (let m = tokens.exec(text); m !== null; m = tokens.exec(text)) {
+		if (stringBraces === 1 && opensHeader(text, m, brackets))
+			return { strings: [], end: m.index - 1 };
 		const step = NESTING[m[0]];
 		if (step !== undefined) {
 			brackets += step[0];
 			braces += step[1];
-		} else if (!m[0].startsWith("#") && brackets > 0 && braces === +inTable)
+		} else if (
+			!m[0].startsWith("#") &&
+			brackets === 1 &&
+			braces === stringBraces
+		)
 			strings.push(stringOf(m));
-		if ((inTable ? braces : brackets) === 0) return { strings, end: m.index };
+		if ((stringBraces === 1 ? braces : brackets) === 0)
+			return { strings, end: m.index };
 	}
-	return { strings, end: text.length };
+	return { strings: [], end: text.length };
 }
+
+/**
+ * Whether token `m`, met outside any array, is a `[` opening a later line: a
+ * table header.
+ * @param {string} text
+ * @param {RegExpExecArray} m
+ * @param {number} brackets
+ */
+const opensHeader = (text, m, brackets) => {
+	if (m[0] !== "[" || brackets !== 0) return false;
+	const nl = text.lastIndexOf("\n", m.index - 1);
+	return nl >= 0 && text.slice(nl + 1, m.index).trim() === "";
+};
 
 /* ----------------------------------------------------------------------- */
 /* PyPI.                                                                    */

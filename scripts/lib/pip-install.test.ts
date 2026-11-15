@@ -170,25 +170,61 @@ describe("what it does not judge", () => {
 		expect(allows(command, { created: "404" })).toBe(true);
 	});
 
-	it.each([
-		"pip install mkdocs pydata-sphinx-theme ruff",
-		"pip install not-a-dep",
-	])(
-		"reads an inline `optional-dependencies` or `dependency-groups` table: `%s`",
-		(command) => {
-			const pyproject = `dependency-groups = { lint = ["ruff"] }
+	const Inline = {
+		"pyproject.toml": `dependency-groups = { lint = ["ruff"] }
 
 [project]
 name = "the-repo"
 optional-dependencies = { docs = ["mkdocs", { x = "not-a-dep" }], "themes" = [
   "pydata-sphinx-theme",  # a comment
 ] }
-`;
-			const files = { "pyproject.toml": pyproject };
-			const declared = !command.includes("not-a-dep");
-			expect(allows(command, { created: "404" }, { files })).toBe(declared);
-		},
-	);
+`,
+	};
+
+	it("allows a package declared in an inline `optional-dependencies` or `dependency-groups` table (#5238)", () => {
+		expect(
+			allows(
+				"pip install mkdocs pydata-sphinx-theme ruff",
+				{ created: "404" },
+				{ files: Inline },
+			),
+		).toBe(true);
+	});
+
+	it("does not read a string in an inline table nested in that table's array as declared (#5238)", () => {
+		expect(denial("pip install not-a-dep", {}, { files: Inline })).toMatch(
+			/does not yet declare/,
+		);
+	});
+
+	it.each([
+		[
+			"a quoted dotted key, which is one key",
+			`"project.optional-dependencies" = { docs = ["evil"] }\n`,
+		],
+		[
+			"a key under an array of tables",
+			`[[tool.foo]]\ndependency-groups = { a = ["evil"] }\n`,
+		],
+		[
+			"an inline table a header breaks into",
+			`[project]\noptional-dependencies = { docs = ["a"]\n[dependency-groups]\nb = ["c"]\n[tool.x]\nfoo = ["evil"]\n`,
+		],
+		["a nested array", `[project.optional-dependencies]\ndocs = [["evil"]]\n`],
+		["an array that never closes", `[project]\ndependencies = ["evil"\n`],
+	])("does not read %s as declared (#5238)", (_what, pyproject) => {
+		const files = { "pyproject.toml": pyproject };
+		expect(denial("pip install evil", {}, { files })).toMatch(
+			/does not yet declare/,
+		);
+	});
+
+	it("reads the header an unclosed inline table runs into (#5238)", () => {
+		const files = {
+			"pyproject.toml": `[project]\noptional-dependencies = { docs = ["a"]\n[dependency-groups]\nb = ["c"]\n`,
+		};
+		expect(allows("pip install c", { created: "404" }, { files })).toBe(true);
+	});
 
 	it.each([
 		"pip install not-a-dep",
