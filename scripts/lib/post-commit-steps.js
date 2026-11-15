@@ -4,11 +4,11 @@
  * each returning what that row prints and exiting 0, post-commit never
  * refusing.
  *
- * Each takes `{ cwd, env }`, the hook's own, computes the arguments its
- * program takes (the commit, the top level, the committed paths, the main
- * tree) and stands down where its own preconditions fail. The route gate
- * the gated rows share is their `when` in lib/post-commit-rows.js, which the
- * dispatcher applies. A program's own run is its PROGRAM export (2, 5–7) or
+ * Each takes the run's `RunIo`, the hook's `{ cwd, env }` with the commit
+ * and the top level read once for every row (#5214), computes the arguments
+ * its program takes (the committed paths, the main tree) and stands down
+ * where its own preconditions fail. The route gate the gated rows share is
+ * their `when` in lib/post-commit-rows.js, which the dispatcher applies. A program's own run is its PROGRAM export (2, 5–7) or
  * its lib/check.js SPEC (3–4), reached through the `Programs` port.
  *
  * NO GIT CALL SEES THE HOOK'S REDIRECTS. A program reading from a cwd of its
@@ -26,6 +26,12 @@ const { inProgramScope } = require("./program-scope.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /** @typedef {{ cwd: string, env: NodeJS.ProcessEnv }} HookIo */
+/**
+ * A post-commit run's io: THIS commit, or "" where HEAD does not resolve,
+ * read at first ask and kept for the run's other rows; and the tree the hook
+ * runs in, or null where git names none, which lib/git-tree.js keeps.
+ * @typedef {HookIo & { committed: () => string, toplevel: () => string | null }} RunIo
+ */
 /** @typedef {import("./program-scope.js").ProgramResult} ProgramResult */
 
 /**
@@ -78,16 +84,35 @@ function git({ cwd, env }, args) {
 	return trimEndRun(String(r.stdout), "\n");
 }
 
-/** THIS commit, or "" where HEAD does not resolve. */
-const readCommitted = (/** @type {HookIo} */ io) =>
-	git(io, ["rev-parse", "--verify", "-q", "HEAD"]) ?? "";
-
 /** `io` with the redirects scrubbed. @param {HookIo} io @returns {HookIo} */
 const scrubbed = (io) => ({ cwd: io.cwd, env: scrubbedGitEnv(io.env) });
 
-/** The tree the hook runs in, or null where git names none. */
-const readTopLevelOf = (/** @type {HookIo} */ io) =>
-	inProgramScope(scrubbed(io), () => readTopLevel(io.cwd));
+/**
+ * @template T
+ * @param {() => T} read
+ * @returns {() => T}
+ */
+const once = (read) => {
+	/** @type {{ value: T } | null} */
+	let kept = null;
+	return () => {
+		kept ??= { value: read() };
+		return kept.value;
+	};
+};
+
+/**
+ * One post-commit run's io over the hook's own: lib/post-commit-rows.js
+ * makes one per run and hands it to every row.
+ * @param {HookIo} io
+ * @returns {RunIo}
+ */
+const hookRun = (io) => ({
+	cwd: io.cwd,
+	env: io.env,
+	committed: once(() => git(io, ["rev-parse", "--verify", "-q", "HEAD"]) ?? ""),
+	toplevel: () => inProgramScope(scrubbed(io), () => readTopLevel(io.cwd)),
+});
 
 /** The programs the steps run, under scripts/: one spelling, which
  * lib/post-commit-rows.js names as each row's script. */
@@ -121,11 +146,11 @@ const BANG = "\u001b[33m!\u001b[0m";
  * names no top level, no count, or none ahead. A throw reading the ref is
  * not caught here: the row warns, so the dispatcher prints one line naming
  * it and runs the rest (§N5).
- * @param {HookIo} io
+ * @param {RunIo} io
  * @returns {ProgramResult}
  */
 function unpushedReport(io) {
-	const toplevel = readTopLevelOf(io);
+	const toplevel = io.toplevel();
 	if (toplevel === null) return SILENT;
 	const ref = inProgramScope(scrubbed(io), () => {
 		const { hostOf, readUnpushedRef } = require("./landing-refs.js");
@@ -154,13 +179,13 @@ function unpushedReport(io) {
  * Row 2: the whole-repo faults THIS commit added. Its stdout always prints;
  * its stderr only on its exit 2, "a side could not be read", and then on the
  * hook's stdout, after its report.
- * @param {HookIo} io
+ * @param {RunIo} io
  * @param {Programs} [programs]
  * @returns {ProgramResult}
  */
 function newSharedFaultsRow(io, programs = PROGRAMS) {
-	const committed = readCommitted(io);
-	if (!committed || readTopLevelOf(io) === null) return SILENT;
+	const committed = io.committed();
+	if (!committed || io.toplevel() === null) return SILENT;
 	const r = runProgramAt(programs, PROGRAM_FILES.newSharedFaults, io, [
 		committed,
 	]);
@@ -179,13 +204,13 @@ function newSharedFaultsRow(io, programs = PROGRAMS) {
  * non-zero exit only where its git ceiling stopped it.
  * @param {string} script `check-instruction-surface.js` or
  *   `check-guard-registry.js`
- * @returns {(io: HookIo, programs?: Programs) => Promise<ProgramResult>}
+ * @returns {(io: RunIo, programs?: Programs) => Promise<ProgramResult>}
  */
 const touchedByRow =
 	(script) =>
 	async (io, programs = PROGRAMS) => {
-		const toplevel = readTopLevelOf(io);
-		const committed = readCommitted(io);
+		const toplevel = io.toplevel();
+		const committed = io.committed();
 		if (toplevel === null || !committed) return SILENT;
 		const { SPEC } = programs.load(script);
 		if (!SPEC) throw new Error(`${script} exports no SPEC`);
@@ -206,13 +231,13 @@ const touchedByRow =
  * Row 5: release this session's whole-file claims on the paths THIS commit
  * touched. A merge, naming no path under this form, releases nothing. Both
  * streams pass through.
- * @param {HookIo} io
+ * @param {RunIo} io
  * @param {Programs} [programs]
  * @returns {ProgramResult}
  */
 function releaseClaimsRow(io, programs = PROGRAMS) {
-	const committed = readCommitted(io);
-	if (!committed || readTopLevelOf(io) === null) return SILENT;
+	const committed = io.committed();
+	if (!committed || io.toplevel() === null) return SILENT;
 	const listed = git(io, [
 		"-c",
 		"core.quotePath=false",
@@ -238,14 +263,14 @@ function releaseClaimsRow(io, programs = PROGRAMS) {
  * Row 6: record THIS commit as this session's own, in the ledger rooted at
  * the main worktree, the directory holding the common git dir. Needs a
  * session id; a bare or relocated git dir names no main worktree.
- * @param {HookIo} io
+ * @param {RunIo} io
  * @param {Programs} [programs]
  * @returns {ProgramResult}
  */
 function recordCommitRow(io, programs = PROGRAMS) {
 	if (!io.env.CLAUDE_CODE_SESSION_ID) return SILENT;
-	const committed = readCommitted(io);
-	if (!committed || readTopLevelOf(io) === null) return SILENT;
+	const committed = io.committed();
+	if (!committed || io.toplevel() === null) return SILENT;
 	const common = gitCommonDir(io.cwd, { env: scrubbedGitEnv(io.env) });
 	if (common === null || !common.endsWith("/.git")) return SILENT;
 	const r = runProgramAt(
@@ -262,12 +287,12 @@ function recordCommitRow(io, programs = PROGRAMS) {
 
 /**
  * Row 7: the hook-shim keeper's lazy run.
- * @param {HookIo} io
+ * @param {RunIo} io
  * @param {Programs} [programs]
  * @returns {ProgramResult}
  */
 function keepShimsRow(io, programs = PROGRAMS) {
-	if (readTopLevelOf(io) === null) return SILENT;
+	if (io.toplevel() === null) return SILENT;
 	const r = runProgramAt(programs, PROGRAM_FILES.keepShims, io, ["--lazy"]);
 	return { exit: 0, stdout: r.stdout, stderr: r.stderr };
 }
@@ -285,7 +310,7 @@ const DROPPED_REVIEW_TIER =
  * Row 8: an amend given a message of its own drops the amended commit's
  * `Review-Tier:` line, which only the review hold writes back. The reflog
  * tells an amend from an empty commit on HEAD's tree.
- * @param {HookIo} io
+ * @param {RunIo} io
  * @returns {ProgramResult}
  */
 function droppedReviewTier(io) {
@@ -301,6 +326,7 @@ function droppedReviewTier(io) {
 module.exports = {
 	PROGRAM_FILES,
 	droppedReviewTier,
+	hookRun,
 	keepShimsRow,
 	newSharedFaultsRow,
 	recordCommitRow,

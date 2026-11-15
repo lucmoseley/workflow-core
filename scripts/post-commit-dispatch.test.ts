@@ -14,7 +14,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { ROWS } from "./lib/post-commit-rows.js";
 import {
 	hookEnv,
@@ -53,6 +53,46 @@ describe("the registry", () => {
 		]);
 	});
 
+	it("reads an ordinary commit's top level and the commit once for the whole run (#5214)", async () => {
+		const repo = newRepo("post-commit-reads-", temps);
+		repo.git("commit", "-q", "--allow-empty", "-m", "base");
+		repo.git("update-ref", "refs/remotes/origin/main", "HEAD");
+		fs.writeFileSync(path.join(repo.root, "f.txt"), "f\n");
+		repo.git("add", "f.txt");
+		repo.git("commit", "-q", "-m", "one");
+		const dir = tmp("post-commit-reads-git-");
+		const log = path.join(dir, "spawns");
+		const shim = path.join(dir, "git");
+		fs.writeFileSync(
+			shim,
+			`#!/bin/sh\nprintf '%s\\n' "$*" >> '${log}'\nexec git "$@"\n`,
+			{ mode: 0o755 },
+		);
+		quietPrograms();
+		/* check-guard-registry.js reads its own top level as it loads: the
+		 * program's read, not a row's, so it loads before the count. */
+		for (const checker of [
+			STEPS.PROGRAM_FILES.instructionSurface,
+			STEPS.PROGRAM_FILES.guardRegistry,
+		])
+			programs.load(checker);
+		vi.stubEnv("WFC_GIT", shim);
+		try {
+			await runPostCommit({
+				cwd: repo.root,
+				env: hookEnv({ WFC_GIT: shim, CLAUDE_CODE_SESSION_ID: "s1" }),
+			});
+		} finally {
+			vi.unstubAllEnvs();
+		}
+
+		const spawns = fs.readFileSync(log, "utf8").split("\n");
+		const count = (args: string) =>
+			spawns.filter((s) => s === args || s.endsWith(` ${args}`)).length;
+		expect(count("rev-parse --show-toplevel")).toBe(1);
+		expect(count("rev-parse --verify -q HEAD")).toBe(1);
+	});
+
 	it("runs the hook-shim keeper lazily, its streams passed through", () => {
 		const repo = newRepo("post-commit-shims-", temps);
 		repo.git("commit", "-q", "--allow-empty", "-m", "one");
@@ -65,7 +105,10 @@ describe("the registry", () => {
 		expect(row?.run).toBe(STEPS.keepShimsRow);
 
 		expect(
-			STEPS.keepShimsRow({ cwd: repo.root, env: hookEnv() }, programs),
+			STEPS.keepShimsRow(
+				STEPS.hookRun({ cwd: repo.root, env: hookEnv() }),
+				programs,
+			),
 		).toEqual({
 			exit: 0,
 			stdout: "kept\n",
@@ -107,7 +150,9 @@ describe("the registry", () => {
 		expect(quiet.check).toHaveBeenCalledTimes(2);
 		expect(process.cwd()).toBe(before.cwd);
 		expect(process.env).toEqual(before.env);
-		expect(STEPS.droppedReviewTier({ cwd: wt, env })).toEqual(SILENT);
+		expect(STEPS.droppedReviewTier(STEPS.hookRun({ cwd: wt, env }))).toEqual(
+			SILENT,
+		);
 	});
 });
 

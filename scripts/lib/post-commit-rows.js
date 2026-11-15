@@ -27,7 +27,7 @@ const steps = require("./post-commit-steps.js");
  * @typedef {import("./precommit-dispatch.js").Row & {
  *   script: string,
  *   run: (
- *     io: { cwd: string, env: NodeJS.ProcessEnv },
+ *     io: import("./post-commit-steps.js").RunIo,
  *     programs?: import("./post-commit-steps.js").Programs,
  *   ) => RowResult | Promise<RowResult>,
  * }} PostCommitRow
@@ -120,12 +120,13 @@ function runPostCommit(
 	io,
 	{ write, interrupted = async () => null, rows, programs },
 ) {
+	const run = steps.hookRun(io);
 	return dispatch({
 		rows: rows ?? ROWS,
 		gates: "all",
 		voice: { hook: "post-commit", noun: "step" },
 		ports: {
-			load: (step) => () => step.run(io, programs),
+			load: (step) => () => step.run(run, programs),
 			write,
 			interrupted,
 			route: () => commitRoute("post-commit", readHookGitDir(io.cwd, io.env)),

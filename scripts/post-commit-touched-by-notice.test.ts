@@ -66,7 +66,7 @@ describe.each(CHECKERS)(
 		) {
 			const check = stubCheck((_spec, argv) => answer(argv));
 			const r = await STEPS.touchedByRow(checker)(
-				{ cwd, env: hookEnv(env) },
+				STEPS.hookRun({ cwd, env: hookEnv(env) }),
 				programs,
 			);
 			expect(r.exit).toBe(0);
@@ -79,7 +79,7 @@ describe.each(CHECKERS)(
 			expect(row.when).toEqual({ unlessRoutes: ["post-commit-stand-down"] });
 			const { root } = hookRepo("post-commit-touched-by-wired-");
 			const check = stubCheck(() => SILENT);
-			await row.run({ cwd: root, env: hookEnv() }, programs);
+			await row.run(STEPS.hookRun({ cwd: root, env: hookEnv() }), programs);
 			const [spec, , opts] = check.mock.calls[0];
 			expect(opts.script).toBe(path.join(SCRIPTS, checker));
 			expect(spec).toBe(load(path.join(SCRIPTS, checker)).SPEC);
@@ -90,7 +90,7 @@ describe.each(CHECKERS)(
 			const { root } = hookRepo("post-commit-touched-by-real-");
 			expect(
 				await STEPS.touchedByRow(checker)(
-					{ cwd: root, env: hookEnv() },
+					STEPS.hookRun({ cwd: root, env: hookEnv() }),
 					programs,
 				),
 			).toEqual(SILENT);

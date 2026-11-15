@@ -445,7 +445,9 @@ describe("session-arbiter.js record-commit", () => {
 describe(".husky/post-commit's unpushed count (#2408)", () => {
 	/** lib/post-commit-steps.js's unpushedReport, as the registry runs it. */
 	function count(env: NodeJS.ProcessEnv = {}, cwd = root): string {
-		const r = STEPS.unpushedReport({ cwd, env: { ...process.env, ...env } });
+		const r = STEPS.unpushedReport(
+			STEPS.hookRun({ cwd, env: { ...process.env, ...env } }),
+		);
 		expect(r.exit).toBe(0);
 		expect(r.stderr).toBe("");
 		return r.stdout;
@@ -494,9 +496,9 @@ describe(".husky/post-commit's unpushed count (#2408)", () => {
 		execFileSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD~1"], {
 			cwd: wt,
 		});
-		expect(STEPS.unpushedReport({ cwd: wt, env }).stdout).toContain(
-			"1 commit not pushed to origin/main.",
-		);
+		expect(
+			STEPS.unpushedReport(STEPS.hookRun({ cwd: wt, env })).stdout,
+		).toContain("1 commit not pushed to origin/main.");
 	});
 });
 
@@ -526,7 +528,10 @@ describe(".husky/post-commit's record step", () => {
 	/** The step alone. */
 	function runStep(cwd: string, env: NodeJS.ProcessEnv) {
 		stubArbiter();
-		const r = STEPS.recordCommitRow({ cwd, env: hookEnv(env) }, programs);
+		const r = STEPS.recordCommitRow(
+			STEPS.hookRun({ cwd, env: hookEnv(env) }),
+			programs,
+		);
 		expect(r.exit).toBe(0);
 		return { head: headOf(cwd), out: r.stdout };
 	}
