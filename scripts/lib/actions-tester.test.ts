@@ -1397,7 +1397,7 @@ it("reads a named-run listing or a rerun it cannot make as unknown (#4458)", asy
 	expect(failed.dispatched).toEqual([]);
 });
 
-it("fires the suite workflow on a push to lander/batch-* and lander/iso-suite-*, and none to landing (#4458, #4485, #4556)", () => {
+it("fires the suite workflow on a push to lander/batch-* and lander/iso-suite-* (#4458, #4556)", () => {
 	const workflow = fs.readFileSync(
 		path.join(
 			import.meta.dirname,

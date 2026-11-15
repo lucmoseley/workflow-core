@@ -27,23 +27,20 @@ const os = require("node:os");
 const path = require("node:path");
 const { pidAlive } = require("./arbiter-proc.js");
 const { writeFileAtomic } = require("./atomic-write.js");
-const { execGit } = require("./git.js");
 const {
 	HEARTBEAT_MS,
 	queueLanderFiles,
 	readHeartbeat,
 } = require("./lander-files.js");
-const { LANDER_GIT_TIMEOUT_MS, short } = require("./lander-git.js");
+const { readGit, short } = require("./lander-git.js");
 const { queueBranch } = require("./landing-refs.js");
 const { readOwedDrops } = require("./lander-records.js");
 const { markersDir } = require("./marker-root.js");
 const { queueGit } = require("./queue-lander-adapters.js");
 const { oldestWaiting, queueGaugeOf } = require("./queue-gauge.js");
 const { queueLogFile, readQueueRows } = require("./queue-log.js");
+const { STALL_MS } = require("./queue-tickets.js");
 
-/* About 3.6 median whole-suite runs of 1987 s (#2672, from #2666's
- * measurement); not measured against red batches. */
-const STALL_MS = 2 * 60 * 60 * 1000;
 /* Untraced: five missed beats, so one slow tester tick is never read as a
  * death. */
 const STALE_MS = 5 * HEARTBEAT_MS;
@@ -170,14 +167,7 @@ function readQueue(root, now) {
  */
 function committedAt(root, sha) {
 	const at =
-		Number(
-			execGit(["log", "-1", "--format=%ct", sha], {
-				cwd: root,
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "pipe"],
-				timeout: LANDER_GIT_TIMEOUT_MS,
-			}).trim(),
-		) * 1000;
+		Number(readGit(root, ["log", "-1", "--format=%ct", sha]).trim()) * 1000;
 	if (!Number.isFinite(at) || at === 0)
 		throw new Error(`git log printed no committer time for ${sha}`);
 	return at;
@@ -225,7 +215,6 @@ function recordWake(file, { startedAt, now }) {
 }
 
 module.exports = {
-	STALL_MS,
 	mainMovedAt,
 	readQueue,
 	stallFindings,

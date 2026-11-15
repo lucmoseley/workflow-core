@@ -15,10 +15,10 @@
  * `origin/main` where it does not: before the first push, once the lander has
  * landed and deleted the ref, and for a tree that is no session worktree.
  * With the module off, it is `origin/main`. A config that will not read
- * answers off, save for `pushed-branch`, which fails.
+ * answers off.
  *
- *   node scripts/lib/landing-refs.js pushed|unpushed|pushed-branch [<tree>]
- *     prints that ref, or the pushed ref's branch, for the checkout at <tree>,
+ *   node scripts/lib/landing-refs.js pushed|unpushed [<tree>]
+ *     prints that ref for the checkout at <tree>,
  *     else the host root, for shell and workflows; the config read is
  *     <tree>'s host's (#4280, #4692)
  */
@@ -161,15 +161,6 @@ const QUEUE_REFSPEC = trackingRefspec(`${QUEUE_PREFIX}*`);
 const QUEUE_TRACKING_GLOB = `refs/remotes/${REMOTE}/${QUEUE_PREFIX}*`;
 
 /**
- * The branch a remote-tracking ref of `REMOTE` names.
- * @param {string} ref
- * @returns {string}
- */
-function branchOf(ref) {
-	return ref.slice(REMOTE.length + 1);
-}
-
-/**
  * Whether the `landing` module is on.
  * @param {{root?: string}} [opts]
  * @returns {boolean}
@@ -181,8 +172,7 @@ function landingOn(opts) {
 		/* Only readConfig throws here, "landing" being a known module. Off is
 		 * the answer that claims less: pushedRef then reads `origin/main`, so a
 		 * commit only on a queue ref counts as unpushed, never a missing one as
-		 * pushed. A workflow that must not guess asks the strict
-		 * `pushed-branch`, which fails instead (#4856). */
+		 * pushed. */
 		return false;
 	}
 }
@@ -253,22 +243,10 @@ if (require.main === module) {
 	const answer = new Map([
 		["pushed", pushedRef],
 		["unpushed", readUnpushedRef],
-		[
-			"pushed-branch",
-			/* Strict, for a workflow: a config that will not read fails here
-			 * rather than naming `main`. */
-			(/** @type {{root?: string, tree?: string}|undefined} */ o) => {
-				require("./workflow-core-config.js").moduleOn("landing", o);
-				return branchOf(pushedRef(o));
-			},
-		],
 	]).get(verb ?? "");
 	const { writeFd } = require("./write-fd.js");
 	if (!answer || more.length > 0) {
-		writeFd(
-			2,
-			"usage: landing-refs.js pushed|unpushed|pushed-branch [<tree>]\n",
-		);
+		writeFd(2, "usage: landing-refs.js pushed|unpushed [<tree>]\n");
 		process.exit(2);
 	}
 	writeFd(1, `${answer(tree ? { root: hostOf(tree), tree } : undefined)}\n`);

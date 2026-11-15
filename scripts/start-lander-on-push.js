@@ -2,7 +2,8 @@
 /*
  * start-lander-on-push.js — PostToolUse hook: after a push to a queue ref,
  * `queue/<name>`, start the queue lander detached (#2405, spec #2261; #4458).
- * The core is lib/lander-on-push.js.
+ * The core is lib/lander-on-push.js. Not a `guard-*`: it judges no call,
+ * only starts a process after one, though it fails open as a guard does.
  *
  * IMPLICIT:  after a Bash call that pushes to a queue ref, runs
  *            start-lander.js detached, which — where the `landing` module is

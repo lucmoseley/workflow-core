@@ -24,20 +24,33 @@ const buildUnchecked = (gate, unjudged) => (why) =>
 
 /**
  * Whether `module` is on in the config committed at `tree`'s HEAD (#3128,
- * #3132); false, printed, where the config cannot be read.
+ * #3132), or the fault, as printed, where the config cannot be read.
+ * @param {import("./workflow-core-config.js").Module} module
+ * @param {string} tree the pushing tree
+ * @returns {{ on: boolean } | { fault: string }}
+ */
+function readModuleAtHead(module, tree) {
+	try {
+		return { on: moduleOn(module, { root: tree, rev: "HEAD" }) };
+	} catch (e) {
+		return {
+			fault: `could not read the ${module} module's state (${caught(e).message})`,
+		};
+	}
+}
+
+/**
+ * Whether `module` is on at `tree`'s HEAD; false, printed, where the config
+ * cannot be read.
  * @param {import("./workflow-core-config.js").Module} module
  * @param {string} tree the pushing tree
  * @param {(why: string) => void} unchecked
  */
 function isModuleOnAtHead(module, tree, unchecked) {
-	try {
-		return moduleOn(module, { root: tree, rev: "HEAD" });
-	} catch (e) {
-		unchecked(
-			`could not read the ${module} module's state (${caught(e).message})`,
-		);
-		return false;
-	}
+	const state = readModuleAtHead(module, tree);
+	if ("on" in state) return state.on;
+	unchecked(state.fault);
+	return false;
 }
 
 /**
@@ -63,4 +76,9 @@ function runPrePushGate(unchecked, judge) {
 	return judge(stdin, tree);
 }
 
-module.exports = { buildUnchecked, isModuleOnAtHead, runPrePushGate };
+module.exports = {
+	buildUnchecked,
+	isModuleOnAtHead,
+	readModuleAtHead,
+	runPrePushGate,
+};

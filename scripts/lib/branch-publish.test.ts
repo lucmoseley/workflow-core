@@ -436,6 +436,18 @@ describe("with the landing module on, a session pushes its own queue ref (#4458)
 		return why;
 	};
 
+	/* Paired with the landing-off "allows %s, and records it" case below. */
+	it.each([
+		['git push origin "HEAD:$R"', "pushes to a ref this guard cannot read"],
+		['git push origin --delete "$R"', "deletes a ref this guard cannot read"],
+	])(
+		"%s is refused, naming its own ref, and records nothing (#5235)",
+		(command, what) => {
+			expect(refusal(command)).toContain(what);
+			expect(logs).toEqual([]);
+		},
+	);
+
 	it.each([
 		"git push origin HEAD:queue/q1",
 		"git push origin HEAD:refs/heads/queue/q1",
@@ -677,6 +689,16 @@ describe("the fail-open record", () => {
 			"could not resolve the working tree for a git push — branch publish allowed unchecked",
 		);
 	});
+});
+
+it("allows an unreadable refspec, logged, where the config will not read: the publish guard's stated residual (#5235)", () => {
+	fs.mkdirSync(path.join(shared, ".claude"), { recursive: true });
+	fs.writeFileSync(path.join(shared, ".claude", "workflow-core.json"), "{ x");
+	expect(denial('git push origin "HEAD:$R"')).toBeNull();
+	expect(logs).toContain("unreadable push refspec — push allowed unchecked");
+	expect(logs.join("\n")).toContain(
+		"module landing read as off on a config fault",
+	);
 });
 
 describe("the cases a mutant must not survive (#2792)", () => {

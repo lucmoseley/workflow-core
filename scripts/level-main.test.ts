@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
- * The levelling step (#4238) against real git: a bare origin carrying `main`
- * and `landing`, a main checkout cloned from it with a linked worktree, and a
+ * The levelling step (#4238) against real git: a bare origin carrying `main`,
+ * a main checkout cloned from it with a linked worktree, and a
  * second clone that moves `origin/main` as the lander would. `npm` is a stub
  * at `WFC_NPM` that records each install.
  *
@@ -66,7 +66,7 @@ const commitIn = (
 
 const landOnMain = (files: Record<string, string>) => {
 	const sha = commitIn(lander, files, "lander-green");
-	git(lander, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
+	git(lander, "push", "-q", "origin", "HEAD:main");
 	return sha;
 };
 
@@ -120,7 +120,7 @@ beforeEach(() => {
 		},
 		"seed",
 	);
-	git(main, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
+	git(main, "push", "-q", "origin", "HEAD:main");
 	git(main, "worktree", "add", "-q", "--detach", worktree, "origin/main");
 	git(tmp, "clone", "-q", origin, lander);
 	git(lander, "config", "user.email", "t@t");
@@ -149,10 +149,10 @@ it("fast-forwards main to a freshly fetched origin/main, run from a session's wo
 	expect(installs()).toEqual([]);
 });
 
-it("follows origin/main, never origin/landing", () => {
+it("follows origin/main, never a queue ref", () => {
 	const green = landOnMain({ "hook.js": "v2\n" });
-	commitIn(lander, { "hook.js": "v3-untested\n" }, "landing only");
-	git(lander, "push", "-q", "origin", "HEAD:landing");
+	commitIn(lander, { "hook.js": "v3-untested\n" }, "queued only");
+	git(lander, "push", "-q", "origin", "HEAD:queue/s1");
 
 	expect(pass()).toMatchObject({ status: "forwarded", head: green });
 	expect(git(main, "rev-parse", "HEAD")).toBe(green);

@@ -4,11 +4,14 @@
  * to no queue ref at all (#2407, spec #2261; #4485, spec #4458).
  */
 
-const { caught } = require("./caught.js");
-const { LANDER_GIT_TIMEOUT_MS, short } = require("./lander-git.js");
+const {
+	isAncestor,
+	LANDER_GIT_TIMEOUT_MS,
+	readGit,
+	short,
+} = require("./lander-git.js");
 const { fetchShared } = require("./checkout-repo.js");
 const { pushedRef, VERIFIED_REF } = require("./landing-refs.js");
-const { execGit } = require("./git.js");
 
 /**
  * @typedef {{kind: "landed"} | {kind: "queued"} | {kind: "unpushed"}}
@@ -73,28 +76,11 @@ function buildStateLine({ sha, state }, subject, queue) {
  * @returns {StatusGit & {subjectOf: (sha: string) => string}}
  */
 function fetchedGit(root, tree) {
-	/** @param {string[]} args */
-	const git = (args) =>
-		execGit(args, {
-			cwd: root,
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "pipe"],
-			timeout: LANDER_GIT_TIMEOUT_MS,
-		});
 	fetchShared(root, LANDER_GIT_TIMEOUT_MS);
 	return {
 		pushed: pushedRef({ root, tree }),
-		isOn(ref, sha) {
-			try {
-				git(["merge-base", "--is-ancestor", sha, ref]);
-				return true;
-			} catch (err) {
-				/* Exit 1 is git's "not an ancestor"; any other exit is a failed read. */
-				if (caught(err).status === 1) return false;
-				throw err;
-			}
-		},
-		subjectOf: (sha) => git(["log", "-1", "--format=%s", sha]).trim(),
+		isOn: (ref, sha) => isAncestor(root, sha, ref),
+		subjectOf: (sha) => readGit(root, ["log", "-1", "--format=%s", sha]).trim(),
 	};
 }
 

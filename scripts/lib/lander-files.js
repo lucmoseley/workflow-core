@@ -63,16 +63,20 @@ function readTextOrNull(file) {
 }
 
 /**
+ * The shas a green ledger's text holds, in order.
+ * @param {string} text
+ */
+const parseLedgerShas = (text) =>
+	text.split("\n").flatMap((line) => line.split(" ")[0] || []);
+
+/**
  * @param {string} file
  * @returns {Ledger & {readShas: () => string[], remove: (sha: string) => void,
  *   greenAt: (sha: string) => number|null}} with every sha it holds, `remove`
  *   rewriting it without `sha`'s lines, and `greenAt` when `sha` was added
  */
 function fileLedger(file) {
-	const readShas = () =>
-		(readTextOrNull(file) ?? "")
-			.split("\n")
-			.flatMap((line) => line.split(" ")[0] || []);
+	const readShas = () => parseLedgerShas(readTextOrNull(file) ?? "");
 	return {
 		readShas,
 		has: (sha) => readShas().includes(sha),
@@ -130,6 +134,7 @@ module.exports = {
 	fileLedger,
 	heartbeatWriter,
 	landerLock,
+	parseLedgerShas,
 	queueLanderFiles,
 	readHeartbeat,
 };
