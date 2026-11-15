@@ -24,6 +24,7 @@
  */
 
 const path = require("node:path");
+const { deref } = require("./deref.js");
 const { WORKTREES } = require("./worktree-dirs.js");
 
 /* The config and git load where an answer first needs them, so a reader of
@@ -89,21 +90,13 @@ const DROPPED_PREFIX = "dropped/";
  */
 function ownQueueName(tree, root) {
 	if (!tree) return null;
-	const fs = require("node:fs");
+	const host = root ?? require("./main-checkout.js").mainCheckout(tree);
+	if (!host) return null;
 	/* realpath fails only on a path that is gone or unreadable, which no live
 	 * session's tree is; its spelling is then the only name it has, and every
 	 * caller reads that same fallback here (#4856). */
-	const real = (/** @type {string} */ p) => {
-		try {
-			return fs.realpathSync(p);
-		} catch {
-			return p;
-		}
-	};
-	const host = root ?? require("./main-checkout.js").mainCheckout(tree);
-	if (!host) return null;
-	const at = real(tree);
-	return path.dirname(at) === path.join(real(host), WORKTREES)
+	const at = deref(tree);
+	return path.dirname(at) === path.join(deref(host), WORKTREES)
 		? path.basename(at)
 		: null;
 }
@@ -239,17 +232,18 @@ function readUnpushedRef(opts) {
 }
 
 if (require.main === module) {
-	const [verb, tree, ...more] = process.argv.slice(2);
-	const answer = new Map([
-		["pushed", pushedRef],
-		["unpushed", readUnpushedRef],
-	]).get(verb ?? "");
-	const { writeFd } = require("./write-fd.js");
-	if (!answer || more.length > 0) {
-		writeFd(2, "usage: landing-refs.js pushed|unpushed [<tree>]\n");
-		process.exit(2);
-	}
-	writeFd(1, `${answer(tree ? { root: hostOf(tree), tree } : undefined)}\n`);
+	const usage = "usage: landing-refs.js pushed|unpushed [<tree>]";
+	const verb = { usage, max: 1 };
+	const { command, positionals } = require("./cli-args.js").parseOrExit(
+		process.argv.slice(2),
+		{ usage, commands: { pushed: verb, unpushed: verb } },
+	);
+	const answer = command === "pushed" ? pushedRef : readUnpushedRef;
+	const [tree] = positionals;
+	require("./write-fd.js").writeFd(
+		1,
+		`${answer(tree ? { root: hostOf(tree), tree } : undefined)}\n`,
+	);
 }
 
 module.exports = {

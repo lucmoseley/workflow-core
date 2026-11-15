@@ -8,6 +8,8 @@
  * carries the all-zero remote sha, for the caller to read as "no remote tip".
  */
 
+const { isQueueHead } = require("./landing-refs.js");
+
 const ZERO = /^0+$/;
 
 /**
@@ -52,4 +54,18 @@ function parsePushes(stdin, { skipTags = false } = {}) {
 	return out;
 }
 
-module.exports = { isZeroSha, parsePushes, parseRefLines };
+/**
+ * Each push to a queue ref, in order, deletions dropped: what every pre-push
+ * gate on the landing queue judges.
+ * @param {string} stdin
+ * @returns {Array<RefLine & { remoteRef: string }>}
+ */
+function parseQueuePushes(stdin) {
+	return parseRefLines(stdin).flatMap((r) =>
+		!isZeroSha(r.sha) && isQueueHead(r.remoteRef)
+			? [{ ...r, remoteRef: r.remoteRef }]
+			: [],
+	);
+}
+
+module.exports = { isZeroSha, parsePushes, parseQueuePushes, parseRefLines };
