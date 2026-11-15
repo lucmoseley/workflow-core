@@ -429,7 +429,7 @@ ${ESCAPE}`,
 });
 
 describe("the tool runners (#5239)", () => {
-	const Pipx = "--pip-args='--only-binary :all:'";
+	const pipxShut = "--pip-args='--only-binary :all:'";
 
 	it.each([
 		["uvx left-pad", "left-pad", "--no-build"],
@@ -441,12 +441,12 @@ describe("the tool runners (#5239)", () => {
 		["uv tool install ruff --with left-pad", "left-pad", "--no-build"],
 		["uv run --with left-pad pytest", "left-pad", "--no-build"],
 		["uv run -w left-pad pytest", "left-pad", "--no-build"],
-		["pipx install left-pad", "left-pad", Pipx],
-		["pipx install ruff --preinstall left-pad", "left-pad", Pipx],
-		["pipx run left-pad", "left-pad", Pipx],
-		["pipx run --spec left-pad lp", "left-pad", Pipx],
-		["pipx run --with left-pad ruff", "left-pad", Pipx],
-		["pipx inject ruff left-pad", "left-pad", Pipx],
+		["pipx install left-pad", "left-pad", pipxShut],
+		["pipx install ruff --preinstall left-pad", "left-pad", pipxShut],
+		["pipx run left-pad", "left-pad", pipxShut],
+		["pipx run --spec left-pad lp", "left-pad", pipxShut],
+		["pipx run --with left-pad ruff", "left-pad", pipxShut],
+		["pipx inject ruff left-pad", "left-pad", pipxShut],
 	])("refuses `%s` its window open, naming the flag", (command, name, flag) => {
 		expect(denial(command)).toContain(
 			`declare — ${name} — and does not carry \`${flag}\`:`,
@@ -459,9 +459,9 @@ describe("the tool runners (#5239)", () => {
 		"uv tool run --no-build left-pad",
 		"uv tool install --no-build 'left-pad[cli]>=1'",
 		"uv run --no-build --with left-pad pytest",
-		`pipx install ${Pipx} left-pad`,
+		`pipx install ${pipxShut} left-pad`,
 		"pipx run --pip-args=--only-binary=:all: left-pad",
-		`pipx inject ${Pipx} ruff left-pad`,
+		`pipx inject ${pipxShut} ruff left-pad`,
 	])("asks PyPI of `%s` once its window is shut", (command) => {
 		expect(callsOf(command)).toEqual(["pypi left-pad", "stats left-pad"]);
 	});
@@ -501,13 +501,44 @@ describe("the tool runners (#5239)", () => {
 			"uvx --no-build --from git+https://example.com/x.git x",
 			"git+https://example.com/x.git",
 		],
-		[`pipx install ${Pipx} --editable evil`, "evil"],
-		[`pipx run ${Pipx} https://example.com/s.py`, "https://example.com/s.py"],
-		[`pipx run ${Pipx} script.py`, "script.py"],
+		[`pipx install ${pipxShut} --editable evil`, "evil"],
+		[
+			`pipx run ${pipxShut} https://example.com/s.py`,
+			"https://example.com/s.py",
+		],
+		[`pipx run ${pipxShut} script.py`, "script.py"],
 	])("refuses `%s` as unvettable", (command, spec) => {
 		expect(denial(command)).toContain(
 			`its legitimacy is unverifiable: \`${spec}\``,
 		);
+	});
+
+	it.each([
+		"uv run --trusted-host h --with left-pad pytest",
+		"uvx --no-build --trusted-host h left-pad",
+		"uv tool install --no-build --python-preference only-system left-pad",
+		"uv --trusted-host h tool install --no-build left-pad",
+		"uv tool run --no-build --constraint c.txt left-pad",
+		"uv tool uvx --no-build left-pad",
+	])("reads uv's hidden options and aliases: `%s`", (command) => {
+		expect(denial(command, { created: "404" })).toMatch(/left-pad/);
+	});
+
+	it.each([
+		[`pipx install ${pipxShut} -e mydir`, "mydir"],
+		[`pipx install ${pipxShut} tool.py`, "tool.py"],
+		[`pipx run ${pipxShut} --path script`, "script"],
+	])("refuses the pipx local tree `%s` as unvettable", (command, spec) => {
+		expect(denial(command)).toContain(
+			`its legitimacy is unverifiable: \`${spec}\``,
+		);
+	});
+
+	it.each([
+		`pipx install ${pipxShut} -i https://example.com/simple left-pad`,
+		`pipx inject ${pipxShut} --requirement r.txt ruff left-pad`,
+	])("reads pipx's value-taking `-i` and `--requirement`: `%s`", (command) => {
+		expect(callsOf(command)).toEqual(["pypi left-pad", "stats left-pad"]);
 	});
 
 	it("refuses a pip editable named like a package as unvettable", () => {
