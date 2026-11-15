@@ -39,9 +39,9 @@
  * unpinned, where no plugin manifest reads at the plugin root, or where the
  * founder has already declined this exact repo+tag through
  * `scripts/adopter-consent.js` (`scripts/lib/adopter-consent.js`, #245).
- * Where a gap does report, the report also carries the exact
- * `adopter-consent.js accept`/`decline` commands so the session records the
- * founder's chat answer rather than inventing a route for it.
+ * Where a gap does report, the session runs the commands itself (#5230), and
+ * the report carries the exact `adopter-consent.js accept` command it records
+ * after them, and the `decline` a founder's no takes.
  *
  * TWO EXCEPTIONS TO THAT SILENCE, each reported regardless of gap state:
  *   - `.claude/workflow-core.json`'s `stepsOwed` (#248), whenever it holds an
@@ -442,8 +442,9 @@ function buildReport({ root, pluginRoot, runningRoot }) {
 	const consentCli = `${pluginRoot}/scripts/adopter-consent.js`;
 	lines.push(
 		"",
-		"Put this to the founder as a priced yes/no. Record the answer once given — never invent another route (#245):",
+		"These commands are this session's to run, not the founder's (#5230): run each bare, one per call, as printed, since the user-settings allow rules for them match only these spellings. Then record the tag accepted, so the session-end reconciler walks its migration notes:",
 		`  node ${shellQuote(consentCli)} accept  ${shellQuote(root)} ${shellQuote(state.pin.ref)}`,
+		"Only where the founder has said not to install this tag here, record that instead:",
 		`  node ${shellQuote(consentCli)} decline ${shellQuote(root)} ${shellQuote(state.pin.ref)}`,
 	);
 	return join(lines.join("\n"));

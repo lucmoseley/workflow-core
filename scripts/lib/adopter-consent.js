@@ -1,6 +1,7 @@
 /*
- * adopter-consent.js — the founder's yes/no about a plugin upgrade, crossing
- * from the chat to disk (#238, #245).
+ * adopter-consent.js — a plugin upgrade's accept or decline, on disk (#238,
+ * #245). The session records the accept after running the install itself
+ * (#5230); a decline is the founder's no.
  *
  * Two records, keyed `<repo>@<tag>` — `repo` is the adopter root the session
  * is running in, `tag` the pin ref being proposed, so two adopters sharing a
@@ -17,8 +18,8 @@
  * NOTHING HERE CAN EXPRESS "accepted and completed". Clearing the pending
  * record on success IS the record of success; there is no third state. A
  * materialise that fails leaves the pending record in place, so the reporter
- * (which only reads decline, never pending) keeps speaking and the founder is
- * asked again next session rather than the gap going silently unclosed.
+ * (which only reads decline, never pending) keeps speaking and the next session
+ * runs the commands again rather than the gap going silently unclosed.
  *
  * STORAGE is one directory for the machine: the sorted config-dir candidate
  * list, the first this process can write to, so every `~/.claude*`

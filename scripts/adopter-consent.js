@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /*
  * adopter-consent.js — CLI over lib/adopter-consent.js, for a live session to
- * record the founder's yes/no once he has answered the priced upgrade
- * question in chat (#238, #245).
+ * record an upgrade's accept once it has run the install commands itself
+ * (#5230), or the founder's decline (#238, #245).
  *
  * Usage:
  *   node scripts/adopter-consent.js decline <repo> <tag>

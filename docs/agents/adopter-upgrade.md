@@ -51,14 +51,32 @@ The walk runs under four conditions:
 
 **The half-way stop.** A note's `Verify` can fail after its residue has already been written. `upgrade()`'s `ceiling` parameter (its own JSDoc) lets the wrapper reset the tree to clean and replay the walk capped at the last tag that actually verified — sound because two notes can rewrite the same file, so no general per-note diff can isolate "this note's writes" any other way. The committed `walkedTo` always describes the committed tree, on both the clean and the half-way paths: a re-run is safe on any machine without inspecting anything.
 
-## The founder's answer, on disk
+## The install is the session's, not the founder's
 
-The reporter puts the gap to a session as a priced yes/no; the founder answers
-in the chat, never in a terminal. `scripts/lib/adopter-consent.js` is where
-that answer lands, machine-locally, keyed `<repo>@<tag>` — `repo` the adopter
-root the session ran in, `tag` the pin ref just proposed. `scripts/adopter-consent.js`
-is the CLI over it, and the reporter prints its two commands verbatim
-whenever a gap is open:
+The founder ruled at #5223 that the session finishes the install itself
+(#5230). Once the pin is moved, the install that follows is owed no question.
+The session runs the gap's commands as the reporter prints them, bare, one per
+call. Three `permissions.allow` rules in user settings (`~/.claude/settings.json`,
+which every `~/.claude*` config dir shares by symlink) match exactly those
+spellings for `workflow-core@workflow-core` and
+`https://github.com/lucmoseley/workflow-core.git`, so they run with no prompt.
+They are user rules, not project ones, so the one file reaches every adopter
+under every config dir. A rule in an adopter's own `.claude/settings.json`
+could only arrive through the install it was meant to unprompt. A chained
+command (`&&`, `;`, `|`) defeats the match and goes to the classifier, which
+has refused it as self-modification (fantasy-books#2125).
+
+`rule:adopter-pin-consent` is untouched: the pin still moves only by a
+deliberate act.
+
+## The accept and the decline, on disk
+
+`scripts/lib/adopter-consent.js` holds both records, machine-locally, keyed
+`<repo>@<tag>`, where `repo` is the adopter root the session ran in and `tag`
+is the pin ref. `scripts/adopter-consent.js` is the CLI over it. The reporter
+prints both commands verbatim whenever a gap is open. The session records the
+accept itself, once its install commands have run. The decline is only for a
+founder's no:
 
 ```
 node scripts/adopter-consent.js accept  <repo> <tag>
@@ -68,14 +86,15 @@ node scripts/adopter-consent.js decline <repo> <tag>
 A **decline** is permanent for that `<repo>@<tag>` — this reporter checks it
 first and stays silent for exactly that tag; a different tag in the same
 repo, or the same tag in a different adopter, still reports. A **pending
-consent**, written on a yes, is read and cleared by the `SessionEnd`
-materialiser (#247) once its three-command sequence actually succeeds.
+consent**, written by the accept, is read and cleared by the `SessionEnd`
+materialiser (#247) once its migration walk lands, the install being already
+at the pin where the session ran it, or materialised there first where not.
 **Nothing in the store can express "accepted and completed"** — a failed
 materialise leaves the pending record in place, so this reporter (which never
-reads pending, only decline) keeps speaking and the founder is asked again.
+reads pending, only decline) keeps speaking and the next session runs the
+commands again.
 
-On a yes, tell the founder plainly: this session keeps the plugin it started
-with, and the next one will be current.
+The session keeps the plugin it started with; the next one is current.
 
 ## `stepsOwed` — a manual step the walk could not discharge
 

@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /*
  * reconcile-plugin.js — the SessionEnd actor for the adopter-upgrade
- * mechanism (#238, #247). The founder says yes in the chat, stops working,
- * and the next session he opens is running the version his repo says it
- * runs.
+ * mechanism (#238, #247). A session in the adopter records the pinned tag
+ * accepted, and the next session there runs the version the repo says it
+ * runs. Since #5230 that session has usually run the install itself, so this
+ * actor's usual work is the walk.
  *
  * Usage:
  *   node scripts/reconcile-plugin.js --session-end   the SessionEnd hook shape
@@ -39,8 +40,8 @@
  * THE ORDER OF THE STOPS, cheapest and most decisive first:
  *   1. no pin, or a directory-sourced adopter  — nothing to reconcile
  *   2. a decline for this repo+tag             — the founder said no
- *   3. no pending consent for this repo+tag    — he was never asked, or the
- *      last materialise already consumed it.
+ *   3. no pending consent for this repo+tag    — no session recorded the
+ *      accept, or the last walk already consumed it.
  *   4. any other Claude session under this config dir — defer. A
  *      mid-session plugin rotation must not silence a neighbour's guards any
  *      more than it may silence the founder's own. The daemon and its idle
@@ -64,7 +65,8 @@
  * `materialisePlugin` reports `ok: true` for it. `update` is the one call
  * that re-pulls an already-installed plugin, so a failure there means the
  * rotated ref probably never reached the install — the gap is still open,
- * and the founder should be asked again rather than told it closed.
+ * and the next session should run the commands again rather than be told it
+ * closed.
  *
  * A SUCCESSFUL MATERIALISE ALSO RUNS THE MIGRATION WALK (#249,
  * `lib/walk-and-commit.js`), which — on a clean adopter tree — CAN MAKE ONE
@@ -79,7 +81,7 @@
  * install's hook timeout, which the harness read at session start — a
  * release raising that timeout gets it one bump late.
  *
- * IMPLICIT:  on every SessionEnd, where the founder's yes for this exact
+ * IMPLICIT:  on every SessionEnd, where an accept for this exact
  *            repo+tag is pending and no other Claude session is live under
  *            this config dir, runs `claude plugin marketplace add` →
  *            `install` → `update` against the adopter, rotating this
@@ -90,12 +92,12 @@
  *            walk wrote in that commit; whatever it says is also filed as
  *            its notify report.
  * JUSTIFIED: convenience — the committed pin is the consent token and the
- *            chat yes is the second half, so every write here only brings
+ *            recorded accept is the second half, so every write here only brings
  *            reality to the state the pin already declares (#238); the walk
  *            is the same argument one step further, since a migration note
  *            is itself pinned content the plugin ships (#249). What it buys
- *            is the founder not typing a five-step sequence nobody
- *            remembers, and not landing on a stale, mid-migration repo;
+ *            is no session leaving a five-step sequence half done, and no
+ *            one landing on a stale, mid-migration repo;
  *            nothing breaks if it never runs.
  * DEFEAT:    decline the tag (`node scripts/adopter-consent.js decline <repo>
  *            <tag>`), or never accept one — with no pending consent no
@@ -395,7 +397,7 @@ function reconcile({ root, pluginRoot, emit }) {
 	});
 	if (!result.ok) {
 		say(
-			`${plugin.name}: materialising ${tag} FAILED — ${result.reason}. The consent stands, so the next session asks again. Finish by hand: ${fixByHand(result)}`,
+			`${plugin.name}: materialising ${tag} FAILED — ${result.reason}. The consent stands, so the next session's exit retries. Finish by hand: ${fixByHand(result)}`,
 		);
 		return { action: "failed", lines };
 	}

@@ -101,6 +101,9 @@ describe("check-plugin-gap.js's report (#243)", () => {
 		// adopter repo carries this file (#245's spec-fidelity finding)
 		expect(text).toContain(`${pluginRoot}/scripts/adopter-consent.js accept`);
 		expect(text).toContain(`${pluginRoot}/scripts/adopter-consent.js decline`);
+		// the install is the session's, never a question for the founder (#5230)
+		expect(text).toContain("this session's to run, not the founder's");
+		expect(text).not.toContain("priced yes/no");
 	});
 
 	it("stays silent for a repo+tag the founder already declined (#245)", () => {
