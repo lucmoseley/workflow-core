@@ -157,6 +157,15 @@ describe(".husky/commit-msg's commit-msg.local seam (#5142)", () => {
 		}
 	});
 
+	it("refuses, naming it, where mktemp cannot make the route file (#5215)", () => {
+		extraEnv = { TMPDIR: path.join(dir, "no-such-dir") };
+		writeLocal('echo "local ran" >&2\n');
+		const r = commit("Add a line");
+		expect(r.status).toBe(1);
+		expect(r.out).toContain("commit-msg: mktemp could not make a file");
+		expect(r.out).not.toContain("local ran");
+	});
+
 	it("removes the route file on a pass, a local refusal and a core refusal (#5215)", () => {
 		const tmp = mkScratchDir("commit-msg-local-tmp-");
 		extraEnv = { TMPDIR: tmp };
