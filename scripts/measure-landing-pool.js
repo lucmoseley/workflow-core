@@ -43,6 +43,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { now } = require("./lib/clock.js");
 const { commitSha } = require("./lib/commit-sha.js");
@@ -50,7 +51,6 @@ const { SHORT_SHA, execGit, gitCommonDir, gitOrNull } = require("./lib/git.js");
 const { readJsonl } = require("./lib/jsonl.js");
 const { isAncestor } = require("./lib/lander-git.js");
 const { landerLog, parseStartedCode } = require("./lib/lander-start.js");
-const { landingOn } = require("./lib/landing-refs.js");
 const { findPin, isCoreHost, readJsonSafe } = require("./lib/plugin-state.js");
 const { queueLogFile, readQueueRows } = require("./lib/queue-log.js");
 const { homeDir, readAdopterCheckouts } = require("./lib/refill-repos.js");
@@ -69,6 +69,7 @@ const {
 	windowOf,
 } = require("./lib/time-to-land.js");
 const { DAY_MS } = require("./lib/retained-jsonl.js");
+const { readConfig } = require("./lib/workflow-core-config.js");
 const { REAPED_RECORD } = require("./lib/worktree-reaper.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -213,6 +214,22 @@ function readCarriedSince(root, carry) {
 }
 
 /**
+ * Why `root` is left out of the pool for its config, else null: its
+ * `landing` module off, or a config that does not read.
+ * @param {string} root
+ * @returns {string|null}
+ */
+function landingOff(root) {
+	try {
+		return readConfig({ root, quiet: true }).modules.includes("landing")
+			? null
+			: "landing is off";
+	} catch (e) {
+		return `its config does not read: ${caught(e).message}`;
+	}
+}
+
+/**
  * The checkouts under `home` with `landing` on, each with its fallback, and
  * each one left out with why.
  * @param {string} home
@@ -227,7 +244,8 @@ function readPool(home, carry, sha) {
 	const left = [];
 	for (const root of readAdopterCheckouts(home).included) {
 		const name = path.basename(root);
-		if (!landingOn({ root })) left.push({ name, why: "landing is off" });
+		const off = landingOff(root);
+		if (off !== null) left.push({ name, why: off });
 		else if (isCoreHost(root))
 			members.push({
 				name,

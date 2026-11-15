@@ -306,10 +306,6 @@ class TransientFault extends Error {}
  *   which no run takes, a batch whose next step waits on another's;
  *   `relaunch`, the `main` a fresh run on the new code takes the queue on from
  * @typedef {Extract<QueueAction, {kind: "exit"}>} QueueEnd
- * @typedef {"rerun-files" | "check-base" | "file-base-red" | "hold"
- *   | "start-isolation" | "start-serial" | "merge-iso" | "serial-land-step" | "isolate-members"
- *   | "confirm-members" | "rebatch-passers" | "land-step" | "record-step"}
- *   RedKind the red path's steps
  * @typedef {{readonly sha: string, readonly files: readonly string[],
  *   readonly pass: number}} TestRun a run at `sha` on `files`, the whole
  *   suite where none, on its `pass`: 1 the first, 2 the rerun or confirm,
@@ -3063,9 +3059,9 @@ async function runQueueLander(deps) {
 	}
 }
 
-/* The action kinds of a red batch's search, from its first rerun to its last
- * serial step: lib/time-to-land.js times a batch's red path by them. */
-const RED_PATH_KINDS = new Set([
+/** The action kinds of a red batch's search, from its first rerun to its
+ * last serial step: lib/time-to-land.js times a batch's red path by them. */
+const RED_KINDS = /** @type {const} */ ([
 	"rerun-files",
 	"check-base",
 	"file-base-red",
@@ -3080,6 +3076,10 @@ const RED_PATH_KINDS = new Set([
 	"land-step",
 	"record-step",
 ]);
+/** @typedef {typeof RED_KINDS[number]} RedKind */
+
+/** @type {ReadonlySet<string>} */
+const RED_PATH_KINDS = new Set(RED_KINDS);
 
 /**
  * @param {QueueAction} a
