@@ -67,8 +67,10 @@
  *   holds its snapshot is then deleted, compare-and-delete against that sha;
  *   a moved one is kept and joins the next batch.
  * - **Red.** The failing files are rerun once at the integration sha, and
- *   where they pass the batch is green. Those still red are run anew at
- *   `main`, its base check: the ones red there too are base
+ *   where they pass the batch is green; where that green names no CI run
+ *   and the tester's `requiresRun` is set, the whole suite is run again
+ *   there, and its verdict stands in for the rerun's. Those still red are
+ *   run anew at `main`, its base check: the ones red there too are base
  *   failures, blamed on no member, and the one base-red ticket is filed or
  *   refreshed for them. Where none is left the batch lands, unless the
  *   tester's `requiresRun` is set, where it is held instead and retaken once
@@ -386,11 +388,12 @@ const DEPTH_CEILING = 3;
 const DEPTH_FLOOR = 1;
 
 /**
- * The first run of `sha`'s whole suite.
+ * A run of `sha`'s whole suite on `pass`, the first where absent.
  * @param {string} sha
+ * @param {number} [pass]
  * @returns {TestRun}
  */
-const wholeRun = (sha) => ({ sha, files: [], pass: 1 });
+const wholeRun = (sha, pass = 1) => ({ sha, files: [], pass });
 
 /** @type {Extract<QueueAction, {kind: "wait"}>} */
 const WAIT = { kind: "wait" };
@@ -867,9 +870,21 @@ function redAction(b, s, main, { sha, whole }) {
 	const land = { kind: "fast-forward-main", sha };
 	const rerun = { sha, files: whole.files, pass: 2 };
 	/* Retried in its own run already: red again there, so no re-run (#4545). */
-	const again = whole.retried
+	const filesAgain = whole.retried
 		? { v: whole }
 		: verdictOr(s, rerun, { kind: "rerun-files", ...rerun });
+	if ("action" in filesAgain) return filesAgain.action;
+	/* A files rerun the slot ref no longer lists a run for is judged off
+	 * `named-rerun.yml`, naming no run; where `main` takes only a sha a run
+	 * passed, the whole suite is asked again, which always names one
+	 * (#5236). Residual: one more whole-suite run each time. */
+	const again =
+		filesAgain.v.kind === "green" && !isLandable(filesAgain.v, s)
+			? verdictOr(s, wholeRun(sha, 2), {
+					kind: "rerun-files",
+					...wholeRun(sha, 2),
+				})
+			: filesAgain;
 	if ("action" in again) return again.action;
 	if (again.v.kind === "green") return landGreen(again.v, s, land);
 	const files = again.v.files.length > 0 ? again.v.files : whole.files;
@@ -1141,7 +1156,7 @@ function stepAction(b, s, { sha, onto, member }, { blame, landed, rebatch }) {
 	const first = verdictOr(s, wholeRun(sha), { kind: "test-sha", sha });
 	if ("action" in first) return first.action;
 	if (first.v.kind === "green") return landGreen(first.v, s, land);
-	const confirm = { sha, files: [], pass: 2 };
+	const confirm = wholeRun(sha, 2);
 	const again = verdictOr(s, confirm, { kind: "rerun-files", ...confirm });
 	if ("action" in again) return again.action;
 	const { v } = again;
