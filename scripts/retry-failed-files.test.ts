@@ -134,6 +134,27 @@ it("re-runs nothing where no report exists, naming the path", () => {
 	expect(r.stderr).toContain(`no report at ${path.join(root, "absent.json")}`);
 });
 
+it("re-runs nothing where the report cannot be read, naming the error (#5233)", () => {
+	const { root } = repo([]);
+	const report = path.join(root, "unreadable.json");
+	fs.mkdirSync(report);
+	const r = run(root, report);
+	expect(r.status).toBe(1);
+	expect(r.stderr).toMatch(
+		new RegExp(`the report at ${report} cannot be read: .*EISDIR`),
+	);
+	expect(fs.existsSync(path.join(root, "ran.log"))).toBe(false);
+});
+
+it("re-runs nothing where the report does not parse, saying so", () => {
+	const { root, report } = repo([]);
+	fs.writeFileSync(report, "{ not json");
+	const r = run(root, report);
+	expect(r.status).toBe(1);
+	expect(r.stderr).toContain(`the report at ${report} does not parse`);
+	expect(fs.existsSync(path.join(root, "ran.log"))).toBe(false);
+});
+
 it("refuses a missing report argument, printing its usage", () => {
 	const { root } = repo([]);
 	const r = runInProcess(SCRIPT, [], { cwd: root });

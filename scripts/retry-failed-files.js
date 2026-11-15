@@ -17,8 +17,8 @@
  * In no family: it gates nothing itself, its exit being the re-run's, and
  * writes no file of the repo's (§N3).
  *
- * Exit codes: the re-run's own; 1 where the report is missing, will not parse
- * or marks no file failed; 2 on a command line it refuses.
+ * Exit codes: the re-run's own; 1 where the report is missing, cannot be read,
+ * will not parse or marks no file failed; 2 on a command line it refuses.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -43,10 +43,11 @@ const buildFileList = (files) => (files.length > 0 ? files.join(", ") : "none");
 function readFailedFiles(file, root) {
 	const read = readText(file);
 	if (read.state === "absent") return { why: `no report at ${file}` };
+	if (read.state === "unreadable")
+		return { why: `the report at ${file} cannot be read: ${read.message}` };
 	/** @type {{testResults?: {name?: unknown, status?: unknown}[]}} */
 	let parsed;
 	try {
-		if (read.state === "unreadable") throw read.error;
 		parsed = JSON.parse(read.data);
 	} catch {
 		return { why: `the report at ${file} does not parse` };
