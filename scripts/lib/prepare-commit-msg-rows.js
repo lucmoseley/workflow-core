@@ -42,9 +42,18 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const { constants } = require("node:os");
 const path = require("node:path");
-const { routeAbort, routeName, scanRefusal } = require("./commit-route.js");
+const {
+	commitRoute,
+	inRouteSet,
+	routeAbort,
+	routeName,
+	scanRefusal,
+} = require("./commit-route.js");
 const { readText } = require("./file-read.js");
-const { precommitStamp } = require("./precommit-stamp.js");
+const { spawnGitSync } = require("./git.js");
+const { readHookGitDir } = require("./hook-entry.js");
+const { dispatch } = require("./precommit-dispatch.js");
+const { precommitStamp, takePrecommitStamp } = require("./precommit-stamp.js");
 
 const HOOK = "prepare-commit-msg";
 
@@ -99,10 +108,9 @@ function readable(file) {
 /**
  * The function `file` exports as `name`, `file` being under the context's
  * root. Throws where it exports none, so the row is BROKEN naming the file.
- * @template {(...args: never[]) => unknown} F
  * @param {string} file
  * @param {string} name
- * @returns {F}
+ * @returns {Function}
  */
 function exportOf(file, name) {
 	const fn = require(file)[name];
@@ -360,12 +368,6 @@ function runPrepareCommitMsg(
 	io,
 	{ write, husky, file, interrupted = async () => null, rows },
 ) {
-	const { commitRoute, inRouteSet } = require("./commit-route.js");
-	const { spawnGitSync } = require("./git.js");
-	const { readHookGitDir } = require("./hook-entry.js");
-	const { dispatch } = require("./precommit-dispatch.js");
-	const { takePrecommitStamp } = require("./precommit-stamp.js");
-
 	const gitDir = readHookGitDir(io.cwd, io.env);
 	const recorded = takePrecommitStamp(gitDir);
 	const route = commitRoute("prepare-commit-msg", gitDir, { env: io.env });

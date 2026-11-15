@@ -776,6 +776,11 @@ const DISPATCHERS = [
 		registry: "prepare-commit-msg-rows.js",
 		rows: "ROWS",
 	},
+	{
+		entry: "scripts/post-commit-dispatch.js",
+		registry: "post-commit-rows.js",
+		rows: "ROWS",
+	},
 ];
 
 /**
