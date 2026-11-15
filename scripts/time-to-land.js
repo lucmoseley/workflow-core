@@ -24,20 +24,26 @@ const {
 	queueLogFile,
 	readQueueRows,
 } = require("./lib/queue-log.js");
+const { DAY_MS } = require("./lib/retained-jsonl.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 const {
 	TARGET_MULTIPLE,
 	greenSuiteSpans,
+	isSpanIn,
 	memberStays,
 	parseLanderLog,
 	readLogSince,
 	replayBatches,
 	secs,
-	spanIn,
 	windowOf,
 } = require("./lib/time-to-land.js");
 const { writeFd } = require("./lib/write-fd.js");
+
+/* The lead before the window that the lander log is read from, so a batch
+ * taken before the window that ends in it is replayed from its take. A
+ * guess: a day is about 30 times the 46 min take-to-land p90 #4951 measured. */
+const BATCH_LEAD_MS = DAY_MS;
 
 /** @typedef {import("./lib/time-to-land.js").ReplayedBatch} ReplayedBatch */
 
@@ -181,10 +187,8 @@ function main(argv = process.argv.slice(2)) {
 	}
 	const { since, until } = w;
 	const root = repoRoot() ?? process.cwd();
-	/* A day of lead, so a batch taken before the window that ends in it is
-	 * replayed from its take. */
 	const events = parseLanderLog(
-		readLogSince(landerLog(root), since - 24 * 60 * 60 * 1000),
+		readLogSince(landerLog(root), since - BATCH_LEAD_MS),
 	).filter((e) => e.t < until);
 	const lines = [
 		`window ${new Date(since).toISOString()} to ${new Date(until).toISOString()}`,
@@ -195,10 +199,10 @@ function main(argv = process.argv.slice(2)) {
 		"",
 		...buildMemberLines(
 			memberStays(readQueueRows(queueLogFile(root))).filter((x) =>
-				spanIn(w, x.take, x.at),
+				isSpanIn(w, x.take, x.at),
 			),
 			greenSuiteSpans(events)
-				.filter((g) => spanIn(w, g.from, g.at))
+				.filter((g) => isSpanIn(w, g.from, g.at))
 				.map((g) => g.at - g.from),
 		),
 	];
