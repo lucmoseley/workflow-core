@@ -89,6 +89,7 @@ const {
 	readLatestTag,
 	buildReleaseMessage,
 } = require("./lib/release-tags.js");
+const { now } = require("./lib/clock.js");
 const { runVerify } = require("./lib/verify-run.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
 const {
@@ -393,15 +394,15 @@ function refuseIfHeld(root) {
 }
 
 /**
- * The report line on the gap since the last tag; refuses a gap under
- * CADENCE_DAYS that no `reason` explains.
+ * The report line on the gap since the last tag, and whether the cut is early;
+ * refuses an early cut that no `reason` explains.
  * @param {string} root
  * @param {string} [reason]
- * @returns {string}
+ * @returns {{line: string, early: boolean}}
  */
-function cadenceLineOrThrow(root, reason) {
+function cadenceOrThrow(root, reason) {
 	const last = readLatestTag(root);
-	if (last === null) return "last release: none\n";
+	if (last === null) return { line: "last release: none\n", early: false };
 	const cutSec = Number(
 		git(root, [
 			"for-each-ref",
@@ -409,15 +410,15 @@ function cadenceLineOrThrow(root, reason) {
 			`refs/tags/${last}`,
 		]),
 	);
-	const days = (Date.now() - cutSec * 1000) / DAY_MS;
+	const days = (now() - cutSec * 1000) / DAY_MS;
 	const line = `last release: ${last}, ${days.toFixed(1)} days ago\n`;
-	if (days >= CADENCE_DAYS) return line;
+	if (days >= CADENCE_DAYS) return { line, early: false };
 	if (!reason) {
 		throw new Error(
 			`${last} was cut ${days.toFixed(1)} days ago, under the ${CADENCE_DAYS}-day release cadence (#5223) — batch the change into the next weekly cut, or pass --reason "<why>", such as a broken release or an adopter blocked on a fix`,
 		);
 	}
-	return `${line}early cut: ${reason}\n`;
+	return { line: `${line}early cut: ${reason}\n`, early: true };
 }
 
 /**
@@ -450,7 +451,7 @@ function release(root, { dryRunAdopter, reason } = {}) {
 	verifiedOrThrow(root);
 	refuseIfHeld(root);
 	const { plugin, tag } = readReleaseTarget(root);
-	const cadenceLine = cadenceLineOrThrow(root, reason);
+	const cadence = cadenceOrThrow(root, reason);
 
 	/* Cheapest refusals first — no point running the whole suite before a
 	 * missing or malformed note refuses the release outright. */
@@ -517,11 +518,11 @@ function release(root, { dryRunAdopter, reason } = {}) {
 			"-m",
 			buildReleaseMessage(plugin.name, tag, source),
 		]);
-		const annotation = reason
+		const annotation = cadence.early
 			? `${plugin.name} ${tag}\n\nEarly cut: ${reason}`
 			: `${plugin.name} ${tag}`;
 		git(root, ["tag", "-a", tag, commit, "-m", annotation]);
-		return { tag, commit, adopterLine, cadenceLine };
+		return { tag, commit, adopterLine, cadenceLine: cadence.line };
 	} finally {
 		fs.rmSync(tmp, { recursive: true, force: true });
 	}

@@ -39,6 +39,8 @@ const write = (rel: string, body: string) => {
 /* Main holds HEAD unless a case says otherwise: a release ships only a commit
  * `origin/main` holds. */
 const landed = () => git("update-ref", "refs/remotes/origin/main", "HEAD");
+/* The clock every cut reads, so a gap since a prior tag is exact. */
+const NOW = Date.parse("2026-11-15T12:00:00Z");
 /* A prior release tag at HEAD, cut `daysAgo` before now: past the 7-day
  * cadence by default, so only the cadence cases meet its refusal (#5231). */
 const priorRelease = (tag: string, daysAgo = 8) =>
@@ -47,31 +49,27 @@ const priorRelease = (tag: string, daysAgo = 8) =>
 		env: {
 			...process.env,
 			GIT_COMMITTER_DATE: new Date(
-				Date.now() - daysAgo * 24 * 60 * 60 * 1000,
+				NOW - daysAgo * 24 * 60 * 60 * 1000,
 			).toISOString(),
 		},
 	});
-const runWith = (args: string[]) => {
-	landed();
+const run = (
+	env: NodeJS.ProcessEnv = {},
+	{ onMain = true, args = [] as string[] } = {},
+) => {
+	if (onMain) landed();
 	return runInProcess(SCRIPT, args, {
 		cwd: dir,
-		env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+		env: {
+			...process.env,
+			CLAUDE_PROJECT_DIR: dir,
+			WFC_NOW: new Date(NOW).toISOString(),
+			...env,
+		},
 	});
 };
-const run = (env: NodeJS.ProcessEnv = {}, { onMain = true } = {}) => {
-	if (onMain) landed();
-	return runInProcess(SCRIPT, [], {
-		cwd: dir,
-		env: { ...process.env, CLAUDE_PROJECT_DIR: dir, ...env },
-	});
-};
-const dryRunAdopter = (adopter: string, env: NodeJS.ProcessEnv = {}) => {
-	landed();
-	return runInProcess(SCRIPT, ["--dry-run-adopter", adopter], {
-		cwd: dir,
-		env: { ...process.env, CLAUDE_PROJECT_DIR: dir, ...env },
-	});
-};
+const dryRunAdopter = (adopter: string, env: NodeJS.ProcessEnv = {}) =>
+	run(env, { args: ["--dry-run-adopter", adopter] });
 const buildMigrationNote = (verify: string, residue = "{}") =>
 	[
 		"# v2.0.0",
@@ -278,20 +276,30 @@ describe("release-plugin", () => {
 
 	it("refuses a blank --reason as no reason (#5231)", () => {
 		priorRelease("v2.3.3", 2);
-		const r = runWith(["--reason", "  "]);
+		const r = run({}, { args: ["--reason", "  "] });
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("under the 7-day release cadence");
 	});
 
 	it("cuts under 7 days given a reason, reporting it and writing it into the tag's annotation (#5231)", () => {
 		priorRelease("v2.3.3", 2);
-		const r = runWith(["--reason", "v2.3.3 breaks session start"]);
+		const r = run({}, { args: ["--reason", "v2.3.3 breaks session start"] });
 		expect(r.stderr).toBe("");
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/last release: v2\.3\.3, 2\.0 days ago/);
 		expect(r.stdout).toContain("early cut: v2.3.3 breaks session start");
 		expect(git("tag", "-l", "--format=%(contents)", "v2.3.4")).toContain(
 			"Early cut: v2.3.3 breaks session start",
+		);
+	});
+
+	it("writes no early-cut annotation for a reason given a week or more after the last tag (#5231)", () => {
+		priorRelease("v2.3.3", 8);
+		const r = run({}, { args: ["--reason", "not needed"] });
+		expect(r.status).toBe(0);
+		expect(r.stdout).not.toContain("early cut");
+		expect(git("tag", "-l", "--format=%(contents)", "v2.3.4")).not.toContain(
+			"Early cut",
 		);
 	});
 
