@@ -182,8 +182,9 @@ const { treeOrHost } = require("./tree-or.js");
  * @property {(scope: ClimbScope) => number} climbMb what the queues'
  *   running launches in `scope` have yet to draw, in MB, which MemAvailable
  *   does not yet count (#3488, #4111)
- * @property {(tree: string, bin: string) => number} tscLaunchPeakMb the peak
- *   a `bin` launch from `tree` is charged, by the compiler it resolves to (#4892)
+ * @property {(dir: string, bin: string) => number} tscLaunchPeakMb the peak
+ *   a `bin` launch from `dir` is charged, by the compiler it resolves to
+ *   there (#4892, #5216)
  * @property {() => import("./suite-ladder.js").PsRow[] | null} psRows `ps`,
  *   read once a call
  * @property {(pid: number | null) => import("./suite-handoff.js").CarriedWeight | null} carriedOf
@@ -698,7 +699,8 @@ function subjectOf(st, words, cmd) {
  * The peak of the compiler `bin` resolves to in each directory the launch may
  * stand in, the highest taken: a `cd` may have failed (#4980), and an
  * under-charge is what lets it through (#5216). A directory the walk cannot
- * name is charged the session's tree (#4892).
+ * name is charged the session's tree (#4892). Residual: a launch whose `cd`
+ * did reach a lighter tree is over-charged, and may queue where it would fit.
  * @param {St} st
  * @param {Command["cwds"]} cwds
  * @param {string} bin

@@ -3144,20 +3144,35 @@ describe("a bare `tsc` the type-check slot would hold is sent to `queue-run.js -
 
 	describe("charges the compiler of the directory it launches in (#5216)", () => {
 		const reading = between(rungMb(TSC_PEAKS_MB[7]), tscRung);
-		const tscPeaks = { "/repo": TSC_PEAKS_MB[7], "/other": TSC_PEAKS_MB[5] };
-		const on = (command: string) =>
-			outcome(judge(command, reading, psWith(0), { tscPeaks }).verdict);
+		const sevenSession = {
+			"/repo": TSC_PEAKS_MB[7],
+			"/other": TSC_PEAKS_MB[5],
+		};
+		const fiveSession = { "/repo": TSC_PEAKS_MB[5], "/other": TSC_PEAKS_MB[7] };
+		const on = (command: string, tscPeaks: Record<string, number>) =>
+			outcome(
+				judge(command, reading, psWith(0), {
+					tscPeaks,
+					tscPeakMb: TSC_PEAKS_MB[7],
+				}).verdict,
+			);
 
 		it("a `cd` into a 5.x tree from a 7.0 session is charged 5.x", () => {
-			expect(on("cd /other && npx tsc --noEmit")).toBe("deny");
+			expect(on("cd /other && npx tsc --noEmit", sevenSession)).toBe("deny");
+		});
+
+		it("a `cd` that may have failed is charged the heavier of both trees", () => {
+			expect(on("cd /other && npx tsc --noEmit", fiveSession)).toBe("allow");
+			expect(on("cd /other; npx tsc --noEmit", fiveSession)).toBe("deny");
 		});
 
 		it("no `cd` is charged the session tree's compiler", () => {
-			expect(on("npx tsc --noEmit")).toBe("allow");
+			expect(on("npx tsc --noEmit", sevenSession)).toBe("allow");
+			expect(on("npx tsc --noEmit", fiveSession)).toBe("deny");
 		});
 
 		it("a directory the walk cannot name is charged the session tree, logged", () => {
-			expect(on('cd "$DIR" && npx tsc --noEmit')).toBe("allow");
+			expect(on('cd "$DIR" && npx tsc --noEmit', fiveSession)).toBe("deny");
 			expect(readRecords()).toContain("a `tsc` launch's directory unknown");
 		});
 	});
