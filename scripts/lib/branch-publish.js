@@ -70,7 +70,13 @@
  *    read back (`$(cat q)`, a `@file` field) is allowed unrecorded: nothing
  *    says it creates anything. A refspec it cannot read (`git push origin
  *    "$B"`) is allowed and recorded: Bash calls share no shell state, so the
- *    name is unknowable here.
+ *    name is unknowable here. With `landing` on it is refused instead, naming
+ *    the own queue ref: no pre-push limb backstops a queue ref, `lander/*` or
+ *    `dropped/*` it could reach (#5235).
+ *  - The `landing` module is read through moduleReader, which reads a config
+ *    fault as off, logged: the guard then takes the straight-to-`main` route
+ *    and judges no queue ref. The pre-push limb still refuses an unledgered
+ *    push to `main` there, once a green ledger exists (#5235).
  *  - A `gh pr merge` naming no `dependabot/` branch costs one `gh pr view`,
  *    under the host's 8 s timeout: 0.95–1.45 s over five measured calls.
  *    Where the lookup fails — or cannot be aimed: a PR or repo word it
@@ -436,7 +442,17 @@ function judgePush(ctx, spans, { segment, tree, args }) {
  */
 function judgeRow(ctx, segment, row) {
 	if (row.kind === "unread-delete" || row.kind === "unread-push") {
-		const what = row.kind === "unread-delete" ? "deletion" : "refspec";
+		const deleted = row.kind === "unread-delete";
+		/* Refused with `landing` on: no pre-push limb covers a queue ref,
+		 * `lander/*` or `dropped/*` behind it (#5235). */
+		if (routeOf(ctx).queued)
+			return queueRefusal(
+				ctx,
+				`This ${deleted ? "deletes" : "pushes to"} a ref this guard cannot read, which could be another session's queue ref, \`${LANDER_PREFIX}*\` or \`${DROPPED_PREFIX}*\` — spell the destination out`,
+				sessionQueueRef(ctx),
+				segment,
+			);
+		const what = deleted ? "deletion" : "refspec";
 		ctx.log(
 			`unreadable push ${what} — push allowed unchecked`,
 			unmask(segment),

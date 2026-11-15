@@ -446,6 +446,7 @@
 			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/init-adopter-subjects.test.ts",
 			"scripts/init-adopter.test.ts",
+			"scripts/landing-push-gate.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/branch-publish.test.ts",
 			"scripts/lib/core-owned-files.test.ts",

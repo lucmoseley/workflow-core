@@ -437,6 +437,17 @@ describe("with the landing module on, a session pushes its own queue ref (#4458)
 	};
 
 	it.each([
+		['git push origin "HEAD:$R"', "pushes to a ref this guard cannot read"],
+		['git push origin --delete "$R"', "deletes a ref this guard cannot read"],
+	])(
+		"%s is refused, naming its own ref, and records nothing (#5235)",
+		(command, what) => {
+			expect(refusal(command)).toContain(what);
+			expect(logs).toEqual([]);
+		},
+	);
+
+	it.each([
 		"git push origin HEAD:queue/q1",
 		"git push origin HEAD:refs/heads/queue/q1",
 		"git push -u origin HEAD:queue/q1",
