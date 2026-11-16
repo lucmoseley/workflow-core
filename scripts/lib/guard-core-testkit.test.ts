@@ -24,6 +24,11 @@ let at: { main: string; worktree: string };
 freshSandbox((sb) => {
 	at = splitCheckout(path.join(sb.dir, "split"));
 	execFileSync("git", ["branch", "-q", "side"], { cwd: at.main });
+	/* Not cut over (lib/cutover.js): guard-branch judges a branch move only in
+	 * the shared tree. */
+	execFileSync("git", ["config", "branch.main.merge", "refs/heads/landing"], {
+		cwd: at.main,
+	});
 });
 
 /** guard-branch's verdict on a branch move; with no `worktree`, run from the main checkout, as the harness declares it. */
