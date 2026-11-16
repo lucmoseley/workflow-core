@@ -48,7 +48,6 @@ const DV = "/home/u/design-vault";
 /** A throughput read with nothing in it: every breaker closed, no gate run. */
 const NO_THROUGHPUT = {
 	byRoot: {},
-	timelineOf: () => null,
 	commitsOf: () => [],
 	record: [],
 };
@@ -1610,7 +1609,7 @@ describe("the throughput acts through the tick (#5275)", () => {
 	};
 	const throughputOf = (events: BreakerEvent[]) => ({
 		...NO_THROUGHPUT,
-		byRoot: { [WFC]: { commits: [], gateRuns: [] } },
+		byRoot: { [WFC]: { commits: [], gateRuns: [], sessions: [] } },
 		record: events,
 	});
 	/* Inside the listing's grace, so an empty listing ends none of them. */

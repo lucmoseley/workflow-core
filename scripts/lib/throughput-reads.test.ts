@@ -2,24 +2,63 @@
 /*
  * lib/throughput-reads.js — the throughput breaker's reads (#5275), crossed for
  * real: git and the files in the test's own temp directory. Broken, the
- * breaker counts merges or another branch's commits as landings, or reads an
- * unreadable record as an empty one and closes a breaker it should hold.
+ * breaker counts merges or another branch's commits as landings, reads an
+ * unreadable record as an empty one and closes a breaker it should hold, or
+ * counts only the loop sessions the state still keeps (#5289).
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { recordNewJobs } from "./loop-jobs.js";
 import { appendBreakerEvents } from "./refill-breaker.js";
 import { readThroughput, readThroughputWindow } from "./throughput-reads.js";
 
 type SeatedLaunch = import("./refill-breaker.js").BreakerLaunch & {
 	seat: string;
+	copiedFrom?: string;
 };
 
 /** The read a tick takes of `root`, reaching back to `since`. */
 const tickRead = (root: string, since = 0) =>
-	readThroughput([root], () => since, Date.now());
+	readThroughput({
+		roots: [root],
+		launches: [],
+		lookbackOf: () => since,
+		now: Date.now(),
+	});
+
+const HOUR = 3_600_000;
+const HI = Date.parse("2026-11-16T07:00:00Z");
+const LO = HI - 24 * HOUR;
+
+/** A job on `seat` whose timeline works from `start` for `minutes`, then is done. */
+function writeJob(seat: string, jobId: string, start: number, minutes = 30) {
+	const dir = path.join(seat, "jobs", jobId);
+	fs.mkdirSync(dir, { recursive: true });
+	const row = (at: number, state: string) =>
+		JSON.stringify({ at: new Date(at).toISOString(), state });
+	fs.writeFileSync(
+		path.join(dir, "timeline.jsonl"),
+		`${row(start, "working")}\n${row(start + minutes * 60_000, "done")}\n`,
+	);
+}
+
+const launchOf = (
+	seat: string,
+	jobId: string,
+	over: Partial<SeatedLaunch> = {},
+): SeatedLaunch => ({
+	root: "/srv/dv",
+	issues: [1],
+	jobId,
+	sessionId: `${jobId}-session`,
+	launchedAt: LO,
+	finishedAt: LO + HOUR,
+	seat,
+	...over,
+});
 
 let tmp: string;
 const git = (cwd: string, ...args: string[]) =>
@@ -89,33 +128,57 @@ describe("the breaker's record", () => {
 	});
 });
 
-describe("a loop session's job timeline", () => {
-	it("reads a job's state rows, its end its finish or now", () => {
+describe("a checkout's loop sessions", () => {
+	const hoursOf = (launches: SeatedLaunch[] = []) =>
+		readThroughputWindow({ roots: ["/srv/dv"], launches, lo: LO, hi: HI })[0]
+			?.workingHours;
+
+	it("counts every job the loop-job record names in the window, past the 50 finished launches the state keeps", () => {
 		const seat = path.join(tmp, "seat");
-		const dir = path.join(seat, "jobs", "j1");
-		fs.mkdirSync(dir, { recursive: true });
-		fs.writeFileSync(
-			path.join(dir, "timeline.jsonl"),
-			`${JSON.stringify({ at: "2026-11-15T10:00:00Z", state: "working", detail: "", text: "" })}\n{"at":1}\n`,
-		);
-		const l: SeatedLaunch = {
-			root: "/r",
-			issues: [1],
-			jobId: "j1",
-			sessionId: "s",
-			launchedAt: 0,
-			finishedAt: null,
+		const jobs = Array.from({ length: 60 }, (_, i) => ({
+			root: "/srv/dv",
 			seat,
-		};
-		const { timelineOf } = readThroughput([], () => 0, 5);
-		expect(timelineOf(l)).toEqual({
-			rows: [{ at: "2026-11-15T10:00:00Z", state: "working" }],
-			endAt: 5,
+			jobId: `j${i}`,
+		}));
+		for (const [i, j] of jobs.entries())
+			writeJob(seat, j.jobId, LO + i * 20 * 60_000);
+		recordNewJobs([], jobs, { now: LO, log: () => undefined });
+		expect(hoursOf()).toBe(30);
+	});
+
+	it("counts a copy's original job as well as the copy", () => {
+		const seat = path.join(tmp, "seat");
+		writeJob(seat, "orig", HI - 3 * HOUR);
+		writeJob(seat, "copy", HI - 2 * HOUR);
+		const copy = launchOf(seat, "copy", {
+			copiedFrom: "orig",
+			pastSessionIds: ["orig-session"],
+			finishedAt: null,
 		});
-		expect(timelineOf({ ...l, jobId: "gone" } as SeatedLaunch)).toEqual({
-			rows: [],
-			endAt: 5,
+		expect(hoursOf([copy])).toBe(1);
+	});
+
+	it("counts a job named by both the record and a launch once, and none of another checkout's", () => {
+		const seat = path.join(tmp, "seat");
+		writeJob(seat, "j1", HI - 2 * HOUR);
+		writeJob(seat, "other", HI - 2 * HOUR);
+		const l = launchOf(seat, "j1");
+		recordNewJobs([], [l, { root: "/srv/other", seat, jobId: "other" }], {
+			now: LO,
+			log: () => undefined,
 		});
+		expect(hoursOf([l])).toBe(0.5);
+	});
+
+	it("counts no hours for a job whose directory is gone", () => {
+		const seat = path.join(tmp, "seat");
+		expect(hoursOf([launchOf(seat, "gone")])).toBe(0);
+	});
+
+	it("is null where the loop-job record will not read", () => {
+		fs.mkdirSync(path.join(tmp, "refill", ".refill-jobs.jsonl"));
+		expect(hoursOf()).toBeNull();
+		expect(tickRead("/srv/dv").byRoot["/srv/dv"]?.sessions).toBeNull();
 	});
 });
 

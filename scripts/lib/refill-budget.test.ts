@@ -40,8 +40,7 @@ const readOf = (
 	gateRuns: GateRun[] | null,
 	over: Partial<ThroughputRead> = {},
 ): ThroughputRead => ({
-	byRoot: { [DV]: { commits: [], gateRuns } },
-	timelineOf: () => null,
+	byRoot: { [DV]: { commits: [], gateRuns, sessions: [] } },
 	commitsOf: () => [],
 	record: [],
 	...over,
@@ -97,6 +96,7 @@ describe("the gate-run budget (#5275)", () => {
 				[DV]: {
 					commits: [{ sha: "landed", at: NOW - 13.5 * MIN }],
 					gateRuns: runsAgo(8),
+					sessions: [],
 				},
 			},
 			commitsOf: () => ["landed"],

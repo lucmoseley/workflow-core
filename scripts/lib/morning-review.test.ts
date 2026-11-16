@@ -1326,11 +1326,16 @@ describe("the Throughput section (#5275)", () => {
 		);
 	});
 
-	it("keeps the line of a repo whose breaker or gate-run record will not read, and names it under Not read", () => {
+	it("keeps the line of a repo whose breaker, gate-run or loop-job record will not read, and names it under Not read", () => {
 		const section = sectionOf([
 			repo({ checkout: "a", events: null, state: null }),
 			repo({ checkout: "b", gateRuns: null }),
+			repo({ checkout: "c", workingHours: null }),
 		]);
+		expect(section).toContain(
+			"- c: 30 commits, working hours not read, no rate, 12 gate runs — breaker closed",
+		);
+		expect(section).toContain("- c: loop-job record\n");
 		expect(section).toContain(
 			"- a: 30 commits, 20.0 h working, 1.50 per working session-hour, 12 gate runs — breaker not read\n",
 		);

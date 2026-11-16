@@ -1,7 +1,8 @@
 /*
  * refill-state.js — the refill loop's state file (#4232, #4213).
  *
- * `readState` is the only read of the file and `updateState` the only write;
+ * `readState` is the only read of the file and `updateState` the only write,
+ * which also appends each job it newly names to lib/loop-jobs.js's record;
  * scripts/refill-wake.sh's `jq` read of its unfinished launches is the one
  * reader outside, a Stop hook kept off Node. Residual: it still sees a
  * malformed row parseState drops, until the loop's next write erases it. A
@@ -17,6 +18,7 @@
  * store's marker sweep, reads launches through it.
  */
 
+const { recordNewJobs } = require("./loop-jobs.js");
 const { parseOverflowStart } = require("./overflow-notice.js");
 const { REFILL_STATE_FILE, refillPath } = require("./refill-dir.js");
 const {
@@ -243,7 +245,9 @@ const readState = (log) => parseState(readJson(stateFile(), log), log);
 function updateState(transition, log) {
 	const read = readState(log);
 	const next = transition(read);
-	if (next !== read) writeJson(stateFile(), next);
+	if (next === read) return next;
+	writeJson(stateFile(), next);
+	recordNewJobs(read.launches, next.launches, { now: Date.now(), log });
 	return next;
 }
 

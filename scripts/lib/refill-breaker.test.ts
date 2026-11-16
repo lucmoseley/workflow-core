@@ -83,11 +83,16 @@ function replay(f: Fixture, from: string, to: string) {
 			now: t,
 			read: {
 				byRoot: {
-					[root]: { commits: commits.filter((c) => c.at <= t), gateRuns: [] },
-				},
-				timelineOf: (l) => {
-					const s = sessions.find((x) => x.launch.jobId === l.jobId);
-					return s ? { rows: s.rows, endAt: l.finishedAt ?? t } : null;
+					[root]: {
+						commits: commits.filter((c) => c.at <= t),
+						gateRuns: [],
+						sessions: sessions
+							.filter((s) => s.launch.launchedAt <= t)
+							.map((s) => ({
+								rows: s.rows,
+								endAt: Math.min(s.launch.endAt, t),
+							})),
+					},
 				},
 				commitsOf: () => [],
 				record,
@@ -192,15 +197,23 @@ const working = (from: number, to: number) => ({
 	endAt: to,
 });
 
+type SessionTimeline = import("./refill-breaker.js").SessionTimeline;
+/** Read as each launch `step` is given working from its launch to its end. */
+const FROM_LAUNCHES: SessionTimeline[] = [];
+
 const readOf = (
 	over: Partial<ThroughputRead> & {
 		commits?: { sha: string; at: number }[] | null;
+		sessions?: SessionTimeline[] | null;
 	} = {},
 ): ThroughputRead => {
-	const { commits = [{ sha: "a", at: NOW - HOUR }], ...rest } = over;
+	const {
+		commits = [{ sha: "a", at: NOW - HOUR }],
+		sessions = FROM_LAUNCHES,
+		...rest
+	} = over;
 	return {
-		byRoot: { [DV]: { commits, gateRuns: [] } },
-		timelineOf: (l) => working(l.launchedAt, l.finishedAt ?? NOW),
+		byRoot: { [DV]: { commits, gateRuns: [], sessions } },
 		commitsOf: () => [],
 		record: [],
 		...rest,
@@ -220,8 +233,26 @@ const event = (
 	...over,
 });
 
-const step = (launches: BreakerLaunch[], read: ThroughputRead, now = NOW) =>
-	stepBreakers({ roots: [DV], launches, read, now });
+const step = (launches: BreakerLaunch[], read: ThroughputRead, now = NOW) => {
+	const of = read.byRoot[DV];
+	const byRoot =
+		of?.sessions === FROM_LAUNCHES
+			? {
+					[DV]: {
+						...of,
+						sessions: launches.map((l) =>
+							working(l.launchedAt, l.finishedAt ?? now),
+						),
+					},
+				}
+			: read.byRoot;
+	return stepBreakers({
+		roots: [DV],
+		launches,
+		read: { ...read, byRoot },
+		now,
+	});
+};
 
 describe("the breaker's steps", () => {
 	it("opens at 12 working hours under 0.3, barring the checkout while its sessions run", () => {
@@ -254,11 +285,18 @@ describe("the breaker's steps", () => {
 		});
 	});
 
-	it("moves nowhere where the commits will not read", () => {
-		expect(step(busy(3), readOf({ commits: null }))).toEqual({
-			events: [],
-			room: {},
-		});
+	it("moves nowhere where the commits or the sessions will not read", () => {
+		for (const read of [readOf({ commits: null }), readOf({ sessions: null })])
+			expect(step(busy(3), read)).toEqual({ events: [], room: {} });
+	});
+
+	it("counts the hours of sessions no launch it is given names", () => {
+		const sessions = Array.from({ length: 3 }, () =>
+			working(NOW - 6 * HOUR, NOW),
+		);
+		expect(step([], readOf({ sessions })).events).toEqual([
+			expect.objectContaining({ event: "open", workingHours: 18 }),
+		]);
 	});
 
 	it("admits one trial once no loop session runs there, and records the launch that takes it", () => {
