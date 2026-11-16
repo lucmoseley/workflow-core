@@ -60,7 +60,7 @@ function judgeSwitchOn(r, { note, cutoverCommand, stepsCommand, walkCommand }) {
 		return {
 			outcome: "fail",
 			tag: "LANDING-OFF",
-			line: `the \`landing\` module is off ${exposed}, so every session here shares one unguarded tree. Do the switch-on [act]s in ${note}'s Manual steps; \`${stepsCommand}\` lists the ones still owed, once \`${walkCommand}\` has walked the migration notes in this session — no session's exit need run it.`,
+			line: `the \`landing\` module is off ${exposed}, so every session here shares one unguarded tree. Where a migration walk is owed, run \`${walkCommand}\` from the repo root and commit what it writes; then do the switch-on [act]s in ${note}'s Manual steps, which \`${stepsCommand}\` lists while owed.`,
 		};
 	const cutOver = r.cutOver();
 	if (cutOver === null)

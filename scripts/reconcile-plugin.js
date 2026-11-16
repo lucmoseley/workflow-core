@@ -85,12 +85,12 @@
  * release raising that timeout gets it one bump late.
  *
  * IMPLICIT:  on every SessionEnd, where an accept for this exact
- *            repo+tag is pending and no other Claude session is live under
- *            this config dir, runs `claude plugin marketplace add` →
- *            `install` → `update` against the adopter, rotating this
- *            machine's shared marketplace clone, unless the install is
- *            already at the pin, which waits only on another session in
- *            this checkout — and, once that succeeds on a clean tree,
+ *            repo+tag is pending: with the install already at the pin and no
+ *            other Claude session in this checkout, goes straight to the
+ *            walk; otherwise, with no other Claude session live under this
+ *            config dir, runs `claude plugin marketplace add` → `install` →
+ *            `update` against the adopter, rotating this machine's shared
+ *            marketplace clone — and, once that succeeds on a clean tree,
  *            walks and commits whatever migration notes the new version
  *            owes, re-anchoring the guard-registry rows of the paths the
  *            walk wrote in that commit; whatever it says is also filed as
@@ -137,6 +137,7 @@ const { claudeBin } = require("./lib/claude-bin.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { relativeUnder } = require("./lib/is-under.js");
+const { realKey } = require("./lib/deref.js");
 const { fixByHand, materialisePlugin } = require("./lib/materialise-plugin.js");
 const { writeReport } = require("./lib/notify-report.js");
 const {
@@ -246,27 +247,26 @@ function readOwnPids(pid) {
 }
 
 /**
- * Claude sessions running alongside this one that `apart` cannot place
+ * Claude sessions running alongside this one that `isApart` cannot place
  * elsewhere, each named by its pids, a claimed spare pair's joined by `+`.
  * A session is apart only where every one of its pids is.
- * @param {(pid: string) => boolean} apart
+ * @param {(pid: string) => boolean} isApart
  * @param {string} [selfPid]
  * @returns {{count: number, pids: string[]}}
  */
-function countNeighbours(apart, selfPid = String(process.pid)) {
+function countNeighbours(isApart, selfPid = String(process.pid)) {
 	const mine = readOwnPids(selfPid);
 	/** @type {string[]} */
 	const pids = [];
 	for (const session of readClaudeSessions()) {
 		if (session.some((pid) => mine.has(pid))) continue;
-		if (!session.every(apart)) pids.push(session.join("+"));
+		if (!session.every(isApart)) pids.push(session.join("+"));
 	}
 	return { count: pids.length, pids };
 }
 
 /**
- * Sessions under the same config dir as this one. An environ that cannot be
- * read places nothing, so it counts (`readConfigDirOf`).
+ * Sessions under the same config dir as this one.
  * @param {string} configDir
  */
 function countConfigNeighbours(configDir) {
@@ -281,11 +281,11 @@ function countConfigNeighbours(configDir) {
  * Sessions whose cwd is this checkout, under any config dir: `root` or a
  * directory beneath it that no nested `.git` — a linked worktree's or a
  * submodule's — makes a checkout of its own. A cwd that cannot be read
- * places nothing, so it counts, for `readConfigDirOf`'s reason.
+ * counts.
  * @param {string} root
  */
 function countCheckoutNeighbours(root) {
-	const real = realOrSelf(root);
+	const real = realKey(root);
 	return countNeighbours((pid) => {
 		const cwd = readProcCwd(pid);
 		if (cwd === null) return false;
@@ -294,15 +294,6 @@ function countCheckoutNeighbours(root) {
 			if (fs.existsSync(path.join(dir, ".git"))) return true;
 		return false;
 	});
-}
-
-/** @param {string} at @returns {string} */
-function realOrSelf(at) {
-	try {
-		return fs.realpathSync(at);
-	} catch {
-		return path.resolve(at);
-	}
 }
 
 /**
@@ -391,17 +382,16 @@ function reconcile({ root, pluginRoot, emit }) {
 
 	/* The install already matches the pin, so the supply is not this
 	 * adopter's to move: rotating it again only takes it off another
-	 * adopter's tag, and the next of those turns it back (#738). Nothing is
-	 * rotated, so only a session working this checkout can be harmed (#5286). */
+	 * adopter's tag, and the next of those turns it back (#738). */
 	if (state.installAtPin && state.installRecord) {
 		const here = countCheckoutNeighbours(root);
-		if (here.count > 0) {
-			say(
-				`${plugin.name}: deferring the ${tag} migration walk — ${here.count} other Claude session(s) working in ${root} (pid ${here.pids.join(", ")}). ` +
-					"Its commit would land under their edits. The consent stands; this is retried at the next session's exit.",
+		if (here.count > 0)
+			return defer(
+				"migration walk",
+				here,
+				`working in ${root}`,
+				"Its commit would land under their edits.",
 			);
-			return { action: "deferred", lines };
-		}
 		say(
 			`${plugin.name}: already installed at ${tag} — the shared supply is left where it is.`,
 		);
@@ -409,13 +399,13 @@ function reconcile({ root, pluginRoot, emit }) {
 	}
 
 	const live = countConfigNeighbours(cfg);
-	if (live.count > 0) {
-		say(
-			`${plugin.name}: deferring the ${tag} materialise — ${live.count} other Claude session(s) live under ${cfg} (pid ${live.pids.join(", ")}). ` +
-				"Rotating now would silence their guards mid-session. The consent stands; this is retried at the next session's exit.",
+	if (live.count > 0)
+		return defer(
+			"materialise",
+			live,
+			`live under ${cfg}`,
+			"Rotating now would silence their guards mid-session.",
 		);
-		return { action: "deferred", lines };
-	}
 
 	/* The pin's url, which `readPluginState` does not carry back. A directory
 	 * source never reaches here — `state.pin` is null for one — so the url is
@@ -492,6 +482,21 @@ function reconcile({ root, pluginRoot, emit }) {
 		return { action: "materialised-walk-broken", lines };
 	}
 	return walkFrom(record.installPath);
+
+	/**
+	 * @param {string} what
+	 * @param {{count: number, pids: string[]}} neighbours
+	 * @param {string} where
+	 * @param {string} why
+	 * @returns {{action: string, lines: string[]}}
+	 */
+	function defer(what, { count, pids }, where, why) {
+		say(
+			`${plugin.name}: deferring the ${tag} ${what} — ${count} other Claude session(s) ${where} (pid ${pids.join(", ")}). ` +
+				`${why} The consent stands; this is retried at the next session's exit.`,
+		);
+		return { action: "deferred", lines };
+	}
 
 	/**
 	 * @param {string} installPath

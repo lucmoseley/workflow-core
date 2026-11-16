@@ -22,7 +22,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
-import { decline } from "./lib/adopter-consent.js";
+import { decline, setPendingConsent } from "./lib/adopter-consent.js";
 import { renderHookShim } from "./lib/adopter-skeleton.js";
 import { adopterFixtures, writeJson } from "./lib/plugin-state-testkit.js";
 import { runInProcess } from "./lib/run-in-process.js";
@@ -214,6 +214,20 @@ describe("check-plugin-gap.js's corrected reporting (#251)", () => {
 		);
 		expect(text).not.toContain("claude plugin");
 		expect(text).not.toContain("adopter-consent.js");
+	});
+
+	it("names the in-session walk where the install is at the pin and the accepted walk has not landed (#5286)", () => {
+		const { root, pluginRoot, configDir } = fixture({
+			pinRef: "v1.1.11",
+			installedVersion: "1.1.11",
+			supplyTag: "v1.1.11",
+		});
+		setPendingConsent(root, "v1.1.11", { configDir });
+		const text = report({ root, pluginRoot, configDir });
+		expect(text).toContain("its migration walk has not landed");
+		expect(text).toMatch(/upgrade\.js$/m);
+		decline(root, "v1.1.11", { configDir });
+		expect(report({ root, pluginRoot, configDir })).toBeNull();
 	});
 
 	it("--notify refuses a bad invocation with usage on stderr and exit 2", () => {

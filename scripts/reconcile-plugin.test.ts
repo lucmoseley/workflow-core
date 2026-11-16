@@ -516,6 +516,18 @@ describe("reconcile-plugin.js leaves the supply alone once the install is at the
 		expect(readConsentOf(at, "v1.0.0")).toBeNull();
 	});
 
+	it("clears the consent where an in-session walk already landed, and walks nothing again (#5286)", () => {
+		const at = fixture({ pinRef: "v1.0.0", installedVersion: "1.0.0" });
+		setPendingConsent(at.root, "v1.0.0", { configDir: at.configDir });
+		installWalker(
+			at.configDir,
+			`exports.walkAndCommit = () => ({ action: "up-to-date", lines: [] });\n`,
+		);
+		const got = sessionEnd(at);
+		expect(got.text).toContain("the next session in");
+		expect(readConsentOf(at, "v1.0.0")).toBeNull();
+	});
+
 	it("defers on a session in this checkout under any config dir, or one whose cwd cannot be read (#5286)", () => {
 		const at = walkOnly();
 		const sub = path.join(at.root, ".claude");

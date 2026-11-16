@@ -1586,6 +1586,7 @@ describe("upgrade.js through the resolve-core.js runner (#5286)", () => {
 			["scripts/lib/resolve-core.js", "scripts/upgrade.js", "--dry-run"],
 			{ cwd: root, env, encoding: "utf8" },
 		);
+		expect(r.status, r.stderr).toBe(0);
 		expect(r.stderr).not.toContain(".claude-plugin/plugin.json");
 		expect(r.stdout).toContain("would ");
 	});
