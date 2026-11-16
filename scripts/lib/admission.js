@@ -172,6 +172,8 @@ function cpuSlotsRow(cpu) {
  * @typedef {{ sessions: number, meanMb: number, varianceMb2: number, pssMb: number, unread: number, noProcess: number, problems: string[], refused?: boolean }} LiveDraw
  * @typedef {{ pid: number, chargeMb: number }[]} Landers each lander's charge, its tester's measured tree peak for the run it holds (#3323)
  * @typedef {{ pid: number, chargeMb: number, spawned: boolean }[]} Gates each live gate seat's holder pid, charge and whether it has spawned its command, from suite-queue.js's `readLiveGateSeats`
+ * @typedef {{ landers: Landers, gates: Gates, testsHeld: number }} Reserves the reserves read live off other processes' records, by admission-reserves.js's `readReserves`; the pool and type-check reserves are read in `machineAdmission`
+ * @typedef {{ pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, sessionPids: Set<string> }} HeldTree the process tree a reserve's charge is credited against
  * @typedef {{ pid: string, rssKb: number, args: string }} PsRow
  * @typedef {{ ok: true, rows: PsRow[] } | { ok: false, error: string }} PsRead
  * @typedef {import("./meminfo.js").MeminfoRead} MeminfoRead
@@ -880,7 +882,7 @@ function descendantsPssKb(pid, { children, stopPids, pssKbOf }, reached) {
  * session started stays charged its whole charge, as the session's own PSS
  * already credits it.
  * @param {Landers} landers
- * @param {{ pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, sessionPids: Set<string> }} tree
+ * @param {HeldTree} tree
  */
 function landerHeldMb(landers, { pssKbOf, children, sessionPids }) {
 	/** @type {string[]} */
@@ -914,7 +916,7 @@ function landerHeldMb(landers, { pssKbOf, children, sessionPids }) {
  * session started included: no session is credited a seat's subtree
  * (`sessionsPssKb`).
  * @param {Gates} gates
- * @param {{ pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, sessionPids: Set<string> }} tree
+ * @param {HeldTree} tree
  */
 function gateSeatHeldMb(gates, { pssKbOf, children, sessionPids }) {
 	if (gates.length === 0) return 0;
@@ -928,6 +930,17 @@ function gateSeatHeldMb(gates, { pssKbOf, children, sessionPids }) {
 		);
 	return Math.max(0, chargeMb - Math.floor(drawnKb / 1024));
 }
+
+/**
+ * What each memory reserve still holds back, in MB: `landerHeldMb`'s and
+ * `gateSeatHeldMb`'s. `testsHeld` holds slots, not memory, so it prices none.
+ * @param {Reserves} reserves
+ * @param {HeldTree} tree
+ */
+const reservesHeldMb = ({ landers, gates }, tree) => ({
+	landerMb: landerHeldMb(landers, tree),
+	gateMb: gateSeatHeldMb(gates, tree),
+});
 
 /**
  * The PSS of `pid` and every process under it, in kB, off fresh reads
@@ -1783,21 +1796,14 @@ function strictAdmission(mem, procs, readings = {}) {
  *   listed: Parameters<typeof memoryBreakdown>[0]["listed"] & Parameters<typeof liveDraw>[0] & Parameters<typeof liveSessions>[0],
  *   reclaimable: Parameters<typeof memoryBreakdown>[0]["reclaimable"],
  *   pendingSpares?: number,
- *   landers: Landers,
- *   gates: Gates,
- *   testsHeld: number,
- * }} inputs `landers` are the live landers, from `readLiveLanders`; `gates`
- *   the live gate seats, from suite-queue.js's `readLiveGateSeats`; `testsHeld` the
- *   queued test runs the Windows-memory hold is holding, from
- *   `readTestsHeldOnWindows`
+ *   reserves: Reserves,
+ * }} inputs `reserves` from admission-reserves.js's `readReserves`
  */
 function machineAdmission({
 	listed,
 	reclaimable,
 	pendingSpares = 0,
-	landers,
-	gates,
-	testsHeld,
+	reserves,
 }) {
 	const ps = readPsRows();
 	const children = readProcessChildren();
@@ -1809,7 +1815,7 @@ function machineAdmission({
 	const mem = availableFrom(meminfo);
 	const procs = liveSessions(listed);
 	const host = readSessionDraw();
-	const gateSeatPids = new Set(gates.map((g) => String(g.pid)));
+	const gateSeatPids = new Set(reserves.gates.map((g) => String(g.pid)));
 	const live = liveDraw(listed, {
 		pairs,
 		pssKbOf: readPssKb,
@@ -1825,15 +1831,10 @@ function machineAdmission({
 				? Math.floor(meminfo.freeKb / 1024)
 				: null,
 		typecheckChargeMb: checkoutPeakMb(hostRoot()),
-		testsHeld,
+		testsHeld: reserves.testsHeld,
 	};
 	const sessionPids = new Set([...(listed.pids?.values() ?? [])].map(String));
-	const landerMb = landerHeldMb(landers, {
-		pssKbOf: readPssKb,
-		children,
-		sessionPids,
-	});
-	const gateMb = gateSeatHeldMb(gates, {
+	const { landerMb, gateMb } = reservesHeldMb(reserves, {
 		pssKbOf: readPssKb,
 		children,
 		sessionPids,
@@ -1896,28 +1897,18 @@ function machineAdmission({
  * @param {{
  *   listed: Parameters<typeof machineAdmission>[0]["listed"],
  *   reclaimable: {ok: true, count: number} | {ok: false, error: string},
- *   landers: Landers,
- *   gates: Gates,
- *   testsHeld: number,
+ *   reserves: Reserves,
  * }} inputs `reclaimable` counts the reclaimable sessions; their memory is
  *   never credited here
  */
-function selectionAdmission({
-	listed,
-	reclaimable,
-	landers,
-	gates,
-	testsHeld,
-}) {
+function selectionAdmission({ listed, reclaimable, reserves }) {
 	const readings = machineAdmission({
 		listed,
 		reclaimable: reclaimable.ok
 			? { ok: true, mb: 0, count: reclaimable.count }
 			: reclaimable,
 		pendingSpares: LAUNCH_SPARES,
-		landers,
-		gates,
-		testsHeld,
+		reserves,
 	});
 	const admission = admissionFrom(readings.mem, readings.procs, {
 		overhead: readings.overhead,
