@@ -2,7 +2,7 @@
  * admission-reserves.js — the reserves `lib/admission.js` reads live off
  * other processes' records, in one call both its callers make (#5281). A new
  * one is a field here, in `lib/admission.js`'s `Reserves` typedef and, where
- * it holds memory, an entry in its `reservesHeldMb` (#5297). Apart from
+ * it holds memory, an entry in its `heldReserves` (#5297). Apart from
  * `lib/admission.js` because both readers' modules require it.
  */
 

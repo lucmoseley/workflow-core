@@ -44,7 +44,7 @@ const CPU_UNREAD = {
  * admitted while
  *
  *   Σμ + k·μ + z·√(Σσ² + k·σ²) − the live sessions' current PSS
- *     ≤ free − pool reserve − lander reserve − gate-seat reserve
+ *     ≤ free − pool reserve − each memory reserve held (`held`)
  *       − type-check reserve
  *       − Windows charge − earlyoom floor − margin + reclaim credit
  *
@@ -79,7 +79,7 @@ const NO_LIVE_DRAW = {
  * `overhead` reserves for one launch, is charged again for each slot past the
  * first (#2511, #2568); `live` is the live sessions' draw, from `liveDraw`,
  * and `host` this host's session draw, from `readSessionDraw` (#2221);
- * `held`, from `reservesHeldMb`, is what each memory reserve holds back
+ * `held`, from `heldReserves`, is what each memory reserve holds back
  * (#5274, #5297);
  * `load` comes from `overloadReading`, and an overload holds
  * every slot; `cpu`, from `cpuSlots`, caps them (#830, #2141), the
@@ -160,11 +160,12 @@ function sessionBudgetMb(
 }
 
 /**
- * The per-reserve fields, `landerMb` and the rest, off `held`.
+ * The per-reserve fields, `landerMb` and the rest, off `held`, which holds
+ * every reserve where it comes from `heldReserves`.
  * @param {HeldReserve[]} held
  */
 const heldFields = (held) =>
-	/** @type {Partial<Record<HeldField, number>>} */ (
+	/** @type {Record<HeldField, number>} */ (
 		Object.fromEntries(held.map(({ field, mb }) => [field, mb]))
 	);
 

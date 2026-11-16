@@ -940,7 +940,7 @@ function gateSeatHeldMb(gates, { pssKbOf, children, sessionPids }) {
  * @param {Reserves} reserves
  * @param {HeldTree} tree
  */
-const reservesHeldMb = ({ landers, gates }, tree) => [
+const heldReserves = ({ landers, gates }, tree) => [
 	{
 		field: /** @type {const} */ ("landerMb"),
 		mb: landerHeldMb(landers, tree),
@@ -956,7 +956,7 @@ const reservesHeldMb = ({ landers, gates }, tree) => [
 ];
 
 /**
- * @typedef {ReturnType<typeof reservesHeldMb>[number]} HeldReserve
+ * @typedef {ReturnType<typeof heldReserves>[number]} HeldReserve
  * @typedef {HeldReserve["field"]} HeldField
  */
 
@@ -1739,7 +1739,7 @@ function buildWindowsLine({ windows, guestFreeMb, windowsChargeMb }) {
  *   admit: boolean,
  *   reason: string,
  *   suites: number,
- * } & Partial<Record<HeldField, number>>)}
+ * } & Record<HeldField, number>)}
  */
 function strictAdmission(mem, procs, readings = {}) {
 	const f = admissionFigures(mem, procs, readings);
@@ -1765,6 +1765,8 @@ function strictAdmission(mem, procs, readings = {}) {
 		availableMb: f.availableMb,
 		reservedMb,
 		held,
+		/* Each reserve's own field too, which `--json` readers parse by name
+		 * (#5297). */
 		...heldFields(held),
 		typecheckReserveMb: f.typecheckReserveMb,
 		windowsChargeMb: f.windowsChargeMb,
@@ -1849,7 +1851,7 @@ function machineAdmission({
 		testsHeld: reserves.testsHeld,
 	};
 	const sessionPids = new Set([...(listed.pids?.values() ?? [])].map(String));
-	const held = reservesHeldMb(reserves, {
+	const held = heldReserves(reserves, {
 		pssKbOf: readPssKb,
 		children,
 		sessionPids,

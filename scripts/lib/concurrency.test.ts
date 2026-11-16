@@ -79,7 +79,7 @@ const admission = (over: Record<string, unknown> = {}) => ({
 	drawNeedMb: 2000,
 	floorMb: 794,
 	marginMb: 300,
-	landerMb: 0,
+	held: [],
 	load: { overloaded: false, load1: 3, ceiling: 48 },
 	cpu: { full: false, slots: 2, sessions: 6, ceiling: 12 },
 	memory: {
@@ -540,7 +540,14 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 			decision: idle("no free slot"),
 			admission: admission({
 				memorySlots: 0,
-				landerMb: 2200,
+				held: [
+					{
+						field: "landerMb",
+						mb: 2200,
+						holding: "the lander's suite",
+						term: "lander",
+					},
+				],
 				cpu: { full: true, slots: 0, sessions: 12, ceiling: 12 },
 			}),
 		});
