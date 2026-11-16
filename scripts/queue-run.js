@@ -312,7 +312,7 @@ function exitStatus(code, signal) {
 	return number ? 128 + number : 1;
 }
 
-/** @typedef {"seat" | "tsc" | "gate" | "other"} Slot */
+/** @typedef {keyof typeof SLOT_KINDS} Slot */
 
 /** @typedef {import("./lib/suite-queue.js").QueueSeat["stamps"]} Stamps */
 
@@ -401,7 +401,7 @@ const handing = (handed) => (words, launch) =>
  * @param {Options} options
  * @returns {SlotWait}
  */
-const seatWait = (options) => ({
+const buildSeatWait = (options) => ({
 	queue: options,
 	join: { ...options, weight: SEAT_WEIGHT },
 	wait: waitOn({ gateWeight: SEAT_WEIGHT, part: true }),
@@ -421,7 +421,7 @@ const seatWait = (options) => ({
  * @param {string[]} words
  * @returns {SlotWait}
  */
-function tscWait(options, words) {
+function buildTscSlotWait(options, words) {
 	const queue = {
 		...options,
 		queueDir: options.queueDir ?? defaultTscQueueDir(),
@@ -456,7 +456,7 @@ function tscWait(options, words) {
  * @param {string[]} words
  * @returns {SlotWait}
  */
-function otherWait(options, words) {
+function buildOtherWait(options, words) {
 	const charges = unwrapArgv(words).flatMap(({ words: inner }) => {
 		const mb = queuedRunnerPeakMb(inner);
 		return mb === undefined ? [] : [mb];
@@ -509,7 +509,7 @@ function isNamedFilesRun(words) {
  * @param {string[]} words
  * @returns {SlotWait}
  */
-function gateWait(options, words) {
+function buildGateWait(options, words) {
 	const session =
 		options.sessionId === undefined ? idSeam.fromEnv() : options.sessionId;
 	const holder = {
@@ -600,48 +600,55 @@ function readTicket(session) {
 }
 
 /**
- * What each slot kind is (#2918, #3163, #5274): why it refuses a command,
- * the variable whose marker means its slot is held already in this process
- * tree, whether it runs at once inside a running suite's tree, and its wait.
- * A launch with no slot flag is `other`.
+ * What each slot kind is (#2918, #3163, #5274), one per slot flag and
+ * `other` for a launch with none — "slot" naming the flag family, the gate
+ * seat among them: why it refuses a command, the variable whose marker means
+ * its slot is held already in this process tree, whether it runs at once
+ * inside a running suite's tree, and its wait.
  *
- * @type {Record<Slot, {
+ * @satisfies {Record<string, {
  *   refusal: (words: string[]) => string | null,
- *   heldBy: string,
- *   inSuite: (options: Options) => boolean,
+ *   heldMarkerEnv: string,
+ *   runsAtOnceInSuite: (options: Options) => boolean,
  *   wait: (options: Options, words: string[]) => SlotWait,
  * }>}
  */
 const SLOT_KINDS = {
 	seat: {
 		refusal: suiteRefusedWith(SEAT_REFUSAL),
-		heldBy: GATE_ENV,
-		inSuite: () => false,
-		wait: seatWait,
+		heldMarkerEnv: GATE_ENV,
+		runsAtOnceInSuite: () => false,
+		wait: buildSeatWait,
 	},
 	tsc: {
 		refusal: suiteRefusedWith(TSC_REFUSAL),
-		heldBy: TSC_SLOT_ENV,
-		inSuite: () => false,
-		wait: tscWait,
+		heldMarkerEnv: TSC_SLOT_ENV,
+		runsAtOnceInSuite: () => false,
+		wait: buildTscSlotWait,
 	},
 	gate: {
 		/* A gate's command is taken by its role, never by the classifier. */
 		refusal: () => null,
-		heldBy: GATE_ENV,
-		inSuite: (options) => (options.inSuite ?? (() => isInSuite(options)))(),
-		wait: gateWait,
+		heldMarkerEnv: GATE_ENV,
+		runsAtOnceInSuite: (options) =>
+			(options.inSuite ?? (() => isInSuite(options)))(),
+		wait: buildGateWait,
 	},
 	other: {
 		refusal: plainRefusal,
-		heldBy: GATE_ENV,
-		inSuite: () => false,
-		wait: otherWait,
+		heldMarkerEnv: GATE_ENV,
+		runsAtOnceInSuite: () => false,
+		wait: buildOtherWait,
 	},
 };
 
-/** @type {Exclude<Slot, "other">[]} */
-const SLOT_FLAGS = ["seat", "tsc", "gate"];
+const SLOT_FLAGS = /** @type {Exclude<Slot, "other">[]} */ (
+	Object.keys(SLOT_KINDS).filter((slot) => slot !== "other")
+);
+
+const FLAGS = Object.fromEntries(
+	SLOT_FLAGS.map((slot) => [`--${slot}`, /** @type {const} */ ("boolean")]),
+);
 
 /**
  * The slot the flags ask for, `other` for none; undefined where they ask for
@@ -664,7 +671,7 @@ function slotOf(flags) {
 async function main(argv, options = {}) {
 	const parsed = parseOrCode(argv, {
 		usage: USAGE,
-		flags: { "--seat": "boolean", "--tsc": "boolean", "--gate": "boolean" },
+		flags: FLAGS,
 		min: 1,
 		max: Number.POSITIVE_INFINITY,
 	});
@@ -714,8 +721,8 @@ async function run(words, slot, options, err) {
 	 * that slot: a `--tsc` launch inside a `--tsc` command's tree, which would
 	 * otherwise wait behind it forever (#3404), and any other launch inside a
 	 * gate seat's tree (#5274). */
-	const held = heldMarker(kind.heldBy, options) !== null;
-	const unseated = held || kind.inSuite(options);
+	const held = heldMarker(kind.heldMarkerEnv, options) !== null;
+	const unseated = held || kind.runsAtOnceInSuite(options);
 	const slotted = kind.wait(options, words);
 	const { queue, join, wait, refused, exitExtra } = slotted;
 	/** @type {import("node:child_process").ChildProcess | null} */
