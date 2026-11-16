@@ -152,6 +152,8 @@ const { trimEndRun } = require("./lib/trim-run.js");
 const { readText } = require("./lib/file-read.js");
 const { precommitStamp } = require("./lib/precommit-stamp.js");
 const { reviewTierStamp } = require("./lib/review-tier-stamp.js");
+const { isHookShim, NO_CORE_FIX } = require("./lib/adopter-skeleton.js");
+const { resolveCore } = require("./lib/resolve-core.js");
 
 const NAME = "commit-paths";
 const USAGE = `usage: node scripts/${NAME}.js (-m <message> | -F <file|->) -- <path>...
@@ -1564,14 +1566,19 @@ function preLockHold(root, env) {
 /**
  * The text of the pre-commit hook git runs, down to GATES_END, or why it
  * cannot be had (#1763). A hooks directory holding husky's `h` is read as
- * husky's shims, which run the hook of their own name one level up.
+ * husky's shims, which run the hook of their own name one level up. An
+ * adopter's hook is the core's shim, which runs the hook of the core
+ * resolve-core.js finds; `core` names that core, which its gates reach as
+ * WFC_PLUGIN_ROOT (#5288). Where no core resolves,
+ * `noCore` says why: the shim then refuses the commit in the lock.
  * Residual: a husky whose shim is not named `h`, or a plain hooks directory
  * holding a file of that name, reads the wrong hook — one lacking the line,
  * so no gates run early and the hook runs them in the lock.
  * @param {string} root
- * @returns {{text: string, why: null}|{text: null, why: string}}
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {{text: string, core: string|null, why: null}|{text: null, why: string, noCore?: string}}
  */
-function readHookGatesText(root) {
+function readHookGatesText(root, env) {
 	const r = git([
 		"-C",
 		root,
@@ -1586,22 +1593,56 @@ function readHookGatesText(root) {
 			why: `git could not name the hooks directory (${r.stderr.trim()})`,
 		};
 	const hooks = r.stdout.trim();
-	const hook = fs.existsSync(path.join(hooks, "h"))
+	const gitHook = fs.existsSync(path.join(hooks, "h"))
 		? path.join(path.dirname(hooks), "pre-commit")
 		: path.join(hooks, "pre-commit");
-	let lines;
-	try {
-		lines = fs.readFileSync(hook, "utf8").split("\n");
-	} catch (e) {
-		return { text: null, why: `${hook} could not be read (${caught(e).code})` };
+	/** @param {string} at @returns {{body: string}|{why: string}} */
+	const readHook = (at) => {
+		const read = readText(at);
+		if (read.state === "read") return { body: read.data };
+		return {
+			why: `${at} could not be read (${read.state === "absent" ? "ENOENT" : read.message})`,
+		};
+	};
+	const gitRead = readHook(gitHook);
+	if ("why" in gitRead) return { text: null, why: gitRead.why };
+	let hook = gitHook;
+	let body = gitRead.body;
+	/** @type {string|null} */
+	let coreDir = null;
+	if (isHookShim(body)) {
+		try {
+			coreDir = resolveCore({
+				env,
+				warn: () => {
+					/* The shim says a version drift itself, in the lock. */
+				},
+			});
+		} catch (e) {
+			const noCore = caught(e).message;
+			return {
+				text: null,
+				why: `${gitHook} is the core's shim, and no core resolves for it (${noCore})`,
+				noCore,
+			};
+		}
+		hook = path.join(coreDir, ".husky", "pre-commit");
+		const coreRead = readHook(hook);
+		if ("why" in coreRead) return { text: null, why: coreRead.why };
+		body = coreRead.body;
 	}
+	const lines = body.split("\n");
 	const end = lines.indexOf(GATES_END);
 	if (end === -1)
 		return {
 			text: null,
 			why: `${hook} has no line marking where its gates end, an older hook than this script`,
 		};
-	return { text: `${lines.slice(0, end).join("\n")}\n`, why: null };
+	return {
+		text: `${lines.slice(0, end).join("\n")}\n`,
+		core: coreDir,
+		why: null,
+	};
 }
 
 /**
@@ -1621,8 +1662,16 @@ function preLockGates({ root, index, gates, env, slowLabel }) {
 			`${NAME}: no early gate run — ${why}. The commit's hook runs its gates after ${slowLabel}, in the lock.\n`,
 		);
 	};
-	const hook = readHookGatesText(root);
+	const hook = readHookGatesText(root, env);
+	if ("noCore" in hook && hook.noCore !== undefined)
+		fail(
+			`this repo's pre-commit hook is workflow-core's shim, and no core resolves for it to run (${hook.noCore}), so the hook would refuse this commit; ${slowLabel} never started. Nothing written.
+  ${NO_CORE_FIX}`,
+			3,
+		);
 	if (hook.text === null) return deferToHook(hook.why);
+	const gatesEnv =
+		hook.core === null ? env : { ...env, WFC_PLUGIN_ROOT: hook.core };
 	try {
 		fs.writeFileSync(gates, hook.text);
 	} catch (e) {
@@ -1635,7 +1684,7 @@ function preLockGates({ root, index, gates, env, slowLabel }) {
 	);
 	const r = spawnSync("sh", ["-c", 'sh -e "$1" </dev/null 2>&1', "sh", gates], {
 		cwd: root,
-		env: { ...env, GIT_INDEX_FILE: index },
+		env: { ...gatesEnv, GIT_INDEX_FILE: index },
 		stdio: ["ignore", "pipe", "inherit"],
 		encoding: "utf8",
 		maxBuffer: CHILD_MAX_BUFFER,

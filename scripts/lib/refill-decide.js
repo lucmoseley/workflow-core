@@ -13,11 +13,15 @@ const { buildSeatLabel, isSameSeat, seatIdOf } = require("./refill-seats.js");
 const { loneCommandOf, TAKES_PREFIX } = require("./takes-label.js");
 const { withoutStamps } = require("./stamp-paths.js");
 const { buildRowPrompt } = require("./unclosed-launch.js");
+const {
+	BREAKER_OPEN,
+	buildLaunchRoom,
+	NO_PROGRESS_RUN,
+	PROBE_HELD,
+	REPO_PAUSED,
+	UNPROVEN_HELD,
+} = require("./launch-room.js");
 
-/* Three finishes in a row with no progress pause their checkout (#1920, #3859),
- * and as many launches since its last act are all that run unproven there
- * (#4200, #4223, #5275). */
-const NO_PROGRESS_RUN = 3;
 /* A finish whose acts could not be read, counted neither as progress nor as
  * no progress (#2312). */
 /** @type {"unread"} */
@@ -55,13 +59,6 @@ const RESUME_DUE_WAIT = "every seat is spent; a resume is due";
 const RESUMES_TAKE_SLOTS = "resumes take every free slot";
 /* The idle reason of a tick whose unproven launches fill the cap (#4223). */
 const UNPROVEN_CAP = `${NO_PROGRESS_RUN} launches since the last act are running`;
-/* A row whose checkout's unproven launches fill its cap (#5275). */
-const UNPROVEN_HELD = `${NO_PROGRESS_RUN} launches since its checkout's last act are running`;
-/* A row in a checkout a no-progress pause stops (#5275). */
-const REPO_PAUSED = "a no-progress pause stops launches into its checkout";
-/* A row in a checkout whose throughput breaker is open, its trial taken or
- * not yet due (#5275). */
-const BREAKER_OPEN = "its checkout's throughput breaker is open";
 /* The idle reason of a tick whose skipped rows a mix of checkout holds skipped. */
 const CHECKOUTS_HELD = "every launchable checkout is held";
 /* The idle reason of a tick whose plan seats are weekly-full and whose
@@ -72,8 +69,6 @@ const PLAN_RESETS = "a plan resets";
 const PAUSED = "paused by";
 /* The idle reason of a tick under a manual /pick-next's launch hold (#4354). */
 const LAUNCH_HELD = "launches held by a manual /pick-next";
-/* A row in a checkout whose probe hold stops launches (#3860). */
-const PROBE_HELD = "a probe hold stops launches into its checkout";
 /* The idle reason of a tick whose every skipped row a probe hold skipped (#4736). */
 const PROBE_HOLD_WAIT = "a probe hold stops every launch";
 /* A row a running launch already holds, skipped as any other so an idle
@@ -413,60 +408,6 @@ function buildNoProgressPauses(input) {
 }
 
 /**
- * How many more launches and resumes may start in `root` before an act proves
- * one (#4223, #5275): NO_PROGRESS_RUN less its running launches launched, or
- * resumed into a slot, after its `lastActAt`, every one where it has none, a
- * launch with no job yet among them (so not refill-blocks' isActionable). One the
- * loop stopped, for a park or on its seat's limit and not since resumed, runs no
- * session, and one due back this tick is counted as its resume.
- * @param {Pick<TickInput, "history"|"lastActAt"> & Partial<Pick<TickInput, "resumable">>} input
- * @param {string} root
- */
-function unprovenRoom({ history, lastActAt, resumable = [] }, root) {
-	const due = new Set(resumable.map((r) => r.jobId));
-	const since = lastActAt[root] ?? null;
-	const unproven = history.filter(
-		(l) =>
-			l.root === root &&
-			l.finishedAt === null &&
-			l.parkStopped === undefined &&
-			!(l.limitHeld && l.limitHeld.resumedAt === undefined) &&
-			!(l.jobId && due.has(l.jobId)) &&
-			(since === null || unprovenFrom(l) > since),
-	).length;
-	return Math.max(0, NO_PROGRESS_RUN - unproven);
-}
-
-/**
- * The tick's unproven room by checkout, each launch or resume spending one.
- * @param {Pick<TickInput, "history"|"lastActAt"|"resumable"|"breakerRoom">} input
- */
-function buildRoomLeft(input) {
-	/** @type {Map<string, number>} */
-	const left = new Map();
-	/** @param {string} root */
-	const of = (root) =>
-		left.get(root) ??
-		Math.min(
-			unprovenRoom(input, root),
-			input.breakerRoom?.[root] ?? Number.POSITIVE_INFINITY,
-		);
-	return {
-		of,
-		/** @param {string} root */
-		spend: (root) => left.set(root, of(root) - 1),
-	};
-}
-
-/**
- * When `l` last took a slot, from which the unproven cap counts it: a restart
- * that kept its slot, in place, moved or typed-resume's fallback, adds no
- * session, so leaves its date (#4684). Residual: a launch resumed from held
- * before slotTakenAt was written counts from its launch until it finishes.
- * @param {{launchedAt: number, slotTakenAt?: number}} l */
-const unprovenFrom = (l) => Math.max(l.launchedAt, l.slotTakenAt ?? 0);
-
-/**
  * The unproven cap's idle, naming each held checkout and the act it counts
  * from.
  * @param {Record<string, number>} lastActAt
@@ -688,29 +629,6 @@ function seatHold(s) {
 	if (s.sessionFull) return "fiveHour";
 	if (s.week === null || s.session === null) return "unread";
 	return s.fits === null ? "unsized" : "capped";
-}
-
-/**
- * The checkouts launches are stopped from: those with a `probe` hold, the only
- * kind that stops any (#3860).
- * @param {TickHold[]} [holds]
- */
-const buildProbeHeldRoots = (holds = []) =>
-	new Set(holds.filter((h) => h.kind === "probe").map((h) => h.root));
-
-/**
- * Why each checkout takes no launch or resume this tick, by root: a probe hold,
- * else an open breaker with no trial due, else a no-progress pause (#5275).
- * @param {Pick<TickInput, "holds"|"repoPaused"|"breakerRoom">} input
- * @returns {Map<string, string>}
- */
-function buildHeldRoots({ holds, repoPaused = {}, breakerRoom = {} }) {
-	/** @type {Map<string, string>} */
-	const held = new Map(Object.keys(repoPaused).map((r) => [r, REPO_PAUSED]));
-	for (const [root, room] of Object.entries(breakerRoom))
-		if (room <= 0) held.set(root, BREAKER_OPEN);
-	for (const root of buildProbeHeldRoots(holds)) held.set(root, PROBE_HELD);
-	return held;
 }
 
 /**
@@ -986,12 +904,11 @@ const spendSeatFit = (seats, seat) =>
  * held checkout's, or one whose unproven room is spent, waits too (#5275).
  * @param {TickInput} input
  * @param {number} slots
- * @param {ReturnType<typeof buildRoomLeft>} room accumulator: each launch or
+ * @param {import("./launch-room.js").LaunchRoom} room accumulator: each launch or
  *   resume taken spends its checkout's room
  */
 function takeResumes(input, slots, room) {
 	const { resumable = [], seats } = input;
-	const heldRoots = buildHeldRoots(input);
 	/** @type {HeldResume[]} */
 	const resumes = [];
 	/** @type {HeldResume[]} */
@@ -999,12 +916,7 @@ function takeResumes(input, slots, room) {
 	let seatsLeft = seats;
 	for (const r of resumable.toSorted((a, b) => a.at - b.at)) {
 		if (resumes.length >= slots) break;
-		if (
-			heldRoots.has(r.root) ||
-			input.breakerRoom?.[r.root] !== undefined ||
-			room.of(r.root) <= 0
-		)
-			continue;
+		if (room.resumeLeft(r.root) <= 0) continue;
 		const planSeat = seatsLeft.find((s) => isSameSeat(r, s));
 		if (planSeat?.fits === 0) {
 			capHeld.push(r);
@@ -1035,7 +947,7 @@ function takeResumes(input, slots, room) {
  * @param {TickInput} input
  * @param {{seat: string, keyVar?: string, reason: SeatReason}} on
  * @param {number} slots
- * @param {ReturnType<typeof buildRoomLeft>} room accumulator: each launch or
+ * @param {import("./launch-room.js").LaunchRoom} room accumulator: each launch or
  *   resume taken spends its checkout's room
  */
 function fill(input, { seat, keyVar, reason }, slots, room) {
@@ -1058,18 +970,11 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 	const taken = new Set(
 		running.flatMap((r) => r.issues.map((n) => key(r.root, n))),
 	);
-	const heldRoots = buildHeldRoots(input);
 	/** Why `number` in `root` launches nothing whatever its row reads, or null.
 	 * @param {string} root @param {number} number */
-	const buildHeldWhy = (root, number) => {
-		const held = heldRoots.get(root);
-		if (held !== undefined) return held;
-		if (taken.has(key(root, number))) return ALREADY_RUNNING;
-		if (room.of(root) > 0) return null;
-		return input.breakerRoom?.[root] === undefined
-			? UNPROVEN_HELD
-			: BREAKER_OPEN;
-	};
+	const buildHeldWhy = (root, number) =>
+		room.heldWhy(root) ??
+		(taken.has(key(root, number)) ? ALREADY_RUNNING : room.spentWhy(root));
 	/* A resume is held to its own seat's cap, which the pick seat's fits does
 	 * not bound where it is another seat (#3872). */
 	let seatsLeft = seats;
@@ -1376,7 +1281,7 @@ function decideTick(input) {
  * @param {TickInput} input
  * @param {{free: number, spent: Idle, held: Skip[], resumes: HeldResume[],
  *   seatsLeft: SizedSeat[]}} taken
- * @param {ReturnType<typeof buildRoomLeft>} room
+ * @param {import("./launch-room.js").LaunchRoom} room
  * @returns {Exclude<Decision, {stop: StopReason}>}
  */
 function decideLaunches(
@@ -1491,7 +1396,7 @@ function decideUnpausedRepos(input) {
 	const held = heldParked(input);
 	if (input.freeSlots === 0)
 		return buildIdleDecision(buildIdle(NO_FREE_SLOT), held, []);
-	const room = buildRoomLeft(input);
+	const room = buildLaunchRoom(input);
 	const free = input.freeSlots;
 	const spent = buildIdle(RESUMES_TAKE_SLOTS);
 	const { resumes, capHeld, seatsLeft } = takeResumes(input, free, room);
@@ -1543,13 +1448,10 @@ function readParkers(frontier, readMarkers) {
 }
 
 module.exports = {
-	NO_PROGRESS_RUN,
 	readParkers,
 	startedAt,
 	EXPLICIT_STOP_DETAIL,
-	PROBE_HELD,
 	PROBE_HOLD_WAIT,
-	buildProbeHeldRoots,
 	buildOverflowHoldText,
 	buildResumeWaitLine,
 	buildPauseIssueText,
@@ -1572,7 +1474,6 @@ module.exports = {
 	RESUMES_TAKE_SLOTS,
 	SHORTLIST_FAILED,
 	UNPROVEN_CAP,
-	unprovenRoom,
 	seatHold,
 	FULL,
 	buildLimitCapHoldWhy,

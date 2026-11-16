@@ -27,7 +27,8 @@ const { readText } = require("./file-read.js");
 const { findFiledLine } = require("./filed-line.js");
 const { fileThrough } = require("./file-through.js");
 const { gh, parseErrLine } = require("./gh.js");
-const { NO_PROGRESS_RUN, buildPauseIssueText } = require("./refill-decide.js");
+const { buildPauseIssueText } = require("./refill-decide.js");
+const { NO_PROGRESS_RUN } = require("./launch-room.js");
 const { refillPath } = require("./refill-dir.js");
 const {
 	buildNoticeBody,

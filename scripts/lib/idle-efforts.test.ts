@@ -20,8 +20,8 @@ const {
 	parseIssueNodes,
 	stoppedRunOf,
 } = require("./idle-efforts.js");
+const { PROBE_HELD } = require("./launch-room.js");
 const {
-	PROBE_HELD,
 	buildLimitCapHoldWhy,
 	buildLoopWait,
 	buildPausedWaitText,
