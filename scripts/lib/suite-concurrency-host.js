@@ -11,21 +11,11 @@
  * cannot read reads as none (#2795).
  */
 
-const fs = require("node:fs");
-const path = require("node:path");
-const { markersDir } = require("./marker-root.js");
 const { readAvailableMb } = require("./meminfo.js");
 const { readWindowsMemory } = require("./windows-memory.js");
 const { treePorts } = require("./guard-host-ports.js");
 const { buildIsWrapperScript } = require("./suite-launch.js");
-const { STANDDOWN_LOG } = require("./suite-concurrency.js");
 const { readCarriedWeightOf, readPs } = require("./suite-ladder.js");
-
-/**
- * gl_when's timestamp: whole seconds, UTC.
- * @returns {string}
- */
-const now = () => `${new Date().toISOString().slice(0, 19)}.000Z`;
 
 /**
  * The host's declared `suiteRunners`, none where its config will not read.
@@ -88,18 +78,6 @@ function buildHostPorts(root, log) {
 				return null;
 			}
 		},
-		appendStanddown: (line) => {
-			try {
-				fs.appendFileSync(
-					path.join(markersDir(root), STANDDOWN_LOG),
-					`${line}\n`,
-				);
-				return true;
-			} catch {
-				return false;
-			}
-		},
-		now,
 		/* Required at the call: full-launch-plain.js requires run-vitest.js,
 		 * which requires the queue, which requires this file. */
 		fullLaunchPlain: (argv, tree) =>
@@ -110,8 +88,7 @@ function buildHostPorts(root, log) {
 /**
  * The gate's reading of `command` for the queue's poll (mantahostels#2024):
  * the limb the guard would refuse it on, or null where it would not. The
- * escape is cleared, or an exporting shell would stand the gate down and every
- * poll answer "open"; the session's latches are neither read nor spent. A
+ * session's latches are neither read nor spent. A
  * disabled guard reads open. `weight` is the launch's carried admission
  * weight (#2931), which the gate charges in place of its words' file count.
  * `climbMb` is what the type-check slot's launches have yet to draw (#3416).
@@ -140,13 +117,10 @@ function readGate(command, root, weight = null, climbMb = 0) {
 	const { kitContext, sharedReaders } = require("./kit-context.js");
 	const env = { root: host, payload: { cwd: host }, log };
 	const ctx = kitContext(env, sharedReaders(host, log));
-	const { WFC_SUITE_CONCURRENT: _escape, ...vars } = ctx.vars;
 	const verdict = decide(command, {
 		...ctx,
-		vars,
 		told: () => true,
 		readLatch: () => "",
-		session: "",
 		...treePorts(host),
 		...buildHostPorts(host, log),
 		climbMb: () => climbMb,

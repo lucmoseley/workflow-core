@@ -2669,8 +2669,6 @@ describe("gateDenies, against the real gate (#2421)", () => {
 			),
 		);
 		vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(dir, "config"));
-		/* An exported escape must not stand the poll's gate down. */
-		vi.stubEnv("WFC_SUITE_CONCURRENT", "1");
 		return gateDenies(
 			words,
 			(command: string, carried: typeof weight, climb: number) =>

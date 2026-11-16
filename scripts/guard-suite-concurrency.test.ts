@@ -6,8 +6,8 @@
  * a build or a queued launch; and hands a quiet launch its rules once a
  * session (mantahostels#1805, #181, #2024, #2237). These are its boundary
  * cases, the dispatcher entry run on it alone: the payload, the env seams,
- * the host's own files, the rule store, the latch and the stand-down log, end
- * to end (#2795). Which launch draws which verdict and which text is
+ * the host's own files, the rule store and the latch, end to end (#2795).
+ * Which launch draws which verdict and which text is
  * lib/suite-concurrency.test.ts's; the entry's payload faults and the throw
  * policy are guard-dispatch's own tests' (#3227).
  *
@@ -77,14 +77,11 @@ const write = (rel: string, body: string) => {
 	fs.writeFileSync(path.join(root, rel), body);
 };
 
-/** The seams every case pins, the escape and the queue's mark CLEARED, not
- * merely unset: a run from a shell that exported either would otherwise pass
- * against a guard that stood itself down. */
+/** The seams every case pins. */
 const seams = (over: Record<string, string | undefined> = {}) => ({
 	WFC_MEMINFO: meminfo,
 	WFC_PS: quietPs,
 	WFC_READ_GRAPH_RENDERS: "0",
-	WFC_SUITE_CONCURRENT: "",
 	/* The queues' markers, which the climb charge reads (#3488). */
 	TMPDIR: dir,
 	...over,
@@ -281,53 +278,6 @@ describe("once a session, end to end", () => {
 		expect(failOpenLog()).toContain(
 			"no session_id in payload — rule injection skipped",
 		);
-	});
-});
-
-/*
- * THE STAND-DOWN LOG (mantahostels#2183): one JSON line per command stood
- * down, at .claude/tmp/markers/.suite-standdowns.jsonl, joined forward by
- * time to the next pass marker.
- */
-describe("the escape exported into the hook's environment", () => {
-	const log = () => path.join(markers(), ".suite-standdowns.jsonl");
-
-	it("stands the count cap down and appends the stand-down under the markers dir, a parseable ISO stamp on it", () => {
-		const out = emission("npm run test", {
-			env: { WFC_SUITE_CONCURRENT: "1", WFC_PS: psOf([RUNNER], "ps-one") },
-		});
-		expect(out.permissionDecision).toBeUndefined();
-		expect(out.additionalContext).toMatch(
-			/This would be suite 2 on a machine that runs whole suites one at a time/,
-		);
-		const rows = fs
-			.readFileSync(log(), "utf8")
-			.split("\n")
-			.filter(Boolean)
-			.map((l) => JSON.parse(l));
-		expect(rows).toEqual([
-			{
-				at: expect.stringMatching(
-					/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
-				),
-				session: "test",
-				running: 1,
-				nth: 2,
-				limb: "count",
-				command: "npm run test",
-			},
-		]);
-		expect(Number.isFinite(Date.parse(rows[0].at))).toBe(true);
-		expect(failOpenLog()).toBe("");
-	});
-
-	it("fails open on a log it cannot append to, letting the launch through and recording why", () => {
-		fs.mkdirSync(log(), { recursive: true });
-		const out = emission("npm run test", {
-			env: { WFC_SUITE_CONCURRENT: "1", WFC_PS: psOf([RUNNER], "ps-one") },
-		});
-		expect(out.permissionDecision).toBeUndefined();
-		expect(failOpenLog()).toContain("went uncounted");
 	});
 });
 

@@ -14,7 +14,6 @@ for name in [
     ".test-pass-markers.archive.jsonl",
     ".test-fail-markers.jsonl",
     ".test-fail-markers.archive.jsonl",
-    ".suite-standdowns.jsonl",
     ".unasked-rerun-refusals.jsonl",
 ]:
     p = os.path.join(d, name)

@@ -104,7 +104,6 @@ const running =
 				WFC_READ_GRAPH_RENDERS: "0",
 				WFC_MEMINFO: meminfo,
 				WFC_PS: ps,
-				WFC_SUITE_CONCURRENT: "",
 			},
 		};
 	};

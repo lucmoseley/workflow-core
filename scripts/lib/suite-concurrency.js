@@ -39,20 +39,13 @@
  * line one is that launch through it. A watcher has no queue: its line one is
  * the wait and then the same launch.
  *
- * ITS ESCAPE IS `WFC_SUITE_CONCURRENT=1` prefixed on the command
- * (mantahostels#2486). Every use of it, prefixed or exported, is recorded
- * (mantahostels#2183) — one JSON line per command stood down, at
- * `.claude/tmp/markers/.suite-standdowns.jsonl`, joined forward by time to the
- * next pass marker its session writes. Only the stand-down is written: a
- * launch allowed for any other reason leaves nothing.
- *
  * TWO RESIDUALS OF ITS OWN. An open watcher counts as the suite already running,
  * so a session holding one can launch nothing until it closes it — the refusal
  * says so. And a build is never counted as a suite, being off the ladder.
  *
  * A BUILD BESIDE A RUNNING `next build`, AND A DEV SERVER BESIDE A RUNNING
  * `next dev`, ARE DENIED (#1733, #1759), printing
- * docs/agents/rules/build-concurrency.txt. No escape. A build is `npm run
+ * docs/agents/rules/build-concurrency.txt. A build is `npm run
  * build`, `next build`, `npx next build` or a path ending `/next` then
  * `build`, and a dev server the same with `dev`, npm's own flags read as npm
  * reads them. It counts `next build` and `next dev` runners alone, so a script
@@ -61,8 +54,8 @@
  *
  * A BARE `tsc` THE TYPE-CHECK SLOT WOULD HOLD IS DENIED (#3163): one already
  * running, or MemAvailable under its rung (lib/tsc-slot.js). Line one is the
- * same launch through `queue-run.js --tsc`, which waits for the slot; no
- * escape. `npm run typecheck` holds the slot itself, so it is never judged.
+ * same launch through `queue-run.js --tsc`, which waits for the slot.
+ * `npm run typecheck` holds the slot itself, so it is never judged.
  *
  * SCOPE: `npm run test`, `npm run test:changed`, `npm run test:watch`,
  * `node scripts/run-vitest.js` (mantahostels#2015), a build and a dev server.
@@ -122,7 +115,7 @@
  *
  * SESSION TREE (#4242): a launch's npm script and the `--full` limb's read
  * graph are the session's tree's, where the launch runs; the machine, the
- * queues, the host's config and the stand-down log are the host's.
+ * queues and the host's config are the host's.
  */
 
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
@@ -133,7 +126,7 @@ const {
 	unmask,
 	walkCommands,
 } = require("./shell-parse.js");
-const { QUOTED, carriesVar, literal, runText } = require("./shell-words.js");
+const { QUOTED, literal, runText } = require("./shell-words.js");
 const { ruleModule } = require("./rule-gates.js");
 const {
 	SUITE_MAX,
@@ -196,16 +189,12 @@ const { treeOrHost } = require("./tree-or.js");
  * @property {(argv: string[], tree: string) => { plain: boolean } | { fault: string }} fullLaunchPlain
  *   whether a `--full` launch's argv is plain and the read graph renders from
  *   the tree at `tree`, the session's
- * @property {(line: string) => boolean} appendStanddown one record appended
- *   to the stand-down log; false where it could not be
- * @property {() => string} now gl_when's timestamp
  * @typedef {import("./shell-parse.js").WalkPorts & SuitePorts &
  *   Pick<import("./kit-context.js").KitContext, "scriptPath" | "corePaths" | "ruleText" | "docPath"> & {
  *   moduleOn: (module: import("./workflow-core-config.js").Module) => boolean,
  *   log: (what: string, detail?: string) => void,
  *   told: (id: string) => boolean,
  *   readLatch: (name: string) => string | null,
- *   session: string,
  *   tree: () => import("./guard-host-ports.js").TreePorts,
  * } & import("./guard-host-ports.js").TreePorts} Ctx the kit's context, the
  *   part this core reads, and its own ports; `tree` the session's, whose npm
@@ -243,8 +232,6 @@ const buildRule = (ctx) =>
 			),
 	);
 
-const STANDDOWN_LOG = ".suite-standdowns.jsonl";
-
 /* What one finished-but-resident session holds (reap-finished-sessions.js). */
 const REAP_GAIN = "330-450 MB";
 /* A trailing `#` comment cut, as bash's `${x%%[[:space:]]#*}` cuts it. */
@@ -261,7 +248,7 @@ const hasFullFlag = (words) =>
 
 /**
  * Whether the launch asks to QUEUE rather than to run now (mantahostels#2024):
- * the deny obeyed, not escaped. A quoted `--queue` is not the flag.
+ * the deny obeyed. A quoted `--queue` is not the flag.
  * @param {string[]} words
  */
 const hasQueueFlag = (words) => words.includes("--queue");
@@ -367,13 +354,11 @@ function queuedLaunch(segment, spans, queueRun) {
  *   read once a command
  * @property {(scope: ClimbScope) => number} readClimb
  * @property {string} watcherSegment the first segment opening a watcher
- * @property {boolean} escaped whether the command carries the escape
  * @property {string} trimmedCommand the raw command, comment cut and trimmed
  * @property {boolean} ruleSubject whether a test launch earns suite-tree-dirty
  * @property {string[] | null} fullLaunchWords the first `--full` launch's argv
  * @property {string} memoryKind the first build or whole-suite run's name
  * @property {number} memoryMb the MemAvailable read for it
- * @property {boolean} standdownLogged
  *
  * @typedef {object} Subject one launch this guard judges
  * @property {"test" | "build"} kind
@@ -452,13 +437,11 @@ function buildState(command, parsed, ctx) {
 			return climb[scope];
 		},
 		watcherSegment: "",
-		escaped: false,
 		trimmedCommand: trimRun(cutComment(command), BASH_SPACE),
 		ruleSubject: false,
 		fullLaunchWords: null,
 		memoryKind: "",
 		memoryMb: 0,
-		standdownLogged: false,
 	};
 }
 
@@ -469,16 +452,9 @@ function buildState(command, parsed, ctx) {
 const launchOf = (st, words) =>
 	suiteLaunchKind(words.map(st.typed), st.launchPorts);
 
-/** @param {Launch | null} l */
-const isTest = (l) => l !== null && l.kind !== "npm-py";
-
 /**
- * THE WATCHER AND THE ESCAPE ARE FOUND BEFORE ANY SEGMENT IS JUDGED
- * (mantahostels#1978, mantahostels#2486): a command gets one message, and a
- * PreToolUse deny stops the whole command, so the escape's unit is the command
- * too. The first watcher wins. The prefix never reaches the hook's
- * environment; that is read for the callers with no command to prefix: a
- * script, a benchmark, CI.
+ * THE WATCHER IS FOUND BEFORE ANY SEGMENT IS JUDGED (mantahostels#1978): a
+ * command gets one message. The first watcher wins.
  * @param {St} st
  * @param {import("./shell-parse.js").Parsed} parsed
  */
@@ -486,19 +462,15 @@ function prePass(st, parsed) {
 	walkCommands(
 		parsed,
 		(cmd) => {
-			for (const { words, wrapperWords } of cmd.runs()) {
+			for (const { words } of cmd.runs()) {
 				if (words.length === 0) continue;
 				const launch = launchOf(st, words);
-				if (!isTest(launch)) continue;
-				if (carriesVar("WFC_SUITE_CONCURRENT", cmd.leading, wrapperWords))
-					st.escaped = true;
 				if (launch?.kind === "npm-watch" && !st.watcherSegment)
 					st.watcherSegment = cmd.segment;
 			}
 		},
 		st.ctx,
 	);
-	if (st.ctx.vars.WFC_SUITE_CONCURRENT) st.escaped = true;
 }
 
 /**
@@ -718,8 +690,7 @@ function launchDirPeakMb(st, cwds, bin) {
 /**
  * A bare `tsc` the type-check slot would hold (#3163): denied, line one the
  * same launch through `queue-run.js --tsc`, which waits for the slot. A
- * launch the slot would admit passes; no escape stands the deny down, the
- * queue being the way through.
+ * launch the slot would admit passes.
  * @param {St} st
  * @param {Command} cmd
  * @param {string} bin the `tsc` binary it launches
@@ -799,7 +770,7 @@ const insteadLine = (st, typed, launch) =>
 
 /**
  * Deny where a `next <sub>` is already running. Neither is on the ladder or
- * measured, so the count alone judges, and no escape stands it down.
+ * measured, so the count alone judges.
  * @param {St} st
  * @param {"build" | "dev"} sub
  * @param {string} what
@@ -943,31 +914,6 @@ const buildWarnVerdict = (st, text) => ({
 });
 
 /**
- * Record one deliberate override of a deny (mantahostels#2183), once per
- * command: a second stand-down in it reads the same `ps` as the first. Its
- * `command` is the segment as the parser rendered it, each quoted span `"…"`.
- * @param {St} st
- * @param {Judged} j
- * @param {"count" | "memory" | "windows"} limb
- */
-function logStanddown(st, j, limb) {
-	if (st.standdownLogged) return;
-	st.standdownLogged = true;
-	const line = JSON.stringify({
-		at: st.ctx.now(),
-		session: st.ctx.session,
-		running: j.whole,
-		nth: j.nth,
-		limb,
-		command: trimEndRun(unmask(j.segment), BASH_SPACE),
-	});
-	if (!st.ctx.appendStanddown(line))
-		st.ctx.log(
-			`could not append to ${STANDDOWN_LOG} — one override of the suite deny went uncounted`,
-		);
-}
-
-/**
  * A watcher's line one: the wait, then the same launch (#1927).
  * @param {St} st
  * @param {Judged} j
@@ -1015,8 +961,7 @@ function queueFix(st, j) {
  * sends the session the deny alone.
  * @param {St} st
  * @param {Judged} j
- * @param {{ gate: Gate, watchLever: string, why: string, waiter: string,
- *   escapeLead: string }} d
+ * @param {{ gate: Gate, watchLever: string, why: string, waiter: string }} d
  * @returns {Verdict}
  */
 function denyToQueue(st, j, d) {
@@ -1024,17 +969,16 @@ function denyToQueue(st, j, d) {
 		j.s.launchKind === "npm-watch"
 			? watcherFix(st, j, d.watchLever)
 			: queueFix(st, j);
-	const reason = `${fix.line}\n${d.why}${fix.more} ${d.waiter} ${d.escapeLead} Prefix the command with WFC_SUITE_CONCURRENT=1, which is recorded.${j.watchLimb ? ` ${j.watchLimb}` : ""}`;
+	const reason = `${fix.line}\n${d.why}${fix.more} ${d.waiter}${j.watchLimb ? ` ${j.watchLimb}` : ""}`;
 	return { deny: st.ctx.corePaths(reason), gate: d.gate };
 }
 
 /**
  * THE COUNT CAP (#2680): one whole suite at a time; a part-suite takes no
- * whole-suite slot. Past it, what the deny let through — a part-suite, a
- * `--queue`, a stand-down (#159) — is warned: past the ladder's last rung
- * every launch, but a refusable part-suite short of its own rung goes on to
- * the memory deny; inside the ladder a whole suite past the cap only where
- * its rung is met.
+ * whole-suite slot. Past it, what the deny lets through — a part-suite, a
+ * `--queue` — is warned: past the ladder's last rung every launch, but a
+ * refusable part-suite short of its own rung goes on to the memory deny;
+ * inside the ladder a whole suite past the cap only where its rung is met.
  * @param {St} st
  * @param {Judged} j
  * @returns {Verdict | undefined}
@@ -1042,20 +986,16 @@ function denyToQueue(st, j, d) {
 function countVerdict(st, j) {
 	if (!j.running) return;
 	const { s } = j;
-	if (j.nth > WHOLE_SUITE_MAX && j.refusable && !s.part) {
-		if (!st.escaped)
-			return denyToQueue(st, j, {
-				gate: { limb: "count" },
-				watchLever: j.waitLever,
-				why: `${j.whole} whole suite(s) already running, and the machine runs one at a time (docs/environment.md §6, #2680).`,
-				waiter:
-					s.other || s.plain
-						? "Do not write your own waiter."
-						: "Do not write your own waiter: one grepping `ps` for `vitest` counts the npm wrapper and every worker as suites, so it can wait for a gap that never comes.",
-				escapeLead: `Genuinely need suite ${j.nth} at once?`,
-			});
-		logStanddown(st, j, "count");
-	}
+	if (j.nth > WHOLE_SUITE_MAX && j.refusable && !s.part)
+		return denyToQueue(st, j, {
+			gate: { limb: "count" },
+			watchLever: j.waitLever,
+			why: `${j.whole} whole suite(s) already running, and the machine runs one at a time (docs/environment.md §6, #2680).`,
+			waiter:
+				s.other || s.plain
+					? "Do not write your own waiter."
+					: "Do not write your own waiter: one grepping `ps` for `vitest` counts the npm wrapper and every worker as suites, so it can wait for a gap that never comes.",
+		});
 	const pastLadder =
 		j.nth > SUITE_MAX && !(j.refusable && s.part && j.mb < j.floor);
 	const pastCap = j.nth > WHOLE_SUITE_MAX && !s.part && j.mb >= j.floor;
@@ -1091,25 +1031,21 @@ function memoryVerdict(st, j) {
 	const rung = rungClause(j);
 	const reapCmd = `node ${st.ctx.scriptPath("reap-finished-sessions.js")}`;
 	if (j.refusable) {
-		if (!st.escaped) {
-			const reapNote = j.s.reaps
-				? "Its `pretest` reaps finished sessions before the wait (`pretest-reap.js`, mantahostels#1840)."
-				: `Reaping finished-but-resident sessions (\`${reapCmd}\`) gives back ${REAP_GAIN} each, and may open the gate at once.`;
-			return denyToQueue(st, j, {
-				gate: {
-					limb: "memory",
-					mb: j.readMb,
-					rungMb: j.floor,
-					...(j.climbMb > 0 ? { climbMb: j.climbMb } : {}),
-					...(j.running ? { busy: j.busy } : {}),
-				},
-				watchLever: `Reap finished sessions (\`${reapCmd}\`) or wait for MemAvailable to reach ~${j.floor} MB`,
-				why: `${readingOf(j.readMb, j.climbMb, "off-rung")}, under the ~${j.floor} MB docs/environment.md §6 says a test run needs resting${rung}, and earlyoom's SIGTERM line is 8% of the cap.`,
-				waiter: `${reapNote} Do not write your own waiter.`,
-				escapeLead: "Genuinely need it now?",
-			});
-		}
-		logStanddown(st, j, "memory");
+		const reapNote = j.s.reaps
+			? "Its `pretest` reaps finished sessions before the wait (`pretest-reap.js`, mantahostels#1840)."
+			: `Reaping finished-but-resident sessions (\`${reapCmd}\`) gives back ${REAP_GAIN} each, and may open the gate at once.`;
+		return denyToQueue(st, j, {
+			gate: {
+				limb: "memory",
+				mb: j.readMb,
+				rungMb: j.floor,
+				...(j.climbMb > 0 ? { climbMb: j.climbMb } : {}),
+				...(j.running ? { busy: j.busy } : {}),
+			},
+			watchLever: `Reap finished sessions (\`${reapCmd}\`) or wait for MemAvailable to reach ~${j.floor} MB`,
+			why: `${readingOf(j.readMb, j.climbMb, "off-rung")}, under the ~${j.floor} MB docs/environment.md §6 says a test run needs resting${rung}, and earlyoom's SIGTERM line is 8% of the cap.`,
+			waiter: `${reapNote} Do not write your own waiter.`,
+		});
 	}
 	const reapLever = j.s.reaps
 		? "This command reaps finished sessions before vitest starts (`pretest-reap.js`, mantahostels#1840), so this reading does not say what the run will get — launch it and read what the reap prints, remembering it reclaims nothing from a LIVE neighbour"
@@ -1138,17 +1074,13 @@ function windowsVerdict(st, j) {
 	const short = windowsShortfall(read);
 	if (!short) return;
 	const why = buildWindowsShortText(short);
-	if (j.refusable) {
-		if (!st.escaped)
-			return denyToQueue(st, j, {
-				gate: { limb: "windows", ...short },
-				watchLever: "Wait for Windows' free memory to recover",
-				why: `${why}.`,
-				waiter: "Do not write your own waiter.",
-				escapeLead: "Genuinely need it now?",
-			});
-		logStanddown(st, j, "windows");
-	}
+	if (j.refusable)
+		return denyToQueue(st, j, {
+			gate: { limb: "windows", ...short },
+			watchLever: "Wait for Windows' free memory to recover",
+			why: `${why}.`,
+			waiter: "Do not write your own waiter.",
+		});
 	return buildWarnVerdict(
 		st,
 		`${why}. Wait for it to recover, ${j.lever}${j.tail}`,
@@ -1292,5 +1224,4 @@ module.exports = {
 	noun: "command",
 	decide,
 	FULL_LIMB_ID,
-	STANDDOWN_LOG,
 };
