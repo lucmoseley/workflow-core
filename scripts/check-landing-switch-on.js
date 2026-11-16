@@ -8,8 +8,8 @@
  *
  * WFC_REPO_ROOT injects the repo.
  *
- * IMPLICIT:  at every session start (`--notify`), reads the main checkout's upstream; where it is not cut over, lists the live sessions (`claude agents --json`) and, where none stands in the main checkout, runs `cutover-main-checkout.js`'s cutover — landing the main checkout's local commits through a queue ref, removing `main`'s upstream and running a levelling pass — and prints its report; where one does, prints a FAIL naming each; prints nothing once cut over. Run without `--notify`, as `npm run status` does, it reports a main checkout not cut over and cuts nothing.
- * JUSTIFIED: fail-safe — otherwise a repo whose main checkout was never cut over shares one unguarded tree with nothing moving it (#4688), and the cutover waits on the founder's hands, the step that went missing (#5247 Q1 (A)).
+ * IMPLICIT:  at every session start (`--notify`), reads the main checkout's upstream; where it is not cut over, lists the live sessions (`claude agents --json`) and, where none stands in the main checkout, runs the cutover (lib/cutover-run.js) — landing the main checkout's local commits through a queue ref, removing `main`'s upstream and running a levelling pass — and prints its report; where one does, prints a FAIL naming each; prints nothing once cut over. Run without `--notify`, as `npm run status` does, it reports a main checkout not cut over and cuts nothing.
+ * JUSTIFIED: fail-safe — otherwise a repo whose main checkout was never cut over shares one unguarded tree with nothing moving it (#4688), and the cutover waits on the founder's hands (#5247 Q1 (A)).
  * DEFEAT:    none at the hook; the cutover clears it.
  * TIMEOUT:   its hook allows 300 s. Untraced: a cutover's land, fetch and
  *            levelling pass run once per repo, and 300 s is a guess at their

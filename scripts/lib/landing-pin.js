@@ -5,9 +5,8 @@
  * From ALWAYS_ON every repo lands through the queue, its main checkout cut
  * over at session start. A repo whose pin names an earlier tag runs that
  * release, so where its config's `modules` lacks `"landing"` its sessions
- * share one unguarded tree, the night #5246 maps. The refill loop serves no
- * such repo. A pin that is a branch or a SHA names no release, so it is
- * never judged older.
+ * share one unguarded tree. A pin that is a branch or a SHA names no
+ * release, so it is never judged older.
  */
 
 const fs = require("node:fs");
@@ -39,7 +38,7 @@ function declaresLanding(root) {
 		return Array.isArray(raw?.modules) && raw.modules.includes("landing");
 	} catch {
 		/* Fails open: a config that will not read is refill-repos.js's to
-		 * exclude, by its own fault (#5276). */
+		 * exclude (#5276). */
 		return true;
 	}
 }

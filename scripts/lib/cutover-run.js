@@ -1,6 +1,5 @@
 /*
- * cutover-run.js — the main checkout's cutover run under its lock, shared by
- * cutover-main-checkout.js and check-landing-switch-on.js (#5276).
+ * cutover-run.js — the main checkout's cutover, run under its lock (#5276).
  */
 
 const path = require("node:path");
@@ -25,7 +24,7 @@ const HOLDERS = ["cutover-main-checkout.js", "check-landing-switch-on.js"];
  * The cutover of the main checkout at `root`, run under a lock in its git
  * directory so two sessions starting at once never both cut it over, and
  * its report. A git or port that fails throws.
- * @param {string} root the main checkout
+ * @param {string} root
  * @returns {{ result: import("./landing-switch-on.js").RunResult,
  *   lines: string[] }}
  */
