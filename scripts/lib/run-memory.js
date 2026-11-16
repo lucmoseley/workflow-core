@@ -11,8 +11,7 @@
  * wrapper was killed leaves it at its last sample, with no `endedAt`.
  *
  * A PID IS THE RUN'S ONLY WHILE SEEN: `heldUntil` gives the time a pid was
- * last seen in its role, the wrapper's and main's being the last sample, plus
- * SLACK_SAMPLES intervals, so lib/earlyoom-kills.js never names a run for a later
+ * last seen in its role, the wrapper's and main's being the last sample, so lib/earlyoom-kills.js never names a run for a later
  * process reusing a pid.
  *
  * A WORKER is a direct child of vitest's main process, or a process that
@@ -26,9 +25,6 @@
  * THE WORKER'S FILE: vitest names no worker per file, so each worker claims
  * the file it runs (`claimFile`, from vitest.setup.ts) as `<pid>` in the run
  * file's `.files` directory beside it.
- *
- * A GATE SEAT'S RECORD shares the store, so the filer reads one place: its
- * file is named GATE_FILE_PREFIX and read only by lib/gate-seat.js.
  *
  * A FILE OF ANOTHER SHAPE, with no `workersSeenAt` object, reads as no run:
  * it can bound no pid to its run, and the store keeps files RETAIN_MS across
@@ -367,7 +363,7 @@ function claimFile(
 /**
  * The store's JSON files `named` takes whose parse `shaped` keeps, or why the
  * store would not read: a directory that will not list or a file that will
- * not parse. lib/gate-seat.js reads its gate-seat records through it.
+ * not parse.
  * @template T
  * @param {{ named: (name: string) => boolean,
  *   shaped: (parsed: unknown) => parsed is T, dir?: string }} read
@@ -400,8 +396,7 @@ function readStoreFiles({ named, shaped, dir = storeDir() }) {
 }
 
 /**
- * Whether `parsed` is an object whose `key` holds an object: the one field
- * that bounds a pid to its record.
+ * Whether `parsed` is an object whose `key` holds an object.
  * @template T
  * @param {unknown} parsed
  * @param {string} key
@@ -413,9 +408,7 @@ const holdsObject = (parsed, key) =>
 	/** @type {Record<string, unknown>} */ (parsed)[key] instanceof Object;
 
 /**
- * The last time, ms, a pid last seen at `seen` can be taken for its record's:
- * that sighting, no later than the record's `lastSample`, plus SLACK_SAMPLES
- * of `sampleMs`.
+ * The last time, ms, a pid last seen at `seen` can be taken for its record's.
  * @param {number} seen
  * @param {number} lastSample
  * @param {number} sampleMs

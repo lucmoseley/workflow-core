@@ -17,9 +17,7 @@
  * THE CHARGE is the repo's `gateSeatMb`, set by hand to the highest
  * `peakTreeMb` on its gate-run record, else the whole-suite rung. Admission
  * holds it while a seat is queued or running, less what the seat's processes
- * already draw (lib/admission.js `gateSeatHeldMb`). The queue's own readers
- * of the seats, `readLiveGateSeats` and `readGateSeats`, are
- * lib/suite-queue.js's.
+ * already draw (lib/admission.js `gateSeatHeldMb`).
  *
  * THE GATE-RUN RECORD is `.gate-runs.jsonl` under the canonical checkout's
  * markers directory, one line per gate run, kept 30 days like the queue-exit
@@ -28,11 +26,8 @@
  *
  * THE PID RECORD names the processes of a running seat's tree for the
  * memory-kill filer (#5269): one file a seat in lib/run-memory.js's store,
- * GATE_FILE_PREFIX-named, rewritten at each tree sample with every pid seen
- * and when it was last seen. A pid is the seat's only up to
- * `gateHeldUntil`, its last sighting plus lib/run-memory.js's slack in the
- * record's own sample intervals, so a pid reused after it is never named the
- * seat's. A process
+ * GATE_FILE_PREFIX-named. A pid is the seat's only up to `gateHeldUntil`, so
+ * a pid reused after it is never named the seat's. A process
  * that starts and dies between two samples goes unrecorded.
  *
  * A GATE INSIDE A RUNNING SUITE'S PROCESS TREE takes no seat: a test

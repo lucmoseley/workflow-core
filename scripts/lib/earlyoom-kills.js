@@ -31,8 +31,8 @@
  * A GATE RUN is a kill, of any name, whose pid a gate seat's pid record saw in
  * its command's tree (lib/gate-seat.js, #5269): same boot, the seat spawned at
  * or before the kill, the pid seen up to it (`gateHeldUntil`), the latest
- * such seat where two share them. A headless run match wins outright; a test
- * run match, the more specific, wins the kind, its cell still naming the gate.
+ * such seat where two share them. A headless or test run match, the more
+ * specific, wins the kind (`joinRecordedRun`).
  *
  * FAILS OPEN: journalctl absent, refused, timed out or printing nothing reads
  * as no kills, with `why` set so a caller can say so. A store or boot list
@@ -528,7 +528,7 @@ function buildIncidentBody(i) {
 
 earlyoom killed ${i.kills.length} ${i.kills.length === 1 ? "process" : "processes"} between ${localMinute(first)} and ${localMinute(last)} machine time, one incident: kills no more than ${INCIDENT_GAP_MS / 60_000} min apart (#3094).
 
-By kind: ${byKind(i.kills)}. A headless run is a \`claude -p\` in the headless run store; a test run is a test launch's wrapper, vitest main or worker, matched by pid to its memory record (\`.test-run-memory\`); a gate run is any other process in a commit gate's tree, matched by pid to its gate seat's record there, and a test run inside one names it; claude CLI is the daemon, \`claude agents\` or a \`-p\` the store has none for; a node or python process is any such program, the refill loop and test workers included; Chromium is a browser process (\`headless_shell\`, \`chrome\`, \`chromium\`) no record claims.${i.unjoined === null ? "" : `\n\nNot joined to the headless, test or gate runs, so a kill named by its process may be one: ${i.unjoined}.`}
+By kind: ${byKind(i.kills)}. A headless run is a \`claude -p\` in the headless run store; a test run is a test launch's wrapper, vitest main or worker, matched by pid to its memory record (\`.test-run-memory\`); a gate run is any other process in a commit gate's tree, matched by pid to its gate seat's record; claude CLI is the daemon, \`claude agents\` or a \`-p\` the store has none for; a node or python process is any such program, the refill loop and test workers included; Chromium is a browser process (\`headless_shell\`, \`chrome\`, \`chromium\`) no record claims.${i.unjoined === null ? "" : `\n\nNot joined to the headless, test or gate runs, so a kill named by its process may be one: ${i.unjoined}.`}
 
 Lowest MemAvailable before a kill: ${lowest === null ? "unread" : `${lowest.availMiB} MiB, SwapFree ${mib(lowest.swapFreeMiB)}`}.
 
