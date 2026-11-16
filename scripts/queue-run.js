@@ -801,16 +801,21 @@ function spawnGate({ seat, options, err, finish, holder, waitMs }) {
 	const sampleMs = options.sampleMs ?? TREE_PEAK_SAMPLE_MS;
 	/** @type {ReturnType<typeof startGatePids> | undefined} */
 	let pids;
+	let unreadSamples = 0;
+	/** @type {string | null} */
+	let firstUnread = null;
 	/** @param {number} pid */
 	const treePss = (pid) => {
 		try {
 			const sample = readTree(pid);
 			pids?.see(sample.pids);
 			return sample.kb;
-		} catch {
+		} catch (error) {
 			/* An unreadable sample costs that sample, never the gate run
-			 * (#5274): the peak is a record field, read by hand to set
-			 * `gateSeatMb`. */
+			 * (#5274), and is named at the close: the peak is read by hand to
+			 * set `gateSeatMb`. */
+			unreadSamples += 1;
+			firstUnread ??= caught(error).message;
 			return 0;
 		}
 	};
@@ -858,6 +863,10 @@ function spawnGate({ seat, options, err, finish, holder, waitMs }) {
 		if (unrecorded)
 			err.write(
 				`${LABEL}: this gate run's pids were not recorded (${unrecorded}), so a memory kill under it will not be named its (#5269).\n`,
+			);
+		if (unreadSamples > 0)
+			err.write(
+				`${LABEL}: ${unreadSamples} of this gate run's tree samples would not read (${firstUnread}), so its recorded peakTreeMb is a floor; set no gateSeatMb from it.\n`,
 			);
 		held.release();
 		const file =

@@ -324,7 +324,7 @@ A count is admitted by what it needs *resting* in `MemAvailable` immediately bef
 |---|---|---|---|---|
 | 0 | 1,650 | 2,150 | 3,350 | 3,350 |
 | 1 | 3,650 | 4,000 | 5,200 | refused by the count cap |
-| 2 (past the ladder) | 5,750 | 6,300 | 7,850 | refused by the count cap |
+| 2 (past the cap: a launch race or an unhooked launch, mantahostels#2186) | 5,750 | 6,300 | 7,850 | refused by the count cap |
 
 ⚠ **The past-the-ladder row, and row 1's 5–120-file cell, are extrapolated**: their 10–12 workers pass the 9 measured, so it charges `w × ~527 MB` per worker past 9, the one-suite dip's share per worker, on top of the 3-suite dip.
 
@@ -553,6 +553,8 @@ dmesg | grep -i "killed process"
 **An RCU stall on the boot that died is the 4 and 7 Oct signature (§7)**, and no memory figure will show it — `--boot -1` is the boot before this one. Without `--boot` the check reads the running boot and its scheduler clock, where a stall or a freeze means the VM is unhealthy, whether it dies in minutes or runs degraded for hours (§7): `sync`, then `wsl --shutdown`. `SCHED-CLOCK-UNREADABLE`, a `WARN` on `npm run status`, means `/sys/fs/cgroup/*/cpu.stat` or `/proc/stat` gave no reading, so a freeze can neither show nor refuse a launch; a kernel update is the first suspect (#4092).
 
 **`CLOCK-LEAP` in that output is the 3 Nov signature (§7)**: a `t` within 3% of Windows uptime, at the stall, on a VM under 10 minutes old, both margins untraced. `LARGE-T` is any other `t` of an hour or more, with no cause named.
+
+**`lucmo` reads the guest journal as a member of `systemd-journal`**, the group that owns every journal file with read access by its mode bits, so no ACL is needed (#5299). The `group:adm:r--` ACL that `/usr/lib/tmpfiles.d/systemd.conf` sets was the only route before, and on 12 Nov 2026 most files lost it, cause unknown, hiding every earlier boot. A shell started before a group change keeps its old groups; a new `wsl.exe` session picks it up without a restart. `check-kernel-stall.js --boot <n>` names an offset outside the boots it can list as `not in the readable journal`, giving the count and the oldest boot's start; where that count is low, check `id` for `systemd-journal` first. Its offsets count only the boots this user can read.
 
 **Every session start SIGKILLs an orphaned hook run** — a process running any `scripts/guard-*` script, or a registered hook command with exactly its arguments, with an init for a parent (pid 1, WSL's session `/init` or a `systemd`), older than the longest registered hook timeout plus 60 s — with its process group where it leads one or the group holds nothing else, else its descendant tree (`scripts/reap-orphan-hooks.js`, #2922). Each kill is one JSON line in `.orphan-hook-reaps.jsonl` under `.claude/tmp/markers`, carrying the argv and age.
 

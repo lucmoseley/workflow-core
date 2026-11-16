@@ -20,8 +20,8 @@
  * already draw (lib/admission.js `gateSeatHeldMb`).
  *
  * THE GATE-RUN RECORD is `.gate-runs.jsonl` under the canonical checkout's
- * markers directory, one line per gate run, kept 30 days like the queue-exit
- * log (lib/queue-exit-log.js), whose figure it copies, unmeasured. It is the
+ * markers directory, one line per gate run, kept as long as the queue-exit
+ * log (lib/retained-jsonl.js `QUEUE_EXIT_RETAIN_MS`). It is the
  * one source of gate-run counts.
  *
  * THE PID RECORD names the processes of a running seat's tree for the
@@ -45,7 +45,7 @@ const { readAncestorsOf, readParentOf } = require("./proc-stat.js");
 const { procRoot } = require("./proc-root.js");
 const { isOtherRunner } = require("./suite-launch.js");
 const { markersDir } = require("./marker-root.js");
-const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
+const { QUEUE_EXIT_RETAIN_MS, appendRetained } = require("./retained-jsonl.js");
 const { repoRoot } = require("./test-pass-marker.js");
 const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js");
 const { isVitestRunnerLine, suiteRungMb } = require("./suite-ladder.js");
@@ -67,7 +67,6 @@ const GATE_ROLE = "gate";
 const GATE_SEAT_DEFAULT_MB = suiteRungMb(WHOLE_SUITE_WORKERS);
 
 const GATE_RUN_LOG = ".gate-runs.jsonl";
-const GATE_RUN_RETAIN_MS = 30 * DAY_MS;
 
 /** @typedef {"pass" | "red" | "ceiling" | "killed"} GateOutcome */
 /**
@@ -119,7 +118,7 @@ function gateRepoName(root) {
  * @returns {boolean} whether the line landed
  */
 const appendGateRun = (file, run) =>
-	appendRetained(file, run, GATE_RUN_RETAIN_MS);
+	appendRetained(file, run, QUEUE_EXIT_RETAIN_MS);
 
 /**
  * A waiting gate's position line: its place among the whole suites holding or

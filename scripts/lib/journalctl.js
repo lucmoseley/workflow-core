@@ -1,6 +1,7 @@
 /*
- * journalctl.js — journalctl runs for lib/earlyoom-kills.js: the journal
- * read, and the boot list a kill's time is placed in (#4143). WFC_JOURNALCTL
+ * journalctl.js — journalctl runs: a journal read, and the boot list, which
+ * places an earlyoom kill's time (#4143) and bounds check-kernel-stall.js's
+ * --boot offsets (#5299). WFC_JOURNALCTL
  * injects the binary (§N7).
  */
 

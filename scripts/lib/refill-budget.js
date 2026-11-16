@@ -19,6 +19,7 @@ const { isActionable, launchName, stopJob } = require("./refill-block-core.js");
 const { buildChildLine, buildHandOffArgs } = require("./refill-blocks.js");
 const { landedAtOf, sessionIdsOf } = require("./refill-breaker.js");
 
+/* Ruling #5250, read off its 14-day distribution of gate runs per landing. */
 const GATE_RUN_BUDGET = 6;
 
 /**

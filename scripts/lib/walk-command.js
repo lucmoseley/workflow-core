@@ -1,8 +1,7 @@
 /*
  * walk-command.js — the in-session migration walk as a session in the repo
- * root types it (#5286). Its own module so the plugin-gap report and the
- * LANDING-OFF notice spell it alike; in script-path.js it would widen every
- * guard that file's readers carry.
+ * root types it (#5286), for check-plugin-gap.js's report. Its own module:
+ * in script-path.js it would widen every guard that file's readers carry.
  */
 
 const { inCheckout } = require("./script-path.js");

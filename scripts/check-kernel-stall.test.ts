@@ -63,6 +63,20 @@ const STALLED = [
 	buildKernelLine(Date.parse("2026-10-07T14:45:13+00:00"), STALL_MSG),
 ];
 
+/** A journal listing two boots to this user, as 12 Nov 2026's ACL loss left it (#5299). */
+const TWO_BOOTS = [
+	{
+		id: "a".repeat(32),
+		from: Date.parse("2026-11-12T12:16:57Z"),
+		to: Date.parse("2026-11-16T10:37:36Z"),
+	},
+	{
+		id: "b".repeat(32),
+		from: Date.parse("2026-11-16T10:38:08Z"),
+		to: Date.parse("2026-11-16T15:53:28Z"),
+	},
+];
+
 let dir: string;
 beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "kernel-stall-"));
@@ -428,6 +442,32 @@ describe("--boot <n>, for the boot that already died", () => {
 		});
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("SKIP: no reader would return boot -1");
+	});
+
+	it.each(["-5", "-2", "3"])(
+		"names boot %s as outside the readable journal, never as quiet (#5299)",
+		(boot) => {
+			const r = run(["--boot", boot], {
+				WFC_JOURNALCTL: writeJournalctl(dir, [], TWO_BOOTS),
+			});
+			expect(r.status).toBe(0);
+			expect(r.stderr).toContain(
+				`SKIP: boot ${boot} is not in the readable journal: journalctl lists 2 boot(s) to this user, the oldest from 2026-11-12T12:16:57.000Z.`,
+			);
+			expect(r.stderr).toContain("systemd-journal membership");
+		},
+	);
+
+	it.each([
+		["a listed boot that read empty", TWO_BOOTS, "-1"],
+		["a boot list journalctl refuses", null, "-5"],
+	])("gives the plain skip for %s", (_, boots, boot) => {
+		const r = run(["--boot", boot], {
+			WFC_JOURNALCTL: writeJournalctl(dir, [], boots),
+		});
+		expect(r.status).toBe(0);
+		expect(r.stderr).toContain(`SKIP: no reader would return boot ${boot}`);
+		expect(r.stderr).not.toContain("readable journal");
 	});
 
 	it("refuses an offset that is not one, naming the shape it takes", () => {

@@ -317,6 +317,15 @@ describe("the breaker's steps", () => {
 		expect(room).toEqual({ [DV]: 0 });
 	});
 
+	it("takes no launch without an id for its trial, holding the room meanwhile", () => {
+		const record = [event("open", NOW - HOUR)];
+		const trial = busy(1, NOW - MIN, { jobId: null, sessionId: undefined });
+		expect(step(trial, readOf({ record }))).toEqual({
+			events: [],
+			room: { [DV]: 0 },
+		});
+	});
+
 	it("takes no session that ran before the open for its trial", () => {
 		const record = [event("open", NOW - HOUR)];
 		expect(step(busy(1, NOW - 2 * HOUR), readOf({ record }))).toEqual({

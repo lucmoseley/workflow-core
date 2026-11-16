@@ -634,6 +634,30 @@ describe("queue-run.js", () => {
 			f.spawned[0].child.emit("exit", 0, null);
 			await done;
 			expect(g.readGates()[0].peakTreeMb).toBe(900);
+			expect(f.err.join("")).not.toMatch(/would not read/);
+		});
+
+		it("names its unread tree samples, its recorded peak a floor", async () => {
+			const f = fixture();
+			let reads = 0;
+			const g = gateOptions(f, {
+				treeSample: () => {
+					reads += 1;
+					throw new Error("EACCES");
+				},
+				sampleMs: 1,
+			});
+			const done = main(gateRun, g.options);
+			await tick();
+			Object.assign(f.spawned[0].child, { pid: 1 });
+			f.spawned[0].child.emit("spawn");
+			await vi.waitFor(() => expect(reads).toBeGreaterThan(1));
+			f.spawned[0].child.emit("exit", 0, null);
+			await done;
+			expect(g.readGates()[0].peakTreeMb).toBe(0);
+			expect(f.err.join("")).toMatch(
+				/tree samples would not read \(EACCES\), so its recorded peakTreeMb is a floor/,
+			);
 		});
 
 		it("records each tree sample's pids on the seat's pid record, ended on exit (#5269)", async () => {
