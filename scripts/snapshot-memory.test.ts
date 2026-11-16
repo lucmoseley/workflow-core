@@ -1,7 +1,5 @@
 // @vitest-environment node
 /*
- * snapshot-memory.sh writes its tarball into the session's own tree, where it
- * is committed: from a linked worktree, never the main checkout (#5287).
  * The store is passed as the first argument, so no case reads the machine's
  * real memory store.
  */

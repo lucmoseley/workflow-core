@@ -20,8 +20,8 @@ import { appendStepsOwed, readStepsOwed } from "./lib/steps-owed.js";
 
 const SCRIPT = path.join(__dirname, "steps-owed.js");
 
-/* A main checkout whose committed config owes one `act`: `worktreeRoot()`
- * resolves through git, so the linked-worktree case needs a real repository. */
+/* A main checkout: `worktreeRoot()` resolves through git, so the
+ * linked-worktree case needs a real repository. */
 const linkedTemplate = defineTemplate((dir) => {
 	const hooks = path.join(dir, ".no-hooks");
 	fs.mkdirSync(hooks);

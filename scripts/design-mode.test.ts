@@ -7,7 +7,7 @@
  * design-mode.sh finds .claude/settings.json through guard-root.sh's
  * gr_worktree_root(), which answers CLAUDE_PROJECT_DIR outside a linked
  * worktree of it, so a scratch project dir with no git repo of its own stands
- * in for the host checkout. The linked-worktree case builds a real one.
+ * in for the host checkout.
  *
  * The design-mode skill runs it: loosen a case and switching design mode fails
  * on a fresh checkout, or rewrites other keys in the repo's
@@ -23,7 +23,6 @@ import { cutWorktree, defineTemplate, initGitRepo } from "./lib/git-fixture";
 
 const SCRIPT = path.resolve(__dirname, "design-mode.sh");
 
-/* A main checkout with its settings file committed. */
 const linkedTemplate = defineTemplate((dir) => {
 	const hooks = path.join(dir, ".no-hooks");
 	fs.mkdirSync(hooks);

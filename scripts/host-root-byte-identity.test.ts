@@ -251,7 +251,6 @@ describe("worktreeRoot() and gr_worktree_root agree (#5287)", () => {
 		execFileSync("git", ["init", "-q"], { cwd: other });
 	});
 
-	/** Each half's answer run from `cwd`, CLAUDE_PROJECT_DIR as `declared`. */
 	const readRoots = (cwd: string, declared: string | undefined) => {
 		const opts = { cwd, env: envWith(declared), encoding: "utf8" as const };
 		const js = spawnSync(
