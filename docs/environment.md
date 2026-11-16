@@ -324,7 +324,7 @@ A count is admitted by what it needs *resting* in `MemAvailable` immediately bef
 |---|---|---|---|---|
 | 0 | 1,650 | 2,150 | 3,350 | 3,350 |
 | 1 | 3,650 | 4,000 | 5,200 | refused by the count cap |
-| 2 (past the ladder) | 5,750 | 6,300 | 7,850 | refused by the count cap |
+| 2 (past the cap: a launch race or an unhooked launch, mantahostels#2186) | 5,750 | 6,300 | 7,850 | refused by the count cap |
 
 ⚠ **The past-the-ladder row, and row 1's 5–120-file cell, are extrapolated**: their 10–12 workers pass the 9 measured, so it charges `w × ~527 MB` per worker past 9, the one-suite dip's share per worker, on top of the 3-suite dip.
 

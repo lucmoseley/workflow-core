@@ -20,18 +20,20 @@
  */
 
 const { refillPath } = require("./refill-dir.js");
-const { appendRetained } = require("./retained-jsonl.js");
+const { QUEUE_EXIT_RETAIN_MS, appendRetained } = require("./retained-jsonl.js");
 
 const MIN_MS = 60 * 1000;
 const HOUR_MS = 60 * MIN_MS;
-const DAY_MS = 24 * HOUR_MS;
+/* Ruling #5250, read off its measured 14-day curve. */
 const BREAKER_WINDOW_MS = 6 * HOUR_MS;
 const BREAKER_MIN_HOURS = 12;
 const BREAKER_FLOOR = 0.3;
+
+/* #5275's measurement. */
 const SILENCE_CAP_MS = HOUR_MS;
-/* The gate-run record's own retention (lib/gate-seat.js), so the two records
- * the morning review reads side by side reach back alike. */
-const BREAKER_RETAIN_MS = 30 * DAY_MS;
+/* The gate-run record's own retention, so the two records the morning
+ * review reads side by side reach back alike. */
+const BREAKER_RETAIN_MS = QUEUE_EXIT_RETAIN_MS;
 const WORKING_STATES = new Set(["working", "running"]);
 
 /**
@@ -238,8 +240,13 @@ function stepBreaker({ root, state, launches, reading, read, now }) {
 			? { event: buildEvent(root, "open", { reading, now }), room: 0 }
 			: { event: null, room: null };
 	if (state.state === "open") {
+		/* Only a launch with an id can be a trial: a line naming none would
+		 * match no launch, and the next tick would reopen. Residual (#5301): a
+		 * launch with no job id never finishes (lib/refill-block-core.js
+		 * isLive), so it holds the room at 0, as any running launch does,
+		 * until it leaves `launches`. */
 		const trial = mine
-			.filter((l) => l.launchedAt > state.since)
+			.filter((l) => l.launchedAt > state.since && idsOf(l).length > 0)
 			.toSorted((a, b) => a.launchedAt - b.launchedAt)[0];
 		if (trial)
 			return {

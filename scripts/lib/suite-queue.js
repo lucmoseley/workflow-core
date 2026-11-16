@@ -1044,7 +1044,7 @@ function readSlotPlace({
 		.filter(
 			(r) => r.part !== true && (r.pid === pid || !isMarkerStale(r, { alive })),
 		)
-		.sort((a, b) => (joinedBefore(a, b) ? -1 : 1));
+		.sort((a, b) => Number(joinedBefore(b, a)) - Number(joinedBefore(a, b)));
 	const mine = whole.find((r) => r.pid === pid) ?? {
 		pid,
 		at: Number.POSITIVE_INFINITY,
