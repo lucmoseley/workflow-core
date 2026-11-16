@@ -32,7 +32,8 @@ describe("messages a shipped script prints", () => {
 	 * wait-text say, and the issue-body fallback lead deny passes through,
 	 * which ctx.corePaths spells there; the `byHand` commands guard-entry's
 	 * refusal spells; and the status script npm runs from an adopter's root,
-	 * where init and upgrade copy resolve-core.js (#4151); and the rule
+	 * where init and upgrade copy resolve-core.js (#4151), and the walk
+	 * walk-command.js spells there or, in a source checkout, bare (#5286); and the rule
 	 * trigger generate-rule-fragments writes into the manifest (#4285). */
 	const exempt = [
 		/^\t\t"Every issue-body edit goes through node scripts\/issue-body\.js",$/,
@@ -47,6 +48,8 @@ describe("messages a shipped script prints", () => {
 		/^\t"wait inside the turn — what you wait on in the foreground with `timeout: 600000`, a bg-run\.sh job with `scripts\/bg-run\.sh wait <name>`/,
 		/^\tbyHand: "`node scripts\/claim-issue\.js <n>` to claim an issue by hand",$/,
 		/^\t"node scripts\/lib\/resolve-core\.js scripts\/status-report\.js";$/,
+		/^\t\t\? "node scripts\/upgrade\.js"$/,
+		/^\t\t: "node scripts\/lib\/resolve-core\.js scripts\/upgrade\.js";$/,
 		/^\t\t\t\trecordedBy: "node scripts\/record-headless-run\.js",$/,
 		/^const RECORDED_BY = "node scripts\/record-claude-responses\.js";$/,
 		/^const RECORDED_BY = "node scripts\/record-claude-plugin\.js";$/,
