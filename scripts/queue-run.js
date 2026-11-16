@@ -146,9 +146,6 @@ const SEAT_REFUSAL =
 const TSC_REFUSAL =
 	"--tsc holds the type-check slot, and this command is a suite; queue it without --tsc.";
 
-/* Why a slot refuses a command that is itself a suite. */
-const SLOT_REFUSALS = { seat: SEAT_REFUSAL, tsc: TSC_REFUSAL };
-
 /**
  * What a `--tsc` wait prints in place of a suite's (#3163), on the rung of
  * the launch's own compiler (#4892).
@@ -252,23 +249,30 @@ function runReading(inner, ports) {
 const VITEST_KINDS = ["npm-vitest", "npm-watch", "wrapper"];
 
 /**
- * Why this script refuses the command, or null where it queues it.
+ * Why a plain launch is refused, or null where it queues.
  *
  * @param {string[]} words
- * @param {Slot} slot
  * @returns {string | null}
  */
-function refusalOf(words, slot) {
-	/* A gate's command is taken by its role, never by the classifier. */
-	if (slot === "gate") return null;
+function plainRefusal(words) {
 	const reading = classify(words);
-	if (reading === "unread") return null;
-	if (slot) return reading === "none" ? null : SLOT_REFUSALS[slot];
-	if (reading === "queue") return null;
+	if (reading === "unread" || reading === "queue") return null;
 	return (
 		REFUSALS[/** @type {keyof typeof REFUSALS} */ (reading)] ?? REFUSALS.none
 	);
 }
+
+/**
+ * A slot's refusal of a command that is itself a suite: `why`, or null where
+ * the command runs none or will not read.
+ *
+ * @param {string} why
+ * @returns {(words: string[]) => string | null}
+ */
+const suiteRefusedWith = (why) => (words) => {
+	const reading = classify(words);
+	return reading === "unread" || reading === "none" ? null : why;
+};
 
 /**
  * @typedef {{ write: (s: string) => unknown }} Out
@@ -308,7 +312,7 @@ function exitStatus(code, signal) {
 	return number ? 128 + number : 1;
 }
 
-/** @typedef {"seat" | "tsc" | "gate" | null} Slot */
+/** @typedef {"seat" | "tsc" | "gate" | "other"} Slot */
 
 /** @typedef {import("./lib/suite-queue.js").QueueSeat["stamps"]} Stamps */
 
@@ -316,10 +320,6 @@ function exitStatus(code, signal) {
 const waitOn = (gate) => () => gate;
 
 const refusedRun = () => 1;
-
-/* The variable a slot hands its command, naming its marker (#2918, #3404). */
-/** @type {Record<"seat" | "tsc" | "gate", string>} */
-const SLOT_ENVS = { seat: SEAT_ENV, tsc: TSC_SLOT_ENV, gate: GATE_ENV };
 
 /**
  * A `--tsc` try's wait under TSC_NO_WAIT_ENV (#3278): the gate's first answer
@@ -357,59 +357,106 @@ function sayTscHeld(err) {
 }
 
 /**
- * What a slot flag changes about the wait: the queue it joins, the weight it
- * joins with, the wait options it builds from its marker's stamps, and the
- * exit a refusal takes (#2918, #3163, #3278). With no slot the marker carries
- * the command's runner peak where one is measured (#4648).
+ * What a slot's wait builds: the queue it joins, the weight it joins with,
+ * the wait options it builds from its marker's stamps, the exit a refusal
+ * takes, the extra fields its exit lines carry, the place it prints before
+ * waiting, and how its command starts once the wait ends in a run (#2918,
+ * #3163, #3278, #5274).
  *
- * @param {Slot} slot
+ * @typedef {{
+ *   queue: Options,
+ *   join: NonNullable<Parameters<typeof queueSeat>[0]>["join"],
+ *   wait: (stamps: Stamps) => object,
+ *   refused: (err: Out) => number,
+ *   exitExtra?: { noWait?: boolean, chargeMb: number },
+ *   sayPlace: () => void,
+ *   start: (words: string[], launch: Launch) => import("node:child_process").ChildProcess,
+ * }} SlotWait
+ *
+ * @typedef {{
+ *   seat: ReturnType<typeof queueSeat>,
+ *   options: Options,
+ *   err: Out,
+ *   finish: (code: number) => void,
+ * }} Launch
+ */
+
+const sayNoPlace = () => {
+	/* only a gate seat prints its place */
+};
+
+/**
+ * Start the command handing the seat's ticket on in `handed`, or in no
+ * variable where it is null.
+ *
+ * @param {string | null} handed
+ * @returns {SlotWait["start"]}
+ */
+const handing = (handed) => (words, launch) =>
+	spawnCommand(words, { handed, ...launch });
+
+/**
+ * A seat's wait: the suite queue joined once as a part-suite (#2918).
+ *
+ * @param {Options} options
+ * @returns {SlotWait}
+ */
+const seatWait = (options) => ({
+	queue: options,
+	join: { ...options, weight: SEAT_WEIGHT },
+	wait: waitOn({ gateWeight: SEAT_WEIGHT, part: true }),
+	refused: refusedRun,
+	sayPlace: sayNoPlace,
+	start: handing(SEAT_ENV),
+});
+
+/**
+ * A `--tsc` wait (#3163): the type-check slot's queue is a directory of its
+ * own. The launch is charged the peak of the compiler its `tsc` resolves to
+ * from here, stamped on its marker for the suite queue's climb and on its
+ * exit line for the replay (#4892). Under TSC_NO_WAIT_ENV it is one try
+ * (#3278).
+ *
  * @param {Options} options
  * @param {string[]} words
+ * @returns {SlotWait}
  */
-function slotWait(slot, options, words) {
-	if (slot === "gate") return gateWait(options, words);
-	if (slot === "seat")
-		return {
-			queue: options,
-			join: { ...options, weight: SEAT_WEIGHT },
-			wait: waitOn({ gateWeight: SEAT_WEIGHT, part: true }),
-			refused: refusedRun,
-		};
-	if (slot === "tsc") {
-		/* The type-check slot's queue is a directory of its own. The launch is
-		 * charged the peak of the compiler its `tsc` resolves to from here, stamped on its
-		 * marker for the suite queue's climb and on its exit line for the
-		 * replay (#4892). */
-		const queue = {
-			...options,
-			queueDir: options.queueDir ?? defaultTscQueueDir(),
-		};
-		const chargeMb =
-			options.tscPeakMb ??
-			launchPeakMb(process.cwd(), { bin: tscLaunchBin(words) ?? "tsc" });
-		const gate = {
-			gate:
-				options.gate ??
-				((/** @type {number} */ climbMb) => tscGate(climbMb, chargeMb)),
-			...buildTscWait(chargeMb),
-		};
-		const join = { ...queue, chargeMb };
-		if (process.env[TSC_NO_WAIT_ENV] === "1")
-			return {
-				queue,
-				join,
-				wait: tryOn(gate),
-				refused: sayTscHeld,
-				exitExtra: { noWait: true, chargeMb },
-			};
-		return {
-			queue,
-			join,
-			wait: waitOn(gate),
-			refused: refusedRun,
-			exitExtra: { chargeMb },
-		};
-	}
+function tscWait(options, words) {
+	const queue = {
+		...options,
+		queueDir: options.queueDir ?? defaultTscQueueDir(),
+	};
+	const chargeMb =
+		options.tscPeakMb ??
+		launchPeakMb(process.cwd(), { bin: tscLaunchBin(words) ?? "tsc" });
+	const gate = {
+		gate:
+			options.gate ??
+			((/** @type {number} */ climbMb) => tscGate(climbMb, chargeMb)),
+		...buildTscWait(chargeMb),
+	};
+	const noWait = process.env[TSC_NO_WAIT_ENV] === "1";
+	return {
+		queue,
+		join: { ...queue, chargeMb },
+		wait: noWait ? tryOn(gate) : waitOn(gate),
+		refused: noWait ? sayTscHeld : refusedRun,
+		exitExtra: noWait ? { noWait: true, chargeMb } : { chargeMb },
+		sayPlace: sayNoPlace,
+		start: handing(TSC_SLOT_ENV),
+	};
+}
+
+/**
+ * A plain launch's wait: its marker carries the command's runner peak where
+ * one is measured (#4648), and a command naming its test files joins as a
+ * part-suite (#5274).
+ *
+ * @param {Options} options
+ * @param {string[]} words
+ * @returns {SlotWait}
+ */
+function otherWait(options, words) {
 	const charges = unwrapArgv(words).flatMap(({ words: inner }) => {
 		const mb = queuedRunnerPeakMb(inner);
 		return mb === undefined ? [] : [mb];
@@ -418,18 +465,14 @@ function slotWait(slot, options, words) {
 	 * that one alone. */
 	const chargeMb = charges.length > 0 ? Math.max(...charges) : undefined;
 	const charged = chargeMb === undefined ? options : { ...options, chargeMb };
-	if (isNamedFilesRun(words))
-		return {
-			queue: options,
-			join: { ...charged, weight: NAMED_FILES_WEIGHT },
-			wait: waitOn({ gateWeight: NAMED_FILES_WEIGHT, part: true }),
-			refused: refusedRun,
-		};
+	const part = isNamedFilesRun(words);
 	return {
 		queue: options,
-		join: charged,
-		wait: waitOn({}),
+		join: part ? { ...charged, weight: NAMED_FILES_WEIGHT } : charged,
+		wait: waitOn(part ? { gateWeight: NAMED_FILES_WEIGHT, part: true } : {}),
 		refused: refusedRun,
+		sayPlace: sayNoPlace,
+		start: handing(null),
 	};
 }
 
@@ -459,10 +502,12 @@ function isNamedFilesRun(words) {
 /**
  * A gate seat's wait (#5274): the suite queue joined whole, role `gate`,
  * carrying who holds it and its charge, waiting with no bound, its place
- * printed on joining and at each change.
+ * printed on joining and at each change, its command started under its
+ * ceiling and record.
  *
  * @param {Options} options
  * @param {string[]} words
+ * @returns {SlotWait}
  */
 function gateWait(options, words) {
 	const session =
@@ -511,10 +556,9 @@ function gateWait(options, words) {
 			},
 		}),
 		refused: refusedRun,
-		exitExtra: undefined,
 		sayPlace,
-		holder,
-		started,
+		start: (_words, launch) =>
+			spawnGate({ ...launch, holder, waitMs: clock() - started }),
 	};
 }
 
@@ -556,18 +600,60 @@ function readTicket(session) {
 }
 
 /**
- * The slot the flags ask for, or null for none; undefined where they ask for
+ * What each slot kind is (#2918, #3163, #5274): why it refuses a command,
+ * the variable whose marker means its slot is held already in this process
+ * tree, whether it runs at once inside a running suite's tree, and its wait.
+ * A launch with no slot flag is `other`.
+ *
+ * @type {Record<Slot, {
+ *   refusal: (words: string[]) => string | null,
+ *   heldBy: string,
+ *   inSuite: (options: Options) => boolean,
+ *   wait: (options: Options, words: string[]) => SlotWait,
+ * }>}
+ */
+const SLOT_KINDS = {
+	seat: {
+		refusal: suiteRefusedWith(SEAT_REFUSAL),
+		heldBy: GATE_ENV,
+		inSuite: () => false,
+		wait: seatWait,
+	},
+	tsc: {
+		refusal: suiteRefusedWith(TSC_REFUSAL),
+		heldBy: TSC_SLOT_ENV,
+		inSuite: () => false,
+		wait: tscWait,
+	},
+	gate: {
+		/* A gate's command is taken by its role, never by the classifier. */
+		refusal: () => null,
+		heldBy: GATE_ENV,
+		inSuite: (options) => (options.inSuite ?? (() => isInSuite(options)))(),
+		wait: gateWait,
+	},
+	other: {
+		refusal: plainRefusal,
+		heldBy: GATE_ENV,
+		inSuite: () => false,
+		wait: otherWait,
+	},
+};
+
+/** @type {Exclude<Slot, "other">[]} */
+const SLOT_FLAGS = ["seat", "tsc", "gate"];
+
+/**
+ * The slot the flags ask for, `other` for none; undefined where they ask for
  * more than one.
  *
  * @param {Record<string, unknown>} flags
  * @returns {Slot | undefined}
  */
 function slotOf(flags) {
-	/** @type {("seat" | "tsc" | "gate")[]} */
-	const asked = ["seat", "tsc", "gate"];
-	const slots = asked.filter((slot) => flags[`--${slot}`] === true);
+	const slots = SLOT_FLAGS.filter((slot) => flags[`--${slot}`] === true);
 	if (slots.length > 1) return;
-	return slots[0] ?? null;
+	return slots[0] ?? "other";
 }
 
 /**
@@ -592,7 +678,7 @@ async function main(argv, options = {}) {
 		);
 		return 2;
 	}
-	const why = refusalOf(words, slot);
+	const why = SLOT_KINDS[slot].refusal(words);
 	if (why) {
 		err.write(`${LABEL}: not queued — ${why}\n`);
 		return 2;
@@ -616,18 +702,21 @@ async function run(words, slot, options, err) {
 			options.queueLog === undefined
 				? queueExitLogPath(hostRoot())
 				: options.queueLog,
-		kind: slot ?? "other",
+		kind: slot,
 		session:
 			options.sessionId === undefined ? idSeam.fromEnv() : options.sessionId,
 		label: LABEL,
 		err,
 	});
 
-	const held = isHeld(slot, options);
-	const unseated =
-		held ||
-		(slot === "gate" && (options.inSuite ?? (() => isInSuite(options)))());
-	const slotted = slotWait(slot, options, words);
+	const kind = SLOT_KINDS[slot];
+	/* A slot held already in this process tree runs the command at once, in
+	 * that slot: a `--tsc` launch inside a `--tsc` command's tree, which would
+	 * otherwise wait behind it forever (#3404), and any other launch inside a
+	 * gate seat's tree (#5274). */
+	const held = heldMarker(kind.heldBy, options) !== null;
+	const unseated = held || kind.inSuite(options);
+	const slotted = kind.wait(options, words);
 	const { queue, join, wait, refused, exitExtra } = slotted;
 	/** @type {import("node:child_process").ChildProcess | null} */
 	let child = null;
@@ -658,7 +747,7 @@ async function run(words, slot, options, err) {
 		};
 	});
 
-	if (!unseated && "sayPlace" in slotted) slotted.sayPlace();
+	if (!unseated) slotted.sayPlace();
 	const outcome = unseated
 		? null
 		: await seat.wait({
@@ -666,68 +755,14 @@ async function run(words, slot, options, err) {
 				...queue,
 				...wait(seat.stamps),
 			});
+	const launch = { seat, options, err, finish };
 	if (outcome === "refused") finish(refused(err));
 	else
-		child = startCommand(words, {
-			slot,
-			held,
-			slotted,
-			seat,
-			options,
-			err,
-			finish,
-		});
+		child = held
+			? spawnCommand(words, { handed: null, ...launch })
+			: slotted.start(words, launch);
 	return done;
 }
-
-/**
- * Start the command once its wait has ended in a run: a gate seat's under its
- * ceiling and record, any other with its slot's variable where it took one.
- *
- * @param {string[]} words
- * @param {{
- *   slot: Slot,
- *   held: boolean,
- *   slotted: ReturnType<typeof slotWait>,
- *   seat: ReturnType<typeof queueSeat>,
- *   options: Options,
- *   err: Out,
- *   finish: (code: number) => void,
- * }} at
- */
-function startCommand(
-	words,
-	{ slot, held, slotted, seat, options, err, finish },
-) {
-	if (!held && "holder" in slotted)
-		return spawnGate({
-			seat,
-			options,
-			err,
-			finish,
-			holder: slotted.holder,
-			waitMs: (options.clock ?? Date.now)() - slotted.started,
-		});
-	return spawnCommand(words, {
-		handed: held || !slot ? null : SLOT_ENVS[slot],
-		seat,
-		options,
-		err,
-		finish,
-	});
-}
-
-/**
- * Whether the slot is held already, so the launch runs at once and joins no
- * queue: a `--tsc` launch inside a `--tsc` command's process tree, which
- * would otherwise wait behind it forever (#3404), and any other launch inside
- * a gate seat's tree, which runs in the slot the seat holds (#5274).
- *
- * @param {Slot} slot
- * @param {Options} options
- */
-const isHeld = (slot, options) =>
-	heldMarker(slot === "tsc" ? TSC_SLOT_ENV : GATE_ENV, options) !== null;
 
 /**
  * The exit logger, carrying a slot's extra fields on each line where it has
