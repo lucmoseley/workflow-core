@@ -172,8 +172,15 @@ describe("a breaker trial's landing reads (#5300)", () => {
 		expect(read.queueOf(l)).toEqual({ state: "gone" });
 	});
 
-	it("reads a checkout with no queue log as having no rows, so its remote decides", () => {
+	it("reads a checkout with no queue log as having no rows, so its remote's queue ref decides (#5273)", () => {
 		const repo = repoAt("repo");
+		const origin = path.join(tmp, "origin.git");
+		git(tmp, "init", "-q", "--bare", "-b", "main", origin);
+		git(repo, "config", "user.email", "test@example.com");
+		git(repo, "config", "user.name", "test");
+		git(repo, "commit", "-q", "--allow-empty", "-m", "one");
+		git(repo, "remote", "add", "origin", origin);
+		git(repo, "push", "-q", "origin", "main");
 		const seat = path.join(tmp, "seat");
 		const tree = path.join(repo, ".claude", "worktrees", "implement-1-abc");
 		fs.mkdirSync(tree, { recursive: true });
@@ -182,12 +189,12 @@ describe("a breaker trial's landing reads (#5300)", () => {
 			path.join(seat, "jobs", "j1", "state.json"),
 			JSON.stringify({ cwd: tree }),
 		);
-		expect(
-			tickRead(repo).queueOf(launchOf(seat, "j1", { root: repo })),
-		).toMatchObject({
-			state: "unread",
-			why: expect.stringMatching(/^its queue ref will not read: .*origin/),
-		});
+		const l = launchOf(seat, "j1", { root: repo });
+		expect(fs.existsSync(queueLogFile(repo))).toBe(false);
+		expect(tickRead(repo).queueOf(l)).toEqual({ state: "gone" });
+		git(repo, "commit", "-q", "--allow-empty", "-m", "mine");
+		git(repo, "push", "-q", "origin", "HEAD:refs/heads/queue/implement-1-abc");
+		expect(tickRead(repo).queueOf(l)).toEqual({ state: "waiting" });
 	});
 
 	it("reads a worktree's queue ref it cannot reach as unread, and why", () => {

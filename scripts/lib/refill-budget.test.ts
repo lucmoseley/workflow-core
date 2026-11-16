@@ -5,7 +5,7 @@
  * design-vault #415 did, runs on.
  */
 import { describe, expect, it } from "vitest";
-import { fakeIo } from "./refill-blocks-fixture";
+import { fakeIo, logs } from "./refill-blocks-fixture";
 import { parkOverBudget } from "./refill-budget.js";
 import { NOW, record } from "./refill-loop-fixture";
 
@@ -126,13 +126,24 @@ describe("the gate-run budget (#5275)", () => {
 		).toEqual([]);
 	});
 
-	it("parks nothing where its landing will not read, so it never counts from its launch past an unread landing", () => {
+	it("parks at its 6th run where its landing reads, and where it will not parks nothing and logs why (#5273)", () => {
+		expect(tick([live()], readOf(runsAgo(8))).events).toHaveLength(1);
 		const unreadMain = readOf(runsAgo(8), {
 			byRoot: { [DV]: { commits: null, gateRuns: runsAgo(8), sessions: [] } },
 		});
-		expect(tick([live()], unreadMain).events).toEqual([]);
 		const unreadLedger = readOf(runsAgo(8), { commitsOf: () => null });
-		expect(tick([live()], unreadLedger).events).toEqual([]);
+		for (const [read, why] of [
+			[unreadMain, "origin/main will not read"],
+			[unreadLedger, "its commit ledger will not read"],
+		] as const) {
+			const { events, calls } = tick([live()], read);
+			expect(events).toEqual([]);
+			expect(logs(calls)).toEqual([
+				expect.stringMatching(
+					new RegExp(`^gate-run budget of .+ not judged: ${why}$`),
+				),
+			]);
+		}
 	});
 
 	it("logs a stop that fails and parks nothing, for the next tick to try again", () => {

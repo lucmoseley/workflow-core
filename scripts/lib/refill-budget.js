@@ -32,17 +32,17 @@ const GATE_RUN_BUDGET = 6;
 
 /**
  * How many gate runs `l`'s sessions ran since its last landing, else its
- * launch; null where its checkout's gate-run record or its landing will not
- * read, so an unread landing never parks a session (#5273).
+ * launch; null where its checkout's gate-run record will not read, and why
+ * where its landing will not, so an unread landing never parks it (#5273).
  * @param {LoopLaunch} l
  * @param {ThroughputRead} read
- * @returns {number|null}
+ * @returns {number|{unread: string}|null}
  */
 function gateRunsSinceLanding(l, read) {
 	const runs = read.byRoot[l.root]?.gateRuns;
 	if (!runs) return null;
 	const landing = landingOf(l, read);
-	if (!("at" in landing)) return null;
+	if (!("at" in landing)) return landing;
 	const since = Math.max(l.launchedAt, landing.at ?? 0);
 	const ids = sessionIdsOf(l);
 	return runs.filter(
@@ -92,6 +92,12 @@ function parkOverBudget(launches, read, seen) {
 	const out = launches.map((l) => {
 		if (!isActionable(l) || l.jobId === null) return l;
 		const runs = gateRunsSinceLanding(l, read);
+		if (runs !== null && typeof runs === "object") {
+			seen.io.log(
+				`gate-run budget of ${launchName(l)} not judged: ${runs.unread}`,
+			);
+			return l;
+		}
 		if (runs === null || runs < GATE_RUN_BUDGET) return l;
 		const parked = parkOnBudget(/** @type {JobLaunch} */ (l), runs, seen);
 		if (parked === null) return l;

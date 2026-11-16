@@ -289,7 +289,8 @@ function stepBreaker({ root, state, launches, reading, read, now }) {
 
 /**
  * A trial's step: its close or reopen, else the checkout held at no room, with
- * a note where its landing or queue ref will not read.
+ * a note where its commits wait in the landing queue or its landing or queue
+ * ref will not read.
  * @param {{root: string, state: Extract<BreakerState, {state: "trial"}>,
  *   mine: BreakerLaunch[], reading: Reading, read: ThroughputRead,
  *   now: number}} step  `mine`, the checkout's launches
@@ -307,39 +308,37 @@ function stepTrial({ root, state, mine, reading, read, now }) {
 			event: buildEvent(root, outcome, { reading, now }, trial),
 			room: outcome === "close" ? null : 0,
 		};
-	if (outcome === "wait")
-		return trial.finishedAt === null
-			? { event: null, room: 0 }
-			: {
-					event: null,
-					room: 0,
-					note: `breaker trial ${state.session} in ${root} held in trial: its commits wait in the landing queue`,
-				};
+	if (outcome === "running") return { event: null, room: 0 };
+	const why =
+		outcome === "queued"
+			? "its commits wait in the landing queue"
+			: outcome.unread;
 	return {
 		event: null,
 		room: 0,
-		note: `breaker trial ${state.session} in ${root} held in trial: ${outcome.unread}`,
+		note: `breaker trial ${state.session} in ${root} held in trial: ${why}`,
 	};
 }
 
 /**
  * What a trial's landing and queue ref make of it: close where a commit of
- * its landed, reopen where it ended with nothing left to land, else wait —
- * running, or its commits queued or under test — or what will not read.
+ * its landed, reopen where it ended with nothing left to land, running while
+ * its session runs, queued while its commits are queued or under test, or
+ * what will not read.
  * @param {BreakerLaunch} trial
  * @param {ThroughputRead} read
- * @returns {"close"|"reopen"|"wait"|{unread: string}}
+ * @returns {"close"|"reopen"|"running"|"queued"|{unread: string}}
  */
 function trialOutcomeOf(trial, read) {
 	const landing = landingOf(trial, read);
 	if ("at" in landing && landing.at !== null) return "close";
-	if (trial.finishedAt === null) return "wait";
+	if (trial.finishedAt === null) return "running";
 	if (!("at" in landing)) return landing;
 	if (!landing.committed) return "reopen";
 	const queue = read.queueOf(trial);
 	if (queue.state === "unread") return { unread: queue.why };
 	if (queue.state === "landed") return "close";
-	return queue.state === "waiting" ? "wait" : "reopen";
+	return queue.state === "waiting" ? "queued" : "reopen";
 }
 
 /** @param {BreakerLaunch} l */

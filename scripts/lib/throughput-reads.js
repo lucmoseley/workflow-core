@@ -255,8 +255,9 @@ function buildQueueReader() {
 	const readLander = (root) => {
 		const known = landers.get(root);
 		if (known) return known;
-		/* An absent queue log reads as no rows: the pre-push hook writes it on
-		 * every push, so absent means nothing was pushed (#5273). */
+		/* An absent queue log reads as no rows (#5273): the pre-push hook
+		 * writes it on every push, but fails open, so a push it missed is
+		 * still read off the remote's queue ref. */
 		const read = {
 			refs: queueGit(root).refs(),
 			rows: readQueueRows(queueLogFile(root)),
