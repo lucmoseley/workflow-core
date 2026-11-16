@@ -1092,6 +1092,7 @@ describe("set (#3856)", () => {
 			live: 9,
 			ceiling: 9,
 			working: 6,
+			waiting: [],
 		});
 	});
 

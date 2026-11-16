@@ -1025,12 +1025,16 @@ describe("the seats a tick sizes, in its first served checkout (#2937, #3669, #4
 		return { roots, capped, routes };
 	};
 
-	it("sizes a parker's seat for one resume in the first served checkout, so its ticket resumes there (#3669)", async () => {
+	it("sizes a parker's seat for one resume in the first served checkout, its ticket going to the first seat with a fit (#3669, #5293)", async () => {
 		const { capped, routes } = await tickOver([parker()]);
 		expect(capped).toEqual([`${WFC} ${Seat2}/1`]);
 		expect(routes).toEqual([
 			expect.objectContaining({
-				resume: expect.objectContaining({ seat: Seat2, sessionId: "s-job5" }),
+				resume: expect.objectContaining({
+					seat: SEAT,
+					from: Seat2,
+					sessionId: "s-job5",
+				}),
 			}),
 		]);
 	});

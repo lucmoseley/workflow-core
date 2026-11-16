@@ -56,12 +56,16 @@ afterEach(() => {
 const claudeOf = (...lines: string[]) =>
 	writeClaudeStub(path.join(dir, "claude"), lines, 9);
 
-/** The reader's listing off a `claude` at `bin`. */
+/** The reader's listing off a `claude` at `bin`, each record less the seat
+ * the reader names on it (#5293), which no row the CLI prints carries. */
 const readListing = (bin: string) => {
 	vi.stubEnv("WFC_CLAUDE_BIN", bin);
 	const listing = listedAgents({ requireSelf: false });
 	expect(listing.why).toBeUndefined();
-	return listing.agents ?? [];
+	return (listing.agents ?? []).map(({ seat, ...row }) => {
+		expect(seat).toEqual(expect.any(String));
+		return row;
+	});
 };
 
 /** `row` read back unchanged through the listing, with the reaper's and the
