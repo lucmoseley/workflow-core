@@ -11,10 +11,15 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { paths } from "./arbiter-core.js";
 import { recordJobs } from "./loop-jobs.js";
 import { appendBreakerEvents } from "./refill-breaker.js";
 import { readState, type Transition, updateState } from "./refill-state.js";
-import { readThroughput, readThroughputWindow } from "./throughput-reads.js";
+import {
+	readThroughput,
+	readThroughputWindow,
+	trialQueueOf,
+} from "./throughput-reads.js";
 
 type SeatedLaunch = import("./refill-breaker.js").BreakerLaunch & {
 	seat: string;
@@ -134,6 +139,85 @@ describe("the breaker's record", () => {
 	it("is null where it will not read", () => {
 		fs.mkdirSync(path.join(tmp, "refill", ".refill-breaker.jsonl"));
 		expect(tickRead(tmp).record).toBeNull();
+	});
+});
+
+describe("a breaker trial's landing reads (#5300)", () => {
+	const repoAt = (name: string) => {
+		const repo = path.join(tmp, name);
+		fs.mkdirSync(repo);
+		git(repo, "init", "-q", "-b", "main");
+		return repo;
+	};
+
+	it("reads a session's commits, none where it made none, and null where its ledger will not read", () => {
+		const repo = repoAt("repo");
+		const l = launchOf(path.join(tmp, "seat"), "j1", { root: repo });
+		const read = tickRead(repo);
+		expect(read.commitsOf(l)).toEqual([]);
+		fs.mkdirSync(paths.commitLedger("j1-session", repo), { recursive: true });
+		expect(read.commitsOf(l)).toBeNull();
+	});
+
+	it("reads a launch whose job record names no worktree as unread, and one run outside the checkout's worktrees as having no queue ref", () => {
+		const repo = repoAt("repo");
+		const seat = path.join(tmp, "seat");
+		const read = tickRead(repo);
+		const l = launchOf(seat, "j1", { root: repo });
+		expect(read.queueOf(l)).toEqual({
+			state: "unread",
+			why: "its job record names no worktree",
+		});
+		fs.mkdirSync(path.join(seat, "jobs", "j1"), { recursive: true });
+		fs.writeFileSync(
+			path.join(seat, "jobs", "j1", "state.json"),
+			JSON.stringify({ cwd: repo }),
+		);
+		expect(read.queueOf(l)).toEqual({ state: "gone" });
+	});
+
+	it("reads a worktree's queue ref it cannot reach as unread, and why", () => {
+		const repo = repoAt("repo");
+		const seat = path.join(tmp, "seat");
+		const tree = path.join(repo, ".claude", "worktrees", "implement-1-abc");
+		fs.mkdirSync(tree, { recursive: true });
+		fs.mkdirSync(path.join(seat, "jobs", "j1"), { recursive: true });
+		fs.writeFileSync(
+			path.join(seat, "jobs", "j1", "state.json"),
+			JSON.stringify({ cwd: tree }),
+		);
+		expect(
+			tickRead(repo).queueOf(launchOf(seat, "j1", { root: repo })),
+		).toMatchObject({
+			state: "unread",
+			why: expect.stringMatching(/^its queue ref will not read: /),
+		});
+	});
+
+	it("reads a queue ref's stays as landed, waiting or gone, and unread where a stay's state will not read", () => {
+		const at = { name: "w", sha: "abcdef1234" };
+		expect(
+			trialQueueOf([
+				{ ...at, state: "dropped", ref: null, record: "torn" },
+				{ ...at, state: "landed", main: null },
+			]),
+		).toEqual({ state: "landed" });
+		expect(trialQueueOf([{ ...at, state: "queued", snapshot: null }])).toEqual({
+			state: "waiting",
+		});
+		expect(trialQueueOf([{ ...at, state: "testing" }])).toEqual({
+			state: "waiting",
+		});
+		expect(
+			trialQueueOf([{ ...at, state: "dropped", ref: null, record: "torn" }]),
+		).toEqual({ state: "gone" });
+		expect(trialQueueOf([])).toEqual({ state: "gone" });
+		expect(
+			trialQueueOf([{ ...at, state: "unwalked", fault: "no git" }]),
+		).toEqual({
+			state: "unread",
+			why: "queue/w at abcdef1 is queued, under test or landed, which will not read",
+		});
 	});
 });
 

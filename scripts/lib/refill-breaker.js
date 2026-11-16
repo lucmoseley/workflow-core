@@ -5,8 +5,12 @@
  * working hours in those 6 h. Once 12 working hours have run and the rate is
  * under 0.3 it opens: the loop launches and resumes nothing there, and running
  * sessions carry on. Once no loop session runs there it admits one trial
- * launch; a trial that lands a commit closes it, one that ends without a
- * landing reopens it. A closed breaker counts only from its close. No transition pages anyone (#5268).
+ * launch; a trial that lands a commit closes it. One that ends with its
+ * commits still on its queue ref, or in a lander batch, stays in trial until
+ * they land or are dropped; one that ends having pushed nothing, or whose
+ * stays were all dropped, reopens it (#5300). A landing or queue read that
+ * will not read leaves the trial in trial, and the loop's log says so. A
+ * closed breaker counts only from its close. No transition pages anyone (#5268).
  *
  * WORKING TIME is a checkout's loop jobs' timeline rows (lib/loop-jobs.js)
  * in state `working` or `running`, each counted until the next row, but
@@ -57,9 +61,14 @@ const WORKING_STATES = new Set(["working", "running"]);
  *   | {state: "trial", since: number, session: string, ticket: number|null}} BreakerState
  *   `since`, its last close, open or reopen; a trial's is its open's
  *
- * @typedef {{root: string, issues: number[], jobId: string|null,
+ * @typedef {{root: string, seat: string, issues: number[], jobId: string|null,
  *   sessionId?: string, pastSessionIds?: string[], launchedAt: number,
  *   finishedAt: number|null}} BreakerLaunch
+ *
+ * @typedef {{state: "landed"|"waiting"|"gone"}
+ *   | {state: "unread", why: string}} TrialQueue  where a finished trial's
+ *   queue ref stands: a stay of it landed, one queued or under test, none
+ *   left (all dropped, or nothing pushed), or no reading and why
  *
  * @typedef {object} ThroughputRead  what a tick reads for the breaker and the
  *   gate-run budget
@@ -69,8 +78,10 @@ const WORKING_STATES = new Set(["working", "running"]);
  *   `origin/main` commits and its loop sessions' job timelines since its
  *   lookback, and its gate-run record; commits or runs null where they will
  *   not read
- * @property {(l: BreakerLaunch) => string[]} commitsOf the shas `l`'s
- *   sessions committed in its checkout
+ * @property {(l: BreakerLaunch) => string[]|null} commitsOf the shas `l`'s
+ *   sessions committed in its checkout, null where a ledger will not read
+ * @property {(l: BreakerLaunch) => TrialQueue} queueOf where `l`'s queue ref
+ *   stands, read when asked
  * @property {BreakerEvent[]|null} record null where it will not read
  */
 
@@ -188,17 +199,35 @@ const buildLookbackOf = (launches, root, now) =>
 	);
 
 /**
- * The latest `origin/main` commit time among `l`'s commits, or null where none
- * of them has landed.
+ * `l`'s landing: the latest `origin/main` commit time among its commits, null
+ * where none has landed, or what will not read.
  * @param {BreakerLaunch} l
  * @param {ThroughputRead} read
- * @returns {number|null}
+ * @returns {{at: number|null, committed: boolean} | {unread: string}}
+ *   `committed`, whether its sessions made any commit
+ */
+function landingOf(l, read) {
+	const commits = read.byRoot[l.root]?.commits ?? null;
+	if (commits === null) return { unread: "origin/main will not read" };
+	const shas = read.commitsOf(l);
+	if (shas === null) return { unread: "its commit ledger will not read" };
+	const mine = new Set(shas);
+	const times = commits.filter((c) => mine.has(c.sha)).map((c) => c.at);
+	return {
+		at: times.length > 0 ? Math.max(...times) : null,
+		committed: shas.length > 0,
+	};
+}
+
+/**
+ * The latest `origin/main` commit time among `l`'s commits, or null where none
+ * of them has landed or the landing will not read.
+ * @param {BreakerLaunch} l
+ * @param {ThroughputRead} read
  */
 function landedAtOf(l, read) {
-	const commits = read.byRoot[l.root]?.commits ?? [];
-	const mine = new Set(read.commitsOf(l));
-	const times = commits.filter((c) => mine.has(c.sha)).map((c) => c.at);
-	return times.length > 0 ? Math.max(...times) : null;
+	const landing = landingOf(l, read);
+	return "at" in landing ? landing.at : null;
 }
 
 /**
@@ -229,7 +258,8 @@ const buildEvent = (root, event, { reading, now }, l) => ({
  *   reading: Reading|null, read: ThroughputRead, now: number}} step
  *   `reading`, null where its commits will not read, which moves a closed
  *   breaker nowhere
- * @returns {{event: BreakerEvent|null, room: number|null}}
+ * @returns {{event: BreakerEvent|null, room: number|null, note?: string}}
+ *   `note`, a line for the loop's log
  */
 function stepBreaker({ root, state, launches, reading, read, now }) {
 	const none = { commits: 0, workingHours: 0, rate: null };
@@ -255,20 +285,57 @@ function stepBreaker({ root, state, launches, reading, read, now }) {
 			};
 		return { event: null, room: mine.some(isRunning) ? 0 : 1 };
 	}
+	return stepTrial({ root, state, mine, reading: r, read, now });
+}
+
+/**
+ * A trial's step: its close or reopen, else the checkout held at no room, with
+ * a note where its landing or queue ref will not read.
+ * @param {{root: string, state: Extract<BreakerState, {state: "trial"}>,
+ *   mine: BreakerLaunch[], reading: Reading, read: ThroughputRead,
+ *   now: number}} step  `mine`, the checkout's launches
+ * @returns {{event: BreakerEvent|null, room: number|null, note?: string}}
+ */
+function stepTrial({ root, state, mine, reading, read, now }) {
 	const trial = mine.find(
 		(l) => l.launchedAt > state.since && idsOf(l).includes(state.session),
 	);
-	if (trial && landedAtOf(trial, read) !== null)
+	if (!trial)
+		return { event: buildEvent(root, "reopen", { reading, now }), room: 0 };
+	const outcome = trialOutcomeOf(trial, read);
+	if (outcome === "close" || outcome === "reopen")
 		return {
-			event: buildEvent(root, "close", { reading: r, now }, trial),
-			room: null,
+			event: buildEvent(root, outcome, { reading, now }, trial),
+			room: outcome === "close" ? null : 0,
 		};
-	if (!trial || trial.finishedAt !== null)
-		return {
-			event: buildEvent(root, "reopen", { reading: r, now }, trial),
-			room: 0,
-		};
-	return { event: null, room: 0 };
+	if (outcome === "wait") return { event: null, room: 0 };
+	return {
+		event: null,
+		room: 0,
+		note: `breaker trial ${trial.sessionId ?? trial.jobId} in ${root} held in trial: ${outcome.unread}`,
+	};
+}
+
+/**
+ * What a trial's landing and queue ref make of it: close where a commit of
+ * its landed, reopen where it ended with nothing left to land, else wait —
+ * running, or its commits queued or under test — or what will not read.
+ * The queue ref is read only for a finished trial whose commits have not
+ * reached `origin/main`.
+ * @param {BreakerLaunch} trial
+ * @param {ThroughputRead} read
+ * @returns {"close"|"reopen"|"wait"|{unread: string}}
+ */
+function trialOutcomeOf(trial, read) {
+	const landing = landingOf(trial, read);
+	if ("at" in landing && landing.at !== null) return "close";
+	if (trial.finishedAt === null) return "wait";
+	if (!("at" in landing)) return landing;
+	if (!landing.committed) return "reopen";
+	const queue = read.queueOf(trial);
+	if (queue.state === "unread") return { unread: queue.why };
+	if (queue.state === "landed") return "close";
+	return queue.state === "waiting" ? "wait" : "reopen";
 }
 
 /** @param {BreakerLaunch} l */
@@ -280,16 +347,23 @@ const isRunning = (l) => l.finishedAt === null;
  * anywhere, since no breaker's state can be known.
  * @param {{roots: string[], launches: BreakerLaunch[], read: ThroughputRead,
  *   now: number}} tick
- * @returns {{events: BreakerEvent[], room: Record<string, number>}}
+ * @returns {{events: BreakerEvent[], room: Record<string, number>,
+ *   notes: string[]}}  `notes`, lines for the loop's log
  */
 function stepBreakers({ roots, launches, read, now }) {
 	/** @type {BreakerEvent[]} */
 	const events = [];
+	/** @type {string[]} */
+	const notes = [];
 	/** @type {Record<string, number>} */
 	const room = {};
 	const { record } = read;
 	if (record === null)
-		return { events, room: Object.fromEntries(roots.map((r) => [r, 0])) };
+		return {
+			events,
+			room: Object.fromEntries(roots.map((r) => [r, 0])),
+			notes,
+		};
 	for (const root of roots) {
 		const state = foldBreaker(record, root);
 		const commits = read.byRoot[root]?.commits ?? null;
@@ -308,9 +382,10 @@ function stepBreakers({ roots, launches, read, now }) {
 			: null;
 		const step = stepBreaker({ root, state, launches, reading, read, now });
 		if (step.event) events.push(step.event);
+		if (step.note) notes.push(step.note);
 		if (step.room !== null) room[root] = step.room;
 	}
-	return { events, room };
+	return { events, room, notes };
 }
 
 /**

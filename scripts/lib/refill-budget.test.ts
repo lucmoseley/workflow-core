@@ -42,6 +42,7 @@ const readOf = (
 ): ThroughputRead => ({
 	byRoot: { [DV]: { commits: [], gateRuns, sessions: [] } },
 	commitsOf: () => [],
+	queueOf: () => ({ state: "gone" }),
 	record: [],
 	...over,
 });
