@@ -64,6 +64,10 @@
  * `lifted/` with it, the record outliving the lift until the clear notice is done.
  * When a checkout's probe hold last paged is a file beside its holds that no raise
  * or lift touches, as a probe hold that comes back is a new hold (#4148).
+ *
+ * fileIncidentIssue and closeIncidentIssue serve lib/pause-notices.js too (#5291),
+ * and stay here, as a module of their own would cycle with this one over
+ * readTracker and TICK_CALL_TIMEOUT_MS.
  */
 
 const { AsyncLocalStorage } = require("node:async_hooks");
@@ -1346,8 +1350,7 @@ function readOpenIssueTitled(root, title) {
 
 /**
  * File an incident issue titled `title` in `root`'s tracker, or take up the one
- * already open with that title (readOpenIssueTitled). The one path the probe
- * hold and lib/pause-notices.js file through, so a change to it reaches both.
+ * already open with that title (readOpenIssueTitled).
  * @param {string} root  the checkout file-issue.js runs in
  * @param {{title: string, body: string, why: string}} issue  `why`, why it
  *   stands alone, file-issue.js's `--standalone`
