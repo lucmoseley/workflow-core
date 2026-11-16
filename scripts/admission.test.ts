@@ -1870,9 +1870,11 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 		const r = selectionAdmission({
 			listed: admissionSessionIds(),
 			reclaimable: { ok: true, count: 0 },
-			landers: readLiveLanders(),
-			gates: readLiveGateSeats(),
-			testsHeld: 0,
+			reserves: {
+				landers: readLiveLanders(),
+				gates: readLiveGateSeats(),
+				testsHeld: 0,
+			},
 		});
 		return r;
 	};
