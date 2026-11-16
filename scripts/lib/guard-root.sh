@@ -2,7 +2,7 @@
 # The repo root, in the one spelling every guard uses (mantahostels#1905), the
 # session's own tree (#4271), and the Claude Code config dir beside them (#2095).
 #
-# SOURCED, NEVER RUN. Four functions, no state, no dependencies.
+# SOURCED, NEVER RUN. Five functions, no state, no dependencies.
 #
 # WHY ITS OWN FILE, rather than a function in guard-log.sh: that is a call
 # site, so a helper there is unreachable from something below it, and a hook
@@ -76,6 +76,24 @@ gr_session_tree() {
   top="$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null)" && [[ -n "$top" ]] || return 1
   real="$(gr_physical "$top")" && top="$real"
   printf '%s' "$top"
+}
+
+# gr_worktree_root — host-root.js's worktreeRoot(): the git top level of $PWD
+# where it is a linked worktree of the gr_root host, else gr_root, so never
+# another repository's. Where a script writing tracked files writes: through
+# gr_root a worktree session's write lands in the main checkout as an orphaned
+# edit (#4438, #5287).
+gr_worktree_root() {
+  local host top mine theirs
+  host="$(gr_root)"
+  if top="$(gr_session_tree "$PWD")" && [[ "$top" != "$host" ]] &&
+    mine="$(git -C "$top" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" &&
+    theirs="$(git -C "$host" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" &&
+    [[ -n "$mine" && "$mine" == "$theirs" ]]; then
+    printf '%s' "$top"
+  else
+    printf '%s' "$host"
+  fi
 }
 
 # gr_physical <dir> — <dir> with its symlinks dereferenced by `cd -P`. Non-zero,

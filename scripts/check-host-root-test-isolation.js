@@ -101,6 +101,7 @@ function rootsThroughHostRoot(root, rel, cache, seen = new Set()) {
 			shell ? sourcedLibTargets(text) : relativeRequireTargets(rel, text)
 		).some(
 			(target) =>
+				target !== GR_SEAM &&
 				fs.existsSync(path.join(root, target)) &&
 				rootsThroughHostRoot(root, target, cache, seen),
 		);
@@ -128,16 +129,30 @@ function relativeRequireTargets(
 }
 
 /**
- * Does shell `text` call `gr_root`, outside a comment and its own definition?
- * Calling, not sourcing: a script that sources lib/guard-root.sh for
- * `gr_config_dir` alone never roots itself in the repo. A `gr_root` inside a
- * string or a trailing comment still counts: a false FAIL, never a false OK.
+ * Does shell `text` call `gr_root` or `gr_worktree_root`, outside a comment
+ * and its own definition? Calling, not sourcing: a script that sources
+ * lib/guard-root.sh for `gr_config_dir` alone never roots itself in the repo.
+ * A call inside a string or a trailing comment still counts: a false FAIL,
+ * never a false OK.
  */
 function callsGrRoot(/** @type {string} */ text) {
 	return text
 		.split("\n")
-		.some((line) => !/^\s*#/.test(line) && /\bgr_root\b(?!\s*\(\))/.test(line));
+		.some(
+			(line) =>
+				!/^\s*#/.test(line) &&
+				/\bgr_(?:worktree_)?root\b(?!\s*\(\))/.test(line),
+		);
 }
+
+/**
+ * lib/guard-root.sh defines the root functions and calls `gr_root` inside
+ * `gr_worktree_root`; a script sourcing it roots itself only by calling one,
+ * which `callsGrRoot` reads at the call site, so the walk never descends into
+ * it. RESIDUAL: a new guard-root.sh function wrapping `gr_root` passes its
+ * callers unflagged until `callsGrRoot`'s pattern names it.
+ */
+const GR_SEAM = "scripts/lib/guard-root.sh";
 
 /**
  * The `scripts/lib/*.sh` files a shell script's `source`/`.` lines name, by

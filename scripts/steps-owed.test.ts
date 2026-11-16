@@ -9,14 +9,27 @@
  * or can never be discharged and is reported as owed at every session start.
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { cutWorktree, defineTemplate, initGitRepo } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 import { appendStepsOwed, readStepsOwed } from "./lib/steps-owed.js";
 
 const SCRIPT = path.join(__dirname, "steps-owed.js");
+
+/* A main checkout: `worktreeRoot()` resolves through git, so the
+ * linked-worktree case needs a real repository. */
+const linkedTemplate = defineTemplate((dir) => {
+	const hooks = path.join(dir, ".no-hooks");
+	fs.mkdirSync(hooks);
+	initGitRepo(dir, hooks);
+	appendStepsOwed(dir, "v2.0.0", [{ type: "act", text: "do a thing" }]);
+	execFileSync("git", ["-C", dir, "add", ".claude/workflow-core.json"]);
+	execFileSync("git", ["-C", dir, "commit", "-qm", "owe"]);
+});
 
 let root = "";
 let made: string[] = [];
@@ -78,6 +91,27 @@ describe("steps-owed.js CLI", () => {
 		const r = run(["clear", "v2.0.0", "bogus", "x"]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("one of act/choice/notice");
+	});
+
+	/* The negative of "clear discharges a matching entry": the same discharge,
+	 * run from a linked worktree. */
+	it("clear in a linked worktree writes that tree and leaves the main checkout clean (#5287)", () => {
+		linkedTemplate.instantiate(root);
+		const tree = cutWorktree(root);
+		/* The harness names the main checkout as the project even for a
+		 * session in a linked worktree. */
+		const r = runInProcess(SCRIPT, ["clear", "v2.0.0", "act", "do a thing"], {
+			cwd: tree,
+			env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+		});
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("cleared v2.0.0 [act]");
+		expect(readStepsOwed(tree)).toEqual([]);
+		expect(
+			execFileSync("git", ["-C", root, "status", "--porcelain"], {
+				encoding: "utf8",
+			}),
+		).toBe("");
 	});
 
 	it("prints usage on a bad invocation", () => {

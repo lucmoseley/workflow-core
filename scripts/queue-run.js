@@ -108,6 +108,7 @@ const {
 	gateRunLogPath,
 	gateSeatChargeMb,
 	isInSuite,
+	startGatePids,
 } = require("./lib/gate-seat.js");
 const {
 	CEILING_CLOSE,
@@ -282,7 +283,8 @@ function refusalOf(words, slot) {
  *   gateChargeMb?: number,
  *   gateLog?: string | null,
  *   ticket?: number | null,
- *   treePss?: (pid: number) => number,
+ *   treeSample?: (pid: number) => { kb: number, pids: number[] },
+ *   gatePidsDir?: string,
  *   schedule?: Parameters<typeof armCeiling>[0]["schedule"],
  *   sampleMs?: number,
  *   inSuite?: () => boolean,
@@ -751,8 +753,8 @@ function withExitExtra(logExit, exitExtra) {
  * Start a gate seat's command (#5274): in a process group of its own, its
  * marker in GATE_ENV, under the suite ceiling, which kills the group and reads
  * red; its tree's PSS sampled for its peak from spawn (lib/admission.js
- * `sampleTreePeak`); and, on its
- * exit, one line on the gate-run record.
+ * `sampleTreePeak`), each sample's pids on the seat's pid record
+ * (lib/gate-seat.js); and, on its exit, one line on the gate-run record.
  *
  * @param {{
  *   seat: ReturnType<typeof queueSeat>,
@@ -766,12 +768,21 @@ function withExitExtra(logExit, exitExtra) {
 function spawnGate({ seat, options, err, finish, holder, waitMs }) {
 	const { command } = holder;
 	const clock = options.clock ?? Date.now;
-	const { readTreePssKb, sampleTreePeak } = require("./lib/admission.js");
-	const readPss = options.treePss ?? readTreePssKb;
+	const {
+		readTreeSample,
+		sampleTreePeak,
+		TREE_PEAK_SAMPLE_MS,
+	} = require("./lib/admission.js");
+	const readTree = options.treeSample ?? readTreeSample;
+	const sampleMs = options.sampleMs ?? TREE_PEAK_SAMPLE_MS;
+	/** @type {ReturnType<typeof startGatePids> | undefined} */
+	let pids;
 	/** @param {number} pid */
 	const treePss = (pid) => {
 		try {
-			return readPss(pid);
+			const sample = readTree(pid);
+			pids?.see(sample.pids);
+			return sample.kb;
 		} catch {
 			/* An unreadable sample costs that sample, never the gate run
 			 * (#5274): the peak is a record field, read by hand to set
@@ -810,14 +821,20 @@ function spawnGate({ seat, options, err, finish, holder, waitMs }) {
 		err.write(`${LABEL}: suite deadline not written (${held.error})\n`);
 	running.once("spawn", () => {
 		seat.spawned();
-		sampler = sampleTreePeak(running.pid, {
-			treePss,
-			...(options.sampleMs ? { ms: options.sampleMs } : {}),
+		pids = startGatePids(holder, {
+			sampleMs,
+			...(options.gatePidsDir ? { dir: options.gatePidsDir } : {}),
 		});
+		sampler = sampleTreePeak(running.pid, { treePss, ms: sampleMs });
 	});
 	/** @param {number} code @param {import("./lib/gate-seat.js").GateOutcome} outcome */
 	const close = (code, outcome) => {
 		const { peakKb } = sampler?.stop() ?? { peakKb: 0 };
+		const unrecorded = pids?.stop() ?? null;
+		if (unrecorded)
+			err.write(
+				`${LABEL}: this gate run's pids were not recorded (${unrecorded}), so a memory kill under it will not be named its (#5269).\n`,
+			);
 		held.release();
 		const file =
 			options.gateLog === undefined ? gateRunLogPath() : options.gateLog;

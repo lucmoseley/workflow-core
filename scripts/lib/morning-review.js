@@ -593,6 +593,7 @@ function renderThroughputLines(reading) {
 					const what = [
 						...(r.events === null ? ["breaker record"] : []),
 						...(r.gateRuns === null ? ["gate-run record"] : []),
+						...(r.jobsRead ? [] : ["loop-job record"]),
 					];
 					return what.length === 0
 						? []

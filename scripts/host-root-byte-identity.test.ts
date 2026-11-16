@@ -241,3 +241,78 @@ describe("sessionTree() and gr_session_tree agree (#4271)", () => {
 		expect(readTrees(from, cwd)).toEqual({ js: expected(), sh: expected() });
 	});
 });
+
+describe("worktreeRoot() and gr_worktree_root agree (#5287)", () => {
+	let other: string;
+
+	beforeAll(() => {
+		other = path.join(tmp, "other");
+		fs.mkdirSync(other);
+		execFileSync("git", ["init", "-q"], { cwd: other });
+	});
+
+	const readRoots = (cwd: string, declared: string | undefined) => {
+		const opts = { cwd, env: envWith(declared), encoding: "utf8" as const };
+		const js = spawnSync(
+			process.execPath,
+			[
+				"-e",
+				`process.stdout.write(require(${JSON.stringify(path.join(LIB, "host-root.js"))}).worktreeRoot())`,
+			],
+			opts,
+		);
+		const sh = spawnSync(
+			"bash",
+			[
+				"-c",
+				`source ${shellQuote(path.join(LIB, "guard-root.sh"))}; gr_worktree_root`,
+			],
+			{ ...opts, env: { ...opts.env, PWD: cwd } },
+		);
+		for (const r of [js, sh]) expect(r.stderr).toBe("");
+		return { js: js.stdout, sh: sh.stdout };
+	};
+
+	const cases: [string, () => [string, string | undefined], () => string][] = [
+		[
+			"a linked worktree, the main checkout declared",
+			() => [path.join(linked, "sub"), repo],
+			() => linked,
+		],
+		[
+			"a linked worktree reached through a symlink",
+			() => [path.join(linkedLink, "sub"), repo],
+			() => linked,
+		],
+		[
+			"a linked worktree, the main checkout declared through a symlink",
+			() => [path.join(linked, "sub"), repoLink],
+			() => linked,
+		],
+		[
+			"a linked worktree, nothing declared",
+			() => [path.join(linked, "sub"), undefined],
+			() => linked,
+		],
+		["the main checkout", () => [path.join(repo, "sub"), repo], () => repo],
+		["another repository, never its tree", () => [other, repo], () => repo],
+		[
+			"outside any repository, the host declared",
+			() => [path.join(tmp, "nowhere"), repo],
+			() => repo,
+		],
+		[
+			"outside any repository, nothing declared",
+			() => [path.join(tmp, "nowhere"), undefined],
+			() => path.join(tmp, "nowhere"),
+		],
+	];
+
+	it.each(cases)("%s", (_name, input, expected) => {
+		const [cwd, declared] = input();
+		expect(readRoots(cwd, declared)).toEqual({
+			js: expected(),
+			sh: expected(),
+		});
+	});
+});
