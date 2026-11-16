@@ -81,7 +81,7 @@ const {
 	classifyCheckStaged,
 } = require("./infer-commands.js");
 const { BIOME_STAGED_COMMAND } = require("./biome-allowlist.js");
-const { readSubjectModules, START_ON } = require("./gate-subjects.js");
+const { readSubjectModules } = require("./gate-subjects.js");
 const {
 	findInstallRecord,
 	resolveConfigDir,
@@ -93,7 +93,6 @@ const { ghBinary } = require("./gh.js");
 const { worktreeRoot } = require("./host-root.js");
 const { realKey } = require("./deref.js");
 const {
-	ciStatusCommand,
 	describePluginRecord,
 	renderConfig,
 	renderClaudeMd,
@@ -1435,9 +1434,6 @@ function settle({ values, flags, categories, commands }, ports) {
 	let inferred;
 	try {
 		inferred = kept ? {} : inferCommands(root);
-		/* Read now, so a package.json it cannot parse refuses the run before
-		 * anything is written; the rules file reads it again at step 4. */
-		ciStatusCommand(root);
 	} catch (err) {
 		ports.err(`init-adopter: ${reason(err)}\n`);
 		return 2;
@@ -1475,7 +1471,7 @@ function settle({ values, flags, categories, commands }, ports) {
 /**
  * A first run's modules where --modules names none: each module whose subject
  * the tree already tracks, by the predicate check-gate-switches.js refuses a
- * commit on (#1506), and START_ON's beside them. A kept config infers nothing, so a subject landing after
+ * commit on (#1506). A kept config infers nothing, so a subject landing after
  * the first run is the commit gate's to raise — as is one this could not read
  * the index for, which it warns of rather than refusing the run.
  * @param {string} root
@@ -1491,7 +1487,7 @@ function readInferredModules(root, write) {
 			`WARNING modules none inferred — ${reason(err)}; the commit gate names any the tree needs\n`,
 		);
 	}
-	return [...found, ...START_ON].join(",");
+	return found.join(",");
 }
 
 /**

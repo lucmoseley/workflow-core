@@ -25,7 +25,7 @@ const { isShipped } = require("./plugin-tree") as {
 
 describe("messages a shipped script prints", () => {
 	/* Data a test reads, never printed, the recorder fixtures' provenance
-	 * included; the CI and push-check commands,
+	 * included; the CI command,
 	 * which rewriteRuleCommands spells at the plugin root before printing; and
 	 * the arbiter command claim-warning prints, and the
 	 * bg-run.sh and watcher commands suite-background, agent-poll and
@@ -39,7 +39,6 @@ describe("messages a shipped script prints", () => {
 		/^\t\t"Every issue-body edit goes through node scripts\/issue-body\.js",$/,
 		/remeasure: "node scripts\/measure-turn-band\.js"/,
 		/: "node scripts\/check-ci-status\.js";$/,
-		/push_check: pushCheck \?\? "node scripts\/push-check\.js",$/,
 		/^\t"`node scripts\/session-arbiter\.js list`\.";$/,
 		/^\t\t\t`\\n {2}… and \$\{dropped\} more — node scripts\/session-arbiter\.js list`$/,
 		/^\t"This suite is DETACHED INSIDE THE SHELL — .*`scripts\/bg-run\.sh run <name>`/,

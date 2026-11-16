@@ -8,7 +8,7 @@
  * Pure rendering only — every function takes its inputs and returns text or
  * data. scripts/lib/core-owned-files.js and scripts/init-adopter.js do the
  * writing, the `gh` calls and the probing, so each piece here is testable
- * without a repository. The one exception is `ciStatusCommand`.
+ * without a repository.
  *
  * TEMPLATES SHIP UNDER scripts/, which the plugin release tree carries —
  * lib/plugin-tree.js's COPIED is the shipped set.
@@ -25,7 +25,6 @@ const { formatConfigJson, isObject } = require("./config-json.js");
 const { requiredGroup } = require("./regex-group.js");
 const { ORIGIN_LABELS } = require("./issue-origin.js");
 const { SIGNATURE_LABEL } = require("./signature-label.js");
-const { caught } = require("./caught.js");
 const { CORE_STYLE, namespaced } = require("./output-styles.js");
 const { withoutSelfPlugin } = require("./core-hooks.js");
 const { shellQuote } = require("./sh-quote.js");
@@ -70,72 +69,25 @@ const readTemplate = (name) => fs.readFileSync(TEMPLATE_FILES[name], "utf8");
 
 /**
  * The module tag a rules-file line opens with, if any: `- [roadmap] …` or
- * `[governance] …`, tags being the module names alone, or `[!landing] …`, a
- * line kept only where that module is off (#2409).
+ * `[governance] …`, tags being the module names alone.
  */
-const TAG = new RegExp(`^(\\s*(?:-\\s+)?)\\[(!?)(${MODULES.join("|")})\\]\\s+`);
+const TAG = new RegExp(`^(\\s*(?:-\\s+)?)\\[(${MODULES.join("|")})\\]\\s+`);
 
 /** The comment block that tells a reader how the template is rendered — the
  * template's own instructions, which the rendered file has no use for. */
 const TEMPLATE_HEADER = /^<!-- TEMPLATE for [\s\S]*?-->\n/;
 
-/**
- * `read()`, or `absent` where the file it reads does not exist.
- * @template T
- * @param {() => T} read
- * @param {T} absent
- * @returns {T}
- */
-function absentAs(read, absent) {
-	try {
-		return read();
-	} catch (err) {
-		if (caught(err).code === "ENOENT") return absent;
-		throw err;
-	}
-}
-
 const STATUS_SCRIPT =
 	"node scripts/lib/resolve-core.js scripts/status-report.js";
 
-/** The template's span kept only where the adopter has a CI workflow. */
-const CI_SPAN = /\{\{#ci\}\}([\s\S]*?)\{\{\/ci\}\}/g;
-
-/**
- * The command an adopter's rules file tells a session to read CI with after a
- * push, or null where it has no workflow to read (#739): its own `check:ci`
- * npm script where it declares one, else the plugin's checker, which
- * `rewriteRuleCommands` spells at the plugin root. Throws on a file it
- * cannot read or parse, rather than naming the wrong command.
- * @param {string} root the adopter's root
- * @returns {string|null}
- */
-function ciStatusCommand(root) {
-	const workflows = absentAs(
-		() => fs.readdirSync(path.join(root, ".github", "workflows")),
-		[],
-	);
-	if (!workflows.some((f) => /\.ya?ml$/.test(f))) return null;
-	const scripts = absentAs(
-		() =>
-			JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"))
-				.scripts,
-		null,
-	);
-	return typeof scripts?.["check:ci"] === "string"
-		? "npm run check:ci"
-		: "node scripts/check-ci-status.js";
-}
-
 /**
  * The core-owned `.claude/workflow-core.md`: every untagged line, plus the
- * tagged lines whose module is on (off, for a `[!module]` tag), with the tag
- * stripped, the CI span where `ciCheck` is set, and every core command spelled
- * at `pluginRoot` (`rewriteRuleCommands`).
- * @param {{modules: Module[], founder: string, pluginRoot: string, ciCheck: string|null}} at
+ * tagged lines whose module is on, with the tag stripped, and every core
+ * command spelled at `pluginRoot` (`rewriteRuleCommands`).
+ * @param {{modules: Module[], founder: string, pluginRoot: string}} at
  * @returns {string}
  */
-function renderSessionRules({ modules, founder, pluginRoot, ciCheck }) {
+function renderSessionRules({ modules, founder, pluginRoot }) {
 	const on = new Set(modules);
 	const kept = readTemplate("session-rules.md")
 		.replace(TEMPLATE_HEADER, "")
@@ -143,18 +95,12 @@ function renderSessionRules({ modules, founder, pluginRoot, ciCheck }) {
 		.flatMap((line) => {
 			const tag = line.match(TAG);
 			if (!tag) return [line];
-			const isOn = on.has(/** @type {Module} */ (requiredGroup(tag, 3, TAG)));
-			const negated = tag[2] === "!";
-			return isOn === negated
-				? []
-				: [line.replace(TAG, requiredGroup(tag, 1, TAG))];
+			return on.has(/** @type {Module} */ (requiredGroup(tag, 2, TAG)))
+				? [line.replace(TAG, requiredGroup(tag, 1, TAG))]
+				: [];
 		})
-		.join("\n")
-		.replace(CI_SPAN, (_, span) => (ciCheck ? span : ""));
-	return rewriteRuleCommands(
-		substitute(kept, { founder, ci_check: ciCheck ?? "" }),
-		pluginRoot,
-	);
+		.join("\n");
+	return rewriteRuleCommands(substitute(kept, { founder }), pluginRoot);
 }
 
 /**
@@ -814,7 +760,6 @@ function withStatusScript(text) {
 module.exports = {
 	renderSessionRules,
 	renderReference,
-	ciStatusCommand,
 	describePluginRecord,
 	renderPluginRecord,
 	renderConfig,

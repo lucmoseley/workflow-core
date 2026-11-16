@@ -65,7 +65,7 @@
  * its `pytest` holds the slot once running, and so does `node
  * <path>/run-pytest.js`. It is judged on the count alone, never the memory
  * rung, which prices vitest workers, nor the Windows-memory hold. A run naming its test
- * files, or the bare one under `landing`, a touched run, is not judged. A
+ * files, or the bare one, a touched run, is not judged. A
  * run naming no path still draws the memory figure (#2024). Any other
  * non-vitest run naming its test files is a part-suite (#5274), held by no
  * slot but charged a whole suite's workers on the memory rung; a declared
@@ -77,12 +77,11 @@
  * A RUN NAMING ITS TEST FILES IS CHARGED BY THE VITEST WORKERS IT CAN OCCUPY
  * (#2558, ruled at #2557), as lib/suite-bounded.js reads them: one per file
  * named, up to a whole suite's. A TOUCHED RUN (#2935) — one naming its test
- * files, however many, a `--retest`, or the bare `npm run test` under
- * `landing` — is a part-suite, refused under its own rung alone and never at
- * the count cap; the bare one, its selection unresolved, is charged a whole
- * suite's workers. At launch any other run is a whole suite, a bare
- * `test:changed` and a bare `npm run test` with `landing` off among them: a
- * diff's selection has no ceiling before it is resolved, so it is judged on
+ * files, however many, a `--retest`, or the bare `npm run test` — is a
+ * part-suite, refused under its own rung alone and never at the count cap;
+ * the bare one, its selection unresolved, is charged a whole suite's workers.
+ * At launch any other run is a whole suite, a bare `test:changed` among
+ * them: a diff's selection has no ceiling before it is resolved, so it is judged on
  * the full-suite ladder, an UPPER BOUND on what it will cost
  * (mantahostels#1906). Once launched, a run is charged by the resolved weight
  * its launch record carries (#2931).
@@ -220,11 +219,11 @@ const FULL_LIMB_ID = "full-suite-admissible";
 
 /*
  * The limb's fire needle (scripts/guard-fire-needles.json,
- * `full-suite-admissible`, #188) keys on `WOULD MEET THE PUSH GATE HERE`.
+ * `full-suite-admissible`, #188) keys on `THE QUEUE LANDER RUNS THE WHOLE SUITE ON EVERY LAND`.
  * Reword that clause and move the needle with it.
  */
 const FULL_LIMB_TEXT =
-	"A BARE `npm run test` WOULD MEET THE PUSH GATE HERE, AND THIS `--full` BUYS NOTHING MORE (#181). The read graph renders from this tree, so the diff's selection widened by its readers is ADMISSIBLE — and an admissible certificate IS the whole push gate: no whole-suite run is owed (mantahostels#2207). A full run costs ~373 s here (#149). Want the whole suite for its own sake? Run it — this is advice, not a refusal.";
+	"THIS `--full` BUYS NOTHING (#181): THE QUEUE LANDER RUNS THE WHOLE SUITE ON EVERY LAND, SO A SESSION OWES ONLY ITS TOUCHED TESTS, A BARE `npm run test`. A full run costs ~373 s here (#149). Want the whole suite for its own sake? Run it — this is advice, not a refusal.";
 
 /**
  * The build-concurrency fragment, or its fallback where the store cannot give
@@ -622,7 +621,8 @@ function launchWeigh(st, launch, words, files) {
  * Whether a wrapper or npm vitest launch is a touched run (#2935), read off
  * its words as run-vitest.js routes them: such a run is never held at the
  * count cap, and a bare one, its selection unresolved, is charged a whole
- * suite's workers on the memory rung.
+ * suite's workers on the memory rung. A script that is plain vitest, not
+ * run-vitest.js (#1776), routes nothing, so its bare run is the whole suite.
  * @param {St} st
  * @param {Launch} launch
  * @param {string[]} words
@@ -630,6 +630,8 @@ function launchWeigh(st, launch, words, files) {
 function isTouchedLaunch(st, launch, words) {
 	const argv = launchArgv(launch, words);
 	if (argv === null || launch.script === "test:changed") return false;
+	if (launch.script && !st.launchPorts.isWrapperScript(launch.script))
+		return false;
 	/* Required here, not at load: its graph costs ~8 ms, which a folded core
 	 * pays serially on every admitted call (#3227). */
 	const { isTouchedRun, launchRoute } = require("./launch-route.js");
@@ -637,7 +639,6 @@ function isTouchedLaunch(st, launch, words) {
 		launchRoute(
 			argv.map((w) => literal(w, st.spans).text),
 			null,
-			{ landing: st.ctx.moduleOn("landing") },
 		),
 	);
 }
@@ -658,9 +659,7 @@ function subjectOf(st, words, cmd) {
 			.slice(launch.taken)
 			.map((w) => literal(w, st.spans).text);
 		notePytestFigure(st, argv);
-		const whole = isWholePytestRun(argv, {
-			landing: st.ctx.moduleOn("landing"),
-		});
+		const whole = isWholePytestRun(argv);
 		return whole
 			? {
 					subject: {

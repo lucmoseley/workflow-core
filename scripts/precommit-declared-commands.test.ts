@@ -285,7 +285,7 @@ it("leaves a test command that writes the test-pass marker to pre-push, running 
 	expect(code).toBe(0);
 	expect(ran("test")).toBe(false);
 	expect(out).toBe(
-		'SKIP: commands.test is gated at push by certificates — module "suites" is on and it runs scripts/run-vitest.js\n',
+		'SKIP: commands.test is gated at push, where the lander runs the full suite — module "suites" is on and it runs scripts/run-vitest.js\n',
 	);
 });
 

@@ -43,10 +43,8 @@ const REMOTE_TIP = "a".repeat(40);
 const buildRefLine = (local: string, remoteRef: string, remote = REMOTE_TIP) =>
 	`refs/heads/main ${local} ${remoteRef} ${remote}\n`;
 
-const check = (stdin: string, modules = "landing") => {
-	const env: NodeJS.ProcessEnv = { ...process.env, WFC_MODULES: modules };
-	return runInProcess(CHECK, [], { cwd: work, env, stdin });
-};
+const check = (stdin: string) =>
+	runInProcess(CHECK, [], { cwd: work, env: process.env, stdin });
 
 beforeEach(() => {
 	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "landing-push-"));
@@ -71,7 +69,7 @@ beforeEach(() => {
 
 afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
 
-describe("with the landing module on", () => {
+describe("the gate", () => {
 	it("passes a push to main of a sha the green ledger holds", () => {
 		ledgerHolds(sha);
 		const r = check(buildRefLine(sha, "refs/heads/main"));
@@ -140,49 +138,7 @@ describe("with the landing module on", () => {
 	});
 });
 
-describe("with the module config at HEAD unreadable (#5235)", () => {
-	beforeEach(() => {
-		fs.mkdirSync(path.join(work, ".claude"), { recursive: true });
-		fs.writeFileSync(
-			path.join(work, ".claude", "workflow-core.json"),
-			"{ not json\n",
-		);
-		git("add", ".claude/workflow-core.json");
-		git("commit", "-q", "-m", "broken config");
-		sha = git("rev-parse", "HEAD");
-	});
-
-	it("refuses a push to main of an unledgered sha where the green ledger exists", () => {
-		ledgerHolds("f".repeat(40));
-		const r = check(buildRefLine(sha, "refs/heads/main"));
-		expect(r.status).toBe(2);
-		expect(r.stderr).toContain("could not read the landing module's state");
-		expect(r.stderr).toContain("judged as with the landing module on");
-		expect(r.stderr).toContain("Fix the config");
-		expect(r.stderr).toContain("session-checkout.js land");
-	});
-
-	it("passes a push to main of a ledgered sha, so the lander lands through the fault", () => {
-		ledgerHolds(sha);
-		const r = check(buildRefLine(sha, "refs/heads/main"));
-		expect(r.status, r.stderr).toBe(0);
-	});
-
-	it("passes a push to main, printed, where no green ledger exists yet", () => {
-		const r = check(buildRefLine(sha, "refs/heads/main"));
-		expect(r.status, r.stderr).toBe(0);
-		expect(r.stderr).toContain("could not read the landing module's state");
-		expect(r.stderr).toContain("push to main not checked");
-	});
-});
-
-it("passes a push to main of an unledgered sha with the landing module off", () => {
-	const r = check(buildRefLine(sha, "refs/heads/main"), "suites");
-	expect(r.status, r.stderr).toBe(0);
-	expect(r.stderr).toBe("");
-});
-
-const hook = (stdin: string, modules = "landing") =>
+const hook = (stdin: string, modules = "") =>
 	spawnSync("sh", [path.join(ROOT, ".husky", "pre-push")], {
 		cwd: work,
 		input: stdin,
@@ -200,8 +156,7 @@ it("makes .husky/pre-push refuse an unledgered push to main and pass a ledgered 
 });
 
 it("makes .husky/pre-push pass a push to a queue ref with no coverage warning, suites on (#2929)", () => {
-	const r = hook(buildRefLine(sha, "refs/heads/queue/s1"), "suites,landing");
+	const r = hook(buildRefLine(sha, "refs/heads/queue/s1"), "suites");
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stderr).not.toContain("CERTIFICATE:");
-	expect(r.stderr).toContain('SKIP: module "landing" is on');
 });

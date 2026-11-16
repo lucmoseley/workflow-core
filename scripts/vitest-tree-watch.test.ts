@@ -6,8 +6,8 @@
  *
  * It is the globalSetup of every suite run: loosen a case and a red run caused
  * by a neighbour's half-written file is no longer named as such, so a session
- * debugs a fault that is not its own, or the pre-push marker lands somewhere
- * other than the store the push gate reads.
+ * debugs a fault that is not its own, or the suite marker lands somewhere
+ * other than the store `attestationOf` reads.
  */
 
 import { execFileSync } from "node:child_process";

@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * The seventeenth refusal (#597): a round option handing the founder an act by
+ * The sixteenth refusal (#597): a round option handing the founder an act by
  * placeholder or back-reference instead of its literal text, and its secret
  * ask: a credential the founder supplies without `write-secret.js`, in an
  * option (#1031) or in prose (#1817), or beside a line that leaks it (#2645); and a

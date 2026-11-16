@@ -15,9 +15,8 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-	ciStatusCommand,
 	describePluginRecord,
 	HOOKS,
 	hookRootOf,
@@ -122,7 +121,6 @@ describe("the core-owned rules file", () => {
 			modules: [],
 			founder: "A Founder",
 			pluginRoot: CORE,
-			ciCheck: null,
 		});
 		expect(text).not.toContain("[governance]");
 		expect(text).not.toContain("[suites]");
@@ -136,7 +134,6 @@ describe("the core-owned rules file", () => {
 			modules: ["roadmap", "suites"],
 			founder: "A Founder",
 			pluginRoot: CORE,
-			ciCheck: null,
 		});
 		expect(text).toContain("reference-roadmap.html");
 		// The suite guard hands it over instead (#2237).
@@ -151,36 +148,26 @@ describe("the core-owned rules file", () => {
 			modules: ["roadmap", "governance", "suites", "site"],
 			founder: "A Founder",
 			pluginRoot: CORE,
-			ciCheck: null,
 		});
 		expect(text).toContain("docs/doc-map.md");
 		expect(text).not.toContain("operating-manual.md");
 	});
 
-	it.each([
-		[[], "check:ci` once", "landing-status.js"],
-		[["landing"], "landing-status.js --wait` in the background", "check:ci"],
-	] as [Module[], string, string][])(
-		"gives the push line for the landing module's state, modules %j (#2409)",
-		(modules, kept, dropped) => {
-			const text = renderSessionRules({
-				modules,
-				founder: "A Founder",
-				pluginRoot: CORE,
-				ciCheck: "npm run check:ci",
-			});
-			expect(text).toContain(kept);
-			expect(text).not.toContain(dropped);
-			expect(text).not.toContain("landing]");
-		},
-	);
+	it("gives the queue-ref push line (#2409)", () => {
+		const text = renderSessionRules({
+			modules: [],
+			founder: "A Founder",
+			pluginRoot: CORE,
+		});
+		expect(text).toContain("landing-status.js --wait` in the background");
+		expect(text).not.toContain("check:ci");
+	});
 
 	it("substitutes the founder and drops the template's own instructions", () => {
 		const text = renderSessionRules({
 			modules: [],
 			founder: "A Founder",
 			pluginRoot: CORE,
-			ciCheck: null,
 		});
 		expect(text).toContain("nothing further waits on A Founder");
 		expect(text).not.toContain("{{founder}}");
@@ -193,7 +180,6 @@ describe("the core-owned rules file", () => {
 			modules: ["roadmap", "governance", "suites", "site"],
 			founder: "A Founder",
 			pluginRoot: CORE,
-			ciCheck: null,
 		});
 		const store = fs.readdirSync(path.join(CORE, "docs/agents/rules"));
 		const cited = [...text.matchAll(/`rule:([a-z0-9-]+)`/g)].map((m) => m[1]);
@@ -209,7 +195,6 @@ describe("the core-owned rules file", () => {
 			modules: ["roadmap", "governance", "suites", "site"],
 			founder: "A Founder",
 			pluginRoot: CORE,
-			ciCheck: "node scripts/check-ci-status.js",
 		});
 		expect(text).not.toMatch(/\b(?:node|bash|sh|python3) scripts\//);
 		expect(text).not.toMatch(/`scripts\/[^`\s]+ [^`]*`/);
@@ -222,7 +207,7 @@ describe("the core-owned rules file", () => {
 				"scripts/bg-run.sh",
 				"scripts/capture-drain.js",
 				"scripts/record-delegated-decision.js",
-				"scripts/check-ci-status.js",
+				"scripts/landing-status.js",
 			]),
 		);
 		for (const rel of named)
@@ -238,7 +223,6 @@ describe("the core-owned rules file", () => {
 			modules,
 			founder: "A Founder",
 			pluginRoot: CORE,
-			ciCheck: null,
 		}).split("\n");
 
 	it("names in each module line only scripts a core hook runs (#744)", () => {
@@ -319,81 +303,6 @@ describe("the core-owned rules file", () => {
 	});
 });
 
-describe("the push rule's CI check (#739)", () => {
-	const made: string[] = [];
-	afterAll(() => {
-		for (const dir of made) fs.rmSync(dir, { recursive: true, force: true });
-	});
-
-	/** An adopter tree carrying `files`, path → content. */
-	const adopter = (files: Record<string, string>) => {
-		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rules-ci-"));
-		made.push(dir);
-		for (const [rel, body] of Object.entries(files)) {
-			fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
-			fs.writeFileSync(path.join(dir, rel), body);
-		}
-		return dir;
-	};
-	const pushRule = (root: string) =>
-		renderSessionRules({
-			modules: [],
-			founder: "A Founder",
-			pluginRoot: CORE,
-			ciCheck: ciStatusCommand(root),
-		})
-			.split("\n")
-			.find((line) => line.startsWith("- **A push is your own act"));
-	const workflow = { ".github/workflows/ci.yml": "on: push\n" };
-
-	it("names no CI command where the adopter has no package.json and no workflow", () => {
-		const root = adopter({ "README.md": "x\n" });
-		expect(ciStatusCommand(root)).toBeNull();
-		const line = pushRule(root);
-		expect(line).toContain("never asked of A Founder.**");
-		expect(line).not.toMatch(/check:ci|check-ci-status|ci_check|\{\{/);
-	});
-
-	it("reads a workflows directory holding no workflow as none", () => {
-		const root = adopter({
-			".github/workflows/README.md": "x\n",
-			"package.json": JSON.stringify({ scripts: { "check:ci": "x" } }),
-		});
-		expect(ciStatusCommand(root)).toBeNull();
-		expect(pushRule(root)).not.toContain("check:ci");
-	});
-
-	it("names the adopter's own npm script where it declares one", () => {
-		const root = adopter({
-			...workflow,
-			"package.json": JSON.stringify({ scripts: { "check:ci": "x" } }),
-		});
-		expect(pushRule(root)).toContain(
-			"never asked of A Founder; after it, run `npm run check:ci` once",
-		);
-	});
-
-	it("throws on a package.json it cannot parse, rather than guessing the command", () => {
-		const root = adopter({ ...workflow, "package.json": "{ not json" });
-		expect(() => ciStatusCommand(root)).toThrow(SyntaxError);
-	});
-
-	it("names the plugin's own checker, which it ships, where the adopter has a workflow and no script", () => {
-		for (const files of [
-			workflow,
-			{ ...workflow, "package.json": JSON.stringify({ scripts: {} }) },
-		]) {
-			const line = pushRule(adopter(files));
-			const command = `node ${CORE}/scripts/check-ci-status.js`;
-			expect(line).toContain(`; after it, run \`${command}\` once`);
-			expect(line).not.toContain("npm run");
-		}
-		expect(fs.existsSync(path.join(CORE, "scripts/check-ci-status.js"))).toBe(
-			true,
-		);
-	});
-});
-
 describe("the reference file (#730)", () => {
 	it("promises no page check beyond the copy gate under site (#744)", () => {
 		const line = renderReference(CORE)
@@ -426,7 +335,7 @@ describe("the reference file (#730)", () => {
 describe("a rules-file command rewritten for an adopter (#654)", () => {
 	/** The rules file with `founder` substituted in, at `pluginRoot`. */
 	const rules = (founder: string, pluginRoot = "/opt/wfc") =>
-		renderSessionRules({ modules: [], founder, pluginRoot, ciCheck: null });
+		renderSessionRules({ modules: [], founder, pluginRoot });
 
 	it("rewrites a runner invocation and a backticked command, leaving a file named in prose", () => {
 		const text = rules(
@@ -458,7 +367,6 @@ describe("a rules-file command rewritten for an adopter (#654)", () => {
 					modules: ["governance"],
 					founder: "A Founder",
 					pluginRoot: CORE,
-					ciCheck: null,
 				}) + renderReference(CORE);
 			const command = (script: string) => {
 				const found = text.match(

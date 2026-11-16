@@ -1,14 +1,13 @@
 /*
  * pre-push-gate.js — the shell each pre-push gate runs in (#3116): its
- * printed pass, the landing-module check, and the entry point that finds the
- * pushing tree and reads git's ref lines from stdin.
+ * printed pass and the entry point that finds the pushing tree and reads
+ * git's ref lines from stdin.
  *
  * Each fault here is not the push's, so each prints and lets the push
  * through: a refusal there would refuse every push (#2409, #1954).
  */
 
 const { readFdAll } = require("./read-fd.js");
-const { moduleOn } = require("./workflow-core-config.js");
 const { readTopLevel } = require("./git-tree.js");
 const { caught } = require("./caught.js");
 const { writeFd } = require("./write-fd.js");
@@ -21,37 +20,6 @@ const { writeFd } = require("./write-fd.js");
  */
 const buildUnchecked = (gate, unjudged) => (why) =>
 	writeFd(2, `${gate}: ${why} — ${unjudged} not checked.\n`);
-
-/**
- * Whether `module` is on in the config committed at `tree`'s HEAD (#3128,
- * #3132), or the fault, as printed, where the config cannot be read.
- * @param {import("./workflow-core-config.js").Module} module
- * @param {string} tree the pushing tree
- * @returns {{ on: boolean } | { fault: string }}
- */
-function readModuleAtHead(module, tree) {
-	try {
-		return { on: moduleOn(module, { root: tree, rev: "HEAD" }) };
-	} catch (e) {
-		return {
-			fault: `could not read the ${module} module's state (${caught(e).message})`,
-		};
-	}
-}
-
-/**
- * Whether `module` is on at `tree`'s HEAD; false, printed, where the config
- * cannot be read.
- * @param {import("./workflow-core-config.js").Module} module
- * @param {string} tree the pushing tree
- * @param {(why: string) => void} unchecked
- */
-function isModuleOnAtHead(module, tree, unchecked) {
-	const state = readModuleAtHead(module, tree);
-	if ("on" in state) return state.on;
-	unchecked(state.fault);
-	return false;
-}
 
 /**
  * Run `judge` on git's ref lines from the pushing tree; 0, printed, where the
@@ -78,7 +46,5 @@ function runPrePushGate(unchecked, judge) {
 
 module.exports = {
 	buildUnchecked,
-	isModuleOnAtHead,
-	readModuleAtHead,
 	runPrePushGate,
 };

@@ -1,8 +1,8 @@
 // @vitest-environment node
 /*
  * lib/branch-publish.js, a PreToolUse dispatcher core (#2792), denies a pull
- * request and a push of any branch but `main` or `spike/*` (#764). The
- * allow-cases below are the #764 acceptance list plus every shape the rule
+ * request and a push of any branch but the session's own queue ref or
+ * `spike/*` (#764, #4458). The allow-cases below are every shape the rule
  * fragment promises passes.
  *
  * Module cases, run in process through lib/guard-core-testkit.ts over real
@@ -11,8 +11,8 @@
  * hook line, stdin and the stdout a refusal needs are
  * scripts/guard-dispatch.test.ts's boundary set.
  *
- * Loosen a case and a session opens a pull request or publishes a branch
- * where work must land on `main`, or a sanctioned push to `main` is refused.
+ * Loosen a case and a session opens a pull request, publishes a branch or
+ * moves `main` past the lander, or a sanctioned push is refused.
  */
 
 import { execFileSync } from "node:child_process";
@@ -35,14 +35,9 @@ import { shellQuote } from "./sh-quote.js";
 const { readRuleText } = require("./rule-text") as any;
 // biome-ignore lint/suspicious/noExplicitAny: untyped CommonJS helpers
 const { renderSessionRules } = require("./adopter-skeleton") as any;
-const { queueLanderFiles } = require("./lander-files.js") as {
-	queueLanderFiles: (root: string) => { ledger: string };
-};
 const { loadCores } = require("./guard-core-load.js") as {
 	loadCores: (event: string) => Record<string, unknown>[];
 };
-const REWIND_RULE_FALLBACK =
-	"Never move `main` backwards; the rule could not be read from docs/agents/rules/main-rewind.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.";
 
 let dir: string;
 let shared: string;
@@ -83,7 +78,6 @@ beforeEach(() => {
 		execFileSync("git", ["branch", branch], { cwd: shared });
 	execFileSync("git", ["tag", "v1.2.3"], { cwd: shared });
 	logs = [];
-	vi.stubEnv("WFC_MODULES", "");
 });
 
 afterEach(() => {
@@ -110,7 +104,7 @@ describe("a pull request is denied", () => {
 	])("%s", (command) => {
 		const why = denial(command);
 		expect(why).toContain("opens a pull request");
-		expect(why).toContain(readRuleText("branch-publish"));
+		expect(why).toContain(readRuleText("branch-publish-landing"));
 	});
 });
 
@@ -212,12 +206,11 @@ describe("what it leaves alone on gh", () => {
 	});
 });
 
-describe("a push of a branch other than main is denied", () => {
+describe("a push of a branch other than main or a queue ref is denied", () => {
 	it.each([
 		["git push origin feature-x", "feature-x"],
 		["git push -u origin feature-x", "feature-x"],
 		["git push origin +feature-x", "feature-x"],
-		["git push origin main feature-x", "feature-x"],
 		["git push origin HEAD:feature-y", "feature-y"],
 		["git push origin main:refs/heads/other", "other"],
 		["git push origin refs/heads/feature-x", "feature-x"],
@@ -234,16 +227,16 @@ describe("a push of a branch other than main is denied", () => {
 	])("%s", (command, branch) => {
 		const why = denial(command);
 		expect(why).toContain(`a branch other than main, ${branch}`);
-		expect(why).toContain(readRuleText("branch-publish"));
+		expect(why).toContain(readRuleText("branch-publish-landing"));
 	});
 
 	it("judges `env -C` against the tree it moves to, as `git -C` is (#4009)", () => {
 		expect(denial("env -C ../wt git push origin HEAD")).toContain(
 			"a branch other than main, side",
 		);
-		expect(
-			denial(`env -C ${shared} git push origin HEAD`, worktree),
-		).toBeNull();
+		expect(denial(`env -C ${shared} git push origin HEAD`, worktree)).toContain(
+			"only the lander moves",
+		);
 	});
 
 	it.each(["git push --all origin", "git push --mirror origin"])(
@@ -256,7 +249,7 @@ describe("a push of a branch other than main is denied", () => {
 	it("denies a tag created earlier in the same command, and names the remedy (#1033)", () => {
 		const why = denial("git tag rounds/x HEAD && git push origin rounds/x");
 		expect(why).toContain("a branch other than main, rounds/x");
-		expect(why).toContain("push it as `refs/tags/<name>`");
+		expect(why).toContain("`refs/tags/<name>`");
 	});
 
 	it("denies a bare push from a worktree on a feature branch, naming the branch", () => {
@@ -268,14 +261,6 @@ describe("a push of a branch other than main is denied", () => {
 
 describe("the sanctioned pushes pass", () => {
 	it.each([
-		"git push",
-		"git push origin",
-		"git push origin main",
-		"git push -u origin main",
-		"git push origin HEAD",
-		"git push origin HEAD:main",
-		"git push origin feature-x:main",
-		"git push origin refs/heads/main",
 		"git push origin spike/x",
 		"git push origin v1.2.3",
 		"git push origin tag v1.2.3",
@@ -283,21 +268,19 @@ describe("the sanctioned pushes pass", () => {
 		"git push origin refs/tags/rounds/x",
 		"git tag rounds/x HEAD && git push origin refs/tags/rounds/x",
 		"git push --tags origin",
-		"git push --follow-tags origin main",
+		"git push --follow-tags origin spike/x",
 		"git push origin --delete feature-x",
 		"git push origin :feature-x",
 		"git push --dry-run origin feature-x",
 		"git push --help",
-		"git -C ../wt push origin HEAD:main",
 		// A redirection is the shell's, never a refspec.
-		"git push origin main 2>&1 | tail -4",
-		"git push origin main > out.txt 2>&1",
-		"git push origin main 2>/dev/null",
-		"git push origin main >out",
-		"git push 2> err.txt",
+		"git push origin spike/x 2>&1 | tail -4",
+		"git push origin spike/x > out.txt 2>&1",
+		"git push origin spike/x 2>/dev/null",
+		"git push origin spike/x >out",
 		// A -c string's later line, its closing quote not on the refspec (#4978).
-		'flock /l -c "true\ngit push origin main"',
-		'flock /l -c "true; git push origin main"',
+		'flock /l -c "true\ngit push origin spike/x"',
+		'flock /l -c "true; git push origin spike/x"',
 	])("%s", (command) => {
 		expect(denial(command)).toBeNull();
 	});
@@ -313,8 +296,8 @@ describe("the sanctioned pushes pass", () => {
 	});
 });
 
-/* #1733: a force-push or deletion of `main` prints rule:main-rewind. The
- * literal anchor fails if the fragment's force-push sentence is dropped. */
+/* #1733: a force-push or deletion of `main` prints rule:main-rewind-landing.
+ * The literal anchor fails if the fragment's force-push sentence is dropped. */
 describe("a force-push or deletion of main is denied with the rewind rule", () => {
 	it.each([
 		["git push --force", "force-pushes `main`"],
@@ -347,25 +330,19 @@ describe("a force-push or deletion of main is denied with the rewind rule", () =
 	])("%s is denied, naming that it %s", (command, what) => {
 		const why = denial(command);
 		expect(why).toContain(what);
-		expect(why).toContain("A force-push to `main`");
-		expect(why).toContain(readRuleText("main-rewind"));
-	});
-
-	/* #1759: the guard-pull-form core prints the same fragment, so its needle must
-	 * not credit itself with this refusal too. */
-	it.each([
-		["git push --force", "main-force-push"],
-		["git push origin --delete main", "main-remote-delete"],
-	])("%s counts once, as this guard's %s", (command, needle) => {
-		expect(denyFires(denial(command) as string)).toEqual([
-			`guard:guard-dispatch.js/${needle}`,
-		]);
+		expect(why).toContain("force-push to `main`");
+		expect(why).toContain(readRuleText("main-rewind-landing"));
 	});
 
 	it.each([
 		"git push --force-with-lease --no-force-with-lease origin main",
 		"git push --force-w --no-force-w origin main",
 		"git push origin HEAD:heads/main",
+	])("%s, forced no longer, is denied as a push to main", (command) => {
+		expect(denial(command)).toContain("only the lander moves");
+	});
+
+	it.each([
 		"git push -f origin spike/x",
 		"git push origin +spike/x",
 		"git push --dry-run -f origin main",
@@ -373,57 +350,35 @@ describe("a force-push or deletion of main is denied with the rewind rule", () =
 	])("%s passes", (command) => {
 		expect(denial(command)).toBeNull();
 	});
-
-	/* lib/main-rewind.js's fallback (#1777): a forced push of `main` is known
-	 * bad, so a store that cannot give the rule still refuses it. */
-	it("still refuses where the store cannot give the rule, naming its file", () => {
-		vi.stubEnv("WFC_RULES_DIR", path.join(dir, "no-rules"));
-		vi.stubEnv("WFC_RULES_FALLBACK_DIR", path.join(dir, "no-rules"));
-		expect(denial("git push --force origin main")).toBe(
-			`This force-pushes \`main\`: git push --force origin main\n\n${REWIND_RULE_FALLBACK}`,
-		);
-	});
 });
 
-describe("with the landing module on, work lands through queue refs, never main (#4485)", () => {
-	beforeEach(() => {
-		vi.stubEnv("WFC_MODULES", "landing");
-	});
-
+describe("work lands through queue refs, never a push to main (#4485)", () => {
 	it.each([
 		"git push",
+		"git push origin",
 		"git push origin main",
+		"git push -u origin main",
+		"git push origin HEAD",
 		"git push origin HEAD:main",
+		"git push origin feature-x:main",
+		"git push origin refs/heads/main",
+		"git push --follow-tags origin main",
 		"git -C ../wt push origin HEAD:main",
+		"git push origin main 2>&1 | tail -4",
+		'flock /l -c "true\ngit push origin main"',
 	])("%s is denied, as only the lander moves main", (command) => {
 		const why = denial(command);
 		expect(why).toContain("only the lander moves");
 		expect(why).toContain("so it has no queue ref");
 		expect(why).toContain(readRuleText("branch-publish-landing"));
 	});
-
-	it.each([
-		"git push origin spike/x",
-		"git push origin -f spike/x",
-		"git push origin v1.2.3",
-		"git push origin --delete feature-x",
-	])("%s passes", (command) => {
-		expect(denial(command)).toBeNull();
-	});
-
-	it("still denies a feature branch, with the landing route's text", () => {
-		expect(denial("git push origin feature-x")).toContain(
-			readRuleText("branch-publish-landing"),
-		);
-	});
 });
 
-describe("with the landing module on, a session pushes its own queue ref (#4458)", () => {
+describe("a session pushes its own queue ref (#4458)", () => {
 	/* The session's worktree, cut where session-checkout.js cuts one. */
 	let own: string;
 	const Own = "queue/q1";
 	beforeEach(() => {
-		vi.stubEnv("WFC_MODULES", "landing");
 		own = path.join(shared, ".claude", "worktrees", "q1");
 		execFileSync("git", ["worktree", "add", "-q", "--detach", own], {
 			cwd: shared,
@@ -556,7 +511,7 @@ describe("with the landing module on, a session pushes its own queue ref (#4458)
 		"git push origin v1.2.3",
 		"git push origin refs/heads/main:refs/tags/queue/q2",
 		"git push origin --delete feature-x",
-	])("%s passes from the worktree as before", (command) => {
+	])("%s passes from the worktree", (command) => {
 		expect(denial(command, own)).toBeNull();
 	});
 
@@ -581,7 +536,7 @@ describe("with the landing module on, a session pushes its own queue ref (#4458)
 		["git push origin --delete main", "This deletes `main` on the remote"],
 		["git push origin :main", "This deletes `main` on the remote"],
 	])(
-		"%s is refused from the worktree with the landing rewind rule, naming its own queue ref",
+		"%s is refused from the worktree with the lander's rewind rule, naming its own queue ref",
 		(command, what) => {
 			const why = denial(command, own);
 			expect(why).toContain(what);
@@ -591,7 +546,7 @@ describe("with the landing module on, a session pushes its own queue ref (#4458)
 		},
 	);
 
-	it("counts a landing rewind once, under its own needle", () => {
+	it("counts a rewind of main once, under its own needle", () => {
 		expect(
 			denyFires(denial("git push --force origin main", own) as string),
 		).toEqual(["guard:guard-dispatch.js/main-rewind-landing"]);
@@ -628,18 +583,6 @@ describe("with the landing module on, a session pushes its own queue ref (#4458)
 		);
 		expect(r.output).toBeFalsy();
 	});
-
-	it("leaves a queue ref a branch like any other with landing off", () => {
-		vi.stubEnv("WFC_MODULES", "");
-		expect(denial("git push origin HEAD:queue/q1", own)).toContain(
-			"a branch other than main, queue/q1",
-		);
-		expect(denial("git push origin --delete queue/q1", own)).toBeNull();
-	});
-});
-
-it("passes a push to main with landing off", () => {
-	expect(denial("git push origin main")).toBeNull();
 });
 
 describe("an adopter", () => {
@@ -648,9 +591,8 @@ describe("an adopter", () => {
 			modules: [],
 			founder: "A Founder",
 			pluginRoot: path.resolve(__dirname, "..", ".."),
-			ciCheck: null,
 		});
-		expect(text).not.toContain("`rule:branch-publish`");
+		expect(text).not.toContain("`rule:branch-publish-landing`");
 		expect(denial("gh pr create --fill")).toContain("NEVER A PULL REQUEST");
 	});
 
@@ -692,89 +634,6 @@ describe("the fail-open record", () => {
 	});
 });
 
-describe("a config that will not read (#5235, #5243)", () => {
-	const Own = "queue/q1";
-	let ledger: string;
-	const breakConfig = () => {
-		fs.mkdirSync(path.join(shared, ".claude"), { recursive: true });
-		fs.writeFileSync(path.join(shared, ".claude", "workflow-core.json"), "{ x");
-	};
-	const writeLedger = () => {
-		fs.mkdirSync(path.dirname(ledger), { recursive: true });
-		fs.writeFileSync(ledger, "");
-	};
-	/** The session's own worktree, whose queue ref is `Own`. */
-	const ownTree = () => {
-		const own = path.join(shared, ".claude", "worktrees", "q1");
-		execFileSync("git", ["worktree", "add", "-q", "--detach", own], {
-			cwd: shared,
-		});
-		return own;
-	};
-	beforeEach(() => {
-		ledger = queueLanderFiles(shared).ledger;
-	});
-
-	it.each([
-		["git push origin HEAD:queue/other", "another session's queue ref"],
-		["git push origin HEAD:lander/x", "which only the lander writes"],
-		["git push origin HEAD:dropped/x", "which only the lander writes"],
-		["git push origin :queue/other", "which only the lander deletes"],
-		["git push origin --delete lander/x", "which only the lander writes"],
-		["git push origin --delete dropped/x", "which only the lander writes"],
-		['git push origin "HEAD:$R"', "pushes to a ref this guard cannot read"],
-	])(
-		"with the green ledger present, %s is refused as with landing on, naming the fault",
-		(command, what) => {
-			breakConfig();
-			writeLedger();
-			const why = denial(command, ownTree());
-			expect(why).toContain(what);
-			expect(why).toContain(
-				`${path.join(shared, ".claude", "workflow-core.json")} does not parse: `,
-			);
-			expect(why).toContain(
-				`and the lander's green ledger ${ledger} exists, so this push is judged as with the landing module on.`,
-			);
-			expect(why).toContain(`Your session's queue ref is \`${Own}\``);
-			expect(logs.join("\n")).not.toContain("allowed unchecked");
-		},
-	);
-
-	it("with the green ledger present, its own queue ref passes", () => {
-		breakConfig();
-		writeLedger();
-		expect(denial(`git push origin HEAD:${Own}`, ownTree())).toBeNull();
-	});
-
-	it("with the green ledger present, a push to main is refused, naming the leftover ledger to delete where landing is off", () => {
-		breakConfig();
-		writeLedger();
-		expect(denial("git push origin HEAD:main", ownTree())).toContain(
-			"where landing is off here, delete that leftover ledger too",
-		);
-	});
-
-	it("with no green ledger, allows an unreadable refspec, main and a lander ref's deletion, logged, and refuses another queue ref as a branch", () => {
-		breakConfig();
-		expect(denial('git push origin "HEAD:$R"')).toBeNull();
-		expect(denial("git push origin HEAD:main")).toBeNull();
-		expect(denial("git push origin --delete lander/x")).toBeNull();
-		expect(denial("git push origin HEAD:queue/other")).toContain(
-			readRuleText("branch-publish"),
-		);
-		expect(logs).toContain("unreadable push refspec — push allowed unchecked");
-		expect(logs.join("\n")).toContain(
-			"module landing read as off on a config fault",
-		);
-	});
-
-	it("with a config that reads and landing off, a leftover ledger changes nothing", () => {
-		writeLedger();
-		expect(denial("git push origin HEAD:main")).toBeNull();
-	});
-});
-
 describe("the cases a mutant must not survive (#2792)", () => {
 	const ghAnswering = (verdict: string) =>
 		stubGhScript(
@@ -791,11 +650,11 @@ describe("the cases a mutant must not survive (#2792)", () => {
 	};
 
 	it.each([
-		['git push origin "$B"', "unreadable push refspec"],
-		['git push origin --delete "$B"', "unreadable push deletion"],
-	])("allows %s, and records it as an %s", (command, record) => {
-		expect(denial(command)).toBeNull();
-		expect(logs).toEqual([`${record} — push allowed unchecked`]);
+		['git push origin "$B"', "pushes to a ref this guard cannot read"],
+		['git push origin --delete "$B"', "deletes a ref this guard cannot read"],
+	])("refuses %s, recording nothing: it %s", (command, what) => {
+		expect(denial(command)).toContain(what);
+		expect(logs).toEqual([]);
 	});
 
 	it.each([
@@ -915,33 +774,27 @@ describe("the cases a mutant must not survive (#2792)", () => {
 	it.each([
 		[
 			"gh pr create",
-			"",
-			"This opens a pull request: gh pr create\n\nWork lands on `main` directly — no branch on the remote, and never a pull request; the rule could not be read from docs/agents/rules/branch-publish.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
+			"This opens a pull request: gh pr create\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nWork lands through your session's queue ref — never a push to `main`, no other branch on the remote, and never a pull request; the rule could not be read from docs/agents/rules/branch-publish-landing.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
 		],
 		[
 			"git push origin main",
-			"landing",
 			"This pushes to main, which only the lander moves: git push origin main\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nWork lands through your session's queue ref — never a push to `main`, no other branch on the remote, and never a pull request; the rule could not be read from docs/agents/rules/branch-publish-landing.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
 		],
 		[
 			"git push origin HEAD:lander/batch-0",
-			"landing",
 			"This pushes to `lander/batch-0`, which only the lander writes: git push origin HEAD:lander/batch-0\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nPush your work to your session's own queue ref, a creation or a fast-forward, never forced; the rule could not be read from docs/agents/rules/queue-ref.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
 		],
 		[
 			"git push --force origin main",
-			"landing",
 			"This force-pushes `main`: git push --force origin main\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nOnly the queue lander moves `main`, and never backwards; the rule could not be read from docs/agents/rules/main-rewind-landing.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
 		],
 		[
 			"gh pr merge dependabot/x",
-			"",
 			"This merges a Dependabot pull request: gh pr merge dependabot/x\n\nNever merge a Dependabot pull request; the rule could not be read from docs/agents/rules/dependabot-merge.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
 		],
 	])(
 		"still refuses %s where the store cannot give its rule, naming the file",
-		(command, modules, reason) => {
-			vi.stubEnv("WFC_MODULES", modules);
+		(command, reason) => {
 			noRules();
 			expect(denial(command)).toBe(reason.replace("SHARED", shared));
 		},

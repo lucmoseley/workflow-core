@@ -9,6 +9,7 @@ const {
 	discoverRepos,
 	isOptedOut,
 	readAbsence,
+	readExclusionWhy,
 } = require("./refill-repos.js");
 
 let home: string;
@@ -78,6 +79,43 @@ describe("discoverRepos (#2003)", () => {
 			excluded: [],
 			faulted: [{ root, why: '"refillLoop" is not a boolean' }],
 		});
+	});
+});
+
+/** `root` pinned to workflow-core at `ref`, as an adopter's settings pin it. */
+function pin(root: string, ref: string) {
+	fs.writeFileSync(
+		path.join(root, ".claude", "settings.json"),
+		JSON.stringify({
+			enabledPlugins: { "workflow-core@wfc": true },
+			extraKnownMarketplaces: {
+				wfc: { source: { source: "github", repo: "o/wfc", ref } },
+			},
+		}),
+	);
+	return root;
+}
+
+describe("readExclusionWhy (#5276)", () => {
+	it("leaves out a repo pinned below v3.0.0 whose config lacks landing, keeping its tick", () => {
+		const old = pin(checkout("old", {}), "v2.3.0");
+		expect(readExclusionWhy(old)).toContain(
+			"pinned to workflow-core v2.3.0 with `landing` off",
+		);
+		expect(isOptedOut(old)).toBe(false);
+	});
+
+	it("serves an old pin with landing on, a pin at or past v3.0.0, and a branch pin", () => {
+		const on = pin(checkout("on", { modules: ["landing"] }), "v2.3.0");
+		const current = pin(checkout("current", {}), "v3.0.0");
+		const branch = pin(checkout("branch", {}), "main");
+		const unpinned = checkout("unpinned", {});
+		expect([on, current, branch, unpinned].map(readExclusionWhy)).toEqual([
+			null,
+			null,
+			null,
+			null,
+		]);
 	});
 });
 

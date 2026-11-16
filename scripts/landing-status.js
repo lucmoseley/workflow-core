@@ -16,7 +16,7 @@
  *
  * Joins no §N3 family: it gates nothing and is no hook.
  *
- * Exit codes: 0 on a report, or where the `landing` module is off; 1 where the
+ * Exit codes: 0 on a report; 1 where the
  * remote or the commit ledger cannot be read; 2 on a command line it refuses
  * or no session id. Queue lines it cannot read are named on stderr, and
  * change no exit code.
@@ -42,7 +42,6 @@ const {
 } = require("./lib/queue-ref-status.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
-const { moduleOn } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { isNetworkFault } = require("./lib/network-fault.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
@@ -84,12 +83,6 @@ function main(argv = process.argv.slice(2)) {
 	if (root === null) {
 		fail("not in a git checkout");
 		return 1;
-	}
-	if (!moduleOn("landing", { root })) {
-		say(
-			"The landing module is off: this repo lands straight on main, so a pushed commit is on main.",
-		);
-		return 0;
 	}
 	const sessionId =
 		flagValue(parsed.flags, "--session") || process.env.CLAUDE_CODE_SESSION_ID;

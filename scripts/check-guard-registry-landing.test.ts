@@ -341,7 +341,6 @@ describe("scripts/landing-registry-gate.js refuses only the faults a queue push 
 	const push = (
 		root: string,
 		{ sha, tip }: { sha: string; tip: string },
-		modules = "landing",
 		locks: unknown[] = [],
 	) => {
 		execFileSync("git", ["update-ref", "refs/remotes/origin/main", tip], {
@@ -363,7 +362,7 @@ describe("scripts/landing-registry-gate.js refuses only the faults a queue push 
 					CLAUDE_PROJECT_DIR: root,
 					WFC_RULES_DIR: "",
 					WFC_RULES_FALLBACK_DIR: "",
-					WFC_MODULES: modules,
+					WFC_MODULES: "",
 				},
 			},
 		);
@@ -445,7 +444,7 @@ describe("scripts/landing-registry-gate.js refuses only the faults a queue push 
 			path.join(root, "scripts/guard-amend.sh"),
 			"#!/bin/sh\nexit 4\n",
 		);
-		const r = push(root, { sha, tip }, "landing", [
+		const r = push(root, { sha, tip }, [
 			{
 				path: "scripts/guard-amend.sh",
 				sessionId: "neighbour-session",
@@ -469,18 +468,6 @@ describe("scripts/landing-registry-gate.js refuses only the faults a queue push 
 		const sha = commit({ "docs/note.md": "unrelated\n" }, "unrelated");
 		const r = push(root, { sha, tip });
 		expect(r.status, r.stderr).toBe(0);
-	});
-
-	it("does nothing with the landing module off", () => {
-		const { root, git, commit } = repo();
-		const tip = git("rev-parse", "HEAD");
-		const sha = commit(
-			{ "scripts/guard-amend.sh": "#!/bin/sh\nexit 1\n" },
-			"stale",
-		);
-		const r = push(root, { sha, tip }, "suites");
-		expect(r.status, r.stderr).toBe(0);
-		expect(r.stderr).toBe("");
 	});
 });
 
@@ -537,7 +524,7 @@ describe("scripts/landing-registry-gate.js judges a push to a queue ref on main'
 					CLAUDE_PROJECT_DIR: root,
 					WFC_RULES_DIR: "",
 					WFC_RULES_FALLBACK_DIR: "",
-					WFC_MODULES: "landing",
+					WFC_MODULES: "",
 					...inherited,
 				},
 			},

@@ -15,8 +15,7 @@
  * (supervise-landing.js, #2692), which runs as no session, names itself with
  * `--launched-by`.
  *
- * Does nothing where the `landing` module is off. Joins no §N3 family: it
- * gates nothing and is no hook.
+ * Joins no §N3 family: it gates nothing and is no hook.
  *
  * Exit codes: 0 started or skipped; 1 on a throw, an unreadable remote among
  * them; 2 on a command line it refuses.
@@ -40,10 +39,6 @@ const { queueBranch } = require("./lib/landing-refs.js");
 const { queueGit } = require("./lib/queue-lander-adapters.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
-const {
-	buildModuleOffLine,
-	moduleOn,
-} = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const USAGE = `usage: node ${scriptPath("start-lander.js")} [--tester <command>] [--launched-by <name>]`;
@@ -65,10 +60,6 @@ function main(argv = process.argv.slice(2)) {
 	if (root === null) {
 		writeFd(2, "start-lander: not in a git checkout\n");
 		return 1;
-	}
-	if (!moduleOn("landing", { root })) {
-		say(`SKIP: ${buildModuleOffLine("landing")}`);
-		return 0;
 	}
 	const log = landerLog(root);
 	let by = "";

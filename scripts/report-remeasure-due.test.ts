@@ -885,7 +885,7 @@ describe("the re-measure trigger", () => {
 				ticket(5, [], [record(5, undefined, unheld)]),
 			],
 		});
-		const r = run(fx, { WFC_MODULES: "landing" });
+		const r = run(fx);
 		expect(r.code).toBe(0);
 		expect(r.stderr.split("\n")).toEqual([
 			`OFF MAIN: o/manta#4 has a record naming landed ${lost}, which never reached main, so its commit is not counted until it is corrected: post a record naming the sha it landed under, under a counted tier, sharing its reviewed tree, or its base and paths, as \`scripts/lib/rule-text.sh review-tier-records\` says; where the correction changes both, ${DELETE_RECORD}`,
@@ -938,31 +938,9 @@ describe("the re-measure trigger", () => {
 				),
 			],
 		});
-		const r = run(fx, { WFC_MODULES: "landing" });
+		const r = run(fx);
 		expect(r.stderr).toBe("");
 		expect(fx.issueBody.body().split("\n")[0]).toMatch(/^0 commits on/);
-	});
-
-	it("reads no queue ref with the landing module off, so a sha only on one is off main (#3846)", () => {
-		const fx = fixture({ hits: {} });
-		const [onMain, queued] = trailerCheckout(fx, [
-			{ file: "a.txt" },
-			{ file: "b.txt" },
-		]) as [string, string];
-		const code = path.join(fx.root, "manta");
-		gitIn(
-			code,
-			"push",
-			"-qf",
-			"--no-verify",
-			"origin",
-			`${onMain}:refs/heads/main`,
-		);
-		gitIn(code, "update-ref", "refs/remotes/origin/queue/s", queued);
-		fx.setHits({ "o/manta": [ticket(1, [], [record(1, undefined, queued)])] });
-		expect(run(fx, { WFC_MODULES: "" }).stderr).toContain(
-			`OFF MAIN: o/manta#1 has a record naming landed ${queued}`,
-		);
 	});
 
 	it("counts a disposition line with no space after its dash (#3846)", () => {

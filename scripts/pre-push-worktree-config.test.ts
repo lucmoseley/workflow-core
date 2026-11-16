@@ -64,7 +64,7 @@ beforeEach(() => {
 		contract: 1,
 		tracker: "o/tracker",
 		codeRepo: "o/code",
-		modules: ["suites", "landing"],
+		modules: ["suites"],
 	});
 	git(shared, "add", ".");
 	git(shared, "commit", "-q", "-m", "seed");
@@ -97,7 +97,7 @@ const pushToMain = (cwd = wt) =>
 		env: env(),
 	});
 
-it("refuses a worktree's unledgered push to main while the shared config turns landing off (#3128)", () => {
+it("refuses a worktree's unledgered push to main (#3128)", () => {
 	const r = pushToMain();
 	expect(r.stderr).toContain("pre-push: refused");
 	expect(r.stderr).toContain(sha);
@@ -105,17 +105,10 @@ it("refuses a worktree's unledgered push to main while the shared config turns l
 	expect(r.status).not.toBe(0);
 });
 
-it("refuses the shared checkout's unledgered push to main while its working copy turns landing off (#3132)", () => {
+it("refuses the shared checkout's unledgered push to main (#3132)", () => {
 	const r = pushToMain(shared);
 	expect(r.stderr).toContain("pre-push: refused");
 	expect(r.stderr).toContain(git(shared, "rev-parse", "HEAD"));
-	expect(r.status).not.toBe(0);
-});
-
-it("refuses a worktree's unledgered push to main while its own working copy turns landing off (#3132)", () => {
-	writeConfig(wt, { contract: 1, modules: [] });
-	const r = pushToMain();
-	expect(r.stderr).toContain("pre-push: refused");
 	expect(r.status).not.toBe(0);
 });
 
@@ -130,7 +123,7 @@ it("passes a worktree's push to main of a sha the canonical checkout's ledger ho
 	expect(r.status, r.stderr).toBe(0);
 });
 
-it("judges a worktree's queue push while the shared config turns landing off (#3128)", () => {
+it("judges a worktree's queue push (#3128)", () => {
 	const r = runInProcess(gate("landing-registry-gate.js"), [], {
 		cwd: wt,
 		env: env(),
@@ -164,14 +157,4 @@ it("refuses a worktree's push to the code repo while its own working copy joins 
 it("passes a worktree's push to the tracker it reads from its own config (#3128)", () => {
 	const r = pushPublic("https://github.com/o/tracker.git");
 	expect(r.status, r.stderr).toBe(0);
-});
-
-it("skips the certificate warning on the worktree's landing module while the shared config turns suites off (#3128)", () => {
-	const r = runInProcess(gate("check-test-marker.js"), [], {
-		cwd: wt,
-		env: env(),
-		stdin: `refs/heads/main ${sha} refs/heads/landing ${ZERO}\n`,
-	});
-	expect(r.status, r.stderr).toBe(0);
-	expect(r.stdout + r.stderr).toContain('module "landing" is on');
 });

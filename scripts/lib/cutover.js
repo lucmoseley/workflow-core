@@ -82,13 +82,11 @@ function linkedWorktrees(root, git) {
 }
 
 /**
- * Whether the write refusal binds: the `landing` module on and the main
- * checkout `gitRead` reads cut over. A git that cannot answer reads as not.
- * @param {(module: "landing") => boolean} moduleOn
+ * Whether the write refusal binds: the main checkout `gitRead` reads cut
+ * over. A git that cannot answer reads as not.
  * @param {import("./git.js").GitReader} gitRead
  */
-const landingCutOver = (moduleOn, gitRead) =>
-	moduleOn("landing") && readCutOver(gitRead) === true;
+const landingCutOver = (gitRead) => readCutOver(gitRead) === true;
 
 /**
  * Whether the main checkout at `root` is cut over. A config git cannot read
@@ -116,7 +114,6 @@ const throwingGit = (read, dir) => (args) => {
  * @typedef {import("./level-main.js").Blocker} Blocker
  * @typedef {ReturnType<typeof import("./level-main.js").level>} LevelOutcome
  * @typedef {{
- *   moduleOn: () => boolean,
  *   listed: () => { agents: { name?: string, sessionId: string, cwd?: string }[] } | { why: string },
  *   cut: (root: string, name: string) => { dir: string },
  *   land: (dir: string) => { queue: string, head: string, lander: string | null },
@@ -126,7 +123,6 @@ const throwingGit = (read, dir) => (args) => {
  * }} CutoverPorts `gitIn` runs git in a directory: the main checkout, or the
  *   worktree `cut` made
  * @typedef {(
- *   | { status: "module-off" }
  *   | { status: "unlisted", why: string }
  *   | { status: "occupied", sessions: string[] }
  *   | { status: "unmerged", dir: string, local: number, files: string[], why: string }
@@ -168,7 +164,6 @@ function mergeMain(read) {
  * @returns {CutoverResult}
  */
 function cutover(root, ports) {
-	if (!ports.moduleOn()) return { status: "module-off" };
 	const read = ports.gitIn(root);
 	const already = readCutOver(read) === true;
 	/** @type {{ count: number, queue: string, head: string, lander: string | null } | null} */
@@ -220,10 +215,6 @@ function cutover(root, ports) {
  */
 function renderCutover(r, { renderBlocker, renderLevel }) {
 	switch (r.status) {
-		case "module-off":
-			return [
-				"refused: the `landing` module is off, so the main checkout stays the shared tree and nothing was cut over",
-			];
 		case "unlisted":
 			return [
 				`refused: no session listing, so no session can be shown to be out of the main checkout — nothing was cut over: ${r.why}`,

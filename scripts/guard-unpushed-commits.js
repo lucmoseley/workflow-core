@@ -11,9 +11,8 @@
  * speaks at the end.
  *
  * WARN, NEVER REFUSE, AND IT STILL BLOCKS. An automatic push would publish
- * past a neighbour's red, which `rule:push-green-suite` lets hold a push back. So the
- * guard only speaks, and a Stop hook has no other channel to the model than a
- * block's `reason` (docs/agents/guard-authoring.md §Which channel reaches the
+ * past a neighbour's red. So the guard only speaks, and a Stop hook has no
+ * other channel to the model than a block's `reason` (docs/agents/guard-authoring.md §Which channel reaches the
  * model). The block says it is a warning, and the re-stop passes: each commit
  * is warned about once for ever, in `.unpushed-seen-`, with `.unpushed-nagged-`
  * as the loop bound.
@@ -53,7 +52,7 @@
  *            the pushed ref does not resolve, with no ledger, and on every
  *            failure path.
  * TREE:      both — the session tree's HEAD and branch, then the main
- *            checkout's; the host root's commit ledger, markers and config.
+ *            checkout's; the host root's commit ledger and markers.
  */
 
 const fs = require("node:fs");
@@ -64,28 +63,16 @@ const { gitRead } = require("./lib/dirty-tree.js");
 const hookBlock = require("./lib/hook-block");
 const hookMessage = require("./lib/hook-message");
 const { markersDir } = require("./lib/marker-root.js");
-const {
-	readCommandOrDefault,
-	moduleReader,
-} = require("./lib/workflow-core-config.js");
 const { readPendingTasks } = require("./lib/pending-tasks");
 const { scriptPath } = require("./lib/script-path.js");
 const { ledgerRoot } = require("./lib/arbiter-ledger.js");
 const { readUnpushedRef } = require("./lib/landing-refs.js");
-const { landingTwin } = require("./lib/rule-gates.js");
-const { pushGateState } = require("./lib/test-gate.js");
 const store = require("./lib/arbiter-store");
 const { governingMarker } = require("./lib/status-marker");
 const stopGuard = require("./lib/stop-guard");
 const { sessionTree } = require("./lib/host-root.js");
 
 const REPO_ROOT = hookBlock.repoRoot();
-
-const MODULE_CTX = {
-	moduleOn: moduleReader(REPO_ROOT, (what, detail) =>
-		logError(`guard-unpushed-commits ${what}`, detail),
-	),
-};
 
 const SEEN_PREFIX = ".unpushed-seen-";
 
@@ -181,30 +168,8 @@ function handingOff(payload, sid) {
 	}
 }
 
-/* Each id cited whole, so the registry's citation scan reads it. */
-const CADENCE_CITATION = {
-	"push-cadence": "`rule:push-cadence`",
-	"push-cadence-landing": "`rule:push-cadence-landing`",
-};
-
-/**
- * The push, with `push_check` before it only where a push still owes a
- * certificate — `pushGateState` decides (#2933). A config it cannot read
- * keeps the check, which prints the fault itself. The rule named is the
- * route's: `landing` swaps in its twin, as the guard-push-rules core does
- * (#2409), and its push is the land step's, of the session's queue ref.
- * @param {string} ref
- */
-function buildPushStep(ref) {
-	const twin = landingTwin(MODULE_CTX, "push-cadence");
-	const rule = CADENCE_CITATION[twin];
-	const gate = pushGateState({ root: REPO_ROOT });
-	if (gate.state !== "skip")
-		return `The push is your own act (${rule}): run \`${readCommandOrDefault("push_check")}\`, then push.`;
-	return twin === "push-cadence-landing"
-		? `The push is your own act (${rule}): land it with \`node ${scriptPath("session-checkout.js")} land\`, which pushes your queue ref — ${gate.line}.`
-		: `The push is your own act (${rule}): push to \`${ref}\` — ${gate.line}.`;
-}
+/** The push: the land step's, of the session's queue ref. */
+const PUSH_STEP = `The push is your own act (\`rule:push-cadence-landing\`): land it with \`node ${scriptPath("session-checkout.js")} land\`, which pushes your queue ref.`;
 
 /**
  * `dir` with its symlinks resolved, or as given where it does not resolve.
@@ -285,9 +250,7 @@ function judge({ sessionId: sid, payload }) {
 		reason:
 			"A warning, not a refusal — the next stop passes. " +
 			found.map((f) => describeUnpushed(f, f.tree === tree)).join("") +
-			[...new Set(found.map((f) => buildPushStep(f.ref)))]
-				.map((step) => `${step} `)
-				.join("") +
+			`${PUSH_STEP} ` +
 			"If you are holding it back — a neighbour's red suite, say — end with a message that says so and names the failing test, so the founder sees that the branch is ahead of GitHub. " +
 			"Then re-send the message this turn was going to end on, its status marker included — this block discarded it.",
 	});

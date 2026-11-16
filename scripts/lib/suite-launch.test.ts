@@ -33,7 +33,7 @@ const {
 	suiteLaunchKind,
 } = require("./suite-launch.js") as {
 	isQueueable: (words: string[], ports: object) => boolean;
-	isWholePytestRun: (argv: string[], modules: { landing: boolean }) => boolean;
+	isWholePytestRun: (argv: string[]) => boolean;
 	buildIsWrapperScript: (
 		tree: () => { readText: (rel: string) => string | null },
 		log: (what: string) => void,
@@ -172,14 +172,11 @@ describe("suiteLaunchKind", () => {
 });
 
 describe("isWholePytestRun (#4775)", () => {
-	const whole = (argv: string[], landing = false) =>
-		isWholePytestRun(argv, { landing });
+	const whole = (argv: string[]) => isWholePytestRun(argv);
 
-	it("reads a bare run by `landing`: touched with it on, whole with it off", () => {
-		expect(whole([])).toBe(true);
-		expect(whole(["--"])).toBe(true);
-		expect(whole([], true)).toBe(false);
-		expect(whole(["--"], true)).toBe(false);
+	it("reads a bare run as touched, never whole", () => {
+		expect(whole([])).toBe(false);
+		expect(whole(["--"])).toBe(false);
 	});
 
 	it.each([
@@ -192,7 +189,7 @@ describe("isWholePytestRun (#4775)", () => {
 		[["--", "scripts/test_a.py", "scripts/lib"], "a file beside a directory"],
 		[["--", "scripts/helper.py"], "a Python file pytest does not collect"],
 	])("reads %j as whole — %s", (argv) => {
-		expect(whole(argv, true)).toBe(true);
+		expect(whole(argv)).toBe(true);
 	});
 
 	it.each([

@@ -38,7 +38,7 @@ let logged: string[];
 
 const OWN_LOG = [
 	"READ-GRAPH SELECTION — 2 test file(s)",
-	"MEETS THE PUSH GATE — every reader of the diff was selected.",
+	"FILTERED RUN — ran 4 of 9 tests in 2 of 40 files; 5 skipped; changed vs HEAD",
 	"  The certificate is keyed to HEAD as this run ENDS.",
 	" ✓ scripts/a.test.ts (3 tests) 20ms",
 	" FAIL  scripts/b.test.ts > fails on purpose",
@@ -124,26 +124,13 @@ describe("a suite run whose verdict was cut from its output", () => {
 		expect(said).toContain("Test Files  1 failed | 1 passed (2)");
 		expect(said).toContain("Tests  1 failed | 3 passed (4)");
 		expect(said).toContain("FAIL  scripts/b.test.ts > fails on purpose");
-		expect(said).toContain("MEETS THE PUSH GATE");
-		// Only a gate line's first line, and none of vitest's other summary lines.
+		expect(said).toContain("FILTERED RUN — ran 4 of 9 tests");
+		// Only a banner line's first line, and none of vitest's other summary lines.
 		expect(said).not.toContain("The certificate is keyed");
 		expect(said).not.toContain("Duration");
 		expect(said).toContain(`TEST LOG: ${path.relative(project, log)}`);
 		expect(said).toContain("Do not re-run the suite");
 		expect(logged).toEqual([]);
-	});
-
-	it("hands back the landing banner as the gate line (#2961)", () => {
-		const log = writeLog(
-			"own.log",
-			OWN_LOG.replace(
-				/^MEETS THE PUSH GATE.*$/m,
-				'NO PUSH GATE — module "landing" is on (#2961).',
-			),
-		);
-		record(SID, log);
-		const said = context(run("npm run test 2>&1 | grep -E 'a.test'"));
-		expect(said).toContain('NO PUSH GATE — module "landing" is on');
 	});
 
 	it("reads the log the output's own TEST LOG line names where that line survived", () => {

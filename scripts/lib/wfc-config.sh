@@ -26,11 +26,11 @@ unset _wc_here
 
 WFC_KNOWN_CONTRACTS="1"
 # The JS reader's MODULES, in its order; wfc-config.test.ts pins the two equal.
-WFC_KNOWN_MODULES="roadmap governance suites site mutation landing"
+WFC_KNOWN_MODULES="roadmap governance suites site mutation"
 # The JS reader's DEPLOYS; wfc-config.test.ts pins the two equal.
 WFC_KNOWN_DEPLOYS="vercel"
 # The JS reader's COMMANDS; wfc-config.test.ts pins the two equal.
-WFC_KNOWN_COMMANDS="test lint typecheck check check_staged push_check helper_check full_test"
+WFC_KNOWN_COMMANDS="test lint typecheck check check_staged helper_check full_test"
 WFC_CONFIG_REL=".claude/workflow-core.json"
 
 wfc_config_file() {

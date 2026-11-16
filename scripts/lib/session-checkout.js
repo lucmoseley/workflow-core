@@ -12,9 +12,8 @@
  * it lives.
  *
  * LAUNCH-DIR is the directory a launcher starts a session in (#4245): a
- * worktree cut for it where the repository has the `landing` module, else the
- * main checkout, since without it no session pushes a queue ref of its own. Its name is the prompt's words and a random
- * suffix, so a session's worktree reads as its task. A resume runs in
+ * worktree cut for it. Its name is the prompt's words and a random suffix, so
+ * a session's worktree reads as its task. A resume runs in
  * the directory its job recorded, so it reopens the same worktree.
  *
  * LAUNCH-INTO is the directory a successor starts in to finish a dead
@@ -88,7 +87,6 @@ const { settingsLockout } = require("./settings-lockout.js");
 const { readJobCwds, worktreeHolding } = require("./session-worktrees.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { trimRun } = require("./trim-run.js");
-const { buildModuleOffLine, moduleOn } = require("./workflow-core-config.js");
 const { isSessionWorktreeDir, WORKTREES } = require("./worktree-dirs.js");
 const {
 	prune,
@@ -226,10 +224,6 @@ function refuseUnlandable(dir, root) {
 		throw new CheckoutError(
 			`the main checkout is never landed from — land from your session worktree, or cut one with ${buildCutCommand()}`,
 		);
-	if (!moduleOn("landing", { root }))
-		throw new CheckoutError(
-			`${buildModuleOffLine("landing")}, so nothing lands through it — push to main as \`rule:branch-publish\` says`,
-		);
 	if (isMerging(dir))
 		throw new CheckoutError(
 			"a merge is in progress in this worktree — resolve it and `git commit`, or `git merge --abort`, then land again",
@@ -292,7 +286,7 @@ function land(cwd) {
 	refuseUnlandable(dir, root);
 	const queue = queueRefOrRefuse(dir, root);
 	fetchShared(root);
-	const pushed = pushedRef({ root, tree: dir });
+	const pushed = pushedRef({ tree: dir });
 	if (isAncestor("HEAD", VERIFIED_REF, dir) || isAncestor("HEAD", pushed, dir))
 		return {
 			dir,
@@ -415,9 +409,7 @@ function launchDir(cwd, prompt, how = {}) {
 	const root = rootOf(cwd);
 	const { into, ...build } = how;
 	if (into !== undefined) return launchInto(root, into, build);
-	return moduleOn("landing", { root })
-		? cut(root, buildSessionName(prompt), build).dir
-		: root;
+	return cut(root, buildSessionName(prompt), build).dir;
 }
 
 /**

@@ -74,7 +74,6 @@ const SCRIPT_NAMES = {
 	typecheck: ["typecheck", "type-check"],
 	check: ["check"],
 	check_staged: ["check:staged"],
-	push_check: ["push:check"],
 };
 
 /* `npm init` writes this as the test script; it is no test command. */

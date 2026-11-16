@@ -1,11 +1,9 @@
 /*
- * main-rewind.js — the one refusal of a command that moves `main` backwards,
- * printing docs/agents/rules/main-rewind.txt (#765, #1733, #1777), for the
- * cores that refuse one: lib/pull-form.js (a reset, a ref write) and
- * lib/branch-publish.js (a forced push, a remote deletion). With the
- * `landing` module on, the remote rewind prints main-rewind-landing.txt,
- * the lander's reading, which lib/branch-publish.js frames with the
- * session's own queue ref (#4856).
+ * main-rewind.js — the refusal of a command that moves `main` backwards
+ * (#765, #1733, #1777): lib/pull-form.js's local reset or ref write prints
+ * docs/agents/rules/main-rewind.txt, and lib/branch-publish.js's forced push
+ * or remote deletion prints main-rewind-landing.txt, the lander's reading,
+ * framed with the session's own queue ref (#4856).
  *
  * The rule's id is a literal here, which check-guard-registry.js's emitter
  * scan reaches through each caller's require.
@@ -28,7 +26,7 @@ const rewindReason = (ctx, what) =>
 	`This ${what}: @CMD@\n\n${ruleOrFallback(ctx, "main-rewind", "Never move `main` backwards")}`;
 
 /**
- * The lander's reading of the rule, for a remote rewind with `landing` on.
+ * The lander's reading of the rule, for a remote rewind.
  * @param {import("./guard-verdict.js").RulePorts} ctx
  */
 const landingRewindRule = (ctx) =>

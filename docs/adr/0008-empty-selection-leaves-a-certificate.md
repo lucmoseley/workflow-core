@@ -12,7 +12,7 @@ ADR-0007 keys a certificate to a tree and a read closure. Two questions sit besi
 
 Its closure is the selection instruments alone — the read-edge manifest and the dependency-graph roots — and its `changedPaths` the diff at launch. Admissibility is unchanged. Its soundness is any narrowed run's: the base is trusted, and the diff's readers ran, vacuously.
 
-The exception is a bare run under the `landing` module whose touched selection is empty: it runs nothing and leaves no certificate, since no push there owes an attesting one (#2868, #2930, #2934).
+The exception is a bare run, a touched one, whose selection is empty: it runs nothing and leaves no certificate, since no push owes an attesting one (#2868, #2930, #2934).
 
 ### 2. The tree owes nothing beyond ADR-0007's closure rule
 
@@ -20,7 +20,7 @@ A neighbour's dirt outside the closure is ignored; dirt on a root or the manifes
 
 ### 3. A moved HEAD asks for no new certificate
 
-The `result:` gate asks about the session's own last commit and the push gate about the tip pushed; a neighbour's pushed content is CI's to prove. The launcher does not hint at a full run there.
+A neighbour's landed content is the queue lander's full run's to prove. The launcher does not hint at a full run there.
 
 ## Consequences
 

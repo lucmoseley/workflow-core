@@ -1,17 +1,13 @@
 #!/usr/bin/env node
 /*
  * landing-registry-gate.js — the pre-push limb that judges a push to a queue
- * ref on `main`'s bytes: with the `landing` module on, refuse a push whose
- * pushed sha's tree holds a gating guard-registry fault, an expired anchor
+ * ref on `main`'s bytes: refuse a push whose pushed sha's tree holds a gating guard-registry fault, an expired anchor
  * among them, that `origin/main`'s tip does not.
  * `check-guard-registry.js --against <tip> --head <sha>` judges the one
  * against the other. A deletion passes unjudged.
  *
  * LIMIT: `git push --no-verify` skips every pre-push hook, this one included;
  * branch protection on the remote is the gate that binds (#2414).
- *
- * The module config is read at the pushing tree's HEAD, as
- * landing-push-gate.js reads it (#3128, #3132).
  *
  * IN NO `scripts/` FAMILY (code-standards §N3), as landing-push-gate.js.
  *
@@ -32,11 +28,7 @@ const {
 	queueNameOf,
 	VERIFIED_REF,
 } = require("./lib/landing-refs.js");
-const {
-	buildUnchecked,
-	isModuleOnAtHead,
-	runPrePushGate,
-} = require("./lib/pre-push-gate.js");
+const { buildUnchecked, runPrePushGate } = require("./lib/pre-push-gate.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const REFUSE = 2;
@@ -110,7 +102,6 @@ function judgeOne(push, tree) {
 function judge(stdin, tree) {
 	const pushes = parseJudgedPushes(stdin);
 	if (pushes.length === 0) return 0;
-	if (!isModuleOnAtHead("landing", tree, unchecked)) return 0;
 	return pushes.reduce(
 		(verdict, push) => Math.max(verdict, judgeOne(push, tree)),
 		0,

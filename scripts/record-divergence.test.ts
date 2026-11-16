@@ -459,14 +459,12 @@ describe("record-divergence.js", () => {
 		expect(readRows()[0][1]).toBe("mainline");
 	});
 
-	it("counts a session worktree against its own queue ref with the landing module on (#2408, #4458)", () => {
+	it("counts a session worktree against its own queue ref (#2408, #4458)", () => {
 		const work = repoWith("queued", 1, 0);
 		const tree = path.join(work, ".claude", "worktrees", "q");
 		git(work, "worktree", "add", "--quiet", "--detach", tree);
 		git(work, "push", "--quiet", "origin", "HEAD~1:refs/heads/queue/q");
-		fire(tree, "git push origin HEAD:refs/heads/queue/q", PUSH_REJECT, {
-			WFC_MODULES: "landing",
-		});
+		fire(tree, "git push origin HEAD:refs/heads/queue/q", PUSH_REJECT);
 		expect(readRows()[0].slice(3, 6)).toEqual(["1", "0", "ahead"]);
 		expect(readRows()[0][7]).toBe("origin/queue/q");
 	});

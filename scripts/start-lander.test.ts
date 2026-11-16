@@ -3,7 +3,7 @@
  * scripts/start-lander.js end to end (#2405, #4458, #4950): it starts a
  * detached queue lander that lands a queue ref's commit, or that decides a
  * drop owed a decision with no queue ref waiting, and starts none where one
- * runs, nothing waits or is owed, or the module is off.
+ * runs or nothing waits or is owed.
  *
  * Loosen it and the session-start route starts no lander, two landers race
  * to test and push, or a drop waits on an unrelated push for its decision.
@@ -61,12 +61,12 @@ const gatedTester = (release: string) => {
 	return script;
 };
 
-const start = (args: string[], modules = "landing") =>
+const start = (args: string[]) =>
 	runInProcess(START, args, {
 		cwd: work,
 		env: {
 			...process.env,
-			WFC_MODULES: modules,
+			WFC_MODULES: "",
 			CLAUDE_PROJECT_DIR: work,
 			/* As no session, so the start reads no real `claude agents`. */
 			CLAUDE_CODE_SESSION_ID: "",
@@ -168,15 +168,5 @@ it("starts none where no queue ref waits and every drop is settled or ticketed",
 	expect(r.stdout).toBe(
 		"SKIP: no queue ref waits and no drop is owed a decision\n",
 	);
-	expect(fs.existsSync(path.join(markers(), ".lander.log"))).toBe(false);
-});
-
-it("does nothing with the landing module off", () => {
-	commit("work");
-
-	const r = start(["--tester", "true"], "suites");
-
-	expect(r.status).toBe(0);
-	expect(r.stdout).toContain('SKIP: module "landing" is off');
 	expect(fs.existsSync(path.join(markers(), ".lander.log"))).toBe(false);
 });

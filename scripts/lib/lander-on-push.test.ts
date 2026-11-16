@@ -24,15 +24,10 @@ const LAUNCH = {
 	},
 };
 
-function harness({ branch = "topic", landing = true, cwd = REPO } = {}) {
-	const asked: string[] = [];
+function harness({ branch = "topic", cwd = REPO } = {}) {
 	const ctx = kitContextFake({
 		fallbackCwd: cwd,
 		isDir: () => true,
-		moduleOn: (m) => {
-			asked.push(m);
-			return m === "landing" && landing;
-		},
 		treeClass: fakeTreeClassifier({ [REPO]: "shared" }),
 		symbolicName: fakeSymbolicName({
 			root: REPO,
@@ -40,7 +35,7 @@ function harness({ branch = "topic", landing = true, cwd = REPO } = {}) {
 			branches: ["main"],
 		}),
 	});
-	return { ctx, asked };
+	return { ctx };
 }
 
 it.each([
@@ -83,16 +78,4 @@ it.each([
 	["git push", "a bare push on another branch"],
 ])("starts nothing after %s — %s", (command) => {
 	expect(decide(command, harness().ctx)).toBeNull();
-});
-
-it("starts nothing with the landing module off", () => {
-	expect(
-		decide("git push origin HEAD:queue/q1", harness({ landing: false }).ctx),
-	).toBeNull();
-});
-
-it("reads the module only once a push reaches a queue ref", () => {
-	const { ctx, asked } = harness();
-	decide("git push origin main", ctx);
-	expect(asked).toEqual([]);
 });

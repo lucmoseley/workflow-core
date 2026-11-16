@@ -3,16 +3,15 @@
  * rules BEFORE it pushes (mantahostels#1648, spec mantahostels#1762), and
  * warn, ahead of them, of pushed code no review covers (#1163).
  *
- * INJECTION ONLY — it never denies. No guard enforces any of the four rules
+ * INJECTION ONLY — it never denies. No guard enforces any of the three rules
  * it carries: the push cadence is **Advisory** (mantahostels#244,
  * mantahostels#1098; #766), observed at Stop by scripts/guard-unpushed-commits.js,
- * the green-suite warning is **Advisory** (mantahostels#987; #185), and the
- * Vercel build and the CI lag are gotchas.
+ * and the Vercel build and the CI lag are gotchas.
  *
- * THE IDS ARE NAMED, NOT REQUESTED WHOLESALE. Four clusters share this
+ * THE IDS ARE NAMED, NOT REQUESTED WHOLESALE. Three clusters share this
  * trigger, and the emission ceiling is per call. Priority order, the recipe
- * first and then what qualifies or explains it, is push-cadence,
- * push-green-suite, vercel-build-on-push, ci-status-lag.
+ * first and then what qualifies or explains it, is push-cadence-landing,
+ * vercel-build-on-push, ci-status-lag-landing.
  *
  * NO ID IS PATH-SCOPED, deliberately. A push names refs, not paths. Each is
  * scoped to the HOST instead (#742).
@@ -31,25 +30,23 @@
  *    (https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/hook-if-bash-matching.md §1).
  *
  * THE REVIEW WARN (#1163) PROTECTS THE PUSHES AFTER THIS ONE. A WARN, NEVER A
- * REFUSAL: the advisory cadence pushes early to share certificates. Said once a
- * session on one latch a tier, so a change that turns escalated after a
- * standard warn is warned again (#1696), and again for each rejected marker
- * written after a warn, which the marker's checksum beside the latches tells
- * apart (#1772, #1840).
+ * REFUSAL: the advisory cadence pushes early. Said once a session on one
+ * latch a tier, so a change that turns escalated after a standard warn is
+ * warned again (#1696), and again for each rejected marker written after a
+ * warn, which the marker's checksum beside the latches tells apart (#1772,
+ * #1840).
  *
  * LIMITS
  *  - Its lib/guard-cores.json row narrows it to `Bash(git *)`
  *    (mantahostels#2127) — not loaded unless some segment of the command
  *    leads with `git`.
  *  - It FAILS OPEN, RECORDED (mantahostels#147), on anything it cannot
- *    resolve: a tree git cannot answer for, a config lib/test-gate.js refuses
- *    (push-green-suite withheld, #758), and the review adapter (the Stop nag
- *    still fires).
+ *    resolve: a tree git cannot answer for, and the review adapter (the Stop
+ *    nag still fires).
  *  - The rules are stated ONCE PER SESSION, keyed per agent, so a subagent's
  *    push is told afresh.
  */
 
-const { ruleModule, ruleUnlessModule } = require("./rule-gates.js");
 const { parseCommand, walkGit } = require("./shell-parse.js");
 
 /** git push's spellings of a push that pushes nothing; -n is --dry-run. */
@@ -67,12 +64,7 @@ const REVIEW_SUM = "sum.push-review-warn";
  *   the review owed over `tree`'s HEAD
  * @property {(session: string) => string} markerSum a checksum of the
  *   session's review marker; "" where there is none
- * @property {() => boolean} pushOwesCertificate lib/test-gate.js's push-gate skip
- *   finds a certificate owed, the answer check-test-marker.js warns on
- *   (#758)
  * @property {() => boolean} deploysVercel the host declares a Vercel deploy
- * @property {() => boolean} hasSweep the host runs the scheduled sweep
- *   check-ci-status.js reads
  * @typedef {import("./kit-context.js").KitContext & PushPorts & {
  *   session: string,
  *   tree: () => Pick<import("./guard-host-ports.js").TreePorts, "root"> }}
@@ -99,36 +91,15 @@ function decide(command, ctx) {
 		{ subs: ["push"], noun: "push", scope: "repo", strict: true },
 	);
 	if (!pushed) return null;
-	/* Each rule goes only to a host meeting its premise (#742). With `landing`
-	 * on, a push goes to the session's queue ref and the lander tests it, so each text naming
-	 * the route is its `-landing` twin (#2409), the CI-lag twin owing no
-	 * sweep, and no push owes a certificate, so no green-suite rule goes
-	 * (#2929). The suites and landing gates restate test-gate.js's premise
-	 * because rule-emission.js budgets off them. */
+	/* Each rule goes only to a host meeting its premise (#742). A push goes to
+	 * the session's queue ref and the lander tests it (#2409, #2929). */
 	return {
 		injectRules: [
-			"push-cadence",
 			"push-cadence-landing",
-			"push-green-suite",
 			"vercel-build-on-push",
-			"ci-status-lag",
 			"ci-status-lag-landing",
 		],
-		skip: [
-			...ruleModule(ctx, "suites", ["push-green-suite"]),
-			...ruleModule(ctx, "landing", [
-				"push-cadence-landing",
-				"ci-status-lag-landing",
-			]),
-			...ruleUnlessModule(ctx, "landing", [
-				"push-cadence",
-				"push-green-suite",
-				"ci-status-lag",
-			]),
-			...(ctx.pushOwesCertificate() ? [] : ["push-green-suite"]),
-			...(ctx.deploysVercel() ? [] : ["vercel-build-on-push"]),
-			...(ctx.hasSweep() ? [] : ["ci-status-lag"]),
-		],
+		skip: [...(ctx.deploysVercel() ? [] : ["vercel-build-on-push"])],
 		...reviewWarn(pushTree, ctx),
 	};
 }

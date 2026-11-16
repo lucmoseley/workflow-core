@@ -14,8 +14,8 @@
  * EACH FIELD FAILS SHUT ON ITS OWN. A forged, mistyped or off-vocabulary field
  * reads as absent and the others stand; a value that does not parse, or no
  * key at all, reads as a record with every field absent. Nothing here tells a
- * real record from one exported by hand, and the push gate warns rather than
- * refuses for that reason (mantahostels#908).
+ * real record from one exported by hand, so a certificate it mints refuses
+ * nothing beyond one unasked re-run (mantahostels#908).
  *
  * THE RUN REPORT crosses no boundary: vitest runs reporters and globalSetup in
  * one process and calls `onTestRunEnd` strictly before `teardown` (measured
@@ -54,7 +54,7 @@ const LAUNCH_ENV = "WFC_SUITE_LAUNCH";
  *   off the selection plan: a null plan is both a
  *   `--changed`-free argv and an expansion that failed open, and the second
  *   is the one the store could not otherwise see.
- * - `touched`: the run is a bare one under the `landing` module, selecting
+ * - `touched`: the run is a bare one, selecting
  *   only the session's touched tests (#2930). A ledger kind, never a
  *   certificate.
  * - `full`: why the run was unnarrowed, one of `FULL_REASONS` (mantahostels#3207).

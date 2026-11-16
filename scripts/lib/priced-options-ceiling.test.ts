@@ -33,8 +33,8 @@ const group = (tier: Tier): Group => {
 /* The ceiling counter standing at `spent`. */
 const at = (spent: number) => (max: number) => spent >= max;
 
-const plan = (tiers: Tier[], spent: number, afterBatch?: () => Group[]) =>
-	ceilingPlan(tiers.map(group), at(spent), afterBatch);
+const plan = (tiers: Tier[], spent: number) =>
+	ceilingPlan(tiers.map(group), at(spent));
 const prefixesOf = (groups: Group[]) => groups.map((g) => g.prefix);
 const prefixes = (tiers: Tier[]) => tiers.map((tier) => group(tier).prefix);
 
@@ -105,33 +105,8 @@ describe("a block shared with the outside-ceiling tier", () => {
 	});
 });
 
-describe("the after-batch tier", () => {
-	it("is not even read while anything else blocks", () => {
-		const afterBatch = vi.fn(() => [group("after-batch")]);
-		expect(prefixesOf(plan(["filing"], 0, afterBatch).blocking)).toEqual(
-			prefixes(["filing"]),
-		);
-		plan(["outside-ceiling"], SESSION_MAX, afterBatch);
-		expect(afterBatch).not.toHaveBeenCalled();
-	});
-
-	it("blocks when nothing else did, charging no ceiling", () => {
-		for (const [tiers, spent] of [
-			[[], 0],
-			[["shape"], SESSION_MAX - 1],
-			[["filing"], SESSION_MAX],
-		] as [Tier[], number][]) {
-			const p = plan(tiers, spent, () => [group("after-batch")]);
-			expect(prefixesOf(p.blocking)).toEqual(prefixes(["after-batch"]));
-			expect(p.chargesCeiling).toBe(false);
-		}
-	});
-});
-
-it("gives every row but the after-batch one hook-block.js's default cap", () => {
-	for (const limb of LIMBS)
-		if (limb.tier !== "after-batch")
-			expect(limb.cap).toBe(hookBlock.MAX_BLOCKS);
+it("gives every row hook-block.js's default cap", () => {
+	for (const limb of LIMBS) expect(limb.cap).toBe(hookBlock.MAX_BLOCKS);
 });
 
 describe("the ceiling's notices (#2062)", () => {
@@ -186,10 +161,5 @@ describe("the ceiling's notices (#2062)", () => {
 		expect(reasons[0]).toMatch(
 			/the [^.]*fixture-outside-ceiling checks also on the shape of a question they refused/,
 		);
-	});
-
-	it("names a new after-batch row in all three", () => {
-		for (const reason of reasonsWith(fixture("after-batch")))
-			expect(reason).toContain("fixture-after-batch");
 	});
 });

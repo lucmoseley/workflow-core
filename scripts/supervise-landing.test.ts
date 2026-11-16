@@ -74,13 +74,13 @@ const beat = (pid: number, extra: Record<string, unknown> = {}) => {
 	);
 };
 
-const supervise = (args: string[] = [], modules = "landing") =>
+const supervise = (args: string[] = []) =>
 	runInProcess(SUPERVISE, args, {
 		cwd: work,
 		env: {
 			...process.env,
 			...ghEnv,
-			WFC_MODULES: modules,
+			WFC_MODULES: "",
 			WFC_UPTIME_S: "86400",
 			CLAUDE_PROJECT_DIR: work,
 			CLAUDE_CODE_SESSION_ID: "",
@@ -322,17 +322,6 @@ it("files no stall ticket where the queue log has main landed within 2 h, though
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout).not.toContain("stall ticket");
 	expect(stallTickets()).toEqual([]);
-});
-
-it("does nothing with the landing module off", () => {
-	commit("seed", 8 * 60 * MIN, "main");
-	commit("work", 121 * MIN, "refs/heads/queue/work");
-
-	const r = supervise([], "suites");
-
-	expect(r.status).toBe(0);
-	expect(r.stdout).toBe("");
-	expect(fs.existsSync(path.join(markers(), ".lander.log"))).toBe(false);
 });
 
 it("files the queue alert once for a queue ref waiting past 60 min, says nothing while it stands, and closes it once the ref leaves (#4485)", () => {

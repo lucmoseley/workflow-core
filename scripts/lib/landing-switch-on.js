@@ -1,83 +1,70 @@
 /*
- * landing-switch-on.js — whether a repo on a core that dropped the
- * shared-tree guards still runs as a shared tree (#4688).
+ * landing-switch-on.js — the session-start step that moves a main checkout
+ * still on the shared-tree model to the worktree model (#4688, #5276).
  *
- * From v2.1.0 the core carries neither the shared-tree guard limbs (#4251)
- * nor the file-claim refusal (#4249). A repo with the `landing` module off,
- * or on with its main checkout not yet cut over (lib/cutover.js's mark), is
- * still one shared tree.
+ * A main checkout not cut over (lib/cutover.js's mark) is one tree every
+ * session there shares, with no shared-tree guard and no file-claim refusal
+ * (#4251, #4249). The first session to start while no session stands in it
+ * runs the cutover; while one does, the step fails naming each (#5247 Q1 (A)).
  */
 
-const { compareVersions } = require("./compare-versions.js");
-
-const NOTE = "migrations/v2.1.0.md";
-const FLOOR = [2, 1, 0];
-
 /**
- * The version's numeric parts, any pre-release or build suffix dropped; null
- * where it is no `x.y.z`.
- * @param {string} version
- * @returns {number[] | null}
- */
-function parseVersion(version) {
-	const m = /^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/.exec(version);
-	return m ? m.slice(1).map(Number) : null;
-}
-
-/**
- * @typedef {{ version: string, landingOn: boolean,
- *   cutOver: () => boolean | null }} Reading `cutOver` reads the main
- *   checkout's mark, null where git could not
+ * @typedef {import("./cutover.js").CutoverResult | { status: "busy" }} RunResult
+ *   `busy` where another run holds the cutover
+ * @typedef {{ cutOver: () => boolean | null,
+ *   runCutover: () => { result: RunResult, lines: string[] } }} Reading
+ *   `cutOver` reads the main checkout's mark, null where git could not
  * @typedef {(
  *   | { outcome: "broken", line: string }
  *   | { outcome: "skip", line: string }
- *   | { outcome: "ok", line: string }
- *   | { outcome: "fail", tag: "LANDING-OFF" | "NOT-CUT-OVER", line: string }
- * )} Judgement
+ *   | { outcome: "ok", line: string, lines: string[] }
+ *   | { outcome: "fail", tag: "OCCUPIED" | "NOT-CUT-OVER", line: string }
+ * )} Judgement `lines` is the cutover's report where this run made it
  */
 
 /**
  * @param {Reading} r
- * @param {{ note: string, cutoverCommand: string, stepsCommand: string,
- *   walkCommand: string }} how the note and the commands as the reader should
- *   spell them
  * @returns {Judgement}
  */
-function judgeSwitchOn(r, { note, cutoverCommand, stepsCommand, walkCommand }) {
-	const parts = parseVersion(r.version);
-	if (parts === null)
-		return {
-			outcome: "broken",
-			line: `workflow-core's version "${r.version}" is no x.y.z.`,
-		};
-	if (compareVersions(parts, FLOOR) < 0)
-		return {
-			outcome: "skip",
-			line: `workflow-core ${r.version} predates v2.1.0, so its shared-tree guards still run.`,
-		};
-	const exposed = `on workflow-core ${r.version}, which carries no shared-tree guard and no file-claim refusal (#4251, #4249)`;
-	if (!r.landingOn)
-		return {
-			outcome: "fail",
-			tag: "LANDING-OFF",
-			line: `the \`landing\` module is off ${exposed}, so every session here shares one unguarded tree. Where a migration walk is owed, run \`${walkCommand}\` from the repo root and commit what it writes; then do the switch-on [act]s in ${note}'s Manual steps, which \`${stepsCommand}\` lists while owed.`,
-		};
+function judgeSwitchOn(r) {
 	const cutOver = r.cutOver();
 	if (cutOver === null)
 		return {
 			outcome: "broken",
 			line: "git could not read whether the main checkout is cut over.",
 		};
-	if (!cutOver)
+	if (cutOver)
 		return {
-			outcome: "fail",
-			tag: "NOT-CUT-OVER",
-			line: `the \`landing\` module is on but the main checkout is not cut over ${exposed}, so sessions there still share one unguarded tree. Run \`${cutoverCommand}\`, the last of ${note}'s switch-on steps.`,
+			outcome: "ok",
+			line: "the main checkout is cut over, so each session works its own worktree.",
+			lines: [],
 		};
-	return {
-		outcome: "ok",
-		line: "the `landing` module is on and the main checkout is cut over, so each session works its own worktree.",
-	};
+	const { result, lines } = r.runCutover();
+	switch (result.status) {
+		case "busy":
+			return {
+				outcome: "skip",
+				line: "another session is cutting the main checkout over now.",
+			};
+		case "cut-over":
+			return {
+				outcome: "ok",
+				line: "cut the main checkout over, so each session works its own worktree.",
+				lines,
+			};
+		case "occupied":
+			return {
+				outcome: "fail",
+				tag: "OCCUPIED",
+				line: `the main checkout is not cut over, so every session there shares one unguarded tree, and ${result.sessions.length} session(s) stand in it: ${result.sessions.join(", ")}. End each, or move it to its own worktree; the next session to start with none there cuts it over.`,
+			};
+		default:
+			return {
+				outcome: "fail",
+				tag: "NOT-CUT-OVER",
+				line: `the main checkout is not cut over, so every session there shares one unguarded tree, and its cutover refused: ${lines.join(" ")}`,
+			};
+	}
 }
 
-module.exports = { NOTE, judgeSwitchOn };
+module.exports = { judgeSwitchOn };

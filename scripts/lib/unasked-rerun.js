@@ -16,8 +16,7 @@
  * A CLASSED RED STANDS IN FOR A CERTIFICATE HERE, AND ONLY HERE (#3633): a
  * red run whose every failure was already red on its base, which the
  * attestation port serves as a member carrying `alreadyRed`. The refusal
- * names it a red and each already-red file with its evidence. The push gate
- * and the `result:` gate stay certificate-only.
+ * names it a red and each already-red file with its evidence.
  *
  * WHAT THE RUN WOULD TEST IS READ WITH THE RUN'S OWN CODE, so the two cannot
  * disagree (#1218). Either run, given a session id, reads HEAD plus the
@@ -57,7 +56,7 @@ const {
 	DEFAULT_SUITE,
 	EVIDENCE_NOT_LICENCE,
 	FLAKE_NOTE,
-	attestationReading,
+	attestedReading,
 	isFullRun,
 	shortSha,
 } = require("./test-pass-marker.js");
@@ -219,11 +218,10 @@ function judgeAttestation(io, sessionId, command, selection) {
 		return red ? [red] : [];
 	});
 	const deny = buildRefusalText(head, selection, within, {
-		reading: attestationReading(
-			tip,
-			{ ...verdict, suites: [vitest] },
-			{ redsAmongMembers: reds.length > 0 },
-		).text.trimEnd(),
+		reading: attestedReading(tip, vitest, {
+			narrowed: Boolean(verdict.within),
+			redsAmongMembers: reds.length > 0,
+		}).trimEnd(),
 		reds,
 	});
 	try {
@@ -296,7 +294,7 @@ const classedRed = (m) =>
  * @param {Selection} selection
  * @param {string[]|null} within the paths the run would test
  * @param {{reading: string, reds: ClassedRed[]}} attesting the attesting
- *   members, as attestationReading prints them, and those that are classed reds
+ *   members, as attestedReading prints them, and those that are classed reds
  * @returns {string} the refusal the guard prints
  */
 function buildRefusalText(head, { mine, scoped }, within, { reading, reds }) {

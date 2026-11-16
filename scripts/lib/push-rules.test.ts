@@ -4,12 +4,8 @@
  * pushes are handed which rules, and when the review warn rides ahead of them.
  */
 
-import fs from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { freshSandbox } from "./arbiter-testkit";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
-import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 import { escapeRe } from "./regex-group.js";
 
@@ -46,11 +42,8 @@ const ELSEWHERE = "/other";
 const SID = "s1";
 
 const ALL = [
-	"push-cadence",
 	"push-cadence-landing",
-	"push-green-suite",
 	"vercel-build-on-push",
-	"ci-status-lag",
 	"ci-status-lag-landing",
 ];
 
@@ -60,9 +53,7 @@ interface Over {
 	told?: string[];
 	latches?: Record<string, string>;
 	markerSum?: string;
-	pushOwesCertificate?: boolean;
 	deploysVercel?: boolean;
-	hasSweep?: boolean;
 	cwd?: string;
 	vars?: Record<string, string>;
 	sessionTree?: string;
@@ -73,7 +64,7 @@ const treeClass = fakeTreeClassifier({
 	[LINKED]: "linked",
 });
 
-/** A context of fakes: a host meeting every premise, `landing` off. */
+/** A context of fakes: a host meeting every premise. */
 function harness(over: Over = {}) {
 	const logs: string[] = [];
 	const reviewed: string[] = [];
@@ -94,9 +85,7 @@ function harness(over: Over = {}) {
 			return owed(tree);
 		},
 		markerSum: () => over.markerSum ?? "",
-		pushOwesCertificate: () => over.pushOwesCertificate ?? true,
 		deploysVercel: () => over.deploysVercel ?? true,
-		hasSweep: () => over.hasSweep ?? true,
 	});
 	return { ctx, logs, reviewed };
 }
@@ -120,23 +109,18 @@ describe("a push is handed its rules, and refused nothing", () => {
 	])("%s is handed the rules — %s", (command) => {
 		const d = run(command);
 		expect(d).not.toHaveProperty("deny");
-		expect(handed(d)).toEqual([
-			"push-cadence",
-			"push-green-suite",
-			"vercel-build-on-push",
-			"ci-status-lag",
-		]);
+		expect(handed(d)).toEqual(ALL);
 	});
 
 	it("requests every id this trigger owns, in priority order, and no others", () => {
 		// The cap is per call, so a blanket request would spend it on whatever
-		// the store held; push-cadence first carries the recipe.
+		// the store held; push-cadence-landing first carries the recipe.
 		expect(run("git push origin main")?.injectRules).toEqual(ALL);
 	});
 
 	it("a push from a linked worktree is handed them too (mantahostels#1213)", () => {
 		expect(handed(run("git push origin main", { cwd: LINKED }))).toContain(
-			"push-cadence",
+			"push-cadence-landing",
 		);
 	});
 });
@@ -172,7 +156,7 @@ describe("a push whose tree it cannot resolve is handed the rules (#319)", () =>
 	it('git -C "$W" push, with W unset, is handed them, and nothing is logged', () => {
 		const { ctx, logs } = harness();
 		expect(handed(decide('git -C "$W" push origin main', ctx))).toContain(
-			"push-cadence",
+			"push-cadence-landing",
 		);
 		expect(logs).toEqual([]);
 	});
@@ -184,43 +168,6 @@ describe("a push whose tree it cannot resolve is handed the rules (#319)", () =>
 	});
 });
 
-/* Through the real host ports, unlike the rest of this file. */
-describe("a push from a worktree reads the host's sweep at the main checkout (#4274)", () => {
-	let at: { main: string; worktree: string };
-	freshSandbox((sb) => {
-		at = splitCheckout(path.join(sb.dir, "split"));
-	});
-
-	const sweepIn = (root: string) => {
-		const dir = path.join(root, ".github", "workflows");
-		fs.mkdirSync(dir, { recursive: true });
-		fs.writeFileSync(
-			path.join(dir, "scheduled-checks.yml"),
-			"on:\n  schedule:\n    - cron: '0 * * * *'\n",
-		);
-	};
-
-	const said = () =>
-		String(
-			runCore("guard-push-rules", toolCall("Bash", { command: "git push" }), {
-				root: at.main,
-				worktree: at.worktree,
-			}).output?.additionalContext,
-		);
-
-	it("hands the CI-lag rule where the main checkout schedules the sweep", () => {
-		sweepIn(at.main);
-		expect(said()).toContain(readRuleText("ci-status-lag"));
-	});
-
-	it("withholds it where only the worktree schedules one", () => {
-		sweepIn(at.worktree);
-		const text = said();
-		expect(text).toContain(readRuleText("push-cadence"));
-		expect(text).not.toContain(readRuleText("ci-status-lag"));
-	});
-});
-
 describe("an assignment before the first || is read, so the push's tree is judged (#328)", () => {
 	// #319's shape: its only `||` comes after `W=`, so W resolves.
 	const shape = (w: string) =>
@@ -228,7 +175,9 @@ describe("an assignment before the first || is read, so the push's tree is judge
 
 	it("a push from a linked worktree is handed them, its review read there", () => {
 		const { ctx, reviewed } = harness();
-		expect(handed(decide(shape(LINKED), ctx))).toContain("push-cadence");
+		expect(handed(decide(shape(LINKED), ctx))).toContain(
+			"push-cadence-landing",
+		);
 		expect(reviewed).toEqual([LINKED]);
 	});
 
@@ -238,57 +187,10 @@ describe("an assignment before the first || is read, so the push's tree is judge
 });
 
 describe("each rule goes only to a host meeting its premise (#742)", () => {
-	it.each([
-		[
-			"push-green-suite",
-			{ pushOwesCertificate: false },
-			"no certificate owed (#758)",
-		],
-		["push-green-suite", { modules: [] }, "suites off"],
-		["vercel-build-on-push", { deploysVercel: false }, "no Vercel deploy"],
-		["ci-status-lag", { hasSweep: false }, "no scheduled sweep"],
-	] as [string, Over, string][])("%s is withheld on %j — %s", (id, over) => {
-		const d = run("git push origin main", over);
-		expect(handed(d)).not.toContain(id);
-		expect(handed(d)).toContain("push-cadence");
-	});
-
-	it("a host meeting no premise is handed the cadence alone", () => {
+	it("vercel-build-on-push is withheld where the host declares no Vercel deploy", () => {
 		expect(
-			handed(
-				run("git push origin main", {
-					modules: [],
-					pushOwesCertificate: false,
-					deploysVercel: false,
-					hasSweep: false,
-				}),
-			),
-		).toEqual(["push-cadence"]);
-	});
-});
-
-describe("the landing module swaps in the landing route's texts (#2409)", () => {
-	it("hands the -landing twins, and none of today's texts, with it on", () => {
-		expect(
-			handed(
-				run("git push origin HEAD:landing", { modules: ["suites", "landing"] }),
-			),
-		).toEqual([
-			"push-cadence-landing",
-			"vercel-build-on-push",
-			"ci-status-lag-landing",
-		]);
-	});
-
-	it("the CI-lag twin owes no sweep", () => {
-		expect(
-			handed(
-				run("git push origin HEAD:landing", {
-					modules: ["suites", "landing"],
-					hasSweep: false,
-				}),
-			),
-		).toContain("ci-status-lag-landing");
+			handed(run("git push origin main", { deploysVercel: false })),
+		).toEqual(["push-cadence-landing", "ci-status-lag-landing"]);
 	});
 });
 
@@ -310,7 +212,7 @@ describe("pushed code no review covers is warned of, never refused (#1163)", () 
 		expect(d?.prelude).toBe(
 			`This push carries code this session changed (${o.files}) that no code review covers (#1163). ${o.tierLine} Run the code-review skill with fixed point ${o.base} now, before pushing again; its closing step runs node ${o.markerScript}, which writes ${marker}. This warn is said once a session, once more if the change turns escalated, and again for each marker written after a warn that is rejected.`,
 		);
-		expect(handed(d)).toContain("push-cadence");
+		expect(handed(d)).toContain("push-cadence-landing");
 	});
 
 	it("quotes the validator's fault where the marker is rejected", () => {
@@ -443,54 +345,8 @@ const carries = (id: string, clause: string) =>
 describe("the injected rules still carry their operative clauses", () => {
 	it("a clause no fragment carries fails", () => {
 		expect(() =>
-			carries("push-cadence", "a clause no fragment carries"),
+			carries("push-cadence-landing", "a clause no fragment carries"),
 		).toThrow();
-	});
-
-	it.each([
-		["EVERY commit on `main`", "whose work a push sends"],
-		["never write `result:`", "what a successful push does not license"],
-		["says nothing about the suite", "why it does not"],
-	])("push-cadence keeps %s — %s", (clause) => {
-		carries("push-cadence", clause);
-	});
-
-	it("push-cadence keeps its recipe as the host's own commands, in order", () => {
-		// Read raw: the accessor expands the placeholders against whichever host
-		// runs the suite (#742).
-		const raw = fs.readFileSync(
-			path.resolve(__dirname, "../../docs/agents/rules/push-cadence.txt"),
-			"utf8",
-		);
-		expect(raw.replace(/\s+/g, " ")).toContain(
-			"{command:push_check} {command:typecheck} {command:check} <the edited file's own checker> git push origin main",
-		);
-	});
-
-	it.each([
-		["npm run test:py", "the second recorded run"],
-		["#1256", "the ticket that stamped a run with its sha"],
-		["worktree", "where it also fires"],
-		["Never blocks", "what it does not do"],
-		[
-			"CERTIFICATES OF FULL OR ADMISSIBLE `npm run test` RUNS",
-			"the run the gate now asks for",
-		],
-		// Admissibility turns on the argv too (#998).
-		["a read graph that renders", "what admissibility turns on"],
-		["no full run is owed", "the whole-suite limb #2207 deleted"],
-		[
-			"Certificate keyed to HEAD at run END",
-			"why a run over uncommitted work attests the wrong commit",
-		],
-		["to the tree it read", "the content key #189 added beside the sha"],
-		["attested by tree", "how the push says which key matched"],
-		// mantahostels#3210: the merge-base default sees the unpushed commits.
-		["merge-base(HEAD, origin/main)", "the base the default diffs against"],
-		["#2131", "the hole the gate cannot see, now that it is the only gate"],
-		["#2031", "the ticket that ruled a filtered run is not a full one"],
-	])("push-green-suite keeps %s — %s", (clause) => {
-		carries("push-green-suite", clause);
 	});
 
 	it.each([
@@ -499,18 +355,6 @@ describe("the injected rules still carry their operative clauses", () => {
 		["warn-only in pre-commit", "why a clean local run is not a clean gate"],
 	])("vercel-build-on-push keeps %s — %s", (clause) => {
 		carries("vercel-build-on-push", clause);
-	});
-
-	it.each([
-		["A CI VERDICT COVERS A COMMIT RANGE", "the headline"],
-		["npm run check:ci", "the command that asks now"],
-		["ONCE after every push", "how often"],
-		["never rerun it", "why a second read tells nothing new"],
-		["only verdict for up to ~12 hours", "what the local checks are meanwhile"],
-		["four a day", "how often a sweep-only host's suite runs"],
-		["the newest sweep", "the run both answers are keyed to, never your sha"],
-	])("ci-status-lag keeps %s — %s", (clause) => {
-		carries("ci-status-lag", clause);
 	});
 
 	it.each([
@@ -525,7 +369,7 @@ describe("the injected rules still carry their operative clauses", () => {
 			"who runs the full suite",
 		],
 		["IS TESTED BY THE QUEUE LANDER", "ci-status-lag-landing", "who tests it"],
-	])("the landing twins keep %s — %s, %s", (clause, id) => {
+	])("the landing route keeps %s — %s, %s", (clause, id) => {
 		carries(id, clause);
 	});
 });

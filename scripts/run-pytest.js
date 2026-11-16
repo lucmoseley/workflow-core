@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * `npm run test:py`, wrapped so a green pytest run leaves the pre-push certificate
+ * `npm run test:py`, wrapped so a green pytest run leaves the suite certificate
  * that vitest leaves (mantahostels#987, mantahostels#1256).
  *
  * WHY A WRAPPER AND NOT ONLY A PLUGIN. The marker records the tree the suite
@@ -19,7 +19,7 @@
  * which. cli-args-exempt: every argument is pytest's, passed through
  * unparsed, bar the one whole-argv match below.
  *
- * UNDER THE `landing` MODULE A BARE RUN IS A TOUCHED ONE (#2934): it hands
+ * A BARE RUN IS A TOUCHED ONE (#2934): it hands
  * pytest only the test files `lib/touched-tests.js` resolves from the
  * session's own changed paths, as a bare `npm run test` does vitest (#2930).
  * With a session id those are the paths its overlay would carry, read in the
@@ -61,7 +61,6 @@ const {
 	repoRoot,
 } = require("./lib/test-pass-marker.js");
 const { worktreeRoot } = require("./lib/host-root.js");
-const { moduleOn } = require("./lib/workflow-core-config.js");
 const { selectTouched } = require("./lib/touched-tests.js");
 const { ownDefaultWork } = require("./lib/own-selection.js");
 const { appendEmptyTouchedLine } = require("./lib/run-ledger.js");
@@ -210,9 +209,8 @@ function runScope(scope, resolvedFiles, leftOut) {
  */
 
 /**
- * What pytest is handed: `argv` as typed, none for a lone `--full`, or under
- * `landing` a bare run's
- * touched files, its banner printed. A number is the exit code of a run that
+ * What pytest is handed: `argv` as typed, none for a lone `--full`, or a
+ * bare run's touched files, its banner printed. A number is the exit code of a run that
  * spawns nothing: 0 on an empty selection, 1 where the changed paths could
  * not be read (#2698).
  *
@@ -221,7 +219,7 @@ function runScope(scope, resolvedFiles, leftOut) {
  * @returns {Plan|number}
  */
 function pytestPlan(argv, root) {
-	if (argv.length > 0 || !moduleOn("landing", { root }))
+	if (argv.length > 0)
 		return {
 			args: argv.length === 1 && argv[0] === FULL ? [] : argv,
 			resolvedFiles: null,

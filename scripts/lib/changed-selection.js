@@ -18,14 +18,11 @@ const { JS_TEST_FILE } = require("./test-kind.js");
 const { render: renderReadEdges } = require("./read-edges-render.js");
 const { testsReading } = require("./test-read-edges.js");
 const { hostRoot } = require("./host-root.js");
-const { readCommandOrDefault } = require("./workflow-core-config.js");
 const { gitRead, readUntrackedFiles } = require("./dirty-tree.js");
 const { VERIFIED_REF } = require("./landing-refs.js");
-const { pushGateState } = require("./test-gate.js");
 const { FULL_SHA, commitSha } = require("./commit-sha.js");
 const { vitestList } = require("./vitest-collected.js");
 
-const EDGES_SCRIPT = "scripts/generate-test-read-edges.js";
 const REGENERATE_EDGES = "Regenerate it: npm run gen:test-read-edges";
 
 /**
@@ -384,7 +381,7 @@ function changedFlag(argv) {
  * SHARED WITH THE ROUTE FLAG so the gate and the denominator cannot drift
  * apart (mantahostels#2303). `-t`, an added path or a project filter
  * each narrow the run past the diff, so a run carrying one is not the command
- * this repo permits at the push and does not belong in its denominator either.
+ * whose certificate attests its diff and does not belong in its denominator either.
  *
  * @param {string[]} argv
  * @returns {boolean}
@@ -396,8 +393,8 @@ const isChangedOnlyArgv = (argv) => {
 
 const CHANGED_FLAG = "--changed";
 
-/* An adoption run (#1213): `npm run push:check` hands it back over the
- * unattested paths of commits whose session has ended. */
+/* An adoption run (#1213): a run over the paths of commits whose session has
+ * ended, selecting every reader of them. */
 const ADOPT_FLAG = "--adopt";
 
 /**
@@ -644,7 +641,7 @@ function expandChanged(
 	}
 	const { changed, own, narrowed } = sel;
 
-	const { graph, rendered, renderError } = readGraph(edges, renderEdges);
+	const { graph, rendered } = readGraph(edges, renderEdges);
 
 	const seen = new Set(own);
 	const added = testsReading(changed, graph).filter((t) => !seen.has(t));
@@ -652,10 +649,7 @@ function expandChanged(
 
 	const packageJsonLine = packageJsonWarning(changed, narrowed);
 
-	/*
-	 * WHETHER THIS RUN IS ADMISSIBLE — the whole push gate (mantahostels#2207), and
-	 * not a stand-in for a wider one.
-	 */
+	/* Whether this run's certificate attests its selection (mantahostels#2207). */
 	const rest = [
 		...argv.slice(0, consumed.at),
 		...argv.slice(consumed.at + consumed.span),
@@ -669,18 +663,6 @@ function expandChanged(
 		...buildSelectionLines({ files, own, added, from }, (t) =>
 			changedReadsOf(changed, graph, t),
 		),
-		/* An empty selection records a marker too (#189 §6): a narrowed run
-		 * with zero files, admissible on the same conditions as any other. */
-		buildAdmissibleLine({
-			from,
-			listed: consumed.paths,
-			rest,
-			isAdmissible,
-			changed,
-			files,
-			renderError,
-			pushGate: pushGateState({ root }),
-		}),
 	];
 
 	return {
@@ -882,23 +864,21 @@ function removeScratch(override, fsImpl) {
  * @param {Record<string, string[]>} edges
  * @param {() => Record<string, string[]>} renderEdges
  * @returns {{ graph: Record<string, string[]>,
- *   rendered: Record<string, string[]>|null, renderError: unknown }}
+ *   rendered: Record<string, string[]>|null }}
  */
 function readGraph(edges, renderEdges) {
 	/** @type {Record<string, string[]> | null} */
 	let rendered = null;
-	/** @type {unknown} */
-	let renderError = null;
 	try {
 		rendered = renderEdges();
-	} catch (error) {
-		renderError = error;
+	} catch {
+		/* the manifest alone selects */
 	}
 	/** @type {Record<string, string[]>} */
 	const graph = { ...edges };
 	for (const [p, readers] of Object.entries(rendered ?? {}))
 		graph[p] = [...new Set([...(graph[p] ?? []), ...readers])];
-	return { graph, rendered, renderError };
+	return { graph, rendered };
 }
 
 /**
@@ -1048,53 +1028,6 @@ function buildSelectionLines({ files, own, added, from }, why) {
 }
 
 /**
- * The banner's verdict on whether this run meets the push gate, or why no
- * push has one to meet where `pushGate` is a skip (#2961); a broken config
- * keeps the verdict, which `push:check` then reports.
- *
- * @param {{ from: SelectionFrom, listed: string[], rest: string[],
- *   isAdmissible: boolean, changed: string[], files: string[],
- *   renderError: unknown, pushGate: ReturnType<typeof pushGateState> }} at
- * @returns {string}
- */
-function buildAdmissibleLine({
-	from,
-	listed,
-	rest,
-	isAdmissible,
-	changed,
-	files,
-	renderError,
-	pushGate,
-}) {
-	if (pushGate.state === "skip")
-		return `NO PUSH GATE — ${pushGate.line} (#2961).`;
-	if (from === "adopt" && listed.length === 0)
-		return "NOT ADMISSIBLE — `--adopt` names no path, so its certificate attests nothing at the push (#1213).";
-	if (from === "retest" && listed.some((t) => !JS_TEST_FILE.test(t)))
-		return "NOT ADMISSIBLE — `--retest` names a word that is not a test file, which this run drops, so its certificate attests nothing at the push; name test files alone (#1860).";
-	if (rest.length > 0) {
-		const { what, alone } = {
-			diff: { what: "diff", alone: "--changed" },
-			adopt: { what: "adopted paths", alone: "--adopt <paths>" },
-			retest: { what: "named tests", alone: "--retest <tests>" },
-		}[from];
-		return `NOT ADMISSIBLE — this run is narrowed past the ${what} by ${rest.join(" ")}, so its certificate attests nothing at the push; re-run with \`${alone}\` alone (mantahostels#2146).`;
-	}
-	if (isAdmissible && from === "adopt")
-		return `MEETS THE PUSH GATE FOR THE ${changed.length} ADOPTED PATH(S) — every reader of them was selected from ${EDGES_FILE} and from the read graph this tree renders now, so its certificate attests those paths, and no other, at the push (#1213). It does not attest a test that reads an adopted document through an imported HELPER (mantahostels#2131).`;
-	if (isAdmissible && from === "retest")
-		return `MEETS THE PUSH GATE FOR THE ${files.length} NAMED TEST(S) — its certificate attests each at any commit where nothing that test reads has changed, and attests no path a test it did not run reads (#1860).`;
-	if (isAdmissible)
-		return [
-			`MEETS THE PUSH GATE — every reader of the diff was selected from ${EDGES_FILE} and from the read graph this tree renders now (#998), so its certificate is the whole gate: no whole-suite run is owed (mantahostels#2207).`,
-			`  The certificate is keyed to HEAD as this run ENDS and to what each test read: it attests the commit you make from this tree without a re-run wherever every file the push's range changes lies in this run's diff or a neighbour's certificate (ADR-0009) and each test reading it still holds — nothing it reads changed between the two trees (#1860). The push then says \`attested by tree\`, and \`${readCommandOrDefault("push_check")}\` says so before it, or names the tests to re-run.`,
-			"  It does not attest a test that reads a changed document through an imported HELPER — the manifest's extractor is lexical, so there is no edge to select on and this check cannot see one missing (mantahostels#2131).",
-		].join("\n");
-	return `NOT ADMISSIBLE — the read graph could not be rendered from this tree (${renderError}), so readers were selected from ${EDGES_FILE} alone and its certificate attests nothing; re-run once \`node ${EDGES_SCRIPT} --check\` renders (#998).`;
-}
-
-/**
  * `merge-base(HEAD, <start ref>)`, or `HEAD` where that ref does not exist or
  * the merge-base cannot be resolved (an unrelated history, a wedged git). The
  * start ref is lib/landing-refs.js's `VERIFIED_REF`.
@@ -1137,52 +1070,6 @@ function readDefaultChangedBase(root, execFn) {
 	}
 }
 
-/**
- * Why the default's narrowing would be worthless for this diff, or null
- * where it narrows fine. Checked BEFORE vitest's own listing runs, so an
- * escalation never pays for a probe it is about to discard.
- *
- * Its two answers are `FULL_REASONS` in lib/test-pass-marker.js (mantahostels#3207):
- * `"stale-manifest"` where `docs/test-read-edges.json` is unreadable or the
- * read graph could not be rendered from this tree (#998); `"dependency-root"`
- * where the diff touches `package.json` outside the narrowing allow-list
- * mantahostels#2160 exempts. A diff that cannot be read throws, and the run
- * is refused (#2698).
- *
- * `changed` is the own-work path set (#1216) where the resolver gave one, read
- * in place of the diff.
- *
- * @param {string} root
- * @param {string} ref
- * @param {{ execFn?: ExecFn, loadEdges?: () => unknown,
- *   renderEdges?: () => unknown, changed?: string[] }} [options]
- * @returns {"stale-manifest"|"dependency-root"|null}
- */
-function findDefaultEscalationReason(
-	root,
-	ref,
-	{
-		execFn = execProgram,
-		loadEdges = () => readCommittedEdges(root),
-		renderEdges = () => liveEdges(root),
-		changed: given,
-	} = {},
-) {
-	try {
-		loadEdges();
-		renderEdges();
-	} catch {
-		return "stale-manifest";
-	}
-	const changed = given ?? readChangedPaths(root, ref, execFn);
-	if (
-		changed.includes(PACKAGE_JSON) &&
-		!packageJsonNarrowable(changed, { root, ref, execFn, fs })
-	)
-		return "dependency-root";
-	return null;
-}
-
 module.exports = {
 	ADOPT_FLAG,
 	CHANGED_FLAG,
@@ -1197,7 +1084,6 @@ module.exports = {
 	readChangedPaths,
 	readCommittedEdges,
 	readDefaultChangedBase,
-	findDefaultEscalationReason,
 	readDiffNames,
 	expandChanged,
 	isChangedOnlyArgv,

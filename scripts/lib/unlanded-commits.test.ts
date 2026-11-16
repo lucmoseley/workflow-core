@@ -6,8 +6,8 @@
  * names strands a close whose work did land — rebased under a new hash, or
  * cited only by another tracker.
  *
- * Real git in a throwaway host with the `landing` module on, `origin/main`
- * set by update-ref so no remote is needed.
+ * Real git in a throwaway host, `origin/main` set by update-ref so no remote
+ * is needed.
  */
 
 import { execFileSync } from "node:child_process";
@@ -23,7 +23,6 @@ import {
 	describe,
 	expect,
 	it,
-	vi,
 } from "vitest";
 import { hexShaCommit, sharedShortShaCommits } from "./hex-sha-fixture";
 
@@ -54,7 +53,7 @@ const push = (ref = "HEAD") =>
 	git("update-ref", "refs/remotes/origin/main", ref);
 
 const unlanded = (n: number, comment = "") =>
-	readUnlandedCommits(root, n, comment, { host: root }).commits.map(
+	readUnlandedCommits(root, n, comment).commits.map(
 		(c: { subject: string }) => c.subject,
 	);
 
@@ -68,14 +67,13 @@ beforeAll(() => {
 	fs.mkdirSync(path.join(root, ".claude"));
 	fs.writeFileSync(
 		path.join(root, ".claude/workflow-core.json"),
-		JSON.stringify({ contract: 1, modules: ["landing"] }),
+		JSON.stringify({ contract: 1, modules: [] }),
 	);
 	commit("seed");
 	push();
 });
 
 beforeEach(() => {
-	vi.stubEnv("WFC_MODULES", undefined);
 	root = mkTemp();
 	fs.cpSync(template, root, { recursive: true });
 });
@@ -142,7 +140,7 @@ describe("the ticket's commits (#3092, #2983 closed over unpushed ones)", () => 
 		);
 		expect(unlanded(12)).toEqual([]);
 		expect(
-			readUnlandedCommits(wt, 12, "", { host: root }).commits.map(
+			readUnlandedCommits(wt, 12, "").commits.map(
 				(c: { subject: string }) => c.subject,
 			),
 		).toEqual(["Fix the stop (#12)"]);
@@ -157,9 +155,7 @@ describe("the ticket's commits (#3092, #2983 closed over unpushed ones)", () => 
 			path.join(wt, ".claude/workflow-core.json"),
 			JSON.stringify({ contract: 1, modules: [] }),
 		);
-		expect(readUnlandedCommits(wt, 12, "", { host: root }).pushed).toBe(
-			"origin/queue/q",
-		);
+		expect(readUnlandedCommits(wt, 12, "").pushed).toBe("origin/queue/q");
 		git("worktree", "remove", "--force", wt);
 	});
 
@@ -234,42 +230,27 @@ describe("the pushed ref it compares against", () => {
 		commit("Fix the stop (#12)");
 		expect(() => unlanded(12)).toThrow("no origin/main to compare against");
 	});
-
-	it("reads origin/main with the landing module off", () => {
-		fs.writeFileSync(
-			path.join(root, ".claude/workflow-core.json"),
-			JSON.stringify({ contract: 1, modules: [] }),
-		);
-		git("update-ref", "refs/remotes/origin/main", "HEAD");
-		commit("Fix the stop (#12)");
-		expect(unlanded(12)).toEqual(["Fix the stop (#12)"]);
-		git("update-ref", "refs/remotes/origin/main", "HEAD");
-		expect(unlanded(12)).toEqual([]);
-	});
 });
 
 describe("where git cannot answer", () => {
 	it("throws outside a repository, never an empty answer", () => {
 		fs.rmSync(path.join(root, ".git"), { recursive: true });
-		expect(() => readUnlandedCommits(root, 12, "", { host: root })).toThrow();
+		expect(() => readUnlandedCommits(root, 12, "")).toThrow();
 	});
 
 	it("throws CeilingPassed where its ceiling passes", () => {
 		commit("Fix the stop (#12)");
 		const ceiling = buildGitCeiling({ label: "t", ms: 0 });
-		expect(() =>
-			readUnlandedCommits(root, 12, "", { ceiling, host: root }),
-		).toThrow(CeilingPassed);
+		expect(() => readUnlandedCommits(root, 12, "", { ceiling })).toThrow(
+			CeilingPassed,
+		);
 	});
 });
 
 describe("the refusal and its escape", () => {
 	it("names each commit by short sha and subject, the ref, and the Unlanded line", () => {
 		const sha = commit("Fix the stop (#12)");
-		const text = unlandedRefusal(
-			12,
-			readUnlandedCommits(root, 12, "", { host: root }),
-		);
+		const text = unlandedRefusal(12, readUnlandedCommits(root, 12, ""));
 		expect(text).toContain("#12's commit is not on origin/main");
 		expect(text).toContain(
 			`  ${git("rev-parse", "--short", sha)} Fix the stop (#12)\n`,

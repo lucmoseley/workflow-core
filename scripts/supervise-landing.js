@@ -14,9 +14,8 @@
  *
  * `--tester` is the started lander's, as start-lander.js passes it on.
  *
- * Prints nothing where the `landing`
- * module is off or the queue needs nothing. Joins no §N3 family: it gates
- * nothing and is no hook.
+ * Prints nothing where the queue needs nothing. Joins no §N3 family: it
+ * gates nothing and is no hook.
  *
  * Exit codes: 0 on a pass; 1 on a throw, an alarm read that failed, an
  * unreadable remote or queue log, a failed start or a refused filing among
@@ -38,7 +37,6 @@ const { liveQueueDeps } = require("./lib/queue-issue.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { stallTicketTender } = require("./lib/stall-ticket.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
-const { moduleOn } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const USAGE = `usage: node ${scriptPath("supervise-landing.js")} [--tester <command>]`;
@@ -58,7 +56,6 @@ function main(argv = process.argv.slice(2)) {
 		writeFd(2, "supervise-landing: not in a git checkout\n");
 		return 1;
 	}
-	if (!moduleOn("landing", { root })) return 0;
 	const deps = liveQueueDeps(root);
 	/* First and off the queue's reads, so a broken queue, when the alarms
 	 * matter most, cannot skip them (#4772). */

@@ -96,7 +96,6 @@ const { requiredGroup } = require("../../../../scripts/lib/regex-group.js");
 const { inferCommands } = require("../../../../scripts/lib/infer-commands.js");
 const {
 	readSubjectModules,
-	START_ON,
 } = require("../../../../scripts/lib/gate-subjects.js");
 const {
 	UNFILLED_DESTINATION,
@@ -609,7 +608,7 @@ function preflight(inp, clone) {
 		repoExists: view !== null,
 		cloneExists: cloneOurs,
 		source,
-		modules: [...(source?.modules ?? []), ...START_ON],
+		modules: source?.modules ?? [],
 	};
 }
 

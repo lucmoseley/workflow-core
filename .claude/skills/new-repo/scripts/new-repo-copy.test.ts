@@ -40,9 +40,9 @@ describe("new-repo.js copying a source repo", () => {
 		expect(r.stdout).toContain(
 			"source repo    would — make octo/surf-lib's trunk main, pushed with the skeleton commit; push its tags to lucmoseley/tides; upstream fetch-only\n  licence: MIT License\n  workflows: .github/workflows/ci.yml — GitHub Actions runs them in lucmoseley/tides on their own triggers\n",
 		);
-		expect(r.stdout).toContain("--modules suites,landing ");
+		expect(r.stdout).toContain("--modules suites ");
 		expect(r.stdout).toContain(
-			"modules        suites, landing\n  commands: test: npm run test (package.json)\n",
+			"modules        suites\n  commands: test: npm run test (package.json)\n",
 		);
 		expect(r.stdout).toContain(
 			"set aside      would — move AGENTS.md to docs/source/AGENTS.source.md, move .husky/pre-commit to .husky/pre-commit.local\n",

@@ -5,13 +5,12 @@
  *
  * DENY, not warn (mantahostels#103).
  *
- * THE WORKTREE REFUSAL HOLDS WITH `landing` OFF TOO. A session whose cwd is
- * the main checkout keeps writing there until the cutover.
+ * A session whose cwd is the main checkout keeps writing there until the
+ * cutover.
  *
- * WHAT IT REFUSES, from a linked-worktree session or with the `landing`
- * module on and the main checkout cut over (lib/cutover.js): a Write, Edit or NotebookEdit
- * path, or a Bash write,
- * move or delete by any spelling lib/shell-parse.js's writeTargets reads,
+ * WHAT IT REFUSES, from a linked-worktree session or with the main checkout
+ * cut over (lib/cutover.js): a Write, Edit or NotebookEdit path, or a Bash
+ * write, move or delete by any spelling lib/shell-parse.js's writeTargets reads,
  * resolving into the main checkout's own tree — not into a linked worktree
  * under it, not under `.git` — at a path git does not ignore, tracked or not;
  * and a git command that writes the main checkout's index, `HEAD` or files
@@ -399,15 +398,13 @@ function route(w, ctx) {
  * @returns {string | null}
  */
 function refusalGround(ctx) {
-	if (ctx.moduleOn("landing")) {
-		const cutOver = readCutOver(ctx.git);
-		if (cutOver === null)
-			ctx.log(
-				"git could not read the main checkout's upstream — the cutover refusal skipped",
-			);
-		if (cutOver)
-			return "The main checkout takes no edits or commits: its `main` follows `origin/main` by the levelling step's fast-forward alone, and any edit there is an uncommitted edit that refuses it (#4229).";
-	}
+	const cutOver = readCutOver(ctx.git);
+	if (cutOver === null)
+		ctx.log(
+			"git could not read the main checkout's upstream — the cutover refusal skipped",
+		);
+	if (cutOver)
+		return "The main checkout takes no edits or commits: its `main` follows `origin/main` by the levelling step's fast-forward alone, and any edit there is an uncommitted edit that refuses it (#4229).";
 	const cls = ctx.treeClass(ctx.fallbackCwd);
 	if (cls === "unknown")
 		ctx.log(

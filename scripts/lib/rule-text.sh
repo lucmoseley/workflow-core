@@ -53,7 +53,6 @@ source "$_RT_HERE/script-path.sh" 2>/dev/null
 
 # Resolved once, at source, so no call forks (#653).
 _RT_CORE_DIR="$(cd "$_RT_HERE/../.." && pwd)/docs/agents/rules"
-_RT_CONFIG_JS="$(cd "$_RT_HERE" && pwd)/workflow-core-config.js"
 
 # The HOST repo's root, through the one seam (#1). `$_RT_HERE`
 # stays for finding guard-root.sh itself, a sibling that ships with this file —
@@ -269,8 +268,8 @@ rule_or_path() {
 }
 
 # rule-text.js's expandCommands (#742): `{command:<name>}` becomes the host's
-# declared commands.<name>, or push_check's default (#814), and a line naming
-# one with neither is dropped whole. Built left to right, so a command holding the placeholder's own
+# declared commands.<name>, and a line naming one it does not declare is
+# dropped whole. Built left to right, so a command holding the placeholder's own
 # spelling is never expanded again. A config that does not parse declares
 # nothing, and _wfc_jq says so on stderr.
 _RT_COMMAND_RE='\{command:([a-z_]+)\}'
@@ -285,16 +284,7 @@ _rt_expand_commands() {
     done_part=''
     while [[ "$rest" =~ $_RT_COMMAND_RE ]]; do
       pre="${rest%%"${BASH_REMATCH[0]}"*}"
-      # Undeclared push_check asks workflow-core-config.js's defaultCommand for
-      # its value (#1240), one node start per occurrence; no other name starts
-      # node, so a default defaultCommand gains for another name is dropped
-      # here until the condition below names it too — rule-text.test.ts's twin
-      # check on every name catches the gap. Where node fails, the line is
-      # dropped: a host that cannot start node cannot run push-check.js either.
-      if ! cmd="$(wfc_command "${BASH_REMATCH[1]}")" &&
-        ! { [[ "${BASH_REMATCH[1]}" == push_check ]] &&
-          cmd="$(node -e 'const d = require(process.argv[1]).defaultCommand(process.argv[2]); if (!d) process.exit(1); process.stdout.write(d)' \
-            "$_RT_CONFIG_JS" "${BASH_REMATCH[1]}" 2>/dev/null)"; }; then
+      if ! cmd="$(wfc_command "${BASH_REMATCH[1]}")"; then
         continue 2
       fi
       done_part+="$pre$cmd"

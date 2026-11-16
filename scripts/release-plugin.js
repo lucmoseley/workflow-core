@@ -20,9 +20,8 @@
  *
  * HEAD, NEVER THE WORKING TREE. The tree is rendered from `git archive HEAD`,
  * so an uncommitted edit cannot ship. And HEAD must be on `origin/main`
- * (lib/landing-refs.js's VERIFIED_REF): with the `landing` module on, a
- * session's HEAD carries queue-ref commits the full suite has not yet passed
- * (#2408).
+ * (lib/landing-refs.js's VERIFIED_REF): a session's HEAD carries queue-ref
+ * commits the full suite has not yet passed (#2408).
  *
  * THE RELEASE COMMIT IS A ROOT COMMIT, off every branch, made with plumbing
  * against a throwaway index: nothing on `main` moves and no hook runs. The tag
@@ -45,6 +44,9 @@
  * #4252 adds one more: a `migrations/hold.txt` at HEAD or on `origin/main`
  * holds every cut, its text the reason and what lifts it. The commit that
  * lifts the hold deletes it.
+ *
+ * #5276 adds one more: a migration note at HEAD naming a version above the
+ * tag being cut.
  *
  * #6 adds five more refusals: a dirty tree; a red core
  * (`commands.test`, skipped where undeclared — CLAUDE.md's own skip
@@ -89,6 +91,7 @@ const { worktreeRoot } = require("./lib/host-root.js");
 const { buildTree } = require("./lib/plugin-tree.js");
 const {
 	isMajorBump,
+	newestTag,
 	readLatestTag,
 	buildReleaseMessage,
 } = require("./lib/release-tags.js");
@@ -281,6 +284,29 @@ function readAt(root, ref, rel) {
 }
 
 /**
+ * Refuses a cut below the newest migration note at HEAD: its release names
+ * that version, so a lower tag ships what the note describes under the wrong
+ * number, and no adopter walks the note until a later cut (#5276).
+ * @param {string} root
+ * @param {string} tag
+ */
+function noteAheadOrThrow(root, tag) {
+	const noted = git(root, [
+		"ls-tree",
+		"--name-only",
+		"HEAD",
+		`${MIGRATIONS_DIR}/`,
+	])
+		.split("\n")
+		.map((rel) => path.basename(rel, ".md"));
+	const newest = newestTag([...noted, tag]);
+	if (newest !== tag)
+		throw refusal(
+			`${MIGRATIONS_DIR}/${newest}.md is ahead of ${tag} — cut ${newest}, the release that note describes`,
+		);
+}
+
+/**
  * The tag's migration note at HEAD, or null where it ships none.
  * @param {string} root
  * @param {string} tag
@@ -466,6 +492,7 @@ function release(root, { dryRunAdopter, reason } = {}) {
 
 	/* Cheapest refusals first — no point running the whole suite before a
 	 * missing or malformed note refuses the release outright. */
+	noteAheadOrThrow(root, tag);
 	const note = readNoteOrThrow(root, tag);
 	surfaceContractOrThrow(root);
 	/* Here rather than at the copy in `walkAdopter`, which happens after the core's own

@@ -1086,7 +1086,7 @@ describe("check-vendored-skills --upstream, the record", () => {
 			{
 				env: {
 					...process.env,
-					WFC_MODULES: "landing",
+					WFC_MODULES: "",
 					WFC_GH: stubGh(at.main, answering(SKILL, log)),
 				},
 			},

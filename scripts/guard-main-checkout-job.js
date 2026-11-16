@@ -25,9 +25,7 @@
  * and the session told to work there, as is one cut too late to relaunch.
  *
  * ANYTHING ELSE STARTS AS IT WOULD HAVE: an interactive session (no job
- * directory), a job already in a worktree, a `clear` or `compact` start, a
- * repository without the `landing` module (the launch directory is then the
- * main checkout).
+ * directory), a job already in a worktree, a `clear` or `compact` start.
  *
  * THE REGISTRATION ALLOWS 1200 s, the cut's own bounds summed: a fetch of up
  * to 3 tries and two more git steps at 30 s each, and an `npm ci` (or a wait

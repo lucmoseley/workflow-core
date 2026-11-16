@@ -7,8 +7,8 @@
 		"`text` is a literal substring, or an array of substrings ALL of which must be",
 		"present in the same span — used where one clause alone is ambiguous.",
 		"",
-		"Pick that substring from the fragment's OPENING sentence — `A PUSH WARNS",
-		"UNLESS CERTIFICATES OF FULL`. Where the opening sentence is NOT the",
+		"Pick that substring from the fragment's OPENING sentence — `ONLY THE QUEUE",
+		"LANDER MOVES`. Where the opening sentence is NOT the",
 		"distinctive one, key on the clause that is.",
 		"",
 		"A GENERATED fragment carries its source region's Markdown (mantahostels#2528), so skip a leading",
@@ -376,16 +376,10 @@
 					"text": "EVERY REVIEW FINDING NEEDS A DESTINATION"
 				},
 				{
-					"id": "review-ultra-axis",
-					"core": "guard-review-rules",
-					"kind": "inject",
-					"text": "then push to `main` as `rule:branch-publish` says. NEVER START ONE UNASKED"
-				},
-				{
 					"id": "review-ultra-axis-landing",
 					"core": "guard-review-rules",
 					"kind": "inject",
-					"text": "and pushes your queue ref. NEVER START ONE UNASKED"
+					"text": "session-checkout.js land`. NEVER START ONE UNASKED"
 				},
 				{
 					"id": "review-tier-escalated",
@@ -557,12 +551,6 @@
 					]
 				},
 				{
-					"id": "branch-publish",
-					"core": "guard-branch-publish",
-					"kind": "deny",
-					"text": "NO BRANCH ON THE REMOTE, AND NEVER A PULL REQUEST"
-				},
-				{
 					"id": "branch-publish-landing",
 					"core": "guard-branch-publish",
 					"kind": "deny",
@@ -574,38 +562,6 @@
 					"kind": "deny",
 					"text": [
 						"Work lands through your session's queue ref — never a push to `main`",
-						"the rule could not be read from"
-					]
-				},
-				{
-					"id": "main-force-push",
-					"core": "guard-branch-publish",
-					"kind": "deny",
-					"text": ["force-pushes", "NEVER MOVE `main` BACKWARDS"]
-				},
-				{
-					"id": "main-remote-delete",
-					"core": "guard-branch-publish",
-					"kind": "deny",
-					"text": ["` on the remote", "NEVER MOVE `main` BACKWARDS"]
-				},
-				{
-					"id": "main-force-push-fallback",
-					"core": "guard-branch-publish",
-					"kind": "deny",
-					"text": [
-						"force-pushes",
-						"Never move `main` backwards",
-						"the rule could not be read from"
-					]
-				},
-				{
-					"id": "main-remote-delete-fallback",
-					"core": "guard-branch-publish",
-					"kind": "deny",
-					"text": [
-						"` on the remote",
-						"Never move `main` backwards",
 						"the rule could not be read from"
 					]
 				},
@@ -805,12 +761,6 @@
 					"core": "guard-commit-form",
 					"kind": "inject",
 					"text": "COMMIT `docs/reference-roadmap.html` AND `docs/roadmap-digest.md` TOGETHER"
-				},
-				{
-					"id": "push-cadence",
-					"core": "guard-commit-form",
-					"kind": "inject",
-					"text": "FINDS EVERY COMMIT BEING PUSHED ATTESTED"
 				},
 				{
 					"id": "push-cadence-landing",
@@ -1055,18 +1005,10 @@
 					]
 				},
 				{
-					"id": "pull-fast-forward",
-					"core": "guard-pull-form",
-					"kind": "inject",
-					"routes": ["hook"],
-					"text": "RECONCILE THE SHARED `main` BY FAST-FORWARD OR NOT AT ALL."
-				},
-				{
 					"id": "main-rewind",
 					"core": "guard-pull-form",
 					"kind": "deny",
-					"text": "NEVER MOVE `main` BACKWARDS, FROM ANY TREE.",
-					"unless": ["force-pushes", "` on the remote"]
+					"text": "NEVER MOVE `main` BACKWARDS, FROM ANY TREE."
 				},
 				{
 					"id": "main-rewind-fallback",
@@ -1075,26 +1017,13 @@
 					"text": [
 						"Never move `main` backwards",
 						"the rule could not be read from"
-					],
-					"unless": ["force-pushes", "` on the remote"]
-				},
-				{
-					"id": "push-green-suite",
-					"core": "guard-push-rules",
-					"kind": "inject",
-					"text": "A PUSH WARNS UNLESS CERTIFICATES OF FULL"
+					]
 				},
 				{
 					"id": "vercel-build-on-push",
 					"core": "guard-push-rules",
 					"kind": "inject",
 					"text": "CI RUNS NO `next build`"
-				},
-				{
-					"id": "ci-status-lag",
-					"core": "guard-push-rules",
-					"kind": "inject",
-					"text": "A CI VERDICT COVERS A COMMIT RANGE"
 				},
 				{
 					"id": "ci-status-lag-landing",
@@ -1232,7 +1161,7 @@
 					"id": "full-suite-admissible",
 					"core": "guard-suite-concurrency",
 					"kind": "inject",
-					"text": "WOULD MEET THE PUSH GATE HERE, AND THIS"
+					"text": "THE QUEUE LANDER RUNS THE WHOLE SUITE ON EVERY LAND"
 				},
 				{
 					"id": "suite-count-cap",
@@ -1533,11 +1462,6 @@
 					"id": "ends-on",
 					"kind": "block",
 					"text": "This turn ends on "
-				},
-				{
-					"id": "result-on-commit",
-					"kind": "block",
-					"text": "This turn writes `result:` on commit"
 				}
 			]
 		},
@@ -1654,14 +1578,9 @@
 		"check-landing-switch-on.js --notify": {
 			"needles": [
 				{
-					"id": "landing-off",
-					"kind": "notice",
-					"text": "so every session here shares one unguarded tree"
-				},
-				{
 					"id": "not-cut-over",
 					"kind": "notice",
-					"text": "so sessions there still share one unguarded tree"
+					"text": "so every session there shares one unguarded tree"
 				}
 			]
 		},
@@ -1934,21 +1853,6 @@
 			],
 			"leads": true,
 			"leadsWhy": "mantahostels#1246 asks for this one first: mantahostels#1222 marked it \"conditional fire, lowest confidence\" and \"Take it last\", so its count is the one that changes a decision."
-		},
-		"C1": {
-			"span": "`.husky/pre-push` prints where no certificate attests a file the push sends; …",
-			"printedBy": "scripts/lib/test-pass-marker.js via .husky/pre-push",
-			"route": "cli",
-			"needles": [
-				{
-					"id": "missing",
-					"text": "Those commits are already public."
-				},
-				{
-					"id": "dirty",
-					"text": ["dirty tree: the", "came from a run that"]
-				}
-			]
 		},
 		"C3": {
 			"span": "Release refuses a path another session holds, one that is still dirty, …",

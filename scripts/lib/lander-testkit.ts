@@ -132,12 +132,10 @@ export const stubRedWhile = (name: string, alongside?: string) => {
 
 export const runLander = (
 	tester: string,
-	modules = "landing",
 	extraEnv: Record<string, string> = {},
 ) => {
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
-		WFC_MODULES: modules,
 		CLAUDE_PROJECT_DIR: work,
 		CLAUDE_CONFIG_DIR: path.join(tmp, "config"),
 		WFC_LEVEL_MAIN_SCRIPT: levelStub(),

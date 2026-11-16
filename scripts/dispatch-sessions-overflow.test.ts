@@ -34,10 +34,8 @@ import {
 } from "./lib/dispatch-ledger.js";
 import {
 	dispatchFixture,
-	LANDING_MODULES,
 	ROUTING,
 	SCRIPT,
-	seedLandingCheckout,
 } from "./lib/dispatch-sessions-testkit";
 import type { HeadlessCall } from "./lib/headless-run-fake";
 import { readRun, readStoredRuns, stop } from "./lib/headless-runs.js";
@@ -371,12 +369,9 @@ describe("an overflow seat (#2610)", () => {
 	});
 
 	it("starts the session in a fresh worktree detached at origin/main, as a plan launch does (#4245)", async () => {
-		const main = seedLandingCheckout(fx.dir);
+		const { main } = fx;
 		stub();
-		const r = await dispatch(1, {
-			...overflowEnv(200),
-			WFC_MODULES: LANDING_MODULES,
-		});
+		const r = await dispatch(1, overflowEnv(200));
 		expect(r.failed).toBeNull();
 		// The run records its cwd after the launcher returns.
 		expect(readHeadlessLaunches(1)).toHaveLength(1);

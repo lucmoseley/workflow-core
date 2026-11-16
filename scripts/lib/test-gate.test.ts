@@ -5,9 +5,9 @@
  * on the text of the declared script and each case must set it — a runner
  * that mints the marker or one that does not — which this repo's own
  * package.json cannot vary. That verdict is the line
- * between pre-push's warning owning a suite and pre-commit running it: read
- * wrongly one way, workflow-core runs its whole suite on every commit; the
- * other, an adopter's red suite commits clean again.
+ * between the lander owning a suite and pre-commit running it: read wrongly
+ * one way, workflow-core runs its whole suite on every commit; the other, an
+ * adopter's red suite commits clean again.
  */
 
 import { spawnSync } from "node:child_process";
@@ -16,7 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./run-in-process.js";
-import { pushGateState } from "./test-gate.js";
+import { testGate } from "./test-gate.js";
 
 const dirs: string[] = [];
 /* WFC_MODULES replaces the declared module list, so a value inherited from
@@ -51,20 +51,17 @@ function declare(root: string, config: object) {
 }
 
 /** Whether `command`, declared as `commands.test` with `suites` on, writes the
- *  marker: the push gate owns it where it does, so `pushGateState` — what
- *  pre-push and push:check read — answers owes; pre-commit owns it where not. */
+ *  marker: the push gate (the lander) owns it where it does; pre-commit owns it where not. */
 function mintsMarker(command: string, root: string): boolean {
 	declare(root, {
 		contract: 1,
 		modules: ["suites"],
 		commands: { test: command },
 	});
-	const { state } = pushGateState({ root });
-	expect(state).not.toBe("broken");
-	return state === "owes";
+	return testGate({ root }).gate === "push";
 }
 
-describe("which declared command writes the marker, read through pushGateState", () => {
+describe("which declared command writes the marker, read through testGate", () => {
 	it.each([
 		"npm test",
 		"npm t",
@@ -94,31 +91,7 @@ describe("which declared command writes the marker, read through pushGateState",
 	});
 });
 
-describe("pushGateState: whether a push owes a certificate (#2929, #3016)", () => {
-	const stateFor = (modules: string[]) => {
-		const root = host({ test: VITEST });
-		declare(root, { contract: 1, modules });
-		return pushGateState({ root });
-	};
-
-	it("skips with the lander's line where landing is on", () => {
-		expect(stateFor(["suites", "landing"])).toEqual({
-			state: "skip",
-			line: expect.stringContaining("the lander runs the full suite"),
-		});
-	});
-
-	it("owes one, with no line, where suites is on and landing off", () => {
-		expect(stateFor(["suites"])).toEqual({ state: "owes", line: null });
-	});
-
-	it("skips as module-off where suites is off", () => {
-		expect(stateFor([])).toEqual({
-			state: "skip",
-			line: expect.stringContaining('module "suites" is off'),
-		});
-	});
-
+describe("testGate at a rev (#3135)", () => {
 	/** A host declaring `npm test` with `suites` on, committed as it stands. */
 	const committedHost = (
 		scripts?: Record<string, string>,
@@ -145,10 +118,10 @@ describe("pushGateState: whether a push owes a certificate (#2929, #3016)", () =
 			path.join(root, "package.json"),
 			JSON.stringify({ scripts: { test: "jest" } }),
 		);
-		expect(pushGateState({ root, rev: "HEAD" }).state).toBe("owes");
+		expect(testGate({ root, rev: "HEAD" }).gate).toBe("push");
 		fs.writeFileSync(path.join(root, "package.json"), "{");
-		expect(pushGateState({ root, rev: "HEAD" }).state).toBe("owes");
-		expect(pushGateState({ root }).state).toBe("skip");
+		expect(testGate({ root, rev: "HEAD" }).gate).toBe("push");
+		expect(testGate({ root }).gate).toBe("commit");
 	});
 
 	it("reads no package.json at the rev as minting none, however the working copy reads", () => {
@@ -157,27 +130,17 @@ describe("pushGateState: whether a push owes a certificate (#2929, #3016)", () =
 			path.join(root, "package.json"),
 			JSON.stringify({ scripts: { test: VITEST } }),
 		);
-		expect(pushGateState({ root, rev: "HEAD" }).state).toBe("skip");
+		expect(testGate({ root, rev: "HEAD" }).gate).toBe("commit");
 	});
 
-	it("answers broken where the rev holds no file at package.json", () => {
+	it("throws where the rev holds no file at package.json", () => {
 		const root = committedHost(undefined, (dir) => {
 			fs.mkdirSync(path.join(dir, "package.json"));
 			fs.writeFileSync(path.join(dir, "package.json", "x"), "");
 		});
-		expect(pushGateState({ root, rev: "HEAD" })).toEqual({
-			state: "broken",
-			line: expect.stringContaining("package.json at HEAD is not a file"),
-		});
-	});
-
-	it("answers broken, with the reader's reason, on a config it cannot read", () => {
-		const root = host({ test: VITEST });
-		declare(root, { contract: 99 });
-		expect(pushGateState({ root })).toEqual({
-			state: "broken",
-			line: expect.stringMatching(/\S/),
-		});
+		expect(() => testGate({ root, rev: "HEAD" })).toThrow(
+			"package.json at HEAD is not a file",
+		);
 	});
 });
 

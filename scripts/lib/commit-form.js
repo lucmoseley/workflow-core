@@ -100,7 +100,7 @@
 
 const { closingMatch } = require("./closing-keyword.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
-const { ruleModule, ruleUnlessModule } = require("./rule-gates.js");
+const { ruleModule } = require("./rule-gates.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
 const {
 	normAbs,
@@ -806,9 +806,9 @@ function commitPathsCalls(j) {
  *
  * PRIORITY ORDER, highest first, as the ceiling defers the tail: the three
  * about the act itself, then the gates by what a session loses to each — a
- * local FAIL first, the sweep-only WARN last — and push-cadence, which binds
- * after the commit, closing (#2285). THE SCOPING IS AN EXCLUSION: each skip
- * states its own condition (mantahostels#1805).
+ * local FAIL first, the sweep-only WARN last — and push-cadence-landing,
+ * which binds after the commit, closing (#2285). THE SCOPING IS AN EXCLUSION:
+ * each skip states its own condition (mantahostels#1805).
  * @param {Judging} j
  * @param {string[]} paths
  * @returns {import("./guard-entry.js").Decision}
@@ -829,7 +829,6 @@ function commitRules(j, paths) {
 			"biome-staged-gate",
 			"superseded-values-gate",
 			"machinery-superseded",
-			"push-cadence",
 			"push-cadence-landing",
 		],
 		skip: [
@@ -839,8 +838,6 @@ function commitRules(j, paths) {
 				"doc-map-precommit",
 				"superseded-values-gate",
 			]),
-			...ruleModule(ctx, "landing", ["push-cadence-landing"]),
-			...ruleUnlessModule(ctx, "landing", ["push-cadence"]),
 			...(touches(DOC_MAP_SCOPE) ? [] : ["doc-map-precommit"]),
 			...(touches(DIGEST_FILES) ? [] : ["digest-version-drift"]),
 			...(touches(REGISTRY_FILES) ? [] : ["guard-registry-gate"]),

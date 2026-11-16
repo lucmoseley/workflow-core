@@ -1350,7 +1350,7 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 		".codereview-nagged-",
 		".codereview-pass-",
 		".priced-options-nagged-",
-		".green-suite-nagged-",
+		".round-check-nagged-",
 		".selection-sum-nagged-",
 	];
 	const hour = 60 * 60 * 1000;
@@ -1416,7 +1416,7 @@ describe("prune-markers — what the sweep itself does, run inline", () => {
 
 		for (const p of [
 			".priced-options-nagged-",
-			".green-suite-nagged-",
+			".round-check-nagged-",
 			".selection-sum-nagged-",
 		])
 			expect(fs.existsSync(path.join(sb.repo, `${p}ghost`))).toBe(false);

@@ -54,6 +54,9 @@ export class Arena {
 		// The real tree's core.hooksPath is absolute, so a scratch repo would
 		// otherwise run this repo's Husky gates (see mantahostels#100's PATH finding).
 		this.git("config", "core.hooksPath", path.join(this.dir, "no-hooks"));
+		// Not cut over (lib/cutover.js): the sessions here share one tree, the
+		// world these runs prove; a cut-over main checkout refuses every write.
+		this.git("config", "branch.main.merge", "refs/heads/landing");
 	}
 
 	git(...args: string[]) {

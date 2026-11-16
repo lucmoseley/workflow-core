@@ -19,11 +19,10 @@
  * THE VERDICT, SPENT (mantahostels#103 §6): no session id allows silently. A judge that says it could not
  * judge (`why`), or that throws, allows and logs why. `unread` — its own work
  * unreadable, so HEAD was judged whole — and `note` — a refusal it could not
- * record — are logged beside the verdict. A deny carries the `unasked-rerun`
- * rule's fragment after the judge's text, its `-landing` twin where the host
- * has the `landing` module on (#2936), or a fallback naming the fragment's
- * file where the store cannot give it — a refusal, so never a fail-open
- * record.
+ * record — are logged beside the verdict. A deny carries the
+ * `unasked-rerun-landing` rule's fragment after the judge's text (#2936), or
+ * a fallback naming the fragment's file where the store cannot give it — a
+ * refusal, so never a fail-open record.
  *
  * ONCE A SESSION, AND RE-TYPING RUNS IT (#790 Q7, the waste #787 counted). The
  * refusal names the runs whose certificates attest the session's own work. A
@@ -154,21 +153,14 @@ function decide(command, ctx) {
 }
 
 /**
- * The rule's fragment, its `-landing` twin where the host has `landing` on.
+ * The rule's fragment.
  * @param {UnaskedContext} ctx
  */
-function unaskedRule(ctx) {
-	return ctx.moduleOn("landing")
-		? ruleOrFallback(
-				ctx,
-				"unasked-rerun-landing",
-				"An unasked re-run is refused once a session",
-			)
-		: ruleOrFallback(
-				ctx,
-				"unasked-rerun",
-				"An unasked re-run is refused once a session",
-			);
-}
+const unaskedRule = (ctx) =>
+	ruleOrFallback(
+		ctx,
+		"unasked-rerun-landing",
+		"An unasked re-run is refused once a session",
+	);
 
 module.exports = { field: "command", noun: "command", decide };

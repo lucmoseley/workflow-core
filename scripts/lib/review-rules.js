@@ -12,8 +12,7 @@
  * than after it.
  *
  * IMPLICIT: on a Skill call naming `code-review` it injects the six review
- *   rules, the ultrareview one as its `-landing` twin where the `landing`
- *   module is on, and this session's two review-axis Artefact paths as
+ *   rules and this session's two review-axis Artefact paths as
  *   additionalContext, and the kit writes a `.rule-injected-*` latch file per
  *   rule under .claude/tmp/markers. In an adopter it denies the bare name
  *   instead, naming `workflow-core:code-review`.
@@ -56,7 +55,6 @@
  *    (mantahostels#1762); a throw here refuses too, the row failing closed.
  */
 
-const { ruleModule, ruleUnlessModule } = require("./rule-gates.js");
 const { reviewSuffix } = require("./review-suffix.js");
 
 const PRELUDE_LATCH = "review-rules-prelude";
@@ -125,11 +123,6 @@ function decide(skill, ctx) {
 		if (standards.missingBase)
 			ctx.log(standards.missingBase.what, standards.missingBase.detail);
 	}
-	/* The ultrareview axis ends on the host's landing route (#2409). */
-	const ultra = [
-		...ruleModule(ctx, "landing", ["review-ultra-axis-landing"]),
-		...ruleUnlessModule(ctx, "landing", ["review-ultra-axis"]),
-	];
 	/* Priority order: the deviations record is owed before the dispatch, and
 	 * the dispatch shape before what each axis is handed. One literal per
 	 * branch: lib/rule-emission.js and check-guard-registry.js read them. */
@@ -142,10 +135,8 @@ function decide(skill, ctx) {
 				"review-standards-axis-base",
 				"review-deviations-read",
 				"review-finding-destination",
-				"review-ultra-axis",
 				"review-ultra-axis-landing",
 			],
-			skip: ultra,
 		};
 	if (standards.state === "local")
 		return {
@@ -156,10 +147,8 @@ function decide(skill, ctx) {
 				"review-standards-axis-local",
 				"review-deviations-read",
 				"review-finding-destination",
-				"review-ultra-axis",
 				"review-ultra-axis-landing",
 			],
-			skip: ultra,
 		};
 	if (standards.state === "neither")
 		return {
@@ -170,10 +159,8 @@ function decide(skill, ctx) {
 				"review-standards-axis-absent",
 				"review-deviations-read",
 				"review-finding-destination",
-				"review-ultra-axis",
 				"review-ultra-axis-landing",
 			],
-			skip: ultra,
 		};
 	return {
 		...lead,
@@ -183,10 +170,8 @@ function decide(skill, ctx) {
 			"review-standards-axis",
 			"review-deviations-read",
 			"review-finding-destination",
-			"review-ultra-axis",
 			"review-ultra-axis-landing",
 		],
-		skip: ultra,
 	};
 }
 

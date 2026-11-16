@@ -2049,12 +2049,6 @@ describe("the ceiling every shape and filing limb shares (mantahostels#2786)", (
 			"for reply shape alone",
 		);
 	});
-
-	/* The evidence limb's independence is proved in
-	 * `guard-priced-options-green-suite.test.ts`, the only harness with a repo
-	 * and a commit ledger; here the session committed nothing and the limb
-	 * answers "" whatever the ceiling has spent, so asserting it here would pin
-	 * nothing. */
 });
 
 /*

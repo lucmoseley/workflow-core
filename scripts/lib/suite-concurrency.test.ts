@@ -295,6 +295,14 @@ const queued = (command: string) =>
 		? `${command} -- --queue`
 		: `${command} --queue`;
 
+/**
+ * A whole-suite vitest launch. A bare `npm run test` is a touched run (#2930),
+ * never held at the count cap; `--changed` is what it was before: the diff's
+ * selection, unresolved at launch, so charged the whole slot and read as
+ * narrowed.
+ */
+const WHOLE = "npm run test -- --changed";
+
 /** `gated` against an arbitrary `ps` listing. */
 const gatedOn = (command: string, mb: number, ps: string | null) =>
 	judge(command, mb, ps);
@@ -351,7 +359,7 @@ const warning = (command: string, mb: number, suites = 0, watchers = 0) => {
 
 describe("warns under the ~3350 MB resting floor (a whole suite's rung, #2772)", () => {
 	it("warns a `npm run test` under the floor", () => {
-		expect(gatedVerdict(queued("npm run test"), 1000)).toBe("warn");
+		expect(gatedVerdict(queued(WHOLE), 1000)).toBe("warn");
 	});
 
 	it('judges a quoted `npm run "test"` (#1528)', () => {
@@ -367,7 +375,7 @@ describe("warns under the ~3350 MB resting floor (a whole suite's rung, #2772)",
 	});
 
 	it("names the offending command in the warning", () => {
-		const r = gated("npm run test", 1000);
+		const r = gated(WHOLE, 1000);
 		expect(r.text).toMatch(/npm run test/);
 		expect(r.text).toMatch(/1000 MB/);
 	});
@@ -375,8 +383,8 @@ describe("warns under the ~3350 MB resting floor (a whole suite's rung, #2772)",
 	/* The floor's derivation is on `suiteRungMb` in lib/suite-ladder.js
 	 * (#1603). */
 	it("warns at one MB under the floor and allows at the floor", () => {
-		expect(gatedVerdict(queued("npm run test"), 3349)).toBe("warn");
-		expect(gatedVerdict(queued("npm run test"), 3350)).toBe("allow");
+		expect(gatedVerdict(queued(WHOLE), 3349)).toBe("warn");
+		expect(gatedVerdict(queued(WHOLE), 3350)).toBe("allow");
 	});
 });
 
@@ -404,9 +412,9 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 		},
 	);
 
-	it("denies a `npm run test` under the floor, line one its `--queue` form", () => {
-		const reason = readDenyReason("npm run test", 1000);
-		expect(reason.split("\n")[0]).toBe("Run instead: npm run test -- --queue");
+	it("denies a whole suite under the floor, line one its `--queue` form", () => {
+		const reason = readDenyReason(WHOLE, 1000);
+		expect(reason.split("\n")[0]).toBe(`Run instead: ${WHOLE} --queue`);
 		expect(reason).toMatch(
 			/MemAvailable is 1000 MB, under the ~3350 MB docs\/environment\.md §6 says a test run needs resting/,
 		);
@@ -417,31 +425,29 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 	/* The queue's poll reads the limb (lib/suite-queue.js, #2421); the kit
 	 * sends the session the deny alone, which the boundary set pins. */
 	it("names the limb each deny was reached on, for the queue's poll", () => {
-		expect(gated("npm run test", 1000, 0).verdict?.gate).toEqual({
+		expect(gated(WHOLE, 1000, 0).verdict?.gate).toEqual({
 			limb: "memory",
 			mb: 1000,
 			rungMb: 3350,
 			busy: 0,
 		});
-		expect(
-			gated("npm run test", ROOMY_MB, NEIGHBOURS_AT_CAP).verdict?.gate,
-		).toEqual({ limb: "count" });
+		expect(gated(WHOLE, ROOMY_MB, NEIGHBOURS_AT_CAP).verdict?.gate).toEqual({
+			limb: "count",
+		});
 	});
 
 	/* A head its rung holds with none running is held at rest, which a
 	 * younger part-suite may pass (#4783); an unread `ps` leaves it unknown. */
 	it("gives the vitest workers it read running, and none where `ps` went unread (#4783)", () => {
-		expect(gated("npm run test", 1000, 0).verdict?.gate).toMatchObject({
+		expect(gated(WHOLE, 1000, 0).verdict?.gate).toMatchObject({
 			busy: 0,
 		});
-		expect(
-			gatedOn("npm run test", 1000, null).verdict?.gate,
-		).not.toHaveProperty("busy");
+		expect(gatedOn(WHOLE, 1000, null).verdict?.gate).not.toHaveProperty("busy");
 	});
 
 	it("charges a suite only the climb its rung does not count (#3488, #4111)", () => {
-		expect(gated("npm run test", 3500, 0).verdict?.gate).toBeUndefined();
-		const { verdict: charged, text } = judge("npm run test", 3500, psWith(0), {
+		expect(gated(WHOLE, 3500, 0).verdict?.gate).toBeUndefined();
+		const { verdict: charged, text } = judge(WHOLE, 3500, psWith(0), {
 			climb: { "off-rung": 500, all: 900 },
 		});
 		expect(charged?.gate).toEqual({
@@ -466,15 +472,15 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 	});
 
 	it("judges the rung the launch would reach", () => {
-		expect(warning(queued("npm run test"), inBand2(), 1)).toMatch(
+		expect(warning(queued(WHOLE), inBand2(), 1)).toMatch(
 			/under the ~5200 MB .* as suite 2 of 3/,
 		);
-		expect(gatedVerdict(queued("npm run test"), inBand2(), 0)).toBe("allow");
+		expect(gatedVerdict(queued(WHOLE), inBand2(), 0)).toBe("allow");
 	});
 
 	it("refuses below the floor and allows at it", () => {
-		expect(gatedVerdict("npm run test", 3349)).toBe("deny");
-		expect(gatedVerdict("npm run test", 3350)).toBe("allow");
+		expect(gatedVerdict(WHOLE, 3349)).toBe("deny");
+		expect(gatedVerdict(WHOLE, 3350)).toBe("allow");
 	});
 
 	it("names the reap where the launch has no `pretest` of its own", () => {
@@ -506,7 +512,7 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 
 describe("allows above the floor and anything not a test/build", () => {
 	it("allows a `npm run test` with headroom to spare", () => {
-		expect(gatedVerdict("npm run test", 4000)).toBe("allow");
+		expect(gatedVerdict(WHOLE, 4000)).toBe("allow");
 	});
 
 	it("allows an unrelated command regardless of headroom", () => {
@@ -548,7 +554,7 @@ describe("judges a narrowed run on the full-suite ladder (mantahostels#1906, man
 	 * which prepends `run`, so the runner line carries an argument after it. */
 	it("counts a running `--changed` suite as a neighbour", () => {
 		const p = psListing(["node /r/node_modules/.bin/vitest run --changed"]);
-		expect(gatedOn(queued("npm run test"), inBand2(), p).text).toMatch(
+		expect(gatedOn(queued(WHOLE), inBand2(), p).text).toMatch(
 			/as suite 2 of 3/,
 		);
 	});
@@ -569,7 +575,7 @@ describe("judges a narrowed run on the full-suite ladder (mantahostels#1906, man
 	/* A bare `npm run test` IS the narrowed run (mantahostels#3208), so the guard reads
 	 * `--full` and nothing else as a whole-suite launch (mantahostels#3209). */
 	it("reads a bare `npm run test` as narrowed and `--full` as the whole suite", () => {
-		for (const cmd of ["npm run test", "npm test"]) {
+		for (const cmd of [WHOLE, "npm test"]) {
 			const out = gated(queued(cmd), 1000).text;
 			expect(out).toMatch(/already narrowed as far as it goes/);
 			expect(out).not.toMatch(/narrow the run/);
@@ -606,7 +612,7 @@ describe("judges a narrowed run on the full-suite ladder (mantahostels#1906, man
 	/* `narrowed` must reach the lever string and nothing else: the deny and
 	 * the `--queue` allowance read `bounded`/`queued`. */
 	it("leaves the deny and the queue allowance alone", () => {
-		for (const cmd of ["npm run test", "npm run test -- --full"]) {
+		for (const cmd of [WHOLE, "npm run test -- --full"]) {
 			expect([cmd, gatedVerdict(cmd, 8000, NEIGHBOURS_AT_CAP)]).toEqual([
 				cmd,
 				"deny",
@@ -629,7 +635,7 @@ describe("judges a narrowed run on the full-suite ladder (mantahostels#1906, man
 	/* `test:changed` is no lever the deny or watcher text offers: a bare
 	 * `npm run test` already selects on the diff (mantahostels#3209). */
 	it("keeps `test:changed` out of the deny text and out of the watcher text", () => {
-		expect(gated("npm run test", 8000, NEIGHBOURS_AT_CAP).text).not.toMatch(
+		expect(gated(WHOLE, 8000, NEIGHBOURS_AT_CAP).text).not.toMatch(
 			/test:changed/,
 		);
 		expect(gated("npm run test:watch", 99_999, 0).text).not.toMatch(
@@ -638,7 +644,7 @@ describe("judges a narrowed run on the full-suite ladder (mantahostels#1906, man
 	});
 
 	it("tells both npm suite commands they reap for themselves, so the reading is not the thing to stop on", () => {
-		for (const cmd of ["npm run test", "npm run test:changed"]) {
+		for (const cmd of [WHOLE, "npm run test:changed"]) {
 			const out = gated(queued(cmd), 1000).text;
 			expect([cmd, out]).toEqual([
 				cmd,
@@ -658,7 +664,7 @@ describe("judges a narrowed run on the full-suite ladder (mantahostels#1906, man
 	 * `test:changed` has its own pre-script (#633), so both keep the lever on
 	 * every rung. */
 	it("gives both npm suite commands the reaps-for-itself lever at rungs 2 and 3", () => {
-		for (const cmd of ["npm run test", "npm run test:changed"]) {
+		for (const cmd of [WHOLE, "npm run test:changed"]) {
 			for (const [mb, suites] of [
 				[inBand2(), 1],
 				[inBand3(), 2],
@@ -681,7 +687,7 @@ describe("judges a narrowed run on the full-suite ladder (mantahostels#1906, man
 	/* The reap stops FINISHED sessions, so a live neighbour's memory is
 	 * reclaimed by nothing — both levers say so. */
 	it("says the reap reaches no live neighbour, whichever lever it offers", () => {
-		expect(gated(queued("npm run test"), 1000).text).toMatch(/LIVE neighbour/);
+		expect(gated(queued(WHOLE), 1000).text).toMatch(/LIVE neighbour/);
 		expect(gated("npm run build", 1000).text).toMatch(/LIVE neighbours/);
 	});
 
@@ -698,9 +704,9 @@ describe("judges a narrowed run on the full-suite ladder (mantahostels#1906, man
 
 describe("counts an open watcher, and prices it as a full rung (mantahostels#1927)", () => {
 	it("counts an open watcher as a neighbour", () => {
-		expect(gatedVerdict(queued("npm run test"), inBand2(), 0, 0)).toBe("allow");
-		expect(gatedVerdict(queued("npm run test"), inBand2(), 0, 1)).toBe("warn");
-		expect(gated(queued("npm run test"), inBand2(), 0, 1).text).toMatch(
+		expect(gatedVerdict(queued(WHOLE), inBand2(), 0, 0)).toBe("allow");
+		expect(gatedVerdict(queued(WHOLE), inBand2(), 0, 1)).toBe("warn");
+		expect(gated(queued(WHOLE), inBand2(), 0, 1).text).toMatch(
 			/as suite 2 of 3/,
 		);
 	});
@@ -710,46 +716,40 @@ describe("counts an open watcher, and prices it as a full rung (mantahostels#192
 		// that adds the watcher to the run can produce this warning. In band
 		// deliberately, not on the 2-suite rung itself.
 		const mb = inBand3();
-		expect(warning(queued("npm run test"), mb, 1, 0)).not.toMatch(
-			/as suite 3 of 3/,
-		);
-		expect(gatedVerdict(queued("npm run test"), mb, 1, 1)).toBe("warn");
-		expect(gated(queued("npm run test"), mb, 1, 1).text).toMatch(
-			/as suite 3 of 3/,
-		);
+		expect(warning(queued(WHOLE), mb, 1, 0)).not.toMatch(/as suite 3 of 3/);
+		expect(gatedVerdict(queued(WHOLE), mb, 1, 1)).toBe("warn");
+		expect(gated(queued(WHOLE), mb, 1, 1).text).toMatch(/as suite 3 of 3/);
 	});
 
 	it("puts a launch past the cap when watchers make up the count", () => {
-		expect(gatedVerdict(queued("npm run test"), 99_999, 0, 3)).toBe("warn");
-		expect(gated(queued("npm run test"), 99_999, 0, 3).text).toMatch(
-			/would be suite 4/,
-		);
+		expect(gatedVerdict(queued(WHOLE), 99_999, 0, 3)).toBe("warn");
+		expect(gated(queued(WHOLE), 99_999, 0, 3).text).toMatch(/would be suite 4/);
 	});
 
 	/* Between the one-suite floor and the 2-suite rung, and nowhere else:
 	 * counting the decoy would put this launch on the 2-suite rung and warn, so
 	 * the case discriminates. */
 	it("does not count a binary whose name merely starts with vitest", () => {
-		expect(gatedVerdict("npm run test", ladder1(), 0, 0)).toBe("allow");
+		expect(gatedVerdict(WHOLE, ladder1(), 0, 0)).toBe("allow");
 	});
 
 	/* "Wait for one to finish" is advice a session cannot take when the thing
 	 * it would wait on never finishes. */
 	it("tells a capped launch to close a watcher rather than wait for it", () => {
-		const out = gated("npm run test", 99_999, 0, 4).text;
+		const out = gated(WHOLE, 99_999, 0, 4).text;
 		expect(out).toMatch(/Every one of them is an open watcher/);
 		expect(out).not.toMatch(/Wait for one to finish/);
 	});
 
 	it("still offers the wait where a one-shot run is among the neighbours", () => {
-		const out = gated(queued("npm run test"), 99_999, 2, 2).text;
+		const out = gated(queued(WHOLE), 99_999, 2, 2).text;
 		expect(out).toMatch(
 			/Wait for a one-shot run to finish, or close one of the 2/,
 		);
 	});
 
 	it("keeps the plain wait advice when no watcher is running", () => {
-		expect(gated(queued("npm run test"), 99_999, 4, 0).text).toMatch(
+		expect(gated(queued(WHOLE), 99_999, 4, 0).text).toMatch(
 			/Wait for one to finish/,
 		);
 	});
@@ -763,7 +763,7 @@ describe("tells the two spellings of a one-shot apart (mantahostels#1927)", () =
 		const ps = psListing(
 			Array.from({ length: 4 }, () => "node /r/node_modules/.bin/vitest --run"),
 		);
-		const out = gatedOn(queued("npm run test"), 99_999, ps).text;
+		const out = gatedOn(queued(WHOLE), 99_999, ps).text;
 		expect(out).toMatch(/would be suite 5/);
 		expect(out).toMatch(/Wait for one to finish/);
 		expect(out).not.toMatch(/open watcher/);
@@ -777,7 +777,7 @@ describe("tells the two spellings of a one-shot apart (mantahostels#1927)", () =
 				() => "node /r/node_modules/.bin/vitest --silent --run",
 			),
 		);
-		const out = gatedOn(queued("npm run test"), 99_999, ps).text;
+		const out = gatedOn(queued(WHOLE), 99_999, ps).text;
 		expect(out).toMatch(/would be suite 4/);
 		expect(out).toMatch(/Wait for one to finish/);
 		expect(out).not.toMatch(/open watcher/);
@@ -793,14 +793,14 @@ describe("tells the two spellings of a one-shot apart (mantahostels#1927)", () =
 				() => "node /r/node_modules/.bin/vitest --watch -t run",
 			),
 		);
-		const out = gatedOn("npm run test", 99_999, ps).text;
+		const out = gatedOn(WHOLE, 99_999, ps).text;
 		expect(out).toMatch(/Every one of them is an open watcher/);
 		expect(out).not.toMatch(/Wait for one to finish/);
 	});
 
 	it("still counts it toward the rung", () => {
 		const ps = psListing(["node /r/node_modules/.bin/vitest --run --changed"]);
-		expect(gatedOn(queued("npm run test"), inBand2(), ps).text).toMatch(
+		expect(gatedOn(queued(WHOLE), inBand2(), ps).text).toMatch(
 			/as suite 2 of 3/,
 		);
 	});
@@ -812,9 +812,7 @@ describe("tells the two spellings of a one-shot apart (mantahostels#1927)", () =
 		const ps = psListing(
 			Array.from({ length: 3 }, () => "less /r/node_modules/.bin/vitest"),
 		);
-		expect(gatedOn(queued("npm run test"), 99_999, ps).text).toMatch(
-			/would be suite 4/,
-		);
+		expect(gatedOn(queued(WHOLE), 99_999, ps).text).toMatch(/would be suite 4/);
 	});
 
 	/* It costs the right rung; only the close-it advice is wrong. */
@@ -825,7 +823,7 @@ describe("tells the two spellings of a one-shot apart (mantahostels#1927)", () =
 				() => "node /r/node_modules/.bin/vitest --watch=false",
 			),
 		);
-		expect(gatedOn("npm run test", 99_999, ps).text).toMatch(/open watcher/);
+		expect(gatedOn(WHOLE, 99_999, ps).text).toMatch(/open watcher/);
 	});
 });
 
@@ -840,9 +838,9 @@ describe("counts one line per real suite, never its wrappers (#1127)", () => {
 	];
 
 	it("reads a wrapped run as one suite", () => {
-		expect(
-			gatedOn(queued("npm run test"), inBand2(), psListing(wrapped)).text,
-		).toMatch(/as suite 2 of 3/);
+		expect(gatedOn(queued(WHOLE), inBand2(), psListing(wrapped)).text).toMatch(
+			/as suite 2 of 3/,
+		);
 	});
 
 	it("skips every shell and unwrap wrapper as argv[0]", () => {
@@ -865,7 +863,7 @@ describe("counts one line per real suite, never its wrappers (#1127)", () => {
 			"sudo",
 		].map((w) => `${w} ${runLine}`);
 		const ps = psListing([...lines, `node ${runLine}`]);
-		expect(gatedOn(queued("npm run test"), inBand2(), ps).text).toMatch(
+		expect(gatedOn(queued(WHOLE), inBand2(), ps).text).toMatch(
 			/as suite 2 of 3/,
 		);
 	});
@@ -878,7 +876,7 @@ describe("counts one line per real suite, never its wrappers (#1127)", () => {
 				`node /r${i}/${watch}`,
 			]).flat(),
 		);
-		const out = gatedOn(queued("npm run test"), 99_999, ps).text;
+		const out = gatedOn(queued(WHOLE), 99_999, ps).text;
 		expect(out).toMatch(/would be suite 4/);
 		expect(out).toMatch(/Every one of them is an open watcher/);
 	});
@@ -891,7 +889,7 @@ describe("never counts a `vitest list` selection probe as a suite (#1180)", () =
 
 	it("reads 2 `vitest run` + 1 `vitest list` as 2, neither filed as a watcher", () => {
 		const out = gatedOn(
-			queued("npm run test"),
+			queued(WHOLE),
 			inBand2(),
 			psListing([runLine, runLine, listLine]),
 		).text;
@@ -901,9 +899,7 @@ describe("never counts a `vitest list` selection probe as a suite (#1180)", () =
 
 	it("still counts a run whose `-t` filter is the word list", () => {
 		const ps = psListing([runLine, runLine, `${runLine} -t list`]);
-		expect(gatedOn(queued("npm run test"), 99_999, ps).text).toMatch(
-			/would be suite 4/,
-		);
+		expect(gatedOn(queued(WHOLE), 99_999, ps).text).toMatch(/would be suite 4/);
 	});
 });
 
@@ -1033,7 +1029,7 @@ describe("its row fails closed (#4128)", () => {
 	};
 
 	it("refuses a launch the core throws on, naming the fault", () => {
-		const { output, logs: said } = judged("npm run test", "core broke");
+		const { output, logs: said } = judged(WHOLE, "core broke");
 		expect(output).toEqual({
 			permissionDecision: "deny",
 			permissionDecisionReason:
@@ -1055,19 +1051,19 @@ describe("its row fails closed (#4128)", () => {
 
 describe("fails open", () => {
 	it("allows unchecked where MemAvailable cannot be read", () => {
-		expect(failOpen("npm run test").verdict).toBeNull();
+		expect(failOpen(WHOLE).verdict).toBeNull();
 	});
 
 	it("records that fail-open", () => {
-		failOpen("npm run test");
+		failOpen(WHOLE);
 		expect(readRecords()).toContain("MemAvailable unreadable");
 	});
 
 	/* The paired negative: a run that reads MemAvailable records nothing, so a
 	 * guard logging on every call could not pass the case above vacuously. */
 	it("records nothing when MemAvailable reads fine, warn or allow", () => {
-		expect(gatedVerdict("npm run test", 1000)).toBe("deny");
-		expect(gatedVerdict("npm run test", 4000)).toBe("allow");
+		expect(gatedVerdict(WHOLE, 1000)).toBe("deny");
+		expect(gatedVerdict(WHOLE, 4000)).toBe("allow");
 		expect(readRecords()).toBe("");
 	});
 });
@@ -1076,22 +1072,18 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 	it("picks the 2-suite rung when one is already going", () => {
 		// Clears the 1-suite rung and misses the 2-suite one, so the count is the only thing
 		// that can produce a warning here.
-		expect(gatedVerdict(queued("npm run test"), inBand2(), 0)).toBe("allow");
-		expect(gatedVerdict(queued("npm run test"), inBand2(), 1)).toBe("warn");
+		expect(gatedVerdict(queued(WHOLE), inBand2(), 0)).toBe("allow");
+		expect(gatedVerdict(queued(WHOLE), inBand2(), 1)).toBe("warn");
 	});
 
 	it("picks the 3-suite rung when two are already going", () => {
-		expect(warning(queued("npm run test"), inBand3(), 1)).not.toMatch(
-			/as suite 3 of 3/,
-		);
-		expect(warning(queued("npm run test"), inBand3(), 2)).toMatch(
-			/as suite 3 of 3/,
-		);
+		expect(warning(queued(WHOLE), inBand3(), 1)).not.toMatch(/as suite 3 of 3/);
+		expect(warning(queued(WHOLE), inBand3(), 2)).toMatch(/as suite 3 of 3/);
 	});
 
 	it("warns past the cap however much memory is free, naming the suite count and the one-at-a-time rule", () => {
-		expect(gatedVerdict(queued("npm run test"), 99_999, 1)).toBe("warn");
-		const r = gated(queued("npm run test"), 99_999, 1);
+		expect(gatedVerdict(queued(WHOLE), 99_999, 1)).toBe("warn");
+		const r = gated(queued(WHOLE), 99_999, 1);
 		expect(r.text).toMatch(/would be suite 2/);
 		expect(r.text).toMatch(/runs whole suites one at a time/);
 	});
@@ -1103,22 +1095,16 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 			[5200, 1],
 			[7850, 2],
 		]) {
-			const out = warning("npm run test -- --queue", mb, suites);
+			const out = warning(queued(WHOLE), mb, suites);
 			expect(out).toMatch(/one at a time/);
 			expect(out).not.toMatch(/MemAvailable is/);
 		}
 	});
 
 	it("names the rung it judged the launch on, and the figure it used", () => {
-		expect(gated(queued("npm run test"), inBand2(), 1).text).toMatch(
-			/as suite 2 of 3/,
-		);
-		expect(gated(queued("npm run test"), inBand2(), 1).text).toMatch(
-			/~5200 MB/,
-		);
-		expect(gated(queued("npm run test"), inBand3(), 2).text).toMatch(
-			/~7850 MB/,
-		);
+		expect(gated(queued(WHOLE), inBand2(), 1).text).toMatch(/as suite 2 of 3/);
+		expect(gated(queued(WHOLE), inBand2(), 1).text).toMatch(/~5200 MB/);
+		expect(gated(queued(WHOLE), inBand3(), 2).text).toMatch(/~7850 MB/);
 	});
 
 	/* A build is not on the ladder — §6 measured vitest — so it keeps the
@@ -1210,7 +1196,7 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 		});
 
 		it("does not refuse a test suite beside a running build", () => {
-			expect(reasonFor("npm run test", [runner])).toBeNull();
+			expect(reasonFor(WHOLE, [runner])).toBeNull();
 		});
 	});
 
@@ -1264,7 +1250,7 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 	 * no match, so an unreadable ps and a genuine zero count can reach the
 	 * caller identically; the fail-open record is what separates them. */
 	it("falls back to the headroom floor when ps cannot be read, and records it", () => {
-		expect(gatedOn("npm run test", 1000, null).text).toMatch(/1000 MB/);
+		expect(gatedOn(WHOLE, 1000, null).text).toMatch(/1000 MB/);
 		expect(readRecords()).toContain(
 			"ps unreadable — a suite launch judged as if no suite were running",
 		);
@@ -1280,7 +1266,7 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 	});
 
 	it("treats a genuine zero count as a successful read, recording nothing", () => {
-		expect(gatedVerdict("npm run test", 1000, 0)).toBe("deny");
+		expect(gatedVerdict(WHOLE, 1000, 0)).toBe("deny");
 		expect(readRecords()).toBe("");
 	});
 
@@ -1289,9 +1275,7 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 	it("does not count the npm wrapper line as a second suite", () => {
 		// One runner + its wrapper decoy. Counted once, this is suite 2, whose
 		// 2-suite rung this misses; counted twice it would read as suite 3.
-		expect(gated(queued("npm run test"), inBand2(), 1).text).toMatch(
-			/as suite 2 of 3/,
-		);
+		expect(gated(queued(WHOLE), inBand2(), 1).text).toMatch(/as suite 2 of 3/);
 	});
 
 	/* The workers are per-suite children and would multiply the count by
@@ -1302,7 +1286,7 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 			...new Array(6).fill("node /r/node_modules/vitest/dist/workers/forks.js"),
 		]);
 		// One runner + this launch = suite 2, whose 2-suite rung this misses.
-		expect(gatedOn(queued("npm run test"), inBand2(), p).text).toMatch(
+		expect(gatedOn(queued(WHOLE), inBand2(), p).text).toMatch(
 			/as suite 2 of 3/,
 		);
 	});
@@ -1347,22 +1331,20 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 	it("denies a `npm run test` with the ladder's last rung already taken", () => {
 		// exempt (mantahostels#2082): deny reason pinned by the "what the refusal tells the session" describe block —
 		// this is the exact case readDenyReason() below is called with.
-		expect(gatedVerdict("npm run test", 8000, NEIGHBOURS_AT_CAP)).toBe("deny");
+		expect(gatedVerdict(WHOLE, 8000, NEIGHBOURS_AT_CAP)).toBe("deny");
 	});
 
 	it("denies with headroom to spare — this is not a headroom reading", () => {
-		expect(gatedVerdict("npm run test", ROOMY_MB, NEIGHBOURS_AT_CAP)).toBe(
-			"deny",
-		);
+		expect(gatedVerdict(WHOLE, ROOMY_MB, NEIGHBOURS_AT_CAP)).toBe("deny");
 	});
 
 	it("allows the first suite", () => {
-		expect(gatedVerdict("npm run test", 8000, 0)).toBe("allow");
+		expect(gatedVerdict(WHOLE, 8000, 0)).toBe("allow");
 	});
 
 	it("denies the second and the third, one whole suite running at a time", () => {
-		expect(gatedVerdict("npm run test", 8000, 1)).toBe("deny");
-		expect(gatedVerdict("npm run test", 8000, 2)).toBe("deny");
+		expect(gatedVerdict(WHOLE, 8000, 1)).toBe("deny");
+		expect(gatedVerdict(WHOLE, 8000, 2)).toBe("deny");
 	});
 
 	it("allows a part-suite beside a whole suite", () => {
@@ -1431,25 +1413,19 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 			expect(at("npm run test -- --retest scripts/a.test.ts")).toBe("allow");
 		});
 
-		it("seats the bare default under `landing`, and holds it with `landing` off", () => {
-			expect(at("npm run test", ["suites", "landing"])).toBe("allow");
-			expect(at("npm run test")).toBe("deny");
+		it("seats the bare default, a touched run", () => {
+			expect(at("npm run test")).toBe("allow");
 		});
 
 		it("holds a `--changed` or `--full` run, which is no touched run", () => {
-			expect(at("npm run test -- --changed", ["suites", "landing"])).toBe(
-				"deny",
-			);
-			expect(at("npm run test -- --full=flag", ["suites", "landing"])).toBe(
-				"deny",
-			);
+			expect(at("npm run test -- --changed")).toBe("deny");
+			expect(at("npm run test -- --full=flag")).toBe("deny");
 		});
 
 		it("still charges a bare touched run, its files unresolved, a whole suite's rung", () => {
 			const alone = (command: string) =>
 				outcome(
-					judge(command, 2000, psWith(0), { modules: ["suites", "landing"] })
-						.verdict,
+					judge(command, 2000, psWith(0), { modules: ["suites"] }).verdict,
 				);
 			expect(alone("npm run test")).toBe("deny");
 			expect(alone("npm run test -- scripts/a.test.ts")).toBe("allow");
@@ -1480,11 +1456,7 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 	 * "allow", every case using it would still pass. Matching the warning's
 	 * text keeps a memory warning from satisfying it. */
 	it("draws the one-at-a-time warn where an exempted launch gets through", () => {
-		const { verdict: v, text } = gated(
-			"npm run test -- --queue",
-			8000,
-			NEIGHBOURS_AT_CAP,
-		);
+		const { verdict: v, text } = gated(queued(WHOLE), 8000, NEIGHBOURS_AT_CAP);
 		expect(v).not.toHaveProperty("deny");
 		expect(text).toMatch(
 			/This would be suite 2 on a machine that runs whole suites one at a time/,
@@ -1499,9 +1471,9 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 
 	/* #1528: lib/suite-launch.js reads a quoted script name as typed. */
 	it('denies a quoted `npm run "test"` too', () => {
-		expect(gatedVerdict(`npm run "test"`, 8000, NEIGHBOURS_AT_CAP)).toBe(
-			"deny",
-		);
+		expect(
+			gatedVerdict(`npm run "test" -- --changed`, 8000, NEIGHBOURS_AT_CAP),
+		).toBe("deny");
 	});
 
 	describe("a whole `npm run test:py` takes the whole-suite slot (#4775)", () => {
@@ -1514,7 +1486,6 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 		it.each([
 			["npm run test:py -- scripts", "a directory"],
 			["npm run test:py -- --full", "the lone `--full`"],
-			["npm run test:py", "the bare run with `landing` off"],
 			[
 				"npm test:py -- --deselect scripts/lib/test_a.py::test_x",
 				"a deselected test, the rest of the suite",
@@ -1536,8 +1507,8 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 			expect(at(command)).toBe("allow");
 		});
 
-		it("admits the bare run under `landing`, a touched run", () => {
-			expect(at("npm run test:py", ["suites", "landing"])).toBe("allow");
+		it("admits the bare run, a touched run", () => {
+			expect(at("npm run test:py")).toBe("allow");
 		});
 
 		it("hands the launch through queue-run.js", () => {
@@ -1584,9 +1555,7 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 	it("counts an open watcher as the suite already running", () => {
 		// exempt (mantahostels#2082): deny reason pinned directly by "tells a session waiting on watchers
 		// alone that they never finish", same watcher-counts-as-running params.
-		expect(gatedVerdict("npm run test", 8000, 0, NEIGHBOURS_AT_CAP)).toBe(
-			"deny",
-		);
+		expect(gatedVerdict(WHOLE, 8000, 0, NEIGHBOURS_AT_CAP)).toBe("deny");
 	});
 
 	it("leaves a build alone — it is not on the ladder and not counted", () => {
@@ -1602,18 +1571,15 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 	});
 
 	it("still applies the memory ladder once nothing else is running", () => {
-		expect(gatedVerdict("npm run test", 1000, 0)).toBe("deny");
+		expect(gatedVerdict(WHOLE, 1000, 0)).toBe("deny");
 	});
 
 	it("allows unchecked when ps cannot be read — the gate fails open", () => {
-		expect(gatedOn("npm run test", 8000, null).verdict).not.toHaveProperty(
-			"deny",
-		);
+		expect(gatedOn(WHOLE, 8000, null).verdict).not.toHaveProperty("deny");
 	});
 
 	describe("what the refusal tells the session", () => {
-		const reason = () =>
-			readDenyReason("npm run test", 8000, NEIGHBOURS_AT_CAP);
+		const reason = () => readDenyReason(WHOLE, 8000, NEIGHBOURS_AT_CAP);
 
 		it("says the machine runs one at a time", () => {
 			expect(reason()).toContain(
@@ -1622,15 +1588,18 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 		});
 
 		const typedFixes = [
-			["npm run test", "npm run test -- --queue"],
-			["npm test", "npm test -- --queue"],
+			[WHOLE, `${WHOLE} --queue`],
+			["npm test -- --changed", "npm test -- --changed --queue"],
 			["npm run test -- --full=push", "npm run test -- --full=push --queue"],
-			["node scripts/run-vitest.js", "node scripts/run-vitest.js --queue"],
+			[
+				"node scripts/run-vitest.js --changed",
+				"node scripts/run-vitest.js --changed --queue",
+			],
 			[
 				"timeout 900 npm run test:changed > log 2>&1",
 				"timeout 900 npm run test:changed > log 2>&1 -- --queue",
 			],
-			["npm run test # why", "npm run test -- --queue"],
+			["npm run test -- --changed # why", "npm run test -- --changed --queue"],
 		];
 		const compound = 'cd x && npm run test -- -t "a & b" 2>&1 | tail -5';
 
@@ -1656,8 +1625,8 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 			for (const command of [
 				...typedFixes.map(([typed]) => typed),
 				compound,
-				"npm run test 2>&1 | tail -5",
-				"npm run test >&2",
+				"npm run test -- --changed 2>&1 | tail -5",
+				"npm run test -- --changed >&2",
 				"npm run test -- -t x 2>&1",
 				'npm run test 2>&1 -- -t "a & b"',
 			]) {
@@ -1682,10 +1651,10 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 
 		it("reads `--queue` and `--` behind a redirection", () => {
 			for (const command of [
-				"npm run test 2>&1 -- --queue | tail -5",
-				"npm run test > log 2>&1 -- --queue",
+				"npm run test 2>&1 -- --changed --queue | tail -5",
+				"npm run test > log 2>&1 -- --changed --queue",
 				"npm run test -- -t x 2>&1 --queue",
-				"npm run test &>log -- --queue",
+				"npm run test &>log -- --changed --queue",
 				'npm run test 2>&1 -- -t "a & b" --queue',
 			])
 				expect(gatedVerdict(command, 8000, NEIGHBOURS_AT_CAP), command).toBe(
@@ -1696,9 +1665,9 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 		it("reads no `--queue` that is not this launch's own as its flag", () => {
 			for (const command of [
 				'npm run test 2>&1 -- -t "--queue"',
-				'grep -c "npm run test 2>&1 --queue" log; npm run test',
-				'echo "npm run test 2>&1 -- --queue" && npm run test',
-				"echo npm run test 2>&1 --queue && npm run test",
+				'grep -c "npm run test 2>&1 --queue" log; npm run test -- --changed',
+				'echo "npm run test 2>&1 -- --queue" && npm run test -- --changed',
+				"echo npm run test 2>&1 --queue && npm run test -- --changed",
 			])
 				expect(gatedVerdict(command, 8000, NEIGHBOURS_AT_CAP), command).toBe(
 					"deny",
@@ -1722,7 +1691,7 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 		});
 
 		it("tells a session waiting on watchers alone that they never finish", () => {
-			const r = readDenyReason("npm run test", 8000, 0, NEIGHBOURS_AT_CAP);
+			const r = readDenyReason(WHOLE, 8000, 0, NEIGHBOURS_AT_CAP);
 			expect(r).toContain("never finishes on its own");
 		});
 	});
@@ -1730,19 +1699,17 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 
 describe("`--queue` is a lever a session may choose (mantahostels#2024, #155)", () => {
 	it("never refuses a queued launch, whatever the count", () => {
-		expect(
-			gatedVerdict("npm run test -- --queue", 8000, NEIGHBOURS_AT_CAP),
-		).toBe(EXEMPTED);
-		expect(
-			gatedVerdict("npm run test -- --queue", 8000, NEIGHBOURS_PAST_LADDER),
-		).toBe(EXEMPTED);
-		expect(gatedVerdict("npm run test -- --queue", 8000, 0)).toBe("allow");
+		expect(gatedVerdict(queued(WHOLE), 8000, NEIGHBOURS_AT_CAP)).toBe(EXEMPTED);
+		expect(gatedVerdict(queued(WHOLE), 8000, NEIGHBOURS_PAST_LADDER)).toBe(
+			EXEMPTED,
+		);
+		expect(gatedVerdict(queued(WHOLE), 8000, 0)).toBe("allow");
 	});
 
 	it("takes the wrapper's own spelling too", () => {
 		expect(
 			gatedVerdict(
-				"node scripts/run-vitest.js --queue",
+				"node scripts/run-vitest.js --changed --queue",
 				8000,
 				NEIGHBOURS_AT_CAP,
 			),
@@ -1750,7 +1717,7 @@ describe("`--queue` is a lever a session may choose (mantahostels#2024, #155)", 
 	});
 
 	it("still denies the same launch without the flag", () => {
-		expect(gatedVerdict("npm run test", 8000, NEIGHBOURS_AT_CAP)).toBe("deny");
+		expect(gatedVerdict(WHOLE, 8000, NEIGHBOURS_AT_CAP)).toBe("deny");
 	});
 
 	/* The flag says WHEN to run, never how much memory the run needs, so the
@@ -1764,12 +1731,16 @@ describe("`--queue` is a lever a session may choose (mantahostels#2024, #155)", 
 	 * suite look narrowed and cheap. */
 	it("is not mistaken for a named test file", () => {
 		expect(
-			gatedVerdict("node scripts/run-vitest.js", 8000, NEIGHBOURS_AT_CAP),
+			gatedVerdict(
+				"node scripts/run-vitest.js --changed",
+				8000,
+				NEIGHBOURS_AT_CAP,
+			),
 		).toBe("deny");
 	});
 
 	it("names the queue route in the denial, so a session need not invent one", () => {
-		const out = gated("npm run test", 8000, NEIGHBOURS_AT_CAP).text;
+		const out = gated(WHOLE, 8000, NEIGHBOURS_AT_CAP).text;
 		expect(out).toMatch(/--queue/);
 		expect(out).toMatch(/Do not write your own waiter/);
 	});
@@ -1844,19 +1815,21 @@ describe("`--queue` only where package.json's script runs run-vitest.js (#552)",
 
 	it("still offers the flag where the script reaches the runner through the resolver", () => {
 		scripts("node scripts/lib/resolve-core.js scripts/run-vitest.js");
-		expect(readDenyReason("npm run test", 8000, NEIGHBOURS_AT_CAP)).toMatch(
-			/^Run instead: npm run test -- --queue\n/,
+		expect(readDenyReason(WHOLE, 8000, NEIGHBOURS_AT_CAP)).toMatch(
+			/^Run instead: npm run test -- --changed --queue\n/,
 		);
-		expect(
-			gatedVerdict("npm run test -- --queue", 8000, NEIGHBOURS_AT_CAP),
-		).toBe(EXEMPTED);
+		expect(gatedVerdict(queued(WHOLE), 8000, NEIGHBOURS_AT_CAP)).toBe(EXEMPTED);
 	});
 });
 
 describe("the wrapper form is in scope, so it is not a bypass (mantahostels#2015)", () => {
-	it("denies a bare `node scripts/run-vitest.js` — the whole suite renamed", () => {
+	it("denies a whole-suite `node scripts/run-vitest.js --changed` — `npm run test` renamed", () => {
 		expect(
-			gatedVerdict("node scripts/run-vitest.js", 8000, NEIGHBOURS_AT_CAP),
+			gatedVerdict(
+				"node scripts/run-vitest.js --changed",
+				8000,
+				NEIGHBOURS_AT_CAP,
+			),
 		).toBe("deny");
 	});
 
@@ -1935,7 +1908,7 @@ describe("the wrapper form is in scope, so it is not a bypass (mantahostels#2015
 	it("counts a redirection as the end of the arguments, not a path", () => {
 		expect(
 			gatedVerdict(
-				"node scripts/run-vitest.js > /tmp/out.log",
+				"node scripts/run-vitest.js --changed > /tmp/out.log",
 				8000,
 				NEIGHBOURS_AT_CAP,
 			),
@@ -2024,17 +1997,17 @@ describe("a run naming its test files is charged by the vitest workers it can oc
 	])(
 		"with %i suites running rests a queued whole suite on %i MB",
 		(suites, rung) => {
-			expect(warning("npm run test -- --queue", rung, suites)).not.toMatch(
+			expect(warning(queued(WHOLE), rung, suites)).not.toMatch(
 				/MemAvailable is/,
 			);
-			expect(warning("npm run test -- --queue", rung - 1, suites)).toMatch(
+			expect(warning(queued(WHOLE), rung - 1, suites)).toMatch(
 				/MemAvailable is/,
 			);
 		},
 	);
 
 	it.each([
-		"npm run test",
+		WHOLE,
 		"npm run test -- --adopt x.js",
 		"npm run test -- --adopt scripts/foo.test.ts",
 		"npm run test -- -t foo",
@@ -2142,23 +2115,23 @@ describe("a running vitest run is weighed by the workers its runner line names (
  */
 describe("strips a wrapper before the scope test (mantahostels#2511)", () => {
 	it.each([
-		"env npm run test",
-		"nohup npm run test",
-		"setsid npm run test",
-		"time npm run test",
-		"command npm run test",
-		"stdbuf -oL npm run test",
+		"env npm run test -- --changed",
+		"nohup npm run test -- --changed",
+		"setsid npm run test -- --changed",
+		"time npm run test -- --changed",
+		"command npm run test -- --changed",
+		"stdbuf -oL npm run test -- --changed",
 		/* `timeout`'s duration is a bare positional, so a flag sweep alone
 		 * leaves `900` standing where the command word is looked for. */
-		"timeout 900 npm run test",
-		"timeout -k 10 900 npm run test",
-		"env -u FOO npm run test",
-		"env -C /tmp npm run test",
-		"env --unset FOO npm run test",
-		"env --chdir /tmp npm run test",
-		"/usr/bin/env npm run test",
-		"nohup setsid env npm run test",
-		"scripts/bg-run.sh run suite npm run test",
+		"timeout 900 npm run test -- --changed",
+		"timeout -k 10 900 npm run test -- --changed",
+		"env -u FOO npm run test -- --changed",
+		"env -C /tmp npm run test -- --changed",
+		"env --unset FOO npm run test -- --changed",
+		"env --chdir /tmp npm run test -- --changed",
+		"/usr/bin/env npm run test -- --changed",
+		"nohup setsid env npm run test -- --changed",
+		"scripts/bg-run.sh run suite npm run test -- --changed",
 	])("denies `%s` with a suite already running", (command) => {
 		expect(gatedVerdict(command, 8000, NEIGHBOURS_AT_CAP)).toBe("deny");
 	});
@@ -2169,7 +2142,11 @@ describe("strips a wrapper before the scope test (mantahostels#2511)", () => {
 
 	it("strips a wrapper in front of the runner form", () => {
 		expect(
-			gatedVerdict("env node scripts/run-vitest.js", 8000, NEIGHBOURS_AT_CAP),
+			gatedVerdict(
+				"env node scripts/run-vitest.js --changed",
+				8000,
+				NEIGHBOURS_AT_CAP,
+			),
 		).toBe("deny");
 	});
 
@@ -2203,35 +2180,35 @@ describe("strips a wrapper before the scope test (mantahostels#2511)", () => {
 /* The rest of the wrapper class (mantahostels#2552). */
 describe("strips the rest of the wrapper class (mantahostels#2552)", () => {
 	it.each([
-		"sudo npm run test",
-		"sudo -u root npm run test",
-		"nice npm run test",
-		"nice -n 5 npm run test",
+		"sudo npm run test -- --changed",
+		"sudo -u root npm run test -- --changed",
+		"nice npm run test -- --changed",
+		"nice -n 5 npm run test -- --changed",
 		/* `nice`'s obsolete adjustment spelling is one flag word, so the sweep
 		 * needs nothing for it — but reading it as a value-taker would eat
 		 * `npm`. */
-		"nice -5 npm run test",
-		"ionice -c2 npm run test",
-		"ionice -c 2 -n 0 npm run test",
-		"xargs npm run test",
-		"xargs -n 1 npm run test",
-		"xargs -I {} npm run test",
-		"nice ionice -c 2 npm run test",
+		"nice -5 npm run test -- --changed",
+		"ionice -c2 npm run test -- --changed",
+		"ionice -c 2 -n 0 npm run test -- --changed",
+		"xargs npm run test -- --changed",
+		"xargs -n 1 npm run test -- --changed",
+		"xargs -I {} npm run test -- --changed",
+		"nice ionice -c 2 npm run test -- --changed",
 		/* The separate-value spellings of wrappers already in the list. */
-		"stdbuf -o L npm run test",
-		"stdbuf -i 0 -e L npm run test",
-		"env -S 'npm run test'",
-		"env --split-string 'npm run test'",
-		"env --split-string='npm run test'",
+		"stdbuf -o L npm run test -- --changed",
+		"stdbuf -i 0 -e L npm run test -- --changed",
+		"env -S 'npm run test -- --changed'",
+		"env --split-string 'npm run test -- --changed'",
+		"env --split-string='npm run test -- --changed'",
 		/* An OPTIONAL-value flag must NOT be swept as a value-taker: swept, it
 		 * eats `npm` and the launch goes unjudged. `xargs -e[END]`/`-i[R]` and
 		 * `sudo -h` — `--help` as readily as `--host` — are the three. */
-		"xargs --eof npm run test",
-		"xargs --replace npm run test",
-		"sudo -h npm run test",
-		"sudo -D /tmp npm run test",
-		"sudo --user root npm run test",
-		"sudo --close-from 3 npm run test",
+		"xargs --eof npm run test -- --changed",
+		"xargs --replace npm run test -- --changed",
+		"sudo -h npm run test -- --changed",
+		"sudo -D /tmp npm run test -- --changed",
+		"sudo --user root npm run test -- --changed",
+		"sudo --close-from 3 npm run test -- --changed",
 	])("denies `%s` with a suite already running", (command) => {
 		expect(gatedVerdict(command, 8000, NEIGHBOURS_AT_CAP)).toBe("deny");
 	});
@@ -2239,17 +2216,17 @@ describe("strips the rest of the wrapper class (mantahostels#2552)", () => {
 	/* A leading assignment, or one an `env` carries, leaves the wrapper
 	 * stripped and the launch behind it judged. */
 	it.each([
-		"FOO=1 sudo npm run test",
-		"FOO=1 nice -n 5 npm run test",
-		"FOO=1 ionice -c 2 npm run test",
-		"FOO=1 xargs -n 1 npm run test",
-		"FOO=1 stdbuf -o L npm run test",
-		"FOO=1 stdbuf -i 0 -e L npm run test",
-		"env FOO=1 stdbuf -o L npm run test",
-		"FOO=1 env -S 'npm run test'",
-		"FOO=1 env --split-string 'npm run test'",
-		"FOO=1 env --split-string='npm run test'",
-		"env -S 'FOO=1 npm run test'",
+		"FOO=1 sudo npm run test -- --changed",
+		"FOO=1 nice -n 5 npm run test -- --changed",
+		"FOO=1 ionice -c 2 npm run test -- --changed",
+		"FOO=1 xargs -n 1 npm run test -- --changed",
+		"FOO=1 stdbuf -o L npm run test -- --changed",
+		"FOO=1 stdbuf -i 0 -e L npm run test -- --changed",
+		"env FOO=1 stdbuf -o L npm run test -- --changed",
+		"FOO=1 env -S 'npm run test -- --changed'",
+		"FOO=1 env --split-string 'npm run test -- --changed'",
+		"FOO=1 env --split-string='npm run test -- --changed'",
+		"env -S 'FOO=1 npm run test -- --changed'",
 	])("denies `%s` with a suite already running", (command) => {
 		expect(gatedVerdict(command, 8000, NEIGHBOURS_AT_CAP)).toBe("deny");
 	});
@@ -2297,7 +2274,7 @@ describe("counts and judges a suite vitest does not run (#330)", () => {
 			"python3 -m pytest -n 2",
 			"/home/u/.venv/bin/pytest scripts",
 		])
-			expect(judged("npm run test", [other])).toBe("deny");
+			expect(judged(WHOLE, [other])).toBe("deny");
 	});
 
 	it("reads a run naming its test files as a part-suite, holding no slot but charged a whole suite's workers (#5274)", () => {
@@ -2308,21 +2285,21 @@ describe("counts and judges a suite vitest does not run (#330)", () => {
 			"python3 scripts/footer_sources.test.py",
 		];
 		for (const other of named) {
-			expect(judged("npm run test", [other])).toBe("allow");
+			expect(judged(WHOLE, [other])).toBe("allow");
 			expect(judged(other, ["python3 -m pytest"])).toBe("allow");
 		}
 		expect(gatedVerdict("node --test scripts/a.test.js", 3000)).toBe("deny");
 	});
 
 	it("counts a `node --test` run once, not once per child", () => {
-		expect(
-			guardOut("npm run test", [nodeTest, nodeChild, nodeChild]).text,
-		).toMatch(/1 whole suite\(s\) already running/);
+		expect(guardOut(WHOLE, [nodeTest, nodeChild, nodeChild]).text).toMatch(
+			/1 whole suite\(s\) already running/,
+		);
 	});
 
 	it("does not count a script that merely takes a --test argument, or inline code", () => {
 		expect(
-			judged("npm run test", [
+			judged(WHOLE, [
 				"node scripts/x.js --test",
 				"python3 -c import sys;exec(eval(sys.stdin.readline()))",
 				"python3 scripts/arctic_shift.py",
@@ -2386,7 +2363,7 @@ describe("counts and judges a suite vitest does not run (#330)", () => {
 
 	it("counts a queue-run.js waiter as no suite of its own", () => {
 		expect(
-			judged("npm run test", [
+			judged(WHOLE, [
 				"node /p/scripts/queue-run.js -- node --test scripts/a.test.js",
 			]),
 		).toBe("allow");
@@ -2394,31 +2371,31 @@ describe("counts and judges a suite vitest does not run (#330)", () => {
 
 	it("reads them as one-shots, never as open watchers", () => {
 		const r = gatedOn(
-			"npm run test",
+			WHOLE,
 			ROOMY_MB,
 			psListing([nodeTest, nodeTest, "python3 -m pytest"]),
 		);
-		expect(r.text).toMatch(/Run instead: npm run test -- --queue/);
+		expect(r.text).toMatch(/Run instead: npm run test -- --changed --queue/);
 		expect(r.text).not.toMatch(/watcher/);
 	});
 
 	it("counts and judges the host's declared suiteRunners", () => {
 		const config = { suiteRunners: ["scripts/build-site.js"] };
 		const build = "node /home/u/fb/scripts/build-site.js";
-		expect(judged("npm run test", [build], config)).toBe("deny");
+		expect(judged(WHOLE, [build], config)).toBe("deny");
 		expect(judged("node scripts/build-site.js", [vitest], config)).toBe("deny");
 	});
 
 	it("reads a running gate seat as one whole suite, its own runners not counted again (#5274)", () => {
 		const lanes = psListing(["node --test lanes/a", "node --test lanes/b"]);
 		const seat = (under: boolean) =>
-			judge("npm run test", ROOMY_MB, lanes, {
+			judge(WHOLE, ROOMY_MB, lanes, {
 				gateSeats: { count: 1, under: () => under },
 			}).text;
 		expect(seat(true)).toMatch(/1 whole suite\(s\) already running/);
 		expect(seat(false)).toMatch(/3 whole suite\(s\) already running/);
 		expect(
-			judge("npm run test", ROOMY_MB, psListing(["bash -l"]), {
+			judge(WHOLE, ROOMY_MB, psListing(["bash -l"]), {
 				gateSeats: { count: 1, under: () => false },
 			}).verdict?.deny,
 		).toBeDefined();
@@ -2426,7 +2403,7 @@ describe("counts and judges a suite vitest does not run (#330)", () => {
 
 	it("ignores a runner script no config declares", () => {
 		const build = "node /home/u/fb/scripts/build-site.js";
-		expect(judged("npm run test", [build])).toBe("allow");
+		expect(judged(WHOLE, [build])).toBe("allow");
 		expect(judged("node scripts/build-site.js", [vitest, vitest, vitest])).toBe(
 			"allow",
 		);
@@ -2531,7 +2508,7 @@ describe("a build or a whole-suite launch is handed the memory figure (#2024)", 
 	});
 
 	it.each([
-		["npm run test", "the diff's selection, not the whole suite"],
+		["npm run test", "a touched run, not the whole suite"],
 		["npm run test:changed", "the explicit narrowed spelling"],
 		[
 			"npm run test:py -- scripts/lib/test_a.py",
@@ -2602,7 +2579,7 @@ describe("a warning outranks the injection, and leaves it unlatched", () => {
 });
 
 /* The plain-`--full` limb (#181). Its fire needle keys on this clause. */
-const LIMB = "WOULD MEET THE PUSH GATE HERE";
+const LIMB = "THE QUEUE LANDER RUNS THE WHOLE SUITE ON EVERY LAND";
 
 /** A quiet launch whose limb is judged by the real port, its render half
  * standing at WFC_READ_GRAPH_RENDERS's `renders`. */
@@ -2617,7 +2594,7 @@ const limbed = (command: string, renders: "0" | "1", over: Over = {}) => {
 	});
 };
 
-describe("a plain --full over a tree whose read graph renders is told a bare run would do", () => {
+describe("a plain --full over a tree whose read graph renders is told the lander runs the whole suite", () => {
 	it.each([
 		["npm run test -- --full", "the spelling the rule itself names"],
 		["npm test -- --full", "the same script without `run`"],
@@ -2628,7 +2605,7 @@ describe("a plain --full over a tree whose read graph renders is told a bare run
 		// A notice, not a refusal: the launch still goes ahead.
 		expect(v).not.toHaveProperty("deny");
 		expect(v?.prelude).toContain(LIMB);
-		expect(v?.prelude).toContain("no whole-suite run is owed");
+		expect(v?.prelude).toContain("A SESSION OWES ONLY ITS TOUCHED TESTS");
 		expect(v?.prelude).toContain("not a refusal");
 		expect(v?.latchAfter).toBe(FULL_LIMB_ID);
 		expect(handed(v)).toContain("suite-tree-dirty");
@@ -2704,7 +2681,7 @@ describe("the limb is silent on everything else", () => {
 		],
 		["npm run test -- --full --project unit", "a project filter, likewise"],
 		["npm run test -- --full --project=unit", "and its `=` spelling"],
-		["npm run test", "no --full at all: this run is already the diff's"],
+		["npm run test", "no --full at all: a touched run"],
 		["npm run test:changed", "nor is the explicit narrowed spelling one"],
 	])("%s draws no limb — %s", (command) => {
 		expect(limbed(command, "1")?.prelude ?? "").not.toContain(LIMB);

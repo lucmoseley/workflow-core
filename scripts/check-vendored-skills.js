@@ -176,7 +176,6 @@ const {
 } = require("./lib/git.js");
 const { landingCutOver } = require("./lib/cutover.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
-const { moduleOn } = require("./lib/workflow-core-config.js");
 const { isUnder } = require("./lib/is-under.js");
 const { commitSha } = require("./lib/commit-sha.js");
 
@@ -1396,10 +1395,7 @@ function isCutOverMainCheckout(root) {
 	const top = mainCheckout(root);
 	if (top === null || fs.realpathSync(top) !== fs.realpathSync(root))
 		return false;
-	return landingCutOver(
-		(m) => moduleOn(m, { root: top }),
-		gitReader(top, GIT_TIMEOUT_MS),
-	);
+	return landingCutOver(gitReader(top, GIT_TIMEOUT_MS));
 }
 
 /**

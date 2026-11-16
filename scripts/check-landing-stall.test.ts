@@ -60,10 +60,10 @@ const beat = (ago: number) =>
 		batch: null,
 	});
 
-const check = (modules = "landing") => {
+const check = () => {
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
-		WFC_MODULES: modules,
+		WFC_MODULES: "",
 		CLAUDE_PROJECT_DIR: work,
 		WFC_LANDER_START_GRACE_MS: "0",
 		WFC_UPTIME_S: uptimeS,
@@ -263,16 +263,6 @@ it("warns of nothing on a stale heartbeat and an old main where no queue ref wai
 	const r = check();
 
 	expect(r.status, r.stderr).toBe(0);
-	expect(r.stdout).toBe("");
-});
-
-it("prints nothing with the landing module off", () => {
-	mainAt(8 * 60 * MIN);
-	queueRef("old", 121 * MIN);
-
-	const r = check("suites");
-
-	expect(r.status).toBe(0);
 	expect(r.stdout).toBe("");
 });
 

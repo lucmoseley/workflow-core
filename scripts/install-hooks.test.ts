@@ -28,7 +28,6 @@ const ROOT = path.resolve(__dirname, "..");
 const HUSKY = path.join(ROOT, "node_modules", "husky", "bin.js");
 const INSTALL = path.join(ROOT, "scripts", "install-hooks.js");
 const STUBS = [
-	"check-test-marker.js",
 	"landing-push-gate.js",
 	"public-push-gate.js",
 	"run-mod-tests.js",
@@ -47,7 +46,7 @@ const writeChecker = (dir: string, body: string) =>
 	fs.writeFileSync(path.join(dir, "scripts", "check-guard-registry.js"), body);
 
 const env = () => {
-	const e: NodeJS.ProcessEnv = { ...process.env, WFC_MODULES: "landing" };
+	const e: NodeJS.ProcessEnv = { ...process.env, WFC_MODULES: "" };
 	delete e.WFC_PLUGIN_ROOT;
 	delete e.HUSKY;
 	return e;

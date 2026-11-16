@@ -151,7 +151,7 @@ describe("isCollectedTestOrConftest", () => {
 
 	it.each([
 		"scripts/guard-x.sh",
-		"scripts/check-test-marker.js",
+		"scripts/check-landing-stall.js",
 		"scripts/evidence_test_support.py",
 		"scripts/lib/git-fixture.ts",
 		"scripts/lib-closure-fixture.ts",

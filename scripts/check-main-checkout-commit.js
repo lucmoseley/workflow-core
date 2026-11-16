@@ -6,8 +6,7 @@
  * Usage:
  *   node check-main-checkout-commit.js [--json] [--warn]
  *
- * Passes in a linked worktree, with the `landing` module off, and in a main
- * checkout not yet cut over (lib/cutover.js), where the shared-tree model's
+ * Passes in a linked worktree, and in a main checkout not yet cut over (lib/cutover.js), where the shared-tree model's
  * own limb in .husky/pre-commit still holds it on `main`. Passes, too, the
  * root commit, HEAD still unborn: a new repo's commit that starts `main`
  * (#2412).
@@ -22,7 +21,6 @@ const { readCommitOrBroken } = require("./lib/commit-sha.js");
 const { buildCutCommand, isCutOver } = require("./lib/cutover.js");
 const { gitDirs } = require("./lib/git.js");
 const { checkoutOfCommonDir } = require("./lib/main-checkout.js");
-const { moduleOn } = require("./lib/workflow-core-config.js");
 const { WORKTREES } = require("./lib/worktree-dirs.js");
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
@@ -36,11 +34,6 @@ function run(ctx) {
 	const top = checkoutOfCommonDir(dirs.common);
 	if (top === null)
 		return { okLine: "no checkout of its own: nothing to hold" };
-	if (!moduleOn("landing", { root: top }))
-		return {
-			okLine:
-				"the `landing` module is off: the main checkout is the shared tree",
-		};
 	if (!isCutOver(top))
 		return { okLine: "the main checkout is not yet cut over" };
 	if (readCommitOrBroken("HEAD", top) === null)

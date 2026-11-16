@@ -15,7 +15,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
 import { runCore, splitCheckout, toolCall } from "./guard-core-testkit";
 
@@ -24,10 +24,6 @@ let at: { main: string; worktree: string };
 freshSandbox((sb) => {
 	at = splitCheckout(path.join(sb.dir, "split"));
 	fs.writeFileSync(path.join(at.main, ".gitignore"), ".claude/\n");
-});
-
-beforeEach(() => {
-	vi.stubEnv("WFC_MODULES", "landing");
 });
 
 const git = (cwd: string, ...args: string[]) =>
@@ -306,17 +302,21 @@ describe("an interpreter on no script file, run from the main checkout, is refus
 	});
 });
 
-describe("before the cutover, or with `landing` off, it refuses a worktree session alone (#4697)", () => {
-	it("refuses an Edit of the main checkout from the worktree while its main tracks landing", () => {
+describe("before the cutover, it refuses a worktree session alone (#4697)", () => {
+	/* The shared-tree model: the main checkout's `main` still tracks `landing`. */
+	const beforeCutover = () =>
 		git(at.main, "config", "branch.main.merge", "refs/heads/landing");
+
+	it("refuses an Edit of the main checkout from the worktree while its main tracks landing", () => {
+		beforeCutover();
 		const reason = edit(path.join(at.main, "a.md"));
 		expect(reason).toContain("unclaimed and unledgered");
 		expect(reason).toContain(path.join(at.worktree, "a.md"));
 		expect(reason).not.toContain("levelling step");
 	});
 
-	it("refuses a Bash write and a git write from the worktree with the `landing` module off", () => {
-		vi.stubEnv("WFC_MODULES", "");
+	it("refuses a Bash write and a git write from the worktree", () => {
+		beforeCutover();
 		expect(
 			refusal("Bash", { command: `cd ${at.main} && echo x > a.md` }),
 		).toContain("unclaimed and unledgered");
@@ -325,8 +325,8 @@ describe("before the cutover, or with `landing` off, it refuses a worktree sessi
 		).toContain(`as \`git -C ${at.worktree} …\``);
 	});
 
-	it("allows the worktree's own files and a gitignored store with `landing` off", () => {
-		vi.stubEnv("WFC_MODULES", "");
+	it("allows the worktree's own files and a gitignored store", () => {
+		beforeCutover();
 		expect(edit(path.join(at.worktree, "a.md"))).toBeNull();
 		expect(
 			refusal("Write", {
@@ -337,7 +337,7 @@ describe("before the cutover, or with `landing` off, it refuses a worktree sessi
 	});
 
 	it("refuses from a worktree nested under the main checkout, and allows its own files", () => {
-		vi.stubEnv("WFC_MODULES", "");
+		beforeCutover();
 		const nested = path.join(at.main, ".claude", "worktrees", "w1");
 		git(at.main, "worktree", "add", "--detach", nested);
 		const from = { worktree: fs.realpathSync(nested) };
@@ -366,7 +366,7 @@ describe("before the cutover, or with `landing` off, it refuses a worktree sessi
 	});
 
 	it("allows a session whose cwd is another repository", () => {
-		vi.stubEnv("WFC_MODULES", "");
+		beforeCutover();
 		const other = path.join(path.dirname(at.main), "other");
 		fs.mkdirSync(other);
 		git(other, "init", "-q");
@@ -376,7 +376,7 @@ describe("before the cutover, or with `landing` off, it refuses a worktree sessi
 	});
 
 	it("allows a session whose cwd is the main checkout to write there", () => {
-		git(at.main, "config", "branch.main.merge", "refs/heads/landing");
+		beforeCutover();
 		expect(
 			refusal(
 				"Edit",
@@ -388,7 +388,6 @@ describe("before the cutover, or with `landing` off, it refuses a worktree sessi
 				{ cwd: at.main },
 			),
 		).toBeNull();
-		vi.stubEnv("WFC_MODULES", "");
 		expect(
 			refusal("Bash", { command: "echo x > a.md" }, { cwd: at.main }),
 		).toBeNull();

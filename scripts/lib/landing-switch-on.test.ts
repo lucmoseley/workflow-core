@@ -1,55 +1,60 @@
 // @vitest-environment node
 /*
- * lib/landing-switch-on.js judges each reading (#4688). Loosened, a core
- * before v2.1.0 fails, or the cut-over mark is read on a landing-off repo.
+ * lib/landing-switch-on.js judges each reading (#4688, #5276). Loosened, a
+ * cut-over checkout runs the cutover again, an occupied one passes, or a
+ * refusal reads as cut over.
  */
 import { describe, expect, it } from "vitest";
 
 const { judgeSwitchOn } = require("./landing-switch-on.js");
 
-const HOW = {
-	note: "N",
-	cutoverCommand: "C",
-	stepsCommand: "S",
-	walkCommand: "W",
+type Run = () => { result: unknown; lines: string[] };
+const neverRun: Run = () => {
+	throw new Error("cutover run");
 };
-const judge = (
-	version: string,
-	landingOn: boolean,
-	cutOver: () => boolean | null = () => {
-		throw new Error("cut-over mark read");
-	},
-) => judgeSwitchOn({ version, landingOn, cutOver }, HOW);
+const judge = (cutOver: boolean | null, runCutover: Run = neverRun) =>
+	judgeSwitchOn({ cutOver: () => cutOver, runCutover });
 
-describe("judgeSwitchOn (#4688)", () => {
-	it("skips a core before v2.1.0, a pre-release of it included", () => {
-		expect(judge("2.0.9", false).outcome).toBe("skip");
-		expect(judge("1.9.0", false).outcome).toBe("skip");
+describe("judgeSwitchOn (#5276)", () => {
+	it("passes a cut-over main checkout without running the cutover", () => {
+		expect(judge(true)).toMatchObject({ outcome: "ok", lines: [] });
 	});
 
-	it("fails landing off from v2.1.0 without reading the mark", () => {
-		for (const v of ["2.1.0", "v2.1.0", "2.1.0-rc.1", "3.0.0"])
-			expect(judge(v, false)).toMatchObject({
-				outcome: "fail",
-				tag: "LANDING-OFF",
-			});
-		expect(judge("2.1.0", false).line).toContain("`S`");
-		// the in-session walk, which seeds the owed list (#5286)
-		expect(judge("2.1.0", false).line).toContain("`W`");
+	it("is broken where git cannot read the mark", () => {
+		expect(judge(null).outcome).toBe("broken");
 	});
 
-	it("fails landing on but not cut over, naming the cutover command", () => {
-		const j = judge("2.1.0", true, () => false);
-		expect(j).toMatchObject({ outcome: "fail", tag: "NOT-CUT-OVER" });
-		expect(j.line).toContain("`C`");
+	it("runs the cutover where the main checkout is not cut over, passing with its report", () => {
+		const r = judge(false, () => ({
+			result: { status: "cut-over" },
+			lines: ["the main checkout is cut over"],
+		}));
+		expect(r).toMatchObject({
+			outcome: "ok",
+			lines: ["the main checkout is cut over"],
+		});
 	});
 
-	it("passes landing on and cut over", () => {
-		expect(judge("2.1.0", true, () => true).outcome).toBe("ok");
+	it("fails naming each session standing in the main checkout", () => {
+		const r = judge(false, () => ({
+			result: { status: "occupied", sessions: ["alpha", "beta"] },
+			lines: [],
+		}));
+		expect(r).toMatchObject({ outcome: "fail", tag: "OCCUPIED" });
+		expect(r.line).toContain("2 session(s) stand in it: alpha, beta");
 	});
 
-	it("is broken on an unread mark or a version that is no x.y.z", () => {
-		expect(judge("2.1.0", true, () => null).outcome).toBe("broken");
-		expect(judge("2.1", false).outcome).toBe("broken");
+	it("fails carrying the report of any other refusal", () => {
+		const r = judge(false, () => ({
+			result: { status: "unlisted", why: "no oracle" },
+			lines: ["refused: no session listing"],
+		}));
+		expect(r).toMatchObject({ outcome: "fail", tag: "NOT-CUT-OVER" });
+		expect(r.line).toContain("refused: no session listing");
+	});
+
+	it("skips while another run holds the cutover", () => {
+		const r = judge(false, () => ({ result: { status: "busy" }, lines: [] }));
+		expect(r.outcome).toBe("skip");
 	});
 });

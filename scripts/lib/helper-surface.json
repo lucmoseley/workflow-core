@@ -187,11 +187,11 @@
 			"flags": [
 				{
 					"name": "--full",
-					"meaning": "alone, run the whole Python suite; a bare run under the landing module runs only the session's touched tests"
+					"meaning": "alone, run the whole Python suite; a bare run runs only the session's touched tests"
 				}
 			],
 			"exit": {
-				"0": "pytest exited 0, or a bare run under the landing module found no touched test and ran nothing",
+				"0": "pytest exited 0, or a bare run found no touched test and ran nothing",
 				"1": "pytest exited non-zero, was killed or would not start, or the touched tests could not be selected; pytest's own report or stderr says which"
 			}
 		},
@@ -204,7 +204,7 @@
 				}
 			],
 			"exit": {
-				"0": "every test run passed, or a bare run under the landing module found no touched test and ran nothing",
+				"0": "every test run passed, or a bare run found no touched test and ran nothing",
 				"1": "a test failed, or the run stalled or was killed"
 			}
 		}

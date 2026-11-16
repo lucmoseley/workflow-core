@@ -1,13 +1,12 @@
-"""The pytest half of the pre-push marker (mantahostels#1256).
+"""The pytest half of the suite marker (mantahostels#1256).
 
 Driven against fakes rather than a nested pytest run: every field the plugin
 reads — the stats dict, the ini settings, the command-line options — is plain
 data.
 
-`scripts/run-pytest.js` loads the plugin on every `npm run test:py`, and
-`.husky/pre-push` and `npm run push:check` read the marker it writes: loosen a
-case and a failing or partial Python run is recorded as a certificate over the
-whole corpus.
+`scripts/run-pytest.js` loads the plugin on every `npm run test:py`, and the
+unasked-rerun guard reads the marker it writes: loosen a case and a failing or
+partial Python run is recorded as a certificate over the whole corpus.
 """
 
 import json
@@ -410,7 +409,7 @@ def test_the_plugin_really_loads_and_reports_under_xdist(tmp_path):
     the env var reaching the child and `pytest_terminal_summary` firing ONCE in
     the xdist controller are all otherwise asserted as arguments rather than as
     behaviour. Break any of them and the only symptom is a marker that never
-    appears, which at the push reads exactly like "you did not run the suite".
+    appears, which reads exactly like "you did not run the suite".
     """
     (tmp_path / "test_tiny.py").write_text(
         "def test_one():\n    assert True\n\n\ndef test_two():\n    assert True\n"

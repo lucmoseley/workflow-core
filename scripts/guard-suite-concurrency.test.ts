@@ -146,7 +146,7 @@ describe("each exit path", () => {
 		] as const) {
 			setMb(mb);
 			const r = raw(
-				{ ...buildBashPayload("npm run test", "test"), cwd: root },
+				{ ...buildBashPayload("npm run test -- --changed", "test"), cwd: root },
 				{ WFC_PS: ps },
 			);
 			expect(r.status).toBe(0);
@@ -163,7 +163,7 @@ describe("each exit path", () => {
 			expect(out.hookSpecificOutput.permissionDecision).toBe("deny");
 			expect(
 				out.hookSpecificOutput.permissionDecisionReason.split("\n")[0],
-			).toBe("Run instead: npm run test -- --queue");
+			).toBe("Run instead: npm run test -- --changed --queue");
 		}
 	});
 
@@ -231,7 +231,7 @@ describe("once a session, end to end", () => {
 		).toBe(readRuleText("suite-tree-dirty"));
 	});
 
-	const Limb = "WOULD MEET THE PUSH GATE HERE";
+	const Limb = "THE QUEUE LANDER RUNS THE WHOLE SUITE ON EVERY LAND";
 	const limb = (session: string) =>
 		emission("npm run test -- --full", {
 			session,
@@ -332,11 +332,11 @@ describe("the production adapters, crossed for real", () => {
 
 	it("offers the flag on a package.json it cannot parse, and logs the fail-open", () => {
 		write("package.json", "{");
-		const out = emission("npm run test", {
+		const out = emission("npm run test -- --changed", {
 			env: { WFC_PS: psOf([RUNNER], "ps-one") },
 		});
 		expect(out.permissionDecisionReason.split("\n")[0]).toBe(
-			"Run instead: npm run test -- --queue",
+			"Run instead: npm run test -- --changed --queue",
 		);
 		expect(failOpenLog()).toContain("package.json unreadable");
 	});
@@ -346,7 +346,7 @@ describe("the production adapters, crossed for real", () => {
 			".claude/workflow-core.json",
 			JSON.stringify({ suiteRunners: ["scripts/build-site.js"] }),
 		);
-		const out = emission("npm run test", {
+		const out = emission("npm run test -- --changed", {
 			env: {
 				WFC_PS: psOf(["node /home/u/fb/scripts/build-site.js"], "ps-runner"),
 			},

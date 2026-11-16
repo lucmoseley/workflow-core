@@ -430,6 +430,8 @@ module.exports = {
 	readJsonSafe,
 	isCoreHost,
 	findPin,
+	/* lib/landing-pin.js reads a served repo's pin with it. */
+	readPin,
 	resolveMarketplace,
 	findInstallRecord,
 	/* scripts/check-release-lag.js reads a row's version from it where the row records none. */

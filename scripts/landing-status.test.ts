@@ -40,16 +40,12 @@ const NOW = Date.parse("2026-11-06T12:00:00Z");
 const NO_QUEUE =
 	"queue: none waiting; nothing landed or dropped in 7 days; depth p90 none.";
 
-const runStatus = (
-	modules = "landing",
-	args = ["--session", SESSION],
-	cwd = work,
-) =>
+const runStatus = (args = ["--session", SESSION], cwd = work) =>
 	runInProcess(STATUS, args, {
 		cwd,
 		env: {
 			...process.env,
-			WFC_MODULES: modules,
+			WFC_MODULES: "",
 			CLAUDE_PROJECT_DIR: work,
 			WFC_NOW: new Date(NOW).toISOString(),
 		},
@@ -118,7 +114,7 @@ it("reads a landed, a queued and an unpushed commit, after fetching", () => {
 	git(work, "update-ref", "refs/remotes/origin/queue/s", landed);
 	ledger(landed, queued, unpushed);
 
-	const r = runStatus("landing", ["--session", SESSION], tree);
+	const r = runStatus(["--session", SESSION], tree);
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout.split("\n").filter(Boolean).slice(0, 3)).toEqual([
@@ -137,7 +133,7 @@ it("reads a commit as landed once the lander deleted its landed queue ref, the f
 	const unpushed = commit("unpushed");
 	ledger(landed, unpushed);
 
-	const r = runStatus("landing", ["--session", SESSION], tree);
+	const r = runStatus(["--session", SESSION], tree);
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout.split("\n").filter(Boolean).slice(0, 2)).toEqual([
@@ -168,7 +164,7 @@ it("leaves out a commit an amend replaced, reporting its replacement", () => {
 	git(work, "push", "-q", "origin", "HEAD:refs/heads/queue/s");
 	ledger(old, amended);
 
-	const r = runStatus("landing", ["--session", SESSION], tree);
+	const r = runStatus(["--session", SESSION], tree);
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout.split("\n").find(Boolean)).toBe(
@@ -219,21 +215,8 @@ it("says so where the session made no commit", () => {
 	expect(r.stdout).toMatch(/made no commit here/);
 });
 
-it("says the repo lands straight on main where the landing module is off, with or without a session id", () => {
-	ledger(commit("work"));
-
-	const r = runStatus("");
-
-	expect(r.status, r.stderr).toBe(0);
-	expect(r.stdout).toMatch(/lands straight on main/);
-	expect(r.stdout).not.toMatch(/landed:|queued:|unpushed:/);
-	const bare = runStatus("", []);
-	expect(bare.status, bare.stderr).toBe(0);
-	expect(bare.stdout).toMatch(/lands straight on main/);
-});
-
 it("refuses to run with no session id, naming --session as the way out", () => {
-	const env: NodeJS.ProcessEnv = { ...process.env, WFC_MODULES: "landing" };
+	const env: NodeJS.ProcessEnv = { ...process.env, WFC_MODULES: "" };
 	delete env.CLAUDE_CODE_SESSION_ID;
 
 	const r = runInProcess(STATUS, [], { cwd: work, env });
@@ -249,7 +232,7 @@ it("reads the session's own queue ref as queued, before the queue's line", () =>
 	queueLog([42, "enqueue", "alpha", sha]);
 	ledger();
 
-	const r = runStatus("landing", ["--session", SESSION], tree);
+	const r = runStatus(["--session", SESSION], tree);
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout.split("\n").filter(Boolean)).toEqual([
@@ -274,7 +257,7 @@ it("reads a landed stay with the main sha the green ledger and main's first-pare
 	);
 	ledger();
 
-	const r = runStatus("landing", ["--session", SESSION], tree);
+	const r = runStatus(["--session", SESSION], tree);
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout).toContain(
@@ -303,7 +286,7 @@ it("reads a dropped stay with its fix ticket and dropped ref off the drop record
 	);
 	ledger();
 
-	const r = runStatus("landing", ["--session", SESSION], tree);
+	const r = runStatus(["--session", SESSION], tree);
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout).toContain(
@@ -315,7 +298,7 @@ it("adds no per-ref line for a worktree with no queue ref and no queue-log row",
 	const tree = worktree("alpha");
 	ledger();
 
-	const r = runStatus("landing", ["--session", SESSION], tree);
+	const r = runStatus(["--session", SESSION], tree);
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout.split("\n").filter(Boolean)).toEqual([
@@ -330,7 +313,7 @@ it("--wait exits at once where nothing is queued, the reading then its wait line
 	git(work, "push", "-q", "origin", "HEAD:main");
 	ledger(landed);
 
-	const r = runStatus("landing", ["--session", SESSION, "--wait"], tree);
+	const r = runStatus(["--session", SESSION, "--wait"], tree);
 
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stdout.split("\n").filter(Boolean)).toEqual([

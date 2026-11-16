@@ -14,7 +14,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -160,13 +160,12 @@ describe("run-mod-tests (#857)", () => {
 		expect(r.stderr).toBe("");
 	});
 
-	it("measures a new branch's range from origin/main where the landing module is on, never origin/landing (#4458)", () => {
+	it("measures a new branch's range from origin/main, never origin/landing (#4458)", () => {
 		const { dir, root } = repo();
 		git(dir, "update-ref", "refs/remotes/origin/main", root);
 		const sha = commitTouching(dir, `${MOD}/hooks/register.ts`);
 		git(dir, "update-ref", "refs/remotes/origin/landing", sha);
 		const claude = stubClaude();
-		vi.stubEnv("WFC_MODULES", "landing");
 		const r = push(dir, sha, ZERO, { bin: claude.bin });
 		expect(r.status).toBe(0);
 		expect(claude.runs()).toHaveLength(1);
@@ -364,12 +363,11 @@ describe("run-mod-tests --all, the sweep's run (#1854)", () => {
 });
 
 describe(".husky/pre-push's wiring (#857)", () => {
-	/* The hook resolves both checkers under the repository's own root, so a
+	/* The hook resolves its checkers under the repository's own root, so a
 	 * stub there exiting `code` stands in for the mod gate. */
 	function hookWith(code: number) {
 		const { dir } = repo();
 		fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
-		fs.writeFileSync(path.join(dir, "scripts/check-test-marker.js"), "");
 		fs.writeFileSync(
 			path.join(dir, "scripts/run-mod-tests.js"),
 			`require("node:fs").readFileSync(0); process.exit(${code});\n`,

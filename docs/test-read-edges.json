@@ -130,7 +130,6 @@
 		],
 		".claude/output-styles/core-voice.md": [
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
-			"scripts/adopter-landing.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-guard-registry.test.ts",
@@ -440,13 +439,11 @@
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-digest-render.test.ts",
 			"scripts/check-plugin-gap.test.ts",
-			"scripts/check-test-marker.test.ts",
 			"scripts/check-weakens-line.test.ts",
 			"scripts/guard-disabled.test.ts",
 			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/init-adopter-subjects.test.ts",
 			"scripts/init-adopter.test.ts",
-			"scripts/landing-push-gate.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/branch-publish.test.ts",
 			"scripts/lib/core-owned-files.test.ts",
@@ -458,7 +455,6 @@
 			"scripts/lib/repo-hold-notices.test.ts",
 			"scripts/lib/review-tier.test.ts",
 			"scripts/lib/sensitive-paths.test.ts",
-			"scripts/lib/session-verdict.test.ts",
 			"scripts/lib/walk-and-commit.test.ts",
 			"scripts/mutation-hold-gate-disable-comment.test.ts",
 			"scripts/mutation-hold-gate.test.ts",
@@ -548,7 +544,6 @@
 			"scripts/checker-registrations.test.ts",
 			"scripts/coverage-declined.test.ts",
 			"scripts/lib/actions-tester.test.ts",
-			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/formatters.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/npx-bare-name.test.ts",
@@ -862,7 +857,6 @@
 			"scripts/adopter-landing.test.ts",
 			"scripts/check-format-staged.test.ts",
 			"scripts/check-guard-registry-implicit.test.ts",
-			"scripts/check-test-marker.test.ts",
 			"scripts/checker-new-faults.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/husky-script-refs.test.ts",
@@ -880,8 +874,6 @@
 			"scripts/precommit-shellcheck-gate.test.ts",
 			"scripts/public-push-gate.test.ts",
 			"scripts/run-mod-tests.test.ts",
-			"scripts/run-pytest.test.ts",
-			"scripts/run-vitest.test.ts",
 			"scripts/upgrade.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -949,7 +941,6 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
-			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/build-arm-sandbox.test.ts",
@@ -1094,7 +1085,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/adopter-materialise-sequence.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1105,7 +1095,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/adopter-pin-consent.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1116,7 +1105,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/anthropic-report.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-anthropic-report.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1130,7 +1118,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/biome-staged-gate.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/commit-form.test.ts",
@@ -1142,7 +1129,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/blocked-ticket-gate.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1164,20 +1150,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"docs/agents/rules/branch-publish.txt": [
-			"scripts/adopter-landing.test.ts",
-			"scripts/count-guard-fires.test.ts",
-			"scripts/lib/adopter-skeleton.test.ts",
-			"scripts/lib/branch-publish.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/review-tier.test.ts",
-			"scripts/lib/rule-text.test.ts",
-			"scripts/lib/tracker-rules.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
 		"docs/agents/rules/branch-shared-tree-landing.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/branch-move.test.ts",
@@ -1189,7 +1162,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/branch-shared-tree.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-branch.test.ts",
@@ -1203,7 +1175,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/build-concurrency.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1216,7 +1187,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/card-close-by-hand.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-issue-close.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1229,7 +1199,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/card-close-route.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1241,19 +1210,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/ci-status-lag-landing.txt": [
-			"scripts/adopter-landing.test.ts",
-			"scripts/count-guard-fires.test.ts",
-			"scripts/lib/adopter-skeleton.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/push-rules.test.ts",
-			"scripts/lib/review-tier.test.ts",
-			"scripts/lib/rule-text.test.ts",
-			"scripts/lib/tracker-rules.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"docs/agents/rules/ci-status-lag.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-push-rules.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1266,7 +1222,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/citation-inferred-number.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1277,7 +1232,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/citation-number-first.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1288,7 +1242,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/citation-tracker.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-dispatch.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1300,7 +1253,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/claim-bash-route.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1313,7 +1265,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/claim-release.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/file-claim.test.ts",
@@ -1325,7 +1276,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/claude-process-count.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-dispatch.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1338,7 +1288,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/close-outstanding-line.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-dispatch.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1351,7 +1300,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/close-outstanding-where.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1363,7 +1311,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/close-outstanding.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-issue-close.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1376,7 +1323,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/close-when-line.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1387,7 +1333,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/commit-closes-keyword.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-commit-form.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1400,7 +1345,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/commit-message.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/check-commit-subject.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-commit-form.test.ts",
@@ -1414,7 +1358,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/commit-pathspec.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-check-sh.test.ts",
@@ -1429,7 +1372,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/commit-show-diff.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-commit-form.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1442,7 +1384,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/create-command-shape.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1453,7 +1394,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/decisions-search-first.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1465,7 +1405,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/dependabot-merge.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/branch-publish.test.ts",
@@ -1477,7 +1416,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/dependency-edge-false-success.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1488,7 +1426,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/digest-version-drift.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/commit-form.test.ts",
@@ -1500,7 +1437,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/dispatch-fable-fork.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1511,7 +1447,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/dispatch-grandchild.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-dispatch.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1524,7 +1459,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/dispatch-search-tracker.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/dispatch-rewrite.test.ts",
@@ -1536,7 +1470,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/dispatch-tier.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/dispatch-rewrite.test.ts",
@@ -1548,7 +1481,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/doc-authority-class.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/file-claim.test.ts",
@@ -1560,7 +1492,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/doc-map-precommit.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-commit-form.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1573,7 +1504,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/file-claim.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1586,7 +1516,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/founder-acts.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/file-issue-core.test.ts",
@@ -1599,7 +1528,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/founder-deliverable.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-inventory.test.ts",
 			"scripts/guard-issue-create-label.test.ts",
@@ -1615,7 +1543,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/founder-handover.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/check-instruction-surface.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1630,7 +1557,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/gate-basis-line.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1642,7 +1568,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/gh-cli-limits.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1654,7 +1579,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/gh-job-dir-unreadable.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1665,7 +1589,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/guard-authoring.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/file-claim.test.ts",
@@ -1677,7 +1600,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/guard-registry-gate.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/commit-form.test.ts",
@@ -1689,7 +1611,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/headroom-reap.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-headroom-read.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1702,7 +1623,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/heavy-tree-search.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-dispatch.test.ts",
 			"scripts/guard-refusal-length.test.ts",
@@ -1716,7 +1636,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/hook-escape.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-hook-escape.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1729,7 +1648,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/house-decision.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-priced-options-close-rivals.test.ts",
@@ -1745,7 +1663,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/implement-closing-steps.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/concision-backstop-floor.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1758,7 +1675,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/install-scripts-first.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1770,7 +1686,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-body-clobber.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-issue-body.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1783,7 +1698,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-body-raw-write.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1795,7 +1709,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-body-success-signal.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1806,7 +1719,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-claim-scope.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1817,7 +1729,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-created-assigned.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1828,7 +1739,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-parent-unplaced.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1839,7 +1749,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-takes-label.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-issue-create-label.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1852,7 +1761,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-title-card-id.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1864,7 +1772,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/job-dir-scratch.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-dispatch.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1876,7 +1783,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/job-wait-ceiling.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1887,7 +1793,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/killed-background-job.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-dispatch.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1900,7 +1805,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/kind-label-vocabulary.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -1912,7 +1816,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/lockfile-sync.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1924,7 +1827,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/machinery-superseded.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-commit-form.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1937,7 +1839,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/main-rewind-landing.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/branch-publish.test.ts",
@@ -1949,7 +1850,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/main-rewind.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-pull-form.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1972,7 +1872,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/manual-sync.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/file-claim.test.ts",
@@ -1984,7 +1883,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/memory-figure.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -1997,7 +1895,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/mutation-hold.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/arm-tasks.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2011,7 +1908,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/new-package-vetted.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-pip-install.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2025,7 +1921,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/no-command-opens-shape.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2037,7 +1932,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/node-heap.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-node-heap.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2050,24 +1944,9 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/observe-first.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/review-tier.test.ts",
-			"scripts/lib/rule-text.test.ts",
-			"scripts/lib/tracker-rules.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"docs/agents/rules/pull-fast-forward.txt": [
-			"scripts/adopter-landing.test.ts",
-			"scripts/count-guard-fires.test.ts",
-			"scripts/guard-pull-form.test.ts",
-			"scripts/lib/adopter-skeleton.test.ts",
-			"scripts/lib/branch-move.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/pull-form.test.ts",
 			"scripts/lib/review-tier.test.ts",
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
@@ -2075,20 +1954,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/push-cadence-landing.txt": [
-			"scripts/adopter-landing.test.ts",
-			"scripts/count-guard-fires.test.ts",
-			"scripts/lib/adopter-skeleton.test.ts",
-			"scripts/lib/commit-form.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/push-rules.test.ts",
-			"scripts/lib/review-tier.test.ts",
-			"scripts/lib/rule-text.test.ts",
-			"scripts/lib/tracker-rules.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"docs/agents/rules/push-cadence.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-check-sh.test.ts",
 			"scripts/guard-commit-form.test.ts",
@@ -2103,21 +1968,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"docs/agents/rules/push-green-suite.txt": [
-			"scripts/adopter-landing.test.ts",
-			"scripts/count-guard-fires.test.ts",
-			"scripts/guard-push-rules.test.ts",
-			"scripts/lib/adopter-skeleton.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/push-rules.test.ts",
-			"scripts/lib/review-tier.test.ts",
-			"scripts/lib/rule-text.test.ts",
-			"scripts/lib/tracker-rules.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
 		"docs/agents/rules/queue-ref.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/branch-publish.test.ts",
@@ -2129,7 +1980,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/recurrence-checks.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2140,7 +1990,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/repo-file-act.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2152,7 +2001,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/research-artefact-scratch.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2164,7 +2012,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/research-in-tree.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2176,7 +2023,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-attacker-run.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2188,7 +2034,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-deviations-read.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/check-context-budget.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2202,7 +2047,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-deviations-write.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2214,7 +2058,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-dispatch-shape.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/check-context-budget.test.ts",
 			"scripts/check-injector-margin.test.ts",
 			"scripts/concision-backstop-floor.test.ts",
@@ -2232,7 +2075,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-finding-destination.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/check-context-budget.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2247,7 +2089,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-focused-run.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2259,7 +2100,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-hold.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2271,7 +2111,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-sensitive-undeclared.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2283,7 +2122,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-standards-axis-absent.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2295,7 +2133,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-standards-axis-base.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2307,7 +2144,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-standards-axis-local.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2319,7 +2155,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-standards-axis.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2333,7 +2168,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-tier-escalated.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/arm-tasks.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2345,7 +2179,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-tier-globless.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2356,7 +2189,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-tier-not-live.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/arm-tasks.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2368,7 +2200,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-tier-records.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2380,19 +2211,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-ultra-axis-landing.txt": [
-			"scripts/adopter-landing.test.ts",
-			"scripts/count-guard-fires.test.ts",
-			"scripts/lib/adopter-skeleton.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/review-rules.test.ts",
-			"scripts/lib/review-tier.test.ts",
-			"scripts/lib/rule-text.test.ts",
-			"scripts/lib/tracker-rules.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"docs/agents/rules/review-ultra-axis.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2404,7 +2222,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/rm-unchecked.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-rm-unchecked.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2417,7 +2234,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/roadmap-edit.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/file-claim.test.ts",
@@ -2429,7 +2245,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/roadmap-gating.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2441,7 +2256,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/roadmap-validity.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/check-roadmap-valid.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2453,7 +2267,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/scratch-dir-sanctioned.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2464,7 +2277,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/script-self-claim.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/file-claim.test.ts",
@@ -2476,7 +2288,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/self-spelt-escape.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2488,7 +2299,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/shell-lint-blind.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2500,7 +2310,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/shellcheck-changed-scope.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-check-sh.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2512,7 +2321,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/shellcheck-not-installed.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-check-sh.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2524,7 +2332,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/shellcheck-source-directive.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-check-sh.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2536,7 +2343,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/silent-kill.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-failed-call-rules.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2549,7 +2355,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/size-line.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/file-issue-core.test.ts",
@@ -2562,7 +2367,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/skill-refused.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-failed-call-rules.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2575,7 +2379,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/spec-only-contract.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2586,7 +2389,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/suite-tree-dirty.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2599,7 +2401,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/superseded-values-gate.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/commit-form.test.ts",
@@ -2611,7 +2412,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/sweep-fire-budget.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2623,7 +2423,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/takes-label-nuances.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2635,7 +2434,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/takes-label-unrouted.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2646,7 +2444,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/takes-value-vocabulary.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
@@ -2659,7 +2456,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/targeted-runs.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2672,7 +2468,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/test-reads-visible.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-dispatch.test.ts",
@@ -2686,7 +2481,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/test-run-cost.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-dispatch.test.ts",
@@ -2700,7 +2494,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/test-time-seam.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-dispatch.test.ts",
@@ -2714,7 +2507,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/ticket-criteria-unticked.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2726,7 +2518,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/triage-role-labels.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2737,19 +2528,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/unasked-rerun-landing.txt": [
-			"scripts/adopter-landing.test.ts",
-			"scripts/count-guard-fires.test.ts",
-			"scripts/lib/adopter-skeleton.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/review-tier.test.ts",
-			"scripts/lib/rule-text.test.ts",
-			"scripts/lib/tracker-rules.test.ts",
-			"scripts/lib/unasked-rerun-guard.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"docs/agents/rules/unasked-rerun.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2761,7 +2539,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/urgent-label.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2772,7 +2549,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/vercel-build-on-push.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-push-rules.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2785,7 +2561,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/vitest-wrapper.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-vitest-wrapper.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2798,7 +2573,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/wait-length.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2809,7 +2583,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/waiting-external-vocabulary.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2821,7 +2594,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/wayfinder-ops-shapes.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/guard-exhausted-map.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2834,7 +2606,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/weakens-line.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/check-weakens-line.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -2846,7 +2617,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/whole-file-restore.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/claimed-bash-write.test.ts",
@@ -2858,7 +2628,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/write-reformatted.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -2870,7 +2639,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/writing-for-agents.txt": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/file-claim.test.ts",
@@ -2907,7 +2675,6 @@
 		],
 		"docs/claude-user-settings.md": [
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
-			"scripts/adopter-landing.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/browser-profile-guard.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
@@ -3121,7 +2888,6 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-host-root.test.ts",
-			"scripts/check-test-marker.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/file-morning-review.test.ts",
 			"scripts/generate-doc-map-section-a.test.ts",
@@ -3260,11 +3026,9 @@
 			"scripts/precommit-gate-input-deletion.test.ts"
 		],
 		"docs/test-read-edges.json": [
-			"scripts/admissible-share.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/arm-tasks.test.ts",
 			"scripts/check-marker-integrity.test.ts",
-			"scripts/check-test-marker.test.ts",
 			"scripts/file-morning-review.test.ts",
 			"scripts/guard-unasked-rerun.test.ts",
 			"scripts/lib/already-red.test.ts",
@@ -3277,7 +3041,6 @@
 			"scripts/lib/quiet-bench-tick.test.ts",
 			"scripts/lib/read-audit.test.ts",
 			"scripts/lib/run-ledger.test.ts",
-			"scripts/lib/session-verdict.test.ts",
 			"scripts/lib/test-kind.test.ts",
 			"scripts/lib/test-pass-marker.test.ts",
 			"scripts/lib/touched-tests.live.test.ts",
@@ -3285,7 +3048,6 @@
 			"scripts/lib/unasked-rerun-io.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
-			"scripts/push-check.test.ts",
 			"scripts/run-pytest.test.ts",
 			"scripts/run-vitest-pass-store.test.ts",
 			"scripts/run-vitest.test.ts",
@@ -3510,6 +3272,11 @@
 		"migrations/v2.3.1.md": [
 			"scripts/lib/migration-note.test.ts"
 		],
+		"migrations/v3.0.0.md": [
+			"scripts/lib/migration-note.test.ts",
+			"scripts/lib/walk-and-commit.test.ts",
+			"scripts/upgrade.test.ts"
+		],
 		"package-lock.json": [
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
@@ -3545,11 +3312,6 @@
 			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
 			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
-			"scripts/admissible-share.test.ts",
-			"scripts/adopter-hook-errexit.test.ts",
-			"scripts/adopter-hook-shim.test.ts",
-			"scripts/adopter-landing.test.ts",
-			"scripts/adopter-rule-copies.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/arm-tasks.test.ts",
 			"scripts/build-arm-sandbox.test.ts",
@@ -3568,11 +3330,9 @@
 			"scripts/check-issue-labels.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-marker-integrity.test.ts",
-			"scripts/check-plugin-gap.test.ts",
 			"scripts/check-roadmap-pair.test.ts",
 			"scripts/check-sh-changed.test.ts",
 			"scripts/check-shfmt.test.ts",
-			"scripts/check-test-marker.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/coverage-declined.test.ts",
@@ -3590,16 +3350,13 @@
 			"scripts/init-adopter.test.ts",
 			"scripts/issue-body.test.ts",
 			"scripts/level-main.test.ts",
-			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/already-red.test.ts",
 			"scripts/lib/anthropic-report.test.ts",
 			"scripts/lib/arbiter-core.test.ts",
 			"scripts/lib/arbiter-markers.test.ts",
-			"scripts/lib/branch-publish.test.ts",
 			"scripts/lib/checker-run.contract.test.ts",
 			"scripts/lib/ci-runs.test.ts",
 			"scripts/lib/claimed-bash-write.test.ts",
-			"scripts/lib/core-owned-files.test.ts",
 			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/echo-call.test.ts",
 			"scripts/lib/file-issue-core.test.ts",
@@ -3624,7 +3381,6 @@
 			"scripts/lib/run-ledger.test.ts",
 			"scripts/lib/script-path.test.ts",
 			"scripts/lib/serialised.test.ts",
-			"scripts/lib/session-verdict.test.ts",
 			"scripts/lib/suite-background.test.ts",
 			"scripts/lib/suite-queue.test.ts",
 			"scripts/lib/test-gate.test.ts",
@@ -3637,7 +3393,6 @@
 			"scripts/measure-encoding-use.test.ts",
 			"scripts/npx-bare-name.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
-			"scripts/pre-applypatch-gate.test.ts",
 			"scripts/precommit-actionlint-gate.test.ts",
 			"scripts/precommit-declared-commands.test.ts",
 			"scripts/precommit-eslint-gate.test.ts",
@@ -3645,7 +3400,6 @@
 			"scripts/precommit-shellcheck-gate.test.ts",
 			"scripts/precommit-staged-gate.test.ts",
 			"scripts/pretest-reap.test.ts",
-			"scripts/push-check.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/release-plugin.test.ts",
 			"scripts/repo-checks.test.ts",
@@ -3656,14 +3410,12 @@
 			"scripts/status-report.test.ts",
 			"scripts/suite-timings.test.ts",
 			"scripts/tooling-matrix.test.ts",
-			"scripts/upgrade.test.ts",
 			"scripts/vitest-tree-watch.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"pytest.ini": [
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
-			"scripts/check-test-marker.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/coverage-declined.test.ts",
 			"scripts/file-issue.test.ts",
@@ -3704,7 +3456,6 @@
 		"requirements-dev.txt": [
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
-			"scripts/check-test-marker.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/coverage-declined.test.ts",
 			"scripts/file-issue.test.ts",
@@ -3749,24 +3500,6 @@
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/precommit-ruff-gate.test.ts",
 			"scripts/tooling-matrix.test.ts"
-		],
-		"scripts/admissible-share.js": [
-			"scripts/admissible-share.test.ts",
-			"scripts/checker-registrations.test.ts",
-			"scripts/lib/check.declared-flags.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/git.test.ts",
-			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"scripts/admissible-share.test.ts": [
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/helper-surface.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/admission.js": [
 			"scripts/admission.test.ts",
@@ -4153,7 +3886,6 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
-			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-plugin-gap.test.ts",
 			"scripts/init-adopter.test.ts",
@@ -4423,7 +4155,6 @@
 			"scripts/check-hook-liveness.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/deliver-to-session-ci.test.ts",
-			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
@@ -5768,6 +5499,7 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/test-kind.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/rule-fallback-template.test.ts",
@@ -7001,28 +6733,6 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"scripts/check-test-marker.js": [
-			"scripts/check-test-marker.test.ts",
-			"scripts/checker-registrations.test.ts",
-			"scripts/install-hooks.test.ts",
-			"scripts/lib/check.declared-flags.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/git.test.ts",
-			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
-			"scripts/lib/test-kind.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/pre-push-worktree-config.test.ts",
-			"scripts/rule-fallback-template.test.ts",
-			"scripts/run-mod-tests.test.ts"
-		],
-		"scripts/check-test-marker.test.ts": [
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/helper-surface.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
 		"scripts/check-test-spawn.js": [
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
@@ -7690,7 +7400,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/cutover-main-checkout.js": [
-			"scripts/check-landing-switch-on.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/cutover-main-checkout.test.ts",
 			"scripts/level-main.test.ts",
@@ -8010,6 +7719,7 @@
 			"scripts/allowance.test.ts",
 			"scripts/check-duplicate-dispatch.test.ts",
 			"scripts/check-ghost-jobs.test.ts",
+			"scripts/check-landing-switch-on.test.ts",
 			"scripts/check-orphaned-edits.test.ts",
 			"scripts/check-stranded-file-claims.test.ts",
 			"scripts/concision-backstop.test.ts",
@@ -8387,7 +8097,6 @@
 			"scripts/report-new-shared-faults.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
-			"scripts/run-vitest.test.ts",
 			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/generate-test-read-edges.test.ts": [
@@ -8847,14 +8556,6 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"scripts/guard-priced-options-green-suite.test.ts": [
-			"scripts/guard-priced-options.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/helper-surface.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
 		"scripts/guard-priced-options-handover.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
@@ -8897,7 +8598,6 @@
 			"scripts/guard-priced-options-actor-only.test.ts",
 			"scripts/guard-priced-options-close-rivals.test.ts",
 			"scripts/guard-priced-options-founder-act.test.ts",
-			"scripts/guard-priced-options-green-suite.test.ts",
 			"scripts/guard-priced-options-handover.test.ts",
 			"scripts/guard-priced-options-research-ladder.test.ts",
 			"scripts/guard-priced-options-round-check.test.ts",
@@ -9096,7 +8796,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/guard-unpushed-commits.js": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
 			"scripts/hook-registrations.test.ts",
@@ -9263,7 +8962,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/inject-tracker-docs.js": [
-			"scripts/adopter-landing.test.ts",
 			"scripts/check-context-budget.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/concision-backstop-floor.test.ts",
@@ -9496,6 +9194,7 @@
 		"scripts/landing-status.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/landing-status.test.ts",
+			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
@@ -11163,7 +10862,6 @@
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
-			"scripts/push-check.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
@@ -11340,7 +11038,6 @@
 			"scripts/credit-chain-e2e.test.ts",
 			"scripts/deliver-to-session.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
-			"scripts/guard-priced-options-green-suite.test.ts",
 			"scripts/guard-uncommitted-work.test.ts",
 			"scripts/hook-registrations.test.ts",
 			"scripts/lib/arbiter-core.test.ts",
@@ -13807,8 +13504,6 @@
 		],
 		"scripts/lib/caught.js": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
-			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
-			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/admission.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
@@ -13816,7 +13511,6 @@
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/alarm-notice.test.ts",
 			"scripts/burn-mode.test.ts",
-			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-citation-tracker.test.ts",
 			"scripts/check-clock-copies.test.ts",
 			"scripts/check-commit-message-closes.test.ts",
@@ -13834,7 +13528,6 @@
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
-			"scripts/check-plugin-gap.test.ts",
 			"scripts/check-roadmap-valid.test.ts",
 			"scripts/check-ruff-introduced.test.ts",
 			"scripts/check-self-throttling.test.ts",
@@ -13852,11 +13545,9 @@
 			"scripts/credit-chain-e2e.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
-			"scripts/guard-agent-poll.test.ts",
 			"scripts/guard-anthropic-report.test.ts",
 			"scripts/guard-branch.test.ts",
 			"scripts/guard-check-sh.test.ts",
-			"scripts/guard-disabled.test.ts",
 			"scripts/guard-dispatch.test.ts",
 			"scripts/guard-failed-call-rules.test.ts",
 			"scripts/guard-headroom-read.test.ts",
@@ -13874,7 +13565,6 @@
 			"scripts/guard-session-ceiling.test.ts",
 			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
-			"scripts/guard-wide-read.test.ts",
 			"scripts/hook-code-root.test.ts",
 			"scripts/hook-registrations.test.ts",
 			"scripts/host-root-plugin-cache.test.ts",
@@ -13893,7 +13583,6 @@
 			"scripts/lib/code-edges.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/commit-route.test.ts",
-			"scripts/lib/core-owned-files.test.ts",
 			"scripts/lib/cutover.test.ts",
 			"scripts/lib/dispatch-rewrite.test.ts",
 			"scripts/lib/doc-map-gate-program.test.ts",
@@ -13902,7 +13591,6 @@
 			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/file-issue-core.test.ts",
 			"scripts/lib/formatters.test.ts",
-			"scripts/lib/founder-wording.test.ts",
 			"scripts/lib/gate-judge-cases.test.ts",
 			"scripts/lib/gate-judge.contract.test.ts",
 			"scripts/lib/gate-judge.test.ts",
@@ -13935,20 +13623,17 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/pull-form.test.ts",
 			"scripts/lib/push-rules.test.ts",
-			"scripts/lib/python-routes.test.ts",
 			"scripts/lib/queue-issue.test.ts",
 			"scripts/lib/quiet-bench-tick.test.ts",
 			"scripts/lib/refill-panel-topic.test.ts",
 			"scripts/lib/refill-resume-worktree.test.ts",
 			"scripts/lib/registry-atomicity.test.ts",
-			"scripts/lib/repo-hold-notices.test.ts",
 			"scripts/lib/resume-io.contract.test.ts",
 			"scripts/lib/review-rules.test.ts",
 			"scripts/lib/rule-emission.test.ts",
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/script-path.test.ts",
-			"scripts/lib/sensitive-paths.test.ts",
 			"scripts/lib/serialised.test.ts",
 			"scripts/lib/session-start-roster.test.ts",
 			"scripts/lib/settings-lockout.test.ts",
@@ -13960,8 +13645,6 @@
 			"scripts/lib/unchecked-rm.test.ts",
 			"scripts/lib/vitest-wrapper.test.ts",
 			"scripts/lib/walk-and-commit.test.ts",
-			"scripts/lib/wfc-config.test.ts",
-			"scripts/lib/workflow-core-config.test.ts",
 			"scripts/link-config-dirs.test.ts",
 			"scripts/link-sub-issue.test.ts",
 			"scripts/mutation-hold-gate.test.ts",
@@ -14012,9 +13695,7 @@
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/start-session.test.ts",
-			"scripts/status-report.test.ts",
 			"scripts/statusline.test.ts",
-			"scripts/upgrade.test.ts",
 			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -17214,7 +16895,6 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
-			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -17811,7 +17491,6 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
-			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-context-budget-materialise.test.ts",
 			"scripts/check-context-budget.test.ts",
@@ -23416,9 +23095,6 @@
 		],
 		"scripts/lib/gh.js": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
-			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
-			"scripts/adopter-landing.test.ts",
-			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
@@ -23436,16 +23112,10 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
-			"scripts/guard-agent-poll.test.ts",
-			"scripts/guard-disabled.test.ts",
-			"scripts/guard-dispatch.test.ts",
 			"scripts/guard-session-ceiling.test.ts",
-			"scripts/guard-wide-read.test.ts",
 			"scripts/hook-registrations.test.ts",
 			"scripts/host-root-plugin-cache.test.ts",
 			"scripts/init-adopter.test.ts",
-			"scripts/lib/adopter-skeleton.test.ts",
-			"scripts/lib/founder-wording.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
 			"scripts/lib/gh.contract.test.ts",
@@ -23455,16 +23125,11 @@
 			"scripts/lib/inject-tracker-docs-host.contract.test.ts",
 			"scripts/lib/inject-tracker-docs.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/python-routes.test.ts",
 			"scripts/lib/queue-issue.test.ts",
 			"scripts/lib/quiet-bench-tick.test.ts",
 			"scripts/lib/refill-panel-topic.test.ts",
 			"scripts/lib/repo-hold-notices.test.ts",
-			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
-			"scripts/lib/sensitive-paths.test.ts",
-			"scripts/lib/wfc-config.test.ts",
-			"scripts/lib/workflow-core-config.test.ts",
 			"scripts/lib/write-set-predict.test.ts",
 			"scripts/link-sub-issue.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
@@ -23862,9 +23527,6 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/lib/git-objects.js": [
-			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
-			"scripts/adopter-landing.test.ts",
-			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-clock-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -23882,26 +23544,13 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
-			"scripts/guard-agent-poll.test.ts",
-			"scripts/guard-disabled.test.ts",
-			"scripts/guard-dispatch.test.ts",
-			"scripts/guard-wide-read.test.ts",
-			"scripts/init-adopter.test.ts",
-			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
-			"scripts/lib/founder-wording.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git-objects.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/post-commit-steps.contract.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/python-routes.test.ts",
-			"scripts/lib/repo-hold-notices.test.ts",
-			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
-			"scripts/lib/sensitive-paths.test.ts",
-			"scripts/lib/wfc-config.test.ts",
-			"scripts/lib/workflow-core-config.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
@@ -24126,13 +23775,10 @@
 		],
 		"scripts/lib/git.js": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
-			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
 			"scripts/admission.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
-			"scripts/adopter-landing.test.ts",
 			"scripts/alarm-notice.test.ts",
-			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-citation-tracker.test.ts",
 			"scripts/check-clock-copies.test.ts",
 			"scripts/check-commit-message-closes.test.ts",
@@ -24160,11 +23806,7 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
-			"scripts/guard-agent-poll.test.ts",
-			"scripts/guard-disabled.test.ts",
-			"scripts/guard-dispatch.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
-			"scripts/guard-wide-read.test.ts",
 			"scripts/hook-code-root.test.ts",
 			"scripts/hook-registrations.test.ts",
 			"scripts/init-adopter.test.ts",
@@ -24179,7 +23821,6 @@
 			"scripts/lib/cutover.test.ts",
 			"scripts/lib/doc-map-gate-program.test.ts",
 			"scripts/lib/formatters.test.ts",
-			"scripts/lib/founder-wording.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/guard-dispatch-git-reads.test.ts",
@@ -24193,21 +23834,15 @@
 			"scripts/lib/precommit-gate-verdicts.test.ts",
 			"scripts/lib/precommit-gate.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/python-routes.test.ts",
 			"scripts/lib/registry-atomicity.test.ts",
-			"scripts/lib/repo-hold-notices.test.ts",
 			"scripts/lib/resume-io.contract.test.ts",
 			"scripts/lib/review-tier.test.ts",
-			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
-			"scripts/lib/sensitive-paths.test.ts",
 			"scripts/lib/serialised.test.ts",
 			"scripts/lib/settings-lockout.test.ts",
 			"scripts/lib/suite-queue.test.ts",
 			"scripts/lib/test-read-edges.test.ts",
 			"scripts/lib/walk-and-commit.test.ts",
-			"scripts/lib/wfc-config.test.ts",
-			"scripts/lib/workflow-core-config.test.ts",
 			"scripts/measure-landing-pool.test.ts",
 			"scripts/mutation-hold-gate.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
@@ -24714,7 +24349,6 @@
 			"scripts/lib/npm-install.test.ts",
 			"scripts/lib/post-write.test.ts",
 			"scripts/lib/pull-form.worktree.test.ts",
-			"scripts/lib/push-rules.test.ts",
 			"scripts/lib/recursive-dot-read.test.ts",
 			"scripts/lib/registry-atomicity.test.ts",
 			"scripts/lib/registry-atomicity.worktree.test.ts",
@@ -27232,12 +26866,10 @@
 		],
 		"scripts/lib/host-root.js": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
-			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
 			"scripts/admission.test.ts",
 			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-always-loaded-pass.test.ts",
-			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-context-budget-materialise.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-context-budget.test.ts",
@@ -27268,11 +26900,9 @@
 			"scripts/count-guard-fires.test.ts",
 			"scripts/deliver-to-session.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
-			"scripts/guard-agent-poll.test.ts",
 			"scripts/guard-anthropic-report.test.ts",
 			"scripts/guard-branch.test.ts",
 			"scripts/guard-check-sh.test.ts",
-			"scripts/guard-disabled.test.ts",
 			"scripts/guard-dispatch.test.ts",
 			"scripts/guard-failed-call-rules.test.ts",
 			"scripts/guard-headroom-read.test.ts",
@@ -27288,10 +26918,8 @@
 			"scripts/guard-push-rules.test.ts",
 			"scripts/guard-rm-unchecked.test.ts",
 			"scripts/guard-suite-concurrency.test.ts",
-			"scripts/guard-wide-read.test.ts",
 			"scripts/hook-registrations.test.ts",
 			"scripts/init-adopter.test.ts",
-			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/anthropic-report.test.ts",
 			"scripts/lib/bg-job.test.ts",
 			"scripts/lib/branch-move.test.ts",
@@ -27302,7 +26930,6 @@
 			"scripts/lib/failed-call-rules.test.ts",
 			"scripts/lib/file-claim.test.ts",
 			"scripts/lib/file-issue-core.test.ts",
-			"scripts/lib/founder-wording.test.ts",
 			"scripts/lib/gate-judge-cases.test.ts",
 			"scripts/lib/gate-judge.contract.test.ts",
 			"scripts/lib/gate-judge.test.ts",
@@ -27328,9 +26955,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/pull-form.test.ts",
 			"scripts/lib/push-rules.test.ts",
-			"scripts/lib/python-routes.test.ts",
 			"scripts/lib/refill-blocks.test.ts",
-			"scripts/lib/repo-hold-notices.test.ts",
 			"scripts/lib/review-reversal.test.ts",
 			"scripts/lib/review-rules.test.ts",
 			"scripts/lib/review-tier.test.ts",
@@ -27338,7 +26963,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/lib/script-path.test.ts",
-			"scripts/lib/sensitive-paths.test.ts",
 			"scripts/lib/session-start-roster.test.ts",
 			"scripts/lib/suite-concurrency.test.ts",
 			"scripts/lib/suite-queue.test.ts",
@@ -27348,8 +26972,6 @@
 			"scripts/lib/unasked-rerun-guard.test.ts",
 			"scripts/lib/unchecked-rm.test.ts",
 			"scripts/lib/vitest-wrapper.test.ts",
-			"scripts/lib/wfc-config.test.ts",
-			"scripts/lib/workflow-core-config.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
@@ -29003,7 +28625,6 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
-			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -30149,7 +29770,6 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/hook-registrations.test.ts",
-			"scripts/lib/branch-publish.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/lander-files.test.ts",
@@ -30440,6 +30060,34 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/lib/landing-pin.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-dispatchers.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-msg-dispatch.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/post-commit-dispatch.test.ts",
+			"scripts/prepare-commit-msg-gate.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/lib/landing-refs.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -30581,7 +30229,6 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
-			"scripts/lib/adopter-skeleton.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/landing-status.test.ts",
@@ -32277,7 +31924,6 @@
 			"scripts/guard-automode-refusal.test.ts",
 			"scripts/guard-lost-deny.test.ts",
 			"scripts/guard-priced-options-close-rivals.test.ts",
-			"scripts/guard-priced-options-green-suite.test.ts",
 			"scripts/guard-priced-options-research-ladder.test.ts",
 			"scripts/guard-priced-options-round-check.test.ts",
 			"scripts/guard-priced-options.test.ts",
@@ -32296,7 +31942,6 @@
 			"scripts/lib/pass-store.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
-			"scripts/lib/session-verdict.test.ts",
 			"scripts/lib/stop-guard.test.ts",
 			"scripts/lib/suite-queue.test.ts",
 			"scripts/measure-landing-pool.test.ts",
@@ -34000,7 +33645,6 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
-			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -34458,7 +34102,6 @@
 			"scripts/lib/own-work.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
-			"scripts/lib/session-verdict.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
@@ -34716,7 +34359,6 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/read-audit.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
-			"scripts/lib/session-verdict.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
@@ -37766,12 +37408,10 @@
 			"scripts/lib/resume-io.contract.test.ts",
 			"scripts/lib/run-arm.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
-			"scripts/lib/session-verdict.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
-			"scripts/push-check.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/rule-fallback-template.test.ts",
@@ -38196,7 +37836,6 @@
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/push-rules.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
@@ -42420,7 +42059,6 @@
 			"scripts/admission.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
-			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/alarm-notice.test.ts",
 			"scripts/check-citation-tracker.test.ts",
@@ -43878,7 +43516,6 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
-			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -45760,7 +45397,6 @@
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/push-rules.test.ts",
 			"scripts/lib/review-rules.test.ts",
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
@@ -48177,60 +47813,6 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
-		"scripts/lib/session-verdict.js": [
-			"scripts/check-guard-errors.test.ts",
-			"scripts/check-guard-registry-carry.test.ts",
-			"scripts/check-guard-registry-dispatchers.test.ts",
-			"scripts/check-guard-registry-expiry-pathspec.test.ts",
-			"scripts/check-guard-registry-expiry.test.ts",
-			"scripts/check-guard-registry-implicit.test.ts",
-			"scripts/check-guard-registry-landing.test.ts",
-			"scripts/check-guard-registry-reads.test.ts",
-			"scripts/check-guard-registry-rule-text.test.ts",
-			"scripts/check-guard-registry-stale.test.ts",
-			"scripts/check-guard-registry.test.ts",
-			"scripts/checker-registrations.test.ts",
-			"scripts/commit-msg-dispatch.test.ts",
-			"scripts/commit-paths.test.ts",
-			"scripts/concision-backstop.test.ts",
-			"scripts/dispatch-sessions-probe-load.test.ts",
-			"scripts/guard-priced-options-green-suite.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/git.test.ts",
-			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
-			"scripts/lib/session-verdict.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/post-commit-dispatch.test.ts",
-			"scripts/prepare-commit-msg-gate.test.ts",
-			"scripts/queue-lander.test.ts",
-			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"scripts/lib/session-verdict.test.ts": [
-			"scripts/check-guard-errors.test.ts",
-			"scripts/check-guard-registry-carry.test.ts",
-			"scripts/check-guard-registry-dispatchers.test.ts",
-			"scripts/check-guard-registry-expiry-pathspec.test.ts",
-			"scripts/check-guard-registry-expiry.test.ts",
-			"scripts/check-guard-registry-implicit.test.ts",
-			"scripts/check-guard-registry-landing.test.ts",
-			"scripts/check-guard-registry-reads.test.ts",
-			"scripts/check-guard-registry-rule-text.test.ts",
-			"scripts/check-guard-registry-stale.test.ts",
-			"scripts/check-guard-registry.test.ts",
-			"scripts/commit-msg-dispatch.test.ts",
-			"scripts/commit-paths.test.ts",
-			"scripts/concision-backstop.test.ts",
-			"scripts/dispatch-sessions-probe-load.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/post-commit-dispatch.test.ts",
-			"scripts/prepare-commit-msg-gate.test.ts",
-			"scripts/queue-lander.test.ts",
-			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
 		"scripts/lib/session-worktrees.js": [
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -48373,7 +47955,6 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
-			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -49002,7 +48583,6 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
-			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -53890,7 +53470,6 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
-			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
@@ -55515,14 +55094,11 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/write-fd.js": [
-			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
 			"scripts/admission.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
-			"scripts/adopter-landing.test.ts",
 			"scripts/alarm-notice.test.ts",
 			"scripts/burn-mode.test.ts",
-			"scripts/check-citation-ceiling.test.ts",
 			"scripts/check-citation-tracker.test.ts",
 			"scripts/check-clock-copies.test.ts",
 			"scripts/check-commit-message-closes.test.ts",
@@ -55556,15 +55132,10 @@
 			"scripts/credit-chain-e2e.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
-			"scripts/guard-agent-poll.test.ts",
-			"scripts/guard-disabled.test.ts",
-			"scripts/guard-dispatch.test.ts",
 			"scripts/guard-session-ceiling.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
-			"scripts/guard-wide-read.test.ts",
 			"scripts/hook-code-root.test.ts",
 			"scripts/hook-registrations.test.ts",
-			"scripts/init-adopter.test.ts",
 			"scripts/landing-quiet-workflow.test.ts",
 			"scripts/launch.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -55576,7 +55147,6 @@
 			"scripts/lib/console-credit.test.ts",
 			"scripts/lib/doc-map-gate-program.test.ts",
 			"scripts/lib/formatters.test.ts",
-			"scripts/lib/founder-wording.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/headless-sessions.test.ts",
@@ -55590,18 +55160,12 @@
 			"scripts/lib/precommit-gate-verdicts.test.ts",
 			"scripts/lib/precommit-gate.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/python-routes.test.ts",
-			"scripts/lib/repo-hold-notices.test.ts",
 			"scripts/lib/resume-io.contract.test.ts",
-			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
-			"scripts/lib/sensitive-paths.test.ts",
 			"scripts/lib/serialised.test.ts",
 			"scripts/lib/settings-lockout.test.ts",
 			"scripts/lib/suite-queue.test.ts",
 			"scripts/lib/systemctl.contract.test.ts",
-			"scripts/lib/wfc-config.test.ts",
-			"scripts/lib/workflow-core-config.test.ts",
 			"scripts/lib/write-fd.test.ts",
 			"scripts/link-config-dirs.test.ts",
 			"scripts/mutation-hold-gate.test.ts",
@@ -57545,7 +57109,6 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
-			"scripts/lib/session-verdict.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pretest-reap.test.ts",
 			"scripts/rule-fallback-template.test.ts"
@@ -57646,26 +57209,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/public-push-gate.test.ts": [
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/helper-surface.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"scripts/push-check.js": [
-			"scripts/check-test-marker.test.ts",
-			"scripts/checker-registrations.test.ts",
-			"scripts/lib/check.declared-flags.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/git.test.ts",
-			"scripts/lib/project-slug-scan.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
-			"scripts/lib/session-verdict.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/push-check.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"scripts/push-check.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
@@ -57815,7 +57358,6 @@
 			"scripts/lib/persist-mode.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
-			"scripts/lib/session-verdict.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
@@ -58904,7 +58446,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/run-mod-tests.js": [
-			"scripts/check-test-marker.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/install-hooks.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -58952,13 +58493,11 @@
 		"scripts/run-pytest.js": [
 			"scripts/admission.test.ts",
 			"scripts/bisect-step.test.ts",
-			"scripts/check-test-marker.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/helper-surface.test.ts",
-			"scripts/lib/host-root.test.ts",
 			"scripts/lib/local-tester.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/run-temp-root.test.ts",
@@ -58990,11 +58529,9 @@
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/helper-surface.test.ts",
-			"scripts/lib/host-root.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/run-temp-root.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
-			"scripts/lib/session-verdict.test.ts",
 			"scripts/lib/vitest-wrapper.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts",
@@ -59188,7 +58725,6 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/pull-form.worktree.test.ts",
 			"scripts/lib/push-review.contract.test.ts",
-			"scripts/lib/push-rules.test.ts",
 			"scripts/lib/recursive-dot-read.test.ts",
 			"scripts/lib/refill-loop.test.ts",
 			"scripts/lib/registry-atomicity.worktree.test.ts",
@@ -59541,7 +59077,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/steps-owed.js": [
-			"scripts/check-landing-switch-on.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",

@@ -210,7 +210,7 @@ const CLOSES = "This commit message closes an issue server-side";
 const NO_VERIFY =
 	"This flag skips none of the pre-commit gates on a plain commit or merge";
 
-/** Points `ref` (the pushed ref, `origin/main` unless `landing` is on) at `at`'s HEAD. */
+/** Points `ref` (the pushed ref) at `at`'s HEAD. */
 const pushHead = (at = shared, ref = "origin/main") =>
 	git(at, "update-ref", `refs/remotes/${ref}`, "HEAD");
 
@@ -568,17 +568,16 @@ describe("`git commit --amend` is denied where HEAD is already pushed (#4384)", 
 		).toContain(AMEND);
 	});
 
-	it("reads a session worktree's own queue ref where the `landing` module is on (#4458)", () => {
+	it("reads a session worktree's own queue ref (#4458)", () => {
 		writes();
 		const session = path.join(shared, ".claude", "worktrees", "q");
 		git(shared, "worktree", "add", "-q", "--detach", session);
 		fs.writeFileSync(path.join(session, "a.md"), "queued\n");
 		git(session, "commit", "-qm", "queued", "--", "a.md");
 		pushHead(session, "origin/queue/q");
-		const env = { WFC_MODULES: "landing" };
-		expect(
-			readDenyReason("git commit --amend --no-edit", session, env),
-		).toContain("as `HEAD` is on `origin/queue/q`");
+		expect(readDenyReason("git commit --amend --no-edit", session)).toContain(
+			"as `HEAD` is on `origin/queue/q`",
+		);
 	});
 
 	it("allows an amend of a commit not yet pushed", () => {
@@ -956,7 +955,7 @@ describe("the rule reaches a session BEFORE it mis-commits (mantahostels#1647)",
 		"commit-pathspec",
 		"commit-show-diff",
 		"commit-message",
-		"push-cadence",
+		"push-cadence-landing",
 	];
 	it("a correct pathspec commit is handed the rule and NOT refused", () => {
 		const d = judge('git commit -m "x" -- a.md');
@@ -1041,24 +1040,10 @@ describe("the rule reaches a session BEFORE it mis-commits (mantahostels#1647)",
 			expect(handed(judge(command))).toEqual([
 				"commit-show-diff",
 				"commit-message",
-				"push-cadence",
+				"push-cadence-landing",
 			]);
 		},
 	);
-
-	it("hands the landing twin of the push rule where `landing` is on (#2285)", () => {
-		const d = judge('git commit -m "x" -- a.md', shared, "landing", {
-			WFC_MODULES: "landing",
-		});
-		expect(handed(d)).toContain("push-cadence-landing");
-		expect(handed(d)).not.toContain("push-cadence");
-	});
-
-	it("hands the plain push rule, not its landing twin, where `landing` is off (#2285)", () => {
-		const d = judge('git commit -m "x" -- a.md');
-		expect(handed(d)).toContain("push-cadence");
-		expect(handed(d)).not.toContain("push-cadence-landing");
-	});
 
 	it("a node script that is not commit-paths.js is handed nothing", () => {
 		expect(judge("node scripts/other.js -m x -- a.md")).toBeNull();
@@ -1332,7 +1317,7 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 			"commit-message",
 			"commit-pathspec",
 			"commit-show-diff",
-			"push-cadence",
+			"push-cadence-landing",
 		]);
 	});
 
@@ -1348,7 +1333,7 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 		"guard-registry-gate",
 		"superseded-values-gate",
 		"machinery-superseded",
-		"push-cadence",
+		"push-cadence-landing",
 	].sort();
 
 	it("a commit-paths.js call naming a docs/ path is handed the gate rules a git commit of it is (#2147)", () => {
@@ -1366,7 +1351,7 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 		expect(idsIn('node scripts/commit-paths.js -m "--" -- a.md')).toEqual([
 			"commit-message",
 			"commit-show-diff",
-			"push-cadence",
+			"push-cadence-landing",
 		]);
 	});
 
@@ -1377,7 +1362,7 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 				idsIn(
 					`cd ${opaque} && node scripts/commit-paths.js -m "x" -- docs/x.md`,
 				),
-			).toEqual(["commit-message", "commit-show-diff", "push-cadence"]);
+			).toEqual(["commit-message", "commit-show-diff", "push-cadence-landing"]);
 		} finally {
 			fs.rmSync(opaque, { recursive: true, force: true });
 		}
@@ -1394,7 +1379,7 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 	it("records a commit-paths.js call whose directory it cannot resolve", () => {
 		expect(
 			idsIn('cd "$(pwd)" && node scripts/commit-paths.js -m "x" -- docs/x.md'),
-		).toEqual(["commit-message", "commit-show-diff", "push-cadence"]);
+		).toEqual(["commit-message", "commit-show-diff", "push-cadence-landing"]);
 		expect(logged()).toMatch(
 			/a commit-paths\.js call's directory is unknown — the scoped §Gotchas rules were not selected/,
 		);
@@ -1439,7 +1424,7 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 			"guard-registry-gate",
 			"biome-staged-gate",
 			"machinery-superseded",
-			"push-cadence",
+			"push-cadence-landing",
 		]);
 	});
 

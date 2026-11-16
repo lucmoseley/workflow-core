@@ -1,9 +1,8 @@
 <!-- TEMPLATE for .claude/workflow-core.md, rendered by scripts/lib/adopter-skeleton.js.
-     `[roadmap]` / `[governance]` / `[suites]` / `[site]` / `[landing]` at the start of a line's
-     content emits that line only when the module is on, `[!<module>]` only when it is off, and the tag is stripped.
+     `[roadmap]` / `[governance]` / `[suites]` / `[site]` at the start of a line's
+     content emits that line only when the module is on, and the tag is stripped.
      `{{founder}}` is substituted, and a `node`/`bash`/`sh`/`python3 scripts/…` or
-     backticked `scripts/… <arg>` command is spelled at the plugin root. `{{#ci}}…{{/ci}}` is kept
-     only where the adopter has a CI workflow, with `{{ci_check}}` its CI-status command. -->
+     backticked `scripts/… <arg>` command is spelled at the plugin root. -->
 <!-- CORE-OWNED. Written by workflow-core's init and REWRITTEN on every bump.
      Do not edit: an override goes in `.claude/workflow-core.json`. -->
 
@@ -19,8 +18,7 @@ GitHub Issues on this repo, via `gh`. **Run `gh` in the foreground, and re-run a
 
 ## Committing and pushing
 
-- [!landing] **A push is your own act, never asked of {{founder}}{{#ci}}; after it, run `{{ci_check}}` once — read it, never rerun it: it judges a commit range, not your sha{{/ci}}.**
-- [landing] **A push to your session's queue ref is your own act, never asked of {{founder}}; after it, run `node scripts/landing-status.js --wait` in the background — it exits once each commit has landed on `main` or been dropped, so no timer is guessed. `result:` never rests on a queue push alone.**
+- **A push to your session's queue ref is your own act, never asked of {{founder}}; after it, run `node scripts/landing-status.js --wait` in the background — it exits once each commit has landed on `main` or been dropped, so no timer is guessed. `result:` never rests on a queue push alone.**
 - **Show the diff of each change before committing it.** Unenforced.
 - **Write scope is this repository.** Never write to an external surface unless the instruction names it.
 

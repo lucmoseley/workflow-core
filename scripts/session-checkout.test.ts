@@ -11,8 +11,8 @@
  * gates, a rewritten HEAD's push is lost or misreported, a registry-anchor
  * conflict costs a hand merge, or uncommitted work reads as landed.
  *
- * Every land runs with the `landing` module on and a live process holding the
- * lander's lock, so start-lander.js answers without starting a real lander.
+ * Every land runs with a live process holding the lander's lock, so
+ * start-lander.js answers without starting a real lander.
  *
  * Every case cuts real worktrees off a real bare origin, and the relink cases
  * run this repository's own post-merge, post-checkout and post-commit, the
@@ -71,7 +71,7 @@ const ENV = () => ({
 	CLAUDE_CONFIG_DIR: path.join(tmp, "config"),
 	CLAUDE_PROJECT_DIR: main,
 	WFC_NPM: npmStub,
-	WFC_MODULES: "landing",
+	WFC_MODULES: "",
 });
 
 const run = (cwd: string, ...args: string[]) =>
@@ -281,17 +281,6 @@ it("refuses a launch --into a directory that is no session worktree, naming the 
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain(`${into} is no session worktree of ${main}`);
 	}
-});
-
-it("gives a launch the main checkout itself where the repository has no landing module", () => {
-	const r = runInProcess(SCRIPT, ["launch-dir", "/implement 4245"], {
-		cwd: main,
-		env: { ...ENV(), WFC_MODULES: "" },
-	});
-
-	expect(r.status, r.stderr).toBe(0);
-	expect(r.stdout).toBe(`${main}\n`);
-	expect(fs.existsSync(path.join(main, ".claude", "worktrees"))).toBe(false);
 });
 
 it("cuts from inside a linked worktree into the main checkout's worktrees folder", () => {
@@ -933,21 +922,6 @@ it("refuses to land a worktree with uncommitted changes, naming them, and pushes
 		"uncommitted changes to mine.txt would not land — commit them",
 	);
 	expect(queueTip()).toBe("");
-});
-
-it("refuses to land with the landing module off, naming the route that module's absence leaves", () => {
-	expect(run(main, "cut", "one").status).toBe(0);
-	const dir = worktree("one");
-	commitIn(dir, { "mine.txt": "m" }, "mine");
-
-	const r = runInProcess(SCRIPT, ["land"], {
-		cwd: dir,
-		env: { ...ENV(), WFC_MODULES: "" },
-	});
-
-	expect(r.status).toBe(1);
-	expect(r.stderr).toContain('module "landing" is off');
-	expect(r.stderr).toContain("push to main as `rule:branch-publish` says");
 });
 
 it("leaves a merge a gate refused in progress, saying to fix the finding and commit, and pushes nothing", () => {

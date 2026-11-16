@@ -1,7 +1,6 @@
 /*
  * touched-tests.js — the tests a session's own work touched (#2930), which a
- * bare `npm run test` runs under the `landing` module, the lander being the
- * only full gate (#2868). A bare `npm run test:py` takes the same set for
+ * bare `npm run test` runs, the lander being the only full gate (#2868). A bare `npm run test:py` takes the same set for
  * pytest's route (#2934).
  *
  * THE SET is the union of every changed path that is a test file and every

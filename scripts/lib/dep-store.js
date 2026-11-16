@@ -63,7 +63,6 @@ const {
 } = require("./npm-ci-staging.js");
 const { scriptPath } = require("./script-path.js");
 const { sleepSync } = require("./sleep-sync.js");
-const { moduleOn } = require("./workflow-core-config.js");
 const { STORES } = require("./worktree-dirs.js");
 
 /* 64 bits of sha256: a collision among even 10^4 live lockfiles is ~3e-12
@@ -395,14 +394,12 @@ function relink(cwd) {
 }
 
 /**
- * WARM, above. Null where the repository has no `landing` module or
- * `origin/main` carries no lockfile.
+ * WARM, above. Null where `origin/main` carries no lockfile.
  * @param {string} cwd anywhere in the repository
  * @returns {Ensured | null}
  */
 function warm(cwd) {
 	const root = rootOf(cwd);
-	if (!moduleOn("landing", { root })) return null;
 	fetchShared(root);
 	return ensureStore(root, buildStartSource(root), { noWait: true });
 }
@@ -508,17 +505,16 @@ function sweepBuildFailures(storesDir, kept) {
  * REAP-STORES, above.
  * @param {string} root the main checkout
  * @param {string[]} standing every registered worktree the pass left standing
- * @param {{ judged: boolean, now: number }} pass `judged` where `origin/main`
- *   names the next cut's store
+ * @param {number} now
  * @param {Reaped} out accumulator: what the pass removed and failed on is pushed here
  */
-function reapStores(root, standing, { judged, now }, out) {
+function reapStores(root, standing, now, out) {
 	const storesDir = path.join(root, STORES);
 	const kept = readLinkedStores(standing);
 	/* Residual: after a failed fetch this keeps the store of a stale
 	 * `origin/main`'s lockfile, one store more than the next cut uses,
 	 * until a pass whose fetch succeeds. */
-	const startLock = judged ? buildStartSource(root)(LOCKFILE) : null;
+	const startLock = buildStartSource(root)(LOCKFILE);
 	if (startLock !== null) kept.add(path.join(storesDir, storeKeyOf(startLock)));
 	removeUnusedStores(storesDir, kept, now, out);
 	sweepBuildFailures(storesDir, kept);

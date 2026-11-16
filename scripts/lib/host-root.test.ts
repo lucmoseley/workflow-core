@@ -6,13 +6,11 @@
  * host `hook-root.sh` hands a hook, whatever its shell inherited. Pins
  * `sessionTree()` (#4234): a hook input's cwd in a linked worktree names that
  * worktree, though the hook itself runs in the shared tree. The seam's cases read `a.md` through the resolved root,
- * the worktree's copy differing from the shared tree's; the runners' cases
- * read the worktree's own config.
+ * the worktree's copy differing from the shared tree's.
  *
  * The seam's cases are spawned, not required in-process: it reads
  * `CLAUDE_PROJECT_DIR` and memoises on cwd, and the suite's own process must
- * keep both. The runners' run through `runInProcessAsync`, which restores
- * both after the call.
+ * keep both.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -24,11 +22,8 @@ import {
 	mkScratchDir,
 	trioTemplate,
 } from "./git-fixture";
-import { runInProcessAsync } from "./run-in-process";
 
 const SEAM = path.join(__dirname, "host-root.js");
-const RUN_VITEST = path.join(__dirname, "..", "run-vitest.js");
-const RUN_PYTEST = path.join(__dirname, "..", "run-pytest.js");
 
 const template = defineTemplate(trioTemplate());
 
@@ -313,42 +308,4 @@ describe("the host seam", () => {
 			expect(r.stderr).toContain("host-root: git named no top level");
 		});
 	});
-
-	/* Each runner, launched bare in the worktree, finds `landing` on in the
-	 * worktree's own config, which the shared tree lacks, and so selects its
-	 * touched tests: none, spawning nothing. Rooted on the shared tree, it
-	 * would read `landing` off and run as typed. In process, so the runner's
-	 * root is computed afresh under the call's cwd and env. */
-	const runBare = async (script: string) => {
-		fs.mkdirSync(path.join(at.wt, ".claude"));
-		fs.writeFileSync(
-			path.join(at.wt, ".claude", "workflow-core.json"),
-			JSON.stringify({
-				contract: 1,
-				founder: "t",
-				modules: ["suites", "landing"],
-			}),
-		);
-		const { WFC_MODULES: _m, ...env } = process.env;
-		return runInProcessAsync(script, [], {
-			cwd: at.wt,
-			env: {
-				...env,
-				CLAUDE_PROJECT_DIR: at.shared,
-				CLAUDE_CODE_SESSION_ID: "",
-			},
-		});
-	};
-
-	it.each([
-		["run-vitest.js", RUN_VITEST],
-		["run-pytest.js", RUN_PYTEST],
-	])(
-		"roots %s on the worktree it is launched in (#2940)",
-		async (_, script) => {
-			const r = await runBare(script);
-			expect(r.stdout).toContain("NO TOUCHED TESTS");
-			expect(r.status).toBe(0);
-		},
-	);
 });

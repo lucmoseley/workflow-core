@@ -36,10 +36,8 @@ const { readRuleCap } = require("./lib/rule-emission") as {
 	readRuleCap: () => number;
 };
 
-/* push-cadence's headline less the command it names, which a fixture host
- * spells as its own or the plugin default (#814). */
-const CADENCE = "FINDS EVERY COMMIT BEING PUSHED ATTESTED";
-const SWEEP = "on:\n  schedule:\n    - cron: '0 */6 * * *'\n";
+/* push-cadence-landing's headline. */
+const CADENCE = "PUSH YOUR QUEUE REF ONCE THE TESTS YOU TOUCHED PASS";
 
 /** The whole hook output for `command` run in `cwd`. Null where it said
  *  nothing. */
@@ -93,7 +91,6 @@ describe("the push rules, end to end", () => {
 					test: "npm run test",
 					typecheck: "npm run typecheck",
 					check: "npm run check",
-					push_check: "npm run push:check",
 				},
 				deploy: "vercel",
 			}),
@@ -102,53 +99,34 @@ describe("the push rules, end to end", () => {
 			"package.json",
 			JSON.stringify({ scripts: { test: "node scripts/run-vitest.js" } }),
 		);
-		write(".github/workflows/scheduled-checks.yml", SWEEP);
 	};
 	const offSuite = { WFC_MODULES: undefined };
 
-	it("hands a host meeting every premise all four rules, cadence first, under the cap, refusing nothing", () => {
+	it("hands a host meeting every premise all three rules, cadence first, under the cap, refusing nothing", () => {
 		fullHost();
 		const out = emission(at, "git push origin main", { env: offSuite });
 		expect(out.permissionDecision).toBeUndefined();
 		const ctx = out.additionalContext as string;
 		for (const id of [
-			"push-cadence",
-			"push-green-suite",
+			"push-cadence-landing",
 			"vercel-build-on-push",
-			"ci-status-lag",
+			"ci-status-lag-landing",
 		])
 			expect(ctx).toContain(readRuleText(id, at.shared));
 		expect(ctx.indexOf(CADENCE)).toBeLessThan(
-			ctx.indexOf("A PUSH WARNS UNLESS"),
+			ctx.indexOf("IS TESTED BY THE QUEUE LANDER"),
 		);
-		// The cap is BYTES, and all four fragments are multibyte.
+		// The cap is BYTES, and the fragments are multibyte.
 		expect(Buffer.byteLength(ctx, "utf8")).toBeLessThan(readRuleCap());
 	});
 
-	it("hands the -landing twins with the landing module on (#2409)", () => {
-		fullHost(["suites", "landing"]);
-		const ctx = emission(at, "git push origin HEAD:queue/s1", { env: offSuite })
-			.additionalContext as string;
-		expect(ctx).toContain(
-			"PUSH YOUR QUEUE REF ONCE THE TESTS YOU TOUCHED PASS",
-		);
-		expect(ctx).toContain("IS TESTED BY THE QUEUE LANDER");
-		// No push owes a certificate under landing (#2929).
-		expect(ctx).not.toMatch(/WARNS UNLESS|ATTESTED|push:check/);
-		expect(ctx).not.toContain("A CI VERDICT COVERS");
-		expect(Buffer.byteLength(ctx, "utf8")).toBeLessThan(readRuleCap());
-	});
-
-	it("tells a bare host nothing it lacks, the recipe naming the plugin's own push check (#814)", () => {
+	it("tells a bare host nothing it lacks, every command placeholder expanded (#814)", () => {
 		const ctx = emission(at, "git push origin main", {
 			session: "bare",
 			env: offSuite,
 		}).additionalContext as string;
 		expect(ctx).toContain(CADENCE);
-		expect(ctx).toContain("/scripts/push-check.js` FINDS");
-		expect(ctx).not.toMatch(
-			/Vercel|next build|sweep|npm run|check:ci|\{command:/,
-		);
+		expect(ctx).not.toMatch(/Vercel|next build|\{command:/);
 	});
 
 	it("is silent on a session's second push, and speaks to a new session", () => {
@@ -229,7 +207,7 @@ describe("the push rules, end to end", () => {
 		expect(r.status).toBe(0);
 		const out = JSON.parse(r.stdout).hookSpecificOutput;
 		expect(out.permissionDecision).toBe("deny");
-		expect(out.permissionDecisionReason).toContain("push-cadence");
+		expect(out.permissionDecisionReason).toContain("push-cadence-landing");
 	});
 });
 

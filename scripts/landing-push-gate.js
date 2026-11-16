@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /*
  * landing-push-gate.js — the pre-push limb of the landing queue (#2409, spec
- * #2261, #4458): with the `landing` module on, refuse a push whose
- * destination is `main` unless the pushed sha is in the lander's green
+ * #2261, #4458): refuse a push whose destination is `main` unless the pushed sha is in the lander's green
  * ledger. The queue lander ledgers a sha before it pushes it, so its own push
  * passes.
  *
@@ -17,44 +16,23 @@
  * LIMIT: `git push --no-verify` skips every pre-push hook, this one included;
  * branch protection on the remote is the gate that binds (#2414).
  *
- * The module config is read as committed at the pushing tree's HEAD, and the
- * ledger from the canonical checkout: a working copy of the config can hold
- * an unfinished edit, which could turn the module off for the push (#3128,
- * #3132). LIMIT: a push of a sha other than
- * HEAD (`git push origin other:main`) is judged on HEAD's config, not that
- * sha's.
+ * The ledger is read from the canonical checkout.
  *
  * IN NO `scripts/` FAMILY (code-standards §N3), as run-mod-tests.js: 2
  * refuses and every other path exits 0. A fault it cannot judge through lets
  * the push through, printed, since a refusal there would refuse every push for
- * a fault that is not the push's. The same config fault opens the publish
- * guard's landing limb, logged there. Two exceptions. A green ledger that
- * exists and will not read refuses, since only the lander pushes `main` and
- * it cannot land on a ledger it cannot read either (#4856). A config that
- * will not read, where the canonical checkout's ledger exists, is judged as
- * `landing` on, since only the lander writes that file (#5235): a ledgered
- * sha still passes, so the lander lands through the fault. Nothing deletes
- * the ledger when `landing` is turned off, so there a broken config refuses
- * every push to `main`, its notice naming the fix. LIMIT:
- * before the lander's first landing no ledger exists, and that fault passes,
- * printed.
+ * a fault that is not the push's. One exception: a green ledger that exists
+ * and will not read refuses, since only the lander pushes `main` and it
+ * cannot land on a ledger it cannot read either (#4856).
  */
 
 const { readText } = require("./lib/file-read.js");
 const { VERIFIED_BRANCH } = require("./lib/landing-refs.js");
-const {
-	parseLedgerShas,
-	queueLanderFiles,
-	standInNotice,
-} = require("./lib/lander-files.js");
+const { parseLedgerShas, queueLanderFiles } = require("./lib/lander-files.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 const { isZeroSha, parseRefLines } = require("./lib/push-refs.js");
-const {
-	buildUnchecked,
-	readModuleAtHead,
-	runPrePushGate,
-} = require("./lib/pre-push-gate.js");
+const { buildUnchecked, runPrePushGate } = require("./lib/pre-push-gate.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { spawnGitSync } = require("./lib/git.js");
 
@@ -100,29 +78,16 @@ function readTreesOf(shas) {
 
 /**
  * @param {string} stdin
- * @param {{ tree: string, root: string }} at the pushing tree, whose HEAD
- *   holds the config, and the canonical checkout, which holds the ledger
+ * @param {string} root the canonical checkout, which holds the ledger
  * @returns {number}
  */
-function judge(stdin, { tree, root }) {
+function judge(stdin, root) {
 	const pushes = parseMainPushes(stdin);
 	if (pushes.length === 0) return 0;
 	const file = queueLanderFiles(root).ledger;
 	const ledger = readText(file);
-	const landing = readModuleAtHead("landing", tree);
-	if ("fault" in landing) {
-		if (ledger.state === "absent") {
-			unchecked(landing.fault);
-			return 0;
-		}
-		/* Judged as on, not passed, as the header's second exception (#5235). */
-		writeFd(
-			2,
-			`landing-push-gate: ${standInNotice(landing.fault, file, `the push to ${VERIFIED_BRANCH}`)}\n`,
-		);
-	} else if (!landing.on) return 0;
 	if (ledger.state === "unreadable") {
-		/* Refused, not passed, as the header's first exception (#4856). */
+		/* Refused, not passed, as the header's exception (#4856). */
 		writeFd(
 			2,
 			`pre-push: refused — the lander's green ledger ${file} will not read (${ledger.message}), so no push to ${VERIFIED_BRANCH} can be shown tested. Fix the file, then push again.\n`,
@@ -142,7 +107,7 @@ function judge(stdin, { tree, root }) {
 		2,
 		[
 			`pre-push: refused — this pushes ${untested.join(", ")} to ${VERIFIED_BRANCH}, and the lander's green ledger holds neither it nor its tree.`,
-			`With the landing module on, only the queue lander moves ${VERIFIED_BRANCH}, to a sha the full suite passed (#4458).`,
+			`Only the queue lander moves ${VERIFIED_BRANCH}, to a sha the full suite passed (#4458).`,
 			`Push your session's queue ref instead, from its worktree: node ${scriptPath("session-checkout.js")} land`,
 			"",
 		].join("\n"),
@@ -150,11 +115,11 @@ function judge(stdin, { tree, root }) {
 	return REFUSE;
 }
 
-process.exitCode = runPrePushGate(unchecked, (stdin, tree) => {
+process.exitCode = runPrePushGate(unchecked, (stdin) => {
 	const root = repoRoot();
 	if (root === null) {
 		unchecked("could not find the repository root");
 		return 0;
 	}
-	return judge(stdin, { tree, root });
+	return judge(stdin, root);
 });

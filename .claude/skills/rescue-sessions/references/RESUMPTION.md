@@ -30,8 +30,7 @@ working tree.
 ## 3. Test and commit only your ticket's work
 
 - **Run only the tests you touched,** never the full suite: the bare
-  `npm run test` with the `landing` module on, the lander running the full
-  suite; `npm run test:changed` with it off.
+  `npm run test`, the lander running the full suite.
 - **Commit by pathspec** —
   `node scripts/commit-paths.js -m "..." -- <paths>` (Bash `timeout: 600000`).
 

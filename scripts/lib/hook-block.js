@@ -61,7 +61,7 @@ function guardName(prefix) {
  *
  * IT SPEAKS FOR THE COUNTER, NOT THE SCRIPT, and the two are not the same: a
  * guard holding two prefixes spends them independently, so
- * `guard-priced-options.js` exhausting `.green-suite-nagged-` still has three
+ * `guard-priced-options.js` exhausting `.close-rivals-nagged-` still has three
  * `.priced-options-nagged-` blocks in hand.
  * @param {string} prefix
  * @param {number} max

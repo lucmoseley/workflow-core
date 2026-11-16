@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * guard-priced-options-close-rivals.test.ts — the sixteenth refusal (#488): a
+ * guard-priced-options-close-rivals.test.ts — the fifteenth refusal (#488): a
  * round whose top two rivals sit close is refused once, whatever `Checked:` or
  * `Unmeasured:` line it carries, and the same round number passes on its next
  * send (#1061). A founder message after the refusal retires the record (#659).
@@ -733,7 +733,7 @@ describe("its budget", () => {
 		},
 	);
 
-	it("says past the spent ceiling that only it and the evidence check still block", () => {
+	it("says past the spent ceiling that only the exempt checks still block", () => {
 		write(founder());
 		seed(".priced-options-session-nagged-", 5);
 		seed(".close-rivals-nagged-", 2);

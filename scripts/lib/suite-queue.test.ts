@@ -2707,7 +2707,7 @@ describe("gateDenies, against the real gate (#2421)", () => {
 	/* The queue's turn counts markers alone; an unqueued or stood-down whole
 	 * suite holds the slot through this limb (#2680). */
 	it("names the count limb on a second whole suite, and lets a part-suite through", () => {
-		expect(ask(20_000, 1)).toEqual({ limb: "count" });
+		expect(ask(20_000, 1, ["--changed"])).toEqual({ limb: "count" });
 		expect(ask(20_000, 1, ["scripts/a.test.ts"])).toBeNull();
 	});
 

@@ -9,18 +9,15 @@
  *   - pushed (`pushedRef`, `readUnpushedRef`): what a session has pushed —
  *     push coverage, the unpushed count, commit-ledger status.
  *
- * With the `landing` module on, a session pushes to its own queue ref,
- * `queue/<worktree name>`, and only the lander moves `main` (#4458), so the
- * pushed answer is that ref's remote-tracking ref where it stands, and
- * `origin/main` where it does not: before the first push, once the lander has
- * landed and deleted the ref, and for a tree that is no session worktree.
- * With the module off, it is `origin/main`. A config that will not read
- * answers off.
+ * A session pushes to its own queue ref, `queue/<worktree name>`, and only
+ * the lander moves `main` (#4458), so the pushed answer is that ref's
+ * remote-tracking ref where it stands, and `origin/main` where it does not:
+ * before the first push, once the lander has landed and deleted the ref, and
+ * for a tree that is no session worktree.
  *
  *   node scripts/lib/landing-refs.js pushed|unpushed [<tree>]
- *     prints that ref for the checkout at <tree>,
- *     else the host root, for shell and workflows; the config read is
- *     <tree>'s host's (#4280, #4692)
+ *     prints that ref for the checkout at <tree>, else the working
+ *     directory, for shell and workflows (#4280, #4692)
  */
 
 const path = require("node:path");
@@ -28,8 +25,8 @@ const { deref } = require("./deref.js");
 const { WORKTREES } = require("./worktree-dirs.js");
 const { isZeroSha, parseRefLines } = require("./push-refs.js");
 
-/* The config and git load where an answer first needs them, so a reader of
- * the names alone, a hook among them, pays for neither. */
+/* git loads where an answer first needs it, so a reader of the names alone,
+ * a hook among them, does not pay for it. */
 
 const REMOTE = "origin";
 const VERIFIED_BRANCH = "main";
@@ -171,45 +168,15 @@ const QUEUE_REFSPEC = trackingRefspec(`${QUEUE_PREFIX}*`);
 const QUEUE_TRACKING_GLOB = `refs/remotes/${REMOTE}/${QUEUE_PREFIX}*`;
 
 /**
- * Whether the `landing` module is on.
- * @param {{root?: string}} [opts]
- * @returns {boolean}
- */
-function landingOn(opts) {
-	try {
-		return require("./workflow-core-config.js").moduleOn("landing", opts);
-	} catch {
-		/* Only readConfig throws here, "landing" being a known module. Off is
-		 * the answer that claims less: pushedRef then reads `origin/main`, so a
-		 * commit only on a queue ref counts as unpushed, never a missing one as
-		 * pushed. */
-		return false;
-	}
-}
-
-/**
- * The host whose config decides the module for `tree`: its main checkout,
- * else, where git names none (a submodule, a separate git dir, no repository),
- * `tree` itself, the only checkout there is to read.
- * @param {string} tree
- * @returns {string}
- */
-function hostOf(tree) {
-	return require("./main-checkout.js").mainCheckout(tree) ?? tree;
-}
-
-/**
  * The remote ref holding what the session in `tree` has pushed: its queue
- * ref's remote-tracking ref where the `landing` module is on, `tree` is a
- * session worktree and that ref resolves there, else `origin/main`.
- * @param {{root?: string, tree?: string}} [opts] the host root whose config
- *   is read, else `tree`'s host, and the session's tree top level
+ * ref's remote-tracking ref where `tree` is a session worktree and that ref
+ * resolves there, else `origin/main`.
+ * @param {{tree?: string}} [opts] the session's tree top level
  * @returns {string}
  */
 function pushedRef(opts) {
 	const tree = opts?.tree;
-	if (!tree || !landingOn({ root: opts.root ?? hostOf(tree) }))
-		return VERIFIED_REF;
+	if (!tree) return VERIFIED_REF;
 	const own = ownQueueRef(tree);
 	if (own === null) return VERIFIED_REF;
 	const ref = `${REMOTE}/${own}`;
@@ -245,7 +212,7 @@ function readUnpushedRef(opts) {
 	} catch {
 		// Detached, or no upstream: the pushed ref.
 	}
-	return pushedRef(opts);
+	return pushedRef({ tree: opts?.tree });
 }
 
 if (require.main === module) {
@@ -259,7 +226,7 @@ if (require.main === module) {
 	const [tree] = positionals;
 	require("./write-fd.js").writeFd(
 		1,
-		`${answer(tree ? { root: hostOf(tree), tree } : undefined)}\n`,
+		`${answer(tree ? { tree } : undefined)}\n`,
 	);
 }
 
@@ -272,8 +239,6 @@ module.exports = {
 	LANDER_ISO_PREFIX,
 	LANDER_ISO_SUITE_PREFIX,
 	LANDER_PREFIX,
-	hostOf,
-	landingOn,
 	pushedRef,
 	ownQueueName,
 	ownQueueRef,

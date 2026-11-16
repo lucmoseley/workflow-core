@@ -34,7 +34,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { hostRoot } = require("./host-root.js");
 const { qualifyProse } = require("./qualify-citations.js");
-const { defaultCommand, readConfig } = require("./workflow-core-config.js");
+const { readConfig } = require("./workflow-core-config.js");
 const {
 	docPath,
 	expandPastePaths,
@@ -336,9 +336,8 @@ function readRuleText(id, root) {
 }
 
 /**
- * `{command:<name>}` becomes the host's declared `commands.<name>`, or its
- * `defaultCommand` (#814), and a line naming one with neither is dropped
- * whole (#742). Last, so a
+ * `{command:<name>}` becomes the host's declared `commands.<name>`, and a
+ * line naming one it does not declare is dropped whole (#742). Last, so a
  * host's own `scripts/x` is never rewritten to the plugin root.
  *
  * A config that cannot be read declares nothing, as wfc_command answers there,
@@ -363,7 +362,7 @@ function expandCommands(text, root) {
 	for (const line of text.split("\n")) {
 		let undeclared = false;
 		const out = line.replace(COMMAND_PLACEHOLDER, (_, name) => {
-			const cmd = commands[name] ?? defaultCommand(name);
+			const cmd = commands[name];
 			if (cmd) return cmd;
 			undeclared = true;
 			return "";

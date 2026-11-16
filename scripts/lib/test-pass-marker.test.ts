@@ -1,29 +1,27 @@
 // @vitest-environment node
 /*
- * The store and the warnings behind mantahostels#987's warn-only pre-push gate.
+ * The certificate and red stores, and whether certificates attest a commit.
  *
- * Two properties carry mantahostels#908's ruling and are asserted hardest: the gate never
- * DENIES anything — every degraded store reads as "no certificate" rather than as an
- * error — and a certificate it cannot vouch for is never presented as clean.
+ * Two properties are asserted hardest: every degraded store reads as "no
+ * certificate" rather than as an error, and a certificate the store cannot
+ * vouch for is never presented as clean.
  *
  * In-process, with every store in its own temp sandbox, so no case reads or
  * writes this checkout's real stores.
  *
- * `.husky/pre-push` reads the store through `check-test-marker.js` on every
- * push, and `npm run push:check` on the same records; loosen a case and a push
- * of untested commits reads as attested, or a store fault blocks a push the
- * ruling says may only be warned on.
+ * The unasked-rerun guard reads attestation off these records; loosen a case
+ * and a run of untested work reads as attested, and is refused as a repeat.
  */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { stubLaunch } from "./suite-handoff-testkit";
 import {
 	attestationOf,
-	attestationReading,
+	attestedReading,
 	EDGES_FILE,
 	FAIL_STORE,
 	FULL_REASONS,
@@ -34,13 +32,11 @@ import {
 	isAdmissibleRun,
 	isFullRun,
 	KEEP,
-	lastFullRed,
 	markerFrom,
 	readFailures,
 	readMarkers,
 	record,
 	recordFailure,
-	sessionAttestation,
 	storePath,
 	suiteOf,
 } from "./test-pass-marker.js";
@@ -309,27 +305,16 @@ describe("the store", () => {
 });
 
 /**
- * Whether the push warns that a certificate matched by sha read a dirty tree —
- * what a clean certificate means to `attestationReading`, its one reader.
+ * Whether the reading warns that a certificate matched by sha read a dirty
+ * tree — what a clean certificate means to `attestedReading`, its one reader.
  */
 const warnsDirty = (marker: Record<string, unknown>) =>
-	attestationReading(
-		"a".repeat(40),
-		{
-			judged: true,
-			base: "b".repeat(40),
-			range: [],
-			suites: [
-				{
-					suite: "vitest",
-					attested: true,
-					members: [{ marker, match: { by: "sha" } }],
-					note: null,
-				},
-			],
-		} as unknown as Parameters<typeof attestationReading>[1],
-		{ pushing: true },
-	).text.includes("dirty tree");
+	attestedReading("a".repeat(40), {
+		suite: "vitest",
+		attested: true,
+		members: [{ marker, match: { by: "sha" } }],
+		note: null,
+	} as unknown as Parameters<typeof attestedReading>[1]).includes("dirty tree");
 
 describe("what counts as a clean certificate", () => {
 	it("is a run over a still tree and nothing else", () => {
@@ -420,143 +405,55 @@ describe("both suites answer for themselves (mantahostels#1256)", () => {
 	});
 });
 
-/* `attestationOf`'s verdict as a session reads it (#814), driven over hand-built
- * verdicts: the reading is pure, and `attestationOf` has its own real-repo block. */
-describe("what a session reads off the attestation (#814)", () => {
+/* An attested suite as a session reads it, driven over hand-built suites: the
+ * reading is pure, and `attestationOf` has its own real-repo block. */
+describe("what a session reads off an attested suite", () => {
 	const attestedSha = "a".repeat(40);
-	const baseSha = "b".repeat(40);
-	const C1 = "c".repeat(40);
-	const pushCheckCommand = "npm run push:check";
-	type Verdict = Parameters<typeof attestationReading>[1];
-	const judged = (suites: unknown[]) =>
-		({ judged: true, base: baseSha, range: [], suites }) as unknown as Verdict;
-	const owed = (suite = "vitest", paths = ["scripts/a.js"]) => ({
-		suite,
-		attested: false,
-		unattested: paths.map((p) => ({ path: p, commit: C1 })),
-	});
-	const attested = (members: unknown[], note: string | null = null) => ({
-		suite: "vitest",
-		attested: true,
-		members,
-		note,
-	});
+	type Suite = Parameters<typeof attestedReading>[1];
+	const attested = (members: unknown[], note: string | null = null) =>
+		({ suite: "vitest", attested: true, members, note }) as unknown as Suite;
 	const bySha = (over: Record<string, unknown> = {}) => ({
 		marker: certificate(over),
 		match: { by: "sha" },
 	});
 
-	it("names each unattested file and its commit, says they are public, and asks for a run and a push:check — never a push again", () => {
-		const { state, text } = attestationReading(attestedSha, judged([owed()]), {
-			pushing: true,
-			pushCheck: pushCheckCommand,
-		});
-		expect(state).toBe("owed");
-		expect(text).toContain(
-			`1 FILE(S) IN ${baseSha.slice(0, 12)}..${attestedSha.slice(0, 12)} LACK A VITEST CERTIFICATE`,
-		);
-		expect(text).toContain(`scripts/a.js — commit ${C1.slice(0, 12)}`);
-		expect(text).toContain("Those commits are already public.");
-		expect(text).toContain(
-			"Run `npm run test` now, report any red, and run `npm run push:check` before your next push.",
-		);
-		expect(text).toContain("never refuses a push");
-		expect(text).not.toMatch(/push again/i);
-	});
-
-	it("tells push:check's reader to run for what it names, then push", () => {
-		const { state, text } = attestationReading(attestedSha, judged([owed()]));
-		expect(state).toBe("owed");
-		expect(text).toContain("Run `npm run test` for that, then push.");
-		expect(text).not.toContain("already public");
-	});
-
-	it("says why where a suite names no file — an empty range nothing holds at", () => {
-		const { text } = attestationReading(
-			attestedSha,
-			judged([
-				{
-					suite: "vitest",
-					attested: false,
-					unattested: [],
-					why: "no vitest certificate holds at aaaaaaaaaaaa",
-				},
-			]),
-		);
-		expect(text).toContain("⚠  no vitest certificate holds at aaaaaaaaaaaa.");
-	});
-
-	it("lists twenty files and counts the rest", () => {
-		const paths = Array.from({ length: 23 }, (_, i) => `f${i}.js`);
-		const { text } = attestationReading(
-			attestedSha,
-			judged([owed("vitest", paths)]),
-		);
-		expect(text).toContain("f19.js");
-		expect(text).not.toContain("f20.js");
-		expect(text).toContain("…and 3 more");
-	});
-
-	it("is silent at the push on a clean attestation by sha, and names the attesting runs to push:check", () => {
-		const verdict = judged([attested([bySha({ at: "T1" })])]);
-		expect(attestationReading(attestedSha, verdict, { pushing: true })).toEqual(
-			{
-				state: "attested",
-				text: "",
-			},
-		);
-		const { text } = attestationReading(attestedSha, verdict);
+	it("names the attesting runs", () => {
+		const text = attestedReading(attestedSha, attested([bySha({ at: "T1" })]));
 		expect(text).toContain("✓  VITEST: 1 certificate(s) attest the range:");
 		expect(text).toContain(`T1 on ${attestedSha.slice(0, 12)} — full run`);
 	});
 
+	it("says it judged only what the run would test where narrowed, and calls reds runs on record", () => {
+		const text = attestedReading(attestedSha, attested([bySha()]), {
+			narrowed: true,
+			redsAmongMembers: true,
+		});
+		expect(text).toContain(
+			"✓  VITEST: 1 run(s) on record decide every file this run would test:",
+		);
+	});
+
 	it("passes a tree match's note through, and warns where a member matched by sha read a dirty tree", () => {
 		const note = "ℹ  vitest: attested by tree x\n";
-		const tree = attestationReading(
+		const tree = attestedReading(
 			attestedSha,
-			judged([
-				attested(
-					[
-						{
-							marker: certificate({ dirtyAtStart: true }),
-							match: { by: "tree", tree: "x", closureSize: "*" },
-						},
-					],
-					note,
-				),
-			]),
-			{ pushing: true },
+			attested(
+				[
+					{
+						marker: certificate({ dirtyAtStart: true }),
+						match: { by: "tree", tree: "x", closureSize: "*" },
+					},
+				],
+				note,
+			),
 		);
-		expect(tree.text).toBe(note);
-		const dirty = attestationReading(
+		expect(tree).toContain(note);
+		expect(tree).not.toContain("dirty tree");
+		const dirty = attestedReading(
 			attestedSha,
-			judged([attested([bySha({ dirtyAtStart: true, dirtyCount: 2 })])]),
-			{ pushing: true },
+			attested([bySha({ dirtyAtStart: true, dirtyCount: 2 })]),
 		);
-		expect(dirty.text).toContain("dirty tree: the vitest certificate on");
-	});
-
-	it("answers each suite for itself", () => {
-		const { state, text } = attestationReading(
-			attestedSha,
-			judged([attested([bySha()]), owed("pytest", ["pipe.py"])]),
-		);
-		expect(state).toBe("owed");
-		expect(text).toContain("✓  VITEST");
-		expect(text).toMatch(/1 FILE\(S\) IN \S+ LACK A PYTEST CERTIFICATE/);
-		expect(text).toContain("Run `npm run test:py` for that");
-	});
-
-	it("says it could not judge, and why", () => {
-		const { state, text } = attestationReading(
-			attestedSha,
-			{ judged: false, why: "git could not diff x..y" },
-			{ pushing: true },
-		);
-		expect(state).toBe("unjudged");
-		expect(text).toContain("could not judge whether certificates attest");
-		expect(text).toContain("git could not diff x..y");
-		expect(text).toContain("never refuses a push");
+		expect(dirty).toContain("dirty tree: the vitest certificate on");
 	});
 });
 
@@ -569,7 +466,7 @@ describe("the line a narrowed run prints for itself (mantahostels#1230)", () => 
 		expect(formatFilteredRun(null)).toBeNull();
 	});
 
-	it("calls a zero corpus filtered, agreeing with the push-time predicate", () => {
+	it("calls a zero corpus filtered, agreeing with isFullRun", () => {
 		expect(
 			formatFilteredRun(fullScope({ modulesRun: 0, modulesTotal: 0 })),
 		).toContain("FILTERED RUN");
@@ -627,7 +524,7 @@ describe("the line a narrowed run prints for itself (mantahostels#1230)", () => 
 });
 
 /*
- * What a green run tells the pre-push gate (mantahostels#987). Asserted as a pure function
+ * What a green run records (mantahostels#987). Asserted as a pure function
  * over the two tree-drift results, so the record's contents can be checked
  * without a suite run to produce them.
  */
@@ -959,9 +856,9 @@ describe("markerFrom", () => {
 });
 
 /*
- * Which suites a push is asked about (mantahostels#1256). The pytest suite covers the
- * Python data-pipeline seam alone, so a docs-only push it cannot have broken
- * must not warn about it.
+ * Which suites a range is judged on (mantahostels#1256). The pytest suite covers the
+ * Python data-pipeline seam alone, so a docs-only range it cannot have broken
+ * is not judged on it.
  */
 describe("the suites a range is asked about", () => {
 	/**
@@ -1105,7 +1002,7 @@ describe("the red store (mantahostels#1942)", () => {
 	});
 });
 
-describe("a filtered run that meets the push gate (mantahostels#2146, mantahostels#2207)", () => {
+describe("an admissible filtered run (mantahostels#2146, mantahostels#2207)", () => {
 	/** `npm run test:changed` over a tree whose manifest was fresh. */
 	const admissible = (over: Record<string, unknown> = {}) =>
 		certificate({
@@ -1144,8 +1041,8 @@ describe("a filtered run that meets the push gate (mantahostels#2146, mantahoste
 		expect(isAdmissibleRun(admissible({ modulesTotal: 0 }))).toBe(false);
 	});
 
-	/* The launcher refuses `-t`, so this certificate never came from the gate
-	 * command however the flag reached it (mantahostels#2172). */
+	/* The launcher refuses `-t`, so this certificate never came from
+	 * `npm run test:changed` however the flag reached it (mantahostels#2172). */
 	it("is not claimable by a name-filtered run, whatever set the flag", () => {
 		expect(isAdmissibleRun(admissible({ nameFilter: "/spawn/" }))).toBe(false);
 	});
@@ -1159,7 +1056,7 @@ describe("a filtered run that meets the push gate (mantahostels#2146, mantahoste
 	/* `viaChanged` is a denominator and not a certificate (mantahostels#2303): it says the
 	 * run came from `npm run test:changed`, which is exactly the claim a run
 	 * that FAILED the freshness check can also make. A predicate reading it
-	 * would hand the gate to the runs it exists to count. */
+	 * would hand attestation to the runs it exists to count. */
 	it("is not claimable by the route flag, which attests nothing", () => {
 		/* The key is ABSENT on a failed launch, not present-and-undefined: the
 		 * reporter spreads it in only when the flag was set. */
@@ -1182,12 +1079,8 @@ describe("a filtered run that meets the push gate (mantahostels#2146, mantahoste
 	});
 
 	it("says so on the line the run prints for itself", () => {
-		expect(formatFilteredRun(admissible().scope)).toContain(
-			"MEETS the push gate",
-		);
-		expect(formatFilteredRun(narrowed().scope)).not.toContain(
-			"MEETS the push gate",
-		);
+		expect(formatFilteredRun(admissible().scope)).toContain("ADMISSIBLE");
+		expect(formatFilteredRun(narrowed().scope)).not.toContain("ADMISSIBLE");
 	});
 });
 
@@ -1253,80 +1146,6 @@ describe("reading the red store back (mantahostels#2205)", () => {
 
 	it("answers [] for an absent store, so the caller can fail open", () => {
 		expect(readFailures({ root: sandbox() })).toEqual([]);
-	});
-
-	it("takes the newest red that collected at least 90% of the corpus", () => {
-		expect(
-			lastFullRed([
-				red("a".repeat(40), ["old.test.ts"]),
-				red("b".repeat(40), ["wide.test.ts"], {
-					modulesRun: 36,
-					modulesTotal: 40,
-				}),
-				red("c".repeat(40), ["narrow.test.ts"], { modulesRun: 35 }),
-			])?.sha,
-		).toBe("b".repeat(40));
-	});
-
-	it("answers null when every red is narrower than that", () => {
-		expect(
-			lastFullRed([red("a".repeat(40), ["one.test.ts"], { modulesRun: 1 })]),
-		).toBeNull();
-	});
-
-	it("answers null for a red that names no failing file", () => {
-		expect(lastFullRed([red("a".repeat(40), [])])).toBeNull();
-	});
-
-	it("skips another suite's red", () => {
-		expect(
-			lastFullRed([
-				red("a".repeat(40), ["py.test.ts"], {}, { suite: "pytest" }),
-			]),
-		).toBeNull();
-	});
-
-	it("answers null for a scopeless marker, rather than throwing", () => {
-		expect(lastFullRed([{ sha: "a".repeat(40), at: "now" }])).toBeNull();
-	});
-
-	it("skips a red narrowed by a name filter, whatever its module ratio", () => {
-		/* `-t <pattern>` collects every module and runs a handful of tests, so
-		 * the ratio alone cannot see the narrowing. */
-		expect(
-			lastFullRed([
-				red("a".repeat(40), ["named.test.ts"], { nameFilter: "x" }),
-			]),
-		).toBeNull();
-	});
-
-	it("still offers a file-filtered or --changed red the ratio admits", () => {
-		/* Both narrow what is COLLECTED, so `modulesRun` already carries them. */
-		expect(
-			lastFullRed([
-				red("a".repeat(40), ["wide.test.ts"], {
-					fileFilters: ["wide.test.ts"],
-					changed: "HEAD~1",
-					modulesRun: 38,
-				}),
-			])?.sha,
-		).toBe("a".repeat(40));
-	});
-
-	it("walks back past a skipped red rather than answering null", () => {
-		expect(
-			lastFullRed([
-				red("a".repeat(40), ["older.test.ts"]),
-				red("b".repeat(40), [], {}),
-				red("c".repeat(40), ["py.test.ts"], {}, { suite: "pytest" }),
-			])?.sha,
-		).toBe("a".repeat(40));
-	});
-
-	it("reports the failing files once each, deduped", () => {
-		expect(
-			lastFullRed([red("a".repeat(40), ["one.test.ts", "one.test.ts"])])?.files,
-		).toEqual(["one.test.ts"]);
 	});
 });
 
@@ -1636,7 +1455,7 @@ describe("attesting a sha by tree (#189)", () => {
 			}) as unknown as ReturnType<typeof markerOver>;
 		}
 
-		it("attests the commit made from the session's own edit, and clears the push", () => {
+		it("attests the commit made from the session's own edit", () => {
 			const dir = repo();
 			fs.writeFileSync(path.join(dir, "lib.js"), "lib.js v1\n");
 			fs.writeFileSync(path.join(dir, "other.txt"), "neighbour's dirt\n");
@@ -1650,12 +1469,13 @@ describe("attesting a sha by tree (#189)", () => {
 				tree: m.treeAtEnd,
 				closureSize: 3,
 			});
-			const { state, text } = attestationReading(
+			const r = attestationOf(sha, [m], { root: dir });
+			const s = r.judged ? r.suites[0] : null;
+			expect(s?.attested).toBe(true);
+			const text = attestedReading(
 				sha,
-				attestationOf(sha, [m], { root: dir }),
-				{ pushing: true },
+				s as Parameters<typeof attestedReading>[1],
 			);
-			expect(state).toBe("attested");
 			expect(text).toContain("attested by tree");
 			expect(text).not.toContain("dirty tree");
 		});
@@ -1694,13 +1514,12 @@ describe("attesting a sha by tree (#189)", () => {
 			expect(r.judged && r.suites[0]).toEqual({
 				suite: "vitest",
 				attested: false,
-				unattested: [{ path: "new.test.ts", commit: sha }],
+				unattested: [{ path: "new.test.ts" }],
 			});
 		});
 
-		it("leaves an edit outside changedPaths unattested at the push, the range read from the remote sha the push names", () => {
+		it("leaves an edit outside changedPaths unattested", () => {
 			const dir = repo();
-			const published = git(dir, "rev-parse", "HEAD");
 			fs.writeFileSync(path.join(dir, "lib.js"), "lib.js v1\n");
 			const m = markerOver(dir);
 			fs.writeFileSync(
@@ -1709,11 +1528,11 @@ describe("attesting a sha by tree (#189)", () => {
 			);
 			git(dir, "commit", "-q", "-m", "A and B", "--", "lib.js", "other.txt");
 			const sha = git(dir, "rev-parse", "HEAD");
-			const r = attestationOf(sha, [m], { root: dir, remoteSha: published });
+			const r = attestationOf(sha, [m], { root: dir });
 			expect(r.judged && r.suites[0]).toEqual({
 				suite: "vitest",
 				attested: false,
-				unattested: [{ path: "other.txt", commit: sha }],
+				unattested: [{ path: "other.txt" }],
 			});
 		});
 
@@ -1950,7 +1769,7 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 	});
 
 	it("voids a member whose closure a neighbour's later commit changed, naming what it no longer attests", () => {
-		const { dir, root, a, b, c1, c2 } = twoSessions();
+		const { dir, root, a, b, c2 } = twoSessions();
 		const edit = { "a.test.ts": "a.test.ts v1\n" };
 		const n = certificate({
 			sha: c2,
@@ -1966,28 +1785,18 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 		expect(v).toEqual({
 			suite: "vitest",
 			attested: false,
-			unattested: [{ path: "a.js", commit: c1 }],
+			unattested: [{ path: "a.js" }],
 		});
 	});
 
-	it("leaves a hand commit no member selected for unattested, named with its commit", () => {
+	it("leaves a hand commit no member selected for unattested", () => {
 		const { dir, a, b } = twoSessions();
 		const c3 = commit(dir, { "other.txt": "by hand\n" }, "hand commit");
 		expect(vitest(attestationOf(c3, [a, b], { root: dir }))).toEqual({
 			suite: "vitest",
 			attested: false,
-			unattested: [{ path: "other.txt", commit: c3 }],
+			unattested: [{ path: "other.txt" }],
 		});
-	});
-
-	it("names the newest commit in the range touching an unattested path", () => {
-		const { dir } = twoSessions();
-		commit(dir, { "other.txt": "first\n" }, "hand 1");
-		const c4 = commit(dir, { "other.txt": "second\n" }, "hand 2");
-		const v = vitest(attestationOf(c4, [], { root: dir }));
-		expect(v?.attested === false && v.unattested).toEqual(
-			expect.arrayContaining([{ path: "other.txt", commit: c4 }]),
-		);
 	});
 
 	it("lets one full-run member attest every path in the range", () => {
@@ -2004,7 +1813,7 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 		expect(v?.attested && v.note).toContain("closure: the whole tree");
 	});
 
-	it("never counts a run too narrow to answer the gate", () => {
+	it("never counts a run too narrow to attest", () => {
 		const { dir, root, b, c2 } = twoSessions();
 		const handTyped = {
 			...run(dir, root, aEdit, { closure: ["a.js", "a.test.ts"], at: "A" }),
@@ -2029,109 +1838,39 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 			["pytest", false],
 		]);
 		const py = r.judged && r.suites.find((s) => s.suite === "pytest");
-		expect(py && !py.attested && py.unattested).toEqual([
-			{ path: "pipe.py", commit: c1 },
-		]);
+		expect(py && !py.attested && py.unattested).toEqual([{ path: "pipe.py" }]);
 		const pyCertificate = certificate({ sha: c1, suite: "pytest", at: "P" });
 		const both = attestationOf(c1, [v, pyCertificate], { root: dir });
 		expect(both.judged && both.suites.every((s) => s.attested)).toBe(true);
 	});
 
-	/*
-	 * The `result:` gate's walk (#807, #814): the session's commit, HEAD, and
-	 * any full or admissible run's sha between them.
-	 */
-	describe("a session's commit, or a later one containing it", () => {
-		/** A full certificate whose tree is `sha`'s, keyed to `sha`. */
-		const fullAt = (dir: string, sha: string, at: string) =>
-			certificate({
-				sha,
-				at,
-				treeAtEnd: git(dir, "rev-parse", `${sha}^{tree}`),
-				closure: "*",
-			});
-
-		it("answers at the session's own commit where that is attested", () => {
-			const { dir, a, c1 } = twoSessions();
-			commit(dir, { "other.txt": "neighbour, untested\n" }, "neighbour");
-			const r = sessionAttestation(c1, [a], { root: dir });
-			expect(r.judged && r.attested && r.at).toBe(c1);
-		});
-
-		it("answers at HEAD where only a certificate on HEAD attests the session's commit", () => {
-			const { dir, c1, c2 } = twoSessions();
-			const r = sessionAttestation(c1, [fullAt(dir, c2, "H")], { root: dir });
-			expect(r.judged && r.attested && r.at).toBe(c2);
-		});
-
-		it("answers at a run's sha between the two where neither end is attested", () => {
-			const { dir, c1, c2 } = twoSessions();
-			commit(dir, { "other.txt": "neighbour, untested\n" }, "neighbour");
-			const mid = { ...fullAt(dir, c2, "M"), treeAtEnd: undefined };
-			const r = sessionAttestation(c1, [mid], { root: dir });
-			expect(r.judged && r.attested && r.at).toBe(c2);
-		});
-
-		it("returns HEAD's miss where nothing attests any commit tried", () => {
-			const { dir, c1 } = twoSessions();
-			const c3 = commit(dir, { "other.txt": "by hand\n" }, "hand");
-			const r = sessionAttestation(c1, [], { root: dir });
-			expect(r.judged && !r.attested && r.at).toBe(c3);
-			expect(
-				r.judged &&
-					r.verdict.judged &&
-					r.verdict.suites[0].attested === false &&
-					r.verdict.suites[0].unattested.map((u) => u.path).sort(),
-			).toEqual(["a.js", "b.js", "other.txt"]);
-		});
-
-		it("judges nothing where no commit tried can be judged", () => {
-			const { dir, c1 } = twoSessions();
-			git(dir, "update-ref", "-d", "refs/remotes/origin/main");
-			const r = sessionAttestation(c1, [], { root: dir });
-			expect(r.judged).toBe(false);
-			expect(!r.judged && r.why).toContain("origin/main");
-		});
-	});
-
 	describe("the range", () => {
-		it("runs from the remote sha the push names", () => {
-			const { dir, b, c1, c2 } = twoSessions();
-			const r = attestationOf(c2, [b], { root: dir, remoteSha: c1 });
-			expect(r.judged && r.base).toBe(c1);
-			expect(r.judged && r.range).toEqual(["b.js"]);
-			expect(vitest(r)?.attested).toBe(true);
-		});
-
-		it("runs from the merge-base with origin/main where there is no remote sha, or it is zero — never from origin/main's own tip", () => {
-			const { dir, root, b, c1, c2 } = twoSessions();
+		it("runs from the merge-base with origin/main, never from origin/main's own tip", () => {
+			const { dir, root, b, c2 } = twoSessions();
 			git(dir, "checkout", "-q", "-b", "upstream", root);
 			const ahead = commit(dir, { "other.txt": "upstream only\n" }, "upstream");
 			git(dir, "update-ref", "refs/remotes/origin/main", ahead);
 			git(dir, "checkout", "-q", "main");
-			for (const remoteSha of [undefined, null, "0".repeat(40)]) {
-				const r = attestationOf(c2, [b], { root: dir, remoteSha });
-				expect(r.judged && r.base).toBe(root);
-				expect(r.judged && r.range.sort()).toEqual(["a.js", "b.js"]);
-				expect(vitest(r)).toEqual({
-					suite: "vitest",
-					attested: false,
-					unattested: [{ path: "a.js", commit: c1 }],
-				});
-			}
+			const r = attestationOf(c2, [b], { root: dir });
+			expect(r.judged && r.base).toBe(root);
+			expect(r.judged && r.range.sort()).toEqual(["a.js", "b.js"]);
+			expect(vitest(r)).toEqual({
+				suite: "vitest",
+				attested: false,
+				unattested: [{ path: "a.js" }],
+			});
 		});
 
-		it("runs from the merge-base with origin/main where the landing module is on, never a queue ref (#4458)", () => {
-			const { dir, root, b, c1, c2 } = twoSessions();
+		it("runs from the merge-base with origin/main, never a queue ref (#4458)", () => {
+			const { dir, root, b, c2 } = twoSessions();
 			git(dir, "update-ref", "refs/remotes/origin/queue/s1", c2);
-			vi.stubEnv("WFC_MODULES", "landing");
 			git(dir, "update-ref", "refs/remotes/origin/main", root);
 			const r = attestationOf(c2, [b], { root: dir });
 			expect(r.judged && r.base).toBe(root);
 			expect(vitest(r)).toEqual({
 				suite: "vitest",
 				attested: false,
-				unattested: [{ path: "a.js", commit: c1 }],
+				unattested: [{ path: "a.js" }],
 			});
 		});
 
@@ -2141,16 +1880,6 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 			const r = attestationOf(c2, [a, b], { root: dir });
 			expect(r.judged).toBe(false);
 			expect(!r.judged && r.why).toContain("origin/main");
-			const zero = attestationOf(c2, [a, b], {
-				root: dir,
-				remoteSha: "0".repeat(40),
-			});
-			expect(!zero.judged && zero.why).toContain("origin/main");
-			const gone = attestationOf(c2, [a, b], {
-				root: dir,
-				remoteSha: "f".repeat(40),
-			});
-			expect(!gone.judged && gone.why).toContain("could not diff");
 			const none = attestationOf(c2, [a, b], { root: null });
 			expect(!none.judged && none.why).toContain("no git repository");
 		});
@@ -2192,15 +1921,8 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 			return { dir, a, full, c1, merge: git(dir, "rev-parse", "HEAD") };
 		}
 
-		it("lets a narrowed or full certificate hold over a clean merge of origin/main where the landing module is on, and not where it is off (#2517)", () => {
-			const { dir, a, full, c1, merge } = reconciled();
-			for (const m of [a, full])
-				expect(vitest(attestationOf(merge, [m], { root: dir }))).toEqual({
-					suite: "vitest",
-					attested: false,
-					unattested: [{ path: "a.js", commit: c1 }],
-				});
-			vi.stubEnv("WFC_MODULES", "landing");
+		it("lets a narrowed or full certificate hold over a clean merge of origin/main (#2517)", () => {
+			const { dir, a, full, merge } = reconciled();
 			for (const m of [a, full]) {
 				const r = attestationOf(merge, [m], { root: dir });
 				expect(r.judged && r.range).toEqual(["a.js"]);
@@ -2208,14 +1930,13 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 			}
 		});
 
-		it("voids a certificate over a merge whose conflict was resolved by hand, with the landing module on (#2517)", () => {
-			const { dir, a, full, c1, merge } = reconciled("a.js resolved\n");
-			vi.stubEnv("WFC_MODULES", "landing");
+		it("voids a certificate over a merge whose conflict was resolved by hand (#2517)", () => {
+			const { dir, a, full, merge } = reconciled("a.js resolved\n");
 			for (const m of [a, full])
 				expect(vitest(attestationOf(merge, [m], { root: dir }))).toEqual({
 					suite: "vitest",
 					attested: false,
-					unattested: [{ path: "a.js", commit: c1 }],
+					unattested: [{ path: "a.js" }],
 				});
 		});
 
@@ -2233,14 +1954,13 @@ describe("certificates composed across sessions (#811, ADR-0009)", () => {
 			);
 		});
 
-		it("refuses a stale certificate over an empty range with the landing module on, naming no path (#2517)", () => {
+		it("refuses a stale certificate over an empty range, naming no path (#2517)", () => {
 			const { dir, root, c2 } = twoSessions();
 			git(dir, "update-ref", "refs/remotes/origin/main", c2);
 			const stale = run(dir, root, aEdit, {
 				closure: ["a.js", "b.js", "package.json"],
 				at: "V",
 			});
-			vi.stubEnv("WFC_MODULES", "landing");
 			expect(vitest(attestationOf(c2, [stale], { root: dir }))).toEqual({
 				suite: "vitest",
 				attested: false,
@@ -2354,18 +2074,8 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 		return r.suites.find((s) => s.suite === "vitest");
 	};
 
-	it("owes only the test whose own reads a neighbour's commit changed", () => {
-		const { dir, own, session } = replay();
-		expect(vitest(attestationOf(own, [session], { root: dir }))).toEqual({
-			suite: "vitest",
-			attested: false,
-			unattested: [{ path: "narrow.js", commit: own, tests: ["wide.test.ts"] }],
-		});
-	});
-
-	it("owes no test for a change already on origin/main where the landing module is on, and still owes one for a change it has not taken (#2517)", () => {
+	it("owes no test for a change already on origin/main, and still owes one for a change it has not taken (#2517)", () => {
 		const { dir, root, neighbour, own, session } = replay();
-		vi.stubEnv("WFC_MODULES", "landing");
 		git(dir, "update-ref", "refs/remotes/origin/main", neighbour);
 		expect(vitest(attestationOf(own, [session], { root: dir }))?.attested).toBe(
 			true,
@@ -2374,12 +2084,11 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 		const v = vitest(attestationOf(own, [session], { root: dir }));
 		expect(v?.attested === false && v.unattested).toContainEqual({
 			path: "narrow.js",
-			commit: own,
 			tests: ["wide.test.ts"],
 		});
 	});
 
-	it("owes no test origin/main added where the landing module is on, and owes it where it is off (#2517)", () => {
+	it("owes no test origin/main added (#2517)", () => {
 		const { dir, neighbour, own, session } = replay({
 			"late.test.ts": "late.test.ts v0\n",
 			[EDGES_FILE]: JSON.stringify({
@@ -2389,12 +2098,6 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 				},
 			}),
 		});
-		expect(vitest(attestationOf(own, [session], { root: dir }))).toEqual({
-			suite: "vitest",
-			attested: false,
-			unattested: [{ path: "narrow.js", commit: own, tests: ["late.test.ts"] }],
-		});
-		vi.stubEnv("WFC_MODULES", "landing");
 		git(dir, "update-ref", "refs/remotes/origin/main", neighbour);
 		expect(vitest(attestationOf(own, [session], { root: dir }))?.attested).toBe(
 			true,
@@ -2444,12 +2147,13 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 		expect(vitest(attestationOf(own, [retest], { root: dir }))).toEqual({
 			suite: "vitest",
 			attested: false,
-			unattested: [{ path: "narrow.js", commit: own }],
+			unattested: [{ path: "narrow.js" }],
 		});
 	});
 
 	it("judges a certificate with no per-test field on its whole closure, as before", () => {
-		const { dir, own, session } = replay();
+		const { dir, root, own, session } = replay();
+		git(dir, "update-ref", "refs/remotes/origin/main", root);
 		const before = {
 			...session,
 			imports: undefined,
@@ -2463,19 +2167,18 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 			],
 		};
 		expect(holdsAt(before, own, { root: dir })).toBeNull();
-		expect(vitest(attestationOf(own, [before], { root: dir }))).toEqual({
-			suite: "vitest",
-			attested: false,
-			unattested: [{ path: "narrow.js", commit: own }],
+		const v = vitest(attestationOf(own, [before], { root: dir }));
+		expect(v?.attested === false && v.unattested).toContainEqual({
+			path: "narrow.js",
 		});
 	});
 
 	it("takes no witness whose tests' own imports changed, since the graph its selection was computed over did", () => {
-		const { dir, own, session } = replay({ "vitest.setup.ts": "v1\n" });
-		expect(vitest(attestationOf(own, [session], { root: dir }))).toEqual({
-			suite: "vitest",
-			attested: false,
-			unattested: [{ path: "narrow.js", commit: own }],
+		const { dir, root, own, session } = replay({ "vitest.setup.ts": "v1\n" });
+		git(dir, "update-ref", "refs/remotes/origin/main", root);
+		const v = vitest(attestationOf(own, [session], { root: dir }));
+		expect(v?.attested === false && v.unattested).toContainEqual({
+			path: "narrow.js",
 		});
 	});
 
@@ -2491,15 +2194,12 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 			changedPaths: ["docs/wide-only.md"],
 		});
 		git(dir, "reset", "-q", "--hard", root);
-		const neighbour = commit(dir, { "vitest.setup.ts": "v1\n" }, "neighbour");
-		git(dir, "update-ref", "refs/remotes/origin/main", neighbour);
+		commit(dir, { "vitest.setup.ts": "v1\n" }, "neighbour");
 		const own = commit(dir, docEdit, "the session's commit");
-		expect(vitest(attestationOf(own, [session], { root: dir }))).toEqual({
-			suite: "vitest",
-			attested: false,
-			unattested: [
-				{ path: "docs/wide-only.md", commit: own, tests: ["wide.test.ts"] },
-			],
+		const v = vitest(attestationOf(own, [session], { root: dir }));
+		expect(v?.attested === false && v.unattested).toContainEqual({
+			path: "docs/wide-only.md",
+			tests: ["wide.test.ts"],
 		});
 	});
 
@@ -2528,7 +2228,7 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 		expect(vitest(attestationOf(bumped, [session], { root: dir }))).toEqual({
 			suite: "vitest",
 			attested: false,
-			unattested: [{ path: "package.json", commit: bumped }],
+			unattested: [{ path: "package.json" }],
 		});
 	});
 

@@ -255,14 +255,13 @@ function pytestPathWords(argv) {
 
 /**
  * Whether `npm run test:py`'s argv is a whole run (#4775), as run-pytest.js
- * routes it: a bare one with `landing` off, or one whose paths are not all
- * test files, a directory, a lone `--full` and one naming no path among them.
+ * routes it: one whose paths are not all test files, a directory, a lone
+ * `--full` and one naming no path among them. A bare one is a touched run.
  * @param {string[]} argv the script's own argv, quoted spans read as typed
- * @param {{ landing: boolean }} modules
  */
-function isWholePytestRun(argv, { landing }) {
+function isWholePytestRun(argv) {
 	const own = argv[0] === "--" ? argv.slice(1) : argv;
-	if (own.length === 0) return !landing;
+	if (own.length === 0) return false;
 	return !isNamedPytestRun(own);
 }
 

@@ -92,10 +92,9 @@ const readDenyReason = (command: string, at: Spawn = {}) => {
 const { readRuleText } = require("./lib/rule-text") as {
 	readRuleText: (id: string) => string;
 };
-const readPullRule = () => readRuleText("pull-fast-forward");
-
-/** A rule store with no fragments in it. */
-const emptyStore = () => fs.mkdtempSync(path.join(dir, "store-"));
+/* The land route a reconciliation refusal names. */
+const LAND_ROUTE =
+	"Reconcile in your session's own worktree, never in the main checkout";
 
 beforeEach(() => {
 	dir = mkScratchDir("guard-pull-form-");
@@ -104,6 +103,8 @@ beforeEach(() => {
 	worktree = path.join(dir, "wt");
 	elsewhere = path.join(dir, "elsewhere");
 	template.instantiate(dir);
+	/* The shared-tree model: the main checkout not yet cut over (#4248). */
+	git(shared, "config", "branch.main.merge", "refs/heads/landing");
 });
 
 afterEach(() => {
@@ -111,40 +112,21 @@ afterEach(() => {
 });
 
 describe("each exit path", () => {
-	it("refuses as permissionDecision JSON on exit 0, framing the rule", () => {
+	it("refuses as permissionDecision JSON on exit 0, naming the land route", () => {
 		const r = runGuard("git pull --rebase");
 		expect(r.status).toBe(0);
 		const out = JSON.parse(r.stdout).hookSpecificOutput;
 		expect(out.permissionDecision).toBe("deny");
-		expect(out.permissionDecisionReason).toBe(
-			`This reconciles the shared \`main\` by rewriting or merging, not by fast-forward: git pull --rebase\n\n${readPullRule()}`,
+		expect(out.permissionDecisionReason).toContain(
+			"This reconciles the shared `main` by rewriting or merging, not by fast-forward: git pull --rebase\n\n",
 		);
-		// The two limbs are exclusive: a refused session gets one copy, not two.
+		expect(out.permissionDecisionReason).toContain(LAND_ROUTE);
+		expect(out.permissionDecisionReason).toContain("session-checkout.js land");
 		expect(out.additionalContext).toBeUndefined();
 	});
 
-	/* MUTATION ANCHORS for the injected copy — guard-branch.test.ts carries the
-	 * rationale. */
-	it("hands an allowed --ff-only pull the rule as context, refusing nothing", () => {
-		const out = emission("git pull --ff-only");
-		expect(out.permissionDecision).toBeUndefined();
-		expect(out.additionalContext).toContain(readPullRule());
-		for (const clause of [
-			"git pull --ff-only",
-			"A MERGE OR A REBASE IN THE SHARED TREE IS REFUSED",
-			"git worktree add -b reconcile-",
-		])
-			expect(out.additionalContext).toContain(clause);
-	});
-
-	it("says it once per session, and again for a different session", () => {
-		expect(
-			emission("git pull --ff-only", { session: "sess-A" }),
-		).not.toBeNull();
-		expect(emission("git pull --ff-only", { session: "sess-A" })).toBeNull();
-		expect(
-			emission("git pull --ff-only", { session: "sess-B" }),
-		).not.toBeNull();
+	it("passes an allowed --ff-only pull in silence", () => {
+		expect(emission("git pull --ff-only")).toBeNull();
 	});
 
 	it("says nothing about an ordinary command it judged and passed", () => {
@@ -174,19 +156,10 @@ describe("each exit path", () => {
 	});
 });
 
-describe("each input channel", () => {
-	it("says nothing and logs where the payload carries no session", () => {
-		// No session id is no latch key, so an injection would repeat every call.
-		const r = runGuard("git pull --ff-only", { session: null });
-		expect([r.status, r.stdout]).toEqual([0, ""]);
-		expect(readFailOpenLog(config, shared)).toMatch(/no session_id in payload/);
-	});
-});
-
 describe("each production read, crossed once", () => {
 	it("reads pull.ff from the target tree's config", () => {
 		git(shared, "config", "pull.ff", "only");
-		expect(emission("git pull").permissionDecision).toBeUndefined();
+		expect(emission("git pull")).toBeNull();
 		expect(verdict("git pull --rebase")).toBe("deny");
 	});
 
@@ -298,42 +271,19 @@ describe("each production read, crossed once", () => {
 		).toBe("deny");
 	});
 
-	it("records a bare pull whose tree it cannot resolve, and hands it the rule", () => {
-		const out = emission("cd $TARGET && git pull");
-		expect(out.permissionDecision).toBeUndefined();
-		expect(out.additionalContext).toContain(readPullRule());
+	it("records a bare pull whose tree it cannot resolve, and allows it", () => {
+		expect(emission("cd $TARGET && git pull")).toBeNull();
 		expect(readFailOpenLog(config, shared)).toMatch(
 			/could not resolve the working tree for a git pull — the reconciliation allowed unchecked/,
 		);
 	});
 
-	it("stands the reconciliation down on a resolved tree once levelled, still judging an unresolved one (#4229)", () => {
-		const env = { WFC_MODULES: "landing" };
-		expect(emission("git merge origin/main", { env })).toBeNull();
-		expect(readDenyReason('git -C "$W" merge origin/main', { env })).toContain(
+	it("stands the reconciliation down on a resolved tree once cut over, still judging an unresolved one (#4229)", () => {
+		git(shared, "config", "--unset", "branch.main.merge");
+		expect(emission("git merge origin/main")).toBeNull();
+		expect(readDenyReason('git -C "$W" merge origin/main')).toContain(
 			"session-checkout.js land",
 		);
-	});
-
-	it("refuses with the rule's fallback sentence where the store cannot give it (mantahostels#1648)", () => {
-		expect(
-			readDenyReason("git pull --rebase", {
-				env: { WFC_RULES_DIR: emptyStore() },
-			}),
-		).toContain(
-			"Reconcile the shared `main` by fast-forward or not at all; the rule could not be read from",
-		);
-	});
-
-	it("refuses an injection the store cannot give, naming the rule (mantahostels#1762)", () => {
-		const r = runGuard("git pull --ff-only", {
-			env: { WFC_RULES_DIR: emptyStore() },
-		});
-		expect(r.status).toBe(0);
-		const out = JSON.parse(r.stdout).hookSpecificOutput;
-		expect(out.permissionDecision).toBe("deny");
-		expect(out.permissionDecisionReason).toMatch(/^guard-pull-form: /);
-		expect(out.permissionDecisionReason).toContain("pull-fast-forward");
 	});
 
 	it("the rule id resolves through the session accessor", () => {

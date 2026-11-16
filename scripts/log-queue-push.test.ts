@@ -27,10 +27,10 @@ const AT = new Date(Date.now() - 60_000).toISOString();
 
 const refLine = (sha: string, ref: string) => `HEAD ${sha} ${ref} ${ZERO}\n`;
 
-const logPush = (stdin: string, remoteName = "origin", modules = "landing") =>
+const logPush = (stdin: string, remoteName = "origin") =>
 	runInProcess(LOG_PUSH, [remoteName], {
 		cwd: work,
-		env: { ...process.env, WFC_MODULES: modules, WFC_NOW: AT },
+		env: { ...process.env, WFC_NOW: AT },
 		stdin,
 	});
 
@@ -51,13 +51,10 @@ describe("the pre-push limb", () => {
 		expect(pushedAt("refs/heads/main", B)).toBeNull();
 	});
 
-	it("logs nothing for a push to another remote or with the landing module off", () => {
+	it("logs nothing for a push to another remote", () => {
 		expect(logPush(refLine(A, "refs/heads/queue/a"), "upstream").status).toBe(
 			0,
 		);
-		expect(
-			logPush(refLine(A, "refs/heads/queue/a"), "origin", "suites").status,
-		).toBe(0);
 
 		expect(fs.existsSync(queueLogFile(work))).toBe(false);
 	});
@@ -72,7 +69,6 @@ describe("the pre-push limb", () => {
 				encoding: "utf8",
 				env: {
 					...process.env,
-					WFC_MODULES: "landing",
 					WFC_PLUGIN_ROOT: ROOT,
 					WFC_NOW: AT,
 				},

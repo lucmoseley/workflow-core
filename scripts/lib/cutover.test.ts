@@ -50,12 +50,9 @@ interface Agent {
 
 const ports = ({
 	agents = [],
-	on = true,
 }: {
 	agents?: Agent[] | { why: string };
-	on?: boolean;
 } = {}) => ({
-	moduleOn: () => on,
 	listed: () => (Array.isArray(agents) ? { agents } : agents),
 	cut: (root: string, name: string) => {
 		const dir = path.join(tmp, name);
@@ -202,9 +199,4 @@ it("cuts over with nothing to land, and a second run only reports", () => {
 	);
 	expect(second).toMatchObject({ status: "cut-over", already: true });
 	expect(render(second)).toContain("main is level with origin/main");
-});
-
-it("does nothing with the `landing` module off", () => {
-	expect(cutover(main, ports({ on: false }))).toEqual({ status: "module-off" });
-	expect(isCutOver(main)).toBe(false);
 });

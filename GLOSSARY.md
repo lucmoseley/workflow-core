@@ -5,7 +5,7 @@ The machinery that lets many agent sessions work one shared repository at once: 
 ## Language
 
 **Certificate**:
-The record a green suite run leaves behind, one line in the marker store, a run that selected no test included — except a bare run under `landing`, which leaves none when it selects nothing, since no push there owes an attesting certificate. It attests a tree and a read closure, never a commit sha on its own.
+The record a green suite run leaves behind, one line in the marker store, a run that selected no test included — except a bare run, which leaves none when it selects nothing. It attests a tree and a read closure, never a commit sha on its own.
 _Avoid_: marker (the storage word), green, pass record
 
 **Attests**:

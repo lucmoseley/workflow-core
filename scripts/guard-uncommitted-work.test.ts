@@ -238,9 +238,10 @@ describe("attribution — a neighbour's dirt is not yours (mantahostels#114)", (
 describe("a Bash-route code write is credited and blocks (mantahostels#2778)", () => {
 	const entry = path.join(__dirname, "guard-dispatch.js");
 
-	/** The PreToolUse entry on a `sed -i` over `rel`. */
+	/** The crediting core alone on a `sed -i` over `rel`: the fixture is a main
+	 * checkout, whose own write refusal is pinned in main-checkout-write's tests. */
 	function credit(rel: string) {
-		const res = runInProcess(entry, [], {
+		const res = runInProcess(entry, ["--only", "guard-claimed-bash-write"], {
 			cwd: root,
 			env: {
 				...process.env,

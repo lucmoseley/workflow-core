@@ -40,8 +40,6 @@ type Decision = { deny: string } | null;
 /* An install's spelling, so a fallback naming a bare checkout path fails. */
 const docPath = (name: string) => `/core/docs/${name}`;
 const UNASKED_RULE_FALLBACK =
-	"An unasked re-run is refused once a session; the rule could not be read from /core/docs/agents/rules/unasked-rerun.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.";
-const UNASKED_LANDING_RULE_FALLBACK =
 	"An unasked re-run is refused once a session; the rule could not be read from /core/docs/agents/rules/unasked-rerun-landing.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.";
 const { decide } = require("./unasked-rerun-guard.js") as {
 	decide: (command: string, ctx: object) => Decision;
@@ -56,7 +54,7 @@ const readCheckoutRuleText = (id: string) =>
 const CWD = "/work";
 const SID = "sess-815";
 const JUDGE_DENY = "Not run: what this run would test is already attested.";
-const RULE = readCheckoutRuleText("unasked-rerun");
+const RULE = readCheckoutRuleText("unasked-rerun-landing");
 
 let calls: JudgeInput[];
 /** The session tree each judge call was handed. */
@@ -71,13 +69,11 @@ function run(
 		sessionId = SID,
 		ruleText = readCheckoutRuleText,
 		vars = {},
-		moduleOn = () => false,
 	}: {
 		answer?: Verdict | Error;
 		sessionId?: string;
 		ruleText?: (id: string) => string;
 		vars?: Record<string, string>;
-		moduleOn?: (module: string) => boolean;
 	} = {},
 ) {
 	return decide(
@@ -91,7 +87,6 @@ function run(
 			session: sessionId,
 			ruleText,
 			docPath,
-			moduleOn,
 			tree: () => ({ root: "/repo" }),
 			judge: (input: JudgeInput, tree: string) => {
 				calls.push(input);
@@ -274,33 +269,11 @@ describe("the verdict, spent", () => {
 		expect(out?.deny.startsWith(`${JUDGE_DENY}\n\n`)).toBe(true);
 	});
 
-	it("owes push:check before a push where landing is off", () => {
-		expect(run("npm run test")?.deny).toContain(
-			"push:check` says what is owed",
-		);
-	});
-
-	it("owes only the touched tests before a push where landing is on (#2936)", () => {
-		const out = run("npm run test", { moduleOn: (m) => m === "landing" });
-		expect(out).toEqual({
-			deny: `${JUDGE_DENY}\n\n${readCheckoutRuleText("unasked-rerun-landing")}`,
-		});
+	it("owes only the touched tests before a push (#2936)", () => {
+		const out = run("npm run test");
 		expect(out?.deny).toContain(
 			"Before a push, run the tests you touched; the lander runs the full suite.",
 		);
-		expect(out?.deny).not.toContain("push:check");
-	});
-
-	it("names the landing fragment's file where landing is on and the store fails", () => {
-		const out = run("npm run test", {
-			moduleOn: () => true,
-			ruleText: () => {
-				throw new Error("no store");
-			},
-		});
-		expect(out).toEqual({
-			deny: `${JUDGE_DENY}\n\n${UNASKED_LANDING_RULE_FALLBACK}`,
-		});
 	});
 
 	it("still refuses where the rule cannot be read, naming the fragment's file", () => {

@@ -272,27 +272,9 @@ describe("the warning", () => {
 		ledger(["0".repeat(40)]);
 		expect(run()).toBeNull();
 	});
-
-	it("tells the session to run push:check before it pushes", () => {
-		ledger([commit("mine")]);
-		expect(run()?.reason).toMatch(
-			/\(`rule:push-cadence`\): run `[^`]*push-check\.js`, then push\. /,
-		);
-	});
-
-	it("tells the session just to push where the suites module is off", () => {
-		ledger([commit("mine")]);
-		const out = run(undefined, undefined, root, { WFC_MODULES: "" });
-		expect(out?.reason).toContain(
-			'push to `origin/main` — module "suites" is off',
-		);
-		expect(out?.reason).not.toMatch(/push-check/);
-	});
 });
 
-describe("with the landing module on (#2408, #4485)", () => {
-	const landing = { WFC_MODULES: "suites,landing" };
-
+describe("a session worktree's commits (#2408, #4485)", () => {
 	/** A session worktree whose HEAD carries one commit of this session's. */
 	const sessionCommit = (subject: string) => {
 		const wt = cutWorktree(root, "q1");
@@ -308,38 +290,26 @@ describe("with the landing module on (#2408, #4485)", () => {
 		const { wt, wtGit } = sessionCommit("mine");
 		wtGit("push", "-q", "origin", "HEAD~1:refs/heads/queue/q1");
 		wtGit("fetch", "-q", "origin");
-		const out = run(undefined, undefined, wt, landing);
+		const out = run(undefined, undefined, wt);
 		expect(out?.reason).toContain("not on origin/queue/q1");
 		expect(out?.reason).toContain("mine");
 	});
 
-	it("tells the session to land, which pushes its queue ref, with no push:check first (#2933)", () => {
+	it("tells the session to land, which pushes its queue ref", () => {
 		const { wt } = sessionCommit("mine");
-		const out = run(undefined, undefined, wt, landing);
+		const out = run(undefined, undefined, wt);
 		expect(out?.reason).toContain(
-			'land it with `node scripts/session-checkout.js land`, which pushes your queue ref — module "landing" is on — the lander runs the full suite',
+			"land it with `node scripts/session-checkout.js land`, which pushes your queue ref.",
 		);
 		expect(out?.reason).toContain("(`rule:push-cadence-landing`)");
-		expect(out?.reason).not.toMatch(/push-check|push to `origin\/main`/);
-	});
-
-	it("names the base cadence rule and push_check where the config will not read", () => {
-		ledger([commit("mine")]);
-		fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
-		fs.writeFileSync(
-			path.join(root, ".claude", "workflow-core.json"),
-			JSON.stringify({ contract: 99 }),
-		);
-		const out = run();
-		expect(out?.reason).toContain("(`rule:push-cadence`): run `");
-		expect(out?.reason).toContain("then push.");
+		expect(out?.reason).not.toMatch(/push to `origin\/main`/);
 	});
 
 	it("says nothing once the commit is on the session's queue ref", () => {
 		const { wt, wtGit } = sessionCommit("mine");
 		wtGit("push", "-q", "origin", "HEAD:refs/heads/queue/q1");
 		wtGit("fetch", "-q", "origin");
-		expect(run(undefined, undefined, wt, landing)).toBeNull();
+		expect(run(undefined, undefined, wt)).toBeNull();
 	});
 });
 
@@ -474,15 +444,13 @@ describe(".husky/post-commit's unpushed count (#2408)", () => {
 		wtGit("fetch", "-q", "origin");
 		wtGit("commit", "-q", "--allow-empty", "-m", "mine");
 		wtGit("commit", "-q", "--allow-empty", "-m", "mine too");
-		expect(count({ WFC_MODULES: "landing" }, wt)).toContain(
-			"2 commits not pushed to origin/queue/q1.",
-		);
+		expect(count({}, wt)).toContain("2 commits not pushed to origin/queue/q1.");
 	});
 
 	it("says the pushed ref is missing rather than counting against nothing", () => {
 		git("update-ref", "-d", "refs/remotes/origin/main");
 		commit("mine");
-		expect(count({ WFC_MODULES: "landing" })).toBe(
+		expect(count()).toBe(
 			"\u001b[33m!\u001b[0m origin/main does not exist here — nothing is tracking these commits.\n",
 		);
 	});

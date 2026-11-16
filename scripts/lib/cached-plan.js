@@ -126,7 +126,7 @@ const relativeTo = (root, word) =>
 /**
  * The certificate of a launch whose every file a recorded pass attested, as
  * its vitest teardown would have written it, no file
- * run and each cached file folded in, so the push gate reads it as it reads
+ * run and each cached file folded in, so `attestationOf` reads it as it reads
  * any narrowed run (#4790).
  * @param {Cached[]} cached
  * @param {{ root: string, launch: Partial<import("./suite-handoff.js").Launch>,

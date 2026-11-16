@@ -732,19 +732,6 @@ describe("{command:<name>} names the host's own command (#742)", () => {
 		expect(r.bash).toBe(r.node);
 	});
 
-	it("the twins agree on every name's default where the host declares none (#810)", () => {
-		// The shell asks node only for push_check, so a default added for any
-		// other name in workflow-core-config.js reddens here, not in a host.
-		const { COMMANDS } = require("./workflow-core-config.js");
-		store({
-			"recipe.txt": COMMANDS.map((n: string) => `{command:${n}}`).join("\n"),
-		});
-		host(null);
-		const r = both("recipe");
-		expect(r.node).toContain("push-check.js");
-		expect(r.bash).toBe(r.node);
-	});
-
 	it("says so, and declares nothing, where the host's config does not parse", () => {
 		store({ "recipe.txt": recipe });
 		host({});

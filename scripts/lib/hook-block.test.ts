@@ -162,8 +162,7 @@ describe("the counter prefixes, read from hook-block.js's call sites", () => {
 	/* Today, counting both minting entries: guard-selection-sum.js twice — the
 	 * block and the `charge` for the second stake tier (mantahostels#3431) —
 	 * guard-uncommitted-work.js twice — its clean-claim limb (#3565) — guard-priced-options.js three times — the
-	 * one block every refusal emits, its green-suite limb's included since
-	 * #1474, and the two `charge` calls that spend the non-paying limbs and the
+	 * one block every refusal emits and the two `charge` calls that spend the non-paying limbs and the
 	 * ceiling —
 	 * guard-session-ceiling.js three times — the tripwire, the turn band and the
 	 * wind-up band (#1199) — guard-lost-deny.js once,

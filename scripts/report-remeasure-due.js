@@ -22,8 +22,7 @@
  *
  * A RECORD WHOSE LANDED SHA IS NOT ON `origin/main`, once fetched, in the
  * checkout on this machine that tracks the record's repo, is not counted
- * (#3846). One a queue ref holds, with the `landing` module on, fetched with
- * it, is legal and silent, as a close posts it there without waiting for the
+ * (#3846). One a queue ref holds, fetched with it, is legal and silent, as a close posts it there without waiting for the
  * lander. One on neither, as a dropped or rewritten queue ref can leave it, is
  * reported as OFF
  * MAIN each run until a record of the same review on its ticket names a sha
@@ -184,11 +183,7 @@ const { gitOutcome, gitReader } = require("./lib/git");
 const { matchSensitivePaths } = require("./lib/sensitive-paths");
 const { hostRoot } = require("./lib/host-root");
 const { homeDir, readCheckoutTracking } = require("./lib/refill-repos");
-const {
-	landingOn,
-	QUEUE_REFSPEC,
-	QUEUE_TRACKING_GLOB,
-} = require("./lib/landing-refs");
+const { QUEUE_REFSPEC, QUEUE_TRACKING_GLOB } = require("./lib/landing-refs");
 const { requiredGroup } = require("./lib/regex-group");
 const {
 	COUNTED_TIERS,
@@ -463,7 +458,7 @@ function fetchJudgedRef(root) {
 			"--prune",
 			"origin",
 			`+refs/heads/main:${JUDGED_REF}`,
-			...(landingOn({ root }) ? [QUEUE_REFSPEC] : []),
+			QUEUE_REFSPEC,
 		],
 		[],
 		root,
@@ -758,10 +753,9 @@ function readLandedAt(c, home) {
 	/** @param {string} ref a ref, or a `--glob=` naming several */
 	const walk = (ref) =>
 		gitOutcome(["rev-list", "--max-count=1", c.landed, "--not", ref], [], root);
-	const queued = landingOn({ root });
 	const onMain = walk(JUDGED_REF);
 	const onPushed =
-		queued && onMain.ok && onMain.out !== ""
+		onMain.ok && onMain.out !== ""
 			? walk(`--glob=${QUEUE_TRACKING_GLOB}`)
 			: onMain;
 	if (!onPushed.ok)
@@ -769,7 +763,7 @@ function readLandedAt(c, home) {
 			at: "unheld",
 			fault: {
 				tag: "UNJUDGED",
-				fault: `${c.repo}#${c.issue}: could not walk landed ${c.landed} against ${queued ? `${JUDGED_REF} and ${QUEUE_TRACKING_GLOB}` : JUDGED_REF} in ${root}, so its commit is not counted until that checkout holds it or a record under a counted tier, ${SHARES_REVIEW}, names a sha it holds; where the correction changes both, ${DELETE_RECORD} — ${onPushed.why}`,
+				fault: `${c.repo}#${c.issue}: could not walk landed ${c.landed} against ${JUDGED_REF} and ${QUEUE_TRACKING_GLOB} in ${root}, so its commit is not counted until that checkout holds it or a record under a counted tier, ${SHARES_REVIEW}, names a sha it holds; where the correction changes both, ${DELETE_RECORD} — ${onPushed.why}`,
 			},
 		};
 	if (onMain.ok && onMain.out === "") return { at: "main" };

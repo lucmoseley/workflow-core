@@ -44,7 +44,7 @@ const { queueExitLogPath } = require("./lib/queue-exit-log");
 const stopGuard = require("./lib/stop-guard");
 const { redReport } = require("./lib/typecheck-red.js");
 const { takeRed } = require("./lib/typecheck-red-host.js");
-const { readCommandOrDefault } = require("./lib/workflow-core-config.js");
+const { readDeclaredCommand } = require("./lib/workflow-core-config.js");
 
 /**
  * When this session's oldest held try since its last own run happened, or null
@@ -99,7 +99,7 @@ function redFinding(root, sid) {
  */
 function heldFinding(root, sid) {
 	const file = queueExitLogPath(root);
-	const command = readCommandOrDefault("typecheck", { root });
+	const command = readDeclaredCommand("typecheck", { root });
 	if (!file || !command) return null;
 	const since = readOwedSince(file, sid);
 	if (since === null) return null;

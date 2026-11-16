@@ -4,7 +4,7 @@
  * workflow-core checkout with two release tags, an adopter whose pin moved
  * to the carrying tag partway through its logs, three pinned below it, two
  * of them served by landers whose code carries it (#5174), one such run
- * begun before the window behind 4 MB of log, and one with `landing` off.
+ * begun before the window behind 4 MB of log.
  *
  * Loosen it and a gate counts an adopter's stays from before its pin ran
  * the measured code, counts a repo that does not run it, misses a
@@ -52,13 +52,13 @@ const write = (file: string, text: string) => {
 
 const markers = (root: string) => path.join(root, ".claude", "tmp", "markers");
 
-const checkout = (name: string, modules: string[]) => {
+const checkout = (name: string) => {
 	const root = path.join(home, name);
 	fs.mkdirSync(root);
 	git(root, ["init", "-q", "-b", "main"]);
 	write(
 		path.join(root, ".claude", "workflow-core.json"),
-		JSON.stringify({ modules }),
+		JSON.stringify({ modules: [] }),
 	);
 	return root;
 };
@@ -115,7 +115,7 @@ const stays = (end: number, lengths: number[]) =>
 /* Every case only reads the fixture. */
 beforeAll(() => {
 	home = fs.mkdtempSync(path.join(os.tmpdir(), "landing-pool-"));
-	core = checkout("workflow-core", ["landing"]);
+	core = checkout("workflow-core");
 	write(
 		path.join(core, ".claude-plugin", "plugin.json"),
 		JSON.stringify({ name: "workflow-core" }),
@@ -143,7 +143,7 @@ beforeAll(() => {
 	/* lodge: pinned below the code until CARRIED. A 10 s green run, so a 30 s
 	 * target: its 2 stays of 40 s are over it though under workflow-core's. Its
 	 * 900 s stay before CARRIED is another release's. */
-	const lodge = checkout("lodge", ["landing"]);
+	const lodge = checkout("lodge");
 	pin(lodge, "v2.2.0", SINCE - 3600 * S);
 	pin(lodge, "v2.3.0", CARRIED);
 	write(
@@ -155,14 +155,14 @@ beforeAll(() => {
 		`${stays(CARRIED - 600 * S, [900])}\n${stays(NOW - 300 * S, [40, 40, 5, 5, 5])}\n`,
 	);
 
-	pin(checkout("behind", ["landing"]), "v2.2.0", SINCE - 3600 * S);
+	pin(checkout("behind"), "v2.2.0", SINCE - 3600 * S);
 
 	const started = (t: number, code: string) =>
 		buildStartedLine(
 			{ started: 1, waiting: ["queue/x"], owed: [] },
 			{ at: iso(t), by: "x", log: "x", code },
 		);
-	const served = checkout("served", ["landing"]);
+	const served = checkout("served");
 	pin(served, "v2.2.0", SINCE - 3600 * S);
 	write(
 		path.join(markers(served), ".lander.log"),
@@ -183,7 +183,7 @@ beforeAll(() => {
 		].join("\n")}\n`,
 	);
 
-	const early = checkout("early", ["landing"]);
+	const early = checkout("early");
 	pin(early, "v2.2.0", SINCE - 3600 * S);
 	const noise = `${iso(SINCE - 3600 * S)} noise ${"x".repeat(70)}\n`;
 	write(
@@ -193,12 +193,6 @@ beforeAll(() => {
 	write(
 		path.join(markers(early), ".queue-log.jsonl"),
 		`${stays(NOW - 2 * 3600 * S, [20, 5])}\n`,
-	);
-
-	checkout("quiet", []);
-	write(
-		path.join(checkout("broken", ["landing"]), ".claude", "workflow-core.json"),
-		"{",
 	);
 
 	const reap = (t: number) => JSON.stringify({ at: iso(t), path: "x" });
@@ -229,7 +223,7 @@ const json = (args: string[]) => {
 	return JSON.parse(r.stdout);
 };
 
-it("pools every landing checkout running the sha, an adopter only from when its pin carried it", () => {
+it("pools every checkout running the sha, an adopter only from when its pin carried it", () => {
 	const d = json(["stays", "--since", iso(SINCE), "--carrying", measured]);
 	expect(d.repos.map((r: { name: string }) => r.name)).toEqual([
 		"early",
@@ -240,17 +234,12 @@ it("pools every landing checkout running the sha, an adopter only from when its 
 	expect(
 		d.repos.find((r: { name: string }) => r.name === "lodge").unnamedFrom,
 	).toBe(iso(Math.floor(CARRIED / S) * S));
-	expect(d.left.filter((l: { name: string }) => l.name !== "broken")).toEqual([
+	expect(d.left).toEqual([
 		{
 			name: "behind",
 			why: "its pin v2.2.0 does not carry the sha, and no lander run names code carrying it",
 		},
-		{ name: "quiet", why: "landing is off" },
 	]);
-	expect(d.left).toContainEqual({
-		name: "broken",
-		why: expect.stringMatching(/^its config does not read: .*does not parse/),
-	});
 });
 
 it("judges each checkout's stays against its own target and pools the counts", () => {
@@ -285,7 +274,7 @@ it("prints each checkout's count and the left-out ones in its text reading", () 
 	const r = run(["stays", "--since", iso(SINCE), "--carrying", measured]);
 	expect(r.stdout).toContain("  lodge: 5 stay(s), 2 over its target of 30 s");
 	expect(r.stdout).toContain("when its pin v2.3.0 first carried it");
-	expect(r.stdout).toContain("quiet (landing is off)");
+	expect(r.stdout).toContain("behind (its pin v2.2.0 does not carry the sha");
 	expect(r.stdout).toContain(
 		"only under lander runs whose code carries it, as its pin v2.2.0 does not carry the sha",
 	);
@@ -298,7 +287,7 @@ it("counts reaps in every checkout's record, naming one with none, and none from
 	const d = json(["reaps", "--since", iso(SINCE)]);
 	expect(d.total).toBe(3);
 	const r = run(["reaps", "--since", iso(SINCE)]);
-	expect(r.stdout).toContain("  quiet: 0 (no wfc-reaped-worktrees.jsonl)");
+	expect(r.stdout).toContain("  behind: 0 (no wfc-reaped-worktrees.jsonl)");
 	expect(r.stdout).toContain("  workflow-core: 2");
 	expect(json(["reaps", "--since", iso(NOW + 3600 * S)]).total).toBe(0);
 });

@@ -138,6 +138,8 @@ export interface StubClaudeOptions {
  * when called, so they may be destructured anywhere. */
 export interface DispatchFixture {
 	dir: string;
+	/** The `origin/main` sha each member's worktree is cut at. */
+	main: string;
 	/** The /proc/meminfo admission.js reads; a refusal case overwrites it. */
 	meminfo: string;
 	loadavg: string;
@@ -212,14 +214,11 @@ export function writeCache(
 	);
 }
 
-/** The suite's modules with `landing` on, which vitest.setup.ts leaves off. */
-export const LANDING_MODULES = `${process.env.WFC_MODULES},landing`;
-
 /**
  * Give the fixture's repository a bare origin under `dir`, and the checkout
- * one commit behind its `main`; the `origin/main` sha a worktree is cut at. A run cuts one only under LANDING_MODULES.
+ * one commit behind its `main`; the `origin/main` sha a worktree is cut at.
  */
-export function seedLandingCheckout(dir: string): string {
+function seedLandingCheckout(dir: string): string {
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
 	const origin = path.join(dir, ".origin.git");
@@ -238,6 +237,7 @@ export function seedLandingCheckout(dir: string): string {
 export function dispatchFixture(): DispatchFixture {
 	const fx: DispatchFixture = {
 		dir: "",
+		main: "",
 		meminfo: "",
 		loadavg: "",
 		stubClaude,
@@ -312,6 +312,7 @@ export function dispatchFixture(): DispatchFixture {
 		// Its clock signal (#2779) reads this rather than the machine's own
 		// scheduler, so a frozen clock never refuses a case, and takes no wait.
 		schedRunning = schedClock(1);
+		fx.main = seedLandingCheckout(fx.dir);
 	});
 
 	afterEach(() => {

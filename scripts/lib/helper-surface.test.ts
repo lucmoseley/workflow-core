@@ -226,10 +226,8 @@ describe("the helper-surface commands", () => {
 	 * In a scratch repo with a stand-in vitest, which records the argv
 	 * it was handed and exits with the code it is told to. Bare argv as well
 	 * as the listed flag: an adopter's `test` script passes nothing. Bare argv
-	 * is held to its exit code alone: with no read-edge manifest here it
-	 * escalates to an isolated whole-suite run, which needs a commit to build
-	 * its worktree at, and which argv it hands vitest is the runner's to change.
-	 * In-process, `main` alone: the entry point's refusals and load hold stay
+	 * is a touched run, which here selects nothing and exits 0 without
+	 * starting vitest. In-process, `main` alone: the entry point's refusals and load hold stay
 	 * out, as lib/cpu-sample.js asks of any test.
 	 */
 	it(
@@ -277,10 +275,15 @@ describe("the helper-surface commands", () => {
 					expect(r.status, r.stderr).toBe(code);
 					return JSON.parse(fs.readFileSync(seen, "utf8")) as string[];
 				};
-				for (const code of [0, 1]) {
-					await launch([], code);
+				for (const code of [0, 1])
 					expect(await launch(["--changed"], code)).toContain("--changed");
-				}
+				const bare = await runInProcessAsync(RUN_VITEST, [], {
+					cwd: dir,
+					env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+				});
+				codes.add(bare.status);
+				expect(bare.status, bare.stderr).toBe(0);
+				expect(bare.stdout).toContain("NO TOUCHED TESTS");
 				codes.expectListed(cmd);
 			} finally {
 				fs.rmSync(dir, { recursive: true, force: true });
@@ -291,8 +294,8 @@ describe("the helper-surface commands", () => {
 
 	/*
 	 * 5 is pytest's "no tests collected", standing for every failing code.
-	 * Bare argv as well as the listed flag: with the landing module off, as
-	 * here, both run the whole suite. The stand-in python plays no part of
+	 * The listed flag runs the whole suite, and is never handed on. The
+	 * stand-in python plays no part of
 	 * pytest's own behaviour for a §G7 contract test to hold.
 	 */
 	it(
@@ -336,10 +339,10 @@ describe("the helper-surface commands", () => {
 					return JSON.parse(fs.readFileSync(argvFile, "utf8")) as string[];
 				};
 				for (const code of [0, 1, 5]) {
-					const bare = await launch([], code);
-					expect(bare.slice(0, 2)).toEqual(["-m", "pytest"]);
+					const full = await launch(["--full"], code);
+					expect(full.slice(0, 2)).toEqual(["-m", "pytest"]);
 					// Read by the runner, never handed on: pytest refuses it.
-					expect(await launch(["--full"], code)).toEqual(bare);
+					expect(full).not.toContain("--full");
 				}
 				codes.expectListed(cmd);
 			} finally {

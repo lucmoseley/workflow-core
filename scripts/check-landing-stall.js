@@ -15,9 +15,7 @@
  * session start while either stands; the refill loop's queue alert
  * (lib/queue-alert.js) is the one that fires once per crossing.
  *
- * Where the `landing` module is off it prints nothing under --notify.
- *
- * IMPLICIT:  at every session start where the `landing` module is on, reads the remote's `main` and queue refs, fetching their commits where missing, the queue log and the queue lander's heartbeat, and warns where a queue ref waits and `main` has not moved for 2 h since the oldest waiting ref's push and the machine's last boot or resume, or where a queue ref waits and no queue lander is running; and warns where the oldest waiting queue ref has waited past twice the 7-day p90 time in queue (floor 60 min), or more refs wait than twice the 7-day p90 depth (floor 10).
+ * IMPLICIT:  at every session start, reads the remote's `main` and queue refs, fetching their commits where missing, the queue log and the queue lander's heartbeat, and warns where a queue ref waits and `main` has not moved for 2 h since the oldest waiting ref's push and the machine's last boot or resume, or where a queue ref waits and no queue lander is running; and warns where the oldest waiting queue ref has waited past twice the 7-day p90 time in queue (floor 60 min), or more refs wait than twice the 7-day p90 depth (floor 10).
  * JUSTIFIED: fail-safe — the lander runs outside any session, so nothing else reports it stalling or dying.
  * DEFEAT:    none needed — it never blocks.
  */
@@ -41,7 +39,6 @@ const START_GRACE_MS = 15 * 1000;
 runCheck({
 	name: "landing-stall",
 	usage: "node check-landing-stall.js [--notify] [--json]",
-	module: "landing",
 	run(ctx) {
 		const root = repoRoot() ?? ctx.skip("not in a git checkout.");
 		let queue = readQueue(root, now());

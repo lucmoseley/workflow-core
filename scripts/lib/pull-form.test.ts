@@ -2,9 +2,8 @@
 /*
  * lib/pull-form.js, the guard-pull-form core (#2797), in process: which
  * commands are refused a non-fast-forward reconciliation of the shared `main`
- * (mantahostels#245, #290) or a rewind of `main` (#765), with what text, and
- * which are handed the pull rule instead. A deny is only defensible while it cannot
- * wedge sanctioned work, so every allow-case below is a shape that would
+ * (mantahostels#245, #290) or a rewind of `main` (#765), and with what text.
+ * A deny is only defensible while it cannot wedge sanctioned work, so every allow-case below is a shape that would
  * otherwise be a false positive; do not thin them out.
  *
  * The git reads are fakes answering as the trio fixture's real repos do: the
@@ -20,10 +19,7 @@ import { fakeTreeClassifier } from "./git-tree-fake.js";
 import { denyFires } from "./guard-fires-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
-type Decision =
-	| { deny: string }
-	| { injectRules: string[]; skip?: string[] }
-	| null;
+type Decision = { deny: string } | null;
 
 const { decide } = require("./pull-form.js") as {
 	decide: (command: string, ctx: object) => Decision;
@@ -50,7 +46,6 @@ const OBJECTS = [
 interface Over {
 	/** The walk's starting directory; left off, the shared tree's root. */
 	cwd?: string;
-	modules?: string[];
 	vars?: Record<string, string>;
 	pullFf?: string;
 	/** The checked-out branch; left off, `main`. */
@@ -58,7 +53,7 @@ interface Over {
 	/** True: every rule fetch throws, as an empty store does. */
 	storeFault?: boolean;
 	mainUnreadable?: boolean;
-	/** False: the main checkout's `main` still tracks `landing`; left off, cut over. */
+	/** True: the main checkout is cut over; left off, its `main` still tracks `landing`. */
 	cutOver?: boolean;
 	isDir?: (path: string) => boolean;
 	readFileAliases?: Record<string, string | null> | null;
@@ -79,10 +74,9 @@ function harness(over: Over = {}) {
 		fallbackCwd: over.cwd ?? SHARED,
 		vars: over.vars ?? {},
 		isDir: over.isDir ?? (() => true),
-		moduleOn: (m: string) => (over.modules ?? []).includes(m),
 		git: () => ({
 			ok: true,
-			out: over.cutOver === false ? "refs/heads/landing\n" : "",
+			out: over.cutOver ? "" : "refs/heads/landing\n",
 		}),
 		treeClass,
 		log: (what: string, detail?: string) =>
@@ -125,111 +119,65 @@ const readDenyReason = (command: string, over: Over = {}) => {
 	return d.deny;
 };
 
-/** The ids a decision hands over: requested, less skipped. */
-const handed = (d: Decision) =>
-	d && "injectRules" in d
-		? d.injectRules.filter((id) => !(d.skip ?? []).includes(id))
-		: [];
-
-const readPullRule = () => readRuleText("pull-fast-forward");
+/* The land route a reconciliation refusal names, at the fake's script paths. */
+const PULL_RULE =
+	"Reconcile in your session's own worktree, never in the main checkout: `node scripts/session-checkout.js cut <session-name>` prints one, and `node scripts/session-checkout.js land` run there merges `origin/main` and pushes its queue ref.";
+const readPullRule = () => PULL_RULE;
 const readRewindRule = () => readRuleText("main-rewind");
 
 const UNRESOLVED_LOG =
 	"could not resolve the working tree for a git pull — the reconciliation allowed unchecked";
 
-describe("the relocated rule reaches the session that trips the guard", () => {
+describe("the land route reaches the session that trips the guard", () => {
 	it.each([
 		["git pull", "a bare pull, which may rebase or merge by config"],
 		["git pull --rebase", "the #245 command exactly"],
-	])("%s carries the whole rule — %s", (command) => {
+	])("%s carries the whole land route — %s", (command) => {
 		expect(readDenyReason(command)).toContain(readPullRule());
 	});
 
-	/* MUTATION ANCHORS — guard-branch.test.ts carries the rationale. */
-	it.each([
-		["git pull --ff-only", "the spelling that replaces the refused one"],
-		["fast-forward", "the invariant itself"],
-		["2026-08-03", "the date the rewrite was measured"],
-		["A MERGE OR A REBASE IN THE SHARED TREE IS REFUSED", "the #290 limb"],
-		["git fetch", "the operation that is always safe"],
-		["git worktree add -b reconcile-", "where a divergence is reconciled"],
-		["git merge --ff-only reconcile-", "how the shared tree takes the result"],
-		["npm run test", "the suite the worktree runs before the fast-forward"],
-	])("a pull refusal still carries %s — %s", (clause) => {
-		expect(readDenyReason("git pull")).toContain(clause);
-	});
-
-	it("frames the refusal in the words the fire needles key, then the rule", () => {
+	it("frames the refusal in the words the fire needles key, then the land route", () => {
 		expect(readDenyReason("git pull --rebase")).toBe(
 			`This reconciles the shared \`main\` by rewriting or merging, not by fast-forward: git pull --rebase\n\n${readPullRule()}`,
 		);
 	});
 
-	it("carries the rule's fallback sentence where the store cannot give it (mantahostels#1648)", () => {
-		expect(readDenyReason("git pull --rebase", { storeFault: true })).toBe(
-			"This reconciles the shared `main` by rewriting or merging, not by fast-forward: git pull --rebase\n\nReconcile the shared `main` by fast-forward or not at all; the rule could not be read from docs/agents/rules/pull-fast-forward.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
-		);
-	});
-
 	it("spells the refusal's paths at the plugin root, before the command is spliced in (#343)", () => {
-		const corePaths = (t: string) => t.replaceAll("docs/", "/plugin/docs/");
-		const reason = readDenyReason('git pull --rebase "docs/x"', {
-			storeFault: true,
+		const corePaths = (t: string) =>
+			t.replaceAll("scripts/", "/plugin/scripts/");
+		const reason = readDenyReason('git pull --rebase "scripts/x"', {
 			corePaths,
 		});
-		expect(reason).toContain("/plugin/docs/agents/rules/pull-fast-forward.txt");
+		expect(reason).toContain("/plugin/scripts/session-checkout.js land");
 		expect(reason).toContain('git pull --rebase "…"');
 	});
 });
 
-/*
- * THE SECOND LIMB (mantahostels#1648, spec mantahostels#1762): the same
- * fragment, handed over before the mistake rather than inside the refusal.
- * Its rendering, latch and cap are lib/guard-entry.js's, crossed at the
- * program's boundary.
- */
-describe("the rule reaches a session BEFORE it trips the guard (mantahostels#1648)", () => {
+describe("an allowed reconciliation is handed nothing", () => {
 	it.each([
 		["git pull --ff-only", "the sanctioned spelling"],
 		["git pull --ff-only origin main", "with the remote named"],
 		["git fetch && git pull --ff-only", "at the tail of a chain"],
-	])("%s is handed the rule and NOT refused — %s", (command) => {
-		const d = run(command);
-		expect(d).not.toBeNull();
-		expect(d).not.toHaveProperty("deny");
-		expect(handed(d)).toEqual(["pull-fast-forward"]);
+		["git merge --ff-only side", "a merge that can only fast-forward"],
+		["git pull --help", "documentation reconciles nothing"],
+		["git fetch origin", "a fetch moves no local ref"],
+		["git status", "not a pull at all"],
+		["git merge --abort", "unwinding starts no reconciliation"],
+		["git rebase --continue", "nor does finishing one"],
+	])("%s — %s", (command) => {
+		expect(run(command)).toBeNull();
 	});
 
 	it.each(["git pull --ff-only", "git pull --rebase", "git merge origin/main"])(
-		"%s passes once landing is on and the main checkout cut over, the write guard owning that tree (#4229)",
+		"%s passes once the main checkout is cut over, the write guard owning that tree (#4229)",
 		(command) => {
-			expect(run(command, { modules: ["landing"] })).toBeNull();
+			expect(run(command, { cutOver: true })).toBeNull();
 		},
 	);
 
-	it("refuses a merge before cutover with the worktree land route (#4229)", () => {
-		const reason = readDenyReason("git merge origin/main", {
-			modules: ["landing"],
-			cutOver: false,
-		});
-		expect(reason).toContain("reconcile in your session's own worktree");
-		expect(reason).toContain(
-			"session-checkout.js land` run there merges `origin/main` and pushes its queue ref",
-		);
-		expect(reason).not.toContain(readPullRule());
-	});
-
-	it("hands no recipe to an allowed pull before cutover with landing on (#4229)", () => {
-		expect(
-			handed(
-				run("git pull --ff-only", { modules: ["landing"], cutOver: false }),
-			),
-		).toEqual([]);
-	});
-
-	it("still refuses a merge onto an unresolved tree once levelled, naming the worktree route (#301, #4229)", () => {
+	it("still refuses a merge onto an unresolved tree once cut over, naming the worktree route (#301, #4229)", () => {
 		const reason = readDenyReason('git -C "$W" merge origin/main', {
-			modules: ["landing"],
+			cutOver: true,
 		});
 		expect(reason).toContain(
 			"`git -C .claude/worktrees/<session-name> merge origin/main`",
@@ -237,27 +185,7 @@ describe("the rule reaches a session BEFORE it trips the guard (mantahostels#164
 		expect(reason).toContain("session-checkout.js land");
 	});
 
-	it.each([
-		["git pull --help", "documentation reconciles nothing"],
-		["git fetch origin", "a fetch moves no local ref"],
-		["git status", "not a pull at all"],
-		["git merge --abort", "unwinding starts no reconciliation"],
-		["git rebase --continue", "nor does finishing one"],
-	])("%s is handed nothing — %s", (command) => {
-		expect(run(command)).toBeNull();
-	});
-
-	it("the recipe's own last step is handed the rule too (#290)", () => {
-		// `git merge --ff-only` is where a session lands at the end of the
-		// worktree detour, and it is allowed — so the rule reaches it as context.
-		const d = run("git merge --ff-only reconcile-290");
-		expect(d).not.toHaveProperty("deny");
-		expect(handed(d)).toEqual(["pull-fast-forward"]);
-	});
-
-	it("a denied pull carries the rule in its refusal, not as context", () => {
-		// The two limbs are exclusive: the first refusal ends the judging, so a
-		// refused session gets one copy and not two.
+	it("a refusal ends the judging", () => {
 		const d = run("git pull --ff-only && git pull --rebase");
 		expect(d).toEqual({ deny: expect.stringContaining(readPullRule()) });
 	});
@@ -312,7 +240,7 @@ describe("a rewrite or merge of the shared main is denied", () => {
 
 	it("tells the session what to run instead", () => {
 		const reason = readDenyReason("git pull --rebase");
-		expect(reason).toContain("git pull --ff-only");
+		expect(reason).toContain("session-checkout.js land");
 		expect(reason).toContain("git pull --rebase");
 	});
 
@@ -329,7 +257,8 @@ describe("a rewrite or merge of the shared main is denied", () => {
 
 /*
  * The allow-cases are the load-bearing half: a session stranded mid-merge
- * must still be able to unwind, and the recipe's own last step is a merge.
+ * must still be able to unwind, and a fast-forward-only merge moves nothing
+ * backwards.
  */
 describe("a merge or rebase reaching the shared tree directly is denied (#290)", () => {
 	it.each([
@@ -352,15 +281,14 @@ describe("a merge or rebase reaching the shared tree directly is denied (#290)",
 		],
 	])("%s — %s", (command) => {
 		// exempt (mantahostels#2145): the guard has one deny message for every
-		// reason, and it is pinned by "the refusal carries the worktree recipe"
+		// reason, and it is pinned by "the refusal carries the land route"
 		// below.
 		expect(verdict(command)).toBe("deny");
 	});
 
-	it("the refusal carries the worktree recipe, not just a refusal", () => {
+	it("the refusal carries the land route, not just a refusal", () => {
 		const reason = readDenyReason("git merge origin/main");
 		expect(reason).toContain(readPullRule());
-		expect(reason).toContain("git worktree add -b reconcile-");
 		expect(reason).toContain("git merge origin/main");
 	});
 
@@ -381,7 +309,7 @@ describe("a merge or rebase reaching the shared tree directly is denied (#290)",
 });
 
 describe("the shapes #290 must not wedge", () => {
-	it("the recipe's own last step passes", () => {
+	it("a fast-forward-only merge passes", () => {
 		expect(verdict("git merge --ff-only reconcile-290")).toBe("allow");
 		expect(verdict("git merge --ff-only origin/main")).toBe("allow");
 	});
@@ -471,7 +399,7 @@ describe("the shapes #290 must not wedge", () => {
 
 describe("a fast-forward is the sanctioned route and passes", () => {
 	it.each([
-		["git pull --ff-only", "the rule's own recipe"],
+		["git pull --ff-only", "the sanctioned spelling"],
 		["git pull --ff-only origin main", "with an explicit refspec"],
 		["git pull --ff-only --quiet", "alongside other flags"],
 		["git pull --help", "documentation touches no ref"],
@@ -678,8 +606,8 @@ An unset variable there is not a different tree — it expands to nothing, and
 both \`git -C ""\` and \`cd ""\` stay in the current directory.
 
 Spell the worktree as a LITERAL path in a plain \`cd\` or \`-C\` in the same
-command — \`git -C .claude/worktrees/reconcile merge origin/main\` — or assign
-it literally in the same Bash call, as the recipe below does. A \`pushd\`, a
+command — \`git -C .claude/worktrees/<session-name> merge origin/main\` — or assign
+it literally in the same Bash call. A \`pushd\`, a
 \`cd -P\` or a \`builtin cd\` is unreadable here whatever path it carries.
 
 ${readPullRule()}`);
@@ -707,9 +635,7 @@ ${readPullRule()}`);
 		expect(verdict('git -C "$W" rebase --continue')).toBe("allow");
 	});
 
-	it("the recipe's own merge still passes, R assigned literally", () => {
-		// The rule text's `ONE Bash call` comment is what makes this resolvable,
-		// and the fail-closed limb is what now enforces that comment.
+	it("a merge in a worktree assigned literally passes", () => {
 		expect(
 			verdict('R=.claude/worktrees/reconcile && git -C "$R" merge origin/main'),
 		).toBe("allow");
@@ -743,24 +669,24 @@ describe("a pull onto a tree it cannot resolve is judged on its flags (#308)", (
 		expect(reason).not.toContain("I cannot tell which working tree");
 	});
 
-	it("--ff-only passes unrecorded, the last word winning, and is handed the rule", () => {
+	it("--ff-only passes unrecorded, the last word winning", () => {
 		for (const command of [
 			'cd "$TARGET" && git pull --ff-only',
 			'git -C "$W" pull --no-ff --ff-only',
 		]) {
 			const { ctx, logs } = harness();
-			expect(handed(decide(command, ctx))).toEqual(["pull-fast-forward"]);
+			expect(decide(command, ctx)).toBeNull();
 			expect(logs).toEqual([]);
 		}
 	});
 
-	it("a bare pull keeps the fail-open and its record, and is handed the rule", () => {
+	it("a bare pull keeps the fail-open and its record", () => {
 		for (const command of [
 			'cd "$TARGET" && git pull',
 			"cd $TARGET && git pull",
 		]) {
 			const { ctx, logs } = harness();
-			expect(handed(decide(command, ctx))).toEqual(["pull-fast-forward"]);
+			expect(decide(command, ctx)).toBeNull();
 			expect(logs).toEqual([UNRESOLVED_LOG]);
 		}
 	});
@@ -1083,9 +1009,8 @@ describe("rewinding main is refused (#765)", () => {
 		},
 	);
 
-	/* #5234: with landing on only the lander moves `main`, so the local
-	 * refusal prints the shared rule, whose reading holds either way, and
-	 * not the remote route's lander twin. The quoted clause pins #5234's
+	/* #5234: only the lander moves `main`, so the local refusal prints the
+	 * shared rule, and not the remote route's lander reading. The quoted clause pins #5234's
 	 * wording on purpose: the rule read back would match any reword. */
 	it.each([
 		[
@@ -1094,12 +1019,9 @@ describe("rewinding main is refused (#765)", () => {
 		],
 		["git branch -D main", "deletes `main`"],
 	])(
-		"with landing on, %s from a worktree prints the shared rule, true of who moves main",
+		"%s from a worktree prints the shared rule, true of who moves main",
 		(command, what) => {
-			const reason = readDenyReason(command, {
-				cwd: LINKED,
-				modules: ["landing"],
-			});
+			const reason = readDenyReason(command, { cwd: LINKED });
 			expect(reason).toBe(`This ${what}: ${command}\n\n${readRewindRule()}`);
 			expect(reason).toContain("every session's work lands on");
 		},

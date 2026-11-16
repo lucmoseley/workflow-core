@@ -5,7 +5,7 @@
  * init-adopter.test.ts: together they would hold one worker past the per-file
  * limit (#4296). Over the 10 s run-cost budget (base §X8 (5)) by nature: each
  * case runs every gate the hooks arm, and a cheaper commit would test less.
- * The file's cost grows with its cases: the landing-on skeleton's own commit
+ * The file's cost grows with its cases: a new repo's skeleton commit
  * (#2412) is one more.
  */
 import { execFileSync } from "node:child_process";
@@ -103,32 +103,25 @@ describe("the skeleton's first commit", () => {
 	);
 });
 
-describe("a new repo created with the landing module on (#2412)", () => {
+describe("a new repo (#2412)", () => {
 	it.skipIf(!HAS_GITLEAKS)(
 		"is cut over from the start, hands its sessions the queue rule, and lands its skeleton commit green",
 		() => {
 			const { dir, git } = repo();
 			expect(
-				initProgram(
-					dir,
-					"--founder",
-					"A Founder",
-					"--modules",
-					"landing",
-					"--no-tracker",
-				).status,
+				initProgram(dir, "--founder", "A Founder", "--no-tracker").status,
 			).toBe(0);
 			expect(
 				JSON.parse(
 					fs.readFileSync(path.join(dir, ".claude/workflow-core.json"), "utf8"),
-				).modules,
-			).toEqual(["landing"]);
+				).modules ?? [],
+			).toEqual([]);
 			expect(
 				fs.readFileSync(path.join(dir, ".claude/workflow-core.md"), "utf8"),
 			).toContain("A push to your session's queue ref is your own act");
 			expect(isCutOver(dir)).toBe(true);
-			/* The suite's WFC_MODULES holds every module but `landing`, and would
-			 * replace the declared list in the hooks. */
+			/* The suite's WFC_MODULES holds every module, and would replace the
+			 * declared list in the hooks. */
 			const { WFC_MODULES: _suite, ...env } = process.env;
 			const r = commitThroughHooks(
 				dir,
@@ -193,7 +186,16 @@ describe("an unseeded adopter's first commit after upgrade (#1671)", () => {
 		git("add", "-A");
 		/* With no hooks, so the gaps land as HEAD's and read as inherited below. */
 		git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "before upgrade");
-		return { dir, git };
+		/* Upgraded and committed in a session worktree: the main checkout takes
+		 * no commit past its root one (check-main-checkout-commit.js). */
+		const tree = `${dir}-session`;
+		made.push(tree);
+		git("worktree", "add", "-q", "--detach", tree);
+		return {
+			dir: tree,
+			git: (...args: string[]) =>
+				execFileSync("git", args, { cwd: tree, encoding: "utf8" }),
+		};
 	}
 
 	const readHookLines = (dir: string) =>

@@ -110,9 +110,6 @@ const MODULES = /** @type {const} */ ([
 	"site",
 	/* The hold on a surviving mutant on a declared sensitive path (#1906). */
 	"mutation",
-	/* Sessions push their own queue refs and the queue lander moves `main`
-	 * (#4458). */
-	"landing",
 ]);
 const COMMANDS = /** @type {const} */ ([
 	"test",
@@ -121,8 +118,6 @@ const COMMANDS = /** @type {const} */ ([
 	/* The whole-repo formatter/linter pass, named in the push rule (#2018). */
 	"check",
 	"check_staged",
-	/* Named in the push rule (#814); `defaultCommand` answers for it undeclared. */
-	"push_check",
 	/* Read only by release-plugin.js's --dry-run-adopter, which runs it against
 	 * the rendered tree (#464). */
 	"helper_check",
@@ -190,21 +185,6 @@ const unsetCommands = () =>
 	/** @type {Record<Command, string|null>} */ (
 		Object.fromEntries(COMMANDS.map((c) => [c, null]))
 	);
-
-/** The core script under `scripts/` that `push_check` defaults to. */
-const PUSH_CHECK_SCRIPT = "push-check.js";
-
-/**
- * The command a rule names where the host declares none, by absolute path,
- * which runs in any host — so the push rule never loses its headline to an
- * undeclared command (#814).
- * @param {string} name
- * @returns {string|null}
- */
-const defaultCommand = (name) =>
-	name === "push_check"
-		? `node ${path.join(__dirname, "..", PUSH_CHECK_SCRIPT)}`
-		: null;
 
 /** @typedef {typeof MODULES[number]} Module */
 /** @typedef {Module|Module[]} ModuleGate one module, or several all required */
@@ -1378,20 +1358,18 @@ function readCommandFor(name, opts) {
 }
 
 /**
- * The host's declared command, else `defaultCommand`'s, else null — for a
- * message that names it (#814). A config that will not read declares nothing.
+ * The host's declared command, else null — for a message that names it. A
+ * config that will not read declares nothing.
  * @param {Command} name
  * @param {Parameters<typeof readConfig>[0]} [opts]
  * @returns {string|null}
  */
-function readCommandOrDefault(name, opts) {
+function readDeclaredCommand(name, opts) {
 	try {
-		const declared = readCommandFor(name, opts);
-		if (declared) return declared;
+		return readCommandFor(name, opts);
 	} catch {
-		/* an unknown name throws too: both fall to the default */
+		return null;
 	}
-	return defaultCommand(name);
 }
 
 /**
@@ -1601,8 +1579,7 @@ module.exports = {
 	firstModuleOff,
 	MANUAL_HALF,
 	readCommandFor,
-	defaultCommand,
-	readCommandOrDefault,
+	readDeclaredCommand,
 	guardDisabled,
 	ladderPath,
 	declaresLadder,

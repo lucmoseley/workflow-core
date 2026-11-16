@@ -58,7 +58,6 @@ const path = require("node:path");
 const {
 	repoRoot,
 	FULL_CAUSES,
-	EDGES_FILE,
 	DEFAULT_SUITE,
 	recordFailure,
 	recordKill,
@@ -131,9 +130,6 @@ const { spawnInRunScope, endRunScope } = require("./lib/user-scope.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { narrowingRefusal } = require("./lib/narrowing-refusal.js");
 const {
-	CHANGED_FLAG,
-	PACKAGE_JSON,
-	REGENERATE_EDGES,
 	SelectionFailed,
 	changedFlag,
 	readChangedPaths,
@@ -141,7 +137,6 @@ const {
 	expandChanged,
 	isChangedOnlyArgv,
 	readDefaultChangedBase,
-	findDefaultEscalationReason,
 	liveEdges,
 	selectionFlagClash,
 } = require("./lib/changed-selection.js");
@@ -154,12 +149,8 @@ const {
 /** @typedef {import("./lib/own-selection.js").Ledger} Ledger */
 /** @typedef {import("./lib/launch-route.js").LaunchRoute} LaunchRoute */
 const { worktreeRoot } = require("./lib/host-root.js");
-const {
-	readCommandOrDefault,
-	moduleOn,
-} = require("./lib/workflow-core-config.js");
+const { readDeclaredCommand } = require("./lib/workflow-core-config.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
-const { pushGateState } = require("./lib/test-gate.js");
 const { selectTouched } = require("./lib/touched-tests.js");
 const { yieldToWhole } = require("./lib/cpu-yield.js");
 const { appendEmptyTouchedLine, kindOfLaunch } = require("./lib/run-ledger.js");
@@ -507,9 +498,7 @@ function vitestEnv({
 /**
  * The launch record's fields the launcher sets: built once in `main`, then
  * overridden by the route that knows better — `runIsolated` and the overlays
- * set `isolated`; `runDefault` clears `viaChanged`, its synthesised
- * `--changed <base>` not being the `test:changed` route it looks like
- * (mantahostels#2303); `escalateDefault` names the escalation in `full`.
+ * set `isolated`.
  * `slotFree`: `isTouchedRun`'s reading of the route, a run that never takes
  * the whole-suite slot and whose workers are capped at its files; the child's
  * record does not carry it.
@@ -1268,16 +1257,13 @@ function withSession(route, options) {
 }
 
 /*
- * mantahostels#3208: THE DEFAULT'S BASE. Bare `npm run test` — argv `isFullRunArgv` calls
- * full-shaped, without a session-typed `--full` — narrows to the diff
- * against `merge-base(HEAD, <start ref>)`, the start ref being
- * lib/landing-refs.js's `VERIFIED_REF`. IT IS NEVER FETCHED: a stale remote ref only widens the selection where the merge-base
- * still resolves against it. WHERE IT DOES
- * NOT EXIST OR THE MERGE-BASE CANNOT BE RESOLVED, the base falls back to
- * `HEAD` instead — which NARROWS the selection to uncommitted work alone,
- * silently dropping every already-committed change since the true base from
- * an admissible run's certificate. `runDefault` prints the resolved base on the
- * selection banner so a session can see which one it got.
+ * mantahostels#3208: THE DEFAULT'S BASE is `merge-base(HEAD, <start ref>)`,
+ * the start ref being lib/landing-refs.js's `VERIFIED_REF`: what a touched
+ * run selects from, and what a typed `--full` and a bare `--changed` record.
+ * IT IS NEVER FETCHED: a stale remote ref only widens the selection where
+ * the merge-base still resolves against it. WHERE IT DOES NOT EXIST OR THE
+ * MERGE-BASE CANNOT BE RESOLVED, the base falls back to `HEAD` instead —
+ * which NARROWS the selection to uncommitted work alone.
  */
 
 /**
@@ -1299,17 +1285,6 @@ const readCommittedBase = (root, execFn) =>
 	committedBase(readDefaultChangedBase(root, execFn));
 
 /**
- * The launch fields a default run sets once it planned, narrowed or
- * escalated: its synthesised `--changed <base>` is not the `test:changed`
- * route it looks like, and its base is `committedBase`'s.
- * @param {string} base
- */
-const defaultLaunch = (base) => ({
-	viaChanged: false,
-	base: committedBase(base),
-});
-
-/**
  * The base a run records: the default's, set when it planned, or a bare
  * `--changed`'s, set on its route, `committedBase`'s either way (#3660,
  * #3678); else its plan's, an explicit `--changed <ref>`'s; a typed
@@ -1326,22 +1301,6 @@ function readRunBase(launch, plan, root, execFn = execFileSync) {
 	if (plan?.base) return plan.base;
 	if (launch.full === "flag") return readCommittedBase(root, execFn);
 	return null;
-}
-
-/**
- * One line of why bare argv escalated to the whole suite (mantahostels#3208).
- * Either way out is an explicit --changed: a manifest or render that fails
- * still narrows under it (uncertified), and a dependency-root diff narrows
- * too (mantahostels#2160's allow-list is the default path's own check, not
- * --changed's).
- * @param {"stale-manifest"|"dependency-root"} reason
- */
-function escalationBanner(reason) {
-	const why = {
-		"stale-manifest": `${EDGES_FILE} is unreadable or the read graph could not be rendered from this tree, so nothing can show which tests read this diff`,
-		"dependency-root": `the diff touches ${PACKAGE_JSON} outside the narrowing allow-list, which vitest treats as a dependency-graph root`,
-	};
-	return `DEFAULT ESCALATED TO THE WHOLE SUITE (${reason}) — ${why[reason]} (mantahostels#3208). Name \`--changed\` yourself to keep this narrowed instead.\n`;
 }
 
 /**
@@ -1362,60 +1321,12 @@ function refuseNarrowing(options, cause) {
 }
 
 /**
- * Bare argv's own entry point (mantahostels#3208): narrow to the diff against
- * `readDefaultChangedBase`, or escalate to the whole suite where that narrowing
- * would be worthless, on the tree `route` names.
- *
- * @param {LaunchRoute} route
- * @param {Parameters<typeof runOnce>[1] & Parameters<typeof runIsolated>[1] &
+ * The options every route's run takes.
+ * @typedef {Parameters<typeof runOnce>[1] & Parameters<typeof runIsolated>[1] &
  *   { renderEdges?: () => Record<string, string[]>,
  *     commitLedger?: import("./lib/own-work.js").CommitLedger,
- *     claimFn?: import("./lib/manifest-freshen.js").ClaimFn }} [options]
- * @returns {Promise<number>}
+ *     claimFn?: import("./lib/manifest-freshen.js").ClaimFn }} RouteOptions
  */
-function runDefault(route, options = {}) {
-	const { root = TREE_ROOT } = options;
-	return onTree(route, {
-		overlay: () => runOverlaid(route, withSession(route, options)),
-		/*
-		 * THE FROZEN-WORKTREE INVARIANT (mantahostels#2169) COMES FIRST: `runIsolated` ->
-		 * `runOnce({ root: dir })` lets `expandChanged` run AGAINST THE
-		 * WORKTREE, so the file list selected reflects HEAD, not whatever is
-		 * uncommitted in the working tree right now. The plan
-		 * `narrowDefault` computes here, before the worktree exists, is
-		 * necessarily against the working tree — so it is used ONLY to decide
-		 * escalate-or-not and is then discarded. That is a second `vitest list`
-		 * call, paid only on this explicit `--isolated` path.
-		 */
-		worktree: () =>
-			narrowDefault(route, root, options, {
-				run: (argv, _plan, launched) =>
-					runIsolated(argv, {
-						...launched,
-						/* The worktree's re-expansion leaves out what the plan did. */
-						expand: (a, o = {}) =>
-							expandChanged(a, {
-								...o,
-								ownWork: readOwnWorkAt(
-									o.root ?? root,
-									changedFlag(a)?.ref ?? "HEAD",
-									options,
-								),
-							}),
-					}),
-			}),
-		/* No worktree here: `runOnce` runs against the root just probed, so the
-		 * plan is reused rather than recomputed. */
-		shared: () =>
-			narrowDefault(route, root, options, {
-				run: (argv, plan, launched) =>
-					runOnce(argv, {
-						...launched,
-						expand: () => plan,
-					}),
-			}),
-	});
-}
 
 /**
  * Run `route` on its tree: the overlay where it builds, else the
@@ -1433,93 +1344,12 @@ async function onTree(route, runs) {
 }
 
 /**
- * The narrowed default's plan in the tree at `at`: the base, then either why
- * it escalates or the narrowed argv and its selection.
- *
- * ANY FAILURE TO PLAN THROWS `SelectionFailed` (#2698) — the diff, `vitest
- * list` (a timeout included) or anything else thrown — carrying the error's
- * own text.
- * `findDefaultEscalationReason` deliberately does not run `vitest list` itself:
- * on the common, non-isolated branch that would mean paying for it twice on
- * the success path.
- *
- * NEVER HANDS `options.fs` TO `expandChanged`: that channel is `runOnce`'s
- * `WrapperFs` (the log's), incompatible with the `ExpandFs` it needs.
- *
- * OWN WORK ONLY (#1216): where `readOwnPaths` leaves a neighbour's commit out, the
- * selection, the escalation check and the marker's `changedPaths` all read
- * its path set. Where it leaves none out, or cannot say, the run is exactly
- * the diff's. The base never moves, so an explicit `--changed <ref>` is how a
- * session takes a neighbour's commit on.
- *
- * @param {string[]} rest
- * @param {string} at
- * @param {Parameters<typeof runDefault>[1] & { ownWork?: OwnSet|null }} options
- * @returns {{ base: string, reason: "stale-manifest"|"dependency-root" }
- *   | { base: string, argv: string[], plan: NonNullable<ReturnType<typeof expandChanged>>,
- *       dropped: string[] }}
- */
-function planDefault(rest, at, options) {
-	const { execFn = execFileSync } = options;
-	/** @type {{ edges?: Record<string, string[]>, error?: unknown } | undefined} */
-	let rendered;
-	const renderEdges = () => {
-		if (!rendered)
-			try {
-				rendered = {
-					edges: (options.renderEdges ?? (() => liveEdges(at)))(),
-				};
-			} catch (error) {
-				rendered = { error };
-			}
-		if ("error" in rendered) throw rendered.error;
-		return /** @type {Record<string, string[]>} */ (rendered.edges);
-	};
-	const base = readDefaultChangedBase(at, execFn);
-	try {
-		/* A queue probe hands its own set in (#1221). */
-		const ownWork =
-			options.ownWork === undefined
-				? readOwnWorkAt(at, base, options)
-				: options.ownWork;
-		const reason = findDefaultEscalationReason(at, base, {
-			execFn,
-			renderEdges,
-			...(options.loadEdges ? { loadEdges: options.loadEdges } : {}),
-			...(ownWork ? { changed: ownWork.paths } : {}),
-		});
-		if (reason) return { base, reason };
-		const argv = [...rest, CHANGED_FLAG, base];
-		const { fs: _fs, ...expandOptions } = options;
-		const plan = expandChanged(argv, {
-			...expandOptions,
-			root: at,
-			renderEdges,
-			ownWork,
-		});
-		/* Null only where the manifest turned unreadable after the reason
-		 * above read it: a failed narrowing, never widened (#2698). */
-		if (!plan)
-			throw new SelectionFailed(
-				`${EDGES_FILE} became unreadable between the escalation check and the narrowing. ${REGENERATE_EDGES}`,
-			);
-		return { base, argv, plan, dropped: ownWork?.dropped ?? [] };
-	} catch (error) {
-		if (error instanceof SelectionFailed) throw error;
-		throw new SelectionFailed(
-			error instanceof Error ? error.message : String(error),
-			{ cause: error },
-		);
-	}
-}
-
-/**
  * `readOwnWork` at `at`, where it leaves a neighbour's commit out — else null
  * (#1216).
  *
  * @param {string} at
  * @param {string} base
- * @param {Parameters<typeof runDefault>[1] & {}} options
+ * @param {RouteOptions} options
  */
 function readOwnWorkAt(at, base, options) {
 	return readOwnWork(at, base, ownOptions(options));
@@ -1530,7 +1360,7 @@ function readOwnWorkAt(at, base, options) {
  *
  * @param {string} at
  * @param {string} base
- * @param {Parameters<typeof runDefault>[1] & {}} options
+ * @param {RouteOptions} options
  */
 function readOwnPathsAt(at, base, options) {
 	return readOwnPaths(at, base, ownOptions(options));
@@ -1538,7 +1368,7 @@ function readOwnPathsAt(at, base, options) {
 
 /**
  * The launch's session and seams, as the own-work reads take them.
- * @param {Parameters<typeof runDefault>[1] & {}} options
+ * @param {RouteOptions} options
  */
 function ownOptions(options) {
 	return {
@@ -1550,101 +1380,11 @@ function ownOptions(options) {
 }
 
 /**
- * `teardown` runs before an escalation, after the run, and on a throw. `run`
- * takes `options` with the launch fields the narrowed run records already
- * set (`defaultLaunch`).
- *
- * @param {LaunchRoute} route
- * @param {string} at
- * @param {Parameters<typeof runDefault>[1] & {}} options
- * @param {{ run: (argv: string[], plan: NonNullable<ReturnType<typeof expandChanged>>,
- *     launched: Parameters<typeof runDefault>[1] & {}) => Promise<number>,
- *   teardown?: () => void }} hooks
- * @returns {Promise<number>}
- */
-function narrowDefault(
-	route,
-	at,
-	options,
-	{
-		run,
-		teardown = () => {
-			/* nothing to tear down */
-		},
-	},
-) {
-	const { out = process.stdout } = options;
-	/** @type {Promise<number>} */
-	let running;
-	try {
-		const planned = planDefault(route.rest, at, options);
-		if ("reason" in planned) {
-			teardown();
-			return escalateDefault(route, planned, options);
-		}
-		out.write(
-			`DEFAULT NARROWED TO THE DIFF AGAINST ${planned.base} (mantahostels#3208).\n`,
-		);
-		if (planned.dropped.length > 0)
-			out.write(
-				`OWN WORK ONLY — ${planned.dropped.length} neighbour commit(s) in that range left to their own sessions' certificates, which the push composes (#1216): ${planned.dropped.map(shortSha).join(", ")}. Take one on with \`npm run test -- --changed <ref>\`.\n`,
-			);
-		running = run(
-			planned.argv,
-			planned.plan,
-			withLaunch(options, defaultLaunch(planned.base)),
-		);
-	} catch (error) {
-		teardown();
-		if (error instanceof SelectionFailed)
-			return refuseNarrowing(options, error);
-		throw error;
-	}
-	return running.finally(teardown);
-}
-
-/**
- * The default's escalation to the whole suite, on `route.escalation`: it
- * isolates unless `--shared` was typed, exactly as `--full` does
- * (mantahostels#2278) — independent of whether the NARROWED run would have
- * used a worktree.
- *
- * @param {LaunchRoute} route
- * @param {{ base: string, reason: "stale-manifest"|"dependency-root" }} planned
- * @param {Parameters<typeof runDefault>[1] & {}} options
- * @returns {Promise<number>}
- */
-function escalateDefault(route, { base, reason }, options) {
-	/* A run that left the queue holds no slot, so its escalation queues again
-	 * rather than run whole (#1158, #2931). */
-	if (options.emptyOnly) return Promise.resolve(REQUEUE);
-	const { out = process.stdout } = options;
-	out.write(escalationBanner(reason));
-	/* The probe's weight is left behind, so `runOnce` weighs the whole run. */
-	const {
-		resolvedFiles: _files,
-		wholeSlot: _slot,
-		...unweighed
-	} = options.launch ?? {};
-	const escalated = {
-		...options,
-		launch: {
-			...unweighed,
-			full: reason,
-			...defaultLaunch(base),
-		},
-	};
-	return route.escalation === "shared"
-		? runOnce(route.rest, escalated)
-		: runIsolated(route.rest, escalated);
-}
-
-/**
- * Bare argv under the `landing` module (#2930): run the session's touched
+ * Bare argv (#2930): run the session's touched
  * tests on the tree `route` names. It never escalates.
  *
  * @param {LaunchRoute} route
- * @param {Parameters<typeof runDefault>[1] & {}} options
+ * @param {RouteOptions} options
  * @returns {Promise<number>}
  */
 function runTouched(route, options) {
@@ -1669,7 +1409,7 @@ function runTouched(route, options) {
  *
  * @param {string[]} rest
  * @param {string} at
- * @param {Parameters<typeof runDefault>[1] & { ownWork?: OwnSet|null }} options
+ * @param {RouteOptions & { ownWork?: OwnSet|null }} options
  * @returns {NonNullable<ReturnType<typeof expandChanged>>}
  */
 function planTouched(rest, at, options) {
@@ -1812,7 +1552,7 @@ function sweepAndAttribute(
 	 * only be the narrower failure, and attributing no new file from it is the
 	 * same degradation as an unreadable ledger — `--isolated` refuses less, and
 	 * the overlay reads HEAD without that file, the conservative miss
-	 * `runOverlaid` names. */
+	 * `withOverlay` names. */
 	return attributeDirty(status.dirty, {
 		...(sessionId ? { sessionId } : {}),
 		...(ledger ? { ledger } : {}),
@@ -1960,51 +1700,6 @@ function runThenTeardown(run, teardown) {
 }
 
 /**
- * The narrowed default with a session id (#812): a detached worktree at HEAD
- * carrying this session's own uncommitted files and nobody else's, so neither
- * a live neighbour's edit nor an orphan can enter or void its certificate.
- * The marker's `treeAtEnd` is taken there, so it is HEAD with the session's
- * own files on top — the tree its commit will be.
- *
- * THE OVERLAY REPLACES `runIsolated`'s REFUSAL ON `mine`, for this path and
- * `runChangedOverlaid`'s only. An escalation is a full run and still goes
- * through `runIsolated`, refusal and all.
- *
- * THE NARROWING IS JUDGED INSIDE THE WORKTREE, escalation included, so a
- * dirty `package.json` neither widens the selection nor escalates
- * the run.
- *
- * In a shared tree, a file of this session's that `mine` misses is read at
- * HEAD's version, named on `err`: a
- * Bash-route write (mantahostels#296) neither the code credit
- * (mantahostels#2778) nor the selection ledger's quoted paths (#1220) caught, a
- * path a live neighbour holds, everything where the ledger will not read, and a
- * new file where the untracked list will not. Its certificate then fails `holdsAt`'s
- * rule 3 (the tree-match test, `scripts/lib/test-pass-marker.js`) at the
- * commit, and the session re-runs.
- *
- * Null where the overlay cannot be built, said on `err`: the caller runs on
- * `route.fallback`.
- *
- * @param {LaunchRoute} route
- * @param {Parameters<typeof runDefault>[1] & {}} options
- * @returns {Promise<number>|null}
- */
-function runOverlaid(route, options) {
-	return withOverlay(route, options, "narrowed default", (dir, teardown) =>
-		narrowDefault(route, dir, options, {
-			run: (argv, plan, launched) =>
-				runOnce(argv, {
-					...withLaunch(launched, { isolated: true }),
-					root: dir,
-					expand: () => plan,
-				}),
-			teardown,
-		}),
-	);
-}
-
-/**
  * `npm run test:changed` with a session id (#1217): the bare run's overlay,
  * so its diff against HEAD is the session's own uncommitted files and a
  * neighbour's edit neither selects a reader nor is read. A certificate made after a
@@ -2012,7 +1707,7 @@ function runOverlaid(route, options) {
  * `--retest` takes the same overlay (#1860), and so does a touched run (#2930).
  *
  * @param {LaunchRoute} route
- * @param {Parameters<typeof runOverlaid>[1]} options
+ * @param {RouteOptions} options
  * @returns {Promise<number>|null}
  */
 function runChangedOverlaid(route, options) {
@@ -2041,7 +1736,7 @@ function overlayLabel(route) {
  * `route.fallback` the caller runs on instead.
  *
  * @param {LaunchRoute} route
- * @param {Parameters<typeof runOverlaid>[1]} options
+ * @param {RouteOptions} options
  * @param {string} label
  * @param {(dir: string, teardown: () => void) => Promise<number>} run
  * @returns {Promise<number>|null}
@@ -2111,7 +1806,7 @@ function namedList(paths) {
  *
  * @param {string} dir the overlay
  * @param {string} home the working tree the run was launched in
- * @param {Parameters<typeof runDefault>[1] & {}} options
+ * @param {RouteOptions} options
  */
 function freshenOverlay(dir, home, options) {
 	let rendered;
@@ -2142,13 +1837,13 @@ function freshenOverlay(dir, home, options) {
  * will not read, said on `err`: the probe then reads the working tree's diff.
  *
  * @param {LaunchRoute} route
- * @param {Parameters<typeof runDefault>[1] & {}} options
+ * @param {RouteOptions} options
  * @returns {ProbeSet|null}
  */
 function ownProbeSet(route, options) {
 	const { root = TREE_ROOT, err = process.stderr } = options;
 	if (route.source !== "own") return null;
-	const isDefault = route.kind === "bare" || route.kind === "touched";
+	const isDefault = route.kind === "touched";
 	/* An own source is only ever decided with a session id. */
 	const sessionId = /** @type {string} */ (route.sessionId);
 	if (isDefault) {
@@ -2188,7 +1883,7 @@ function ownProbeSet(route, options) {
  * Throws `SelectionFailed` where the selection itself fails.
  *
  * @param {LaunchRoute} route
- * @param {Parameters<typeof runDefault>[1] & {}} options
+ * @param {RouteOptions} options
  * @param {ProbeSet|null} [own] the re-check's, already read
  * @returns {string|null}
  */
@@ -2203,7 +1898,7 @@ function emptySelectionSource(route, options, own) {
  * run (#2931).
  *
  * @param {LaunchRoute} route
- * @param {Parameters<typeof runDefault>[1] & {}} options
+ * @param {RouteOptions} options
  * @param {ProbeSet|null} [own]
  * @returns {{ source: string|null, plan: ReturnType<typeof expandChanged>, probed: boolean }}
  */
@@ -2238,7 +1933,7 @@ function probeSelection(route, options, own) {
  * queue for it (#4790).
  * @param {string} source what the probe found empty, for the skip line
  * @param {boolean} allCached
- * @param {{ options: { out?: Writer, err?: Writer, root?: string },
+ * @param {{ options: { out?: Writer, err?: Writer },
  *   logExit: ReturnType<typeof queueExitLogger>,
  *   run: (extra?: { emptyOnly?: boolean }) => Promise<number>,
  *   queued: () => Promise<number> }} exits
@@ -2248,9 +1943,7 @@ async function leaveQueue(
 	allCached,
 	{ options, logExit, run, queued },
 ) {
-	(options.out ?? process.stdout).write(
-		buildQueueSkipLine(source, options.root ?? TREE_ROOT),
-	);
+	(options.out ?? process.stdout).write(buildQueueSkipLine(source));
 	logExit("left", 0, { skipped: true });
 	if (!allCached) return run();
 	const code = await run({ emptyOnly: true });
@@ -2292,13 +1985,9 @@ function lookupProbe(probe, rest, launch, root = TREE_ROOT) {
  *
  * @param {LaunchRoute} route
  * @param {string} root
- * @param {Parameters<typeof runDefault>[1] & { ownWork?: ProbeSet }} options
+ * @param {RouteOptions & { ownWork?: ProbeSet }} options
  */
 function probedPlan(route, root, options) {
-	if (route.kind === "bare") {
-		const planned = planDefault(route.rest, root, options);
-		return "plan" in planned ? planned.plan : null;
-	}
 	if (route.kind === "touched") return planTouched(route.rest, root, options);
 	const { fs: _fs, ...expandOptions } = options;
 	return expandChanged(route.rest, {
@@ -2396,7 +2085,7 @@ function emptiedSince(route, options) {
 	const { root = TREE_ROOT, execFn = execFileSync } = options;
 	const own = ownProbeSet(route, options);
 	const ref =
-		route.kind === "bare" || route.kind === "touched"
+		route.kind === "touched"
 			? readDefaultChangedBase(root, execFn)
 			: (changedFlag(route.rest)?.ref ?? null);
 	const edges = (options.loadEdges ?? (() => readCommittedEdges(root)))();
@@ -2471,7 +2160,6 @@ function queueLogFile(options) {
  * @returns {Promise<number>}
  */
 function runByRoute(route, opts) {
-	if (route.kind === "bare") return runDefault(route, opts);
 	if (route.kind === "touched") return runTouched(route, opts);
 	const noted = withCommittedNote(route, withChangedBase(route, opts));
 	return onTree(route, {
@@ -2533,7 +2221,7 @@ function withCommittedNote(route, opts) {
 
 /**
  * @param {LaunchRoute} route
- * @param {Parameters<typeof runDefault>[1] & {}} opts
+ * @param {RouteOptions} opts
  * @returns {string|null}
  */
 function buildCommittedNote(route, opts) {
@@ -2541,7 +2229,7 @@ function buildCommittedNote(route, opts) {
 	const base = readDefaultChangedBase(root, execFn);
 	const own = readOwnPathsAt(root, base, withSession(route, opts));
 	if (!own || own.kept.length === 0) return null;
-	return `UNPUSHED WORK NOT SELECTED — \`--changed\` reads only uncommitted files, so none of your ${own.kept.length} unpushed commit(s) since ${shortSha(base)} is tested here. \`${readCommandOrDefault("test", { root })}\` tests them, narrowed to your own work (#2182).\n`;
+	return `UNPUSHED WORK NOT SELECTED — \`--changed\` reads only uncommitted files, so none of your ${own.kept.length} unpushed commit(s) since ${shortSha(base)} is tested here. \`${readDeclaredCommand("test", { root })}\` tests them, narrowed to your own work (#2182).\n`;
 }
 
 /**
@@ -2559,24 +2247,15 @@ function buildNeighbourRangeNote(route, opts) {
 	const root = opts.root ?? TREE_ROOT;
 	const own = readOwnWorkAt(root, ref, withSession(route, opts));
 	if (!own) return null;
-	return `NEIGHBOURS' COMMITS TAKEN ON — \`--changed ${ref}\` takes on ${own.dropped.length} neighbour commit(s) in its range, whose reds are theirs: ${own.dropped.map(shortSha).join(", ")}. For your own unpushed commits and uncommitted files alone, run \`${readCommandOrDefault("test", { root })}\` (#2182).\n`;
+	return `NEIGHBOURS' COMMITS TAKEN ON — \`--changed ${ref}\` takes on ${own.dropped.length} neighbour commit(s) in its range, whose reds are theirs: ${own.dropped.map(shortSha).join(", ")}. For your own unpushed commits and uncommitted files alone, run \`${readDeclaredCommand("test", { root })}\` (#2182).\n`;
 }
 
 /**
- * The `--queue` line for a selection that reaches no test file (#1016): the
- * lander where no push gate exists (#2961), else push_check — which also
- * reports a config pushGateState cannot read.
+ * The `--queue` line for a selection that reaches no test file (#1016).
  * @param {string} emptySource
- * @param {string} root
  */
-function buildQueueSkipLine(emptySource, root) {
-	const gate = pushGateState({ root });
-	const pushLine =
-		gate.state === "skip"
-			? `${gate.line} (#2961)`
-			: `\`${readCommandOrDefault("push_check", { root })}\` says whether a certificate attests your push`;
-	return `--queue: ${emptySource} reaches no test file, so this run skips the queue (#1016). ${pushLine}.\n`;
-}
+const buildQueueSkipLine = (emptySource) =>
+	`--queue: ${emptySource} reaches no test file, so this run skips the queue (#1016).\n`;
 
 /**
  * A part-suite inside a held seat (#2918): no turn in its own queue, the
@@ -2691,12 +2370,10 @@ function main(argv = process.argv.slice(2), options = {}) {
 		return Promise.resolve(1);
 	/* All four flags are consumed here and none reaches vitest, which rejects
 	 * an unknown one. Stripping them before `expandChanged` also keeps
-	 * `--isolated --changed <ref>` admissible at the push (mantahostels#2146): isolation
+	 * `--isolated --changed <ref>` admissible (mantahostels#2146): isolation
 	 * freezes what the suite reads, it does not narrow what it selects.
 	 * `||`, not `??`: the suite stubs the id to "", which is no session. */
-	const route = launchRoute(argv, options.sessionId || idSeam.fromEnv(), {
-		landing: moduleOn("landing", { root: options.root ?? TREE_ROOT }),
-	});
+	const route = launchRoute(argv, options.sessionId || idSeam.fromEnv());
 	const { rest } = route;
 	const fullFlag = route.kind === "full";
 	/* The launcher's half of the record, threaded to every run below so the
@@ -2706,11 +2383,8 @@ function main(argv = process.argv.slice(2), options = {}) {
 		viaChanged: isChangedOnlyArgv(rest),
 		touched: route.kind === "touched",
 		slotFree: isTouchedRun(route),
-		/* "flag" for a typed `--full`; an escalation names its own reason
-		 * (mantahostels#3207, mantahostels#3208). */
+		/* "flag" for a typed `--full` (mantahostels#3207). */
 		full: fullFlag ? "flag" : null,
-		/* Null for anything `runDefault` escalates to: its cause is the
-		 * escalation `full` names (#182). */
 		fullCause: fullCauseOf(fullWord),
 		argv,
 		passStore: isPassStoreLaunch(route, argv),

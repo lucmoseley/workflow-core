@@ -40,6 +40,7 @@ const {
 	resolveKey,
 } = require("./workflow-core-config.js");
 const { caught } = require("./caught.js");
+const { readLandingOffWhy } = require("./landing-pin.js");
 const { isSameRepo } = require("./issue-ref.js");
 
 /**
@@ -99,8 +100,9 @@ function discoverRepos(home) {
 }
 
 /**
- * Whether this checkout's config keeps the loop out, by its owner's choice or
- * by a fault, or null where the loop serves it.
+ * Whether this checkout's config keeps the loop out, by its owner's choice, by
+ * a fault, or by a pin to a release that runs `landing` off
+ * (lib/landing-pin.js, #5276), or null where the loop serves it.
  * @param {string} root
  * @returns {{isOptOut: boolean, why: string}|null}
  */
@@ -113,7 +115,9 @@ function readExclusion(root) {
 		 * opt out is kept out instead (#2003). */
 		const malformed = cfg.faults.find((f) => f.key === "refillLoop");
 		if (malformed) return { isOptOut: false, why: malformed.text };
-		return cfg.refillLoop ? null : { isOptOut: true, why: OPT_OUT };
+		if (!cfg.refillLoop) return { isOptOut: true, why: OPT_OUT };
+		const landingOff = readLandingOffWhy(root);
+		return landingOff === null ? null : { isOptOut: false, why: landingOff };
 	} catch (err) {
 		return { isOptOut: false, why: caught(err).message };
 	}

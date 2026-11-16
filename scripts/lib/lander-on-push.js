@@ -5,9 +5,6 @@
  *
  * Each destination is read by lib/push-dests.js. `--all`, `--branches`,
  * `--mirror`, `--delete` and a dry run start nothing, whatever they push.
- *
- * The module is read only once a push reaches a queue ref, so an adopter with
- * `landing` off pays one config read on such a push and none on any other.
  */
 
 const path = require("node:path");
@@ -43,7 +40,7 @@ function decide(command, ctx) {
 		ctx,
 		{ subs: ["push"], noun: "lander start", scope: "repo", unwrap: true },
 	);
-	if (!toQueue || !ctx.moduleOn("landing")) return null;
+	if (!toQueue) return null;
 	return {
 		launch: {
 			script: path.join(__dirname, "..", "start-lander.js"),

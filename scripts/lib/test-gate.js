@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 /*
  * test-gate.js — which gate runs the host's tests (#740): one answer, read by
- * .husky/pre-commit, commit-paths.js, check-test-marker.js and
- * the guard-push-rules core (#758), so none of them can disagree on who owns a suite.
+ * .husky/pre-commit, commit-paths.js and check-session-draw.js, so none of
+ * them can disagree on who owns a suite.
  *
- * "push" — the test-pass marker regime: pre-push warns on a sha no certificate
- * attests, and never refuses (mantahostels#908). Where `suites` is on and the
- * declared command mints a certificate, which today means it runs
- * scripts/run-vitest.js — or where `suites` is on and nothing is declared.
+ * "push" — the lander runs the full suite before main moves, and a commit runs
+ * none. Where `suites` is on and the declared command mints a certificate,
+ * which today means it runs scripts/run-vitest.js — or where `suites` is on
+ * and nothing is declared.
  *
  * "commit" — every other declared `commands.test`: pre-commit runs it and a
  * red refuses the commit.
@@ -19,9 +19,6 @@ const config = require("./workflow-core-config.js");
 const { caught } = require("./caught.js");
 const { readCommittedFile } = require("./git-objects.js");
 const { writeFd } = require("./write-fd.js");
-
-const LANDER_LINE =
-	'module "landing" is on — the lander runs the full suite before main moves, so no push owes a certificate';
 
 const MINTER = /\brun-vitest\.js\b/;
 /* `npm test`, `npm t`, `npm run[-script] <name>` — the script whose text is
@@ -87,43 +84,16 @@ function buildNotGateLine(want, { gate, command }) {
 	if (want === "commit" && command === null)
 		return config.buildCommandUndeclaredLine("test");
 	if (gate === "push")
-		return 'commands.test is gated at push by certificates — module "suites" is on and it runs scripts/run-vitest.js';
+		return 'commands.test is gated at push, where the lander runs the full suite — module "suites" is on and it runs scripts/run-vitest.js';
 	if (gate === "commit")
-		return "commands.test is gated at commit — it mints no certificate, so a push has none to read";
+		return "commands.test is gated at commit — it mints no certificate";
 	return config.buildModuleOffLine("suites");
-}
-
-/**
- * Whether a push owes a certificate, for the push-time marker checks — the
- * pre-push hook, `push:check`, the push-rules guard's `push-green-suite` rule,
- * the `result:` refusal's session verdict and the unpushed-commits nudge. `owes`
- * where the push gate owns the tests; `skip` where the `suites` module is off,
- * the `landing` module is on, or the tests are gated at commit; `broken` where
- * the config cannot be read (#814, #2929, #2933). `line` says why, null on
- * `owes`. Callers switch on `state` and never read the shape otherwise (#3016).
- * @param {import("./workflow-core-config.js").ConfigOpts} [opts]
- * @returns {{state: "owes", line: null}
- *   | {state: "skip" | "broken", line: string}}
- */
-function pushGateState(opts = {}) {
-	try {
-		if (!config.moduleOn("suites", opts))
-			return { state: "skip", line: config.buildModuleOffLine("suites") };
-		if (config.moduleOn("landing", opts))
-			return { state: "skip", line: LANDER_LINE };
-		const found = testGate(opts);
-		return found.gate === "push"
-			? { state: "owes", line: null }
-			: { state: "skip", line: buildNotGateLine("push", found) };
-	} catch (e) {
-		return { state: "broken", line: caught(e).message };
-	}
 }
 
 /* `node test-gate.js <commit|push>`: exit 0 where that gate owns the tests,
  * with the command on stdout where one is declared; the SKIP line and exit 1
  * where it does not; BROKEN and exit 2 on a config the reader refuses.
- * pre-commit reads `commit`, the guard-push-rules core `push` (#758). */
+ * pre-commit reads `commit`. */
 if (require.main === module) {
 	const want = process.argv.slice(2).join(" ");
 	if (want !== "commit" && want !== "push") {
@@ -144,4 +114,4 @@ if (require.main === module) {
 	if (found.command !== null) writeFd(1, `${found.command}\n`);
 }
 
-module.exports = { pushGateState, testGate };
+module.exports = { testGate };

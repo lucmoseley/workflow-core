@@ -16,7 +16,7 @@ A marker records `treeAtEnd`, the tracked tree's identity as the run finished; `
 
 ### 2. A certificate holds at a sha whose tree leaves its closure untouched
 
-A marker holds at sha S when it names S, or when the diff between `treeAtEnd` and S's tree touches nothing in its closure. With a whole-tree closure that is tree equality. With the `landing` module on, only a change to a path in the push's range counts (ADR-0009). A marker without a closure holds at its own sha only. Whether S's range was selected for is asked of the whole set of holding certificates (ADR-0009).
+A marker holds at sha S when it names S, or when the diff between `treeAtEnd` and S's tree touches nothing in its closure. With a whole-tree closure that is tree equality. Only a change to a path in the commit's range counts (ADR-0009). A marker without a closure holds at its own sha only. Whether S's range was selected for is asked of the whole set of holding certificates (ADR-0009).
 
 ### 3. The closure is import graph plus manifest, and inherits the manifest's lexical gap
 
@@ -26,9 +26,9 @@ Selected test files, their transitive imports from vitest's module graph (reacha
 
 Whenever the paths differing between the end-tree and the commit's tree lie outside the closure. A neighbour's dirty file inside the closure voids it by the rule itself.
 
-### 5. Both gates call one predicate, and the push gate stays warn-only
+### 5. One predicate answers every reader
 
-`scripts/lib/test-pass-marker.js` answers for the push gate, of the pushed tip, and for the `result:` gate, of the session's last commit. mantahostels#908's warn-only ruling stands.
+`attestationOf` in `scripts/lib/test-pass-marker.js` answers whether certificates attest a commit, for the unasked-rerun guard and any later reader. What gates a change reaching `main` is the queue lander's full run.
 
 ## Consequences
 

@@ -129,14 +129,13 @@ const LATCHED_RULE_RE = /\bctx\.told\(\s*["'](?:rule:)?([a-z0-9-]+)["']\s*\)/g;
 const MARKED_RULE_RE = /\blatchAfter:\s*["'](?:rule:)?([a-z0-9-]+)["']/g;
 
 /**
- * A Node guard core's module gates, lib/rule-gates.js's `ruleModule(ctx,
+ * A Node guard core's module gate, lib/rule-gates.js's `ruleModule(ctx,
  * "<module>", [<id>…])`, which skips the ids unless the host has <module> on
- * (#449), and `ruleUnlessModule`, which skips them where it is on (#2409,
- * #2785). Anchored at the line's head, a `skip:` key and a spread allowed, so
- * a mention in a comment reads as none.
+ * (#449, #2785). Anchored at the line's head, a `skip:` key and a spread
+ * allowed, so a mention in a comment reads as none.
  */
 const MODULE_RULE_RE = new RegExp(
-	`^[ \\t]*(?:skip:\\s*)?(?:\\.\\.\\.)?rule(Module|UnlessModule)\\(\\s*\\w+\\s*,\\s*["']([a-z]+)["']\\s*,\\s*\\[((?:\\s*["']${RULE_ID}["']\\s*,?)+)\\s*\\]`,
+	`^[ \\t]*(?:skip:\\s*)?(?:\\.\\.\\.)?ruleModule\\(\\s*\\w+\\s*,\\s*["']([a-z]+)["']\\s*,\\s*\\[((?:\\s*["']${RULE_ID}["']\\s*,?)+)\\s*\\]`,
 	"gm",
 );
 
@@ -296,8 +295,7 @@ function ruleCalls(text) {
 
 /**
  * The ids one guard's source gates off for the host at <root>: through
- * `ruleModule` on a module it has off, and through `ruleUnlessModule` on one
- * it has on.
+ * `ruleModule` on a module it has off.
  *
  * @param {string} text the guard's source
  * @param {string} root the host root whose config decides
@@ -309,11 +307,10 @@ function gatedOffIds(text, root) {
 	for (const m of text.matchAll(MODULE_RULE_RE)) {
 		/* Unchecked cast: moduleOn itself throws on a name it does not know. */
 		const module = /** @type {import("./workflow-core-config").Module} */ (
-			m[2]
+			m[1]
 		);
-		const gatesIn = m[1] === "Module";
-		if (moduleOn(module, { root }) === gatesIn) continue;
-		for (const a of (m[3] ?? "").matchAll(RULE_ARG_RE)) if (a[1]) off.add(a[1]);
+		if (moduleOn(module, { root })) continue;
+		for (const a of (m[2] ?? "").matchAll(RULE_ARG_RE)) if (a[1]) off.add(a[1]);
 	}
 	return off;
 }

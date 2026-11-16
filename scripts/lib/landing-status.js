@@ -78,7 +78,7 @@ function buildStateLine({ sha, state }, subject, queue) {
 function fetchedGit(root, tree) {
 	fetchShared(root, LANDER_GIT_TIMEOUT_MS);
 	return {
-		pushed: pushedRef({ root, tree }),
+		pushed: pushedRef({ tree }),
 		isOn: (ref, sha) => isAncestor(root, sha, ref),
 		subjectOf: (sha) => readGit(root, ["log", "-1", "--format=%s", sha]).trim(),
 	};

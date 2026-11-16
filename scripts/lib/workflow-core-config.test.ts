@@ -120,7 +120,6 @@ describe("readConfig — defaults", () => {
 				typecheck: null,
 				check: null,
 				check_staged: null,
-				push_check: null,
 				helper_check: null,
 				full_test: null,
 			},
@@ -187,7 +186,6 @@ describe("readConfig — defaults", () => {
 				typecheck: null,
 				check: null,
 				check_staged: null,
-				push_check: null,
 			},
 			warnings: [],
 		});
@@ -694,17 +692,17 @@ describe("readConfig at a revision (#3132)", () => {
 	};
 
 	it("reads the committed config, not the working copy's", () => {
-		writeConfig(dir, JSON.stringify({ modules: ["landing"] }));
+		writeConfig(dir, JSON.stringify({ modules: ["roadmap"] }));
 		commit();
 		writeConfig(dir, JSON.stringify({ modules: [] }));
-		expect(moduleOn("landing", { root: dir, rev: "HEAD" })).toBe(true);
-		expect(moduleOn("landing", { root: dir })).toBe(false);
+		expect(moduleOn("roadmap", { root: dir, rev: "HEAD" })).toBe(true);
+		expect(moduleOn("roadmap", { root: dir })).toBe(false);
 	});
 
 	it("gives every key its default where the revision holds no config", () => {
 		fs.writeFileSync(path.join(dir, "f"), "");
 		commit();
-		writeConfig(dir, JSON.stringify({ modules: ["landing"] }));
+		writeConfig(dir, JSON.stringify({ modules: ["roadmap"] }));
 		expect(readConfig({ root: dir, rev: "HEAD" }).modules).toEqual([]);
 	});
 

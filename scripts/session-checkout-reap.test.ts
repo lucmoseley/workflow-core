@@ -73,7 +73,7 @@ const run = (args: string[], env: Record<string, string> = {}) =>
 			CLAUDE_PROJECT_DIR: main,
 			CLAUDE_CONFIG_DIR: seat,
 			WFC_NPM: npmStub,
-			WFC_MODULES: "landing",
+			WFC_MODULES: "",
 			CLAUDE_CODE_SESSION_ID: "",
 			...env,
 		},
@@ -478,23 +478,6 @@ it("turns away a pass while another holds the reap lock", () => {
 		`session checkout: a reap pass is running already (pid ${holder})\n`,
 	);
 	expect(fs.existsSync(landed)).toBe(true);
-});
-
-it("prunes and sweeps strays but judges no worktree where the landing module is off", () => {
-	const landed = cut("landed-work");
-	const stray = worktree("probe-leftover");
-	fs.mkdirSync(stray);
-
-	vi.setSystemTime(Date.now() + HOUR);
-	const r = run(["reap"], { WFC_MODULES: "" });
-
-	expect(r.status, r.stderr).toBe(0);
-	expect(r.stderr).toBe(
-		"session checkout: removed unregistered directory: probe-leftover\n",
-	);
-	expect(fs.existsSync(landed)).toBe(true);
-	expect(fs.existsSync(stray)).toBe(false);
-	expect(fs.readdirSync(stores())).toHaveLength(1);
 });
 
 it("exits 1 naming what it could not remove, and says where a failed fetch leaves origin/main", () => {

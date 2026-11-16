@@ -5,8 +5,7 @@
  * checkout's markers directory.
  *
  * Loosen it and a queue landing in many times the suite's own time reports
- * OK on `npm run status`, a repo with the `landing` module off hears of a
- * queue it never ran, or the report prints another window's batches.
+ * OK on `npm run status`, or the report prints another window's batches.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -66,10 +65,10 @@ const writeLogs = (slow: number, over = 16) => {
 	);
 };
 
-const run = (script: string, args: string[], modules = "landing") => {
+const run = (script: string, args: string[]) => {
 	const env: NodeJS.ProcessEnv = {
 		...process.env,
-		WFC_MODULES: modules,
+		WFC_MODULES: "",
 		CLAUDE_PROJECT_DIR: work,
 	};
 	delete env.WFC_NOTIFY_PERSIST;
@@ -101,16 +100,12 @@ it("warns of nothing one stay short of the count, however slow the stays over", 
 	});
 });
 
-it("warns of nothing at the target, nor with the landing module off", () => {
+it("warns of nothing at the target", () => {
 	writeLogs(540);
 	const at = run(CHECK, ["--notify"]);
-	writeLogs(5000);
-	const off = run(CHECK, ["--notify"], "");
 
 	expect(at.status, at.stderr).toBe(0);
 	expect(at.stdout).not.toContain("SLOW-LANDING");
-	expect(off.status, off.stderr).toBe(0);
-	expect(off.stdout).toBe("");
 });
 
 it("reads only the stays begun and ended in the window it is given, counting those over the target, and refuses a time that is none", () => {

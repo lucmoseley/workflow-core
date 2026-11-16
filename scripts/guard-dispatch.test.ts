@@ -591,7 +591,7 @@ describe("the skill, tracker and publish cores through the hook line (#2792)", (
 		).toMatch(/^This call engages tracker rules/);
 	});
 
-	it("refuses a force-push of main, and passes a plain one", () => {
+	it("refuses a force-push of main, and a plain one as the lander's alone", () => {
 		execFileSync("git", ["init", "-q", "-b", "main", "."], {
 			cwd: dir,
 			stdio: "ignore",
@@ -601,7 +601,10 @@ describe("the skill, tracker and publish cores through the hook line (#2792)", (
 		expect(out.permissionDecisionReason).toMatch(
 			/^This force-pushes `main`: git push --force origin main/,
 		);
-		expect(emission(bash({ command: "git push origin main" }))).toBeNull();
+		expect(
+			emission(bash({ command: "git push origin main" }))
+				.permissionDecisionReason,
+		).toMatch(/^This pushes to main, which only the lander moves/);
 	});
 });
 

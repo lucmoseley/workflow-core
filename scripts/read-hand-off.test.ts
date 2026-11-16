@@ -169,7 +169,7 @@ describe("read-hand-off.js from a linked worktree", () => {
 				CLAUDE_PROJECT_DIR: dir,
 				WFC_REPO_ROOT: dir,
 				CLAUDE_CODE_SESSION_ID: "abcdef123456",
-				WFC_MODULES: "landing",
+				WFC_MODULES: "",
 			},
 		}).stdout;
 

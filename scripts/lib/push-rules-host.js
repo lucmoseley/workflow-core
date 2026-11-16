@@ -8,7 +8,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { markersDir } = require("./marker-root.js");
 const { reviewOwed } = require("./push-review.js");
-const { pushGateState } = require("./test-gate.js");
 const { readConfig } = require("./workflow-core-config.js");
 
 /**
@@ -32,33 +31,12 @@ function buildHostPorts(root, log) {
 				return "";
 			}
 		},
-		pushOwesCertificate: () => {
-			const { state, line } = pushGateState({ root });
-			if (state === "broken")
-				log("test-gate.js refused the config, push-green-suite withheld", line);
-			return state === "owes";
-		},
 		deploysVercel: () => {
 			try {
 				return readConfig({ root, quiet: true }).deploy === "vercel";
 			} catch {
 				/* The config fault is the module read's to log; an unreadable config
 				 * hands the Vercel rule to nobody (mantahostels#103 §6). */
-				return false;
-			}
-		},
-		/* The one workflow check-ci-status.js reads, on a schedule. */
-		hasSweep: () => {
-			try {
-				return /^[ \t]*schedule:/m.test(
-					fs.readFileSync(
-						path.join(root, ".github", "workflows", "scheduled-checks.yml"),
-						"utf8",
-					),
-				);
-			} catch {
-				/* No readable workflow is no sweep: the rule naming it is withheld
-				 * (mantahostels#103 §6). */
 				return false;
 			}
 		},

@@ -43,6 +43,9 @@ const sb = freshSandbox((fresh) => {
 	git("config", "user.name", "test");
 	// Never the founder's real Husky hooks against a throwaway fixture repo.
 	git("config", "core.hooksPath", path.join(fresh.dir, "no-hooks"));
+	/* Not cut over (lib/cutover.js), so the session's write in it is judged
+	 * rather than refused outright. */
+	git("config", "branch.main.merge", "refs/heads/landing");
 	fs.writeFileSync(path.join(fresh.repo, "seed.md"), "seed\n");
 	git("add", "seed.md");
 	git("commit", "-qm", "init");

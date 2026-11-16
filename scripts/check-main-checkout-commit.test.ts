@@ -26,7 +26,7 @@ const git = (cwd: string, ...args: string[]) =>
 const run = (cwd: string, env: Record<string, string> = {}) =>
 	runInProcess(SCRIPT, [], {
 		cwd,
-		env: { ...process.env, WFC_MODULES: "landing", ...env },
+		env: { ...process.env, WFC_MODULES: "", ...env },
 	});
 
 beforeEach(() => {
@@ -60,8 +60,7 @@ it("passes a main checkout not yet cut over, its main tracking landing", () => {
 	expect(run(main).status).toBe(0);
 });
 
-it("passes with the `landing` module off, and on the founder's escape", () => {
-	expect(run(main, { WFC_MODULES: "" }).status).toBe(0);
+it("passes on the founder's escape", () => {
 	expect(run(main, { WFC_ALLOW_BRANCH: "1" }).status).toBe(0);
 });
 

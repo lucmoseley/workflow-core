@@ -29,8 +29,7 @@
  * base-red ticket for files red on `main` too, are filed in the tracker
  * .claude/workflow-core.json names, through file-issue.js.
  *
- * Does nothing where the `landing` module is off. Joins no §N3 family: it
- * gates nothing and is no hook.
+ * Joins no §N3 family: it gates nothing and is no hook.
  *
  * cli-args-exempt: openLanderRun parses it, through lib/cli-args.js.
  *
@@ -56,10 +55,6 @@ const { buildLanderDeps } = require("./lib/queue-lander-deps.js");
 const { runQueueLander } = require("./lib/queue-lander.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
-const {
-	buildModuleOffLine,
-	moduleOn,
-} = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 /** @param {string} line */
@@ -86,10 +81,6 @@ function openLanderRun(argv) {
 	if (root === null) {
 		writeFd(2, "queue-lander: not in a git checkout\n");
 		return 1;
-	}
-	if (!moduleOn("landing", { root })) {
-		say(`SKIP: ${buildModuleOffLine("landing")}`);
-		return 0;
 	}
 	return { root, tester: flagValue(parsed.flags, "--tester") };
 }

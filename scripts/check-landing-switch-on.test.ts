@@ -1,135 +1,114 @@
 // @vitest-environment node
 /*
- * check-landing-switch-on.js (#4688) over a throwaway repo and core. Loosened,
- * a repo on v2.1.0 or later running `landing` off, or on but not cut over,
- * shares one unguarded tree with `npm run status` and SessionStart silent.
+ * check-landing-switch-on.js (#4688, #5276) over a throwaway clone whose
+ * `main` still tracks `origin/landing`, with the session listing through a
+ * `claude` stand-in at WFC_CLAUDE_BIN and the levelling install through an
+ * `npm` stand-in at WFC_NPM. Loosened, a main checkout never cut over shares
+ * one unguarded tree at every session start, or one a session stands in is
+ * cut over under it.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { initGitRepo } from "./lib/git-fixture";
+import { buildAgentsBranch, buildListedRow } from "./lib/agents-stop-fake";
+import { writeClaudeStub } from "./lib/claude-stub";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-landing-switch-on.js");
 
-let dir: string;
-let repo: string;
-let core: string;
+let tmp: string;
+let main: string;
+let config: string;
+
+const git = (cwd: string, ...args: string[]) =>
+	execFileSync("git", args, { cwd, encoding: "utf8", stdio: "pipe" }).trim();
+
+const upstream = () =>
+	execFileSync("git", ["config", "--get", "branch.main.merge"], {
+		cwd: main,
+		encoding: "utf8",
+		stdio: "pipe",
+	}).trim();
+
+/** One listed session, in `cwd`. */
+const listSessionIn = (cwd: string) =>
+	writeClaudeStub(path.join(config, "bin", "claude"), [
+		buildAgentsBranch([
+			buildListedRow({ name: "live", sessionId: "s-1", cwd }),
+		]),
+	]);
+
 beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "landing-switch-on-"));
-	repo = path.join(dir, "repo");
-	core = path.join(dir, "core");
-	initGitRepo(repo, "/dev/null");
+	tmp = fs.realpathSync(
+		fs.mkdtempSync(path.join(os.tmpdir(), "landing-switch-on-")),
+	);
+	const origin = path.join(tmp, "origin.git");
+	main = path.join(tmp, "main");
+	config = path.join(tmp, "config");
+	fs.mkdirSync(path.join(config, "bin"), { recursive: true });
+	fs.writeFileSync(
+		path.join(tmp, "npm"),
+		"#!/bin/sh\nmkdir node_modules && cp package-lock.json node_modules/lock\n",
+	);
+	fs.chmodSync(path.join(tmp, "npm"), 0o755);
+	git(tmp, "init", "-q", "--bare", "-b", "main", origin);
+	git(tmp, "clone", "-q", origin, main);
+	git(main, "config", "user.email", "t@t");
+	git(main, "config", "user.name", "t");
+	for (const [name, text] of Object.entries({
+		".gitignore": ".claude/\n",
+		"package-lock.json": "{}\n",
+	}))
+		fs.writeFileSync(path.join(main, name), text);
+	git(main, "add", "-A");
+	git(main, "commit", "-qm", "seed");
+	git(main, "push", "-q", "origin", "HEAD:main", "HEAD:landing");
+	git(main, "branch", "-q", "--set-upstream-to=origin/landing", "main");
 });
-afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+	execFileSync("chmod", ["-R", "u+w", tmp]);
+	fs.rmSync(tmp, { recursive: true, force: true });
+});
 
-const setUp = (
-	version: string,
-	modules: string[],
-	upstream: "landing" | "main" | null,
-) => {
-	fs.mkdirSync(path.join(core, ".claude-plugin"), { recursive: true });
-	fs.writeFileSync(
-		path.join(core, ".claude-plugin", "plugin.json"),
-		JSON.stringify({ name: "workflow-core", version }),
-	);
-	fs.mkdirSync(path.join(repo, ".claude"), { recursive: true });
-	fs.writeFileSync(
-		path.join(repo, ".claude", "workflow-core.json"),
-		JSON.stringify({ contract: 1, modules, tracker: "o/here" }),
-	);
-	if (upstream !== null)
-		execFileSync(
-			"git",
-			["config", "branch.main.merge", `refs/heads/${upstream}`],
-			{ cwd: repo },
-		);
-};
-
-/* Without the suite's WFC_MODULES, which would replace the repo's own list. */
 const check = (...args: string[]) => {
-	const { WFC_MODULES: _, ...env } = process.env;
-	return runInProcess(SCRIPT, args, {
-		cwd: repo,
-		env: { ...env, WFC_REPO_ROOT: repo, WFC_SCRIPT_ROOT: core },
-	});
+	const env: NodeJS.ProcessEnv = {
+		...process.env,
+		WFC_REPO_ROOT: main,
+		CLAUDE_PROJECT_DIR: main,
+		CLAUDE_CONFIG_DIR: config,
+		WFC_CLAUDE_CONFIG_A: config,
+		WFC_CLAUDE_CONFIG_B: config,
+		WFC_CLAUDE_CONFIG_C: config,
+		WFC_CLAUDE_BIN: path.join(config, "bin", "claude"),
+		WFC_NPM: path.join(tmp, "npm"),
+	};
+	delete env.CLAUDE_CODE_SESSION_ID;
+	return runInProcess(SCRIPT, args, { cwd: main, env });
 };
 
-describe("check-landing-switch-on.js (#4688)", () => {
-	it("fails a v2.1.0 repo running landing off, naming the note's switch-on steps", () => {
-		setUp("2.1.0", [], "main");
+describe("check-landing-switch-on.js (#5276)", () => {
+	it("cuts over a main checkout no session stands in, printing the cutover's report", () => {
+		listSessionIn(tmp);
+		const r = check("--notify");
+		expect(r.stdout).toContain("the main checkout is cut over");
+		expect(() => upstream()).toThrow();
+	});
+
+	it("fails naming the session standing in the main checkout, cutting nothing over", () => {
+		listSessionIn(main);
 		const r = check();
-		expect(r.stderr).toContain("LANDING-OFF");
-		expect(r.stderr).toContain("migrations/v2.1.0.md");
-		expect(r.stderr).toContain("switch-on [act]s");
-		expect(r.stderr).toContain("steps-owed.js");
+		expect(r.stderr).toContain("OCCUPIED");
+		expect(r.stderr).toContain("1 session(s) stand in it: live");
 		expect(r.status).toBe(1);
+		expect(upstream()).toBe("refs/heads/landing");
 	});
 
-	it("fails a later release running landing off too", () => {
-		setUp("2.3.1", [], null);
-		const r = check();
-		expect(r.stderr).toContain("LANDING-OFF");
-		expect(r.status).toBe(1);
-	});
-
-	it("fails landing on but not cut over, naming cutover-main-checkout.js", () => {
-		setUp("2.1.0", ["landing"], "landing");
-		const r = check();
-		expect(r.stderr).toContain("NOT-CUT-OVER");
-		expect(r.stderr).toContain("cutover-main-checkout.js");
-		expect(r.status).toBe(1);
-	});
-
-	it("passes landing on and cut over", () => {
-		setUp("2.1.0", ["landing"], "main");
-		const r = check();
-		expect(r.stderr).toContain("OK:");
-		expect(r.status).toBe(0);
-	});
-
-	it("skips a core before v2.1.0, whose shared-tree guards still run", () => {
-		setUp("2.0.1", [], "main");
-		const r = check();
-		expect(r.stderr).toContain("SKIP:");
-		expect(r.stderr).toContain("2.0.1 predates v2.1.0");
-		expect(r.status).toBe(0);
-	});
-
-	it("prints each FAIL at SessionStart and nothing once cut over", () => {
-		setUp("2.1.0", [], "main");
-		expect(check("--notify").stdout).toContain("LANDING-OFF");
-		setUp("2.1.0", ["landing"], "landing");
-		expect(check("--notify").stdout).toContain("NOT-CUT-OVER");
-		setUp("2.1.0", ["landing"], "main");
+	it("passes a cut-over main checkout and prints nothing at SessionStart", () => {
+		git(main, "branch", "--unset-upstream", "main");
+		expect(check().stderr).toContain("OK:");
 		expect(check("--notify").stdout).toBe("");
-	});
-
-	it("reports the judgement under --json", () => {
-		setUp("2.1.0", [], "main");
-		const out = JSON.parse(check("--json").stdout);
-		expect(out).toMatchObject({
-			outcome: "FAIL",
-			version: "2.1.0",
-			landingOn: false,
-		});
-	});
-
-	it("is broken on a core whose version is no x.y.z", () => {
-		setUp("next", [], "main");
-		const r = check();
-		expect(r.stderr).toContain('"next" is no x.y.z');
-		expect(r.status).toBe(2);
-	});
-
-	it("is broken where the repo's config will not read", () => {
-		setUp("2.1.0", [], "main");
-		fs.writeFileSync(path.join(repo, ".claude", "workflow-core.json"), "{");
-		const r = check();
-		expect(r.stderr).toContain("workflow-core.json will not read");
-		expect(r.status).toBe(2);
 	});
 
 	it("is listed in npm run status", () => {

@@ -22,39 +22,40 @@ const {
 } = require("./launch-route.js");
 
 describe("`launchRoute`, the one place a launch's route is decided (#1498)", () => {
-	/* argv, session id, then `kind tree/fallback escalation source`. */
+	/* argv, session id, then `kind tree/fallback source`. */
 	it.each([
-		["", null, "bare shared/shared worktree diff"],
-		["", "s", "bare overlay/shared worktree own"],
-		["--shared", "s", "bare shared/shared shared diff"],
-		["--isolated", null, "bare worktree/worktree worktree diff"],
-		["--isolated", "s", "bare overlay/worktree worktree own"],
-		["--isolated --shared", "s", "bare shared/shared shared diff"],
-		["--changed", null, "changed shared/shared - changed"],
-		["--changed", "s", "changed overlay/shared - own"],
-		["--changed --shared", "s", "changed shared/shared - changed"],
-		["--changed --isolated", null, "changed worktree/worktree - changed"],
-		["--changed --isolated", "s", "changed worktree/worktree - changed"],
-		["--changed HEAD", "s", "changed shared/shared - changed"],
-		["--changed=HEAD --isolated", "s", "changed worktree/worktree - changed"],
-		["--changed -t x", "s", "changed shared/shared - changed"],
-		["a.test.ts", "s", "named shared/shared - named"],
-		["-t corpus", null, "named shared/shared - named"],
-		["-t corpus --isolated", null, "named worktree/worktree - named"],
-		["-t corpus --isolated --shared", null, "named shared/shared - named"],
-		["--adopt docs/a.md", "s", "named shared/shared - adopt"],
-		["--full=coverage", null, "full worktree/worktree - full"],
-		["--full=coverage", "s", "full worktree/worktree - full"],
-		["--full=coverage --shared", "s", "full shared/shared - full"],
-		["--full=coverage --changed", "s", "full worktree/worktree - changed"],
-		["--full=coverage a.test.ts", null, "full worktree/worktree - named"],
+		["", null, "touched shared/shared diff"],
+		["", "s", "touched overlay/shared own"],
+		["--shared", "s", "touched shared/shared diff"],
+		["--isolated", null, "touched worktree/worktree diff"],
+		["--isolated", "s", "touched overlay/worktree own"],
+		["--isolated --shared", "s", "touched shared/shared diff"],
+		["--retest a.test.ts", "s", "named overlay/shared retest"],
+		["--changed", null, "changed shared/shared changed"],
+		["--changed", "s", "changed overlay/shared own"],
+		["--changed --shared", "s", "changed shared/shared changed"],
+		["--changed --isolated", null, "changed worktree/worktree changed"],
+		["--changed --isolated", "s", "changed worktree/worktree changed"],
+		["--changed HEAD", "s", "changed shared/shared changed"],
+		["--changed=HEAD --isolated", "s", "changed worktree/worktree changed"],
+		["--changed -t x", "s", "changed shared/shared changed"],
+		["a.test.ts", "s", "named shared/shared named"],
+		["-t corpus", null, "named shared/shared named"],
+		["-t corpus --isolated", null, "named worktree/worktree named"],
+		["-t corpus --isolated --shared", null, "named shared/shared named"],
+		["--adopt docs/a.md", "s", "named shared/shared adopt"],
+		["--full=coverage", null, "full worktree/worktree full"],
+		["--full=coverage", "s", "full worktree/worktree full"],
+		["--full=coverage --shared", "s", "full shared/shared full"],
+		["--full=coverage --changed", "s", "full worktree/worktree changed"],
+		["--full=coverage a.test.ts", null, "full worktree/worktree named"],
 	] as const)(
 		"routes `%s` with session %s to %s",
 		(argv, sessionId, expected) => {
 			const words = argv ? argv.split(" ") : [];
 			const route = launchRoute([...words, "--queue"], sessionId);
 			expect(
-				`${route.kind} ${route.tree}/${route.fallback} ${route.escalation ?? "-"} ${route.source}`,
+				`${route.kind} ${route.tree}/${route.fallback} ${route.source}`,
 			).toBe(expected);
 			expect(route.rest).toEqual(
 				words.filter(
@@ -63,26 +64,6 @@ describe("`launchRoute`, the one place a launch's route is decided (#1498)", () 
 				),
 			);
 			expect(route.sessionId).toBe(sessionId);
-		},
-	);
-
-	it.each([
-		["", null, "touched shared/shared - diff"],
-		["", "s", "touched overlay/shared - own"],
-		["--shared", "s", "touched shared/shared - diff"],
-		["--isolated", "s", "touched overlay/worktree - own"],
-		["--retest a.test.ts", "s", "named overlay/shared - retest"],
-		["a.test.ts", "s", "named shared/shared - named"],
-		["--changed", "s", "changed overlay/shared - own"],
-		["--full=coverage", "s", "full worktree/worktree - full"],
-	] as const)(
-		"under `landing`, routes `%s` with session %s to %s (#2930)",
-		(argv, sessionId, expected) => {
-			const words = argv ? argv.split(" ") : [];
-			const route = launchRoute(words, sessionId, { landing: true });
-			expect(
-				`${route.kind} ${route.tree}/${route.fallback} ${route.escalation ?? "-"} ${route.source}`,
-			).toBe(expected);
 		},
 	);
 
@@ -97,18 +78,17 @@ describe("`launchRoute`, the one place a launch's route is decided (#1498)", () 
 describe("`isTouchedRun`, a run that never takes the whole-suite slot (#2935)", () => {
 	const named200 = Array.from({ length: 200 }, (_, i) => `t${i}.test.ts`);
 	it.each([
-		["", true, true],
-		["", false, false],
-		["--retest a.test.ts", false, true],
-		["a.test.ts b.test.ts", false, true],
-		["--isolated a.test.ts", false, true],
-		["--changed", true, false],
-		["--changed a.test.ts", true, false],
-		["--adopt lib/a.js", true, false],
-		["--full=flag", true, false],
-	])("`%s` with landing %s is touched: %s", (argv, landing, touched) => {
+		["", true],
+		["--retest a.test.ts", true],
+		["a.test.ts b.test.ts", true],
+		["--isolated a.test.ts", true],
+		["--changed", false],
+		["--changed a.test.ts", false],
+		["--adopt lib/a.js", false],
+		["--full=flag", false],
+	])("`%s` is touched: %s", (argv, touched) => {
 		const words = argv ? argv.split(" ") : [];
-		expect(isTouchedRun(launchRoute(words, "s", { landing }))).toBe(touched);
+		expect(isTouchedRun(launchRoute(words, "s"))).toBe(touched);
 	});
 
 	it("reads a 200-file named run as touched", () => {
@@ -146,7 +126,7 @@ describe("`isFullRunArgv`, which decides mantahostels#2278's default", () => {
 		expect(isFullRunArgv(["--full"])).toBe(true);
 	});
 
-	it("is false on an `--adopt` run, so bare argv's narrowed default never takes it (#1213)", () => {
+	it("is false on an `--adopt` run, so a touched run never takes it (#1213)", () => {
 		expect(isFullRunArgv(["--adopt", "lib/a.js"])).toBe(false);
 	});
 });

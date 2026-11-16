@@ -15,12 +15,11 @@
  * DENIES, not warns: mantahostels#103 set deny on a structured fact where the
  * action has no legitimate use. Every legitimate reconciliation has a route
  * that passes — `--ff-only`, a repo configured `pull.ff=only`, or, for a
- * divergence that needs a real merge, the throwaway worktree the rule's own
- * recipe gives (#290) — so a deny cannot wedge ordinary work.
+ * divergence that needs a real merge, the session's own worktree — so a deny
+ * cannot wedge ordinary work.
  *
- * WITH THE `landing` MODULE ON, A SESSION RECONCILES IN ITS OWN WORKTREE
- * (#4229), merging `origin/main` and pushing its own queue ref by
- * `scripts/session-checkout.js land` (#4458).
+ * A SESSION RECONCILES IN ITS OWN WORKTREE (#4229), merging `origin/main` and
+ * pushing its own queue ref by `scripts/session-checkout.js land` (#4458).
  * Once the main checkout is also cut over (lib/cutover.js) the walk stands
  * down on a tree it resolves: lib/main-checkout-write.js refuses every merge,
  * pull or rebase there, and lib/level-main.js alone moves its `main`. An
@@ -28,19 +27,12 @@
  * cutover git cannot read counts as none.
  *
  * LIMITS
- *  - The rule it prints is docs/agents/rules/pull-fast-forward.txt
- *    (mantahostels#1648). It prints it on two exclusive limbs (spec
- *    mantahostels#1762):
- *    inside the refusal, and, where nothing was refused, as context before an
- *    allowed `git pull --ff-only`, a bare pull the repo's `pull.ff=only` has
- *    already made safe, `git merge --ff-only`, or a bare pull whose tree could
- *    not be resolved (#308) — latched once a session. `git pull --help` and a
- *    merge or rebase being finished or unwound are handed nothing.
+ *  - A reconciliation refusal names the land route: the session's own
+ *    worktree, the command that cuts one, and `session-checkout.js land`.
  *  - It guards `git pull`, `git merge` and `git rebase`. `git fetch` is always
  *    safe — it moves no local ref. The rewrite reached directly after a fetch,
  *    as `git merge origin/main` or `git rebase origin/main`, is denied
- *    (mantahostels#245, #290): a diverged session reconciles in a throwaway
- *    worktree and fast-forwards the shared tree onto the result.
+ *    (mantahostels#245, #290): a session reconciles in its own worktree.
  *  - It also refuses REWINDING `main` (#765), docs/agents/rules/main-rewind.txt:
  *    a `git reset` naming a commit other than HEAD in the shared tree, and —
  *    from ANY tree of the repo, `main` being one ref for all of them — `git
@@ -73,8 +65,8 @@
  *    branch word, or an unresolved tree where the verdict needs one, FAILS
  *    CLOSED (#301). On a `main` that cannot be read every one of these still
  *    refuses, and its text adds scripts/repair-main.js, the one route (#3198).
- *  - What passes on `git merge` and `git rebase`: `git merge --ff-only`, the
- *    worktree recipe's own last step, and `--abort`, `--continue`, `--quit`,
+ *  - What passes on `git merge` and `git rebase`: `git merge --ff-only`, and
+ *    `--abort`, `--continue`, `--quit`,
  *    `--skip`, `--edit-todo` and `--show-current-patch`, which finish or
  *    unwind something already under way; refusing those would strand a tree
  *    mid-merge. A rebase has no fast-forward-only spelling, so `--ff-only`
@@ -104,9 +96,8 @@
  *    record. A LITERALLY empty `-C` or `cd` is not this case: git and bash
  *    both stay in the cwd, and the command is judged where it lands. The
  *    `pull.ff` probe fails CLOSED: an unreadable config withholds the
- *    exception. A store fault fails CLOSED too: the refusal carries the rule's
- *    fallback sentence (mantahostels#1648), and an injection the store cannot
- *    give refuses through the dispatcher.
+ *    exception. A store fault fails CLOSED too: the rewind refusal carries the
+ *    rule's fallback sentence (mantahostels#1648).
  *  - A command behind shell-words.js's unwrap wrappers is judged — `env`,
  *    `sudo`, `timeout 5 git pull --rebase` (#4009). Still unseen, each measured
  *    moving `main`: `sh -c "git ..."`, `eval`, arguments an `xargs` reads from
@@ -125,8 +116,7 @@
  *
  * NO I/O OF ITS OWN (§T7): every git read, the rule store, the pushed ref and
  * the plugin-root path rewrite arrive as ports, so each verdict is reached in
- * process. It answers a Decision: a refusal's complete text, the pull rule to
- * hand over, or nothing.
+ * process. It answers a Decision: a refusal's complete text, or nothing.
  *
  * FOUR WALKS, IN THIS ORDER, THE FIRST REFUSAL WINNING: the unreadable alias
  * (any tree of the repo), the reset (shared tree), the ref write (any tree)
@@ -142,10 +132,9 @@
 
 const { expandLongOption } = require("./git-long-options.js");
 const { rewindReason } = require("./main-rewind.js");
-const { denyText, ruleOrFallback } = require("./guard-verdict.js");
+const { denyText } = require("./guard-verdict.js");
 const { buildCutCommand, landingCutOver } = require("./cutover.js");
 const { VERIFIED_REF } = require("./landing-refs.js");
-const { ruleUnlessModule } = require("./rule-gates.js");
 const { parseCommand, walkGit } = require("./shell-parse.js");
 const { UNREAD_ALIAS } = require("./git-alias.js");
 const { gitValueFlags, literal, scanFlags } = require("./shell-words.js");
@@ -179,7 +168,6 @@ const { WORKTREES } = require("./worktree-dirs.js");
  * @property {(dir: string) => ReturnType<PullFormContext["treeClass"]>}
  *   treeClass the walk's, memoised
  * @property {PullFormContext["readFileAliases"]} readFileAliases the walk's, memoised
- * @property {() => void} subject marks a reconciliation the rule is about
  */
 
 /* git pull's value-taking short options, read by the shared flag scan
@@ -256,13 +244,7 @@ function readArgs(args, { sub, spec, table, state, onArg }) {
 
 /** @param {PullFormContext} ctx */
 const pullRule = (ctx) =>
-	ctx.moduleOn("landing")
-		? `With \`landing\` on, reconcile in your session's own worktree, never in the main checkout: ${buildCutCommand(ctx.scriptPath)} prints one, and \`node ${ctx.scriptPath("session-checkout.js")} land\` run there merges \`${VERIFIED_REF}\` and pushes its queue ref.`
-		: ruleOrFallback(
-				ctx,
-				"pull-fast-forward",
-				"Reconcile the shared `main` by fast-forward or not at all",
-			);
+	`Reconcile in your session's own worktree, never in the main checkout: ${buildCutCommand(ctx.scriptPath)} prints one, and \`node ${ctx.scriptPath("session-checkout.js")} land\` run there merges \`${VERIFIED_REF}\` and pushes its queue ref.`;
 
 /**
  * The rewind refusal, framed by lib/main-rewind.js.
@@ -678,7 +660,7 @@ const PULL_ARGS = {
 /** @type {ArgTable<ReconcileArgs>} */
 const DIRECT_ARGS = {
 	/* A merge that can only fast-forward moves the shared `main` the one way
-	 * the rule allows — the recipe's own last step. git takes the LAST of
+	 * the rule allows. git takes the LAST of
 	 * `--ff-only`, `--ff` and `--no-ff`, as the scan order does. */
 	"flag:--ff-only": { ffOnly: true },
 	"flag:--ff": { ffOnly: false },
@@ -724,9 +706,6 @@ function judgeReconcile(j, { segment, sub, tree, args }) {
 	});
 	if (a.helping || a.aborting || a.quitting || a.continuing || a.resuming)
 		return null;
-	/* Every other spelling reconciles the shared `main`, so it is the rule's
-	 * subject whether it is refused below or allowed. */
-	j.subject();
 	/* A merge that can only fast-forward rewrites nothing wherever it lands;
 	 * `pull.ff=only` governs `git pull` alone (#290). */
 	if (!pull) {
@@ -767,24 +746,21 @@ const reconcileDeny = (j, segment) => ({
  * @param {string} segment
  * @returns {Refusal}
  */
-const unresolvedDeny = (j, sub, segment) => {
-	const landing = j.ctx.moduleOn("landing");
-	return {
-		reason: `I cannot tell which working tree this \`git ${sub}\` lands in — an empty or
+const unresolvedDeny = (j, sub, segment) => ({
+	reason: `I cannot tell which working tree this \`git ${sub}\` lands in — an empty or
 unexpanded \`-C\`, or a \`cd\` to a path I cannot resolve: @CMD@
 
 An unset variable there is not a different tree — it expands to nothing, and
 both \`git -C ""\` and \`cd ""\` stay in the current directory.
 
 Spell the worktree as a LITERAL path in a plain \`cd\` or \`-C\` in the same
-command — \`git -C ${WORKTREES}/${landing ? "<session-name>" : "reconcile"} merge ${VERIFIED_REF}\` — or assign
-it literally in the same Bash call${landing ? "" : ", as the recipe below does"}. A \`pushd\`, a
+command — \`git -C ${WORKTREES}/<session-name> merge ${VERIFIED_REF}\` — or assign
+it literally in the same Bash call. A \`pushd\`, a
 \`cd -P\` or a \`builtin cd\` is unreadable here whatever path it carries.
 
 ${pullRule(j.ctx)}`,
-		segment,
-	};
-};
+	segment,
+});
 
 /**
  * A per-subcommand table's row for `sub`. WALKS hands each judge only the
@@ -815,9 +791,7 @@ const WALKS = [
 	],
 	[
 		(j, call) =>
-			call.tree && landingCutOver(j.ctx.moduleOn, j.ctx.git)
-				? null
-				: judgeReconcile(j, call),
+			call.tree && landingCutOver(j.ctx.git) ? null : judgeReconcile(j, call),
 		"the reconciliation",
 		"shared",
 		["pull", "merge", "rebase"],
@@ -835,7 +809,6 @@ function decide(command, ctx) {
 	const classes = new Map();
 	/** @type {Map<string, import("./git-alias.js").FileAliases | null>} */
 	const aliases = new Map();
-	let ruleSubject = false;
 	/** @type {Judging} */
 	const j = {
 		ctx,
@@ -856,24 +829,13 @@ function decide(command, ctx) {
 			if (!aliases.has(dir)) aliases.set(dir, ctx.readFileAliases(dir));
 			return aliases.get(dir) ?? null;
 		},
-		subject: () => {
-			ruleSubject = true;
-		},
 	};
 	for (const [judge, noun, scope, subs] of WALKS) {
 		const refused = firstRefusal(parsed, j, judge, { subs, noun, scope });
 		if (refused)
 			return { deny: denyText(ctx, refused.segment, refused.reason) };
 	}
-
-	/* PRE-EMPTIVE INJECTION (mantahostels#1648, spec mantahostels#1762): the
-	 * rule handed to a reconciliation nothing refused, as context, so an allow
-	 * stays an allow. With `landing` on there is no recipe to hand. */
-	if (!ruleSubject) return null;
-	return {
-		injectRules: ["pull-fast-forward"],
-		skip: ruleUnlessModule(ctx, "landing", ["pull-fast-forward"]),
-	};
+	return null;
 }
 
 /**

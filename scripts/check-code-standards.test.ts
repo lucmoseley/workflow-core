@@ -185,7 +185,7 @@ describe("quotation-paired pins", () => {
 
 describe("pairing — what a quotation is answerable to", () => {
 	it("leaves a quotation alone when the span before it is a path with no line number", () => {
-		// The §N4 shape: a rule pins check.js, then quotes check-test-marker.js's
+		// The §N4 shape: a rule pins check.js, then quotes another script's
 		// header, which carries no pin. Checking that quotation against the
 		// check.js pin is a FALSE FINDING.
 		track("lib/a.ts", SUBJECT);

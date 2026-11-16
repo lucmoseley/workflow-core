@@ -104,15 +104,20 @@ const failOpenLog = () => readFailOpenLog(config, shared);
 
 /* The store's Node accessor, so a test asks for a rule by id rather than
  * holding a second copy of its text. It renders a fragment as the guard does
- * in the fixture host: push-cadence's `{command:}` lines expand against the
- * config of CLAUDE_PROJECT_DIR, read at call time. */
+ * in the fixture host: push-cadence-landing's `{command:}` lines expand
+ * against the config of CLAUDE_PROJECT_DIR, read at call time. */
 const { readRuleText } = createRequire(__filename)("./lib/rule-text") as {
 	readRuleText: (id: string) => string;
 };
 
 /* What a commit naming no gated path is handed, in `injectRules` order. */
 const commitRule = () =>
-	["commit-pathspec", "commit-show-diff", "commit-message", "push-cadence"]
+	[
+		"commit-pathspec",
+		"commit-show-diff",
+		"commit-message",
+		"push-cadence-landing",
+	]
 		.map((id) => readRuleText(id))
 		.join("\n\n");
 
@@ -215,7 +220,7 @@ describe("the commit rules are handed over once a session", () => {
 	it("hands the push rule on a session's first commit-paths.js call and not its second (#2285)", () => {
 		const command = 'node scripts/commit-paths.js -m "x" -- a.md';
 		expect(emission(command, "cp-push").additionalContext).toContain(
-			readRuleText("push-cadence"),
+			readRuleText("push-cadence-landing"),
 		);
 		expect(emission(command, "cp-push")).toBeNull();
 	});
@@ -236,9 +241,9 @@ describe("the commit rules are handed over once a session", () => {
 		const first = emission(command, "wide", at).additionalContext as string;
 		expect(Buffer.byteLength(first, "utf8")).toBeLessThanOrEqual(4000);
 		expect(first).toContain(readRuleText("machinery-superseded"));
-		expect(first).not.toContain(readRuleText("push-cadence"));
+		expect(first).not.toContain(readRuleText("push-cadence-landing"));
 		expect(emission(command, "wide", at).additionalContext).toBe(
-			readRuleText("push-cadence"),
+			readRuleText("push-cadence-landing"),
 		);
 	});
 });

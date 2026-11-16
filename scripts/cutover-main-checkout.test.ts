@@ -62,7 +62,6 @@ const run = (cwd: string, ...args: string[]) => {
 		WFC_CLAUDE_CONFIG_C: config,
 		WFC_CLAUDE_BIN: path.join(config, "bin", "claude"),
 		WFC_NPM: path.join(tmp, "npm"),
-		WFC_MODULES: "landing",
 	};
 	delete env.CLAUDE_CODE_SESSION_ID;
 	return runInProcess(SCRIPT, args, { cwd, env });
@@ -168,6 +167,29 @@ it("exits 1 naming the git that failed", () => {
 		/^cutover: failed: git fetch --quiet origin main failed in /,
 	);
 	expect(upstream()).toBe("refs/heads/landing");
+});
+
+it("exits 1, cutting nothing over, while another run holds the cutover's lock", () => {
+	listSessionIn(tmp);
+	const holder = spawn("sh", ["-c", "sleep 60", "cutover-main-checkout.js"], {
+		stdio: "ignore",
+	});
+	try {
+		fs.writeFileSync(
+			path.join(main, ".git", "wfc-cutover.pid"),
+			`${holder.pid}\n`,
+		);
+
+		const r = run(main);
+
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			"another run is cutting the main checkout over now",
+		);
+		expect(upstream()).toBe("refs/heads/landing");
+	} finally {
+		holder.kill();
+	}
 });
 
 it("exits 1 from a directory no main checkout holds", () => {

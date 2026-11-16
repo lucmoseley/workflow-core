@@ -8,8 +8,7 @@
  *     the session that cut it lives
  *   node scripts/session-checkout.js launch-dir [--no-build] [--into <worktree>] <prompt>
  *     prints the directory a session launched on <prompt> starts in: a
- *     worktree cut for it, or the main checkout where `landing` is off;
- *     with --into, that existing session worktree, refused where a live
+ *     worktree cut for it; with --into, that existing session worktree, refused where a live
  *     process still works in it; with --no-build, a cut or attach finding no
  *     dependency store refuses rather than build one
  *   node scripts/session-checkout.js warm
@@ -189,7 +188,7 @@ const RUN = {
 		writeFd(
 			2,
 			made === null
-				? `session checkout: no landing module, or no lockfile on ${VERIFIED_REF}, so no store is warmed\n`
+				? `session checkout: no lockfile on ${VERIFIED_REF}, so no store is warmed\n`
 				: `session checkout: ${VERIFIED_REF}'s lockfile uses ${made.store}${WARMED[made.state]}\n`,
 		);
 	},

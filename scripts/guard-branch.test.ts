@@ -134,21 +134,11 @@ describe("the guard, end to end", () => {
 		).not.toBeNull();
 	});
 
-	it.each([
-		["landing", true],
-		["suites", false],
-	])(
-		"hands the origin/landing upstream line only with the landing module on — modules %s (#2409)",
-		(modules, told) => {
-			const out = emission("git checkout main", {
-				env: { WFC_MODULES: modules },
-			});
-			expect(out.additionalContext).toContain(
-				readRuleText("branch-shared-tree"),
-			);
-			expect(out.additionalContext.includes("origin/landing")).toBe(told);
-		},
-	);
+	it("hands the origin/landing upstream line with the shared-tree rule (#2409)", () => {
+		const out = emission("git checkout main");
+		expect(out.additionalContext).toContain(readRuleText("branch-shared-tree"));
+		expect(out.additionalContext).toContain("origin/landing");
+	});
 
 	it("passes the whole sanctioned recipe in silence, logging nothing (mantahostels#208)", () => {
 		const fresh = path.join(dir, "recipe-wt");

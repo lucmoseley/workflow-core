@@ -8,10 +8,9 @@
  * exactly — the launcher's, a neighbour's, an unledgered one, a shared-file
  * one — since this repo's own range moves under parallel sessions.
  *
- * run-vitest.js narrows a bare `npm run test` and push-check.js names a
- * range's owners through it, so a loosened case lets a run skip a session's
- * own work and still count as its certificate at the push, or re-test every
- * neighbour's.
+ * run-vitest.js narrows a bare `npm run test` through it, so a loosened case
+ * lets a run skip a session's own work and still count as its certificate,
+ * or re-test every neighbour's.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";

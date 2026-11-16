@@ -5,8 +5,8 @@
  * why no in-worker timeout can do this job, is in scripts/lib/test-inflight.js.
  *
  * A SECOND REPORTER RATHER THAN A BRANCH IN vitest-pass-reporter.ts. That one
- * carries a "must never turn a passing suite red" contract around a marker the
- * push gate reads; this one writes a scratch file nothing gates on.
+ * carries a "must never turn a passing suite red" contract around a marker
+ * `attestationOf` reads; this one writes a scratch file nothing gates on.
  *
  * ONLY THE QUEUED/END PAIR BOUNDS A MODULE. `onTestModuleCollected` sits between
  * them and is recorded as a stage change, not as an exit. The same pair times

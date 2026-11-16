@@ -19,7 +19,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildAgentsBranch, buildListedRow } from "./lib/agents-stop-fake";
 import {
 	AS_ROOT,
@@ -49,6 +49,10 @@ const sb = freshSandbox((fresh) => {
 	fs.writeFileSync(path.join(fresh.repo, "c.txt"), "seed\n");
 	gitRepo(fresh);
 	commitAll(fresh);
+	/* Not cut over: `main` tracks `landing`, so the 24-hour window holds. */
+	spawnSync("git", ["config", "branch.main.merge", "refs/heads/landing"], {
+		cwd: fresh.repo,
+	});
 	// Never an empty list: the oracle reads `[]` as a refusal.
 	fakeClaude("bystander");
 	fakeFiler();
@@ -940,22 +944,24 @@ describe("a linked worktree's dirt", () => {
 });
 
 /*
- * Seam 2 (#4317, spec #4229): with the `landing` module on and the sandbox's `main`
- * tracking no `landing` upstream, the main checkout is cut over, so #4248's
- * refusal holds every session out of it and its dirt is judged at once.
+ * Seam 2 (#4317, spec #4229): with the sandbox's `main` tracking no `landing`
+ * upstream, the main checkout is cut over, so #4248's refusal holds every
+ * session out of it and its dirt is judged at once.
  */
 describe("a cut-over main checkout's dirt", () => {
-	const landingOn = (args: string[] = []) =>
-		run(args, false, {
-			WFC_MODULES: `${process.env.WFC_MODULES},landing`,
+	beforeEach(() => {
+		spawnSync("git", ["config", "--unset", "branch.main.merge"], {
+			cwd: sb.repo,
 		});
+	});
+	const cutOver = (args: string[] = []) => run(args, false);
 
 	it("is an orphan on the first run, whatever its age, naming its ledger's last writer", async () => {
 		dirty("a.txt", 0);
 		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
 		fs.writeFileSync(store.paths.ledger("gone-writer"), "a.txt\n");
 
-		const r = await landingOn();
+		const r = await cutOver();
 
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("ORPHANED-EDIT (1)");
@@ -970,7 +976,7 @@ describe("a cut-over main checkout's dirt", () => {
 		fs.mkdirSync(store.paths.writesDir(), { recursive: true });
 		fs.writeFileSync(store.paths.ledger("live-writer"), "a.txt\n");
 
-		const r = await landingOn();
+		const r = await cutOver();
 
 		expect(r.status).toBe(0);
 		expect(r.out).toContain(
@@ -984,7 +990,7 @@ describe("a cut-over main checkout's dirt", () => {
 			cwd: sb.repo,
 		});
 
-		const data = JSON.parse((await landingOn(["--json"])).stdout);
+		const data = JSON.parse((await cutOver(["--json"])).stdout);
 
 		expect(data.mainCutOver).toBe(false);
 		expect(data.orphanCount).toBe(0);
@@ -1007,7 +1013,6 @@ describe("a cut-over main checkout's dirt", () => {
 			const r = await runInProcessAsync(SCRIPT, [...args, "--write"], {
 				env: {
 					...process.env,
-					WFC_MODULES: `${process.env.WFC_MODULES},landing`,
 					GITHUB_ACTIONS: "",
 					WFC_ORACLE_CACHE: "0",
 					CLAUDE_PROJECT_DIR: tree,
@@ -1073,7 +1078,7 @@ describe("a cut-over main checkout's dirt", () => {
 		});
 		fs.writeFileSync(path.join(wt, "a.txt"), "worktree edit\n");
 
-		const data = JSON.parse((await landingOn(["--json"])).stdout);
+		const data = JSON.parse((await cutOver(["--json"])).stdout);
 
 		expect(data.mainCutOver).toBe(true);
 		expect(data.orphanCount).toBe(0);

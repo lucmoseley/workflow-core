@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * The twelfth refusal (mantahostels#2487): a background job ending on `waiting:` with
+ * The eleventh refusal (mantahostels#2487): a background job ending on `waiting:` with
  * nothing running to wake it. Driven through the Stop hook in process, as a
  * background job unless a case says otherwise, with the transcript named on
  * the payload the way the harness names it.

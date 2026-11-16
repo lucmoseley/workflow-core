@@ -104,15 +104,13 @@ function groupByPrefix(parts) {
 
 /**
  * Which of the live groups this turn blocks on, against the session ceiling,
- * from each group's tier alone. The after-batch tier is read only where no
- * other group blocks.
+ * from each group's tier alone.
  * @param {PrefixGroup[]} live
  * @param {(max: number) => boolean} ceilingAt whether the ceiling counter has
  *   reached `max`
- * @param {() => PrefixGroup[]} [afterBatch] the after-batch tier's live groups
  * @returns {CeilingPlan}
  */
-function ceilingPlan(live, ceilingAt, afterBatch = () => []) {
+function ceilingPlan(live, ceilingAt) {
 	/** @type {(tier: Limb["tier"]) => (group: PrefixGroup) => boolean} */
 	const inTier = (tier) => (group) => tierOf(group) === tier;
 	const underCeiling = live.filter(
@@ -134,7 +132,7 @@ function ceilingPlan(live, ceilingAt, afterBatch = () => []) {
 		? live
 		: live.filter(inTier("outside-ceiling"));
 	return {
-		blocking: blocking.length > 0 ? blocking : afterBatch(),
+		blocking,
 		chargesCeiling,
 		last,
 		shapeLast,

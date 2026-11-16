@@ -1,5 +1,5 @@
 /*
- * The half of the pre-push marker that knows whether the suite passed (mantahostels#987).
+ * The half of the suite marker that knows whether the suite passed (mantahostels#987).
  *
  * globalSetup's teardown holds the tree-drift findings and runs last, but is
  * told nothing about the result; a reporter is told the result and runs first.
@@ -16,7 +16,7 @@
  * denominator without storing one.
  *
  * IT MUST NEVER TURN A PASSING SUITE RED. Every scope read is wrapped: a failure
- * records no scope, which reads as unknown at the push (mantahostels#1230), and says so on
+ * records no scope, which reads as unknown (mantahostels#1230), and says so on
  * stdout so the unknown met hours later is traceable to this run.
  *
  * IMPLICIT:  records every suite run's verdict, scope and closure, the files the launcher's pass store cached folded in, for the globalSetup teardown to stamp into the pre-push marker, and each file's own verdict and imports for the pass store (#4790), writes that marker itself on an empty selection, and prints a line on a filtered or unrecorded scope.

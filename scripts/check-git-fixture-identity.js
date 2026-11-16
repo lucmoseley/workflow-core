@@ -138,7 +138,7 @@ const INIT_PATH_VAR = new RegExp(`,\\s*(${REPO_VAR})\\s*,?\\s*$`);
  * formatter broke it — `execFileSync("git", ["commit", ...], {\n  cwd:
  * sb.repo,\n});` (scripts/session-arbiter.test.ts:3044-3046) is a worked case.
  * A `for (const args of [["config", "user.email", ...], ...]) spawnSync("git",
- * args, { cwd: dir });` loop (scripts/check-test-marker.test.ts's shape) is
+ * args, { cwd: dir });` loop is
  * also one statement end to end, so `user.email` inside the array literal and
  * `dir` in the loop body pair correctly even though neither line names the
  * other directly.

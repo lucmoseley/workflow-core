@@ -129,8 +129,8 @@ function readAuditsOrNone() {
  * that export stays zero-arg and this is the only way in (mantahostels#2182).
  *
  * `runTeardown` is exported and `rootOverride` is unguarded: any caller, not
- * only a test, can redirect the pre-push marker write away from the store
- * `check-test-marker.js` and the push gate actually read.
+ * only a test, can redirect the marker write away from the store
+ * `attestationOf` actually reads.
  */
 export function runTeardown(rootOverride?: string | null) {
 	const { before, after, drifted, steadiness } = (
@@ -184,8 +184,8 @@ export function runTeardown(rootOverride?: string | null) {
 
 	/*
 	 * The red half (mantahostels#1942), carrying the failing names in `scope.failures`. It
-	 * gates nothing: no certificate is recorded here, and `check-test-marker.js` reads
-	 * the certificate store alone, so a red sha still warns exactly as it did before.
+	 * gates nothing: no certificate is recorded here, and `attestationOf` reads
+	 * the certificate store alone, so a red sha attests nothing.
 	 *
 	 * `outcome === false` and not `!== true`: a null outcome means the reporter
 	 * never ran, so nothing observed the result and there is nothing to attest,

@@ -1,12 +1,11 @@
 // @vitest-environment node
 /*
- * The `landing` module on an adopter, against lib/lander-testkit.ts's real
- * bare remote and clone: its `.claude/workflow-core.json` turns the module on
- * or leaves it off, and every module read here is that file's, the suite's
- * WFC_MODULES cleared. Each push runs the adopter's pre-push hook, the
+ * Landing on an adopter, against lib/lander-testkit.ts's real bare remote and
+ * clone: every module read here is its `.claude/workflow-core.json`'s, the
+ * suite's WFC_MODULES cleared. Each push runs the adopter's pre-push hook, the
  * plugin's `.husky/pre-push`, as an adopter's `core.hooksPath` runs it.
  *
- * On, with no `landingTester` named, the queue lander's tester is the local
+ * With no `landingTester` named, the queue lander's tester is the local
  * one (lib/local-tester.js), running the adopter's `commands.test` at each
  * sha. The lander run is driven in process through lib/queue-lander-deps.js,
  * the wiring scripts/queue-lander.js runs, over the stub tracker and the
@@ -19,16 +18,13 @@
  * two routes it holds an adopter to.
  *
  * Loosen it and an adopter's queue ref never lands through its local tester,
- * a red member's isolation runs beside another's or the red one lands, or,
- * with the module off, a push to `main` is refused by the pre-push hook or
- * the publish guard, or a hook hands the session text naming the queue.
+ * or a red member's isolation runs beside another's or the red one lands.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { renderSessionRules } from "./lib/adopter-skeleton.js";
-import { runEventCores, toolCall } from "./lib/guard-core-testkit";
+import { runEventCores } from "./lib/guard-core-testkit";
 import { readJsonl } from "./lib/jsonl.js";
 import { queueLanderFiles } from "./lib/lander-files.js";
 import {
@@ -43,26 +39,15 @@ import {
 	work,
 } from "./lib/lander-testkit";
 import { buildBashPayload } from "./lib/pretool-guard-testkit";
-import { projectSlug } from "./lib/project-slug.js";
 import { runQueueLander } from "./lib/queue-lander.js";
 import { buildLanderDeps } from "./lib/queue-lander-deps.js";
 import { queueLogFile } from "./lib/queue-log.js";
 import { readRuleText } from "./lib/rule-text.js";
-import { runInProcess } from "./lib/run-in-process.js";
-import { readStopGuardBlock } from "./lib/stop-guard-testkit";
 import { admitted, peakHeld } from "./lib/suite-slot-fake";
-import { readConfig } from "./lib/workflow-core-config.js";
 
 landerSandbox();
 
 const ROOT = path.resolve(__dirname, "..");
-/* The store an adopter's fragments resolve to: the plugin's own. */
-const RULES = path.resolve(__dirname, "..", "docs", "agents", "rules");
-
-/* The text naming the queue: a queue ref, the queue lander, or a ref it
- * alone writes. */
-const QUEUE_TEXT = /queue ref|queue\/|queue lander|lander\/|dropped\//;
-
 /* A runner that runs each `*.check.js` the tree holds and prints vitest's
  * FAIL line for each one that throws. */
 const RUNNER = `const fs = require("node:fs");
@@ -167,9 +152,9 @@ const enqueued = () =>
 		.filter((row) => row.event === "enqueue")
 		.map((row) => [row.ref, row.sha]);
 
-describe("with the landing module on and the local tester", () => {
+describe("an adopter with the local tester", () => {
 	it("lands a session's queue ref on main through the local tester", async () => {
-		const base = adopt(["landing"]);
+		const base = adopt([]);
 		expect(
 			JSON.parse(
 				fs.readFileSync(
@@ -191,7 +176,7 @@ describe("with the landing module on and the local tester", () => {
 	});
 
 	it("isolates a red member serially under the one slot, dropping it and landing the green one", async () => {
-		const base = adopt(["landing"]);
+		const base = adopt([]);
 		const a = pushQueue("a", base, "");
 		const b = pushQueue("b", base, "throw new Error('red')");
 
@@ -245,7 +230,7 @@ describe("with the landing module on and the local tester", () => {
 	});
 
 	it("refuses a push to main through the pre-push hook and the publish guard", () => {
-		const base = adopt(["landing"]);
+		const base = adopt([]);
 		write("next.txt", "next");
 		commit("next");
 
@@ -259,147 +244,5 @@ describe("with the landing module on and the local tester", () => {
 		expect(output?.permissionDecisionReason).toContain(
 			readRuleText("branch-publish-landing", work),
 		);
-	});
-});
-
-describe("with the landing module off", () => {
-	/* Each fragment naming the queue, as this host's sessions would read it. */
-	const queueRules = () =>
-		fs
-			.readdirSync(RULES)
-			.filter((f) => f.endsWith(".txt"))
-			.map((f) => f.replace(/\.txt$/, ""))
-			.filter((id) => QUEUE_TEXT.test(readRuleText(id, work)));
-
-	const told = (text: string) => {
-		for (const id of queueRules()) {
-			expect(text).not.toContain(readRuleText(id, work));
-			expect(text).not.toContain(`rule:${id}`);
-		}
-		expect(text).not.toMatch(QUEUE_TEXT);
-	};
-
-	it("reads every fragment naming the queue as one", () => {
-		adopt([]);
-		expect(queueRules()).toEqual(
-			expect.arrayContaining([
-				"queue-ref",
-				"branch-publish-landing",
-				"push-cadence-landing",
-				"review-ultra-axis-landing",
-			]),
-		);
-		expect(queueRules()).not.toContain("review-ultra-axis");
-	});
-
-	it("passes a push to main through the pre-push hook, its gates run, and names no queue", () => {
-		const base = adopt([]);
-		write("next.txt", "next");
-		const sha = commit("next");
-
-		const pushed = push("HEAD:main");
-
-		expect(pushed.status, pushed.stderr).toBe(0);
-		expect(git(remote, "rev-parse", "main")).toBe(sha);
-		expect(sha).not.toBe(base);
-		expect(pushed.stderr).toContain('SKIP: module "suites" is off');
-		expect(pushed.stderr).not.toContain("not checked");
-		told(pushed.stderr);
-	});
-
-	it("passes a push to main through every PreToolUse core, and no core of any event names the queue", () => {
-		adopt([]);
-		for (const command of [
-			"git push origin HEAD:main",
-			"git push origin main",
-			"git commit -qm next",
-		]) {
-			const output = cores(buildBashPayload(command));
-			expect(output?.permissionDecision ?? "allow", command).not.toBe("deny");
-			told(JSON.stringify(output ?? {}));
-		}
-		const review = cores(
-			toolCall("Skill", { skill: "workflow-core:code-review" }),
-		);
-		expect(review?.additionalContext).toContain(
-			readRuleText("review-ultra-axis", work),
-		);
-		told(JSON.stringify(review));
-		const toWrite = { file_path: path.join(work, "x.md"), content: "x\n" };
-		const edit = {
-			file_path: path.join(work, "run.js"),
-			old_string: "red",
-			new_string: "failed",
-		};
-		const agent = { description: "d", prompt: "p", subagent_type: "Explore" };
-		for (const [tool, input] of [
-			["Write", toWrite],
-			["Edit", edit],
-			["Agent", agent],
-		] as const)
-			told(JSON.stringify(cores(toolCall(tool, input))));
-		for (const [tool, input] of [
-			["Bash", { command: "git push origin HEAD:main" }],
-			["Write", toWrite],
-		] as const)
-			told(
-				JSON.stringify(
-					cores(
-						toolCall(tool, input, { tool_response: { stdout: "" } }),
-						"PostToolUse",
-					),
-				),
-			);
-	});
-
-	it("hands no queue text at session start or at a stop with work unpushed", () => {
-		adopt([]);
-		write("next.txt", "next");
-		const sha = commit("next");
-		told(
-			renderSessionRules({
-				modules: readConfig({ root: work, quiet: true }).modules,
-				founder: "A Founder",
-				pluginRoot: ROOT,
-				ciCheck: null,
-			}),
-		);
-		for (const prompt of ["/implement 1", "/code-review"]) {
-			const started = runInProcess(
-				path.join(ROOT, "scripts", "inject-tracker-docs.js"),
-				[],
-				{
-					stdin: JSON.stringify({
-						session_id: `s-${prompt}`,
-						hook_event_name: "SessionStart",
-						prompt,
-					}),
-					env: {
-						...process.env,
-						CLAUDE_PROJECT_DIR: work,
-						CLAUDE_PLUGIN_ROOT: ROOT,
-						CLAUDE_JOB_DIR: "",
-						CLAUDE_CODE_SESSION_ID: "",
-						CLAUDE_CONFIG_DIR: path.join(tmp, "config"),
-						TMPDIR: tmp,
-						WFC_GH: "false",
-						WFC_MODULES: undefined,
-					},
-				},
-			);
-			expect(started.status, started.stderr).toBe(0);
-			expect(started.stdout, prompt).not.toBe("");
-			told(started.stdout);
-		}
-		const config = path.join(tmp, "config");
-		const commits = path.join(config, "projects", projectSlug(work), "commits");
-		fs.mkdirSync(commits, { recursive: true });
-		fs.writeFileSync(path.join(commits, "s-stop.txt"), `${sha}\n`);
-		const stop = readStopGuardBlock(
-			path.join(ROOT, "scripts", "guard-unpushed-commits.js"),
-			{ dir: work, sid: "s-stop", config, message: "result: done." },
-		);
-		expect(stop?.reason).toContain("push to `origin/main`");
-		told(stop?.reason ?? "");
 	});
 });

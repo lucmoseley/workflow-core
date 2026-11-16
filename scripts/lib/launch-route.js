@@ -35,11 +35,11 @@ const ISOLATED_FLAG = "--isolated";
 const SHARED_FLAG = "--shared";
 
 /*
- * `--full`: THE ESCAPE FROM mantahostels#3208'S DEFAULT NARROWING.
+ * `--full`: THE ESCAPE FROM THE TOUCHED DEFAULT.
  *
  * A session that types `--full=<cause>` gets the isolated whole-suite path
  * unconditionally, a bare `--full` being refused (below); full-shaped argv
- * without it takes the narrowed path in run-vitest.js's `runDefault` instead.
+ * without it is a touched run (#2930).
  */
 const FULL_FLAG = "--full";
 
@@ -111,8 +111,7 @@ const NAME_FILTER_FLAGS = new Set(["-t", "--testNamePattern"]);
  * `--full`, bare or with a cause) is FULL-SHAPED — no `--changed`, `--adopt`
  * or `--retest`, no name filter, no test file named.
  * Under `--full` this is the scope mantahostels#2278 isolates by default;
- * bare, it is what run-vitest.js's `runDefault` narrows to the diff instead,
- * escalating only where that narrowing would be worthless (mantahostels#3208).
+ * bare, it is a touched run (#2930).
  *
  * BEYOND THOSE FLAGS, ONLY A WORD SHAPED LIKE A TEST FILE DISQUALIFIES IT,
  * matched with the same `JS_TEST_FILE` regex vitest-collected.js's
@@ -140,15 +139,12 @@ function isFullRunArgv(argv) {
 /**
  * @typedef {object} LaunchRoute
  * @property {string[]} rest argv stripped of the wrapper flags
- * @property {"full"|"bare"|"touched"|"changed"|"named"} kind the launch's
+ * @property {"full"|"touched"|"changed"|"named"} kind the launch's
  *   shape, which the run and the probe dispatch on and the queue-exit log
- *   names: `touched` is bare argv under the `landing` module (#2930)
+ *   names: `touched` is bare argv (#2930)
  * @property {Tree} tree the route intended
  * @property {Tree} fallback where the launch runs once its overlay will not
  *   build; `tree` itself on every other route
- * @property {Tree|null} escalation where a bare run's escalation to the whole
- *   suite runs; null on every other kind, `touched` included, which never
- *   escalates
  * @property {"full"|"diff"|"own"|"changed"|"adopt"|"retest"|"named"} source
  *   what the selection is taken from: the whole suite, the diff against the
  *   default's base, the session's own work, `--changed`'s diff, the adopted
@@ -162,16 +158,15 @@ function isFullRunArgv(argv) {
  * overlay that will not build runs on `fallback` instead, and the probe reads
  * the route intended.
  *
- * A session id overlays a bare run, `--isolated` or not, and a bare
+ * A session id overlays a touched run, `--isolated` or not, and a bare
  * `--changed` or a `--retest` unless `--isolated` was typed (#812, #1217,
- * #1860), as it does a touched run. `--shared` beats every other flag.
+ * #1860). `--shared` beats every other flag.
  *
  * @param {string[]} argv the raw argv, `--full` already vetted
  * @param {string|null} sessionId
- * @param {{ landing?: boolean }} [modules] whether the `landing` module is on
  * @returns {LaunchRoute}
  */
-function launchRoute(argv, sessionId, { landing = false } = {}) {
+function launchRoute(argv, sessionId) {
 	const rest = stripWrapperFlags(argv);
 	const shared = argv.includes(SHARED_FLAG);
 	const isolated = !shared && argv.includes(ISOLATED_FLAG);
@@ -179,12 +174,11 @@ function launchRoute(argv, sessionId, { landing = false } = {}) {
 	const fullShaped = isFullRunArgv(rest);
 	const changed = changedFlag(rest);
 	const session = sessionId || null;
-	const kind = routeKind(full, fullShaped, changed, landing);
+	const kind = routeKind(full, fullShaped, changed);
 	const overlaid =
 		!shared &&
 		session !== null &&
-		(kind === "bare" ||
-			kind === "touched" ||
+		(kind === "touched" ||
 			(!isolated &&
 				((kind === "changed" && isChangedOnlyArgv(rest) && !changed?.ref) ||
 					isRetestOnlyArgv(rest))));
@@ -197,7 +191,6 @@ function launchRoute(argv, sessionId, { landing = false } = {}) {
 		kind,
 		tree: overlaid ? "overlay" : settled,
 		fallback: settled,
-		escalation: kind === "bare" ? frozen : null,
 		source: routeSource({ overlaid, fullShaped, full, changed, rest }),
 		sessionId: session,
 	};
@@ -219,12 +212,11 @@ const isTouchedRun = (route) =>
  * @param {boolean} full
  * @param {boolean} fullShaped
  * @param {ReturnType<typeof changedFlag>} changed
- * @param {boolean} landing
  * @returns {LaunchRoute["kind"]}
  */
-function routeKind(full, fullShaped, changed, landing) {
+function routeKind(full, fullShaped, changed) {
 	if (full) return "full";
-	if (fullShaped) return landing ? "touched" : "bare";
+	if (fullShaped) return "touched";
 	return changed ? "changed" : "named";
 }
 

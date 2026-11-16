@@ -1,14 +1,12 @@
 // @vitest-environment node
 /*
  * Pins the one choice of which remote ref the "what has been pushed" readers
- * read (#2408, #4458): with the `landing` module on, a session worktree's own
- * `origin/queue/<name>` where it stands, else `origin/main`; `origin/main`
- * with the module off or on a config that will not read. Every pushed reader
- * calls it, so a wrong answer moves push coverage, the unpushed count and
- * commit-ledger status onto a ref the session does not push to.
+ * read (#2408, #4458): a session worktree's own `origin/queue/<name>` where
+ * it stands, else `origin/main`. Every pushed reader calls it, so a wrong
+ * answer moves push coverage, the unpushed count and commit-ledger status
+ * onto a ref the session does not push to.
  *
- * A throwaway host per test, never this one, since this checkout's own config
- * is what the answer turns on.
+ * A throwaway host per test, never this one.
  */
 
 import { execFileSync } from "node:child_process";
@@ -16,7 +14,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./run-in-process";
 
 const { ownQueueRef, pushedRef, readUnpushedRef } =
@@ -25,18 +23,8 @@ const SCRIPT = path.join(__dirname, "landing-refs.js");
 
 let root: string;
 
-/** A host declaring `modules` in its config, or `raw` as the file's bytes. */
-function host(modules: string[] | null, raw?: string) {
-	fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
-	fs.writeFileSync(
-		path.join(root, ".claude/workflow-core.json"),
-		raw ?? JSON.stringify({ contract: 1, modules }),
-	);
-}
-
 beforeEach(() => {
 	root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "landing-")));
-	vi.stubEnv("WFC_MODULES", undefined);
 });
 
 afterEach(() => {
@@ -68,67 +56,35 @@ function sessionWorktree(name: string) {
 }
 
 describe("pushedRef", () => {
-	it("is a session worktree's own queue ref once it stands, with the landing module on", () => {
-		host(["suites", "landing"]);
+	it("is a session worktree's own queue ref once it stands", () => {
 		const tree = sessionWorktree("fix-it");
 		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
-		expect(pushedRef({ root, tree })).toBe("origin/queue/fix-it");
+		expect(pushedRef({ tree })).toBe("origin/queue/fix-it");
 	});
 
 	it("is origin/main for a session worktree whose queue ref does not stand", () => {
-		host(["suites", "landing"]);
 		const tree = sessionWorktree("fix-it");
 		gitIn(root, "update-ref", "refs/remotes/origin/queue/other", "HEAD");
-		expect(pushedRef({ root, tree })).toBe("origin/main");
+		expect(pushedRef({ tree })).toBe("origin/main");
 	});
 
 	it("names the queue ref a land pushes for a symlinked path to the worktree", () => {
-		host(["suites", "landing"]);
-		const tree = sessionWorktree("fix-it");
+		sessionWorktree("fix-it");
 		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
 		const link = `${root}-link`;
 		fs.symlinkSync(root, link);
 		try {
 			expect(
-				pushedRef({
-					root,
-					tree: path.join(link, ".claude", "worktrees", "fix-it"),
-				}),
+				pushedRef({ tree: path.join(link, ".claude", "worktrees", "fix-it") }),
 			).toBe("origin/queue/fix-it");
-			expect(pushedRef({ root: link, tree })).toBe("origin/queue/fix-it");
 		} finally {
 			fs.rmSync(link);
 		}
 	});
 
-	it("reads the tree's host's config where no root is named (#4692)", () => {
-		host(["suites", "landing"]);
-		const tree = sessionWorktree("fix-it");
-		fs.mkdirSync(path.join(tree, ".claude"), { recursive: true });
-		fs.writeFileSync(
-			path.join(tree, ".claude/workflow-core.json"),
-			JSON.stringify({ contract: 1, modules: ["suites"] }),
-		);
-		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
-		expect(pushedRef({ tree })).toBe("origin/queue/fix-it");
-	});
-
-	it("is origin/main for the host itself, with the module on", () => {
-		host(["suites", "landing"]);
-		expect(pushedRef({ root })).toBe("origin/main");
-		expect(pushedRef({ root, tree: root })).toBe("origin/main");
-	});
-
-	it("is origin/main where the module is off, the queue ref standing", () => {
-		host(["suites"]);
-		const tree = sessionWorktree("fix-it");
-		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
-		expect(pushedRef({ root, tree })).toBe("origin/main");
-	});
-
-	it("is origin/main where the config will not read", () => {
-		host(null, "{ not json");
-		expect(pushedRef({ root })).toBe("origin/main");
+	it("is origin/main for the host itself, or no tree named", () => {
+		expect(pushedRef({})).toBe("origin/main");
+		expect(pushedRef({ tree: root })).toBe("origin/main");
 	});
 });
 
@@ -160,21 +116,18 @@ describe("readUnpushedRef", () => {
 		);
 	}
 
-	it("is a spike branch's own upstream, whatever the module", () => {
-		host(["landing"]);
+	it("is a spike branch's own upstream", () => {
 		checkout("spike/x", "origin/spike/x");
 		expect(readUnpushedRef({ root })).toBe("origin/spike/x");
 	});
 
 	it("is the pushed ref in a session worktree, its own queue ref", () => {
-		host(["landing"]);
 		const tree = sessionWorktree("fix-it");
 		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
 		expect(readUnpushedRef({ root, tree })).toBe("origin/queue/fix-it");
 	});
 
 	it("is the pushed ref on a branch with no upstream", () => {
-		host(["suites"]);
 		checkout("wip");
 		expect(readUnpushedRef({ root })).toBe("origin/main");
 	});
@@ -216,21 +169,14 @@ describe("the CLI", () => {
 	const cli = (args: string[]) =>
 		runInProcess(SCRIPT, args, { cwd: root, env: { ...process.env } });
 
-	it("prints the pushed ref for the host it is named, main with landing on", () => {
-		host(["landing"]);
+	it("prints the pushed ref for the host it is named, main", () => {
 		const r = cli(["pushed", root]);
 		expect(r.status).toBe(0);
 		expect(r.stdout).toBe("origin/main\n");
 	});
 
-	it("reads the host's config for a linked worktree, not the worktree's own copy (#4692)", () => {
-		host(["suites", "landing"]);
+	it("prints a linked worktree's own queue ref, pushed and unpushed (#4692)", () => {
 		const tree = sessionWorktree("fix-it");
-		fs.mkdirSync(path.join(tree, ".claude"), { recursive: true });
-		fs.writeFileSync(
-			path.join(tree, ".claude/workflow-core.json"),
-			JSON.stringify({ contract: 1, modules: ["suites"] }),
-		);
 		gitIn(root, "update-ref", "refs/remotes/origin/queue/fix-it", "HEAD");
 		for (const [verb, out] of [
 			["pushed", "origin/queue/fix-it"],

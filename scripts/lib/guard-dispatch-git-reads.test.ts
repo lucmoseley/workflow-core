@@ -107,8 +107,8 @@ describe("one PreToolUse call", () => {
 		["git commit -m x -- d.md", /git does not track yet:\\n\\n {2}d\.md/],
 		["git commit -m x -- c.md", /BIOME GATE READS ONLY/],
 		["npm run test", /"hookEventName":"PreToolUse"/],
-		["git push", /PUSH WHEN/],
-		["git pull", /"permissionDecision":"deny".*git pull --ff-only/],
+		["git push", /PUSH YOUR QUEUE REF/],
+		["git pull", /"permissionDecision":"deny".*HEAD or files: git pull/],
 		["gh issue close 1", /tracker rules/],
 	])("runs no argv twice on `%s`, and still answers", (command, answer) => {
 		const { stdout, spawns } = runEntry("Bash", { command });

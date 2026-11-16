@@ -39,10 +39,10 @@ const TEST_LOG_RE = /^TEST LOG: (.+)$/gm;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: ANSI colour codes
 const ANSI_RE = /\u001b\[[0-9;]*m/g;
 
-/* The runner's push-gate and filter lines, as written to the log; their first
- * line only, the rest being explanation. */
-const GATE_LINE_RE = new RegExp(
-	`^(MEETS THE PUSH GATE|NOT ADMISSIBLE|NO PUSH GATE|FILTERED RUN|SUITE STALLED|${CEILING_LINE})\\b`,
+/* The runner's filter, stall and ceiling lines, as written to the log; their
+ * first line only, the rest being explanation. */
+const BANNER_LINE_RE = new RegExp(
+	`^(FILTERED RUN|SUITE STALLED|${CEILING_LINE})\\b`,
 );
 const FAIL_RE = /^\s*FAIL\s/;
 /* An empty selection: vitest ran no file, so printed no verdict to lose
@@ -108,7 +108,7 @@ function parseVerdictLines(text) {
 		if (FAIL_RE.test(line)) {
 			fails += 1;
 			if (fails > MAX_FAIL_LINES) continue;
-		} else if (!VERDICT_RE.test(line) && !GATE_LINE_RE.test(line)) continue;
+		} else if (!VERDICT_RE.test(line) && !BANNER_LINE_RE.test(line)) continue;
 		lines.push(line.length > MAX_LINE ? `${line.slice(0, MAX_LINE)}…` : line);
 	}
 	if (fails > MAX_FAIL_LINES)

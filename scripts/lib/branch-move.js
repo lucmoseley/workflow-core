@@ -70,7 +70,6 @@
  */
 
 const { landingCutOver } = require("./cutover.js");
-const { ruleModule } = require("./rule-gates.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { parseCommand, unsetText, walkGit } = require("./shell-parse.js");
 
@@ -116,7 +115,7 @@ function decide(command, ctx) {
 	/** @type {boolean | undefined} */
 	let cutOver;
 	const readCutOverOnce = () => {
-		if (cutOver === undefined) cutOver = landingCutOver(ctx.moduleOn, ctx.git);
+		if (cutOver === undefined) cutOver = landingCutOver(ctx.git);
 		return cutOver;
 	};
 	let ruleSubject = false;
@@ -143,11 +142,8 @@ function decide(command, ctx) {
 	/* Once cut over, the rule's shared-tree recipe binds no session: each works
 	 * in the worktree the checkout module cut it (#4248). */
 	if (!ruleSubject || readCutOverOnce()) return null;
-	/* With `landing` on, the line naming the cutover rides with it (#2409). */
-	return {
-		injectRules: ["branch-shared-tree", "branch-shared-tree-landing"],
-		skip: [...ruleModule(ctx, "landing", ["branch-shared-tree-landing"])],
-	};
+	/* The line naming the cutover rides with it (#2409). */
+	return { injectRules: ["branch-shared-tree", "branch-shared-tree-landing"] };
 }
 
 /**

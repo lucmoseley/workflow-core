@@ -4,8 +4,6 @@
  * that never merges a Dependabot PR (mantahostels#3351). One core, because
  * both limbs read the same `gh pr` walk. Its production port, the `gh pr view`
  * lookup, is lib/branch-publish-host.js; git reads go through `ctx.git`.
- * With `landing` read as off it stats the lander's green ledger and, where
- * that exists, reads the config again to tell a fault from the module off.
  *
  * DENY, not warn (mantahostels#103): a push's destination ref, a `gh pr
  * create` and a merge of a PR whose author is Dependabot are structured facts,
@@ -16,31 +14,31 @@
  *  - `gh api` creating a pull request: a POST to `repos/<o>/<r>/pulls` —
  *    explicit `-X POST`, or no method and a field or `--input`, which gh sends
  *    as POST — or a `graphql` call whose fields carry `createPullRequest`.
- *  - `git push` whose destination is a branch other than `main` or `spike/*`,
- *    each destination read by lib/push-dests.js. `--all`, `--branches` and
- *    `--mirror` are denied outright.
+ *  - `git push` whose destination is a branch other than `spike/*` or the
+ *    session's own queue ref, `main` included, each destination read by
+ *    lib/push-dests.js. `--all`, `--branches` and `--mirror` are denied
+ *    outright.
  *  - A FORCED push or a deletion whose destination is `main` (#1733): `-f`,
  *    `--force`, `--force-with-lease` or a `+` refspec, and `--delete main` or
  *    `:main` — `heads/main` and git's abbreviations of the two long flags
- *    read the same. It prints docs/agents/rules/main-rewind.txt, framed by
- *    lib/main-rewind.js, or with `landing` on main-rewind-landing.txt.
+ *    read the same. It prints docs/agents/rules/main-rewind-landing.txt,
+ *    through lib/main-rewind.js.
  *  - `gh pr merge` of a Dependabot PR (#2020): a `dependabot/` branch named on
  *    the command, or a PR whose head branch or author `gh pr view` reads as
  *    Dependabot's.
  *
- * WHAT PASSES: a destination of `main` (with `landing` off) or under
- *   `spike/` — a data branch kept off `main` on purpose — or outside
- *   `refs/heads/` (a tag, a note); `--tags` with no refspec; any deletion but
- *   `main`'s; a detached HEAD's bare push, which git itself refuses;
- *   `--help`, `--dry-run`.
+ * WHAT PASSES: a destination under `spike/` — a data branch kept off `main`
+ *   on purpose — or outside `refs/heads/` (a tag, a note); `--tags` with no
+ *   refspec; any deletion but of `main` or a ref the lander manages; a
+ *   detached HEAD's bare push, which git itself refuses; `--help`,
+ *   `--dry-run`.
  *
- * WITH THE `landing` MODULE ON (spec #4458), sessions push their own
- *   queue refs and only the queue lander moves `main`: any push to `main` is
- *   denied, a forced one or a deletion included. Every refusal but the
- *   Dependabot merge's names the session's own queue ref, or the launch where
- *   it has none.
+ * SESSIONS PUSH THEIR OWN QUEUE REFS AND ONLY THE QUEUE LANDER MOVES `main`
+ *   (spec #4458): any push to `main` is denied, a forced one or a deletion
+ *   included. Every refusal but the Dependabot merge's names the session's
+ *   own queue ref, or the launch where it has none.
  *
- * QUEUE REFS, WITH `landing` ON (#4458): a session's own queue ref is
+ * QUEUE REFS (#4458): a session's own queue ref is
  *   `queue/<name>`, `<name>` its worktree's under `.claude/worktrees/` of the
  *   host, read off the session's tree. A push creating or fast-forwarding it
  *   passes. Denied, each refusal naming that own ref: a push to another
@@ -71,19 +69,9 @@
  *    recorded by the walker (mantahostels#147). A `graphql` query it cannot
  *    read back (`$(cat q)`, a `@file` field) is allowed unrecorded: nothing
  *    says it creates anything. A refspec it cannot read (`git push origin
- *    "$B"`) is allowed and recorded: Bash calls share no shell state, so the
- *    name is unknowable here. With `landing` on it is refused instead, naming
- *    the own queue ref: no pre-push limb backstops a queue ref, `lander/*` or
- *    `dropped/*` it could reach (#5235).
- *  - The `landing` module is read through moduleReader, which reads a config
- *    fault as off, logged. Where the canonical checkout's green ledger exists
- *    the guard judges as with `landing` on, each refusal naming the fault and
- *    the leftover ledger to delete where `landing` is off (#5243). With
- *    `landing` truly off, that leftover ledger lets the session's own queue
- *    ref pass, silent. Before the lander's first landing no ledger exists:
- *    the guard then takes the straight-to-`main` route, judging no queue
- *    ref, so an unreadable destination, `main` and a deletion of a queue
- *    ref, `lander/*` or `dropped/*` pass.
+ *    "$B"`) is refused, naming the own queue ref: Bash calls share no shell
+ *    state, so the name is unknowable here, and no pre-push limb backstops a
+ *    queue ref, `lander/*` or `dropped/*` it could reach (#5235).
  *  - A `gh pr merge` naming no `dependabot/` branch costs one `gh pr view`,
  *    under the host's 8 s timeout.
  *    Where the lookup fails — or cannot be aimed: a PR or repo word it
@@ -99,17 +87,13 @@
  *    founder's terminal are not seen, and Dependabot's PRs are opened by
  *    GitHub itself (docs/agents/dependabot.md governs those).
  *
- * The rules it prints are docs/agents/rules/branch-publish.txt, main-rewind.txt
- * and dependabot-merge.txt, and with `landing` on branch-publish-landing.txt in
- * place of the first, main-rewind-landing.txt in place of the second, and
- * queue-ref.txt. A refusal whose
- * fragment cannot be read still refuses, naming the file (mantahostels#1648's
- * store rule), and logs nothing: an unreadable fragment is
- * check-guard-registry.js's assertion.
+ * The rules it prints are docs/agents/rules/branch-publish-landing.txt,
+ * main-rewind-landing.txt, queue-ref.txt and dependabot-merge.txt. A refusal
+ * whose fragment cannot be read still refuses, naming the file
+ * (mantahostels#1648's store rule), and logs nothing: an unreadable fragment
+ * is check-guard-registry.js's assertion.
  */
 
-const fs = require("node:fs");
-const { caught } = require("./caught.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const path = require("node:path");
 const {
@@ -118,8 +102,7 @@ const {
 	ownQueueRef,
 	QUEUE_PREFIX,
 } = require("./landing-refs.js");
-const { queueLanderFiles, standInNotice } = require("./lander-files.js");
-const { landingRewindRule, rewindReason } = require("./main-rewind.js");
+const { landingRewindRule } = require("./main-rewind.js");
 const { readPush } = require("./push-dests.js");
 const { shellQuote } = require("./sh-quote.js");
 const {
@@ -138,7 +121,6 @@ const {
 } = require("./shell-words.js");
 const { treeOr } = require("./tree-or.js");
 const { trimEndRun } = require("./trim-run.js");
-const { readConfig } = require("./workflow-core-config.js");
 const { WORKTREES } = require("./worktree-dirs.js");
 
 /**
@@ -166,124 +148,50 @@ const DEPENDABOT_JQ =
 
 const PULLS_RE = /^repos\/[^/]+\/[^/]+\/pulls\/?(\?.*)?$/;
 
-/* Each id spelt whole at its own call, so the registry's emitter scan reads
- * it. */
-
 /**
- * How work reaches `main`, which decides what a refusal says and whether
- * the lander's refs are judged: through the session's queue ref with the
- * `landing` module on, else straight to `main`. The module is asked here
- * alone.
- * @typedef {object} Route
- * @property {boolean} queued whether work lands through a queue ref
- * @property {(ctx: BranchPublishContext, what: string) => string} reason a
- *   refusal's reason under the publish rule; `what` its opening, "This …"
- * @property {(ctx: BranchPublishContext, what: string) => string} rewind
- *   the reason refusing a forced push or deletion of `main`; `what`
- *   completing "This …"
- */
-
-/** @type {Route} */
-const QUEUED = {
-	queued: true,
-	reason: (ctx, what) =>
-		buildOwnRefReason(
-			ctx,
-			what,
-			ruleOrFallback(
-				ctx,
-				"branch-publish-landing",
-				"Work lands through your session's queue ref — never a push to `main`, no other branch on the remote, and never a pull request",
-			),
-		),
-	/* The lander's reading of the rewind rule. */
-	rewind: (ctx, what) =>
-		buildOwnRefReason(ctx, `This ${what}`, landingRewindRule(ctx)),
-};
-
-/** @type {Route} */
-const DIRECT = {
-	queued: false,
-	reason: (ctx, what) =>
-		`${what}: @CMD@\n\n${ruleOrFallback(
-			ctx,
-			"branch-publish",
-			"Work lands on `main` directly — no branch on the remote, and never a pull request",
-		)}`,
-	/* lib/main-rewind.js's shared refusal. */
-	rewind: rewindReason,
-};
-
-/** @type {WeakMap<BranchPublishContext["moduleOn"], string | null>} */
-const standIns = new WeakMap();
-
-/**
- * The refusal's notice where `landing` reads as off only because the config
- * will not read and the lander's green ledger exists, else null: the ledger
- * then stands in for the module on, as the pre-push limb reads it (#5235,
- * #5243). Read once a module reader's life, keyed on that reader since
- * decide() spreads the context.
- * @param {BranchPublishContext} ctx
- * @returns {string | null}
- */
-function ledgerStandIn(ctx) {
-	const seen = standIns.get(ctx.moduleOn);
-	if (seen !== undefined) return seen;
-	const ledger = queueLanderFiles(ctx.root).ledger;
-	let notice = null;
-	if (fs.existsSync(ledger))
-		try {
-			readConfig({ root: ctx.root, quiet: true });
-		} catch (e) {
-			notice = standInNotice(caught(e).message, ledger, "this push");
-		}
-	standIns.set(ctx.moduleOn, notice);
-	return notice;
-}
-
-/** @param {BranchPublishContext} ctx @returns {Route} */
-const routeOf = (ctx) =>
-	ctx.moduleOn("landing") || ledgerStandIn(ctx) !== null ? QUEUED : DIRECT;
-
-/**
- * A refusal under the publish rule, naming the session's own queue ref with
- * `landing` on.
+ * A refusal under the publish rule, naming the session's own queue ref.
  * @param {BranchPublishContext} ctx
  * @param {string} what the refusal's opening, "This …"
  * @param {string} segment
  * @returns {Refusal}
  */
 const refuse = (ctx, what, segment) => ({
-	reason: routeOf(ctx).reason(ctx, what),
+	reason: buildOwnRefReason(
+		ctx,
+		what,
+		ruleOrFallback(
+			ctx,
+			"branch-publish-landing",
+			"Work lands through your session's queue ref — never a push to `main`, no other branch on the remote, and never a pull request",
+		),
+	),
 	segment,
 });
 
 /**
- * A forced push or deletion of `main`.
+ * A forced push or deletion of `main`, under the lander's reading of the
+ * rewind rule.
  * @param {BranchPublishContext} ctx
  * @param {string} what completing "This …"
  * @param {string} segment
  * @returns {Refusal}
  */
 const mainRewind = (ctx, what, segment) => ({
-	reason: routeOf(ctx).rewind(ctx, what),
+	reason: buildOwnRefReason(ctx, `This ${what}`, landingRewindRule(ctx)),
 	segment,
 });
 
 /**
  * A refusal's reason naming the session's own queue ref, or the launch where
- * it has none, between its opening and `rule`, after ledgerStandIn's notice
- * where there is one.
+ * it has none, between its opening and `rule`.
  * @param {BranchPublishContext} ctx
  * @param {string} what the refusal's opening, "This …"
  * @param {string} rule
  * @param {string | null} [own]
  * @returns {string}
  */
-const buildOwnRefReason = (ctx, what, rule, own = sessionQueueRef(ctx)) => {
-	const notice = ledgerStandIn(ctx);
-	return `${what}: @CMD@\n\n${notice ? `${notice}\n\n` : ""}${ownRefLine(ctx, own)}\n\n${rule}`;
-};
+const buildOwnRefReason = (ctx, what, rule, own = sessionQueueRef(ctx)) =>
+	`${what}: @CMD@\n\n${ownRefLine(ctx, own)}\n\n${rule}`;
 
 /**
  * The session's own queue ref, lib/landing-refs.js's answer, or null where
@@ -394,7 +302,7 @@ const branchNamed = (ref) => ref.replace(/^(refs\/)?heads\//, "");
 
 /**
  * The queue lander's verdict on a push or deletion of `branch`, or undefined
- * where `branch` is none of its refs or the `landing` module is off.
+ * where `branch` is none of its refs.
  * @param {BranchPublishContext} ctx
  * @param {string} segment
  * @param {{ branch: string, forced: boolean, deleted: boolean }} push
@@ -404,7 +312,7 @@ function judgeManaged(ctx, segment, { branch, forced, deleted }) {
 	const prefix = MANAGED.find(
 		(p) => branch.startsWith(p) && branch.length > p.length,
 	);
-	if (!prefix || !routeOf(ctx).queued) return;
+	if (!prefix) return;
 	const own = sessionQueueRef(ctx);
 	const named = `\`${branch}\``;
 	if (prefix !== QUEUE_PREFIX)
@@ -443,13 +351,9 @@ function judgeManaged(ctx, segment, { branch, forced, deleted }) {
 /**
  * Whether publishing `ref`, a full ref, is allowed.
  * @param {string} ref
- * @param {BranchPublishContext} ctx
  */
-function isAllowedDst(ref, ctx) {
-	if (ref.startsWith("refs/heads/spike/")) return true;
-	if (ref === "refs/heads/main") return !routeOf(ctx).queued;
-	return !ref.startsWith("refs/heads/");
-}
+const isAllowedDst = (ref) =>
+	ref.startsWith("refs/heads/spike/") || !ref.startsWith("refs/heads/");
 
 /**
  * @param {BranchPublishContext} ctx
@@ -485,19 +389,12 @@ function judgePush(ctx, spans, { segment, tree, args }) {
 function judgeRow(ctx, segment, row) {
 	if (row.kind === "unread-delete" || row.kind === "unread-push") {
 		const deleted = row.kind === "unread-delete";
-		if (routeOf(ctx).queued)
-			return queueRefusal(
-				ctx,
-				`This ${deleted ? "deletes" : "pushes to"} a ref this guard cannot read, which could be another session's queue ref, \`${LANDER_PREFIX}*\` or \`${DROPPED_PREFIX}*\` — spell the destination out`,
-				sessionQueueRef(ctx),
-				segment,
-			);
-		const what = deleted ? "deletion" : "refspec";
-		ctx.log(
-			`unreadable push ${what} — push allowed unchecked`,
-			unmask(segment),
+		return queueRefusal(
+			ctx,
+			`This ${deleted ? "deletes" : "pushes to"} a ref this guard cannot read, which could be another session's queue ref, \`${LANDER_PREFIX}*\` or \`${DROPPED_PREFIX}*\` — spell the destination out`,
+			sessionQueueRef(ctx),
+			segment,
 		);
-		return null;
 	}
 	return row.kind === "delete"
 		? judgeDelete(ctx, segment, row.ref)
@@ -539,7 +436,7 @@ function judgeDestination(ctx, segment, { ref, forced, bare }) {
 		});
 		if (managed !== undefined) return managed;
 	}
-	if (isAllowedDst(ref, ctx)) return null;
+	if (isAllowedDst(ref)) return null;
 	const branch = branchNamed(ref);
 	if (ref === "refs/heads/main")
 		return refuse(

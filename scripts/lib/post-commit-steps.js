@@ -160,8 +160,8 @@ function unpushedReport(io) {
 	const toplevel = io.readTopLevel();
 	if (toplevel === null) return SILENT;
 	const ref = inProgramScope(scrubbed(io), () => {
-		const { hostOf, readUnpushedRef } = require("./landing-refs.js");
-		return readUnpushedRef({ root: hostOf(toplevel), tree: toplevel });
+		const { readUnpushedRef } = require("./landing-refs.js");
+		return readUnpushedRef({ tree: toplevel });
 	});
 	if (git(io, ["rev-parse", "--verify", "-q", ref]) === null)
 		return {

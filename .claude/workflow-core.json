@@ -21,12 +21,11 @@
 		"typecheck": "npm run typecheck",
 		"check": "npm run check",
 		"check_staged": "npm run check:staged",
-		"push_check": "npm run push:check",
 		"full_test": "npm run test -- --full=push-gate --shared"
 	},
 	"fullTestShards": 2,
 	"landingTester": "actions",
-	"modules": ["roadmap", "suites", "landing"],
+	"modules": ["roadmap", "suites"],
 	"pythonRoutes": {
 		"scripts/**/test_*.py": "test",
 		"scripts/**/*_test.py": "test",

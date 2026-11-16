@@ -210,21 +210,15 @@ process.env.WFC_RULES_DIR ??= path.resolve(
 );
 
 /*
- * EVERY MODULE BUT `landing` IS ON FOR THE SUITE, by the same
- * default-not-override shape: a fixture host carries no
- * `.claude/workflow-core.json`, so a module-gated checker would SKIP on every
- * case that has nothing to do with the gate. A test of the skip deletes
- * `WFC_MODULES` from its child's env, or sets its own. `landing` moves every
- * reader of the pushed base from `origin/main` to the session's queue ref
- * (lib/landing-refs.js), which no fixture's remote holds, so a test of it sets
- * its own (#2408).
+ * EVERY MODULE IS ON FOR THE SUITE, by the same default-not-override shape: a
+ * fixture host carries no `.claude/workflow-core.json`, so a module-gated
+ * checker would SKIP on every case that has nothing to do with the gate. A
+ * test of the skip deletes `WFC_MODULES` from its child's env, or sets its own.
  */
 const config = createRequire(import.meta.url)(
 	"./scripts/lib/workflow-core-config.js",
 );
-process.env.WFC_MODULES ??= config.MODULES.filter(
-	(m: string) => m !== "landing",
-).join(",");
+process.env.WFC_MODULES ??= config.MODULES.join(",");
 
 /* NO HOST LOAD CEILING, outright: `~/.claude/load-ceiling` (#3223)
  * would move every load-hold case's ceiling. */

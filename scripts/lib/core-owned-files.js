@@ -25,7 +25,6 @@ const { isDeepStrictEqual } = require("node:util");
 const {
 	renderSessionRules,
 	renderReference,
-	ciStatusCommand,
 	renderPluginRecord,
 	renderHookShim,
 	isHookShim,
@@ -231,10 +230,8 @@ function bringRules(ctx) {
 		return [];
 	}
 	let config;
-	let ciCheck;
 	try {
 		config = renderConfig(ctx);
-		ciCheck = ciStatusCommand(root);
 	} catch (err) {
 		out(`skipped ${RULES_FILE}: ${caught(err).message}`);
 		return [];
@@ -255,7 +252,6 @@ function bringRules(ctx) {
 				modules: config.modules,
 				founder: config.founder,
 				pluginRoot,
-				ciCheck,
 			}) + (foreign ? provenance(ctx.record, existing) : ""),
 	});
 	if (foreign) {

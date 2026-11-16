@@ -53,7 +53,6 @@ const rendered = renderSessionRules({
 	modules: [],
 	founder: FOUNDER,
 	pluginRoot: ROOT,
-	ciCheck: null,
 });
 
 const adopterSection = (heading: string) =>

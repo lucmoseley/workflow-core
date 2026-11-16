@@ -312,12 +312,17 @@ function stagedRepo(prefix, temps, committed, staged) {
  * `${TMPDIR:-/tmp}/wfc-shellcheck.lock`, which every real commit and `check:sh`
  * run on the machine shares, so under the default a case can wait out
  * serialised.sh's SERIAL_WAIT_S behind a developer's run (#2627, #2648).
- * Inside `.git`, so no `git status` sees it.
+ * Inside the git directory, a linked worktree's own included, so no
+ * `git status` sees it.
  * @param {string} root
  * @returns {string}
  */
 function gateTmpdir(root) {
-	const dir = path.join(root, ".git", "wfc-tmp");
+	const gitDir = execFileSync("git", ["rev-parse", "--absolute-git-dir"], {
+		cwd: root,
+		encoding: "utf8",
+	}).trim();
+	const dir = path.join(gitDir, "wfc-tmp");
 	fs.mkdirSync(dir, { recursive: true });
 	return dir;
 }

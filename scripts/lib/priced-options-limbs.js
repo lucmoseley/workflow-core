@@ -16,9 +16,6 @@
  *   (mantahostels#2544) — within the session ceiling (mantahostels#2786).
  * - `outside-ceiling`: exempt from the ceiling and the shape reserve, bounded
  *   only by its own cap (#1067); a block it shares charges the ceiling once.
- * - `after-batch`: judged only once the batched block has not gone out, on its
- *   own counter — there is no shape to iterate toward, and a cap of 1 is the
- *   escape on a machine that cannot afford a run (mantahostels#1253).
  */
 
 /* A copy of hook-block.js's MAX_BLOCKS, since this file loads nothing;
@@ -46,20 +43,18 @@ const ROUND_CHECK_PREFIX = ".round-check-nagged-";
 /* A still-caught re-send whose research ladder is unclimbed (#2006). */
 const RESEARCH_LADDER_PREFIX = ".research-ladder-nagged-";
 
-const GREEN_SUITE_PREFIX = ".green-suite-nagged-";
-
 /* Not a counter: the questions the close-rivals limb last refused (#489). */
 const CLOSE_RIVALS_RECORD_PREFIX = ".close-rivals-record-";
 /* Not a counter: the questions the under-researched-round limb last refused
  * (#1710). */
 const ROUND_CHECK_RECORD_PREFIX = ".round-check-record-";
 
-/** @typedef {"shape" | "filing" | "outside-ceiling" | "after-batch"} Tier */
+/** @typedef {"shape" | "filing" | "outside-ceiling"} Tier */
 /** @typedef {{ prefix: string, tier: "shape" | "filing", cap: number }} CeilingLimb */
 /* A limb the ceiling exempts carries the name priced-options-ceiling.js's
  * notices list it by, and `recordPrefix` where it keeps a record of the
  * questions it refused, whose shape it then also refuses (#1730, #2062). */
-/** @typedef {{ prefix: string, tier: "outside-ceiling" | "after-batch", cap: number, name: string, recordPrefix?: string }} ExemptLimb */
+/** @typedef {{ prefix: string, tier: "outside-ceiling", cap: number, name: string, recordPrefix?: string }} ExemptLimb */
 /** @typedef {CeilingLimb | ExemptLimb} Limb */
 
 /** @type {Limb[]} */
@@ -96,20 +91,13 @@ const LIMBS = [
 		cap: CAP,
 		name: "research-ladder",
 	},
-	{
-		prefix: GREEN_SUITE_PREFIX,
-		tier: "after-batch",
-		cap: 1,
-		name: "green-suite evidence",
-	},
 ];
 
 /**
  * @param {Limb} limb
  * @returns {limb is ExemptLimb}
  */
-const isExemptLimb = (limb) =>
-	limb.tier === "outside-ceiling" || limb.tier === "after-batch";
+const isExemptLimb = (limb) => limb.tier === "outside-ceiling";
 
 /** Each limb's row, by its prefix. */
 const LIMB_OF = new Map(LIMBS.map((limb) => [limb.prefix, limb]));
@@ -172,5 +160,4 @@ module.exports = {
 	CLOSE_RIVALS_PREFIX,
 	ROUND_CHECK_PREFIX,
 	RESEARCH_LADDER_PREFIX,
-	GREEN_SUITE_PREFIX,
 };

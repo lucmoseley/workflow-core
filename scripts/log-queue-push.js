@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * log-queue-push.js — the pre-push limb of the queue log (#4485, spec
- * #4458): with the `landing` module on, logs each `queue/<name>` update a
+ * #4458): logs each `queue/<name>` update a
  * push to lib/landing-refs.js's remote makes, at push time, for the queue
  * lander to order its batch by (lib/queue-log.js).
  *
@@ -19,7 +19,7 @@ const { parseErrorText } = require("./lib/caught.js");
 const { now } = require("./lib/check.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { parseQueuePushes, REMOTE } = require("./lib/landing-refs.js");
-const { isModuleOnAtHead, runPrePushGate } = require("./lib/pre-push-gate.js");
+const { runPrePushGate } = require("./lib/pre-push-gate.js");
 const { logEnqueue, queueLogFile } = require("./lib/queue-log.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
@@ -37,10 +37,9 @@ function main(argv = process.argv.slice(2)) {
 	const parsed = parseOrCode(argv, { usage: USAGE, min: 1 });
 	if (typeof parsed === "number") return parsed;
 	if (parsed.positionals[0] !== REMOTE) return 0;
-	return runPrePushGate(unlogged, (stdin, tree) => {
+	return runPrePushGate(unlogged, (stdin) => {
 		const pushes = parseQueuePushes(stdin);
-		if (pushes.length === 0 || !isModuleOnAtHead("landing", tree, unlogged))
-			return 0;
+		if (pushes.length === 0) return 0;
 		const root = repoRoot();
 		if (root === null) {
 			unlogged("could not find the canonical checkout");

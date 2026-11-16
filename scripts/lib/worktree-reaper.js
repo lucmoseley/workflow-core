@@ -41,7 +41,6 @@ const {
 	worktreeHolding,
 	worktreeLabel,
 } = require("./session-worktrees.js");
-const { moduleOn } = require("./workflow-core-config.js");
 const {
 	isSessionWorktreeDir,
 	STORES,
@@ -161,10 +160,9 @@ function isHeldByLiveSession(admin, live) {
  * `node_modules/` ignore, matching directories only, would show untracked.
  * @param {string} dir
  * @param {number} now
- * @param {string} root the main checkout
  * @returns {Omit<UnfinishedTree, "filed">}
  */
-function readWorktreeState(dir, now, root) {
+function readWorktreeState(dir, now) {
 	const dirty = git(
 		[
 			"--no-optional-locks",
@@ -183,7 +181,7 @@ function readWorktreeState(dir, now, root) {
 				"--count",
 				"HEAD",
 				"--not",
-				...new Set([VERIFIED_REF, pushedRef({ root, tree: dir })]),
+				...new Set([VERIFIED_REF, pushedRef({ tree: dir })]),
 			],
 			dir,
 		),
@@ -275,7 +273,7 @@ function reapWorktrees(root, { cwds, now, record, common }, out) {
 				standing.push(dir);
 				continue;
 			}
-			const state = readWorktreeState(dir, now, root);
+			const state = readWorktreeState(dir, now);
 			if (state.dirty > 0 || state.unlanded > 0) {
 				out.unfinished.push({
 					...state,
@@ -446,16 +444,12 @@ function reap(cwd) {
 			fetchFailed: null,
 		};
 		const record = path.join(common, REAPED_RECORD);
-		/* With `landing` off no session worktree is cut, and none can be
-		 * judged landed. */
-		const judged = moduleOn("landing", { root });
-		if (judged)
-			try {
-				fetchShared(root);
-			} catch (err) {
-				/* A stale `origin/main` only reads more work as unlanded. */
-				out.fetchFailed = caught(err).message.trim();
-			}
+		try {
+			fetchShared(root);
+		} catch (err) {
+			/* A stale `origin/main` only reads more work as unlanded. */
+			out.fetchFailed = caught(err).message.trim();
+		}
 		out.pruned = prune(root);
 		const base = path.join(root, WORKTREES);
 		if (!fs.existsSync(base)) return out;
@@ -465,11 +459,9 @@ function reap(cwd) {
 			record,
 			common,
 		};
-		const standing = judged
-			? reapWorktrees(root, pass, out)
-			: readWorktreesOrThrow(root);
+		const standing = reapWorktrees(root, pass, out);
 		reapStrays(base, standing, pass, out);
-		reapStores(root, standing, { judged, now }, out);
+		reapStores(root, standing, now, out);
 		return out;
 	} finally {
 		lock.release();

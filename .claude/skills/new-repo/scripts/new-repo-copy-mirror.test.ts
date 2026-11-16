@@ -61,9 +61,7 @@ describe("new-repo.js copying a source repo", () => {
 				'source docs    done — 2 registered in docs/doc-map.md §A under "Source repo docs (octo/surf-lib)"\n',
 			);
 			expect(r.stdout).toContain("reconcile      done — #2 under #1\n");
-			expect(r.stdout).toMatch(
-				/^init-adopter {3}done — .*, modules suites, landing$/m,
-			);
+			expect(r.stdout).toMatch(/^init-adopter {3}done — .*, modules suites$/m);
 
 			// The default branch and tags only: never the stale branch, never a fork.
 			expect(readEndState(s).originRefs).toEqual([
@@ -112,7 +110,7 @@ describe("new-repo.js copying a source repo", () => {
 					"utf8",
 				),
 			);
-			expect(config.modules).toEqual(["suites", "landing"]);
+			expect(config.modules).toEqual(["suites"]);
 			expect(isCutOver(s.clone)).toBe(true);
 			expect(config.commands.test).toBe("npm run test");
 

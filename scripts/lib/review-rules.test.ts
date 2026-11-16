@@ -20,14 +20,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
-import {
-	latchesAt,
-	runCore,
-	splitCheckout,
-	writeHostConfig,
-} from "./guard-core-testkit";
+import { latchesAt, runCore, splitCheckout } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
 
 const { readRuleCap } = require("./rule-emission.js") as {
@@ -56,7 +51,7 @@ const IDS = [
 	"review-dispatch-shape",
 	"review-deviations-read",
 	"review-finding-destination",
-	"review-ultra-axis",
+	"review-ultra-axis-landing",
 ];
 
 /** One per state of the base and the local file (#965); a host gets exactly one. */
@@ -454,7 +449,7 @@ describe("the fragments carry what the review needs", () => {
 				).ticketedRefusal("TICKETED #1\n**Reviewed through:** a1b2c3d"),
 			)?.[1],
 		],
-		["review-ultra-axis", "NEVER START ONE UNASKED."],
+		["review-ultra-axis-landing", "NEVER START ONE UNASKED."],
 	])("%s says %j", (id, clause) => {
 		expect(readRuleText(id)).toContain(clause);
 	});
@@ -580,7 +575,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 				standardsId,
 				"review-deviations-read",
 				"review-finding-destination",
-				"review-ultra-axis",
+				"review-ultra-axis-landing",
 			].map((id) => ctx.indexOf(readRuleText(id)));
 			expect(order.every((at) => at > 0)).toBe(true);
 			expect([...order].sort((a, b) => a - b)).toEqual(order);
@@ -604,20 +599,6 @@ describe("the cases a mutant must not survive (#2792)", () => {
 			}),
 		);
 		expect(logs).toEqual([]);
-	});
-});
-
-/* The ultrareview axis ends on the host's landing route (#2409, #4485). */
-describe("the ultrareview rule's landing twin", () => {
-	it.each([
-		[[], "review-ultra-axis", "review-ultra-axis-landing"],
-		[["landing"], "review-ultra-axis-landing", "review-ultra-axis"],
-	])("with modules %j hands %s, never %s", (modules, told, untold) => {
-		vi.stubEnv("WFC_MODULES", undefined);
-		writeHostConfig(dir, { contract: 1, modules });
-		const ctx = context("code-review");
-		expect(ctx).toContain(readRuleText(told));
-		expect(ctx).not.toContain(readRuleText(untold));
 	});
 });
 

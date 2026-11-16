@@ -38,12 +38,12 @@ let launches: string;
 const git = (...args: string[]) =>
 	execFileSync("git", args, { cwd: repo, encoding: "utf8" });
 
-const run = (command: string, modules = "landing") =>
+const run = (command: string) =>
 	spawnGuard(HOOK, buildBashPayload(command), {
 		project: repo,
 		config: path.join(dir, "config"),
 		cwd: repo,
-		env: { PATH: `${stubs}:${process.env.PATH}`, WFC_MODULES: modules },
+		env: { PATH: `${stubs}:${process.env.PATH}`, WFC_MODULES: "" },
 		timeout: HOOK_TIMEOUT_MS,
 	});
 
@@ -122,7 +122,7 @@ it("starts it from a bare push on a branch named for a queue ref", async () => {
 	expect(await launchRecorded()).toHaveLength(1);
 });
 
-it("starts nothing after a push to another ref or a dry run, or with the module off", async () => {
+it("starts nothing after a push to another ref or a dry run", async () => {
 	fs.writeFileSync(gate, "");
 	for (const command of [
 		"git push origin main",
@@ -130,7 +130,6 @@ it("starts nothing after a push to another ref or a dry run, or with the module 
 		"git push --dry-run origin HEAD:queue/q1",
 	])
 		expect(run(command).status, command).toBe(0);
-	expect(run("git push origin HEAD:queue/q1", "suites").status).toBe(0);
 	/* A control launch after them all: once its record lands, any launch the
 	 * pushes above made has had its chance to land first. */
 	expect(run("git push origin HEAD:queue/q1").status).toBe(0);
@@ -150,7 +149,7 @@ it("reads a bare push's branch in the payload's linked worktree, not the main ch
 			project: repo,
 			config: path.join(dir, "config"),
 			cwd: repo,
-			env: { PATH: `${stubs}:${process.env.PATH}`, WFC_MODULES: "landing" },
+			env: { PATH: `${stubs}:${process.env.PATH}`, WFC_MODULES: "" },
 			timeout: HOOK_TIMEOUT_MS,
 		},
 	);

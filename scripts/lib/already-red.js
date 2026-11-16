@@ -11,7 +11,7 @@
  * uncommitted files caused is no evidence about the base. The newest that
  * holds decides.
  *
- * EVIDENCE, NEVER A LICENCE (lib/session-verdict.js): already red says the
+ * EVIDENCE, NEVER A LICENCE (`EVIDENCE_NOT_LICENCE`): already red says the
  * file failed at the base's content, not that the session's diff leaves it
  * unbroken.
  */

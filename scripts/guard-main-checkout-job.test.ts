@@ -100,7 +100,7 @@ const run = (
 			CLAUDE_CONFIG_DIR: path.join(tmp, "some-other-plan"),
 			WFC_CLAUDE_BIN: fakeClaude,
 			WFC_NPM: path.join(tmp, "npm"),
-			WFC_MODULES: "landing",
+			WFC_MODULES: "",
 			...env,
 		},
 	});
@@ -186,10 +186,9 @@ it("relaunches a job started in the main checkout in a worktree cut for its prom
 	expect(readCalls()).toHaveLength(2);
 });
 
-it("leaves alone an interactive session, a job already in a worktree, a compaction, and a repository without the landing module", () => {
+it("leaves alone an interactive session, a job already in a worktree, and a compaction", () => {
 	expect(run(startup(), { CLAUDE_JOB_DIR: undefined }).status).toBe(0);
 	expect(run({ ...startup(), source: "compact" }).status).toBe(0);
-	expect(run(startup(), { WFC_MODULES: "" }).status).toBe(0);
 	expect(readCalls()).toEqual([]);
 	expect(cutNames()).toEqual([]);
 

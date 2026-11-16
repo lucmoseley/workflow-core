@@ -509,7 +509,7 @@ describe("the run's span", () => {
 	});
 });
 
-describe("whether a filtered run meets the push gate (mantahostels#2146, mantahostels#2207)", () => {
+describe("whether a filtered run is admissible (mantahostels#2146, mantahostels#2207)", () => {
 	it("records the launcher's flag on the scope", async () => {
 		stubLaunch({ admissible: true });
 		const r = new TestPassReporter();

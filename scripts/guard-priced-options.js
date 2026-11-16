@@ -41,7 +41,7 @@
  * shape. IT IS NOT UNWATCHED (#199): scripts/guard-jev-advisory.js reads
  * exactly those messages, **Advisory** and permanently so, and speaks without
  * ever refusing. A BACKGROUND JOB IS NARROWER STILL: mantahostels#2583's
- * thirteenth refusal binds the round to the `needs input:` marker rather
+ * twelfth refusal binds the round to the `needs input:` marker rather
  * than the marker to the round, a lone founder hand-over (#926) and a pointer
  * to a round still unanswered (#924) excepted; in a foreground session that
  * advisory reader is the whole of the cover.
@@ -92,34 +92,7 @@
  * `waiting:` below the marker switches the check off, so a report quoting the
  * block text back evades it entirely.
  *
- * AN EIGHTH REFUSAL, ON THE ONE THING NO WORDING CAN FAKE (mantahostels#1253): the seven
- * above all read the message the session wrote. This one reads an artefact the
- * session cannot type — a certificate in `.test-pass-markers.jsonl`,
- * written only by a `npm run test -- --full=<cause>` that went green — or by a bare
- * `npm run test` whose narrowing escalated to the whole suite (mantahostels#3208). In a
- * background job, a
- * `result:` from a session that COMMITTED is blocked where no set of such
- * certificates attests its own last commit, or a later commit up to HEAD that
- * contains it (#814, ADR-0009). It blocks at most once, the cap being the honest escape on
- * a machine still under docs/environment.md §6's rung AFTER the suite's own
- * reap (scripts/pretest-reap.js, mantahostels#1840) — and on a `main` gone red in files this
- * session never touched, where no run of its own can ever mint a certificate. The
- * refusal names both, and says neither makes the job blocked (mantahostels#1842).
- * THE FIRST ESCAPE HAS A RESIDUAL (mantahostels#1843): a shortfall held by
- * LIVE neighbours is reaped by nothing, so there — and only there — a pre-run
- * headroom read predicts what the suite will get.
- *
- * ITS THRESHOLD IS ATTESTATION ALONE. A certificate taken over a dirty tree, or naming
- * foreign files, counts toward it (mantahostels#1253). THREE RESIDUALS ARE STRUCTURAL: a certificate
- * attests a run over the WORKING TREE, with HEAD as it stood when the run finished
- * stamped on it, not the sha exactly; a `result:` written before the commit is
- * not attested, since the commit it would be judged on does not exist yet; and a
- * session that pushes without committing in-session is invisible to it. The
- * commit judged is the newest its commit ledger names that HEAD contains, over
- * the paths its own commits carry, so a neighbour's unattested commit refuses
- * nothing here and is left to the push gate (#1502, `lib/session-verdict.js`).
- *
- * A NINTH REFUSAL, ON THE PRICES THEMSELVES (mantahostels#1344): a message recommending the
+ * AN EIGHTH REFUSAL, ON THE PRICES THEMSELVES (mantahostels#1344): a message recommending the
  * option it priced LOWER than another in the same question, saying nothing
  * about why. One price per option is the written rule, and it assumes every
  * option in a question is priced on one axis. IT NEVER FORBIDS THE DIVERGENCE —
@@ -128,13 +101,13 @@
  * five it reads the WHOLE message, not a `❓ **Qn**` block, and finds the
  * recommendation by the word rather than by the `➡` arrow.
  *
- * A TENTH REFUSAL: a bold or titled option name, which invites the founder to
+ * A NINTH REFUSAL: a bold or titled option name, which invites the founder to
  * reply with the title where the format turns on him replying with a letter.
  * It reads the TITLE SLOT alone — bold later in the option is prose, an
  * identifier glossed the way CLAUDE.md requires. THE RESIDUAL THAT OPENS: a title one word in — the shape
  * `(A) The **No expiry** option` — is a titled name and passes. Deliberate.
  *
- * AN ELEVENTH REFUSAL, ON THE MARKER ITSELF (mantahostels#2013): the fourth, sixth and
+ * A TENTH REFUSAL, ON THE MARKER ITSELF (mantahostels#2013): the fourth, sixth and
  * seventh all ask whether a status marker is present, placed last and untrailed.
  * None asked whether it SAYS anything, and a bare `needs input:` passed all
  * three while filing the job Completed — the classifier being a model reading
@@ -145,7 +118,7 @@
  * inherited whole: the classifier is not observable from this repo, so what
  * counts as saying something is a guess at where it acts.
  *
- * A TWELFTH REFUSAL, ON THE ONE MARKER THAT ASSERTS A FACT (mantahostels#2487): `waiting:`
+ * AN ELEVENTH REFUSAL, ON THE ONE MARKER THAT ASSERTS A FACT (mantahostels#2487): `waiting:`
  * says something is running that will wake this session. mantahostels#2485 closes the same
  * hole at the entrance, by
  * denying a foreground suite launch; this closes it at the exit, and reaches
@@ -161,19 +134,19 @@
  * other outcome allows the stop, so an unrecognised launch or settlement
  * spelling costs a missed refusal and never a dead turn.
  *
- * A FOURTEENTH REFUSAL, ON WHAT THE FIGURES MEAN (#38): a round whose
+ * A THIRTEENTH REFUSAL, ON WHAT THE FIGURES MEAN (#38): a round whose
  * `Relation:` line declares its options rivals while their headline figures sum
  * outside 100 ± 5. Rivals' figures are one probability split.
  * Lexical on the relation line: a partly-conflicting set naming a combinable
  * pair is not read, and a rival set described without the words `RIVALS`
  * matches is never summed. Shape tier.
  *
- * A FIFTEENTH REFUSAL, THE PLACEMENT mantahostels#1210 CHECKS FOR `result:` (#228):
+ * A FOURTEENTH REFUSAL, THE PLACEMENT mantahostels#1210 CHECKS FOR `result:` (#228):
  * a `needs input:` that is not BELOW the round it announces, last — above it,
  * a model reading the tail takes the round's closing recommendations as the
  * conclusion.
  *
- * A SIXTEENTH REFUSAL, ON A CHOICE THE SESSION COULD HAVE SEPARATED ITSELF
+ * A FIFTEENTH REFUSAL, ON A CHOICE THE SESSION COULD HAVE SEPARATED ITSELF
  * (#488, ruled at #472, specified at #486): a round whose `Relation:` declares
  * rivals and whose top two, by headline figure, sit close, on its first send,
  * whatever `Checked:` or `Unmeasured:` line it carries (#1061). THIS HEADER
@@ -286,7 +259,7 @@
  * matched by round number, so new text under a passed number is neither
  * judged nor logged.
  *
- * A SEVENTEENTH REFUSAL, ON A FOUNDER ACT HANDED OVER WITHOUT ITS TEXT (#597,
+ * A SIXTEENTH REFUSAL, ON A FOUNDER ACT HANDED OVER WITHOUT ITS TEXT (#597,
  * spec #525): a round option naming something the founder must paste, type,
  * run, click, open, apply or edit — a `!` code span, one of those verbs
  * addressed to him, `paste` or `yourself` alone, or a surface named as his —
@@ -402,9 +375,7 @@
  * EVERY defect the turn earned in ONE block, charging every counter that contributed;
  * and `SESSION_PREFIX` caps the whole guard at `SESSION_MAX`
  * (lib/priced-options-limbs.js) blocks a session,
- * whatever mix of limbs spends them. The green-suite evidence limb stays
- * outside both — it is an evidence question, not a shape one, and its `max: 1`
- * is already the escape. The close-rivals and under-researched limbs are
+ * whatever mix of limbs spends them. The close-rivals and under-researched limbs are
  * batched but sit outside the ceiling (#1067): each one's cap of 3 already
  * bounds the loop.
  *
@@ -423,10 +394,10 @@
  * prologue and epilogue around `judge()` — payload read, breadcrumb, fail-open,
  * drain — live in `lib/stop-guard.js`, shared with all three siblings (mantahostels#1798).
  *
- * IMPLICIT:  reads the session's ending message at every Stop and blocks the turn where it sends the founder away for his steps (#4058) or a question to the founder is not in the lettered priced form, naming the fault to the founder and sending the correction on the model-only limb; where its top two rivals sit close or its top option is priced 65 or less, once per question whatever `Checked:` or `Unmeasured:` line it carries (#1061), and, re-sent still caught by either, until each research-ladder rung shows a tool call (#2006), past the session ceiling (#1067); where it is sent under 10 tool calls after the founder's last message (#1710), past the ceiling too; where an option hands the founder an act by placeholder or back-reference rather than its literal text, or has him supply a credential by any route but `write-secret.js`, in an option (#1031) or in prose (#1817); where one option has the founder perform an act and another has the agent, and no `Blocked:` line says what stops the agent; where its recommendation names an option the same message priced below another, unexplained; and, in a background job, where a `result:` names a commit no green suite run attests and a push still owes one (#2933), where a status marker carries nothing after its colon, where a `waiting:` rests on nothing the transcript shows still running, or where a `needs input:` puts its decision as prose rather than as a lettered priced round, a lone founder hand-over (#926), a `Qn` pointer to a round still unanswered (#924) or a park on an open repo hold the job is attached to (#3858) excepted; and, once a turn, where a lib of its own will not load (#2645).
+ * IMPLICIT:  reads the session's ending message at every Stop and blocks the turn where it sends the founder away for his steps (#4058) or a question to the founder is not in the lettered priced form, naming the fault to the founder and sending the correction on the model-only limb; where its top two rivals sit close or its top option is priced 65 or less, once per question whatever `Checked:` or `Unmeasured:` line it carries (#1061), and, re-sent still caught by either, until each research-ladder rung shows a tool call (#2006), past the session ceiling (#1067); where it is sent under 10 tool calls after the founder's last message (#1710), past the ceiling too; where an option hands the founder an act by placeholder or back-reference rather than its literal text, or has him supply a credential by any route but `write-secret.js`, in an option (#1031) or in prose (#1817); where one option has the founder perform an act and another has the agent, and no `Blocked:` line says what stops the agent; where its recommendation names an option the same message priced below another, unexplained; and, in a background job, where a status marker carries nothing after its colon, where a `waiting:` rests on nothing the transcript shows still running, or where a `needs input:` puts its decision as prose rather than as a lettered priced round, a lone founder hand-over (#926), a `Qn` pointer to a round still unanswered (#924) or a park on an open repo hold the job is attached to (#3858) excepted; and, once a turn, where a lib of its own will not load (#2645).
  * JUSTIFIED: fail-safe — the rule was written down and kept losing (mantahostels#802), and the turn ending is the last moment the defect can still be fixed.
- * DEFEAT:    the pointer block clears by writing the steps into the message; the format block clears by rewriting the question, never by a switch — the close-rivals block (#488) by sending the corrected question a second time (#1061) and, where the shape limb is silent, a fixed shape (#1742), or by its own cap of 3, its research-ladder block (#2006) by a qualifying tool call on each rung, a re-send no test still catches or its own cap of 3, and its re-price refusal (#489) by a tool call or the refused figures, the under-researched block (#1710) by any tool call before the re-send and, where the shape limb is silent, a fixed shape (#1730), or its own cap of 3, the founder-act block (#597) by the literal text, a secret ask's `write-secret.js` line (#1031), or its own cap of 3, the actor-only block (#598) by acting instead, a `Blocked:` line or its own cap of 3 — or, past `SESSION_MAX` blocks in one session, by the ceiling going quiet on every shape and filing limb at once, the close-rivals, research-ladder and under-researched limbs excepted (mantahostels#2786, #1067), shape limbs one block sooner (mantahostels#3430). The evidence block (mantahostels#1253) clears by stopping a second time — `max: 1` — which is the deliberate escape for the two cases a session cannot fix: a machine still under the one-suite rung AFTER the suite's own reap of finished sessions (scripts/pretest-reap.js; mantahostels#1843 — a pre-run headroom read is not that case), and a `main` red in files it never touched (mantahostels#1842). The load-failure block (#2645) clears by stopping again.
- * TREE:      both — the `result:` gate judges the session tree's HEAD; certificates, ledgers, holds, markers and config are the host root's
+ * DEFEAT:    the pointer block clears by writing the steps into the message; the format block clears by rewriting the question, never by a switch — the close-rivals block (#488) by sending the corrected question a second time (#1061) and, where the shape limb is silent, a fixed shape (#1742), or by its own cap of 3, its research-ladder block (#2006) by a qualifying tool call on each rung, a re-send no test still catches or its own cap of 3, and its re-price refusal (#489) by a tool call or the refused figures, the under-researched block (#1710) by any tool call before the re-send and, where the shape limb is silent, a fixed shape (#1730), or its own cap of 3, the founder-act block (#597) by the literal text, a secret ask's `write-secret.js` line (#1031), or its own cap of 3, the actor-only block (#598) by acting instead, a `Blocked:` line or its own cap of 3 — or, past `SESSION_MAX` blocks in one session, by the ceiling going quiet on every shape and filing limb at once, the close-rivals, research-ladder and under-researched limbs excepted (mantahostels#2786, #1067), shape limbs one block sooner (mantahostels#3430). The load-failure block (#2645) clears by stopping again.
+ * TREE:      host — holds, markers and config are the host root's
  */
 
 /* Armed before every other `require` (#2645, `lib/load-failure-stop.js`). */
@@ -506,7 +477,6 @@ const {
 	MISSING_NEEDS_INPUT_PREFIX,
 	EMPTY_MARKER_PREFIX,
 	WAITING_UNVERIFIED_PREFIX,
-	GREEN_SUITE_PREFIX,
 	CLOSE_RIVALS_PREFIX,
 	ROUND_CHECK_PREFIX,
 	RESEARCH_LADDER_PREFIX,
@@ -709,7 +679,7 @@ function pricingDefects(labelled) {
  */
 function boldTitleDefects(labelled) {
 	/* A bold TITLE is banned; bold inside the option's prose is not a title and
-	 * is left alone. The header's tenth refusal carries the residual. */
+	 * is left alone. The header's ninth refusal carries the residual. */
 	const bolded = labelled.filter((o) => OPTION_TITLE_BOLD.test(o.line));
 	if (bolded.length === 0) return [];
 	return [
@@ -1534,91 +1504,6 @@ function unmarkedStop(status) {
 	);
 }
 
-/* The fail-open log's second field, which check-guard-errors.js groups on. */
-const FAIL_OPEN_WHERE = "guard-priced-options green-suite";
-
-/**
- * The refusal that reads an artefact instead of the message (mantahostels#1253): a
- * background job writing `result:` on a commit no certificate attests.
- * Whether it is attested, and what it owes, are `lib/session-verdict.js`'s.
- *
- * @param {StatusReading} status the message's status reading
- * @param {string} sessionId whose commit ledger names the commit
- * @param {{cwd?: unknown}|null|undefined} payload whose cwd names the session's
- *   tree, the `HEAD` judged
- * @returns {string} the block reason, or '' if nothing is owed
- */
-function resultWithoutGreenSuite(status, sessionId, payload) {
-	if (!status.last["result:"]) return "";
-
-	/* Required here, not at the top: a Stop hook must cost a missed check when a
-	 * library will not load, never a dead turn (mantahostels#1253). A store that
-	 * will not load has nothing to log with, so that one fail-open is silent. */
-	const log = failOpenLogger(FAIL_OPEN_WHERE);
-	if (!log) return "";
-	let verdict;
-	try {
-		const tree = require("./lib/host-root").sessionTree(payload ?? {});
-		verdict = require("./lib/session-verdict").sessionVerdict(sessionId, {
-			log,
-			...(tree === null ? {} : { tree }),
-		});
-	} catch (e) {
-		log(`could not read the evidence: ${e}`);
-		return "";
-	}
-	if (verdict.state === "unjudged") {
-		log(`${verdict.why} — result: allowed unchecked`);
-		return "";
-	}
-	if (verdict.state === "attested" || verdict.state === "skipped") return "";
-	return greenSuiteRefusal(verdict);
-}
-
-/**
- * An owed verdict as this gate prints it. The two "not yours to fix"
- * exemptions are this gate's own policy (mantahostels#1842), set between the
- * verdict's reap clause, which qualifies the first, and its commands.
- *
- * ORDER IS LOAD-BEARING (mantahostels#2194, mantahostels#2206): the exemptions
- * sit ABOVE the commands, and `Otherwise` marks the branch back to them.
- * `-- --full=push-gate` appears ONCE, below the narrowed default, for the one
- * case the default cannot attest — `push-gate` (#182) because this fires
- * exactly where a session volunteered `result:` without the gate having asked
- * for a whole-suite run. Residual: the count case is lexical on
- * `npm run test -- --full=push-gate`, so an imperative respelled in prose
- * would pass it.
- *
- * @param {{own: string, text: import("./lib/session-verdict").OwedText}} verdict
- */
-function greenSuiteRefusal({ own, text }) {
-	return (
-		"This turn writes `result:` on commit " +
-		require("./lib/test-pass-marker").shortSha(own) +
-		", and " +
-		text.unattested +
-		" Since mantahostels#910 " +
-		"no CI run is keyed to a push either — so `result:` here asserts work is " +
-		"delivered on the strength of nothing having been run. " +
-		text.reap +
-		"TWO REASONS THE SUITE CANNOT GO " +
-		"GREEN ARE NOT YOURS TO FIX: the machine is STILL under " +
-		"docs/environment.md §6's rung AFTER that reap — a shortfall held by LIVE " +
-		"neighbours is reaped by nothing — or `main` is already red in " +
-		"files this session never edited and did not break. Neither makes the job " +
-		"blocked — a job nothing waits on is finished (mantahostels#1842). Where one of them " +
-		"holds, say which, name the failing files and whose work they are, write " +
-		"`result:` and stop again. Otherwise, run the narrowed default " +
-		"first:\n\n" +
-		text.run +
-		"ONE PLACE IT CANNOT CLEAR: a red `main` you are about " +
-		"to claim under the second escape above, whose failing files you cannot " +
-		"name without seeing them. There, run the whole suite:\n\nnpm run test -- --full=push-gate\n\n" +
-		"then end the turn again. This blocks once a session." +
-		text.red
-	);
-}
-
 /* A recommendation written in prose. The existing check reads the grilling
  * round's `➡` arrow; this reads the word instead (mantahostels#1344). */
 const RECOMMENDS_IN_PROSE = /\brecommend(?:s|ation|ations|ing|ed)?\b/i;
@@ -1803,7 +1688,7 @@ function priceFault({ qn, letters, group }, explained) {
 }
 
 /**
- * The ninth refusal's block reason for its first fault.
+ * The eighth refusal's block reason for its first fault.
  * @param {PriceFault} f
  * @returns {string}
  */
@@ -1840,10 +1725,10 @@ function buildBelowPriceReason(f) {
 }
 
 /**
- * A NINTH REFUSAL (mantahostels#1344): a recommendation naming the option its own message
+ * AN EIGHTH REFUSAL (mantahostels#1344): a recommendation naming the option its own message
  * priced lower than another in the same question, with nothing saying why.
  *
- * RESIDUALS, all lexical like the eight above, and all of them UNDER-fire.
+ * RESIDUALS, all lexical like the seven above, and all of them UNDER-fire.
  * A letter is attributed to its question by the digits in front of it, so a
  * message with two questions that writes a bare "(C)" is skipped rather than
  * guessed at. A restatement is told from a question by carrying no price at
@@ -1923,7 +1808,7 @@ function emptyStatusMarker(status) {
 }
 
 /**
- * A THIRTEENTH REFUSAL, ON THE SCOPE THE OTHER TWELVE INHERIT (mantahostels#2583): a
+ * A TWELFTH REFUSAL, ON THE SCOPE THE OTHER ELEVEN INHERIT (mantahostels#2583): a
  * background job ending on `needs input:` with no round at all. The founder
  * reversed for background jobs the half of mantahostels#1503 that scoped the lettered
  * priced form TO the round.
@@ -2014,8 +1899,8 @@ function waitingUnverified(status, transcript) {
 
 	if (status.governing?.name !== "waiting:") return "";
 
-	/* Required here rather than at the top, on `resultWithoutGreenSuite`'s terms:
-	 * a library that will not load costs a missed check, never a dead turn.
+	/* Required here rather than at the top: a library that will not load
+	 * costs a missed check, never a dead turn.
 	 *
 	 * THE STORE LOADS FIRST, and in its own `try`, so that a `pending-tasks`
 	 * that will not load is REPORTED rather than silent. */
@@ -2258,7 +2143,7 @@ function checklistTail({ sessionId, message, status, transcript }, parts) {
  * The whole of this guard's judgement on one turn; `lib/stop-guard.js` owns
  * everything around it.
  * @param {{sessionId: string, message: string,
- *   payload?: {transcript_path?: string, cwd?: unknown}|null}} ctx
+ *   payload?: {transcript_path?: string}|null}} ctx
  */
 function judge({ sessionId, message, payload }) {
 	const transcript = hookMessage.transcriptPath(payload, sessionId);
@@ -2330,19 +2215,8 @@ function judge({ sessionId, message, payload }) {
 	 * then not charging for it is the worse trade — the founder pays the round
 	 * trip either way. */
 	const live = liveGroups(groupByPrefix(parts), sessionId);
-	const afterBatch = () => {
-		const unattested = status
-			? resultWithoutGreenSuite(status, sessionId, payload)
-			: "";
-		return unattested
-			? liveGroups(
-					[{ prefix: GREEN_SUITE_PREFIX, reasons: [unattested] }],
-					sessionId,
-				)
-			: [];
-	};
 	if (
-		blockOn(ceilingPlan(live, ceilingAt, afterBatch), {
+		blockOn(ceilingPlan(live, ceilingAt), {
 			sessionId,
 			recorders: [close, close.ladder, roundCheck],
 			tail: () =>

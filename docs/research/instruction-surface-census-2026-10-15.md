@@ -447,7 +447,7 @@ Each agent worked in a sandbox clone at `437c94164` (batch G at `34e4151f1`) wit
 - Payload: Bash `git pull --rebase` (A-20); also `git merge origin/main` (A-21), `git pull --ff-only` (A-22), `git reset --hard HEAD~1` (A-23). Same env seams.
 - Output: pull --rebase: exit 0; deny; 1705 B. merge origin/main: deny 1709 B. reset --hard HEAD~1 (main-rewind limb): deny 981 B. pull --ff-only (first in session): inject (additionalContext) 1569 B.
 - Prints: "This reconciles the shared `main` by rewriting or merging, not by fast-forward: git pull --rebase\n\nRECONCILE THE SHARED `main` BY FAST-FORWARD OR NOT AT ALL.\n\n  git pull --ff-only…" then the full throwaway-worktree reconcile recipe (worktree add -b, node_modules symlink, merge, `npm run test -- --full=sha-moved`, `merge --ff-only`, push, remove).
-- Rule ids: none (CLAUDE.md cites `rule:pull-fast-forward`; not printed).
+- Rule ids: none (CLAUDE.md cites `pull-fast-forward`; not printed).
 - Timing: at need — deny before the rebase/merge/rewind runs; rule pre-injected on the first allowed `--ff-only` pull.
 - Self-sufficient: yes — reason, the safe spelling and the full divergence recipe are inline.
 - Prior verdict: timing confirmed; self-sufficient confirmed.
@@ -480,7 +480,7 @@ Each agent worked in a sandbox clone at `437c94164` (batch G at `34e4151f1`) wit
 - Payload: Bash `git push origin feature-x` (A-50); also `gh pr create --title x --body y` (A-51), `git push origin main` (A-53), `git push origin HEAD:feat`, and wrapped `timeout 30 git push origin HEAD:feat`, `env|timeout 30|timeout 30s|command git push origin feat`, `timeout 30 gh pr create --fill` (A-52..55). Same env seams.
 - Output: push feature-x: exit 0; deny; 1490 B. gh pr create: deny 1471 B. HEAD:feat: deny 1485 B. timeout-wrapped gh pr create: deny 1470 B. push origin main: silent. Every WRAPPED `git push` to a non-main branch: silent, 0 B.
 - Prints: "This publishes a branch other than main, feature-x: git push origin feature-x\n\nWORK LANDS ON `main` DIRECTLY — NO BRANCH ON THE REMOTE, AND NEVER A PULL REQUEST.\n\nNever `gh pr create`…" then the land-from-worktree recipe (`git -C <worktree> push origin HEAD:main`, or `merge --ff-only` + push), what passes (main, tags, deletions, `spike/*`), and what it does not catch.
-- Rule ids: none (CLAUDE.md cites `rule:branch-publish`; not printed).
+- Rule ids: none (CLAUDE.md cites `branch-publish`; not printed).
 - Timing: at need on the bare spellings. Wrong trigger / blind on wrapped git pushes: `env`, `timeout 30`, `timeout 30s` and `command` before `git push origin feat` are all allowed silently, although the header's LIMITS say "Only a segment's own command word is read, after gp_unwrap's wrappers (`env`, `timeout`, `command`, …)". The unwrap holds for the `gh` limb (timeout-wrapped `gh pr create` denied) but not for the `git push` limb.
 - Self-sufficient: yes — rule, both landing recipes and the pass list inline.
 - Prior verdict: none (new).
@@ -1016,10 +1016,10 @@ All run from the sandbox with the env above; `gh` on PATH and WFC_ARBITER_GH wer
 - Wired: Stop [] (no if), as given
 - Payload: Stop payload + transcript ending "Committed the fix.\n\nresult: done"; this session's commit ledger seeded with HEAD (437c94164) through `arbiter-ledger.recordCommit` under CLAUDE_CONFIG_DIR=$TMPDIR/claude-home; sandbox `refs/remotes/origin/main` moved to HEAD~1 with `git update-ref` (local ref only — no fetch, no push) so HEAD was 1 ahead, then restored to 437c94164 immediately after (verified 0 ahead).
 - Output: exit 0; deny-shaped warn (Stop `decision: block` whose reason opens "A warning, not a refusal"); 667 B first Stop; 0 B on the re-stop (commit marked seen)
-- Prints: "A warning, not a refusal — the next stop passes. 1 commit(s) this session made are not on origin/main:\n  437c94164 Make the rescue snapshot…" then "The push is your own act (`rule:push-cadence`): run `npm run push:check`, then push", the hold-back alternative (say so, name the failing test) and re-send the discarded message.
-- Rule ids: rule:push-cadence
+- Prints: "A warning, not a refusal — the next stop passes. 1 commit(s) this session made are not on origin/main:\n  437c94164 Make the rescue snapshot…" then "The push is your own act (`push-cadence`): run `npm run push:check`, then push", the hold-back alternative (say so, name the failing test) and re-send the discarded message.
+- Rule ids: push-cadence
 - Timing: at need (end of the turn holding the session's unpushed commits)
-- Self-sufficient: same subject only — the act and its first command are inline, but the rest of the push cadence (run the suite only for what push:check names, `npm run check:ci` once) is a `rule:push-cadence` pointer, which guard-push-rules.sh prints on the push itself
+- Self-sufficient: same subject only — the act and its first command are inline, but the rest of the push cadence (run the suite only for what push:check names, `npm run check:ci` once) is a `push-cadence` pointer, which guard-push-rules.sh prints on the push itself
 - Prior verdict: none (new this census)
 - Notes: untested — the `waiting:` hand-off pass (needs a pending launch), NAMED_MAX truncation, cap of 3 blocks, neighbour commits (never named, by ledger).
 

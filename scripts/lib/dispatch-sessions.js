@@ -85,8 +85,7 @@
  * so the next member's re-read sees the previous one's bg-spare.
  *
  * EACH SESSION STARTS IN A DIRECTORY OF ITS OWN (#4229): a worktree cut from
- * `origin/main` by `scripts/session-checkout.js launch-dir`, or this checkout
- * where the repo has no `landing` module. A member that gets no directory is
+ * `origin/main` by `scripts/session-checkout.js launch-dir`. A member that gets no directory is
  * named on stderr and skipped, as a re-read refusal is. With
  * WFC_DISPATCH_NO_BUILD=1, which the refill loop sets (#4318), a cut finding
  * no dependency store for its lockfile is such a member: the loop's warm pass

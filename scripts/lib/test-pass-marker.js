@@ -1,12 +1,6 @@
 /*
- * test-pass-marker.js — do certificates attest the commits being pushed?
- *
- * mantahostels#906 took CI off push, so between its scheduled sweeps the local
- * suite is the only gate.
- *
- * This check says whether that suite ran green. mantahostels#908 ruled it WARNS AND
- * NEVER REFUSES, and it runs no tests at all: it reads the certificates green runs left
- * behind, and prints.
+ * test-pass-marker.js — the certificates green runs leave behind, the reds
+ * failing ones leave beside them, and whether certificates attest a commit.
  *
  * WHAT A CERTIFICATE ATTESTS IS WEAKER THAN IT LOOKS. It records the tree state at
  * run time, not the sha exactly: the suite read the working tree, and the sha
@@ -17,36 +11,33 @@
  *
  * IT ALSO RECORDS THE SCOPE OF THE RUN (mantahostels#1230). `scope` carries what was
  * actually run — the filters, the tests, and the modules against the whole
- * corpus — and only a full or admissible run's certificate can attest a push (`attestationOf`). A certificate written before
+ * corpus — and only a full or admissible run's certificate can attest a commit (`attestationOf`). A certificate written before
  * mantahostels#1230 carries no `scope` at all, and that reads as UNKNOWN rather than as
  * full.
  *
- * AN ADMISSIBLE FILTERED RUN IS THE WHOLE GATE (mantahostels#2146, mantahostels#2207).
- * `docs/agents/rules/push-green-suite.txt` asks the push for an admissible
- * certificate and nothing wider; `scripts/run-vitest.js` decides admissibility at launch, and where the
+ * AN ADMISSIBLE FILTERED RUN ATTESTS ITS DIFF (mantahostels#2146, mantahostels#2207).
+ * `scripts/run-vitest.js` decides admissibility at launch, and where the
  * manifest was fresh and nothing narrowed the run beyond the diff's own
  * selection the scope carries `admissible`. It is still a DIFFERENT certificate
  * from a full one and never records as one — mantahostels#1230 stands. What an
  * admissible run misses, the scheduled sweep catches, hours later.
  *
  * `isClean` is about the tree the suite read; `isFullRun` is about how much of
- * the suite ran; `isAdmissibleRun` is about whether a partial one meets the
- * gate. Scope never folds into `isClean`, because other callers read
+ * the suite ran; `isAdmissibleRun` is about whether a partial one attests its
+ * diff. Scope never folds into `isClean`, because other callers read
  * that predicate as tree-cleanliness alone.
  *
  * TWO SUITES SHARE THE STORE (mantahostels#1256). The vitest suite (TypeScript) and
  * `npm run test:py` (pytest, the Python data-pipeline seam) each write their own
  * certificate, told apart by `suite`. A line carrying no `suite` is a vitest certificate
  * written before mantahostels#1256, which is why the field is read through `suiteOf` and
- * never off the object. The push warns per suite and by name, and a suite
- * carrying a `touches` pattern is asked only about a push whose range reaches
- * it.
+ * never off the object. Each suite is judged on its own, and a suite carrying a
+ * `touches` pattern is asked only about a range that reaches it.
  *
  * THE STORE IS APPEND-ONLY JSONL, under the canonical checkout's .claude/tmp/markers.
  * One line per green run, written with O_APPEND so concurrent suites cannot
  * interleave a partial record. A malformed line is skipped rather than thrown
- * on: a store this hook cannot parse must degrade to "no certificate", never to a
- * failed push.
+ * on: a store that cannot be parsed degrades to "no certificate".
  */
 
 const fs = require("node:fs");
@@ -61,8 +52,7 @@ const {
 } = require("./git.js");
 const { delta: cpuDelta } = require("./cpu-sample.js");
 const idSeam = require("./session-id.js");
-const { readCommandOrDefault } = require("./workflow-core-config.js");
-const { landingOn, VERIFIED_REF } = require("./landing-refs.js");
+const { VERIFIED_REF } = require("./landing-refs.js");
 const { shellQuote } = require("./sh-quote.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
 const { appendLedgerLine } = require("./run-ledger.js");
@@ -172,10 +162,9 @@ const IMPORTABLE = /\.(?:[cm]?[jt]sx?|json)$/;
 const RETEST_FLAG = "--retest";
 
 /**
- * The three reasons `scope.full` can carry (mantahostels#3207): `"flag"` for a session's
- * own `--full`, and the two the default narrowing escalates itself to where it
- * would be worthless (mantahostels#3208) — lib/changed-selection.js's
- * `findDefaultEscalationReason`.
+ * The reasons `scope.full` can carry (mantahostels#3207): `"flag"` for a
+ * session's own `--full`, and the two a stored record from the narrowed
+ * default's escalation names (mantahostels#3208).
  */
 const FULL_REASONS = ["flag", "stale-manifest", "dependency-root"];
 
@@ -188,8 +177,8 @@ const FULL_REASONS = ["flag", "stale-manifest", "dependency-root"];
 const CLOSURE_ROOTS = ["package.json"];
 
 /**
- * The six values `--full=<cause>` accepts (#182): a session satisfying the push
- * gate without the gate having asked (`push-gate`), a genuine whole-suite coverage need (`coverage`), the
+ * The six values `--full=<cause>` accepts (#182): the whole suite run as the
+ * gate on what lands (`push-gate`), a genuine whole-suite coverage need (`coverage`), the
  * empty-diff trap (`empty-diff`), a sha moving under a green run
  * (`sha-moved`), a rule-document edit (`rule-edit`), and the escape hatch for
  * anything else (`other`).
@@ -214,7 +203,7 @@ const FULL_CAUSES = [
  * The red store (mantahostels#1942), deliberately a SEPARATE file from the certificate store.
  *
  * Mixing verdicts in one store would put a `failed` discriminator in front of
- * every existing reader — `readMarkers`, `attestationOf`, the pre-push gate — and
+ * every existing reader — `readMarkers`, `attestationOf` — and
  * one that forgot it would read a red run's line as a certificate.
  *
  * It is written for the SESSION, not for a gate: nothing gates on it, and a red
@@ -244,32 +233,24 @@ const KEEP = 400;
 const ARCHIVE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /*
- * Every suite the gate expects to see a certificate from, and what to tell a session
- * that has none. Adding a row here is what makes a new suite warn — the store,
- * the predicates and the warnings are all suite-agnostic.
+ * Every suite a certificate can come from, and the command that runs it.
+ * Adding a row here is what makes a new suite judged — the store and the
+ * predicates are all suite-agnostic.
  *
- * ORDER IS THE PRINT ORDER at the push, not a precedence.
+ * ORDER IS THE PRINT ORDER, not a precedence.
  */
 const SUITES = [
-	/* `gate` is what the push asks for, which stopped being the whole suite at
-	 * mantahostels#2207. `attestsFiltered` says whether the suite has an admissible tier
-	 * at all — vitest's is minted by scripts/run-vitest.js, and pytest has
-	 * none. */
 	{
 		id: "vitest",
 		name: "VITEST",
 		gate: "npm run test",
-		attestsFiltered: true,
 	},
 	{
 		id: "pytest",
 		name: "PYTEST",
 		gate: "npm run test:py",
-		attestsFiltered: false,
 		/* A suite that only answers for part of the repo says nothing about a
-		 * push that cannot have touched it. Without this the pytest warning
-		 * fires on every push, docs-only included — and a warning that always
-		 * fires is one nobody reads. */
+		 * range that cannot have touched it. */
 		touches:
 			/\.py$|^(pytest\.ini|requirements-dev\.txt|scripts\/run-pytest\.js)$/,
 	},
@@ -283,7 +264,7 @@ const DEFAULT_SUITE = "vitest";
 const suiteOf = (m) => m.suite || DEFAULT_SUITE;
 
 /**
- * Which suites a push carrying `changed` should be warned about.
+ * Which suites a range carrying `changed` is judged on.
  *
  * A suite with no `touches` always answers — vitest covers the whole repo, so
  * there is no range it can be silent on.
@@ -303,7 +284,6 @@ const suiteMeta = (id) =>
 		id,
 		name: String(id).toUpperCase(),
 		gate: `the ${id} suite`,
-		attestsFiltered: false,
 	};
 
 /**
@@ -533,7 +513,7 @@ function countMalformed({ root = repoRoot(), store = STORE } = {}) {
 }
 
 /**
- * What a green run tells the pre-push gate: the sha it finished on, whether
+ * What a green run records: the sha it finished on, whether
  * anything was uncommitted when it started, and every file that moved under
  * the suite while it ran.
  *
@@ -779,7 +759,7 @@ function timedFields(startedAtMs, elapsedMs) {
  *
  * `dirtyAtStart` counts the session's OWN work in progress too, and that is
  * deliberate — the suite read those bytes, and they are not the ones being
- * pushed. `foreign` names the files that moved mid-run, so the warning counts
+ * committed. `foreign` names the files that moved mid-run, so the warning counts
  * those separately from the rest.
  */
 /** @param {Marker} m */
@@ -806,8 +786,8 @@ const isClean = (m) =>
  * machines and none on others, so module count against the corpus is the one
  * signal it cannot confound.
  *
- * ONE DEFINITION, TWO READERS: `isFullRun` answers for a stored certificate at the
- * push, `formatFilteredRun` for a live run at the terminal. Both go through
+ * ONE DEFINITION, TWO READERS: `isFullRun` answers for a stored certificate,
+ * `formatFilteredRun` for a live run at the terminal. Both go through
  * here.
  */
 /**
@@ -837,72 +817,7 @@ function readFailures(options = {}) {
 }
 
 /**
- * How much of the corpus a red must have collected before it is evidence that
- * `main` itself is red rather than that one file is (mantahostels#2205).
- *
- * DELIBERATELY LOOSER THAN `isFullScope`, which the certificate store uses to issue a
- * certificate. Nothing is attested here: the reader is a session comparing a
- * file list against its own diff.
- *
- * 0.9 IS mantahostels#2205's SPECIFIED FIGURE AND NOTHING MEASURED IT — a first cut, and
- * moving it wants that reading first.
- */
-const FULL_RED_RATIO = 0.9;
-
-/**
- * A red wide enough to be evidence about `main`.
- *
- * THE NAME FILTER IS THE ONE NARROWING THE RATIO CANNOT SEE. `-t <pattern>`
- * leaves vitest collecting every module and running a handful of tests inside
- * them, so `modulesRun === modulesTotal` on a run that asked almost nothing —
- * and a partial failing set read as a complete one is exactly how the exemption
- * this feeds goes wrong. A file filter and `--changed` both narrow what is
- * COLLECTED, so `modulesRun` already carries them and the ratio is their whole
- * test; `isFullScope`'s stricter rejection of the pair is a certificate's
- * business, not this one's.
- *
- * @param {Scope|null|undefined} scope
- */
-const isFullScopeRed = (scope) =>
-	scope != null &&
-	!scope.nameFilter &&
-	scope.modulesTotal > 0 &&
-	scope.modulesRun >= FULL_RED_RATIO * scope.modulesTotal;
-
-/**
- * The most recent red wide enough to be evidence about `main`, as a digest —
- * its sha, when it ran and the distinct files that failed — or null.
- *
- * THREE THINGS MAKE IT SKIP A RED AND KEEP WALKING BACK, so what it answers is
- * not always the newest wide red: a suite that is not vitest (the red store
- * holds one today, and a pytest red says nothing about the vitest suite a
- * `result:` turn is being asked to run), a run narrowed past `isFullScopeRed`,
- * and a red naming no failing file at all — an empty list being nothing for a
- * session to check its diff against.
- *
- * A DIGEST RATHER THAN THE MARKER, so the one caller reads a shape whose every
- * field is present. It is prose-building a refusal, and a marker's fields are
- * all optional by age.
- *
- * @param {Marker[]} markers
- * @returns {{sha: string, at: string|null, files: string[]}|null}
- */
-function lastFullRed(markers) {
-	for (const m of [...markers].reverse()) {
-		if (suiteOf(m) !== DEFAULT_SUITE) continue;
-		const scope = m.scope;
-		if (!isFullScopeRed(scope)) continue;
-		const files = [
-			...new Set((scope?.failures || []).map((f) => f?.file).filter(Boolean)),
-		];
-		if (files.length === 0) continue;
-		return { sha: m.sha, at: m.at ?? null, files };
-	}
-	return null;
-}
-
-/**
- * A narrowed run the push gate accepts anyway: `npm run test:changed` over a
+ * A narrowed run whose certificate attests its diff: `npm run test:changed` over a
  * tree whose `docs/test-read-edges.json` was fresh (mantahostels#2146).
  *
  * THE FLAG IS SET AT LAUNCH, NOT HERE. Only `scripts/run-vitest.js` can tell a
@@ -915,8 +830,7 @@ function lastFullRed(markers) {
  * and a zero corpus is no run to admit — and none of them separates a real
  * admissible run from a forged one. A launch record claiming `admissible`
  * (`suite-handoff.js`), exported by hand in front of a bare `vitest run
- * <file>`, mints this certificate, and nothing here or at the push can tell. Accepted: the gate warns and never
- * refuses (mantahostels#908).
+ * <file>`, mints this certificate, and nothing here can tell.
  *
  * THE NAME FILTER IS THE ONE FORGERY THIS SIDE CAN SEE, so it rejects it
  * (mantahostels#2172). The launcher already refuses a `-t` run — argv must carry nothing
@@ -1099,7 +1013,7 @@ const lines = (out) =>
  * `testsHeldAt` instead, test by test, and composed by `pairAttestation`.
  *
  * `countedPaths`, where given, is the only paths a diff-tree change counts on:
- * the push's range with the `landing` module on (`attestationOf`), so a change
+ * the commit's range (`attestationOf`), so a change
  * already on `main`, a merge of `origin/main`'s included, voids nothing — the
  * lander's full run tests it with the push (#2517). Residual: such a change
  * that a certificate's closure reads is tested with the pusher's work by no
@@ -1330,8 +1244,7 @@ function testsHeldAt(m, view) {
 		match.closureSize = closure.size;
 		return { held, rootsHold: true, codeHolds, match };
 	} catch {
-		/* Holding nothing leaves each path owed, the safe verdict, and the
-		 * push names the path to re-run. */
+		/* Holding nothing leaves each path owed, the safe verdict. */
 		return null;
 	}
 }
@@ -1375,9 +1288,6 @@ function holdsTestByTree(m, test, sha, options = {}) {
 	}
 }
 
-/** git's spelling of "no such sha" in a pre-push line: the remote has no tip. */
-const ZERO_SHA = /^0+$/;
-
 /**
  * Whether certificates from any sessions attest a commit between them
  * (ADR-0009, #810), per suite.
@@ -1399,14 +1309,12 @@ const ZERO_SHA = /^0+$/;
  * P; only tests `sha` tracks are asked. An unattested P with a witness names
  * the readers no member holds (`tests`), the only runs owed for it.
  *
- * THE RANGE runs from the published tip to `sha`: `remoteSha` where the caller
- * has one (the pre-push hook's), otherwise the merge-base of `sha` with the
- * verified ref (lib/landing-refs.js) — the base the narrowed default resolves. Where git cannot
- * name it, nothing is judged. `within` narrows it to those paths: the
+ * THE RANGE runs from the merge-base of `sha` with the verified ref
+ * (lib/landing-refs.js) to `sha`. Where git cannot name it, nothing is judged. `within` narrows it to those paths: the
  * session's own work, for the re-run guard (#1218). An empty `within` leaves
  * an empty range, which any member holding at `sha` attests.
  *
- * WITH THE `landing` MODULE ON, only a change to a range path voids a member
+ * ONLY A CHANGE TO A RANGE PATH voids a member
  * (`holdsAt`'s `countedPaths`, the range before `within`): a clean merge of
  * `origin/main` owes no re-run, the lander testing it (#2517), while a
  * file the merge changed beyond `main`'s side is in the range and voids.
@@ -1414,52 +1322,40 @@ const ZERO_SHA = /^0+$/;
  * EACH SUITE ANSWERS FOR ITSELF (mantahostels#1256), over the suites
  * `suitesFor` asks the range about.
  *
- * An unattested path is named with the newest commit in the range touching it,
- * or `null` where git names none. An unattested verdict naming no path carries
- * `why` instead: the range was empty and no member held.
+ * An unattested verdict naming no path carries `why` instead: the range was
+ * empty and no member held.
  *
  * @typedef {{marker: Marker, match: AttestationMatch}} Member
- * @typedef {{path: string, commit: string|null, tests?: string[]}} Unattested
+ * @typedef {{path: string, tests?: string[]}} Unattested
  * @typedef {{suite: string, attested: true, members: Member[], note: string|null}
  *   | {suite: string, attested: false, unattested: Unattested[],
  *     why?: string}} SuiteAttestation
  * @param {string} sha
  * @param {Marker[]} markers
- * @param {GitOptions & {remoteSha?: string|null, within?: string[]|null}} [options]
+ * @param {GitOptions & {within?: string[]|null}} [options]
  * @returns {{judged: true, base: string, range: string[], suites: SuiteAttestation[],
  *     within?: boolean}
  *   | {judged: false, why: string}}
  */
-function attestationOf(
-	sha,
-	markers,
-	{ remoteSha = null, within = null, ...options } = {},
-) {
+function attestationOf(sha, markers, { within = null, ...options } = {}) {
 	const ctx = gitContext(options);
 	if (!ctx.root) return { judged: false, why: "no git repository to read" };
 	const { git } = gitReader(ctx);
-	const fromRemote = Boolean(remoteSha && !ZERO_SHA.test(remoteSha));
 	const start = VERIFIED_REF;
 	let base;
 	let range;
 	try {
-		base = fromRemote
-			? String(remoteSha)
-			: git(["merge-base", sha, start]).trim();
+		base = git(["merge-base", sha, start]).trim();
 		range = lines(git(["diff", "--name-only", "--no-renames", base, sha]));
 	} catch {
 		return {
 			judged: false,
-			why: fromRemote
-				? `git could not diff ${shortSha(String(remoteSha))}..${shortSha(sha)}`
-				: `git could not resolve the merge-base of ${shortSha(sha)} with ${start}`,
+			why: `git could not resolve the merge-base of ${shortSha(sha)} with ${start}`,
 		};
 	}
-	/* With the `landing` module on, the lander tests what is pushed. An empty
-	 * range keeps tree holding: with nothing to push, no queued change waits
-	 * to be tested with the pusher's. */
-	const countedPaths =
-		range.length > 0 && landingOn({ root: ctx.root }) ? new Set(range) : null;
+	/* The lander tests what is pushed. An empty range keeps tree holding: with
+	 * nothing to push, no queued change waits to be tested with the pusher's. */
+	const countedPaths = range.length > 0 ? new Set(range) : null;
 	if (within) {
 		const keep = new Set(within);
 		range = range.filter((p) => keep.has(p));
@@ -1468,16 +1364,6 @@ function attestationOf(
 	const suites = suitesFor(range).map((suite) =>
 		suiteAttestation(sha, markers, { suite, range }, judging),
 	);
-	const gaps = suites.flatMap((s) => (s.attested ? [] : s.unattested));
-	if (gaps.length > 0) {
-		const last = readLastTouched(
-			base,
-			sha,
-			gaps.map((g) => g.path),
-			git,
-		);
-		for (const g of gaps) g.commit = last.get(g.path) ?? null;
-	}
 	return {
 		judged: true,
 		base,
@@ -1639,7 +1525,7 @@ function pairAttestation(left, perTest, judge) {
 			: null;
 		if (verdict && "members" in verdict)
 			for (const { marker, match } of verdict.members) used.set(marker, match);
-		else unattested.push({ path: p, commit: null, ...verdict });
+		else unattested.push({ path: p, ...verdict });
 	}
 	return {
 		members: [...used].map(([marker, match]) => ({ marker, match })),
@@ -1837,46 +1723,6 @@ function buildAttestedVerdict(sha, suite, members) {
 }
 
 /**
- * The newest commit in `base..sha` touching each of `paths`, by one `git log`.
- * A path git names no commit for is absent from the map; a failed log leaves
- * it empty.
- *
- * @param {string} base
- * @param {string} sha
- * @param {string[]} paths
- * @param {(args: string[]) => string} git
- * @returns {Map<string, string>}
- */
-function readLastTouched(base, sha, paths, git) {
-	/** @type {Map<string, string>} */
-	const last = new Map();
-	let out;
-	try {
-		out = git([
-			"log",
-			"--format=%x00%H",
-			"--name-only",
-			"--no-renames",
-			`${base}..${sha}`,
-			"--",
-			...new Set(paths),
-		]);
-	} catch {
-		return last;
-	}
-	for (const entry of out.split("\0").filter(Boolean)) {
-		const [commit, ...touched] = lines(entry);
-		// `%x00%H` opens every record with its sha.
-		if (commit === undefined)
-			throw new Error(
-				`git log record carries no sha: ${JSON.stringify(entry)}`,
-			);
-		for (const p of touched) if (!last.has(p)) last.set(p, commit);
-	}
-	return last;
-}
-
-/**
  * The line that says a sha was cleared by content rather than identity (#189
  * §4): a reader must be able to tell the two apart, since a tree match rests
  * on the closure's blind spots and a sha match on none.
@@ -1900,247 +1746,36 @@ function buildTreeMatchNote(sha, m, match, suite = DEFAULT_SUITE) {
 const shortSha = (sha) => String(sha).slice(0, 12);
 
 /**
- * Whether every suite `attestationOf` asked about is attested.
+ * An attested suite as the lines a session reads: the certificates that
+ * attest, and what qualifies their attestation — a tree match (#189 §4), or a
+ * member matched by sha over a dirty tree.
  *
- * @param {ReturnType<typeof attestationOf>} verdict
- */
-const isAttested = (verdict) =>
-	verdict.judged && verdict.suites.every((s) => s.attested);
-
-/* How many files a list shows before it truncates — a suite's unattested files
- * here, the last red's failing files in session-verdict.js. A guess: a reader
- * checks the first names against their own diff and reads no further. */
-const MAX_LISTED_FILES = 20;
-
-/**
- * A suite's unattested files, each with the commit that carries it, truncated —
- * the list the pre-push hook, `push:check` and the `result:` refusal all print.
- * @param {SuiteAttestation & {attested: false}} s
- * @param {string} indent
- * @returns {string[]}
- */
-function buildUnattestedFileLines(s, indent) {
-	const more = s.unattested.length - MAX_LISTED_FILES;
-	return [
-		...s.unattested
-			.slice(0, MAX_LISTED_FILES)
-			.map(
-				({ path: p, commit, tests }) =>
-					`${indent}${p} — commit ${commit ? shortSha(commit) : "unknown"}${namesTests({ tests }) ? ` — owed by ${tests?.join(", ")} (#1860)` : ""}`,
-			),
-		...(more > 0 ? [`${indent}…and ${more} more`] : []),
-	];
-}
-
-/**
- * `attestationOf`'s verdict as the lines a session reads: before a push, from
- * `push:check`, or as one goes out, from the pre-push hook (`pushing`). Each
- * suite speaks for itself (mantahostels#1256).
- *
- * An attested suite at the push says only what qualifies its attestation — a
- * tree match (#189 §4), or a member matched by sha over a dirty tree — and so
- * is usually silent; `push:check` names the certificates that attest.
- *
- * `advise` replaces an owed suite's advice before a push, where it returns lines.
- *
- * @param {string} sha
- * @param {ReturnType<typeof attestationOf>} verdict
- * @typedef {(s: SuiteAttestation & {attested: false}) => string[]|null} Advise
- * @param {{pushing?: boolean, pushCheck?: string, advise?: Advise, redsAmongMembers?: boolean}} [options]
- *   `redsAmongMembers` where a member may be a red run, not a certificate (#3633)
- * @returns {{state: "attested"|"owed"|"unjudged", text: string}}
- */
-function attestationReading(
-	sha,
-	verdict,
-	{
-		pushing = false,
-		pushCheck,
-		advise = () => null,
-		redsAmongMembers = false,
-	} = {},
-) {
-	if (!verdict.judged)
-		return {
-			state: "unjudged",
-			text: `⚠  could not judge whether certificates attest ${shortSha(sha)}: ${verdict.why}.${pushing ? " This never refuses a push (mantahostels#908)." : ""}\n`,
-		};
-	const parts = verdict.suites.map((s) =>
-		s.attested
-			? buildAttestedLines(sha, s, pushing, {
-					narrowed: Boolean(verdict.within),
-					redsAmongMembers,
-				})
-			: buildOwedLines(sha, verdict.base, s, { pushing, pushCheck, advise }),
-	);
-	return {
-		state: isAttested(verdict) ? "attested" : "owed",
-		text: parts.join(""),
-	};
-}
-
-/**
  * @param {string} sha
  * @param {SuiteAttestation & {attested: true}} s
- * @param {boolean} pushing
- * @param {{narrowed: boolean, redsAmongMembers: boolean}} wording `narrowed` where the
- *   verdict judged `within` paths, not the range
+ * @param {{narrowed?: boolean, redsAmongMembers?: boolean}} [wording]
+ *   `narrowed` where the verdict judged `within` paths, not the range;
+ *   `redsAmongMembers` where a member may be a red run, not a certificate (#3633)
+ * @returns {string}
  */
-function buildAttestedLines(sha, s, pushing, { narrowed, redsAmongMembers }) {
-	const out = [];
-	if (!pushing) {
-		const { name } = suiteMeta(s.suite);
-		out.push(
-			`✓  ${name}: ${s.members.length} ${redsAmongMembers ? "run(s) on record decide" : "certificate(s) attest"} ${narrowed ? "every file this run would test" : "the range"}:\n`,
-			...s.members.map(
-				({ marker: m }) =>
-					`     ${m.at ?? "unknown time"} on ${shortSha(m.sha)} — ${isFullRun(m) ? "full run" : `narrowed run over ${(m.changedPaths ?? []).length} changed path(s)`}\n`,
-			),
-		);
-	}
+function attestedReading(
+	sha,
+	s,
+	{ narrowed = false, redsAmongMembers = false } = {},
+) {
+	const { name } = suiteMeta(s.suite);
+	const out = [
+		`✓  ${name}: ${s.members.length} ${redsAmongMembers ? "run(s) on record decide" : "certificate(s) attest"} ${narrowed ? "every file this run would test" : "the range"}:\n`,
+		...s.members.map(
+			({ marker: m }) =>
+				`     ${m.at ?? "unknown time"} on ${shortSha(m.sha)} — ${isFullRun(m) ? "full run" : `narrowed run over ${(m.changedPaths ?? []).length} changed path(s)`}\n`,
+		),
+	];
 	if (s.note) out.push(s.note);
 	const dirty = s.members.find(
 		({ marker, match }) => match.by === "sha" && !isClean(marker),
 	);
 	if (dirty) out.push(dirtyWarning(sha, dirty.marker, s.suite));
 	return out.join("");
-}
-
-/**
- * @param {string} sha
- * @param {string} base
- * @param {SuiteAttestation & {attested: false}} s
- * @param {{pushing: boolean, pushCheck?: string, advise: Advise}} options
- */
-function buildOwedLines(sha, base, s, { pushing, pushCheck, advise }) {
-	const { name, gate } = suiteMeta(s.suite);
-	const head =
-		s.unattested.length > 0
-			? [
-					`⚠  ${s.unattested.length} FILE(S) IN ${shortSha(base)}..${shortSha(sha)} LACK A ${name} CERTIFICATE:`,
-					...buildUnattestedFileLines(s, "     "),
-				]
-			: [`⚠  ${s.why ?? `no ${name.toLowerCase()} certificate holds`}.`];
-	const retest = retestCommand(s.unattested, gate);
-	const whole = s.unattested.every(namesTests);
-	const advice = pushing
-		? [
-				"   Those commits are already public.",
-				`   Run \`${retest && whole ? retest : gate}\` now, report any red, and run \`${pushCheck ?? readCommandOrDefault("push_check")}\` before your next push. This never refuses a push (mantahostels#908).`,
-			]
-		: (advise(s) ?? buildRerunLines(s.unattested, gate));
-	return `${[...head, ...advice].join("\n")}\n`;
-}
-
-/** @param {Pick<Unattested, "tests">} u */
-const namesTests = (u) => (u.tests?.length ?? 0) > 0;
-
-/**
- * The command re-running only the tests no member holds (#1860), across every
- * entry naming them, or null where none does.
- *
- * @param {Unattested[]} unattested
- * @param {string} gate
- * @returns {string|null}
- */
-function retestCommand(unattested, gate) {
-	const tests = [...new Set(unattested.flatMap((u) => u.tests ?? []))].sort();
-	return tests.length > 0
-		? `${gate} -- ${RETEST_FLAG} ${tests.map(shellQuote).join(" ")}`
-		: null;
-}
-
-/**
- * What to run for `unattested` before a push: the re-run of the tests it
- * names, and the gate for the files that name none — "for that" where
- * nothing else is said, otherwise "for the other N file(s)" and `others`.
- *
- * @param {Unattested[]} unattested
- * @param {string} gate
- * @param {string|null} [others] what the gate's line calls the other files
- * @returns {string[]}
- */
-function buildRerunLines(unattested, gate, others = null) {
-	const retest = retestCommand(unattested, gate);
-	const rest = unattested.filter((u) => !namesTests(u)).length;
-	const gateLine =
-		retest || others !== null
-			? `   Run \`${gate}\` for the other ${rest} file(s)${others ?? ""}, then push.`
-			: `   Run \`${gate}\` for that, then push.`;
-	return [
-		...(retest
-			? [
-					`   ${unattested.length - rest} of them are read by test(s) whose own reads changed since their certificate; re-run only those (#1860):`,
-					`     ${retest}`,
-				]
-			: []),
-		...(rest > 0 || !retest ? [gateLine] : []),
-	];
-}
-
-/**
- * Whether the session's own last commit is attested — or, failing that, a
- * later commit up to HEAD that contains it (#807, #810 story 32). Every run
- * reads HEAD, so once a neighbour commits on top no run can reproduce the
- * session's commit, and a gate demanding one prescribes a re-run that cannot
- * succeed.
- *
- * The commits tried are `own`, HEAD, and the sha of each full or admissible
- * run lying between them. Never HEAD alone (mantahostels#1253): a neighbour's
- * unattested commit above an earlier attested one refuses nothing.
- *
- * On a miss the verdict returned is HEAD's where git could judge it, else the
- * first judged; where none could be judged, the first reason. `within` narrows
- * every commit tried to the session's own work, as `attestationOf` reads it.
- *
- * @param {string} own
- * @param {Marker[]} markers
- * @param {GitOptions & {within?: string[]|null}} [options]
- * @returns {{judged: true, attested: boolean, at: string, verdict: ReturnType<typeof attestationOf>}
- *   | {judged: false, why: string}}
- */
-function sessionAttestation(own, markers, { within = null, ...options } = {}) {
-	const ctx = gitContext(options);
-	const { git } = gitReader(ctx);
-	let head = null;
-	/** @type {Set<string>} */
-	let between = new Set();
-	try {
-		head = git(["rev-parse", "HEAD"]).trim();
-		between = new Set(
-			lines(git(["rev-list", "--ancestry-path", `${own}..${head}`])),
-		);
-	} catch {
-		/* `own` alone is still judged */
-	}
-	const tried = new Set([
-		own,
-		...(head ? [head] : []),
-		...markers
-			.filter((m) => between.has(m.sha) && (isFullRun(m) || isAdmissibleRun(m)))
-			.map((m) => m.sha),
-	]);
-	/** @type {Map<string, ReturnType<typeof attestationOf>>} */
-	const misses = new Map();
-	let why = null;
-	for (const sha of tried) {
-		const verdict = attestationOf(sha, markers, { ...ctx, within });
-		if (!verdict.judged) {
-			why ??= verdict.why;
-			continue;
-		}
-		if (isAttested(verdict))
-			return { judged: true, attested: true, at: sha, verdict };
-		misses.set(sha, verdict);
-	}
-	const at = head && misses.has(head) ? head : [...misses.keys()][0];
-	if (!at) return { judged: false, why: why ?? "nothing to judge" };
-	return {
-		judged: true,
-		attested: false,
-		at,
-		verdict: /** @type {ReturnType<typeof attestationOf>} */ (misses.get(at)),
-	};
 }
 
 /** How a cached file is run anyway, wherever the pass store names one. */
@@ -2164,7 +1799,7 @@ function formatCachedClause(files) {
  * The line the reporter prints the moment a narrowed run ends — null for a full
  * one, which prints nothing new.
  *
- * THE PUSH IS TOO LATE FOR THE CASE THIS EXISTS FOR (mantahostels#504). Vitest's own summary
+ * IT PRINTS AS THE RUN ENDS, where the case it exists for is still seen (mantahostels#504). Vitest's own summary
  * already prints the skipped count, but its file denominator is the collected
  * set (`Test Files 1 passed (1)`), never the corpus — so the run looks complete
  * in its own terms.
@@ -2197,7 +1832,7 @@ function formatFilteredRun(scope, cachedFiles = []) {
 			`--changed${typeof scope.changed === "string" ? ` ${scope.changed}` : ""}`,
 		);
 	if (isAdmissibleScope(scope))
-		bits.push("MEETS the push gate — the read graph rendered");
+		bits.push("ADMISSIBLE — the read graph rendered");
 	return `FILTERED RUN — ${bits.join("; ")}`;
 }
 
@@ -2250,7 +1885,6 @@ module.exports = {
 	readStoreFile,
 	countMalformed,
 	readFailures,
-	lastFullRed,
 	markerFrom,
 	isFullRun,
 	isAdmissibleRun,
@@ -2263,17 +1897,10 @@ module.exports = {
 	docsOfTests,
 	readDocsByTest,
 	attestationOf,
-	buildRerunLines,
-	namesTests,
-	retestCommand,
 	RETEST_FLAG,
-	attestationReading,
-	sessionAttestation,
-	FULL_RED_RATIO,
-	MAX_LISTED_FILES,
+	attestedReading,
 	FULL_REASONS,
 	FULL_CAUSES,
-	suiteMeta,
 	shortSha,
 	DEFAULT_SUITE,
 	suiteOf,

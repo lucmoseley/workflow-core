@@ -1,81 +1,52 @@
 #!/usr/bin/env node
 /*
- * check-landing-switch-on.js — report a repo on workflow-core v2.1.0 or later
- * that still runs as one shared tree: the `landing` module off, or on with
- * the main checkout not cut over (#4688).
+ * check-landing-switch-on.js — cut the main checkout over to the worktree
+ * model at session start, where it still runs as one shared tree (#4688,
+ * #5276).
  *
  * Usage:  node scripts/check-landing-switch-on.js [--notify] [--json]
  *
- * THE VERSION IS THE CORE THIS FILE SHIPS IN (lib/script-path.js's coreRoot),
- * never the install record.
+ * WFC_REPO_ROOT injects the repo.
  *
- * WFC_REPO_ROOT injects the repo, WFC_SCRIPT_ROOT the core.
- *
- * IMPLICIT:  at every session start, reads the core's version, the repo's `landing` module and the main checkout's upstream, and on v2.1.0 or later with the module off or the main checkout not cut over prints a FAIL naming the switch-on steps; prints nothing otherwise.
- * JUSTIFIED: fail-safe — otherwise a repo whose core dropped the shared-tree guards shares one unguarded tree with nothing saying so (#4688).
- * DEFEAT:    none at the hook; switching `landing` on and cutting the main checkout over clears it.
- * TREE:      host — reads the main checkout's config and upstream
+ * IMPLICIT:  at every session start, reads the main checkout's upstream; where it is not cut over, lists the live sessions (`claude agents --json`) and, where none stands in the main checkout, runs `cutover-main-checkout.js`'s cutover — landing the main checkout's local commits through a queue ref, removing `main`'s upstream and running a levelling pass — and prints its report; where one does, prints a FAIL naming each; prints nothing once cut over.
+ * JUSTIFIED: fail-safe — otherwise a repo whose main checkout was never cut over shares one unguarded tree with nothing moving it (#4688), and the cutover waits on the founder's hands, the step that went missing (#5247 Q1 (A)).
+ * DEFEAT:    none at the hook; the cutover clears it.
+ * TREE:      host — reads and cuts over the main checkout
  */
 
-const fs = require("node:fs");
-const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { caught } = require("./lib/caught.js");
 const { readCutOver } = require("./lib/cutover.js");
 const { GIT_TIMEOUT_MS, gitReader } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
-const { NOTE, judgeSwitchOn } = require("./lib/landing-switch-on.js");
-const { coreRoot, corePath, scriptPath } = require("./lib/script-path.js");
-const { walkCommand } = require("./lib/walk-command.js");
-const { moduleOn } = require("./lib/workflow-core-config.js");
-
-/** @param {string} manifest @returns {unknown} */
-const readVersion = (manifest) =>
-	JSON.parse(fs.readFileSync(manifest, "utf8")).version;
+const { judgeSwitchOn } = require("./lib/landing-switch-on.js");
+const { mainCheckout } = require("./lib/main-checkout.js");
+const { runCutover } = require("./cutover-main-checkout.js");
 
 runCheck({
 	name: "landing-switch-on",
 	usage: "node check-landing-switch-on.js [--notify] [--json]",
 	run(ctx) {
-		const root = process.env.WFC_REPO_ROOT || hostRoot();
-		const manifest = path.join(coreRoot(), ".claude-plugin", "plugin.json");
-		const version = (() => {
+		const at = process.env.WFC_REPO_ROOT || hostRoot();
+		const root = mainCheckout(at) ?? at;
+		const judged = (() => {
 			try {
-				return readVersion(manifest);
+				return judgeSwitchOn({
+					cutOver: () => readCutOver(gitReader(root, GIT_TIMEOUT_MS)),
+					runCutover: () => runCutover(root),
+				});
 			} catch (e) {
-				return ctx.broken(`${manifest} will not read: ${caught(e).message}`);
+				return ctx.broken(`the cutover failed: ${caught(e).message.trim()}`);
 			}
 		})();
-		if (typeof version !== "string")
-			return ctx.broken(`${manifest} names no version.`);
-		const landingOn = (() => {
-			try {
-				return moduleOn("landing", { root });
-			} catch (e) {
-				return ctx.broken(
-					`${root}'s .claude/workflow-core.json will not read: ${caught(e).message}`,
-				);
-			}
-		})();
-		const judged = judgeSwitchOn(
-			{
-				version,
-				landingOn,
-				cutOver: () => readCutOver(gitReader(root, GIT_TIMEOUT_MS)),
-			},
-			{
-				note: corePath(NOTE),
-				cutoverCommand: `node ${scriptPath("cutover-main-checkout.js")}`,
-				stepsCommand: `node ${scriptPath("steps-owed.js")} list`,
-				walkCommand: walkCommand(),
-			},
-		);
-		const data = { version, landingOn };
 		if (judged.outcome === "broken") return ctx.broken(judged.line);
 		if (judged.outcome === "skip") return ctx.skip(judged.line);
-		if (judged.outcome === "ok") return { okLine: judged.line, data };
-		ctx.fail(judged.tag, judged.line, data);
+		if (judged.outcome === "ok") {
+			for (const line of judged.lines) ctx.say(line);
+			return { okLine: judged.line };
+		}
+		ctx.fail(judged.tag, judged.line);
 		ctx.say(`${judged.tag} — ${judged.line}`);
-		return { noun: "shared-tree exposure(s)", data };
+		return { noun: "shared-tree exposure(s)" };
 	},
 });

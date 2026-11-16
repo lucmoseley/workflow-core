@@ -649,7 +649,7 @@ process.stdout.write(JSON.stringify({ ...JSON.parse(r.stdout), outcome: "SKIP", 
 		logEnqueue(log, { ref: "refs/heads/queue/b", sha: b, at: at - 1000 });
 		const { gh, readStore } = stubTracker();
 
-		const r = await runLander(stubTester(0), "landing", gh.env);
+		const r = await runLander(stubTester(0), gh.env);
 
 		expect(r.status, r.stderr).toBe(0);
 		expect(r.stdout).toContain(
@@ -719,7 +719,7 @@ process.stdout.write(JSON.stringify({ ...JSON.parse(r.stdout), outcome: "SKIP", 
 		);
 		const { gh, readStore } = stubTracker();
 
-		const r = await runLander(stubTester(0), "landing", gh.env);
+		const r = await runLander(stubTester(0), gh.env);
 
 		expect(r.status, r.stderr).toBe(0);
 		expect(git(remote, "rev-parse", "dropped/a")).toBe(a);
@@ -754,11 +754,7 @@ process.stdout.write(JSON.stringify({ ...JSON.parse(r.stdout), outcome: "SKIP", 
 		pushQueue("b", seed);
 		const { gh, readStore } = stubTracker();
 
-		const r = await runLander(
-			stubTester(1, "scripts/x.test.ts\n"),
-			"landing",
-			gh.env,
-		);
+		const r = await runLander(stubTester(1, "scripts/x.test.ts\n"), gh.env);
 
 		expect(r.status, r.stderr).toBe(0);
 		expect(r.stdout).toContain(`file-base-red main@${seed.slice(0, 9)}`);
@@ -1273,7 +1269,7 @@ describe("the red path", () => {
 		logEnqueue(log, { ref: "refs/heads/queue/b", sha: b, at: at - 1000 });
 		const { gh, readStore } = stubTracker();
 
-		const r = await runLander(stubRedWhile("b"), "landing", gh.env);
+		const r = await runLander(stubRedWhile("b"), gh.env);
 
 		expect(r.status, r.stderr).toBe(0);
 		expect(r.stdout).toContain("exit no queue ref waits");
@@ -1300,7 +1296,7 @@ describe("the red path", () => {
 		logEnqueue(log, { ref: "refs/heads/queue/b", sha: b, at: at - 1000 });
 		const { gh, readStore } = stubTracker();
 
-		const r = await runLander(stubRedWhile("b", "a"), "landing", gh.env);
+		const r = await runLander(stubRedWhile("b", "a"), gh.env);
 
 		expect(r.status, r.stderr).toBe(0);
 		expect(git(remote, "rev-parse", "main")).toBe(a);
@@ -1326,7 +1322,6 @@ describe("the lock", () => {
 				cwd: work,
 				env: {
 					...process.env,
-					WFC_MODULES: "landing",
 					CLAUDE_PROJECT_DIR: work,
 				},
 			});

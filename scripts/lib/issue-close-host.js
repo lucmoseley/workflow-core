@@ -41,10 +41,7 @@ const buildHostPorts = (root) => ({
 				readUnlandedCommits,
 				unlandedRefusal,
 			} = require("./unlanded-commits.js");
-			const unlanded = readUnlandedCommits(tree, n, comment, {
-				ceiling,
-				host: root,
-			});
+			const unlanded = readUnlandedCommits(tree, n, comment, { ceiling });
 			return unlanded.commits.length > 0 ? unlandedRefusal(n, unlanded) : "";
 		}),
 });

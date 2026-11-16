@@ -48,7 +48,6 @@ const readBranchRule = () => readRuleText("branch-shared-tree");
 interface Over {
 	cwd?: string;
 	vars?: Record<string, string>;
-	modules?: string[];
 	branches?: string[];
 	files?: string[];
 	tree?: ReturnType<typeof fakeTreeClassifier>;
@@ -66,7 +65,6 @@ function harness(over: Over = {}) {
 		fallbackCwd: over.cwd ?? SHARED,
 		vars: over.vars ?? {},
 		isDir: () => true,
-		moduleOn: (m: string) => (over.modules ?? []).includes(m),
 		treeClass: over.tree ?? treeClass,
 		log: (what: string, detail?: string) =>
 			logs.push(detail ? `${what}\t${detail}` : what),
@@ -227,15 +225,10 @@ describe("the relocated rule reaches the session that trips the guard", () => {
 		expect(reason("git checkout -b foo")).toContain(clause);
 	});
 
-	/* #1732: this rule and `rule:pull-fast-forward` once put the worktree in two
-	 * different places, so the reconcile rule is checked here too. */
-	it.each(["branch-shared-tree", "pull-fast-forward"])(
-		"%s names the one worktree location",
-		(id) => {
-			expect(readRuleText(id)).toContain(".claude/worktrees/");
-			expect(readRuleText(id)).not.toContain("CLAUDE_JOB_DIR");
-		},
-	);
+	it("names the one worktree location (#1732)", () => {
+		expect(readBranchRule()).toContain(".claude/worktrees/");
+		expect(readBranchRule()).not.toContain("CLAUDE_JOB_DIR");
+	});
 
 	it.each([
 		[
@@ -302,7 +295,7 @@ describe("the relocated rule reaches the session that trips the guard", () => {
 });
 
 describe("once the main checkout is cut over (#4248)", () => {
-	const cut = { modules: ["landing"], upstream: "" };
+	const cut = { upstream: "" };
 
 	it("leaves a branch move to the main-checkout write refusal", () => {
 		expect(run("git checkout -b fresh", cut)).toBeNull();
@@ -338,22 +331,8 @@ describe("the rule reaches a session BEFORE it trips the guard (mantahostels#164
 	])("%s is handed the rule and NOT refused — %s", (command) => {
 		expect(run(command)).toEqual({
 			injectRules: ["branch-shared-tree", "branch-shared-tree-landing"],
-			skip: ["branch-shared-tree-landing"],
 		});
 	});
-
-	it.each([
-		[["landing"], []],
-		[["suites"], ["branch-shared-tree-landing"]],
-	])(
-		"hands the origin/landing upstream line only with the landing module on — modules %j (#2409)",
-		(modules, skip) => {
-			expect(run("git checkout main", { modules })).toEqual({
-				injectRules: ["branch-shared-tree", "branch-shared-tree-landing"],
-				skip,
-			});
-		},
-	);
 
 	it("the landing twin is the one carrying origin/landing", () => {
 		expect(readRuleText("branch-shared-tree-landing")).toContain(

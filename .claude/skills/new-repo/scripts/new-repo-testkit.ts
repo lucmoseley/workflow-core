@@ -626,7 +626,7 @@ const steps = (copy: boolean): Step[] => [
 					"--project",
 					"tides",
 					"--modules",
-					copy ? "suites,landing" : "landing",
+					copy ? "suites" : "",
 					"--marketplace-ref",
 					// The sandbox's newest tag, which the script passes too.
 					"v1.10.0",

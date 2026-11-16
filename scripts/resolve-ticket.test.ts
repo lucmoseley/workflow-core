@@ -18,7 +18,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
 	commitAll,
 	freshSandbox,
@@ -873,15 +873,13 @@ describe("commits the pushed ref lacks (#3101)", () => {
 		execFileSync("git", args, { cwd: sb.repo, encoding: "utf8" }).trim();
 	const push = () => git("update-ref", "refs/remotes/origin/main", "HEAD");
 	const fix = () => {
-		// The suite leaves `landing` off.
-		vi.stubEnv("WFC_MODULES", "landing");
 		fs.writeFileSync(
 			path.join(sb.repo, ".claude", "workflow-core.json"),
 			JSON.stringify({
 				contract: 1,
 				founder: "T",
 				tracker: "acme/widgets",
-				modules: ["landing"],
+				modules: [],
 			}),
 		);
 		gitRepo(sb);
@@ -912,7 +910,6 @@ describe("commits the pushed ref lacks (#3101)", () => {
 	it("takes the pushed ref from the host root's config, not the worktree's (#4280)", () => {
 		setUp({ parentLabels: null });
 		fix();
-		vi.stubEnv("WFC_MODULES", undefined);
 		const wt = path.join(sb.repo, ".claude", "worktrees", "q");
 		git("worktree", "add", "-q", "--detach", wt);
 		fs.writeFileSync(

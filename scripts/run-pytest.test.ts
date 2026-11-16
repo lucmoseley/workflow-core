@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * The `npm run test:py` wrapper that leaves pytest's pre-push marker (mantahostels#1256).
+ * The `npm run test:py` wrapper that leaves pytest's suite marker (mantahostels#1256).
  *
  * Run in process through runInProcessAsync (§X3), its python3 a fake injected at
  * WFC_PYTHON (§N7: the fake feeds chosen hand-offs) — all but the case that
@@ -8,9 +8,8 @@
  * on `lib/pytest-child.js`: `runPytest`, which fire the ceiling on an event
  * (#3520), and `ceilingKillRow`.
  *
- * `.husky/pre-push` and `npm run push:check` read the certificate it leaves:
- * loosen a case and a red or dead run leaves one the push gate counts as
- * attesting.
+ * The unasked-rerun guard reads the certificate it leaves: loosen a case and
+ * a red or dead run leaves one counted as attesting.
  */
 
 import { spawnSync } from "node:child_process";
@@ -162,11 +161,11 @@ else ${status === null ? 'process.kill(process.pid, "SIGKILL");' : `process.exit
 	return [bin, readCalls];
 }
 
-/** The wrapper run as `npm run test:py` runs it, rooted at `root`. */
+/** The wrapper run as `npm run test:py -- --full` runs it, rooted at `root`. */
 function wrap(
 	python: string,
 	root: string,
-	args: string[] = [],
+	args: string[] = ["--full"],
 	env: Record<string, string> = {},
 ) {
 	return runInProcessAsync(SCRIPT, args, {
@@ -222,9 +221,9 @@ describe("what it hands pytest", () => {
 	});
 });
 
-// A bare run under `landing` hands pytest the session's touched tests alone (#2934).
-describe("a bare run under landing", () => {
-	const Landing = { WFC_MODULES: "landing", CLAUDE_CODE_SESSION_ID: "" };
+// A bare run hands pytest the session's touched tests alone (#2934).
+describe("a bare run", () => {
+	const Bare = { WFC_MODULES: "", CLAUDE_CODE_SESSION_ID: "" };
 
 	/** The run ledger's lines at `root`. */
 	const readLedger = (root: string) => {
@@ -261,7 +260,7 @@ describe("a bare run under landing", () => {
 		const root = pyRepo();
 		fs.appendFileSync(path.join(root, "scripts/scan.py"), "Y = 2\n");
 		const [python, readCalls] = fakePytest({ passed: true, scope: scope() }, 0);
-		const r = await wrap(python, root, [], Landing);
+		const r = await wrap(python, root, [], Bare);
 
 		expect(readCalls()[0]?.args).toEqual([
 			"-m",
@@ -280,7 +279,7 @@ describe("a bare run under landing", () => {
 		const root = pyRepo();
 		fs.appendFileSync(path.join(root, "README.md"), "more\n");
 		const [python, readCalls] = fakePytest({ passed: true, scope: scope() }, 0);
-		const r = await wrap(python, root, [], Landing);
+		const r = await wrap(python, root, [], Bare);
 
 		expect(readCalls()).toEqual([]);
 		expect(r.status).toBe(0);
@@ -296,7 +295,7 @@ describe("a bare run under landing", () => {
 		const root = pyRepo();
 		fs.appendFileSync(path.join(root, "scripts/scan.py"), "Y = 2\n");
 		const [python] = fakePytest({ passed: true, scope: scope() }, 0);
-		await wrap(python, root, [], Landing);
+		await wrap(python, root, [], Bare);
 
 		expect(readLedger(root)).toMatchObject([
 			{ kind: "touched", suite: "pytest", resolvedFiles: 1 },
@@ -334,7 +333,7 @@ describe("a bare run under landing", () => {
 				{ passed: true, scope: scope() },
 				0,
 			);
-			const r = await wrap(python, root, [], Landing);
+			const r = await wrap(python, root, [], Bare);
 
 			expect(readCalls()).toEqual([]);
 			expect(r.status).toBe(0);
@@ -357,7 +356,7 @@ describe("a bare run under landing", () => {
 				{ passed: true, scope: scope() },
 				0,
 			);
-			await wrap(python, root, [], Landing);
+			await wrap(python, root, [], Bare);
 
 			expect(readCalls()[0]?.args.at(-1)).toBe("scripts/test_scan.py");
 			expect(readCalls()[0]?.args).not.toContain(Reader);
@@ -373,7 +372,7 @@ describe("a bare run under landing", () => {
 	/* The write ledger, in the sandbox's config dir, says which dirt is whose. */
 	describe("with a session id, in the shared tree", () => {
 		const sb = freshSandbox();
-		const Own = { ...Landing, CLAUDE_CODE_SESSION_ID: "me" };
+		const Own = { ...Bare, CLAUDE_CODE_SESSION_ID: "me" };
 
 		/** `pyRepo` at the sandbox, `scan.py` edited by this session and a
 		 * neighbour's edit and new test beside it. */
@@ -421,7 +420,7 @@ describe("a bare run under landing", () => {
 		);
 		dirs.push(root);
 		const [python, readCalls] = fakePytest({ passed: true, scope: scope() }, 0);
-		const r = await wrap(python, root, [], Landing);
+		const r = await wrap(python, root, [], Bare);
 
 		expect(readCalls()).toEqual([]);
 		expect(r.status).toBe(1);
@@ -435,7 +434,7 @@ describe("a bare run under landing", () => {
 		dirs.push(root);
 		const [python, readCalls] = fakePytest({ passed: true, scope: scope() }, 0);
 		const r = await wrap(python, root, [], {
-			...Landing,
+			...Bare,
 			CLAUDE_CODE_SESSION_ID: "me",
 		});
 
@@ -444,23 +443,10 @@ describe("a bare run under landing", () => {
 		expect(r.stderr).toContain("this session's own work could not be read");
 	});
 
-	it("runs the whole suite with landing off", async () => {
-		const root = pyRepo();
-		fs.appendFileSync(path.join(root, "scripts/scan.py"), "Y = 2\n");
-		const [python, readCalls] = fakePytest(undefined, 0);
-		const r = await wrap(python, root, [], {
-			...Landing,
-			WFC_MODULES: "suites",
-		});
-
-		expect(readCalls()[0]?.args.slice(6)).toEqual([]);
-		expect(r.stdout).not.toContain("TOUCHED TESTS");
-	});
-
 	it("runs the whole suite on `--full`, handing pytest no `--full` (#3508)", async () => {
 		const root = pyRepo();
 		const [python, readCalls] = fakePytest(undefined, 0);
-		const r = await wrap(python, root, ["--full"], Landing);
+		const r = await wrap(python, root, ["--full"], Bare);
 
 		expect(readCalls()[0]?.args.slice(6)).toEqual([]);
 		expect(r.stdout).not.toContain("TOUCHED TESTS");
@@ -469,7 +455,7 @@ describe("a bare run under landing", () => {
 	it("hands pytest a `--full` that has other words beside it", async () => {
 		const root = pyRepo();
 		const [python, readCalls] = fakePytest(undefined, 0);
-		await wrap(python, root, ["--full", "-k", "corpus"], Landing);
+		await wrap(python, root, ["--full", "-k", "corpus"], Bare);
 
 		expect(readCalls()[0]?.args.slice(6)).toEqual(["--full", "-k", "corpus"]);
 	});
@@ -478,7 +464,7 @@ describe("a bare run under landing", () => {
 		const root = pyRepo();
 		fs.appendFileSync(path.join(root, "scripts/scan.py"), "Y = 2\n");
 		const [python, readCalls] = fakePytest(undefined, 0);
-		await wrap(python, root, ["-k", "corpus"], Landing);
+		await wrap(python, root, ["-k", "corpus"], Bare);
 
 		expect(readCalls()[0]?.args.slice(6)).toEqual(["-k", "corpus"]);
 	});
@@ -619,7 +605,7 @@ describe("what it says out loud", () => {
 		).toBe("");
 	});
 
-	it("prints what a narrowed run covered, at the terminal rather than at the push", async () => {
+	it("prints what a narrowed run covered, at the terminal", async () => {
 		const [python] = fakePytest(
 			{
 				passed: true,
@@ -697,7 +683,7 @@ describe("the run-cost report (#1884)", () => {
 	it("names a new file over budget in worker-seconds, marks a pre-existing one, and skips an unchanged file", async () => {
 		const root = changedRepo();
 		const [python] = fakePytest(handOff(timed(root)), 0);
-		const r = await wrap(python, root, [], noCi);
+		const r = await wrap(python, root, ["--full"], noCi);
 
 		expect(r.status).toBe(0);
 		const lines = parseCostLines(r.stdout);
@@ -715,7 +701,7 @@ describe("the run-cost report (#1884)", () => {
 	it("prints after a red run too, and the exit code stays red", async () => {
 		const root = changedRepo();
 		const [python] = fakePytest(handOff(timed(root), false), 1);
-		const r = await wrap(python, root, [], noCi);
+		const r = await wrap(python, root, ["--full"], noCi);
 
 		expect(r.status).toBe(1);
 		expect(parseCostLines(r.stdout)[0]).toContain(
@@ -726,7 +712,7 @@ describe("the run-cost report (#1884)", () => {
 	it("turns timings it cannot read into one fail-open line, and the suite's green stands", async () => {
 		const root = changedRepo();
 		const [python] = fakePytest(handOff(null), 0);
-		const r = await wrap(python, root, [], noCi);
+		const r = await wrap(python, root, ["--full"], noCi);
 
 		expect(r.status).toBe(0);
 		expect(parseCostLines(r.stdout)).toEqual([
@@ -740,9 +726,9 @@ describe("the run-cost report (#1884)", () => {
 	it("prints nothing where the plugin handed over no timings", async () => {
 		const root = changedRepo();
 		const [python] = fakePytest({ passed: true, scope: scope() }, 0);
-		expect(parseCostLines((await wrap(python, root, [], noCi)).stdout)).toEqual(
-			[],
-		);
+		expect(
+			parseCostLines((await wrap(python, root, ["--full"], noCi)).stdout),
+		).toEqual([]);
 	});
 });
 
@@ -974,7 +960,7 @@ describe("the suite ceiling (#2702)", () => {
 	it("exits 1 and records no marker on a ceiling kill, though the plugin said green", async () => {
 		const root = repo();
 		const [python] = fakePytest({ passed: true, scope: scope() }, 0, {});
-		const r = await wrap(python, root, [], lowered(root));
+		const r = await wrap(python, root, ["--full"], lowered(root));
 
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("SUITE CEILING");
@@ -991,7 +977,7 @@ describe("the suite ceiling (#2702)", () => {
 	it("says the list is unavailable where pytest reported none", async () => {
 		const root = repo();
 		const [python] = fakePytest(undefined, 0, {});
-		const r = await wrap(python, root, [], lowered(root));
+		const r = await wrap(python, root, ["--full"], lowered(root));
 
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("so the list is unavailable");
@@ -1006,7 +992,7 @@ describe("the suite ceiling (#2702)", () => {
 			[DEADLINE_ENV]: path.join(root, "deadline"),
 		};
 		const [python, readCalls] = fakePytest(undefined, 0);
-		await wrap(python, root, [], env);
+		await wrap(python, root, ["--full"], env);
 
 		const [call] = readCalls();
 		expect(call?.deadline).toMatch(new RegExp(`^\\d+ ${call?.pid}\\n$`));
@@ -1016,7 +1002,9 @@ describe("the suite ceiling (#2702)", () => {
 	it("leaves a run that closes inside the ceiling its own verdict", async () => {
 		const root = repo();
 		const [python] = fakePytest({ passed: true, scope: scope() }, 0);
-		const r = await wrap(python, root, [], { [CEILING_ENV]: FarCeiling });
+		const r = await wrap(python, root, ["--full"], {
+			[CEILING_ENV]: FarCeiling,
+		});
 
 		expect(r.status).toBe(0);
 		expect(r.stderr).not.toContain("SUITE CEILING");

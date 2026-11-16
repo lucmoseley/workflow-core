@@ -473,6 +473,19 @@ describe("release-plugin", () => {
 		);
 	});
 
+	it("refuses a cut below the newest migration note, naming the release that note describes (#5276)", () => {
+		priorRelease("v2.3.3");
+		write("migrations/v2.5.0.md", buildMigrationNote("true"));
+		git("add", "--all");
+		git("commit", "-qm", "a note for a later release");
+		const r = run();
+		expect(r.status).toBe(1);
+		expect(r.stderr).toMatch(
+			/migrations\/v2\.5\.0\.md is ahead of v2\.3\.4 — cut v2\.5\.0/,
+		);
+		expect(git("tag", "--list", "v2.3.4")).toBe("");
+	});
+
 	it("refuses a minor cut that drops a helper-surface export the last release listed, naming the file and export and tagging nothing (#463)", () => {
 		const surface = (names: string[]) =>
 			write(

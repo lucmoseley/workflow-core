@@ -36,10 +36,8 @@ import {
 } from "./lib/auth-status-fake";
 import {
 	dispatchFixture,
-	LANDING_MODULES,
 	ROUTING,
 	SCRIPT,
-	seedLandingCheckout,
 } from "./lib/dispatch-sessions-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -61,14 +59,14 @@ describe("the session's directory (#4245)", () => {
 		execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
 
 	it("starts each member in a fresh worktree detached at origin/main", async () => {
-		const main = seedLandingCheckout(fx.dir);
+		const { main } = fx;
 		stubClaude({});
-		const r = await runCore(
-			["sonnet", "/implement 341", "opus", "/wayfinder 1114"],
-			{
-				WFC_MODULES: LANDING_MODULES,
-			},
-		);
+		const r = await runCore([
+			"sonnet",
+			"/implement 341",
+			"opus",
+			"/wayfinder 1114",
+		]);
 		expect(r.code).toBe(0);
 		const cwds = launchCwds();
 		expect(cwds).toHaveLength(2);
@@ -89,18 +87,16 @@ describe("the session's directory (#4245)", () => {
 	});
 
 	it("starts a one-member set --into an existing session worktree, cutting none (#4385)", async () => {
-		seedLandingCheckout(fx.dir);
 		stubClaude({});
-		const env = { WFC_MODULES: LANDING_MODULES };
 		const cut = runInProcess(
 			path.join(path.dirname(SCRIPT), "session-checkout.js"),
 			["cut", "dead-341"],
-			{ cwd: fx.dir, env: baseEnv(env) },
+			{ cwd: fx.dir, env: baseEnv() },
 		);
 		expect(cut.status, cut.stderr).toBe(0);
 		const dead = cut.stdout.trim();
 
-		const r = await runCore(["--into", dead, "opus", "/implement 343"], env);
+		const r = await runCore(["--into", dead, "opus", "/implement 343"]);
 
 		expect(r.code, r.stderr).toBe(0);
 		expect(launchCwds()).toEqual([dead]);
@@ -129,7 +125,6 @@ describe("the session's directory (#4245)", () => {
 	});
 
 	it("refuses a refill-loop member whose lockfile has no store at once, running no install, then launches it once warmed (#4318)", async () => {
-		seedLandingCheckout(fx.dir);
 		git(fx.dir, "checkout", "-q", "--detach", "origin/main");
 		fs.writeFileSync(path.join(fx.dir, "package-lock.json"), "lock-1\n");
 		git(fx.dir, "add", "package-lock.json");
@@ -143,7 +138,6 @@ describe("the session's directory (#4245)", () => {
 		);
 		fs.chmodSync(npm, 0o755);
 		const env = {
-			WFC_MODULES: LANDING_MODULES,
 			WFC_NPM: npm,
 			WFC_DISPATCH_NO_BUILD: "1",
 		};
@@ -199,12 +193,6 @@ describe("the session's directory (#4245)", () => {
 			"WFC_DISPATCH_ROOT",
 		])
 			expect(env).not.toMatch(new RegExp(`^${v}=`, "m"));
-	});
-
-	it("starts the member in the checkout itself where the repository has no landing module", async () => {
-		stubClaude({});
-		expect((await runCore(["sonnet", "/implement 341"])).code).toBe(0);
-		expect(launchCwds()).toEqual([fs.realpathSync(fx.dir)]);
 	});
 
 	it("refuses a member it finds no directory for, naming why", async () => {

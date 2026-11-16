@@ -8,8 +8,8 @@
  *   node scripts/measure-landing-pool.js stays --since <ISO> --carrying <sha> [--json]
  *   node scripts/measure-landing-pool.js reaps --since <ISO> [--json]
  *
- * THE POOL (`stays`): each main checkout under $HOME whose
- * `.claude/workflow-core.json` lists `landing`, its stays and green runs
+ * THE POOL (`stays`): each main checkout under $HOME carrying a
+ * `.claude/workflow-core.json`, its stays and green runs
  * counted under each lander run that ran `<sha>` (#5174). A run whose
  * started line names its code counts where that code carries `<sha>`: a
  * commit that has it as an ancestor, or a release tag carrying it. The log is
@@ -43,7 +43,6 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { caught } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { now } = require("./lib/clock.js");
 const { commitSha } = require("./lib/commit-sha.js");
@@ -69,7 +68,6 @@ const {
 	windowOf,
 } = require("./lib/time-to-land.js");
 const { DAY_MS } = require("./lib/retained-jsonl.js");
-const { readConfig } = require("./lib/workflow-core-config.js");
 const { REAPED_RECORD } = require("./lib/worktree-reaper.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -214,49 +212,25 @@ function readCarriedSince(root, carry) {
 }
 
 /**
- * Why `root` is left out of the pool for its config, else null: its
- * `landing` module off, or a config that does not read.
- * @param {string} root
- * @returns {string|null}
- */
-function landingOff(root) {
-	try {
-		return readConfig({ root, quiet: true }).modules.includes("landing")
-			? null
-			: "landing is off";
-	} catch (e) {
-		return `its config does not read: ${caught(e).message}`;
-	}
-}
-
-/**
- * The checkouts under `home` with `landing` on, each with its fallback, and
- * each one left out with why.
+ * The checkouts under `home`, each with its fallback.
  * @param {string} home
  * @param {(ref: string) => Carry} carry
  * @param {string} sha full
- * @returns {{members: Member[], left: LeftOut[]}}
+ * @returns {Member[]}
  */
 function readPool(home, carry, sha) {
-	/** @type {Member[]} */
-	const members = [];
-	/** @type {LeftOut[]} */
-	const left = [];
-	for (const root of readAdopterCheckouts(home).included) {
+	return readAdopterCheckouts(home).included.map((root) => {
 		const name = path.basename(root);
-		const off = landingOff(root);
-		if (off !== null) left.push({ name, why: off });
-		else if (isCoreHost(root))
-			members.push({
-				name,
-				root,
-				fallback: isAncestor(root, sha, "origin/main")
-					? { from: null, pin: null }
-					: { why: "the sha is not on its origin/main" },
-			});
-		else members.push({ name, root, fallback: readCarriedSince(root, carry) });
-	}
-	return { members, left };
+		if (!isCoreHost(root))
+			return { name, root, fallback: readCarriedSince(root, carry) };
+		return {
+			name,
+			root,
+			fallback: isAncestor(root, sha, "origin/main")
+				? { from: null, pin: null }
+				: { why: "the sha is not on its origin/main" },
+		};
+	});
 }
 
 /**
@@ -333,14 +307,15 @@ const leftLine = (left) =>
 		: [`  left out: ${left.map((l) => `${l.name} (${l.why})`).join(", ")}`];
 
 /**
- * @param {{members: Member[], left: LeftOut[]}} pool
+ * @param {Member[]} members
  * @param {{since: number, until: number}} w
  * @param {string} sha
  * @param {(code: string) => boolean} codeCarries
  */
-function poolStays(pool, w, sha, codeCarries) {
-	const left = [...pool.left];
-	const ran = pool.members.flatMap((m) => {
+function poolStays(members, w, sha, codeCarries) {
+	/** @type {LeftOut[]} */
+	const left = [];
+	const ran = members.flatMap((m) => {
 		const events = readRunsSince(landerLog(m.root), w.since);
 		const { admit, carried } = buildAdmission(events, m.fallback, codeCarries);
 		if ("why" in m.fallback && carried === 0) {
@@ -398,7 +373,7 @@ function poolStays(pool, w, sha, codeCarries) {
 			left,
 		},
 		lines: [
-			`queue stays taken and landed or dropped since ${iso(w.since)}, every landing checkout running ${sha.slice(0, SHORT_SHA)}, each against its own target:`,
+			`queue stays taken and landed or dropped since ${iso(w.since)}, every checkout running ${sha.slice(0, SHORT_SHA)}, each against its own target:`,
 			...repos.map((r) => `  ${r.name}: ${r.line}`),
 			...leftLine(left),
 			`pooled: ${overTarget} of ${stays} stay(s) over their checkout's target; ${overNeeded} would call it over`,

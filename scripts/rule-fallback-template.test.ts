@@ -132,7 +132,7 @@ describe("a guard's rule fallback (#3018)", () => {
 		expect(leadCalls.map(({ file }) => file)).toEqual(
 			expect.arrayContaining([
 				"scripts/check-lockfile-sync.js",
-				"scripts/lib/pull-form.js",
+				"scripts/lib/commit-form.js",
 			]),
 		);
 	});

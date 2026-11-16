@@ -503,7 +503,7 @@ describe("a decision's skip", () => {
 	});
 });
 
-describe("ruleModule (#449) and ruleUnlessModule (#2409, #2785)", () => {
+describe("ruleModule (#449, #2785)", () => {
 	const src = [
 		"return { injectRules: [",
 		'\t"lead", "mid", "old",',
@@ -511,7 +511,7 @@ describe("ruleModule (#449) and ruleUnlessModule (#2409, #2785)", () => {
 		'\t...ruleModule(ctx, "governance", [',
 		'\t\t"mid",',
 		"\t]),",
-		"\t...ruleUnlessModule(ctx, 'governance', ['old']),",
+		"\t...ruleModule(ctx, 'roadmap', ['old']),",
 		"] };",
 	].join("\n");
 	const reach = (modules: string) => {
@@ -523,25 +523,25 @@ describe("ruleModule (#449) and ruleUnlessModule (#2409, #2785)", () => {
 		);
 	};
 
-	it("charges the module's ids and leaves out its unless-ids where the host has it on", () => {
+	it("charges the ids of a module the host has on, and leaves out those of one it has off", () => {
 		const r = reach("governance");
 		expect(r.tools.Bash.bytes).toBe(300);
 		expect(r.ratchet.ids).not.toContain("old");
 	});
 
-	it("leaves out the module's ids and charges its unless-ids where it is off", () => {
+	it("swaps them as the host swaps its modules", () => {
 		const r = reach("roadmap");
 		expect(r.tools.Bash.bytes).toBe(500);
 		expect(r.ratchet.ids).not.toContain("mid");
 	});
 
 	it("reads a gate written as the skip key's whole value", () => {
-		vi.stubEnv("WFC_MODULES", "landing");
+		vi.stubEnv("WFC_MODULES", "");
 		const r = figures(
 			{ Bash: ["scripts/guard-mod.js"] },
 			{
 				"scripts/guard-mod.js":
-					'return {\n\tinjectRules: ["old"],\n\tskip: ruleUnlessModule(ctx, "landing", ["old"]),\n};\n',
+					'return {\n\tinjectRules: ["old"],\n\tskip: ruleModule(ctx, "roadmap", ["old"]),\n};\n',
 			},
 			{ old: "o".repeat(400) },
 		);

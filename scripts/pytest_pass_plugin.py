@@ -1,7 +1,7 @@
-"""The half of the pre-push marker that knows what pytest did (mantahostels#1256).
+"""The half of the suite marker that knows what pytest did (mantahostels#1256).
 
-Without it the pre-push gate read certificates only vitest wrote, so a sha
-with only a vitest certificate looked fully attested. This plugin records pytest's
+Without it attestation read certificates only vitest wrote, so a sha with
+only a vitest certificate looked fully attested. This plugin records pytest's
 verdict and scope; the node wrapper
 `scripts/run-pytest.js` holds the tree findings and writes the marker.
 
@@ -23,7 +23,7 @@ flight with their stage, how many finished and how many were collected, for
 the wrapper's suite-ceiling report (#2702).
 
 IT MUST NEVER TURN A PASSING SUITE RED. Every read is wrapped; a failure records
-the verdict with no scope, which reads as unknown at the push.
+the verdict with no scope, which reads as unknown.
 """
 
 import fnmatch

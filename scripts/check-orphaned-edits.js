@@ -66,8 +66,8 @@
  * is how the stores key it (#4397).
  *
  * A CUT-OVER MAIN CHECKOUT'S DIRT IS JUDGED AT ONCE, AT ANY AGE (#4317, the
- * founder's ruling on #4309). With the `landing` module on and the main
- * checkout cut over (lib/cutover.js), #4248's refusal lets no session write
+ * founder's ruling on #4309). With the main checkout cut over
+ * (lib/cutover.js), #4248's refusal lets no session write
  * there, so the 24-hour window, kept because a live session's Bash-route
  * writes leave no ledger entry (#794 Q6), has no live work left to protect.
  * Claims, observations and ledgers still exclude a file. RESIDUAL: a write
@@ -119,7 +119,6 @@ const store = require("./lib/arbiter-store");
 const { caught } = require("./lib/caught.js");
 const { landingCutOver } = require("./lib/cutover.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
-const { moduleOn } = require("./lib/workflow-core-config.js");
 const { takesLabel } = require("./lib/takes-label.js");
 
 const ORPHAN_LABEL = takesLabel("triage");
@@ -1071,10 +1070,7 @@ async function run(ctx) {
 			"git status would not answer, so what is uncommitted is unknown.",
 		);
 
-	const cutOver = landingCutOver(
-		(m) => moduleOn(m, { root }),
-		gitReader(root, GIT_TIMEOUT_MS),
-	);
+	const cutOver = landingCutOver(gitReader(root, GIT_TIMEOUT_MS));
 	const checkout = { root, worktree: null };
 	const { linked, unread, youngIn, ...walked } = await readLinkedDirt(root, {
 		hours,
