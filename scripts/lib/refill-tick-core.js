@@ -52,8 +52,8 @@ const {
 	NOTHING_LAUNCHABLE,
 	readParkers,
 	UNREAD,
-	unprovenRoom,
 } = require("./refill-decide.js");
+const { buildLaunchRoom } = require("./launch-room.js");
 const {
 	controlWithoutOptedOut,
 	judgedLaunches,
@@ -589,14 +589,15 @@ const isSeatListRead = (parsed) => parsed !== null && parsed.seats.length > 0;
  * for the tick after the resume (#3856); a hold its finishes ended is still
  * released, as that tick's `before` no longer shows it holding. The walks'
  * probe stamps are for this read alone: settleTick writes the tick's own. A
- * limit resume from held takes a slot only where the unproven cap has room,
- * as a launch does (#4223).
+ * limit resume from held takes a slot only where its checkout's launch room
+ * lets a resume start, as decideTick's do (#4223, #5290).
  * @param {TickIo} io
  * @param {{control: Control, seatListRead: boolean,
  *   before: LoopLaunch[], judged: LoopLaunch[], seen: Seen, served: string[],
  *   declared: DeclaredSeats, typedSeat: string|null,
  *   seatTriedAt: Record<string, number>, lastActAt: Record<string, number>,
- *   breakerRoom: Record<string, number>, acts: LaunchActs}} tick
+ *   breakerRoom: Record<string, number>,
+ *   holds: import("./refill-decide.js").TickInput["holds"], acts: LaunchActs}} tick
  *   `breakerRoom`, each checkout an open throughput breaker bars (#5275)
  */
 function settleRoom(
@@ -613,6 +614,7 @@ function settleRoom(
 		seatTriedAt,
 		lastActAt,
 		breakerRoom,
+		holds,
 		acts,
 	},
 ) {
@@ -631,11 +633,13 @@ function settleRoom(
 	const { slots: free, admission } = io.readFreeSlots(
 		admissionRoot(served, io.typecheckPeakMb),
 	);
-	/** @param {string} root */
-	const roomOf = (root) =>
-		control.repoPaused?.[root] || breakerRoom[root] !== undefined
-			? 0
-			: unprovenRoom({ history: judged, lastActAt }, root);
+	const room = buildLaunchRoom({
+		history: judged,
+		lastActAt,
+		repoPaused: control.repoPaused,
+		breakerRoom,
+		holds,
+	});
 	/** @param {import("./refill-decide.js").SizedSeat[]} sized */
 	const overflowOf = (sized) =>
 		overflowReadings(declared, sized, (seat) => io.seatBudget(seat, served[0]));
@@ -659,7 +663,7 @@ function settleRoom(
 		},
 		seatListRead,
 		slots: free,
-		roomOf,
+		roomOf: room.resumeLeft,
 	});
 	const slots = limitLeft;
 	acts.releaseEndedHolds(before, launches, seen.io);
@@ -1074,6 +1078,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		acts,
 	});
 	const lastActAt = io.readLoopLastActAt(judged, served);
+	const { holds } = io.readTickHolds(served, broken);
 	const {
 		launches,
 		slots,
@@ -1094,6 +1099,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		seatTriedAt: state.seatTriedAt,
 		lastActAt,
 		breakerRoom,
+		holds,
 		acts,
 	});
 	const resumable = dueResumes(control, launches, seen);
@@ -1120,7 +1126,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		lastActAt,
 		judgements: io.readGateJudgements().filter((j) => served.includes(j.root)),
 		resumable,
-		holds: io.readTickHolds(served, broken).holds,
+		holds,
 	};
 	const { decision, read } = await decide(io, input, control.scope);
 	if (dryRun)

@@ -1985,7 +1985,7 @@ function releaseOnSignal(host, signal, code) {
  * caller wraps round `stamps.admit` (queue-run's `--tsc` try); a `turn`
  * among them beats the seat's.
  *
- * @param {{ queue?: QueueOptions, join?: false | { role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight }, turn?: () => boolean, logExit?: (reason: import("./queue-exit-log.js").QueueExitReason, waitMs: number, extra?: object) => void, signals?: true | { emitter?: SignalEmitter, exit?: (code: number) => void, onSignal?: (signal: NodeJS.Signals, code: number) => boolean } }} [options]
+ * @param {{ queue?: QueueOptions, join?: false | { role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight, holder?: SeatHolder }, turn?: () => boolean, logExit?: (reason: import("./queue-exit-log.js").QueueExitReason, waitMs: number, extra?: object) => void, signals?: true | { emitter?: SignalEmitter, exit?: (code: number) => void, onSignal?: (signal: NodeJS.Signals, code: number) => boolean } }} [options]
  */
 function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
 	const ticket = join === false ? "" : queueJoin({ ...queue, ...join });

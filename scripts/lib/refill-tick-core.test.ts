@@ -737,7 +737,11 @@ describe("the unproven cap through the tick (#4223)", () => {
 		sessionId: `s-held${n}`,
 		limitHeld: { ...LIMIT_HOLD, sessionId: `s-held${n}` },
 	}));
-	const limitSlotsOf = async (lastActAt: number, held = holds) => {
+	const limitSlotsOf = async (
+		lastActAt: number,
+		held = holds,
+		over: Partial<TickIo> = {},
+	) => {
 		const { io, calls, lines } = fakeIo(
 			stateOf({ launches: [...running, ...held] }),
 			{
@@ -747,6 +751,7 @@ describe("the unproven cap through the tick (#4223)", () => {
 					seats: seats.map((seat) => ({ ...sized, seat })),
 					probes: [],
 				}),
+				...over,
 			},
 			/* The cap is the checkout's, so the row waiting is the running ones' (#5275). */
 			{ frontier: [{ ...row(1), root: HELD_LAUNCH.root }] },
@@ -778,6 +783,22 @@ describe("the unproven cap through the tick (#4223)", () => {
 		expect((await limitSlotsOf(NOW - 1000)).resumed).toBe(3);
 		const { decision } = await limitSlotsOf(NOW - 1000, []);
 		expect(decision).toMatchObject({ idle: null });
+	});
+
+	it("resumes none from held into a probe-held checkout, as it launches none there (#5290)", async () => {
+		const { resumed } = await limitSlotsOf(NOW - 1000, holds, {
+			readTickHolds: () => ({
+				holds: [
+					{
+						root: HELD_LAUNCH.root,
+						kind: "probe",
+						issue: null,
+						raisedAt: null,
+					},
+				],
+			}),
+		});
+		expect(resumed).toBe(0);
 	});
 });
 
