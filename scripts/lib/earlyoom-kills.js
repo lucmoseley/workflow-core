@@ -28,6 +28,12 @@
  * the run started at or before the kill, the pid seen in its role up to it
  * (`heldUntil`), the latest such run where two share them.
  *
+ * A GATE RUN is a kill, of any name, whose pid a gate seat's pid record saw in
+ * its command's tree (lib/gate-seat.js, #5269): same boot, the seat spawned at
+ * or before the kill, the pid seen up to it (`gateHeldUntil`), the latest
+ * such seat where two share them. A headless or test run match is the more
+ * specific, so it wins.
+ *
  * FAILS OPEN: journalctl absent, refused, timed out or printing nothing reads
  * as no kills, with `why` set so a caller can say so. A store or boot list
  * that will not read, or a run on a victim's pid that recorded no boot,
@@ -39,6 +45,7 @@
 const { caught } = require("./caught.js");
 const { readStoredRuns } = require("./headless-runs.js");
 const { heldUntil, readRunFiles } = require("./run-memory.js");
+const { gateHeldUntil, readGatePids } = require("./gate-seat.js");
 const { shortJobId } = require("./job-paths.js");
 const {
 	buildProcessSpan,
@@ -70,14 +77,18 @@ const CLAUDE_CLI = /^claude$/;
 /** Every node program's comm is `MainThread`: the refill loop, a test worker, a server (#3759). */
 const NODE_OR_PYTHON = /^(MainThread|node|python3?)$/;
 const TEST_OR_BUILD = /^(npm|npx|tsc|vitest|esbuild|biome|pytest)$/;
+/** Playwright's headless browser and a full one (#5269). */
+const CHROMIUM = /^(headless_shell|chrome|chromium)$/;
 
 const KINDS = /** @type {const} */ ([
 	"Claude host",
 	"headless run",
 	"test run",
+	"gate run",
 	"claude CLI",
 	"node or python process",
 	"test or build",
+	"Chromium",
 	"other",
 ]);
 /** @typedef {typeof KINDS[number]} Kind */
@@ -91,6 +102,7 @@ const KINDS = /** @type {const} */ ([
  * @property {Kind} kind
  * @property {string|null} jobId the headless run's, where the kill is one
  * @property {TestRun|null} testRun the test launch, where the kill is one of its processes
+ * @property {GateRun|null} gateRun the gate run, where the kill is one of its processes
  * @property {number} badness
  * @property {number} rssMiB
  * @property {number|null} availMiB MemAvailable before the first signal
@@ -98,6 +110,7 @@ const KINDS = /** @type {const} */ ([
  * @property {number} signals
  * @typedef {Pick<import("./run-memory.js").RunLaunch, "session"|"kind"|"argv"|"files"|"fileCount"|"repo">
  *   & {role: import("./run-memory.js").Role}} TestRun
+ * @typedef {Pick<import("./gate-seat.js").GatePids, "repo"|"command"|"session">} GateRun
  * @typedef {{kills: Kill[], first: string, last: string,
  *   unjoined: string|null}} Incident
  */
@@ -108,6 +121,7 @@ function kindOf(name) {
 	if (CLAUDE_CLI.test(name)) return "claude CLI";
 	if (NODE_OR_PYTHON.test(name)) return "node or python process";
 	if (TEST_OR_BUILD.test(name)) return "test or build";
+	if (CHROMIUM.test(name)) return "Chromium";
 	return "other";
 }
 
@@ -147,6 +161,7 @@ function parseSignals(text) {
 			kind: kindOf(name),
 			jobId: null,
 			testRun: null,
+			gateRun: null,
 			badness: Number(group(5)),
 			rssMiB: Number(group(6)),
 			availMiB: reading?.availMiB ?? null,
@@ -262,6 +277,52 @@ function findTestRun(k, boot, runs) {
 }
 
 /**
+ * The gate run whose tree held `k`'s pid when it died in `boot`, and the
+ * seats that saw its pid but recorded no boot.
+ * @param {Kill} k
+ * @param {import("./journalctl.js").Boot|undefined} boot
+ * @param {import("./gate-seat.js").GatePids[]} seats
+ * @returns {{gateRun: GateRun|null, bootless: string[]}}
+ */
+function findGateRun(k, boot, seats) {
+	const at = Date.parse(k.at);
+	const held = seats.flatMap((seat) => {
+		const until = gateHeldUntil(seat, k.pid);
+		return until !== null && toSecond(Date.parse(seat.at)) <= at && at <= until
+			? [{ seat, bootId: seat.bootId, started: Date.parse(seat.at) }]
+			: [];
+	});
+	const bootless = held.flatMap(({ seat }) =>
+		seat.bootId === null ? [`gate run from ${seat.at}`] : [],
+	);
+	const latest = latestInBoot(held, boot);
+	if (latest === null) return { gateRun: null, bootless };
+	const { repo, command, session } = latest.seat;
+	return { gateRun: { repo, command, session }, bootless };
+}
+
+/**
+ * `k` named as the test run, else the gate run, its pid was part of when it
+ * died in `boot`, or as it was; each record on its pid with no boot noted in
+ * `bootless`.
+ * @param {Kill} k
+ * @param {import("./journalctl.js").Boot|undefined} boot
+ * @param {{ runs: import("./run-memory.js").RunFile[],
+ *   seats: import("./gate-seat.js").GatePids[], bootless: string[] }} stores
+ * @returns {Kill}
+ */
+function joinRecordedRun(k, boot, { runs, seats, bootless }) {
+	const test = findTestRun(k, boot, runs);
+	bootless.push(...test.bootless);
+	const { testRun } = test;
+	if (testRun !== null) return { ...k, kind: "test run", testRun };
+	const gate = findGateRun(k, boot, seats);
+	bootless.push(...gate.bootless);
+	const { gateRun } = gate;
+	return gateRun === null ? k : { ...k, kind: "gate run", gateRun };
+}
+
+/**
  * @param {Incident[]} incidents
  * @returns {Incident[]}
  */
@@ -278,11 +339,12 @@ function joinRuns(incidents) {
 	const { boots, why } = readBoots();
 	if (why !== null) return unread(why);
 	const testRuns = readRunFiles();
+	const gateSeats = readGatePids();
 	return incidents.map((i) => {
 		/** @type {string[]} */
 		const bootless = [];
 		/** @type {string[]} */
-		const bootlessTests = [];
+		const bootlessRuns = [];
 		const kills = i.kills.map((k) => {
 			const at = Date.parse(k.at);
 			const boot = boots.find((b) => b.from <= at && at <= b.to);
@@ -300,12 +362,11 @@ function joinRuns(incidents) {
 					kind: /** @type {Kind} */ ("headless run"),
 					jobId: run.jobId,
 				};
-			const found = findTestRun(k, boot, testRuns.runs);
-			bootlessTests.push(...found.bootless);
-			const { testRun } = found;
-			return testRun === null
-				? k
-				: { ...k, kind: /** @type {Kind} */ ("test run"), testRun };
+			return joinRecordedRun(k, boot, {
+				runs: testRuns.runs,
+				seats: gateSeats.seats,
+				bootless: bootlessRuns,
+			});
 		});
 		const unjoined = [
 			...bootlessNote(
@@ -315,8 +376,11 @@ function joinRuns(incidents) {
 							`headless ${bootless.length === 1 ? "run" : "runs"} ${bootless.join(", ")}`,
 						],
 			),
-			...bootlessNote(bootlessTests),
+			...bootlessNote(bootlessRuns),
 			...(testRuns.why === null ? [] : [testRuns.why]),
+			...(gateSeats.why === null || gateSeats.why === testRuns.why
+				? []
+				: [gateSeats.why]),
 		];
 		return {
 			...i,
@@ -400,9 +464,16 @@ const testRunCell = (t) => {
 	return `${t.role} of a ${t.kind} run${by} in ${t.repo}: ${files}`;
 };
 
+/** @param {GateRun} g */
+const gateRunCell = (g) => {
+	const by = g.session === null ? "" : ` by \`${shortJobId(g.session)}\``;
+	return `\`${g.command}\`${by} in ${g.repo ?? "an unnamed repo"}`;
+};
+
 /** @param {Kill} k */
 const kindCell = (k) => {
 	if (k.testRun !== null) return `${k.kind}: ${testRunCell(k.testRun)}`;
+	if (k.gateRun !== null) return `${k.kind}: ${gateRunCell(k.gateRun)}`;
 	return k.jobId === null ? k.kind : `${k.kind} \`${k.jobId}\``;
 };
 
@@ -428,7 +499,7 @@ function buildIncidentBody(i) {
 
 earlyoom killed ${i.kills.length} ${i.kills.length === 1 ? "process" : "processes"} between ${localMinute(first)} and ${localMinute(last)} machine time, one incident: kills no more than ${INCIDENT_GAP_MS / 60_000} min apart (#3094).
 
-By kind: ${byKind(i.kills)}. A headless run is a \`claude -p\` in the headless run store; a test run is a test launch's wrapper, vitest main or worker, matched by pid to its memory record (\`.test-run-memory\`); claude CLI is the daemon, \`claude agents\` or a \`-p\` the store has none for; a node or python process is any such program, the refill loop and test workers included.${i.unjoined === null ? "" : `\n\nNot joined to the headless or test runs, so a kill named by its process may be one: ${i.unjoined}.`}
+By kind: ${byKind(i.kills)}. A headless run is a \`claude -p\` in the headless run store; a test run is a test launch's wrapper, vitest main or worker, matched by pid to its memory record (\`.test-run-memory\`); a gate run is any process in a commit gate's tree, matched by pid to its gate seat's record there; claude CLI is the daemon, \`claude agents\` or a \`-p\` the store has none for; a node or python process is any such program, the refill loop and test workers included; Chromium is a browser process (\`headless_shell\`, \`chrome\`) no record claims.${i.unjoined === null ? "" : `\n\nNot joined to the headless, test or gate runs, so a kill named by its process may be one: ${i.unjoined}.`}
 
 Lowest MemAvailable before a kill: ${lowest === null ? "unread" : `${lowest.availMiB} MiB, SwapFree ${mib(lowest.swapFreeMiB)}`}.
 

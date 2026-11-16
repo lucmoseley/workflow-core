@@ -27,6 +27,9 @@
  * the file it runs (`claimFile`, from vitest.setup.ts) as `<pid>` in the run
  * file's `.files` directory beside it.
  *
+ * A GATE SEAT'S RECORD shares the store, so the filer reads one place: its
+ * file is named GATE_FILE_PREFIX and read only by lib/gate-seat.js.
+ *
  * A FILE OF ANOTHER SHAPE, with no `workersSeenAt` object, reads as no run:
  * it can bound no pid to its run, and the store keeps files RETAIN_MS across
  * any change of shape (#5253).
@@ -48,6 +51,8 @@ const { refillPath } = require("./refill-dir.js");
 /** The run file's path, set on vitest's environment. */
 const MEMORY_ENV = "WFC_RUN_MEMORY";
 const STORE_DIR = ".test-run-memory";
+/* A gate seat's record in the store (lib/gate-seat.js), never a run file. */
+const GATE_FILE_PREFIX = "gate-";
 /* Untraced: about 200 stat reads a sample. */
 const SAMPLE_MS = 1000;
 /* How long past its last sighting a pid stays its run's: two samples, so one
@@ -359,36 +364,54 @@ function claimFile(
 }
 
 /**
- * Every run file in the store, or why the store would not read: a directory
- * that will not list or a file that will not parse.
- * @param {string} [dir]
- * @returns {{ runs: RunFile[], why: string|null }}
+ * The store's JSON files `named` takes whose parse `shaped` keeps, or why the
+ * store would not read: a directory that will not list or a file that will
+ * not parse. lib/gate-seat.js reads its gate-seat records through it.
+ * @template T
+ * @param {{ named: (name: string) => boolean, shaped: (parsed: any) => boolean,
+ *   dir?: string }} read
+ * @returns {{ items: T[], why: string|null }}
  */
-function readRunFiles(dir = storeDir()) {
+function readStoreFiles({ named, shaped, dir = storeDir() }) {
 	let names;
 	try {
 		names = fs.readdirSync(dir);
 	} catch (error) {
 		return caught(error).code === "ENOENT"
-			? { runs: [], why: null }
-			: { runs: [], why: `the test run store: ${caught(error).message}` };
+			? { items: [], why: null }
+			: { items: [], why: `the test run store: ${caught(error).message}` };
 	}
-	/** @type {RunFile[]} */
-	const runs = [];
-	for (const name of names.filter((n) => n.endsWith(".json")))
+	/** @type {T[]} */
+	const items = [];
+	for (const name of names.filter((n) => n.endsWith(".json") && named(n)))
 		try {
-			const run = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
-			/* A file of another shape: see the header (#5253). */
-			if (run.workersSeenAt instanceof Object) runs.push(run);
+			const parsed = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
+			if (shaped(parsed)) items.push(parsed);
 		} catch (error) {
 			/* A neighbour's sweep took it after the listing. */
 			if (caught(error).code === "ENOENT") continue;
 			return {
-				runs: [],
+				items: [],
 				why: `the test run store: ${name}: ${caught(error).message}`,
 			};
 		}
-	return { runs, why: null };
+	return { items, why: null };
+}
+
+/**
+ * Every run file in the store, or why the store would not read.
+ * @param {string} [dir]
+ * @returns {{ runs: RunFile[], why: string|null }}
+ */
+function readRunFiles(dir = storeDir()) {
+	/** @type {{ items: RunFile[], why: string|null }} */
+	const { items, why } = readStoreFiles({
+		dir,
+		named: (name) => !name.startsWith(GATE_FILE_PREFIX),
+		/* A file of another shape: see the header (#5253). */
+		shaped: (run) => run.workersSeenAt instanceof Object,
+	});
+	return { runs: items, why };
 }
 
 /**
@@ -410,10 +433,14 @@ function heldUntil(run, pid) {
 }
 
 module.exports = {
+	GATE_FILE_PREFIX,
 	MEMORY_ENV,
 	claimFile,
 	heldUntil,
 	readRunFiles,
 	readRunMemory,
+	readStoreFiles,
 	startSampler,
+	storeDir,
+	sweep,
 };

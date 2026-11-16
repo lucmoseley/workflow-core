@@ -26,6 +26,14 @@
  * log (lib/queue-exit-log.js), whose figure it copies, unmeasured. It is the
  * one source of gate-run counts.
  *
+ * THE PID RECORD names the processes of a running seat's tree for the
+ * memory-kill filer (#5269): one file a seat in lib/run-memory.js's store,
+ * GATE_FILE_PREFIX-named, rewritten at each tree sample with every pid seen
+ * and when it was last seen. A pid is the seat's only up to
+ * `gateHeldUntil`, its last sighting plus two of the record's own sample
+ * intervals, so a pid reused after it is never named the seat's. A process
+ * that starts and dies between two samples goes unrecorded.
+ *
  * A GATE INSIDE A RUNNING SUITE'S PROCESS TREE takes no seat: a test
  * committing in a fixture repo runs in the slot and on the rung its suite
  * already holds, and would otherwise wait on that suite for good. It still
@@ -33,6 +41,8 @@
  */
 
 const path = require("node:path");
+const { readCurrentBootId } = require("./arbiter-proc.js");
+const { writeFileAtomic } = require("./atomic-write.js");
 const { readText } = require("./file-read.js");
 const { readAncestorsOf, readParentOf } = require("./proc-stat.js");
 const { procRoot } = require("./proc-root.js");
@@ -42,6 +52,12 @@ const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { repoRoot } = require("./test-pass-marker.js");
 const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js");
 const { isVitestRunnerLine, suiteRungMb } = require("./suite-ladder.js");
+const {
+	GATE_FILE_PREFIX,
+	readStoreFiles,
+	storeDir,
+	sweep,
+} = require("./run-memory.js");
 
 /* The variable a gate seat hands its command, naming its marker. */
 const GATE_ENV = "WFC_GATE_SEAT";
@@ -155,6 +171,106 @@ function isInSuite({
 	});
 }
 
+/**
+ * @typedef {object} GatePids one gate seat's pid record
+ * @property {string} at the seat's command spawned, ISO
+ * @property {string | null} bootId
+ * @property {string | null} repo
+ * @property {string} command
+ * @property {string | null} session
+ * @property {number} sampleMs the tree sample's interval
+ * @property {string} sampledAt
+ * @property {Record<string, string>} seenAt each pid's last sighting, ISO
+ * @property {string} [endedAt]
+ */
+
+/**
+ * Start a gate seat's pid record, written at once with no pid, then at each
+ * `see`. Never throws: an unwritable record costs the kill filer its join,
+ * never the gate run.
+ * @param {{ repo: string | null, command: string, session: string | null }} holder
+ * @param {{ sampleMs: number, pid?: number, dir?: string, now?: () => number,
+ *   bootId?: string | null }} options
+ * @returns {{ file: string, see: (pids: number[]) => void, stop: () => void }}
+ */
+function startGatePids(
+	{ repo, command, session },
+	{
+		sampleMs,
+		pid = process.pid,
+		dir = storeDir(),
+		now = Date.now,
+		bootId = readCurrentBootId(),
+	},
+) {
+	const startedAt = now();
+	sweep(dir, startedAt);
+	const file = path.join(dir, `${GATE_FILE_PREFIX}${pid}-${startedAt}.json`);
+	const stamp = () => new Date(now()).toISOString();
+	/** @type {GatePids} */
+	const record = {
+		at: new Date(startedAt).toISOString(),
+		bootId,
+		repo,
+		command,
+		session,
+		sampleMs,
+		sampledAt: stamp(),
+		seenAt: {},
+	};
+	const write = () => {
+		try {
+			writeFileAtomic(file, `${JSON.stringify(record)}\n`, { mkdir: true });
+		} catch {
+			/* NEVER THROWS */
+		}
+	};
+	write();
+	return {
+		file,
+		see: (pids) => {
+			const at = stamp();
+			for (const seen of pids) record.seenAt[seen] = at;
+			record.sampledAt = at;
+			write();
+		},
+		stop: () => {
+			record.endedAt = stamp();
+			write();
+		},
+	};
+}
+
+/**
+ * Every gate seat's pid record in the store, or why the store would not read.
+ * @param {string} [dir]
+ * @returns {{ seats: GatePids[], why: string | null }}
+ */
+function readGatePids(dir = storeDir()) {
+	/** @type {{ items: GatePids[], why: string | null }} */
+	const { items, why } = readStoreFiles({
+		dir,
+		named: (name) => name.startsWith(GATE_FILE_PREFIX),
+		shaped: (seat) => seat.seenAt instanceof Object,
+	});
+	return { seats: items, why };
+}
+
+/**
+ * The last time, ms, `pid` can be taken for `seat`'s: its last sighting, no
+ * later than the record's last sample, plus two sample intervals, so one late
+ * tick does not drop a live process; null where the seat never saw it.
+ * @param {GatePids} seat
+ * @param {number} pid
+ * @returns {number | null}
+ */
+function gateHeldUntil(seat, pid) {
+	const seen = seat.seenAt[pid];
+	if (!seen) return null;
+	const lastSample = Date.parse(seat.endedAt ?? seat.sampledAt);
+	return Math.min(Date.parse(seen), lastSample) + 2 * seat.sampleMs;
+}
+
 module.exports = {
 	GATE_ENV,
 	GATE_ROLE,
@@ -163,6 +279,9 @@ module.exports = {
 	gatePositionLine,
 	gateRepoName,
 	gateRunLogPath,
+	gateHeldUntil,
 	gateSeatChargeMb,
 	isInSuite,
+	readGatePids,
+	startGatePids,
 };

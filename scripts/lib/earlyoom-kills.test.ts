@@ -256,7 +256,7 @@ describe("headless runs among the kills (#4143)", () => {
 		expect(i.kills[0].kind).toBe("claude CLI");
 		expect(i.unjoined).toBe("journalctl --list-boots: no boots");
 		expect(kills.buildIncidentBody(i)).toContain(
-			"Not joined to the headless or test runs, so a kill named by its process may be one: journalctl --list-boots: no boots.",
+			"Not joined to the headless, test or gate runs, so a kill named by its process may be one: journalctl --list-boots: no boots.",
 		);
 
 		seed([T0], [{ jobId: "0aaaaaaa", launchedAt: T0 - 5 * MIN }]);
@@ -419,5 +419,126 @@ describe("test runs among the kills (#5183)", () => {
 		const j = readOne();
 		expect(j.kills[0].kind).toBe("node or python process");
 		expect(j.unjoined).toMatch(/^the test run store: 9\.json: /);
+	});
+});
+
+describe("gate runs and Chromium among the kills (#5269)", () => {
+	const Browser = 6161;
+	const dashed = ONE_BOOT.id.replace(
+		/^(.{8})(.{4})(.{4})(.{4})(.{12})$/,
+		"$1-$2-$3-$4-$5",
+	);
+	const iso = (ms: number) => new Date(ms).toISOString();
+	/** A kill of `comm` on Browser at T0, and `seats` as gate-seat records,
+	 * each having seen the pid a second before the kill. */
+	function seed(seats: Record<string, unknown>[], comm = "headless_shell") {
+		vi.stubEnv(
+			"WFC_JOURNALCTL",
+			writeJournalctl(path.join(dir, "gate"), [
+				buildEarlyoomReadingLine(T0),
+				buildEarlyoomSignalLine(T0, Browser, comm, { rss: 640 }),
+			]),
+		);
+		const store = path.join(dir, "refill", ".test-run-memory");
+		fs.rmSync(store, { recursive: true, force: true });
+		fs.mkdirSync(store, { recursive: true });
+		seats.forEach((s, n) => {
+			fs.writeFileSync(
+				path.join(store, `gate-${n}-1.json`),
+				JSON.stringify({
+					at: iso(T0 - 5 * MIN),
+					bootId: dashed,
+					repo: "design-vault",
+					command: "bash test/all.sh",
+					session: "abcd1234-ffff-0000",
+					sampleMs: 2000,
+					sampledAt: iso(T0 - 1000),
+					seenAt: { 40: iso(T0 - 1000), [Browser]: iso(T0 - 1000) },
+					...s,
+				}),
+			);
+		});
+	}
+	const readOne = () => kills.readIncidents(T0 - 60 * MIN).incidents[0];
+
+	it("files a kill in a live gate seat's tree as a gate run naming its repo and command", () => {
+		seed([{}]);
+		const i = readOne();
+		expect(i.kills[0].kind).toBe("gate run");
+		expect(i.kills[0].gateRun).toEqual({
+			repo: "design-vault",
+			command: "bash test/all.sh",
+			session: "abcd1234-ffff-0000",
+		});
+		expect(i.unjoined).toBeNull();
+		const body = kills.buildIncidentBody(i);
+		expect(body).toContain("By kind: gate run 1.");
+		expect(body).toContain(
+			"| gate run: `bash test/all.sh` by `abcd1234` in design-vault | `headless_shell` | 6161 |",
+		);
+		expect(body).toContain("a gate run is any process in a commit gate's tree");
+		expect(basisFaults(body)).toEqual([]);
+	});
+
+	it("files a headless_shell or chrome kill outside any record as Chromium, not other", () => {
+		seed([]);
+		const body = kills.buildIncidentBody(readOne());
+		expect(readOne().kills[0].kind).toBe("Chromium");
+		expect(body).toContain("By kind: Chromium 1.");
+		expect(body).toContain("Chromium is a browser process");
+		seed([], "chrome");
+		expect(readOne().kills[0].kind).toBe("Chromium");
+	});
+
+	it("leaves a pid reused after its heldUntil unattributed: last seen, last sampled or ended past the slack, started after the kill, or in another boot", () => {
+		seed([
+			/* Seen 5 s before the kill: past two 2 s samples. */
+			{ seenAt: { [Browser]: iso(T0 - 5000) } },
+			{ sampledAt: iso(T0 - 10 * MIN) },
+			{ endedAt: iso(T0 - MIN) },
+			{ at: iso(T0 + MIN) },
+			{ bootId: "fedcba98-7654-3210-fedc-ba9876543210" },
+		]);
+		expect(readOne().kills[0].kind).toBe("Chromium");
+	});
+
+	it("leaves a test run's match to it, the more specific", () => {
+		seed([{}], "MainThread");
+		fs.writeFileSync(
+			path.join(dir, "refill", ".test-run-memory", "run.json"),
+			JSON.stringify({
+				at: iso(T0 - 5 * MIN),
+				bootId: dashed,
+				session: null,
+				kind: "named",
+				argv: [],
+				files: [],
+				fileCount: 0,
+				repo: "design-vault",
+				pids: { wrapper: 10, main: 11, workers: [Browser] },
+				peaksMiB: { wrapper: 0, main: 0, worker: 0, sum: 0 },
+				workerFile: null,
+				sampledAt: iso(T0 - 1000),
+				workersSeenAt: { [Browser]: iso(T0 - 1000) },
+			}),
+		);
+		expect(readOne().kills[0].kind).toBe("test run");
+	});
+
+	it("says the kill was not joined where a seat on its pid recorded no boot, or a seat record will not read", () => {
+		seed([{ bootId: null }]);
+		const i = readOne();
+		expect(i.kills[0].kind).toBe("Chromium");
+		expect(i.unjoined).toBe(
+			`gate run from ${iso(T0 - 5 * MIN)} on a victim's pid recorded no boot`,
+		);
+		seed([{}]);
+		fs.writeFileSync(
+			path.join(dir, "refill", ".test-run-memory", "gate-9-1.json"),
+			"{",
+		);
+		const j = readOne();
+		expect(j.kills[0].kind).toBe("Chromium");
+		expect(j.unjoined).toMatch(/^the test run store: gate-9-1\.json: /);
 	});
 });

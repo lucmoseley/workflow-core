@@ -931,12 +931,16 @@ function gateSeatHeldMb(gates, { pssKbOf, children, sessionPids }) {
 
 /**
  * The PSS of `pid` and every process under it, in kB, off fresh reads
- * (#3323). An unreadable process counts nothing.
+ * (#3323), and the pids it reached, `pid` first. An unreadable process
+ * counts nothing.
  * @param {number} pid
+ * @returns {{ kb: number, pids: number[] }}
  */
-function readTreePssKb(pid) {
+function readTreeSample(pid) {
 	const root = String(pid);
-	return (
+	/** @type {string[]} */
+	const reached = [];
+	const kb =
 		(readPssKb(root) ?? 0) +
 		descendantsPssKb(
 			root,
@@ -945,10 +949,16 @@ function readTreePssKb(pid) {
 				stopPids: new Set(),
 				pssKbOf: readPssKb,
 			},
-			[],
-		)
-	);
+			reached,
+		);
+	return { kb, pids: [pid, ...reached.map(Number)] };
 }
+
+/**
+ * The PSS of `pid` and every process under it, in kB.
+ * @param {number} pid
+ */
+const readTreePssKb = (pid) => readTreeSample(pid).kb;
 
 /* Untraced: how often a run's process-tree PSS is sampled for its peak, by
  * the lander's tester (lib/local-tester.js) and a gate seat's command
@@ -1954,6 +1964,7 @@ module.exports = {
 	suiteRungMb,
 	readPsRows,
 	readTreePssKb,
+	readTreeSample,
 	TREE_PEAK_SAMPLE_MS,
 	sampleTreePeak,
 	buildMemoryBreakdownLines,

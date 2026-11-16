@@ -14,8 +14,11 @@ import { mkScratchDir } from "./git-fixture";
 const {
 	GATE_SEAT_DEFAULT_MB,
 	appendGateRun,
+	gateHeldUntil,
 	gatePositionLine,
 	gateSeatChargeMb,
+	readGatePids,
+	startGatePids,
 } = require("./gate-seat.js");
 const {
 	readGateSeats,
@@ -173,5 +176,82 @@ describe("the gate-run record", () => {
 				.filter(Boolean)
 				.map((l) => JSON.parse(l)),
 		).toEqual([run]);
+	});
+});
+
+describe("the gate seat's pid record (#5269)", () => {
+	const holder = {
+		repo: "design-vault",
+		command: "bash test/all.sh",
+		session: "s1",
+	};
+
+	it("records each pid's last sighting in the run-memory store, read back as a seat and never as a test run", () => {
+		const { dir } = queue();
+		let now = 1_000_000;
+		const pids = startGatePids(holder, {
+			sampleMs: 2000,
+			pid: 7,
+			dir,
+			now: () => now,
+			bootId: "b",
+		});
+		expect(path.basename(pids.file)).toBe("gate-7-1000000.json");
+		pids.see([40, 41]);
+		now += 2000;
+		pids.see([40]);
+		now += 500;
+		pids.stop();
+		const { seats, why } = readGatePids(dir);
+		expect(why).toBeNull();
+		expect(seats).toEqual([
+			{
+				...holder,
+				at: new Date(1_000_000).toISOString(),
+				bootId: "b",
+				sampleMs: 2000,
+				sampledAt: new Date(1_002_000).toISOString(),
+				seenAt: {
+					40: new Date(1_002_000).toISOString(),
+					41: new Date(1_000_000).toISOString(),
+				},
+				endedAt: new Date(1_002_500).toISOString(),
+			},
+		]);
+		expect(require("./run-memory.js").readRunFiles(dir)).toEqual({
+			runs: [],
+			why: null,
+		});
+	});
+
+	it("holds a pid to its last sighting plus two sample intervals, never past the record's last sample, and no pid it never saw", () => {
+		const seat = {
+			sampleMs: 2000,
+			sampledAt: new Date(10_000).toISOString(),
+			seenAt: {
+				40: new Date(4000).toISOString(),
+				41: new Date(10_000).toISOString(),
+			},
+		};
+		expect(gateHeldUntil(seat, 40)).toBe(8000);
+		expect(gateHeldUntil(seat, 41)).toBe(14_000);
+		expect(gateHeldUntil(seat, 42)).toBeNull();
+		expect(
+			gateHeldUntil({ ...seat, endedAt: new Date(6000).toISOString() }, 41),
+		).toBe(10_000);
+	});
+
+	it("never throws where the store cannot be written", () => {
+		const { dir } = queue();
+		const blocked = path.join(dir, "file");
+		fs.writeFileSync(blocked, "");
+		const pids = startGatePids(holder, {
+			sampleMs: 2000,
+			dir: path.join(blocked, "store"),
+		});
+		expect(() => {
+			pids.see([1]);
+			pids.stop();
+		}).not.toThrow();
 	});
 });

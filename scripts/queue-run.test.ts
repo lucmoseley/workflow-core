@@ -30,6 +30,7 @@ const TSC7_PEAK_MB = launchChargeMb({ kind: "tsc", major: 7 });
 const tscRung = rungMb(TSC_PEAK_MB);
 
 const { main } = require("./queue-run.js");
+const { readGatePids } = require("./lib/gate-seat.js");
 const PROGRAM = path.resolve(__dirname, "queue-run.js");
 
 const dirs: string[] = [];
@@ -622,7 +623,7 @@ describe("queue-run.js", () => {
 			const f = fixture();
 			const samples = [300 * 1024, 900 * 1024, 500 * 1024];
 			const g = gateOptions(f, {
-				treePss: () => samples.shift() ?? 0,
+				treeSample: () => ({ kb: samples.shift() ?? 0, pids: [] }),
 				sampleMs: 1,
 			});
 			const done = main(gateRun, g.options);
@@ -633,6 +634,39 @@ describe("queue-run.js", () => {
 			f.spawned[0].child.emit("exit", 0, null);
 			await done;
 			expect(g.readGates()[0].peakTreeMb).toBe(900);
+		});
+
+		it("records each tree sample's pids on the seat's pid record, ended on exit (#5269)", async () => {
+			const f = fixture();
+			const gatePidsDir = path.join(f.dir, "run-memory");
+			let reads = 0;
+			const g = gateOptions(f, {
+				gatePidsDir,
+				treeSample: () => {
+					reads += 1;
+					return { kb: 0, pids: [1, 50 + reads] };
+				},
+				sampleMs: 1,
+			});
+			const done = main(gateRun, g.options);
+			await tick();
+			Object.assign(f.spawned[0].child, { pid: 1 });
+			f.spawned[0].child.emit("spawn");
+			await vi.waitFor(() => expect(reads).toBeGreaterThan(1));
+			f.spawned[0].child.emit("exit", 0, null);
+			await done;
+			const { seats } = readGatePids(gatePidsDir);
+			expect(seats).toEqual([
+				expect.objectContaining({
+					command: "bash test/all.sh",
+					session: "s1",
+					sampleMs: 1,
+					endedAt: expect.any(String),
+				}),
+			]);
+			expect(Object.keys(seats[0].seenAt)).toEqual(
+				expect.arrayContaining(["1", "51", "52"]),
+			);
 		});
 
 		it("runs a launch inside a gate seat's tree at once, in the seat's slot", async () => {
