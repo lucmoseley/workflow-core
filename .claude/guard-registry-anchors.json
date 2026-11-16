@@ -21,7 +21,7 @@
 	"scripts/check-issue-cycles.js": "a110b1c403df851d",
 	"scripts/check-issue-labels.js": "2fbfc71ca462b5c7",
 	"scripts/check-jev-flags.js": "2b321d3b2bc94e77",
-	"scripts/check-kernel-stall.js": "40c93910ee09edbd",
+	"scripts/check-kernel-stall.js": "d42bf6713e53f2a5",
 	"scripts/check-lockfile-sync.js": "e51d53649491fa0c",
 	"scripts/check-main-checkout-commit.js": "05c2feb546a4bc0a",
 	"scripts/check-main-checkout-cutover.js": "9f3661de501f2d03",
