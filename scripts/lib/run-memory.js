@@ -27,8 +27,9 @@
  * the file it runs (`claimFile`, from vitest.setup.ts) as `<pid>` in the run
  * file's `.files` directory beside it.
  *
- * A FILE OF AN EARLIER SHAPE, with no `workersSeenAt`, reads as no run: the
- * store keeps files RETAIN_MS across a change of shape (#5253).
+ * A FILE OF ANOTHER SHAPE, with no `workersSeenAt` object, reads as no run:
+ * it can bound no pid to its run, and the store keeps files RETAIN_MS across
+ * any change of shape (#5253).
  *
  * NEVER THROWS: an unreadable /proc or an unwritable file costs the reading,
  * never the run.
@@ -377,9 +378,8 @@ function readRunFiles(dir = storeDir()) {
 	for (const name of names.filter((n) => n.endsWith(".json")))
 		try {
 			const run = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
-			/* A file from before runs recorded when each pid was seen (#5253)
-			 * can bound no pid to its run, so names none. */
-			if (typeof run.workersSeenAt === "object") runs.push(run);
+			/* A file of another shape: see the header (#5253). */
+			if (run.workersSeenAt instanceof Object) runs.push(run);
 		} catch (error) {
 			/* A neighbour's sweep took it after the listing. */
 			if (caught(error).code === "ENOENT") continue;

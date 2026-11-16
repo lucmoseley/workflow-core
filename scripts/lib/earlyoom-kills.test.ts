@@ -378,12 +378,15 @@ describe("test runs among the kills (#5183)", () => {
 		expect(kinds()).toEqual(["node or python process"]);
 	});
 
-	it("classifies a kill past a run file of the shape before pids were timed, with no workersSeenAt (#5253)", () => {
-		seed([{ workersSeenAt: undefined, sampledAt: undefined }]);
+	it("reads a run file with no workersSeenAt object as no run, so the kill stays a plain node process (#5253)", () => {
+		const untimed = { workersSeenAt: undefined, sampledAt: undefined };
+		seed([untimed]);
 		const i = readOne();
 		expect(i.kills[0].kind).toBe("node or python process");
 		expect(i.unjoined).toBeNull();
-		seed([{ workersSeenAt: undefined, sampledAt: undefined }, {}]);
+		seed([{ workersSeenAt: null }]);
+		expect(readOne().kills[0].kind).toBe("node or python process");
+		seed([untimed, {}]);
 		expect(readOne().kills[0].testRun.role).toBe("worker");
 	});
 
