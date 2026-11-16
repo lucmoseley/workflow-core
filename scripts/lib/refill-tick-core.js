@@ -32,6 +32,8 @@ const { neverStartedJobs } = require("./hung-jobs.js");
 const blocks = require("./refill-blocks.js");
 const { isLimitHeld, launchName } = require("./refill-block-core.js");
 const limits = require("./refill-limits.js");
+const { stepBreakers } = require("./refill-breaker.js");
+const { parkOverBudget } = require("./refill-budget.js");
 const { retireOriginals } = require("./refill-retire.js");
 const { declaresOverflowSeat } = require("./refill-seats.js");
 const {
@@ -230,6 +232,8 @@ function stopNeverStarted(registry, jobs, stop) {
  *   readSwapHold: () => Seen["swapHold"],
  *   readProgress: (l: LoopLaunch, served: string[]) => object,
  *   readLoopLastActAt: (launches: LoopLaunch[], served: string[]) => Record<string, number>,
+ *   readThroughput: (launches: LoopLaunch[], served: string[], now: number) =>
+ *     import("./refill-breaker.js").ThroughputRead,
  *   readCause: import("./refill-blocks.js").CauseOf,
  *   readLiftedHolds: (roots: string[]) => Parameters<typeof blocks.queueLifted>[1],
  *   typecheckPeakMb: (root: string) => number,
@@ -285,6 +289,7 @@ function stopNeverStarted(registry, jobs, stop) {
  *   dropSettledLifted: (settled: ReturnType<typeof blocks.queueLifted>["settled"]) => void,
  *   dropManagerRestart: (marker: NonNullable<Parameters<typeof withManagerRestart>[1]>) => void,
  *   appendTick: (record: ReturnType<typeof buildTickRecord>) => void,
+ *   appendBreakerEvents: (events: import("./refill-breaker.js").BreakerEvent[]) => void,
  * }} TickActs  every write and child process; each has its dry answer in buildDryActs
  * @typedef {TickReads & TickActs} TickIo
  */
@@ -440,6 +445,27 @@ function actOnLaunches(
 }
 
 /**
+ * The tick's throughput acts (#5275): each live session at its gate-run budget
+ * parked, then each served checkout's breaker stepped, every event recorded.
+ * The launches after the parks, and the launch room each open breaker leaves.
+ * @param {TickIo} io
+ * @param {LoopLaunch[]} launches
+ * @param {{served: string[], seen: Seen, acts: LaunchActs}} tick
+ */
+function tendThroughput(io, launches, { served, seen, acts }) {
+	const read = io.readThroughput(launches, served, seen.now);
+	const parked = acts.parkOverBudget(launches, read, seen);
+	const { events, room } = stepBreakers({
+		roots: served,
+		launches: parked.launches,
+		read,
+		now: seen.now,
+	});
+	io.appendBreakerEvents([...parked.events, ...events]);
+	return { launches: parked.launches, breakerRoom: room };
+}
+
+/**
  * The relief a real tick takes off the registry alone, ahead of the CLI
  * listing (#2665): each job that never started stopped, then the checkouts
  * tended. The served checkouts whose probe failed.
@@ -566,7 +592,9 @@ const isSeatListRead = (parsed) => parsed !== null && parsed.seats.length > 0;
  *   before: LoopLaunch[], judged: LoopLaunch[], seen: Seen, served: string[],
  *   declared: DeclaredSeats, typedSeat: string|null,
  *   seatTriedAt: Record<string, number>, lastActAt: Record<string, number>,
- *   acts: LaunchActs}} tick
+ *   breakerRoom: Record<string, number>, acts: LaunchActs}} tick
+ *   `breakerRoom`, each checkout an open throughput breaker bars, resumes there
+ *   being none (#5275)
  */
 function settleRoom(
 	io,
@@ -581,6 +609,7 @@ function settleRoom(
 		typedSeat,
 		seatTriedAt,
 		lastActAt,
+		breakerRoom,
 		acts,
 	},
 ) {
@@ -599,10 +628,11 @@ function settleRoom(
 	const { slots: free, admission } = io.readFreeSlots(
 		admissionRoot(served, io.typecheckPeakMb),
 	);
-	/* A paused checkout resumes none from held (#5275). */
+	/* A paused checkout, or one an open breaker bars, resumes none from held
+	 * (#5275). */
 	/** @param {string} root */
 	const roomOf = (root) =>
-		control.repoPaused?.[root]
+		control.repoPaused?.[root] || breakerRoom[root] !== undefined
 			? 0
 			: unprovenRoom({ history: judged, lastActAt }, root);
 	/** @param {import("./refill-decide.js").SizedSeat[]} sized */
@@ -842,6 +872,7 @@ const buildDryActs = (io) => ({
 	dropSettledLifted: doNothing,
 	dropManagerRestart: doNothing,
 	appendTick: doNothing,
+	appendBreakerEvents: doNothing,
 });
 
 const DRY_RUN_WHY = "a dry run acts on nothing";
@@ -889,6 +920,7 @@ const DRY_BLOCK_ACTS = {
  *   actOnIdle: typeof blocks.actOnIdle,
  *   actOnLimits: typeof limits.actOnLimits,
  *   releaseEndedHolds: typeof limits.releaseEndedHolds,
+ *   parkOverBudget: typeof parkOverBudget,
  * }} LaunchActs
  * @type {LaunchActs}
  */
@@ -899,6 +931,7 @@ const LIVE_LAUNCH_ACTS = {
 	actOnIdle: blocks.actOnIdle,
 	actOnLimits: limits.actOnLimits,
 	releaseEndedHolds: limits.releaseEndedHolds,
+	parkOverBudget,
 };
 
 /**
@@ -919,6 +952,7 @@ const SKIPPED_LAUNCH_ACTS = {
 		liveChange: 0,
 	}),
 	releaseEndedHolds: doNothing,
+	parkOverBudget: (launches) => ({ launches, events: [] }),
 };
 
 /**
@@ -1029,10 +1063,15 @@ async function runTick(adapter, { dryRun, now, opening }) {
 	});
 	/* A dry run, a barred tick or a stopping one sets nothing running, and the
 	 * lifted holds keep for a later tick. */
-	const { launches: judged, settled: liftedSettled } =
+	const { launches: lifted, settled: liftedSettled } =
 		dryRun || seen.barred || control.stopRequested
 			? { launches: acted, settled: [] }
 			: blocks.queueLifted(acted, io.readLiftedHolds(roots), seen);
+	const { launches: judged, breakerRoom } = tendThroughput(io, lifted, {
+		served,
+		seen,
+		acts,
+	});
 	const lastActAt = io.readLoopLastActAt(judged, served);
 	const {
 		launches,
@@ -1053,6 +1092,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		typedSeat: typed.seat,
 		seatTriedAt: state.seatTriedAt,
 		lastActAt,
+		breakerRoom,
 		acts,
 	});
 	const resumable = dueResumes(control, launches, seen);
@@ -1064,6 +1104,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		stopRequested: control.stopRequested,
 		...(control.paused ? { paused: control.paused } : {}),
 		repoPaused: control.repoPaused,
+		breakerRoom,
 		...(launchHold ? { launchHold } : {}),
 		controlDamaged: dryRun ? null : damaged,
 		frontier: [],

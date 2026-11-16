@@ -1432,6 +1432,59 @@ describe("decideTick's unproven-launch cap (#4223)", () => {
 	});
 });
 
+describe("an open throughput breaker (#5275)", () => {
+	const frontier = [
+		row("wfc", 1),
+		row("wfc", 2),
+		{ ...row("dv", 3), root: "dv" },
+	];
+	const due = {
+		jobId: "j",
+		seat: "~/.claude3",
+		root: "wfc",
+		at: NOW - HOUR,
+		line: "j",
+	};
+
+	it("launches and resumes nothing into its checkout, and fills the others", () => {
+		const d = tick({
+			frontier,
+			freeSlots: 3,
+			resumable: [due],
+			breakerRoom: { wfc: 0 },
+		});
+		expect(launched(d)).toEqual(["dv#3"]);
+		expect(d.resumes).toEqual([]);
+		expect(d.skipped).toContainEqual(
+			expect.objectContaining({
+				root: "wfc",
+				why: "its checkout's throughput breaker is open",
+			}),
+		);
+	});
+
+	it("admits one trial launch where it leaves room, and still no resume", () => {
+		const d = tick({
+			frontier,
+			freeSlots: 3,
+			resumable: [due],
+			breakerRoom: { wfc: 1 },
+		});
+		expect(launched(d)).toEqual(["wfc#1", "dv#3"]);
+		expect(d.resumes).toEqual([]);
+	});
+
+	it("names the breaker where it alone skips every row", () => {
+		const d = tick({ frontier: [row("wfc", 1)], breakerRoom: { wfc: 0 } });
+		expect(d.idle).toEqual(
+			buildIdle(
+				"every launchable checkout is held",
+				": wfc its checkout's throughput breaker is open",
+			),
+		);
+	});
+});
+
 describe("decideTick launch filter", () => {
 	it("never launches human, children, waiting:external, parked or label-faulty rows", () => {
 		const d = tick({

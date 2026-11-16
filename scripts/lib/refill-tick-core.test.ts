@@ -45,6 +45,14 @@ type Control = import("./refill-loop.js").Control;
 
 const DV = "/home/u/design-vault";
 
+/** A throughput read with nothing in it: every breaker closed, no gate run. */
+const NO_THROUGHPUT = {
+	byRoot: {},
+	timelineOf: () => null,
+	commitsOf: () => [],
+	record: [],
+};
+
 /** Every launch's checkout read as having acted at `at`. */
 const actedAt = (launches: { root: string }[], at: number) =>
 	Object.fromEntries(launches.map((l) => [l.root, at]));
@@ -79,6 +87,7 @@ const ACTS = {
 	dropSettledLifted: true,
 	dropManagerRestart: true,
 	appendTick: true,
+	appendBreakerEvents: true,
 } satisfies Record<keyof TickActs, true>;
 
 const SEAT = "/home/u/.claude3";
@@ -202,6 +211,7 @@ function fakeIo(
 		sendPauseNotices: recorded("sendPauseNotices", () => undefined),
 		readProgress: recorded("readProgress", () => ({ acts: {} })),
 		readLoopLastActAt: () => ({}),
+		readThroughput: () => NO_THROUGHPUT,
 		readCause: () => null as never,
 		tendClosedParks: recorded("tendClosedParks", () => undefined),
 		actOnOutside: recorded("actOnOutside", () => undefined),
@@ -244,6 +254,7 @@ function fakeIo(
 		dropSettledLifted: recorded("dropSettledLifted", () => undefined),
 		dropManagerRestart: recorded("dropManagerRestart", () => undefined),
 		appendTick: recorded("appendTick", () => undefined),
+		appendBreakerEvents: recorded("appendBreakerEvents", () => undefined),
 		...(Object.fromEntries(
 			Object.entries(over).map(([name, port]) => [
 				name,
@@ -1584,5 +1595,57 @@ describe("the parks a tick sweeps (#3950, #3872)", () => {
 		const { io, calls } = fakeIo(stateOf());
 		await tickOf(io);
 		expectOrder(calls, "releaseAwayParks", "readFrontier");
+	});
+});
+
+describe("the throughput acts through the tick (#5275)", () => {
+	type BreakerEvent = import("./refill-breaker.js").BreakerEvent;
+	const openedAt = NOW - 10_000;
+	const opened: BreakerEvent = {
+		at: new Date(openedAt).toISOString(),
+		repo: WFC,
+		event: "open",
+		rate: 0.1,
+		workingHours: 14,
+	};
+	const throughputOf = (events: BreakerEvent[]) => ({
+		...NO_THROUGHPUT,
+		byRoot: { [WFC]: { commits: [], gateRuns: [] } },
+		record: events,
+	});
+	/* Inside the listing's grace, so an empty listing ends none of them. */
+	const runningFrom = (launchedAt: number) =>
+		record({ root: WFC, jobId: "w1", sessionId: "s-w1", launchedAt });
+	const tickWith = async (running: Launch[]) => {
+		const appended: BreakerEvent[] = [];
+		const { io } = fakeIo(stateOf({ launches: running }), {
+			readThroughput: () => throughputOf([opened]),
+			appendBreakerEvents: (events) => {
+				appended.push(...events);
+			},
+		});
+		const { decision } = await tickOf(io);
+		const launches = "launches" in decision ? decision.launches : [];
+		return { launches, appended };
+	};
+
+	it("launches nothing into an open breaker's checkout while a session from before it runs", async () => {
+		const { launches, appended } = await tickWith([
+			runningFrom(openedAt - 20_000) as Launch,
+		]);
+		expect(launches).toEqual([]);
+		expect(appended).toEqual([]);
+	});
+
+	it("admits the trial once none runs there", async () => {
+		const { launches } = await tickWith([]);
+		expect(launches).toHaveLength(1);
+	});
+
+	it("records the trial the next tick finds launched", async () => {
+		const { appended } = await tickWith([runningFrom(NOW - 5000) as Launch]);
+		expect(appended).toEqual([
+			expect.objectContaining({ event: "trial-start", session: "s-w1" }),
+		]);
 	});
 });

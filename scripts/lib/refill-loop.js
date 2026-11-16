@@ -84,7 +84,8 @@ const { buildSeatName } = require("./refill-seats.js");
  * the seats a limit moved it off. `limitParks`, the
  * limit-cap parks in a row its ticket came back from (#3804). `handOffTries` counts the hand-offs of
  * one stopped still idle that failed, and
- * `handedOff` is when one went to a fresh launch. `relaunchedAt` is when a
+ * `handedOff` is when one went to a fresh launch; `budgetParked`, when the loop
+ * parked one at its gate-run budget (lib/refill-budget.js, #5275). `relaunchedAt` is when a
  * stop and `--bg --resume` last restarted its job, from which it has the
  * listing's grace; `slotTakenAt`, when one that took a slot did, from which
  * the unproven cap counts it (#4684). Where a resume moved it to a copy (#2963), `copiedFrom`
@@ -108,7 +109,7 @@ const { buildSeatName } = require("./refill-seats.js");
  *   limitHeld?: import("./refill-limits.js").LimitHeld,
  *   limitResumes?: import("./refill-limits.js").LimitResumes,
  *   limitLeft?: import("./refill-decide.js").SeatLeft[],
- *   limitParks?: number, handOffTries?: number, handedOff?: number, copiedFrom?: string,
+ *   limitParks?: number, handOffTries?: number, handedOff?: number, budgetParked?: number, copiedFrom?: string,
  *   relaunchedAt?: number, slotTakenAt?: number, movedAt?: number, pastSessionIds?: string[],
  *   resumeStarted?: import("./refill-blocks.js").ResumeStarted, leftListing?: true,
  *   unretired?: import("./refill-blocks.js").Unretired[],

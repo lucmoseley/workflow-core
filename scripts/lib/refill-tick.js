@@ -78,6 +78,8 @@ const { readLastTyped } = require("./presence.js");
 const { MODEL } = require("./refill-decide.js");
 const { refillFrontier } = require("./refill-frontier.js");
 const { appendTick, concurrencyFiles } = require("./concurrency.js");
+const { appendBreakerEvents, buildLookbackOf } = require("./refill-breaker.js");
+const { readThroughput } = require("./throughput-reads.js");
 const { appendConsoleRow, isConsoleReadDue } = require("./console-credit.js");
 const { seatBudget } = require("./overflow-budget.js");
 const { stopOverAllowance } = require("./overflow-cap.js");
@@ -1044,6 +1046,8 @@ const productionIo = {
 		tendPauseNotices(repoPaused, now, log, buildPauseFiler(REVIEW_ROOT)),
 	readProgress,
 	readLoopLastActAt,
+	readThroughput: (launches, served, now) =>
+		readThroughput(served, (root) => buildLookbackOf(launches, root, now), now),
 	readCause,
 	tendClosedParks,
 	actOnOutside: (launches, registry, seen) =>
@@ -1076,6 +1080,7 @@ const productionIo = {
 		if (!appendTick(record))
 			log(`concurrency record: not written to ${concurrencyFiles().record}`);
 	},
+	appendBreakerEvents: (events) => appendBreakerEvents(events, log),
 };
 
 /**

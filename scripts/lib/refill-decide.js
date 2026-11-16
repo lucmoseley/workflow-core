@@ -59,6 +59,9 @@ const UNPROVEN_CAP = `${NO_PROGRESS_RUN} launches since the last act are running
 const UNPROVEN_HELD = `${NO_PROGRESS_RUN} launches since its checkout's last act are running`;
 /* A row in a checkout a no-progress pause stops (#5275). */
 const REPO_PAUSED = "a no-progress pause stops launches into its checkout";
+/* A row in a checkout whose throughput breaker is open, its trial taken or
+ * not yet due (#5275). */
+const BREAKER_OPEN = "its checkout's throughput breaker is open";
 /* The idle reason of a tick whose skipped rows a mix of checkout holds skipped. */
 const CHECKOUTS_HELD = "every launchable checkout is held";
 /* The idle reason of a tick whose plan seats are weekly-full and whose
@@ -203,6 +206,9 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  *   is absent (#4223, #5275)
  * @property {Record<string, Pause>} [repoPaused] each checkout's no-progress
  *   pause, by root (#5275)
+ * @property {Record<string, number>} [breakerRoom] each checkout whose
+ *   throughput breaker is open, by root: 0 where it takes nothing, 1 where it
+ *   takes its one trial launch, never a resume (lib/refill-breaker.js, #5275)
  * @property {import("./gate-sweep.js").Judgement[]} [judgements] the gate
  *   sweep's queue, launched ahead of the ranking (#2279), behind normal
  *   mode's parked rows (#3713)
@@ -433,13 +439,18 @@ function unprovenRoom({ history, lastActAt, resumable = [] }, root) {
 
 /**
  * The tick's unproven room by checkout, each launch or resume spending one.
- * @param {Pick<TickInput, "history"|"lastActAt"|"resumable">} input
+ * @param {Pick<TickInput, "history"|"lastActAt"|"resumable"|"breakerRoom">} input
  */
 function buildRoomLeft(input) {
 	/** @type {Map<string, number>} */
 	const left = new Map();
 	/** @param {string} root */
-	const of = (root) => left.get(root) ?? unprovenRoom(input, root);
+	const of = (root) =>
+		left.get(root) ??
+		Math.min(
+			unprovenRoom(input, root),
+			input.breakerRoom?.[root] ?? Number.POSITIVE_INFINITY,
+		);
 	return {
 		of,
 		/** @param {string} root */
@@ -689,13 +700,15 @@ const buildProbeHeldRoots = (holds = []) =>
 
 /**
  * Why each checkout takes no launch or resume this tick, by root: a probe hold,
- * else a no-progress pause (#5275).
- * @param {Pick<TickInput, "holds"|"repoPaused">} input
+ * else an open breaker with no trial due, else a no-progress pause (#5275).
+ * @param {Pick<TickInput, "holds"|"repoPaused"|"breakerRoom">} input
  * @returns {Map<string, string>}
  */
-function buildHeldRoots({ holds, repoPaused = {} }) {
+function buildHeldRoots({ holds, repoPaused = {}, breakerRoom = {} }) {
 	/** @type {Map<string, string>} */
 	const held = new Map(Object.keys(repoPaused).map((r) => [r, REPO_PAUSED]));
+	for (const [root, room] of Object.entries(breakerRoom))
+		if (room <= 0) held.set(root, BREAKER_OPEN);
 	for (const root of buildProbeHeldRoots(holds)) held.set(root, PROBE_HELD);
 	return held;
 }
@@ -985,7 +998,12 @@ function takeResumes(input, slots, room) {
 	let seatsLeft = seats;
 	for (const r of resumable.toSorted((a, b) => a.at - b.at)) {
 		if (resumes.length >= slots) break;
-		if (heldRoots.has(r.root) || room.of(r.root) <= 0) continue;
+		if (
+			heldRoots.has(r.root) ||
+			input.breakerRoom?.[r.root] !== undefined ||
+			room.of(r.root) <= 0
+		)
+			continue;
 		const planSeat = seatsLeft.find((s) => isSameSeat(r, s));
 		if (planSeat?.fits === 0) {
 			capHeld.push(r);
@@ -1045,7 +1063,10 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 		const held = heldRoots.get(root);
 		if (held !== undefined) return held;
 		if (taken.has(key(root, number))) return ALREADY_RUNNING;
-		return room.of(root) <= 0 ? UNPROVEN_HELD : null;
+		if (room.of(root) > 0) return null;
+		return input.breakerRoom?.[root] === undefined
+			? UNPROVEN_HELD
+			: BREAKER_OPEN;
 	};
 	/* A resume is held to its own seat's cap, which the pick seat's fits does
 	 * not bound where it is another seat (#3872). */
@@ -1393,7 +1414,7 @@ function decideLaunches(
 }
 
 /* The skips a checkout's hold or spent unproven room makes, whatever the row. */
-const CHECKOUT_SKIPS = [PROBE_HELD, REPO_PAUSED, UNPROVEN_HELD];
+const CHECKOUT_SKIPS = [PROBE_HELD, REPO_PAUSED, BREAKER_OPEN, UNPROVEN_HELD];
 
 /**
  * Why a tick that walked its frontier launched nothing: a shortlist it could
@@ -1549,6 +1570,7 @@ module.exports = {
 	SHORTLIST_FAILED,
 	UNPROVEN_CAP,
 	UNPROVEN_HELD,
+	BREAKER_OPEN,
 	REPO_PAUSED,
 	CHECKOUTS_HELD,
 	unprovenRoom,

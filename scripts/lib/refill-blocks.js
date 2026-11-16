@@ -1986,6 +1986,7 @@ module.exports = {
 	actOnIdle,
 	unparkAnswered,
 	buildChildLine,
+	buildHandOffArgs,
 	indented,
 	hasJobEnded,
 	isBootKillCandidate,
