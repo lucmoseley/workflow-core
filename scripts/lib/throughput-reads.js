@@ -108,7 +108,7 @@ const readBreakerRecord = () =>
 function readJobTimeline({ seat, jobId, endAt }, since) {
 	const file = path.join(jobDirPath(seat, jobId), "timeline.jsonl");
 	let mtime;
-	/* A stat, not a read: most of a month's jobs fall before the window. */
+	/* A stat first: a job with no recorded end may have stopped long before. */
 	try {
 		mtime = fs.statSync(file).mtimeMs;
 	} catch {
@@ -159,8 +159,7 @@ function foldLoopJobs(record) {
 }
 
 /**
- * The jobs `launches` name, each counted to its launch's finish where it is
- * that launch's current job, else to `now`.
+ * The jobs `launches` name.
  * @param {SeatedLaunch[]} launches
  * @param {number} now
  * @returns {TimedJob[]}
@@ -180,10 +179,8 @@ const launchJobsOf = (launches, now) => [
  * Each of `roots`' loop sessions that may have worked after
  * `lookbackOf(root)`, as job timelines (#5289): every job the loop-job record
  * names in the checkout, and every job `launches` names there, which covers
- * one the record predates or would not take, and every launch where the record
- * will not read. A job's last row counts to the end the record gives it, else
- * to its launch's finish where it is that launch's current job, else to `now`;
- * one that ended before the window is not read.
+ * one the record predates or would not take. A job's last row counts to the end the record gives it, else
+ * to its launch's finish where it is that launch's current job, else to `now`.
  * @param {{roots: string[], launches: SeatedLaunch[],
  *   lookbackOf: (root: string) => number, now: number}} window
  * @returns {{byRoot: Record<string, SessionTimeline[]>, recordRead: boolean}}

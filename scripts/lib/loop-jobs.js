@@ -1,8 +1,6 @@
 /*
  * loop-jobs.js — the record of every job the refill loop's state has named
- * (#5289), with its checkout and seat: a line when the state first names it or
- * a finished launch's job runs again, and a line with `endedAt` when its launch
- * finishes or moves to a copy, the replaced job ending at that write. The
+ * (#5289), with its checkout and seat, and when each ended (linesOf). The
  * throughput breaker and the morning review count a checkout's working hours
  * off it, since the state keeps only its latest finished launches and a resume
  * into a copy moves a launch to a new job.
@@ -13,8 +11,7 @@
  *
  * Kept as long as the breaker record, so the morning review's window reaches
  * as far back in both. Written by lib/refill-state.js's updateState, the
- * state's one write, so a job reaches it by whatever route it entered the
- * state.
+ * state's one write.
  */
 
 const { BREAKER_RETAIN_MS } = require("./refill-breaker.js");
@@ -39,7 +36,7 @@ const loopJobsPath = () => refillPath(".refill-jobs.jsonl");
 const jobKeyOf = (j) => (j.jobId ? `${j.seat}\0${j.jobId}` : null);
 
 /**
- * `launches` by their jobs' keys.
+ * `launches` that have a job, by its key.
  * @param {JobOwner[]} launches
  * @returns {Map<string, JobOwner>}
  */
@@ -74,8 +71,7 @@ function linesOf(was, is, now) {
 }
 
 /**
- * Append the lines a state write from `before` to `after` owes (linesOf).
- * Never throws: a line it cannot take is logged.
+ * Append linesOf's lines. Never throws: a line it cannot take is logged.
  * @param {JobOwner[]} before
  * @param {JobOwner[]} after
  * @param {{now: number, log: (line: string) => void}} at
