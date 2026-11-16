@@ -174,7 +174,7 @@ const {
 	gitReader,
 	GIT_TIMEOUT_MS,
 } = require("./lib/git.js");
-const { landingCutOver } = require("./lib/cutover.js");
+const { readsCutOver } = require("./lib/cutover.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
 const { isUnder } = require("./lib/is-under.js");
 const { commitSha } = require("./lib/commit-sha.js");
@@ -1395,7 +1395,7 @@ function isCutOverMainCheckout(root) {
 	const top = mainCheckout(root);
 	if (top === null || fs.realpathSync(top) !== fs.realpathSync(root))
 		return false;
-	return landingCutOver(gitReader(top, GIT_TIMEOUT_MS));
+	return readsCutOver(gitReader(top, GIT_TIMEOUT_MS));
 }
 
 /**

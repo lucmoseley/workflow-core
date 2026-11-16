@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /*
- * check-landing-switch-on.js — cut the main checkout over to the worktree
+ * check-main-checkout-cutover.js — cut the main checkout over to the worktree
  * model at session start, where it still runs as one shared tree (#4688,
  * #5276).
  *
- * Usage:  node scripts/check-landing-switch-on.js [--notify] [--json]
+ * Usage:  node scripts/check-main-checkout-cutover.js [--notify] [--json]
  *
  * WFC_REPO_ROOT injects the repo.
  *
@@ -23,18 +23,18 @@ const { readCutOver } = require("./lib/cutover.js");
 const { runCutover } = require("./lib/cutover-run.js");
 const { GIT_TIMEOUT_MS, gitReader } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
-const { judgeSwitchOn } = require("./lib/landing-switch-on.js");
+const { judgeCutover } = require("./lib/main-checkout-cutover.js");
 const { mainCheckout } = require("./lib/main-checkout.js");
 
 runCheck({
-	name: "landing-switch-on",
-	usage: "node check-landing-switch-on.js [--notify] [--json]",
+	name: "main-checkout-cutover",
+	usage: "node check-main-checkout-cutover.js [--notify] [--json]",
 	run(ctx) {
 		const at = process.env.WFC_REPO_ROOT || hostRoot();
 		const root = mainCheckout(at) ?? at;
 		const judged = (() => {
 			try {
-				return judgeSwitchOn({
+				return judgeCutover({
 					cutOver: () => readCutOver(gitReader(root, GIT_TIMEOUT_MS)),
 					runCutover: ctx.notify ? () => runCutover(root) : undefined,
 				});

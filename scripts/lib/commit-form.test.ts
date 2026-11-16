@@ -955,7 +955,7 @@ describe("the rule reaches a session BEFORE it mis-commits (mantahostels#1647)",
 		"commit-pathspec",
 		"commit-show-diff",
 		"commit-message",
-		"push-cadence-landing",
+		"push-cadence",
 	];
 	it("a correct pathspec commit is handed the rule and NOT refused", () => {
 		const d = judge('git commit -m "x" -- a.md');
@@ -1040,7 +1040,7 @@ describe("the rule reaches a session BEFORE it mis-commits (mantahostels#1647)",
 			expect(handed(judge(command))).toEqual([
 				"commit-show-diff",
 				"commit-message",
-				"push-cadence-landing",
+				"push-cadence",
 			]);
 		},
 	);
@@ -1317,7 +1317,7 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 			"commit-message",
 			"commit-pathspec",
 			"commit-show-diff",
-			"push-cadence-landing",
+			"push-cadence",
 		]);
 	});
 
@@ -1333,7 +1333,7 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 		"guard-registry-gate",
 		"superseded-values-gate",
 		"machinery-superseded",
-		"push-cadence-landing",
+		"push-cadence",
 	].sort();
 
 	it("a commit-paths.js call naming a docs/ path is handed the gate rules a git commit of it is (#2147)", () => {
@@ -1351,7 +1351,7 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 		expect(idsIn('node scripts/commit-paths.js -m "--" -- a.md')).toEqual([
 			"commit-message",
 			"commit-show-diff",
-			"push-cadence-landing",
+			"push-cadence",
 		]);
 	});
 
@@ -1362,7 +1362,7 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 				idsIn(
 					`cd ${opaque} && node scripts/commit-paths.js -m "x" -- docs/x.md`,
 				),
-			).toEqual(["commit-message", "commit-show-diff", "push-cadence-landing"]);
+			).toEqual(["commit-message", "commit-show-diff", "push-cadence"]);
 		} finally {
 			fs.rmSync(opaque, { recursive: true, force: true });
 		}
@@ -1379,7 +1379,7 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 	it("records a commit-paths.js call whose directory it cannot resolve", () => {
 		expect(
 			idsIn('cd "$(pwd)" && node scripts/commit-paths.js -m "x" -- docs/x.md'),
-		).toEqual(["commit-message", "commit-show-diff", "push-cadence-landing"]);
+		).toEqual(["commit-message", "commit-show-diff", "push-cadence"]);
 		expect(logged()).toMatch(
 			/a commit-paths\.js call's directory is unknown — the scoped §Gotchas rules were not selected/,
 		);
@@ -1424,7 +1424,7 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 			"guard-registry-gate",
 			"biome-staged-gate",
 			"machinery-superseded",
-			"push-cadence-landing",
+			"push-cadence",
 		]);
 	});
 

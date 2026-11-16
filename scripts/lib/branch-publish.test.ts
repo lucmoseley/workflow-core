@@ -104,7 +104,7 @@ describe("a pull request is denied", () => {
 	])("%s", (command) => {
 		const why = denial(command);
 		expect(why).toContain("opens a pull request");
-		expect(why).toContain(readRuleText("branch-publish-landing"));
+		expect(why).toContain(readRuleText("branch-publish"));
 	});
 });
 
@@ -227,7 +227,7 @@ describe("a push of a branch other than main or a queue ref is denied", () => {
 	])("%s", (command, branch) => {
 		const why = denial(command);
 		expect(why).toContain(`a branch other than main, ${branch}`);
-		expect(why).toContain(readRuleText("branch-publish-landing"));
+		expect(why).toContain(readRuleText("branch-publish"));
 	});
 
 	it("judges `env -C` against the tree it moves to, as `git -C` is (#4009)", () => {
@@ -296,7 +296,7 @@ describe("the sanctioned pushes pass", () => {
 	});
 });
 
-/* #1733: a force-push or deletion of `main` prints rule:main-rewind-landing.
+/* #1733: a force-push or deletion of `main` prints rule:main-remote-rewind.
  * The literal anchor fails if the fragment's force-push sentence is dropped. */
 describe("a force-push or deletion of main is denied with the rewind rule", () => {
 	it.each([
@@ -331,7 +331,7 @@ describe("a force-push or deletion of main is denied with the rewind rule", () =
 		const why = denial(command);
 		expect(why).toContain(what);
 		expect(why).toContain("force-push to `main`");
-		expect(why).toContain(readRuleText("main-rewind-landing"));
+		expect(why).toContain(readRuleText("main-remote-rewind"));
 	});
 
 	it.each([
@@ -370,7 +370,7 @@ describe("work lands through queue refs, never a push to main (#4485)", () => {
 		const why = denial(command);
 		expect(why).toContain("only the lander moves");
 		expect(why).toContain("so it has no queue ref");
-		expect(why).toContain(readRuleText("branch-publish-landing"));
+		expect(why).toContain(readRuleText("branch-publish"));
 	});
 });
 
@@ -516,8 +516,8 @@ describe("a session pushes its own queue ref (#4458)", () => {
 	});
 
 	it.each([
-		["git push origin HEAD:main", "branch-publish-landing"],
-		["git push origin feature-x", "branch-publish-landing"],
+		["git push origin HEAD:main", "branch-publish"],
+		["git push origin feature-x", "branch-publish"],
 	])(
 		"%s is refused from the worktree, naming its own queue ref",
 		(command, rule) => {
@@ -541,7 +541,7 @@ describe("a session pushes its own queue ref (#4458)", () => {
 			const why = denial(command, own);
 			expect(why).toContain(what);
 			expect(why).toContain(`Your session's queue ref is \`${Own}\``);
-			expect(why).toContain(readRuleText("main-rewind-landing"));
+			expect(why).toContain(readRuleText("main-remote-rewind"));
 			expect(why).not.toContain(readRuleText("main-rewind"));
 		},
 	);
@@ -549,7 +549,7 @@ describe("a session pushes its own queue ref (#4458)", () => {
 	it("counts a rewind of main once, under its own needle", () => {
 		expect(
 			denyFires(denial("git push --force origin main", own) as string),
-		).toEqual(["guard:guard-dispatch.js/main-rewind-landing"]);
+		).toEqual(["guard:guard-dispatch.js/main-remote-rewind"]);
 	});
 
 	it.each([
@@ -569,7 +569,7 @@ describe("a session pushes its own queue ref (#4458)", () => {
 			const why = denial(command, own);
 			expect(why).toContain(what);
 			expect(why).toContain(`Your session's queue ref is \`${Own}\``);
-			expect(why).toContain(readRuleText("branch-publish-landing"));
+			expect(why).toContain(readRuleText("branch-publish"));
 		},
 	);
 
@@ -592,7 +592,7 @@ describe("an adopter", () => {
 			founder: "A Founder",
 			pluginRoot: path.resolve(__dirname, "..", ".."),
 		});
-		expect(text).not.toContain("`rule:branch-publish-landing`");
+		expect(text).not.toContain("`rule:branch-publish`");
 		expect(denial("gh pr create --fill")).toContain("NEVER A PULL REQUEST");
 	});
 
@@ -774,11 +774,11 @@ describe("the cases a mutant must not survive (#2792)", () => {
 	it.each([
 		[
 			"gh pr create",
-			"This opens a pull request: gh pr create\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nWork lands through your session's queue ref — never a push to `main`, no other branch on the remote, and never a pull request; the rule could not be read from docs/agents/rules/branch-publish-landing.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
+			"This opens a pull request: gh pr create\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nWork lands through your session's queue ref — never a push to `main`, no other branch on the remote, and never a pull request; the rule could not be read from docs/agents/rules/branch-publish.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
 		],
 		[
 			"git push origin main",
-			"This pushes to main, which only the lander moves: git push origin main\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nWork lands through your session's queue ref — never a push to `main`, no other branch on the remote, and never a pull request; the rule could not be read from docs/agents/rules/branch-publish-landing.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
+			"This pushes to main, which only the lander moves: git push origin main\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nWork lands through your session's queue ref — never a push to `main`, no other branch on the remote, and never a pull request; the rule could not be read from docs/agents/rules/branch-publish.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
 		],
 		[
 			"git push origin HEAD:lander/batch-0",
@@ -786,7 +786,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		],
 		[
 			"git push --force origin main",
-			"This force-pushes `main`: git push --force origin main\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nOnly the queue lander moves `main`, and never backwards; the rule could not be read from docs/agents/rules/main-rewind-landing.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
+			"This force-pushes `main`: git push --force origin main\n\nThis session runs outside a worktree under SHARED/.claude/worktrees/, so it has no queue ref. Launch it in its own worktree with `scripts/start-session.sh <session-name>`, which cuts `.claude/worktrees/<session-name>/` and starts the session there; its queue ref is then `queue/<session-name>`.\n\nOnly the queue lander moves `main`, and never backwards; the rule could not be read from docs/agents/rules/main-remote-rewind.txt. Restore that file from origin/main, or revert the change that removed it, then read it before doing anything else.",
 		],
 		[
 			"gh pr merge dependabot/x",

@@ -1,21 +1,21 @@
 // @vitest-environment node
 /*
- * lib/landing-switch-on.js judges each reading (#4688, #5276). Loosened, a
+ * lib/main-checkout-cutover.js judges each reading (#4688, #5276). Loosened, a
  * cut-over checkout runs the cutover again, an occupied one passes, or a
  * refusal reads as cut over.
  */
 import { describe, expect, it } from "vitest";
 
-const { judgeSwitchOn } = require("./landing-switch-on.js");
+const { judgeCutover } = require("./main-checkout-cutover.js");
 
 type Run = () => { result: unknown; lines: string[] };
 const neverRun: Run = () => {
 	throw new Error("cutover run");
 };
 const judge = (cutOver: boolean | null, runCutover: Run = neverRun) =>
-	judgeSwitchOn({ cutOver: () => cutOver, runCutover });
+	judgeCutover({ cutOver: () => cutOver, runCutover });
 
-describe("judgeSwitchOn (#5276)", () => {
+describe("judgeCutover (#5276)", () => {
 	it("passes a cut-over main checkout without running the cutover", () => {
 		expect(judge(true)).toMatchObject({ outcome: "ok", lines: [] });
 	});

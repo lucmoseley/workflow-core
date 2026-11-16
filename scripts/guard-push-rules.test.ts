@@ -36,7 +36,7 @@ const { readRuleCap } = require("./lib/rule-emission") as {
 	readRuleCap: () => number;
 };
 
-/* push-cadence-landing's headline. */
+/* push-cadence's headline. */
 const CADENCE = "PUSH YOUR QUEUE REF ONCE THE TESTS YOU TOUCHED PASS";
 
 /** The whole hook output for `command` run in `cwd`. Null where it said
@@ -107,11 +107,7 @@ describe("the push rules, end to end", () => {
 		const out = emission(at, "git push origin main", { env: offSuite });
 		expect(out.permissionDecision).toBeUndefined();
 		const ctx = out.additionalContext as string;
-		for (const id of [
-			"push-cadence-landing",
-			"vercel-build-on-push",
-			"ci-status-lag-landing",
-		])
+		for (const id of ["push-cadence", "vercel-build-on-push", "ci-status-lag"])
 			expect(ctx).toContain(readRuleText(id, at.shared));
 		expect(ctx.indexOf(CADENCE)).toBeLessThan(
 			ctx.indexOf("IS TESTED BY THE QUEUE LANDER"),
@@ -207,7 +203,7 @@ describe("the push rules, end to end", () => {
 		expect(r.status).toBe(0);
 		const out = JSON.parse(r.stdout).hookSpecificOutput;
 		expect(out.permissionDecision).toBe("deny");
-		expect(out.permissionDecisionReason).toContain("push-cadence-landing");
+		expect(out.permissionDecisionReason).toContain("push-cadence");
 	});
 });
 

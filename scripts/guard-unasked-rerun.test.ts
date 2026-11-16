@@ -168,7 +168,7 @@ describe("a refusal whose rule it cannot read still refuses", () => {
 		const out = emission("npm run test", { env: { WFC_RULES_DIR: store } });
 		expect(out.permissionDecision).toBe("deny");
 		expect(out.permissionDecisionReason).toContain(
-			"docs/agents/rules/unasked-rerun-landing.txt",
+			"docs/agents/rules/unasked-rerun.txt",
 		);
 		expect(fs.existsSync(failOpenLogPath(config, project))).toBe(false);
 	});

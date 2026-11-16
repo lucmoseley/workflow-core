@@ -117,7 +117,7 @@ const { capMs } = require("./lib/cap-ms.js");
 const core = require("./lib/arbiter-core");
 const store = require("./lib/arbiter-store");
 const { caught } = require("./lib/caught.js");
-const { landingCutOver } = require("./lib/cutover.js");
+const { readsCutOver } = require("./lib/cutover.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
 const { takesLabel } = require("./lib/takes-label.js");
 
@@ -1070,7 +1070,7 @@ async function run(ctx) {
 			"git status would not answer, so what is uncommitted is unknown.",
 		);
 
-	const cutOver = landingCutOver(gitReader(root, GIT_TIMEOUT_MS));
+	const cutOver = readsCutOver(gitReader(root, GIT_TIMEOUT_MS));
 	const checkout = { root, worktree: null };
 	const { linked, unread, youngIn, ...walked } = await readLinkedDirt(root, {
 		hours,

@@ -86,15 +86,14 @@ function linkedWorktrees(root, git) {
  * over. A git that cannot answer reads as not.
  * @param {import("./git.js").GitReader} gitRead
  */
-const landingCutOver = (gitRead) => readCutOver(gitRead) === true;
+const readsCutOver = (gitRead) => readCutOver(gitRead) === true;
 
 /**
  * Whether the main checkout at `root` is cut over. A config git cannot read
  * answers not cut over.
  * @param {string} root
  */
-const isCutOver = (root) =>
-	readCutOver(gitReader(root, GIT_TIMEOUT_MS)) === true;
+const isCutOver = (root) => readsCutOver(gitReader(root, GIT_TIMEOUT_MS));
 
 /**
  * git run in `dir` through `read`, its output trimmed; a git that fails or
@@ -258,7 +257,7 @@ module.exports = {
 	cutover,
 	isCutOver,
 	LANDING_REF,
-	landingCutOver,
 	readCutOver,
+	readsCutOver,
 	renderCutover,
 };

@@ -21,7 +21,7 @@
  *  - A FORCED push or a deletion whose destination is `main` (#1733): `-f`,
  *    `--force`, `--force-with-lease` or a `+` refspec, and `--delete main` or
  *    `:main` — `heads/main` and git's abbreviations of the two long flags
- *    read the same. It prints docs/agents/rules/main-rewind-landing.txt,
+ *    read the same. It prints docs/agents/rules/main-remote-rewind.txt,
  *    through lib/main-rewind.js.
  *  - `gh pr merge` of a Dependabot PR (#2020): a `dependabot/` branch named on
  *    the command, or a PR whose head branch or author `gh pr view` reads as
@@ -87,8 +87,8 @@
  *    founder's terminal are not seen, and Dependabot's PRs are opened by
  *    GitHub itself (docs/agents/dependabot.md governs those).
  *
- * The rules it prints are docs/agents/rules/branch-publish-landing.txt,
- * main-rewind-landing.txt, queue-ref.txt and dependabot-merge.txt. A refusal
+ * The rules it prints are docs/agents/rules/branch-publish.txt,
+ * main-remote-rewind.txt, queue-ref.txt and dependabot-merge.txt. A refusal
  * whose fragment cannot be read still refuses, naming the file
  * (mantahostels#1648's store rule), and logs nothing: an unreadable fragment
  * is check-guard-registry.js's assertion.
@@ -102,7 +102,7 @@ const {
 	ownQueueRef,
 	QUEUE_PREFIX,
 } = require("./landing-refs.js");
-const { landingRewindRule } = require("./main-rewind.js");
+const { remoteRewindRule } = require("./main-rewind.js");
 const { readPush } = require("./push-dests.js");
 const { shellQuote } = require("./sh-quote.js");
 const {
@@ -161,7 +161,7 @@ const refuse = (ctx, what, segment) => ({
 		what,
 		ruleOrFallback(
 			ctx,
-			"branch-publish-landing",
+			"branch-publish",
 			"Work lands through your session's queue ref — never a push to `main`, no other branch on the remote, and never a pull request",
 		),
 	),
@@ -177,7 +177,7 @@ const refuse = (ctx, what, segment) => ({
  * @returns {Refusal}
  */
 const mainRewind = (ctx, what, segment) => ({
-	reason: buildOwnRefReason(ctx, `This ${what}`, landingRewindRule(ctx)),
+	reason: buildOwnRefReason(ctx, `This ${what}`, remoteRewindRule(ctx)),
 	segment,
 });
 
