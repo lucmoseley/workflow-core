@@ -172,7 +172,8 @@ function cpuSlotsRow(cpu) {
  * @typedef {{ sessions: number, meanMb: number, varianceMb2: number, pssMb: number, unread: number, noProcess: number, problems: string[], refused?: boolean }} LiveDraw
  * @typedef {{ pid: number, chargeMb: number }[]} Landers each lander's charge, its tester's measured tree peak for the run it holds (#3323)
  * @typedef {{ pid: number, chargeMb: number, spawned: boolean }[]} Gates each live gate seat's holder pid, charge and whether it has spawned its command, from suite-queue.js's `readLiveGateSeats`
- * @typedef {{ landers: Landers, gates: Gates, testsHeld: number }} Reserves the machine-wide reserves admission holds memory or slots back for, as admission-reserves.js's `readReserves` reads them
+ * @typedef {{ landers: Landers, gates: Gates, testsHeld: number }} Reserves the reserves read live off other processes' records, by admission-reserves.js's `readReserves`; the pool and type-check reserves are read in `machineAdmission`
+ * @typedef {{ pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, sessionPids: Set<string> }} HeldTree the process tree a reserve's charge is credited against
  * @typedef {{ pid: string, rssKb: number, args: string }} PsRow
  * @typedef {{ ok: true, rows: PsRow[] } | { ok: false, error: string }} PsRead
  * @typedef {import("./meminfo.js").MeminfoRead} MeminfoRead
@@ -881,7 +882,7 @@ function descendantsPssKb(pid, { children, stopPids, pssKbOf }, reached) {
  * session started stays charged its whole charge, as the session's own PSS
  * already credits it.
  * @param {Landers} landers
- * @param {{ pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, sessionPids: Set<string> }} tree
+ * @param {HeldTree} tree
  */
 function landerHeldMb(landers, { pssKbOf, children, sessionPids }) {
 	/** @type {string[]} */
@@ -915,7 +916,7 @@ function landerHeldMb(landers, { pssKbOf, children, sessionPids }) {
  * session started included: no session is credited a seat's subtree
  * (`sessionsPssKb`).
  * @param {Gates} gates
- * @param {{ pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, sessionPids: Set<string> }} tree
+ * @param {HeldTree} tree
  */
 function gateSeatHeldMb(gates, { pssKbOf, children, sessionPids }) {
 	if (gates.length === 0) return 0;
@@ -934,7 +935,7 @@ function gateSeatHeldMb(gates, { pssKbOf, children, sessionPids }) {
  * What each memory reserve still holds back, in MB: `landerHeldMb`'s and
  * `gateSeatHeldMb`'s. `testsHeld` holds slots, not memory, so it prices none.
  * @param {Reserves} reserves
- * @param {{ pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, sessionPids: Set<string> }} tree
+ * @param {HeldTree} tree
  */
 const reservesHeldMb = ({ landers, gates }, tree) => ({
 	landerMb: landerHeldMb(landers, tree),

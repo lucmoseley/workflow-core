@@ -1,9 +1,10 @@
 /*
- * admission-reserves.js — the machine-wide reserves `lib/admission.js` holds
- * memory or slots back for, read live in one call, so both its callers
- * (`scripts/admission.js` and `scripts/pick-next.js`) pass one input and a new
- * reserve is added here and in `machineAdmission` alone (#5281). Apart from
- * `lib/admission.js` because both readers' modules require it.
+ * admission-reserves.js — the reserves `lib/admission.js` reads live off
+ * other processes' records, in one call both its callers make (#5281). A new
+ * one is a field here, in `lib/admission.js`'s `Reserves` typedef and, where
+ * it holds memory, a price in its `reservesHeldMb` and a named field through
+ * the verdict's figures (#5297). Apart from `lib/admission.js` because both
+ * readers' modules require it.
  */
 
 const { readLiveLanders } = require("./local-tester.js");
