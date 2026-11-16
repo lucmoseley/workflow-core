@@ -153,7 +153,7 @@ How the leading professionals of a task's field do it and the tools they use, Cl
 _Avoid_: best practice (unranked), industry standard (only the first evidence tier), popular (adoption alone)
 
 **Away mode**:
-The refill loop's mode that hands a session reaching a question for the founder off to its issue, where normal mode keeps that session open for him. It serves the same ticked repos as normal mode. Only the founder changes the mode: `refill-loop.js set --away` and `--normal`, or the panel's Away switch, at any time (#4845). His first typed prompt after 30 minutes with no prompt, the switch itself counting as one (#4184), shows that session a reminder to run `set --normal`, once per absence (#4846, #4976). The loop picks the next ticket and launches it whenever a session finishes or parks and frees a slot, with no time bound (#2523): it stops on request, waits out dispatch's allowance cut until a bar resets, and pauses after three sessions in a row make no progress, launching nothing until `set --resume`. Its launches, and normal mode's, are driven sessions (`docs/agents/autonomy-ceiling.md`).
+The refill loop's mode that hands a session reaching a question for the founder off to its issue, where normal mode keeps that session open for him. It serves the same served repos as normal mode. Only the founder changes the mode: `refill-loop.js set --away` and `--normal`, or the panel's Away switch, at any time (#4845). His first typed prompt after 30 minutes with no prompt, the switch itself counting as one (#4184), shows that session a reminder to run `set --normal`, once per absence (#4846, #4976). The loop picks the next ticket and launches it whenever a session finishes or parks and frees a slot, with no time bound (#2523): it stops on request, waits out dispatch's allowance cut until a bar resets, and pauses after three sessions in a row make no progress, launching nothing until `set --resume`. Its launches, and normal mode's, are driven sessions (`docs/agents/autonomy-ceiling.md`).
 _Avoid_: night mode, night loop (it is not tied to the clock), autopilot (says nothing of what stops it)
 
 **Parked**:
@@ -190,7 +190,7 @@ _Avoid_: author, owner (a person), pusher
 
 **Gate run**:
 One run of a repo's declared test command for one commit's verdict, however many runner processes it starts. The gate-run record, `.gate-runs.jsonl` in the repo's markers directory, holds one line per gate run, and every count of gate runs reads it (#5273).
-_Avoid_: gate suite, commit suite (one gate run may start several suites), test run (any run, a commit's or not)
+_Avoid_: gate suite, commit suite, test run
 
 **Gate seat**:
 The suite-queue hold one gate run takes: the whole-suite slot, waited for in the suite queue's order and never refused at its wait bound (`queue-run.js --gate`, #5274).
