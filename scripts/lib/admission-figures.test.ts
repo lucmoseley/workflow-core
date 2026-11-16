@@ -174,7 +174,12 @@ describe("the per-slot pending pair (#2511, #2568)", () => {
 
 describe("the lander and gate-seat reserves (#2416, #5274)", () => {
 	it("takes each off the budget as its own figure, beside the other", () => {
-		const f = measured(roomy, one, { landerMb: 300, gateMb: 700 });
+		const f = measured(roomy, one, {
+			held: [
+				{ field: "landerMb", mb: 300, holding: "", term: "" },
+				{ field: "gateMb", mb: 700, holding: "", term: "" },
+			],
+		});
 		expect(f.budgetMb).toBe(4000 - 300 - 700 - 300);
 		expect(f.landerMb).toBe(300);
 		expect(f.gateMb).toBe(700);

@@ -75,6 +75,7 @@ const {
 	NO_LIVE_DRAW,
 	UNDECLARED_DRAW,
 	admissionFigures,
+	heldFields,
 } = require("./admission-figures.js");
 
 /**
@@ -402,17 +403,17 @@ const shortOfOneMore = (/** @type {number} */ needMb) =>
 /**
  * What a verdict's budget holds back besides the pool, the floor and the
  * margin, as its reason's clauses; each silent at 0.
- * @param {{ landerMb: number, gateMb?: number, typecheckReserveMb?: number, windowsChargeMb?: number }} held
+ * @param {{ held: HeldReserve[], typecheckReserveMb?: number, windowsChargeMb?: number }} heldBack
  */
 const buildHeldBackNote = ({
-	landerMb,
-	gateMb = 0,
+	held,
 	typecheckReserveMb = 0,
 	windowsChargeMb = 0,
 }) =>
-	`${landerMb ? `, holding ${landerMb} MB for the lander's suite` : ""}${
-		gateMb ? `, holding ${gateMb} MB for the gate seat` : ""
-	}${
+	`${held
+		.filter(({ mb }) => mb)
+		.map(({ mb, holding }) => `, holding ${mb} MB for ${holding}`)
+		.join("")}${
 		typecheckReserveMb
 			? `, holding ${typecheckReserveMb} MB for a type-check`
 			: ""
@@ -751,7 +752,7 @@ const readSwapHold = () => swapHoldOf(readMeminfoKb());
  *   pool: MemRow & { drift: string[] },
  *   unlisted: MemRow & { count: number | null, dirs: { dir: string, count: number }[] },
  *   other: MemRow & { overlapMb: number, largest: { pid: string, rssMb: number, command: string }[] },
- *   slots: { unknown: string | null, availableMb?: number, poolReserveMb?: number, landerMb?: number, gateMb?: number, typecheckReserveMb?: number, windowsChargeMb?: number, floorMb?: number, marginMb?: number, reclaimMb?: number, budgetMb?: number, drawNeedMb?: number, nextNeedMb?: number, launchMb?: number, byMemory?: number, memorySlots?: number, slots?: number, overloaded?: boolean, testsHeld?: number },
+ *   slots: { unknown: string | null, availableMb?: number, poolReserveMb?: number, held?: HeldReserve[], typecheckReserveMb?: number, windowsChargeMb?: number, floorMb?: number, marginMb?: number, reclaimMb?: number, budgetMb?: number, drawNeedMb?: number, nextNeedMb?: number, launchMb?: number, byMemory?: number, memorySlots?: number, slots?: number, overloaded?: boolean, testsHeld?: number },
  *   cpu: CpuSlots,
  * }} MemoryBreakdown
  */
@@ -932,15 +933,32 @@ function gateSeatHeldMb(gates, { pssKbOf, children, sessionPids }) {
 }
 
 /**
- * What each memory reserve still holds back, in MB: `landerHeldMb`'s and
- * `gateSeatHeldMb`'s. `testsHeld` holds slots, not memory, so it prices none.
+ * What each memory reserve still holds back, in MB, as the list the verdict
+ * carries: `field` is its verdict field, `holding` names it in the reason and
+ * `term` in the slot arithmetic. `testsHeld` holds slots, not memory, so it
+ * prices none.
  * @param {Reserves} reserves
  * @param {HeldTree} tree
  */
-const reservesHeldMb = ({ landers, gates }, tree) => ({
-	landerMb: landerHeldMb(landers, tree),
-	gateMb: gateSeatHeldMb(gates, tree),
-});
+const reservesHeldMb = ({ landers, gates }, tree) => [
+	{
+		field: /** @type {const} */ ("landerMb"),
+		mb: landerHeldMb(landers, tree),
+		holding: "the lander's suite",
+		term: "lander",
+	},
+	{
+		field: /** @type {const} */ ("gateMb"),
+		mb: gateSeatHeldMb(gates, tree),
+		holding: "the gate seat",
+		term: "gate seat",
+	},
+];
+
+/**
+ * @typedef {ReturnType<typeof reservesHeldMb>[number]} HeldReserve
+ * @typedef {HeldReserve["field"]} HeldField
+ */
 
 /**
  * The PSS of `pid` and every process under it, in kB, off fresh reads
@@ -1066,8 +1084,7 @@ function slotsRow(verdict) {
 				unknown: null,
 				availableMb: verdict.availableMb,
 				poolReserveMb: verdict.reservedMb,
-				landerMb: verdict.landerMb,
-				gateMb: verdict.gateMb,
+				held: verdict.held,
 				typecheckReserveMb: verdict.typecheckReserveMb,
 				windowsChargeMb: verdict.windowsChargeMb,
 				floorMb: verdict.floorMb,
@@ -1312,8 +1329,7 @@ const unlistedText = (u) =>
  */
 const heldBackTerms = (s) =>
 	/** @type {[number | undefined, string][]} */ ([
-		[s.landerMb, "lander"],
-		[s.gateMb, "gate seat"],
+		...(s.held ?? []).map(({ mb, term }) => [mb, term]),
 		[s.typecheckReserveMb, "type-check"],
 		[s.windowsChargeMb, "unbacked by Windows"],
 	])
@@ -1481,11 +1497,11 @@ function lenientNotes(reserved, credited, heldBack) {
  */
 function admissionFrom(mem, procs, readings = {}) {
 	const f = admissionFigures(mem, procs, readings);
-	const { load, cpu, landerMb, gateMb } = f;
+	const { load, cpu, held } = f;
 	const { reservedNote, creditedNote } = lenientNotes(
 		f.memRead ? f.reservedMb : 0,
 		f.memRead ? f.reclaimedMb : 0,
-		f.memRead ? f : { landerMb, gateMb },
+		f.memRead ? f : { held },
 	);
 	const freeSlots = f.memRead ? f.freeSlots : null;
 	/* `null` where memory is unread, exactly as `strictAdmission` reports it —
@@ -1692,12 +1708,11 @@ function buildWindowsLine({ windows, guestFreeMb, windowsChargeMb }) {
  * @param {MbResult} mem
  * @param {LiveSessionsResult} procs
  * @param {import("./admission-figures.js").AdmissionReadings} [readings]
- * @returns {{ ok: false, error: string } | {
+ * @returns {{ ok: false, error: string } | ({
  *   ok: true,
  *   availableMb: number,
  *   reservedMb: number,
- *   landerMb: number,
- *   gateMb: number,
+ *   held: HeldReserve[],
  *   typecheckReserveMb: number,
  *   windowsChargeMb: number,
  *   windowsCapped: boolean,
@@ -1724,14 +1739,14 @@ function buildWindowsLine({ windows, guestFreeMb, windowsChargeMb }) {
  *   admit: boolean,
  *   reason: string,
  *   suites: number,
- * }}
+ * } & Partial<Record<HeldField, number>>)}
  */
 function strictAdmission(mem, procs, readings = {}) {
 	const f = admissionFigures(mem, procs, readings);
 	if (!f.memRead) return { ok: false, error: `memory unreadable: ${f.error}` };
 	if (!procs.ok)
 		return { ok: false, error: `session count unreadable: ${procs.error}` };
-	const { load, cpu, landerMb, gateMb, launchMb, reservedMb, reclaimedMb } = f;
+	const { load, cpu, held, launchMb, reservedMb, reclaimedMb } = f;
 	const creditedNote = `${
 		reclaimedMb ? `, credited ${reclaimedMb} MB about to be reclaimed` : ""
 	}${buildHeldBackNote(f)}${HELD_NOTE}`;
@@ -1749,8 +1764,8 @@ function strictAdmission(mem, procs, readings = {}) {
 		ok: /** @type {const} */ (true),
 		availableMb: f.availableMb,
 		reservedMb,
-		landerMb,
-		gateMb,
+		held,
+		...heldFields(held),
 		typecheckReserveMb: f.typecheckReserveMb,
 		windowsChargeMb: f.windowsChargeMb,
 		windowsCapped: f.windowsCapped,
@@ -1834,7 +1849,7 @@ function machineAdmission({
 		testsHeld: reserves.testsHeld,
 	};
 	const sessionPids = new Set([...(listed.pids?.values() ?? [])].map(String));
-	const { landerMb, gateMb } = reservesHeldMb(reserves, {
+	const held = reservesHeldMb(reserves, {
 		pssKbOf: readPssKb,
 		children,
 		sessionPids,
@@ -1846,8 +1861,7 @@ function machineAdmission({
 		host,
 		load,
 		cpu,
-		landerMb,
-		gateMb,
+		held,
 		launchMb,
 		...reserveReadings,
 	});
@@ -1878,8 +1892,7 @@ function machineAdmission({
 		live,
 		load,
 		cpu,
-		landerMb,
-		gateMb,
+		held,
 		launchMb,
 		reserveReadings,
 		verdict,
@@ -1916,8 +1929,7 @@ function selectionAdmission({ listed, reclaimable, reserves }) {
 		host: readings.host,
 		load: readings.load,
 		cpu: readings.cpu,
-		landerMb: readings.landerMb,
-		gateMb: readings.gateMb,
+		held: readings.held,
 		launchMb: readings.launchMb,
 		...readings.reserveReadings,
 	});
