@@ -14,7 +14,11 @@ const { gateRunLogPath } = require("./gate-seat.js");
 const { gitOrNull } = require("./git.js");
 const { jobDirPath } = require("./job-paths.js");
 const { parseJsonl } = require("./jsonl.js");
-const { breakerRecordPath } = require("./refill-breaker.js");
+const {
+	breakerRecordPath,
+	foldBreakerAt,
+	workingMsOf,
+} = require("./refill-breaker.js");
 
 /** Long enough for a fetched repo's log since a day back, short of a stall. */
 const GIT_LOG_TIMEOUT_MS = 20_000;
@@ -23,6 +27,13 @@ const GIT_LOG_TIMEOUT_MS = 20_000;
  * @typedef {import("./refill-breaker.js").BreakerLaunch & {seat: string}} SeatedLaunch
  * @typedef {import("./refill-breaker.js").BreakerEvent} BreakerEvent
  * @typedef {import("./gate-seat.js").GateRun} GateRun
+ * @typedef {{checkout: string, commits: number|null, workingHours: number,
+ *   gateRuns: number|null, state: import("./refill-breaker.js").BreakerState|null,
+ *   events: BreakerEvent[]|null}} RepoThroughput a served checkout's window for
+ *   the morning review: its commits on `origin/main`, its loop sessions'
+ *   working hours, its gate runs, its breaker's state at the window's end and
+ *   the record's events in the window, each null where its source will not
+ *   read
  */
 
 /**
@@ -142,10 +153,49 @@ function readThroughput(roots, lookbackOf, now) {
 	};
 }
 
+/**
+ * Each served checkout's throughput over [lo, hi] for the morning review
+ * (#5275). A loop session counts where it ran in the window; one whose
+ * timeline will not read counts no hours.
+ * @param {{roots: string[], launches: SeatedLaunch[], lo: number, hi: number}} window
+ * @returns {RepoThroughput[]}
+ */
+function readThroughputWindow({ roots, launches, lo, hi }) {
+	const record = readBreakerRecord();
+	/** @param {string} at */
+	const inWindow = (at) => Date.parse(at) > lo && Date.parse(at) <= hi;
+	return roots.map((root) => {
+		const commits = readMainCommits(root, lo);
+		const gateRuns = readGateRuns(root);
+		const sessions = launches
+			.filter(
+				(l) =>
+					l.root === root && l.launchedAt < hi && (l.finishedAt ?? hi) > lo,
+			)
+			.flatMap((l) => readSessionTimeline(l, hi) ?? []);
+		return {
+			checkout: path.basename(root),
+			commits:
+				commits === null ? null : commits.filter((c) => c.at <= hi).length,
+			workingHours: workingMsOf(sessions, lo, hi) / 3_600_000,
+			gateRuns:
+				gateRuns === null
+					? null
+					: gateRuns.filter((r) => inWindow(r.at)).length,
+			state: record === null ? null : foldBreakerAt(record, root, hi),
+			events:
+				record === null
+					? null
+					: record.filter((e) => e.repo === root && inWindow(e.at)),
+		};
+	});
+}
+
 module.exports = {
 	readBreakerRecord,
 	readGateRuns,
 	readMainCommits,
 	readSessionTimeline,
 	readThroughput,
+	readThroughputWindow,
 };

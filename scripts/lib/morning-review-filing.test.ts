@@ -590,6 +590,57 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 		});
 	});
 
+	describe("throughput (#5275)", () => {
+		afterEach(() => vi.unstubAllEnvs());
+
+		const readFiledBody = async () => {
+			expect((await file()).status).toBe(0);
+			return readCreated()[0].body as string;
+		};
+
+		it("prints the section between the holds and the stalls, with no served checkout where the loop serves none", async () => {
+			seed([]);
+			const body = await readFiledBody();
+			const at = (h: string) => body.indexOf(h);
+			expect(at("## Throughput")).toBeGreaterThan(-1);
+			expect(at("## Throughput")).toBeLessThan(at("## Landing stalls"));
+			expect(body).toContain("## Throughput\n\n");
+			expect(body).toContain("No served checkout.");
+		});
+
+		it("flags a served checkout whose breaker opened in the window", async () => {
+			seed([]);
+			/* A served checkout is a git repository, its gate-run record
+			 * resolved through it. */
+			const served = path.join(sb.dir, "served", "dv");
+			fs.mkdirSync(served, { recursive: true });
+			execFileSync("git", ["init", "-q", served]);
+			vi.stubEnv("WFC_REFILL_DIR", runEnv().WFC_REFILL_DIR);
+			fs.mkdirSync(path.dirname(refillFile("x")), { recursive: true });
+			fs.writeFileSync(
+				refillFile(".refill-loop-control.json"),
+				JSON.stringify({
+					noProgressFrom: Date.now(),
+					scope: { mode: "normal", repos: [served] },
+				}),
+			);
+			fs.writeFileSync(
+				refillFile(".refill-breaker.jsonl"),
+				`${JSON.stringify({
+					at: new Date(Date.now() - 3_600_000).toISOString(),
+					repo: served,
+					event: "open",
+					rate: 0.1,
+					workingHours: 13,
+				})}\n`,
+			);
+			const body = await readFiledBody();
+			expect(body).toMatch(
+				/^- \*\*flagged\*\* dv: commits not read, .* — breaker open since .* — 1 opened/m,
+			);
+		});
+	});
+
 	describe("open repo holds (#3865)", () => {
 		afterEach(() => vi.unstubAllEnvs());
 

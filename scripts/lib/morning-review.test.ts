@@ -76,6 +76,7 @@ const renderWith = (overrides: object) =>
 		failed: [],
 		unreadEvents: [],
 		holds: [],
+		throughput: [],
 		kills: QUIET_KILLS,
 		runaways: QUIET_RUNAWAYS,
 		concurrency: concurrencyOver([], []),
@@ -1211,6 +1212,135 @@ describe("the idle efforts section (#3644)", () => {
 		expect(
 			section(idleRender({ why: "check-idle-efforts.js: boom" })),
 		).toContain("Not read: `check-idle-efforts.js: boom`\n");
+	});
+});
+
+describe("the Throughput section (#5275)", () => {
+	type RepoThroughput = import("./throughput-reads.js").RepoThroughput;
+	type BreakerEvent = import("./refill-breaker.js").BreakerEvent;
+	const at = (iso: string) => Date.parse(iso);
+	const event = (
+		name: BreakerEvent["event"],
+		over: Partial<BreakerEvent> = {},
+	): BreakerEvent => ({
+		at: "2026-10-10T02:00:00.000Z",
+		repo: "/h/dv",
+		event: name,
+		rate: 0.2,
+		workingHours: 14,
+		...over,
+	});
+	const repo = (over: Partial<RepoThroughput> = {}): RepoThroughput => ({
+		checkout: "wfc",
+		commits: 30,
+		workingHours: 20,
+		gateRuns: 12,
+		state: { state: "closed", since: null },
+		events: [],
+		...over,
+	});
+	const sectionOf = (throughput: RepoThroughput[]) => {
+		const body: string = renderWith({ throughput });
+		return body.slice(
+			body.indexOf("## Throughput"),
+			body.indexOf("## Landing stalls"),
+		);
+	};
+
+	it("sits after the open repo holds and before the landing stalls, every morning", () => {
+		const body = renderWith({
+			holds: [
+				{
+					checkout: "wfc",
+					repo: "acme/wfc",
+					act: "repair",
+					issue: 3,
+					kind: "park",
+					age: "5m",
+					attached: 0,
+					notice: "sent",
+				},
+			],
+		});
+		const order = ["## Open repo holds", "## Throughput", "## Landing stalls"];
+		expect(order.map((h) => body.indexOf(h))).toEqual(
+			[...order.map((h) => body.indexOf(h))].sort((x, y) => x - y),
+		);
+		expect(body.indexOf("## Open repo holds")).toBeGreaterThan(-1);
+		expect(sectionOf([])).toContain("No served checkout.");
+	});
+
+	it("gives a served checkout's commits, hours, rate, gate runs, breaker and transitions on one line", () => {
+		expect(sectionOf([repo()])).toContain(
+			"- wfc: 30 commits, 20.0 h working, 1.50 per working session-hour, 12 gate runs — breaker closed — 0 opened, 0 reopened on a failed trial — no budget park\n",
+		);
+	});
+
+	it("flags and lists first a checkout whose breaker is open, opened, reopened or parked a session", () => {
+		const open = repo({
+			checkout: "dv",
+			commits: 2,
+			state: { state: "open", since: at("2026-10-10T02:00:00Z") },
+			events: [event("open")],
+		});
+		const reopened = repo({
+			checkout: "rr",
+			events: [event("trial-start"), event("reopen"), event("close")],
+		});
+		const parked = repo({
+			checkout: "pp",
+			events: [event("budget-park", { session: "s1", ticket: 415 })],
+		});
+		const trial = repo({
+			checkout: "tt",
+			state: {
+				state: "trial",
+				since: at("2026-10-10T02:00:00Z"),
+				session: "st",
+				ticket: 9,
+			},
+		});
+		const lines = sectionOf([repo(), open, reopened, parked, trial])
+			.split("\n")
+			.filter((l) => l.startsWith("- "));
+		expect(lines.map((l) => l.split(":")[0])).toEqual([
+			"- **flagged** dv",
+			"- **flagged** rr",
+			"- **flagged** pp",
+			"- **flagged** tt",
+			"- wfc",
+		]);
+		expect(lines[0]).toContain(
+			"breaker open since 2026-10-10T02:00:00.000Z — 1 opened, 0 reopened",
+		);
+		expect(lines[1]).toContain("0 opened, 1 reopened on a failed trial");
+		expect(lines[2]).toContain("budget parks: #415");
+		expect(lines[3]).toContain(
+			"breaker trial running (#9), open since 2026-10-10T02:00:00.000Z",
+		);
+	});
+
+	it("sets no second threshold: a low rate alone flags nothing", () => {
+		expect(sectionOf([repo({ commits: 0 })])).toContain(
+			"- wfc: 0 commits, 20.0 h working, 0.00 per working session-hour",
+		);
+	});
+
+	it("lists under Not read a checkout whose breaker or gate-run record will not read", () => {
+		const section = sectionOf([
+			repo({ checkout: "a", events: null, state: null }),
+			repo({ checkout: "b", gateRuns: null }),
+		]);
+		expect(section).toContain(
+			"Not read:\n\n- a: breaker record\n- b: gate-run record\n",
+		);
+		expect(section).not.toMatch(/^- (a|b):.*commits/m);
+	});
+
+	it("says no rate where no session worked", () => {
+		expect(sectionOf([repo({ workingHours: 0, commits: 1 })])).toContain(
+			"1 commits, 0.0 h working, no rate",
+		);
 	});
 });
 

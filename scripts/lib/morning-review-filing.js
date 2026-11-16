@@ -97,6 +97,9 @@
  * own only where one is open. Read apart from readRepo, so a tracker outage,
  * when a hold is likeliest, costs none of them.
  *
+ * THROUGHPUT (#5275): each checkout the loop serves, its commits, working
+ * hours, gate runs and breaker over the window (lib/throughput-reads.js).
+ *
  * Exit: the worse of the filing's and the answering's. The filing's is 0 for
  * a filing or a day already filed; 1 where the review issues will not list,
  * the filing lock is held, the filing failed on gh or threw; file-issue.js's
@@ -131,6 +134,8 @@ const { requireKey } = require("./workflow-core-config.js");
 const { pidLock } = require("./pid-lock.js");
 const { refillPath } = require("./refill-dir.js");
 const { readControlFile } = require("./refill-files.js");
+const { readState } = require("./refill-state.js");
+const { readThroughputWindow } = require("./throughput-reads.js");
 const { REVIEW_LABEL, readReviewIssues } = require("./review-issues.js");
 const { freshReads, reviewReads } = require("./review-reads.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
@@ -431,6 +436,23 @@ function readTableHistory(root, since, cursor) {
 function readHoldRoots(included, warn) {
 	const scope = readControlFile(warn)?.scope;
 	return [...new Set([...included, ...(scope?.repos ?? [])])];
+}
+
+/**
+ * The served checkouts' throughput over the window (#5275), off the loop's
+ * scope and its launches.
+ * @param {string} since
+ * @param {Date} now
+ * @param {(line: string) => void} warn
+ */
+function readServedThroughput(since, now, warn) {
+	const roots = readControlFile(warn)?.scope?.repos ?? [];
+	return readThroughputWindow({
+		roots,
+		launches: readState(warn).launches,
+		lo: Date.parse(since),
+		hi: now.getTime(),
+	});
 }
 
 /**
@@ -845,6 +867,9 @@ async function renderWindow({
 		],
 		unreadEvents: read.flatMap((r) => r.unreadEvents),
 		holds: holds.flatMap((h) => h.read),
+		throughput: readServedThroughput(since, now, (line) =>
+			ports.err(`${line}\n`),
+		),
 		kills: readKills(ctx, since),
 		runaways: readRunaways(ctx, since),
 		concurrency: readConcurrency(now.getTime()),

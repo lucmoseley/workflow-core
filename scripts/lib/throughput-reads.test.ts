@@ -15,6 +15,7 @@ import {
 	readBreakerRecord,
 	readMainCommits,
 	readSessionTimeline,
+	readThroughputWindow,
 } from "./throughput-reads.js";
 
 let tmp: string;
@@ -106,6 +107,69 @@ describe("readSessionTimeline", () => {
 		expect(readSessionTimeline({ ...l, jobId: "gone" }, 5)).toEqual({
 			rows: [],
 			endAt: 5,
+		});
+	});
+});
+
+describe("readThroughputWindow", () => {
+	it("reads a served checkout's window: its sessions' hours, its breaker at the end, the window's events", () => {
+		const Hour = 3_600_000;
+		const hi = Date.parse("2026-11-16T07:00:00Z");
+		const lo = hi - 24 * Hour;
+		const seat = path.join(tmp, "seat");
+		const row = (at: number) =>
+			JSON.stringify({ at: new Date(at).toISOString(), state: "working" });
+		for (const [id, start] of [
+			["in", hi - 2 * Hour],
+			["before", lo - 3 * Hour],
+		] as const) {
+			fs.mkdirSync(path.join(seat, "jobs", id), { recursive: true });
+			fs.writeFileSync(
+				path.join(seat, "jobs", id, "timeline.jsonl"),
+				`${row(start)}\n${row(start + 30 * 60_000)}\n`,
+			);
+		}
+		const launch = (jobId: string, launchedAt: number, root = "/srv/dv") => ({
+			root,
+			issues: [1],
+			jobId,
+			sessionId: jobId,
+			launchedAt,
+			finishedAt: launchedAt + Hour,
+			seat,
+		});
+		const ev = (at: number, event: "open" | "reopen", repo = "/srv/dv") => ({
+			at: new Date(at).toISOString(),
+			repo,
+			event,
+			rate: 0.1,
+			workingHours: 13,
+		});
+		appendBreakerEvents(
+			[
+				ev(lo - Hour, "open"),
+				ev(hi - Hour, "reopen"),
+				ev(hi - Hour, "open", "/srv/other"),
+			],
+			() => undefined,
+		);
+		const [dv] = readThroughputWindow({
+			roots: ["/srv/dv"],
+			launches: [
+				launch("in", hi - 2 * Hour),
+				launch("before", lo - 3 * Hour),
+				launch("in", hi - 2 * Hour, "/srv/other"),
+			],
+			lo,
+			hi,
+		});
+		expect(dv).toEqual({
+			checkout: "dv",
+			commits: null,
+			workingHours: 1,
+			gateRuns: null,
+			state: { state: "open", since: hi - Hour },
+			events: [ev(hi - Hour, "reopen")],
 		});
 	});
 });
