@@ -267,6 +267,13 @@ function buildSeatName(seat, home = homeDir()) {
 }
 
 /**
+ * The reason of a launch carried off `seat`.
+ * @param {string} seat
+ * @returns {import("./refill-decide.js").SeatReason}
+ */
+const buildMovedReason = (seat) => `moved from ${buildSeatName(seat)}`;
+
+/**
  * A seat as a line names it: its dir, and an overflow seat's key, since two
  * keys may share one dir (#3693). A null seat is the seat file, standing in
  * for the overflow seats it hides where it refuses.
@@ -317,6 +324,7 @@ function unlistedSeats(seats) {
 }
 
 module.exports = {
+	buildMovedReason,
 	buildSeatLabel,
 	buildSeatName,
 	declaresOverflowSeat,

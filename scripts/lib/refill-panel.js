@@ -383,18 +383,18 @@ const gapOf = (from, less) =>
  * Line 1 of a launching loop's block: sessions mid-turn, live sessions not mid-turn,
  * and the sessions that fit now. An unread count reads `?`, as unknown is never calm.
  * Then each other seat holding sessions in needs input, with the alias that opens
- * its view, else the seat (#5293).
+ * its view, else the seat (#5293), or `?` for them off an unread listing.
  * @param {PanelStatus} status
  */
-const buildCountText = ({
-	concurrency: { working, live, ceiling, waiting = [] },
-}) =>
+const buildCountText = ({ concurrency: { working, live, ceiling, waiting } }) =>
 	[
 		`${working ?? "?"} working · ${gapOf(live, working)} idle · room for ${gapOf(ceiling, live)}`,
-		...waiting.map(
-			(w) =>
-				`${w.count} ${w.count === 1 ? "needs" : "need"} input on ${w.alias ?? buildSeatName(w.seat)}`,
-		),
+		...(waiting === null
+			? ["? need input elsewhere"]
+			: waiting.map(
+					(w) =>
+						`${w.count} ${w.count === 1 ? "needs" : "need"} input on ${w.alias ?? buildSeatName(w.seat)}`,
+				)),
 	].join(" · ");
 
 /**

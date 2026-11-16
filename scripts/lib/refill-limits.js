@@ -16,7 +16,12 @@ const {
 const { LIMIT_PROMPT, MOVED_PROMPT } = require("./loop-prompts.js");
 const { pickMoveSeat } = require("./refill-decide.js");
 const { buildSpentRoom } = require("./launch-room.js");
-const { buildSeatName, isSameSeat, seatIdOf } = require("./refill-seats.js");
+const {
+	buildMovedReason,
+	buildSeatName,
+	isSameSeat,
+	seatIdOf,
+} = require("./refill-seats.js");
 const { ledgerJobOf } = require("./refill-state.js");
 const {
 	blockedIdsOf,
@@ -467,7 +472,7 @@ function settleMove(l, target, r, { now, io, tookSlot }) {
 	const moved = relaunched(
 		{
 			...movedOnto(l, target),
-			reason: `moved from ${buildSeatName(l.seat)}`,
+			reason: buildMovedReason(l.seat),
 			movedAt: now,
 			parked: false,
 			block: { ...l.block, since: now },

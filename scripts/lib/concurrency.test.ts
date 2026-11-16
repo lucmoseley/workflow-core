@@ -783,7 +783,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 
 describe("what status --json carries for the panel (#4062)", () => {
 	let dir: string;
-	const Unread = { live: null, ceiling: null, working: null, waiting: [] };
+	const Unread = { live: null, ceiling: null, working: null, waiting: null };
 	const line = (over: object = {}, ago = MIN) =>
 		JSON.stringify({
 			at: iso(T0 - ago),
@@ -819,7 +819,7 @@ describe("what status --json carries for the panel (#4062)", () => {
 			live: 9,
 			ceiling: 9,
 			working: 6,
-			waiting: [],
+			waiting: null,
 		});
 	});
 

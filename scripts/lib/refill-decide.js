@@ -489,19 +489,19 @@ function orderPlanSeats(seats, typedSeat) {
 
 /**
  * The plan seat a parked question's session resumes on (#5293): the first, in
- * orderPlanSeats's order, that a launch could take, its own seat `own` where
- * `isOwnOpen` holds for it, so it reaches the seat the founder last typed on
- * where that has room; undefined where none. A seat other than `own` is the
+ * orderPlanSeats's order, that a launch could take, or its own seat `own`
+ * where that does not read full, so it reaches the seat the founder last typed
+ * on where that has room; undefined where none. A seat other than `own` is the
  * session carried there (refill-resume.js's moveSession).
  * @template {SizedSeat} S
  * @param {S[]} seats
  * @param {string|null} typedSeat
- * @param {{own: string, isOwnOpen: (s: S) => boolean}} own
+ * @param {string} own
  * @returns {S|undefined}
  */
-const pickParkedSeat = (seats, typedSeat, { own, isOwnOpen }) =>
+const pickParkedSeat = (seats, typedSeat, own) =>
 	orderPlanSeats(seats, typedSeat).find((s) =>
-		s.seat === own ? isOwnOpen(s) : fitsLaunch(s),
+		s.seat === own ? !readsFull(s) : fitsLaunch(s),
 	);
 
 /**
@@ -823,10 +823,7 @@ function routeParkedSession(parker, { seats, typedSeat }) {
 		return {
 			afresh: `its session's seat ${job.seat} is not one the loop reads`,
 		};
-	const to = pickParkedSeat(seats, typedSeat ?? null, {
-		own: seat.seat,
-		isOwnOpen: (s) => !readsFull(s),
-	});
+	const to = pickParkedSeat(seats, typedSeat ?? null, seat.seat);
 	if (!to) return { hold: `parked: its session's seat ${seat.seat} is full` };
 	return {
 		resume: {
@@ -936,12 +933,7 @@ const spendSeatFit = (seats, seat) =>
 function resumeSeatOf(r, seats, typedSeat) {
 	const own = seats.find((s) => isSameSeat(r, s));
 	if (!r.parked || !own) return own;
-	return (
-		pickParkedSeat(seats, typedSeat, {
-			own: own.seat,
-			isOwnOpen: (s) => s.fits !== 0,
-		}) ?? own
-	);
+	return pickParkedSeat(seats, typedSeat, own.seat) ?? own;
 }
 
 /**

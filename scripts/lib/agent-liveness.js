@@ -356,7 +356,12 @@ function unionOf(stdouts, call, dirs) {
 	for (const [i, raw] of stdouts.entries()) {
 		const parsed = parseListing(raw, call);
 		if ("why" in parsed) return parsed;
-		const seat = seatDir(dirs[i] ?? "", os.homedir());
+		const dir = dirs[i];
+		if (dir === undefined)
+			throw new Error(
+				`runOracle answered ${stdouts.length} stdouts for ${dirs.length} dirs`,
+			);
+		const seat = seatDir(dir, os.homedir());
 		all.push(
 			...parsed.agents.map((a) =>
 				typeof a === "object" && a !== null && !a.seat ? { ...a, seat } : a,

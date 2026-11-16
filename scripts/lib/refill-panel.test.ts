@@ -65,7 +65,7 @@ const RUNNING = {
 		idle: { reason: "nothing launchable", detail: "" },
 		paused: false,
 	},
-	concurrency: { live: 9, ceiling: 9, working: 6 },
+	concurrency: { live: 9, ceiling: 9, working: 6, waiting: [] },
 	mode: "normal",
 	handedOffSinceAway: 0,
 	repos: [],
@@ -264,7 +264,11 @@ function heldUntil() {
 describe("the panel's rows", () => {
 	it("reads line 1 as the working, idle and room counts, and an unread count as ? (#4747, #5158)", () => {
 		const line1 = (concurrency: object) =>
-			summary(rowsOf({ status: { ...RUNNING, concurrency } }))[2][0];
+			summary(
+				rowsOf({
+					status: { ...RUNNING, concurrency: { ...concurrency, waiting: [] } },
+				}),
+			)[2][0];
 		expect(line1({ live: 7, ceiling: 9, working: 2 })).toBe(
 			"2 working · 5 idle · room for 2",
 		);
@@ -282,8 +286,8 @@ describe("the panel's rows", () => {
 		);
 	});
 
-	it("names each other seat's sessions in needs input on line 1, by the alias that opens it, else the seat, and none where none waits (#5293)", () => {
-		const line1 = (waiting: object[]) =>
+	it("names each other seat's sessions in needs input on line 1, by the alias that opens it, else the seat, none where none waits, and `?` off an unread listing (#5293)", () => {
+		const line1 = (waiting: object[] | null) =>
 			summary(
 				rowsOf({
 					status: {
@@ -301,6 +305,9 @@ describe("the panel's rows", () => {
 		).toBe(
 			"2 working · 5 idle · room for 2 · 5 need input on manta2 · 1 needs input on /nowhere/.claude9",
 		);
+		expect(line1(null)).toBe(
+			"2 working · 5 idle · room for 2 · ? need input elsewhere",
+		);
 	});
 
 	it("leaves the waiting row blank on no free slot, which the count already says", () => {
@@ -309,9 +316,16 @@ describe("the panel's rows", () => {
 		const rows = rowsOf({ status: { ...RUNNING, lastTick } });
 		expect(rows[2].text).toBe(LOOP_COUNT);
 		expect(rows[3].text).toBe("");
-		const concurrency = { live: null, ceiling: null, working: null };
+		const concurrency = {
+			live: null,
+			ceiling: null,
+			working: null,
+			waiting: null,
+		};
 		const unread = rowsOf({ status: { ...RUNNING, lastTick, concurrency } });
-		expect(unread[2].text).toBe("? working · ? idle · room for ?");
+		expect(unread[2].text).toBe(
+			"? working · ? idle · room for ? · ? need input elsewhere",
+		);
 		expect(unread[3].text).toBe("");
 	});
 

@@ -595,8 +595,8 @@ function readNewestTick() {
 
 /**
  * What `refill-loop.js status --json` carries for the panel. `live`,
- * `ceiling` and `working` are null where unread or the newest tick is
- * stale or a stop; `waiting` is empty then.
+ * `ceiling` and `working`, and `waiting`, are null where unread or the
+ * newest tick is stale or a stop.
  * @param {number} now
  */
 function readConcurrencyStatus(now) {
@@ -611,7 +611,7 @@ function readConcurrencyStatus(now) {
 		live: tick?.live ?? null,
 		ceiling: tick?.ceiling ?? null,
 		working: tick?.working ?? null,
-		waiting: tick?.waiting ?? [],
+		waiting: tick?.waiting ?? null,
 	};
 }
 

@@ -4,23 +4,27 @@
  *
  *   alias manta2='(cd ~/mantahostels && CLAUDE_CONFIG_DIR=$HOME/.claude2 _wfc_agents)'
  *
- * `~` and `$HOME` are expanded and each seat put in the seat file's form, so it
- * compares equal to a listing record's. A line of any other shape is skipped, and
- * a `.bashrc` that will not read gives none: the panel then names the seat alone.
+ * Each seat is put in the seat file's form, so it compares equal to a listing
+ * record's. A line of any other shape is skipped, and an absent `.bashrc` gives
+ * none: the panel then names the seat alone. One that will not read says so on
+ * stderr, as no alias then looks the same as none defined.
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
 const { seatDir } = require("./config-dir.js");
+const { readText } = require("./file-read.js");
+const { expandShellHome } = require("./home-path.js");
 const { isUnder } = require("./is-under.js");
+const { requiredGroup } = require("./regex-group.js");
 const { homeDir } = require("./refill-repos.js");
+const { writeFd } = require("./write-fd.js");
 
 /**
  * @typedef {{alias: string, dir: string, seat: string}} SeatAlias
  * @typedef {ReturnType<typeof import("./concurrency.js").readConcurrencyStatus>}
  *   ConcurrencyStatus
  * @typedef {Omit<ConcurrencyStatus, "waiting"> & {waiting:
- *   (import("./concurrency.js").Waiting & {alias: string|null})[]}}
+ *   (import("./concurrency.js").Waiting & {alias: string|null})[]|null}}
  *   ConcurrencyView  the status, each waiting seat with the alias that opens it
  */
 
@@ -28,12 +32,12 @@ const ALIAS_LINE =
 	/^\s*alias\s+([\w.-]+)='\(\s*cd\s+(\S+)\s+&&\s+CLAUDE_CONFIG_DIR=(\S+)\s+_wfc_agents\s*\)'/;
 
 /**
- * `p` with a leading `~` or `$HOME` read as `home`.
- * @param {string} p
+ * `word` with its leading home read against `home`, resolved.
+ * @param {string} word
  * @param {string} home
  */
-const expandShellHome = (p, home) =>
-	p.replace(/^(~|\$HOME|\$\{HOME\})(?=\/|$)/, home);
+const resolveShellPath = (word, home) =>
+	path.resolve(expandShellHome(word, home) ?? word);
 
 /**
  * Each agents-view alias `text` defines, in file order.
@@ -43,32 +47,34 @@ const expandShellHome = (p, home) =>
  */
 function parseSeatAliases(text, home) {
 	return text.split("\n").flatMap((line) => {
-		const [, alias, dir, seat] = ALIAS_LINE.exec(line) ?? [];
-		if (!alias || !dir || !seat) return [];
+		const m = ALIAS_LINE.exec(line);
+		if (!m) return [];
 		return [
 			{
-				alias,
-				dir: path.resolve(expandShellHome(dir, home)),
-				seat: seatDir(expandShellHome(seat, home), home),
+				alias: requiredGroup(m, 1, ALIAS_LINE),
+				dir: resolveShellPath(requiredGroup(m, 2, ALIAS_LINE), home),
+				seat: seatDir(
+					resolveShellPath(requiredGroup(m, 3, ALIAS_LINE), home),
+					home,
+				),
 			},
 		];
 	});
 }
 
 /**
- * The aliases `home`'s `.bashrc` defines, none where it will not read.
+ * The aliases `home`'s `.bashrc` defines, none where it is absent or will not
+ * read.
  * @param {string} [home]
  * @returns {SeatAlias[]}
  */
 function readSeatAliases(home = homeDir()) {
-	try {
-		return parseSeatAliases(
-			fs.readFileSync(path.join(home, ".bashrc"), "utf8"),
-			home,
-		);
-	} catch {
-		return [];
-	}
+	const file = path.join(home, ".bashrc");
+	const read = readText(file);
+	if (read.state === "read") return parseSeatAliases(read.data, home);
+	if (read.state === "unreadable")
+		writeFd(2, `seat-aliases: ${file} did not read: ${read.message}\n`);
+	return [];
 }
 
 /**
@@ -92,15 +98,11 @@ function aliasFor(aliases, seat, cwd) {
  */
 const withWaitingAliases = (concurrency, aliases) => ({
 	...concurrency,
-	waiting: concurrency.waiting.map((w) => ({
-		...w,
-		alias: aliasFor(aliases, w.seat, w.cwd),
-	})),
+	waiting:
+		concurrency.waiting?.map((w) => ({
+			...w,
+			alias: aliasFor(aliases, w.seat, w.cwd),
+		})) ?? null,
 });
 
-module.exports = {
-	aliasFor,
-	parseSeatAliases,
-	readSeatAliases,
-	withWaitingAliases,
-};
+module.exports = { readSeatAliases, withWaitingAliases };

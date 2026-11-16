@@ -26,7 +26,7 @@ const {
 	BOOT_UNREAD_PROMPT,
 } = require("./loop-prompts.js");
 const { buildResumeWaitLine } = require("./refill-decide.js");
-const { buildSeatName, seatIdOf } = require("./refill-seats.js");
+const { buildMovedReason, seatIdOf } = require("./refill-seats.js");
 const {
 	PARKED_STATE,
 	blockedIdsOf,
@@ -1244,7 +1244,9 @@ function stepResumeOf(l) {
  * (#3855): those stopped under the swap hold, those parked on a cleared repo hold
  * (#3863) and those a restart killed (#3880), none while the swap hold stands, and
  * none off an unread listing, as one live again is not yet told from one still
- * stopped.
+ * stopped. A parked one is marked `parked`, for the decision to carry to the
+ * seat the founder last typed on (#5293), but not one on an overflow key: a
+ * move from a key onto a plan seat is untried, so it resumes where it parked.
  * @param {LoopLaunch[]} launches
  * @param {Tick} seen
  * @returns {import("./refill-decide.js").HeldResume[]}
@@ -1271,13 +1273,6 @@ function resumableOf(launches, { agents, io, swapHold }) {
 }
 
 /**
- * A launch's reason once a parked resume carried it off `seat` (#5293).
- * @param {string} seat
- * @returns {import("./refill-decide.js").SeatReason}
- */
-const movedReasonOf = (seat) => `moved from ${buildSeatName(seat)}`;
-
-/**
  * `l` after its step resume `r` of session `from` at `at`, on seat `to` where
  * it moved there: one a restart killed is watched from the resume for a turn,
  * however many holds it meets on the way (isIdleSinceBootResume).
@@ -1289,7 +1284,7 @@ const movedReasonOf = (seat) => `moved from ${buildSeatName(seat)}`;
  */
 function afterStepResume(l, { rest, watchesTurn }, r, { at, to }) {
 	const on = to
-		? { ...rest, ...seatIdOf({ seat: to }), reason: movedReasonOf(l.seat) }
+		? { ...rest, ...seatIdOf({ seat: to }), reason: buildMovedReason(l.seat) }
 		: rest;
 	const resumed = relaunched(on, r, at, { tookSlot: true });
 	return watchesTurn || l.bootResumedAt !== undefined

@@ -12,7 +12,7 @@ const {
 	withUnretired,
 } = require("./refill-block-core.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
-const { buildSeatName, seatIdOf } = require("./refill-seats.js");
+const { buildMovedReason, seatIdOf } = require("./refill-seats.js");
 const {
 	DEFAULT_STAGGER_SECONDS,
 	MEMBER_REFUSED_TAIL,
@@ -340,7 +340,7 @@ function buildParkedRecord(l, target, r, { launchedAt, actsBefore }) {
 		prompt: l.prompt,
 		seat: target.seat,
 		reason: target.from
-			? `moved from ${buildSeatName(target.from)}`
+			? buildMovedReason(target.from)
 			: "parked session's seat",
 		jobId: r.jobId,
 		launchedAt,
