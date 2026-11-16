@@ -16,11 +16,15 @@
  * `declined: true`, never re-surfaced by the reporter but never re-asked
  * either; an `act` or a `notice` is `clear`ed once discharged, `decline`
  * refusing to touch either.
+ *
+ * Reads and writes the session's own tree, `worktreeRoot()`: the field is in
+ * a tracked file, and through `hostRoot()` a linked worktree's discharge
+ * lands in the main checkout as an orphaned edit (#5287).
  */
 
 const { writeFd } = require("./lib/write-fd.js");
 const { parseOrCode } = require("./lib/cli-args");
-const { hostRoot } = require("./lib/host-root.js");
+const { worktreeRoot } = require("./lib/host-root.js");
 const {
 	readStepsOwed,
 	clearStepOwed,
@@ -48,7 +52,7 @@ function main(argv) {
 	const parsed = parseOrCode(argv, CLI);
 	if (typeof parsed === "number") return parsed;
 	const { command: cmd, positionals: rest } = parsed;
-	const root = hostRoot();
+	const root = worktreeRoot();
 
 	if (cmd === "list") {
 		writeFd(1, `${JSON.stringify(readStepsOwed(root), null, "\t")}\n`);

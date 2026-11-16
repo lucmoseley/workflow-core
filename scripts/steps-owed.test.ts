@@ -9,6 +9,7 @@
  * or can never be discharged and is reported as owed at every session start.
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -78,6 +79,36 @@ describe("steps-owed.js CLI", () => {
 		const r = run(["clear", "v2.0.0", "bogus", "x"]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("one of act/choice/notice");
+	});
+
+	it("clear in a linked worktree writes that tree and leaves the main checkout clean (#5287)", () => {
+		const git = (...args: string[]) =>
+			execFileSync("git", ["-C", root, ...args], { encoding: "utf8" });
+		git("init", "-q");
+		appendStepsOwed(root, "v2.0.0", [{ type: "act", text: "do a thing" }]);
+		git("add", ".");
+		git(
+			"-c",
+			"user.email=t@example.com",
+			"-c",
+			"user.name=t",
+			"commit",
+			"-qm",
+			"base",
+		);
+		const linked = fs.mkdtempSync(path.join(os.tmpdir(), "steps-owed-wt-"));
+		made.push(linked);
+		const tree = path.join(linked, "tree");
+		git("worktree", "add", "-q", "--detach", tree);
+		/* The harness names the main checkout as the project even for a
+		 * session in a linked worktree. */
+		const r = runInProcess(SCRIPT, ["clear", "v2.0.0", "act", "do a thing"], {
+			cwd: tree,
+			env: { ...process.env, CLAUDE_PROJECT_DIR: root },
+		});
+		expect(r.status).toBe(0);
+		expect(readStepsOwed(tree)).toEqual([]);
+		expect(git("status", "--porcelain")).toBe("");
 	});
 
 	it("prints usage on a bad invocation", () => {
