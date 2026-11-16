@@ -67,6 +67,7 @@ const NO_LIVE_DRAW = {
 	pssMb: 0,
 	unread: 0,
 	noProcess: 0,
+	noProcessUncharged: 0,
 	problems: [],
 };
 

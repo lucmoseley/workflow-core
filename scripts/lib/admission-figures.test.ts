@@ -81,6 +81,7 @@ describe("the type-check reserve and the Windows limbs (#4956)", () => {
 			pssMb: 1665,
 			unread: 0,
 			noProcess: 0,
+			noProcessUncharged: 0,
 			problems: [],
 		};
 		const bare = measured(roomy, one, { live });
