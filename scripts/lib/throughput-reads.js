@@ -255,8 +255,8 @@ function buildQueueReader() {
 	const readLander = (root) => {
 		const known = landers.get(root);
 		if (known) return known;
-		const log = readText(queueLogFile(root)).state;
-		if (log !== "read") throw new Error(`the queue log is ${log}`);
+		/* An absent queue log reads as no rows: the pre-push hook writes it on
+		 * every push, so absent means nothing was pushed (#5273). */
 		const read = {
 			refs: queueGit(root).refs(),
 			rows: readQueueRows(queueLogFile(root)),

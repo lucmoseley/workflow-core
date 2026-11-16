@@ -126,6 +126,15 @@ describe("the gate-run budget (#5275)", () => {
 		).toEqual([]);
 	});
 
+	it("parks nothing where its landing will not read, so it never counts from its launch past an unread landing", () => {
+		const unreadMain = readOf(runsAgo(8), {
+			byRoot: { [DV]: { commits: null, gateRuns: runsAgo(8), sessions: [] } },
+		});
+		expect(tick([live()], unreadMain).events).toEqual([]);
+		const unreadLedger = readOf(runsAgo(8), { commitsOf: () => null });
+		expect(tick([live()], unreadLedger).events).toEqual([]);
+	});
+
 	it("logs a stop that fails and parks nothing, for the next tick to try again", () => {
 		const { launches, events, calls } = tick([live()], readOf(runsAgo(6)), {
 			stop: () => ({

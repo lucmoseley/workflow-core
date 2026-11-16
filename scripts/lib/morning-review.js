@@ -548,7 +548,7 @@ function buildBreakerText(state) {
 	const since = new Date(state.since).toISOString();
 	return state.state === "open"
 		? `breaker open since ${since}`
-		: `breaker trial running${state.ticket === null ? "" : ` (#${state.ticket})`}, open since ${since}`;
+		: `breaker trial running or waiting to land${state.ticket === null ? "" : ` (#${state.ticket})`}, open since ${since}`;
 }
 
 /** @param {import("./refill-breaker.js").BreakerEvent[]} events */

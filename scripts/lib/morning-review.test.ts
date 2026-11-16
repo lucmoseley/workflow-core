@@ -1317,7 +1317,7 @@ describe("the Throughput section (#5275)", () => {
 		expect(lines[1]).toContain("0 opened, 1 reopened on a failed trial");
 		expect(lines[2]).toContain("budget parks: #415");
 		expect(lines[3]).toContain(
-			"breaker trial running (#9), open since 2026-10-10T02:00:00.000Z",
+			"breaker trial running or waiting to land (#9), open since 2026-10-10T02:00:00.000Z",
 		);
 	});
 

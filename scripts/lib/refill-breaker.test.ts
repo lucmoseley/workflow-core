@@ -387,12 +387,14 @@ describe("the breaker's steps", () => {
 				...over,
 			});
 
-		it("stays in trial while its commit waits on its queue ref, and closes once it lands on a later tick (#5300)", () => {
+		it("stays in trial while its commit waits on its queue ref, saying so, and closes once it lands on a later tick (#5300)", () => {
 			const waiting = { queueOf: () => ({ state: "waiting" as const }) };
 			expect(step(ended(), committed(waiting))).toEqual({
 				events: [],
 				room: { [DV]: 0 },
-				notes: [],
+				notes: [
+					"breaker trial st in /h/design-vault held in trial: its commits wait in the landing queue",
+				],
 			});
 			const landed = committed({
 				...waiting,

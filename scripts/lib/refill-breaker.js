@@ -230,18 +230,6 @@ function landingOf(l, read) {
 }
 
 /**
- * The latest `origin/main` commit time among `l`'s commits, or null where none
- * of them has landed or the landing will not read.
- * @param {BreakerLaunch} l
- * @param {ThroughputRead} read
- * @returns {number|null}
- */
-function landedAtOf(l, read) {
-	const landing = landingOf(l, read);
-	return "at" in landing ? landing.at : null;
-}
-
-/**
  * @param {string} root
  * @param {BreakerEventName} event
  * @param {{reading: Reading, now: number}} at
@@ -319,7 +307,14 @@ function stepTrial({ root, state, mine, reading, read, now }) {
 			event: buildEvent(root, outcome, { reading, now }, trial),
 			room: outcome === "close" ? null : 0,
 		};
-	if (outcome === "wait") return { event: null, room: 0 };
+	if (outcome === "wait")
+		return trial.finishedAt === null
+			? { event: null, room: 0 }
+			: {
+					event: null,
+					room: 0,
+					note: `breaker trial ${state.session} in ${root} held in trial: its commits wait in the landing queue`,
+				};
 	return {
 		event: null,
 		room: 0,
@@ -416,7 +411,7 @@ module.exports = {
 	breakerRecordPath,
 	buildLookbackOf,
 	foldBreakerAt,
-	landedAtOf,
+	landingOf,
 	sessionIdsOf,
 	stepBreakers,
 	workingMsOf,

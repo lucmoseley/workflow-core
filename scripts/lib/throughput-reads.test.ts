@@ -172,7 +172,7 @@ describe("a breaker trial's landing reads (#5300)", () => {
 		expect(read.queueOf(l)).toEqual({ state: "gone" });
 	});
 
-	it("reads a checkout with no queue log as unread, and why", () => {
+	it("reads a checkout with no queue log as having no rows, so its remote decides", () => {
 		const repo = repoAt("repo");
 		const seat = path.join(tmp, "seat");
 		const tree = path.join(repo, ".claude", "worktrees", "implement-1-abc");
@@ -184,9 +184,9 @@ describe("a breaker trial's landing reads (#5300)", () => {
 		);
 		expect(
 			tickRead(repo).queueOf(launchOf(seat, "j1", { root: repo })),
-		).toEqual({
+		).toMatchObject({
 			state: "unread",
-			why: "its queue ref will not read: the queue log is absent",
+			why: expect.stringMatching(/^its queue ref will not read: .*origin/),
 		});
 	});
 
@@ -206,9 +206,7 @@ describe("a breaker trial's landing reads (#5300)", () => {
 			tickRead(repo).queueOf(launchOf(seat, "j1", { root: repo })),
 		).toMatchObject({
 			state: "unread",
-			why: expect.stringMatching(
-				/^its queue ref will not read: (?!the queue log)/,
-			),
+			why: expect.stringMatching(/^its queue ref will not read: .*origin/),
 		});
 	});
 });

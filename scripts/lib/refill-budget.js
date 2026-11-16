@@ -17,7 +17,7 @@
 
 const { isActionable, launchName, stopJob } = require("./refill-block-core.js");
 const { buildChildLine, buildHandOffArgs } = require("./refill-blocks.js");
-const { landedAtOf, sessionIdsOf } = require("./refill-breaker.js");
+const { landingOf, sessionIdsOf } = require("./refill-breaker.js");
 
 /* Ruling #5250, read off its 14-day distribution of gate runs per landing. */
 const GATE_RUN_BUDGET = 6;
@@ -32,7 +32,8 @@ const GATE_RUN_BUDGET = 6;
 
 /**
  * How many gate runs `l`'s sessions ran since its last landing, else its
- * launch; null where its checkout's gate-run record will not read.
+ * launch; null where its checkout's gate-run record or its landing will not
+ * read, so an unread landing never parks a session (#5273).
  * @param {LoopLaunch} l
  * @param {ThroughputRead} read
  * @returns {number|null}
@@ -40,7 +41,9 @@ const GATE_RUN_BUDGET = 6;
 function gateRunsSinceLanding(l, read) {
 	const runs = read.byRoot[l.root]?.gateRuns;
 	if (!runs) return null;
-	const since = Math.max(l.launchedAt, landedAtOf(l, read) ?? 0);
+	const landing = landingOf(l, read);
+	if (!("at" in landing)) return null;
+	const since = Math.max(l.launchedAt, landing.at ?? 0);
 	const ids = sessionIdsOf(l);
 	return runs.filter(
 		(r) => r.session !== null && ids.has(r.session) && Date.parse(r.at) > since,
