@@ -12,7 +12,7 @@
  * Verify failed (#6; each later limb cites its own ticket on its describe).
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -1563,5 +1563,31 @@ describe("the .gitignore block reaching an existing adopter (#773)", () => {
 		expect(upgrade({ root, pluginRoot, out: quiet }).status).toBe(0);
 		const text = fs.readFileSync(path.join(root, ".gitignore"), "utf8");
 		expect(text).toBe(`node_modules/\n${CORE_IGNORE_BLOCK}\n`);
+	});
+});
+
+/* The CLI, spawned the way an adopter's session types it: its plugin root
+ * defaults to the core it ships in, never the adopter root (#5286). */
+describe("upgrade.js through the resolve-core.js runner (#5286)", () => {
+	it("walks with the resolved core, not the adopter root", () => {
+		const core = path.resolve(__dirname, "..");
+		write(
+			root,
+			"scripts/lib/resolve-core.js",
+			fs.readFileSync(path.join(core, "scripts/lib/resolve-core.js"), "utf8"),
+		);
+		execFileSync("git", ["init", "-q"], { cwd: root });
+		const env: NodeJS.ProcessEnv = { ...process.env, WORKFLOW_CORE_DIR: core };
+		delete env.CLAUDE_PLUGIN_ROOT;
+		// spawn-kept: a real fd — the runner hands upgrade.js its own fds with
+		// `stdio: "inherit"`, which no in-process run captures
+		const r = spawnSync(
+			process.execPath,
+			["scripts/lib/resolve-core.js", "scripts/upgrade.js", "--dry-run"],
+			{ cwd: root, env, encoding: "utf8" },
+		);
+		expect(r.status, r.stderr).toBe(0);
+		expect(r.stderr).not.toContain(".claude-plugin/plugin.json");
+		expect(r.stdout).toContain("would ");
 	});
 });

@@ -63,10 +63,12 @@
  * `notify-report.js` persist-and-replay checkers this repo also runs.
  *
  * IMPLICIT:  on every SessionStart, injects a version-gap line, the
- *            adopter-upgrade rule text and the consent accept/decline
- *            commands into the session's context when the pin, supply and
- *            install disagree, or a materialised-not-live line where only
- *            this process lags, a predicted #258 ref-conflict
+ *            adopter-upgrade rule text, the consent accept/decline
+ *            commands and the in-session walk command into the session's
+ *            context when the pin, supply and
+ *            install disagree, or with them agreeing a walk-owed line where
+ *            an accepted walk has not landed, else a materialised-not-live
+ *            line where only this process lags, a predicted #258 ref-conflict
  *            line (#318) alongside it where the supply gap is open, and a
  *            `stepsOwed` block (#248) whenever that field holds an
  *            undeclined entry, and a stale-hook-root block (#1168) or an
@@ -90,8 +92,9 @@ const { hostRoot } = require("./lib/host-root.js");
 const { readPluginState, resolveConfigDir } = require("./lib/plugin-state.js");
 const { readRuleText } = require("./lib/rule-text.js");
 const { scriptPath } = require("./lib/script-path.js");
+const { walkCommand } = require("./lib/walk-command.js");
 const { parseOrExit } = require("./lib/cli-args.js");
-const { isDeclined } = require("./lib/adopter-consent.js");
+const { isDeclined, readPendingConsent } = require("./lib/adopter-consent.js");
 const { readStepsOwed } = require("./lib/steps-owed.js");
 const {
 	HOOKS,
@@ -333,6 +336,24 @@ function buildMaterialisedNotLiveLine(state, name) {
 }
 
 /**
+ * The walk a pending consent still owes once the install is at the pin, or
+ * null. A decline outranks it, as it does the gap report.
+ * @param {string} root
+ * @param {any} state
+ * @param {string} name
+ * @returns {string|null}
+ */
+function buildWalkOwedLine(root, state, name) {
+	const tag = state.pin.ref;
+	if (isDeclined(root, tag) || !readPendingConsent(root, tag)) return null;
+	return (
+		`${name}: installed at ${tag}, but its migration walk has not landed. ` +
+		"Walk it in this session, from the repo root, and commit what it writes; the session-end reconciler then finds it done:\n" +
+		`  ${walkCommand()}`
+	);
+}
+
+/**
  * The lines predicting the rotation's refusal, or none.
  * @param {any} state
  * @returns {string[]}
@@ -413,8 +434,12 @@ function buildReport({ root, pluginRoot, runningRoot }) {
 	if (!state.pin) return join(null);
 	if (!state.gaps.supplyBehindPin && !state.gaps.installBehindSupply)
 		/* Nothing is owed on the PIN here — the records agree and the only
-		 * thing behind is this process's own bytes, which end with it (#243). */
-		return join(buildMaterialisedNotLiveLine(state, plugin.name));
+		 * thing behind is this process's own bytes, which end with it (#243) —
+		 * unless the walk the accept asked for has not landed (#5286). */
+		return join(
+			buildWalkOwedLine(root, state, plugin.name) ??
+				buildMaterialisedNotLiveLine(state, plugin.name),
+		);
 	// The founder already said no to this exact tag in this exact repo (#245)
 	// — a different tag, or the same tag in a different adopter, still reports.
 	if (isDeclined(root, state.pin.ref)) return join(null);
@@ -446,6 +471,8 @@ function buildReport({ root, pluginRoot, runningRoot }) {
 		`  node ${shellQuote(consentCli)} accept  ${shellQuote(root)} ${shellQuote(state.pin.ref)}`,
 		"Only where the founder has said not to install this tag here, record that instead:",
 		`  node ${shellQuote(consentCli)} decline ${shellQuote(root)} ${shellQuote(state.pin.ref)}`,
+		"The walk need not wait for the session's exit: once the install commands have run, this walks the migration notes in this session, from the repo root; commit what it writes, and the exit's reconciler finds it done:",
+		`  ${walkCommand()}`,
 	);
 	return join(lines.join("\n"));
 }

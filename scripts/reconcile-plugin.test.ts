@@ -489,6 +489,63 @@ describe("reconcile-plugin.js leaves the supply alone once the install is at the
 		expect(got.text).toContain("stub walker ran");
 		expect(readConsentOf(at, "v1.0.0")).toBeNull();
 	});
+
+	/** An install at the pin with the consent pending and a stub walker. */
+	function walkOnly() {
+		const at = fixture({ pinRef: "v1.0.0", installedVersion: "1.0.0" });
+		setPendingConsent(at.root, "v1.0.0", { configDir: at.configDir });
+		installWalker(
+			at.configDir,
+			`exports.walkAndCommit = (at) => { at.out("stub walker ran"); return { action: "committed", lines: [] }; };\n`,
+		);
+		return at;
+	}
+
+	it("walks past sessions under its own config dir that work elsewhere, and a linked worktree's (#5286)", () => {
+		const at = walkOnly();
+		const worktree = path.join(at.root, ".claude", "worktrees", "w");
+		fs.mkdirSync(worktree, { recursive: true });
+		fs.writeFileSync(path.join(worktree, ".git"), "gitdir: x\n");
+		const procs = procFixture(at, [
+			{ pid: "500", args: "claude", configDir: at.configDir, cwd: at.tmp },
+			{ pid: "501", args: "claude", configDir: at.configDir, cwd: worktree },
+		]);
+		const got = sessionEnd(at, procs);
+		expect(got.text).not.toContain("deferring");
+		expect(got.text).toContain("stub walker ran");
+		expect(readConsentOf(at, "v1.0.0")).toBeNull();
+	});
+
+	it("clears the consent where an in-session walk already landed, and walks nothing again (#5286)", () => {
+		const at = fixture({ pinRef: "v1.0.0", installedVersion: "1.0.0" });
+		setPendingConsent(at.root, "v1.0.0", { configDir: at.configDir });
+		installWalker(
+			at.configDir,
+			`exports.walkAndCommit = () => ({ action: "up-to-date", lines: [] });\n`,
+		);
+		const got = sessionEnd(at);
+		expect(got.text).toContain("the next session in");
+		expect(readConsentOf(at, "v1.0.0")).toBeNull();
+	});
+
+	it("defers on a session in this checkout under any config dir, or one whose cwd cannot be read (#5286)", () => {
+		const at = walkOnly();
+		const sub = path.join(at.root, ".claude");
+		const procs = procFixture(at, [
+			{
+				pid: "600",
+				args: "claude",
+				configDir: path.join(at.tmp, "o"),
+				cwd: sub,
+			},
+			{ pid: "601", args: "claude", configDir: path.join(at.tmp, "o") },
+		]);
+		const got = sessionEnd(at, procs);
+		expect(got.text).toContain("deferring the v1.0.0 migration walk");
+		expect(got.text).toContain("(pid 600, 601)");
+		expect(got.text).not.toContain("stub walker ran");
+		expect(readConsentOf(at, "v1.0.0")).not.toBeNull();
+	});
 });
 
 /**

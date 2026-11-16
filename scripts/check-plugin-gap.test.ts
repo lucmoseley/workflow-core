@@ -22,7 +22,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, onTestFinished } from "vitest";
-import { decline } from "./lib/adopter-consent.js";
+import { decline, setPendingConsent } from "./lib/adopter-consent.js";
 import { renderHookShim } from "./lib/adopter-skeleton.js";
 import { adopterFixtures, writeJson } from "./lib/plugin-state-testkit.js";
 import { runInProcess } from "./lib/run-in-process.js";
@@ -104,6 +104,10 @@ describe("check-plugin-gap.js's report (#243)", () => {
 		// the install is the session's, never a question for the founder (#5230)
 		expect(text).toContain("this session's to run, not the founder's");
 		expect(text).not.toContain("priced yes/no");
+		// the in-session walk, so no session waits on an exit (#5286)
+		expect(text).toMatch(
+			/walks the migration notes in this session[^\n]*\n {2}node scripts\/(lib\/resolve-core\.js scripts\/)?upgrade\.js$/m,
+		);
 	});
 
 	it("stays silent for a repo+tag the founder already declined (#245)", () => {
@@ -210,6 +214,20 @@ describe("check-plugin-gap.js's corrected reporting (#251)", () => {
 		);
 		expect(text).not.toContain("claude plugin");
 		expect(text).not.toContain("adopter-consent.js");
+	});
+
+	it("names the in-session walk where the install is at the pin and the accepted walk has not landed (#5286)", () => {
+		const { root, pluginRoot, configDir } = fixture({
+			pinRef: "v1.1.11",
+			installedVersion: "1.1.11",
+			supplyTag: "v1.1.11",
+		});
+		setPendingConsent(root, "v1.1.11", { configDir });
+		const text = report({ root, pluginRoot, configDir });
+		expect(text).toContain("its migration walk has not landed");
+		expect(text).toMatch(/upgrade\.js$/m);
+		decline(root, "v1.1.11", { configDir });
+		expect(report({ root, pluginRoot, configDir })).toBeNull();
 	});
 
 	it("--notify refuses a bad invocation with usage on stderr and exit 2", () => {

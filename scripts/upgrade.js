@@ -12,8 +12,10 @@
  * `scripts/lib/materialise-plugin.js` (`marketplace add` → `install` →
  * `update`, each `--scope project`), never the `plugin update; restart`
  * shorthand, which skips the `marketplace add` that actually rotates the ref
- * (#214). CLAUDE_PLUGIN_ROOT (or --plugin-root)
- * already holds the NEW plugin.json; the adopter's committed pin (still
+ * (#214). The plugin root, `--plugin-root` else the core this file ships
+ * in, already holds the NEW plugin.json — so an adopter's
+ * `node scripts/lib/resolve-core.js scripts/upgrade.js` walks with the
+ * install that runner finds (#5286); the adopter's committed pin (still
  * `.claude/settings.json`'s `ref` today) still names the OLD one. This
  * walker never touches that pin — it is the consent target, not a progress
  * marker. Progress is `walkedTo`, a committed field in
@@ -37,7 +39,7 @@
  */
 
 const { writeFd } = require("./lib/write-fd.js");
-const { scriptPath } = require("./lib/script-path.js");
+const { coreRoot, scriptPath } = require("./lib/script-path.js");
 const { worktreeRoot } = require("./lib/host-root.js");
 const { ghLabels } = require("./lib/core-owned-files.js");
 const { flagValue, parseOrExit } = require("./lib/cli-args.js");
@@ -56,8 +58,7 @@ function main(argv) {
 		},
 	});
 	const root = flagValue(flags, "--root") ?? worktreeRoot();
-	const pluginRoot =
-		flagValue(flags, "--plugin-root") ?? process.env.CLAUDE_PLUGIN_ROOT ?? root;
+	const pluginRoot = flagValue(flags, "--plugin-root") ?? coreRoot();
 	const result = upgrade({
 		root,
 		pluginRoot,

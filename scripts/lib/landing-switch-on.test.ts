@@ -7,7 +7,12 @@ import { describe, expect, it } from "vitest";
 
 const { judgeSwitchOn } = require("./landing-switch-on.js");
 
-const HOW = { note: "N", cutoverCommand: "C", stepsCommand: "S" };
+const HOW = {
+	note: "N",
+	cutoverCommand: "C",
+	stepsCommand: "S",
+	walkCommand: "W",
+};
 const judge = (
 	version: string,
 	landingOn: boolean,
@@ -29,6 +34,8 @@ describe("judgeSwitchOn (#4688)", () => {
 				tag: "LANDING-OFF",
 			});
 		expect(judge("2.1.0", false).line).toContain("`S`");
+		// the in-session walk, which seeds the owed list (#5286)
+		expect(judge("2.1.0", false).line).toContain("`W`");
 	});
 
 	it("fails landing on but not cut over, naming the cutover command", () => {

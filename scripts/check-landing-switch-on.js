@@ -26,6 +26,7 @@ const { GIT_TIMEOUT_MS, gitReader } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { NOTE, judgeSwitchOn } = require("./lib/landing-switch-on.js");
 const { coreRoot, corePath, scriptPath } = require("./lib/script-path.js");
+const { walkCommand } = require("./lib/walk-command.js");
 const { moduleOn } = require("./lib/workflow-core-config.js");
 
 /** @param {string} manifest @returns {unknown} */
@@ -66,6 +67,7 @@ runCheck({
 				note: corePath(NOTE),
 				cutoverCommand: `node ${scriptPath("cutover-main-checkout.js")}`,
 				stepsCommand: `node ${scriptPath("steps-owed.js")} list`,
+				walkCommand: walkCommand(),
 			},
 		);
 		const data = { version, landingOn };
