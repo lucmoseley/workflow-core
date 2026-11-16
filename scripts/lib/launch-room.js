@@ -17,9 +17,9 @@ const BREAKER_OPEN = "its checkout's throughput breaker is open";
 const PROBE_HELD = "a probe hold stops launches into its checkout";
 
 /**
- * `breakerRoom` holds each checkout whose
- * breaker is open: 0 where it takes nothing, 1 where it takes its one trial
- * launch, never a resume (lib/refill-breaker.js).
+ * `breakerRoom` holds each checkout whose breaker is open: 0 where it takes
+ * nothing, 1 where it takes its one trial launch, never a resume
+ * (lib/refill-breaker.js).
  * @typedef {{history: import("./refill-decide.js").LaunchRecord[],
  *   lastActAt: Record<string, number>,
  *   resumable?: import("./refill-decide.js").HeldResume[],
