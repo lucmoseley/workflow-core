@@ -301,7 +301,7 @@ describe("a session worktree's commits (#2408, #4485)", () => {
 		expect(out?.reason).toContain(
 			"land it with `node scripts/session-checkout.js land`, which pushes your queue ref.",
 		);
-		expect(out?.reason).toContain("(`rule:push-cadence-landing`)");
+		expect(out?.reason).toContain("(`rule:push-cadence`)");
 		expect(out?.reason).not.toMatch(/push to `origin\/main`/);
 	});
 

@@ -169,7 +169,7 @@ function handingOff(payload, sid) {
 }
 
 /** The push: the land step's, of the session's queue ref. */
-const PUSH_STEP = `The push is your own act (\`rule:push-cadence-landing\`): land it with \`node ${scriptPath("session-checkout.js")} land\`, which pushes your queue ref.`;
+const PUSH_STEP = `The push is your own act (\`rule:push-cadence\`): land it with \`node ${scriptPath("session-checkout.js")} land\`, which pushes your queue ref.`;
 
 /**
  * `dir` with its symlinks resolved, or as given where it does not resolve.

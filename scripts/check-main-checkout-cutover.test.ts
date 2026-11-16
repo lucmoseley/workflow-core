@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * check-landing-switch-on.js (#4688, #5276) over a throwaway clone whose
+ * check-main-checkout-cutover.js (#4688, #5276) over a throwaway clone whose
  * `main` still tracks `origin/landing`, with the session listing through a
  * `claude` stand-in at WFC_CLAUDE_BIN and the levelling install through an
  * `npm` stand-in at WFC_NPM. Loosened, a main checkout never cut over shares
@@ -16,7 +16,7 @@ import { buildAgentsBranch, buildListedRow } from "./lib/agents-stop-fake";
 import { writeClaudeStub } from "./lib/claude-stub";
 import { runInProcess } from "./lib/run-in-process.js";
 
-const SCRIPT = path.join(__dirname, "check-landing-switch-on.js");
+const SCRIPT = path.join(__dirname, "check-main-checkout-cutover.js");
 
 let tmp: string;
 let main: string;
@@ -42,7 +42,7 @@ const listSessionIn = (cwd: string) =>
 
 beforeEach(() => {
 	tmp = fs.realpathSync(
-		fs.mkdtempSync(path.join(os.tmpdir(), "landing-switch-on-")),
+		fs.mkdtempSync(path.join(os.tmpdir(), "main-checkout-cutover-")),
 	);
 	const origin = path.join(tmp, "origin.git");
 	main = path.join(tmp, "main");
@@ -88,7 +88,7 @@ const check = (...args: string[]) => {
 	return runInProcess(SCRIPT, args, { cwd: main, env });
 };
 
-describe("check-landing-switch-on.js (#5276)", () => {
+describe("check-main-checkout-cutover.js (#5276)", () => {
 	it("cuts over a main checkout no session stands in, printing the cutover's report", () => {
 		listSessionIn(tmp);
 		const r = check("--notify");
@@ -156,7 +156,7 @@ describe("check-landing-switch-on.js (#5276)", () => {
 			"utf8",
 		);
 		expect(status).toContain(
-			'["landing-switch-on", "check-landing-switch-on.js"]',
+			'["main-checkout-cutover", "check-main-checkout-cutover.js"]',
 		);
 	});
 });

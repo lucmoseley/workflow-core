@@ -10,8 +10,8 @@
  *
  * THE IDS ARE NAMED, NOT REQUESTED WHOLESALE. Three clusters share this
  * trigger, and the emission ceiling is per call. Priority order, the recipe
- * first and then what qualifies or explains it, is push-cadence-landing,
- * vercel-build-on-push, ci-status-lag-landing.
+ * first and then what qualifies or explains it, is push-cadence,
+ * vercel-build-on-push, ci-status-lag.
  *
  * NO ID IS PATH-SCOPED, deliberately. A push names refs, not paths. Each is
  * scoped to the HOST instead (#742).
@@ -94,11 +94,7 @@ function decide(command, ctx) {
 	/* Each rule goes only to a host meeting its premise (#742). A push goes to
 	 * the session's queue ref and the lander tests it (#2409, #2929). */
 	return {
-		injectRules: [
-			"push-cadence-landing",
-			"vercel-build-on-push",
-			"ci-status-lag-landing",
-		],
+		injectRules: ["push-cadence", "vercel-build-on-push", "ci-status-lag"],
 		skip: [...(ctx.deploysVercel() ? [] : ["vercel-build-on-push"])],
 		...reviewWarn(pushTree, ctx),
 	};

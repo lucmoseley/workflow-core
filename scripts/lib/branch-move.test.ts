@@ -330,12 +330,12 @@ describe("the rule reaches a session BEFORE it trips the guard (mantahostels#164
 		["git checkout main", "the repair: branch work, and never refused"],
 	])("%s is handed the rule and NOT refused — %s", (command) => {
 		expect(run(command)).toEqual({
-			injectRules: ["branch-shared-tree", "branch-shared-tree-landing"],
+			injectRules: ["branch-shared-tree", "branch-shared-tree-cutover"],
 		});
 	});
 
-	it("the landing twin is the one carrying origin/landing", () => {
-		expect(readRuleText("branch-shared-tree-landing")).toContain(
+	it("the cutover rule is the one carrying origin/landing", () => {
+		expect(readRuleText("branch-shared-tree-cutover")).toContain(
 			"origin/landing",
 		);
 		expect(readBranchRule()).not.toContain("origin/landing");
