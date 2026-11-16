@@ -15,6 +15,7 @@ const {
 } = require("./block-act.js");
 const { LIMIT_PROMPT, MOVED_PROMPT } = require("./loop-prompts.js");
 const { pickMoveSeat } = require("./refill-decide.js");
+const { buildSpentRoom } = require("./launch-room.js");
 const { buildSeatName, isSameSeat, seatIdOf } = require("./refill-seats.js");
 const { ledgerJobOf } = require("./refill-state.js");
 const {
@@ -886,10 +887,7 @@ const takesSlot = (l) => isLimitHeld(l);
  */
 function actOnLimits(launches, mode, seen) {
 	let { slots } = seen;
-	/** @type {Map<string, number>} */
-	const spent = new Map();
-	/** @param {string} root */
-	const roomLeft = (root) => seen.roomOf(root) - (spent.get(root) ?? 0);
+	const room = buildSpentRoom(seen.roomOf);
 	let liveChange = 0;
 	if (!seen.agents || !launches.some(isLimitBlocked))
 		return { launches, slots, liveChange };
@@ -905,7 +903,7 @@ function actOnLimits(launches, mode, seen) {
 		if (!(blocked.has(l.jobId) || isLimitHeld(l))) return l;
 		const out = actOnLimit(judgeTakenResume(l, seen.io), own, seen, {
 			mode,
-			slots: Math.min(slots, roomLeft(l.root)),
+			slots: Math.min(slots, room.left(l.root)),
 			moveSeats,
 		});
 		const change = limitLiveChange(l, out);
@@ -915,7 +913,7 @@ function actOnLimits(launches, mode, seen) {
 			moveSeats = withSeatTaken(moveSeats, out);
 		if (change > 0) {
 			slots -= 1;
-			spent.set(l.root, (spent.get(l.root) ?? 0) + 1);
+			room.spend(l.root);
 		}
 		liveChange += change;
 		return syncLedgerHold(out, seen.io);

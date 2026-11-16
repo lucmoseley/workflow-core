@@ -37,13 +37,12 @@
  */
 
 const {
-	PROBE_HELD,
 	buildLimitCapHoldWhy,
 	buildLoopWait,
 	buildPausedWaitText,
-	buildProbeHeldRoots,
 	buildSkipReason,
 } = require("./refill-decide.js");
+const { buildProbeHeldRoots, PROBE_HELD } = require("./launch-room.js");
 const { PARKED_LABEL, newestMarkerListing } = require("./parked.js");
 const { takesLabel, takesOf } = require("./takes-label.js");
 const { refKey } = require("./issue-ref.js");
