@@ -132,6 +132,18 @@ describe("a test that spawns a hostRoot()- or gr_root-rooted script", () => {
 		expect(r.json().findings[0].scripts).toEqual(["scripts/check-thing.sh"]);
 	});
 
+	it("flags a shell script calling gr_worktree_root (#5287)", () => {
+		track(
+			"scripts/thing.sh",
+			'source "$here/lib/guard-root.sh"\nroot="$(gr_worktree_root)"\n',
+		);
+		track(
+			"scripts/thing.test.ts",
+			'spawnSync("bash", ["scripts/thing.sh"], {});\n',
+		);
+		expect(run().status).toBe(1);
+	});
+
 	it('reads process.execPath the same as "node"', () => {
 		rooted("thing.js");
 		track(
@@ -162,6 +174,22 @@ describe("what it declines to flag", () => {
 		track(
 			"scripts/thing.sh",
 			'source "$here/lib/guard-root.sh"\n# not gr_root\ngr_config_dir d\n',
+		);
+		track(
+			"scripts/thing.test.ts",
+			'spawnSync("bash", ["scripts/thing.sh"], {});\n',
+		);
+		expect(run().status).toBe(0);
+	});
+
+	it("passes a script sourcing guard-root.sh whose own functions call gr_root (#5287)", () => {
+		track(
+			"scripts/lib/guard-root.sh",
+			'gr_root() {\n  printf .\n}\ngr_worktree_root() {\n  printf "$(gr_root)"\n}\n',
+		);
+		track(
+			"scripts/thing.sh",
+			'source "$here/lib/guard-root.sh"\ngr_config_dir d\n',
 		);
 		track(
 			"scripts/thing.test.ts",

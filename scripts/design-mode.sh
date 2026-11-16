@@ -40,9 +40,11 @@ here="${BASH_SOURCE[0]%/*}"
 source "$here/lib/guard-root.sh"
 # shellcheck source=scripts/lib/atomic-write.sh
 source "$here/lib/atomic-write.sh"
-# gr_root() finds the HOST repo, never this file's own location — in a plugin
-# install this script ships in the plugin cache, not the host repo (#1).
-SETTINGS="$(gr_root)/.claude/settings.json"
+# gr_worktree_root() finds the session's own tree of the HOST repo, never this
+# file's own location — in a plugin install this script ships in the plugin
+# cache, not the host repo (#1). Not gr_root(): the settings file is tracked,
+# and a linked worktree's session reads its own copy (#5287).
+SETTINGS="$(gr_worktree_root)/.claude/settings.json"
 PLUGINS=("impeccable@impeccable")
 
 usage() {
