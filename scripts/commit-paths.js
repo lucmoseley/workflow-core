@@ -152,7 +152,7 @@ const { trimEndRun } = require("./lib/trim-run.js");
 const { readText } = require("./lib/file-read.js");
 const { precommitStamp } = require("./lib/precommit-stamp.js");
 const { reviewTierStamp } = require("./lib/review-tier-stamp.js");
-const { isHookShim } = require("./lib/adopter-skeleton.js");
+const { isHookShim, NO_CORE_FIX } = require("./lib/adopter-skeleton.js");
 const { resolveCore } = require("./lib/resolve-core.js");
 
 const NAME = "commit-paths";
@@ -1568,14 +1568,15 @@ function preLockHold(root, env) {
  * cannot be had (#1763). A hooks directory holding husky's `h` is read as
  * husky's shims, which run the hook of their own name one level up. An
  * adopter's hook is the core's shim, which runs the hook of the core
- * resolve-core.js finds: that hook is read, and `core` names the core, which
- * its gates reach as WFC_PLUGIN_ROOT (#5288).
+ * resolve-core.js finds; `core` names that core, which its gates reach as
+ * WFC_PLUGIN_ROOT (#5288). Where no core resolves,
+ * `noCore` says why: the shim then refuses the commit in the lock.
  * Residual: a husky whose shim is not named `h`, or a plain hooks directory
  * holding a file of that name, reads the wrong hook — one lacking the line,
  * so no gates run early and the hook runs them in the lock.
  * @param {string} root
  * @param {NodeJS.ProcessEnv} env
- * @returns {{text: string, core: string|null, why: null}|{text: null, why: string}}
+ * @returns {{text: string, core: string|null, why: null}|{text: null, why: string, noCore?: string}}
  */
 function readHookGatesText(root, env) {
 	const r = git([
@@ -1592,42 +1593,43 @@ function readHookGatesText(root, env) {
 			why: `git could not name the hooks directory (${r.stderr.trim()})`,
 		};
 	const hooks = r.stdout.trim();
-	const ran = fs.existsSync(path.join(hooks, "h"))
+	const gitHook = fs.existsSync(path.join(hooks, "h"))
 		? path.join(path.dirname(hooks), "pre-commit")
 		: path.join(hooks, "pre-commit");
-	/** @param {string} at @returns {{text: string}|{why: string}} */
-	const read = (at) => {
-		try {
-			return { text: fs.readFileSync(at, "utf8") };
-		} catch (e) {
-			return { why: `${at} could not be read (${caught(e).code})` };
-		}
+	/** @param {string} at @returns {{body: string}|{why: string}} */
+	const readHook = (at) => {
+		const read = readText(at);
+		if (read.state === "read") return { body: read.data };
+		return {
+			why: `${at} could not be read (${read.state === "absent" ? "ENOENT" : read.message})`,
+		};
 	};
-	const first = read(ran);
-	if ("why" in first) return { text: null, why: first.why };
-	let hook = ran;
-	let body = first.text;
+	const gitRead = readHook(gitHook);
+	if ("why" in gitRead) return { text: null, why: gitRead.why };
+	let hook = gitHook;
+	let body = gitRead.body;
 	/** @type {string|null} */
 	let coreDir = null;
 	if (isHookShim(body)) {
 		try {
 			coreDir = resolveCore({
-				root,
 				env,
 				warn: () => {
 					/* The shim says a version drift itself, in the lock. */
 				},
 			});
 		} catch (e) {
+			const noCore = caught(e).message;
 			return {
 				text: null,
-				why: `${ran} is the core's shim, and no core resolves for it (${caught(e).message})`,
+				why: `${gitHook} is the core's shim, and no core resolves for it (${noCore})`,
+				noCore,
 			};
 		}
 		hook = path.join(coreDir, ".husky", "pre-commit");
-		const target = read(hook);
-		if ("why" in target) return { text: null, why: target.why };
-		body = target.text;
+		const coreRead = readHook(hook);
+		if ("why" in coreRead) return { text: null, why: coreRead.why };
+		body = coreRead.body;
 	}
 	const lines = body.split("\n");
 	const end = lines.indexOf(GATES_END);
@@ -1661,6 +1663,12 @@ function preLockGates({ root, index, gates, env, slowLabel }) {
 		);
 	};
 	const hook = readHookGatesText(root, env);
+	if ("noCore" in hook && hook.noCore !== undefined)
+		fail(
+			`this repo's pre-commit hook is workflow-core's shim, and no core resolves for it to run (${hook.noCore}), so the hook would refuse this commit; ${slowLabel} never started. Nothing written.
+  ${NO_CORE_FIX}`,
+			3,
+		);
 	if (hook.text === null) return deferToHook(hook.why);
 	const gatesEnv =
 		hook.core === null ? env : { ...env, WFC_PLUGIN_ROOT: hook.core };

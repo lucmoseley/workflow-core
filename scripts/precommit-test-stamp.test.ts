@@ -36,7 +36,8 @@
  * The fixture's hook also carries a stub gate above the live hook's line
  * ending its early gates, which commit-paths runs before its suite (#1763):
  * loosen those cases and a one-second lint refusal waits behind the suite
- * again.
+ * again. In an `adopter` fixture the repo's hook is the core's shim, and
+ * loosening its cases does the same to every adopter's commit (#5288).
  */
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
@@ -162,7 +163,8 @@ rm -f "$t"
 /**
  * `adopter` commits as an adopter does: its `.husky/pre-commit` is the core's
  * shim, which runs the hook of a core outside the repo, found through
- * WORKFLOW_CORE_DIR.
+ * WORKFLOW_CORE_DIR, and the repo holds no copy of the gate library that
+ * hook sources, so a gate run without WFC_PLUGIN_ROOT fails.
  */
 function fixture({
 	born = true,
@@ -187,6 +189,7 @@ function fixture({
 			path.join(ROOT, "scripts/lib/resolve-core.js"),
 			path.join(root, "scripts/lib/resolve-core.js"),
 		);
+		fs.rmSync(path.join(root, "scripts/lib/precommit-gate.sh"));
 		fs.writeFileSync(
 			path.join(root, ".husky/pre-commit"),
 			renderHookShim("pre-commit"),
@@ -328,18 +331,24 @@ function fixture({
 				otherWorktrees: readOtherWorktrees(),
 			};
 		},
-		/** The named paths committed through commit-paths, under `--patch` where given one; `inherited` is a stamp variable its caller carries. */
+		/** The named paths committed through commit-paths, under `--patch` where given one; `inherited` is a stamp variable its caller carries; `unsetCore` leaves no core to resolve. */
 		commitPaths({
 			patch,
 			inherited,
+			unsetCore = false,
 		}: {
 			patch?: string;
 			inherited?: string;
+			unsetCore?: boolean;
 		} = {}) {
 			const before = readHead();
 			const readStaged = () => String(git("ls-files", "--stage"));
 			const index = readStaged();
 			const e = commitPathsEnv(inherited);
+			if (unsetCore) {
+				delete e.WORKFLOW_CORE_DIR;
+				delete e.WORKFLOW_CORE_CHECKOUT;
+			}
 			const r = runInProcess(COMMIT_PATHS, commitPathsArgs(patch), {
 				cwd: root,
 				env: e,
@@ -901,6 +910,20 @@ it("refuses a red gate before the pre-lock suite where the repo's hook is the co
 	expect(r.landed).toBe(false);
 	expect(r.gateRuns).toEqual(["lock=0 staged=a.txt"]);
 	expect(r.runs).toEqual([]);
+});
+
+it("refuses before the pre-lock suite where the repo's hook is the core's shim and no core resolves for it (#5288)", () => {
+	const f = fixture({ adopter: true });
+	f.edit("a.txt", "changed\n");
+	const r = f.commitPaths({ unsetCore: true });
+	expect(r.code).toBe(3);
+	expect(r.landed).toBe(false);
+	expect(r.gateRuns).toEqual([]);
+	expect(r.runs).toEqual([]);
+	expect(r.out).toContain(
+		"this repo's pre-commit hook is workflow-core's shim, and no core resolves for it to run (resolve-core: no workflow-core directory",
+	);
+	expect(r.out).toContain("'sh stub.sh' never started. Nothing written.");
 });
 
 it("runs the gates once, in the lock, on a plain git commit (#1763)", () => {
