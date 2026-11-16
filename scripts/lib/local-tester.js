@@ -20,7 +20,7 @@ const { gitBinary, gitSpawnOptions } = require("./git.js");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { readPsRows, readTreePssKb } = require("./admission.js");
+const { readPsRows, readTreePssKb, sampleTreePeak } = require("./admission.js");
 const { caught } = require("./caught.js");
 const { markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
@@ -63,8 +63,6 @@ const rootlessEnv = () => {
 
 /* Untraced: room for a checkout of the whole tree. */
 const CHECKOUT_TIMEOUT_MS = 120 * 1000;
-/* Untraced: how often a run's tree PSS is sampled for its peak. */
-const PEAK_SAMPLE_MS = 2000;
 /* Each tester run's kind, file count and tree peak, under the canonical
  * checkout's markers (#3323). Untraced: 90 days, room for many runs to
  * re-size the charges from. */
@@ -154,36 +152,26 @@ const shellRun = ({ command, args, env }, cwd, onSpawn, treePss) =>
 			out += chunk;
 			process.stderr.write(chunk);
 		};
-		let peakKb = 0;
-		let samples = 0;
-		/** @type {NodeJS.Timeout | undefined} */
+		/** @type {ReturnType<typeof sampleTreePeak> | undefined} */
 		let sampler;
-		const sample = () => {
-			if (child.pid === undefined) return;
-			peakKb = Math.max(peakKb, treePss(child.pid));
-			samples += 1;
-		};
+		const stop = () => sampler?.stop() ?? { peakKb: 0, samples: 0 };
 		child.stdout.on("data", keep);
 		child.stderr.on("data", keep);
 		child.on("spawn", () => {
-			sample();
-			sampler = setInterval(sample, PEAK_SAMPLE_MS);
+			sampler = sampleTreePeak(child.pid, { treePss });
 			onSpawn();
 		});
 		child.on("error", (err) => {
-			clearInterval(sampler);
 			resolve({
 				code: null,
 				signal: null,
 				out,
 				error: err.message,
-				peakKb,
-				samples,
+				...stop(),
 			});
 		});
 		child.on("close", (code, signal) => {
-			clearInterval(sampler);
-			resolve({ code, signal, out, error: null, peakKb, samples });
+			resolve({ code, signal, out, error: null, ...stop() });
 		});
 	});
 

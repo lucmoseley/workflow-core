@@ -105,10 +105,10 @@ function isSuiteScript(word, python, runners) {
  * host's declared runner are whole.
  * @param {string[]} words words `isOtherRunner` takes for a runner
  */
-function namesTestFiles(words) {
+function hasNamedTestFiles(words) {
 	const a0 = afterSlash(words[0] ?? "");
 	if (a0 === "pytest" || a0 === "py.test")
-		return pytestNamesFiles(words.slice(1));
+		return isNamedPytestRun(words.slice(1));
 	if (a0 === "node" || a0 === "nodejs") {
 		const at = words.indexOf("--test");
 		const paths = words.slice(at + 1).filter((w) => !w.startsWith("-"));
@@ -119,17 +119,17 @@ function namesTestFiles(words) {
 	for (let i = 1; i < words.length; i++) {
 		const word = words[i] ?? "";
 		if (word === "-m")
-			return words[i + 1] === "pytest" && pytestNamesFiles(words.slice(i + 2));
+			return words[i + 1] === "pytest" && isNamedPytestRun(words.slice(i + 2));
 		if (word.startsWith("-")) continue;
 		if (afterSlash(word) === "pytest")
-			return pytestNamesFiles(words.slice(i + 1));
+			return isNamedPytestRun(words.slice(i + 1));
 		return PY_COLLECTED_TEST.test(afterSlash(word));
 	}
 	return false;
 }
 
 /** @param {string[]} argv pytest's own argv */
-function pytestNamesFiles(argv) {
+function isNamedPytestRun(argv) {
 	const paths = pytestPathWords(argv);
 	return (
 		paths.length > 0 &&
@@ -263,7 +263,7 @@ function pytestPathWords(argv) {
 function isWholePytestRun(argv, { landing }) {
 	const own = argv[0] === "--" ? argv.slice(1) : argv;
 	if (own.length === 0) return !landing;
-	return !pytestNamesFiles(own);
+	return !isNamedPytestRun(own);
 }
 
 /**
@@ -343,7 +343,7 @@ module.exports = {
 	suiteLaunchKind,
 	isQueueable,
 	isWholePytestRun,
-	namesTestFiles,
+	hasNamedTestFiles,
 	pytestPathWords,
 	TEST_PY_WORKERS,
 	buildIsWrapperScript,

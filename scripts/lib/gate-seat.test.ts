@@ -2,8 +2,7 @@
 /*
  * gate-seat.js (#5274): a commit gate's seat in the suite queue. The markers
  * and the gate-run record are real files in a scratch directory; process
- * ancestry and environ are injected, being shapes a real process tree cannot
- * stage. In the world, a wrong verdict counts one gate's three lanes as three
+ * ancestry is injected, being a shape a real process tree cannot stage. In the world, a wrong verdict counts one gate's three lanes as three
  * whole suites and holds every other run out, lets a process that inherited
  * the variable skip the count, or under-charges an unmeasured gate.
  */
@@ -15,9 +14,14 @@ import { mkScratchDir } from "./git-fixture";
 const {
 	GATE_SEAT_DEFAULT_MB,
 	appendGateRun,
+	gatePositionLine,
 	gateSeatChargeMb,
 } = require("./gate-seat.js");
-const { readGateSeats, readLiveGates } = require("./suite-queue.js");
+const {
+	readGateSeats,
+	readLiveGateSeats,
+	readSlotPlace,
+} = require("./suite-queue.js");
 const { runningSuites } = require("./suite-ladder.js");
 const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js");
 
@@ -54,46 +58,62 @@ describe("the gate seat's charge", () => {
 	});
 });
 
-describe("readLiveGates", () => {
+describe("readLiveGateSeats", () => {
 	it("reads every live gate marker, queued or running, with its charge", () => {
 		const q = queue();
 		q.marker({ pid: process.pid, role: "gate", chargeMb: 2100, spawned: true });
 		q.marker({ pid: 999_999_999, role: "gate" });
 		q.marker({ pid: process.ppid, role: "lander", chargeMb: 1 });
-		expect(readLiveGates({ queueDir: q.dir })).toEqual([
+		expect(readLiveGateSeats({ queueDir: q.dir })).toEqual([
 			{ pid: process.pid, chargeMb: 2100, spawned: true },
 		]);
 	});
 });
 
 describe("readGateSeats, the count's reading of the seats", () => {
-	it("places a runner whose variable names a live seat among its ancestors under it", () => {
+	it("places a runner among a spawned seat's holder's descendants under it", () => {
 		const q = queue();
-		const file = q.marker({ pid: process.pid, role: "gate", spawned: true });
+		q.marker({ pid: process.pid, role: "gate", spawned: true });
 		const seats = readGateSeats({
 			queueDir: q.dir,
-			environOf: () => file,
 			parentOf: tree(process.pid),
 		});
-		expect(seats.held).toBe(1);
+		expect(seats.count).toBe(1);
 		expect(seats.under(40)).toBe(true);
+		expect(seats.under(process.pid)).toBe(true);
 	});
 
-	it("counts a process carrying the variable outside the seat's tree as itself", () => {
+	it("counts a process outside the seat's tree as itself, whatever it inherited", () => {
 		const q = queue();
-		const file = q.marker({ pid: process.pid, role: "gate", spawned: true });
-		const seats = readGateSeats({
-			queueDir: q.dir,
-			environOf: () => file,
-			parentOf: () => 1,
-		});
+		q.marker({ pid: process.pid, role: "gate", spawned: true });
+		const seats = readGateSeats({ queueDir: q.dir, parentOf: () => 1 });
 		expect(seats.under(40)).toBe(false);
+		expect(seats.under(null)).toBe(false);
 	});
 
-	it("holds no slot for a seat still waiting", () => {
+	it("places nothing under a seat still waiting, which holds no slot", () => {
 		const q = queue();
 		q.marker({ pid: process.pid, role: "gate" });
-		expect(readGateSeats({ queueDir: q.dir }).held).toBe(0);
+		const seats = readGateSeats({
+			queueDir: q.dir,
+			parentOf: tree(process.pid),
+		});
+		expect(seats.count).toBe(0);
+		expect(seats.under(40)).toBe(false);
+	});
+});
+
+describe("a waiting gate's place", () => {
+	it("is unknown, and says why, where the queue will not read", () => {
+		const q = queue();
+		const notADir = path.join(q.dir, "plain-file");
+		fs.writeFileSync(notADir, "");
+		const place = readSlotPlace({ queueDir: notADir });
+		expect(place).toMatchObject({ position: null, holder: null });
+		const line = gatePositionLine({ ...place, waitedS: 7 });
+		expect(line).toMatch(/place for the whole-suite slot unknown/);
+		expect(line).toMatch(/ENOTDIR/);
+		expect(line).not.toMatch(/position 1|slot free/);
 	});
 });
 
@@ -109,7 +129,7 @@ describe("runningSuites with a gate seat", () => {
 	it("reads one gate with three lanes as one whole suite", () => {
 		expect(
 			runningSuites(lanes, isOther, () => null, {
-				held: 1,
+				count: 1,
 				under: () => true,
 			}),
 		).toEqual({
@@ -123,7 +143,7 @@ describe("runningSuites with a gate seat", () => {
 	it("still counts a runner outside the seat", () => {
 		expect(
 			runningSuites(lanes, isOther, () => null, {
-				held: 1,
+				count: 1,
 				under: (pid: number | null) => pid !== 42,
 			}).whole,
 		).toBe(2);

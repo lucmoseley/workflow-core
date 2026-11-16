@@ -53,7 +53,7 @@ import { carrying } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
-import { readLiveGates } from "./lib/suite-queue";
+import { readLiveGateSeats } from "./lib/suite-queue";
 
 /* earlyoom's kill line, which every verdict holds free and `floorMb` reports (#337). */
 const FLOOR = 794;
@@ -475,23 +475,54 @@ describe("the gate-seat reserve (#5274, spec #5273 §2)", () => {
 		).toBe(1800);
 	});
 
-	it("holds one reserve, the largest still owed, never a sum", () => {
+	it("holds one reserve, the largest charge, never a sum", () => {
 		const { json } = run({
 			...big,
 			gates: [
 				{ pid: process.pid, chargeMb: 1800 },
 				{ pid: 1, chargeMb: 1200 },
 			],
-			pss: { ...GROWN_PSS, "9001": mbKb(1000) },
+		});
+		expect(json.gateMb).toBe(1800);
+	});
+
+	it("holds the largest charge less a running seat's draw while another waits, never the draw twice", () => {
+		const { json } = run({
+			...big,
+			gates: [
+				{ pid: process.pid, chargeMb: Undeclared, spawned: true },
+				{ pid: 1, chargeMb: Undeclared },
+			],
+			pss: { ...GROWN_PSS, "9001": mbKb(3000) },
 			parents: { "9001": pid },
 		});
-		expect(json.gateMb).toBe(1200);
+		expect(json.gateMb).toBe(Undeclared - 3000);
+	});
+
+	it("credits a queued seat nothing, its holder having started no command", () => {
+		const { json } = run({
+			...big,
+			gates: [{ pid: process.pid, chargeMb: 1800 }],
+			pss: { ...GROWN_PSS, "9001": mbKb(500) },
+			parents: { "9001": pid },
+		});
+		expect(json.gateMb).toBe(1800);
+	});
+
+	it("floors the reserve at nothing where a running seat draws past its charge", () => {
+		const { json } = run({
+			...big,
+			gates: [{ pid: process.pid, chargeMb: 1800, spawned: true }],
+			pss: { ...GROWN_PSS, "9001": mbKb(2500) },
+			parents: { "9001": pid },
+		});
+		expect(json.gateMb).toBe(0);
 	});
 
 	it("reduces the reserve by the PSS of the processes the seat started, the holder itself earning none", () => {
 		const { json } = run({
 			...big,
-			gates: [{ pid: process.pid, chargeMb: 1800 }],
+			gates: [{ pid: process.pid, chargeMb: 1800, spawned: true }],
 			pss: {
 				...GROWN_PSS,
 				[pid]: mbKb(200),
@@ -513,7 +544,7 @@ describe("the gate-seat reserve (#5274, spec #5273 §2)", () => {
 		expect(ungated.memory.live.mb).toBe(640 + 200 + 800);
 		const { json } = run({
 			...machine,
-			gates: [{ pid: process.pid, chargeMb: 1800 }],
+			gates: [{ pid: process.pid, chargeMb: 1800, spawned: true }],
 		});
 		expect(json.gateMb).toBe(1800 - 800);
 		expect(json.memory.live.mb).toBe(640);
@@ -1840,7 +1871,7 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 			listed: admissionSessionIds(),
 			reclaimable: { ok: true, count: 0 },
 			landers: readLiveLanders(),
-			gates: readLiveGates(),
+			gates: readLiveGateSeats(),
 			testsHeld: 0,
 		});
 		return r;

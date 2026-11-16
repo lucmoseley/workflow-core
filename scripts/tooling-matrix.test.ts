@@ -855,6 +855,7 @@ describe("base §0's floor — the shipped pre-commit's code gates in every repo
 			"lib/doc-map",
 			"lib/always-loaded-pool",
 			"lib/isolated-worktree",
+			"queue-run",
 			"checker-new-faults",
 			// Named in a refusal's message, never run.
 			"commit-paths",

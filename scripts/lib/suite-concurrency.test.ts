@@ -181,7 +181,7 @@ interface Over {
 	latches?: Record<string, string>;
 	plain?: Plain;
 	carriedOf?: (pid: number | null) => Weight | null;
-	gateSeats?: { held: number; under: (pid: number | null) => boolean };
+	gateSeats?: { count: number; under: (pid: number | null) => boolean };
 	launchWeight?: Weight | null;
 	windows?: WindowsRead;
 	tscPeakMb?: number;
@@ -210,7 +210,7 @@ function harness(over: Over = {}) {
 				: null;
 		},
 		carriedOf: over.carriedOf ?? (() => null),
-		gateSeats: () => over.gateSeats ?? { held: 0, under: () => false },
+		gateSeats: () => over.gateSeats ?? { count: 0, under: () => false },
 		launchWeight: over.launchWeight ?? null,
 		runners: () => runners,
 		declaredTest: () =>
@@ -618,6 +618,14 @@ describe("judges a narrowed run on the full-suite ladder (mantahostels#1906, man
 		}
 	});
 
+	/* The watcher runs everything and takes no `--full`, so the flag's absence
+	 * must not read it as narrowed. */
+	it("keeps a watcher off the narrowed reading", () => {
+		expect(gated("npm run test:watch", 1000).text).not.toMatch(
+			/already narrowed as far as it goes/,
+		);
+	});
+
 	/* `test:changed` is no lever the deny or watcher text offers: a bare
 	 * `npm run test` already selects on the diff (mantahostels#3209). */
 	it("keeps `test:changed` out of the deny text and out of the watcher text", () => {
@@ -902,10 +910,22 @@ describe("never counts a `vitest list` selection probe as a suite (#1180)", () =
 describe("judges a `npm run test:watch` launch (mantahostels#1927)", () => {
 	/* Opening a watcher runs the whole suite immediately, so the launch costs a
 	 * full run before it costs anything for holding. */
-	it("warns under the one-suite floor, as a full run does, quoting the free memory", () => {
+	it("denies under the one-suite floor, as a full run does, quoting the free memory", () => {
 		const out = gated("npm run test:watch", 1000).text;
 		expect(out).toMatch(/MemAvailable is 1000 MB/);
 		expect(out).toMatch(/needs resting/);
+	});
+
+	/* Beside a part-suite of five files, a whole suite's workers, so the count
+	 * cap, which a whole suite would fire first, leaves the rung to judge it. */
+	it("takes the rung the running count reaches", () => {
+		const files = ["a", "b", "c", "d", "e"].map((f) => `scripts/${f}.test.ts`);
+		const part = psListing([
+			`node /r/node_modules/.bin/vitest run ${files.join(" ")}`,
+		]);
+		expect(gatedOn("npm run test:watch", inBand2(), part).text).toMatch(
+			/under the ~5200 MB .* for 10 vitest workers, 5 of them already running/,
+		);
 	});
 
 	it("warns even with headroom to spare, because the rung is held not spent", () => {
@@ -2393,13 +2413,13 @@ describe("counts and judges a suite vitest does not run (#330)", () => {
 		const lanes = psListing(["node --test lanes/a", "node --test lanes/b"]);
 		const seat = (under: boolean) =>
 			judge("npm run test", ROOMY_MB, lanes, {
-				gateSeats: { held: 1, under: () => under },
+				gateSeats: { count: 1, under: () => under },
 			}).text;
 		expect(seat(true)).toMatch(/1 whole suite\(s\) already running/);
 		expect(seat(false)).toMatch(/3 whole suite\(s\) already running/);
 		expect(
 			judge("npm run test", ROOMY_MB, psListing(["bash -l"]), {
-				gateSeats: { held: 1, under: () => false },
+				gateSeats: { count: 1, under: () => false },
 			}).verdict?.deny,
 		).toBeDefined();
 	});

@@ -21,10 +21,12 @@ export interface Lander {
 	chargeMb: number;
 }
 
-/* A gate seat's marker: its holder pid and, where declared, its charge. */
+/* A gate seat's marker: its holder pid, where declared its charge, and
+ * whether it has spawned its command, running rather than queued. */
 export interface Gate {
 	pid: number;
 	chargeMb?: number;
+	spawned?: boolean;
 }
 
 /* A temp root whose suite queue holds a marker per lander and per gate seat,
@@ -39,10 +41,10 @@ const tmpRootWithMarkers = (dir: string, landers: Lander[], gates: Gate[]) => {
 			path.join(q, `wfc-suite-queue-${pid}.json`),
 			JSON.stringify({ pid, at: 1, role: "lander", chargeMb }),
 		);
-	for (const { pid, chargeMb } of gates)
+	for (const { pid, chargeMb, spawned } of gates)
 		fs.writeFileSync(
 			path.join(q, `wfc-suite-queue-gate-${pid}.json`),
-			JSON.stringify({ pid, at: 1, role: "gate", chargeMb }),
+			JSON.stringify({ pid, at: 1, role: "gate", chargeMb, spawned }),
 		);
 	return root;
 };

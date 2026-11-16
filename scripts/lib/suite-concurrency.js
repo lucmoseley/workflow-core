@@ -153,7 +153,7 @@ const {
 	isOtherRunner,
 	isWholePytestRun,
 	npmScriptOf,
-	namesTestFiles,
+	hasNamedTestFiles,
 	pytestPathWords,
 	suiteLaunchKind,
 	buildIsWrapperScript,
@@ -580,7 +580,7 @@ function buildTestSubject(st, launch, words) {
 			queued: launch.queued,
 			part:
 				!launch.queued &&
-				namesTestFiles(words.map((w) => literal(w, st.spans).text)),
+				hasNamedTestFiles(words.map((w) => literal(w, st.spans).text)),
 		};
 	const files = launchTestFileCount(
 		launch,

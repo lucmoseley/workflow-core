@@ -15,7 +15,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { caught } = require("./caught.js");
-const { GATE_ENV, GATE_ROLE, GATE_SEAT_DEFAULT_MB } = require("./gate-seat.js");
+const { GATE_ROLE, GATE_SEAT_DEFAULT_MB } = require("./gate-seat.js");
 const {
 	WHOLE_SUITE_MAX,
 	isNextRunnerLine,
@@ -578,6 +578,9 @@ function readStartTimeOf(pid) {
  * Where `start` is absent, or 0 because procfs could not be read, the check
  * falls back to liveness alone rather than sweeping something it cannot judge.
  *
+ * DUPLICATED BY HAND in scripts/sample_session_memory.py's live_holder: move
+ * both, or neither (#5274).
+ *
  * @param {{ pid: number, start?: number }} record
  * @param {{ alive?: (pid: number) => boolean, startTime?: (pid: number) => number }} [options]
  * @returns {boolean}
@@ -884,6 +887,9 @@ const SEAT_ENV = "WFC_SUITE_SEAT";
  * process its holder starts, so a variable alone would let a run outside the
  * holder's process tree skip the queue.
  *
+ * DUPLICATED BY HAND, for GATE_ENV, in scripts/sample_session_memory.py's
+ * gate_seat_pids: move both, or neither (#5274).
+ *
  * @param {string} envName
  * @param {{ env?: NodeJS.ProcessEnv, queueFs?: typeof fs, pid?: number, alive?: (pid: number) => boolean, startTime?: (pid: number) => number, parentOf?: (pid: number) => number }} [options]
  * @returns {{ file: string, record: QueueRecord } | null}
@@ -1016,11 +1022,13 @@ function readTurn({
 /**
  * A whole-suite waiter's place for the slot (#5274): its 1-based position
  * among the live whole-suite markers, its own and those joined ahead of it,
- * and the slot's holder, the oldest of them spawned, else null. Unreadable,
- * position 1 and no holder.
+ * and the slot's holder, the oldest of them spawned, else null. A queue
+ * directory that will not read places it nowhere: position and holder null,
+ * with why in `unread`, so a waiting gate says its place is unknown rather
+ * than first in a free slot (#5274).
  *
  * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, alive?: typeof pidAlive }} [options]
- * @returns {{ position: number, holder: QueueRecord | null }}
+ * @returns {{ position: number, holder: QueueRecord | null } | { position: null, holder: null, unread: string }}
  */
 function readSlotPlace({
 	queueDir = defaultQueueDir(),
@@ -1029,7 +1037,8 @@ function readSlotPlace({
 	alive = pidAlive,
 } = {}) {
 	const { markers, error } = readMarkers(queueDir, queueFs);
-	if (error) return { position: 1, holder: null };
+	if (error)
+		return { position: null, holder: null, unread: caught(error).message };
 	const whole = markers
 		.map((m) => m.record)
 		.filter(
@@ -2061,7 +2070,7 @@ function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
  * @param {{ queueDir?: string }} [options]
  * @returns {{ pid: number, chargeMb: number, spawned: boolean }[]}
  */
-function readLiveGates({ queueDir } = {}) {
+function readLiveGateSeats({ queueDir } = {}) {
 	return readLiveRoleMarkers(GATE_ROLE, { queueDir }).map((r) => ({
 		pid: r.pid,
 		chargeMb: Number.isFinite(r.chargeMb)
@@ -2072,45 +2081,34 @@ function readLiveGates({ queueDir } = {}) {
 }
 
 /**
- * The live gate seats as the suite gate's count reads them (#5274): `held`,
+ * The live gate seats as the suite gate's count reads them (#5274): `count`,
  * how many have spawned their command, and `under`, whether a process runs
- * inside one — its environ naming a gate marker in GATE_ENV that `heldMarker`
- * holds for it, the marker's pid among its ancestors. A process carrying the
- * variable outside that tree is not under the seat.
- * @param {{ queueDir?: string, environOf?: (pid: number) => string | null } & Parameters<typeof heldMarker>[1]} [options]
+ * inside one — itself or one of its ancestors a spawned seat's holder pid.
+ * THE ANCESTRY, NOT THE VARIABLE, IS THE TEST (spec #5273 §1): a runner
+ * started with a scrubbed environment is still under its seat, and one
+ * outside the seat's tree that inherited lib/gate-seat.js's GATE_ENV is
+ * counted as itself.
+ * @param {{ queueDir?: string, parentOf?: (pid: number) => number }} [options]
  * @returns {import("./suite-ladder.js").GateSeats}
  */
-function readGateSeats({ queueDir, environOf = readGateEnvOf, ...held } = {}) {
-	const count = readLiveGates({ queueDir }).filter((g) => g.spawned).length;
+function readGateSeats({ queueDir, parentOf = readParentOf } = {}) {
+	const holders = readLiveGateSeats({ queueDir })
+		.filter((g) => g.spawned)
+		.map((g) => g.pid);
 	return {
-		held: count,
-		under: (pid) => {
-			if (pid === null) return false;
-			const file = environOf(pid);
-			if (!file) return false;
-			const seat = heldMarker(GATE_ENV, {
-				...held,
-				env: { [GATE_ENV]: file },
-				pid,
-			});
-			return seat?.record.role === GATE_ROLE;
-		},
+		count: holders.length,
+		under: (pid) =>
+			pid !== null &&
+			holders.length > 0 &&
+			[pid, ...readAncestorsOf(pid, { parentOf })].some((p) =>
+				holders.includes(p),
+			),
 	};
-}
-
-/**
- * The gate marker `pid`'s environ names, or null.
- * @param {number} pid
- */
-function readGateEnvOf(pid) {
-	const { readEnvironVar } = require("./proc-environ.js");
-	const read = readEnvironVar(pid, GATE_ENV);
-	return read.ok ? read.value : null;
 }
 
 module.exports = {
 	readGateSeats,
-	readLiveGates,
+	readLiveGateSeats,
 	PART_PASS_AGE_MS,
 	WINDOWS_MAX_HOLD_MS,
 	turnOf,

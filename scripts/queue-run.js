@@ -20,6 +20,10 @@
  * Each wait is a `.suite-queue-exits.jsonl` line (lib/queue-exit-log.js) of
  * kind `other`, or `seat` under `--seat`.
  *
+ * A COMMAND NAMING ITS TEST FILES WAITS AS A PART-SUITE (#5274, spec #5273
+ * §7), as the guard counts it: it never takes or waits for the whole-suite
+ * slot, and the memory rung still charges it a whole suite's workers.
+ *
  * `--seat` HOLDS ONE PART-SUITE SEAT FOR A DRIVER (#2918), a mutation loop
  * that runs `run-vitest.js <file> --queue` once per mutant. It waits once, as
  * a part-suite, so it never takes the whole-suite slot, then runs the driver
@@ -70,7 +74,11 @@ const {
 	buildHostPorts,
 	buildLaunchPorts,
 } = require("./lib/suite-concurrency-host.js");
-const { isQueueable, suiteLaunchKind } = require("./lib/suite-launch.js");
+const {
+	hasNamedTestFiles,
+	isQueueable,
+	suiteLaunchKind,
+} = require("./lib/suite-launch.js");
 const {
 	SEAT_ENV,
 	heldMarker,
@@ -99,7 +107,7 @@ const {
 	gateRepoName,
 	gateRunLogPath,
 	gateSeatChargeMb,
-	readInSuite,
+	isInSuite,
 } = require("./lib/gate-seat.js");
 const {
 	CEILING_CLOSE,
@@ -140,10 +148,6 @@ const TSC_REFUSAL =
 /* Why a slot refuses a command that is itself a suite. */
 const SLOT_REFUSALS = { seat: SEAT_REFUSAL, tsc: TSC_REFUSAL };
 
-/* How often a gate run's process-tree PSS is sampled, as the lander's run
- * record samples its tester's. */
-const GATE_SAMPLE_MS = 2000;
-
 /**
  * What a `--tsc` wait prints in place of a suite's (#3163), on the rung of
  * the launch's own compiler (#4892).
@@ -182,6 +186,12 @@ function tscGate(climbMb, peakMb) {
 /* The weight a seat joins and asks the gate with: one test file, a part-suite
  * (#2918). */
 const SEAT_WEIGHT = { resolvedFiles: 1, wholeSlot: false };
+
+/* The weight a command naming its test files joins and asks the gate with
+ * (#5274, spec #5273 §7): a part-suite, so it never takes or waits for the
+ * whole-suite slot, its file count unread, so the rung charges it a whole
+ * suite's workers and its marker its queue's peak. */
+const NAMED_FILES_WEIGHT = { resolvedFiles: null, wholeSlot: false };
 
 /**
  * lib/suite-launch.js's reading of the command: `queue` where this script
@@ -405,12 +415,43 @@ function slotWait(slot, options, words) {
 	/* The heaviest run's: runs a `&` or `|` sets side by side are charged as
 	 * that one alone. */
 	const chargeMb = charges.length > 0 ? Math.max(...charges) : undefined;
+	const charged = chargeMb === undefined ? options : { ...options, chargeMb };
+	if (isNamedFilesRun(words))
+		return {
+			queue: options,
+			join: { ...charged, weight: NAMED_FILES_WEIGHT },
+			wait: waitOn({ gateWeight: NAMED_FILES_WEIGHT, part: true }),
+			refused: refusedRun,
+		};
 	return {
 		queue: options,
-		join: chargeMb === undefined ? options : { ...options, chargeMb },
+		join: charged,
 		wait: waitOn({}),
 		refused: refusedRun,
 	};
+}
+
+/**
+ * Whether the command is a part-suite as the guard reads it (#5274, spec
+ * #5273 §7): every run in it the queue takes names its test files
+ * (lib/suite-launch.js `hasNamedTestFiles`). A reading that throws is logged
+ * and read whole, which waits for the slot rather than slip past it.
+ *
+ * @param {string[]} words
+ * @returns {boolean}
+ */
+function isNamedFilesRun(words) {
+	const log = logger(LABEL);
+	try {
+		const ports = buildLaunchPorts({ root: hostRoot(), log });
+		const runs = unwrapArgv(words)
+			.map(({ words: inner }) => inner)
+			.filter((inner) => inner.length > 0 && isQueueable(inner, ports));
+		return runs.length > 0 && runs.every(hasNamedTestFiles);
+	} catch (e) {
+		log(`suite-launch reading threw — taken whole: ${caught(e).message}`);
+		return false;
+	}
 }
 
 /**
@@ -438,14 +479,13 @@ function gateWait(options, words) {
 			new Promise((resolve) => setTimeout(resolve, ms)));
 	let said = "";
 	const sayPlace = () => {
-		const { position, holder: held } = readSlotPlace(options);
-		const key = `${position} ${held?.pid ?? ""}`;
+		const place = readSlotPlace(options);
+		const key = `${place.position} ${place.holder?.pid ?? ""}`;
 		if (key === said) return;
 		said = key;
 		err.write(
 			gatePositionLine({
-				position,
-				holder: held,
+				...place,
 				waitedS: Math.round((clock() - started) / 1000),
 			}),
 		);
@@ -455,7 +495,7 @@ function gateWait(options, words) {
 		join: {
 			...options,
 			role: GATE_ROLE,
-			chargeMb: options.gateChargeMb ?? readGateChargeMb(),
+			chargeMb: options.gateChargeMb ?? readGateChargeMb(err),
 			holder,
 		},
 		wait: () => ({
@@ -477,16 +517,22 @@ function gateWait(options, words) {
 }
 
 /**
- * This repo's gate-seat charge, off its config; the default where the config
- * will not read.
+ * This repo's gate-seat charge, off its config. A config that will not read
+ * is named on `err` and the seat charged the default (#5274): the seat still
+ * waits and runs, never charged nothing.
+ * @param {Out} err
  * @returns {number}
  */
-function readGateChargeMb() {
+function readGateChargeMb(err) {
 	try {
 		const { readConfig } = require("./lib/workflow-core-config.js");
 		return gateSeatChargeMb(readConfig({ root: hostRoot(), quiet: true }));
-	} catch {
-		return gateSeatChargeMb(null);
+	} catch (e) {
+		const fallback = gateSeatChargeMb(null);
+		err.write(
+			`${LABEL}: .claude/workflow-core.json would not read (${caught(e).message}); the gate seat is charged the default ${fallback} MB (#5274).\n`,
+		);
+		return fallback;
 	}
 }
 
@@ -501,6 +547,8 @@ function readTicket(session) {
 		const { readClaimedIssues } = require("./lib/arbiter-issue-claims.js");
 		return readClaimedIssues(session)[0] ?? null;
 	} catch {
+		/* An unreadable claim store costs the record line its ticket, never the
+		 * commit (#5274): `ticket` is a field the record carries, not a gate. */
 		return null;
 	}
 }
@@ -576,7 +624,7 @@ async function run(words, slot, options, err) {
 	const held = isHeld(slot, options);
 	const unseated =
 		held ||
-		(slot === "gate" && (options.inSuite ?? (() => readInSuite(options)))());
+		(slot === "gate" && (options.inSuite ?? (() => isInSuite(options)))());
 	const slotted = slotWait(slot, options, words);
 	const { queue, join, wait, refused, exitExtra } = slotted;
 	/** @type {import("node:child_process").ChildProcess | null} */
@@ -702,7 +750,8 @@ function withExitExtra(logExit, exitExtra) {
 /**
  * Start a gate seat's command (#5274): in a process group of its own, its
  * marker in GATE_ENV, under the suite ceiling, which kills the group and reads
- * red; its tree's PSS sampled every GATE_SAMPLE_MS from spawn; and, on its
+ * red; its tree's PSS sampled for its peak from spawn (lib/admission.js
+ * `sampleTreePeak`); and, on its
  * exit, one line on the gate-run record.
  *
  * @param {{
@@ -717,27 +766,27 @@ function withExitExtra(logExit, exitExtra) {
 function spawnGate({ seat, options, err, finish, holder, waitMs }) {
 	const { command } = holder;
 	const clock = options.clock ?? Date.now;
-	const treePss =
-		options.treePss ??
-		((/** @type {number} */ pid) =>
-			require("./lib/admission.js").readTreePssKb(pid));
+	const { readTreePssKb, sampleTreePeak } = require("./lib/admission.js");
+	const readPss = options.treePss ?? readTreePssKb;
+	/** @param {number} pid */
+	const treePss = (pid) => {
+		try {
+			return readPss(pid);
+		} catch {
+			/* An unreadable sample costs that sample, never the gate run
+			 * (#5274): the peak is a record field, read by hand to set
+			 * `gateSeatMb`. */
+			return 0;
+		}
+	};
 	const running = (options.spawnFn ?? spawn)("sh", ["-c", command], {
 		stdio: ["inherit", "inherit", 1],
 		detached: true,
 		env: { ...process.env, [GATE_ENV]: seat.ticket },
 	});
 	const spawnedAt = clock();
-	let peakKb = 0;
-	const sample = () => {
-		if (running.pid === undefined) return;
-		try {
-			peakKb = Math.max(peakKb, treePss(running.pid));
-		} catch {
-			/* an unreadable sample costs the sample */
-		}
-	};
-	const sampler = setInterval(sample, options.sampleMs ?? GATE_SAMPLE_MS);
-	sampler.unref?.();
+	/** @type {ReturnType<typeof sampleTreePeak> | undefined} */
+	let sampler;
 	/** @type {import("./lib/gate-seat.js").GateOutcome | null} */
 	let forced = null;
 	const ceiling = ceilingMs();
@@ -761,11 +810,14 @@ function spawnGate({ seat, options, err, finish, holder, waitMs }) {
 		err.write(`${LABEL}: suite deadline not written (${held.error})\n`);
 	running.once("spawn", () => {
 		seat.spawned();
-		sample();
+		sampler = sampleTreePeak(running.pid, {
+			treePss,
+			...(options.sampleMs ? { ms: options.sampleMs } : {}),
+		});
 	});
 	/** @param {number} code @param {import("./lib/gate-seat.js").GateOutcome} outcome */
 	const close = (code, outcome) => {
-		clearInterval(sampler);
+		const { peakKb } = sampler?.stop() ?? { peakKb: 0 };
 		held.release();
 		const file =
 			options.gateLog === undefined ? gateRunLogPath() : options.gateLog;

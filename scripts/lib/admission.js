@@ -171,7 +171,7 @@ function cpuSlotsRow(cpu) {
  * @typedef {{ meanMb: number, sigmaMb: number, declared: boolean, problem?: string }} SessionDraw
  * @typedef {{ sessions: number, meanMb: number, varianceMb2: number, pssMb: number, unread: number, noProcess: number, problems: string[], refused?: boolean }} LiveDraw
  * @typedef {{ pid: number, chargeMb: number }[]} Landers each lander's charge, its tester's measured tree peak for the run it holds (#3323)
- * @typedef {{ pid: number, chargeMb: number }[]} Gates each live gate seat's holder pid and charge, from suite-queue.js's `readLiveGates`
+ * @typedef {{ pid: number, chargeMb: number, spawned: boolean }[]} Gates each live gate seat's holder pid, charge and whether it has spawned its command, from suite-queue.js's `readLiveGateSeats`
  * @typedef {{ pid: string, rssKb: number, args: string }} PsRow
  * @typedef {{ ok: true, rows: PsRow[] } | { ok: false, error: string }} PsRead
  * @typedef {import("./meminfo.js").MeminfoRead} MeminfoRead
@@ -314,14 +314,14 @@ function selfId(ids) {
  * charged its whole draw; one with no cwd, outside any repo, or whose repo
  * config will not read, is charged the default draw, and `problems` says why.
  * @param {{ ids?: Set<string>, pids?: Map<string, number>, terminal?: Set<string>, cwds?: Map<string, string> }} listed
- * @param {{ pairs: SparePair[], pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, gatePids?: Set<string> }} readings
- *   `pairs` from `readSparePairs`; `gatePids` the live gate seats' holder
- *   pids, whose subtrees no session is credited (`gateHeldMb` credits them)
+ * @param {{ pairs: SparePair[], pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, gateSeatPids?: Set<string> }} readings
+ *   `pairs` from `readSparePairs`; `gateSeatPids` the live gate seats' holder
+ *   pids, whose subtrees no session is credited (`gateSeatHeldMb` credits them)
  * @returns {LiveDraw}
  */
 function liveDraw(
 	{ ids, pids, terminal, cwds },
-	{ pairs, pssKbOf, children, gatePids },
+	{ pairs, pssKbOf, children, gateSeatPids },
 ) {
 	/** @type {LiveDraw} */
 	const draw = { ...NO_LIVE_DRAW, problems: [] };
@@ -346,7 +346,7 @@ function liveDraw(
 			pairs,
 			pssKbOf,
 			children,
-			gatePids,
+			gateSeatPids,
 		});
 		draw.noProcess += sum.noProcess;
 		if (sum.kb === null) draw.unread++;
@@ -799,7 +799,7 @@ function readProcessChildren() {
  * The summed PSS of the sessions' pairs and every process each session starts,
  * each pid reached on the way, and how many sessions listed no pid. A descendant that is itself a listed
  * session is left to its own row, a live gate seat's holder and its subtree
- * to the gate-seat reserve (`gateHeldMb`), and one whose smaps will not read, most
+ * to the gate-seat reserve (`gateSeatHeldMb`), and one whose smaps will not read, most
  * often one that has just exited, adds nothing. A session that lists no pid
  * has no process, so adds nothing (#2426). The first unreadable pair smaps
  * stops the sum.
@@ -809,18 +809,18 @@ function readProcessChildren() {
  *   pairs: SparePair[],
  *   pssKbOf: (pid: string) => number | null,
  *   children: Map<string, string[]>,
- *   gatePids?: Set<string>,
+ *   gateSeatPids?: Set<string>,
  * }} ctx
  * @returns {({ kb: number, unknown: null } | { kb: null, unknown: string }) & { reached: string[], noProcess: number }}
  */
-function sessionsPssKb(ids, { pids, pairs, pssKbOf, children, gatePids }) {
+function sessionsPssKb(ids, { pids, pairs, pssKbOf, children, gateSeatPids }) {
 	let kb = 0;
 	let noProcess = 0;
 	/** @type {string[]} */
 	const reached = [];
-	const stops = new Set([
+	const stopPids = new Set([
 		...[...(pids?.values() ?? [])].map(String),
-		...(gatePids ?? []),
+		...(gateSeatPids ?? []),
 	]);
 	for (const id of ids) {
 		const pid = pids?.get(id);
@@ -842,7 +842,7 @@ function sessionsPssKb(ids, { pids, pairs, pssKbOf, children, gatePids }) {
 		}
 		kb += descendantsPssKb(
 			String(pid),
-			{ children, sessionPids: stops, pssKbOf },
+			{ children, stopPids, pssKbOf },
 			reached,
 		);
 	}
@@ -851,20 +851,20 @@ function sessionsPssKb(ids, { pids, pairs, pssKbOf, children, gatePids }) {
 
 /**
  * The PSS of every process under `pid`, pushing each onto `reached`. The walk
- * stops at each pid in `sessionPids`: a listed session's subtree is its own to
+ * stops at each pid in `stopPids`: a listed session's subtree is its own to
  * charge, and a live gate seat's, where the caller lists its holder, is the
  * gate-seat reserve's. An unreadable descendant adds nothing. The stop is
  * DUPLICATED BY HAND in scripts/sample_session_memory.py's descendants: move
  * both, or neither (#2231).
  * @param {string} pid
- * @param {{ children: Map<string, string[]>, sessionPids: Set<string>, pssKbOf: (pid: string) => number | null }} tree
+ * @param {{ children: Map<string, string[]>, stopPids: Set<string>, pssKbOf: (pid: string) => number | null }} tree
  * @param {string[]} reached accumulator
  */
-function descendantsPssKb(pid, { children, sessionPids, pssKbOf }, reached) {
+function descendantsPssKb(pid, { children, stopPids, pssKbOf }, reached) {
 	let kb = 0;
 	const queue = [...(children.get(pid) ?? [])];
 	for (let d = queue.shift(); d !== undefined; d = queue.shift()) {
-		if (sessionPids.has(d)) continue;
+		if (stopPids.has(d)) continue;
 		reached.push(d);
 		kb += pssKbOf(d) ?? 0;
 		queue.push(...(children.get(d) ?? []));
@@ -888,7 +888,7 @@ function landerHeldMb(landers, { pssKbOf, children, sessionPids }) {
 	for (const pid of sessionPids)
 		descendantsPssKb(
 			pid,
-			{ children, sessionPids, pssKbOf: () => 0 },
+			{ children, stopPids: sessionPids, pssKbOf: () => 0 },
 			underSessions,
 		);
 	let mb = 0;
@@ -896,35 +896,37 @@ function landerHeldMb(landers, { pssKbOf, children, sessionPids }) {
 		const pid = String(n);
 		const kb = underSessions.includes(pid)
 			? 0
-			: descendantsPssKb(pid, { children, sessionPids, pssKbOf }, []);
+			: descendantsPssKb(pid, { children, stopPids: sessionPids, pssKbOf }, []);
 		mb += Math.max(0, chargeMb - Math.floor(kb / 1024));
 	}
 	return mb;
 }
 
 /**
- * What the gate seat still needs (#5274, spec #5273 §2): over the live gate
- * seats, queued or running, the largest charge less the current PSS of the
- * processes its holder started, which MemAvailable already shows. ONE reserve,
- * never a sum: at most one gate seat runs, and a queued one draws nothing
- * yet. The holder's own process is not in the gate-run record's tree peak the
- * charge is set from, so it earns no credit. Unlike a lander's, a gate's tree
- * always reduces the reserve, a gate a session started included: no session
- * is credited a gate's subtree (`sessionsPssKb`).
+ * What the gate seat still needs (#5274, spec #5273 §2): the largest charge
+ * over the live gate seats, queued or running, less the summed current PSS of
+ * the processes the running seats started, which MemAvailable already shows,
+ * floored at 0. ONE reserve, never a sum: at most one gate seat runs, and a
+ * queued one draws nothing yet, so a running seat's draw is never held twice
+ * while another waits behind it. The holder's own process is not in the
+ * gate-run record's tree peak the charge is set from, so it earns no credit.
+ * Unlike a lander's, a seat's tree always reduces the reserve, a seat a
+ * session started included: no session is credited a seat's subtree
+ * (`sessionsPssKb`).
  * @param {Gates} gates
  * @param {{ pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, sessionPids: Set<string> }} tree
  */
-function gateHeldMb(gates, { pssKbOf, children, sessionPids }) {
-	let mb = 0;
-	for (const { pid, chargeMb } of gates) {
-		const kb = descendantsPssKb(
+function gateSeatHeldMb(gates, { pssKbOf, children, sessionPids }) {
+	if (gates.length === 0) return 0;
+	const chargeMb = Math.max(...gates.map((g) => g.chargeMb));
+	let drawnKb = 0;
+	for (const { pid } of gates.filter((g) => g.spawned))
+		drawnKb += descendantsPssKb(
 			String(pid),
-			{ children, sessionPids, pssKbOf },
+			{ children, stopPids: sessionPids, pssKbOf },
 			[],
 		);
-		mb = Math.max(mb, chargeMb - Math.floor(kb / 1024));
-	}
-	return mb;
+	return Math.max(0, chargeMb - Math.floor(drawnKb / 1024));
 }
 
 /**
@@ -940,12 +942,46 @@ function readTreePssKb(pid) {
 			root,
 			{
 				children: readProcessChildren(),
-				sessionPids: new Set(),
+				stopPids: new Set(),
 				pssKbOf: readPssKb,
 			},
 			[],
 		)
 	);
+}
+
+/* Untraced: how often a run's process-tree PSS is sampled for its peak, by
+ * the lander's tester (lib/local-tester.js) and a gate seat's command
+ * (queue-run.js). */
+const TREE_PEAK_SAMPLE_MS = 2000;
+
+/**
+ * Sample `pid`'s process-tree PSS for its peak: once now, then every `ms`
+ * until `stop`, which answers the peak in kB and how many samples were taken.
+ * A pid that is undefined, a child that never started, samples nothing.
+ * @param {number | undefined} pid
+ * @param {{ treePss?: (pid: number) => number, ms?: number }} [options]
+ * @returns {{ stop: () => { peakKb: number, samples: number } }}
+ */
+function sampleTreePeak(
+	pid,
+	{ treePss = readTreePssKb, ms = TREE_PEAK_SAMPLE_MS } = {},
+) {
+	let peakKb = 0;
+	let samples = 0;
+	if (pid === undefined) return { stop: () => ({ peakKb, samples }) };
+	const sample = () => {
+		peakKb = Math.max(peakKb, treePss(pid));
+		samples += 1;
+	};
+	sample();
+	const sampler = setInterval(sample, ms);
+	return {
+		stop: () => {
+			clearInterval(sampler);
+			return { peakKb, samples };
+		},
+	};
 }
 
 /**
@@ -1105,7 +1141,7 @@ function unlistedDirs(unlisted, configDirOf) {
  *   reclaimable: { ok: true, mb: number, count: number } | { ok: false, error: string },
  *   verdict: ReturnType<typeof strictAdmission>,
  *   children: Map<string, string[]>,
- *   gatePids?: Set<string>,
+ *   gateSeatPids?: Set<string>,
  *   cpu: CpuSlots,
  * }} readings
  * @returns {MemoryBreakdown}
@@ -1121,7 +1157,7 @@ function memoryBreakdown({
 	reclaimable,
 	verdict,
 	children,
-	gatePids,
+	gateSeatPids,
 	cpu,
 }) {
 	const totalMb =
@@ -1169,7 +1205,7 @@ function memoryBreakdown({
 			pairs,
 			pssKbOf,
 			children,
-			gatePids,
+			gateSeatPids,
 		});
 		for (const p of sum.reached) sessionPids.add(p);
 		if (sum.kb === null)
@@ -1741,7 +1777,7 @@ function strictAdmission(mem, procs, readings = {}) {
  *   gates: Gates,
  *   testsHeld: number,
  * }} inputs `landers` are the live landers, from `readLiveLanders`; `gates`
- *   the live gate seats, from suite-queue.js's `readLiveGates`; `testsHeld` the
+ *   the live gate seats, from suite-queue.js's `readLiveGateSeats`; `testsHeld` the
  *   queued test runs the Windows-memory hold is holding, from
  *   `readTestsHeldOnWindows`
  */
@@ -1763,12 +1799,12 @@ function machineAdmission({
 	const mem = availableFrom(meminfo);
 	const procs = liveSessions(listed);
 	const host = readSessionDraw();
-	const gatePids = new Set(gates.map((g) => String(g.pid)));
+	const gateSeatPids = new Set(gates.map((g) => String(g.pid)));
 	const live = liveDraw(listed, {
 		pairs,
 		pssKbOf: readPssKb,
 		children,
-		gatePids,
+		gateSeatPids,
 	});
 	const load = overloadReading();
 	const cpu = cpuSlots(ps, children, pairs);
@@ -1787,7 +1823,7 @@ function machineAdmission({
 		children,
 		sessionPids,
 	});
-	const gateMb = gateHeldMb(gates, {
+	const gateMb = gateSeatHeldMb(gates, {
 		pssKbOf: readPssKb,
 		children,
 		sessionPids,
@@ -1820,7 +1856,7 @@ function machineAdmission({
 		reclaimable,
 		verdict,
 		children,
-		gatePids,
+		gateSeatPids,
 		cpu,
 	});
 	return {
@@ -1918,6 +1954,8 @@ module.exports = {
 	suiteRungMb,
 	readPsRows,
 	readTreePssKb,
+	TREE_PEAK_SAMPLE_MS,
+	sampleTreePeak,
 	buildMemoryBreakdownLines,
 	reclaimableMb,
 	readRunningVitestSuites,

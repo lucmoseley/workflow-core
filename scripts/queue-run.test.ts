@@ -16,10 +16,12 @@ import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readText } from "./lib/file-read.js";
 import { mkScratchDir } from "./lib/git-fixture";
 import { chargeMb as launchChargeMb } from "./lib/launch-charge";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcessAsync } from "./lib/run-in-process.js";
+import { WHOLE_SUITE_WORKERS, weighCarried } from "./lib/suite-bounded";
 import { rungMb } from "./lib/suite-ladder";
 
 const TSC_PEAK_MB = launchChargeMb({ kind: "tsc" });
@@ -388,20 +390,82 @@ describe("queue-run.js", () => {
 			},
 		);
 	});
+	describe("a command naming its test files, a part-suite (#5274, spec #5273 §7)", () => {
+		/* The weight the queue's poll asks the gate with, and the marker it
+		 * joins with, for `command`. */
+		const joinOf = async (command: string[]) => {
+			const f = fixture();
+			const weights: unknown[] = [];
+			main(
+				["--", ...command],
+				f.options({
+					gate: undefined,
+					gateRead: (_command: string, weight: unknown) => {
+						weights.push(weight);
+						return null;
+					},
+				}),
+			);
+			await tick();
+			const [marker] = f.readMarkers();
+			return {
+				weights,
+				marker: JSON.parse(
+					fs.readFileSync(path.join(f.dir, marker as string), "utf8"),
+				),
+			};
+		};
+
+		it.each([
+			["pytest", "tests/test_a.py"],
+			["node", "--test", "a.test.js"],
+		])(
+			"joins and polls %s as a part-suite, its file count unread so the rung charges a whole suite's workers",
+			async (...command) => {
+				const { weights, marker } = await joinOf(command);
+				expect(weights).toEqual([{ resolvedFiles: null, wholeSlot: false }]);
+				expect(marker.part).toBe(true);
+				expect(marker.files).toBeUndefined();
+				expect(
+					weighCarried(
+						weights[0] as { resolvedFiles: number | null; wholeSlot: boolean },
+					).workers,
+				).toBe(WHOLE_SUITE_WORKERS);
+			},
+		);
+
+		it("still joins a run naming no file whole", async () => {
+			const { weights, marker } = await joinOf(["pytest"]);
+			expect(weights).toEqual([null]);
+			expect(marker.part).toBeUndefined();
+		});
+
+		it("runs at the bound a wait only the count cap holds, as a part-suite does", async () => {
+			const f = fixture();
+			main(
+				["--", "pytest", "tests/test_a.py"],
+				f.options({ gate: () => ({ limb: "count" }), timeoutMs: -1 }),
+			);
+			await tick();
+			expect(f.spawned).toHaveLength(1);
+		});
+	});
+
 	describe("--gate, a commit gate's seat in the whole-suite slot (#5274)", () => {
 		const gateRun = ["--gate", "--", "bash test/all.sh"];
 		const gateOptions = (f: ReturnType<typeof fixture>, extra: object = {}) => {
 			const gateLog = path.join(f.dir, "gate-runs.jsonl");
 			return {
 				gateLog,
-				readGates: () =>
-					fs.existsSync(gateLog)
-						? fs
-								.readFileSync(gateLog, "utf8")
+				readGates: () => {
+					const read = readText(gateLog);
+					return read.state === "read"
+						? read.data
 								.split("\n")
 								.filter(Boolean)
-								.map((l) => JSON.parse(l))
-						: [],
+								.map((l: string) => JSON.parse(l))
+						: [];
+				},
 				options: f.options({
 					gateLog,
 					gateChargeMb: 2100,
@@ -565,7 +629,7 @@ describe("queue-run.js", () => {
 			await tick();
 			Object.assign(f.spawned[0].child, { pid: 1 });
 			f.spawned[0].child.emit("spawn");
-			await new Promise((r) => setTimeout(r, 20));
+			await vi.waitFor(() => expect(samples).toHaveLength(0));
 			f.spawned[0].child.emit("exit", 0, null);
 			await done;
 			expect(g.readGates()[0].peakTreeMb).toBe(900);
@@ -614,7 +678,7 @@ describe("queue-run.js", () => {
 		});
 
 		it("reads a suite runner among its ancestors as inside a suite", () => {
-			const { readInSuite } = require("./lib/gate-seat.js");
+			const { isInSuite } = require("./lib/gate-seat.js");
 			const args: Record<number, string> = {
 				30: "sh -c bash test/all.sh",
 				20: "node /x/node_modules/.bin/vitest run",
@@ -622,11 +686,11 @@ describe("queue-run.js", () => {
 			};
 			const parentOf = (pid: number) => (pid > 10 ? pid - 10 : 0);
 			const argsOf = (pid: number) => args[pid] ?? "";
-			expect(readInSuite({ pid: 40, parentOf, argsOf })).toBe(true);
+			expect(isInSuite({ pid: 40, parentOf, argsOf })).toBe(true);
 			args[20] = "node scripts/commit-paths.js -m x -- a";
-			expect(readInSuite({ pid: 40, parentOf, argsOf })).toBe(false);
+			expect(isInSuite({ pid: 40, parentOf, argsOf })).toBe(false);
 			args[20] = "python3 -m pytest scripts";
-			expect(readInSuite({ pid: 40, parentOf, argsOf })).toBe(true);
+			expect(isInSuite({ pid: 40, parentOf, argsOf })).toBe(true);
 		});
 
 		it("refuses --gate beside another slot flag", async () => {

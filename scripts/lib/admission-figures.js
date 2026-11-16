@@ -78,7 +78,7 @@ const NO_LIVE_DRAW = {
  * first (#2511, #2568); `live` is the live sessions' draw, from `liveDraw`,
  * and `host` this host's session draw, from `readSessionDraw` (#2221);
  * `landerMb`, from `landerHeldMb`, is held back for the lander's suite, and
- * `gateMb`, from `gateHeldMb`, for the gate seat (#5274);
+ * `gateMb`, from `gateSeatHeldMb`, for the gate seat (#5274);
  * `load` comes from `overloadReading`, and an overload holds
  * every slot; `cpu`, from `cpuSlots`, caps them (#830, #2141), the
  * always-admit-one guarantee included in both. `typecheckChargeMb`, from

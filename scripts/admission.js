@@ -72,9 +72,11 @@ const {
 	reclaimableMb,
 	SUITE_RESTING_MB,
 } = require("./lib/admission");
-const { readLiveGates } = require("./lib/suite-queue.js");
+const {
+	readLiveGateSeats,
+	readTestsHeldOnWindows,
+} = require("./lib/suite-queue.js");
 const { readLiveLanders } = require("./lib/local-tester.js");
-const { readTestsHeldOnWindows } = require("./lib/suite-queue.js");
 const { admissionSessionIds } = require("./lib/agent-liveness");
 const { readJobs, findHungJobs } = require("./lib/hung-jobs");
 const { readAllowance } = require("./lib/allowance");
@@ -180,7 +182,7 @@ function main() {
 			reclaimable: reclaimableMb(),
 			pendingSpares: spares,
 			landers: readLiveLanders(),
-			gates: readLiveGates(),
+			gates: readLiveGateSeats(),
 			testsHeld: readTestsHeldOnWindows(),
 		},
 	);

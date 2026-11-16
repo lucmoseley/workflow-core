@@ -217,7 +217,10 @@ def read_marker(path):
 
 def ancestors(pid, procs):
     """`pid`'s ancestors off the proc table, nearest first, as
-    lib/proc-stat.js's readAncestorsOf walks them."""
+    lib/proc-stat.js's readAncestorsOf walks them.
+
+    The walk is DUPLICATED BY HAND from scripts/lib/proc-stat.js's
+    readAncestorsOf: move both, or neither (#5274)."""
     chain, seen = [], {pid}
     at = procs.get(pid, (0, 0))[0]
     while at > 0 and at not in seen and len(chain) < ANCESTOR_MAX_HOPS:
@@ -229,7 +232,10 @@ def ancestors(pid, procs):
 
 def live_holder(record, procs):
     """The marker's holder pid where it is alive and not reused, as
-    suite-queue.js's isMarkerStale judges it; else None."""
+    suite-queue.js's isMarkerStale judges it; else None.
+
+    The staleness rule is DUPLICATED BY HAND from scripts/lib/suite-queue.js's
+    isMarkerStale: move both, or neither (#5274)."""
     pid = record.get("pid")
     if not isinstance(pid, int) or isinstance(pid, bool) or pid not in procs:
         return None
@@ -244,7 +250,10 @@ def gate_seat_pids(candidates, procs, var_of=environ_var, marker_of=read_marker)
     candidate carrying GATE_ENV is under its seat only where the marker it
     names parses, its holder is alive, and the holder is the candidate's
     ancestor, as suite-queue.js's heldMarker confirms it. A candidate carrying
-    the variable outside the holder's tree confirms nothing."""
+    the variable outside the holder's tree confirms nothing.
+
+    The confirmation is DUPLICATED BY HAND from scripts/lib/suite-queue.js's
+    heldMarker: move both, or neither (#5274)."""
     holders, seats = {}, set()
     for pid in candidates:
         path = var_of(pid, GATE_ENV)

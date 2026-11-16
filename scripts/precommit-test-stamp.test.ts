@@ -26,6 +26,10 @@
  * real one: loosen those and its files outlive it in the git directory
  * (#1680).
  *
+ * Both launch points run the declared test as a commit gate, through
+ * `queue-run.js --gate` (#5274): loosen that case and a commit's suite runs
+ * unseated and unrecorded on `.gate-runs.jsonl`.
+ *
  * A stamp names its gate (#1904): loosen those cases and a second slow gate's
  * green stands the test gate down, the suite never run.
  *
@@ -570,6 +574,38 @@ it("runs the declared test once through commit-paths, before the lock, on exactl
 	expect(r.landed).toBe(true);
 	expect(r.runs).toEqual(["lock=0 stamp=unset staged=a.txt,b.txt"]);
 	expect(r.leftInGitDir).toEqual([]);
+});
+
+/* The gate-run record queue-run.js --gate alone writes (#5274), under the
+ * fixture's canonical checkout. */
+const readGateRunRecord = (root: string) => {
+	const file = path.join(root, ".claude/tmp/markers/.gate-runs.jsonl");
+	return fs.existsSync(file)
+		? fs
+				.readFileSync(file, "utf8")
+				.split("\n")
+				.filter(Boolean)
+				.map((l) => JSON.parse(l))
+		: [];
+};
+
+it("runs the pre-lock and the in-lock test as commit gates, each one gate-run record line (#5274)", () => {
+	const f = fixture();
+	f.edit("a.txt", "changed\n");
+	const pre = f.commitPaths();
+	expect(pre.code, pre.out).toBe(0);
+	expect(pre.runs).toEqual(["lock=0 stamp=unset staged=a.txt"]);
+	expect(readGateRunRecord(f.root)).toEqual([
+		expect.objectContaining({ command: "sh stub.sh", outcome: "pass" }),
+	]);
+	f.stage("b.txt", "changed too\n");
+	const inLock = f.commit();
+	expect(inLock.code, inLock.out).toBe(0);
+	expect(inLock.runs.at(-1)).toBe("lock=1 stamp=unset staged=b.txt");
+	expect(readGateRunRecord(f.root)).toEqual([
+		expect.objectContaining({ command: "sh stub.sh", outcome: "pass" }),
+		expect.objectContaining({ command: "sh stub.sh", outcome: "pass" }),
+	]);
 });
 
 it("runs the pre-lock suite on HEAD plus the named paths alone, so unsaved files outside the commit cannot refuse it, and the hook stands down (#1760)", () => {

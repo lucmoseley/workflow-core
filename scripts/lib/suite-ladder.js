@@ -8,7 +8,7 @@
 const { spawnSync } = require("node:child_process");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { requiredGroup } = require("./regex-group.js");
-const { namesTestFiles } = require("./suite-launch.js");
+const { hasNamedTestFiles } = require("./suite-launch.js");
 const {
 	WHOLE_SUITE_WORKERS,
 	isVitestWatchLine,
@@ -193,10 +193,10 @@ function isNextRunnerLine(sub, line) {
 /**
  * The live gate seats as the count reads them: how many are running, and
  * whether a process runs inside one.
- * @typedef {{ held: number, under: (pid: number | null) => boolean }} GateSeats
+ * @typedef {{ count: number, under: (pid: number | null) => boolean }} GateSeats
  */
 /** @type {GateSeats} */
-const NO_SEATS = { held: 0, under: () => false };
+const NO_SEATS = { count: 0, under: () => false };
 
 /**
  * The test runs a `ps` listing shows (mantahostels#1906, #2560). A vitest run
@@ -213,7 +213,7 @@ const NO_SEATS = { held: 0, under: () => false };
  * pointing it at a lower rung (#627).
  *
  * A GATE SEAT COUNTS AS ONE WHOLE SUITE, however many runners its command
- * starts (#5274): `seats.held` live gate seats are counted, and a runner
+ * starts (#5274): `seats.count` live gate seats are counted, and a runner
  * `seats.under` places inside one is not counted again (lib/gate-seat.js).
  *
  * An EMPTY listing counts as zero: `readPs` rejects an empty or failed read.
@@ -230,13 +230,13 @@ function runningSuites(
 	seats = NO_SEATS,
 ) {
 	const running = {
-		total: seats.held,
+		total: seats.count,
 		watchers: 0,
-		whole: seats.held,
-		workers: seats.held * WHOLE_SUITE_WORKERS,
+		whole: seats.count,
+		workers: seats.count * WHOLE_SUITE_WORKERS,
 	};
 	for (const { pid, args: line } of rows) {
-		if (seats.held > 0 && seats.under(pid)) continue;
+		if (seats.count > 0 && seats.under(pid)) continue;
 		const run = rowWeigh(line, pid, isOther, carriedOf);
 		if (run === null) continue;
 		running.total++;
@@ -267,7 +267,7 @@ function rowWeigh(line, pid, isOther, carriedOf) {
 	if (!isOther || words.length === 0 || !isOther(words)) return null;
 	return {
 		workers: WHOLE_SUITE_WORKERS,
-		part: namesTestFiles(words),
+		part: hasNamedTestFiles(words),
 		watcher: false,
 	};
 }

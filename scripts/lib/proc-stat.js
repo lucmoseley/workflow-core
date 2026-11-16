@@ -73,6 +73,8 @@ function readParentOf(pid, proc) {
 /**
  * `pid`'s ancestors, nearest first, `pid` itself left out. The walk stops at a
  * parent that reads 0, at a pid already seen, or after ANCESTOR_MAX_HOPS.
+ * DUPLICATED BY HAND in scripts/sample_session_memory.py's ancestors: move
+ * both, or neither (#5274).
  * @param {number} pid
  * @param {{ parentOf?: (pid: number) => number }} [options]
  * @returns {number[]}

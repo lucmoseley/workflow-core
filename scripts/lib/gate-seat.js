@@ -9,15 +9,17 @@
  * marker's path in GATE_ENV. The marker carries the holder pid, the repo, the
  * session and the command, and the seat's charge in `chargeMb`.
  *
- * THE ANCESTRY IS THE TEST, never the variable alone (`heldMarker`): a runner
- * the seat's command starts counts as the seat, and one outside the seat's
- * process tree that inherited the variable counts as itself.
+ * THE ANCESTRY IS THE TEST, never the variable (lib/suite-queue.js
+ * `readGateSeats`): a runner the seat's command starts counts as the seat,
+ * and one outside the seat's process tree that inherited the variable counts
+ * as itself.
  *
  * THE CHARGE is the repo's `gateSeatMb`, set by hand to the highest
  * `peakTreeMb` on its gate-run record, else the whole-suite rung. Admission
  * holds it while a seat is queued or running, less what the seat's processes
- * already draw (lib/admission.js `gateHeldMb`). The queue's own readers of
- * the seats, `readLiveGates` and `readGateSeats`, are lib/suite-queue.js's.
+ * already draw (lib/admission.js `gateSeatHeldMb`). The queue's own readers
+ * of the seats, `readLiveGateSeats` and `readGateSeats`, are
+ * lib/suite-queue.js's.
  *
  * THE GATE-RUN RECORD is `.gate-runs.jsonl` under the canonical checkout's
  * markers directory, one line per gate run, kept 30 days like the queue-exit
@@ -30,8 +32,8 @@
  * runs under the ceiling and is recorded.
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
+const { readText } = require("./file-read.js");
 const { readAncestorsOf, readParentOf } = require("./proc-stat.js");
 const { procRoot } = require("./proc-root.js");
 const { isOtherRunner } = require("./suite-launch.js");
@@ -106,10 +108,14 @@ const appendGateRun = (file, run) =>
 
 /**
  * A waiting gate's position line: its place among the whole suites holding or
- * waiting for the slot, who holds it, and how long it has waited.
- * @param {{ position: number, holder: { repo?: string | null, session?: string | null, pid: number } | null, waitedS: number }} at
+ * waiting for the slot, who holds it, and how long it has waited. A queue
+ * that would not read leaves the place unknown, and the line says why
+ * (#5274).
+ * @param {{ position: number | null, holder: { repo?: string | null, session?: string | null, pid: number } | null, waitedS: number, unread?: string }} at
  */
-function gatePositionLine({ position, holder, waitedS }) {
+function gatePositionLine({ position, holder, waitedS, unread }) {
+	if (position === null)
+		return `queue-run.js --gate: place for the whole-suite slot unknown, the suite queue unread (${unread ?? "no reason given"}), waited ${waitedS}s\n`;
 	const held = holder
 		? `held by ${holder.repo ?? "an unknown repo"}, session ${holder.session ?? "none"} (pid ${holder.pid})`
 		: "slot free";
@@ -117,19 +123,16 @@ function gatePositionLine({ position, holder, waitedS }) {
 }
 
 /**
- * `pid`'s command line as `ps` prints it, or "" where it will not read.
+ * `pid`'s command line off `/proc/<pid>/cmdline`, its words joined by spaces,
+ * or "" where it is absent or will not read: a process that has exited, or
+ * another user's, is no suite runner the gate seat can sit inside.
  * @param {number} pid
  */
 function readArgsOf(pid) {
-	try {
-		return fs
-			.readFileSync(path.join(procRoot(), String(pid), "cmdline"), "utf8")
-			.split("\0")
-			.filter(Boolean)
-			.join(" ");
-	} catch {
-		return "";
-	}
+	const read = readText(path.join(procRoot(), String(pid), "cmdline"));
+	return read.state === "read"
+		? read.data.split("\0").filter(Boolean).join(" ")
+		: "";
 }
 
 /**
@@ -137,7 +140,7 @@ function readArgsOf(pid) {
  * runner, or a non-vitest one (#330).
  * @param {{ pid?: number, parentOf?: (pid: number) => number, argsOf?: (pid: number) => string }} [options]
  */
-function readInSuite({
+function isInSuite({
 	pid = process.pid,
 	parentOf = readParentOf,
 	argsOf = readArgsOf,
@@ -156,12 +159,10 @@ module.exports = {
 	GATE_ENV,
 	GATE_ROLE,
 	GATE_SEAT_DEFAULT_MB,
-	GATE_RUN_LOG,
-	GATE_RUN_RETAIN_MS,
 	appendGateRun,
 	gatePositionLine,
 	gateRepoName,
 	gateRunLogPath,
 	gateSeatChargeMb,
-	readInSuite,
+	isInSuite,
 };
