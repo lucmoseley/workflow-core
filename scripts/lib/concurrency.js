@@ -5,7 +5,8 @@
  * TWO RECORDS, EACH WRITTEN WHERE ITS FACT IS KNOWN. The refill loop appends
  * one line per tick to `concurrency.jsonl` beside its other files
  * (lib/refill-dir.js): the live and working counts, the admission ceiling, the binding
- * limit, every other failing limit, and the memory figures behind them.
+ * limit, every other failing limit, the memory figures behind them, and each
+ * other seat's sessions in needs input.
  * Sustained concurrency comes from memwatch's minute record instead
  * (docs/environment.md §4, #3214), its `sessions` field, which keeps
  * recording while the loop is off (#3215).
@@ -18,11 +19,10 @@
  * THE VERDICT is the first failing limit in a fixed order, the order the
  * checks below run in: loop not running, empty frontier or probe hold, allowance,
  * memory, Windows memory, CPU: gates on the loop and on policy before resource
- * fit, as Kubernetes' PreFilter and Borg's quota check run (#2497's
- * research). Every other failing limit follows it as "also".
+ * fit (#2497). Every other failing limit follows it as "also".
  *
  * `buildVerdict`, `readout` and `buildBlockText` are pure; the file functions below them
- * never throw, so a broken record costs a reading, never a tick.
+ * never throw.
  */
 
 const path = require("node:path");
@@ -279,7 +279,7 @@ function failingAt({ input, decision, admission }) {
 
 /**
  * Each seat but `typedSeat` holding listed sessions in needs input, in the
- * listing's order (#5293). A record naming no seat is left out.
+ * listing's order (#5293).
  * @param {import("./agent-liveness.js").AgentRecord[]} agents
  * @param {string|null} typedSeat
  * @returns {Waiting[]}
@@ -506,11 +506,10 @@ const buildUnboundText = (t) =>
 		: "a slot is free; the loop launches next tick";
 
 /**
- * The unlisted watch's line (#3322), null where nothing is unlisted: whether
- * these sessions owe draw headroom is open (#2502), and this line raises it.
+ * The unlisted watch's line (#3322), null where nothing is unlisted.
  * It reads the newest tick's row while that tick is fresh, else `readLive()`,
  * as the loop is off unless being tested (#3215, #3496). An unread row prints,
- * as unknown is never calm (mantahostels#1206), and so does the reason a
+ * and so does the reason a
  * counted row's memory went unread (#3509).
  * @param {ReturnType<typeof buildVerdict>} r
  * @param {() => UnlistedRead} readLive

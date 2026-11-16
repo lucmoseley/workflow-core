@@ -5,9 +5,8 @@
  *   alias manta2='(cd ~/mantahostels && CLAUDE_CONFIG_DIR=$HOME/.claude2 _wfc_agents)'
  *
  * Each seat is put in the seat file's form, so it compares equal to a listing
- * record's. A line of any other shape is skipped, and an absent `.bashrc` gives
- * none: the panel then names the seat alone. One that will not read says so on
- * stderr, as no alias then looks the same as none defined.
+ * record's. A line of any other shape is skipped. A `.bashrc` that will not
+ * read says so on stderr, as no alias then looks the same as none defined.
  */
 
 const path = require("node:path");
@@ -91,7 +90,6 @@ function aliasFor(aliases, seat, cwd) {
 }
 
 /**
- * `concurrency` with each waiting seat's alias.
  * @param {ConcurrencyStatus} concurrency
  * @param {SeatAlias[]} aliases
  * @returns {ConcurrencyView}

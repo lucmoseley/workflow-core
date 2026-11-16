@@ -2,8 +2,7 @@
  * refill-blocks.js — the refill loop's blocked and resumed-idle launches
  * (#2848, spec #2695): their block and resume records, the act
  * lib/block-act.js's table returns for each, and each act done through the
- * I/O the program passes in (BlockIo). The limit-blocked ones' acts are
- * lib/refill-limits.js's; what both share is lib/refill-block-core.js's.
+ * I/O the program passes in (BlockIo).
  */
 
 const { isTerminalAgent } = require("./agent-liveness.js");
@@ -95,7 +94,7 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  *   its resume runs in, and the resumes since tried that failed.
  *   `resumeStartedAt`, when the step ran `--bg --resume` on it, on record
  *   before the launcher runs and gone with the hold (#4157); `resumeTo`, the
- *   seat that resume moved it to, where it moved it (#5293)
+ *   seat that resume moved it to (#5293)
  * @typedef {{
  *   swapHeld: StepHeld,
  *   holdCleared: StepHeld & {hold: string},
@@ -293,8 +292,6 @@ const buildHandOffArgs = (l) => [
 const indented = (text) => text.replace(/\n/g, "\n  ");
 
 /**
- * A child run's log line: its label, its failure or `exit 0`, then its output
- * indented under it.
  * @param {string} label
  * @param {{out: string, failed?: string|null}} ran
  */
@@ -1215,7 +1212,7 @@ function bindStepCause(held, l) {
 /**
  * What the resume step needs of `l`: its cause's handling with its hold bound,
  * `rest`, `l` off its hold; `withStarted`, `l` with its hold's resume stamped
- * `at`.
+ * `at`, and the seat `to` it moved to, where it moved.
  * @param {SteppedLaunch} l
  */
 function stepResumeOf(l) {
@@ -1273,8 +1270,7 @@ function resumableOf(launches, { agents, io, swapHold }) {
 }
 
 /**
- * `l` after its step resume `r` of session `from` at `at`, on seat `to` where
- * it moved there: one a restart killed is watched from the resume for a turn,
+ * `l` after its step resume `r` of session `from` at `at`, on seat `to`: one a restart killed is watched from the resume for a turn,
  * however many holds it meets on the way (isIdleSinceBootResume).
  * @param {JobLaunch} l
  * @param {ReturnType<typeof stepResumeOf>} step
@@ -1971,8 +1967,7 @@ function jobShape(job) {
 /**
  * The loop's CauseOf: a parked launch's block cause (lib/block-cause.js) from
  * its listing row, its job record and its transcript's user and assistant
- * rows; an unread transcript reads UNKNOWN and acts on nothing (#2358 F9),
- * and an UNKNOWN is logged with why, once per launch for each why (#3200).
+ * rows; an unread transcript reads UNKNOWN and acts on nothing (#2358 F9).
  * @param {{readJob: (l: SessionRef) => unknown,
  *   readTail: (l: SessionRef, job: unknown) => Record<string, unknown>[]|null,
  *   log: (line: string) => void}} io  the job record, null unread; its

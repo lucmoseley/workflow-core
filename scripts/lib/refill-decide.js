@@ -490,8 +490,7 @@ function orderPlanSeats(seats, typedSeat) {
 /**
  * The plan seat a parked question's session resumes on (#5293): the first, in
  * orderPlanSeats's order, that a launch could take, or its own seat `own`
- * where that does not read full, so it reaches the seat the founder last typed
- * on where that has room; undefined where none. A seat other than `own` is the
+ * where that does not read full; undefined where none. A seat other than `own` is the
  * session carried there (refill-resume.js's moveSession).
  * @template {SizedSeat} S
  * @param {S[]} seats
@@ -798,8 +797,7 @@ const buildLimitCapHoldWhy = (limitParks) =>
 
 /**
  * How a parked row's session goes back, from the tick's reading of its park
- * marker: resumed (#3621) on the seat pickParkedSeat picks, the founder's
- * last-typed one first (#5293); held, a skip with why, where none has room and
+ * marker: resumed (#3621) on the seat pickParkedSeat picks (#5293); held, a skip with why, where none has room and
  * that session's own seat reads full, a bar at 100% or a cap sized 0 (#3669);
  * else afresh on its `takes:` command, with why. Its own seat with an unread
  * bar resumes: the loop refreshes no seat behind the first with room, so a hold
@@ -809,7 +807,7 @@ const buildLimitCapHoldWhy = (limitParks) =>
  * seat, with no bar or cap to hold a resume to, and an overflow seat's key
  * bars a resume (lib/launch-auth.js) (#3773).
  * @param {ParkerReading} parker
- * @param {SeatWalk} walk this tick's
+ * @param {SeatWalk} walk
  * @returns {{resume: ResumeTarget} | {hold: string} | {afresh: string}}
  */
 function routeParkedSession(parker, { seats, typedSeat }) {
@@ -841,7 +839,7 @@ function routeParkedSession(parker, { seats, typedSeat }) {
  * as the next relaunch would burn the cap again (#3804), else as
  * routeParkedSession says, with the count carried on.
  * @param {ParkerReading|undefined} parker none where no marker lists it
- * @param {SeatWalk} walk this tick's
+ * @param {SeatWalk} walk
  * @returns {{hold: string, atCap?: boolean} | NonNullable<Launch["parkedRoute"]>}
  */
 function routeParked(parker, walk) {
@@ -943,8 +941,7 @@ function resumeSeatOf(r, seats, typedSeat) {
  * slots being why the rest wait: a seat is sized for the slots alone, so one that
  * filled them reads 0 whatever room it has. Only the cap holds it, not a full bar
  * as a parked row: it was running on that seat, and a limit it meets there moves
- * it (#3735). A parked question's session goes to the seat pickParkedSeat
- * picks, held only where none has a fit and its own cap is spent (#5293). A
+ * it (#3735). A
  * seat outside `seats` or unsized has no cap to charge, nor has an
  * overflow seat's session, on the dir a plan seat's cap is sized for or not. A
  * held checkout's, or one whose unproven room is spent, waits too (#5275).
@@ -1186,8 +1183,7 @@ const buildPauseLogLine = (paused, source) =>
 
 /**
  * The pause three launched sessions in a row with no act in one checkout call
- * for, with their issues, each once. Only `set --resume` ends it: nothing
- * reopens by waiting.
+ * for, with their issues, each once. Only `set --resume` ends it.
  * @param {LaunchRecord[]} stalled
  * @param {number} at
  * @returns {Pause}
