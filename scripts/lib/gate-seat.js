@@ -30,8 +30,9 @@
  * memory-kill filer (#5269): one file a seat in lib/run-memory.js's store,
  * GATE_FILE_PREFIX-named, rewritten at each tree sample with every pid seen
  * and when it was last seen. A pid is the seat's only up to
- * `gateHeldUntil`, its last sighting plus two of the record's own sample
- * intervals, so a pid reused after it is never named the seat's. A process
+ * `gateHeldUntil`, its last sighting plus lib/run-memory.js's slack in the
+ * record's own sample intervals, so a pid reused after it is never named the
+ * seat's. A process
  * that starts and dies between two samples goes unrecorded.
  *
  * A GATE INSIDE A RUNNING SUITE'S PROCESS TREE takes no seat: a test
@@ -43,6 +44,7 @@
 const path = require("node:path");
 const { readCurrentBootId } = require("./arbiter-proc.js");
 const { writeFileAtomic } = require("./atomic-write.js");
+const { caught } = require("./caught.js");
 const { readText } = require("./file-read.js");
 const { readAncestorsOf, readParentOf } = require("./proc-stat.js");
 const { procRoot } = require("./proc-root.js");
@@ -54,7 +56,9 @@ const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js");
 const { isVitestRunnerLine, suiteRungMb } = require("./suite-ladder.js");
 const {
 	GATE_FILE_PREFIX,
+	holdsObject,
 	readStoreFiles,
+	seenUntil,
 	storeDir,
 	sweep,
 } = require("./run-memory.js");
@@ -186,12 +190,14 @@ function isInSuite({
 
 /**
  * Start a gate seat's pid record, written at once with no pid, then at each
- * `see`. Never throws: an unwritable record costs the kill filer its join,
- * never the gate run.
+ * `see`. Never throws (#5269): an unwritable record costs the kill filer its
+ * join, never the gate run, and `stop` answers the first write's failure for
+ * the caller to print.
  * @param {{ repo: string | null, command: string, session: string | null }} holder
  * @param {{ sampleMs: number, pid?: number, dir?: string, now?: () => number,
  *   bootId?: string | null }} options
- * @returns {{ file: string, see: (pids: number[]) => void, stop: () => void }}
+ * @returns {{ file: string, see: (pids: number[]) => void,
+ *   stop: () => string | null }}
  */
 function startGatePids(
 	{ repo, command, session },
@@ -218,11 +224,13 @@ function startGatePids(
 		sampledAt: stamp(),
 		seenAt: {},
 	};
+	/** @type {string | null} */
+	let unwritten = null;
 	const write = () => {
 		try {
 			writeFileAtomic(file, `${JSON.stringify(record)}\n`, { mkdir: true });
-		} catch {
-			/* NEVER THROWS */
+		} catch (e) {
+			unwritten ??= caught(e).message;
 		}
 	};
 	write();
@@ -237,6 +245,7 @@ function startGatePids(
 		stop: () => {
 			record.endedAt = stamp();
 			write();
+			return unwritten;
 		},
 	};
 }
@@ -251,15 +260,14 @@ function readGatePids(dir = storeDir()) {
 	const { items, why } = readStoreFiles({
 		dir,
 		named: (name) => name.startsWith(GATE_FILE_PREFIX),
-		shaped: (seat) => seat.seenAt instanceof Object,
+		shaped: (seat) => holdsObject(seat, "seenAt"),
 	});
 	return { seats: items, why };
 }
 
 /**
- * The last time, ms, `pid` can be taken for `seat`'s: its last sighting, no
- * later than the record's last sample, plus two sample intervals, so one late
- * tick does not drop a live process; null where the seat never saw it.
+ * The last time, ms, `pid` can be taken for `seat`'s (lib/run-memory.js
+ * `seenUntil`); null where the seat never saw it.
  * @param {GatePids} seat
  * @param {number} pid
  * @returns {number | null}
@@ -267,8 +275,11 @@ function readGatePids(dir = storeDir()) {
 function gateHeldUntil(seat, pid) {
 	const seen = seat.seenAt[pid];
 	if (!seen) return null;
-	const lastSample = Date.parse(seat.endedAt ?? seat.sampledAt);
-	return Math.min(Date.parse(seen), lastSample) + 2 * seat.sampleMs;
+	return seenUntil(
+		Date.parse(seen),
+		Date.parse(seat.endedAt ?? seat.sampledAt),
+		seat.sampleMs,
+	);
 }
 
 module.exports = {

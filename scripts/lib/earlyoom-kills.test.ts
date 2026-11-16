@@ -476,7 +476,9 @@ describe("gate runs and Chromium among the kills (#5269)", () => {
 		expect(body).toContain(
 			"| gate run: `bash test/all.sh` by `abcd1234` in design-vault | `headless_shell` | 6161 |",
 		);
-		expect(body).toContain("a gate run is any process in a commit gate's tree");
+		expect(body).toContain(
+			"a gate run is any other process in a commit gate's tree",
+		);
 		expect(basisFaults(body)).toEqual([]);
 	});
 
@@ -485,7 +487,9 @@ describe("gate runs and Chromium among the kills (#5269)", () => {
 		const body = kills.buildIncidentBody(readOne());
 		expect(readOne().kills[0].kind).toBe("Chromium");
 		expect(body).toContain("By kind: Chromium 1.");
-		expect(body).toContain("Chromium is a browser process");
+		expect(body).toContain(
+			"Chromium is a browser process (`headless_shell`, `chrome`, `chromium`)",
+		);
 		seed([], "chrome");
 		expect(readOne().kills[0].kind).toBe("Chromium");
 	});
@@ -502,7 +506,7 @@ describe("gate runs and Chromium among the kills (#5269)", () => {
 		expect(readOne().kills[0].kind).toBe("Chromium");
 	});
 
-	it("leaves a test run's match to it, the more specific", () => {
+	it("leaves a test run's match the kind, the more specific, its cell still naming the gate", () => {
 		seed([{}], "MainThread");
 		fs.writeFileSync(
 			path.join(dir, "refill", ".test-run-memory", "run.json"),
@@ -522,7 +526,11 @@ describe("gate runs and Chromium among the kills (#5269)", () => {
 				workersSeenAt: { [Browser]: iso(T0 - 1000) },
 			}),
 		);
-		expect(readOne().kills[0].kind).toBe("test run");
+		const i = readOne();
+		expect(i.kills[0].kind).toBe("test run");
+		expect(kills.buildIncidentBody(i)).toContain(
+			"| test run: worker of a named run in design-vault: no files, under gate run `bash test/all.sh` by `abcd1234` in design-vault |",
+		);
 	});
 
 	it("says the kill was not joined where a seat on its pid recorded no boot, or a seat record will not read", () => {

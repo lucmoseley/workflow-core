@@ -830,7 +830,11 @@ function spawnGate({ seat, options, err, finish, holder, waitMs }) {
 	/** @param {number} code @param {import("./lib/gate-seat.js").GateOutcome} outcome */
 	const close = (code, outcome) => {
 		const { peakKb } = sampler?.stop() ?? { peakKb: 0 };
-		pids?.stop();
+		const unrecorded = pids?.stop() ?? null;
+		if (unrecorded)
+			err.write(
+				`${LABEL}: this gate run's pids were not recorded (${unrecorded}), so a memory kill under it will not be named its (#5269).\n`,
+			);
 		held.release();
 		const file =
 			options.gateLog === undefined ? gateRunLogPath() : options.gateLog;

@@ -241,7 +241,7 @@ describe("the gate seat's pid record (#5269)", () => {
 		).toBe(10_000);
 	});
 
-	it("never throws where the store cannot be written", () => {
+	it("never throws where the store cannot be written, answering why on stop", () => {
 		const { dir } = queue();
 		const blocked = path.join(dir, "file");
 		fs.writeFileSync(blocked, "");
@@ -249,9 +249,7 @@ describe("the gate seat's pid record (#5269)", () => {
 			sampleMs: 2000,
 			dir: path.join(blocked, "store"),
 		});
-		expect(() => {
-			pids.see([1]);
-			pids.stop();
-		}).not.toThrow();
+		pids.see([1]);
+		expect(pids.stop()).toMatch(/ENOTDIR|EEXIST/);
 	});
 });

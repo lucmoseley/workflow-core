@@ -12,7 +12,7 @@
  *
  * A PID IS THE RUN'S ONLY WHILE SEEN: `heldUntil` gives the time a pid was
  * last seen in its role, the wrapper's and main's being the last sample, plus
- * SEEN_SLACK_MS, so lib/earlyoom-kills.js never names a run for a later
+ * SLACK_SAMPLES intervals, so lib/earlyoom-kills.js never names a run for a later
  * process reusing a pid.
  *
  * A WORKER is a direct child of vitest's main process, or a process that
@@ -55,9 +55,10 @@ const STORE_DIR = ".test-run-memory";
 const GATE_FILE_PREFIX = "gate-";
 /* Untraced: about 200 stat reads a sample. */
 const SAMPLE_MS = 1000;
-/* How long past its last sighting a pid stays its run's: two samples, so one
- * late tick on a loaded machine does not drop a live run. */
-const SEEN_SLACK_MS = 2 * SAMPLE_MS;
+/* How many sample intervals past its last sighting a pid stays its run's, or
+ * its gate seat's (lib/gate-seat.js): two, so one late tick on a loaded
+ * machine does not drop a live process. */
+const SLACK_SAMPLES = 2;
 /* Covers lib/incident-tickets.js's 72 h lookback and the incident gap. */
 const RETAIN_MS = 4 * 24 * 60 * 60 * 1000;
 /* A guess: room for a named run's files; a wider selection is named by its
@@ -368,8 +369,8 @@ function claimFile(
  * store would not read: a directory that will not list or a file that will
  * not parse. lib/gate-seat.js reads its gate-seat records through it.
  * @template T
- * @param {{ named: (name: string) => boolean, shaped: (parsed: any) => boolean,
- *   dir?: string }} read
+ * @param {{ named: (name: string) => boolean,
+ *   shaped: (parsed: unknown) => parsed is T, dir?: string }} read
  * @returns {{ items: T[], why: string|null }}
  */
 function readStoreFiles({ named, shaped, dir = storeDir() }) {
@@ -399,24 +400,47 @@ function readStoreFiles({ named, shaped, dir = storeDir() }) {
 }
 
 /**
+ * Whether `parsed` is an object whose `key` holds an object: the one field
+ * that bounds a pid to its record.
+ * @template T
+ * @param {unknown} parsed
+ * @param {string} key
+ * @returns {parsed is T}
+ */
+const holdsObject = (parsed, key) =>
+	parsed instanceof Object &&
+	key in parsed &&
+	/** @type {Record<string, unknown>} */ (parsed)[key] instanceof Object;
+
+/**
+ * The last time, ms, a pid last seen at `seen` can be taken for its record's:
+ * that sighting, no later than the record's `lastSample`, plus SLACK_SAMPLES
+ * of `sampleMs`.
+ * @param {number} seen
+ * @param {number} lastSample
+ * @param {number} sampleMs
+ */
+const seenUntil = (seen, lastSample, sampleMs) =>
+	Math.min(seen, lastSample) + SLACK_SAMPLES * sampleMs;
+
+/**
  * Every run file in the store, or why the store would not read.
  * @param {string} [dir]
  * @returns {{ runs: RunFile[], why: string|null }}
  */
 function readRunFiles(dir = storeDir()) {
-	/** @type {{ items: RunFile[], why: string|null }} */
 	const { items, why } = readStoreFiles({
 		dir,
 		named: (name) => !name.startsWith(GATE_FILE_PREFIX),
 		/* A file of another shape: see the header (#5253). */
-		shaped: (run) => run.workersSeenAt instanceof Object,
+		shaped: (run) => holdsObject(run, "workersSeenAt"),
 	});
 	return { runs: items, why };
 }
 
 /**
  * The role `pid` held in `run` and the last time, ms, it can be taken for the
- * run's: its last sighting plus SEEN_SLACK_MS; null where it held none.
+ * run's (`seenUntil`); null where it held none.
  * @param {RunFile} run
  * @param {number} pid
  * @returns {{ role: Role, until: number }|null}
@@ -428,18 +452,22 @@ function heldUntil(run, pid) {
 	if (run.pids.wrapper === pid) held = ["wrapper", lastSample];
 	else if (run.pids.main === pid) held = ["vitest main", lastSample];
 	else if (run.workersSeenAt[pid])
-		held = ["worker", Math.min(Date.parse(run.workersSeenAt[pid]), lastSample)];
-	return held && { role: held[0], until: held[1] + SEEN_SLACK_MS };
+		held = ["worker", Date.parse(run.workersSeenAt[pid])];
+	return (
+		held && { role: held[0], until: seenUntil(held[1], lastSample, SAMPLE_MS) }
+	);
 }
 
 module.exports = {
 	GATE_FILE_PREFIX,
 	MEMORY_ENV,
+	holdsObject,
 	claimFile,
 	heldUntil,
 	readRunFiles,
 	readRunMemory,
 	readStoreFiles,
+	seenUntil,
 	startSampler,
 	storeDir,
 	sweep,
