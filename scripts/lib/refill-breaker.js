@@ -331,8 +331,6 @@ function stepTrial({ root, state, mine, reading, read, now }) {
  * What a trial's landing and queue ref make of it: close where a commit of
  * its landed, reopen where it ended with nothing left to land, else wait —
  * running, or its commits queued or under test — or what will not read.
- * The queue ref is read only for a finished trial whose commits have not
- * reached `origin/main`.
  * @param {BreakerLaunch} trial
  * @param {ThroughputRead} read
  * @returns {"close"|"reopen"|"wait"|{unread: string}}

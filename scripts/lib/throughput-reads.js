@@ -243,8 +243,8 @@ function readCommitsOf(l) {
 /**
  * A reader of where a launch's queue ref stands (#5300): its job's worktree
  * names it, `queue/<worktree name>`, and its stays since the launch are read
- * off its checkout's lander, which each served checkout runs its own of. The
- * remote's refs and the queue log are read once a checkout.
+ * off its checkout's lander. The remote's refs and the queue log are read once
+ * a checkout.
  * @returns {(l: import("./refill-breaker.js").BreakerLaunch) => TrialQueue}
  */
 function buildQueueReader() {
@@ -271,7 +271,7 @@ function buildQueueReader() {
 				return { state: "unread", why: "its job record names no worktree" };
 			const name = ownQueueName(cwd, l.root);
 			/* A session run outside the checkout's worktrees has no queue ref,
-			 * so nothing of it can land: read as nothing pushed (#5300). */
+			 * so nothing of it can land (#5300). */
 			if (name === null) return { state: "gone" };
 			const { refs, rows } = readLander(l.root);
 			return trialQueueOf(
