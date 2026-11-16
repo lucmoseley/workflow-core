@@ -65,7 +65,10 @@
  * --boot <n> reads an earlier boot, journalctl's offset (-1 the last), for the
  * post-incident question docs/environment.md §8 starts from: the boot that
  * died is never the one a session starts on. journalctl alone reads one —
- * dmesg holds only the current boot.
+ * dmesg holds only the current boot. A boot outside the range `journalctl
+ * --list-boots` gives this user is named as not in the readable journal: on
+ * 12 Nov 2026 every file's ACL was lost and the boots before it vanished from
+ * view while still on disk (#5299, docs/environment.md §8).
  *
  * IT NEVER RECOVERS ANYTHING. It prints `sync` and `wsl --shutdown` for a human
  * to run; running either itself would kill every live session on a false
@@ -81,6 +84,7 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const zlib = require("node:zlib");
 const { runCheck } = require("./lib/check");
+const { readBoots } = require("./lib/journalctl.js");
 const { REAL_PROC } = require("./lib/proc-root.js");
 const { docPath } = require("./lib/script-path.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
@@ -299,6 +303,28 @@ const isFrozen = (d) =>
 
 /** @param {number} s */
 const cpuS = (s) => `${s.toFixed(1)} CPU-s`;
+
+/**
+ * SKIP an earlier boot that read nothing and is not in the journal this user
+ * can read: journalctl lists boots and the offset falls outside them. Returns
+ * where it lists none or the offset is among them, the plain SKIP following
+ * (#5299). WFC_KERNEL_LOG ignores --boot, so it is never asked.
+ * @param {import("./lib/check").Ctx} ctx
+ * @param {string} boot
+ */
+function skipUnlistedBoot(ctx, boot) {
+	if (boot === "0" || process.env.WFC_KERNEL_LOG) return;
+	const { boots, why } = readBoots();
+	const [oldest] = boots;
+	if (why !== null || oldest === undefined) return;
+	const n = Number(boot);
+	if (n > 0 ? n <= boots.length : -n < boots.length) return;
+	ctx.skip(
+		`boot ${boot} is not in the readable journal: journalctl lists ${boots.length} boot(s) to this user, ` +
+			`the oldest from ${new Date(oldest.from).toISOString()}. An older boot can still be on disk, ` +
+			`unreadable without systemd-journal membership (${docPath("environment.md")} §8), so whether it stalled is unknown — not no.`,
+	);
+}
 
 /** @param {string} text */
 const parseRealLines = (text) =>
@@ -607,6 +633,7 @@ runCheck({
 		const logs = readKernelLog(boot);
 		const clock = boot === "0" ? sampleClock() : null;
 		const frozen = clock !== null && isFrozen(clock);
+		if (logs.length === 0) skipUnlistedBoot(ctx, boot);
 		const clockBlind = boot === "0" && !clock && !ctx.notify;
 		if (logs.length === 0 && !frozen && !clockBlind)
 			ctx.skip(
