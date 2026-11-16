@@ -13,7 +13,7 @@ Reached by rule id, never always-loaded (#231, the ticket that ruled this mechan
 
 ## The two gaps, and the exact command that closes each
 
-"Behind" is always two gaps, never one number, and both are owed only while the install is not at the pin: the supply is read only at install time (inferred from install timestamps at #738, not observed), so another adopter's tag sitting there is no gap and no contention, and the `SessionEnd` materialiser skips its three `claude` calls and goes straight to the migration walk (#747).
+"Behind" is always two gaps, never one number, and both are owed only while the install is not at the pin: the supply is read only at install time (inferred from install timestamps at #738, not observed), so another adopter's tag sitting there is no gap and no contention, and the `SessionEnd` materialiser skips its three `claude` calls and goes straight to the migration walk (#747). With nothing rotated, it defers only on another session whose cwd is that checkout, where a rotation defers on any session under the config dir (#5286).
 
 - **Supply behind pin** — the supply's ref does not match the pin. Closed by:
 
@@ -41,6 +41,14 @@ Nothing is owed. No command closes it, no consent is asked for, and it ends when
 ## The migration walk lands as one commit, never pushed (#249)
 
 Once the `SessionEnd` materialiser (#247) rotates the install, or finds it already at the pin, it runs the migration walk itself, `scripts/lib/walk-and-commit.js`, against that install path — never against this session's own stale `CLAUDE_PLUGIN_ROOT`.
+
+A session need not wait for it. Once the install is at the pin, the session walks in-session from the adopter root and commits what the walk wrote:
+
+```
+node scripts/lib/resolve-core.js scripts/upgrade.js
+```
+
+`upgrade.js` walks with the core it ships in, here the install `resolve-core.js` finds, so the session's stale running bytes never enter it (#5286).
 
 The walk runs under four conditions:
 

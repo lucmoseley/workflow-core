@@ -42,14 +42,17 @@
  *   2. a decline for this repo+tag             — the founder said no
  *   3. no pending consent for this repo+tag    — no session recorded the
  *      accept, or the last walk already consumed it.
- *   4. any other Claude session under this config dir — defer. A
+ *   4. an install already at the pin makes no `claude` call, so the shared
+ *      supply is not rotated again (#747), and goes straight to the walk —
+ *      deferring only on another Claude session whose cwd is this checkout,
+ *      under any config dir, since the walk's one commit is all it does and
+ *      that lands under those sessions' edits alone (#5286).
+ *   5. any other Claude session under this config dir — defer. A
  *      mid-session plugin rotation must not silence a neighbour's guards any
  *      more than it may silence the founder's own. The daemon and its idle
  *      spares hold no session and are not counted (#4741).
  * At the hook the first three stop silently. A hand run, which carries no
  * CLAUDE_PLUGIN_ROOT, prints which one stopped it instead (#4741).
- * Past them, an install already at the pin makes no `claude` call, so the
- * shared supply is not rotated again, and goes straight to the walk (#747).
  *
  * THE PIN IS NEVER WRITTEN. Nothing in this file opens the adopter's
  * `.claude/settings.json` for writing; the committed pin stays the record of
@@ -86,7 +89,8 @@
  *            this config dir, runs `claude plugin marketplace add` →
  *            `install` → `update` against the adopter, rotating this
  *            machine's shared marketplace clone, unless the install is
- *            already at the pin — and, once that succeeds on a clean tree,
+ *            already at the pin, which waits only on another session in
+ *            this checkout — and, once that succeeds on a clean tree,
  *            walks and commits whatever migration notes the new version
  *            owes, re-anchoring the guard-registry rows of the paths the
  *            walk wrote in that commit; whatever it says is also filed as
@@ -132,6 +136,7 @@ const {
 const { claudeBin } = require("./lib/claude-bin.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { hostRoot } = require("./lib/host-root.js");
+const { relativeUnder } = require("./lib/is-under.js");
 const { fixByHand, materialisePlugin } = require("./lib/materialise-plugin.js");
 const { writeReport } = require("./lib/notify-report.js");
 const {
@@ -241,25 +246,63 @@ function readOwnPids(pid) {
 }
 
 /**
- * Claude sessions running alongside this one under the same config dir, each
- * named by its pids, a claimed spare pair's joined by `+`.
- * @param {{configDir: string, selfPid?: string}} at
+ * Claude sessions running alongside this one that `apart` cannot place
+ * elsewhere, each named by its pids, a claimed spare pair's joined by `+`.
+ * A session is apart only where every one of its pids is.
+ * @param {(pid: string) => boolean} apart
+ * @param {string} [selfPid]
  * @returns {{count: number, pids: string[]}}
  */
-function countLiveNeighbours({ configDir, selfPid = String(process.pid) }) {
+function countNeighbours(apart, selfPid = String(process.pid)) {
 	const mine = readOwnPids(selfPid);
-	const want = path.resolve(configDir);
 	/** @type {string[]} */
 	const pids = [];
 	for (const session of readClaudeSessions()) {
 		if (session.some((pid) => mine.has(pid))) continue;
-		const elsewhere = session.every((pid) => {
-			const cfg = readConfigDirOf(pid);
-			return cfg !== null && path.resolve(cfg) !== want;
-		});
-		if (!elsewhere) pids.push(session.join("+"));
+		if (!session.every(apart)) pids.push(session.join("+"));
 	}
 	return { count: pids.length, pids };
+}
+
+/**
+ * Sessions under the same config dir as this one. An environ that cannot be
+ * read places nothing, so it counts (`readConfigDirOf`).
+ * @param {string} configDir
+ */
+function countConfigNeighbours(configDir) {
+	const want = path.resolve(configDir);
+	return countNeighbours((pid) => {
+		const cfg = readConfigDirOf(pid);
+		return cfg !== null && path.resolve(cfg) !== want;
+	});
+}
+
+/**
+ * Sessions whose cwd is this checkout, under any config dir: `root` or a
+ * directory beneath it that no nested `.git` — a linked worktree's or a
+ * submodule's — makes a checkout of its own. A cwd that cannot be read
+ * places nothing, so it counts, for `readConfigDirOf`'s reason.
+ * @param {string} root
+ */
+function countCheckoutNeighbours(root) {
+	const real = realOrSelf(root);
+	return countNeighbours((pid) => {
+		const cwd = readProcCwd(pid);
+		if (cwd === null) return false;
+		if (relativeUnder(real, cwd) === null) return true;
+		for (let dir = cwd; dir !== real; dir = path.dirname(dir))
+			if (fs.existsSync(path.join(dir, ".git"))) return true;
+		return false;
+	});
+}
+
+/** @param {string} at @returns {string} */
+function realOrSelf(at) {
+	try {
+		return fs.realpathSync(at);
+	} catch {
+		return path.resolve(at);
+	}
 }
 
 /**
@@ -346,23 +389,32 @@ function reconcile({ root, pluginRoot, emit }) {
 	if (isDeclined(root, tag)) return { action: "declined", lines };
 	if (!readPendingConsent(root, tag)) return { action: "no-consent", lines };
 
-	const live = countLiveNeighbours({ configDir: cfg });
+	/* The install already matches the pin, so the supply is not this
+	 * adopter's to move: rotating it again only takes it off another
+	 * adopter's tag, and the next of those turns it back (#738). Nothing is
+	 * rotated, so only a session working this checkout can be harmed (#5286). */
+	if (state.installAtPin && state.installRecord) {
+		const here = countCheckoutNeighbours(root);
+		if (here.count > 0) {
+			say(
+				`${plugin.name}: deferring the ${tag} migration walk — ${here.count} other Claude session(s) working in ${root} (pid ${here.pids.join(", ")}). ` +
+					"Its commit would land under their edits. The consent stands; this is retried at the next session's exit.",
+			);
+			return { action: "deferred", lines };
+		}
+		say(
+			`${plugin.name}: already installed at ${tag} — the shared supply is left where it is.`,
+		);
+		return walkFrom(state.installRecord.installPath);
+	}
+
+	const live = countConfigNeighbours(cfg);
 	if (live.count > 0) {
 		say(
 			`${plugin.name}: deferring the ${tag} materialise — ${live.count} other Claude session(s) live under ${cfg} (pid ${live.pids.join(", ")}). ` +
 				"Rotating now would silence their guards mid-session. The consent stands; this is retried at the next session's exit.",
 		);
 		return { action: "deferred", lines };
-	}
-
-	/* The install already matches the pin, so the supply is not this
-	 * adopter's to move: rotating it again only takes it off another
-	 * adopter's tag, and the next of those turns it back (#738). */
-	if (state.installAtPin && state.installRecord) {
-		say(
-			`${plugin.name}: already installed at ${tag} — the shared supply is left where it is.`,
-		);
-		return walkFrom(state.installRecord.installPath);
 	}
 
 	/* The pin's url, which `readPluginState` does not carry back. A directory

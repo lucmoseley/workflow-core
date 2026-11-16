@@ -104,6 +104,10 @@ describe("check-plugin-gap.js's report (#243)", () => {
 		// the install is the session's, never a question for the founder (#5230)
 		expect(text).toContain("this session's to run, not the founder's");
 		expect(text).not.toContain("priced yes/no");
+		// the in-session walk, so no session waits on an exit (#5286)
+		expect(text).toMatch(
+			/walks the migration notes in this session[^\n]*\n {2}node scripts\/(lib\/resolve-core\.js scripts\/)?upgrade\.js$/m,
+		);
 	});
 
 	it("stays silent for a repo+tag the founder already declined (#245)", () => {

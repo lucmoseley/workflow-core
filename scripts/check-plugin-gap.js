@@ -63,8 +63,9 @@
  * `notify-report.js` persist-and-replay checkers this repo also runs.
  *
  * IMPLICIT:  on every SessionStart, injects a version-gap line, the
- *            adopter-upgrade rule text and the consent accept/decline
- *            commands into the session's context when the pin, supply and
+ *            adopter-upgrade rule text, the consent accept/decline
+ *            commands and the in-session walk command into the session's
+ *            context when the pin, supply and
  *            install disagree, or a materialised-not-live line where only
  *            this process lags, a predicted #258 ref-conflict
  *            line (#318) alongside it where the supply gap is open, and a
@@ -90,6 +91,7 @@ const { hostRoot } = require("./lib/host-root.js");
 const { readPluginState, resolveConfigDir } = require("./lib/plugin-state.js");
 const { readRuleText } = require("./lib/rule-text.js");
 const { scriptPath } = require("./lib/script-path.js");
+const { walkCommand } = require("./lib/walk-command.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { isDeclined } = require("./lib/adopter-consent.js");
 const { readStepsOwed } = require("./lib/steps-owed.js");
@@ -446,6 +448,8 @@ function buildReport({ root, pluginRoot, runningRoot }) {
 		`  node ${shellQuote(consentCli)} accept  ${shellQuote(root)} ${shellQuote(state.pin.ref)}`,
 		"Only where the founder has said not to install this tag here, record that instead:",
 		`  node ${shellQuote(consentCli)} decline ${shellQuote(root)} ${shellQuote(state.pin.ref)}`,
+		"The walk need not wait for the session's exit: once the install commands have run, this walks the migration notes in this session, from the repo root; commit what it writes, and the exit's reconciler finds it done:",
+		`  ${walkCommand()}`,
 	);
 	return join(lines.join("\n"));
 }

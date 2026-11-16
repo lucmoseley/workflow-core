@@ -38,11 +38,12 @@ function parseVersion(version) {
 
 /**
  * @param {Reading} r
- * @param {{ note: string, cutoverCommand: string, stepsCommand: string }} how
- *   the note and both commands as the reader should spell them
+ * @param {{ note: string, cutoverCommand: string, stepsCommand: string,
+ *   walkCommand: string }} how the note and the commands as the reader should
+ *   spell them
  * @returns {Judgement}
  */
-function judgeSwitchOn(r, { note, cutoverCommand, stepsCommand }) {
+function judgeSwitchOn(r, { note, cutoverCommand, stepsCommand, walkCommand }) {
 	const parts = parseVersion(r.version);
 	if (parts === null)
 		return {
@@ -59,7 +60,7 @@ function judgeSwitchOn(r, { note, cutoverCommand, stepsCommand }) {
 		return {
 			outcome: "fail",
 			tag: "LANDING-OFF",
-			line: `the \`landing\` module is off ${exposed}, so every session here shares one unguarded tree. Do the switch-on [act]s in ${note}'s Manual steps; \`${stepsCommand}\` lists the ones still owed.`,
+			line: `the \`landing\` module is off ${exposed}, so every session here shares one unguarded tree. Do the switch-on [act]s in ${note}'s Manual steps; \`${stepsCommand}\` lists the ones still owed, once \`${walkCommand}\` has walked the migration notes in this session — no session's exit need run it.`,
 		};
 	const cutOver = r.cutOver();
 	if (cutOver === null)
