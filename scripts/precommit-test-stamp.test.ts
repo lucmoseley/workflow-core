@@ -44,6 +44,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { expect, it } from "vitest";
+import { renderHookShim } from "./lib/adopter-skeleton.js";
 import { stampFile, stampVariable, writeStamp } from "./lib/commit-key.js";
 import { installHuskyShim } from "./lib/husky-testkit";
 import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
@@ -158,9 +159,15 @@ git update-ref HEAD "$(git commit-tree $p -m other "$tree")"
 rm -f "$t"
 `;
 
+/**
+ * `adopter` commits as an adopter does: its `.husky/pre-commit` is the core's
+ * shim, which runs the hook of a core outside the repo, found through
+ * WORKFLOW_CORE_DIR.
+ */
 function fixture({
 	born = true,
 	config = JSON.stringify({ commands: { test: "sh stub.sh" } }),
+	adopter = false,
 } = {}) {
 	const { root, git } = newRepo("precommit-test-stamp-", temps);
 	copyRequireClosure(root, ROOT, COPIED);
@@ -169,7 +176,22 @@ function fixture({
 		path.join(ROOT, ".husky/prepare-commit-msg"),
 		path.join(root, ".husky/prepare-commit-msg"),
 	);
-	fs.writeFileSync(path.join(root, ".husky/pre-commit"), PRECOMMIT);
+	let coreDir: string | null = null;
+	if (adopter) {
+		coreDir = fs.mkdtempSync(path.join(os.tmpdir(), "test-stamp-core-"));
+		temps.push(coreDir);
+		copyRequireClosure(coreDir, ROOT, COPIED);
+		fs.mkdirSync(path.join(coreDir, ".husky"));
+		fs.writeFileSync(path.join(coreDir, ".husky/pre-commit"), PRECOMMIT);
+		fs.copyFileSync(
+			path.join(ROOT, "scripts/lib/resolve-core.js"),
+			path.join(root, "scripts/lib/resolve-core.js"),
+		);
+		fs.writeFileSync(
+			path.join(root, ".husky/pre-commit"),
+			renderHookShim("pre-commit"),
+		);
+	} else fs.writeFileSync(path.join(root, ".husky/pre-commit"), PRECOMMIT);
 	fs.mkdirSync(path.join(root, ".claude"));
 	fs.writeFileSync(path.join(root, ".claude/workflow-core.json"), config);
 	fs.writeFileSync(path.join(root, "stub.sh"), stub(root));
@@ -217,6 +239,7 @@ function fixture({
 		])
 			delete e[k];
 		if (stamp !== undefined) e.WFC_TEST_STAMP = stamp;
+		if (coreDir !== null) e.WORKFLOW_CORE_DIR = coreDir;
 		return e;
 	};
 
@@ -853,6 +876,31 @@ it("runs the gates in the lock alone where the hook has no line ending them, say
 	expect(r.out).toContain(
 		`no early gate run — ${hook} has no line marking where its gates end, an older hook than this script. The commit's hook runs its gates after 'sh stub.sh', in the lock.`,
 	);
+});
+
+it("runs the core's gates before the pre-lock suite where the repo's hook is the core's shim, reaching the core as the shim does (#5288)", () => {
+	const f = fixture({ adopter: true });
+	f.edit("a.txt", "changed\n");
+	const r = f.commitPaths();
+	expect(r.code, r.out).toBe(0);
+	expect(r.landed).toBe(true);
+	expect(r.gateRuns).toEqual(["lock=0 staged=a.txt", "lock=1 staged=a.txt"]);
+	expect(r.runs).toEqual(["lock=0 stamp=unset staged=a.txt"]);
+	expect(r.out).toContain(
+		"running the pre-commit hook's gates but its slow ones, before 'sh stub.sh'",
+	);
+	expect(r.out).not.toContain("no early gate run");
+});
+
+it("refuses a red gate before the pre-lock suite where the repo's hook is the core's shim (#5288)", () => {
+	const f = fixture({ adopter: true });
+	fs.writeFileSync(path.join(f.root, "stub-gate-red"), "");
+	f.edit("a.txt", "changed\n");
+	const r = f.commitPaths();
+	expect(r.code).toBe(3);
+	expect(r.landed).toBe(false);
+	expect(r.gateRuns).toEqual(["lock=0 staged=a.txt"]);
+	expect(r.runs).toEqual([]);
 });
 
 it("runs the gates once, in the lock, on a plain git commit (#1763)", () => {
