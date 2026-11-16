@@ -19,7 +19,7 @@ const STATUS = JSON.stringify({
 	paused: null,
 	repoPaused: {},
 	lastTick: null,
-	concurrency: { live: 1, ceiling: 2, working: 1 },
+	concurrency: { live: 1, ceiling: 2, working: 1, waiting: [] },
 	repos: [],
 	seats: { readings: [] },
 	overflow: [],
