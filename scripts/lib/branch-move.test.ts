@@ -334,7 +334,7 @@ describe("the rule reaches a session BEFORE it trips the guard (mantahostels#164
 		});
 	});
 
-	it("the landing twin is the one carrying origin/landing", () => {
+	it("the cutover rule is the one carrying origin/landing", () => {
 		expect(readRuleText("branch-shared-tree-cutover")).toContain(
 			"origin/landing",
 		);

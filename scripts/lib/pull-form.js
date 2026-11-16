@@ -133,7 +133,7 @@
 const { expandLongOption } = require("./git-long-options.js");
 const { rewindReason } = require("./main-rewind.js");
 const { denyText } = require("./guard-verdict.js");
-const { buildCutCommand, readsCutOver } = require("./cutover.js");
+const { buildCutCommand, isCutOverAt } = require("./cutover.js");
 const { VERIFIED_REF } = require("./landing-refs.js");
 const { parseCommand, walkGit } = require("./shell-parse.js");
 const { UNREAD_ALIAS } = require("./git-alias.js");
@@ -791,7 +791,7 @@ const WALKS = [
 	],
 	[
 		(j, call) =>
-			call.tree && readsCutOver(j.ctx.git) ? null : judgeReconcile(j, call),
+			call.tree && isCutOverAt(j.ctx.git) ? null : judgeReconcile(j, call),
 		"the reconciliation",
 		"shared",
 		["pull", "merge", "rebase"],

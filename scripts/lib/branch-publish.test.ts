@@ -529,14 +529,14 @@ describe("a session pushes its own queue ref (#4458)", () => {
 	);
 
 	/* #4856: the refusals that run before any queue-ref judging name the own
-	 * ref too, and a rewind of `main` reads the lander's twin of the rule. */
+	 * ref too, and a rewind of `main` reads `main-remote-rewind`. */
 	it.each([
 		["git push --force origin main", "This force-pushes `main`"],
 		["git push origin +HEAD:main", "This force-pushes `main`"],
 		["git push origin --delete main", "This deletes `main` on the remote"],
 		["git push origin :main", "This deletes `main` on the remote"],
 	])(
-		"%s is refused from the worktree with the lander's rewind rule, naming its own queue ref",
+		"%s is refused from the worktree with the remote-rewind rule, naming its own queue ref",
 		(command, what) => {
 			const why = denial(command, own);
 			expect(why).toContain(what);

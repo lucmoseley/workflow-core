@@ -169,8 +169,7 @@ const refuse = (ctx, what, segment) => ({
 });
 
 /**
- * A forced push or deletion of `main`, under the lander's reading of the
- * rewind rule.
+ * A forced push or deletion of `main`, refused with the remote-rewind rule.
  * @param {BranchPublishContext} ctx
  * @param {string} what completing "This …"
  * @param {string} segment
