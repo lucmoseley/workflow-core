@@ -72,6 +72,10 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
+/** A guard-root.sh whose `gr_worktree_root` calls `gr_root` internally. */
+const SEAM_WITH_WRAPPER =
+	'gr_root() {\n  printf .\n}\ngr_worktree_root() {\n  printf "$(gr_root)"\n}\n';
+
 describe("a test that spawns a hostRoot()- or gr_root-rooted script", () => {
 	it("fails when it lets the script inherit the real CLAUDE_PROJECT_DIR, naming the test file", () => {
 		rooted("thing.js");
@@ -133,6 +137,7 @@ describe("a test that spawns a hostRoot()- or gr_root-rooted script", () => {
 	});
 
 	it("flags a shell script calling gr_worktree_root (#5287)", () => {
+		track("scripts/lib/guard-root.sh", SEAM_WITH_WRAPPER);
 		track(
 			"scripts/thing.sh",
 			'source "$here/lib/guard-root.sh"\nroot="$(gr_worktree_root)"\n',
@@ -182,11 +187,10 @@ describe("what it declines to flag", () => {
 		expect(run().status).toBe(0);
 	});
 
+	/* The negative of "flags a shell script calling gr_worktree_root": the
+	 * same seam, sourced for a function that roots nothing. */
 	it("passes a script sourcing guard-root.sh whose own functions call gr_root (#5287)", () => {
-		track(
-			"scripts/lib/guard-root.sh",
-			'gr_root() {\n  printf .\n}\ngr_worktree_root() {\n  printf "$(gr_root)"\n}\n',
-		);
+		track("scripts/lib/guard-root.sh", SEAM_WITH_WRAPPER);
 		track(
 			"scripts/thing.sh",
 			'source "$here/lib/guard-root.sh"\ngr_config_dir d\n',

@@ -14,12 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-	cutWorktree,
-	defineTemplate,
-	initGitRepo,
-	mkDirOutsideRepo,
-} from "./lib/git-fixture";
+import { cutWorktree, defineTemplate, initGitRepo } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process.js";
 import { appendStepsOwed, readStepsOwed } from "./lib/steps-owed.js";
 
@@ -101,21 +96,19 @@ describe("steps-owed.js CLI", () => {
 	/* The negative of "clear discharges a matching entry": the same discharge,
 	 * run from a linked worktree. */
 	it("clear in a linked worktree writes that tree and leaves the main checkout clean (#5287)", () => {
-		const main = mkDirOutsideRepo("steps-owed-main-");
-		made.push(main);
-		linkedTemplate.instantiate(main);
-		const tree = cutWorktree(main);
+		linkedTemplate.instantiate(root);
+		const tree = cutWorktree(root);
 		/* The harness names the main checkout as the project even for a
 		 * session in a linked worktree. */
 		const r = runInProcess(SCRIPT, ["clear", "v2.0.0", "act", "do a thing"], {
 			cwd: tree,
-			env: { ...process.env, CLAUDE_PROJECT_DIR: main },
+			env: { ...process.env, CLAUDE_PROJECT_DIR: root },
 		});
 		expect(r.status).toBe(0);
 		expect(r.stdout).toContain("cleared v2.0.0 [act]");
 		expect(readStepsOwed(tree)).toEqual([]);
 		expect(
-			execFileSync("git", ["-C", main, "status", "--porcelain"], {
+			execFileSync("git", ["-C", root, "status", "--porcelain"], {
 				encoding: "utf8",
 			}),
 		).toBe("");

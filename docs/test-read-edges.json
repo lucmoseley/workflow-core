@@ -59403,7 +59403,15 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/snapshot-memory.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
+		],
+		"scripts/snapshot-memory.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/spec-commits.js": [
 			"scripts/checker-registrations.test.ts",

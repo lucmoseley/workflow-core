@@ -149,7 +149,8 @@ function callsGrRoot(/** @type {string} */ text) {
  * lib/guard-root.sh defines the root functions and calls `gr_root` inside
  * `gr_worktree_root`; a script sourcing it roots itself only by calling one,
  * which `callsGrRoot` reads at the call site, so the walk never descends into
- * it.
+ * it. RESIDUAL: a new guard-root.sh function wrapping `gr_root` passes its
+ * callers unflagged until `callsGrRoot`'s pattern names it.
  */
 const GR_SEAM = "scripts/lib/guard-root.sh";
 

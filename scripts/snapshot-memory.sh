@@ -43,9 +43,11 @@ src="${1:-$(default_src)}"
   exit 1
 }
 
-# The HOST repo, never this file's own location — in a plugin install this
-# script ships in the plugin cache, not the host repo (#1).
-repo="$(gr_root)"
+# The session's own tree of the HOST repo, never this file's own location — in
+# a plugin install this script ships in the plugin cache, not the host repo
+# (#1). Not gr_root: the tarball is committed, and from a linked worktree
+# gr_root would leave it in the main checkout (#5287).
+repo="$(gr_worktree_root)"
 out="$repo/snapshots/claude-memory-$(date -u +%Y-%m-%d).tar.gz"
 mkdir -p "$(dirname "$out")"
 

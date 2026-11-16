@@ -19,12 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import {
-	cutWorktree,
-	defineTemplate,
-	initGitRepo,
-	mkDirOutsideRepo,
-} from "./lib/git-fixture";
+import { cutWorktree, defineTemplate, initGitRepo } from "./lib/git-fixture";
 
 const SCRIPT = path.resolve(__dirname, "design-mode.sh");
 
@@ -137,30 +132,25 @@ describe("a linked worktree (#5287)", () => {
 	/* The negative of "on succeeds and writes the key true": the same write,
 	 * run from a linked worktree. */
 	it("on writes the worktree's settings and leaves the main checkout clean", () => {
-		const main = mkDirOutsideRepo("design-mode-main-");
-		try {
-			linkedTemplate.instantiate(main);
-			const tree = cutWorktree(main);
-			/* The harness names the main checkout as the project even for a
-			 * session in a linked worktree. */
-			const r = spawnSync(SCRIPT, ["on"], {
-				cwd: tree,
+		linkedTemplate.instantiate(projectDir);
+		const tree = cutWorktree(projectDir);
+		/* The harness names the main checkout as the project even for a
+		 * session in a linked worktree. */
+		const r = spawnSync(SCRIPT, ["on"], {
+			cwd: tree,
+			encoding: "utf8",
+			env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir },
+		});
+		expect(r.status).toBe(0);
+		expect(
+			JSON.parse(
+				fs.readFileSync(path.join(tree, ".claude", "settings.json"), "utf8"),
+			).enabledPlugins["impeccable@impeccable"],
+		).toBe(true);
+		expect(
+			execFileSync("git", ["-C", projectDir, "status", "--porcelain"], {
 				encoding: "utf8",
-				env: { ...process.env, CLAUDE_PROJECT_DIR: main },
-			});
-			expect(r.status).toBe(0);
-			expect(
-				JSON.parse(
-					fs.readFileSync(path.join(tree, ".claude", "settings.json"), "utf8"),
-				).enabledPlugins["impeccable@impeccable"],
-			).toBe(true);
-			expect(
-				execFileSync("git", ["-C", main, "status", "--porcelain"], {
-					encoding: "utf8",
-				}),
-			).toBe("");
-		} finally {
-			fs.rmSync(main, { recursive: true, force: true });
-		}
+			}),
+		).toBe("");
 	});
 });

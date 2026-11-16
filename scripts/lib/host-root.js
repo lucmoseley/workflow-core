@@ -238,7 +238,8 @@ function sessionTree(input) {
  * worktree of the host repository, else `hostRoot()`, so never another
  * repository's. It is what a test run reads and where a script writing
  * tracked files writes (#4438); lib/tree-or.js's `linkedTreeOrRoot` is a
- * core's half, over its ports.
+ * core's half, over its ports, and `scripts/lib/guard-root.sh`'s
+ * `gr_worktree_root` the shell half: change them together.
  *
  * NOT `hostRoot()` ALONE (#2940). `hostRoot()` names the main checkout, so a
  * run launched inside a linked worktree would otherwise test the main
