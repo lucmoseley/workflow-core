@@ -65,8 +65,16 @@ const STALLED = [
 
 /** A journal listing two boots to this user, as 12 Nov 2026's ACL loss left it (#5299). */
 const TWO_BOOTS = [
-	{ id: "a".repeat(32), from: Date.parse("2026-11-12T12:16:57Z"), to: 1 },
-	{ id: "b".repeat(32), from: 2, to: 3 },
+	{
+		id: "a".repeat(32),
+		from: Date.parse("2026-11-12T12:16:57Z"),
+		to: Date.parse("2026-11-16T10:37:36Z"),
+	},
+	{
+		id: "b".repeat(32),
+		from: Date.parse("2026-11-16T10:38:08Z"),
+		to: Date.parse("2026-11-16T15:53:28Z"),
+	},
 ];
 
 let dir: string;

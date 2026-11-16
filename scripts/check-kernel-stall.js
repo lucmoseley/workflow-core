@@ -66,9 +66,8 @@
  * post-incident question docs/environment.md §8 starts from: the boot that
  * died is never the one a session starts on. journalctl alone reads one —
  * dmesg holds only the current boot. A boot outside the range `journalctl
- * --list-boots` gives this user is named as not in the readable journal: on
- * 12 Nov 2026 every file's ACL was lost and the boots before it vanished from
- * view while still on disk (#5299, docs/environment.md §8).
+ * --list-boots` gives this user is named as not in the readable journal
+ * (#5299, docs/environment.md §8).
  *
  * IT NEVER RECOVERS ANYTHING. It prints `sync` and `wsl --shutdown` for a human
  * to run; running either itself would kill every live session on a false
@@ -305,16 +304,14 @@ const isFrozen = (d) =>
 const cpuS = (s) => `${s.toFixed(1)} CPU-s`;
 
 /**
- * SKIP an earlier boot that read nothing and is not in the journal this user
- * can read: journalctl lists boots and the offset falls outside them. Returns
- * where it lists none or the offset is among them, the plain SKIP following
- * (#5299). WFC_KERNEL_LOG ignores --boot, so it is never asked.
+ * SKIP an earlier boot outside the boots journalctl lists to this user (#5299).
  * @param {import("./lib/check").Ctx} ctx
  * @param {string} boot
  */
 function skipUnlistedBoot(ctx, boot) {
 	if (boot === "0" || process.env.WFC_KERNEL_LOG) return;
 	const { boots, why } = readBoots();
+	// journalctl lists boots oldest first; 1..n count from the oldest, 0 and below back from the newest.
 	const [oldest] = boots;
 	if (why !== null || oldest === undefined) return;
 	const n = Number(boot);
