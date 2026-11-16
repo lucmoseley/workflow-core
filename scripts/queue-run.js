@@ -18,7 +18,7 @@
  * to a running command, whose exit this one then takes.
  *
  * Each wait is a `.suite-queue-exits.jsonl` line (lib/queue-exit-log.js) of
- * kind `other`, or `seat` under `--seat`.
+ * its slot's kind, `seat`, `tsc` or `gate`, or `other` with no slot flag.
  *
  * A COMMAND NAMING ITS TEST FILES WAITS AS A PART-SUITE (#5274, spec #5273
  * §7), as the guard counts it: it never takes or waits for the whole-suite
@@ -151,7 +151,7 @@ const TSC_REFUSAL =
  * the launch's own compiler (#4892).
  * @param {number} peakMb
  */
-const buildTscWait = (peakMb) => ({
+const buildTscWaitText = (peakMb) => ({
 	waiting: `waiting for the type-check slot: a \`tsc\` running, a suite starting (#3203), or MemAvailable, less what a climbing suite has yet to draw (#3416), under its ~${rungMb(peakMb)} MB rung, or Windows' own free memory under what it draws (#4557)`,
 	cap: "one `tsc` runs at a time (#3163)",
 	traceLimbs: true,
@@ -229,7 +229,6 @@ function readingOf(words, ports) {
 const READING_RANK = ["vitest", "queued", "queue"];
 
 /**
- * One unwrap run's reading, as readingOf answers.
  * @param {string[]} inner
  * @param {import("./lib/suite-launch.js").LaunchPorts} ports
  * @returns {string}
@@ -357,12 +356,6 @@ function sayTscHeld(err) {
 }
 
 /**
- * What a slot's wait builds: the queue it joins, the weight it joins with,
- * the wait options it builds from its marker's stamps, the exit a refusal
- * takes, the extra fields its exit lines carry, the place it prints before
- * waiting, and how its command starts once the wait ends in a run (#2918,
- * #3163, #3278, #5274).
- *
  * @typedef {{
  *   queue: Options,
  *   join: NonNullable<Parameters<typeof queueSeat>[0]>["join"],
@@ -386,9 +379,6 @@ const sayNoPlace = () => {
 };
 
 /**
- * Start the command handing the seat's ticket on in `handed`, or in no
- * variable where it is null.
- *
  * @param {string | null} handed
  * @returns {SlotWait["start"]}
  */
@@ -396,8 +386,6 @@ const handing = (handed) => (words, launch) =>
 	spawnCommand(words, { handed, ...launch });
 
 /**
- * A seat's wait: the suite queue joined once as a part-suite (#2918).
- *
  * @param {Options} options
  * @returns {SlotWait}
  */
@@ -411,17 +399,15 @@ const buildSeatWait = (options) => ({
 });
 
 /**
- * A `--tsc` wait (#3163): the type-check slot's queue is a directory of its
- * own. The launch is charged the peak of the compiler its `tsc` resolves to
- * from here, stamped on its marker for the suite queue's climb and on its
- * exit line for the replay (#4892). Under TSC_NO_WAIT_ENV it is one try
- * (#3278).
+ * The launch is charged the peak of the compiler its `tsc` resolves to from
+ * here, stamped on its marker for the suite queue's climb and on its exit
+ * line for the replay (#4892).
  *
  * @param {Options} options
  * @param {string[]} words
  * @returns {SlotWait}
  */
-function buildTscSlotWait(options, words) {
+function buildTscWait(options, words) {
 	const queue = {
 		...options,
 		queueDir: options.queueDir ?? defaultTscQueueDir(),
@@ -433,7 +419,7 @@ function buildTscSlotWait(options, words) {
 		gate:
 			options.gate ??
 			((/** @type {number} */ climbMb) => tscGate(climbMb, chargeMb)),
-		...buildTscWait(chargeMb),
+		...buildTscWaitText(chargeMb),
 	};
 	const noWait = process.env[TSC_NO_WAIT_ENV] === "1";
 	return {
@@ -502,8 +488,7 @@ function isNamedFilesRun(words) {
 /**
  * A gate seat's wait (#5274): the suite queue joined whole, role `gate`,
  * carrying who holds it and its charge, waiting with no bound, its place
- * printed on joining and at each change, its command started under its
- * ceiling and record.
+ * printed on joining and at each change.
  *
  * @param {Options} options
  * @param {string[]} words
@@ -594,17 +579,14 @@ function readTicket(session) {
 		return readClaimedIssues(session)[0] ?? null;
 	} catch {
 		/* An unreadable claim store costs the record line its ticket, never the
-		 * commit (#5274): `ticket` is a field the record carries, not a gate. */
+		 * commit (#5274). */
 		return null;
 	}
 }
 
 /**
- * What each slot kind is (#2918, #3163, #5274), one per slot flag and
- * `other` for a launch with none — "slot" naming the flag family, the gate
- * seat among them: why it refuses a command, the variable whose marker means
- * its slot is held already in this process tree, whether it runs at once
- * inside a running suite's tree, and its wait.
+ * One kind per slot flag and `other` for a launch with none (#2918, #3163,
+ * #5274), "slot" naming the flag family, the gate seat among them.
  *
  * @satisfies {Record<string, {
  *   refusal: (words: string[]) => string | null,
@@ -624,7 +606,7 @@ const SLOT_KINDS = {
 		refusal: suiteRefusedWith(TSC_REFUSAL),
 		heldMarkerEnv: TSC_SLOT_ENV,
 		runsAtOnceInSuite: () => false,
-		wait: buildTscSlotWait,
+		wait: buildTscWait,
 	},
 	gate: {
 		/* A gate's command is taken by its role, never by the classifier. */
@@ -646,7 +628,7 @@ const SLOT_FLAGS = /** @type {Exclude<Slot, "other">[]} */ (
 	Object.keys(SLOT_KINDS).filter((slot) => slot !== "other")
 );
 
-const FLAGS = Object.fromEntries(
+const SLOT_FLAG_SPEC = Object.fromEntries(
 	SLOT_FLAGS.map((slot) => [`--${slot}`, /** @type {const} */ ("boolean")]),
 );
 
@@ -671,7 +653,7 @@ function slotOf(flags) {
 async function main(argv, options = {}) {
 	const parsed = parseOrCode(argv, {
 		usage: USAGE,
-		flags: FLAGS,
+		flags: SLOT_FLAG_SPEC,
 		min: 1,
 		max: Number.POSITIVE_INFINITY,
 	});
