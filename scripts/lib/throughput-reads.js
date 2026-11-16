@@ -28,14 +28,16 @@ const GIT_LOG_TIMEOUT_MS = 20_000;
  * @typedef {import("./refill-breaker.js").BreakerLaunch & {seat: string,
  *   copiedFrom?: string}} SeatedLaunch
  * @typedef {import("./refill-breaker.js").SessionTimeline} SessionTimeline
+ * @typedef {import("./loop-jobs.js").TimedJob} TimedJob
  * @typedef {import("./refill-breaker.js").BreakerEvent} BreakerEvent
  * @typedef {import("./gate-seat.js").GateRun} GateRun
- * @typedef {{checkout: string, commits: number|null, workingHours: number|null,
+ * @typedef {{checkout: string, commits: number|null, workingHours: number,
+ *   jobsRead: boolean,
  *   gateRuns: number|null, state: import("./refill-breaker.js").BreakerState|null,
  *   events: BreakerEvent[]|null}} RepoThroughput a served checkout's window for
  *   the morning review: its commits on `origin/main`, its loop sessions'
- *   working hours (null where the loop-job record will not read), its gate
- *   runs, its breaker's state at the window's end and the record's events in
+ *   working hours, whether the loop-job record read (where not, the hours
+ *   are the state's launches' alone), its gate runs, its breaker's state at the window's end and the record's events in
  *   the window
  */
 
@@ -99,13 +101,14 @@ const readBreakerRecord = () =>
 /**
  * Job `jobId`'s timeline on `seat`, its last row counted to `endAt`; null
  * where it is absent, will not read, or was last written before `since`.
- * @param {{seat: string, jobId: string, endAt: number}} job
+ * @param {TimedJob} job
  * @param {number} since ms
  * @returns {SessionTimeline|null}
  */
 function readJobTimeline({ seat, jobId, endAt }, since) {
 	const file = path.join(jobDirPath(seat, jobId), "timeline.jsonl");
 	let mtime;
+	/* A stat, not a read: most of a month's jobs fall before the window. */
 	try {
 		mtime = fs.statSync(file).mtimeMs;
 	} catch {
@@ -136,42 +139,86 @@ const lineageOf = (l) =>
 	);
 
 /**
- * Each of `roots`' loop sessions that may have worked after `loOf(root)`, as
- * job timelines (#5289): every job the loop-job record names in the checkout,
- * and every job `launches` names there, which covers one the record predates
- * or would not take. A job's last row counts to its launch's finish where it
- * is that launch's current job, else to `hi`. One last written more than the
- * silence cap before the window counts nothing in it, so is not read.
- * Null for every root where the record will not read.
- * @param {{roots: string[], launches: SeatedLaunch[],
- *   loOf: (root: string) => number, hi: number}} window
- * @returns {Record<string, SessionTimeline[]|null>}
+ * The end the loop-job record gives each job it names, null for one it records
+ * no end of since its last start.
+ * @param {Record<string, unknown>[]} record
+ * @returns {Map<string, TimedJob & {endedAt: number|null}>}
  */
-function readLoopSessions({ roots, launches, loOf, hi }) {
-	const record = readRows(loopJobsPath());
-	if (record === null) return Object.fromEntries(roots.map((r) => [r, null]));
-	/** @type {Map<string, {root: string, seat: string, jobId: string, endAt: number}>} */
+function foldLoopJobs(record) {
 	const jobs = new Map();
-	/** @param {{root: string, seat: string, jobId: string, endAt: number}} job */
-	const add = (job) => {
-		const key = jobKeyOf(job);
-		if (!jobs.has(key)) jobs.set(key, job);
-	};
-	for (const l of launches)
-		if (l.jobId !== null)
-			add({ ...l, jobId: l.jobId, endAt: l.finishedAt ?? hi });
-	for (const l of launches)
-		for (const jobId of lineageOf(l)) add({ ...l, jobId, endAt: hi });
 	for (const r of record)
-		if (isLoopJob(r)) add({ ...r, root: r.repo, endAt: hi });
-	return Object.fromEntries(
-		roots.map((root) => [
-			root,
-			[...jobs.values()]
-				.filter((j) => j.root === root)
-				.flatMap((j) => readJobTimeline(j, loOf(root) - SILENCE_CAP_MS) ?? []),
-		]),
-	);
+		if (isLoopJob(r))
+			jobs.set(String(jobKeyOf(r)), {
+				root: r.repo,
+				seat: r.seat,
+				jobId: r.jobId,
+				endAt: 0,
+				endedAt: r.endedAt === undefined ? null : Date.parse(r.endedAt),
+			});
+	return jobs;
+}
+
+/**
+ * The jobs `launches` name, each counted to its launch's finish where it is
+ * that launch's current job, else to `now`.
+ * @param {SeatedLaunch[]} launches
+ * @param {number} now
+ * @returns {TimedJob[]}
+ */
+const launchJobsOf = (launches, now) => [
+	...launches.flatMap((l) =>
+		l.jobId === null
+			? []
+			: [{ ...l, jobId: l.jobId, endAt: l.finishedAt ?? now }],
+	),
+	...launches.flatMap((l) =>
+		lineageOf(l).map((jobId) => ({ ...l, jobId, endAt: now })),
+	),
+];
+
+/**
+ * Each of `roots`' loop sessions that may have worked after
+ * `lookbackOf(root)`, as job timelines (#5289): every job the loop-job record
+ * names in the checkout, and every job `launches` names there, which covers
+ * one the record predates or would not take, and every launch where the record
+ * will not read. A job's last row counts to the end the record gives it, else
+ * to its launch's finish where it is that launch's current job, else to `now`;
+ * one that ended before the window is not read.
+ * @param {{roots: string[], launches: SeatedLaunch[],
+ *   lookbackOf: (root: string) => number, now: number}} window
+ * @returns {{byRoot: Record<string, SessionTimeline[]>, recordRead: boolean}}
+ */
+function readLoopSessions({ roots, launches, lookbackOf, now }) {
+	const record = readRows(loopJobsPath());
+	const recorded = foldLoopJobs(record ?? []);
+	/** @type {Map<string, TimedJob>} */
+	const timed = new Map();
+	for (const job of [
+		...launchJobsOf(launches, now),
+		...[...recorded.values()].map((j) => ({ ...j, endAt: now })),
+	]) {
+		const key = String(jobKeyOf(job));
+		if (!timed.has(key))
+			timed.set(key, {
+				root: job.root,
+				seat: job.seat,
+				jobId: job.jobId,
+				endAt: recorded.get(key)?.endedAt ?? job.endAt,
+			});
+	}
+	return {
+		byRoot: Object.fromEntries(
+			roots.map((root) => [
+				root,
+				[...timed.values()]
+					.filter((j) => j.root === root && j.endAt > lookbackOf(root))
+					.flatMap(
+						(j) => readJobTimeline(j, lookbackOf(root) - SILENCE_CAP_MS) ?? [],
+					),
+			]),
+		),
+		recordRead: record !== null,
+	};
 }
 
 /**
@@ -189,12 +236,7 @@ const readCommitsOf = (l) =>
  * @returns {import("./refill-breaker.js").ThroughputRead}
  */
 function readThroughput({ roots, launches, lookbackOf, now }) {
-	const sessions = readLoopSessions({
-		roots,
-		launches,
-		loOf: lookbackOf,
-		hi: now,
-	});
+	const sessions = readLoopSessions({ roots, launches, lookbackOf, now });
 	return {
 		byRoot: Object.fromEntries(
 			roots.map((root) => [
@@ -202,7 +244,7 @@ function readThroughput({ roots, launches, lookbackOf, now }) {
 				{
 					commits: readMainCommits(root, lookbackOf(root)),
 					gateRuns: readGateRuns(root),
-					sessions: sessions[root] ?? null,
+					sessions: sessions.byRoot[root] ?? [],
 				},
 			]),
 		),
@@ -220,24 +262,24 @@ function readThroughput({ roots, launches, lookbackOf, now }) {
  */
 function readThroughputWindow({ roots, launches, lo, hi }) {
 	const record = readBreakerRecord();
-	const sessionsByRoot = readLoopSessions({
+	const sessions = readLoopSessions({
 		roots,
 		launches,
-		loOf: () => lo,
-		hi,
+		lookbackOf: () => lo,
+		now: hi,
 	});
 	/** @param {string} at */
 	const inWindow = (at) => Date.parse(at) > lo && Date.parse(at) <= hi;
 	return roots.map((root) => {
 		const commits = readMainCommits(root, lo);
 		const gateRuns = readGateRuns(root);
-		const sessions = sessionsByRoot[root] ?? null;
 		return {
 			checkout: path.basename(root),
 			commits:
 				commits === null ? null : commits.filter((c) => c.at <= hi).length,
 			workingHours:
-				sessions === null ? null : workingMsOf(sessions, lo, hi) / 3_600_000,
+				workingMsOf(sessions.byRoot[root] ?? [], lo, hi) / 3_600_000,
+			jobsRead: sessions.recordRead,
 			gateRuns:
 				gateRuns === null
 					? null

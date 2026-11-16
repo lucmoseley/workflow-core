@@ -1234,6 +1234,7 @@ describe("the Throughput section (#5275)", () => {
 		checkout: "wfc",
 		commits: 30,
 		workingHours: 20,
+		jobsRead: true,
 		gateRuns: 12,
 		state: { state: "closed", since: null },
 		events: [],
@@ -1330,11 +1331,8 @@ describe("the Throughput section (#5275)", () => {
 		const section = sectionOf([
 			repo({ checkout: "a", events: null, state: null }),
 			repo({ checkout: "b", gateRuns: null }),
-			repo({ checkout: "c", workingHours: null }),
+			repo({ checkout: "c", jobsRead: false }),
 		]);
-		expect(section).toContain(
-			"- c: 30 commits, working hours not read, no rate, 12 gate runs — breaker closed",
-		);
 		expect(section).toContain("- c: loop-job record\n");
 		expect(section).toContain(
 			"- a: 30 commits, 20.0 h working, 1.50 per working session-hour, 12 gate runs — breaker not read\n",

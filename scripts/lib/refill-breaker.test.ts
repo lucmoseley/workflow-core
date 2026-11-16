@@ -204,7 +204,7 @@ const FROM_LAUNCHES: SessionTimeline[] = [];
 const readOf = (
 	over: Partial<ThroughputRead> & {
 		commits?: { sha: string; at: number }[] | null;
-		sessions?: SessionTimeline[] | null;
+		sessions?: SessionTimeline[];
 	} = {},
 ): ThroughputRead => {
 	const {
@@ -285,12 +285,14 @@ describe("the breaker's steps", () => {
 		});
 	});
 
-	it("moves nowhere where the commits or the sessions will not read", () => {
-		for (const read of [readOf({ commits: null }), readOf({ sessions: null })])
-			expect(step(busy(3), read)).toEqual({ events: [], room: {} });
+	it("moves nowhere where the commits will not read", () => {
+		expect(step(busy(3), readOf({ commits: null }))).toEqual({
+			events: [],
+			room: {},
+		});
 	});
 
-	it("counts the hours of sessions no launch it is given names", () => {
+	it("counts the hours of sessions no launch it is given names (#5289)", () => {
 		const sessions = Array.from({ length: 3 }, () =>
 			working(NOW - 6 * HOUR, NOW),
 		);

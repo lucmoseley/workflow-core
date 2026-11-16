@@ -63,9 +63,10 @@ const WORKING_STATES = new Set(["working", "running"]);
  *   gate-run budget
  * @property {Record<string, {commits: {sha: string, at: number}[]|null,
  *   gateRuns: import("./gate-seat.js").GateRun[]|null,
- *   sessions: SessionTimeline[]|null}>} byRoot each served checkout's
- *   non-merge `origin/main` commits and its loop sessions' job timelines since
- *   its lookback, and its gate-run record; null where any will not read
+ *   sessions: SessionTimeline[]}>} byRoot each served checkout's non-merge
+ *   `origin/main` commits and its loop sessions' job timelines since its
+ *   lookback, and its gate-run record; commits or runs null where they will
+ *   not read
  * @property {(l: BreakerLaunch) => string[]} commitsOf the shas `l`'s
  *   sessions committed in its checkout
  * @property {BreakerEvent[]|null} record null where it will not read
@@ -224,7 +225,7 @@ const buildEvent = (root, event, { reading, now }, l) => ({
  * launch room it leaves there, null where it bars nothing.
  * @param {{root: string, state: BreakerState, launches: BreakerLaunch[],
  *   reading: Reading|null, read: ThroughputRead, now: number}} step
- *   `reading`, null where its commits or sessions will not read, which moves a closed
+ *   `reading`, null where its commits will not read, which moves a closed
  *   breaker nowhere
  * @returns {{event: BreakerEvent|null, room: number|null}}
  */
@@ -285,20 +286,19 @@ function stepBreakers({ roots, launches, read, now }) {
 	for (const root of roots) {
 		const state = foldBreaker(record, root);
 		const commits = read.byRoot[root]?.commits ?? null;
-		const sessions = read.byRoot[root]?.sessions ?? null;
+		const sessions = read.byRoot[root]?.sessions ?? [];
 		const from = Math.max(
 			now - BREAKER_WINDOW_MS,
 			state.state === "closed" ? (state.since ?? 0) : 0,
 		);
-		const reading =
-			commits && sessions
-				? readingOf({
-						commitTimes: commits.map((c) => c.at),
-						sessions,
-						from,
-						to: now,
-					})
-				: null;
+		const reading = commits
+			? readingOf({
+					commitTimes: commits.map((c) => c.at),
+					sessions,
+					from,
+					to: now,
+				})
+			: null;
 		const step = stepBreaker({ root, state, launches, reading, read, now });
 		if (step.event) events.push(step.event);
 		if (step.room !== null) room[root] = step.room;
@@ -319,6 +319,7 @@ const foldBreakerAt = (events, root, at) =>
 	);
 
 module.exports = {
+	BREAKER_RETAIN_MS,
 	SILENCE_CAP_MS,
 	appendBreakerEvents,
 	breakerRecordPath,

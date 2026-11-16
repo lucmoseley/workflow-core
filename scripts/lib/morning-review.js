@@ -569,11 +569,11 @@ function buildTransitionsText(events) {
  */
 function buildThroughputLine(r) {
 	const rate =
-		r.commits === null || r.workingHours === null || r.workingHours === 0
+		r.commits === null || r.workingHours === 0
 			? "no rate"
 			: `${(r.commits / r.workingHours).toFixed(2)} per working session-hour`;
 	return [
-		`- ${isThroughputFlagged(r) ? "**flagged** " : ""}${r.checkout}: ${r.commits === null ? "commits not read" : `${r.commits} commits`}, ${r.workingHours === null ? "working hours not read" : `${hours(r.workingHours)} working`}, ${rate}, ${r.gateRuns === null ? "gate runs not read" : `${r.gateRuns} gate runs`}`,
+		`- ${isThroughputFlagged(r) ? "**flagged** " : ""}${r.checkout}: ${r.commits === null ? "commits not read" : `${r.commits} commits`}, ${hours(r.workingHours)} working, ${rate}, ${r.gateRuns === null ? "gate runs not read" : `${r.gateRuns} gate runs`}`,
 		buildBreakerText(r.state),
 		...(r.events === null ? [] : buildTransitionsText(r.events)),
 	].join(" — ");
@@ -593,7 +593,7 @@ function renderThroughputLines(reading) {
 					const what = [
 						...(r.events === null ? ["breaker record"] : []),
 						...(r.gateRuns === null ? ["gate-run record"] : []),
-						...(r.workingHours === null ? ["loop-job record"] : []),
+						...(r.jobsRead ? [] : ["loop-job record"]),
 					];
 					return what.length === 0
 						? []

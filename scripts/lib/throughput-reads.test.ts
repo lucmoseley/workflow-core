@@ -11,8 +11,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { recordNewJobs } from "./loop-jobs.js";
+import { recordJobs } from "./loop-jobs.js";
 import { appendBreakerEvents } from "./refill-breaker.js";
+import { readState, type Transition, updateState } from "./refill-state.js";
 import { readThroughput, readThroughputWindow } from "./throughput-reads.js";
 
 type SeatedLaunch = import("./refill-breaker.js").BreakerLaunch & {
@@ -33,15 +34,23 @@ const HOUR = 3_600_000;
 const HI = Date.parse("2026-11-16T07:00:00Z");
 const LO = HI - 24 * HOUR;
 
-/** A job on `seat` whose timeline works from `start` for `minutes`, then is done. */
-function writeJob(seat: string, jobId: string, start: number, minutes = 30) {
+/**
+ * A job on `seat` whose timeline works from `start`, then after `minutes`
+ * writes `last`: done, or a working row a kill left last.
+ */
+function writeJob(
+	seat: string,
+	jobId: string,
+	start: number,
+	{ minutes = 30, last = "done" } = {},
+) {
 	const dir = path.join(seat, "jobs", jobId);
 	fs.mkdirSync(dir, { recursive: true });
 	const row = (at: number, state: string) =>
 		JSON.stringify({ at: new Date(at).toISOString(), state });
 	fs.writeFileSync(
 		path.join(dir, "timeline.jsonl"),
-		`${row(start, "working")}\n${row(start + minutes * 60_000, "done")}\n`,
+		`${row(start, "working")}\n${row(start + minutes * 60_000, last)}\n`,
 	);
 }
 
@@ -128,34 +137,83 @@ describe("the breaker's record", () => {
 	});
 });
 
-describe("a checkout's loop sessions", () => {
+describe("a checkout's loop sessions (#5289)", () => {
+	const windowOf = (launches: SeatedLaunch[] = []) =>
+		readThroughputWindow({ roots: ["/srv/dv"], launches, lo: LO, hi: HI })[0];
 	const hoursOf = (launches: SeatedLaunch[] = []) =>
-		readThroughputWindow({ roots: ["/srv/dv"], launches, lo: LO, hi: HI })[0]
-			?.workingHours;
+		windowOf(launches)?.workingHours;
+	const ignore = () => undefined;
 
-	it("counts every job the loop-job record names in the window, past the 50 finished launches the state keeps", () => {
+	it("counts every finished launch in the window once the state has trimmed it to 50", () => {
 		const seat = path.join(tmp, "seat");
-		const jobs = Array.from({ length: 60 }, (_, i) => ({
-			root: "/srv/dv",
-			seat,
-			jobId: `j${i}`,
+		const launches = Array.from({ length: 60 }, (_, i) => {
+			const start = LO + i * 20 * 60_000;
+			writeJob(seat, `j${i}`, start);
+			return {
+				...launchOf(seat, `j${i}`),
+				prompt: "/implement 1",
+				launchedAt: start,
+				finishedAt: null as number | null,
+			};
+		});
+		const set =
+			(next: SeatedLaunch[]): Transition =>
+			(st) => ({ ...st, launches: next as never });
+		updateState(set(launches), ignore);
+		const finished = launches.map((l) => ({
+			...l,
+			finishedAt: l.launchedAt + 30 * 60_000,
 		}));
-		for (const [i, j] of jobs.entries())
-			writeJob(seat, j.jobId, LO + i * 20 * 60_000);
-		recordNewJobs([], jobs, { now: LO, log: () => undefined });
-		expect(hoursOf()).toBe(30);
+		updateState(set(finished), ignore);
+		updateState(set(finished.slice(-50)), ignore);
+		const kept = readState(ignore).launches as unknown as SeatedLaunch[];
+		expect(kept).toHaveLength(50);
+		expect(hoursOf(kept)).toBe(30);
 	});
 
-	it("counts a copy's original job as well as the copy", () => {
+	it("counts a job's last row only to the end the record gives it", () => {
 		const seat = path.join(tmp, "seat");
-		writeJob(seat, "orig", HI - 3 * HOUR);
+		writeJob(seat, "killed", HI - 3 * HOUR, { minutes: 0, last: "working" });
+		const l = launchOf(seat, "killed", {
+			finishedAt: HI - 3 * HOUR + 10 * 60_000,
+		});
+		recordJobs([], [l], { now: HI, log: ignore });
+		expect(hoursOf()).toBeCloseTo(10 / 60);
+	});
+
+	it("counts a copy's original job to the copy's start, as well as the copy", () => {
+		const seat = path.join(tmp, "seat");
+		writeJob(seat, "orig", HI - 2.5 * HOUR, { minutes: 0, last: "working" });
 		writeJob(seat, "copy", HI - 2 * HOUR);
+		const orig = launchOf(seat, "orig", { finishedAt: null });
 		const copy = launchOf(seat, "copy", {
 			copiedFrom: "orig",
 			pastSessionIds: ["orig-session"],
 			finishedAt: null,
 		});
+		recordJobs([], [orig], { now: HI - 2.5 * HOUR, log: ignore });
+		recordJobs([orig], [copy], { now: HI - 2 * HOUR, log: ignore });
 		expect(hoursOf([copy])).toBe(1);
+	});
+
+	it("counts a launch's current job to its finish, dropping a malformed row", () => {
+		const seat = path.join(tmp, "seat");
+		const dir = path.join(seat, "jobs", "j1");
+		fs.mkdirSync(dir, { recursive: true });
+		const row = (at: number) =>
+			JSON.stringify({
+				at: new Date(at).toISOString(),
+				state: "working",
+				detail: "",
+			});
+		fs.writeFileSync(
+			path.join(dir, "timeline.jsonl"),
+			`${row(HI - 2 * HOUR)}\n{"at":1}\n${row(HI - 1.5 * HOUR)}\n`,
+		);
+		const l = launchOf(seat, "j1", {
+			finishedAt: HI - 1.5 * HOUR + 10 * 60_000,
+		});
+		expect(hoursOf([l])).toBeCloseTo(0.5 + 10 / 60);
 	});
 
 	it("counts a job named by both the record and a launch once, and none of another checkout's", () => {
@@ -163,10 +221,11 @@ describe("a checkout's loop sessions", () => {
 		writeJob(seat, "j1", HI - 2 * HOUR);
 		writeJob(seat, "other", HI - 2 * HOUR);
 		const l = launchOf(seat, "j1");
-		recordNewJobs([], [l, { root: "/srv/other", seat, jobId: "other" }], {
-			now: LO,
-			log: () => undefined,
-		});
+		recordJobs(
+			[],
+			[l, { root: "/srv/other", seat, jobId: "other", finishedAt: null }],
+			{ now: LO, log: ignore },
+		);
 		expect(hoursOf([l])).toBe(0.5);
 	});
 
@@ -175,10 +234,19 @@ describe("a checkout's loop sessions", () => {
 		expect(hoursOf([launchOf(seat, "gone")])).toBe(0);
 	});
 
-	it("is null where the loop-job record will not read", () => {
+	it("counts the launches alone where the record will not read, and says so", () => {
+		const seat = path.join(tmp, "seat");
+		writeJob(seat, "j1", HI - 2 * HOUR);
+		const l = launchOf(seat, "j1");
 		fs.mkdirSync(path.join(tmp, "refill", ".refill-jobs.jsonl"));
-		expect(hoursOf()).toBeNull();
-		expect(tickRead("/srv/dv").byRoot["/srv/dv"]?.sessions).toBeNull();
+		expect(windowOf([l])).toMatchObject({ workingHours: 0.5, jobsRead: false });
+		const read = readThroughput({
+			roots: ["/srv/dv"],
+			launches: [l],
+			lookbackOf: () => LO,
+			now: HI,
+		});
+		expect(read.byRoot["/srv/dv"]?.sessions).toHaveLength(1);
 	});
 });
 
@@ -238,6 +306,7 @@ describe("readThroughputWindow", () => {
 			checkout: "dv",
 			commits: null,
 			workingHours: 1,
+			jobsRead: true,
 			gateRuns: null,
 			state: { state: "open", since: hi - Hour },
 			events: [ev(hi - Hour, "reopen")],
