@@ -98,7 +98,7 @@ const { readDirtyTracked, gitRead } = require("./lib/dirty-tree.js");
 const { readDirtyTrackedAsync } = require("./lib/dirty-tree-async.js");
 const { mapLimit } = require("./lib/gh.js");
 const { shellQuote } = require("./lib/sh-quote.js");
-const { gitCommonDir, gitReader, GIT_TIMEOUT_MS } = require("./lib/git.js");
+const { gitCommonDir, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { adoptHostRoot } = require("./lib/host-root.js");
 const { worktreeLabel, worktreeOwners } = require("./lib/session-worktrees.js");
 const { readLinkedWorktrees } = require("./lib/worktree-paths.js");
@@ -117,7 +117,7 @@ const { capMs } = require("./lib/cap-ms.js");
 const core = require("./lib/arbiter-core");
 const store = require("./lib/arbiter-store");
 const { caught } = require("./lib/caught.js");
-const { landingCutOver } = require("./lib/cutover.js");
+const { isCutOver } = require("./lib/cutover.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
 const { takesLabel } = require("./lib/takes-label.js");
 
@@ -1070,7 +1070,7 @@ async function run(ctx) {
 			"git status would not answer, so what is uncommitted is unknown.",
 		);
 
-	const cutOver = landingCutOver(gitReader(root, GIT_TIMEOUT_MS));
+	const cutOver = isCutOver(root);
 	const checkout = { root, worktree: null };
 	const { linked, unread, youngIn, ...walked } = await readLinkedDirt(root, {
 		hours,

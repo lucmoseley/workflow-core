@@ -167,7 +167,7 @@
 		".agents/skills/wayfinder/SKILL.md": {
 			"editedHash": "5e0542194257275c80b396a085e6aea2359aa50bb09e752726c0ef7e2941f0b2",
 			"issue": 4633,
-			"why": "the hand-off check after claiming (#2391, #4244, #4506); the HITL paragraph's house-decision gloss and its research-settled ticket line (#1701, #1706); v1.3.2's line that wayfinder: labels are the only labels a map and its tickets carry declined, since every map and ticket here also carries a takes: label (docs/agents/triage-labels.md); step 5's research subagent appends to .claude/tmp/research-<name>.md, posted on the ticket, in place of a pushed research/<name> branch, which branch-publish-landing refuses (#2335, #4633)"
+			"why": "the hand-off check after claiming (#2391, #4244, #4506); the HITL paragraph's house-decision gloss and its research-settled ticket line (#1701, #1706); v1.3.2's line that wayfinder: labels are the only labels a map and its tickets carry declined, since every map and ticket here also carries a takes: label (docs/agents/triage-labels.md); step 5's research subagent appends to .claude/tmp/research-<name>.md, posted on the ticket, in place of a pushed research/<name> branch, which branch-publish refuses (#2335, #4633)"
 		},
 		".agents/skills/writing-for-agents/SKILL.md": {
 			"editedHash": "132fe4536311a1f8c04ea6343104bed4d05a3402cb711474828d75bb4605280b",

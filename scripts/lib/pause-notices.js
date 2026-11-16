@@ -24,7 +24,8 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { readText } = require("./file-read.js");
-const { NO_PROGRESS_RUN, buildPauseIssueText } = require("./refill-decide.js");
+const { buildPauseIssueText } = require("./refill-decide.js");
+const { NO_PROGRESS_RUN } = require("./launch-room.js");
 const { refillPath } = require("./refill-dir.js");
 const {
 	buildNoticeBody,

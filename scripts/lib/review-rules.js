@@ -135,7 +135,7 @@ function decide(skill, ctx) {
 				"review-standards-axis-base",
 				"review-deviations-read",
 				"review-finding-destination",
-				"review-ultra-axis-landing",
+				"review-ultra-axis",
 			],
 		};
 	if (standards.state === "local")
@@ -147,7 +147,7 @@ function decide(skill, ctx) {
 				"review-standards-axis-local",
 				"review-deviations-read",
 				"review-finding-destination",
-				"review-ultra-axis-landing",
+				"review-ultra-axis",
 			],
 		};
 	if (standards.state === "neither")
@@ -159,7 +159,7 @@ function decide(skill, ctx) {
 				"review-standards-axis-absent",
 				"review-deviations-read",
 				"review-finding-destination",
-				"review-ultra-axis-landing",
+				"review-ultra-axis",
 			],
 		};
 	return {
@@ -170,7 +170,7 @@ function decide(skill, ctx) {
 			"review-standards-axis",
 			"review-deviations-read",
 			"review-finding-destination",
-			"review-ultra-axis-landing",
+			"review-ultra-axis",
 		],
 	};
 }

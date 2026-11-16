@@ -376,7 +376,7 @@
 					"text": "EVERY REVIEW FINDING NEEDS A DESTINATION"
 				},
 				{
-					"id": "review-ultra-axis-landing",
+					"id": "review-ultra-axis",
 					"core": "guard-review-rules",
 					"kind": "inject",
 					"text": "session-checkout.js land`. NEVER START ONE UNASKED"
@@ -551,13 +551,13 @@
 					]
 				},
 				{
-					"id": "branch-publish-landing",
+					"id": "branch-publish",
 					"core": "guard-branch-publish",
 					"kind": "deny",
 					"text": "WORK LANDS THROUGH YOUR SESSION'S QUEUE REF"
 				},
 				{
-					"id": "branch-publish-landing-fallback",
+					"id": "branch-publish-fallback",
 					"core": "guard-branch-publish",
 					"kind": "deny",
 					"text": [
@@ -566,13 +566,13 @@
 					]
 				},
 				{
-					"id": "main-rewind-landing",
+					"id": "main-remote-rewind",
 					"core": "guard-branch-publish",
 					"kind": "deny",
 					"text": "ONLY THE QUEUE LANDER MOVES `main`, AND NEVER BACKWARDS"
 				},
 				{
-					"id": "main-rewind-landing-fallback",
+					"id": "main-remote-rewind-fallback",
 					"core": "guard-branch-publish",
 					"kind": "deny",
 					"text": [
@@ -714,7 +714,7 @@
 					"text": "THE SHARED WORKING TREE STAYS ON `main`."
 				},
 				{
-					"id": "branch-shared-tree-landing",
+					"id": "branch-shared-tree-cutover",
 					"core": "guard-branch",
 					"kind": "inject",
 					"routes": ["hook"],
@@ -763,7 +763,7 @@
 					"text": "COMMIT `docs/reference-roadmap.html` AND `docs/roadmap-digest.md` TOGETHER"
 				},
 				{
-					"id": "push-cadence-landing",
+					"id": "push-cadence",
 					"core": "guard-commit-form",
 					"kind": "inject",
 					"text": "ONCE THE TESTS YOU TOUCHED PASS"
@@ -1026,7 +1026,7 @@
 					"text": "CI RUNS NO `next build`"
 				},
 				{
-					"id": "ci-status-lag-landing",
+					"id": "ci-status-lag",
 					"core": "guard-push-rules",
 					"kind": "inject",
 					"text": "IS TESTED BY THE QUEUE LANDER"
@@ -1575,7 +1575,7 @@
 				}
 			]
 		},
-		"check-landing-switch-on.js --notify": {
+		"check-main-checkout-cutover.js --notify": {
 			"needles": [
 				{
 					"id": "not-cut-over",
