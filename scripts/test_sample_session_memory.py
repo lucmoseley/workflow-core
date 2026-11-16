@@ -184,3 +184,47 @@ def test_a_pair_reads_unknown_where_a_half_is_gone_reused_or_unreadable():
     assert m.pair_pss_kb([(10, 500), (12, 502)], procs, pss) is None
     assert m.pair_pss_kb([(10, 500), (11, 999)], procs, pss) is None
     assert m.pair_pss_kb([(10, 500), (11, 501)], procs, {10: 300}.get) is None
+
+
+def test_a_live_gate_seat_and_its_subtree_are_left_out_of_the_session():
+    # session 1 → hook 2 → gate holder 3 → sh 4 → runner 5; 6 is a sibling
+    children = {1: [2, 6], 2: [3], 3: [4], 4: [5]}
+    procs = {1: (0, 10), 2: (1, 20), 3: (2, 30), 4: (3, 40), 5: (4, 50), 6: (1, 60)}
+    env = {4: "/q/gate.json", 5: "/q/gate.json"}
+    seats = m.gate_seat_pids(
+        m.descendants(1, children, {1}),
+        procs,
+        var_of=lambda pid, _name: env.get(pid),
+        marker_of={"/q/gate.json": {"pid": 3, "start": 30}}.get,
+    )
+    assert seats == {3}
+    assert sorted(m.descendants(1, children, {1} | seats)) == [2, 6]
+
+
+def test_a_process_carrying_the_seat_outside_the_holders_tree_still_counts():
+    # 6 inherited the variable but is no descendant of holder 3
+    procs = {1: (0, 10), 2: (1, 20), 3: (2, 30), 6: (1, 60)}
+    seats = m.gate_seat_pids(
+        [2, 3, 6],
+        procs,
+        var_of=lambda pid, _name: "/q/gate.json" if pid == 6 else None,
+        marker_of={"/q/gate.json": {"pid": 3}}.get,
+    )
+    assert seats == set()
+
+
+def test_a_dead_reused_or_unreadable_seat_marker_leaves_nothing_out():
+    procs = {1: (0, 10), 3: (1, 30), 4: (3, 40)}
+
+    def seats(marker):
+        return m.gate_seat_pids(
+            [3, 4],
+            procs,
+            var_of=lambda pid, _name: "/q/gate.json" if pid == 4 else None,
+            marker_of=lambda _path: marker,
+        )
+
+    assert seats({"pid": 3, "start": 30}) == {3}
+    assert seats({"pid": 99}) == set()  # holder gone
+    assert seats({"pid": 3, "start": 31}) == set()  # pid reused
+    assert seats(None) == set()  # marker unread or torn

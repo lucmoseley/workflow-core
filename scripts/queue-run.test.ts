@@ -388,6 +388,255 @@ describe("queue-run.js", () => {
 			},
 		);
 	});
+	describe("--gate, a commit gate's seat in the whole-suite slot (#5274)", () => {
+		const gateRun = ["--gate", "--", "bash test/all.sh"];
+		const gateOptions = (f: ReturnType<typeof fixture>, extra: object = {}) => {
+			const gateLog = path.join(f.dir, "gate-runs.jsonl");
+			return {
+				gateLog,
+				readGates: () =>
+					fs.existsSync(gateLog)
+						? fs
+								.readFileSync(gateLog, "utf8")
+								.split("\n")
+								.filter(Boolean)
+								.map((l) => JSON.parse(l))
+						: [],
+				options: f.options({
+					gateLog,
+					gateChargeMb: 2100,
+					ticket: 77,
+					inSuite: () => false,
+					...extra,
+				}),
+			};
+		};
+
+		it("joins whole, as role gate, and hands its command the seat in WFC_GATE_SEAT", async () => {
+			const f = fixture();
+			const g = gateOptions(f);
+			const done = main(gateRun, g.options);
+			await tick();
+			const [marker] = f.readMarkers();
+			const file = path.join(f.dir, marker as string);
+			const record = JSON.parse(fs.readFileSync(file, "utf8"));
+			expect(record).toMatchObject({
+				role: "gate",
+				chargeMb: 2100,
+				session: "s1",
+				command: "bash test/all.sh",
+			});
+			expect(record.part).toBeUndefined();
+			expect(f.spawned[0]).toMatchObject({
+				command: "sh",
+				args: ["-c", "bash test/all.sh"],
+			});
+			expect(f.spawned[0].opts.env?.WFC_GATE_SEAT).toBe(file);
+			expect(f.spawned[0].opts).toMatchObject({ detached: true });
+			f.spawned[0].child.emit("spawn");
+			f.spawned[0].child.emit("exit", 0, null);
+			expect(await done).toBe(0);
+			expect(f.readMarkers()).toEqual([]);
+			expect(f.readLog()).toEqual([
+				expect.objectContaining({ reason: "opened", kind: "gate" }),
+			]);
+			expect(g.readGates()).toEqual([
+				expect.objectContaining({
+					command: "bash test/all.sh",
+					session: "s1",
+					ticket: 77,
+					outcome: "pass",
+					peakTreeMb: 0,
+				}),
+			]);
+		});
+
+		it("takes the command by its role, never the classifier", async () => {
+			const f = fixture();
+			const g = gateOptions(f);
+			main(["--gate", "--", "npm", "run", "test"], g.options);
+			await tick();
+			expect(f.spawned).toHaveLength(1);
+		});
+
+		it("is never refused at the queue's bound, keeping its place", async () => {
+			const f = fixture();
+			const g = gateOptions(f, {
+				gate: () => ({ limb: "memory", mb: 100, rungMb: 3350 }),
+				timeoutMs: -1,
+			});
+			main(gateRun, g.options);
+			await tick();
+			expect(f.spawned).toEqual([]);
+			expect(f.err.join("")).not.toMatch(/refused/);
+			expect(f.readMarkers()).toHaveLength(1);
+		});
+
+		it("prints its place on joining and each time it changes", async () => {
+			const f = fixture();
+			const holder = path.join(f.dir, "wfc-suite-queue-20.json");
+			fs.writeFileSync(
+				holder,
+				JSON.stringify({
+					pid: 20,
+					at: 0,
+					spawned: true,
+					role: "gate",
+					repo: "design-vault",
+					session: "s9",
+					command: "bash test/all.sh",
+				}),
+			);
+			let polls = 0;
+			const g = gateOptions(f, {
+				alive: () => true,
+				gate: () => ({ limb: "count" }),
+				sleepFn: () => {
+					polls += 1;
+					if (polls === 2) fs.rmSync(holder);
+					return polls < 4
+						? Promise.resolve()
+						: new Promise(() => {
+								/* never settles */
+							});
+				},
+			});
+			main(gateRun, g.options);
+			for (let i = 0; i < 6; i++) await tick();
+			const places = f.err
+				.join("")
+				.split("\n")
+				.filter((l) => l.includes("position"));
+			expect(places).toHaveLength(2);
+			expect(places[0]).toMatch(
+				/position 2 for the whole-suite slot, held by design-vault, session s9 \(pid 20\), waited \d+s/,
+			);
+			expect(places[1]).toMatch(
+				/position 1 for the whole-suite slot, slot free/,
+			);
+		});
+
+		it("kills its command at the suite ceiling and reads red", async () => {
+			const f = fixture();
+			const fired: (() => void)[] = [];
+			const g = gateOptions(f, {
+				schedule: (onCeiling: () => void) => {
+					fired.push(onCeiling);
+					return () => fired.length;
+				},
+			});
+			const done = main(gateRun, g.options);
+			await tick();
+			f.spawned[0].child.emit("spawn");
+			for (const fire of fired) fire();
+			f.spawned[0].child.emit("exit", null, "SIGKILL");
+			expect(await done).toBe(1);
+			expect(f.err.join("")).toMatch(/SUITE CEILING/);
+			expect(g.readGates()).toEqual([
+				expect.objectContaining({ outcome: "ceiling" }),
+			]);
+		});
+
+		it.each([
+			[1, null, "red", 1],
+			[null, "SIGTERM", "killed", 143],
+		])(
+			"records an exit of %s / %s as %s",
+			async (code, signal, outcome, status) => {
+				const f = fixture();
+				const g = gateOptions(f);
+				const done = main(gateRun, g.options);
+				await tick();
+				f.spawned[0].child.emit("spawn");
+				f.spawned[0].child.emit("exit", code, signal);
+				expect(await done).toBe(status);
+				expect(g.readGates()).toEqual([expect.objectContaining({ outcome })]);
+			},
+		);
+
+		it("records its tree's PSS peak, sampled from spawn", async () => {
+			const f = fixture();
+			const samples = [300 * 1024, 900 * 1024, 500 * 1024];
+			const g = gateOptions(f, {
+				treePss: () => samples.shift() ?? 0,
+				sampleMs: 1,
+			});
+			const done = main(gateRun, g.options);
+			await tick();
+			Object.assign(f.spawned[0].child, { pid: 1 });
+			f.spawned[0].child.emit("spawn");
+			await new Promise((r) => setTimeout(r, 20));
+			f.spawned[0].child.emit("exit", 0, null);
+			await done;
+			expect(g.readGates()[0].peakTreeMb).toBe(900);
+		});
+
+		it("runs a launch inside a gate seat's tree at once, in the seat's slot", async () => {
+			const f = fixture();
+			const outer = path.join(f.dir, "wfc-suite-queue-20.json");
+			fs.writeFileSync(
+				outer,
+				JSON.stringify({ pid: 20, at: 0, role: "gate", spawned: true }),
+			);
+			const done = main(
+				["--", "node", "--test", "a.test.js"],
+				f.options({
+					env: { WFC_GATE_SEAT: outer },
+					pid: 40,
+					parentOf: (pid: number) => (pid > 10 ? pid - 10 : 1),
+					alive: () => true,
+					gate: () => ({ limb: "count" }),
+				}),
+			);
+			await tick();
+			expect(f.spawned).toHaveLength(1);
+			expect(f.readMarkers()).toEqual(["wfc-suite-queue-20.json"]);
+			f.spawned[0].child.emit("exit", 0, null);
+			expect(await done).toBe(0);
+		});
+
+		it("runs at once inside a running suite's tree, joining no queue, and is still recorded", async () => {
+			const f = fixture();
+			const g = gateOptions(f, {
+				inSuite: () => true,
+				gate: () => ({ limb: "count" }),
+			});
+			const done = main(gateRun, g.options);
+			await tick();
+			expect(f.readMarkers()).toEqual([]);
+			expect(f.spawned).toHaveLength(1);
+			f.spawned[0].child.emit("spawn");
+			f.spawned[0].child.emit("exit", 0, null);
+			expect(await done).toBe(0);
+			expect(g.readGates()).toEqual([
+				expect.objectContaining({ outcome: "pass", waitS: 0 }),
+			]);
+		});
+
+		it("reads a suite runner among its ancestors as inside a suite", () => {
+			const { readInSuite } = require("./lib/gate-seat.js");
+			const args: Record<number, string> = {
+				30: "sh -c bash test/all.sh",
+				20: "node /x/node_modules/.bin/vitest run",
+				10: "bash",
+			};
+			const parentOf = (pid: number) => (pid > 10 ? pid - 10 : 0);
+			const argsOf = (pid: number) => args[pid] ?? "";
+			expect(readInSuite({ pid: 40, parentOf, argsOf })).toBe(true);
+			args[20] = "node scripts/commit-paths.js -m x -- a";
+			expect(readInSuite({ pid: 40, parentOf, argsOf })).toBe(false);
+			args[20] = "python3 -m pytest scripts";
+			expect(readInSuite({ pid: 40, parentOf, argsOf })).toBe(true);
+		});
+
+		it("refuses --gate beside another slot flag", async () => {
+			const f = fixture();
+			expect(
+				await main(["--gate", "--seat", "--", "sh", "-c", "x"], f.options()),
+			).toBe(2);
+			expect(f.err.join("")).toMatch(/give one/);
+		});
+	});
 	describe("--tsc, the machine-wide type-check slot (#3163)", () => {
 		const typecheck = ["--tsc", "--", "sh", "-c", "tsc --noEmit"];
 		beforeEach(() => {

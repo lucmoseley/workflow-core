@@ -15,6 +15,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { caught } = require("./caught.js");
+const { GATE_ENV, GATE_ROLE, GATE_SEAT_DEFAULT_MB } = require("./gate-seat.js");
 const {
 	WHOLE_SUITE_MAX,
 	isNextRunnerLine,
@@ -97,7 +98,12 @@ const MARKER_STAMPS = [
 	...OTHER_STAMPS,
 	.../** @type {HoldStamp[]} */ (Object.keys(HOLD_STAMPS)),
 ];
-/** @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, part?: boolean, files?: number, spawned?: boolean } & { [K in MarkerStamp]?: boolean }} QueueRecord */
+/**
+ * A gate seat's marker also carries `repo`, `session` and `command`, who holds
+ * the slot as a waiting gate names it (lib/gate-seat.js).
+ * @typedef {{ repo: string | null, session: string | null, command: string }} SeatHolder
+ * @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, part?: boolean, files?: number, spawned?: boolean } & Partial<SeatHolder> & { [K in MarkerStamp]?: boolean }} QueueRecord
+ */
 /**
  * How a waiter's admission came out: `admitted`, or yielded to another launch
  * admitted on the same poll, which joined `behind` or `ahead` of it (#2622).
@@ -642,9 +648,10 @@ function readMarkers(dir, fsImpl = fs) {
  * since pids recycle (mantahostels#2034). Between them there is still no lease and no
  * expiry.
  *
- * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, clock?: () => number, role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight }} [options]
- *   `role` marks a waiter session admission reads: the lander (#2416),
- *   `chargeMb` what admission holds back for it (#3323);
+ * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, clock?: () => number, role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight, holder?: SeatHolder }} [options]
+ *   `role` marks a waiter session admission reads: the lander (#2416) or a
+ *   gate seat (#5274), `chargeMb` what admission holds back for it (#3323),
+ *   `holder` who a gate seat is;
  *   `weight` the admission weight the launch carries (#2931), a waiter with
  *   none, such as `queue-run.js`'s, joining whole. One resolving below the
  *   whole-slot bound joins `part`, a part-suite (#2558), with its resolved
@@ -658,6 +665,7 @@ function queueJoin({
 	role,
 	chargeMb,
 	weight,
+	holder,
 } = {}) {
 	const part = weight ? weighCarried(weight).part : false;
 	const files = part ? weight?.resolvedFiles : undefined;
@@ -674,6 +682,7 @@ function queueJoin({
 				...(chargeMb === undefined ? {} : { chargeMb }),
 				...(part ? { part } : {}),
 				...(typeof files === "number" ? { files } : {}),
+				...holder,
 			}),
 		);
 		return file;
@@ -1005,6 +1014,40 @@ function readTurn({
 }
 
 /**
+ * A whole-suite waiter's place for the slot (#5274): its 1-based position
+ * among the live whole-suite markers, its own and those joined ahead of it,
+ * and the slot's holder, the oldest of them spawned, else null. Unreadable,
+ * position 1 and no holder.
+ *
+ * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, alive?: typeof pidAlive }} [options]
+ * @returns {{ position: number, holder: QueueRecord | null }}
+ */
+function readSlotPlace({
+	queueDir = defaultQueueDir(),
+	queueFs = fs,
+	pid = process.pid,
+	alive = pidAlive,
+} = {}) {
+	const { markers, error } = readMarkers(queueDir, queueFs);
+	if (error) return { position: 1, holder: null };
+	const whole = markers
+		.map((m) => m.record)
+		.filter(
+			(r) => r.part !== true && (r.pid === pid || !isMarkerStale(r, { alive })),
+		)
+		.sort((a, b) => (joinedBefore(a, b) ? -1 : 1));
+	const mine = whole.find((r) => r.pid === pid) ?? {
+		pid,
+		at: Number.POSITIVE_INFINITY,
+	};
+	const ahead = whole.filter((r) => r.pid !== pid && joinedBefore(r, mine));
+	return {
+		position: ahead.length + 1,
+		holder: whole.find((r) => r.pid !== pid && r.spawned === true) ?? null,
+	};
+}
+
+/**
  * A held seat's turn (#4766): closed while the other queue holds an older
  * waiter the climb charge holds (`readPeerClimbHeld`), and on nothing else, a
  * seat skipping its own queue's order (#2918). Fails open on a queue directory that cannot be read, as `readTurn` does.
@@ -1202,9 +1245,11 @@ const PART_PASS_AGE_MS = 7 * 60 * 1000;
  * for it, 128 + its number (mantahostels#2034). */
 const QUEUE_SIGNALS = { SIGTERM: 143, SIGINT: 130, SIGHUP: 129 };
 
-/* Both guesses, set when the queue was built (mantahostels#2024) and never
- * measured: a 10 s poll asks the guard a few times a minute, and the wait is
- * bounded at 40 minutes. */
+/* The 10 s poll is a guess, set when the queue was built (mantahostels#2024)
+ * and never measured: it asks the guard a few times a minute. The 40-minute
+ * bound clears the measured wait (#5252): the p99 wait that ended in a run
+ * was 20.5 min over 31,402 waits in workflow-core, and 33 min in
+ * design-vault. A gate seat waits past it (queue-run.js `--gate`, #5274). */
 const QUEUE_POLL_MS = 10_000;
 const QUEUE_TIMEOUT_MS = 40 * 60 * 1000;
 
@@ -1238,12 +1283,11 @@ const WINDOWS_MAX_HOLD_MS = 10 * 60 * 1000;
 function gateDenies(
 	words = [],
 	read = (command, carried, climb) =>
-		require("./suite-concurrency-host.js").readGate(
-			command,
-			undefined,
-			carried,
-			climb,
-		),
+		require("./suite-concurrency-host.js").readGate(command, undefined, {
+			weight: carried,
+			climbMb: climb,
+			gateSeats: () => readGateSeats(),
+		}),
 	weight = null,
 	climbMb = 0,
 ) {
@@ -2011,7 +2055,62 @@ function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
 /** @typedef {{ queueDir?: string, queueFs?: typeof fs, pid?: number, clock?: () => number, alive?: (pid: number) => boolean, slots?: number }} QueueOptions */
 /** @typedef {ReturnType<typeof queueSeat>} QueueSeat */
 
+/**
+ * The live gate seats, queued or running, each with the charge admission holds
+ * for it: its marker's, else the default. Sweeps nothing.
+ * @param {{ queueDir?: string }} [options]
+ * @returns {{ pid: number, chargeMb: number, spawned: boolean }[]}
+ */
+function readLiveGates({ queueDir } = {}) {
+	return readLiveRoleMarkers(GATE_ROLE, { queueDir }).map((r) => ({
+		pid: r.pid,
+		chargeMb: Number.isFinite(r.chargeMb)
+			? Number(r.chargeMb)
+			: GATE_SEAT_DEFAULT_MB,
+		spawned: r.spawned === true,
+	}));
+}
+
+/**
+ * The live gate seats as the suite gate's count reads them (#5274): `held`,
+ * how many have spawned their command, and `under`, whether a process runs
+ * inside one — its environ naming a gate marker in GATE_ENV that `heldMarker`
+ * holds for it, the marker's pid among its ancestors. A process carrying the
+ * variable outside that tree is not under the seat.
+ * @param {{ queueDir?: string, environOf?: (pid: number) => string | null } & Parameters<typeof heldMarker>[1]} [options]
+ * @returns {import("./suite-ladder.js").GateSeats}
+ */
+function readGateSeats({ queueDir, environOf = readGateEnvOf, ...held } = {}) {
+	const count = readLiveGates({ queueDir }).filter((g) => g.spawned).length;
+	return {
+		held: count,
+		under: (pid) => {
+			if (pid === null) return false;
+			const file = environOf(pid);
+			if (!file) return false;
+			const seat = heldMarker(GATE_ENV, {
+				...held,
+				env: { [GATE_ENV]: file },
+				pid,
+			});
+			return seat?.record.role === GATE_ROLE;
+		},
+	};
+}
+
+/**
+ * The gate marker `pid`'s environ names, or null.
+ * @param {number} pid
+ */
+function readGateEnvOf(pid) {
+	const { readEnvironVar } = require("./proc-environ.js");
+	const read = readEnvironVar(pid, GATE_ENV);
+	return read.ok ? read.value : null;
+}
+
 module.exports = {
+	readGateSeats,
+	readLiveGates,
 	PART_PASS_AGE_MS,
 	WINDOWS_MAX_HOLD_MS,
 	turnOf,
@@ -2019,6 +2118,7 @@ module.exports = {
 	SEAT_ENV,
 	heldMarker,
 	heldSeat,
+	readSlotPlace,
 	defaultQueueDir,
 	readStartTimeOf,
 	isMarkerStale,

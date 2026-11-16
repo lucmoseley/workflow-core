@@ -1501,6 +1501,7 @@ function preLockTest(root, index, command, env) {
 	let start = Date.now();
 	const r = runInTree(root, tree.stdout.trim(), command, {
 		env,
+		gate: true,
 		onStart: () => {
 			err(
 				`${NAME}: running '${command}' before the commit takes the index lock.\n`,

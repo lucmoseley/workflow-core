@@ -1,0 +1,157 @@
+// @vitest-environment node
+/*
+ * gate-seat.js (#5274): a commit gate's seat in the suite queue. The markers
+ * and the gate-run record are real files in a scratch directory; process
+ * ancestry and environ are injected, being shapes a real process tree cannot
+ * stage. In the world, a wrong verdict counts one gate's three lanes as three
+ * whole suites and holds every other run out, lets a process that inherited
+ * the variable skip the count, or under-charges an unmeasured gate.
+ */
+import fs from "node:fs";
+import path from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import { mkScratchDir } from "./git-fixture";
+
+const {
+	GATE_SEAT_DEFAULT_MB,
+	appendGateRun,
+	gateSeatChargeMb,
+} = require("./gate-seat.js");
+const { readGateSeats, readLiveGates } = require("./suite-queue.js");
+const { runningSuites } = require("./suite-ladder.js");
+const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js");
+
+const dirs: string[] = [];
+afterEach(() => {
+	while (dirs.length > 0)
+		fs.rmSync(dirs.pop() as string, { recursive: true, force: true });
+});
+
+const queue = () => {
+	const dir = mkScratchDir("gate-seat-");
+	dirs.push(dir);
+	const marker = (record: object) => {
+		const pid = (record as { pid: number }).pid;
+		const file = path.join(dir, `wfc-suite-queue-${pid}.json`);
+		fs.writeFileSync(file, JSON.stringify({ at: 0, ...record }));
+		return file;
+	};
+	return { dir, marker };
+};
+
+/* 40 → 30 → 20 → 10: the seat's holder is the live test process, the
+ * runner under it 40. */
+const tree = (holder: number) => (pid: number) => {
+	if (pid === 30) return holder;
+	return pid > 10 ? pid - 10 : 1;
+};
+
+describe("the gate seat's charge", () => {
+	it("is the repo's declared gateSeatMb, else the whole-suite rung", () => {
+		expect(gateSeatChargeMb({ gateSeatMb: 2400 })).toBe(2400);
+		expect(gateSeatChargeMb({})).toBe(GATE_SEAT_DEFAULT_MB);
+		expect(gateSeatChargeMb(null)).toBe(3350);
+	});
+});
+
+describe("readLiveGates", () => {
+	it("reads every live gate marker, queued or running, with its charge", () => {
+		const q = queue();
+		q.marker({ pid: process.pid, role: "gate", chargeMb: 2100, spawned: true });
+		q.marker({ pid: 999_999_999, role: "gate" });
+		q.marker({ pid: process.ppid, role: "lander", chargeMb: 1 });
+		expect(readLiveGates({ queueDir: q.dir })).toEqual([
+			{ pid: process.pid, chargeMb: 2100, spawned: true },
+		]);
+	});
+});
+
+describe("readGateSeats, the count's reading of the seats", () => {
+	it("places a runner whose variable names a live seat among its ancestors under it", () => {
+		const q = queue();
+		const file = q.marker({ pid: process.pid, role: "gate", spawned: true });
+		const seats = readGateSeats({
+			queueDir: q.dir,
+			environOf: () => file,
+			parentOf: tree(process.pid),
+		});
+		expect(seats.held).toBe(1);
+		expect(seats.under(40)).toBe(true);
+	});
+
+	it("counts a process carrying the variable outside the seat's tree as itself", () => {
+		const q = queue();
+		const file = q.marker({ pid: process.pid, role: "gate", spawned: true });
+		const seats = readGateSeats({
+			queueDir: q.dir,
+			environOf: () => file,
+			parentOf: () => 1,
+		});
+		expect(seats.under(40)).toBe(false);
+	});
+
+	it("holds no slot for a seat still waiting", () => {
+		const q = queue();
+		q.marker({ pid: process.pid, role: "gate" });
+		expect(readGateSeats({ queueDir: q.dir }).held).toBe(0);
+	});
+});
+
+describe("runningSuites with a gate seat", () => {
+	// Lanes naming no file, each a whole suite on its own.
+	const lanes = [
+		{ pid: 40, args: "node --test lanes/a" },
+		{ pid: 41, args: "node --test lanes/b" },
+		{ pid: 42, args: "node --test lanes/c" },
+	];
+	const isOther = (words: string[]) => words[1] === "--test";
+
+	it("reads one gate with three lanes as one whole suite", () => {
+		expect(
+			runningSuites(lanes, isOther, () => null, {
+				held: 1,
+				under: () => true,
+			}),
+		).toEqual({
+			total: 1,
+			watchers: 0,
+			whole: 1,
+			workers: WHOLE_SUITE_WORKERS,
+		});
+	});
+
+	it("still counts a runner outside the seat", () => {
+		expect(
+			runningSuites(lanes, isOther, () => null, {
+				held: 1,
+				under: (pid: number | null) => pid !== 42,
+			}).whole,
+		).toBe(2);
+	});
+});
+
+describe("the gate-run record", () => {
+	it("appends one line per gate run with every field", () => {
+		const q = queue();
+		const file = path.join(q.dir, ".gate-runs.jsonl");
+		const run = {
+			at: new Date().toISOString(),
+			repo: "design-vault",
+			command: "bash test/all.sh",
+			session: "s1",
+			ticket: 433,
+			waitS: 120,
+			runS: 600,
+			outcome: "pass",
+			peakTreeMb: 2900,
+		};
+		expect(appendGateRun(file, run)).toBe(true);
+		expect(
+			fs
+				.readFileSync(file, "utf8")
+				.split("\n")
+				.filter(Boolean)
+				.map((l) => JSON.parse(l)),
+		).toEqual([run]);
+	});
+});

@@ -61,6 +61,7 @@ function fixture(config: object | null, staged = "app/x.ts"): string {
 		"scripts/lib/test-gate.js",
 		"scripts/lib/commit-key.js",
 		"scripts/lib/isolated-worktree.js",
+		"scripts/queue-run.js",
 		"scripts/lib/infer-commands.js",
 	]);
 	if (config) {

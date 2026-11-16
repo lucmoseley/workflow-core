@@ -16,7 +16,11 @@ Every --interval seconds, for each session `claude agents --json` lists:
         A process that detaches (`setsid`, a daemonised sweep) reparents out
         of the tree and is not counted; a nested listed session is left, with
         its subtree, to its own row, as admission's `descendantsPssKb` leaves
-        it (#2231).
+        it (#2231). A live gate seat's holder and its subtree are left out
+        too, as admission prices the seat on its own (#5274, spec #5273 §3):
+        a process whose environ names a gate-seat marker in WFC_GATE_SEAT is
+        under the seat only where that marker parses, its holder pid is
+        alive, and the holder is the process's ancestor.
 
 A descendant is tracked as an instance, keyed (session, pid, start time) so a
 recycled pid is a new instance, from its first sample to its last. Instances
@@ -76,6 +80,10 @@ INTERPRETERS = {"node", "bash", "sh", "npx", "npm", "uv"}
 SUBCOMMAND_TOOLS = {"git", "gh", "claude", "npm", "npx"}
 VALUE_FLAGS = {"-C", "-c", "-R", "--repo", "--prefix"}
 HOME = os.path.expanduser("~")
+# DUPLICATED BY HAND from scripts/lib/gate-seat.js's GATE_ENV and
+# lib/proc-stat.js's ANCESTOR_MAX_HOPS: move both, or neither.
+GATE_ENV = "WFC_GATE_SEAT"
+ANCESTOR_MAX_HOPS = 64
 
 
 def command_key(argv):
@@ -180,6 +188,77 @@ def cmdline(pid):
     return [a.decode("utf-8", "replace") for a in raw.split(b"\0") if a]
 
 
+def environ_var(pid, name):
+    """`name`'s value in `pid`'s environ, or None where it is unset or the
+    environ will not read (gone, or another user's)."""
+    try:
+        with open(f"/proc/{pid}/environ", "rb") as f:
+            raw = f.read()
+    except OSError:
+        # A process gone or not ours names no seat; it is sampled (#5274).
+        return None
+    prefix = f"{name}=".encode()
+    for entry in raw.split(b"\0"):
+        if entry.startswith(prefix):
+            return entry[len(prefix) :].decode("utf-8", "replace")
+    return None
+
+
+def read_marker(path):
+    """A suite-queue marker's record, or None where it will not read or parse."""
+    try:
+        with open(path) as f:
+            record = json.load(f)
+    except (OSError, ValueError):
+        # An unreadable marker confirms no seat, so nothing is left out (#5274).
+        return None
+    return record if isinstance(record, dict) else None
+
+
+def ancestors(pid, procs):
+    """`pid`'s ancestors off the proc table, nearest first, as
+    lib/proc-stat.js's readAncestorsOf walks them."""
+    chain, seen = [], {pid}
+    at = procs.get(pid, (0, 0))[0]
+    while at > 0 and at not in seen and len(chain) < ANCESTOR_MAX_HOPS:
+        seen.add(at)
+        chain.append(at)
+        at = procs.get(at, (0, 0))[0]
+    return chain
+
+
+def live_holder(record, procs):
+    """The marker's holder pid where it is alive and not reused, as
+    suite-queue.js's isMarkerStale judges it; else None."""
+    pid = record.get("pid")
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid not in procs:
+        return None
+    start = record.get("start")
+    if isinstance(start, int) and start > 0 and procs[pid][1] != start:
+        return None
+    return pid
+
+
+def gate_seat_pids(candidates, procs, var_of=environ_var, marker_of=read_marker):
+    """The holder pids of the live gate seats `candidates` run under: a
+    candidate carrying GATE_ENV is under its seat only where the marker it
+    names parses, its holder is alive, and the holder is the candidate's
+    ancestor, as suite-queue.js's heldMarker confirms it. A candidate carrying
+    the variable outside the holder's tree confirms nothing."""
+    holders, seats = {}, set()
+    for pid in candidates:
+        path = var_of(pid, GATE_ENV)
+        if not path:
+            continue
+        if path not in holders:
+            record = marker_of(path)
+            holders[path] = None if record is None else live_holder(record, procs)
+        holder = holders[path]
+        if holder is not None and holder in ancestors(pid, procs):
+            seats.add(holder)
+    return seats
+
+
 def meminfo():
     values = {}
     with open("/proc/meminfo") as f:
@@ -189,15 +268,16 @@ def meminfo():
     return values["MemAvailable"], values["SwapTotal"] - values["SwapFree"]
 
 
-def descendants(root, children, session_pids):
-    """Every pid under `root`, less any listed session and its subtree.
+def descendants(root, children, stops):
+    """Every pid under `root`, less each pid in `stops` and its subtree: a
+    listed session's, and a live gate seat's holder's.
 
     The stop is DUPLICATED BY HAND from scripts/lib/admission.js's
     descendantsPssKb: move both, or neither (#2231)."""
     out, stack = [], list(children.get(root, ()))
     while stack:
         pid = stack.pop()
-        if pid in session_pids:
+        if pid in stops:
             continue
         out.append(pid)
         stack.extend(children.get(pid, ()))
@@ -331,6 +411,15 @@ def run(args):
         ts = int(time.time())
         seen = set()
         listed_pids = set(sessions)
+        stops = listed_pids | gate_seat_pids(
+            [
+                pid
+                for spid in sessions
+                if spid in procs
+                for pid in descendants(spid, children, listed_pids)
+            ],
+            procs,
+        )
         for spid, sess in list(sessions.items()):
             if spid not in procs or procs[spid][1] != sess["start"]:
                 del sessions[spid]
@@ -339,7 +428,7 @@ def run(args):
             if own is None:
                 continue
             desc_total, desc_count = 0, 0
-            for dpid in descendants(spid, children, listed_pids):
+            for dpid in descendants(spid, children, stops):
                 pss = pss_kb(dpid)
                 if pss is None:
                     continue

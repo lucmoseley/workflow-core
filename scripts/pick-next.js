@@ -565,6 +565,7 @@ const {
 	buildMemoryBreakdownLines,
 	buildSessionCeilingText,
 } = require("./lib/admission");
+const { readLiveGates } = require("./lib/suite-queue.js");
 const { readLiveLanders } = require("./lib/local-tester.js");
 const { readTestsHeldOnWindows } = require("./lib/suite-queue.js");
 /** @typedef {ReturnType<typeof selectionAdmission>} Machine */
@@ -2604,6 +2605,7 @@ function admissionOf(listed) {
 		listed,
 		reclaimable,
 		landers: readLiveLanders(),
+		gates: readLiveGates(),
 		testsHeld: readTestsHeldOnWindows(),
 	});
 	return {

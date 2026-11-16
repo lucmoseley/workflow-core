@@ -147,6 +147,8 @@ async function polled(
 const turnOpen = async (queue: Parameters<typeof polled>[0] = {}) =>
 	((await polled(queue)) as { reason: string }).reason === "opened";
 
+const noSeats = () => ({ held: 0, under: () => false });
+
 describe("isMarkerStale", () => {
 	it("is stale when the pid is not alive", () => {
 		expect(
@@ -2672,7 +2674,11 @@ describe("gateDenies, against the real gate (#2421)", () => {
 		return gateDenies(
 			words,
 			(command: string, carried: typeof weight, climb: number) =>
-				readGate(command, dir, carried, climb),
+				readGate(command, dir, {
+					weight: carried,
+					climbMb: climb,
+					gateSeats: noSeats,
+				}),
 			weight,
 			climbMb,
 		);
@@ -2792,7 +2798,11 @@ describe("the Windows-memory hold, against the real gate (#4557)", () => {
 				gateDenies(
 					[],
 					(command: string, carried: null, climb: number) =>
-						readGate(command, dir, carried, climb),
+						readGate(command, dir, {
+							weight: carried,
+							climbMb: climb,
+							gateSeats: noSeats,
+						}),
 					null,
 					climbMb,
 				),

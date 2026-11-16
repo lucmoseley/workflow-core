@@ -171,6 +171,7 @@ function cpuSlotsRow(cpu) {
  * @typedef {{ meanMb: number, sigmaMb: number, declared: boolean, problem?: string }} SessionDraw
  * @typedef {{ sessions: number, meanMb: number, varianceMb2: number, pssMb: number, unread: number, noProcess: number, problems: string[], refused?: boolean }} LiveDraw
  * @typedef {{ pid: number, chargeMb: number }[]} Landers each lander's charge, its tester's measured tree peak for the run it holds (#3323)
+ * @typedef {{ pid: number, chargeMb: number }[]} Gates each live gate seat's holder pid and charge, from suite-queue.js's `readLiveGates`
  * @typedef {{ pid: string, rssKb: number, args: string }} PsRow
  * @typedef {{ ok: true, rows: PsRow[] } | { ok: false, error: string }} PsRead
  * @typedef {import("./meminfo.js").MeminfoRead} MeminfoRead
@@ -313,11 +314,15 @@ function selfId(ids) {
  * charged its whole draw; one with no cwd, outside any repo, or whose repo
  * config will not read, is charged the default draw, and `problems` says why.
  * @param {{ ids?: Set<string>, pids?: Map<string, number>, terminal?: Set<string>, cwds?: Map<string, string> }} listed
- * @param {{ pairs: SparePair[], pssKbOf: (pid: string) => number | null, children: Map<string, string[]> }} readings
- *   `pairs` from `readSparePairs`
+ * @param {{ pairs: SparePair[], pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, gatePids?: Set<string> }} readings
+ *   `pairs` from `readSparePairs`; `gatePids` the live gate seats' holder
+ *   pids, whose subtrees no session is credited (`gateHeldMb` credits them)
  * @returns {LiveDraw}
  */
-function liveDraw({ ids, pids, terminal, cwds }, { pairs, pssKbOf, children }) {
+function liveDraw(
+	{ ids, pids, terminal, cwds },
+	{ pairs, pssKbOf, children, gatePids },
+) {
 	/** @type {LiveDraw} */
 	const draw = { ...NO_LIVE_DRAW, problems: [] };
 	if (!ids) return { ...draw, refused: true };
@@ -336,7 +341,13 @@ function liveDraw({ ids, pids, terminal, cwds }, { pairs, pssKbOf, children }) {
 		draw.sessions++;
 		draw.meanMb += own.draw.meanMb;
 		draw.varianceMb2 += own.draw.sigmaMb ** 2;
-		const sum = sessionsPssKb([id], { pids, pairs, pssKbOf, children });
+		const sum = sessionsPssKb([id], {
+			pids,
+			pairs,
+			pssKbOf,
+			children,
+			gatePids,
+		});
 		draw.noProcess += sum.noProcess;
 		if (sum.kb === null) draw.unread++;
 		else heldKb += sum.kb;
@@ -389,14 +400,17 @@ const shortOfOneMore = (/** @type {number} */ needMb) =>
 /**
  * What a verdict's budget holds back besides the pool, the floor and the
  * margin, as its reason's clauses; each silent at 0.
- * @param {{ landerMb: number, typecheckReserveMb?: number, windowsChargeMb?: number }} held
+ * @param {{ landerMb: number, gateMb?: number, typecheckReserveMb?: number, windowsChargeMb?: number }} held
  */
 const buildHeldBackNote = ({
 	landerMb,
+	gateMb = 0,
 	typecheckReserveMb = 0,
 	windowsChargeMb = 0,
 }) =>
 	`${landerMb ? `, holding ${landerMb} MB for the lander's suite` : ""}${
+		gateMb ? `, holding ${gateMb} MB for the gate seat` : ""
+	}${
 		typecheckReserveMb
 			? `, holding ${typecheckReserveMb} MB for a type-check`
 			: ""
@@ -735,7 +749,7 @@ const readSwapHold = () => swapHoldOf(readMeminfoKb());
  *   pool: MemRow & { drift: string[] },
  *   unlisted: MemRow & { count: number | null, dirs: { dir: string, count: number }[] },
  *   other: MemRow & { overlapMb: number, largest: { pid: string, rssMb: number, command: string }[] },
- *   slots: { unknown: string | null, availableMb?: number, poolReserveMb?: number, landerMb?: number, typecheckReserveMb?: number, windowsChargeMb?: number, floorMb?: number, marginMb?: number, reclaimMb?: number, budgetMb?: number, drawNeedMb?: number, nextNeedMb?: number, launchMb?: number, byMemory?: number, memorySlots?: number, slots?: number, overloaded?: boolean, testsHeld?: number },
+ *   slots: { unknown: string | null, availableMb?: number, poolReserveMb?: number, landerMb?: number, gateMb?: number, typecheckReserveMb?: number, windowsChargeMb?: number, floorMb?: number, marginMb?: number, reclaimMb?: number, budgetMb?: number, drawNeedMb?: number, nextNeedMb?: number, launchMb?: number, byMemory?: number, memorySlots?: number, slots?: number, overloaded?: boolean, testsHeld?: number },
  *   cpu: CpuSlots,
  * }} MemoryBreakdown
  */
@@ -784,7 +798,8 @@ function readProcessChildren() {
 /**
  * The summed PSS of the sessions' pairs and every process each session starts,
  * each pid reached on the way, and how many sessions listed no pid. A descendant that is itself a listed
- * session is left to its own row, and one whose smaps will not read, most
+ * session is left to its own row, a live gate seat's holder and its subtree
+ * to the gate-seat reserve (`gateHeldMb`), and one whose smaps will not read, most
  * often one that has just exited, adds nothing. A session that lists no pid
  * has no process, so adds nothing (#2426). The first unreadable pair smaps
  * stops the sum.
@@ -794,15 +809,19 @@ function readProcessChildren() {
  *   pairs: SparePair[],
  *   pssKbOf: (pid: string) => number | null,
  *   children: Map<string, string[]>,
+ *   gatePids?: Set<string>,
  * }} ctx
  * @returns {({ kb: number, unknown: null } | { kb: null, unknown: string }) & { reached: string[], noProcess: number }}
  */
-function sessionsPssKb(ids, { pids, pairs, pssKbOf, children }) {
+function sessionsPssKb(ids, { pids, pairs, pssKbOf, children, gatePids }) {
 	let kb = 0;
 	let noProcess = 0;
 	/** @type {string[]} */
 	const reached = [];
-	const sessionPids = new Set([...(pids?.values() ?? [])].map(String));
+	const stops = new Set([
+		...[...(pids?.values() ?? [])].map(String),
+		...(gatePids ?? []),
+	]);
 	for (const id of ids) {
 		const pid = pids?.get(id);
 		if (pid === undefined) {
@@ -823,7 +842,7 @@ function sessionsPssKb(ids, { pids, pairs, pssKbOf, children }) {
 		}
 		kb += descendantsPssKb(
 			String(pid),
-			{ children, sessionPids, pssKbOf },
+			{ children, sessionPids: stops, pssKbOf },
 			reached,
 		);
 	}
@@ -831,10 +850,12 @@ function sessionsPssKb(ids, { pids, pairs, pssKbOf, children }) {
 }
 
 /**
- * The PSS of every process under `pid`, pushing each onto `reached`. A listed
- * session's subtree is its own to charge, so the walk stops there; an
- * unreadable descendant adds nothing. The stop is DUPLICATED BY HAND in
- * scripts/sample_session_memory.py's descendants: move both, or neither (#2231).
+ * The PSS of every process under `pid`, pushing each onto `reached`. The walk
+ * stops at each pid in `sessionPids`: a listed session's subtree is its own to
+ * charge, and a live gate seat's, where the caller lists its holder, is the
+ * gate-seat reserve's. An unreadable descendant adds nothing. The stop is
+ * DUPLICATED BY HAND in scripts/sample_session_memory.py's descendants: move
+ * both, or neither (#2231).
  * @param {string} pid
  * @param {{ children: Map<string, string[]>, sessionPids: Set<string>, pssKbOf: (pid: string) => number | null }} tree
  * @param {string[]} reached accumulator
@@ -877,6 +898,31 @@ function landerHeldMb(landers, { pssKbOf, children, sessionPids }) {
 			? 0
 			: descendantsPssKb(pid, { children, sessionPids, pssKbOf }, []);
 		mb += Math.max(0, chargeMb - Math.floor(kb / 1024));
+	}
+	return mb;
+}
+
+/**
+ * What the gate seat still needs (#5274, spec #5273 §2): over the live gate
+ * seats, queued or running, the largest charge less the current PSS of the
+ * processes its holder started, which MemAvailable already shows. ONE reserve,
+ * never a sum: at most one gate seat runs, and a queued one draws nothing
+ * yet. The holder's own process is not in the gate-run record's tree peak the
+ * charge is set from, so it earns no credit. Unlike a lander's, a gate's tree
+ * always reduces the reserve, a gate a session started included: no session
+ * is credited a gate's subtree (`sessionsPssKb`).
+ * @param {Gates} gates
+ * @param {{ pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, sessionPids: Set<string> }} tree
+ */
+function gateHeldMb(gates, { pssKbOf, children, sessionPids }) {
+	let mb = 0;
+	for (const { pid, chargeMb } of gates) {
+		const kb = descendantsPssKb(
+			String(pid),
+			{ children, sessionPids, pssKbOf },
+			[],
+		);
+		mb = Math.max(mb, chargeMb - Math.floor(kb / 1024));
 	}
 	return mb;
 }
@@ -962,6 +1008,7 @@ function slotsRow(verdict) {
 				availableMb: verdict.availableMb,
 				poolReserveMb: verdict.reservedMb,
 				landerMb: verdict.landerMb,
+				gateMb: verdict.gateMb,
 				typecheckReserveMb: verdict.typecheckReserveMb,
 				windowsChargeMb: verdict.windowsChargeMb,
 				floorMb: verdict.floorMb,
@@ -1038,8 +1085,9 @@ function unlistedDirs(unlisted, configDirOf) {
  * beside it (#2141). PURE: every reading comes in.
  *
  * A session is its pair's PSS, the pairing `daemonSpareOverheadMb` uses, plus
- * every process it starts, so it agrees with the session draw, which counts
- * both. "Finished" is the listing's own
+ * every process it starts bar a live gate seat's subtree, so it agrees with
+ * the session draw, which counts the same; a gate's processes fall to
+ * everything else. "Finished" is the listing's own
  * `finished` set, the reaper's gate 1; how many the next reap takes is the
  * count off the dry-run read `reclaimableMb` already made, never a reap.
  *
@@ -1057,6 +1105,7 @@ function unlistedDirs(unlisted, configDirOf) {
  *   reclaimable: { ok: true, mb: number, count: number } | { ok: false, error: string },
  *   verdict: ReturnType<typeof strictAdmission>,
  *   children: Map<string, string[]>,
+ *   gatePids?: Set<string>,
  *   cpu: CpuSlots,
  * }} readings
  * @returns {MemoryBreakdown}
@@ -1072,6 +1121,7 @@ function memoryBreakdown({
 	reclaimable,
 	verdict,
 	children,
+	gatePids,
 	cpu,
 }) {
 	const totalMb =
@@ -1119,6 +1169,7 @@ function memoryBreakdown({
 			pairs,
 			pssKbOf,
 			children,
+			gatePids,
 		});
 		for (const p of sum.reached) sessionPids.add(p);
 		if (sum.kb === null)
@@ -1196,6 +1247,22 @@ const unlistedText = (u) =>
 	`${u.count} session(s), ${u.mb} MB PSS${u.dirs.length > 0 ? ` — ${u.dirs.map((d) => `${d.dir} ${d.count}`).join(", ")}` : ""}`;
 
 /**
+ * The slot arithmetic's held-back terms besides the pool, the floor and the
+ * margin, each silent at 0.
+ * @param {MemoryBreakdown["slots"]} s
+ */
+const heldBackTerms = (s) =>
+	/** @type {[number | undefined, string][]} */ ([
+		[s.landerMb, "lander"],
+		[s.gateMb, "gate seat"],
+		[s.typecheckReserveMb, "type-check"],
+		[s.windowsChargeMb, "unbacked by Windows"],
+	])
+		.filter(([mb]) => mb)
+		.map(([mb, what]) => ` − ${mb} ${what}`)
+		.join("");
+
+/**
  * The breakdown's slot arithmetic row.
  * @param {MemoryBreakdown["slots"]} s
  */
@@ -1209,7 +1276,7 @@ function buildSlotLine(s) {
 	else if (s.slots !== s.memorySlots)
 		slotsNote += `, capped to ${s.slots} by the cpu slots below`;
 	return s.unknown === null
-		? `${s.availableMb} free − ${s.poolReserveMb} pool${s.landerMb ? ` − ${s.landerMb} lander` : ""}${s.typecheckReserveMb ? ` − ${s.typecheckReserveMb} type-check` : ""}${s.windowsChargeMb ? ` − ${s.windowsChargeMb} unbacked by Windows` : ""} − ${s.floorMb} floor − ${s.marginMb} margin + ${s.reclaimMb} reclaim = ${s.budgetMb} MB; the live sessions' draw needs ${s.drawNeedMb} MB of it, and with ${/** @type {number} */ (s.byMemory) + 1} more${pairsClause(/** @type {number} */ (s.byMemory) + 1, s.launchMb ?? 0)} ${s.nextNeedMb} MB, so ${s.byMemory} slot(s)${
+		? `${s.availableMb} free − ${s.poolReserveMb} pool${heldBackTerms(s)} − ${s.floorMb} floor − ${s.marginMb} margin + ${s.reclaimMb} reclaim = ${s.budgetMb} MB; the live sessions' draw needs ${s.drawNeedMb} MB of it, and with ${/** @type {number} */ (s.byMemory) + 1} more${pairsClause(/** @type {number} */ (s.byMemory) + 1, s.launchMb ?? 0)} ${s.nextNeedMb} MB, so ${s.byMemory} slot(s)${
 				/** @type {number} */ (s.poolReserveMb) >
 				/** @type {number} */ (s.availableMb)
 					? ", the pool reserve exceeding free memory so the rest counting from 0"
@@ -1355,11 +1422,11 @@ function lenientNotes(reserved, credited, heldBack) {
  */
 function admissionFrom(mem, procs, readings = {}) {
 	const f = admissionFigures(mem, procs, readings);
-	const { load, cpu, landerMb } = f;
+	const { load, cpu, landerMb, gateMb } = f;
 	const { reservedNote, creditedNote } = lenientNotes(
 		f.memRead ? f.reservedMb : 0,
 		f.memRead ? f.reclaimedMb : 0,
-		f.memRead ? f : { landerMb },
+		f.memRead ? f : { landerMb, gateMb },
 	);
 	const freeSlots = f.memRead ? f.freeSlots : null;
 	/* `null` where memory is unread, exactly as `strictAdmission` reports it —
@@ -1571,6 +1638,7 @@ function buildWindowsLine({ windows, guestFreeMb, windowsChargeMb }) {
  *   availableMb: number,
  *   reservedMb: number,
  *   landerMb: number,
+ *   gateMb: number,
  *   typecheckReserveMb: number,
  *   windowsChargeMb: number,
  *   windowsCapped: boolean,
@@ -1604,7 +1672,7 @@ function strictAdmission(mem, procs, readings = {}) {
 	if (!f.memRead) return { ok: false, error: `memory unreadable: ${f.error}` };
 	if (!procs.ok)
 		return { ok: false, error: `session count unreadable: ${procs.error}` };
-	const { load, cpu, landerMb, launchMb, reservedMb, reclaimedMb } = f;
+	const { load, cpu, landerMb, gateMb, launchMb, reservedMb, reclaimedMb } = f;
 	const creditedNote = `${
 		reclaimedMb ? `, credited ${reclaimedMb} MB about to be reclaimed` : ""
 	}${buildHeldBackNote(f)}${HELD_NOTE}`;
@@ -1623,6 +1691,7 @@ function strictAdmission(mem, procs, readings = {}) {
 		availableMb: f.availableMb,
 		reservedMb,
 		landerMb,
+		gateMb,
 		typecheckReserveMb: f.typecheckReserveMb,
 		windowsChargeMb: f.windowsChargeMb,
 		windowsCapped: f.windowsCapped,
@@ -1669,9 +1738,11 @@ function strictAdmission(mem, procs, readings = {}) {
  *   reclaimable: Parameters<typeof memoryBreakdown>[0]["reclaimable"],
  *   pendingSpares?: number,
  *   landers: Landers,
+ *   gates: Gates,
  *   testsHeld: number,
- * }} inputs `landers` are the live landers, from `readLiveLanders`;
- *   `testsHeld` the queued test runs the Windows-memory hold is holding, from
+ * }} inputs `landers` are the live landers, from `readLiveLanders`; `gates`
+ *   the live gate seats, from suite-queue.js's `readLiveGates`; `testsHeld` the
+ *   queued test runs the Windows-memory hold is holding, from
  *   `readTestsHeldOnWindows`
  */
 function machineAdmission({
@@ -1679,6 +1750,7 @@ function machineAdmission({
 	reclaimable,
 	pendingSpares = 0,
 	landers,
+	gates,
 	testsHeld,
 }) {
 	const ps = readPsRows();
@@ -1691,7 +1763,13 @@ function machineAdmission({
 	const mem = availableFrom(meminfo);
 	const procs = liveSessions(listed);
 	const host = readSessionDraw();
-	const live = liveDraw(listed, { pairs, pssKbOf: readPssKb, children });
+	const gatePids = new Set(gates.map((g) => String(g.pid)));
+	const live = liveDraw(listed, {
+		pairs,
+		pssKbOf: readPssKb,
+		children,
+		gatePids,
+	});
 	const load = overloadReading();
 	const cpu = cpuSlots(ps, children, pairs);
 	const reserveReadings = {
@@ -1703,10 +1781,16 @@ function machineAdmission({
 		typecheckChargeMb: checkoutPeakMb(hostRoot()),
 		testsHeld,
 	};
+	const sessionPids = new Set([...(listed.pids?.values() ?? [])].map(String));
 	const landerMb = landerHeldMb(landers, {
 		pssKbOf: readPssKb,
 		children,
-		sessionPids: new Set([...(listed.pids?.values() ?? [])].map(String)),
+		sessionPids,
+	});
+	const gateMb = gateHeldMb(gates, {
+		pssKbOf: readPssKb,
+		children,
+		sessionPids,
 	});
 	const verdict = strictAdmission(mem, procs, {
 		overhead,
@@ -1716,6 +1800,7 @@ function machineAdmission({
 		load,
 		cpu,
 		landerMb,
+		gateMb,
 		launchMb,
 		...reserveReadings,
 	});
@@ -1735,6 +1820,7 @@ function machineAdmission({
 		reclaimable,
 		verdict,
 		children,
+		gatePids,
 		cpu,
 	});
 	return {
@@ -1746,6 +1832,7 @@ function machineAdmission({
 		load,
 		cpu,
 		landerMb,
+		gateMb,
 		launchMb,
 		reserveReadings,
 		verdict,
@@ -1764,11 +1851,18 @@ function machineAdmission({
  *   listed: Parameters<typeof machineAdmission>[0]["listed"],
  *   reclaimable: {ok: true, count: number} | {ok: false, error: string},
  *   landers: Landers,
+ *   gates: Gates,
  *   testsHeld: number,
  * }} inputs `reclaimable` counts the reclaimable sessions; their memory is
  *   never credited here
  */
-function selectionAdmission({ listed, reclaimable, landers, testsHeld }) {
+function selectionAdmission({
+	listed,
+	reclaimable,
+	landers,
+	gates,
+	testsHeld,
+}) {
 	const readings = machineAdmission({
 		listed,
 		reclaimable: reclaimable.ok
@@ -1776,6 +1870,7 @@ function selectionAdmission({ listed, reclaimable, landers, testsHeld }) {
 			: reclaimable,
 		pendingSpares: LAUNCH_SPARES,
 		landers,
+		gates,
 		testsHeld,
 	});
 	const admission = admissionFrom(readings.mem, readings.procs, {
@@ -1785,6 +1880,7 @@ function selectionAdmission({ listed, reclaimable, landers, testsHeld }) {
 		load: readings.load,
 		cpu: readings.cpu,
 		landerMb: readings.landerMb,
+		gateMb: readings.gateMb,
 		launchMb: readings.launchMb,
 		...readings.reserveReadings,
 	});
@@ -1808,6 +1904,7 @@ module.exports = {
 	buildSessionDrawLine,
 	buildWindowsLine,
 	SWAP_HOLD_AVAILABLE_MB,
+	readSessionDraw,
 	readSwapHold,
 	swapHoldText,
 	buildLiveDrawLine,

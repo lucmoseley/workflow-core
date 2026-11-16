@@ -83,6 +83,7 @@ const POOL_WIDTH = 4;
  * FAIL: here an OK or SKIP shows too.
  * `orphan-reaps` (#4342) reads the reaper's kill logs rather than running the
  * reaper, which kills.
+ * `session-draw` (#5274) reads every served repo's config.
  * `effort-guide-routing` (#5033) also runs in .husky/pre-commit, on a commit
  * staging the guide, the routing file or the generator.
  *
@@ -145,6 +146,7 @@ const CHECKS = [
 	["idle-efforts", "check-idle-efforts.js"],
 	["unclosed-launches", "check-unclosed-launches.js"],
 	["compaction-backstop", "check-compaction-backstop.js"],
+	["session-draw", "check-session-draw.js"],
 ];
 
 /**

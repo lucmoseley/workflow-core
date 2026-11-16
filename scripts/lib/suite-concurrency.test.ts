@@ -181,6 +181,7 @@ interface Over {
 	latches?: Record<string, string>;
 	plain?: Plain;
 	carriedOf?: (pid: number | null) => Weight | null;
+	gateSeats?: { held: number; under: (pid: number | null) => boolean };
 	launchWeight?: Weight | null;
 	windows?: WindowsRead;
 	tscPeakMb?: number;
@@ -209,6 +210,7 @@ function harness(over: Over = {}) {
 				: null;
 		},
 		carriedOf: over.carriedOf ?? (() => null),
+		gateSeats: () => over.gateSeats ?? { held: 0, under: () => false },
 		launchWeight: over.launchWeight ?? null,
 		runners: () => runners,
 		declaredTest: () =>
@@ -2250,7 +2252,8 @@ describe("strips the rest of the wrapper class (mantahostels#2552)", () => {
 
 describe("counts and judges a suite vitest does not run (#330)", () => {
 	const vitest = "node /r/node_modules/.bin/vitest run";
-	const nodeTest = "node --test --experimental-test-coverage scripts/a.test.js";
+	// Naming no file, so a whole suite (#5274).
+	const nodeTest = "node --test --experimental-test-coverage";
 	// `node --test`'s per-file children carry no `--test` of their own.
 	const nodeChild =
 		"/usr/bin/node --test-coverage-lines=0 --test-isolation=process scripts/a.test.js";
@@ -2273,9 +2276,22 @@ describe("counts and judges a suite vitest does not run (#330)", () => {
 			nodeTest,
 			"python3 -m pytest -n 2",
 			"/home/u/.venv/bin/pytest scripts",
-			"python3 scripts/footer_sources.test.py",
 		])
 			expect(judged("npm run test", [other])).toBe("deny");
+	});
+
+	it("reads a run naming its test files as a part-suite, holding no slot but charged a whole suite's workers (#5274)", () => {
+		const named = [
+			"node --test scripts/a.test.js",
+			"pytest scripts/test_a.py",
+			"python3 -m pytest -q scripts/test_a.py::t",
+			"python3 scripts/footer_sources.test.py",
+		];
+		for (const other of named) {
+			expect(judged("npm run test", [other])).toBe("allow");
+			expect(judged(other, ["python3 -m pytest"])).toBe("allow");
+		}
+		expect(gatedVerdict("node --test scripts/a.test.js", 3000)).toBe("deny");
 	});
 
 	it("counts a `node --test` run once, not once per child", () => {
@@ -2295,14 +2311,9 @@ describe("counts and judges a suite vitest does not run (#330)", () => {
 	});
 
 	it("denies a second when the launch is itself one of them", () => {
-		for (const launch of [
-			"node --test scripts/a.test.js",
-			"python3 scripts/footer_sources.test.py",
-			"python3 -m pytest",
-			"pytest -x",
-		])
-			expect(judged(launch, ["python3 scripts/b.test.py"])).toBe("deny");
-		expect(judged("node --test scripts/a.test.js", [])).toBe("allow");
+		for (const launch of ["node --test", "python3 -m pytest", "pytest -x"])
+			expect(judged(launch, ["python3 -m pytest scripts"])).toBe("deny");
+		expect(judged("node --test", [])).toBe("allow");
 	});
 
 	const readDenyLine = (command: string) =>
@@ -2310,20 +2321,20 @@ describe("counts and judges a suite vitest does not run (#330)", () => {
 			?.deny as string;
 
 	it("hands the launch through queue-run.js, not `--queue` (#1776)", () => {
-		const reason = readDenyLine("node --test scripts/a.test.js 2>&1");
+		const reason = readDenyLine("node --test 2>&1");
 		expect(reason.split("\n")[0]).toBe(
-			"Run instead: node scripts/queue-run.js -- node --test scripts/a.test.js 2>&1",
+			"Run instead: node scripts/queue-run.js -- node --test 2>&1",
 		);
 		expect(reason).not.toMatch(/run-vitest\.js's alone/);
 	});
 
 	it("puts queue-run.js behind the assignments and ahead of a wrapper", () => {
 		expect(
-			readDenyLine(
-				`FOO=1 timeout 600 python3 scripts/b.test.py -k "a b"`,
-			).split("\n")[0],
+			readDenyLine(`FOO=1 timeout 600 python3 -m pytest -k "a b"`).split(
+				"\n",
+			)[0],
 		).toBe(
-			`Run instead: FOO=1 node scripts/queue-run.js -- timeout 600 python3 scripts/b.test.py -k "a b"`,
+			`Run instead: FOO=1 node scripts/queue-run.js -- timeout 600 python3 -m pytest -k "a b"`,
 		);
 		expect(readDenyLine("cd sub && pytest -x").split("\n")[0]).toBe(
 			"Run the command with this launch in place of its own: node scripts/queue-run.js -- pytest -x",
@@ -2342,7 +2353,7 @@ describe("counts and judges a suite vitest does not run (#330)", () => {
 	});
 
 	it("lets a launch through queue-run.js past the cap, as it lets `--queue`", () => {
-		const three = [nodeTest, nodeTest, "python3 scripts/b.test.py"];
+		const three = [nodeTest, nodeTest, "python3 -m pytest"];
 		for (const launch of [
 			"node scripts/queue-run.js -- node --test scripts/a.test.js",
 			"timeout 900 node /p/scripts/queue-run.js -- pytest -x",
@@ -2365,7 +2376,7 @@ describe("counts and judges a suite vitest does not run (#330)", () => {
 		const r = gatedOn(
 			"npm run test",
 			ROOMY_MB,
-			psListing([nodeTest, nodeTest, "python3 scripts/b.test.py"]),
+			psListing([nodeTest, nodeTest, "python3 -m pytest"]),
 		);
 		expect(r.text).toMatch(/Run instead: npm run test -- --queue/);
 		expect(r.text).not.toMatch(/watcher/);
@@ -2376,6 +2387,21 @@ describe("counts and judges a suite vitest does not run (#330)", () => {
 		const build = "node /home/u/fb/scripts/build-site.js";
 		expect(judged("npm run test", [build], config)).toBe("deny");
 		expect(judged("node scripts/build-site.js", [vitest], config)).toBe("deny");
+	});
+
+	it("reads a running gate seat as one whole suite, its own runners not counted again (#5274)", () => {
+		const lanes = psListing(["node --test lanes/a", "node --test lanes/b"]);
+		const seat = (under: boolean) =>
+			judge("npm run test", ROOMY_MB, lanes, {
+				gateSeats: { held: 1, under: () => under },
+			}).text;
+		expect(seat(true)).toMatch(/1 whole suite\(s\) already running/);
+		expect(seat(false)).toMatch(/3 whole suite\(s\) already running/);
+		expect(
+			judge("npm run test", ROOMY_MB, psListing(["bash -l"]), {
+				gateSeats: { held: 1, under: () => false },
+			}).verdict?.deny,
+		).toBeDefined();
 	});
 
 	it("ignores a runner script no config declares", () => {

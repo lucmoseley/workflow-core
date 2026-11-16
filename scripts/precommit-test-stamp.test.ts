@@ -97,6 +97,8 @@ const COPIED = [
 	"scripts/lib/test-gate.js",
 	"scripts/lib/commit-key.js",
 	"scripts/lib/isolated-worktree.js",
+	// The gate mode the hook runs the declared test in (#5274).
+	"scripts/queue-run.js",
 	// prepare-commit-msg fails closed without its dispatcher and scanner.
 	"scripts/prepare-commit-msg-dispatch.js",
 	"scripts/check-commit-message-closes.js",
@@ -852,6 +854,7 @@ it("ends the live hook's early gates on one line directly above its test gate, b
 		"node scripts/lib/isolated-worktree.js",
 		"node scripts/lib/test-gate.js",
 		"node scripts/mutation-hold-gate.js",
+		"node scripts/queue-run.js",
 	]);
 	// The hook's own stamp says every gate passed, so an early run must stop
 	// short of writing it.

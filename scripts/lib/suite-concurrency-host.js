@@ -51,8 +51,9 @@ function buildLaunchPorts({ root, log }) {
 /**
  * @param {string} root
  * @param {(what: string, detail?: string) => void} log
- * @returns {Omit<import("./suite-concurrency.js").SuitePorts, "climbMb">}
- *   every port but the climb, which each caller charges its own way
+ * @returns {Omit<import("./suite-concurrency.js").SuitePorts, "climbMb" | "gateSeats">}
+ *   every port but the climb, which each caller charges its own way, and the
+ *   gate seats, which the queue reads (lib/suite-queue.js `readGateSeats`)
  */
 function buildHostPorts(root, log) {
 	const { readCommandFor } = require("./workflow-core-config.js");
@@ -94,13 +95,13 @@ function buildHostPorts(root, log) {
  * `climbMb` is what the type-check slot's launches have yet to draw (#3416).
  * `root` names the host and the tree whose npm scripts are read; absent, the
  * host is `hostRoot()` and the tree the polling process's own (#4242).
+ * `gateSeats` reads the live gate seats (lib/suite-queue.js `readGateSeats`).
  * @param {string} command
- * @param {string} [root]
- * @param {import("./suite-handoff.js").CarriedWeight | null} [weight]
- * @param {number} [climbMb]
+ * @param {string | undefined} root
+ * @param {{ weight?: import("./suite-handoff.js").CarriedWeight | null, climbMb?: number, gateSeats: () => import("./suite-ladder.js").GateSeats }} reads
  * @returns {import("./suite-queue.js").GateDenial | null}
  */
-function readGate(command, root, weight = null, climbMb = 0) {
+function readGate(command, root, { weight = null, climbMb = 0, gateSeats }) {
 	const { guardDisabled, hostRoot } = require("./workflow-core-config.js");
 	const host = root ?? hostRoot();
 	if (guardDisabled("guard-suite-concurrency", { root: host })) return null;
@@ -124,6 +125,7 @@ function readGate(command, root, weight = null, climbMb = 0) {
 		...treePorts(host),
 		...buildHostPorts(host, log),
 		climbMb: () => climbMb,
+		gateSeats,
 		launchWeight: weight,
 		tree: () =>
 			treePorts(root ?? require("./host-root.js").sessionTree({}) ?? host),

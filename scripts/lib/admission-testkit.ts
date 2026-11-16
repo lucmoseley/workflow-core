@@ -21,9 +21,16 @@ export interface Lander {
 	chargeMb: number;
 }
 
-/* A temp root whose suite queue holds a marker per lander, the root every
- * case's TMPDIR names, so no case reads the machine's own suite queue. */
-const tmpRootWithLanders = (dir: string, landers: Lander[]) => {
+/* A gate seat's marker: its holder pid and, where declared, its charge. */
+export interface Gate {
+	pid: number;
+	chargeMb?: number;
+}
+
+/* A temp root whose suite queue holds a marker per lander and per gate seat,
+ * the root every case's TMPDIR names, so no case reads the machine's own
+ * suite queue. */
+const tmpRootWithMarkers = (dir: string, landers: Lander[], gates: Gate[]) => {
 	const root = path.join(dir, "tmp");
 	const q = path.join(root, "wfc-suite-queue");
 	fs.mkdirSync(q, { recursive: true });
@@ -31,6 +38,11 @@ const tmpRootWithLanders = (dir: string, landers: Lander[]) => {
 		fs.writeFileSync(
 			path.join(q, `wfc-suite-queue-${pid}.json`),
 			JSON.stringify({ pid, at: 1, role: "lander", chargeMb }),
+		);
+	for (const { pid, chargeMb } of gates)
+		fs.writeFileSync(
+			path.join(q, `wfc-suite-queue-gate-${pid}.json`),
+			JSON.stringify({ pid, at: 1, role: "gate", chargeMb }),
 		);
 	return root;
 };
@@ -133,13 +145,15 @@ export const buildIsolatedEnv = (
 	dir: string,
 	{
 		landers = [],
+		gates = [],
 		configDir = path.join(dir, "no-such-config"),
 	}: {
 		landers?: Lander[];
+		gates?: Gate[];
 		configDir?: string;
 	} = {},
 ) => ({
-	TMPDIR: tmpRootWithLanders(dir, landers),
+	TMPDIR: tmpRootWithMarkers(dir, landers, gates),
 	CLAUDE_CODE_SESSION_ID: SELF,
 	// Isolates the allowance re-read (#294) from this machine's real
 	// `~/.claude/.claude.json` — a config dir with no cache file at all

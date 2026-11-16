@@ -37,6 +37,7 @@ import {
 } from "./lib/admission";
 import {
 	buildIsolatedEnv,
+	type Gate,
 	type Lander,
 	SELF,
 	writeHostRepo,
@@ -46,11 +47,13 @@ import {
 } from "./lib/admission-testkit";
 import { admissionSessionIds } from "./lib/agent-liveness";
 import { writeCache } from "./lib/dispatch-sessions-testkit";
+import { GATE_SEAT_DEFAULT_MB } from "./lib/gate-seat";
 import { readLiveLanders } from "./lib/local-tester";
 import { carrying } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
+import { readLiveGates } from "./lib/suite-queue";
 
 /* earlyoom's kill line, which every verdict holds free and `floorMb` reports (#337). */
 const FLOOR = 794;
@@ -177,6 +180,8 @@ interface Machine {
 	/** Lander queue markers (#2416), each carrying its charge (#3323), in the
 	 * case's own queue dir. */
 	landers?: Lander[];
+	/** Gate-seat queue markers (#5274), in the case's own queue dir. */
+	gates?: Gate[];
 	/** Each listed session's oracle `state`, by id; none where absent. */
 	states?: Record<string, string>;
 	/** Windows' free memory on a fresh memwatch reading; no memwatch unless given. */
@@ -207,6 +212,7 @@ const machineEnv = (m: Machine = {}) => {
 		load = 0.5,
 		sessionCeiling = "0",
 		landers = [],
+		gates = [],
 		states = {},
 		windowsMb,
 	} = m;
@@ -224,7 +230,7 @@ const machineEnv = (m: Machine = {}) => {
 		);
 	return {
 		MEMWATCH_MINUTE_LOG: minuteLog,
-		...buildIsolatedEnv(dir, { landers }),
+		...buildIsolatedEnv(dir, { landers, gates }),
 		WFC_MEMINFO: meminfo(mb),
 		WFC_PS: ps(psLines, { fails: psFails }),
 		WFC_CLAUDE_BIN: claude(sessions, { raw: agentsRaw, cwd: host, states }),
@@ -433,6 +439,103 @@ describe("the lander's suite reserve (#2416)", () => {
 		const { stdout } = run({ ...big, landers: [WHOLE_LANDER], json: false });
 		expect(stdout).toMatch(
 			new RegExp(`− ${PAIR} pool − ${LanderDraw} lander − ${FLOOR} floor`),
+		);
+	});
+});
+
+describe("the gate-seat reserve (#5274, spec #5273 §2)", () => {
+	/* A seat declaring no charge is held the whole-suite rung. */
+	const Undeclared = GATE_SEAT_DEFAULT_MB;
+	/* Sessions of 600 MB beside one live at 640 MB PSS, with room for the
+	 * whole rung and two more. */
+	const big = {
+		mb: Undeclared + 3000 + HELD + PAIR,
+		sessions: [SELF, GROWN],
+		pss: GROWN_PSS,
+	};
+	const pid = String(process.pid);
+
+	it("holds the whole-suite rung for a gate seat declaring no charge, queued or running", () => {
+		const without = run(big).json;
+		const { json } = run({ ...big, gates: [{ pid: process.pid }] });
+		expect(Undeclared).toBe(3350);
+		expect(without.gateMb).toBe(0);
+		expect(json.gateMb).toBe(Undeclared);
+		expect(json.budgetMb).toBe(without.budgetMb - Undeclared);
+		expect(json.slots).toBeLessThan(without.slots);
+		expect(json.reason).toMatch(
+			new RegExp(`holding ${Undeclared} MB for the gate seat`),
+		);
+	});
+
+	it("holds the gateSeatMb charge the seat's marker carries", () => {
+		expect(
+			run({ ...big, gates: [{ pid: process.pid, chargeMb: 1800 }] }).json
+				.gateMb,
+		).toBe(1800);
+	});
+
+	it("holds one reserve, the largest still owed, never a sum", () => {
+		const { json } = run({
+			...big,
+			gates: [
+				{ pid: process.pid, chargeMb: 1800 },
+				{ pid: 1, chargeMb: 1200 },
+			],
+			pss: { ...GROWN_PSS, "9001": mbKb(1000) },
+			parents: { "9001": pid },
+		});
+		expect(json.gateMb).toBe(1200);
+	});
+
+	it("reduces the reserve by the PSS of the processes the seat started, the holder itself earning none", () => {
+		const { json } = run({
+			...big,
+			gates: [{ pid: process.pid, chargeMb: 1800 }],
+			pss: {
+				...GROWN_PSS,
+				[pid]: mbKb(200),
+				"9001": mbKb(500),
+				"9002": mbKb(300),
+			},
+			parents: { "9001": pid, "9002": "9001" },
+		});
+		expect(json.gateMb).toBe(1800 - 800);
+	});
+
+	it("reduces the reserve by a gate a session started, and credits the session none of the gate's subtree", () => {
+		const machine = {
+			...big,
+			pss: { ...GROWN_PSS, [pid]: mbKb(200), "9001": mbKb(800) },
+			parents: { [pid]: "701", "9001": pid },
+		};
+		const ungated = run(machine).json;
+		expect(ungated.memory.live.mb).toBe(640 + 200 + 800);
+		const { json } = run({
+			...machine,
+			gates: [{ pid: process.pid, chargeMb: 1800 }],
+		});
+		expect(json.gateMb).toBe(1800 - 800);
+		expect(json.memory.live.mb).toBe(640);
+		expect(json.drawNeedMb).toBe(ungated.drawNeedMb + 200 + 800);
+	});
+
+	it("holds nothing for a dead gate seat's marker", () => {
+		// Past 2^22, 64-bit Linux's pid_max ceiling, so no process holds it.
+		expect(run({ ...big, gates: [{ pid: 2 ** 22 + 1 }] }).json.gateMb).toBe(0);
+	});
+
+	it("prints the reserve in the slot arithmetic beside the lander's", () => {
+		const { stdout } = run({
+			...big,
+			landers: [WHOLE_LANDER],
+			gates: [{ pid: 1, chargeMb: 1800 }],
+			json: false,
+		});
+		expect(stdout).toMatch(
+			new RegExp(
+				`− ${PAIR} pool − ${WHOLE_LANDER.chargeMb} lander − 1800 gate seat − ${FLOOR} floor`,
+			),
 		);
 	});
 });
@@ -1737,6 +1840,7 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 			listed: admissionSessionIds(),
 			reclaimable: { ok: true, count: 0 },
 			landers: readLiveLanders(),
+			gates: readLiveGates(),
 			testsHeld: 0,
 		});
 		return r;

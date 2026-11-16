@@ -42,7 +42,8 @@ const CPU_UNREAD = {
  * admitted while
  *
  *   Σμ + k·μ + z·√(Σσ² + k·σ²) − the live sessions' current PSS
- *     ≤ free − pool reserve − lander reserve − type-check reserve
+ *     ≤ free − pool reserve − lander reserve − gate-seat reserve
+ *       − type-check reserve
  *       − Windows charge − earlyoom floor − margin + reclaim credit
  *
  * Σ runs over the live sessions, each at its own repo's draw; the bare μ and σ
@@ -76,7 +77,8 @@ const NO_LIVE_DRAW = {
  * `overhead` reserves for one launch, is charged again for each slot past the
  * first (#2511, #2568); `live` is the live sessions' draw, from `liveDraw`,
  * and `host` this host's session draw, from `readSessionDraw` (#2221);
- * `landerMb`, from `landerHeldMb`, is held back for the lander's suite;
+ * `landerMb`, from `landerHeldMb`, is held back for the lander's suite, and
+ * `gateMb`, from `gateHeldMb`, for the gate seat (#5274);
  * `load` comes from `overloadReading`, and an overload holds
  * every slot; `cpu`, from `cpuSlots`, caps them (#830, #2141), the
  * always-admit-one guarantee included in both. `typecheckChargeMb`, from
@@ -86,7 +88,7 @@ const NO_LIVE_DRAW = {
  * hold is holding, any of which holds every slot (#4956). `windows`, from
  * `readWindowsMemory`, and `guestFreeMb`, the guest's `MemFree`, price the
  * guest free memory Windows cannot back.
- * @typedef {{ overhead?: MbResult, reclaimable?: MbResult, live?: LiveDraw, host?: SessionDraw, load?: LoadReading, cpu?: CpuSlots, landerMb?: number, launchMb?: number, typecheckChargeMb?: number, testsHeld?: number, windows?: WindowsRead, guestFreeMb?: number | null }} AdmissionReadings
+ * @typedef {{ overhead?: MbResult, reclaimable?: MbResult, live?: LiveDraw, host?: SessionDraw, load?: LoadReading, cpu?: CpuSlots, landerMb?: number, gateMb?: number, launchMb?: number, typecheckChargeMb?: number, testsHeld?: number, windows?: WindowsRead, guestFreeMb?: number | null }} AdmissionReadings
  */
 
 /*
@@ -138,15 +140,16 @@ function drawNeedFor(live, host, k) {
 /**
  * What admits sessions, from `baseMb`, memory less the pool reserve.
  * @param {number} baseMb
- * @param {{ landerMb: number, typecheckReserveMb: number, windowsChargeMb: number, reclaimMb: number }} adjustments
+ * @param {{ landerMb: number, gateMb: number, typecheckReserveMb: number, windowsChargeMb: number, reclaimMb: number }} adjustments
  */
 function sessionBudgetMb(
 	baseMb,
-	{ landerMb, typecheckReserveMb, windowsChargeMb, reclaimMb },
+	{ landerMb, gateMb, typecheckReserveMb, windowsChargeMb, reclaimMb },
 ) {
 	return (
 		baseMb -
 		landerMb -
+		gateMb -
 		typecheckReserveMb -
 		windowsChargeMb -
 		EARLYOOM_FLOOR_MB -
@@ -222,6 +225,7 @@ function admissionFigures(
 		load = LOAD_UNREAD,
 		cpu = CPU_UNREAD,
 		landerMb = 0,
+		gateMb = 0,
 		launchMb = 0,
 		typecheckChargeMb = 0,
 		testsHeld = 0,
@@ -235,6 +239,7 @@ function admissionFigures(
 		load,
 		cpu,
 		landerMb,
+		gateMb,
 		launchMb,
 		testsHeld,
 		windows,
@@ -260,6 +265,7 @@ function admissionFigures(
 	const windowsChargeMb = windowsUnbackedMb(windows, guestFreeMb);
 	const budgetMb = sessionBudgetMb(effectiveMb, {
 		landerMb,
+		gateMb,
 		typecheckReserveMb,
 		windowsChargeMb,
 		reclaimMb: reclaimedMb,

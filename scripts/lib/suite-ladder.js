@@ -8,6 +8,7 @@
 const { spawnSync } = require("node:child_process");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { requiredGroup } = require("./regex-group.js");
+const { namesTestFiles } = require("./suite-launch.js");
 const {
 	WHOLE_SUITE_WORKERS,
 	isVitestWatchLine,
@@ -190,6 +191,14 @@ function isNextRunnerLine(sub, line) {
  */
 
 /**
+ * The live gate seats as the count reads them: how many are running, and
+ * whether a process runs inside one.
+ * @typedef {{ held: number, under: (pid: number | null) => boolean }} GateSeats
+ */
+/** @type {GateSeats} */
+const NO_SEATS = { held: 0, under: () => false };
+
+/**
  * The test runs a `ps` listing shows (mantahostels#1906, #2560). A vitest run
  * weighs what `carriedOf` reads for its pid, the weight its launch record
  * carries (#2931), else the workers its runner line names, as a launch does
@@ -203,30 +212,64 @@ function isNextRunnerLine(sub, line) {
  * (#330); admission's reap counts vitest alone, the under-count only ever
  * pointing it at a lower rung (#627).
  *
+ * A GATE SEAT COUNTS AS ONE WHOLE SUITE, however many runners its command
+ * starts (#5274): `seats.held` live gate seats are counted, and a runner
+ * `seats.under` places inside one is not counted again (lib/gate-seat.js).
+ *
  * An EMPTY listing counts as zero: `readPs` rejects an empty or failed read.
  * @param {PsRow[]} rows
  * @param {(words: string[]) => boolean} [isOther]
  * @param {(pid: number | null) => import("./suite-handoff.js").CarriedWeight | null} [carriedOf]
+ * @param {GateSeats} [seats]
  * @returns {Running}
  */
-function runningSuites(rows, isOther, carriedOf = () => null) {
-	const running = { total: 0, watchers: 0, whole: 0, workers: 0 };
+function runningSuites(
+	rows,
+	isOther,
+	carriedOf = () => null,
+	seats = NO_SEATS,
+) {
+	const running = {
+		total: seats.held,
+		watchers: 0,
+		whole: seats.held,
+		workers: seats.held * WHOLE_SUITE_WORKERS,
+	};
 	for (const { pid, args: line } of rows) {
-		if (isVitestRunnerLine(line)) {
-			running.total++;
-			if (isVitestWatchLine(line)) running.watchers++;
-			const run = vitestLineWeigh(line, carriedOf(pid));
-			running.workers += run.workers;
-			if (!run.part) running.whole++;
-		}
-		const words = line.trim().split(/\s+/).filter(Boolean);
-		if (isOther && words.length > 0 && isOther(words)) {
-			running.total++;
-			running.whole++;
-			running.workers += WHOLE_SUITE_WORKERS;
-		}
+		if (seats.held > 0 && seats.under(pid)) continue;
+		const run = rowWeigh(line, pid, isOther, carriedOf);
+		if (run === null) continue;
+		running.total++;
+		if (run.watcher) running.watchers++;
+		running.workers += run.workers;
+		if (!run.part) running.whole++;
 	}
 	return running;
+}
+
+/**
+ * One `ps` row's suite, or null where it runs none: a vitest runner weighed
+ * by its line and launch record, or a non-vitest runner, a part-suite where
+ * it names its test files (#5274) and whole otherwise, charged a whole
+ * suite's workers either way.
+ * @param {string} line
+ * @param {number | null} pid
+ * @param {((words: string[]) => boolean) | undefined} isOther
+ * @param {(pid: number | null) => import("./suite-handoff.js").CarriedWeight | null} carriedOf
+ * @returns {{ workers: number, part: boolean, watcher: boolean } | null}
+ */
+function rowWeigh(line, pid, isOther, carriedOf) {
+	if (isVitestRunnerLine(line)) {
+		const run = vitestLineWeigh(line, carriedOf(pid));
+		return { ...run, watcher: isVitestWatchLine(line) };
+	}
+	const words = line.trim().split(/\s+/).filter(Boolean);
+	if (!isOther || words.length === 0 || !isOther(words)) return null;
+	return {
+		workers: WHOLE_SUITE_WORKERS,
+		part: namesTestFiles(words),
+		watcher: false,
+	};
 }
 
 /**

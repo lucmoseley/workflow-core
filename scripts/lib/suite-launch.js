@@ -19,7 +19,7 @@
  */
 
 const { isNpmRun, scriptOfNpmCommand } = require("./npm-options.js");
-const { PY_COLLECTED_TEST } = require("./test-kind.js");
+const { JS_TEST_FILE, PY_COLLECTED_TEST } = require("./test-kind.js");
 const { unwrapArgv } = require("./shell-words.js");
 
 /**
@@ -94,6 +94,46 @@ function isSuiteScript(word, python, runners) {
 		return true;
 	return runners().some(
 		(r) => r !== "" && (word === r || word.endsWith(`/${r}`)),
+	);
+}
+
+/**
+ * Whether a non-vitest runner's words name the test files it runs, so the
+ * run is a part-suite (#5274): `pytest` or `python3 -m pytest` whose paths
+ * are all test files, `node --test` whose every argument is a JS test file,
+ * or a bare `python3 <x>.test.py`. A run naming no file, `unittest`, and a
+ * host's declared runner are whole.
+ * @param {string[]} words words `isOtherRunner` takes for a runner
+ */
+function namesTestFiles(words) {
+	const a0 = afterSlash(words[0] ?? "");
+	if (a0 === "pytest" || a0 === "py.test")
+		return pytestNamesFiles(words.slice(1));
+	if (a0 === "node" || a0 === "nodejs") {
+		const at = words.indexOf("--test");
+		const paths = words.slice(at + 1).filter((w) => !w.startsWith("-"));
+		return (
+			at > 0 && paths.length > 0 && paths.every((w) => JS_TEST_FILE.test(w))
+		);
+	}
+	for (let i = 1; i < words.length; i++) {
+		const word = words[i] ?? "";
+		if (word === "-m")
+			return words[i + 1] === "pytest" && pytestNamesFiles(words.slice(i + 2));
+		if (word.startsWith("-")) continue;
+		if (afterSlash(word) === "pytest")
+			return pytestNamesFiles(words.slice(i + 1));
+		return PY_COLLECTED_TEST.test(afterSlash(word));
+	}
+	return false;
+}
+
+/** @param {string[]} argv pytest's own argv */
+function pytestNamesFiles(argv) {
+	const paths = pytestPathWords(argv);
+	return (
+		paths.length > 0 &&
+		paths.every((w) => PY_COLLECTED_TEST.test(w.split("::")[0] ?? ""))
 	);
 }
 
@@ -223,11 +263,7 @@ function pytestPathWords(argv) {
 function isWholePytestRun(argv, { landing }) {
 	const own = argv[0] === "--" ? argv.slice(1) : argv;
 	if (own.length === 0) return !landing;
-	const paths = pytestPathWords(own);
-	return !(
-		paths.length > 0 &&
-		paths.every((w) => PY_COLLECTED_TEST.test(w.split("::")[0] ?? ""))
-	);
+	return !pytestNamesFiles(own);
 }
 
 /**
@@ -307,6 +343,7 @@ module.exports = {
 	suiteLaunchKind,
 	isQueueable,
 	isWholePytestRun,
+	namesTestFiles,
 	pytestPathWords,
 	TEST_PY_WORKERS,
 	buildIsWrapperScript,

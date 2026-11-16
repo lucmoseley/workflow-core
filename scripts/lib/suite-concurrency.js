@@ -66,7 +66,13 @@
  * <path>/run-pytest.js`. It is judged on the count alone, never the memory
  * rung, which prices vitest workers, nor the Windows-memory hold. A run naming its test
  * files, or the bare one under `landing`, a touched run, is not judged. A
- * run naming no path still draws the memory figure (#2024).
+ * run naming no path still draws the memory figure (#2024). Any other
+ * non-vitest run naming its test files is a part-suite (#5274), held by no
+ * slot but charged a whole suite's workers on the memory rung; a declared
+ * runner and a run naming no file are whole.
+ *
+ * A GATE SEAT IS ONE WHOLE SUITE (#5274): the runners a commit gate's seat
+ * starts are not counted again (lib/suite-queue.js `readGateSeats`).
  *
  * A RUN NAMING ITS TEST FILES IS CHARGED BY THE VITEST WORKERS IT CAN OCCUPY
  * (#2558, ruled at #2557), as lib/suite-bounded.js reads them: one per file
@@ -147,6 +153,7 @@ const {
 	isOtherRunner,
 	isWholePytestRun,
 	npmScriptOf,
+	namesTestFiles,
 	pytestPathWords,
 	suiteLaunchKind,
 	buildIsWrapperScript,
@@ -182,6 +189,9 @@ const { treeOrHost } = require("./tree-or.js");
  *   read once a call
  * @property {(pid: number | null) => import("./suite-handoff.js").CarriedWeight | null} carriedOf
  *   the weight process `pid`'s launch record carries (#2931)
+ * @property {() => import("./suite-ladder.js").GateSeats} gateSeats the live
+ *   gate seats, each one whole suite, and whether a process runs inside one
+ *   (#5274)
  * @property {import("./suite-handoff.js").CarriedWeight | null} [launchWeight]
  *   the judged launch's own carried weight, where the queue asks for it
  * @property {() => string[]} runners the host's declared `suiteRunners`
@@ -560,9 +570,18 @@ function buildTestSubject(st, launch, words) {
 	const s = { ...buildBlankSubject(), launchKind: launch.kind };
 	st.ruleSubject = true;
 	/* Not vitest (#330): no `pretest` reap, no `--full`, and its queue is
-	 * scripts/queue-run.js rather than `--queue` (#1776). */
+	 * scripts/queue-run.js rather than `--queue` (#1776). One naming its test
+	 * files is a part-suite charged a whole suite's workers (#5274): one heavy
+	 * file is not cheap to run. */
 	if (launch.kind === "other")
-		return { ...s, other: true, queued: launch.queued };
+		return {
+			...s,
+			other: true,
+			queued: launch.queued,
+			part:
+				!launch.queued &&
+				namesTestFiles(words.map((w) => literal(w, st.spans).text)),
+		};
 	const files = launchTestFileCount(
 		launch,
 		words,
@@ -815,6 +834,7 @@ function readRunning(st, s) {
 		out,
 		(w) => isOtherRunner(w, st.launchPorts.runners),
 		st.ctx.carriedOf,
+		st.ctx.gateSeats(),
 	);
 }
 

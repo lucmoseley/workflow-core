@@ -501,6 +501,10 @@ fi
 # red, and a linked one stays live, so an edit to it mid-run reaches the suite
 # (#1767).
 #
+# Either way it runs as a commit gate (#5274): through `queue-run.js --gate`,
+# which waits in the suite queue for the whole-suite slot, never refused at
+# the wait bound, and runs it under the suite ceiling, red past it.
+#
 # It stands down where $WFC_TEST_STAMP names a file directly in this checkout's git
 # directory holding the key of exactly the changes git handed this hook
 # (scripts/lib/commit-key.js, gate `test`) — a pre-lock run's green on them (#1650). The
@@ -512,7 +516,7 @@ if ! lander_batch && declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/test-
     tg_rc=0
     tg_inplace=0
     # `command node`: the suite runs under its own ceiling (#2667), past any checker limit (#4187).
-    tg_out="$(command node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/isolated-worktree.js run "$tg_cmd")" || tg_rc=$?
+    tg_out="$(command node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/isolated-worktree.js run --gate "$tg_cmd")" || tg_rc=$?
     # 3 is the suite's red; 2 no worktree; anything else the runner itself failing.
     case "$tg_rc" in
       0 | 2 | 3) ;;
@@ -527,7 +531,7 @@ if ! lander_batch && declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/test-
       echo "pre-commit: no worktree holds this commit's tree alone, so '$tg_cmd' runs in this checkout." >&2
       tg_rc=0
       tg_inplace=1
-      tg_out="$(sh -c "$tg_cmd" </dev/null 2>&1)" || tg_rc=$?
+      tg_out="$(command node "${WFC_PLUGIN_ROOT:-.}"/scripts/queue-run.js --gate -- "$tg_cmd" </dev/null)" || tg_rc=$?
     fi
     if [ "$tg_rc" -ne 0 ]; then
       printf '%s\n' "$tg_out" >&2

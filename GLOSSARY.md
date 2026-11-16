@@ -187,3 +187,19 @@ _Avoid_: ejection, rejection, failed landing, hand-back (a session's report to t
 **Owning session**:
 The session whose worktree a queue ref is named after: the one that pushed it and owes its drops.
 _Avoid_: author, owner (a person), pusher
+
+**Gate run**:
+One run of a repo's declared test command for one commit's verdict, however many runner processes it starts. The gate-run record, `.gate-runs.jsonl` in the repo's markers directory, holds one line per gate run, and every count of gate runs reads it (#5273).
+_Avoid_: gate suite, commit suite (one gate run may start several suites), test run (any run, a commit's or not)
+
+**Gate seat**:
+The suite-queue hold one gate run takes: the whole-suite slot, waited for in the suite queue's order and never refused at its wait bound (`queue-run.js --gate`, #5274).
+_Avoid_: gate slot, gate lock (the queue holds no lock)
+
+**Served repo**:
+A repo in the refill loop's `repos` list.
+_Avoid_: ticked repo (the panel's word for the same list), adopter (any repo with workflow-core's config, served or not)
+
+**Working session-hour**:
+An hour of a refill-loop session's life spent neither blocked on the founder, nor held on a seat limit, nor parked.
+_Avoid_: session-hour (counts the idle spans too), wall-clock hour

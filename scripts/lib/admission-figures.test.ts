@@ -172,6 +172,17 @@ describe("the per-slot pending pair (#2511, #2568)", () => {
 	});
 });
 
+describe("the lander and gate-seat reserves (#2416, #5274)", () => {
+	it("takes each off the budget as its own figure, beside the other", () => {
+		const f = measured(roomy, one, { landerMb: 300, gateMb: 700 });
+		expect(f.budgetMb).toBe(4000 - 300 - 700 - 300);
+		expect(f.landerMb).toBe(300);
+		expect(f.gateMb).toBe(700);
+		// 4000 − 1000 fits 3 at 2370, not 4 at 3058
+		expect(f.byMemory).toBe(3);
+	});
+});
+
 describe("the readings' failed reads", () => {
 	it("reserves nothing for an unread pool and credits nothing unread, keeping each error", () => {
 		const f = measured(roomy, one, {

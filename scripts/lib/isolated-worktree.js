@@ -8,10 +8,11 @@
  * a KILL, which no `.finally()` reaches, is run-vitest.js's signal handler's
  * job; a `runInTree` run killed leaves its worktree to the next sweep.
  *
- *   node scripts/lib/isolated-worktree.js run <command>
+ *   node scripts/lib/isolated-worktree.js run [--gate] <command>
  *
  * is `runInTree` over the tree of the index git names in $GIT_INDEX_FILE, as
- * the pre-commit hook's test gate runs it (#1766): the suite's output on
+ * the pre-commit hook's test gate runs it (#1766), `--gate` its commit gate's
+ * seat (#5274): the suite's output on
  * stdout, exit 0 green, 3 red, 2 where no worktree could be had, saying why on
  * stderr, and 64 on a usage error — never 1, which is node's own crash.
  */
@@ -421,6 +422,9 @@ function overlayFiles(
 	return null;
 }
 
+/* The suite queue's runner, a commit gate's seat (#5274). */
+const QUEUE_RUN = path.join(__dirname, "..", "queue-run.js");
+
 /* Inherited, any of these would point git — the worktree's own, or the
  * suite's — back at the caller's index or tree. */
 const GIT_REDIRECTS = ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE"];
@@ -430,15 +434,24 @@ const GIT_REDIRECTS = ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE"];
  * in a throwaway worktree holding `tree` over HEAD and no other file but
  * `readLinkedPaths`, so no unsaved edit outside `tree` reaches it (#1760). The
  * worktree goes when the command ends; a leftover is swept first.
+ *
+ * Under `gate` it runs as a commit gate (#5274): through `queue-run.js
+ * --gate`, which waits for the whole-suite slot, runs it under the suite
+ * ceiling and records it, its own waiting lines on this process's stderr.
  * @param {string} root
  * @param {string} tree
  * @param {string} command
- * @param {{ env?: NodeJS.ProcessEnv, onStart?: () => void }} [options] `env`
+ * @param {{ env?: NodeJS.ProcessEnv, onStart?: () => void, gate?: boolean }} [options] `env`
  *   is the command's environment, less `GIT_REDIRECTS`, which no git call
  *   here sees either; `onStart` is called once the worktree stands
  * @returns {{ error: string }|{ error: null, status: number|null, output: string, spawnError: Error|undefined }}
  */
-function runInTree(root, tree, command, { env = process.env, onStart } = {}) {
+function runInTree(
+	root,
+	tree,
+	command,
+	{ env = process.env, onStart, gate = false } = {},
+) {
 	/** @type {NodeJS.ProcessEnv} */
 	const clean = { ...env };
 	for (const k of GIT_REDIRECTS) delete clean[k];
@@ -450,17 +463,16 @@ function runInTree(root, tree, command, { env = process.env, onStart } = {}) {
 	if (made.dir === null) return { error: made.error };
 	try {
 		onStart?.();
-		const r = spawnSync(
-			"sh",
-			["-c", 'sh -c "$1" </dev/null 2>&1', "sh", command],
-			{
-				cwd: made.dir,
-				env: clean,
-				stdio: ["ignore", "pipe", "inherit"],
-				encoding: "utf8",
-				maxBuffer: CHILD_MAX_BUFFER,
-			},
-		);
+		const [file, args] = gate
+			? [process.execPath, [QUEUE_RUN, "--gate", "--", command]]
+			: ["sh", ["-c", 'sh -c "$1" </dev/null 2>&1', "sh", command]];
+		const r = spawnSync(file, args, {
+			cwd: made.dir,
+			env: clean,
+			stdio: ["ignore", "pipe", "inherit"],
+			encoding: "utf8",
+			maxBuffer: CHILD_MAX_BUFFER,
+		});
 		return {
 			error: null,
 			status: r.status,
@@ -474,9 +486,11 @@ function runInTree(root, tree, command, { env = process.env, onStart } = {}) {
 
 /** @param {string[]} argv */
 function main(argv) {
-	const [mode, command, ...rest] = argv;
-	if (mode !== "run" || !command || rest.length > 0) {
-		writeFd(2, "usage: node isolated-worktree.js run <command>\n");
+	const [mode, ...rest] = argv;
+	const gate = rest[0] === "--gate";
+	const [command, ...extra] = gate ? rest.slice(1) : rest;
+	if (mode !== "run" || !command || extra.length > 0) {
+		writeFd(2, "usage: node isolated-worktree.js run [--gate] <command>\n");
 		return 64;
 	}
 	/** @type {(args: string[]) => string} */
@@ -500,7 +514,7 @@ function main(argv) {
 		writeFd(2, `git could not name this checkout's top level: ${error}\n`);
 		return 2;
 	}
-	const r = runInTree(root, tree, command);
+	const r = runInTree(root, tree, command, { gate });
 	if (r.error !== null) {
 		writeFd(2, `${r.error.trim()}\n`);
 		return 2;
