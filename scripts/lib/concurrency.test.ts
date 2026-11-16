@@ -656,6 +656,43 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 		},
 	);
 
+	it("counts each seat's sessions in needs input but the last-typed seat's, null off an unread listing (#5293)", () => {
+		const waiting = (
+			rows: import("./agent-liveness.js").AgentRecord[] | null,
+			typedSeat: string | null,
+		) =>
+			buildTickRecord({
+				input: input({ freeSlots: 0, typedSeat }),
+				decision: { launches: [], skipped: [], idle: null },
+				admission: admission({ slots: 0 }),
+				liveChange: 0,
+				agents: rows,
+			}).waiting;
+		const asking = (sessionId: string, on: string, cwd?: string) => ({
+			sessionId,
+			state: "needs_input",
+			seat: on,
+			...(cwd ? { cwd } : {}),
+		});
+		const listed = [
+			asking("a", "/h/.claude2", "/h/mantahostels/.claude/worktrees/x"),
+			asking("b", "/h/.claude3"),
+			asking("c", "/h/.claude2"),
+			{ sessionId: "d", state: "working", seat: "/h/.claude2" },
+			{ sessionId: "e", state: "needs_input" },
+		];
+		expect(waiting(listed, "/h/.claude3")).toEqual([
+			{
+				seat: "/h/.claude2",
+				count: 2,
+				cwd: "/h/mantahostels/.claude/worktrees/x",
+			},
+		]);
+		expect(waiting(listed, null)).toHaveLength(2);
+		expect(waiting([asking("b", "/h/.claude3")], "/h/.claude3")).toEqual([]);
+		expect(waiting(null, "/h/.claude3")).toBeNull();
+	});
+
 	it("counts the tick's own launches as live, leaving the ceiling where admission set it (#3770)", () => {
 		const r = buildTickRecord({
 			input: input({ freeSlots: 2 }),
@@ -746,7 +783,7 @@ describe("a tick's failing limits, in their fixed order (#3317)", () => {
 
 describe("what status --json carries for the panel (#4062)", () => {
 	let dir: string;
-	const Unread = { live: null, ceiling: null, working: null };
+	const Unread = { live: null, ceiling: null, working: null, waiting: [] };
 	const line = (over: object = {}, ago = MIN) =>
 		JSON.stringify({
 			at: iso(T0 - ago),
@@ -782,7 +819,13 @@ describe("what status --json carries for the panel (#4062)", () => {
 			live: 9,
 			ceiling: 9,
 			working: 6,
+			waiting: [],
 		});
+	});
+
+	it("takes the newest tick's waiting seats (#5293)", () => {
+		const waiting = [{ seat: "/h/.claude2", count: 5, cwd: null }];
+		expect(statusOf(line({ waiting })).waiting).toEqual(waiting);
 	});
 
 	it("reads a tick recorded before the working count as unread on it (#4747)", () => {

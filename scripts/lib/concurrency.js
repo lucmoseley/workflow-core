@@ -72,9 +72,17 @@ const SPREAD_CAP = 10;
  * @property {number|null} working the tick's agents listing's sessions in
  *   state `working`, the agents view's own count (#4747); null where the
  *   listing went unread
+ * @property {Waiting[]|null} [waiting] the listing's sessions in state
+ *   `needs_input` on each seat but the one the founder last typed on, every
+ *   seat where none is recorded (#5293); null where the listing went unread
  * @property {Failing|null} binding
  * @property {Failing[]} also
  * @property {TickMemory|null} memory
+ */
+/**
+ * @typedef {{seat: string, count: number, cwd: string|null}} Waiting  a seat
+ *   holding sessions in needs input: how many, and the first one's cwd, which
+ *   picks the alias that opens that seat's view (lib/seat-aliases.js)
  */
 /** @typedef {import("./admission.js").AdmissionJson} AdmissionJson */
 /** @typedef {ReturnType<typeof buildTickMemory>} TickMemory */
@@ -270,6 +278,29 @@ function failingAt({ input, decision, admission }) {
  */
 
 /**
+ * Each seat but `typedSeat` holding listed sessions in needs input, in the
+ * listing's order (#5293). A record naming no seat is left out.
+ * @param {import("./agent-liveness.js").AgentRecord[]} agents
+ * @param {string|null} typedSeat
+ * @returns {Waiting[]}
+ */
+function waitingOffSeat(agents, typedSeat) {
+	/** @type {Map<string, Waiting>} */
+	const bySeat = new Map();
+	for (const a of agents) {
+		if (a.state !== "needs_input" || !a.seat || a.seat === typedSeat) continue;
+		const had = bySeat.get(a.seat);
+		bySeat.set(
+			a.seat,
+			had
+				? { ...had, count: had.count + 1 }
+				: { seat: a.seat, count: 1, cwd: a.cwd ?? null },
+		);
+	}
+	return [...bySeat.values()];
+}
+
+/**
  * The record line for one tick.
  * @param {Tick} tick
  * @returns {TickRecord}
@@ -287,6 +318,7 @@ function buildTickRecord(tick) {
 				? admitted + a.slots
 				: null,
 		working: agents ? agents.filter((r) => r.state === "working").length : null,
+		waiting: agents ? waitingOffSeat(agents, input.typedSeat ?? null) : null,
 		binding,
 		also,
 		memory: a ? buildTickMemory(a) : null,
@@ -564,7 +596,7 @@ function readNewestTick() {
 /**
  * What `refill-loop.js status --json` carries for the panel. `live`,
  * `ceiling` and `working` are null where unread or the newest tick is
- * stale or a stop.
+ * stale or a stop; `waiting` is empty then.
  * @param {number} now
  */
 function readConcurrencyStatus(now) {
@@ -579,6 +611,7 @@ function readConcurrencyStatus(now) {
 		live: tick?.live ?? null,
 		ceiling: tick?.ceiling ?? null,
 		working: tick?.working ?? null,
+		waiting: tick?.waiting ?? [],
 	};
 }
 

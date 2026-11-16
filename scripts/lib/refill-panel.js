@@ -32,7 +32,7 @@ const {
 	UNPROVEN_CAP,
 } = require("./refill-decide.js");
 const { buildProgressText, parseGoalForm } = require("./refill-goal.js");
-const { buildSeatLabel } = require("./refill-seats.js");
+const { buildSeatLabel, buildSeatName } = require("./refill-seats.js");
 const { buildNotice, buildNoticeText } = require("./refill-notice.js");
 
 /* Where the block starts, 1-based as a mouse report counts. Untraced: one cell
@@ -130,7 +130,7 @@ const ROLE_STYLES = {
  *   repoPaused: Record<string, {by: string, at: number, issues?: PauseIssue[]}>,
  *   lastTick: {at: number, idle: import("./refill-decide.js").Idle|null,
  *     paused: boolean, planWait: {resets: number|null}|null}|null,
- *   concurrency: ReturnType<typeof import("./concurrency.js").readConcurrencyStatus>,
+ *   concurrency: import("./seat-aliases.js").ConcurrencyView,
  *   mode: "normal"|"away"|null,
  *   handedOffSinceAway: number,
  *   repos: {name: string, root: string, ticked: boolean, disabled: string|null}[],
@@ -382,10 +382,20 @@ const gapOf = (from, less) =>
 /**
  * Line 1 of a launching loop's block: sessions mid-turn, live sessions not mid-turn,
  * and the sessions that fit now. An unread count reads `?`, as unknown is never calm.
+ * Then each other seat holding sessions in needs input, with the alias that opens
+ * its view, else the seat (#5293).
  * @param {PanelStatus} status
  */
-const buildCountText = ({ concurrency: { working, live, ceiling } }) =>
-	`${working ?? "?"} working · ${gapOf(live, working)} idle · room for ${gapOf(ceiling, live)}`;
+const buildCountText = ({
+	concurrency: { working, live, ceiling, waiting = [] },
+}) =>
+	[
+		`${working ?? "?"} working · ${gapOf(live, working)} idle · room for ${gapOf(ceiling, live)}`,
+		...waiting.map(
+			(w) =>
+				`${w.count} ${w.count === 1 ? "needs" : "need"} input on ${w.alias ?? buildSeatName(w.seat)}`,
+		),
+	].join(" · ");
 
 /**
  * Line 1 and line 2 of the loop block, from the observed status alone.

@@ -87,6 +87,7 @@ const { killGroup } = require("./grouped-child.js");
 const { budgetMs } = require("./hook-deadline.js");
 const { capMs } = require("./cap-ms.js");
 const { buildSeatEnv } = require("./seat-claude.js");
+const { seatDir } = require("./config-dir.js");
 const headless = require("./headless-runs.js");
 
 /**
@@ -103,8 +104,9 @@ const headless = require("./headless-runs.js");
  *
  * `kind: "headless"` marks a run lib/headless-runs.js listed, which
  * `claude stop` cannot reach: lib/claude-stop.js stops it by its group.
- * `seat` is the config dir it runs under, set on a headless run and on a
- * lib/registry-agents.js row.
+ * `seat` is the config dir it runs under, set on a headless run, on a
+ * lib/registry-agents.js row and on an oracle record, the dir whose listing
+ * held it (#5293).
  *
  * @typedef {{sessionId: string, id?: string, name?: string, pid?: number,
  *   kind?: string, state?: string, status?: string, tempo?: string,
@@ -335,7 +337,8 @@ function readSeatListing(dir, timeoutMs, run = runOracle) {
 }
 
 /**
- * The per-dir stdouts as one JSON array, the first record per
+ * The per-dir stdouts as one JSON array, each record naming the seat whose
+ * dir listed it, in the seat file's form (#5293), and the first record per
  * session id kept, unless it is terminal and a later one is not: a session
  * moved between seats reads live though its old seat's dir leads (#3734). `{why}`
  * where any one is not an array. A record with no id is kept for
@@ -343,16 +346,22 @@ function readSeatListing(dir, timeoutMs, run = runOracle) {
  *
  * @param {string[]} stdouts  runOracle's
  * @param {string} call
+ * @param {string[]} dirs  the dir each of `stdouts` was read in
  * @returns {{raw: string} | {why: string}}
  */
-function unionOf(stdouts, call) {
+function unionOf(stdouts, call, dirs) {
 	/* `any`, as parseListing's records are. */
 	/** @type {any[]} */
 	const all = [];
-	for (const raw of stdouts) {
+	for (const [i, raw] of stdouts.entries()) {
 		const parsed = parseListing(raw, call);
 		if ("why" in parsed) return parsed;
-		all.push(...parsed.agents);
+		const seat = seatDir(dirs[i] ?? "", os.homedir());
+		all.push(
+			...parsed.agents.map((a) =>
+				typeof a === "object" && a !== null && !a.seat ? { ...a, seat } : a,
+			),
+		);
 	}
 	return { raw: JSON.stringify(preferLiveRecords(all)) };
 }
@@ -511,7 +520,7 @@ function spawnUnion(bin, call, dirs, run = runOracle) {
 			};
 		}
 	}
-	return unionOf(out, call);
+	return unionOf(out, call, dirs);
 }
 
 /**

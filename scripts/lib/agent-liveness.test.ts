@@ -532,6 +532,21 @@ describe("every plan's listing (#3512)", () => {
 		expect(ids.sort()).toEqual(["a1", "b1", "own", "shared"]);
 	});
 
+	it("names on each record the seat whose dir listed it (#5293)", () => {
+		seats();
+		const seatOf = new Map(
+			liveness
+				.listedAgents()
+				.agents.map((r: { sessionId: string; seat?: string }) => [
+					r.sessionId,
+					r.seat,
+				]),
+		);
+		expect(seatOf.get("a1")).toBe(path.join(dir, "seat-a"));
+		expect(seatOf.get("b1")).toBe(path.join(dir, "seat-b"));
+		expect(seatOf.get("shared")).toBe(path.join(dir, "seat-a"));
+	});
+
 	it("keeps a seat's live record over an earlier seat's terminal one for one session (#3734)", () => {
 		const a = path.join(dir, "seat-a");
 		fs.mkdirSync(a);

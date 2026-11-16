@@ -282,6 +282,27 @@ describe("the panel's rows", () => {
 		);
 	});
 
+	it("names each other seat's sessions in needs input on line 1, by the alias that opens it, else the seat, and none where none waits (#5293)", () => {
+		const line1 = (waiting: object[]) =>
+			summary(
+				rowsOf({
+					status: {
+						...RUNNING,
+						concurrency: { live: 7, ceiling: 9, working: 2, waiting },
+					},
+				}),
+			)[2][0];
+		expect(line1([])).toBe("2 working · 5 idle · room for 2");
+		expect(
+			line1([
+				{ seat: "/x/.claude2", count: 5, cwd: null, alias: "manta2" },
+				{ seat: "/nowhere/.claude9", count: 1, cwd: null, alias: null },
+			]),
+		).toBe(
+			"2 working · 5 idle · room for 2 · 5 need input on manta2 · 1 needs input on /nowhere/.claude9",
+		);
+	});
+
 	it("leaves the waiting row blank on no free slot, which the count already says", () => {
 		const idle = { reason: "no free slot", detail: "" };
 		const lastTick = { at: AT, summary: "", idle, paused: false };

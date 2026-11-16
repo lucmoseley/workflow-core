@@ -46,6 +46,7 @@ const NO_CONCURRENCY = {
 	live: null,
 	ceiling: null,
 	working: null,
+	waiting: [],
 };
 
 describe("what status prints", () => {

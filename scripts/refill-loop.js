@@ -84,6 +84,10 @@ const path = require("node:path");
 const { buildErrorText, caught } = require("./lib/caught.js");
 const { readBurnState } = require("./lib/burn-mode.js");
 const { readConcurrencyStatus } = require("./lib/concurrency.js");
+const {
+	readSeatAliases,
+	withWaitingAliases,
+} = require("./lib/seat-aliases.js");
 const refillCode = require("./lib/refill-code.js");
 /* A WFC_NOW an unrelated session exports skews every stamp a command
  * writes to the control and state files off this clock (check.js's now). */
@@ -853,7 +857,10 @@ function status({ flags }) {
 					candidates: readCandidates(homeDir()),
 					burnMode: readBurnState(),
 					overflow: readOverflowStatus(budgetOf),
-					concurrency: readConcurrencyStatus(at),
+					concurrency: withWaitingAliases(
+						readConcurrencyStatus(at),
+						readSeatAliases(),
+					),
 					now: at,
 				}),
 			),

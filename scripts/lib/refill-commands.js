@@ -1181,7 +1181,7 @@ function buildOverflowStatus({ dir, keyVar }, budget) {
  *   candidates: {root: string, disabled: string|null}[],
  *   burnMode: ReturnType<typeof import("./burn-mode.js").readBurnState>,
  *   overflow: (ReturnType<typeof buildOverflowStatus>|{seat: null, why: string})[],
- *   concurrency: ReturnType<typeof import("./concurrency.js").readConcurrencyStatus>,
+ *   concurrency: import("./seat-aliases.js").ConcurrencyView,
  *   now: number}} input
  *   `codeSha`, lib/refill-code.js's readRunningCode;
  *   `burnMode`, lib/burn-mode.js's readBurnState
