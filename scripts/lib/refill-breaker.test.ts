@@ -11,7 +11,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { foldBreakerAt, stepBreakers, workingMsOf } from "./refill-breaker.js";
+import {
+	buildLookbackOf,
+	foldBreakerAt,
+	stepBreakers,
+	workingMsOf,
+} from "./refill-breaker.js";
 
 type BreakerEvent = import("./refill-breaker.js").BreakerEvent;
 type ThroughputRead = import("./refill-breaker.js").ThroughputRead;
@@ -439,6 +444,15 @@ describe("the breaker's steps", () => {
 					),
 				]);
 			}
+		});
+
+		it("reaches its reads back to its launch, finished or not, while the record holds it in trial", () => {
+			const early = trial({
+				launchedAt: NOW - 9 * HOUR,
+				finishedAt: NOW - 8 * HOUR,
+			});
+			expect(buildLookbackOf(early, DV, NOW, record)).toBe(NOW - 9 * HOUR);
+			expect(buildLookbackOf(early, DV, NOW, [])).toBe(NOW - 6 * HOUR);
 		});
 
 		it("reopens where its launch is no longer known", () => {

@@ -17,7 +17,7 @@ const { ownQueueName } = require("./landing-refs.js");
 const { isLoopJob, jobKeyOf, loopJobsPath } = require("./loop-jobs.js");
 const { queueGit } = require("./queue-lander-adapters.js");
 const { queueLogFile, readQueueRows } = require("./queue-log.js");
-const { readQueueStays } = require("./queue-ref-status.js");
+const { readQueueStays, trialQueueOf } = require("./queue-ref-status.js");
 const {
 	SILENCE_CAP_MS,
 	breakerRecordPath,
@@ -241,28 +241,6 @@ function readCommitsOf(l) {
 }
 
 /**
- * Where the stays of a queue ref stand for a breaker trial: one landed, one
- * queued or under test, none left, or no reading where a stay's batch record
- * or `main` will not read.
- * @param {import("./queue-ref-status.js").RefState[]} stays
- * @returns {TrialQueue}
- */
-function trialQueueOf(stays) {
-	if (stays.some((s) => s.state === "landed")) return { state: "landed" };
-	if (stays.some((s) => s.state === "queued" || s.state === "testing"))
-		return { state: "waiting" };
-	const unread = stays.find(
-		(s) => s.state === "unread" || s.state === "unwalked",
-	);
-	if (unread)
-		return {
-			state: "unread",
-			why: `queue/${unread.name} at ${unread.sha.slice(0, 7)} is queued, under test or landed, which will not read`,
-		};
-	return { state: "gone" };
-}
-
-/**
  * A reader of where a launch's queue ref stands (#5300): its job's worktree
  * names it, `queue/<worktree name>`, and its stays since the launch are read
  * off its checkout's lander, which each served checkout runs its own of. The
@@ -274,9 +252,11 @@ function buildQueueReader() {
 	 *   rows: import("./queue-log.js").LoggedRow[]}>} */
 	const landers = new Map();
 	/** @param {string} root */
-	const landerOf = (root) => {
+	const readLander = (root) => {
 		const known = landers.get(root);
 		if (known) return known;
+		const log = readText(queueLogFile(root)).state;
+		if (log !== "read") throw new Error(`the queue log is ${log}`);
 		const read = {
 			refs: queueGit(root).refs(),
 			rows: readQueueRows(queueLogFile(root)),
@@ -290,12 +270,16 @@ function buildQueueReader() {
 			if (cwd === null)
 				return { state: "unread", why: "its job record names no worktree" };
 			const name = ownQueueName(cwd, l.root);
+			/* A session run outside the checkout's worktrees has no queue ref,
+			 * so nothing of it can land: read as nothing pushed (#5300). */
 			if (name === null) return { state: "gone" };
-			const { refs, rows } = landerOf(l.root);
+			const { refs, rows } = readLander(l.root);
 			return trialQueueOf(
 				readQueueStays(l.root, { name, since: l.launchedAt }, refs, rows),
 			);
 		} catch (err) {
+			/* Any fault holds the trial, so a reading that failed never
+			 * reopens a breaker that a landing would close (#5300). */
 			return {
 				state: "unread",
 				why: `its queue ref will not read: ${parseErrorText(err)}`,
@@ -308,17 +292,26 @@ function buildQueueReader() {
  * A tick's ThroughputRead for `roots`, each checkout's commits and loop
  * sessions read back to `lookbackOf(root)`.
  * @param {{roots: string[], launches: SeatedLaunch[],
- *   lookbackOf: (root: string) => number, now: number}} tick
+ *   lookbackOf: (root: string, record: BreakerEvent[]|null) => number,
+ *   now: number}} tick  `record`, the breaker's, as this read takes it
  * @returns {import("./refill-breaker.js").ThroughputRead}
  */
 function readThroughput({ roots, launches, lookbackOf, now }) {
-	const sessions = readLoopSessions({ roots, launches, lookbackOf, now });
+	const record = readBreakerRecord();
+	/** @param {string} root */
+	const lookback = (root) => lookbackOf(root, record);
+	const sessions = readLoopSessions({
+		roots,
+		launches,
+		lookbackOf: lookback,
+		now,
+	});
 	return {
 		byRoot: Object.fromEntries(
 			roots.map((root) => [
 				root,
 				{
-					commits: readMainCommits(root, lookbackOf(root)),
+					commits: readMainCommits(root, lookback(root)),
 					gateRuns: readGateRuns(root),
 					sessions: sessions.byRoot[root] ?? [],
 				},
@@ -326,7 +319,7 @@ function readThroughput({ roots, launches, lookbackOf, now }) {
 		),
 		commitsOf: readCommitsOf,
 		queueOf: buildQueueReader(),
-		record: readBreakerRecord(),
+		record,
 	};
 }
 
@@ -370,4 +363,4 @@ function readThroughputWindow({ roots, launches, lo, hi }) {
 	});
 }
 
-module.exports = { readThroughput, readThroughputWindow, trialQueueOf };
+module.exports = { readThroughput, readThroughputWindow };

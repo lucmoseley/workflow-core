@@ -349,4 +349,31 @@ function readQueueRefStates(root, tree, refs, rows) {
 	return readQueueStays(root, { name, since }, refs, rows);
 }
 
-module.exports = { buildQueueRefLine, readQueueRefStates, readQueueStays };
+/**
+ * Where the stays of a queue ref stand for a breaker trial: one landed, one
+ * queued or under test, none left, or no reading where a stay's batch record
+ * or `main` will not read.
+ * @param {RefState[]} stays
+ * @returns {import("./refill-breaker.js").TrialQueue}
+ */
+function trialQueueOf(stays) {
+	if (stays.some((s) => s.state === "landed")) return { state: "landed" };
+	if (stays.some((s) => s.state === "queued" || s.state === "testing"))
+		return { state: "waiting" };
+	const unread = stays.find(
+		(s) => s.state === "unread" || s.state === "unwalked",
+	);
+	if (unread)
+		return {
+			state: "unread",
+			why: `queue/${unread.name} at ${unread.sha.slice(0, 7)} is queued, under test or landed, which will not read`,
+		};
+	return { state: "gone" };
+}
+
+module.exports = {
+	buildQueueRefLine,
+	readQueueRefStates,
+	readQueueStays,
+	trialQueueOf,
+};

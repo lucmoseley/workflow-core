@@ -185,18 +185,28 @@ const idsOf = (l) => [...(l.jobId ? [l.jobId] : []), ...sessionIdsOf(l)];
 
 /**
  * The earliest time `root`'s reads must reach back to: the window's start, or
- * a live launch's start, so its landing reads whenever it came (#5275).
+ * the start of a live launch or of the trial `record` holds open, so its
+ * landing reads whenever it came (#5275, #5300).
  * @param {BreakerLaunch[]} launches
  * @param {string} root
  * @param {number} now
+ * @param {BreakerEvent[]|null} record
  */
-const buildLookbackOf = (launches, root, now) =>
-	Math.min(
+function buildLookbackOf(launches, root, now, record) {
+	const state = record === null ? null : foldBreaker(record, root);
+	const trial = state?.state === "trial" ? state.session : null;
+	return Math.min(
 		now - BREAKER_WINDOW_MS,
 		...launches
-			.filter((l) => l.root === root && l.finishedAt === null)
+			.filter(
+				(l) =>
+					l.root === root &&
+					(l.finishedAt === null ||
+						(trial !== null && idsOf(l).includes(trial))),
+			)
 			.map((l) => l.launchedAt),
 	);
+}
 
 /**
  * `l`'s landing: the latest `origin/main` commit time among its commits, null
@@ -224,6 +234,7 @@ function landingOf(l, read) {
  * of them has landed or the landing will not read.
  * @param {BreakerLaunch} l
  * @param {ThroughputRead} read
+ * @returns {number|null}
  */
 function landedAtOf(l, read) {
 	const landing = landingOf(l, read);
@@ -312,7 +323,7 @@ function stepTrial({ root, state, mine, reading, read, now }) {
 	return {
 		event: null,
 		room: 0,
-		note: `breaker trial ${trial.sessionId ?? trial.jobId} in ${root} held in trial: ${outcome.unread}`,
+		note: `breaker trial ${state.session} in ${root} held in trial: ${outcome.unread}`,
 	};
 }
 

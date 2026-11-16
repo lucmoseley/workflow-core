@@ -13,16 +13,12 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { paths } from "./arbiter-core.js";
 import { recordJobs } from "./loop-jobs.js";
+import { queueLogFile } from "./queue-log.js";
 import { appendBreakerEvents } from "./refill-breaker.js";
 import { readState, type Transition, updateState } from "./refill-state.js";
-import {
-	readThroughput,
-	readThroughputWindow,
-	trialQueueOf,
-} from "./throughput-reads.js";
+import { readThroughput, readThroughputWindow } from "./throughput-reads.js";
 
 type SeatedLaunch = import("./refill-breaker.js").BreakerLaunch & {
-	seat: string;
 	copiedFrom?: string;
 };
 
@@ -176,7 +172,7 @@ describe("a breaker trial's landing reads (#5300)", () => {
 		expect(read.queueOf(l)).toEqual({ state: "gone" });
 	});
 
-	it("reads a worktree's queue ref it cannot reach as unread, and why", () => {
+	it("reads a checkout with no queue log as unread, and why", () => {
 		const repo = repoAt("repo");
 		const seat = path.join(tmp, "seat");
 		const tree = path.join(repo, ".claude", "worktrees", "implement-1-abc");
@@ -188,35 +184,31 @@ describe("a breaker trial's landing reads (#5300)", () => {
 		);
 		expect(
 			tickRead(repo).queueOf(launchOf(seat, "j1", { root: repo })),
-		).toMatchObject({
+		).toEqual({
 			state: "unread",
-			why: expect.stringMatching(/^its queue ref will not read: /),
+			why: "its queue ref will not read: the queue log is absent",
 		});
 	});
 
-	it("reads a queue ref's stays as landed, waiting or gone, and unread where a stay's state will not read", () => {
-		const at = { name: "w", sha: "abcdef1234" };
+	it("reads a worktree's queue ref it cannot reach as unread, and why", () => {
+		const repo = repoAt("repo");
+		const seat = path.join(tmp, "seat");
+		const tree = path.join(repo, ".claude", "worktrees", "implement-1-abc");
+		fs.mkdirSync(tree, { recursive: true });
+		fs.mkdirSync(path.dirname(queueLogFile(repo)), { recursive: true });
+		fs.writeFileSync(queueLogFile(repo), "");
+		fs.mkdirSync(path.join(seat, "jobs", "j1"), { recursive: true });
+		fs.writeFileSync(
+			path.join(seat, "jobs", "j1", "state.json"),
+			JSON.stringify({ cwd: tree }),
+		);
 		expect(
-			trialQueueOf([
-				{ ...at, state: "dropped", ref: null, record: "torn" },
-				{ ...at, state: "landed", main: null },
-			]),
-		).toEqual({ state: "landed" });
-		expect(trialQueueOf([{ ...at, state: "queued", snapshot: null }])).toEqual({
-			state: "waiting",
-		});
-		expect(trialQueueOf([{ ...at, state: "testing" }])).toEqual({
-			state: "waiting",
-		});
-		expect(
-			trialQueueOf([{ ...at, state: "dropped", ref: null, record: "torn" }]),
-		).toEqual({ state: "gone" });
-		expect(trialQueueOf([])).toEqual({ state: "gone" });
-		expect(
-			trialQueueOf([{ ...at, state: "unwalked", fault: "no git" }]),
-		).toEqual({
+			tickRead(repo).queueOf(launchOf(seat, "j1", { root: repo })),
+		).toMatchObject({
 			state: "unread",
-			why: "queue/w at abcdef1 is queued, under test or landed, which will not read",
+			why: expect.stringMatching(
+				/^its queue ref will not read: (?!the queue log)/,
+			),
 		});
 	});
 });
