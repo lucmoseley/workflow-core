@@ -161,32 +161,37 @@ describe("at session start (--notify)", () => {
 		expect(r.stdout).not.toContain("REFILL-LOOP-STOPPED");
 	});
 
-	describe("a no-progress pause (#3859)", () => {
+	describe("a checkout's no-progress pause (#3859, #5275)", () => {
 		const issues = [{ root: "/h/workflow-core", number: 9 }];
-		const writePause = (paused: object) =>
+		const writePause = (fields: object) =>
 			fs.writeFileSync(
 				path.join(dir, ".refill-loop-control.json"),
 				JSON.stringify({
 					noProgressFrom: STOP_AT - 60_000,
 					stopRequested: false,
 					seats: [],
-					paused,
 					scope: { mode: "normal", repos: [] },
+					...fields,
 				}),
 			);
 
-		it("names it once, with its issues and the resume", () => {
-			writePause({ by: "no-progress", at: STOP_AT, issues });
+		it("names it once, with its checkout, issues and the resume", () => {
+			writePause({
+				repoPaused: {
+					"/h/workflow-core": { by: "no-progress", at: STOP_AT, issues },
+				},
+			});
 			const first = run(["--notify"]);
 			expect(first.status).toBe(0);
 			expect(first.stdout).toContain("REFILL-LOOP-PAUSED");
+			expect(first.stdout).toContain("refill loop's workflow-core is");
 			expect(first.stdout).toContain("workflow-core#9");
 			expect(first.stdout).toContain("set --resume");
 			expect(run(["--notify"]).stdout).not.toContain("REFILL-LOOP-PAUSED");
 		});
 
 		it("names no founder's pause", () => {
-			writePause({ by: "founder", at: STOP_AT });
+			writePause({ paused: { by: "founder", at: STOP_AT } });
 			const r = run(["--notify"]);
 			expect(r.status).toBe(0);
 			expect(r.stdout).not.toContain("REFILL-LOOP-PAUSED");

@@ -1624,19 +1624,20 @@ describe("the loop's own waits on the real tick (#3859)", () => {
 			).stdout,
 		);
 
-	it("pauses on no progress, stays up launching nothing, and launches only after `set --resume`", async () => {
+	it("pauses the stalled checkout on no progress, stays up launching nothing there, and launches only after `set --resume`", async () => {
 		seedStalled();
 		const running = runAsProcess(1);
 		/* The pause lands in the control before its tick's state write. */
 		await polled(
-			() => control().paused !== undefined && state().lastTick != null,
+			() =>
+				control().repoPaused?.[repo] !== undefined && state().lastTick != null,
 			"no tick wrote the no-progress pause",
 		);
-		expect(control().paused).toMatchObject({
+		expect(control().repoPaused[repo]).toMatchObject({
 			by: "no-progress",
 			issues: [7, 8, 9].reverse().map((number) => ({ root: repo, number })),
 		});
-		const pausedAt = control().paused.at;
+		const pausedAt = control().repoPaused[repo].at;
 
 		const lastTickAt = state().lastTick.at;
 		wake();
@@ -1646,8 +1647,8 @@ describe("the loop's own waits on the real tick (#3859)", () => {
 		);
 		expect(state().stopped ?? null).toBeNull();
 		expect(fs.existsSync(at("dispatches"))).toBe(false);
-		expect(control().paused.at).toBe(pausedAt);
-		expect(statusJson().paused.by).toBe("no-progress");
+		expect(control().repoPaused[repo].at).toBe(pausedAt);
+		expect(statusJson().repoPaused[repo].by).toBe("no-progress");
 
 		// spawn-kept: the loop holds the pidfile the command reads.
 		const resumed = spawnSync(

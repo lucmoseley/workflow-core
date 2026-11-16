@@ -359,18 +359,20 @@ describe("start ensures a process runs (#3868)", () => {
 			expect(readControl().stopRequested).toBe(true);
 		});
 
-		it("names a no-progress pause, which stays", async () => {
+		it("names a checkout's no-progress pause, which stays (#5275)", async () => {
 			const noProgress = {
 				by: "no-progress",
 				at: 7,
 				issues: [{ root: manta, number: 5 }],
 			};
 			holdPidfile();
-			writeStored({ paused: noProgress });
+			writeStored({ repoPaused: { [manta]: noProgress } });
 			const r = await start("--unless-stopped");
 			expect(r.status).toBe(0);
-			expect(r.stdout).toContain("paused by no-progress");
-			expect(readControl().paused).toEqual(noProgress);
+			expect(r.stdout).toContain(
+				`${path.basename(manta)}: paused by no-progress`,
+			);
+			expect(readControl().repoPaused).toEqual({ [manta]: noProgress });
 		});
 
 		it("refuses a damaged control, leaving its bytes", async () => {
@@ -895,6 +897,19 @@ describe("set (#3856)", () => {
 		expect(fs.readFileSync(path.join(dir, ".refill-loop.pid"), "utf8")).toBe(
 			String(fakeLoop?.pid),
 		);
+	});
+
+	it("resumes every checkout's no-progress pause, moving the count's point (#5275)", async () => {
+		writeControl({
+			repoPaused: { "/h/a": { by: "no-progress", at: 7, issues: [] } },
+		});
+		holdPidfile();
+		const r = await runAt(AT, "set", "--resume");
+		expect(r.status).toBe(0);
+		const { noProgressFrom, ...rest } = readControl();
+		const { noProgressFrom: _n, ...kept } = plainControl;
+		expect(rest).toEqual(kept);
+		expect(noProgressFrom).toBe(AT_MS);
 	});
 
 	it("leaves a stop pending on a running loop standing through a resume", async () => {

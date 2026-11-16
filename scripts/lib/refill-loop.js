@@ -32,6 +32,8 @@ const { buildSeatName } = require("./refill-seats.js");
  * @property {boolean} stopRequested
  * @property {number} [stopRequestedAt] ms, when `stop` asked; a start drops it
  * @property {import("./refill-decide.js").Pause} [paused] absent where not paused
+ * @property {Record<string, import("./refill-decide.js").Pause>} [repoPaused]
+ *   each checkout's no-progress pause, by root, absent where none (#5275)
  * @property {import("./refill-decide.js").LaunchHold} [launchHold] a manual
  *   dispatcher's lease on launching (#4354), absent where none is set; one
  *   past its `until` holds nothing
@@ -168,6 +170,23 @@ function parsePause(raw) {
 }
 
 /**
+ * The control file's checkout pauses (#5275): absent where none, each value read
+ * as parsePause reads the loop's, so a garbled one still holds its checkout.
+ * @param {unknown} raw
+ * @returns {{repoPaused?: Record<string, import("./refill-decide.js").Pause>}}
+ */
+function parseRepoPaused(raw) {
+	if (!isRecord(raw)) return {};
+	/** @type {Record<string, import("./refill-decide.js").Pause>} */
+	const repoPaused = {};
+	for (const [root, value] of Object.entries(raw)) {
+		const { paused } = parsePause(value);
+		if (paused) repoPaused[root] = paused;
+	}
+	return Object.keys(repoPaused).length > 0 ? { repoPaused } : {};
+}
+
+/**
  * The control file's launch hold: absent where it is none or unreadable, since
  * a lease that cannot be read cannot expire.
  * @param {unknown} raw
@@ -205,6 +224,7 @@ function parseControl(raw) {
 			? { stopRequestedAt: raw.stopRequestedAt }
 			: {}),
 		...parsePause(raw.paused),
+		...parseRepoPaused(raw.repoPaused),
 		...parseLaunchHold(raw.launchHold),
 		...parseAway(raw.away),
 		...(raw.quietBenchOff === true
@@ -464,24 +484,25 @@ const sessionIdsOf = (l) => [
 ];
 
 /**
- * The latest act any of `launches`' sessions made, ms, across `rootsOf` its
- * stores, null where none read (#4223), and each store that would not read,
- * which counts as no act so the unproven cap holds.
+ * By the checkout each was launched into, the latest act any of `launches`'
+ * sessions made, ms, across `rootsOf` its stores, a checkout with none read
+ * absent (#4223, #5275), and each store that would not read, which counts as
+ * no act so the unproven cap holds.
  * @param {LoopLaunch[]} launches
  * @param {(l: LoopLaunch) => string[]} rootsOf
  * @param {ReadLastActAt} readLastActAt
- * @returns {{at: number|null, unread: {sessionId: string, root: string}[]}}
+ * @returns {{at: Record<string, number>, unread: {sessionId: string, root: string}[]}}
  */
 function lastActOf(launches, rootsOf, readLastActAt) {
-	/** @type {number|null} */
-	let at = null;
+	/** @type {Record<string, number>} */
+	const at = {};
 	/** @type {{sessionId: string, root: string}[]} */
 	const unread = [];
 	for (const l of launches)
 		for (const sessionId of sessionIdsOf(l)) {
 			const read = readLastActAt(sessionId, rootsOf(l));
 			for (const root of read.unreadable) unread.push({ sessionId, root });
-			if (read.at !== null) at = Math.max(at ?? 0, read.at);
+			if (read.at !== null) at[l.root] = Math.max(at[l.root] ?? 0, read.at);
 		}
 	return { at, unread };
 }

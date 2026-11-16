@@ -229,7 +229,7 @@ function stopNeverStarted(registry, jobs, stop) {
  *   blockIo: (served: string[]) => BlockIo,
  *   readSwapHold: () => Seen["swapHold"],
  *   readProgress: (l: LoopLaunch, served: string[]) => object,
- *   readLoopLastActAt: (launches: LoopLaunch[], served: string[]) => number|null,
+ *   readLoopLastActAt: (launches: LoopLaunch[], served: string[]) => Record<string, number>,
  *   readCause: import("./refill-blocks.js").CauseOf,
  *   readLiftedHolds: (roots: string[]) => Parameters<typeof blocks.queueLifted>[1],
  *   typecheckPeakMb: (root: string) => number,
@@ -266,7 +266,7 @@ function stopNeverStarted(registry, jobs, stop) {
  *   stopOverAllowance: (declared: DeclaredSeats, agents: AgentRecord[]|null) => string[],
  *   sendHoldNotices: (roots: string[],
  *     seen: {agents: AgentRecord[]|null, isPaused: boolean}, now: number) => void,
- *   sendPauseNotices: (paused: import("./refill-decide.js").Pause|undefined,
+ *   sendPauseNotices: (repoPaused: Record<string, import("./refill-decide.js").Pause>,
  *     now: number) => void,
  *   tendClosedParks: (served: string[]) => void,
  *   actOnOutside: (launches: LoopLaunch[], registry: AgentRecord[],
@@ -279,7 +279,7 @@ function stopNeverStarted(registry, jobs, stop) {
  *     seats: import("./refill-decide.js").SeatReading[], root: string|undefined) => void,
  *   launchBatch: (batch: import("./refill-decide.js").Launch[], served: string[]) =>
  *     BatchOutcome,
- *   writePause: (pause: import("./refill-decide.js").Pause, noProgressFrom: number) => boolean,
+ *   writePauses: (pauses: Record<string, import("./refill-decide.js").Pause>, noProgressFrom: number) => Record<string, import("./refill-decide.js").Pause>|null,
  *   runReview: (lastRunOn: string|null, now: number) => string|null,
  *   updateState: (transition: import("./refill-state.js").Transition) => LoopState,
  *   dropSettledLifted: (settled: ReturnType<typeof blocks.queueLifted>["settled"]) => void,
@@ -459,12 +459,12 @@ function relieve(io, { registry, state, served, now }) {
  * @param {TickIo} io
  * @param {{declared: DeclaredSeats, agents: AgentRecord[]|null,
  *   registry: RegistryListing, roots: string[],
- *   paused: import("./refill-decide.js").Pause|undefined, barred: boolean,
+ *   repoPaused: Record<string, import("./refill-decide.js").Pause>|undefined, barred: boolean,
  *   now: number}} tick  `barred`, whether a pause or a launch hold bars launching
  */
 function actOnListing(
 	io,
-	{ declared, agents, registry, roots, paused, barred, now },
+	{ declared, agents, registry, roots, repoPaused, barred, now },
 ) {
 	capOverflowSessions(io, declared, agents);
 	io.sendHoldNotices(
@@ -477,7 +477,7 @@ function actOnListing(
 		},
 		now,
 	);
-	io.sendPauseNotices(paused, now);
+	io.sendPauseNotices(repoPaused ?? {}, now);
 }
 
 /**
@@ -565,7 +565,7 @@ const isSeatListRead = (parsed) => parsed !== null && parsed.seats.length > 0;
  * @param {{control: Control, seatListRead: boolean,
  *   before: LoopLaunch[], judged: LoopLaunch[], seen: Seen, served: string[],
  *   declared: DeclaredSeats, typedSeat: string|null,
- *   seatTriedAt: Record<string, number>, lastActAt: number|null,
+ *   seatTriedAt: Record<string, number>, lastActAt: Record<string, number>,
  *   acts: LaunchActs}} tick
  */
 function settleRoom(
@@ -599,10 +599,12 @@ function settleRoom(
 	const { slots: free, admission } = io.readFreeSlots(
 		admissionRoot(served, io.typecheckPeakMb),
 	);
-	const limitSlots = Math.min(
-		free,
-		unprovenRoom({ history: judged, lastActAt }),
-	);
+	/* A paused checkout resumes none from held (#5275). */
+	/** @param {string} root */
+	const roomOf = (root) =>
+		control.repoPaused?.[root]
+			? 0
+			: unprovenRoom({ history: judged, lastActAt }, root);
 	/** @param {import("./refill-decide.js").SizedSeat[]} sized */
 	const overflowOf = (sized) =>
 		overflowReadings(declared, sized, (seat) => io.seatBudget(seat, served[0]));
@@ -625,9 +627,10 @@ function settleRoom(
 			return { seats: read.seats, overflow: overflowOf(read.seats) };
 		},
 		seatListRead,
-		slots: limitSlots,
+		slots: free,
+		roomOf,
 	});
-	const slots = free - (limitSlots - limitLeft);
+	const slots = limitLeft;
 	acts.releaseEndedHolds(before, launches, seen.io);
 	const { seats, probes: walked } = io.readSeats(
 		control.seats,
@@ -775,9 +778,9 @@ function settleDecided(
 			resumeHeld: (resumes, held, isStopped, record) =>
 				blocks.resumeHeldLaunches(resumes, held, seen, { isStopped, record }),
 			/* The raise goes the tick the pause is written, not the next. */
-			writePause: (pause) => {
-				if (io.writePause(pause, control.noProgressFrom))
-					io.sendPauseNotices(pause, input.now);
+			writePauses: (pauses) => {
+				const written = io.writePauses(pauses, control.noProgressFrom);
+				if (written) io.sendPauseNotices(written, input.now);
 			},
 			runReview: io.runReview,
 			updateState: io.updateState,
@@ -833,7 +836,7 @@ const buildDryActs = (io) => ({
 	probeDueSeats: () => [],
 	startDueConsoleReads: doNothing,
 	launchBatch: () => ({ launched: [], refused: [] }),
-	writePause: () => false,
+	writePauses: () => null,
 	runReview: (lastRunOn) => lastRunOn,
 	updateState: (transition) => transition(io.readState()),
 	dropSettledLifted: doNothing,
@@ -999,7 +1002,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		agents,
 		registry,
 		roots,
-		paused: control.paused,
+		repoPaused: control.repoPaused,
 		barred,
 		now,
 	});
@@ -1060,6 +1063,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		noProgressFrom: control.noProgressFrom,
 		stopRequested: control.stopRequested,
 		...(control.paused ? { paused: control.paused } : {}),
+		repoPaused: control.repoPaused,
 		...(launchHold ? { launchHold } : {}),
 		controlDamaged: dryRun ? null : damaged,
 		frontier: [],

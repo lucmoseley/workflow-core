@@ -67,12 +67,13 @@ const LIMIT_LOSS_TEXT =
  *   `dryResumes`, those in a row that took and bought no reply, which park it
  *   at the cap (#3792)
  * @typedef {Tick & {typedSeat: string|null, slots: number,
- *   readMoveSeats: () => MoveSeats,
+ *   roomOf: (root: string) => number, readMoveSeats: () => MoveSeats,
  *   seatListRead: boolean}} LimitTick  `seatListRead`, whether the seats read
  *   are the loop's own list, not a damaged or empty control's stand-in
  *   a tick read further for its limit-blocked launches: the plan seats sized
- *   for one session each, the overflow seats on those readings, and
- *   admission's free slots
+ *   for one session each, the overflow seats on those readings,
+ *   admission's free slots, and how many a checkout may take before an act
+ *   proves one (#5275)
  * @typedef {{seats: import("./refill-decide.js").SizedSeat[],
  *   overflow: import("./refill-decide.js").OverflowReading[]}} MoveSeats
  * @typedef {{seat: string, keyVar?: string, allowanceUsd?: number}} MoveTarget
@@ -874,7 +875,8 @@ const takesSlot = (l) => isLimitHeld(l);
  * fewer seats parks each hold on those dropped. Each one resumed or moved from
  * held takes a slot, so a seat's reset lets them back only as admission has
  * room. A seat is sized for one session, so it takes one move or one resume
- * from held a tick, and the next waits a tick for a fresh sizing. The launches, the slots left, and the
+ * from held a tick, and the next waits a tick for a fresh sizing. A checkout
+ * whose room is spent resumes none from held (#5275). The launches, the slots left, and the
  * net sessions added to those admission read. Nothing off an unread listing, and with none
  * limit-blocked no seat is read.
  * @param {LoopLaunch[]} launches
@@ -884,6 +886,10 @@ const takesSlot = (l) => isLimitHeld(l);
  */
 function actOnLimits(launches, mode, seen) {
 	let { slots } = seen;
+	/** @type {Map<string, number>} */
+	const spent = new Map();
+	/** @param {string} root */
+	const roomLeft = (root) => seen.roomOf(root) - (spent.get(root) ?? 0);
 	let liveChange = 0;
 	if (!seen.agents || !launches.some(isLimitBlocked))
 		return { launches, slots, liveChange };
@@ -899,7 +905,7 @@ function actOnLimits(launches, mode, seen) {
 		if (!(blocked.has(l.jobId) || isLimitHeld(l))) return l;
 		const out = actOnLimit(judgeTakenResume(l, seen.io), own, seen, {
 			mode,
-			slots,
+			slots: Math.min(slots, roomLeft(l.root)),
 			moveSeats,
 		});
 		const change = limitLiveChange(l, out);
@@ -907,7 +913,10 @@ function actOnLimits(launches, mode, seen) {
 		 * stop and resume in place keeps the slot it holds (#3730). */
 		if (out.seat !== l.seat || out.keyVar !== l.keyVar || change > 0)
 			moveSeats = withSeatTaken(moveSeats, out);
-		if (change > 0) slots -= 1;
+		if (change > 0) {
+			slots -= 1;
+			spent.set(l.root, (spent.get(l.root) ?? 0) + 1);
+		}
 		liveChange += change;
 		return syncLedgerHold(out, seen.io);
 	});

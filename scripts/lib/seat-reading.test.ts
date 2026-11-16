@@ -257,7 +257,7 @@ describe("a seat's reading (#2606)", () => {
 				freeSlots: 2,
 				seats: [{ ...readOn(Stale, session, week), fits: null }],
 				history: [],
-				lastActAt: null,
+				lastActAt: {},
 			});
 
 		it("waits out a locked seat's cached 100% week whose reset is ahead", () => {
@@ -825,7 +825,7 @@ describe("the cap's launch count (#2278)", () => {
 				freeSlots: 2,
 				seats,
 				history: [],
-				lastActAt: null,
+				lastActAt: {},
 			});
 
 		it("launches on the next seat with room", () => {

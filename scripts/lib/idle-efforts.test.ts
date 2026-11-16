@@ -386,6 +386,7 @@ describe("buildIdleLines", () => {
 					freeSlots: 2,
 					seats: [spentSeat],
 					history: [],
+					lastActAt: {},
 					...over,
 				}).idle,
 			);
@@ -610,6 +611,7 @@ describe("buildReadings", () => {
 				held: [],
 				repoHolds: [],
 				loopWait: null,
+				repoPaused: {},
 				holdsUnreadRoots: [],
 				...loop,
 			},
@@ -764,6 +766,20 @@ describe("buildReadings", () => {
 				error: "HTTP 502",
 			},
 		]);
+	});
+
+	it("hands a tracker its checkouts' no-progress pause where every one it is served from is paused (#5275)", () => {
+		const pause = { by: "no-progress", at: NOW, issues: [] };
+		const waitOf = (repoPaused: Record<string, unknown>) =>
+			read([{ repo: REPO }], {
+				served: ["/r/core", "/r/core2"],
+				loopWait: "the loop's own",
+				repoPaused,
+			}).trackers[0].loopWait;
+		expect(waitOf({ "/r/core": pause, "/r/core2": pause })).toContain(
+			"paused by no-progress",
+		);
+		expect(waitOf({ "/r/core": pause })).toBe("the loop's own");
 	});
 
 	describe("a tracker's unread hold stores (#3918)", () => {

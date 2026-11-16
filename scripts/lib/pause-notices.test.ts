@@ -6,6 +6,7 @@
  * Broken, a no-progress pause that only the founder can end goes unseen for hours
  * (#4200), or pages him every tick.
  */
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -70,16 +71,18 @@ const readDispatched = () =>
 	);
 const readPhases = () => readDispatched().map((m) => m.split(" ").at(-1));
 
-/** gh for the calls that follow, each dispatch so far commented on issue 12. */
+/** gh for the calls that follow, each dispatch so far commented on its issue. */
 const serve = () => {
 	const routes = fs.mkdtempSync(path.join(dir, "gh-routes-"));
 	const comments = readDispatched().map((m) => ({
 		body: `@x hello\n\n<!-- ${m} -->`,
 	}));
+	const viewed = printed(JSON.stringify({ comments }));
 	const { gh } = stubGhRoutes(
 		routes,
 		{
-			"issue view 12 *": printed(JSON.stringify({ comments })),
+			"issue view 12 *": viewed,
+			[`issue view ${FILED} *`]: viewed,
 			"run list *": printed("[]"),
 			"workflow run *": printed(""),
 			"*": readGhAnswer(LOGGED_OUT),
@@ -89,11 +92,35 @@ const serve = () => {
 	vi.stubEnv("WFC_GH", gh);
 };
 
-/** One tick's pause notices at `now` under `paused`; its log lines. */
-const tick = (paused: Pause | undefined, now = NOW) => {
+/** The workflow-core issue the stub filer files. */
+const FILED = 77;
+
+/** A filer at the paging checkout, recording its calls; `fails` refuses a filing. */
+const stubFiler = (fails = false) => {
+	const calls: string[] = [];
+	const filer = {
+		home: paging,
+		file: (title: string, body: string) => {
+			calls.push(`file ${title} | ${body}`);
+			return fails ? "gh is down" : FILED;
+		},
+		close: (n: number, comment: string) => {
+			calls.push(`close ${n} ${comment}`);
+			return null;
+		},
+	};
+	return { filer, calls };
+};
+
+/** One tick's pause notices at `now` under `repoPaused`; its log lines. */
+const tick = (
+	repoPaused: Record<string, Pause>,
+	now = NOW,
+	filer = stubFiler().filer,
+) => {
 	serve();
 	const lines: string[] = [];
-	tendPauseNotices(paused, now, (l) => lines.push(l));
+	tendPauseNotices(repoPaused, now, (l) => lines.push(l), filer);
 	expect(lines.join("\n")).not.toContain("notice not tended");
 	return lines.join("\n");
 };
@@ -105,71 +132,116 @@ const noProgress = (
 	],
 ): Pause => ({ by: "no-progress", at: NOW - MIN, issues });
 
-describe("a no-progress pause's phone notice (#4222)", () => {
+/** The notice file of a pause of `root` written at `pausedAt`. */
+const noticeFileOf = (pausedAt: number, root: string) =>
+	at(
+		`pause-notices/${pausedAt}-${crypto.createHash("sha256").update(root).digest("hex").slice(0, 12)}.notice`,
+	);
+
+describe("a checkout's no-progress pause's phone notice (#4222, #5275)", () => {
 	it("sends one raise the tick it is written, on the first issue in a paging tracker, and none on later paused ticks", () => {
-		const pause = noProgress();
-		expect(tick(pause)).toContain("raise notice dispatched on #12");
-		tick(pause, NOW + MIN);
-		tick(pause, NOW + 20 * MIN);
+		const paused = { [paging]: noProgress() };
+		expect(tick(paused)).toContain("raise notice dispatched on #12");
+		tick(paused, NOW + MIN);
+		tick(paused, NOW + 20 * MIN);
 		expect(readPhases()).toEqual(["raise"]);
 		expect(readGhLog()).toContain("-f issue=12");
+		expect(readGhLog()).toContain("The refill loop paused paging");
 		expect(readGhLog()).toContain("silent#5, paging#12");
 		expect(readGhLog()).toContain("set --resume");
 	});
 
 	it("sends one clear once the pause ends, and nothing after", () => {
-		const pause = noProgress();
-		tick(pause);
-		expect(tick(undefined, NOW + MIN)).toContain(
-			"clear notice dispatched on #12",
-		);
-		tick(undefined, NOW + 2 * MIN);
-		tick(undefined, NOW + 20 * MIN);
+		tick({ [paging]: noProgress() });
+		expect(tick({}, NOW + MIN)).toContain("clear notice dispatched on #12");
+		tick({}, NOW + 2 * MIN);
+		tick({}, NOW + 20 * MIN);
 		expect(readPhases()).toEqual(["raise", "clear"]);
 		expect(readGhLog().split("silent#5, paging#12")).toHaveLength(3);
 		expect(fs.readdirSync(at("pause-notices"))).toEqual([]);
 	});
 
-	it("pages each pause as its own cause", () => {
-		tick(noProgress());
-		tick(undefined, NOW + MIN);
-		tick({ ...noProgress(), at: NOW + 2 * MIN }, NOW + 3 * MIN);
+	it("pages each pause as its own cause, two checkouts' at one time included", () => {
+		tick({ [paging]: noProgress() });
+		tick({}, NOW + MIN);
+		tick({ [paging]: { ...noProgress(), at: NOW + 2 * MIN } }, NOW + 3 * MIN);
 		expect(readPhases()).toEqual(["raise", "clear", "raise"]);
+		tick(
+			{
+				[paging]: { ...noProgress(), at: NOW + 2 * MIN },
+				[silent]: { ...noProgress(), at: NOW + 2 * MIN },
+			},
+			NOW + 4 * MIN,
+		);
+		expect(readPhases()).toEqual(["raise", "clear", "raise", "raise"]);
 	});
 
 	it("reads a torn record as sent, logged, and pages neither raise nor clear", () => {
 		const pause = noProgress();
 		fs.mkdirSync(at("pause-notices"));
-		fs.writeFileSync(at(`pause-notices/${pause.at}.notice`), "{");
-		expect(tick(pause)).toContain("notice record torn, read as sent");
-		tick(pause, NOW + MIN);
-		tick(undefined, NOW + 2 * MIN);
+		fs.writeFileSync(noticeFileOf(pause.at, paging), "{");
+		expect(tick({ [paging]: pause })).toContain(
+			"notice record torn, read as sent",
+		);
+		tick({ [paging]: pause }, NOW + MIN);
+		tick({}, NOW + 2 * MIN);
 		expect(readGhLog()).not.toContain("workflow run");
 		expect(fs.readdirSync(at("pause-notices"))).toEqual([]);
 	});
 
 	it("logs a clear given up on a record torn after its raise", () => {
 		const pause = noProgress();
-		tick(pause);
-		fs.writeFileSync(at(`pause-notices/${pause.at}.notice`), "{");
-		expect(tick(undefined, NOW + MIN)).toContain("clear notice lost");
+		tick({ [paging]: pause });
+		fs.writeFileSync(noticeFileOf(pause.at, paging), "{");
+		expect(tick({}, NOW + MIN)).toContain("clear notice lost");
 		expect(readPhases()).toEqual(["raise"]);
 	});
+});
 
-	it("sends nothing for a founder-set pause", () => {
-		tick({ by: "founder", at: NOW - MIN });
-		tick(undefined, NOW + MIN);
-		expect(readGhLog()).not.toContain("workflow run");
+describe("a pause whose tracker pages no one (#5275)", () => {
+	const quiet = () => noProgress([{ root: silent, number: 5 }]);
+
+	it("files one workflow-core issue naming the checkout, and pages on it", () => {
+		const { filer, calls } = stubFiler();
+		expect(tick({ [silent]: quiet() }, NOW, filer)).toContain(
+			`filed #${FILED}, silent's tracker paging no one`,
+		);
+		tick({ [silent]: quiet() }, NOW + MIN, filer);
+		expect(calls).toHaveLength(1);
+		expect(calls[0]).toContain(
+			"file Refill loop: no-progress pause in silent |",
+		);
+		expect(calls[0]).toContain(silent);
+		expect(calls[0]).toContain("silent#5");
+		expect(readPhases()).toEqual(["raise"]);
+		expect(readGhLog()).toContain(`-f issue=${FILED}`);
 	});
 
-	it("sends nothing for a pause with no issue in a paging tracker, logged once, and no clear", () => {
-		const pause = noProgress([{ root: silent, number: 5 }]);
-		expect(tick(pause)).toContain(
-			"no phone notice, as none of silent#5 lives in a tracker",
+	it("closes that issue once the pause ends, after its clear", () => {
+		const { filer, calls } = stubFiler();
+		tick({ [silent]: quiet() }, NOW, filer);
+		expect(tick({}, NOW + MIN, filer)).toContain(
+			`clear notice dispatched on #${FILED}`,
 		);
-		expect(tick(pause, NOW + MIN)).toBe("");
-		tick(undefined, NOW + 2 * MIN);
-		expect(readGhLog()).not.toContain("workflow run");
+		expect(calls.filter((c) => c.startsWith("close"))).toEqual([]);
+		tick({}, NOW + 2 * MIN, filer);
+		tick({}, NOW + 20 * MIN, filer);
+		tick({}, NOW + 21 * MIN, filer);
+		expect(calls.filter((c) => c.startsWith("close"))).toEqual([
+			`close ${FILED} The refill loop's pause of \`${silent}\` has ended: it launches there again.`,
+		]);
 		expect(fs.readdirSync(at("pause-notices"))).toEqual([]);
+	});
+
+	it("logs a filing that fails and retries it the next tick, paging nothing meanwhile", () => {
+		const down = stubFiler(true);
+		expect(tick({ [silent]: quiet() }, NOW, down.filer)).toContain(
+			"workflow-core issue not filed, the next tick retries: gh is down",
+		);
+		expect(readGhLog()).not.toContain("workflow run");
+		const up = stubFiler();
+		tick({ [silent]: quiet() }, NOW + MIN, up.filer);
+		expect(up.calls).toHaveLength(1);
+		expect(readPhases()).toEqual(["raise"]);
 	});
 });

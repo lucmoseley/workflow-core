@@ -163,8 +163,8 @@ describe("a headless launch's finish (#2611)", () => {
 					},
 				],
 				history,
-				lastActAt: null,
+				lastActAt: {},
 			}),
-		).toHaveProperty("pause.by", "no-progress");
+		).toHaveProperty("repoPauses");
 	});
 });

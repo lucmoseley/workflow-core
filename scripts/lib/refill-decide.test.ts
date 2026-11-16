@@ -73,7 +73,7 @@ const tick = (over: Record<string, unknown> = {}) =>
 		freeSlots: 2,
 		seats: [seat("~/.claude3", 40, 20), seat("~/.claude2", 10, 10)],
 		history: [],
-		lastActAt: null,
+		lastActAt: {},
 		...over,
 	});
 
@@ -223,7 +223,7 @@ describe("decideTick's stops and pauses (#2007, #3859)", () => {
 		it("counts no finish before a resume's new count point", () => {
 			const history = [finished(7), finished(8), finished(9)];
 			expect(tick({ history, noProgressFrom: NOW })).not.toHaveProperty(
-				"pause",
+				"repoPauses",
 			);
 		});
 	});
@@ -232,29 +232,57 @@ describe("decideTick's stops and pauses (#2007, #3859)", () => {
 		expect(tick({ noProgressFrom: 0 })).not.toHaveProperty("stop");
 	});
 
-	it("pauses after three finishes in a row with no progress, naming their issues once (#3859)", () => {
+	it("pauses a checkout after three of its finishes in a row with no progress, naming their issues once (#3859, #5275)", () => {
 		const d = tick({
-			history: [
-				finished(7),
-				finished(9, { root: "/h/mh" }),
-				finished(7, { finishedAt: NOW - 1 }),
-			],
+			history: [finished(7), finished(9), finished(7, { finishedAt: NOW - 1 })],
 		});
 		expect(d).not.toHaveProperty("stop");
 		expect(d).toMatchObject({
 			launches: [],
-			pause: {
-				by: "no-progress",
-				at: NOW,
-				issues: expect.arrayContaining([
-					{ root: "/h/mh", number: 9 },
-					{ root: expect.any(String), number: 7 },
-				]),
+			repoPauses: {
+				wfc: {
+					by: "no-progress",
+					at: NOW,
+					issues: [
+						{ root: "wfc", number: 7 },
+						{ root: "wfc", number: 9 },
+					],
+				},
 			},
 		});
-		expect(d.idle?.reason).toBe("paused by");
-		expect(d.idle?.detail).toContain(": no act from ");
-		expect(d.idle?.detail).toContain("mh#9");
+		expect(d.skipped.map((s: { why: string }) => s.why)).toContain(
+			"a no-progress pause stops launches into its checkout",
+		);
+	});
+
+	it("pauses only the stalled checkout, launching into the others (#5275)", () => {
+		const d = tick({
+			frontier: [row("wfc", 1), { ...row("/h/mh", 2), root: "/h/mh" }],
+			history: [finished(7), finished(8), finished(9)],
+		});
+		expect(Object.keys(d.repoPauses)).toEqual(["wfc"]);
+		expect(launched(d)).toEqual(["/h/mh#2"]);
+	});
+
+	it("lets no act in one checkout break another's run (#5275)", () => {
+		const d = tick({
+			history: [
+				finished(7),
+				finished(8),
+				finished(5, { root: "/h/mh", acts: { close: 1 } }),
+				finished(9),
+			],
+		});
+		expect(Object.keys(d.repoPauses)).toEqual(["wfc"]);
+	});
+
+	it("writes no second pause for a checkout already paused", () => {
+		const d = tick({
+			history: [finished(7), finished(8), finished(9)],
+			repoPaused: { wfc: { by: "no-progress", at: NOW - HOUR, issues: [] } },
+		});
+		expect(d).not.toHaveProperty("repoPauses");
+		expect(launched(d)).toEqual([]);
 	});
 
 	it.each(["block", "close", "commit", "file", "gate", "relabel", "round"])(
@@ -267,7 +295,7 @@ describe("decideTick's stops and pauses (#2007, #3859)", () => {
 					finished(9, { acts: { [kind]: 1 } }),
 				],
 			});
-			expect(d).not.toHaveProperty("pause");
+			expect(d).not.toHaveProperty("repoPauses");
 		},
 	);
 
@@ -281,7 +309,7 @@ describe("decideTick's stops and pauses (#2007, #3859)", () => {
 					finished(9, blocked),
 				],
 			}),
-		).not.toHaveProperty("pause");
+		).not.toHaveProperty("repoPauses");
 	});
 
 	it("passes over an unread finish in the run, counting it neither way (#2312)", () => {
@@ -290,10 +318,10 @@ describe("decideTick's stops and pauses (#2007, #3859)", () => {
 			tick({
 				history: [finished(6), finished(7, unread), finished(8), finished(9)],
 			}),
-		).toHaveProperty("pause.by", "no-progress");
+		).toHaveProperty("repoPauses.wfc.by", "no-progress");
 		expect(
 			tick({ history: [finished(7), finished(8, unread), finished(9)] }),
-		).not.toHaveProperty("pause");
+		).not.toHaveProperty("repoPauses");
 	});
 
 	it("passes over a resume with nothing to repeat that made no act, but counts other resumes and one the loop parked again (#3949, #3942)", () => {
@@ -302,12 +330,12 @@ describe("decideTick's stops and pauses (#2007, #3859)", () => {
 			tick({
 				history: [finished(7, woken), finished(8, woken), finished(9, woken)],
 			}),
-		).not.toHaveProperty("pause");
+		).not.toHaveProperty("repoPauses");
 		expect(
 			tick({
 				history: [finished(6), finished(7, woken), finished(8), finished(9)],
 			}),
-		).toHaveProperty("pause.by", "no-progress");
+		).toHaveProperty("repoPauses.wfc.by", "no-progress");
 		const parkedAgain = { ...woken, parkStopped: NOW - HOUR };
 		expect(
 			tick({
@@ -317,7 +345,7 @@ describe("decideTick's stops and pauses (#2007, #3859)", () => {
 					finished(9, parkedAgain),
 				],
 			}),
-		).toHaveProperty("pause.by", "no-progress");
+		).toHaveProperty("repoPauses.wfc.by", "no-progress");
 	});
 
 	it("passes over gate judgements that end unmet, with no act, but counts one that acted (#3092)", () => {
@@ -330,12 +358,12 @@ describe("decideTick's stops and pauses (#2007, #3859)", () => {
 					finished(3073, gate),
 				],
 			}),
-		).not.toHaveProperty("pause");
+		).not.toHaveProperty("repoPauses");
 		expect(
 			tick({
 				history: [finished(7), finished(2906, gate), finished(8), finished(9)],
 			}),
-		).toHaveProperty("pause.by", "no-progress");
+		).toHaveProperty("repoPauses.wfc.by", "no-progress");
 		expect(
 			tick({
 				history: [
@@ -344,7 +372,7 @@ describe("decideTick's stops and pauses (#2007, #3859)", () => {
 					finished(2906, { ...gate, acts: { relabel: 1 } }),
 				],
 			}),
-		).not.toHaveProperty("pause");
+		).not.toHaveProperty("repoPauses");
 	});
 
 	it("reads the run by finish order, so an older progress does not break it", () => {
@@ -356,7 +384,7 @@ describe("decideTick's stops and pauses (#2007, #3859)", () => {
 				finished(9),
 			],
 		});
-		expect(d).toHaveProperty("pause.by", "no-progress");
+		expect(d).toHaveProperty("repoPauses.wfc.by", "no-progress");
 	});
 
 	it("ignores running sessions and launches from before the last start", () => {
@@ -369,7 +397,7 @@ describe("decideTick's stops and pauses (#2007, #3859)", () => {
 					finished(10, { launchedAt: NOW - 5 * HOUR }),
 				],
 			}),
-		).not.toHaveProperty("pause");
+		).not.toHaveProperty("repoPauses");
 	});
 
 	it("waits on the earliest weekly reset once every seat is weekly-full (#3859)", () => {
@@ -1266,22 +1294,30 @@ describe("decideTick's unproven-launch cap (#4223)", () => {
 		Array.from({ length: n }, (_, i) => running(`j${i}`, Act + 1 + i));
 	const capIdle = buildIdle(
 		"3 launches since the last act are running",
-		` (last act ${new Date(Act).toISOString()})`,
+		` (wfc last act ${new Date(Act).toISOString()})`,
 	);
 
 	it("launches none past three running since the last act, whatever the free slots", () => {
-		const d = tick({ freeSlots: 5, history: sinceAct(3), lastActAt: Act });
+		const d = tick({
+			freeSlots: 5,
+			history: sinceAct(3),
+			lastActAt: { wfc: Act },
+		});
 		expect(d).toMatchObject({ launches: [], idle: capIdle });
 	});
 
 	it("fills only the cap's room where fewer than three run unproven", () => {
-		const d = tick({ freeSlots: 5, history: sinceAct(1), lastActAt: Act });
+		const d = tick({
+			freeSlots: 5,
+			history: sinceAct(1),
+			lastActAt: { wfc: Act },
+		});
 		expect(launched(d)).toEqual(["wfc#1", "wfc#2"]);
 	});
 
 	it("counts nothing launched before the last act, so an act frees the cap", () => {
 		const proven = [0, 1, 2].map((i) => running(`p${i}`, Act - 1 - i));
-		const d = tick({ freeSlots: 3, history: proven, lastActAt: Act });
+		const d = tick({ freeSlots: 3, history: proven, lastActAt: { wfc: Act } });
 		expect(launched(d)).toEqual(["wfc#1", "wfc#2", "wfc#3"]);
 	});
 
@@ -1291,7 +1327,7 @@ describe("decideTick's unproven-launch cap (#4223)", () => {
 			running("f", Act + 1, { finishedAt: NOW - 1 }),
 			running("p", Act + 1, { parkStopped: Act + 2 }),
 		];
-		const d = tick({ freeSlots: 5, history, lastActAt: Act });
+		const d = tick({ freeSlots: 5, history, lastActAt: { wfc: Act } });
 		expect(launched(d)).toEqual(["wfc#1", "wfc#2"]);
 	});
 
@@ -1300,7 +1336,7 @@ describe("decideTick's unproven-launch cap (#4223)", () => {
 		const d = tick({
 			freeSlots: 5,
 			history: [...sinceAct(2), kept],
-			lastActAt: Act,
+			lastActAt: { wfc: Act },
 		});
 		expect(launched(d)).toEqual(["wfc#1"]);
 	});
@@ -1311,7 +1347,7 @@ describe("decideTick's unproven-launch cap (#4223)", () => {
 			limitHeld: { resumedAt: Act + 2 },
 		});
 		const free = (history: unknown[]) =>
-			launched(tick({ freeSlots: 5, history, lastActAt: Act })).length;
+			launched(tick({ freeSlots: 5, history, lastActAt: { wfc: Act } })).length;
 		expect(free([...sinceAct(2), stopped])).toBe(1);
 		expect(free([...sinceAct(2), resumed])).toBe(0);
 	});
@@ -1320,13 +1356,13 @@ describe("decideTick's unproven-launch cap (#4223)", () => {
 		const d = tick({
 			freeSlots: 5,
 			history: [0, 1, 2].map((i) => running(`j${i}`, NOW - 10 * HOUR + i)),
-			lastActAt: null,
+			lastActAt: {},
 		});
 		expect(d).toMatchObject({
 			launches: [],
 			idle: buildIdle(
 				"3 launches since the last act are running",
-				" (no act read)",
+				" (wfc no act read)",
 			),
 		});
 	});
@@ -1343,7 +1379,7 @@ describe("decideTick's unproven-launch cap (#4223)", () => {
 			freeSlots: 5,
 			history: [...sinceAct(1), running("held", Act + 9)],
 			resumable: [due("held"), due("other")],
-			lastActAt: Act,
+			lastActAt: { wfc: Act },
 		});
 		expect(d.resumes.map((r: { jobId: string }) => r.jobId)).toEqual([
 			"held",
@@ -1354,8 +1390,41 @@ describe("decideTick's unproven-launch cap (#4223)", () => {
 
 	it("leaves the no-free-slot idle to admission where it is the tighter", () => {
 		expect(
-			tick({ freeSlots: 0, history: sinceAct(3), lastActAt: Act }),
+			tick({ freeSlots: 0, history: sinceAct(3), lastActAt: { wfc: Act } }),
 		).toMatchObject({ idle: buildIdle("no free slot") });
+	});
+
+	it("counts each checkout's cap from its own last act (#5275)", () => {
+		const other = (n: number) => ({ ...row("dv", n), root: "dv" });
+		const d = tick({
+			freeSlots: 5,
+			frontier: [row("wfc", 1), other(2)],
+			history: sinceAct(3),
+			lastActAt: { wfc: Act, dv: Act },
+		});
+		expect(launched(d)).toEqual(["dv#2"]);
+		expect(d.skipped).toEqual([
+			expect.objectContaining({
+				root: "wfc",
+				why: "3 launches since its checkout's last act are running",
+			}),
+		]);
+	});
+
+	it("names each checkout's hold where different holds skip every row (#5275)", () => {
+		const d = tick({
+			freeSlots: 5,
+			frontier: [row("wfc", 1), { ...row("dv", 2), root: "dv" }],
+			history: sinceAct(3),
+			lastActAt: { wfc: Act },
+			repoPaused: { dv: { by: "no-progress", at: NOW - HOUR, issues: [] } },
+		});
+		expect(d.idle).toEqual(
+			buildIdle(
+				"every launchable checkout is held",
+				": wfc 3 launches since its checkout's last act are running; dv a no-progress pause stops launches into its checkout",
+			),
+		);
 	});
 
 	it("is a wait the queue moves through, not one the idle alarm names", () => {

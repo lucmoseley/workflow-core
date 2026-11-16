@@ -25,6 +25,7 @@
  * never throw, so a broken record costs a reading, never a tick.
  */
 
+const path = require("node:path");
 const { caught } = require("./caught.js");
 const { readJsonl, readLastJsonlRow } = require("./jsonl.js");
 const {
@@ -122,8 +123,8 @@ function largestHolder(a) {
 function policyFailing(input, decision) {
 	if ("stop" in decision)
 		return [{ limit: LOOP_OFF, why: `stopping: ${decision.detail}` }];
-	const paused = decision.pause ?? input.paused;
-	if (paused) return [{ limit: LOOP_OFF, why: buildPauseText(paused) }];
+	if (input.paused)
+		return [{ limit: LOOP_OFF, why: buildPauseText(input.paused) }];
 	if (input.launchHold)
 		return [{ limit: LOOP_OFF, why: buildLaunchHoldText(input.launchHold) }];
 	if (decision.planWait)
@@ -137,6 +138,14 @@ function policyFailing(input, decision) {
 		});
 	if (decision.idle?.reason === PROBE_HOLD_WAIT)
 		out.push({ limit: "probe hold", why: buildIdleText(decision.idle) });
+	for (const [root, pause] of Object.entries({
+		...input.repoPaused,
+		...decision.repoPauses,
+	}))
+		out.push({
+			limit: "repo pause",
+			why: `${path.basename(root)} ${buildPauseText(pause)}`,
+		});
 	const pick = input.freeSlots > 0 ? pickSeat(input) : null;
 	if (pick && pick.seat === null)
 		out.push({

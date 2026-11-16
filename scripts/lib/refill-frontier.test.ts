@@ -84,6 +84,7 @@ const launchesOf = (frontier: unknown[]) =>
 			freeSlots: 3,
 			seats: [{ seat: "~/.claude2", week: 10, session: 10, fits: 9 }],
 			history: [],
+			lastActAt: {},
 		}).launches ?? []
 	).map(
 		(l: { root: string; issues: number[] }) =>
@@ -578,6 +579,7 @@ describe("a checkout whose shortlist fails (#2561)", () => {
 				freeSlots: 3,
 				seats: [{ seat: "~/.claude2", week: 10, session: 10, fits: 9 }],
 				history: [],
+				lastActAt: {},
 				failedShortlists: m.failed,
 			}),
 		).toMatchObject({

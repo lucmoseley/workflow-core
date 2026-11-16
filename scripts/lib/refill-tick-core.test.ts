@@ -43,6 +43,12 @@ type BlockIo = import("./refill-blocks.js").BlockIo;
 type LoopState = import("./refill-state.js").LoopState;
 type Control = import("./refill-loop.js").Control;
 
+const DV = "/home/u/design-vault";
+
+/** Every launch's checkout read as having acted at `at`. */
+const actedAt = (launches: { root: string }[], at: number) =>
+	Object.fromEntries(launches.map((l) => [l.root, at]));
+
 /** Every act's name; tsc holds it to TickActs, so a new act joins the dry-run case. */
 const ACTS = {
 	changeControl: true,
@@ -67,7 +73,7 @@ const ACTS = {
 	probeDueSeats: true,
 	startDueConsoleReads: true,
 	launchBatch: true,
-	writePause: true,
+	writePauses: true,
 	runReview: true,
 	updateState: true,
 	dropSettledLifted: true,
@@ -195,7 +201,7 @@ function fakeIo(
 		sendHoldNotices: recorded("sendHoldNotices", () => undefined),
 		sendPauseNotices: recorded("sendPauseNotices", () => undefined),
 		readProgress: recorded("readProgress", () => ({ acts: {} })),
-		readLoopLastActAt: () => null,
+		readLoopLastActAt: () => ({}),
 		readCause: () => null as never,
 		tendClosedParks: recorded("tendClosedParks", () => undefined),
 		actOnOutside: recorded("actOnOutside", () => undefined),
@@ -231,7 +237,7 @@ function fakeIo(
 			})),
 			refused: [],
 		})),
-		writePause: recorded("writePause", () => true),
+		writePauses: recorded("writePauses", (pauses) => pauses),
 		runReview: recorded("runReview", (lastRunOn) => lastRunOn),
 		updateState: recorded("updateState", onDisk),
 		readOmittedDirs: () => [],
@@ -404,7 +410,7 @@ const actingTick = (over: Partial<TickIo> = {}) =>
 		{
 			...LISTED_BLOCKS,
 			/* An act just now, so the unproven cap leaves the hold its slot. */
-			readLoopLastActAt: () => NOW,
+			readLoopLastActAt: (launches) => actedAt(launches, NOW),
 			readFreeSlots: () => ({ slots: 2, admission: null }),
 			...over,
 		},
@@ -524,7 +530,10 @@ describe("the limit acts' holds (#3735, #4323)", () => {
 		const rows: (string | null)[] = [];
 		const { io, calls } = fakeIo(
 			stateOf({ launches: [HELD_LAUNCH, ENDED_HOLD] }),
-			{ ...LISTED_BLOCKS, readLoopLastActAt: () => NOW },
+			{
+				...LISTED_BLOCKS,
+				readLoopLastActAt: (launches) => actedAt(launches, NOW),
+			},
 			{
 				block: {
 					release: ({ jobId }) => {
@@ -722,13 +731,15 @@ describe("the unproven cap through the tick (#4223)", () => {
 		const { io, calls, lines } = fakeIo(
 			stateOf({ launches: [...running, ...held] }),
 			{
-				readLoopLastActAt: () => lastActAt,
+				readLoopLastActAt: (launches) => actedAt(launches, lastActAt),
 				readFreeSlots: () => ({ slots: 5, admission: null }),
 				readSeats: () => ({
 					seats: seats.map((seat) => ({ ...sized, seat })),
 					probes: [],
 				}),
 			},
+			/* The cap is the checkout's, so the row waiting is the running ones' (#5275). */
+			{ frontier: [{ ...row(1), root: HELD_LAUNCH.root }] },
 		);
 		const { decision } = await tickOf(io);
 		return {
@@ -746,7 +757,10 @@ describe("the unproven cap through the tick (#4223)", () => {
 		);
 		expect(decision).toMatchObject({
 			launches: [],
-			idle: { reason: "3 launches since the last act are running" },
+			idle: {
+				reason: "3 launches since the last act are running",
+				detail: ` (design-vault last act ${new Date(NOW - MIN).toISOString()})`,
+			},
 		});
 	});
 
@@ -825,7 +839,7 @@ describe("a limit-held launch through the tick (#3735)", () => {
 		const { io } = fakeIo(
 			stateOf({ launches: [HELD_LAUNCH] }),
 			{
-				readLoopLastActAt: () => NOW,
+				readLoopLastActAt: (launches) => actedAt(launches, NOW),
 				readFreeSlots: () => ({
 					slots: 1,
 					/* The run test's fake carries only the fields concurrency.js reads. */
@@ -1204,7 +1218,7 @@ describe("a paused tick (#3856)", () => {
 			stateOf({ launches: [gone, ENDED_HOLD, HELD_LAUNCH] }),
 			{
 				...LISTED_BLOCKS,
-				readLoopLastActAt: () => NOW,
+				readLoopLastActAt: (launches) => actedAt(launches, NOW),
 				capSizer: () => () => {
 					capReads.push("cap");
 					return null;
@@ -1380,13 +1394,13 @@ describe("the pause notices' read of the pause (#4222)", () => {
 		return seen;
 	};
 
-	it("hands the control's pause, or none, to the pause notices each tick", async () => {
-		const pause = { by: "no-progress", at: 7, issues: [] };
-		expect(await noticedPauses(control({ paused: pause }))).toEqual([pause]);
-		expect(await noticedPauses(control())).toEqual([undefined]);
+	it("hands the control's checkout pauses, or none, to the pause notices each tick (#5275)", async () => {
+		const repoPaused = { [WFC]: { by: "no-progress", at: 7, issues: [] } };
+		expect(await noticedPauses(control({ repoPaused }))).toEqual([repoPaused]);
+		expect(await noticedPauses(control())).toEqual([{}]);
 	});
 
-	it("sends the raise on the tick that writes a no-progress pause, and none where the write is refused", async () => {
+	it("sends the raise on the tick that writes a checkout's no-progress pause, and none where the write is refused", async () => {
 		const stalledTick = async (isWritten: boolean) => {
 			const sent: unknown[] = [];
 			const finished = [1, 2, 3].map(
@@ -1400,7 +1414,7 @@ describe("the pause notices' read of the pause (#4222)", () => {
 					}) as Launch,
 			);
 			const { io } = fakeIo(stateOf({ launches: finished }), {
-				writePause: () => isWritten,
+				writePauses: (pauses) => (isWritten ? pauses : null),
 				sendPauseNotices: (paused) => {
 					sent.push(paused);
 				},
@@ -1409,10 +1423,10 @@ describe("the pause notices' read of the pause (#4222)", () => {
 			return sent;
 		};
 		const written = await stalledTick(true);
-		expect(written[0]).toBeUndefined();
+		expect(written[0]).toEqual({});
 		expect(written).toHaveLength(2);
-		expect(written[1]).toHaveProperty("by", "no-progress");
-		expect(await stalledTick(false)).toEqual([undefined]);
+		expect(written[1]).toHaveProperty([DV, "by"], "no-progress");
+		expect(await stalledTick(false)).toEqual([{}]);
 	});
 });
 

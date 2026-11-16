@@ -333,15 +333,26 @@ describe("the loop's last act, for the unproven cap (#4223)", () => {
 			record({}),
 		] as Launch[];
 		expect(lastActOf(launches, () => ["r"], read)).toEqual({
-			at: 300,
+			at: { "/home/u/design-vault": 300 },
 			unread: [],
+		});
+	});
+
+	it("keys each act by its launch's checkout, so one checkout's act is not another's (#5275)", () => {
+		const launches = [
+			record({ sessionId: "mid" }),
+			record({ sessionId: "old", root: "/home/u/workflow-core" }),
+		] as Launch[];
+		expect(lastActOf(launches, () => ["r"], read).at).toEqual({
+			"/home/u/design-vault": 300,
+			"/home/u/workflow-core": 100,
 		});
 	});
 
 	it("names each store that would not read, reading no act there", () => {
 		const launches = [record({ sessionId: "bad" })] as Launch[];
 		expect(lastActOf(launches, () => ["r1", "r2"], read)).toEqual({
-			at: null,
+			at: {},
 			unread: [
 				{ sessionId: "bad", root: "r1" },
 				{ sessionId: "bad", root: "r2" },
@@ -425,7 +436,7 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 			expect(buildFinishLine(history[0])).toBe(
 				"finished design-vault /implement 3: no acts",
 			);
-			expect(decideOn(history)).toHaveProperty("pause.by", "no-progress");
+			expect(decideOn(history)).toHaveProperty("repoPauses");
 		});
 
 		it("still sums its past sessions where a limit then moved it to a copy (#2969)", () => {
@@ -542,7 +553,7 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 				},
 			],
 			history,
-			lastActAt: null,
+			lastActAt: {},
 		});
 
 	/** Finishes in order, `j<n>` finishing at NOW - 10 + n, those in `idless`
@@ -559,18 +570,20 @@ describe("a finished launch's progress, from its session's acts ledger (#2312)",
 	it("pauses on three finishes with no act, an unread one between them passed over", () => {
 		const history = finishes(["j1", "j2", "j3", "j4"], ["j2"]);
 		expect(history.map((l) => l.acts)).toEqual([{}, "unread", {}, {}]);
-		expect(decideOn(history)).toHaveProperty("pause.by", "no-progress");
+		expect(decideOn(history)).toHaveProperty("repoPauses");
 	});
 
 	it("does not pause on two finishes with no act beside an unread one", () => {
 		const history = finishes(["j1", "j2", "j3"], ["j2"]);
 		expect(history.map((l) => l.acts)).toEqual([{}, "unread", {}]);
-		expect(decideOn(history)).not.toHaveProperty("pause");
+		expect(decideOn(history)).not.toHaveProperty("repoPauses");
 	});
 
 	it("does not stop where one of the three made an act", () => {
 		store.recordAct("relabel owner/repo#3 takes:implement", "s-j3", sb.repo);
-		expect(decideOn(finishes(["j1", "j2", "j3"]))).not.toHaveProperty("pause");
+		expect(decideOn(finishes(["j1", "j2", "j3"]))).not.toHaveProperty(
+			"repoPauses",
+		);
 	});
 });
 
@@ -655,7 +668,7 @@ function settleOnce(
 				seats,
 				overflow,
 				history: past,
-				lastActAt: null,
+				lastActAt: {},
 			},
 			decision,
 			state,
@@ -668,7 +681,7 @@ function settleOnce(
 		{
 			readControl,
 			launchBatch: dispatch,
-			writePause: () => undefined,
+			writePauses: () => undefined,
 			resumeHeld: (_resumes, launches) => ({
 				launches,
 				started: 0,
@@ -1094,7 +1107,7 @@ describe("a tick's log line (#2362)", () => {
 				},
 			],
 			history: [],
-			lastActAt: null,
+			lastActAt: {},
 		});
 		const wait =
 			"idle: the 5-hour bar is full on /s1 until its 5-hour reset 2026-10-18T14:00:00Z";
@@ -1764,7 +1777,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 		typedSeat: null,
 		seats: [],
 		history: [],
-		lastActAt: null,
+		lastActAt: {},
 	} as Tick["input"];
 	/* One repo per pick, so each is its own dispatcher call. */
 	const pick = (n: number) => ({
@@ -1847,7 +1860,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 								refused: [],
 							};
 				},
-				writePause: () => undefined,
+				writePauses: () => undefined,
 				resumeHeld: (_resumes, launches) => ({
 					launches,
 					started: 0,
@@ -1914,7 +1927,7 @@ describe("a stop landing mid-tick (#2126, #2286)", () => {
 			{
 				readControl: () => ({ control: null, damaged: null }),
 				launchBatch: () => ({ launched: [], refused: [] }),
-				writePause: () => undefined,
+				writePauses: () => undefined,
 				resumeHeld: (_resumes, launches) => ({
 					launches,
 					started: 0,
@@ -2431,7 +2444,7 @@ describe("a resume the tick's step left held (#3855)", () => {
 					seats: [],
 					overflow: [],
 					history: [],
-					lastActAt: null,
+					lastActAt: {},
 					resumable,
 				},
 				decision: {
@@ -2462,7 +2475,7 @@ describe("a resume the tick's step left held (#3855)", () => {
 					launched.push(...batch);
 					return { launched: [], refused: [] };
 				},
-				writePause: () => undefined,
+				writePauses: () => undefined,
 				resumeHeld: () => resumed,
 				runReview: (lastRunOn) => lastRunOn,
 				updateState: stateFileFake(loopStateOf(null), writes),

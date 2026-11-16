@@ -37,6 +37,7 @@ import { judgedLaunches } from "./refill-loop.js";
 import { buildSeatName } from "./refill-seats.js";
 
 const DAY = 24 * 60 * MIN;
+const DV = "/home/u/design-vault";
 const LIMIT_HOLD_BOUND_DAYS = 8;
 /** The cap refill-decide.js keeps to itself, pinned here. */
 const LIMIT_PARK_CAP = 2;
@@ -91,11 +92,13 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			seatListRead = true,
 			now = NOW,
 			io: over = {},
+			roomOf = () => slots,
 		}: {
 			seats?: Sized[];
 			overflow?: import("./refill-decide.js").OverflowReading[];
 			seatListRead?: boolean;
 			slots?: number;
+			roomOf?: (root: string) => number;
 			now?: number;
 			mode?: "away" | "normal";
 			io?: Partial<BlockIo>;
@@ -122,6 +125,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			readMoveSeats: () => ({ seats, overflow }),
 			seatListRead,
 			slots,
+			roomOf,
 		});
 		return { ...out, calls };
 	}
@@ -973,6 +977,7 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			},
 			seatListRead: true,
 			slots: 2,
+			roomOf: () => 2,
 		});
 		expect(out).toMatchObject({ slots: 2, liveChange: 0 });
 	});
@@ -1492,13 +1497,16 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			record({ jobId: `u${i}`, launchedAt: Act + 1 + i }),
 		);
 		const room = (launches: Launch[]) =>
-			unprovenRoom({
-				/* One unproven launch finishes: its room comes back. */
-				history: launches.map((l) =>
-					l.jobId === "u0" ? { ...l, finishedAt: NOW } : l,
-				),
-				lastActAt: Act,
-			});
+			unprovenRoom(
+				{
+					/* One unproven launch finishes: its room comes back. */
+					history: launches.map((l) =>
+						l.jobId === "u0" ? { ...l, finishedAt: NOW } : l,
+					),
+					lastActAt: { [DV]: Act },
+				},
+				DV,
+			);
 
 		it("leaves a live one resumed in place, with three unproven running, dated by its launch", () => {
 			const { launches, liveChange } = limits(
@@ -1523,6 +1531,17 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			);
 			expect(launches[2]).toMatchObject({ slotTakenAt: NOW });
 			expect(room(launches)).toBe(0);
+		});
+
+		it("resumes none from held into a checkout whose room is spent, while another's goes (#5275)", () => {
+			const other = held({ jobId: "job43", root: "/home/u/other" });
+			const { launches, slots } = limits([held(), other], [], {
+				slots: 2,
+				roomOf: (root) => (root === DV ? 0 : 1),
+			});
+			expect(launches[0]).not.toHaveProperty("slotTakenAt");
+			expect(launches[1]).toMatchObject({ slotTakenAt: NOW });
+			expect(slots).toBe(1);
 		});
 	});
 

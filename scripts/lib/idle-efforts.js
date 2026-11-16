@@ -165,6 +165,8 @@ const QUERY =
  * @property {import("./refill-decide.js").TickHold[]} repoHolds its served
  *   checkouts' open repo holds
  * @property {string|null} loopWait why it launches no row whatever its rank
+ * @property {Record<string, import("./refill-decide.js").Pause>} repoPaused its
+ *   checkouts' no-progress pauses, by root (#5275)
  * @property {string[]} holdsUnreadRoots its served checkouts whose hold store
  *   would not read, whole or in part
  */
@@ -179,6 +181,21 @@ const QUERY =
  */
 const buildLiveLoopWait = (paused, lastIdle) =>
 	paused ? buildPausedWaitText(paused) : buildLoopWait(lastIdle ?? null);
+
+/**
+ * A tracker's loop wait: a pause of every checkout the loop serves it from
+ * outranks the loop's own wait (#5275); none where it serves none.
+ * @param {string[]} served the tracker's served checkouts
+ * @param {LoopReading} loop
+ * @returns {string|null}
+ */
+function buildTrackerWait(served, loop) {
+	if (served.length === 0) return null;
+	const pause = loop.repoPaused[served[0] ?? ""];
+	return pause && served.every((r) => loop.repoPaused[r])
+		? buildPausedWaitText(pause)
+		: loop.loopWait;
+}
 
 /**
  * A stopped loop's last run, which keys its stop finding: its control's count
@@ -282,7 +299,7 @@ function buildReadings({ rootsOf, trackers, loop, now }) {
 				holdsUnread:
 					served.length > 0 &&
 					served.every((r) => loop.holdsUnreadRoots.includes(r)),
-				loopWait: served.length > 0 ? loop.loopWait : null,
+				loopWait: buildTrackerWait(served, loop),
 				issues,
 				error,
 			};

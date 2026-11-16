@@ -1335,7 +1335,7 @@ const buildProbeIssueBody = (root, failure) =>
  * @param {string} title
  * @returns {number|null}
  */
-function readOpenProbeIssue(root, title) {
+function readOpenIssueTitled(root, title) {
 	const rows = /** @type {{number: number, title: string}[]} */ (
 		ghJson(
 			[
@@ -1369,7 +1369,7 @@ function fileProbeIssue(root, hold, failure, log) {
 	const title = `Refill loop probe: shared .git failing in ${path.basename(root)}`;
 	let open;
 	try {
-		open = readOpenProbeIssue(root, title);
+		open = readOpenIssueTitled(root, title);
 	} catch (e) {
 		log(
 			`repo hold ${hold.id} in ${root}: issue not filed, the next tick retries: could not look for an open one: ${parseErrLine(e)}`,
@@ -1694,6 +1694,8 @@ function buildHoldLines(roots, now) {
 }
 
 module.exports = {
+	readOpenIssueTitled,
+	readTracker,
 	attachHold,
 	attachProbeParks,
 	buildNoticeName,

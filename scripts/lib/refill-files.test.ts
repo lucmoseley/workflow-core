@@ -14,7 +14,7 @@ import {
 	appendLoopLog,
 	readControlChecked,
 	withControlLock,
-	writeLoopPause,
+	writeRepoPauses,
 } from "./refill-files.js";
 import { readJson } from "./refill-json.js";
 import { NOW } from "./refill-loop-fixture";
@@ -47,7 +47,7 @@ describe("a loop file's read (#3380)", () => {
 	});
 });
 
-describe("the loop's own pause (#3859)", () => {
+describe("the checkout pauses' write (#3859, #5275)", () => {
 	const From = 5;
 	const pause = { by: "no-progress", at: 9, issues: [] };
 	let tmp: string;
@@ -72,24 +72,31 @@ describe("the loop's own pause (#3859)", () => {
 		fs.rmSync(tmp, { recursive: true, force: true });
 	});
 
-	it("writes the pause, changing no other field", () => {
-		writeStored({ seats: ["/s"] });
-		expect(writeLoopPause(pause, From, () => undefined)).toBe(true);
-		expect(stored()).toMatchObject({ paused: pause, seats: ["/s"] });
+	it("writes each checkout's pause beside those already set, changing no other field", () => {
+		const earlier = { by: "no-progress", at: 3, issues: [] };
+		writeStored({ seats: ["/s"], repoPaused: { "/a": earlier } });
+		expect(writeRepoPauses({ "/b": pause }, From, () => undefined)).toEqual({
+			"/a": earlier,
+			"/b": pause,
+		});
+		expect(stored()).toMatchObject({
+			repoPaused: { "/a": earlier, "/b": pause },
+			seats: ["/s"],
+		});
 		expect(fs.existsSync(`${control()}.lock`)).toBe(false);
 	});
 
-	it("keeps a pause set since the tick read the control", () => {
-		const founder = { by: "founder", at: 7 };
-		writeStored({ paused: founder });
-		expect(writeLoopPause(pause, From, () => undefined)).toBe(false);
-		expect(stored().paused).toEqual(founder);
+	it("keeps a checkout's pause set since the tick read the control", () => {
+		const earlier = { by: "no-progress", at: 3, issues: [] };
+		writeStored({ repoPaused: { "/a": earlier } });
+		writeRepoPauses({ "/a": pause }, From, () => undefined);
+		expect(stored().repoPaused).toEqual({ "/a": earlier });
 	});
 
 	it("writes nothing where a resume moved the count since", () => {
 		writeStored({ noProgressFrom: From + 1 });
-		expect(writeLoopPause(pause, From, () => undefined)).toBe(false);
-		expect(stored()).not.toHaveProperty("paused");
+		expect(writeRepoPauses({ "/a": pause }, From, () => undefined)).toBe(null);
+		expect(stored()).not.toHaveProperty("repoPaused");
 	});
 
 	it("logs a lock kept past the wait and writes nothing, for the next tick to decide again", () => {
@@ -102,9 +109,11 @@ describe("the loop's own pause (#3859)", () => {
 		try {
 			fs.writeFileSync(`${control()}.lock`, String(holder.pid));
 			const lines: string[] = [];
-			expect(writeLoopPause(pause, From, (l) => lines.push(l), 0)).toBe(false);
-			expect(stored()).not.toHaveProperty("paused");
-			expect(lines.join()).toContain("the next tick decides it again");
+			expect(
+				writeRepoPauses({ "/a": pause }, From, (l) => lines.push(l), 0),
+			).toBe(null);
+			expect(stored()).not.toHaveProperty("repoPaused");
+			expect(lines.join()).toContain("the next tick decides them again");
 		} finally {
 			holder.kill();
 		}
@@ -183,7 +192,7 @@ describe("the tick's control read (#3389)", () => {
 			freeSlots: 1,
 			seats: [],
 			history: [],
-			lastActAt: null,
+			lastActAt: {},
 		});
 
 	it("reads an absent control as none, not damaged, so a real tick stops as explicit", () => {

@@ -2390,6 +2390,7 @@ describe("a block's resume across a kill before the state write (#4180)", () => 
 			}),
 			seatListRead: true,
 			slots: 1,
+			roomOf: () => 1,
 		});
 		return { out: out.launches, calls, started };
 	};
@@ -2762,6 +2763,7 @@ describe("every route resumes from the cwd resumeTargetOf read (#4414)", () => {
 			}),
 			seatListRead: true,
 			slots: 1,
+			roomOf: () => 1,
 		});
 		return { ...r, out: out.launches };
 	}

@@ -224,7 +224,10 @@ function changeFields(control, ask, context) {
 					(/** @type {Control} */ c) => {
 						const change = buildPauseChange(c, pause, context);
 						/* A resume of an unpaused loop is a restart, not a lifted pause. */
-						if (change.write && (pause || c.paused !== undefined))
+						if (
+							change.write &&
+							(pause || c.paused !== undefined || c.repoPaused !== undefined)
+						)
 							pauseSet = pause;
 						return change;
 					},
@@ -429,8 +432,9 @@ function buildUntickedLines({ scope }, root) {
 }
 
 /**
- * Only the pause changed. A resume moves the point the no-progress count counts
- * from, so the finishes before it do not count (#3856). With no process it also
+ * Only the pause changed. A resume lifts every checkout's no-progress pause too,
+ * and moves the point the no-progress count counts from, so the finishes before
+ * it do not count (#3856, #5275). With no process it also
  * drops any stop, whatever the pause read, since its caller starts one from this
  * control (#3861). A stop pending on a running loop stands. A pause over the quiet
  * bench route's makes it the founder's, which that route never lifts (#3852).
@@ -442,6 +446,7 @@ function buildUntickedLines({ scope }, root) {
  * @returns {SetChange}
  */
 function buildPauseChange(control, pause, { running, now }) {
+	if (!pause && control.repoPaused) return buildResume(control, running, now);
 	if (
 		pause === (control.paused !== undefined) &&
 		(pause || running) &&
@@ -457,7 +462,24 @@ function buildPauseChange(control, pause, { running, now }) {
 		const paused = { by: "founder", at: now };
 		return { write: { ...control, paused }, lines: [buildPauseText(paused)] };
 	}
-	const { paused: _resumed, stopRequestedAt, ...rest } = control;
+	return buildResume(control, running, now);
+}
+
+/**
+ * The resume: the loop's pause and every checkout's lifted, and the no-progress
+ * count started again (#5275).
+ * @param {Control} control
+ * @param {boolean} running
+ * @param {number} now
+ * @returns {SetChange}
+ */
+function buildResume(control, running, now) {
+	const {
+		paused: _resumed,
+		repoPaused: _lifted,
+		stopRequestedAt,
+		...rest
+	} = control;
 	return {
 		write: {
 			...rest,
@@ -851,6 +873,10 @@ function buildScopeLines(
 	const launchHold = liveLaunchHold(control.launchHold, now);
 	return [
 		...(control.paused ? [buildPausedWaitText(control.paused)] : []),
+		...Object.entries(control.repoPaused ?? {}).map(
+			([root, pause]) =>
+				`${path.basename(root)}: ${buildPausedWaitText(pause)}`,
+		),
 		...(launchHold ? [buildLaunchHoldText(launchHold)] : []),
 		`mode:      ${scope.mode}`,
 		...(control.quietBenchOff ? ["quiet bench: off"] : []),
@@ -1180,6 +1206,7 @@ function buildStatusJson({
 		stopRequested: control?.stopRequested ?? false,
 		...readEnding(control, state, pid),
 		paused: control?.paused ?? null,
+		repoPaused: control?.repoPaused ?? {},
 		launchHold: liveLaunchHold(control?.launchHold, now) ?? null,
 		lastTick: lastTick && {
 			at: lastTick.at,

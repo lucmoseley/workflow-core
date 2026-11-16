@@ -109,7 +109,7 @@ const {
 	readControlChecked,
 	withControlLock,
 	writeControlFile,
-	writeLoopPause,
+	writeRepoPauses,
 } = require("./refill-files.js");
 const { readJson, writeJson } = require("./refill-json.js");
 const { OUTSIDE_FILE, actOnOutside } = require("./refill-outside.js");
@@ -133,7 +133,7 @@ const {
 	withTickStores,
 } = require("./repo-holds.js");
 const { tendHoldNotices } = require("./repo-hold-notices.js");
-const { tendPauseNotices } = require("./pause-notices.js");
+const { buildPauseFiler, tendPauseNotices } = require("./pause-notices.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { localDate } = require("./local-date.js");
 const { pidLock } = require("./pid-lock.js");
@@ -542,8 +542,8 @@ function readProgress(l, served) {
 }
 
 /**
- * lib/refill-loop.js's lastActOf over actRootsOf's stores, each unread one
- * logged.
+ * lib/refill-loop.js's lastActOf over actRootsOf's stores, by checkout, each
+ * unread one logged.
  * @param {import("./refill-loop.js").LoopLaunch[]} launches
  * @param {string[]} served
  */
@@ -1040,7 +1040,8 @@ const productionIo = {
 	readSwapHold,
 	sendHoldNotices: (roots, { agents, isPaused }, now) =>
 		tendHoldNotices(roots, { agents, isPaused }, now, log),
-	sendPauseNotices: (paused, now) => tendPauseNotices(paused, now, log),
+	sendPauseNotices: (repoPaused, now) =>
+		tendPauseNotices(repoPaused, now, log, buildPauseFiler(REVIEW_ROOT)),
 	readProgress,
 	readLoopLastActAt,
 	readCause,
@@ -1064,8 +1065,8 @@ const productionIo = {
 	readFrontier: refillFrontier,
 	readParkMarkers,
 	launchBatch: launchOrResume,
-	writePause: (pause, noProgressFrom) =>
-		writeLoopPause(pause, noProgressFrom, log),
+	writePauses: (pauses, noProgressFrom) =>
+		writeRepoPauses(pauses, noProgressFrom, log),
 	runReview,
 	updateState: (transition) => updateState(transition, log),
 	readOmittedDirs,

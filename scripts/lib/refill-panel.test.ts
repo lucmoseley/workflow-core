@@ -58,6 +58,7 @@ const RUNNING = {
 	stop: null,
 	crashed: false,
 	paused: null,
+	repoPaused: {},
 	lastTick: {
 		at: AT,
 		summary: "idle: nothing launchable",
@@ -101,10 +102,12 @@ const issuesIn = (...roots: string[]) =>
 	roots.map((root, i) => ({ root, number: 2518 + i }));
 const STALLED = {
 	...RUNNING,
-	paused: {
-		by: "no-progress",
-		at: AT,
-		issues: issuesIn("/h/wc", "/h/wc", "/h/wc"),
+	repoPaused: {
+		"/h/wc": {
+			by: "no-progress",
+			at: AT,
+			issues: issuesIn("/h/wc", "/h/wc", "/h/wc"),
+		},
 	},
 };
 const planWaitTick = (resets: number | null) => ({
@@ -498,11 +501,15 @@ describe("the panel's rows", () => {
 	});
 
 	it("qualifies no progress's issues by repo where they span repos", () => {
-		const paused = {
-			...STALLED.paused,
-			issues: issuesIn("/h/wc", "/h/manta"),
+		const repoPaused = {
+			"/h/wc": { by: "no-progress", at: AT, issues: issuesIn("/h/wc") },
+			"/h/manta": {
+				by: "no-progress",
+				at: AT,
+				issues: [{ root: "/h/manta", number: 2519 }],
+			},
 		};
-		expect(rowsOf({ status: { ...STALLED, paused } })[3].text).toBe(
+		expect(rowsOf({ status: { ...STALLED, repoPaused } })[3].text).toBe(
 			"No progress: wc#2518, manta#2519",
 		);
 	});

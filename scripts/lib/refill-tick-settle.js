@@ -411,10 +411,11 @@ const buildLaunchBatches = (decision, waiting) =>
 
 /**
  * @param {import("./refill-decide.js").Decision} decision
- * @param {{writePause: (pause: import("./refill-decide.js").Pause) => void}} io
+ * @param {{writePauses: (pauses: Record<string, import("./refill-decide.js").Pause>) => void}} io
  */
 function writeDecidedPause(decision, io) {
-	if (!("stop" in decision) && decision.pause) io.writePause(decision.pause);
+	if (!("stop" in decision) && decision.repoPauses)
+		io.writePauses(decision.repoPauses);
 }
 
 /**
@@ -454,7 +455,7 @@ const buildLastTick = (decision, at, summary) => ({
  * @param {{readControl: () => ControlRead,
  *   launchBatch: (batch: import("./refill-decide.js").Launch[]) => BatchOutcome,
  *   resumeHeld: ResumeHeld,
- *   writePause: (pause: import("./refill-decide.js").Pause) => void,
+ *   writePauses: (pauses: Record<string, import("./refill-decide.js").Pause>) => void,
  *   runReview: (lastRunOn: string|null, now: number) => string|null,
  *   updateState: (transition: import("./refill-state.js").Transition) =>
  *     LoopState,

@@ -129,33 +129,31 @@ function withControlLock(write, waitMs) {
 }
 
 /**
- * Write the no-progress pause the tick decided, against a fresh read: a pause
- * set since keeps its record, and a resume since moved the count this one rests
- * on. A lock kept past the wait writes nothing, and the next tick decides the
- * pause again.
- * @param {import("./refill-decide.js").Pause} paused
- * @param {number} noProgressFrom the count the tick decided it on
+ * Write the checkout no-progress pauses the tick decided (#5275), against a
+ * fresh read: a checkout paused since keeps its record, and a resume since moved
+ * the count these rest on, so none is written. A lock kept past the wait writes
+ * nothing, and the next tick decides the pauses again.
+ * @param {Record<string, import("./refill-decide.js").Pause>} pauses by root
+ * @param {number} noProgressFrom the count the tick decided them on
  * @param {(line: string) => void} log
  * @param {number} [waitMs] withControlLock's
- * @returns {boolean} whether `paused` is now the control's
+ * @returns {Record<string, import("./refill-decide.js").Pause>|null} the
+ *   control's checkout pauses once written, null where none was
  */
-function writeLoopPause(paused, noProgressFrom, log, waitMs) {
+function writeRepoPauses(pauses, noProgressFrom, log, waitMs) {
 	const written = withControlLock(() => {
 		const { control } = readControlChecked(log);
-		if (
-			control === null ||
-			control.paused !== undefined ||
-			control.noProgressFrom !== noProgressFrom
-		)
-			return false;
-		writeControlFile({ ...control, paused });
-		return true;
+		if (control === null || control.noProgressFrom !== noProgressFrom)
+			return null;
+		const repoPaused = { ...pauses, ...control.repoPaused };
+		writeControlFile({ ...control, repoPaused });
+		return repoPaused;
 	}, waitMs);
 	if ("busy" in written)
 		log(
-			`pause not written, so the next tick decides it again: ${written.busy}`,
+			`pauses not written, so the next tick decides them again: ${written.busy}`,
 		);
-	return "done" in written && written.done;
+	return "done" in written ? written.done : null;
 }
 
 /**
@@ -199,6 +197,6 @@ module.exports = {
 	readControlChecked,
 	withControlLock,
 	writeControlFile,
-	writeLoopPause,
+	writeRepoPauses,
 	readControlFile,
 };

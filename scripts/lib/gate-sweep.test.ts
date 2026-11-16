@@ -315,6 +315,7 @@ describe("the decision core launches a queued judgement", () => {
 			seats: [{ seat: "~/.claude3", week: 40, session: 20, fits: 9 }],
 			ceilings: { week: 90, session: 90 },
 			history: [],
+			lastActAt: {},
 			judgements: [judgement],
 			...over,
 		});
@@ -367,6 +368,7 @@ describe("a judgement refused on admission stays queued (#5125)", () => {
 			seats: [{ seat: "~/.claude3", week: 40, session: 20, fits: 9 }],
 			ceilings: { week: 90, session: 90 },
 			history: [],
+			lastActAt: {},
 			judgements: readGateStore(file, throwOnLog).pending,
 		}).launches;
 	const refuse = (launches: unknown[], out: string) => {

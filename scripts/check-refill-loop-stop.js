@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /*
  * check-refill-loop-stop.js — name, at the next session start, a refill loop
- * that stopped on a damaged control file (#3389) or that the no-progress rule
- * paused (#2014, spec #1995 story 32; #3859), and its first overflow launch
+ * that stopped on a damaged control file (#3389) or whose checkouts the
+ * no-progress rule paused (#2014, spec #1995 story 32; #3859, #5275), and its first overflow launch
  * after a plan-seat launch, with the plan seats it rested on (#3767). And a
  * running loop whose wait on a listing after a restart has outlasted its bound
  * (lib/refill-boot.js's restartWaitOf, #4145), at every start while it lasts.
@@ -10,8 +10,8 @@
  * Usage:  node scripts/check-refill-loop-stop.js [--notify] [--json]
  *
  * READS the loop's state file (lib/refill-state.js) for its last stop, its
- * control file for its pause, and its pid lock for whether it runs. An explicit
- * stop and a founder's pause are not named.
+ * control file for its checkout pauses, and its pid lock for whether it runs. An
+ * explicit stop and a founder's pause are not named.
  *
  * ONCE PER STOP OR PAUSE. A `--notify` run, bar under `--json`, records its time
  * in the stop-seen stamp beside the state file, and names none at or before it. A
@@ -39,7 +39,7 @@
  * context (lib/check.js's screenNotices, #3776). A stamp is written once the
  * notice is out.
  *
- * IMPLICIT:  at every session start but a dispatcher's or the loop's job, prints the refill loop's no-progress pause, or its last stop where it was a damaged control file, where newer than the stamp, then stamps it; prints its newest first overflow launch where newer than that launch's stamp, then stamps it; and names a damaged state file, a stopped loop's damaged control file or a running loop's overlong restart wait.
+ * IMPLICIT:  at every session start but a dispatcher's or the loop's job, prints the refill loop's checkout no-progress pauses, or its last stop where it was a damaged control file, where newer than the stamp, then stamps it; prints its newest first overflow launch where newer than that launch's stamp, then stamps it; and names a damaged state file, a stopped loop's damaged control file or a running loop's overlong restart wait.
  * JUSTIFIED: fail-safe — the loop runs outside any session, so nothing else reports its stopping, its pausing itself, its spending or its sticking in a restart wait.
  * DEFEAT:    none needed — it never blocks; deleting a stamp names its last event again.
  * TREE:      none — judges machine-wide refill-loop state
@@ -53,7 +53,8 @@ const {
 	buildOverflowStartLines,
 	buildStartLabel,
 } = require("./lib/overflow-notice.js");
-const { NO_PROGRESS_PAUSE, buildPauseText } = require("./lib/refill-decide.js");
+const path = require("node:path");
+const { buildPauseText } = require("./lib/refill-decide.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const loop = require("./lib/refill-loop.js");
 const refillFiles = require("./lib/refill-files.js");
@@ -77,22 +78,31 @@ const CHECKER = "refill-loop-stop";
 const STATUS = `node ${scriptPath("refill-loop.js")} status`;
 
 /**
+ * Each checkout's no-progress pause written since the stamp (#5275).
  * @param {import("./lib/check").Ctx} ctx
  * @param {import("./lib/refill-loop.js").Control|null} control
  * @param {number} seen the stamp's time
- * @returns {number|null} the pause time it named, for the stamp
+ * @returns {number|null} the latest pause time it named, for the stamp
  */
 function reportNoProgressPause(ctx, control, seen) {
-	const paused = control?.paused;
-	if (paused?.by !== NO_PROGRESS_PAUSE || paused.at <= seen) return null;
-	const text = buildPauseText(paused);
-	ctx.warn("REFILL-LOOP-PAUSED", `the refill loop is ${text}`, { ...paused });
-	ctx.sayNotice(
-		`REFILL-LOOP-PAUSED — the refill loop is ${text}. It launches nothing and stays paused; look at those issues, then resume it.\n` +
-			`  node ${scriptPath("refill-loop.js")} set --resume\n` +
-			`  Its status: ${STATUS}\n`,
-	);
-	return paused.at;
+	/** @type {number|null} */
+	let latest = null;
+	for (const [root, paused] of Object.entries(control?.repoPaused ?? {})) {
+		if (paused.at <= seen) continue;
+		const repo = path.basename(root);
+		const text = buildPauseText(paused);
+		ctx.warn("REFILL-LOOP-PAUSED", `the refill loop's ${repo} is ${text}`, {
+			root,
+			...paused,
+		});
+		ctx.sayNotice(
+			`REFILL-LOOP-PAUSED — the refill loop's ${repo} is ${text}. It launches nothing there and stays paused; look at those issues, then resume it.\n` +
+				`  node ${scriptPath("refill-loop.js")} set --resume\n` +
+				`  Its status: ${STATUS}\n`,
+		);
+		latest = Math.max(latest ?? 0, paused.at);
+	}
+	return latest;
 }
 
 /**

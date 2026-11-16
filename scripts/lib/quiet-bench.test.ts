@@ -19,7 +19,7 @@ import {
 	parseBenchState,
 	parseFree,
 } from "./quiet-bench.js";
-import { NO_PROGRESS_PAUSE, QUIET_BENCH_PAUSE } from "./refill-decide.js";
+import { QUIET_BENCH_PAUSE } from "./refill-decide.js";
 
 const NOW = 1_800_000_000_000;
 const MINUTE = 60_000;
@@ -104,7 +104,7 @@ describe("taking the hold", () => {
 describe("another's pause", () => {
 	it.each([
 		["the founder's", { by: "founder", at: 1 }],
-		["the no-progress rule's", { by: NO_PROGRESS_PAUSE, at: 1 }],
+		["an unreadable record's", { by: "an unreadable record", at: 1 }],
 	])("leaves %s neither overwritten nor lifted", (_name, paused) => {
 		for (const state of [IDLE, draining(), running]) {
 			const step = decideQuietBench(tick({ paused, state }));

@@ -14,8 +14,9 @@ const { loneCommandOf, TAKES_PREFIX } = require("./takes-label.js");
 const { withoutStamps } = require("./stamp-paths.js");
 const { buildRowPrompt } = require("./unclosed-launch.js");
 
-/* Three finishes in a row with no progress pause the loop (#1920, #3859), and
- * as many launches since the last act are all that run unproven (#4200, #4223). */
+/* Three finishes in a row with no progress pause their checkout (#1920, #3859),
+ * and as many launches since its last act are all that run unproven there
+ * (#4200, #4223), each counted per checkout (#5275). */
 const NO_PROGRESS_RUN = 3;
 /* A finish whose acts could not be read, counted neither as progress nor as
  * no progress (#2312). */
@@ -54,6 +55,12 @@ const RESUME_DUE_WAIT = "every seat is spent; a resume is due";
 const RESUMES_TAKE_SLOTS = "resumes take every free slot";
 /* The idle reason of a tick whose unproven launches fill the cap (#4223). */
 const UNPROVEN_CAP = `${NO_PROGRESS_RUN} launches since the last act are running`;
+/* A row whose checkout's unproven launches fill its cap (#5275). */
+const UNPROVEN_HELD = `${NO_PROGRESS_RUN} launches since its checkout's last act are running`;
+/* A row in a checkout a no-progress pause stops (#5275). */
+const REPO_PAUSED = "a no-progress pause stops launches into its checkout";
+/* The idle reason of a tick whose skipped rows a mix of checkout holds skipped. */
+const CHECKOUTS_HELD = "every launchable checkout is held";
 /* The idle reason of a tick whose plan seats are weekly-full and whose
  * overflow keys are spent. */
 const OVERFLOW_SPENT = "every plan seat is weekly-full";
@@ -191,8 +198,11 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  * @property {OverflowReading[]} [overflow] the overflow seats, in failover
  *   order
  * @property {LaunchRecord[]} history
- * @property {number|null} lastActAt ms, the latest act any of `history`'s
- *   sessions made, null where none read (#4223)
+ * @property {Record<string, number>} lastActAt ms by checkout, the latest act
+ *   any of `history`'s sessions launched there made; a checkout with none read
+ *   is absent (#4223, #5275)
+ * @property {Record<string, Pause>} [repoPaused] each checkout's no-progress
+ *   pause, by root (#5275)
  * @property {import("./gate-sweep.js").Judgement[]} [judgements] the gate
  *   sweep's queue, launched ahead of the ranking (#2279), behind normal
  *   mode's parked rows (#3713)
@@ -320,12 +330,12 @@ const buildIdleText = ({ reason, detail }) => `${reason}${detail}`;
 /**
  * @typedef {{stop: StopReason, detail: string}
  *   | {launches: Launch[], skipped: Skip[], idle: Idle | null,
- *   held: Skip[], resumes: HeldResume[], pause?: Pause,
+ *   held: Skip[], resumes: HeldResume[], repoPauses?: Record<string, Pause>,
  *   capHeld?: HeldResume[], planWait?: PlanWait}} Decision `held` is
  *   heldParked's; `resumes` the tick's, oldest first, made ahead of its launches;
- *   `capHeld` takeResumes's, for the tick to log; `pause` the no-progress
- *   pause for the tick to write; `planWait` set where every plan seat's full week
- *   is why nothing launches
+ *   `capHeld` takeResumes's, for the tick to log; `repoPauses` each checkout's
+ *   new no-progress pause, by root, for the tick to write; `planWait` set where
+ *   every plan seat's full week is why nothing launches
  */
 
 /**
@@ -345,7 +355,8 @@ const hasProgressed = (r) =>
 	Object.values(actsRead(r) ?? {}).some((n) => n > 0);
 
 /**
- * The last three read finishes since noProgressFrom, if none progressed: an
+ * In one checkout, the last three read finishes since noProgressFrom, if none
+ * progressed, so an act in another checkout leaves its count (#5275): an
  * unread one is passed over, and so is a gate judgement with no act, since
  * judging a gate unmet ends with none (#3092), and a resume with nothing to repeat
  * that ended with no act and no new park, as its work may be done already (#3949):
@@ -355,12 +366,14 @@ const hasProgressed = (r) =>
  * judge that crashed or did nothing is passed over too, so a run of gate launches
  * alone never pauses the loop; JUDGE_EVERY_MS in lib/gate-sweep.js bounds how
  * often each issue's runs.
- * @param {TickInput} input
+ * @param {Pick<TickInput, "history"|"noProgressFrom">} input
+ * @param {string} root
  */
-function noProgressRun({ history, noProgressFrom }) {
+function noProgressRun({ history, noProgressFrom }, root) {
 	const recent = history
 		.filter(
 			(r) =>
+				r.root === root &&
 				r.finishedAt !== null &&
 				r.launchedAt >= noProgressFrom &&
 				r.acts !== UNREAD &&
@@ -377,25 +390,61 @@ function noProgressRun({ history, noProgressFrom }) {
 }
 
 /**
- * How many more launches and resumes may start before an act proves one
- * (#4223): NO_PROGRESS_RUN less the running launches launched, or resumed
- * into a slot, after `lastActAt`, every one where it is null, a launch with no job yet among them
- * (so not refill-blocks' isActionable). One the loop stopped, for a park or
- * on its seat's limit and not since resumed, runs no session, and one due back
- * this tick is counted as its resume.
- * @param {Pick<TickInput, "history"|"lastActAt"> & Partial<Pick<TickInput, "resumable">>} input
+ * Each checkout's no-progress pause this tick writes: one per checkout not
+ * already paused whose run of finishes made no act.
+ * @param {TickInput} input
+ * @returns {Record<string, Pause>}
  */
-function unprovenRoom({ history, lastActAt, resumable = [] }) {
+function buildNoProgressPauses(input) {
+	/** @type {Record<string, Pause>} */
+	const pauses = {};
+	for (const root of new Set(input.history.map((l) => l.root))) {
+		if (input.repoPaused?.[root]) continue;
+		const stalled = noProgressRun(input, root);
+		if (stalled) pauses[root] = buildNoProgressPause(stalled, input.now);
+	}
+	return pauses;
+}
+
+/**
+ * How many more launches and resumes may start in `root` before an act proves
+ * one (#4223, #5275): NO_PROGRESS_RUN less its running launches launched, or
+ * resumed into a slot, after its `lastActAt`, every one where it has none, a
+ * launch with no job yet among them (so not refill-blocks' isActionable). One the
+ * loop stopped, for a park or on its seat's limit and not since resumed, runs no
+ * session, and one due back this tick is counted as its resume.
+ * @param {Pick<TickInput, "history"|"lastActAt"> & Partial<Pick<TickInput, "resumable">>} input
+ * @param {string} root
+ */
+function unprovenRoom({ history, lastActAt, resumable = [] }, root) {
 	const due = new Set(resumable.map((r) => r.jobId));
+	const since = lastActAt[root] ?? null;
 	const unproven = history.filter(
 		(l) =>
+			l.root === root &&
 			l.finishedAt === null &&
 			l.parkStopped === undefined &&
 			!(l.limitHeld && l.limitHeld.resumedAt === undefined) &&
 			!(l.jobId && due.has(l.jobId)) &&
-			(lastActAt === null || unprovenFrom(l) > lastActAt),
+			(since === null || unprovenFrom(l) > since),
 	).length;
 	return Math.max(0, NO_PROGRESS_RUN - unproven);
+}
+
+/**
+ * The tick's unproven room by checkout, each launch or resume spending one.
+ * @param {Pick<TickInput, "history"|"lastActAt"|"resumable">} input
+ */
+function buildRoomLeft(input) {
+	/** @type {Map<string, number>} */
+	const left = new Map();
+	/** @param {string} root */
+	const of = (root) => left.get(root) ?? unprovenRoom(input, root);
+	return {
+		of,
+		/** @param {string} root */
+		spend: (root) => left.set(root, of(root) - 1),
+	};
 }
 
 /**
@@ -407,15 +456,24 @@ function unprovenRoom({ history, lastActAt, resumable = [] }) {
 const unprovenFrom = (l) => Math.max(l.launchedAt, l.slotTakenAt ?? 0);
 
 /**
- * The unproven cap's idle, naming the act it counts from.
- * @param {number|null} lastActAt
+ * The unproven cap's idle, naming each held checkout and the act it counts
+ * from.
+ * @param {Record<string, number>} lastActAt
+ * @param {string[]} roots
  */
-const buildUnprovenIdle = (lastActAt) =>
+const buildUnprovenIdle = (lastActAt, roots) =>
 	buildIdle(
 		UNPROVEN_CAP,
-		lastActAt === null
-			? " (no act read)"
-			: ` (last act ${new Date(lastActAt).toISOString()})`,
+		` (${roots
+			.map((root) => {
+				const at = lastActAt[root];
+				return `${path.basename(root)} ${
+					at === undefined
+						? "no act read"
+						: `last act ${new Date(at).toISOString()}`
+				}`;
+			})
+			.join("; ")})`,
 	);
 
 /**
@@ -628,6 +686,19 @@ function seatHold(s) {
  */
 const buildProbeHeldRoots = (holds = []) =>
 	new Set(holds.filter((h) => h.kind === "probe").map((h) => h.root));
+
+/**
+ * Why each checkout takes no launch or resume this tick, by root: a probe hold,
+ * else a no-progress pause (#5275).
+ * @param {Pick<TickInput, "holds"|"repoPaused">} input
+ * @returns {Map<string, string>}
+ */
+function buildHeldRoots({ holds, repoPaused = {} }) {
+	/** @type {Map<string, string>} */
+	const held = new Map(Object.keys(repoPaused).map((r) => [r, REPO_PAUSED]));
+	for (const root of buildProbeHeldRoots(holds)) held.set(root, PROBE_HELD);
+	return held;
+}
 
 /**
  * Each probe hold's checkout, issue and age, one per checkout.
@@ -898,12 +969,15 @@ const spendSeatFit = (seats, seat) =>
  * filled them reads 0 whatever room it has. Only the cap holds it, not a full bar
  * as a parked row: it was running on that seat, and a limit it meets there moves
  * it (#3735). A seat outside `seats` or unsized has no cap to charge, nor has an
- * overflow seat's session, on the dir a plan seat's cap is sized for or not.
+ * overflow seat's session, on the dir a plan seat's cap is sized for or not. A
+ * held checkout's, or one whose unproven room is spent, waits too (#5275).
  * @param {TickInput} input
  * @param {number} slots
+ * @param {ReturnType<typeof buildRoomLeft>} room
  */
-function takeResumes({ resumable = [], holds, seats }, slots) {
-	const probeHeldRoots = buildProbeHeldRoots(holds);
+function takeResumes(input, slots, room) {
+	const { resumable = [], seats } = input;
+	const heldRoots = buildHeldRoots(input);
 	/** @type {HeldResume[]} */
 	const resumes = [];
 	/** @type {HeldResume[]} */
@@ -911,13 +985,14 @@ function takeResumes({ resumable = [], holds, seats }, slots) {
 	let seatsLeft = seats;
 	for (const r of resumable.toSorted((a, b) => a.at - b.at)) {
 		if (resumes.length >= slots) break;
-		if (probeHeldRoots.has(r.root)) continue;
+		if (heldRoots.has(r.root) || room.of(r.root) <= 0) continue;
 		const planSeat = seatsLeft.find((s) => isSameSeat(r, s));
 		if (planSeat?.fits === 0) {
 			capHeld.push(r);
 			continue;
 		}
 		resumes.push(r);
+		room.spend(r.root);
 		if (planSeat) seatsLeft = spendSeatFit(seatsLeft, planSeat.seat);
 	}
 	return { resumes, capHeld, seatsLeft };
@@ -934,15 +1009,17 @@ function takeResumes({ resumable = [], holds, seats }, slots) {
  * substrate write-set meets a held file or a launch this tick waits behind
  * every clean row, a parked one included, then fills what slots they leave
  * (#4355); a parked row's own session holding its files is no clash, as it
- * resumes onto them. Residual:
+ * resumes onto them. A held checkout's rows, and those of one whose unproven
+ * room is spent, are skipped (#5275). Residual:
  * enough resumable parked rows to fill every slot hold the judgements back a
  * tick.
  * @param {TickInput} input
  * @param {{seat: string, keyVar?: string, reason: SeatReason}} on
  * @param {number} slots
+ * @param {ReturnType<typeof buildRoomLeft>} room
  */
-function fill(
-	{
+function fill(input, { seat, keyVar, reason }, slots, room) {
+	const {
 		frontier,
 		retroBundles,
 		running,
@@ -951,11 +1028,7 @@ function fill(
 		seats,
 		parkers,
 		history,
-		holds,
-	},
-	{ seat, keyVar, reason },
-	slots,
-) {
+	} = input;
 	/** @type {Launch[]} */
 	const launches = [];
 	/** @type {Skip[]} */
@@ -965,12 +1038,14 @@ function fill(
 	const taken = new Set(
 		running.flatMap((r) => r.issues.map((n) => key(r.root, n))),
 	);
-	const probeHeldRoots = buildProbeHeldRoots(holds);
+	const heldRoots = buildHeldRoots(input);
 	/** Why `number` in `root` launches nothing whatever its row reads, or null.
 	 * @param {string} root @param {number} number */
 	const buildHeldWhy = (root, number) => {
-		if (probeHeldRoots.has(root)) return PROBE_HELD;
-		return taken.has(key(root, number)) ? ALREADY_RUNNING : null;
+		const held = heldRoots.get(root);
+		if (held !== undefined) return held;
+		if (taken.has(key(root, number))) return ALREADY_RUNNING;
+		return room.of(root) <= 0 ? UNPROVEN_HELD : null;
 	};
 	/* A resume is held to its own seat's cap, which the pick seat's fits does
 	 * not bound where it is another seat (#3872). */
@@ -981,6 +1056,7 @@ function fill(
 	 */
 	const launch = (root, issues, prompt, { gate, parkedRoute } = {}) => {
 		for (const n of issues) taken.add(key(root, n));
+		room.spend(root);
 		launches.push({
 			root,
 			issues,
@@ -1134,8 +1210,9 @@ const buildPauseLogLine = (paused, source) =>
 	`${paused ? "paused" : "resumed"} by ${source}`;
 
 /**
- * The pause three launched sessions in a row with no act call for, with their
- * issues, each once. Only `set --resume` ends it: nothing reopens by waiting.
+ * The pause three launched sessions in a row with no act in one checkout call
+ * for, with their issues, each once. Only `set --resume` ends it: nothing
+ * reopens by waiting.
  * @param {LaunchRecord[]} stalled
  * @param {number} at
  * @returns {Pause}
@@ -1276,9 +1353,14 @@ function decideTick(input) {
  * @param {TickInput} input
  * @param {{free: number, spent: Idle, held: Skip[], resumes: HeldResume[],
  *   seatsLeft: SizedSeat[]}} taken
+ * @param {ReturnType<typeof buildRoomLeft>} room
  * @returns {Exclude<Decision, {stop: StopReason}>}
  */
-function decideLaunches(input, { free, spent, held, resumes, seatsLeft }) {
+function decideLaunches(
+	input,
+	{ free, spent, held, resumes, seatsLeft },
+	room,
+) {
 	const launchSlots = free - resumes.length;
 	if (launchSlots === 0) return buildIdleDecision(spent, held, resumes);
 	const chargedInput = { ...input, seats: seatsLeft };
@@ -1299,6 +1381,7 @@ function decideLaunches(input, { free, spent, held, resumes, seatsLeft }) {
 		chargedInput,
 		launchPick,
 		Math.min(launchPick.fits, launchSlots),
+		room,
 	);
 	if (out.launches.length > 0) return { ...out, idle: null, held, resumes };
 	return {
@@ -1309,9 +1392,14 @@ function decideLaunches(input, { free, spent, held, resumes, seatsLeft }) {
 	};
 }
 
+/* The skips a checkout's hold or spent unproven room makes, whatever the row. */
+const CHECKOUT_SKIPS = [PROBE_HELD, REPO_PAUSED, UNPROVEN_HELD];
+
 /**
  * Why a tick that walked its frontier launched nothing: a shortlist it could
- * not read, a probe hold that skipped every row it skipped, or nothing launchable.
+ * not read; a probe hold, or each checkout's spent unproven room, that skipped
+ * every row it skipped; a mix of checkout holds that did, each named; or
+ * nothing launchable.
  * @param {TickInput} input
  * @param {Skip[]} skipped
  * @returns {Idle}
@@ -1325,12 +1413,23 @@ function buildUnlaunchedIdle(input, skipped) {
 				.map((f) => `${path.basename(f.root)}: ${f.error}`)
 				.join(`; ${SHORTLIST_FAILED} `)}`,
 		);
-	if (skipped.length > 0 && skipped.every((s) => s.why === PROBE_HELD))
+	if (
+		skipped.length === 0 ||
+		!skipped.every((s) => CHECKOUT_SKIPS.includes(s.why))
+	)
+		return buildIdle(NOTHING_LAUNCHABLE);
+	if (skipped.every((s) => s.why === PROBE_HELD))
 		return buildIdle(
 			PROBE_HOLD_WAIT,
 			buildProbeHoldDetail(input.holds ?? [], input.now),
 		);
-	return buildIdle(NOTHING_LAUNCHABLE);
+	const byRoot = new Map(skipped.map((s) => [s.root, s.why]));
+	if (skipped.every((s) => s.why === UNPROVEN_HELD))
+		return buildUnprovenIdle(input.lastActAt, [...byRoot.keys()]);
+	return buildIdle(
+		CHECKOUTS_HELD,
+		`: ${[...byRoot].map(([root, why]) => `${path.basename(root)} ${why}`).join("; ")}`,
+	);
 }
 
 /**
@@ -1338,11 +1437,22 @@ function buildUnlaunchedIdle(input, skipped) {
  * @returns {Decision}
  */
 function decideUnpaused(input) {
-	const stalled = noProgressRun(input);
-	if (stalled) {
-		const pause = buildNoProgressPause(stalled, input.now);
-		return { ...buildIdleDecision(buildPauseIdle(pause), [], []), pause };
-	}
+	const repoPauses = buildNoProgressPauses(input);
+	const decision = decideUnpausedRepos({
+		...input,
+		repoPaused: { ...input.repoPaused, ...repoPauses },
+	});
+	return Object.keys(repoPauses).length > 0
+		? { ...decision, repoPauses }
+		: decision;
+}
+
+/**
+ * The decision once each checkout's no-progress pause is set.
+ * @param {TickInput} input
+ * @returns {Decision}
+ */
+function decideUnpausedRepos(input) {
 	const pick = pickSeat(input);
 	/* A session left on a seat's limit or with a resume due has acts still to
 	 * come, so the tick carries on to them. */
@@ -1358,16 +1468,12 @@ function decideUnpaused(input) {
 	const held = heldParked(input);
 	if (input.freeSlots === 0)
 		return buildIdleDecision(buildIdle(NO_FREE_SLOT), held, []);
-	const room = unprovenRoom(input);
-	const spent =
-		room < input.freeSlots
-			? buildUnprovenIdle(input.lastActAt)
-			: buildIdle(RESUMES_TAKE_SLOTS);
-	if (room === 0) return buildIdleDecision(spent, held, []);
-	const free = Math.min(input.freeSlots, room);
-	const { resumes, capHeld, seatsLeft } = takeResumes(input, free);
+	const room = buildRoomLeft(input);
+	const free = input.freeSlots;
+	const spent = buildIdle(RESUMES_TAKE_SLOTS);
+	const { resumes, capHeld, seatsLeft } = takeResumes(input, free, room);
 	return {
-		...decideLaunches(input, { free, spent, held, resumes, seatsLeft }),
+		...decideLaunches(input, { free, spent, held, resumes, seatsLeft }, room),
 		capHeld,
 	};
 }
@@ -1433,7 +1539,6 @@ module.exports = {
 	LIMIT_HELD_WAIT,
 	NO_FREE_SLOT,
 	NO_PLAN_ROOM,
-	NO_PROGRESS_PAUSE,
 	PAUSED,
 	buildLaunchHoldText,
 	liveLaunchHold,
@@ -1443,7 +1548,11 @@ module.exports = {
 	RESUMES_TAKE_SLOTS,
 	SHORTLIST_FAILED,
 	UNPROVEN_CAP,
+	UNPROVEN_HELD,
+	REPO_PAUSED,
+	CHECKOUTS_HELD,
 	unprovenRoom,
+	buildHeldRoots,
 	seatHold,
 	FULL,
 	buildLimitCapHoldWhy,

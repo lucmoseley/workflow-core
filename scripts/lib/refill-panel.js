@@ -23,7 +23,6 @@ const {
 	LIMIT_HELD_WAIT,
 	NO_FREE_SLOT,
 	NO_PLAN_ROOM,
-	NO_PROGRESS_PAUSE,
 	QUIET_BENCH_PAUSE,
 	NOTHING_LAUNCHABLE,
 	PROBE_HOLD_WAIT,
@@ -128,6 +127,7 @@ const ROLE_STYLES = {
  * @typedef {{running: boolean, stopRequested: boolean,
  *   stop: {reason: string, at: number, detail: string}|null, crashed: boolean,
  *   paused: {by: string, at: number, issues?: PauseIssue[], why?: string}|null,
+ *   repoPaused: Record<string, {by: string, at: number, issues?: PauseIssue[]}>,
  *   lastTick: {at: number, idle: import("./refill-decide.js").Idle|null,
  *     paused: boolean, planWait: {resets: number|null}|null}|null,
  *   concurrency: ReturnType<typeof import("./concurrency.js").readConcurrencyStatus>,
@@ -286,22 +286,33 @@ function buildWaitingRowText(status, now) {
 }
 
 /**
- * A no-progress pause reads "needs you", dead or alive. So
- * does a founder's pause whose process died: the housekeeping it promised has
- * stopped with it (#3875).
+ * Checkout no-progress pauses read "needs you", dead or alive, naming their
+ * issues (#5275).
+ * @param {PanelStatus["repoPaused"]} repoPaused
+ * @returns {[Row, Row]}
+ */
+function buildRepoPausedLines(repoPaused) {
+	const refs = buildIssueRefs(
+		Object.values(repoPaused).flatMap((p) => p.issues ?? []),
+	);
+	return [
+		NEEDS_YOU,
+		{ text: `No progress${refs && `: ${refs}`}`, role: "value" },
+	];
+}
+
+/** @param {PanelStatus} status */
+const hasRepoPauses = (status) => Object.keys(status.repoPaused).length > 0;
+
+/**
+ * A founder's pause whose process died reads "needs you": the housekeeping it
+ * promised has stopped with it (#3875).
  * @param {NonNullable<PanelStatus["paused"]>} paused
  * @param {PanelStatus} status
  * @param {number} now
  * @returns {[Row, Row]}
  */
 function buildPausedLines(paused, { running, crashed }, now) {
-	if (paused.by === NO_PROGRESS_PAUSE) {
-		const refs = buildIssueRefs(paused.issues ?? []);
-		return [
-			NEEDS_YOU,
-			{ text: `No progress${refs && `: ${refs}`}`, role: "value" },
-		];
-	}
 	if (crashed)
 		return [
 			NEEDS_YOU,
@@ -394,6 +405,7 @@ function buildObservedLines(status, now) {
 			},
 		];
 	if (paused) return buildPausedLines(paused, status, now);
+	if (hasRepoPauses(status)) return buildRepoPausedLines(status.repoPaused);
 	if (crashed)
 		return [
 			NEEDS_YOU,
@@ -665,15 +677,16 @@ const isLaunching = ({ running, stopRequested, paused }) =>
 	running && !stopRequested && !paused;
 
 /**
- * The switch's state: on only while the loop runs and launches, and neither word
- * while a press is pending or the status unread.
+ * The switch's state: on only while the loop runs and launches with no checkout
+ * paused, since a press then resumes them, and neither word while a press is
+ * pending or the status unread.
  * @param {PanelView} view
  * @returns {"on"|"off"|"pending"|"unknown"}
  */
 function buildLoopState({ status, presses }) {
 	if (presses.loop.pending) return "pending";
 	if (!status) return "unknown";
-	return isLaunching(status) ? "on" : "off";
+	return isLaunching(status) && !hasRepoPauses(status) ? "on" : "off";
 }
 
 /**
@@ -1126,7 +1139,8 @@ function buildUnpointedRows(view, now) {
  */
 function buildLoopPress({ status, presses }) {
 	if (presses.loop.pending || !status) return null;
-	if (status.paused) return { argv: ["set", "--resume"], on: true };
+	if (status.paused || hasRepoPauses(status))
+		return { argv: ["set", "--resume"], on: true };
 	if (isLaunching(status)) return { argv: ["set", "--pause"], on: false };
 	if (!status.running && (status.crashed || status.stop))
 		return { argv: ["set", "--resume"], on: true };
