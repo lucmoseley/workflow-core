@@ -11,6 +11,7 @@
 import { describe, expect, it } from "vitest";
 import { COPY_WHY } from "./bg-resume-fake";
 import { RESUME_CAP } from "./block-act.js";
+import { unprovenRoom } from "./launch-room.js";
 import { LIMIT_PROMPT } from "./loop-prompts.js";
 import { isHeld } from "./refill-block-core.js";
 import { actOnIdle, markParked } from "./refill-blocks.js";
@@ -27,7 +28,7 @@ import {
 	NOW,
 	record,
 } from "./refill-blocks-fixture";
-import { buildLimitCapText, unprovenRoom } from "./refill-decide.js";
+import { buildLimitCapText } from "./refill-decide.js";
 import {
 	actOnLimits,
 	buildHeldStopText,
