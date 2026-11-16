@@ -583,6 +583,17 @@ describe("a parked member resumed in place or launched afresh (#3621)", () => {
 		]);
 	});
 
+	it("records a member its route carried off its parking seat on the seat it went to (#5293)", () => {
+		const moved = { ...target, seat: "/home/u/.claude3", from: target.seat };
+		const parked = member(1, { parkedRoute: { resume: moved } });
+		const { out, resumed } = run([parked], ok);
+		expect(resumed).toEqual([moved]);
+		expect(out.launched[0]).toMatchObject({
+			seat: "/home/u/.claude3",
+			reason: expect.stringMatching(/^moved from .*\.claude2$/),
+		});
+	});
+
 	it("refuses a resume the re-read refuses and all behind it, resuming and dispatching nothing past it (#3872)", () => {
 		const parked = (n: number) =>
 			member(n, { parkedRoute: { resume: target } });

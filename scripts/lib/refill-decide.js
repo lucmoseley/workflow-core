@@ -269,9 +269,12 @@ const buildLaunchHoldText = (hold) => buildIdleText(buildLaunchHoldIdle(hold));
 
 /**
  * A stopped session due back: its launch's job, seat and checkout, when it was
- * stopped, and its line for a stop to name. `keyVar`, the overflow seat it ran on.
+ * stopped, and its line for a stop to name. `keyVar`, the overflow seat it ran on;
+ * `parked`, a parked question's session, which resumes on the seat
+ * pickParkedSeat picks; `to`, that seat, set by takeResumes where it is not
+ * `seat`.
  * @typedef {{jobId: string, seat: string, keyVar?: string, root: string, at: number,
- *   line: string}} HeldResume
+ *   line: string, parked?: true, to?: string}} HeldResume
  */
 
 /**
@@ -304,7 +307,9 @@ const buildLaunchHoldText = (hold) => buildIdleText(buildLaunchHoldIdle(hold));
  */
 
 /**
- * @typedef {{seat: string, sessionId: string, cwd: string, parkCause?: string}} ResumeTarget
+ * @typedef {{seat: string, sessionId: string, cwd: string, parkCause?: string,
+ *   from?: string}} ResumeTarget  `from`, the seat the session parked on,
+ *   where it resumes on another (pickParkedSeat)
  */
 
 /** @typedef {"control-damaged" | "explicit"} StopReason */
@@ -481,6 +486,23 @@ function orderPlanSeats(seats, typedSeat) {
 		)
 		.map(({ s }) => s);
 }
+
+/**
+ * The plan seat a parked question's session resumes on (#5293): the first, in
+ * orderPlanSeats's order, that a launch could take, its own seat `own` where
+ * `isOwnOpen` holds for it, so it reaches the seat the founder last typed on
+ * where that has room; undefined where none. A seat other than `own` is the
+ * session carried there (refill-resume.js's moveSession).
+ * @template {SizedSeat} S
+ * @param {S[]} seats
+ * @param {string|null} typedSeat
+ * @param {{own: string, isOwnOpen: (s: S) => boolean}} own
+ * @returns {S|undefined}
+ */
+const pickParkedSeat = (seats, typedSeat, { own, isOwnOpen }) =>
+	orderPlanSeats(seats, typedSeat).find((s) =>
+		s.seat === own ? isOwnOpen(s) : fitsLaunch(s),
+	);
 
 /**
  * The first plan seat, in orderPlanSeats's order, with room whose cap fits a
@@ -704,19 +726,20 @@ function rowLaunch(row, { retroBundles, mode, history }, isTaken) {
 /**
  * rowLaunch, with a parked row routed by routeParked, a hold as a skip.
  * @param {MergedRow} row
- * @param {Pick<TickInput, "retroBundles"|"mode"|"seats"|"parkers"|"history">} input
+ * @param {Pick<TickInput, "retroBundles"|"mode"|"seats"|"parkers"|"history"|
+ *   "typedSeat">} input
  * @param {(n: number) => boolean} isTaken
  * @returns {{why: string} | {issues: number[], prompt: string,
  *   parkedRoute?: Launch["parkedRoute"]}}
  */
 function routedLaunch(
 	row,
-	{ retroBundles, mode, seats, parkers = [], history },
+	{ retroBundles, mode, seats, parkers = [], history, typedSeat = null },
 	isTaken,
 ) {
 	const next = rowLaunch(row, { retroBundles, mode, history }, isTaken);
 	if ("why" in next || !isParked(row)) return next;
-	const parked = routeParkedRow(row, parkers, seats);
+	const parked = routeParkedRow(row, parkers, { seats, typedSeat });
 	return "hold" in parked
 		? { why: parked.hold }
 		: { ...next, parkedRoute: parked };
@@ -738,6 +761,11 @@ function requestedStopOf(input) {
 		return { stop: "explicit", detail: EXPLICIT_STOP_DETAIL };
 	return null;
 }
+
+/**
+ * @typedef {{seats: SizedSeat[], typedSeat?: string|null}} SeatWalk  a tick's
+ *   plan seats and the seat the founder last typed on, for pickParkedSeat
+ */
 
 /* A limit-cap park has spent block-act.js's RESUME_CAP of resumes or its hold
  * bound, whose comments say which limit each outlasts, so a second in a row with
@@ -770,20 +798,21 @@ const buildLimitCapHoldWhy = (limitParks) =>
 
 /**
  * How a parked row's session goes back, from the tick's reading of its park
- * marker: resumed in place (#3621); held, a skip with why, where that
- * session's seat reads full, a bar at 100% or a cap sized 0 (#3669); else
- * afresh on its `takes:` command, with why. A seat with an unread bar
- * resumes: the loop refreshes no seat behind the first with room, so a hold
+ * marker: resumed (#3621) on the seat pickParkedSeat picks, the founder's
+ * last-typed one first (#5293); held, a skip with why, where none has room and
+ * that session's own seat reads full, a bar at 100% or a cap sized 0 (#3669);
+ * else afresh on its `takes:` command, with why. Its own seat with an unread
+ * bar resumes: the loop refreshes no seat behind the first with room, so a hold
  * there would never end. A weekly-full seat holds its tickets until its
  * week resets, up to 7 days; the idle alarm counts one held past 2 days
  * (#3680). A seat outside `seats` goes afresh: the loop launches on no such
  * seat, with no bar or cap to hold a resume to, and an overflow seat's key
  * bars a resume (lib/launch-auth.js) (#3773).
  * @param {ParkerReading} parker
- * @param {SizedSeat[]} seats this tick's
+ * @param {SeatWalk} walk this tick's
  * @returns {{resume: ResumeTarget} | {hold: string} | {afresh: string}}
  */
-function routeParkedSession(parker, seats) {
+function routeParkedSession(parker, { seats, typedSeat }) {
 	const { job } = parker;
 	if (!job)
 		return { afresh: `its session ${parker.sessionId}'s marker names no job` };
@@ -794,11 +823,15 @@ function routeParkedSession(parker, seats) {
 		return {
 			afresh: `its session's seat ${job.seat} is not one the loop reads`,
 		};
-	if (readsFull(seat))
-		return { hold: `parked: its session's seat ${seat.seat} is full` };
+	const to = pickParkedSeat(seats, typedSeat ?? null, {
+		own: seat.seat,
+		isOwnOpen: (s) => !readsFull(s),
+	});
+	if (!to) return { hold: `parked: its session's seat ${seat.seat} is full` };
 	return {
 		resume: {
-			seat: seat.seat,
+			seat: to.seat,
+			...(to.seat === seat.seat ? {} : { from: seat.seat }),
 			sessionId: parker.sessionId,
 			cwd: parker.resumeCwd,
 			...(parker.parkCause ? { parkCause: parker.parkCause } : {}),
@@ -811,28 +844,28 @@ function routeParkedSession(parker, seats) {
  * as the next relaunch would burn the cap again (#3804), else as
  * routeParkedSession says, with the count carried on.
  * @param {ParkerReading|undefined} parker none where no marker lists it
- * @param {SizedSeat[]} seats this tick's
+ * @param {SeatWalk} walk this tick's
  * @returns {{hold: string, atCap?: boolean} | NonNullable<Launch["parkedRoute"]>}
  */
-function routeParked(parker, seats) {
+function routeParked(parker, walk) {
 	if (!parker) return { afresh: "no session that parked it is recorded" };
 	const { limitParks } = parker;
-	if (limitParks === undefined) return routeParkedSession(parker, seats);
+	if (limitParks === undefined) return routeParkedSession(parker, walk);
 	const capHold = buildLimitCapHoldWhy(limitParks);
 	if (capHold !== null) return { hold: capHold, atCap: true };
-	return { ...routeParkedSession(parker, seats), limitParks };
+	return { ...routeParkedSession(parker, walk), limitParks };
 }
 
 /**
  * routeParked for `row`, from the parker the tick read for it.
  * @param {MergedRow} row
  * @param {ParkerReading[]} parkers
- * @param {SizedSeat[]} seats
+ * @param {SeatWalk} walk
  */
-const routeParkedRow = (row, parkers, seats) =>
+const routeParkedRow = (row, parkers, walk) =>
 	routeParked(
 		parkers.find((p) => p.root === row.root && p.number === row.number),
-		seats,
+		walk,
 	);
 
 /**
@@ -840,12 +873,12 @@ const routeParkedRow = (row, parkers, seats) =>
  * not its walk reaches the row (#3680), and in either mode, so an away tick
  * can keep a hold's start (#3850). One at the limit-cap parks' cap is left
  * to the idle alarm's own read of its marker, which needs no loop (#3840).
- * @param {Pick<TickInput, "frontier"|"seats"|"parkers">} input
+ * @param {Pick<TickInput, "frontier"|"seats"|"parkers"|"typedSeat">} input
  * @returns {Skip[]}
  */
-const heldParked = ({ frontier, seats, parkers = [] }) =>
+const heldParked = ({ frontier, seats, parkers = [], typedSeat = null }) =>
 	frontier.filter(isParked).flatMap((row) => {
-		const parked = routeParkedRow(row, parkers, seats);
+		const parked = routeParkedRow(row, parkers, { seats, typedSeat });
 		return "hold" in parked && !parked.atCap
 			? [{ root: row.root, number: row.number, why: parked.hold }]
 			: [];
@@ -893,13 +926,34 @@ const spendSeatFit = (seats, seat) =>
 	);
 
 /**
+ * The plan seat resume `r` is charged to, undefined where it runs on none of
+ * `seats`: its own, or for a parked question's session the seat
+ * pickParkedSeat picks, falling back to its own where none has a fit (#5293).
+ * @param {HeldResume} r
+ * @param {SizedSeat[]} seats
+ * @param {string|null} typedSeat
+ */
+function resumeSeatOf(r, seats, typedSeat) {
+	const own = seats.find((s) => isSameSeat(r, s));
+	if (!r.parked || !own) return own;
+	return (
+		pickParkedSeat(seats, typedSeat, {
+			own: own.seat,
+			isOwnOpen: (s) => s.fits !== 0,
+		}) ?? own
+	);
+}
+
+/**
  * The resumes this tick starts, oldest first, up to `slots`, and `seats` with
  * a fit spent on each one's seat (#3895). One whose seat has no fit left waits
  * for a later tick, in `capHeld` (#3911). Past the last slot the walk stops, the
  * slots being why the rest wait: a seat is sized for the slots alone, so one that
  * filled them reads 0 whatever room it has. Only the cap holds it, not a full bar
  * as a parked row: it was running on that seat, and a limit it meets there moves
- * it (#3735). A seat outside `seats` or unsized has no cap to charge, nor has an
+ * it (#3735). A parked question's session goes to the seat pickParkedSeat
+ * picks, held only where none has a fit and its own cap is spent (#5293). A
+ * seat outside `seats` or unsized has no cap to charge, nor has an
  * overflow seat's session, on the dir a plan seat's cap is sized for or not. A
  * held checkout's, or one whose unproven room is spent, waits too (#5275).
  * @param {TickInput} input
@@ -917,14 +971,14 @@ function takeResumes(input, slots, room) {
 	for (const r of resumable.toSorted((a, b) => a.at - b.at)) {
 		if (resumes.length >= slots) break;
 		if (room.resumeLeft(r.root) <= 0) continue;
-		const planSeat = seatsLeft.find((s) => isSameSeat(r, s));
-		if (planSeat?.fits === 0) {
+		const on = resumeSeatOf(r, seatsLeft, input.typedSeat ?? null);
+		if (on?.fits === 0) {
 			capHeld.push(r);
 			continue;
 		}
-		resumes.push(r);
+		resumes.push(on && on.seat !== r.seat ? { ...r, to: on.seat } : r);
 		room.spend(r.root);
-		if (planSeat) seatsLeft = spendSeatFit(seatsLeft, planSeat.seat);
+		if (on) seatsLeft = spendSeatFit(seatsLeft, on.seat);
 	}
 	return { resumes, capHeld, seatsLeft };
 }
@@ -960,6 +1014,7 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 		seats,
 		parkers,
 		history,
+		typedSeat,
 	} = input;
 	/** @type {Launch[]} */
 	const launches = [];
@@ -1002,7 +1057,7 @@ function fill(input, { seat, keyVar, reason }, slots, room) {
 		if (why !== null) return { why };
 		return routedLaunch(
 			row,
-			{ retroBundles, mode, seats: seatsLeft, parkers, history },
+			{ retroBundles, mode, seats: seatsLeft, parkers, history, typedSeat },
 			(n) => taken.has(key(row.root, n)),
 		);
 	};

@@ -2286,6 +2286,119 @@ describe("the resume step for a session parked on a cleared repo hold (#3863)", 
 		expect(third.out.launches[0]).not.toHaveProperty("stepResume");
 		expect(third.unparked).toEqual(["s-p 42"]);
 	});
+
+	describe("carried to the seat the decision picks (#5293)", () => {
+		const seen = {
+			agents: [agent("other", "working")],
+			now: NOW,
+			swapHold: NO_HOLD,
+		};
+
+		it("marks a parked session's resume as one the decision may route, and no other cause's", () => {
+			const { io } = fakeIo();
+			const swap = record({
+				stepResume: {
+					cause: "swapHeld",
+					at: NOW,
+					sessionId: "s",
+					cwd: "/",
+					tries: 0,
+				},
+			});
+			const [p, s] = resumableOf([parked(0), swap], { ...seen, io });
+			expect(p).toMatchObject({ parked: true });
+			expect(s).not.toHaveProperty("parked");
+		});
+
+		it("moves it to `to` and tracks it there under its own id, its label off", () => {
+			const unparked: string[] = [];
+			const { io, calls } = fakeIo({
+				unparkSession: (_root, sessionId) => {
+					unparked.push(sessionId);
+					return null;
+				},
+			});
+			const lines: string[] = [];
+			const l = parked(0);
+			const [due] = resumableOf([l], { ...seen, io });
+			const out = resumeHeldLaunches(
+				[{ ...due, to: "/home/u/.claude2" }],
+				[l],
+				{ ...seen, io: { ...io, log: (line: string) => lines.push(line) } },
+				{ isStopped: () => false, record: unrecorded },
+			);
+			expect(calls).toContain(
+				"move job42 /home/u/.claude3 /home/u/.claude2 s-p",
+			);
+			expect(calls).not.toContain("resume job42");
+			expect(out.launches[0]).toMatchObject({
+				seat: "/home/u/.claude2",
+				reason: expect.stringMatching(/^moved from /),
+				jobId: "job42",
+			});
+			expect(out.launches[0]).not.toHaveProperty("stepResume");
+			expect(lines.join("\n")).toMatch(
+				/moved from \/home\/u\/\.claude3 to \/home\/u\/\.claude2/,
+			);
+			expect(unparked).toEqual(["s-p"]);
+		});
+
+		it("stamps the move's seat before the launcher runs, for a kill's adoption to look there", () => {
+			const { io } = fakeIo();
+			const l = parked(0);
+			const [due] = resumableOf([l], { ...seen, io });
+			const written: Launch[][] = [];
+			resumeHeldLaunches(
+				[{ ...due, to: "/home/u/.claude2" }],
+				[l],
+				{ ...seen, io },
+				{
+					isStopped: () => false,
+					record: (launches) => written.push(launches),
+				},
+			);
+			expect(written[0]?.[0]?.stepResume).toMatchObject({
+				resumeStartedAt: NOW,
+				resumeTo: "/home/u/.claude2",
+			});
+		});
+
+		it("adopts a moved resume a kill left unrecorded on the seat it moved to", () => {
+			const looked: string[] = [];
+			const { io } = fakeIo({
+				adoptResumed: (on, _target, _since, move) => {
+					looked.push(`${on.seat} ${move?.seat}`);
+					return {
+						failed: null,
+						jobId: "job42",
+						sessionId: "s-p",
+						copy: false,
+					};
+				},
+			});
+			const l = parked(0);
+			const stamped = {
+				...l,
+				stepResume: {
+					...l.stepResume,
+					resumeStartedAt: NOW - MIN,
+					resumeTo: "/home/u/.claude2",
+				},
+			} as Launch;
+			const [due] = resumableOf([stamped], { ...seen, io });
+			const out = resumeHeldLaunches(
+				[due],
+				[stamped],
+				{ ...seen, io },
+				{
+					isStopped: () => false,
+					record: unrecorded,
+				},
+			);
+			expect(looked).toEqual(["/home/u/.claude2 /home/u/.claude2"]);
+			expect(out.launches[0]).toMatchObject({ seat: "/home/u/.claude2" });
+		});
+	});
 });
 
 describe("a boot's resumed session gone from the listing (#3880)", () => {

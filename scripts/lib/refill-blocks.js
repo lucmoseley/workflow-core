@@ -26,7 +26,7 @@ const {
 	BOOT_UNREAD_PROMPT,
 } = require("./loop-prompts.js");
 const { buildResumeWaitLine } = require("./refill-decide.js");
-const { seatIdOf } = require("./refill-seats.js");
+const { buildSeatName, seatIdOf } = require("./refill-seats.js");
 const {
 	PARKED_STATE,
 	blockedIdsOf,
@@ -90,11 +90,12 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  * @typedef {{tries: number, triedAt: number}} IdleResumes  its typed
  *   resumes while resumed-idle (#2659), cleared once it takes a turn
  * @typedef {{at: number, sessionId: string, cwd: string, tries: number,
- *   resumeStartedAt?: number}} StepHeld  a stopped session due back through
- *   the tick's resume step: when, the session and directory its resume runs
- *   in, and the resumes since tried that failed. `resumeStartedAt`, when the
- *   step ran `--bg --resume` on it, on record before the launcher runs and
- *   gone with the hold (#4157)
+ *   resumeStartedAt?: number, resumeTo?: string}} StepHeld  a stopped session
+ *   due back through the tick's resume step: when, the session and directory
+ *   its resume runs in, and the resumes since tried that failed.
+ *   `resumeStartedAt`, when the step ran `--bg --resume` on it, on record
+ *   before the launcher runs and gone with the hold (#4157); `resumeTo`, the
+ *   seat that resume moved it to, where it moved it (#5293)
  * @typedef {{
  *   swapHeld: StepHeld,
  *   holdCleared: StepHeld & {hold: string},
@@ -1226,10 +1227,14 @@ function stepResumeOf(l) {
 		/** @type {JobLaunch} */ rest,
 		/** @param {number} tries @returns {JobLaunch} */
 		withTries: (tries) => ({ ...l, stepResume: { ...held, tries } }),
-		/** @param {number} at @returns {JobLaunch} */
-		withStarted: (at) => ({
+		/** @param {number} at @param {string} [to] @returns {JobLaunch} */
+		withStarted: (at, to) => ({
 			...l,
-			stepResume: { ...held, resumeStartedAt: at },
+			stepResume: {
+				...held,
+				resumeStartedAt: at,
+				resumeTo: to,
+			},
 		}),
 	};
 }
@@ -1253,29 +1258,40 @@ function resumableOf(launches, { agents, io, swapHold }) {
 		return [];
 	}
 	return due.map((l) => {
-		const { held, what } = stepResumeOf(l);
+		const { held, what, isParked } = stepResumeOf(l);
 		return {
 			jobId: l.jobId,
 			...seatIdOf(l),
 			root: l.root,
 			at: held.at,
 			line: `${l.jobId} ${what}`,
+			...(isParked && !l.keyVar ? { parked: /** @type {const} */ (true) } : {}),
 		};
 	});
 }
 
 /**
- * `l` after its step resume `r` of session `from` at `at`: one a restart killed
- * is watched from the resume for a turn, however many holds it meets on the way
- * (isIdleSinceBootResume).
+ * A launch's reason once a parked resume carried it off `seat` (#5293).
+ * @param {string} seat
+ * @returns {import("./refill-decide.js").SeatReason}
+ */
+const movedReasonOf = (seat) => `moved from ${buildSeatName(seat)}`;
+
+/**
+ * `l` after its step resume `r` of session `from` at `at`, on seat `to` where
+ * it moved there: one a restart killed is watched from the resume for a turn,
+ * however many holds it meets on the way (isIdleSinceBootResume).
  * @param {JobLaunch} l
  * @param {ReturnType<typeof stepResumeOf>} step
  * @param {Extract<Resumed, {failed: null}> & {fromSessionId: string}} r
- * @param {number} at
+ * @param {{at: number, to?: string}} when
  * @returns {LoopLaunch}
  */
-function afterStepResume(l, { rest, watchesTurn }, r, at) {
-	const resumed = relaunched(rest, r, at, { tookSlot: true });
+function afterStepResume(l, { rest, watchesTurn }, r, { at, to }) {
+	const on = to
+		? { ...rest, ...seatIdOf({ seat: to }), reason: movedReasonOf(l.seat) }
+		: rest;
+	const resumed = relaunched(on, r, at, { tookSlot: true });
 	return watchesTurn || l.bootResumedAt !== undefined
 		? { ...resumed, bootResumedAt: at }
 		: resumed;
@@ -1308,9 +1324,16 @@ function unparkStepped(l, sessionId, { isParked, what }, io) {
 function adoptUnrecordedCopy(l, seen) {
 	const step = stepResumeOf(l);
 	const { held, what, why } = step;
-	const { sessionId, cwd, resumeStartedAt: at } = held;
+	const { sessionId, cwd, resumeStartedAt: at, resumeTo: to } = held;
 	if (at === undefined || !sessionId) return null;
-	const r = seen.io.adoptResumed(l, { sessionId, cwd }, at);
+	const r = to
+		? seen.io.adoptResumed(
+				{ ...l, ...seatIdOf({ seat: to }) },
+				{ sessionId, cwd },
+				at,
+				{ seat: to },
+			)
+		: seen.io.adoptResumed(l, { sessionId, cwd }, at);
 	if (r === null) return null;
 	if ("unread" in r) {
 		seen.io.log(
@@ -1322,7 +1345,7 @@ function adoptUnrecordedCopy(l, seen) {
 		l,
 		step,
 		{ ...r, fromSessionId: sessionId },
-		at,
+		{ at, to },
 	);
 	seen.io.log(
 		`resumed ${what}, ${why}, by --bg --resume at ${iso(at)}, ${buildResumedHow(r)}, which a kill left out of the state: tracking it, not resuming again`,
@@ -1332,15 +1355,18 @@ function adoptUnrecordedCopy(l, seen) {
 }
 
 /**
- * Resume `l`: `claude --bg --resume` of its session with its cause's prompt. One
- * whose resume fails stays held for the next tick, and after SWAP_RESUME_TRIES
- * failures is handed off instead. One parked on a repo hold no longer waits on the
- * founder either way, so its `parked` label and marker go.
+ * Resume `l`: `claude --bg --resume` of its session with its cause's prompt,
+ * carried first to seat `to`, where the decision picked one other than its own
+ * (#5293). One whose resume fails stays held for
+ * the next tick, and after SWAP_RESUME_TRIES failures is handed off instead.
+ * One parked on a repo hold no longer waits on the founder either way, so its
+ * `parked` label and marker go.
  * @param {SteppedLaunch} l
  * @param {Tick} seen
+ * @param {string} [to]
  * @returns {{launch: LoopLaunch, started: boolean}}
  */
-function resumeStepHeld(l, seen) {
+function resumeStepHeld(l, seen, to) {
 	const { now, io } = seen;
 	const step = stepResumeOf(l);
 	const { held, what, why, rest, withTries } = step;
@@ -1350,15 +1376,20 @@ function resumeStepHeld(l, seen) {
 		return { launch: handOff(rest, seen, true), started: false };
 	}
 	const unpark = () => unparkStepped(l, sessionId, step, io);
-	const r = step.resume(io, { sessionId, cwd });
+	const r = to
+		? io.moveSession(l, { seat: to }, step.prompt, { sessionId, cwd })
+		: step.resume(io, { sessionId, cwd });
 	if (r.failed === null) {
 		const launch = afterStepResume(
 			l,
 			step,
 			{ ...r, fromSessionId: sessionId },
-			now,
+			{ at: now, to },
 		);
-		io.log(`resumed ${what}, ${why}, by --bg --resume, ${buildResumedHow(r)}`);
+		const moved = to ? `, moved from ${l.seat} to ${to}` : "";
+		io.log(
+			`resumed ${what}, ${why}, by --bg --resume${moved}, ${buildResumedHow(r)}`,
+		);
 		unpark();
 		return { launch, started: true };
 	}
@@ -1459,7 +1490,7 @@ function resumeHeldLaunches(resumes, launches, seen, { isStopped, record }) {
 	const current = () => launches.map((l) => acted.get(l) ?? l);
 	let started = 0;
 	let waiting = false;
-	for (const { jobId, line } of resumes) {
+	for (const { jobId, line, to } of resumes) {
 		const l = launches.filter(isStepResume).find((x) => x.jobId === jobId);
 		if (!l || !isActionable(l) || isStopped()) break;
 		const adopted = adoptUnrecordedCopy(l, seen);
@@ -1474,9 +1505,9 @@ function resumeHeldLaunches(resumes, launches, seen, { isStopped, record }) {
 			waiting = true;
 			break;
 		}
-		acted.set(l, stepResumeOf(l).withStarted(seen.now));
+		acted.set(l, stepResumeOf(l).withStarted(seen.now, to));
 		record(current());
-		const out = resumeStepHeld(l, seen);
+		const out = resumeStepHeld(l, seen, to);
 		acted.set(l, out.launch);
 		record(current());
 		if (out.started) {

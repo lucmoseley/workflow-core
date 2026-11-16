@@ -703,8 +703,13 @@ const adoptKilledLaunches = (state, served) =>
 			sessionOf: readHeadlessSession,
 			readActsBefore: buildActsBeforeReader(served),
 			recordLaunch,
-			adoptResumed: (l, { seat, sessionId, cwd }, since) =>
-				resume.adoptResumed({ ...l, seat }, { sessionId, cwd }, since),
+			adoptResumed: (l, { seat, sessionId, cwd, from }, since) =>
+				resume.adoptResumed(
+					{ ...l, seat },
+					{ sessionId, cwd },
+					since,
+					from ? { seat } : undefined,
+				),
 			log,
 		});
 		for (const l of launched)
@@ -803,19 +808,31 @@ const staggerResume = () => sleepSync(refillBatch.readStaggerMs());
 
 /**
  * `batch` launched (lib/refill-batch.js's launchOrResume): each parked member
- * routed to resume resumed in place (resumeStopped), the rest through one
- * dispatcher call (launchBatch).
+ * routed to resume resumed in place (resumeStopped), or carried to the seat
+ * its route names (moveSession, #5293), the rest through one dispatcher call
+ * (launchBatch).
  * @param {import("./refill-decide.js").Launch[]} batch
  * @param {string[]} served
  */
 const launchOrResume = (batch, served) =>
 	refillBatch.launchOrResume(batch, {
 		readActsBefore: buildActsBeforeReader(served),
-		resume: ({ root, issues }, { seat, sessionId, cwd, parkCause }) =>
-			resume.resumeStopped({ root, issues, seat }, parkedPromptOf(parkCause), {
-				sessionId,
-				cwd,
-			}),
+		resume: (
+			{ root, issues, prompt },
+			{ seat, from, sessionId, cwd, parkCause },
+		) =>
+			from
+				? resume.moveSession(
+						{ root, issues, seat: from, prompt },
+						{ seat },
+						parkedPromptOf(parkCause),
+						{ sessionId, cwd },
+					)
+				: resume.resumeStopped(
+						{ root, issues, seat },
+						parkedPromptOf(parkCause),
+						{ sessionId, cwd },
+					),
 		admitResume,
 		stagger: staggerResume,
 		recordLaunch,

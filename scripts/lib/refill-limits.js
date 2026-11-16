@@ -384,7 +384,7 @@ function unmoved(l, from) {
 }
 
 /**
- * @template {JobLaunch} L
+ * @template {{seat: string, keyVar?: string}} L
  * @param {L} l
  * @param {MoveTarget} target
  * @returns {L}

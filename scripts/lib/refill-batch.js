@@ -12,7 +12,7 @@ const {
 	withUnretired,
 } = require("./refill-block-core.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
-const { seatIdOf } = require("./refill-seats.js");
+const { buildSeatName, seatIdOf } = require("./refill-seats.js");
 const {
 	DEFAULT_STAGGER_SECONDS,
 	MEMBER_REFUSED_TAIL,
@@ -116,7 +116,8 @@ function buildWouldRunLine(call) {
  *   readActsBefore: import("./refill-blocks.js").ReadActsBefore,
  *   admitResume: (root: string) => string|null, stagger: () => void,
  *   recordLaunch: typeof import("./dispatch-ledger.js").record,
- *   log: (line: string) => void, now: () => number}} ResumeIo
+ *   log: (line: string) => void, now: () => number}} ResumeIo  `resume`
+ *   carries a session off `target.from`, where set, to `target.seat` (#5293)
  */
 
 /* A set-level refusal or cut: the duplicate gate's REFUSED or DROPPING
@@ -338,7 +339,9 @@ function buildParkedRecord(l, target, r, { launchedAt, actsBefore }) {
 		issues: l.issues,
 		prompt: l.prompt,
 		seat: target.seat,
-		reason: "parked session's seat",
+		reason: target.from
+			? `moved from ${buildSeatName(target.from)}`
+			: "parked session's seat",
 		jobId: r.jobId,
 		launchedAt,
 		finishedAt: null,

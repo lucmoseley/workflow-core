@@ -426,7 +426,7 @@ function resumeSteps(io) {
 	/**
 	 * The name `l`'s session takes moved onto a key: the name its row shows,
 	 * else its prompt; the headless launcher adds the overflow prefix (#4395).
-	 * @param {JobLaunch} l
+	 * @param {Resumable & {prompt: string}} l
 	 * @param {{sessionId: string, cwd: string}} ids
 	 */
 	function readMovedName(l, { sessionId, cwd }) {
@@ -803,7 +803,7 @@ function resumeSteps(io) {
 	 * job's state. A resume that failed may still be starting, so it is
 	 * stopped, and two live processes never share the id; the old seat's
 	 * transcript is left whole, for its next try.
-	 * @param {JobLaunch} l
+	 * @param {Resumable & {prompt: string}} l
 	 * @param {MoveTarget} target
 	 * @param {string} prompt
 	 * @param {{sessionId: string, cwd: string}} ids
