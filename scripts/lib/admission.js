@@ -170,7 +170,7 @@ function cpuSlotsRow(cpu) {
  * @typedef {{ ok: true, sessions: number, unvouched: boolean, processes: number | null, processesError: string | null } | { ok: false, error: string, processes: number | null, processesError: string | null }} LiveSessionsResult
  * @typedef {{ held: false } | { held: true, swapFreeMb: number, swapTotalMb: number, availableMb: number }} SwapHold
  * @typedef {{ meanMb: number, sigmaMb: number, declared: boolean, problem?: string }} SessionDraw
- * @typedef {{ sessions: number, meanMb: number, varianceMb2: number, pssMb: number, unread: number, noProcess: number, problems: string[], refused?: boolean }} LiveDraw
+ * @typedef {{ sessions: number, meanMb: number, varianceMb2: number, pssMb: number, unread: number, noProcess: number, noProcessUncharged: number, problems: string[], refused?: boolean }} LiveDraw
  * @typedef {{ pid: number, chargeMb: number }[]} Landers each lander's charge, its tester's measured tree peak for the run it holds (#3323)
  * @typedef {{ pid: number, chargeMb: number, spawned: boolean }[]} Gates each live gate seat's holder pid, charge and whether it has spawned its command, from suite-queue.js's `readLiveGateSeats`
  * @typedef {{ landers: Landers, gates: Gates, testsHeld: number }} Reserves the reserves read live off other processes' records, by admission-reserves.js's `readReserves`; the pool and type-check reserves are read in `machineAdmission`
@@ -298,6 +298,11 @@ function selfId(ids) {
 	);
 }
 
+/** How many no-process sessions `liveDraw` charges a full draw: over every
+ * plan's daemon.log since 17 Oct 2026, woken sessions ran at most two together
+ * 90% of the time (#5283). */
+const NO_PROCESS_CHARGED = 2;
+
 /**
  * The live sessions' summed draw for a `listedSessionIds()` read: every
  * listed session other than this run's that has not ended — done, failed or
@@ -308,9 +313,11 @@ function selfId(ids) {
  * stopped.
  *
  * A listed session with no pid has no process: the daemon retires one parked
- * at its prompt and respawns it when answered, at a working draw, so it is
- * charged its whole draw too (#2426). Residual: one that is never answered
- * holds that headroom until it is stopped.
+ * at its prompt and respawns it when answered, at a working draw (#2426). Only
+ * the two largest-draw of them (NO_PROCESS_CHARGED) are charged their whole draw;
+ * the rest add nothing until they wake, when the next read prices them at
+ * their real memory (#5283). Residual: a third waking alongside two is caught by earlyoom's
+ * kill line, not by admission.
  *
  * A refused listing sums nothing.
  * A session whose memory will not read is credited no current PSS, so it is
@@ -337,13 +344,22 @@ function liveDraw(
 	/** @type {Map<string, SessionDraw>} */
 	const byRoot = new Map();
 	let heldKb = 0;
+	/** @type {SessionDraw[]} */
+	const waiting = [];
+	const charge = (/** @type {SessionDraw} */ d) => {
+		draw.meanMb += d.meanMb;
+		draw.varianceMb2 += d.sigmaMb ** 2;
+	};
 	for (const id of ids) {
 		if (id === me || ended.has(id)) continue;
 		const own = readLiveSessionDraw(id, cwds?.get(id) ?? "", byRoot);
 		if (own.problem) draw.problems.push(own.problem);
 		draw.sessions++;
-		draw.meanMb += own.draw.meanMb;
-		draw.varianceMb2 += own.draw.sigmaMb ** 2;
+		if (pids?.get(id) === undefined) {
+			waiting.push(own.draw);
+			continue;
+		}
+		charge(own.draw);
 		const sum = sessionsPssKb([id], {
 			pids,
 			pairs,
@@ -351,10 +367,15 @@ function liveDraw(
 			children,
 			gateSeatPids,
 		});
-		draw.noProcess += sum.noProcess;
 		if (sum.kb === null) draw.unread++;
 		else heldKb += sum.kb;
 	}
+	/* Ranked by each one's own p95, the figure admission prices a session at. */
+	const p95Mb = (/** @type {SessionDraw} */ d) => d.meanMb + DRAW_Z * d.sigmaMb;
+	waiting.sort((a, b) => p95Mb(b) - p95Mb(a));
+	for (const d of waiting.slice(0, NO_PROCESS_CHARGED)) charge(d);
+	draw.noProcess = waiting.length;
+	draw.noProcessUncharged = Math.max(0, waiting.length - NO_PROCESS_CHARGED);
 	draw.pssMb = Math.floor(heldKb / 1024);
 	return draw;
 }
@@ -366,7 +387,9 @@ function buildLiveDrawLine(live) {
 	const line = `${live.sessions} live session(s): mean ${live.meanMb} MB + ${DRAW_Z} × σ ${Math.round(Math.sqrt(live.varianceMb2))} MB − ${live.pssMb} MB they already hold`;
 	const notes = [
 		...(live.noProcess
-			? [`${live.noProcess} with no process, charged in full`]
+			? [
+					`${live.noProcess - live.noProcessUncharged} with no process, charged in full${live.noProcessUncharged ? `, ${live.noProcessUncharged} more charged nothing until they wake` : ""}`,
+				]
 			: []),
 		...(live.unread ? [`${live.unread} charged in full, memory unread`] : []),
 		...(live.problems.length > 0

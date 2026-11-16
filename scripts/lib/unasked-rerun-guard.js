@@ -20,7 +20,7 @@
  * judge (`why`), or that throws, allows and logs why. `unread` — its own work
  * unreadable, so HEAD was judged whole — and `note` — a refusal it could not
  * record — are logged beside the verdict. A deny carries the
- * `unasked-rerun-landing` rule's fragment after the judge's text (#2936), or
+ * `unasked-rerun` rule's fragment after the judge's text (#2936), or
  * a fallback naming the fragment's file where the store cannot give it — a
  * refusal, so never a fail-open record.
  *
@@ -159,7 +159,7 @@ function decide(command, ctx) {
 const unaskedRule = (ctx) =>
 	ruleOrFallback(
 		ctx,
-		"unasked-rerun-landing",
+		"unasked-rerun",
 		"An unasked re-run is refused once a session",
 	);
 

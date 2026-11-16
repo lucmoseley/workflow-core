@@ -806,7 +806,7 @@ function commitPathsCalls(j) {
  *
  * PRIORITY ORDER, highest first, as the ceiling defers the tail: the three
  * about the act itself, then the gates by what a session loses to each — a
- * local FAIL first, the sweep-only WARN last — and push-cadence-landing,
+ * local FAIL first, the sweep-only WARN last — and push-cadence,
  * which binds after the commit, closing (#2285). THE SCOPING IS AN EXCLUSION:
  * each skip states its own condition (mantahostels#1805).
  * @param {Judging} j
@@ -829,7 +829,7 @@ function commitRules(j, paths) {
 			"biome-staged-gate",
 			"superseded-values-gate",
 			"machinery-superseded",
-			"push-cadence-landing",
+			"push-cadence",
 		],
 		skip: [
 			...(j.ruleSubject ? [] : ["commit-pathspec"]),

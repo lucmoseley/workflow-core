@@ -414,7 +414,7 @@ describe("every rooted script, loaded from the cache against the host", () => {
 					 * still read from the host. */
 					p !== path.join(cache, "hooks", "hooks.json") &&
 					/* The core's own manifest: its version says which guards the
-					 * core ships (check-landing-switch-on.js, #4688). */
+					 * core ships (check-main-checkout-cutover.js, #4688). */
 					p !== path.join(cache, ".claude-plugin", "plugin.json") &&
 					/* The base standards: every repo reads them from the plugin,
 					 * in place, and writes only its local file (#3451). */

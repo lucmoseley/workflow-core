@@ -18,14 +18,14 @@ const { pidLock } = require("./pid-lock.js");
 const { cut, land } = require("./session-checkout.js");
 
 /* The scripts that run the cutover, either of which holds its lock. */
-const HOLDERS = ["cutover-main-checkout.js", "check-landing-switch-on.js"];
+const HOLDERS = ["cutover-main-checkout.js", "check-main-checkout-cutover.js"];
 
 /**
  * The cutover of the main checkout at `root`, run under a lock in its git
  * directory so two sessions starting at once never both cut it over, and
  * its report. A git or port that fails throws.
  * @param {string} root
- * @returns {{ result: import("./landing-switch-on.js").RunResult,
+ * @returns {{ result: import("./main-checkout-cutover.js").RunResult,
  *   lines: string[] }}
  */
 function runCutover(root) {

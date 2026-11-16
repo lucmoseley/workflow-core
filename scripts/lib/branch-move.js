@@ -69,7 +69,7 @@
  *    rule was not (mantahostels#1648).
  */
 
-const { landingCutOver } = require("./cutover.js");
+const { isCutOverAt } = require("./cutover.js");
 const { denyText, ruleOrFallback } = require("./guard-verdict.js");
 const { parseCommand, unsetText, walkGit } = require("./shell-parse.js");
 
@@ -115,7 +115,7 @@ function decide(command, ctx) {
 	/** @type {boolean | undefined} */
 	let cutOver;
 	const readCutOverOnce = () => {
-		if (cutOver === undefined) cutOver = landingCutOver(ctx.git);
+		if (cutOver === undefined) cutOver = isCutOverAt(ctx.git);
 		return cutOver;
 	};
 	let ruleSubject = false;
@@ -143,7 +143,7 @@ function decide(command, ctx) {
 	 * in the worktree the checkout module cut it (#4248). */
 	if (!ruleSubject || readCutOverOnce()) return null;
 	/* The line naming the cutover rides with it (#2409). */
-	return { injectRules: ["branch-shared-tree", "branch-shared-tree-landing"] };
+	return { injectRules: ["branch-shared-tree", "branch-shared-tree-cutover"] };
 }
 
 /**

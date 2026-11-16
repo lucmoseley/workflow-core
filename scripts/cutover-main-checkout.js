@@ -8,7 +8,7 @@
  *     in, from it or from any linked worktree of it; run again, it reports
  *     the edits left there and runs a levelling pass
  *
- * check-landing-switch-on.js runs the same cutover at session start
+ * check-main-checkout-cutover.js runs the same cutover at session start
  * (lib/cutover-run.js, #5276).
  *
  * In no family (§N3).

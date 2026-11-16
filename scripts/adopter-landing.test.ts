@@ -242,7 +242,7 @@ describe("an adopter with the local tester", () => {
 		const output = cores(buildBashPayload("git push origin HEAD:main"));
 		expect(output?.permissionDecision).toBe("deny");
 		expect(output?.permissionDecisionReason).toContain(
-			readRuleText("branch-publish-landing", work),
+			readRuleText("branch-publish", work),
 		);
 	});
 });

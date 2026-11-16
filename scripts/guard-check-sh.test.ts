@@ -147,7 +147,7 @@ describe("it says it once, and spends no more of the cap than it needs", () => {
 	it("requests the three shellcheck ids and no others", () => {
 		const ctx = emission("npm run check:sh").additionalContext as string;
 		expect(ctx).not.toContain(readRuleText("commit-pathspec"));
-		expect(ctx).not.toContain(readRuleText("push-cadence-landing"));
+		expect(ctx).not.toContain(readRuleText("push-cadence"));
 		// RULE_CAP is BYTES, and both fragments are multibyte — guard-entry.js
 		// measures with Buffer.byteLength for exactly this reason.
 		expect(Buffer.byteLength(ctx, "utf8")).toBeLessThan(4000);
