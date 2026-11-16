@@ -1,15 +1,18 @@
 /*
  * launch-room.test.ts — a checkout's launch room from its unproven run, pause,
  * breaker and probe holds, each read and spent in one place (#5290).
+ * In process, from plain launch records: the module is pure. A break here
+ * launches or resumes into a checkout that should be held, or holds one
+ * that should launch.
  */
 
 import { describe, expect, it } from "vitest";
 import {
 	BREAKER_OPEN,
 	buildLaunchRoom,
+	buildSpentRoom,
 	PROBE_HELD,
 	REPO_PAUSED,
-	spendable,
 	UNPROVEN_HELD,
 } from "./launch-room.js";
 
@@ -49,7 +52,10 @@ describe("buildLaunchRoom", () => {
 			repoPaused: { [ROOT]: pause },
 		};
 		expect(roomOf(all).heldWhy(ROOT)).toBe(PROBE_HELD);
-		expect(roomOf({ ...all, holds: [] }).heldWhy(ROOT)).toBe(BREAKER_OPEN);
+		expect(roomOf({ holds: [probe] }).launchLeft(ROOT)).toBe(0);
+		const open = roomOf({ ...all, holds: [] });
+		expect(open.heldWhy(ROOT)).toBe(BREAKER_OPEN);
+		expect(open.launchLeft(ROOT)).toBe(0);
 		const paused = roomOf({ repoPaused: { [ROOT]: pause } });
 		expect(paused.heldWhy(ROOT)).toBe(REPO_PAUSED);
 		expect(paused.launchLeft(ROOT)).toBe(0);
@@ -72,9 +78,9 @@ describe("buildLaunchRoom", () => {
 	});
 });
 
-describe("spendable", () => {
+describe("buildSpentRoom", () => {
 	it("charges each start to its own checkout alone", () => {
-		const room = spendable((root) => (root === ROOT ? 1 : 2));
+		const room = buildSpentRoom((root) => (root === ROOT ? 1 : 2));
 		room.spend(ROOT);
 		expect(room.left(ROOT)).toBe(0);
 		expect(room.left("/home/u/other")).toBe(2);

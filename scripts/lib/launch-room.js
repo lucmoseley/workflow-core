@@ -1,8 +1,7 @@
 /*
  * launch-room.js — how many launches and resumes a refill tick may start in a
- * checkout, and why it starts none (#5290): its unproven run (#4223), its
- * no-progress pause, its throughput breaker (#5275) and its probe holds
- * (#3860). Every site that sizes or explains a checkout's room reads it here.
+ * checkout, and why it starts none (#5290). Every site that sizes or explains
+ * a checkout's room reads it here.
  */
 
 /* Three finishes in a row with no progress pause their checkout (#1920, #3859),
@@ -10,18 +9,15 @@
  * (#4200, #4223, #5275). */
 const NO_PROGRESS_RUN = 3;
 
-/* A row whose checkout's unproven launches fill its cap (#5275). */
 const UNPROVEN_HELD = `${NO_PROGRESS_RUN} launches since its checkout's last act are running`;
-/* A row in a checkout a no-progress pause stops (#5275). */
 const REPO_PAUSED = "a no-progress pause stops launches into its checkout";
-/* A row in a checkout whose throughput breaker is open, its trial taken or
- * not yet due (#5275). */
+/* A row in a checkout whose open throughput breaker leaves it no launch
+ * (#5275). */
 const BREAKER_OPEN = "its checkout's throughput breaker is open";
-/* A row in a checkout whose probe hold stops launches (#3860). */
 const PROBE_HELD = "a probe hold stops launches into its checkout";
 
 /**
- * What a checkout's room is read from. `breakerRoom` holds each checkout whose
+ * `breakerRoom` holds each checkout whose
  * breaker is open: 0 where it takes nothing, 1 where it takes its one trial
  * launch, never a resume (lib/refill-breaker.js).
  * @typedef {{history: import("./refill-decide.js").LaunchRecord[],
@@ -74,10 +70,9 @@ const buildProbeHeldRoots = (holds = []) =>
 	new Set(holds.filter((h) => h.kind === "probe").map((h) => h.root));
 
 /**
- * `roomOf` with each start this tick spending one of its checkout's room.
  * @param {(root: string) => number} roomOf
  */
-function spendable(roomOf) {
+function buildSpentRoom(roomOf) {
 	/** @type {Map<string, number>} */
 	const spent = new Map();
 	return {
@@ -106,7 +101,7 @@ function buildLaunchRoom(input) {
 		if ((breakerRoom[root] ?? 1) <= 0) return BREAKER_OPEN;
 		return repoPaused[root] === undefined ? null : REPO_PAUSED;
 	};
-	const launch = spendable((root) =>
+	const launch = buildSpentRoom((root) =>
 		heldWhy(root) === null
 			? Math.min(
 					unprovenRoom(input, root),
@@ -141,7 +136,6 @@ module.exports = {
 	NO_PROGRESS_RUN,
 	PROBE_HELD,
 	REPO_PAUSED,
-	spendable,
+	buildSpentRoom,
 	UNPROVEN_HELD,
-	unprovenRoom,
 };

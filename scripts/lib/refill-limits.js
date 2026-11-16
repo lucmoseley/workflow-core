@@ -15,7 +15,7 @@ const {
 } = require("./block-act.js");
 const { LIMIT_PROMPT, MOVED_PROMPT } = require("./loop-prompts.js");
 const { pickMoveSeat } = require("./refill-decide.js");
-const { spendable } = require("./launch-room.js");
+const { buildSpentRoom } = require("./launch-room.js");
 const { buildSeatName, isSameSeat, seatIdOf } = require("./refill-seats.js");
 const { ledgerJobOf } = require("./refill-state.js");
 const {
@@ -887,7 +887,7 @@ const takesSlot = (l) => isLimitHeld(l);
  */
 function actOnLimits(launches, mode, seen) {
 	let { slots } = seen;
-	const room = spendable(seen.roomOf);
+	const room = buildSpentRoom(seen.roomOf);
 	let liveChange = 0;
 	if (!seen.agents || !launches.some(isLimitBlocked))
 		return { launches, slots, liveChange };

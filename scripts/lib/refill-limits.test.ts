@@ -11,7 +11,7 @@
 import { describe, expect, it } from "vitest";
 import { COPY_WHY } from "./bg-resume-fake";
 import { RESUME_CAP } from "./block-act.js";
-import { unprovenRoom } from "./launch-room.js";
+import { buildLaunchRoom } from "./launch-room.js";
 import { LIMIT_PROMPT } from "./loop-prompts.js";
 import { isHeld } from "./refill-block-core.js";
 import { actOnIdle, markParked } from "./refill-blocks.js";
@@ -1498,16 +1498,13 @@ describe("the acts on a limit-blocked launch (#3735)", () => {
 			record({ jobId: `u${i}`, launchedAt: Act + 1 + i }),
 		);
 		const room = (launches: Launch[]) =>
-			unprovenRoom(
-				{
-					/* One unproven launch finishes: its room comes back. */
-					history: launches.map((l) =>
-						l.jobId === "u0" ? { ...l, finishedAt: NOW } : l,
-					),
-					lastActAt: { [DV]: Act },
-				},
-				DV,
-			);
+			buildLaunchRoom({
+				/* One unproven launch finishes: its room comes back. */
+				history: launches.map((l) =>
+					l.jobId === "u0" ? { ...l, finishedAt: NOW } : l,
+				),
+				lastActAt: { [DV]: Act },
+			}).launchLeft(DV);
 
 		it("leaves a live one resumed in place, with three unproven running, dated by its launch", () => {
 			const { launches, liveChange } = limits(
