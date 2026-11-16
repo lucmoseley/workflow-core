@@ -95,6 +95,23 @@ describe("the type-check reserve and the Windows limbs (#4956)", () => {
 		).toMatchObject({ typecheckReserveMb: 0, budgetMb: bare.budgetMb });
 	});
 
+	it("credits the type-check reserve no share for a waiting session admission charges nothing (#5283)", () => {
+		const live = {
+			sessions: 5,
+			meanMb: 1200,
+			varianceMb2: 80_000,
+			pssMb: 0,
+			unread: 0,
+			noProcess: 5,
+			noProcessUncharged: 3,
+			problems: [],
+		};
+		expect(
+			measured(roomy, one, { live, typecheckChargeMb: 1497 })
+				.typecheckReserveMb,
+		).toBe(1497 - 2 * 147);
+	});
+
 	it("takes off the budget the guest free memory Windows cannot back above its floor", () => {
 		const f = measured(roomy, one, { windows: fresh(1250), guestFreeMb: 3000 });
 		expect(f.windowsChargeMb).toBe(2500);

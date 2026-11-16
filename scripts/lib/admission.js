@@ -297,7 +297,9 @@ function selfId(ids) {
 	);
 }
 
-/** How many no-process sessions `liveDraw` charges a full draw (#5283). */
+/** How many no-process sessions `liveDraw` charges a full draw: over every
+ * plan's daemon.log since 17 Oct 2026, woken sessions ran at most two together
+ * 90% of the time (#5283). */
 const NO_PROCESS_CHARGED = 2;
 
 /**
@@ -313,8 +315,7 @@ const NO_PROCESS_CHARGED = 2;
  * at its prompt and respawns it when answered, at a working draw (#2426). Only
  * the two largest-draw of them (NO_PROCESS_CHARGED) are charged their whole draw;
  * the rest add nothing until they wake, when the next read prices them at
- * their real memory (#5283: woken sessions ran at most two together 90% of
- * the time). Residual: a third waking alongside two is caught by earlyoom's
+ * their real memory (#5283). Residual: a third waking alongside two is caught by earlyoom's
  * kill line, not by admission.
  *
  * A refused listing sums nothing.
@@ -344,6 +345,10 @@ function liveDraw(
 	let heldKb = 0;
 	/** @type {SessionDraw[]} */
 	const waiting = [];
+	const charge = (/** @type {SessionDraw} */ d) => {
+		draw.meanMb += d.meanMb;
+		draw.varianceMb2 += d.sigmaMb ** 2;
+	};
 	for (const id of ids) {
 		if (id === me || ended.has(id)) continue;
 		const own = readLiveSessionDraw(id, cwds?.get(id) ?? "", byRoot);
@@ -353,8 +358,7 @@ function liveDraw(
 			waiting.push(own.draw);
 			continue;
 		}
-		draw.meanMb += own.draw.meanMb;
-		draw.varianceMb2 += own.draw.sigmaMb ** 2;
+		charge(own.draw);
 		const sum = sessionsPssKb([id], {
 			pids,
 			pairs,
@@ -365,13 +369,10 @@ function liveDraw(
 		if (sum.kb === null) draw.unread++;
 		else heldKb += sum.kb;
 	}
-	const reserve = (/** @type {SessionDraw} */ d) =>
-		d.meanMb + DRAW_Z * d.sigmaMb;
-	waiting.sort((a, b) => reserve(b) - reserve(a));
-	for (const d of waiting.slice(0, NO_PROCESS_CHARGED)) {
-		draw.meanMb += d.meanMb;
-		draw.varianceMb2 += d.sigmaMb ** 2;
-	}
+	/* Ranked by each one's own p95, the figure admission prices a session at. */
+	const p95Mb = (/** @type {SessionDraw} */ d) => d.meanMb + DRAW_Z * d.sigmaMb;
+	waiting.sort((a, b) => p95Mb(b) - p95Mb(a));
+	for (const d of waiting.slice(0, NO_PROCESS_CHARGED)) charge(d);
 	draw.noProcess = waiting.length;
 	draw.noProcessUncharged = Math.max(0, waiting.length - NO_PROCESS_CHARGED);
 	draw.pssMb = Math.floor(heldKb / 1024);
