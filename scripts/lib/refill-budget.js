@@ -12,7 +12,7 @@
  * A landing is a commit of the session's on `origin/main`, dated by its commit
  * time, so the gate run that let that commit through counts before it. No park
  * writes the session marker a normal-mode loop resumes parked sessions from
- * (lib/parked.js): the budget's park is ended by a human.
+ * (lib/parked.js).
  */
 
 const { isActionable, launchName, stopJob } = require("./refill-block-core.js");
@@ -77,7 +77,6 @@ function parkOnBudget(l, runs, { now, io }) {
 }
 
 /**
- * Park each live loop session at its gate-run budget (#5275).
  * @param {LoopLaunch[]} launches
  * @param {ThroughputRead} read
  * @param {Tick} seen

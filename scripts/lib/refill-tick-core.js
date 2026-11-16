@@ -17,7 +17,9 @@
  * listing, stop each overflow session past its allowance (#3698), send each repo
  * hold's notice, queue the launches a boot killed (#3880), judge the finished
  * launches for progress, act on the blocked and idle ones (lib/refill-blocks.js),
- * queue the sessions parked on each lifted hold (#3863), read admission and the
+ * queue the sessions parked on each lifted hold (#3863), park each session at
+ * its gate-run budget and step each checkout's throughput breaker
+ * (lib/refill-budget.js, lib/refill-breaker.js, #5275), read admission and the
  * seats and act on the limit-held launches (#3735), then decide
  * (lib/refill-decide.js), first with an empty frontier, the per-repo
  * shortlists being read only on a tick that could launch. From the decision on,
@@ -446,7 +448,7 @@ function actOnLaunches(
 
 /**
  * The tick's throughput acts (#5275): each live session at its gate-run budget
- * parked, then each served checkout's breaker stepped, every event recorded.
+ * parked, then each served checkout's breaker stepped.
  * The launches after the parks, and the launch room each open breaker leaves.
  * @param {TickIo} io
  * @param {LoopLaunch[]} launches
@@ -595,8 +597,7 @@ const isSeatListRead = (parsed) => parsed !== null && parsed.seats.length > 0;
  *   declared: DeclaredSeats, typedSeat: string|null,
  *   seatTriedAt: Record<string, number>, lastActAt: Record<string, number>,
  *   breakerRoom: Record<string, number>, acts: LaunchActs}} tick
- *   `breakerRoom`, each checkout an open throughput breaker bars, resumes there
- *   being none (#5275)
+ *   `breakerRoom`, each checkout an open throughput breaker bars (#5275)
  */
 function settleRoom(
 	io,
@@ -630,8 +631,6 @@ function settleRoom(
 	const { slots: free, admission } = io.readFreeSlots(
 		admissionRoot(served, io.typecheckPeakMb),
 	);
-	/* A paused checkout, or one an open breaker bars, resumes none from held
-	 * (#5275). */
 	/** @param {string} root */
 	const roomOf = (root) =>
 		control.repoPaused?.[root] || breakerRoom[root] !== undefined

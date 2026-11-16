@@ -1,9 +1,7 @@
 /*
  * throughput-reads.js — the reads the throughput breaker, the gate-run budget
  * (lib/refill-breaker.js, lib/refill-budget.js) and the morning review's
- * Throughput section share (#5275): a checkout's non-merge `origin/main`
- * commits, its gate-run record, a loop session's job timeline and commits, and
- * the breaker's record. Each read that fails is null, never "none".
+ * Throughput section share (#5275).
  */
 
 const path = require("node:path");
@@ -20,7 +18,7 @@ const {
 	workingMsOf,
 } = require("./refill-breaker.js");
 
-/** Long enough for a fetched repo's log since a day back, short of a stall. */
+/** A guess: long enough for a fetched repo's log over the lookback, short of a stall. */
 const GIT_LOG_TIMEOUT_MS = 20_000;
 
 /**
@@ -32,8 +30,7 @@ const GIT_LOG_TIMEOUT_MS = 20_000;
  *   events: BreakerEvent[]|null}} RepoThroughput a served checkout's window for
  *   the morning review: its commits on `origin/main`, its loop sessions'
  *   working hours, its gate runs, its breaker's state at the window's end and
- *   the record's events in the window, each null where its source will not
- *   read
+ *   the record's events in the window
  */
 
 /**
@@ -79,7 +76,7 @@ function readRows(file) {
 }
 
 /**
- * `root`'s gate-run record (lib/gate-seat.js); null where it will not read.
+ * `root`'s gate-run record; null where it will not read.
  * @param {string} root
  * @returns {GateRun[]|null}
  */

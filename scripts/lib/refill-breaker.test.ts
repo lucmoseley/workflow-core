@@ -1,8 +1,7 @@
 // @vitest-environment node
 /*
  * lib/refill-breaker.js — the per-checkout throughput breaker (#5275). Broken,
- * it refills a repo whose sessions have stopped landing, as design-vault's
- * night of 2026-11-15 did, or it trips on workflow-core's quiet hours, or a
+ * it refills a repo whose sessions have stopped landing, or it trips on workflow-core's quiet hours, or a
  * restart forgets it is open.
  *
  * The replays step the breaker each quarter hour over two fixtures cut from the real job
@@ -119,8 +118,6 @@ describe("the replays (#5250's measurement)", () => {
 			room: 0,
 		});
 		const after = ticks.slice(opened);
-		/* Every tick from the open bars the checkout while a session runs, and
-		 * admits at most the one trial once none does. */
 		expect(after.every((t) => t.room !== undefined)).toBe(true);
 		expect(after.filter((t) => t.running > 0).every((t) => t.room === 0)).toBe(
 			true,
@@ -334,7 +331,7 @@ describe("the breaker's steps", () => {
 		});
 	});
 
-	it("counts a closed breaker only from its close, so the trial's landing starts afresh", () => {
+	it("counts a closed breaker only from its close", () => {
 		const record = [
 			event("open", NOW - 3 * HOUR),
 			event("trial-start", NOW - 2 * HOUR, { session: "st" }),

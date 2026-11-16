@@ -16,7 +16,7 @@ const { buildRowPrompt } = require("./unclosed-launch.js");
 
 /* Three finishes in a row with no progress pause their checkout (#1920, #3859),
  * and as many launches since its last act are all that run unproven there
- * (#4200, #4223), each counted per checkout (#5275). */
+ * (#4200, #4223, #5275). */
 const NO_PROGRESS_RUN = 3;
 /* A finish whose acts could not be read, counted neither as progress nor as
  * no progress (#2312). */
@@ -362,15 +362,15 @@ const hasProgressed = (r) =>
 
 /**
  * In one checkout, the last three read finishes since noProgressFrom, if none
- * progressed, so an act in another checkout leaves its count (#5275): an
+ * progressed (#5275): an
  * unread one is passed over, and so is a gate judgement with no act, since
  * judging a gate unmet ends with none (#3092), and a resume with nothing to repeat
  * that ended with no act and no new park, as its work may be done already (#3949):
  * its ticket leaves `parked`, so it comes back only by a new park, while one the
  * loop parked again, as an auth error would be, counts. A resume moves noProgressFrom, or
- * the finishes behind this pause would pause the loop again at once. Residual: a
+ * the finishes behind this pause would pause the checkout again at once. Residual: a
  * judge that crashed or did nothing is passed over too, so a run of gate launches
- * alone never pauses the loop; JUDGE_EVERY_MS in lib/gate-sweep.js bounds how
+ * alone never pauses a checkout; JUDGE_EVERY_MS in lib/gate-sweep.js bounds how
  * often each issue's runs.
  * @param {Pick<TickInput, "history"|"noProgressFrom">} input
  * @param {string} root

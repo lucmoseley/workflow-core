@@ -36,7 +36,7 @@ afterEach(() => {
 });
 
 describe("a checkout's origin/main commits", () => {
-	it("reads origin/main's non-merge commits since a time, with their commit times, and no other branch's", () => {
+	it("reads origin/main's non-merge commits since a time, with their commit times, and none origin/main lacks", () => {
 		const repo = path.join(tmp, "repo");
 		fs.mkdirSync(repo);
 		git(repo, "init", "-q", "-b", "main");

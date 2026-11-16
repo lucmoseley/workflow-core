@@ -565,7 +565,6 @@ function buildTransitionsText(events) {
 }
 
 /**
- * One served repo's Throughput line; what did not read says so in its place.
  * @param {RepoThroughput} r
  */
 function buildThroughputLine(r) {
@@ -581,9 +580,7 @@ function buildThroughputLine(r) {
 }
 
 /**
- * The Throughput section (#5275): each served repo's window, the flagged
- * first; each whose breaker or gate-run record will not read named under Not
- * read as well.
+ * The Throughput section (#5275).
  * @param {ThroughputReading} reading
  * @returns {string[]}
  */
@@ -608,7 +605,7 @@ function renderThroughputLines(reading) {
 	return [
 		"## Throughput",
 		"",
-		"Each served repo's commits on `origin/main` in the window, its loop sessions' working session-hours and the rate between them, its gate runs, its breaker at filing, the window's breaker transitions and each gate-run budget park; one whose breaker opened, reopened or parked a session is flagged and listed first:",
+		"Each served repo's commits on `origin/main` in the window and its breaker at filing; one whose breaker is open or on trial, or opened, reopened or parked a session, is flagged and listed first:",
 		"",
 		...(rows.length === 0 && !("why" in reading)
 			? ["No served repo."]

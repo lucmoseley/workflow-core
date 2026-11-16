@@ -2,8 +2,7 @@
  * pause-notices.js — a checkout's no-progress pause's phone notice (#4222, ruling
  * #4200; per checkout, #5275). Only `set --resume` ends that pause, and only the
  * founder runs it, so he is paged: one notice the tick the pause is written, and
- * one once it ends, only where a raise went. Each pause is its own cause, keyed by
- * its checkout and when it was written. The dispatch, its sent-means-seen check,
+ * one once it ends, only where a raise went. Each pause is its own cause. The dispatch, its sent-means-seen check,
  * retry and record-before-dispatch are lib/repo-hold-notices.js's tendPhase, under
  * the same one-page-a-cause budget.
  *
@@ -13,12 +12,11 @@
  * The notice comments on the first of the pause's issues whose checkout sets a
  * `founderNotice` whose `repo` is that checkout's tracker. A pause none of whose
  * issues lives in such a tracker files a workflow-core issue naming its checkout,
- * through file-issue.js from the loop's own checkout, and pages on that; the
+ * through file-issue.js, and pages on that; the
  * issue closes once the pause ends (#5273 §5).
  *
  * RESIDUAL: a filing that fails is logged and retried each tick, the raise
- * waiting on it; a close that fails is logged and not retried, as a probe hold's
- * (lib/repo-holds.js).
+ * waiting on it; a close that fails is logged and not retried.
  */
 
 const crypto = require("node:crypto");
@@ -242,7 +240,7 @@ const buildPauseFiler = (home) => ({
 /**
  * The record a new pause's notice file starts with: its target among its
  * issues, else the workflow-core issue filed for it. Null where that filing
- * failed, logged, for the next tick to retry.
+ * failed.
  * @param {string} root
  * @param {Pause} pause
  * @param {PauseFiler} filer

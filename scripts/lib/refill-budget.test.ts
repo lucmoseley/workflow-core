@@ -2,8 +2,7 @@
 /*
  * lib/refill-budget.js — the per-session gate-run budget (#5275). Broken, a
  * session that reruns the commit gate all night with nothing landing, as
- * design-vault #415 did (11 runs, 0 landings), runs on; or one that lands
- * between its runs is parked for gate runs its landing already answered.
+ * design-vault #415 did, runs on.
  */
 import { describe, expect, it } from "vitest";
 import { fakeIo } from "./refill-blocks-fixture";

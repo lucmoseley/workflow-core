@@ -6,19 +6,17 @@
  * under 0.3 it opens: the loop launches and resumes nothing there, and running
  * sessions carry on. Once no loop session runs there it admits one trial
  * launch; a trial that lands a commit closes it, one that ends without a
- * landing reopens it. A closed breaker counts only from its close, so a trial's
- * landing is a fresh start. No transition pages anyone (#5268).
+ * landing reopens it. A closed breaker counts only from its close. No transition pages anyone (#5268).
  *
  * WORKING TIME is a session's job timeline rows in state `working` or
  * `running`, each counted until the next row, but never past an hour of
- * silence: a row an hour or more before the next mostly precedes a resume, its
- * session dead in between (#5275's measurement). A blocked row (on the
+ * silence (#5275's measurement). A blocked row (on the
  * founder), and the stopped or done rows a seat-limit hold or a park leaves,
  * count nothing.
  *
  * THE RECORD is a machine-wide JSONL beside the loop's log, one line a
  * transition and a gate-run budget park (lib/refill-budget.js). The breaker's
- * state is folded from it each tick, so it survives a restart.
+ * state is folded from it each tick.
  */
 
 const { refillPath } = require("./refill-dir.js");
@@ -328,7 +326,7 @@ function stepBreakers({ roots, launches, read, now }) {
 }
 
 /**
- * Each checkout's breaker state at `at`, by the record's events up to then.
+ * A checkout's breaker state at `at`, by the record's events up to then.
  * @param {BreakerEvent[]} events
  * @param {string} root
  * @param {number} at
