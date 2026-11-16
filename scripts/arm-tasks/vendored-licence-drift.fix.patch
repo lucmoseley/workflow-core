@@ -48,8 +48,8 @@ index c890a5d61c4d514689f4a2aad00c5fb0b8178577..a83c72bc7280bf23c1f0aa437a7d0c60
  	noticeFaults,
 +	readNoticeLicences,
  } = require("./lib/vendored-notices.js");
- const {
- 	execGit,
+ const { execGit, gitCommonDir } = require("./lib/git.js");
+ const { isCutOver } = require("./lib/cutover.js");
 @@ -165,6 +174,7 @@ const COVERED = [LOCK, NOTICES];
   * @typedef {{
   *   ranOn: string,

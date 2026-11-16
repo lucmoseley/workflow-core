@@ -1,5 +1,5 @@
 /*
- * landing-switch-on.js — the session-start step that moves a main checkout
+ * main-checkout-cutover.js — the session-start step that moves a main checkout
  * still on the shared-tree model to the worktree model (#4688, #5276).
  *
  * A main checkout not cut over (lib/cutover.js's mark) is one tree every
@@ -28,7 +28,7 @@
  * @param {Reading} r
  * @returns {Judgement}
  */
-function judgeSwitchOn(r) {
+function judgeCutover(r) {
 	const cutOver = r.cutOver();
 	if (cutOver === null)
 		return {
@@ -75,4 +75,4 @@ function judgeSwitchOn(r) {
 	}
 }
 
-module.exports = { judgeSwitchOn };
+module.exports = { judgeCutover };

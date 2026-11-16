@@ -41,11 +41,7 @@ const LINKED = "/repo-wt";
 const ELSEWHERE = "/other";
 const SID = "s1";
 
-const ALL = [
-	"push-cadence-landing",
-	"vercel-build-on-push",
-	"ci-status-lag-landing",
-];
+const ALL = ["push-cadence", "vercel-build-on-push", "ci-status-lag"];
 
 interface Over {
 	modules?: string[];
@@ -114,13 +110,13 @@ describe("a push is handed its rules, and refused nothing", () => {
 
 	it("requests every id this trigger owns, in priority order, and no others", () => {
 		// The cap is per call, so a blanket request would spend it on whatever
-		// the store held; push-cadence-landing first carries the recipe.
+		// the store held; push-cadence first carries the recipe.
 		expect(run("git push origin main")?.injectRules).toEqual(ALL);
 	});
 
 	it("a push from a linked worktree is handed them too (mantahostels#1213)", () => {
 		expect(handed(run("git push origin main", { cwd: LINKED }))).toContain(
-			"push-cadence-landing",
+			"push-cadence",
 		);
 	});
 });
@@ -156,7 +152,7 @@ describe("a push whose tree it cannot resolve is handed the rules (#319)", () =>
 	it('git -C "$W" push, with W unset, is handed them, and nothing is logged', () => {
 		const { ctx, logs } = harness();
 		expect(handed(decide('git -C "$W" push origin main', ctx))).toContain(
-			"push-cadence-landing",
+			"push-cadence",
 		);
 		expect(logs).toEqual([]);
 	});
@@ -175,9 +171,7 @@ describe("an assignment before the first || is read, so the push's tree is judge
 
 	it("a push from a linked worktree is handed them, its review read there", () => {
 		const { ctx, reviewed } = harness();
-		expect(handed(decide(shape(LINKED), ctx))).toContain(
-			"push-cadence-landing",
-		);
+		expect(handed(decide(shape(LINKED), ctx))).toContain("push-cadence");
 		expect(reviewed).toEqual([LINKED]);
 	});
 
@@ -190,7 +184,7 @@ describe("each rule goes only to a host meeting its premise (#742)", () => {
 	it("vercel-build-on-push is withheld where the host declares no Vercel deploy", () => {
 		expect(
 			handed(run("git push origin main", { deploysVercel: false })),
-		).toEqual(["push-cadence-landing", "ci-status-lag-landing"]);
+		).toEqual(["push-cadence", "ci-status-lag"]);
 	});
 });
 
@@ -212,7 +206,7 @@ describe("pushed code no review covers is warned of, never refused (#1163)", () 
 		expect(d?.prelude).toBe(
 			`This push carries code this session changed (${o.files}) that no code review covers (#1163). ${o.tierLine} Run the code-review skill with fixed point ${o.base} now, before pushing again; its closing step runs node ${o.markerScript}, which writes ${marker}. This warn is said once a session, once more if the change turns escalated, and again for each marker written after a warn that is rejected.`,
 		);
-		expect(handed(d)).toContain("push-cadence-landing");
+		expect(handed(d)).toContain("push-cadence");
 	});
 
 	it("quotes the validator's fault where the marker is rejected", () => {
@@ -345,7 +339,7 @@ const carries = (id: string, clause: string) =>
 describe("the injected rules still carry their operative clauses", () => {
 	it("a clause no fragment carries fails", () => {
 		expect(() =>
-			carries("push-cadence-landing", "a clause no fragment carries"),
+			carries("push-cadence", "a clause no fragment carries"),
 		).toThrow();
 	});
 
@@ -358,17 +352,13 @@ describe("the injected rules still carry their operative clauses", () => {
 	});
 
 	it.each([
-		[
-			"ONCE THE TESTS YOU TOUCHED PASS",
-			"push-cadence-landing",
-			"the route's headline",
-		],
+		["ONCE THE TESTS YOU TOUCHED PASS", "push-cadence", "the route's headline"],
 		[
 			"the queue lander runs the full suite",
-			"push-cadence-landing",
+			"push-cadence",
 			"who runs the full suite",
 		],
-		["IS TESTED BY THE QUEUE LANDER", "ci-status-lag-landing", "who tests it"],
+		["IS TESTED BY THE QUEUE LANDER", "ci-status-lag", "who tests it"],
 	])("the landing route keeps %s — %s, %s", (clause, id) => {
 		carries(id, clause);
 	});

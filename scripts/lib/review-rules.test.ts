@@ -51,7 +51,7 @@ const IDS = [
 	"review-dispatch-shape",
 	"review-deviations-read",
 	"review-finding-destination",
-	"review-ultra-axis-landing",
+	"review-ultra-axis",
 ];
 
 /** One per state of the base and the local file (#965); a host gets exactly one. */
@@ -449,7 +449,7 @@ describe("the fragments carry what the review needs", () => {
 				).ticketedRefusal("TICKETED #1\n**Reviewed through:** a1b2c3d"),
 			)?.[1],
 		],
-		["review-ultra-axis-landing", "NEVER START ONE UNASKED."],
+		["review-ultra-axis", "NEVER START ONE UNASKED."],
 	])("%s says %j", (id, clause) => {
 		expect(readRuleText(id)).toContain(clause);
 	});
@@ -575,7 +575,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 				standardsId,
 				"review-deviations-read",
 				"review-finding-destination",
-				"review-ultra-axis-landing",
+				"review-ultra-axis",
 			].map((id) => ctx.indexOf(readRuleText(id)));
 			expect(order.every((at) => at > 0)).toBe(true);
 			expect([...order].sort((a, b) => a - b)).toEqual(order);

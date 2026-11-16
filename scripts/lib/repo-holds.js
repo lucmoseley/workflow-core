@@ -64,6 +64,10 @@
  * `lifted/` with it, the record outliving the lift until the clear notice is done.
  * When a checkout's probe hold last paged is a file beside its holds that no raise
  * or lift touches, as a probe hold that comes back is a new hold (#4148).
+ *
+ * fileIncidentIssue and closeIncidentIssue serve lib/pause-notices.js too (#5291),
+ * and stay here, as a module of their own would cycle with this one over
+ * readTracker and TICK_CALL_TIMEOUT_MS.
  */
 
 const { AsyncLocalStorage } = require("node:async_hooks");
@@ -1168,23 +1172,11 @@ function isIssueClosed(hold, issue, log) {
  */
 function closeProbeIssue(hold, why) {
 	if (hold.kind !== "probe" || hold.issue === null) return null;
-	try {
-		gh(
-			[
-				"issue",
-				"close",
-				String(hold.issue),
-				"--repo",
-				readTracker(hold.checkout),
-				"--comment",
-				`${why} The refill loop launches into ${hold.checkout} again unless it reads another failure.`,
-			],
-			{ timeout: TICK_CALL_TIMEOUT_MS },
-		);
-		return null;
-	} catch (e) {
-		return `could not close #${hold.issue}: ${parseErrLine(e)}`;
-	}
+	return closeIncidentIssue(
+		hold.checkout,
+		hold.issue,
+		`${why} The refill loop launches into ${hold.checkout} again unless it reads another failure.`,
+	);
 }
 
 /**
@@ -1357,6 +1349,65 @@ function readOpenIssueTitled(root, title) {
 }
 
 /**
+ * File an incident issue titled `title` in `root`'s tracker, or take up the one
+ * already open with that title (readOpenIssueTitled).
+ * @param {string} root  the checkout file-issue.js runs in
+ * @param {{title: string, body: string, why: string}} issue  `why`, why it
+ *   stands alone, file-issue.js's `--standalone`
+ * @returns {{number: number, isTakenUp: boolean}|string} the issue, else why
+ *   not
+ */
+function fileIncidentIssue(root, { title, body, why }) {
+	try {
+		const open = readOpenIssueTitled(root, title);
+		if (open !== null) return { number: open, isTakenUp: true };
+	} catch (e) {
+		return `could not look for an open one: ${parseErrLine(e)}`;
+	}
+	const filed = fileThrough(
+		buildScriptFilerArgv({
+			title,
+			labels: [takesLabel("triage")],
+			placement: { standalone: why },
+			origin: "incident",
+		}),
+		body,
+		root,
+	);
+	const number = findFiledLine(filed.stdout ?? "")?.n;
+	return number === undefined
+		? (filed.stderr || filed.error?.message || "no reason given").trim()
+		: { number, isTakenUp: false };
+}
+
+/**
+ * Close an issue fileIncidentIssue filed, with `comment`: null once closed,
+ * else what failed.
+ * @param {string} root
+ * @param {number} n
+ * @param {string} comment
+ */
+function closeIncidentIssue(root, n, comment) {
+	try {
+		gh(
+			[
+				"issue",
+				"close",
+				String(n),
+				"--repo",
+				readTracker(root),
+				"--comment",
+				comment,
+			],
+			{ timeout: TICK_CALL_TIMEOUT_MS },
+		);
+		return null;
+	} catch (e) {
+		return `could not close #${n}: ${parseErrLine(e)}`;
+	}
+}
+
+/**
  * File the probe hold's issue, or take up the one already open, recording it on
  * the hold. A failure is logged and the hold stands with no issue, for the next
  * tick to retry (#3860).
@@ -1366,40 +1417,21 @@ function readOpenIssueTitled(root, title) {
  * @param {Log} log
  */
 function fileProbeIssue(root, hold, failure, log) {
-	const title = `Refill loop probe: shared .git failing in ${path.basename(root)}`;
-	let open;
-	try {
-		open = readOpenIssueTitled(root, title);
-	} catch (e) {
+	const filed = fileIncidentIssue(root, {
+		title: `Refill loop probe: shared .git failing in ${path.basename(root)}`,
+		body: buildProbeIssueBody(root, failure),
+		why: PROBE_FILED_WHY,
+	});
+	if (typeof filed === "string") {
 		log(
-			`repo hold ${hold.id} in ${root}: issue not filed, the next tick retries: could not look for an open one: ${parseErrLine(e)}`,
+			`repo hold ${hold.id} in ${root}: issue not filed, the next tick retries: ${filed}`,
 		);
 		return;
 	}
-	if (open !== null) {
-		writeHold(root, { ...hold, issue: open });
-		log(`repo hold ${hold.id} in ${root}: took up open #${open}`);
-		return;
-	}
-	const filed = fileThrough(
-		buildScriptFilerArgv({
-			title,
-			labels: [takesLabel("triage")],
-			placement: { standalone: PROBE_FILED_WHY },
-			origin: "incident",
-		}),
-		buildProbeIssueBody(root, failure),
-		root,
+	writeHold(root, { ...hold, issue: filed.number });
+	log(
+		`repo hold ${hold.id} in ${root}: ${filed.isTakenUp ? "took up open" : "filed"} #${filed.number}`,
 	);
-	const number = findFiledLine(filed.stdout ?? "")?.n;
-	if (number === undefined) {
-		log(
-			`repo hold ${hold.id} in ${root}: issue not filed, the next tick retries: ${(filed.stderr || filed.error?.message || "no reason given").trim()}`,
-		);
-		return;
-	}
-	writeHold(root, { ...hold, issue: number });
-	log(`repo hold ${hold.id} in ${root}: filed #${number}`);
 }
 
 /* The outage window's decision stays beside its fs, with no core, by #3857's ruling
@@ -1694,8 +1726,8 @@ function buildHoldLines(roots, now) {
 }
 
 module.exports = {
-	readOpenIssueTitled,
-	readTracker,
+	closeIncidentIssue,
+	fileIncidentIssue,
 	attachHold,
 	attachProbeParks,
 	buildNoticeName,

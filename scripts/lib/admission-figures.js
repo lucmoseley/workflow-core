@@ -13,6 +13,8 @@ const { windowsUnbackedMb } = require("./windows-memory.js");
  * @typedef {import("./admission.js").CpuSlots} CpuSlots
  * @typedef {import("./admission.js").SessionDraw} SessionDraw
  * @typedef {import("./admission.js").LiveDraw} LiveDraw
+ * @typedef {import("./admission.js").HeldReserve} HeldReserve
+ * @typedef {import("./admission.js").HeldField} HeldField
  * @typedef {{ sessions: number, unvouched?: boolean }} SessionCount
  * @typedef {(SessionCount & { ok: true }) | { ok: false, error: string }} LenientProcs
  * @typedef {import("./admission.js").LiveSessionsResult} LiveSessionsResult
@@ -42,11 +44,12 @@ const CPU_UNREAD = {
  * admitted while
  *
  *   Σμ + k·μ + z·√(Σσ² + k·σ²) − the live sessions' current PSS
- *     ≤ free − pool reserve − lander reserve − gate-seat reserve
+ *     ≤ free − pool reserve − each memory reserve held (`held`)
  *       − type-check reserve
  *       − Windows charge − earlyoom floor − margin + reclaim credit
  *
- * Σ runs over the live sessions, each at its own repo's draw; the bare μ and σ
+ * Σ runs over the live sessions `liveDraw` charges, each at its own repo's
+ * draw, a waiting session with no process past its cap adding nothing; the bare μ and σ
  * are this host's, whose sessions are the ones admitted. Current PSS counts
  * descendants too, the unit μ is measured in, so the suites μ's sample saw
  * are charged at the rate it saw them. Nothing more is held for suites: the
@@ -67,6 +70,7 @@ const NO_LIVE_DRAW = {
 	pssMb: 0,
 	unread: 0,
 	noProcess: 0,
+	noProcessUncharged: 0,
 	problems: [],
 };
 
@@ -77,8 +81,8 @@ const NO_LIVE_DRAW = {
  * `overhead` reserves for one launch, is charged again for each slot past the
  * first (#2511, #2568); `live` is the live sessions' draw, from `liveDraw`,
  * and `host` this host's session draw, from `readSessionDraw` (#2221);
- * `landerMb`, from `landerHeldMb`, is held back for the lander's suite, and
- * `gateMb`, from `gateSeatHeldMb`, for the gate seat (#5274);
+ * `held`, from `heldReserves`, is what each memory reserve holds back
+ * (#5274, #5297);
  * `load` comes from `overloadReading`, and an overload holds
  * every slot; `cpu`, from `cpuSlots`, caps them (#830, #2141), the
  * always-admit-one guarantee included in both. `typecheckChargeMb`, from
@@ -88,7 +92,7 @@ const NO_LIVE_DRAW = {
  * hold is holding, any of which holds every slot (#4956). `windows`, from
  * `readWindowsMemory`, and `guestFreeMb`, the guest's `MemFree`, price the
  * guest free memory Windows cannot back.
- * @typedef {{ overhead?: MbResult, reclaimable?: MbResult, live?: LiveDraw, host?: SessionDraw, load?: LoadReading, cpu?: CpuSlots, landerMb?: number, gateMb?: number, launchMb?: number, typecheckChargeMb?: number, testsHeld?: number, windows?: WindowsRead, guestFreeMb?: number | null }} AdmissionReadings
+ * @typedef {{ overhead?: MbResult, reclaimable?: MbResult, live?: LiveDraw, host?: SessionDraw, load?: LoadReading, cpu?: CpuSlots, held?: HeldReserve[], launchMb?: number, typecheckChargeMb?: number, testsHeld?: number, windows?: WindowsRead, guestFreeMb?: number | null }} AdmissionReadings
  */
 
 /*
@@ -140,16 +144,15 @@ function drawNeedFor(live, host, k) {
 /**
  * What admits sessions, from `baseMb`, memory less the pool reserve.
  * @param {number} baseMb
- * @param {{ landerMb: number, gateMb: number, typecheckReserveMb: number, windowsChargeMb: number, reclaimMb: number }} adjustments
+ * @param {{ held: HeldReserve[], typecheckReserveMb: number, windowsChargeMb: number, reclaimMb: number }} adjustments
  */
 function sessionBudgetMb(
 	baseMb,
-	{ landerMb, gateMb, typecheckReserveMb, windowsChargeMb, reclaimMb },
+	{ held, typecheckReserveMb, windowsChargeMb, reclaimMb },
 ) {
 	return (
 		baseMb -
-		landerMb -
-		gateMb -
+		held.reduce((sum, { mb }) => sum + mb, 0) -
 		typecheckReserveMb -
 		windowsChargeMb -
 		EARLYOOM_FLOOR_MB -
@@ -157,6 +160,16 @@ function sessionBudgetMb(
 		reclaimMb
 	);
 }
+
+/**
+ * The per-reserve fields, `landerMb` and the rest, off `held`, which holds
+ * every reserve where it comes from `heldReserves`.
+ * @param {HeldReserve[]} held
+ */
+const heldFields = (held) =>
+	/** @type {Record<HeldField, number>} */ (
+		Object.fromEntries(held.map(({ field, mb }) => [field, mb]))
+	);
 
 /**
  * `drawNeedFor` plus the spare pairs the 2nd to k-th of k launches warm, each
@@ -224,8 +237,7 @@ function admissionFigures(
 		host = UNDECLARED_DRAW,
 		load = LOAD_UNREAD,
 		cpu = CPU_UNREAD,
-		landerMb = 0,
-		gateMb = 0,
+		held = [],
 		launchMb = 0,
 		typecheckChargeMb = 0,
 		testsHeld = 0,
@@ -238,8 +250,8 @@ function admissionFigures(
 		host,
 		load,
 		cpu,
-		landerMb,
-		gateMb,
+		held,
+		...heldFields(held),
 		launchMb,
 		testsHeld,
 		windows,
@@ -260,12 +272,11 @@ function admissionFigures(
 	 * the suite ladder carries earlyoom's line in its own rungs. */
 	const typecheckReserveMb = typecheckReserveFor(
 		typecheckChargeMb,
-		live.sessions,
+		live.sessions - live.noProcessUncharged,
 	);
 	const windowsChargeMb = windowsUnbackedMb(windows, guestFreeMb);
 	const budgetMb = sessionBudgetMb(effectiveMb, {
-		landerMb,
-		gateMb,
+		held,
 		typecheckReserveMb,
 		windowsChargeMb,
 		reclaimMb: reclaimedMb,
@@ -273,7 +284,7 @@ function admissionFigures(
 	const byMemory = drawSlots(budgetMb, live, host, launchMb);
 	const guaranteed = procs.ok && isGuaranteed(procs, byMemory);
 	const memorySlots = guaranteed ? 1 : byMemory;
-	const held = (/** @type {number} */ n) =>
+	const holdSlots = (/** @type {number} */ n) =>
 		load.overloaded || testsHeld > 0 ? 0 : cpuCapped(n, cpu);
 	return {
 		...inputs,
@@ -292,9 +303,9 @@ function admissionFigures(
 		needAtMb: launchNeedFor(live, host, byMemory, launchMb),
 		nextNeedMb: launchNeedFor(live, host, byMemory + 1, launchMb),
 		guaranteed,
-		freeSlots: held(byMemory),
+		freeSlots: holdSlots(byMemory),
 		memorySlots,
-		slots: held(memorySlots),
+		slots: holdSlots(memorySlots),
 	};
 }
 
@@ -304,4 +315,5 @@ module.exports = {
 	NO_LIVE_DRAW,
 	UNDECLARED_DRAW,
 	admissionFigures,
+	heldFields,
 };

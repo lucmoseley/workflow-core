@@ -26,6 +26,7 @@
  */
 
 const path = require("node:path");
+const { heldFields } = require("./admission-figures.js");
 const { caught } = require("./caught.js");
 const { readJsonl, readLastJsonlRow } = require("./jsonl.js");
 const {
@@ -106,7 +107,10 @@ function largestHolder(a) {
 	const holders = [
 		["the live sessions' p95 draw", a.drawNeedMb],
 		["the earlyoom floor + margin", (a.floorMb ?? 0) + (a.marginMb ?? 0)],
-		["the lander's suite reserve", a.landerMb],
+		...(a.held ?? []).map(
+			({ holding, mb }) =>
+				/** @type {[string, number]} */ ([`${holding} reserve`, mb]),
+		),
 		["the type-check reserve", a.typecheckReserveMb],
 		["guest free memory Windows cannot back", a.windowsChargeMb],
 		["non-session processes", m.other?.mb],
@@ -336,7 +340,7 @@ function buildTickMemory(a) {
 		drawNeedMb: a.drawNeedMb,
 		nextNeedMb: a.nextNeedMb,
 		reservedMb: a.reservedMb,
-		landerMb: a.landerMb,
+		...heldFields(a.held ?? []),
 		typecheckReserveMb: a.typecheckReserveMb,
 		windowsChargeMb: a.windowsChargeMb,
 		testsHeld: a.testsHeld,

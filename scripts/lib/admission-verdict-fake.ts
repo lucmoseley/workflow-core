@@ -18,7 +18,12 @@ export const ADMISSION_VERDICT = {
 	drawNeedMb: 1500,
 	nextNeedMb: 2400,
 	reservedMb: 106,
+	held: [
+		{ field: "landerMb", mb: 0, holding: "the lander's suite", term: "lander" },
+		{ field: "gateMb", mb: 0, holding: "the gate seat", term: "gate seat" },
+	],
 	landerMb: 0,
+	gateMb: 0,
 	/* No `tsc` in the fixture's host, no memwatch and no queued run. */
 	typecheckReserveMb: 0,
 	windowsChargeMb: 0,
@@ -56,7 +61,9 @@ export const ADMISSION_VERDICT = {
 	| "drawNeedMb"
 	| "nextNeedMb"
 	| "reservedMb"
+	| "held"
 	| "landerMb"
+	| "gateMb"
 	| "typecheckReserveMb"
 	| "windowsChargeMb"
 	| "windowsCapped"

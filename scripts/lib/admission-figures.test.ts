@@ -81,6 +81,7 @@ describe("the type-check reserve and the Windows limbs (#4956)", () => {
 			pssMb: 1665,
 			unread: 0,
 			noProcess: 0,
+			noProcessUncharged: 0,
 			problems: [],
 		};
 		const bare = measured(roomy, one, { live });
@@ -92,6 +93,23 @@ describe("the type-check reserve and the Windows limbs (#4956)", () => {
 		expect(
 			measured(roomy, one, { live: many, typecheckChargeMb: 1497 }),
 		).toMatchObject({ typecheckReserveMb: 0, budgetMb: bare.budgetMb });
+	});
+
+	it("credits the type-check reserve no share for a waiting session admission charges nothing (#5283)", () => {
+		const live = {
+			sessions: 5,
+			meanMb: 1200,
+			varianceMb2: 80_000,
+			pssMb: 0,
+			unread: 0,
+			noProcess: 5,
+			noProcessUncharged: 3,
+			problems: [],
+		};
+		expect(
+			measured(roomy, one, { live, typecheckChargeMb: 1497 })
+				.typecheckReserveMb,
+		).toBe(1497 - 2 * 147);
 	});
 
 	it("takes off the budget the guest free memory Windows cannot back above its floor", () => {
@@ -174,7 +192,12 @@ describe("the per-slot pending pair (#2511, #2568)", () => {
 
 describe("the lander and gate-seat reserves (#2416, #5274)", () => {
 	it("takes each off the budget as its own figure, beside the other", () => {
-		const f = measured(roomy, one, { landerMb: 300, gateMb: 700 });
+		const f = measured(roomy, one, {
+			held: [
+				{ field: "landerMb", mb: 300, holding: "", term: "" },
+				{ field: "gateMb", mb: 700, holding: "", term: "" },
+			],
+		});
 		expect(f.budgetMb).toBe(4000 - 300 - 700 - 300);
 		expect(f.landerMb).toBe(300);
 		expect(f.gateMb).toBe(700);

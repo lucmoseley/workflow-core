@@ -24,9 +24,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { readText } = require("./file-read.js");
-const { findFiledLine } = require("./filed-line.js");
-const { fileThrough } = require("./file-through.js");
-const { gh, parseErrLine } = require("./gh.js");
 const { buildPauseIssueText } = require("./refill-decide.js");
 const { NO_PROGRESS_RUN } = require("./launch-room.js");
 const { refillPath } = require("./refill-dir.js");
@@ -36,16 +33,13 @@ const {
 	tendPhase,
 } = require("./repo-hold-notices.js");
 const {
+	closeIncidentIssue,
+	fileIncidentIssue,
 	isClearOwed,
 	readNotice,
-	readOpenIssueTitled,
-	readTracker,
-	TICK_CALL_TIMEOUT_MS,
 	writeNotice,
 } = require("./repo-holds.js");
-const { buildScriptFilerArgv } = require("./script-filer-argv.js");
 const { scriptPath } = require("./script-path.js");
-const { takesLabel } = require("./takes-label.js");
 const { resolveKey } = require("./workflow-core-config.js");
 
 /**
@@ -185,57 +179,22 @@ const buildFiledBody = (root, issues) =>
 **To clear:** look at those issues, then run \`node ${scriptPath("refill-loop.js")} set --resume\`. The loop closes this issue once the pause ends.`;
 
 /**
- * The production filer: file-issue.js run in `home`, its tracker's open issue of
- * the same title taken up first (lib/repo-holds.js's readOpenIssueTitled).
+ * The production filer: lib/repo-holds.js's fileIncidentIssue and
+ * closeIncidentIssue, in `home`.
  * @param {string} home
  * @returns {PauseFiler}
  */
 const buildPauseFiler = (home) => ({
 	home,
 	file: (title, body) => {
-		try {
-			const open = readOpenIssueTitled(home, title);
-			if (open !== null) return open;
-		} catch (e) {
-			return `could not look for an open one: ${parseErrLine(e)}`;
-		}
-		const filed = fileThrough(
-			buildScriptFilerArgv({
-				title,
-				labels: [takesLabel("triage")],
-				placement: {
-					standalone:
-						"a no-progress pause is raised by the refill loop, with no asking session to hold its question (#5273)",
-				},
-				origin: "incident",
-			}),
+		const filed = fileIncidentIssue(home, {
+			title,
 			body,
-			home,
-		);
-		return (
-			findFiledLine(filed.stdout ?? "")?.n ??
-			(filed.stderr || filed.error?.message || "no reason given").trim()
-		);
+			why: "a no-progress pause is raised by the refill loop, with no asking session to hold its question (#5273)",
+		});
+		return typeof filed === "string" ? filed : filed.number;
 	},
-	close: (n, comment) => {
-		try {
-			gh(
-				[
-					"issue",
-					"close",
-					String(n),
-					"--repo",
-					readTracker(home),
-					"--comment",
-					comment,
-				],
-				{ timeout: TICK_CALL_TIMEOUT_MS },
-			);
-			return null;
-		} catch (e) {
-			return `could not close #${n}: ${parseErrLine(e)}`;
-		}
-	},
+	close: (n, comment) => closeIncidentIssue(home, n, comment),
 });
 
 /**
