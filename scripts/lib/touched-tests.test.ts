@@ -1,6 +1,6 @@
 // @vitest-environment node
 /*
- * touched-tests.js's own suite: which tests a bare run under `landing` selects
+ * touched-tests.js's own suite: which tests a bare run selects
  * from a session's changed paths (#2930), over a throwaway repo whose tests,
  * helpers and documents are known exactly.
  *

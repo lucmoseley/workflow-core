@@ -874,7 +874,7 @@ function sourceFacts(inp, src) {
  * The copy (#694 items 1–3): the source repo's default branch made the
  * clone's `main`, and its tags pushed to origin. `main` waits for the push
  * step, carrying the skeleton commit with it: pushed alone it would leave
- * origin a `main` that, with `landing` on, only the queue lander may move
+ * origin a `main` that only the queue lander may move
  * (#4685). A re-run fetches and pushes again; what origin already holds is
  * sent nowhere. A dry run fetches nothing, so it reads the clone as it stands.
  * @param {Step} step
@@ -2100,8 +2100,8 @@ function skeletonCommit(
 
 /**
  * The skeleton committed from a linked worktree cut at HEAD, then made the
- * clone's `main`. A copied repo's HEAD is the source's tip, and with
- * `landing` on the main checkout takes no commit but the root one
+ * clone's `main`. A copied repo's HEAD is the source's tip, and the main
+ * checkout takes no commit but the root one
  * (check-main-checkout-commit.js). The clone's files are already the
  * commit's, so a mixed reset leaves only its index to follow.
  * @param {string} clone

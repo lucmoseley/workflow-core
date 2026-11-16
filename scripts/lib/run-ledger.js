@@ -185,7 +185,7 @@ function appendLedgerLine(root, marker, green) {
 
 /**
  * The line of a touched run that selected nothing: it spawns nothing and
- * writes no marker, which no push reads under `landing` (#2930, #2958).
+ * writes no marker, which no push reads (#2930, #2958).
  *
  * @param {string} root the canonical checkout
  * @param {string} tree the tree the run selected in, whose HEAD it records

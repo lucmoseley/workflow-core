@@ -7,7 +7,7 @@
  * one unguarded tree at every session start, or one a session stands in is
  * cut over under it.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -98,11 +98,50 @@ describe("check-landing-switch-on.js (#5276)", () => {
 
 	it("fails naming the session standing in the main checkout, cutting nothing over", () => {
 		listSessionIn(main);
-		const r = check();
-		expect(r.stderr).toContain("OCCUPIED");
-		expect(r.stderr).toContain("1 session(s) stand in it: live");
-		expect(r.status).toBe(1);
+		const r = check("--notify");
+		expect(r.stdout).toContain("OCCUPIED");
+		expect(r.stdout).toContain("1 session(s) stand in it: live");
 		expect(upstream()).toBe("refs/heads/landing");
+	});
+
+	it("only reports, run as npm run status runs it, cutting nothing over", () => {
+		listSessionIn(tmp);
+		const r = check();
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("NOT-CUT-OVER");
+		expect(upstream()).toBe("refs/heads/landing");
+	});
+
+	it("skips while another run holds the cutover's lock, cutting nothing over", () => {
+		listSessionIn(tmp);
+		const holder = spawn("sh", ["-c", "sleep 60", "cutover-main-checkout.js"], {
+			stdio: "ignore",
+		});
+		try {
+			fs.writeFileSync(
+				path.join(main, ".git", "wfc-cutover.pid"),
+				`${holder.pid}\n`,
+			);
+			const r = check();
+			expect(r.stderr).toContain("NOT-CUT-OVER");
+			/* A skip is silent at SessionStart: the listing would let a cutover
+			 * through, so the mark left in place is the lock's doing. */
+			expect(check("--notify").stdout).toBe("");
+			expect(upstream()).toBe("refs/heads/landing");
+		} finally {
+			holder.kill();
+		}
+	});
+
+	it("is BROKEN where git cannot read the mark", () => {
+		const gitConfig = path.join(main, ".git", "config");
+		fs.chmodSync(gitConfig, 0o000);
+		const r = check();
+		fs.chmodSync(gitConfig, 0o644);
+		expect(r.stderr).toContain("BROKEN");
+		expect(r.stderr).toContain(
+			"git could not read whether the main checkout is cut over",
+		);
 	});
 
 	it("passes a cut-over main checkout and prints nothing at SessionStart", () => {

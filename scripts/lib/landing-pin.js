@@ -16,7 +16,6 @@ const { compareVersions } = require("./compare-versions.js");
 const { readPin } = require("./plugin-state.js");
 
 const ALWAYS_ON = "v3.0.0";
-const ALWAYS_ON_PARTS = [3, 0, 0];
 
 /**
  * The tag's numeric parts, any pre-release or build suffix dropped; null
@@ -39,8 +38,8 @@ function declaresLanding(root) {
 		);
 		return Array.isArray(raw?.modules) && raw.modules.includes("landing");
 	} catch {
-		/* A config that will not read is refill-repos.js's to exclude, by its
-		 * own fault. */
+		/* Fails open: a config that will not read is refill-repos.js's to
+		 * exclude, by its own fault (#5276). */
 		return true;
 	}
 }
@@ -54,10 +53,13 @@ function declaresLanding(root) {
 function readLandingOffWhy(root) {
 	const ref = readPin(root, "workflow-core").pin?.ref;
 	const parts = ref ? parseTag(ref) : null;
-	if (parts === null || compareVersions(parts, ALWAYS_ON_PARTS) >= 0)
+	if (
+		parts === null ||
+		compareVersions(parts, /** @type {number[]} */ (parseTag(ALWAYS_ON))) >= 0
+	)
 		return null;
 	if (declaresLanding(root)) return null;
 	return `pinned to workflow-core ${ref} with \`landing\` off, so its sessions share one unguarded tree — move its pin to ${ALWAYS_ON} or later`;
 }
 
-module.exports = { ALWAYS_ON, readLandingOffWhy };
+module.exports = { readLandingOffWhy };

@@ -45,8 +45,8 @@
  * holds every cut, its text the reason and what lifts it. The commit that
  * lifts the hold deletes it.
  *
- * #5276 adds one more: a migration note at HEAD naming a version above the
- * tag being cut.
+ * And one more: a migration note at HEAD naming a version above the tag
+ * being cut (#5276).
  *
  * #6 adds five more refusals: a dirty tree; a red core
  * (`commands.test`, skipped where undeclared — CLAUDE.md's own skip
