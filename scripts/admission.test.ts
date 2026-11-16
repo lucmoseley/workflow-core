@@ -1007,8 +1007,9 @@ describe("aggregate session draw (#2221)", () => {
 				["c", heavy],
 			]),
 		).toBe(
-			// σ is √(300² + 100² + 300²); no session lists a pid
-			"3 live session(s): mean 2400 MB + 1.645 × σ 436 MB − 0 MB they already hold; 3 with no process, charged in full",
+			// no session lists a pid, so only the two heavy ones are charged:
+			// σ is √(300² + 300²)
+			"3 live session(s): mean 2000 MB + 1.645 × σ 424 MB − 0 MB they already hold; 2 with no process, charged in full, 1 more charged nothing until they wake",
 		);
 	});
 
@@ -1075,7 +1076,7 @@ describe("aggregate session draw (#2221)", () => {
 		);
 	});
 
-	it("charges a listed session with no pid its whole draw, and reads the live row without it (#2426)", () => {
+	it("charges a listed session with no pid, within the cap of two, its whole draw, and reads the live row without it (#2426, #5283)", () => {
 		const { json, status } = run({
 			mb: 6000,
 			sessions: [SELF, "a", "b@202"],
@@ -1101,6 +1102,19 @@ describe("aggregate session draw (#2221)", () => {
 		);
 		expect(stdout).toMatch(
 			/^ {2}live +3 session\(s\) \(2 with no process\), 250 MB PSS$/m,
+		);
+	});
+
+	it("charges only two of five listed sessions with no pid (#5283)", () => {
+		const machine = {
+			mb: 6000,
+			sessions: [SELF, "a", "b", "c", "d", "e"],
+			pss: {},
+		};
+		// ceil(2 × 600 + 1.645 × 200 × √2): c, d and e add nothing until they wake
+		expect(run(machine).json.drawNeedMb).toBe(1666);
+		expect(run({ ...machine, json: false }).stdout).toMatch(
+			/^live draw +5 live session\(s\): mean 1200 MB \+ 1\.645 × σ 283 MB − 0 MB they already hold; 2 with no process, charged in full, 3 more charged nothing until they wake$/m,
 		);
 	});
 
@@ -1153,6 +1167,7 @@ describe("aggregate session draw (#2221)", () => {
 				pssMb: 3230,
 				unread: 0,
 				noProcess: 0,
+				noProcessUncharged: 0,
 				problems: [],
 			},
 			host: { meanMb: 600, sigmaMb: 200, declared: true },

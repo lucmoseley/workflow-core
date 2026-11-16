@@ -46,7 +46,8 @@ const CPU_UNREAD = {
  *       − type-check reserve
  *       − Windows charge − earlyoom floor − margin + reclaim credit
  *
- * Σ runs over the live sessions, each at its own repo's draw; the bare μ and σ
+ * Σ runs over the live sessions `liveDraw` charges, each at its own repo's
+ * draw, a waiting session with no process past its cap adding nothing; the bare μ and σ
  * are this host's, whose sessions are the ones admitted. Current PSS counts
  * descendants too, the unit μ is measured in, so the suites μ's sample saw
  * are charged at the rate it saw them. Nothing more is held for suites: the
@@ -67,6 +68,7 @@ const NO_LIVE_DRAW = {
 	pssMb: 0,
 	unread: 0,
 	noProcess: 0,
+	noProcessUncharged: 0,
 	problems: [],
 };
 
@@ -260,7 +262,7 @@ function admissionFigures(
 	 * the suite ladder carries earlyoom's line in its own rungs. */
 	const typecheckReserveMb = typecheckReserveFor(
 		typecheckChargeMb,
-		live.sessions,
+		live.sessions - live.noProcessUncharged,
 	);
 	const windowsChargeMb = windowsUnbackedMb(windows, guestFreeMb);
 	const budgetMb = sessionBudgetMb(effectiveMb, {
