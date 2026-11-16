@@ -1047,7 +1047,12 @@ const productionIo = {
 	readProgress,
 	readLoopLastActAt,
 	readThroughput: (launches, served, now) =>
-		readThroughput(served, (root) => buildLookbackOf(launches, root, now), now),
+		readThroughput({
+			roots: served,
+			launches,
+			lookbackOf: (root) => buildLookbackOf(launches, root, now),
+			now,
+		}),
 	readCause,
 	tendClosedParks,
 	actOnOutside: (launches, registry, seen) =>

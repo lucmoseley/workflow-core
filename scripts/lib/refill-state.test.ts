@@ -315,6 +315,30 @@ describe("the state file", () => {
 		});
 	});
 
+	it("records each job a write starts, and the job a copy replaces as ended (#5289)", () => {
+		const a = launch({ jobId: "a" });
+		updateState(launchRecorded(a), ignore);
+		updateState(runHeld(NOW, "boot-a"), ignore);
+		const toCopy: Transition = (s) => ({
+			...s,
+			launches: s.launches.map((l) => ({ ...l, jobId: "b", copiedFrom: "a" })),
+		});
+		updateState(toCopy, ignore);
+		const rows = fs
+			.readFileSync(path.join(dir, ".refill-jobs.jsonl"), "utf8")
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		const rowOf = (jobId: string, ended?: boolean) => ({
+			at: expect.any(String),
+			repo: a.root,
+			seat: a.seat,
+			jobId,
+			...(ended ? { endedAt: expect.any(String) } : {}),
+		});
+		expect(rows).toEqual([rowOf("a"), rowOf("b"), rowOf("a", true)]);
+	});
+
 	it("writes nothing for a transition that changes nothing", () => {
 		updateState(runForgotten(), ignore);
 		expect(fs.existsSync(path.join(dir, REFILL_STATE_FILE))).toBe(false);

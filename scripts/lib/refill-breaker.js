@@ -8,9 +8,9 @@
  * launch; a trial that lands a commit closes it, one that ends without a
  * landing reopens it. A closed breaker counts only from its close. No transition pages anyone (#5268).
  *
- * WORKING TIME is a session's job timeline rows in state `working` or
- * `running`, each counted until the next row, but never past an hour of
- * silence (#5275's measurement). A blocked row (on the
+ * WORKING TIME is a checkout's loop jobs' timeline rows (lib/loop-jobs.js)
+ * in state `working` or `running`, each counted until the next row, but
+ * never past an hour of silence (#5275's measurement). A blocked row (on the
  * founder), and the stopped or done rows a seat-limit hold or a park leaves,
  * count nothing.
  *
@@ -62,10 +62,11 @@ const WORKING_STATES = new Set(["working", "running"]);
  * @typedef {object} ThroughputRead  what a tick reads for the breaker and the
  *   gate-run budget
  * @property {Record<string, {commits: {sha: string, at: number}[]|null,
- *   gateRuns: import("./gate-seat.js").GateRun[]|null}>} byRoot each served
- *   checkout's non-merge `origin/main` commits since its lookback, and its
- *   gate-run record; null where either will not read
- * @property {(l: BreakerLaunch) => SessionTimeline|null} timelineOf
+ *   gateRuns: import("./gate-seat.js").GateRun[]|null,
+ *   sessions: SessionTimeline[]}>} byRoot each served checkout's non-merge
+ *   `origin/main` commits and its loop sessions' job timelines since its
+ *   lookback, and its gate-run record; commits or runs null where they will
+ *   not read
  * @property {(l: BreakerLaunch) => string[]} commitsOf the shas `l`'s
  *   sessions committed in its checkout
  * @property {BreakerEvent[]|null} record null where it will not read
@@ -267,27 +268,6 @@ function stepBreaker({ root, state, launches, reading, read, now }) {
 const isRunning = (l) => l.finishedAt === null;
 
 /**
- * The timelines of `root`'s loop sessions that ran after `from`.
- * @param {BreakerLaunch[]} launches
- * @param {string} root
- * @param {number} from
- * @param {ThroughputRead} read
- * @returns {SessionTimeline[]}
- */
-const sessionsOf = (launches, root, from, read) =>
-	launches
-		.filter(
-			(l) =>
-				l.root === root &&
-				l.jobId !== null &&
-				(l.finishedAt === null || l.finishedAt > from),
-		)
-		.flatMap((l) => {
-			const timeline = read.timelineOf(l);
-			return timeline ? [timeline] : [];
-		});
-
-/**
  * Every served checkout's breaker step: the events to record, and the launch
  * room each open breaker leaves, by root. An unread record leaves no room
  * anywhere, since no breaker's state can be known.
@@ -306,6 +286,7 @@ function stepBreakers({ roots, launches, read, now }) {
 	for (const root of roots) {
 		const state = foldBreaker(record, root);
 		const commits = read.byRoot[root]?.commits ?? null;
+		const sessions = read.byRoot[root]?.sessions ?? [];
 		const from = Math.max(
 			now - BREAKER_WINDOW_MS,
 			state.state === "closed" ? (state.since ?? 0) : 0,
@@ -313,7 +294,7 @@ function stepBreakers({ roots, launches, read, now }) {
 		const reading = commits
 			? readingOf({
 					commitTimes: commits.map((c) => c.at),
-					sessions: sessionsOf(launches, root, from, read),
+					sessions,
 					from,
 					to: now,
 				})
@@ -338,6 +319,8 @@ const foldBreakerAt = (events, root, at) =>
 	);
 
 module.exports = {
+	BREAKER_RETAIN_MS,
+	SILENCE_CAP_MS,
 	appendBreakerEvents,
 	breakerRecordPath,
 	buildLookbackOf,
