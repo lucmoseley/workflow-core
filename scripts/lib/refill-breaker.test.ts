@@ -5,20 +5,14 @@
  * night of 2026-11-15 did, or it trips on workflow-core's quiet hours, or a
  * restart forgets it is open.
  *
- * The replays drive readingOf over two fixtures cut from the real job
+ * The replays step the breaker each quarter hour over two fixtures cut from the real job
  * timelines and `origin/main` (scripts/fixtures/refill-breaker-*.json),
  * each row kept wherever dropping it would change an hour-capped span.
  */
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import {
-	foldBreaker,
-	isTripping,
-	readingOf,
-	stepBreakers,
-	workingMsOf,
-} from "./refill-breaker.js";
+import { foldBreakerAt, stepBreakers, workingMsOf } from "./refill-breaker.js";
 
 type BreakerEvent = import("./refill-breaker.js").BreakerEvent;
 type ThroughputRead = import("./refill-breaker.js").ThroughputRead;
@@ -47,42 +41,101 @@ const WFC_DIPS = path.join(
 	"refill-breaker-workflow-core-dips.json",
 );
 const fixture = (file: string) => JSON.parse(fs.readFileSync(file, "utf8"));
-const sessionsOf = (f: Fixture) =>
-	f.sessions.map((s) => ({
-		rows: s.rows.map(([at, state]) => ({ at, state })),
-		endAt: Date.parse(s.endAt),
-	}));
-
-/** Each quarter hour in [from, to] the breaker would trip at. */
+/**
+ * The fixture's night stepped through the breaker each quarter hour in
+ * [from, to], as the loop's ticks would: each session a launch from its first
+ * row to its end, unfinished until then, the record carried tick to tick.
+ * Each tick's events and the room it left.
+ */
 function replay(f: Fixture, from: string, to: string) {
-	const sessions = sessionsOf(f);
-	const commitTimes = f.commits.map((c) => Date.parse(c));
-	const trips: string[] = [];
-	for (let t = Date.parse(from); t <= Date.parse(to); t += 15 * MIN)
-		if (
-			isTripping(
-				readingOf({ commitTimes, sessions, from: t - 6 * HOUR, to: t }),
-			)
-		)
-			trips.push(iso(t));
-	return trips;
+	const root = "/h/replayed";
+	const sessions = f.sessions.map((s, i) => ({
+		rows: s.rows.map(([at, state]) => ({ at, state })),
+		launch: {
+			root,
+			issues: [i],
+			jobId: `j${i}`,
+			sessionId: `s${i}`,
+			launchedAt: Date.parse(s.rows[0]?.[0] ?? s.endAt),
+			endAt: Date.parse(s.endAt),
+		},
+	}));
+	const commits = f.commits.map((c, i) => ({
+		sha: `c${i}`,
+		at: Date.parse(c),
+	}));
+	const record: BreakerEvent[] = [];
+	const ticks: {
+		at: string;
+		events: BreakerEvent[];
+		room?: number;
+		running: number;
+	}[] = [];
+	for (let t = Date.parse(from); t <= Date.parse(to); t += 15 * MIN) {
+		const launches = sessions
+			.filter((s) => s.launch.launchedAt <= t)
+			.map(({ launch: { endAt, ...l } }) => ({
+				...l,
+				finishedAt: endAt <= t ? endAt : null,
+			}));
+		const { events, room } = stepBreakers({
+			roots: [root],
+			launches,
+			now: t,
+			read: {
+				byRoot: {
+					[root]: { commits: commits.filter((c) => c.at <= t), gateRuns: [] },
+				},
+				timelineOf: (l) => {
+					const s = sessions.find((x) => x.launch.jobId === l.jobId);
+					return s ? { rows: s.rows, endAt: l.finishedAt ?? t } : null;
+				},
+				commitsOf: () => [],
+				record,
+			},
+		});
+		record.push(...events);
+		ticks.push({
+			at: iso(t),
+			events,
+			room: room[root],
+			running: launches.filter((l) => l.finishedAt === null).length,
+		});
+	}
+	return ticks;
 }
 
 describe("the replays (#5250's measurement)", () => {
-	it("opens on design-vault's night of 2026-11-15 at 19:00Z, and stays tripping", () => {
-		const trips = replay(
+	it("opens on design-vault's night of 2026-11-15 at 19:00Z, and blocks the night's later launches", () => {
+		const ticks = replay(
 			fixture(DV_NIGHT),
 			"2026-11-15T09:00:00Z",
 			"2026-11-16T06:00:00Z",
 		);
-		expect(trips[0]).toBe("2026-11-15T19:00:00.000Z");
-		expect(trips).toContain("2026-11-16T02:00:00.000Z");
+		const opened = ticks.findIndex((t) => t.events.length > 0);
+		expect(ticks[opened]).toMatchObject({
+			at: "2026-11-15T19:00:00.000Z",
+			events: [expect.objectContaining({ event: "open" })],
+			room: 0,
+		});
+		const after = ticks.slice(opened);
+		/* Every tick from the open bars the checkout while a session runs, and
+		 * admits at most the one trial once none does. */
+		expect(after.every((t) => t.room !== undefined)).toBe(true);
+		expect(after.filter((t) => t.running > 0).every((t) => t.room === 0)).toBe(
+			true,
+		);
+		expect(after.every((t) => (t.room ?? 0) <= 1)).toBe(true);
+		expect(after.flatMap((t) => t.events).map((e) => e.event)).not.toContain(
+			"close",
+		);
 	});
 
 	it("does not trip in any of workflow-core's four overnight dips", () => {
 		const { windows } = fixture(WFC_DIPS);
 		expect(windows).toHaveLength(4);
-		for (const w of windows) expect(replay(w, w.from, w.to)).toEqual([]);
+		for (const w of windows)
+			expect(replay(w, w.from, w.to).flatMap((t) => t.events)).toEqual([]);
 	});
 });
 
@@ -197,6 +250,13 @@ describe("the breaker's steps", () => {
 		expect(step(busy(2), readOf({ commits })).events).toEqual([]);
 	});
 
+	it("leaves no room anywhere, and records nothing, where the record will not read", () => {
+		expect(step(busy(1), readOf({ record: null }))).toEqual({
+			events: [],
+			room: { [DV]: 0 },
+		});
+	});
+
 	it("moves nowhere where the commits will not read", () => {
 		expect(step(busy(3), readOf({ commits: null }))).toEqual({
 			events: [],
@@ -292,16 +352,19 @@ describe("the breaker's state off its record, across a restart", () => {
 			event("budget-park", NOW - HOUR, { session: "sx" }),
 			event("open", NOW - HOUR, { repo: "/h/other" }),
 		];
-		expect(foldBreaker(record, DV)).toEqual({
+		expect(foldBreakerAt(record, DV, NOW)).toEqual({
 			state: "trial",
 			since: NOW - 3 * HOUR,
 			session: "st",
 			ticket: 9,
 		});
-		expect(foldBreaker(record, "/h/other")).toEqual({
+		expect(foldBreakerAt(record, "/h/other", NOW)).toEqual({
 			state: "open",
 			since: NOW - HOUR,
 		});
-		expect(foldBreaker([], DV)).toEqual({ state: "closed", since: null });
+		expect(foldBreakerAt([], DV, NOW)).toEqual({
+			state: "closed",
+			since: null,
+		});
 	});
 });

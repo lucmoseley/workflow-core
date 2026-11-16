@@ -196,7 +196,7 @@ function parseOneWayDoor(comments) {
  * @typedef {import("./review-carry.js").UnreadEvents} UnreadEvents
  * @typedef {{since: string, now: string, previous: number | null,
  *   repos: RepoReading[], failed: Unread[], unreadEvents: UnreadEvents[],
- *   holds: OpenHold[], throughput: RepoThroughput[], kills: KillReading,
+ *   holds: OpenHold[], throughput: ThroughputReading, kills: KillReading,
  *   runaways: RunawayReading,
  *   concurrency: ConcurrencyReading,
  *   idle: IdleReading, wslCurrency: WslCurrencyReading}}
@@ -224,6 +224,9 @@ function parseOneWayDoor(comments) {
  * @typedef {{repo: string, why: string}} Unread a repo the review could not
  *   read whole
  * @typedef {import("./throughput-reads.js").RepoThroughput} RepoThroughput
+ * @typedef {{repos: RepoThroughput[]} | {why: string}} ThroughputReading the
+ *   served repos' throughput, or why the loop's control file, which names
+ *   them, will not read
  */
 
 /**
@@ -538,8 +541,9 @@ const isThroughputFlagged = (r) =>
 		(e) => e.event !== "trial-start" && e.event !== "close",
 	);
 
-/** @param {import("./refill-breaker.js").BreakerState} state */
+/** @param {import("./refill-breaker.js").BreakerState | null} state */
 function buildBreakerText(state) {
+	if (state === null) return "breaker not read";
 	if (state.state === "closed") return "breaker closed";
 	const since = new Date(state.since).toISOString();
 	return state.state === "open"
@@ -547,62 +551,68 @@ function buildBreakerText(state) {
 		: `breaker trial running${state.ticket === null ? "" : ` (#${state.ticket})`}, open since ${since}`;
 }
 
-/**
- * One served checkout's Throughput line.
- * @param {RepoThroughput} r
- * @param {import("./refill-breaker.js").BreakerState} state
- * @param {import("./refill-breaker.js").BreakerEvent[]} events
- * @param {number} gateRuns
- */
-function buildThroughputLine(r, state, events, gateRuns) {
+/** @param {import("./refill-breaker.js").BreakerEvent[]} events */
+function buildTransitionsText(events) {
 	const count = (/** @type {string} */ name) =>
 		events.filter((e) => e.event === name).length;
 	const parks = events.filter((e) => e.event === "budget-park");
+	return [
+		`${count("open")} opened, ${count("reopen")} reopened on a failed trial`,
+		parks.length === 0
+			? "no budget park"
+			: `budget parks: ${parks.map((e) => (e.ticket === undefined ? `session ${e.session}` : `#${e.ticket}`)).join(", ")}`,
+	];
+}
+
+/**
+ * One served repo's Throughput line; what did not read says so in its place.
+ * @param {RepoThroughput} r
+ */
+function buildThroughputLine(r) {
 	const rate =
 		r.commits === null || r.workingHours === 0
 			? "no rate"
 			: `${(r.commits / r.workingHours).toFixed(2)} per working session-hour`;
 	return [
-		`- ${isThroughputFlagged(r) ? "**flagged** " : ""}${r.checkout}: ${r.commits === null ? "commits not read" : `${r.commits} commits`}, ${hours(r.workingHours)} working, ${rate}, ${gateRuns} gate runs`,
-		buildBreakerText(state),
-		`${count("open")} opened, ${count("reopen")} reopened on a failed trial`,
-		parks.length === 0
-			? "no budget park"
-			: `budget parks: ${parks.map((e) => (e.ticket === undefined ? `session ${e.session}` : `#${e.ticket}`)).join(", ")}`,
+		`- ${isThroughputFlagged(r) ? "**flagged** " : ""}${r.checkout}: ${r.commits === null ? "commits not read" : `${r.commits} commits`}, ${hours(r.workingHours)} working, ${rate}, ${r.gateRuns === null ? "gate runs not read" : `${r.gateRuns} gate runs`}`,
+		buildBreakerText(r.state),
+		...(r.events === null ? [] : buildTransitionsText(r.events)),
 	].join(" — ");
 }
 
 /**
- * The Throughput section (#5275): each served checkout's window, the flagged
- * first; one whose breaker or gate-run record will not read under Not read.
- * @param {RepoThroughput[]} rows
+ * The Throughput section (#5275): each served repo's window, the flagged
+ * first; each whose breaker or gate-run record will not read named under Not
+ * read as well.
+ * @param {ThroughputReading} reading
  * @returns {string[]}
  */
-function renderThroughputLines(rows) {
-	const read = rows.flatMap((r) =>
-		r.state === null || r.events === null || r.gateRuns === null
-			? []
-			: [{ r, line: buildThroughputLine(r, r.state, r.events, r.gateRuns) }],
-	);
-	const unread = rows.flatMap((r) => {
-		const what = [
-			...(r.events === null ? ["breaker record"] : []),
-			...(r.gateRuns === null ? ["gate-run record"] : []),
-		];
-		return what.length === 0 ? [] : [`- ${r.checkout}: ${what.join(" and ")}`];
-	});
+function renderThroughputLines(reading) {
+	const rows = "why" in reading ? [] : reading.repos;
+	const unread =
+		"why" in reading
+			? [`- ${quoted(reading.why)}`]
+			: rows.flatMap((r) => {
+					const what = [
+						...(r.events === null ? ["breaker record"] : []),
+						...(r.gateRuns === null ? ["gate-run record"] : []),
+					];
+					return what.length === 0
+						? []
+						: [`- ${r.checkout}: ${what.join(" and ")}`];
+				});
 	const ordered = [
-		...read.filter(({ r }) => isThroughputFlagged(r)),
-		...read.filter(({ r }) => !isThroughputFlagged(r)),
+		...rows.filter(isThroughputFlagged),
+		...rows.filter((r) => !isThroughputFlagged(r)),
 	];
 	return [
 		"## Throughput",
 		"",
-		"Each served checkout's commits on `origin/main` in the window, its loop sessions' working session-hours and the rate between them, its gate runs, its breaker at filing, the window's breaker transitions and each gate-run budget park; one whose breaker opened, reopened or parked a session is flagged and listed first:",
+		"Each served repo's commits on `origin/main` in the window, its loop sessions' working session-hours and the rate between them, its gate runs, its breaker at filing, the window's breaker transitions and each gate-run budget park; one whose breaker opened, reopened or parked a session is flagged and listed first:",
 		"",
-		...(rows.length === 0
-			? ["No served checkout."]
-			: ordered.map(({ line }) => line)),
+		...(rows.length === 0 && !("why" in reading)
+			? ["No served repo."]
+			: ordered.map(buildThroughputLine)),
 		...(unread.length === 0 ? [] : ["", "Not read:", "", ...unread]),
 		"",
 	];

@@ -6,10 +6,9 @@
  * the breaker's record. Each read that fails is null, never "none".
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
-const { caught } = require("./caught.js");
 const { readCommitsBy } = require("./arbiter-ledger.js");
+const { readText } = require("./file-read.js");
 const { gateRunLogPath } = require("./gate-seat.js");
 const { gitOrNull } = require("./git.js");
 const { jobDirPath } = require("./job-paths.js");
@@ -17,6 +16,7 @@ const { parseJsonl } = require("./jsonl.js");
 const {
 	breakerRecordPath,
 	foldBreakerAt,
+	sessionIdsOf,
 	workingMsOf,
 } = require("./refill-breaker.js");
 
@@ -73,11 +73,9 @@ function readMainCommits(root, since) {
  */
 function readRows(file) {
 	if (file === null) return null;
-	try {
-		return parseJsonl(fs.readFileSync(file, "utf8")).rows;
-	} catch (e) {
-		return caught(e).code === "ENOENT" ? [] : null;
-	}
+	const read = readText(file);
+	if (read.state === "absent") return [];
+	return read.state === "read" ? parseJsonl(read.data).rows : null;
 }
 
 /**
@@ -123,9 +121,7 @@ function readSessionTimeline(l, now) {
  * @param {import("./refill-breaker.js").BreakerLaunch} l
  */
 const readCommitsOf = (l) =>
-	[...(l.pastSessionIds ?? []), ...(l.sessionId ? [l.sessionId] : [])].flatMap(
-		(id) => readCommitsBy(id, l.root) ?? [],
-	);
+	[...sessionIdsOf(l)].flatMap((id) => readCommitsBy(id, l.root) ?? []);
 
 /**
  * A tick's ThroughputRead for `roots`, each checkout's commits read back to
@@ -191,11 +187,4 @@ function readThroughputWindow({ roots, launches, lo, hi }) {
 	});
 }
 
-module.exports = {
-	readBreakerRecord,
-	readGateRuns,
-	readMainCommits,
-	readSessionTimeline,
-	readThroughput,
-	readThroughputWindow,
-};
+module.exports = { readThroughput, readThroughputWindow };

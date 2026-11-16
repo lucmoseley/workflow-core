@@ -31,6 +31,8 @@ const BREAKER_WINDOW_MS = 6 * HOUR_MS;
 const BREAKER_MIN_HOURS = 12;
 const BREAKER_FLOOR = 0.3;
 const SILENCE_CAP_MS = HOUR_MS;
+/* The gate-run record's own retention (lib/gate-seat.js), so the two records
+ * the morning review reads side by side reach back alike. */
 const BREAKER_RETAIN_MS = 30 * DAY_MS;
 const WORKING_STATES = new Set(["working", "running"]);
 
@@ -156,14 +158,18 @@ function foldBreaker(events, root) {
 }
 
 /**
+ * `l`'s session ids, past ones included.
  * @param {BreakerLaunch} l
- * @returns {string[]}
  */
-const idsOf = (l) => [
-	...(l.jobId ? [l.jobId] : []),
-	...(l.pastSessionIds ?? []),
-	...(l.sessionId ? [l.sessionId] : []),
-];
+const sessionIdsOf = (l) =>
+	new Set([...(l.pastSessionIds ?? []), ...(l.sessionId ? [l.sessionId] : [])]);
+
+/**
+ * `l`'s ids a record line may name it by: its session ids, and its job id,
+ * which a session with no id yet is recorded under.
+ * @param {BreakerLaunch} l
+ */
+const idsOf = (l) => [...(l.jobId ? [l.jobId] : []), ...sessionIdsOf(l)];
 
 /**
  * The earliest time `root`'s reads must reach back to: the window's start, or
@@ -285,8 +291,8 @@ const sessionsOf = (launches, root, from, read) =>
 
 /**
  * Every served checkout's breaker step: the events to record, and the launch
- * room each open breaker leaves, by root. An unread record reads every
- * breaker closed.
+ * room each open breaker leaves, by root. An unread record leaves no room
+ * anywhere, since no breaker's state can be known.
  * @param {{roots: string[], launches: BreakerLaunch[], read: ThroughputRead,
  *   now: number}} tick
  * @returns {{events: BreakerEvent[], room: Record<string, number>}}
@@ -296,8 +302,11 @@ function stepBreakers({ roots, launches, read, now }) {
 	const events = [];
 	/** @type {Record<string, number>} */
 	const room = {};
+	const { record } = read;
+	if (record === null)
+		return { events, room: Object.fromEntries(roots.map((r) => [r, 0])) };
 	for (const root of roots) {
-		const state = foldBreaker(read.record ?? [], root);
+		const state = foldBreaker(record, root);
 		const commits = read.byRoot[root]?.commits ?? null;
 		const from = Math.max(
 			now - BREAKER_WINDOW_MS,
@@ -331,17 +340,12 @@ const foldBreakerAt = (events, root, at) =>
 	);
 
 module.exports = {
-	BREAKER_FLOOR,
-	BREAKER_MIN_HOURS,
-	BREAKER_WINDOW_MS,
 	appendBreakerEvents,
 	breakerRecordPath,
 	buildLookbackOf,
-	foldBreaker,
 	foldBreakerAt,
-	isTripping,
 	landedAtOf,
-	readingOf,
+	sessionIdsOf,
 	stepBreakers,
 	workingMsOf,
 };

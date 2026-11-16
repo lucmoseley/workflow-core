@@ -29,7 +29,7 @@ const { readText } = require("./file-read.js");
 const { findFiledLine } = require("./filed-line.js");
 const { fileThrough } = require("./file-through.js");
 const { gh, parseErrLine } = require("./gh.js");
-const { buildPauseIssueText } = require("./refill-decide.js");
+const { NO_PROGRESS_RUN, buildPauseIssueText } = require("./refill-decide.js");
 const { refillPath } = require("./refill-dir.js");
 const {
 	buildNoticeBody,
@@ -78,7 +78,8 @@ const NOTICE_SUFFIX = ".notice";
 const noticeDir = () => refillPath("pause-notices");
 
 /**
- * A pause's notice key: when it was written and a hash of its checkout.
+ * A pause's notice key: when it was written and a hash of its checkout, cut
+ * to 48 bits, past any collision among the few checkouts one machine serves.
  * @param {number} pausedAt
  * @param {string} root
  */
@@ -180,7 +181,7 @@ const buildFiledTitle = (root) =>
  * @param {string[]} issues
  */
 const buildFiledBody = (root, issues) =>
-	`The refill loop paused \`${root}\`: three of its launches in a row finished with no act, from ${issues.join(", ")}. It launches nothing there until the founder resumes the loop. That checkout's tracker sets no \`founderNotice\`, so this issue carries the page.
+	`The refill loop paused \`${root}\`: ${NO_PROGRESS_RUN} of its launches in a row finished with no act, from ${issues.join(", ")}. It launches nothing there until the founder resumes the loop. That checkout's tracker sets no \`founderNotice\`, so this issue carries the page.
 
 **To clear:** look at those issues, then run \`node ${scriptPath("refill-loop.js")} set --resume\`. The loop closes this issue once the pause ends.`;
 

@@ -190,8 +190,9 @@ const buildLiveLoopWait = (paused, lastIdle) =>
  * @returns {string|null}
  */
 function buildTrackerWait(served, loop) {
-	if (served.length === 0) return null;
-	const pause = loop.repoPaused[served[0] ?? ""];
+	const [first] = served;
+	if (first === undefined) return null;
+	const pause = loop.repoPaused[first];
 	return pause && served.every((r) => loop.repoPaused[r])
 		? buildPausedWaitText(pause)
 		: loop.loopWait;

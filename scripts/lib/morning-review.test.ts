@@ -76,7 +76,7 @@ const renderWith = (overrides: object) =>
 		failed: [],
 		unreadEvents: [],
 		holds: [],
-		throughput: [],
+		throughput: { repos: [] },
 		kills: QUIET_KILLS,
 		runaways: QUIET_RUNAWAYS,
 		concurrency: concurrencyOver([], []),
@@ -1240,7 +1240,7 @@ describe("the Throughput section (#5275)", () => {
 		...over,
 	});
 	const sectionOf = (throughput: RepoThroughput[]) => {
-		const body: string = renderWith({ throughput });
+		const body: string = renderWith({ throughput: { repos: throughput } });
 		return body.slice(
 			body.indexOf("## Throughput"),
 			body.indexOf("## Landing stalls"),
@@ -1267,7 +1267,7 @@ describe("the Throughput section (#5275)", () => {
 			[...order.map((h) => body.indexOf(h))].sort((x, y) => x - y),
 		);
 		expect(body.indexOf("## Open repo holds")).toBeGreaterThan(-1);
-		expect(sectionOf([])).toContain("No served checkout.");
+		expect(sectionOf([])).toContain("No served repo.");
 	});
 
 	it("gives a served checkout's commits, hours, rate, gate runs, breaker and transitions on one line", () => {
@@ -1326,15 +1326,34 @@ describe("the Throughput section (#5275)", () => {
 		);
 	});
 
-	it("lists under Not read a checkout whose breaker or gate-run record will not read", () => {
+	it("keeps the line of a repo whose breaker or gate-run record will not read, and names it under Not read", () => {
 		const section = sectionOf([
 			repo({ checkout: "a", events: null, state: null }),
 			repo({ checkout: "b", gateRuns: null }),
 		]);
 		expect(section).toContain(
+			"- a: 30 commits, 20.0 h working, 1.50 per working session-hour, 12 gate runs — breaker not read\n",
+		);
+		expect(section).toContain(
+			"- b: 30 commits, 20.0 h working, 1.50 per working session-hour, gate runs not read — breaker closed",
+		);
+		expect(section).toContain(
 			"Not read:\n\n- a: breaker record\n- b: gate-run record\n",
 		);
-		expect(section).not.toMatch(/^- (a|b):.*commits/m);
+	});
+
+	it("names a damaged control file under Not read, listing no repo", () => {
+		const body: string = renderWith({
+			throughput: { why: "control is damaged (bad json)" },
+		});
+		const section = body.slice(
+			body.indexOf("## Throughput"),
+			body.indexOf("## Landing stalls"),
+		);
+		expect(section).toContain(
+			"Not read:\n\n- `control is damaged (bad json)`\n",
+		);
+		expect(section).not.toContain("No served repo.");
 	});
 
 	it("says no rate where no session worked", () => {

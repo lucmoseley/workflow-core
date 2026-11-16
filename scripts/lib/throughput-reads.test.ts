@@ -11,12 +11,15 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { appendBreakerEvents } from "./refill-breaker.js";
-import {
-	readBreakerRecord,
-	readMainCommits,
-	readSessionTimeline,
-	readThroughputWindow,
-} from "./throughput-reads.js";
+import { readThroughput, readThroughputWindow } from "./throughput-reads.js";
+
+type SeatedLaunch = import("./refill-breaker.js").BreakerLaunch & {
+	seat: string;
+};
+
+/** The read a tick takes of `root`, reaching back to `since`. */
+const tickRead = (root: string, since = 0) =>
+	readThroughput([root], () => since, Date.now());
 
 let tmp: string;
 const git = (cwd: string, ...args: string[]) =>
@@ -32,7 +35,7 @@ afterEach(() => {
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-describe("readMainCommits", () => {
+describe("a checkout's origin/main commits", () => {
 	it("reads origin/main's non-merge commits since a time, with their commit times, and no other branch's", () => {
 		const repo = path.join(tmp, "repo");
 		fs.mkdirSync(repo);
@@ -48,23 +51,27 @@ describe("readMainCommits", () => {
 		git(repo, "update-ref", "refs/remotes/origin/main", "HEAD");
 		git(repo, "commit", "-q", "--allow-empty", "-m", "unpushed");
 		const two = git(repo, "rev-parse", "HEAD~1^1");
-		const shas = readMainCommits(repo, 0)?.map((c) => c.sha);
+		const commits = tickRead(repo).byRoot[repo]?.commits;
+		const shas = commits?.map((c) => c.sha);
 		expect(shas).toContain(two);
 		expect(shas).toHaveLength(3);
 		expect(shas).not.toContain(git(repo, "rev-parse", "HEAD~1"));
-		expect(readMainCommits(repo, Date.now() + 3_600_000)).toEqual([]);
-		const at = readMainCommits(repo, 0)?.[0]?.at ?? 0;
+		expect(
+			tickRead(repo, Date.now() + 3_600_000).byRoot[repo]?.commits,
+		).toEqual([]);
+		const at = commits?.[0]?.at ?? 0;
 		expect(Math.abs(at - Date.now())).toBeLessThan(60_000);
 	});
 
 	it("is null where git will not answer", () => {
-		expect(readMainCommits(path.join(tmp, "none"), 0)).toBeNull();
+		const none = path.join(tmp, "none");
+		expect(tickRead(none).byRoot[none]?.commits).toBeNull();
 	});
 });
 
 describe("the breaker's record", () => {
 	it("reads back what was appended, and none where it is absent", () => {
-		expect(readBreakerRecord()).toEqual([]);
+		expect(tickRead(tmp).record).toEqual([]);
 		const event = {
 			at: new Date().toISOString(),
 			repo: "/r",
@@ -73,16 +80,16 @@ describe("the breaker's record", () => {
 			workingHours: 13,
 		};
 		appendBreakerEvents([event], () => undefined);
-		expect(readBreakerRecord()).toEqual([event]);
+		expect(tickRead(tmp).record).toEqual([event]);
 	});
 
 	it("is null where it will not read", () => {
 		fs.mkdirSync(path.join(tmp, "refill", ".refill-breaker.jsonl"));
-		expect(readBreakerRecord()).toBeNull();
+		expect(tickRead(tmp).record).toBeNull();
 	});
 });
 
-describe("readSessionTimeline", () => {
+describe("a loop session's job timeline", () => {
 	it("reads a job's state rows, its end its finish or now", () => {
 		const seat = path.join(tmp, "seat");
 		const dir = path.join(seat, "jobs", "j1");
@@ -91,7 +98,7 @@ describe("readSessionTimeline", () => {
 			path.join(dir, "timeline.jsonl"),
 			`${JSON.stringify({ at: "2026-11-15T10:00:00Z", state: "working", detail: "", text: "" })}\n{"at":1}\n`,
 		);
-		const l = {
+		const l: SeatedLaunch = {
 			root: "/r",
 			issues: [1],
 			jobId: "j1",
@@ -100,11 +107,12 @@ describe("readSessionTimeline", () => {
 			finishedAt: null,
 			seat,
 		};
-		expect(readSessionTimeline(l, 5)).toEqual({
+		const { timelineOf } = readThroughput([], () => 0, 5);
+		expect(timelineOf(l)).toEqual({
 			rows: [{ at: "2026-11-15T10:00:00Z", state: "working" }],
 			endAt: 5,
 		});
-		expect(readSessionTimeline({ ...l, jobId: "gone" }, 5)).toEqual({
+		expect(timelineOf({ ...l, jobId: "gone" } as SeatedLaunch)).toEqual({
 			rows: [],
 			endAt: 5,
 		});

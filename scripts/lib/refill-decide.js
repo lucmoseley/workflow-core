@@ -986,7 +986,8 @@ const spendSeatFit = (seats, seat) =>
  * held checkout's, or one whose unproven room is spent, waits too (#5275).
  * @param {TickInput} input
  * @param {number} slots
- * @param {ReturnType<typeof buildRoomLeft>} room
+ * @param {ReturnType<typeof buildRoomLeft>} room accumulator: each launch or
+ *   resume taken spends its checkout's room
  */
 function takeResumes(input, slots, room) {
 	const { resumable = [], seats } = input;
@@ -1034,7 +1035,8 @@ function takeResumes(input, slots, room) {
  * @param {TickInput} input
  * @param {{seat: string, keyVar?: string, reason: SeatReason}} on
  * @param {number} slots
- * @param {ReturnType<typeof buildRoomLeft>} room
+ * @param {ReturnType<typeof buildRoomLeft>} room accumulator: each launch or
+ *   resume taken spends its checkout's room
  */
 function fill(input, { seat, keyVar, reason }, slots, room) {
 	const {
@@ -1541,6 +1543,7 @@ function readParkers(frontier, readMarkers) {
 }
 
 module.exports = {
+	NO_PROGRESS_RUN,
 	readParkers,
 	startedAt,
 	EXPLICIT_STOP_DETAIL,
@@ -1569,12 +1572,7 @@ module.exports = {
 	RESUMES_TAKE_SLOTS,
 	SHORTLIST_FAILED,
 	UNPROVEN_CAP,
-	UNPROVEN_HELD,
-	BREAKER_OPEN,
-	REPO_PAUSED,
-	CHECKOUTS_HELD,
 	unprovenRoom,
-	buildHeldRoots,
 	seatHold,
 	FULL,
 	buildLimitCapHoldWhy,

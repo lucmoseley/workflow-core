@@ -97,7 +97,7 @@
  * own only where one is open. Read apart from readRepo, so a tracker outage,
  * when a hold is likeliest, costs none of them.
  *
- * THROUGHPUT (#5275): each checkout the loop serves, its commits, working
+ * THROUGHPUT (#5275): each repo the loop serves, its commits, working
  * hours, gate runs and breaker over the window (lib/throughput-reads.js).
  *
  * Exit: the worse of the filing's and the answering's. The filing's is 0 for
@@ -133,7 +133,7 @@ const { buildNoticeText, readHolds } = require("./repo-holds.js");
 const { requireKey } = require("./workflow-core-config.js");
 const { pidLock } = require("./pid-lock.js");
 const { refillPath } = require("./refill-dir.js");
-const { readControlFile } = require("./refill-files.js");
+const { readControlChecked, readControlFile } = require("./refill-files.js");
 const { readState } = require("./refill-state.js");
 const { readThroughputWindow } = require("./throughput-reads.js");
 const { REVIEW_LABEL, readReviewIssues } = require("./review-issues.js");
@@ -439,20 +439,24 @@ function readHoldRoots(included, warn) {
 }
 
 /**
- * The served checkouts' throughput over the window (#5275), off the loop's
- * scope and its launches.
+ * The served repos' throughput over the window (#5275), off the loop's scope
+ * and its launches; why not, where the control file is damaged.
  * @param {string} since
  * @param {Date} now
  * @param {(line: string) => void} warn
+ * @returns {import("./morning-review.js").ThroughputReading}
  */
 function readServedThroughput(since, now, warn) {
-	const roots = readControlFile(warn)?.scope?.repos ?? [];
-	return readThroughputWindow({
-		roots,
-		launches: readState(warn).launches,
-		lo: Date.parse(since),
-		hi: now.getTime(),
-	});
+	const { control, damaged } = readControlChecked(warn);
+	if (damaged !== null) return { why: damaged };
+	return {
+		repos: readThroughputWindow({
+			roots: control?.scope.repos ?? [],
+			launches: readState(warn).launches,
+			lo: Date.parse(since),
+			hi: now.getTime(),
+		}),
+	};
 }
 
 /**

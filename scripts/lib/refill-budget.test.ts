@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { fakeIo } from "./refill-blocks-fixture";
-import { GATE_RUN_BUDGET, parkOverBudget } from "./refill-budget.js";
+import { parkOverBudget } from "./refill-budget.js";
 import { NOW, record } from "./refill-loop-fixture";
 
 type Launch = import("./refill-loop.js").LoopLaunch;
@@ -64,10 +64,6 @@ const tick = (
 };
 
 describe("the gate-run budget (#5275)", () => {
-	it("pins the budget at the 6th run", () => {
-		expect(GATE_RUN_BUDGET).toBe(6);
-	});
-
 	it("leaves a session at its 5th run since its launch running", () => {
 		const { launches, events, calls } = tick([live()], readOf(runsAgo(5)));
 		expect(launches[0]?.finishedAt).toBeNull();

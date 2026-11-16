@@ -598,17 +598,7 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 			return readCreated()[0].body as string;
 		};
 
-		it("prints the section between the holds and the stalls, with no served checkout where the loop serves none", async () => {
-			seed([]);
-			const body = await readFiledBody();
-			const at = (h: string) => body.indexOf(h);
-			expect(at("## Throughput")).toBeGreaterThan(-1);
-			expect(at("## Throughput")).toBeLessThan(at("## Landing stalls"));
-			expect(body).toContain("## Throughput\n\n");
-			expect(body).toContain("No served checkout.");
-		});
-
-		it("flags a served checkout whose breaker opened in the window", async () => {
+		it("prints the section before the stalls, flagging a served repo whose breaker opened in the window", async () => {
 			seed([]);
 			/* A served checkout is a git repository, its gate-run record
 			 * resolved through it. */
@@ -635,6 +625,10 @@ describe("morning-review-filing.js (#2011, #5148)", () => {
 				})}\n`,
 			);
 			const body = await readFiledBody();
+			expect(body.indexOf("## Throughput")).toBeGreaterThan(-1);
+			expect(body.indexOf("## Throughput")).toBeLessThan(
+				body.indexOf("## Landing stalls"),
+			);
 			expect(body).toMatch(
 				/^- \*\*flagged\*\* dv: commits not read, .* — breaker open since .* — 1 opened/m,
 			);

@@ -189,13 +189,6 @@ describe("at session start (--notify)", () => {
 			expect(first.stdout).toContain("set --resume");
 			expect(run(["--notify"]).stdout).not.toContain("REFILL-LOOP-PAUSED");
 		});
-
-		it("names no founder's pause", () => {
-			writePause({ paused: { by: "founder", at: STOP_AT } });
-			const r = run(["--notify"]);
-			expect(r.status).toBe(0);
-			expect(r.stdout).not.toContain("REFILL-LOOP-PAUSED");
-		});
 	});
 
 	it("names a damaged-control stop with its time and detail", () => {

@@ -454,6 +454,8 @@ function actOnLaunches(
  */
 function tendThroughput(io, launches, { served, seen, acts }) {
 	const read = io.readThroughput(launches, served, seen.now);
+	if (read.record === null)
+		io.log("breaker record will not read: launching and resuming nothing");
 	const parked = acts.parkOverBudget(launches, read, seen);
 	const { events, room } = stepBreakers({
 		roots: served,

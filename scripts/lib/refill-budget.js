@@ -17,7 +17,7 @@
 
 const { isActionable, launchName, stopJob } = require("./refill-block-core.js");
 const { buildChildLine, buildHandOffArgs } = require("./refill-blocks.js");
-const { landedAtOf } = require("./refill-breaker.js");
+const { landedAtOf, sessionIdsOf } = require("./refill-breaker.js");
 
 const GATE_RUN_BUDGET = 6;
 
@@ -28,13 +28,6 @@ const GATE_RUN_BUDGET = 6;
  * @typedef {import("./refill-breaker.js").ThroughputRead} ThroughputRead
  * @typedef {import("./refill-breaker.js").BreakerEvent} BreakerEvent
  */
-
-/**
- * `l`'s session ids, past ones included.
- * @param {LoopLaunch} l
- */
-const sessionIdsOf = (l) =>
-	new Set([...(l.pastSessionIds ?? []), ...(l.sessionId ? [l.sessionId] : [])]);
 
 /**
  * How many gate runs `l`'s sessions ran since its last landing, else its
@@ -113,4 +106,4 @@ function parkOverBudget(launches, read, seen) {
 	return { launches: out, events };
 }
 
-module.exports = { GATE_RUN_BUDGET, gateRunsSinceLanding, parkOverBudget };
+module.exports = { parkOverBudget };
