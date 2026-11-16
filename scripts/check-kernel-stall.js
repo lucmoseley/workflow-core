@@ -309,10 +309,12 @@ const cpuS = (s) => `${s.toFixed(1)} CPU-s`;
  * @param {string} boot
  */
 function skipUnlistedBoot(ctx, boot) {
+	// WFC_KERNEL_LOG ignores --boot, so no boot list bounds it.
 	if (boot === "0" || process.env.WFC_KERNEL_LOG) return;
 	const { boots, why } = readBoots();
 	// journalctl lists boots oldest first; 1..n count from the oldest, 0 and below back from the newest.
 	const [oldest] = boots;
+	// No list to bound the offset: the caller's plain SKIP follows.
 	if (why !== null || oldest === undefined) return;
 	const n = Number(boot);
 	if (n > 0 ? n <= boots.length : -n < boots.length) return;
