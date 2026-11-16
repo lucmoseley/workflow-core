@@ -459,12 +459,13 @@ function tendThroughput(io, launches, { served, seen, acts }) {
 	if (read.record === null)
 		io.log("breaker record will not read: launching and resuming nothing");
 	const parked = acts.parkOverBudget(launches, read, seen);
-	const { events, room } = stepBreakers({
+	const { events, room, notes } = stepBreakers({
 		roots: served,
 		launches: parked.launches,
 		read,
 		now: seen.now,
 	});
+	for (const note of notes) io.log(note);
 	io.appendBreakerEvents([...parked.events, ...events]);
 	return { launches: parked.launches, breakerRoom: room };
 }

@@ -49,6 +49,7 @@ const DV = "/home/u/design-vault";
 const NO_THROUGHPUT = {
 	byRoot: {},
 	commitsOf: () => [],
+	queueOf: () => ({ state: "gone" as const }),
 	record: [],
 };
 

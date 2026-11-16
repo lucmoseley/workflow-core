@@ -1067,7 +1067,8 @@ const productionIo = {
 		readThroughput({
 			roots: served,
 			launches,
-			lookbackOf: (root) => buildLookbackOf(launches, root, now),
+			lookbackOf: (root, record) =>
+				buildLookbackOf(launches, root, now, record),
 			now,
 		}),
 	readCause,

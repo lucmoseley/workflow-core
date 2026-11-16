@@ -990,6 +990,7 @@
 			"scripts/lib/morning-review-filing.test.ts",
 			"scripts/lib/project-slug.test.ts",
 			"scripts/lib/recursive-dot-read.test.ts",
+			"scripts/lib/throughput-reads.test.ts",
 			"scripts/lib/workflow-core-config.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/npx-bare-name.test.ts",

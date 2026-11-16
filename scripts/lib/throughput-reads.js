@@ -7,12 +7,17 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { readCommitsBy } = require("./arbiter-ledger.js");
+const { parseErrorText } = require("./caught.js");
 const { readText } = require("./file-read.js");
 const { gateRunLogPath } = require("./gate-seat.js");
 const { gitOrNull } = require("./git.js");
-const { jobDirPath, shortJobId } = require("./job-paths.js");
+const { jobDirPath, readJobCwd, shortJobId } = require("./job-paths.js");
 const { parseJsonl } = require("./jsonl.js");
+const { ownQueueName } = require("./landing-refs.js");
 const { isLoopJob, jobKeyOf, loopJobsPath } = require("./loop-jobs.js");
+const { queueGit } = require("./queue-lander-adapters.js");
+const { queueLogFile, readQueueRows } = require("./queue-log.js");
+const { readQueueStays, trialQueueOf } = require("./queue-ref-status.js");
 const {
 	SILENCE_CAP_MS,
 	breakerRecordPath,
@@ -31,6 +36,7 @@ const GIT_LOG_TIMEOUT_MS = 20_000;
  * @typedef {import("./loop-jobs.js").TimedJob} TimedJob
  * @typedef {import("./refill-breaker.js").BreakerEvent} BreakerEvent
  * @typedef {import("./gate-seat.js").GateRun} GateRun
+ * @typedef {import("./refill-breaker.js").TrialQueue} TrialQueue
  * @typedef {{checkout: string, commits: number|null, workingHours: number,
  *   jobsRead: boolean,
  *   gateRuns: number|null, state: import("./refill-breaker.js").BreakerState|null,
@@ -219,34 +225,101 @@ function readLoopSessions({ roots, launches, lookbackOf, now }) {
 }
 
 /**
- * The shas `l`'s sessions committed in its checkout, an unread ledger as none.
+ * The shas `l`'s sessions committed in its checkout, null where a ledger will
+ * not read.
  * @param {import("./refill-breaker.js").BreakerLaunch} l
+ * @returns {string[]|null}
  */
-const readCommitsOf = (l) =>
-	[...sessionIdsOf(l)].flatMap((id) => readCommitsBy(id, l.root) ?? []);
+function readCommitsOf(l) {
+	const shas = [];
+	for (const id of sessionIdsOf(l)) {
+		const mine = readCommitsBy(id, l.root);
+		if (mine === null) return null;
+		shas.push(...mine);
+	}
+	return shas;
+}
+
+/**
+ * A reader of where a launch's queue ref stands (#5300): its job's worktree
+ * names it, `queue/<worktree name>`, and its stays since the launch are read
+ * off its checkout's lander. The remote's refs and the queue log are read once
+ * a checkout.
+ * @returns {(l: import("./refill-breaker.js").BreakerLaunch) => TrialQueue}
+ */
+function buildQueueReader() {
+	/** @type {Map<string, {refs: import("./queue-lander.js").QueueRefs,
+	 *   rows: import("./queue-log.js").LoggedRow[]}>} */
+	const landers = new Map();
+	/** @param {string} root */
+	const readLander = (root) => {
+		const known = landers.get(root);
+		if (known) return known;
+		const log = readText(queueLogFile(root)).state;
+		if (log !== "read") throw new Error(`the queue log is ${log}`);
+		const read = {
+			refs: queueGit(root).refs(),
+			rows: readQueueRows(queueLogFile(root)),
+		};
+		landers.set(root, read);
+		return read;
+	};
+	return (l) => {
+		try {
+			const cwd = l.jobId === null ? null : readJobCwd(l.seat, l.jobId);
+			if (cwd === null)
+				return { state: "unread", why: "its job record names no worktree" };
+			const name = ownQueueName(cwd, l.root);
+			/* A session run outside the checkout's worktrees has no queue ref,
+			 * so nothing of it can land (#5300). */
+			if (name === null) return { state: "gone" };
+			const { refs, rows } = readLander(l.root);
+			return trialQueueOf(
+				readQueueStays(l.root, { name, since: l.launchedAt }, refs, rows),
+			);
+		} catch (err) {
+			/* Any fault holds the trial, so a reading that failed never
+			 * reopens a breaker that a landing would close (#5300). */
+			return {
+				state: "unread",
+				why: `its queue ref will not read: ${parseErrorText(err)}`,
+			};
+		}
+	};
+}
 
 /**
  * A tick's ThroughputRead for `roots`, each checkout's commits and loop
  * sessions read back to `lookbackOf(root)`.
  * @param {{roots: string[], launches: SeatedLaunch[],
- *   lookbackOf: (root: string) => number, now: number}} tick
+ *   lookbackOf: (root: string, record: BreakerEvent[]|null) => number,
+ *   now: number}} tick  `record`, the breaker's, as this read takes it
  * @returns {import("./refill-breaker.js").ThroughputRead}
  */
 function readThroughput({ roots, launches, lookbackOf, now }) {
-	const sessions = readLoopSessions({ roots, launches, lookbackOf, now });
+	const record = readBreakerRecord();
+	/** @param {string} root */
+	const lookback = (root) => lookbackOf(root, record);
+	const sessions = readLoopSessions({
+		roots,
+		launches,
+		lookbackOf: lookback,
+		now,
+	});
 	return {
 		byRoot: Object.fromEntries(
 			roots.map((root) => [
 				root,
 				{
-					commits: readMainCommits(root, lookbackOf(root)),
+					commits: readMainCommits(root, lookback(root)),
 					gateRuns: readGateRuns(root),
 					sessions: sessions.byRoot[root] ?? [],
 				},
 			]),
 		),
 		commitsOf: readCommitsOf,
-		record: readBreakerRecord(),
+		queueOf: buildQueueReader(),
+		record,
 	};
 }
 

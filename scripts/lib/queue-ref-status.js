@@ -304,25 +304,22 @@ const ledgerMainReached = (root, main, green) => (sha) => {
 };
 
 /**
- * Each stay of the queue ref of the session in `tree`, off `root`'s records
- * and the remote's refs and queue log already read; none where `tree` is no
- * session worktree. The worktree was made when git wrote its `.git` file.
+ * Each stay of `queue/<name>` since `since`, off `root`'s records and the
+ * remote's refs and queue log already read.
  * @param {string} root the canonical checkout's root
- * @param {string|null|undefined} tree the session's tree top level
+ * @param {{name: string, since: number}} stay
  * @param {import("./queue-lander.js").QueueRefs} refs
  * @param {readonly LoggedRow[]} rows
  * @returns {RefState[]}
  */
-function readQueueRefStates(root, tree, refs, rows) {
-	const name = ownQueueName(tree, root);
-	if (name === null || !tree) return [];
+function readQueueStays(root, { name, since }, refs, rows) {
 	const files = queueLanderFiles(root);
 	const green = new Set(fileLedger(files.ledger).readShas());
 	const held = refs.queue.find((q) => q.name === name);
 	const { main } = refs;
 	return queueRefStates({
 		name,
-		since: fs.statSync(path.join(tree, ".git")).mtimeMs,
+		since,
 		waiting: held ? { sha: held.sha } : null,
 		rows,
 		pipeline: pipelineRecord(files.batch).read(),
@@ -335,4 +332,48 @@ function readQueueRefStates(root, tree, refs, rows) {
 	});
 }
 
-module.exports = { buildQueueRefLine, readQueueRefStates };
+/**
+ * Each stay of the queue ref of the session in `tree`, as readQueueStays
+ * reads it; none where `tree` is no session worktree. The worktree was made
+ * when git wrote its `.git` file.
+ * @param {string} root the canonical checkout's root
+ * @param {string|null|undefined} tree the session's tree top level
+ * @param {import("./queue-lander.js").QueueRefs} refs
+ * @param {readonly LoggedRow[]} rows
+ * @returns {RefState[]}
+ */
+function readQueueRefStates(root, tree, refs, rows) {
+	const name = ownQueueName(tree, root);
+	if (name === null || !tree) return [];
+	const since = fs.statSync(path.join(tree, ".git")).mtimeMs;
+	return readQueueStays(root, { name, since }, refs, rows);
+}
+
+/**
+ * Where the stays of a queue ref stand for a breaker trial: one landed, one
+ * queued or under test, none left, or no reading where a stay's batch record
+ * or `main` will not read.
+ * @param {RefState[]} stays
+ * @returns {import("./refill-breaker.js").TrialQueue}
+ */
+function trialQueueOf(stays) {
+	if (stays.some((s) => s.state === "landed")) return { state: "landed" };
+	if (stays.some((s) => s.state === "queued" || s.state === "testing"))
+		return { state: "waiting" };
+	const unread = stays.find(
+		(s) => s.state === "unread" || s.state === "unwalked",
+	);
+	if (unread)
+		return {
+			state: "unread",
+			why: `queue/${unread.name} at ${unread.sha.slice(0, 7)} is queued, under test or landed, which will not read`,
+		};
+	return { state: "gone" };
+}
+
+module.exports = {
+	buildQueueRefLine,
+	readQueueRefStates,
+	readQueueStays,
+	trialQueueOf,
+};

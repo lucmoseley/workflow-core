@@ -11,13 +11,14 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { paths } from "./arbiter-core.js";
 import { recordJobs } from "./loop-jobs.js";
+import { queueLogFile } from "./queue-log.js";
 import { appendBreakerEvents } from "./refill-breaker.js";
 import { readState, type Transition, updateState } from "./refill-state.js";
 import { readThroughput, readThroughputWindow } from "./throughput-reads.js";
 
 type SeatedLaunch = import("./refill-breaker.js").BreakerLaunch & {
-	seat: string;
 	copiedFrom?: string;
 };
 
@@ -134,6 +135,81 @@ describe("the breaker's record", () => {
 	it("is null where it will not read", () => {
 		fs.mkdirSync(path.join(tmp, "refill", ".refill-breaker.jsonl"));
 		expect(tickRead(tmp).record).toBeNull();
+	});
+});
+
+describe("a breaker trial's landing reads (#5300)", () => {
+	const repoAt = (name: string) => {
+		const repo = path.join(tmp, name);
+		fs.mkdirSync(repo);
+		git(repo, "init", "-q", "-b", "main");
+		return repo;
+	};
+
+	it("reads a session's commits, none where it made none, and null where its ledger will not read", () => {
+		const repo = repoAt("repo");
+		const l = launchOf(path.join(tmp, "seat"), "j1", { root: repo });
+		const read = tickRead(repo);
+		expect(read.commitsOf(l)).toEqual([]);
+		fs.mkdirSync(paths.commitLedger("j1-session", repo), { recursive: true });
+		expect(read.commitsOf(l)).toBeNull();
+	});
+
+	it("reads a launch whose job record names no worktree as unread, and one run outside the checkout's worktrees as having no queue ref", () => {
+		const repo = repoAt("repo");
+		const seat = path.join(tmp, "seat");
+		const read = tickRead(repo);
+		const l = launchOf(seat, "j1", { root: repo });
+		expect(read.queueOf(l)).toEqual({
+			state: "unread",
+			why: "its job record names no worktree",
+		});
+		fs.mkdirSync(path.join(seat, "jobs", "j1"), { recursive: true });
+		fs.writeFileSync(
+			path.join(seat, "jobs", "j1", "state.json"),
+			JSON.stringify({ cwd: repo }),
+		);
+		expect(read.queueOf(l)).toEqual({ state: "gone" });
+	});
+
+	it("reads a checkout with no queue log as unread, and why", () => {
+		const repo = repoAt("repo");
+		const seat = path.join(tmp, "seat");
+		const tree = path.join(repo, ".claude", "worktrees", "implement-1-abc");
+		fs.mkdirSync(tree, { recursive: true });
+		fs.mkdirSync(path.join(seat, "jobs", "j1"), { recursive: true });
+		fs.writeFileSync(
+			path.join(seat, "jobs", "j1", "state.json"),
+			JSON.stringify({ cwd: tree }),
+		);
+		expect(
+			tickRead(repo).queueOf(launchOf(seat, "j1", { root: repo })),
+		).toEqual({
+			state: "unread",
+			why: "its queue ref will not read: the queue log is absent",
+		});
+	});
+
+	it("reads a worktree's queue ref it cannot reach as unread, and why", () => {
+		const repo = repoAt("repo");
+		const seat = path.join(tmp, "seat");
+		const tree = path.join(repo, ".claude", "worktrees", "implement-1-abc");
+		fs.mkdirSync(tree, { recursive: true });
+		fs.mkdirSync(path.dirname(queueLogFile(repo)), { recursive: true });
+		fs.writeFileSync(queueLogFile(repo), "");
+		fs.mkdirSync(path.join(seat, "jobs", "j1"), { recursive: true });
+		fs.writeFileSync(
+			path.join(seat, "jobs", "j1", "state.json"),
+			JSON.stringify({ cwd: tree }),
+		);
+		expect(
+			tickRead(repo).queueOf(launchOf(seat, "j1", { root: repo })),
+		).toMatchObject({
+			state: "unread",
+			why: expect.stringMatching(
+				/^its queue ref will not read: (?!the queue log)/,
+			),
+		});
 	});
 });
 

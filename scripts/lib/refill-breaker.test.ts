@@ -11,7 +11,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { foldBreakerAt, stepBreakers, workingMsOf } from "./refill-breaker.js";
+import {
+	buildLookbackOf,
+	foldBreakerAt,
+	stepBreakers,
+	workingMsOf,
+} from "./refill-breaker.js";
 
 type BreakerEvent = import("./refill-breaker.js").BreakerEvent;
 type ThroughputRead = import("./refill-breaker.js").ThroughputRead;
@@ -52,6 +57,7 @@ function replay(f: Fixture, from: string, to: string) {
 		rows: s.rows.map(([at, state]) => ({ at, state })),
 		launch: {
 			root,
+			seat: "/seat",
 			issues: [i],
 			jobId: `j${i}`,
 			sessionId: `s${i}`,
@@ -95,6 +101,7 @@ function replay(f: Fixture, from: string, to: string) {
 					},
 				},
 				commitsOf: () => [],
+				queueOf: () => ({ state: "gone" }),
 				record,
 			},
 		});
@@ -181,6 +188,7 @@ const busy = (
 ) =>
 	Array.from({ length: n }, (_, i) => ({
 		root: DV,
+		seat: "/seat",
 		issues: [400 + i],
 		jobId: `j${i}`,
 		sessionId: `s${i}`,
@@ -215,6 +223,9 @@ const readOf = (
 	return {
 		byRoot: { [DV]: { commits, gateRuns: [], sessions } },
 		commitsOf: () => [],
+		queueOf: () => {
+			throw new Error("the queue ref read where no trial asked for it");
+		},
 		record: [],
 		...rest,
 	};
@@ -282,6 +293,7 @@ describe("the breaker's steps", () => {
 		expect(step(busy(1), readOf({ record: null }))).toEqual({
 			events: [],
 			room: { [DV]: 0 },
+			notes: [],
 		});
 	});
 
@@ -289,6 +301,7 @@ describe("the breaker's steps", () => {
 		expect(step(busy(3), readOf({ commits: null }))).toEqual({
 			events: [],
 			room: {},
+			notes: [],
 		});
 	});
 
@@ -323,6 +336,7 @@ describe("the breaker's steps", () => {
 		expect(step(trial, readOf({ record }))).toEqual({
 			events: [],
 			room: { [DV]: 0 },
+			notes: [],
 		});
 	});
 
@@ -331,6 +345,7 @@ describe("the breaker's steps", () => {
 		expect(step(busy(1, NOW - 2 * HOUR), readOf({ record }))).toEqual({
 			events: [],
 			room: { [DV]: 0 },
+			notes: [],
 		});
 	});
 
@@ -346,6 +361,7 @@ describe("the breaker's steps", () => {
 			expect(step(trial(), readOf({ record }))).toEqual({
 				events: [],
 				room: { [DV]: 0 },
+				notes: [],
 			});
 		});
 
@@ -362,15 +378,81 @@ describe("the breaker's steps", () => {
 			expect(room).toEqual({});
 		});
 
-		it("reopens the breaker where it ends with no landing", () => {
+		const ended = () => trial({ finishedAt: NOW - MIN });
+		const committed = (over: Parameters<typeof readOf>[0] = {}) =>
+			readOf({
+				record,
+				commits: [{ sha: "other", at: NOW - HOUR }],
+				commitsOf: () => ["mine"],
+				...over,
+			});
+
+		it("stays in trial while its commit waits on its queue ref, and closes once it lands on a later tick (#5300)", () => {
+			const waiting = { queueOf: () => ({ state: "waiting" as const }) };
+			expect(step(ended(), committed(waiting))).toEqual({
+				events: [],
+				room: { [DV]: 0 },
+				notes: [],
+			});
+			const landed = committed({
+				...waiting,
+				commits: [{ sha: "mine", at: NOW + 20 * MIN }],
+			});
+			expect(step(ended(), landed, NOW + 30 * MIN).events).toEqual([
+				expect.objectContaining({ event: "close", session: "st" }),
+			]);
+		});
+
+		it("closes where its queue ref landed ahead of origin/main showing it", () => {
+			const read = committed({ queueOf: () => ({ state: "landed" }) });
+			expect(step(ended(), read).events).toEqual([
+				expect.objectContaining({ event: "close" }),
+			]);
+		});
+
+		it("reopens once its queue ref's stays are dropped", () => {
 			const { events, room } = step(
-				trial({ finishedAt: NOW - MIN }),
-				readOf({ record }),
+				ended(),
+				committed({ queueOf: () => ({ state: "gone" }) }),
 			);
 			expect(events).toEqual([
 				expect.objectContaining({ event: "reopen", ticket: 400 }),
 			]);
 			expect(room).toEqual({ [DV]: 0 });
+		});
+
+		it("reopens on the tick it ends where it committed nothing, reading no queue ref", () => {
+			expect(step(ended(), readOf({ record })).events).toEqual([
+				expect.objectContaining({ event: "reopen", ticket: 400 }),
+			]);
+		});
+
+		it("stays in trial, and says so on the loop's log, where its queue ref, its commit ledger or origin/main will not read", () => {
+			for (const read of [
+				committed({
+					queueOf: () => ({ state: "unread", why: "the remote is down" }),
+				}),
+				committed({ commitsOf: () => null }),
+				committed({ commits: null }),
+			]) {
+				const { events, room, notes } = step(ended(), read);
+				expect(events).toEqual([]);
+				expect(room).toEqual({ [DV]: 0 });
+				expect(notes).toEqual([
+					expect.stringMatching(
+						/^breaker trial st in \/h\/design-vault held in trial: (the remote is down|its commit ledger will not read|origin\/main will not read)$/,
+					),
+				]);
+			}
+		});
+
+		it("reaches its reads back to its launch, finished or not, while the record holds it in trial", () => {
+			const early = trial({
+				launchedAt: NOW - 9 * HOUR,
+				finishedAt: NOW - 8 * HOUR,
+			});
+			expect(buildLookbackOf(early, DV, NOW, record)).toBe(NOW - 9 * HOUR);
+			expect(buildLookbackOf(early, DV, NOW, [])).toBe(NOW - 6 * HOUR);
 		});
 
 		it("reopens where its launch is no longer known", () => {
