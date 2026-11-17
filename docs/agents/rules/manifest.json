@@ -61,6 +61,10 @@
 			"source": "docs/agents/issue-tracker.md",
 			"trigger": "a `gh issue create`, `comment`, `edit`, `close` or `gh api` on a Bash command naming a body file under the job directory, in a `gh` body flag or a `cat`"
 		},
+		"hot-path-cost": {
+			"source": "docs/code-standards-base.md",
+			"trigger": "a `Write`, `Edit` or `NotebookEdit` to a hot-path program or a hook registration"
+		},
 		"install-scripts-first": {
 			"source": "docs/agents/dependabot.md",
 			"trigger": "an `npm install` adding a package without `--ignore-scripts`, on the Bash tool"

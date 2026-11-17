@@ -121,6 +121,8 @@ const TRIGGERS = {
 	"test-run-cost": TEST_WRITE,
 	"test-time-seam": TEST_WRITE,
 	"test-reads-visible": TEST_WRITE,
+	"hot-path-cost":
+		"a `Write`, `Edit` or `NotebookEdit` to a hot-path program or a hook registration",
 
 	/* THE SECOND CLASS (mantahostels#2496, mantahostels#2499). No Bash shape observes these — a session
 	 * is told the id and the moment in its command's injected index instead, and

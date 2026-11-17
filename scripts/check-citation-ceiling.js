@@ -29,8 +29,8 @@ const {
 } = require("./lib/workflow-core-config.js");
 
 /*
- * Ten days at the fastest rate measured, ~100 issues a day (#726), against a
- * sweep delivered every ~12 hours.
+ * Six days at the fastest week measured, ~160 issues a day (#5356), against
+ * the daily repo-checks run.
  */
 const MARGIN = 1000;
 

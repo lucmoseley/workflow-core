@@ -38,8 +38,10 @@ describe("queueAlertTender", () => {
 	let open: Map<string, { number: number; body: string }>;
 	let calls: string[];
 	let next: number;
+	let closed: string[];
 
 	beforeEach(() => {
+		closed = [];
 		markers = fs.mkdtempSync(path.join(os.tmpdir(), "queue-alert-"));
 		open = new Map();
 		calls = [];
@@ -66,14 +68,19 @@ describe("queueAlertTender", () => {
 						stderr: "",
 					};
 				},
-				refresh: (n) => {
+				refresh: (n, body) => {
 					calls.push(`refresh #${n}`);
+					for (const f of open.values()) if (f.number === n) f.body = body;
 					return "refreshed";
 				},
 				addLabels: () => undefined,
 				close: (n) => {
 					calls.push(`close #${n}`);
-					for (const [t, f] of open) if (f.number === n) open.delete(t);
+					for (const [t, f] of open)
+						if (f.number === n) {
+							closed.push(f.body);
+							open.delete(t);
+						}
 				},
 			},
 			markers,
@@ -91,6 +98,9 @@ describe("queueAlertTender", () => {
 		expect(calls).toEqual([]);
 		expect(pass(gauge(5))).toEqual(["queue alert: closed #1."]);
 		expect(open.size).toBe(0);
+		expect(closed[0]).toContain(
+			"- [x] The cause is fixed, and the queue is back within its limit.",
+		);
 		expect(pass(gauge(5))).toEqual([]);
 		expect(pass(gauge(70))).toEqual(["Filed #2: https://x/2"]);
 	});

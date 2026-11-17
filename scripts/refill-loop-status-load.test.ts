@@ -1,39 +1,40 @@
 // @vitest-environment node
 /*
- * Pins what `refill-loop.js status --json` leaves unloaded (#4821). The refill
- * panel runs it every 3 s, and each module it loads costs that poll start-up
- * time.
+ * Pins what `refill-loop.js status --json` costs (#4821): the modules it
+ * loads and the processes it starts. The refill panel runs it every 3 s, and
+ * each module it loads costs that poll start-up time.
  *
- * A program case (base §X3). Its runner purges repo modules only before a
- * call: what is in require.cache after it is that call's load set.
+ * A program case (base §X3), run through lib/call-cost-harness.js (base §G13).
  */
 
 import fs from "node:fs";
-import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { runInProcessAsync } from "./lib/run-in-process.js";
+import { callCostAsync } from "./lib/call-cost-harness.js";
 
 const SCRIPT = path.resolve(__dirname, "refill-loop.js");
-const cache = createRequire(import.meta.url).cache;
 
 let dir: string;
 
 beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "refill-status-load-"));
+	dir = fs.realpathSync(
+		fs.mkdtempSync(path.join(os.tmpdir(), "refill-status-load-")),
+	);
 });
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-describe("refill-loop.js status's load set (#4821)", () => {
+describe("refill-loop.js status's per-call cost (#4821)", () => {
+	// The hot-path entry: the refill panel's 3 s poll (`polled`). The common
+	// call: `status --json` with no loop running.
 	it("loads neither the tick, the morning review nor the session store to show status", async () => {
-		const r = await runInProcessAsync(SCRIPT, ["status", "--json"], {
+		const r = await callCostAsync(SCRIPT, ["status", "--json"], {
 			cwd: dir,
 			env: {
-				...process.env,
+				PATH: process.env.PATH,
 				WFC_REFILL_DIR: dir,
 				CLAUDE_PROJECT_DIR: dir,
 				HOME: dir,
@@ -41,20 +42,197 @@ describe("refill-loop.js status's load set (#4821)", () => {
 				WFC_CLAUDE_BIN: path.join(dir, "no-claude"),
 			},
 		});
-		expect(r.status).toBe(0);
 		expect(JSON.parse(r.stdout).running).toBe(false);
-		// The module set is an internal, asserted because no output shows the
-		// start-up cost it guards (base §X6, #1497).
-		const loaded = new Set(
-			Object.keys(cache).map((k) => path.relative(__dirname, k)),
-		);
-		expect(loaded).toContain("lib/refill-io.js");
+		// The module set and the child list are internals, asserted because no
+		// output shows the start-up cost they guard (base §X6, #1497).
+		expect(r.modules).toContain("lib/refill-io.js");
 		expect(
 			[
 				"lib/refill-tick.js",
 				"lib/morning-review.js",
 				"lib/project-dirs.js",
-			].filter((module) => loaded.has(module)),
+			].filter((module) => r.modules.includes(module)),
 		).toEqual([]);
+		expect(r.modules).toEqual([
+			"lib/act-line.js",
+			"lib/admission-figures.js",
+			"lib/admission.js",
+			"lib/age-text.js",
+			"lib/agent-liveness.js",
+			"lib/allowance-cap.js",
+			"lib/allowance.js",
+			"lib/always-loaded-pool.js",
+			"lib/arbiter-core.js",
+			"lib/arbiter-proc.js",
+			"lib/atomic-write.js",
+			"lib/background-start.js",
+			"lib/bg-launch-id.js",
+			"lib/block-act.js",
+			"lib/block-cause.js",
+			"lib/burn-mode.js",
+			"lib/by-code-unit.js",
+			"lib/cap-ms.js",
+			"lib/caught.js",
+			"lib/check-side.js",
+			"lib/check-sink.js",
+			"lib/check.js",
+			"lib/child-buffer.js",
+			"lib/child-failure.js",
+			"lib/child-spawn.js",
+			"lib/claude-argv0.js",
+			"lib/claude-bin.js",
+			"lib/claude-sessions.js",
+			"lib/cli-args.js",
+			"lib/clock.js",
+			"lib/commit-sha.js",
+			"lib/compare-versions.js",
+			"lib/concurrency.js",
+			"lib/config-dir.js",
+			"lib/console-credit.js",
+			"lib/content-ids.js",
+			"lib/core-fault.js",
+			"lib/core-hooks.js",
+			"lib/cpu-sample.js",
+			"lib/cut-at.js",
+			"lib/deref.js",
+			"lib/dir-lock.js",
+			"lib/dirty-tree.js",
+			"lib/dispatch-ledger.js",
+			"lib/dispatch-sessions.js",
+			"lib/doc-map-regions.js",
+			"lib/doc-map.js",
+			"lib/envelope-frame-keys.js",
+			"lib/file-read.js",
+			"lib/file-through.js",
+			"lib/filed-line.js",
+			"lib/first-line.js",
+			"lib/founder-typing.js",
+			"lib/frontier-order.js",
+			"lib/gate-check.js",
+			"lib/gate-sweep.js",
+			"lib/gh.js",
+			"lib/git-file.js",
+			"lib/git-mode.js",
+			"lib/git-objects.js",
+			"lib/git-options.js",
+			"lib/git-read-memo.js",
+			"lib/git.js",
+			"lib/grouped-child.js",
+			"lib/guard-probe.js",
+			"lib/headless-runs.js",
+			"lib/hold-age.js",
+			"lib/home-path.js",
+			"lib/hook-deadline.js",
+			"lib/hook-env.js",
+			"lib/hook-envelope.js",
+			"lib/host-root.js",
+			"lib/inherited-roots.js",
+			"lib/is-under.js",
+			"lib/issue-gate.js",
+			"lib/issue-ref.js",
+			"lib/job-paths.js",
+			"lib/jsonl.js",
+			"lib/landing-pin.js",
+			"lib/landing-refs.js",
+			"lib/launch-charge.js",
+			"lib/launch-hold.js",
+			"lib/launch-room.js",
+			"lib/local-date.js",
+			"lib/loop-jobs.js",
+			"lib/loop-prompts.js",
+			"lib/machine-marker.js",
+			"lib/machine-setting.js",
+			"lib/main-checkout.js",
+			"lib/marker-root.js",
+			"lib/meminfo.js",
+			"lib/merge-heads.js",
+			"lib/model-table.js",
+			"lib/npm-options.js",
+			"lib/oracle-cache.js",
+			"lib/outcome-error.js",
+			"lib/overflow-budget-core.js",
+			"lib/overflow-budget.js",
+			"lib/overflow-notice.js",
+			"lib/parked.js",
+			"lib/persist-mode.js",
+			"lib/pid-lock.js",
+			"lib/pinned-code.js",
+			"lib/plan-dirs.js",
+			"lib/plugin-state.js",
+			"lib/pool-imports.js",
+			"lib/presence.js",
+			"lib/proc-environ.js",
+			"lib/proc-root.js",
+			"lib/proc-stat.js",
+			"lib/proc-table.js",
+			"lib/project-slug.js",
+			"lib/push-refs.js",
+			"lib/queue-exit-log.js",
+			"lib/refill-batch.js",
+			"lib/refill-block-core.js",
+			"lib/refill-blocks.js",
+			"lib/refill-boot.js",
+			"lib/refill-breaker.js",
+			"lib/refill-carry.js",
+			"lib/refill-code.js",
+			"lib/refill-commands.js",
+			"lib/refill-control-code.js",
+			"lib/refill-decide.js",
+			"lib/refill-dir.js",
+			"lib/refill-files.js",
+			"lib/refill-goal.js",
+			"lib/refill-io.js",
+			"lib/refill-json.js",
+			"lib/refill-limits.js",
+			"lib/refill-loop.js",
+			"lib/refill-notice.js",
+			"lib/refill-repos.js",
+			"lib/refill-seats.js",
+			"lib/refill-state.js",
+			"lib/refill-wake.js",
+			"lib/regex-group.js",
+			"lib/repo-holds.js",
+			"lib/repo-path.js",
+			"lib/retained-jsonl.js",
+			"lib/review-hour.js",
+			"lib/run-budgeted.js",
+			"lib/run-command.js",
+			"lib/run-ledger.js",
+			"lib/scratch-dir.js",
+			"lib/script-filer-argv.js",
+			"lib/script-path.js",
+			"lib/seat-aliases.js",
+			"lib/seat-claude.js",
+			"lib/seat-reading.js",
+			"lib/session-id.js",
+			"lib/session-spend.js",
+			"lib/sh-quote.js",
+			"lib/shell-words.js",
+			"lib/similar-titles.js",
+			"lib/sleep-sync.js",
+			"lib/stamp-paths.js",
+			"lib/status-marker.js",
+			"lib/subagent-payload.js",
+			"lib/suite-bounded.js",
+			"lib/suite-ladder.js",
+			"lib/suite-launch.js",
+			"lib/systemd-bins.js",
+			"lib/takes-label.js",
+			"lib/test-kind.js",
+			"lib/test-pass-marker.js",
+			"lib/transcript.js",
+			"lib/trim-run.js",
+			"lib/trimmed.js",
+			"lib/tsc-slot.js",
+			"lib/unclosed-launch.js",
+			"lib/usage-cache.js",
+			"lib/windows-memory.js",
+			"lib/wita.js",
+			"lib/workflow-core-config.js",
+			"lib/worktree-dirs.js",
+			"lib/write-fd.js",
+			"refill-loop.js",
+		]);
+		expect(r.children).toEqual([]);
 	});
 });

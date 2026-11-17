@@ -55,12 +55,12 @@ const BARE_CITATION_OK = "bare-citation-ok";
 /*
  * No core issue is numbered above this, so a higher `#N` is another tracker's
  * (`claude-code #82259`) or no citation at all. citation-tracker.js's
- * BAND_MAX is this same number, imported. 5000 (#726): the tracker stood at
- * #728 on 30 Sep 2026, 13 days after #1 — ~55 issues a day, ~100 a day over
- * the last two — so this is six to eleven weeks of headroom.
- * check-citation-ceiling.js fails once the tracker is within its margin.
+ * BAND_MAX is this same number, imported. 10000 (#5356): the tracker went
+ * from #728 on 29 Sep to #5360 on 17 Nov 2026 — ~95 issues a day — so this is
+ * about seven weeks of headroom; check-citation-ceiling.js's MARGIN covers
+ * a faster week.
  */
-const CITATION_CEILING = 5000;
+const CITATION_CEILING = 10_000;
 
 /** @param {string} text */
 const qualifySpan = (text) =>

@@ -255,7 +255,7 @@ function issueTrigger(i) {
 		{
 			key: `issue-${i.number}`,
 			title: `Convert the WSL disk to sparse? microsoft/WSL#${i.number} closed`,
-			line: `microsoft/WSL#${i.number} closed (${i.state_reason ?? "no reason given"})${blocking ? ", the corruption after a full host disk that #5041 Q1 waits on" : ""}.`,
+			line: `microsoft/WSL#${i.number} closed (${i.state_reason ?? "no reason given"})${blocking ? ", the corruption after a full host disk that workflow-core#5041 Q1 waits on" : ""}.`,
 		},
 	];
 }
@@ -302,7 +302,7 @@ function judgeSparse({ issues, releases, installed }) {
 
 /** @param {Trigger} t */
 const buildTicketBody = (t) =>
-	`${t.line}\n\n## Question\n\nShould \`ext4.vhdx\` be converted to sparse now (\`wsl --manage Ubuntu --set-sparse true\`, with \`sparseVhd=true\` in \`.wslconfig\`)? #5041 Q1 ruled (A), monthly compaction, and kept (B) waiting on microsoft/WSL#41837's fix. Re-read #41837, #42179 and #10609, and the release notes, before pricing it.\n\nFiled by \`scripts/wsl-disk-compaction.js\`'s sparse watch (#5044).\n`;
+	`${t.line}\n\n## Question\n\nShould \`ext4.vhdx\` be converted to sparse now (\`wsl --manage Ubuntu --set-sparse true\`, with \`sparseVhd=true\` in \`.wslconfig\`)? workflow-core#5041 Q1 ruled (A), monthly compaction, and kept (B) waiting on microsoft/WSL#41837's fix. Re-read #41837, #42179 and #10609, and the release notes, before pricing it.\n\nFiled by \`scripts/wsl-disk-compaction.js\`'s sparse watch (#5044).\n`;
 
 /**
  * @typedef {{

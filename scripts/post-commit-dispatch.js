@@ -23,6 +23,8 @@ async function main() {
 	return 0;
 }
 
+module.exports = { main };
+
 if (require.main === module) {
 	const crash = /** @type {const} */ ({
 		hook: "post-commit",
