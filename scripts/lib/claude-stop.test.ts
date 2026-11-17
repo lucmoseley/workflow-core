@@ -15,7 +15,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildStopBranch, recorded, type StopAnswer } from "./agents-stop-fake";
 import { stopOn, stopSession } from "./claude-stop.js";
 import { writeClaudeStub } from "./claude-stub";
-import { shellQuote } from "./sh-quote.js";
 
 let root: string;
 let seats: string[];
@@ -74,19 +73,17 @@ afterEach(() => {
 });
 
 /* Each wording a supported harness prints for a stop of no job (#5329). */
-it.each([
-	"No job matching 'aaaa1111'. Run 'claude agents' to list running sessions.",
-	"No session matching 'aaaa1111'. Run 'claude agents' to list running sessions.",
-])("reads %s as no job", (line) => {
-	const bin = writeClaudeStub(at("claude"), [
-		`printf '%s\\n' ${shellQuote(line)} >&2; exit 1`,
-	]);
-	expect(stopOn(seats[0], "aaaa1111", bin)).toMatchObject({
-		ok: false,
-		noJob: true,
-		said: line,
-	});
-});
+it.each(["noJob", "oldNoJob"] as const)(
+	"reads the %s answer as no job",
+	(answer) => {
+		seatsAnswering(answer);
+		expect(stopOn(seats[0], "aaaa1111")).toMatchObject({
+			ok: false,
+			noJob: true,
+			said: expect.stringContaining("aaaa1111"),
+		});
+	},
+);
 
 describe("stopSession", () => {
 	it("stops the job on the seat whose record names its session, asking no other", () => {
@@ -100,7 +97,7 @@ describe("stopSession", () => {
 		expect(readStopsTaken()).toEqual(["b aaaa1111"]);
 	});
 
-	it("moves to the next seat on 'No job matching', and stops it there", () => {
+	it("moves to the next seat on a no-job answer, and stops it there", () => {
 		seatsAnswering("noJob", "ok", "ok");
 		expect(stopSession("aaaa1111", "s-1").ok).toBe(true);
 		expect(readStopsTaken()).toEqual(["a aaaa1111", "b aaaa1111"]);

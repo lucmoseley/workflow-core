@@ -26,11 +26,13 @@ const { buildSeatEnv, runClaude } = require("./seat-claude.js");
  *   `said` is what the daemon printed — its stdout on success, the last line of
  *   its stderr on failure; `why` adds the exit code to it. `timedOut` marks a
  *   stop killed at STOP_TIMEOUT_MS; `noJob` a daemon holding no job by that id,
- *   "No job matching '<id>'", the permanent failure of mantahostels#846.
+ *   NO_JOB_ANSWER, the permanent failure of mantahostels#846.
  */
 
 /** A daemon's answer to a stop of an id it holds no job for: "No job matching"
- * before 2.1.326, "No session matching" from it (#5329). */
+ * before 2.1.326, "No session matching" from it (#5329). Residual: a stop failing
+ * for another cause whose answer carries either phrase reads as no job, which
+ * callers taking `ok || noJob` count as stopped. */
 const NO_JOB_ANSWER = /No (?:job|session) matching/;
 
 /** A hang guard, never measured: a stop answers in seconds when well. */

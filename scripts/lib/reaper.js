@@ -100,8 +100,8 @@ const CLEAN = /** @type {const} */ ("clean");
  * A `claude stop` fails two ways. TRANSIENTLY: the daemon is slow or busy,
  * the stop hits its timeout, and the next run works (#2665). PERMANENTLY: the listing names a job the stop
  * cannot address at all — a job record left on disk reading `state: done`
- * whose daemon holds no job by that id, which answers "No job matching
- * '<id>'" and exit 1 however often it is asked.
+ * whose daemon holds no job by that id, which answers lib/claude-stop.js's
+ * NO_JOB_ANSWER and exit 1 however often it is asked.
  *
  * So a stop that TIMED OUT is retried at the next run, unrecorded. Any other failed stop is REMEMBERED, and the next attempt
  * is held off for a window
