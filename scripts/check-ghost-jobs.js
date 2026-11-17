@@ -50,6 +50,14 @@
  * delegated SUBAGENT works, so a session mid-dispatch reads here exactly as a
  * hung one.
  *
+ * A JOB THE HARNESS ENDED ON A SYNTHETIC REPLY IS THE THIRD FINDING
+ * (SYNTHETIC-STOP, #5324). Its record reads `done`, or `stopped` once the
+ * reaper has stopped it, though the model never wrote an ending: its last turn
+ * row is the harness's own "No response requested." record. The refill loop
+ * resumes such a job twice; this names the one it did not reach or gave up
+ * on, older than 5 minutes, with the `claude attach` line that reopens it
+ * (lib/synthetic-jobs.js). It reads files alone, so the oracle is not asked.
+ *
  * DEGRADES TO SILENCE, NEVER TO "DEAD". An oracle that will not run, reads short
  * or has changed shape leaves through ctx.skip() and raises no finding.
  *
@@ -89,7 +97,7 @@
  * `dispatch-sessions.js` share the test without a second `claude agents --json`
  * spawn.
  *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), reports a background job stuck in "working" with no live process behind it; --notify alone says each one once. It never clears one; where the refill loop runs, it names the loop as the route that stops one listed with no pid and no transcript (#2467).
+ * IMPLICIT:  on `npm run status` (scripts/status-report.js), reports a background job stuck in "working" with no live process behind it, or one the harness ended on a synthetic reply; --notify alone says each one once. It never clears one; where the refill loop runs, it names the loop as the route that stops one listed with no pid and no transcript (#2467).
  * JUSTIFIED: fail-safe — such a job is invisible to every other checker here, and a run that cannot tell live from finished reports nothing rather than calling a job dead.
  * DEFEAT:    none; --minutes <n> and --hung-minutes <n> move the two windows on a hand run.
  */
@@ -113,6 +121,10 @@ const {
 	findHungJobs,
 } = require("./lib/hung-jobs");
 const { jobStorePath, rosterPath } = require("./lib/job-paths.js");
+const {
+	SYNTHETIC_AFTER_MINUTES,
+	findSyntheticStops,
+} = require("./lib/synthetic-jobs.js");
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
 /** @typedef {NonNullable<ReturnType<typeof readJobs>>} Jobs */
@@ -124,6 +136,7 @@ const { jobStorePath, rosterPath } = require("./lib/job-paths.js");
 /** @typedef {ReturnType<typeof ghostOf>} Ghost */
 /** @typedef {ReturnType<typeof findHungJobs>[number]} Hung */
 /** @typedef {{store: string, job: string, reason: string}} UnreadableJob */
+/** @typedef {import("./lib/synthetic-jobs.js").SyntheticJob} SyntheticJob */
 
 /** This checker's name, shared with its delivery-stamp file. */
 const CHECKER = "ghost-jobs";
@@ -148,6 +161,13 @@ const unreadableKeyOf = (u) => `unreadable\t${u.store}\t${u.job}`;
  * @param {{job: string, sessionId: string}} h
  */
 const hungKeyOf = (h) => `hung\t${h.job}\t${h.sessionId}`;
+
+/**
+ * A synthetic stop's identity: its job and the stop's own time, so a later,
+ * separate stop of the same job is reported afresh (#5324).
+ * @param {{job: string, at: number}} s
+ */
+const syntheticKeyOf = (s) => `synthetic\t${s.job}\t${s.at}`;
 
 /**
  * The ghost keys already delivered into a session — empty where none were, and
@@ -389,12 +409,36 @@ function sayAdvice(
 		);
 }
 
+function saySynthetic(
+	/** @type {Ctx} */ ctx,
+	/** @type {SyntheticJob[]} */ stops,
+) {
+	if (stops.length === 0) return;
+	ctx.say(
+		`\nSYNTHETIC-STOP (${stops.length}) — a background job the harness ended on "No response requested.", over ${SYNTHETIC_AFTER_MINUTES}m: its task is not done.`,
+	);
+	for (const s of stops)
+		ctx.say(
+			`  ${s.name}\n` +
+				`    job ${s.job}, session ${s.sessionId}, ${describeClaims(s.issues)}\n` +
+				`    stopped at ${new Date(s.at).toISOString()}; ${s.loop}\n` +
+				`    reopen it: claude attach ${s.job}`,
+		);
+}
+
+/** @param {number[]|null} issues */
+function describeClaims(issues) {
+	if (issues === null) return "its claims unread";
+	if (issues.length === 0) return "claiming no issue";
+	return `claiming ${issues.map((n) => `#${n}`).join(", ")}`;
+}
+
 /** Warns and says every finding this run reports. */
 function report(
 	/** @type {Ctx} */ ctx,
-	/** @type {{ghosts: Ghost[], hung: Hung[], unreadable: UnreadableJob[], working: number, listed: number, minutes: number, hungMinutes: number}} */ r,
+	/** @type {{ghosts: Ghost[], hung: Hung[], unreadable: UnreadableJob[], synthetic: SyntheticJob[], working: number, listed: number, minutes: number, hungMinutes: number}} */ r,
 ) {
-	const { ghosts, hung, unreadable } = r;
+	const { ghosts, hung, unreadable, synthetic } = r;
 	// The header rides the findings: under --notify say() reaches the session's
 	// context, so a clean sweep must be silent.
 	if (ghosts.length > 0 || unreadable.length > 0 || hung.length > 0)
@@ -416,6 +460,12 @@ function report(
 		);
 	for (const u of unreadable)
 		ctx.warn("UNREADABLE-JOB", `${u.job} — ${u.reason}`, u);
+	for (const s of synthetic)
+		ctx.warn(
+			"SYNTHETIC-STOP",
+			`${s.name} — the harness ended its turn on a synthetic reply at ${new Date(s.at).toISOString()}; ${s.loop}`,
+			s,
+		);
 
 	sayGhosts(ctx, ghosts, r.minutes);
 	sayHung(ctx, hung, r);
@@ -423,6 +473,7 @@ function report(
 		ctx.say(`\nUNREADABLE-JOB (${unreadable.length}):`);
 		for (const u of unreadable) ctx.say(`  ${u.job}\n    ${u.reason}`);
 	}
+	saySynthetic(ctx, synthetic);
 	sayAdvice(ctx, r);
 }
 
@@ -484,12 +535,16 @@ runCheck({
 		const standing = judged.ghosts;
 		const standingUnreadable = unreadable;
 		const standingHung = judged.hung;
+		const standingSynthetic = findSyntheticStops(jobs, { now: Date.now() });
 		const seen = readNotified(ctx);
 		const ghosts = standing.filter((g) => !seen.has(keyOf(g)));
 		unreadable = standingUnreadable.filter(
 			(u) => !seen.has(unreadableKeyOf(u)),
 		);
 		const hung = standingHung.filter((h) => !seen.has(hungKeyOf(h)));
+		const synthetic = standingSynthetic.filter(
+			(s) => !seen.has(syntheticKeyOf(s)),
+		);
 		/* Sorted, because this is also the signature the reader compares one
 		 * persisted report against the last delivered one by (mantahostels#1975). */
 		const signature = JSON.stringify(
@@ -497,6 +552,7 @@ runCheck({
 				...standing.map(keyOf),
 				...standingUnreadable.map(unreadableKeyOf),
 				...standingHung.map(hungKeyOf),
+				...standingSynthetic.map(syntheticKeyOf),
 			].sort(),
 		);
 
@@ -504,6 +560,7 @@ runCheck({
 			ghosts,
 			hung,
 			unreadable,
+			synthetic,
 			working: working.length,
 			listed,
 			minutes,
@@ -518,8 +575,10 @@ runCheck({
 		return {
 			stamp: signature,
 			okLine:
-				standing.length > 0 || standingHung.length > 0
-					? `${standing.length} ghost and ${standingHung.length} hung job(s), every one already reported.`
+				standing.length > 0 ||
+				standingHung.length > 0 ||
+				standingSynthetic.length > 0
+					? `${standing.length} ghost, ${standingHung.length} hung and ${standingSynthetic.length} synthetic-stopped job(s), every one already reported.`
 					: `all ${working.length} working job(s) are backed by a listed session with a process, and none has gone silent.`,
 			noun: "ghost job(s)",
 			data: {
@@ -527,6 +586,8 @@ runCheck({
 				hungCount: hung.length,
 				standingHungCount: standingHung.length,
 				hungThresholdMinutes: hungMinutes,
+				synthetic,
+				standingSyntheticCount: standingSynthetic.length,
 				// `ghosts` is what this run REPORTED, which under --notify excludes any
 				// already notified; `standing` is every one that is a ghost now.
 				ghosts,

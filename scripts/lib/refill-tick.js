@@ -115,8 +115,8 @@ const {
 	writeRepoPauses,
 } = require("./refill-files.js");
 const { readJson, writeJson } = require("./refill-json.js");
-const { OUTSIDE_FILE, actOnOutside } = require("./refill-outside.js");
-const { refillPath } = require("./refill-dir.js");
+const { actOnOutside } = require("./refill-outside.js");
+const { OUTSIDE_FILE, refillPath } = require("./refill-dir.js");
 const {
 	launchRecorded,
 	ledgerJobOf,

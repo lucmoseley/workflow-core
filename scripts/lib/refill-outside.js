@@ -21,7 +21,8 @@
  * reaped one is reached only where the loop read the stop while its process
  * still ran.
  *
- * Its records live in their own file, OUTSIDE_FILE, as they are no launches:
+ * Its records live in their own file, lib/refill-dir.js's OUTSIDE_FILE, as
+ * they are no launches:
  * nothing that counts, ranks or finishes launches reads them.
  */
 
@@ -47,7 +48,6 @@ const {
 const { buildGiveUpFix, withRetried } = require("./refill-retire.js");
 const { shortJobId } = require("./job-paths.js");
 
-const OUTSIDE_FILE = ".refill-outside.json";
 const MIN_MS = 60 * 1000;
 /* The short re-attempts a failed scheduled relaunch earns, each no sooner
  * than its gap after the failure before it. The gaps: untraced (delegated,
@@ -654,4 +654,4 @@ function turnOutside(had, { launches, registry, causeOf, agents }, seen) {
 	return next;
 }
 
-module.exports = { OUTSIDE_FILE, actOnOutside };
+module.exports = { actOnOutside };
