@@ -80,7 +80,7 @@ const {
 const { read: readTranscript } = require("./session-transcript.js");
 const { findNewestTranscript, mainChainRecords } = require("./transcript.js");
 const { hasConfig, resolveKey } = require("./workflow-core-config.js");
-const { readLastTyped } = require("./presence.js");
+const { readLastTypedSeat } = require("./presence.js");
 const { MODEL } = require("./refill-decide.js");
 const { refillFrontier } = require("./refill-frontier.js");
 const { appendTick, concurrencyFiles } = require("./concurrency.js");
@@ -147,7 +147,6 @@ const { buildPauseFiler, tendPauseNotices } = require("./pause-notices.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { localDate } = require("./local-date.js");
 const { pidLock } = require("./pid-lock.js");
-const { tendQuietBench } = require("./quiet-bench-tick.js");
 const { parkedPromptOf } = require("./loop-prompts.js");
 const { files, log, servedRoots } = require("./refill-io.js");
 const { registrationGate } = require("./git-file.js");
@@ -1004,24 +1003,6 @@ function recordListedOverflowSessions(agents) {
 	}
 }
 
-/**
- * The quiet bench route's step over the checkouts `control` serves; the
- * control as it was on a step that failed, which is logged, the next tick
- * deciding it again.
- * @param {import("./refill-loop.js").Control} control
- * @param {{lastTypedAt: number|null, now: number}} tick
- */
-function stepQuietBench(control, { lastTypedAt, now }) {
-	try {
-		const served = servedRoots(control.scope).roots;
-		return tendQuietBench({ control, lastTypedAt, served, now, log });
-	} catch (e) {
-		/* Fails open, as a failed read inside a tick does (#3852). */
-		log(`quiet bench: step failed: ${buildErrorText(e)}`);
-		return control;
-	}
-}
-
 /* Untraced: another writer holds it for one read and write, and the next tick
  * tries again. */
 const TICK_LOCK_WAIT_MS = 1000;
@@ -1042,7 +1023,6 @@ const productionIo = {
 	servedRoots,
 	previewReap: () => reapFinished(true),
 	reap: () => reapFinished(false),
-	tendQuietBench: stepQuietBench,
 	readManagerRestart: () => readManagerRestart(log),
 	readCurrentBootId,
 	readState: () => readState(log),
@@ -1124,7 +1104,11 @@ function tick({ dryRun }) {
 		runTick(productionIo, {
 			dryRun,
 			now,
-			opening: { control, declared, typed: readLastTyped(declared) },
+			opening: {
+				control,
+				declared,
+				typedSeat: readLastTypedSeat(declared),
+			},
 		}),
 	);
 }
