@@ -9,10 +9,9 @@
  * committing one staged plain file. Each case seeds the state git and the
  * hooks before it leave on a real commit — the staged file, pre-commit's
  * stand-down stamp, the message file, the commit itself — and runs its hook
- * with the arguments and GIT_* variables git hands it. Every `node` a hook
- * starts goes through lib/hook-bound.sh's run-budgeted.js, so it shows as
- * `node run-budgeted.js`. The dispatchers' own loads and starts are
- * commit-dispatch-cost.test.ts's.
+ * with the arguments and GIT_* variables git hands it. A checker a hook runs
+ * through lib/hook-bound.sh's run-budgeted.js shows after it (#5361). The
+ * dispatchers' own loads and starts are commit-dispatch-cost.test.ts's.
  */
 
 import fs from "node:fs";
@@ -60,11 +59,11 @@ describe("the per-commit .husky hooks' starts on an ordinary commit (#5338)", ()
 			"git symbolic-ref",
 			"git rev-parse",
 			"git rev-parse",
-			"node run-budgeted.js",
-			"node run-budgeted.js",
-			"node run-budgeted.js",
+			"node run-budgeted.js node precommit-dispatch.js",
+			"node run-budgeted.js node workflow-core-config.js",
+			"node run-budgeted.js gitleaks git",
 			"git diff",
-			"node run-budgeted.js",
+			"node run-budgeted.js node test-gate.js",
 			"node mutation-hold-gate.js",
 			"git rev-parse",
 			"git write-tree",
@@ -80,7 +79,7 @@ describe("the per-commit .husky hooks' starts on an ordinary commit (#5338)", ()
 		expect(r.children).toEqual([
 			"git rev-parse",
 			"git -C",
-			"node run-budgeted.js",
+			"node run-budgeted.js node prepare-commit-msg-dispatch.js",
 		]);
 	});
 
@@ -92,7 +91,7 @@ describe("the per-commit .husky hooks' starts on an ordinary commit (#5338)", ()
 		expect(r.children).toEqual([
 			"git rev-parse",
 			"git -C",
-			"node run-budgeted.js",
+			"node run-budgeted.js node commit-msg-dispatch.js",
 		]);
 	});
 
@@ -105,7 +104,7 @@ describe("the per-commit .husky hooks' starts on an ordinary commit (#5338)", ()
 		expect(r.children).toEqual([
 			"git rev-parse",
 			"git -C",
-			"node run-budgeted.js",
+			"node run-budgeted.js node post-commit-dispatch.js",
 			"git rev-parse",
 			"git diff",
 		]);
