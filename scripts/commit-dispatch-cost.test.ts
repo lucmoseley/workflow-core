@@ -266,6 +266,7 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 			"lib/review-tier-stamp.js",
 			"lib/review-tier-trailer.js",
 			"lib/rule-text.js",
+			"lib/run-budgeted-argv.js",
 			"lib/run-budgeted.js",
 			"lib/script-path.js",
 			"lib/sh-quote.js",
