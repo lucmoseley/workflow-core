@@ -718,7 +718,7 @@
 					"costBasis": "list"
 				}
 			},
-			"credential_expires_at": "2026-12-14T19:59:53.419Z"
+			"credential_expires_at": "2000-01-01T00:00:00.000Z"
 		}
 	}
 }

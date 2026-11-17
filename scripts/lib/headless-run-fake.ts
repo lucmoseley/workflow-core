@@ -81,8 +81,8 @@ export interface HeadlessCall {
  * `stream` answers each user message on stdin with the next of `turns`, a
  * default result row once they run out: a turn with no result row hangs until
  * an interrupt control request, answered with the recorded `control_response`
- * then `interruptRows`, the recorded interrupted result row by default,
- * unless `ignoreInterrupt`. It exits `exit` once stdin
+ * then `interruptRows`, the recorded interrupted result row by default (rows
+ * a suite passes are held to no recording), unless `ignoreInterrupt`. It exits `exit` once stdin
  * closes; on SIGTERM, SIGINT or SIGHUP it dies of that signal, or ignores
  * SIGTERM under `ignoreTerm`. Each message, signal and the close is logged to
  * `events`.
