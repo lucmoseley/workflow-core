@@ -391,3 +391,133 @@ describe("from a linked worktree, its rule is read from the main checkout's stor
 		expect(reason).not.toContain("WORKTREE WAIT RULE");
 	});
 });
+
+/* #5325's two waits, verbatim from its case session: a capped `for` polling
+ * `/proc/loadavg` below 6, the first at 90 rounds (45 minutes) and the second
+ * at 28 (14 minutes), then below 8. */
+const LOAD_45M = `for i in $(seq 1 90); do l=$(cut -d' ' -f1 /proc/loadavg); awk "BEGIN{exit !($l < 6)}" && break; sleep 30; done; echo "load at start: $(cut -d' ' -f1 /proc/loadavg)"`;
+const LOAD_14M = `for i in $(seq 1 28); do l=$(cut -d' ' -f1 /proc/loadavg); awk "BEGIN{exit !($l < 8)}" && break; sleep 30; done; l=$(cut -d' ' -f1 /proc/loadavg); echo "load: $l"`;
+const UNTIL_6 = `until [ "$(cut -d. -f1 /proc/loadavg)" -lt 6 ]; do sleep 30; done; npm run test`;
+
+const LOAD_RULE = "A BASH WAIT THAT GATES ON MACHINE LOAD IS BANNED";
+
+describe("a wait loop gated on machine load is refused (#5325)", () => {
+	it.each([
+		[LOAD_14M, "#5325's 14-minute wait, under the 15-minute limit"],
+		[UNTIL_6, "an until loop on /proc/loadavg below 6"],
+		[UNTIL_6.replace("-lt 6", "-lt 8"), "the same below 8"],
+		[
+			"while [ $(uptime | awk -F'average: ' '{print int($2)}') -ge 8 ]; do sleep 20; done",
+			"an uptime condition",
+		],
+		[
+			`until node -e 'process.exit(require("os").loadavg()[0] < 6 ? 0 : 1)'; do sleep 10; done`,
+			"a node -e condition on os.loadavg",
+		],
+		[
+			"until python3 -c 'import os,sys; sys.exit(os.getloadavg()[0] >= 6)'; do sleep 10; done",
+			"a python3 -c condition on os.getloadavg",
+		],
+		[
+			"while true; do l=$(cut -d. -f1 /proc/loadavg); [ $l -lt 6 ] && break; sleep 15; done",
+			"a body read with break",
+		],
+		[
+			"while :; do [ $(cut -d. -f1 /proc/loadavg) -lt 6 ] && exit 0; sleep 15; done",
+			"a body read with exit",
+		],
+		[
+			"for i in $(seq 1 10); do uptime | grep -q 'average: [0-5]\\.' && break; sleep 20; done",
+			"a counted for loop that polls uptime and breaks",
+		],
+		[
+			"bash -c 'until [ $(cut -d. -f1 /proc/loadavg) -lt 6 ]; do sleep 30; done'",
+			"inside bash -c",
+		],
+		[
+			"timeout 600 bash -c 'until [ $(cut -d. -f1 /proc/loadavg) -lt 6 ]; do sleep 30; done'",
+			"inside timeout … bash -c, so a ceiling does not let it through",
+		],
+		[
+			"bash <<'EOF'\nuntil [ $(cut -d. -f1 /proc/loadavg) -lt 6 ]; do sleep 30; done\nEOF",
+			"inside a heredoc fed to bash",
+		],
+	])("%s — %s", (command) => {
+		const v = run(command);
+		expect(v.denied).toBe(true);
+		expect(v.reason).toContain(LOAD_RULE);
+	});
+
+	it("is judged before the 15-minute limit, so a long load wait gets the load-wait reason", () => {
+		const { denied, reason } = run(LOAD_45M);
+		expect(denied).toBe(true);
+		expect(reason).toContain(LOAD_RULE);
+		expect(reason).not.toContain("the limit is 15 minutes");
+	});
+
+	it("is judged before the no-ceiling warning, refusing where it would only warn", () => {
+		const v = run("until grep -q 0 /proc/loadavg; do sleep 5; done");
+		expect(v).toMatchObject({ denied: true, warning: null });
+	});
+
+	it("names the loop it matched", () => {
+		expect(run(LOAD_14M).reason).toContain(
+			"`for i in $(seq 1 28); do l=$(cut -d",
+		);
+	});
+
+	it("names the routes each kind of wait belongs on, and the records a threshold's base rate comes from", () => {
+		const reason = String(run(UNTIL_6).reason);
+		for (const piece of [
+			"#830",
+			"queue-run.js",
+			"re-run the same",
+			"#3210",
+			"base rate",
+			"load1AtStart",
+			"memwatch-minute.jsonl",
+		])
+			expect(reason).toContain(piece);
+	});
+});
+
+describe("what a load read leaves alone", () => {
+	it.each([
+		["cat /proc/loadavg", "a one-off read"],
+		["uptime", "a one-off uptime"],
+		[
+			"for i in $(seq 1 60); do cat /proc/loadavg >> /tmp/load.log; sleep 5; done",
+			"a sampling loop with no gate",
+		],
+		[
+			"while read -r l; do echo $l; done < /proc/loadavg",
+			"a loop reading load with no sleep",
+		],
+		[
+			'git commit -m "Refuse until [ $(cut -d. -f1 /proc/loadavg) -lt 6 ]; do sleep 30; done"',
+			"a commit message quoting a load loop",
+		],
+		[
+			"gh issue comment 5325 --body-file - <<'EOF'\nfor i in $(seq 1 28); do l=$(cut -d' ' -f1 /proc/loadavg); [ $l -lt 8 ] && break; sleep 30; done\nEOF",
+			"an issue body quoting one",
+		],
+		[
+			"cat > /tmp/w.sh <<EOF\nuntil [ $(cut -d. -f1 /proc/loadavg) -lt 6 ]; do sleep 30; done\nEOF",
+			"a heredoc writing one to a file",
+		],
+	])("%s — %s", (command) => {
+		expect(run(command)).toEqual({
+			warning: null,
+			denied: false,
+			reason: null,
+		});
+	});
+
+	it("leaves an unbounded sampler to the no-ceiling warning alone", () => {
+		const v = run(
+			"while true; do cat /proc/loadavg >> /tmp/load.log; sleep 5; done",
+		);
+		expect(v.denied).toBe(false);
+		expect(v.warning).not.toBeNull();
+	});
+});

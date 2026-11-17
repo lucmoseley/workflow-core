@@ -332,5 +332,8 @@ describe("holdForLoad, which keeps a suite out of an overloaded machine (#830)",
 		});
 		expect(go).toBe(false);
 		expect(lines.join("")).toMatch(/REFUSED — load1 still 60/);
+		expect(lines.join("")).toContain("Re-run the same command");
+		expect(lines.join("")).toContain("rule:load-wait");
+		expect(lines.join("")).not.toContain("/proc/loadavg");
 	});
 });

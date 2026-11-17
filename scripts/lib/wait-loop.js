@@ -1,8 +1,9 @@
 /*
  * wait-loop.js — the dispatcher core that judges a hand-rolled wait in a Bash
  * call (mantahostels#2042, spec mantahostels#2017, from the snapshot at
- * mantahostels#2012): a loop around `sleep` with no ceiling is warned, and a
- * wait over 15 minutes is refused (#1288).
+ * mantahostels#2012): a loop around `sleep` with no ceiling is warned, a
+ * wait over 15 minutes is refused (#1288), and a wait loop gated on machine
+ * load is refused at any length (#5330).
  *
  * Why: an `until`/`while` loop around `sleep` inside one Bash call is one tool
  * call, so nothing else here sees it. When its condition can never become true
@@ -13,6 +14,14 @@
  * THE UNBOUNDED LOOP ONLY WARNS (mantahostels#103, mantahostels#2017 §Out of
  * Scope): an unbounded wait is sometimes the right call and only the caller
  * knows.
+ *
+ * A WAIT LOOP GATED ON MACHINE LOAD IS DENIED FIRST (#5330, spec #5328), ceiling
+ * or none, before the length and the warning are read: it ends only when other
+ * work stops (#5325). A gate is a loop holding a `sleep` that reads load —
+ * `/proc/loadavg`, `uptime` as a command, `loadavg` or `getloadavg` as a word —
+ * in its condition, or in its body beside a `break` or `exit`. A loop reading
+ * load in its body alone is a sampler, and passes. The deny quotes
+ * docs/agents/rules/load-wait.txt, or a fallback naming it.
  *
  * A WAIT OVER 15 MINUTES IS DENIED (#1288, ruled at #1286). Three shapes are a
  * wait, foreground or backgrounded alike:
@@ -53,6 +62,13 @@
  *    bash -c 'until npm test; do sleep 5; done'`, a retry loop, is refused as a
  *    wait. A counted loop past the cap is refused even inside a shorter
  *    `timeout`, and a backgrounded `sleep 600 & sleep 600` reads as 20 minutes.
+ *  - THE LOAD DENY reads its own masking: a `-e` script is kept beside a `-c`
+ *    one, so `node -e '…os.loadavg…'` is read, and a double-quoted span keeps
+ *    its `$(…)` and backtick substitutions, so `[ "$(cut … /proc/loadavg)" … ]`
+ *    is read. A substitution holding a `"` is cut at it. It is blind to a load
+ *    read through a variable or a command it does not name, to a loop in a
+ *    script file the shell runs, and to an interpreter's own polling loop with
+ *    no shell loop around it; `grep -e loadavg` in a loop reads as a load read.
  *  - A `break` is not read as a ceiling, so `while :; do check && break;
  *    sleep 5; done` warns.
  *  - A ceiling is recognised lexically, and in TWO PARTS TOGETHER: a numeric
@@ -121,6 +137,12 @@ const DURATION_RE = /^([0-9]*)(\.([0-9]*))?([smhd]?)$/;
 const QUOTE_RE = /^([^'"]*)(['"])/;
 const DQUOTED_RE = /^((?:[^"\\]|\\[\s\S])*)"/;
 const SHELL_C_RE = new RegExp(`(^|[${SP}])-[A-Za-z]*c[${SP}]+$`);
+/* The load limb also keeps `node -e`'s script, where `os.loadavg` is spelled. */
+const SCRIPT_RE = new RegExp(`(^|[${SP}])-[A-Za-z]*[ce][${SP}]+$`);
+const LOAD_RE = new RegExp(
+	`(^|[^A-Za-z0-9_])(get)?loadavg([^A-Za-z0-9_]|$)|${SEP}uptime([;&|)}'"${SP}]|$)`,
+);
+const LEAVE_RE = new RegExp(`${SEP}(break|exit)([;&|)}'"${SP}]|$)`);
 const HEREDOC_RE = new RegExp(
 	`(^|[^<])<<-?[${SP}]*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?`,
 );
@@ -300,41 +322,95 @@ function durations(text) {
 }
 
 /**
- * `text` with every quoted span emptied but a shell's `-c` script, which is
- * kept with its own quoted spans emptied in turn. An unclosed quote empties
- * the rest.
+ * `text` with every quoted span emptied but a script `script` matches the
+ * flag of, which is kept with its own quoted spans emptied in turn. Where
+ * `subs`, a double-quoted span keeps its command substitutions, which run. An
+ * unclosed quote empties the rest.
  * @param {string} text
+ * @param {{ script: RegExp, subs: boolean }} [how]
  * @returns {string}
  */
-function mask(text) {
+function mask(text, how = { script: SHELL_C_RE, subs: false }) {
 	let s = text;
 	let out = "";
 	for (;;) {
 		const m = QUOTE_RE.exec(s);
 		if (!m) break;
 		out += m[1];
-		const q = m[2];
-		s = s.slice(m[0].length);
-		let span;
-		if (q === "'") {
-			if (!s.includes("'")) {
-				s = "";
-				break;
-			}
-			span = before(s, "'");
-			s = after(s, "'");
-		} else {
-			const d = DQUOTED_RE.exec(s);
-			if (!d) {
-				s = "";
-				break;
-			}
-			span = d[1] ?? "";
-			s = s.slice(d[0].length);
-		}
-		out += SHELL_C_RE.test(out) ? `${q}${mask(span)}${q}` : `${q}${q}`;
+		const q = m[2] ?? "";
+		const quoted = closeQuote(q, s.slice(m[0].length));
+		if (!quoted) return out;
+		s = quoted.rest;
+		out += `${q}${keptOf(quoted.span, q, how.script.test(out), how)}${q}`;
 	}
 	return out + s;
+}
+
+/**
+ * The quoted span `text` opens with, up to its closing `q`, and the text
+ * after; null where it never closes.
+ * @param {string} q
+ * @param {string} text
+ */
+function closeQuote(q, text) {
+	if (q === "'")
+		return text.includes("'")
+			? { span: before(text, "'"), rest: after(text, "'") }
+			: null;
+	const d = DQUOTED_RE.exec(text);
+	return d ? { span: d[1] ?? "", rest: text.slice(d[0].length) } : null;
+}
+
+/**
+ * What `mask` keeps of a quoted span: all of a script, masked; a
+ * double-quoted span's substitutions where `how.subs`; else nothing.
+ * @param {string} span
+ * @param {string} q
+ * @param {boolean} script
+ * @param {{ script: RegExp, subs: boolean }} how
+ */
+function keptOf(span, q, script, how) {
+	if (script) return mask(span, how);
+	if (q === '"' && how.subs) return substitutions(span, how);
+	return "";
+}
+
+/**
+ * Each `$(…)` and backtick substitution in a double-quoted `span`, masked in
+ * turn and joined by `;`.
+ * @param {string} span
+ * @param {{ script: RegExp, subs: boolean }} how
+ */
+function substitutions(span, how) {
+	/** @type {string[]} */
+	const found = [];
+	let rest = span;
+	for (;;) {
+		const at = rest.search(/\$\(|`/);
+		if (at < 0) break;
+		const tick = rest[at] === "`";
+		const open = rest.slice(at + (tick ? 1 : 2));
+		const end = tick ? open.indexOf("`") : closingParen(open);
+		if (end < 0) break;
+		found.push(open.slice(0, end));
+		rest = open.slice(end + 1);
+	}
+	return found.map((sub) => mask(sub, how)).join("; ");
+}
+
+/**
+ * Where the `)` closing a `$(` that `text` follows stands, counting nested
+ * parentheses; -1 where none closes it.
+ * @param {string} text
+ */
+function closingParen(text) {
+	let depth = 1;
+	for (let i = 0; i < text.length; i++) {
+		if (text[i] === "(") depth++;
+		if (text[i] === ")") depth--;
+		if (depth === 0) return i;
+	}
+	return -1;
 }
 
 /**
@@ -540,12 +616,45 @@ What this guard cannot see: it reads a ceiling as a \`timeout\`, or a numeric co
 }
 
 /**
+ * The refusal of the first wait loop gated on machine load: one reading load
+ * in its condition, or in its body beside a `break` or `exit`. A loop reading
+ * load in its body alone samples it, and passes.
+ * @param {string} written
+ * @param {import("./core-contract.js").CoreContext} ctx
+ */
+function loadDenial(written, ctx) {
+	const text = mask(written, { script: SCRIPT_RE, subs: true });
+	for (const loop of loops(text)) {
+		const body = loop.body.slice(loop.condition.length);
+		if (
+			!LOAD_RE.test(loop.condition) &&
+			!(LOAD_RE.test(body) && LEAVE_RE.test(body))
+		)
+			continue;
+		const rule = ruleOrFallback(
+			ctx,
+			"load-wait",
+			"A Bash wait gated on machine load is banned, and the rule says where each kind of wait goes instead",
+		);
+		return {
+			deny: ctx.corePaths(
+				`This wait loop gates on machine load — \`${named(loop.body, /[wuf]/)}\`.\n\n${rule}`,
+			),
+		};
+	}
+	return null;
+}
+
+/**
  * @param {string} command
  * @param {import("./core-contract.js").CoreContext} ctx
  * @returns {import("./core-contract.js").CoreDecision}
  */
 function decide(command, ctx) {
-	const waits = mask(unheredoc(command));
+	const written = unheredoc(command);
+	const load = loadDenial(written, ctx);
+	if (load) return load;
+	const waits = mask(written);
 	const deny = denial(waits, ctx);
 	if (deny) return deny;
 	const warn = warning(waits);

@@ -1,0 +1,19 @@
+A BASH WAIT THAT GATES ON MACHINE LOAD IS BANNED (#5325).
+
+A load wait can end only when other work stops, so its cost falls on the
+founder and on every other session.
+
+  - To run work when the machine can take it, launch the command. The suite
+    wrapper holds on load at the #830 ceiling, and the suite queue and
+    `queue-run.js` admit on memory rungs. If the hold expires, re-run the same
+    command later.
+  - To measure fairly under load, use #3210's paired, randomised method: old
+    and new back to back in a coin-flipped order, judged on the median ratio.
+    Load cancels in the ratio, so no load gate is needed.
+  - Before setting any threshold for a wait, state its base rate: how often the
+    machine reached that figure in the run records — the test-run markers'
+    `machine` block (`load1`, `load1AtStart`) under
+    `.claude/tmp/markers/.test-logs/`, and memwatch's minute log
+    (`~/memwatch-minute.jsonl`, `load1` per minute). A figure the records show
+    the machine never reached is a wait that cannot end without stopping other
+    work.
