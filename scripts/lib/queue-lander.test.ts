@@ -1116,6 +1116,63 @@ describe("faults", () => {
 		]);
 	});
 
+	it("merges a batch under test again without a member withdrawn meanwhile, so main never takes it (#5316)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+
+		const { end, actions, pushed, asked } = await land(remote, freshDisk(), {
+			onAsk: (sha, r) => {
+				if (sha.includes("b1")) r.refs.delete("b");
+			},
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(asked[0]).toContain("b1");
+		expect(
+			actions.flatMap((a) =>
+				a.kind === "merge-members" || a.kind === "leave-withdrawn"
+					? [buildQueueActionLine(a)]
+					: [],
+			),
+		).toEqual([
+			"merge-members onto m0: queue/a, queue/b",
+			"leave-withdrawn queue/b@b1: its queue ref is gone from the remote",
+			"merge-members onto m0: queue/a",
+		]);
+		expect(pushed.filter((sha) => sha.includes("b1"))).toEqual([]);
+		expect(remote.main).toBe("merge(m0;a1)");
+	});
+
+	it("batches a search's members again without one withdrawn during its rerun, so main never takes it (#5316)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+
+		const { end, actions, pushed } = await land(remote, freshDisk(), {
+			verdict: (sha, r, files) => {
+				if (!sha.includes("b1")) return { kind: "green", run: 1 };
+				if (files.length === 0)
+					return { kind: "red", files: ["scripts/x.test.ts"], run: 1 };
+				r.refs.delete("b");
+				return { kind: "green", run: 2 };
+			},
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(
+			actions.flatMap((a) =>
+				a.kind === "rebatch-passers" ? [buildQueueActionLine(a)] : [],
+			),
+		).toEqual([
+			"rebatch-passers queue/a, leaving out queue/b: its queue ref is gone from the remote",
+		]);
+		expect(pushed.filter((sha) => sha.includes("b1"))).toEqual([]);
+		expect(remote.main).toBe("merge(m0;a1)");
+	});
+
 	it("retries a push GitHub refused on its own internal fault, landing on the try that follows (#4497)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1, onMain: true },

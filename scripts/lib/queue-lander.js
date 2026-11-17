@@ -299,7 +299,8 @@ class TransientFault extends Error {}
  *     readonly member: Member, readonly fresh: boolean}
  *   | {readonly kind: "isolate-members" | "confirm-members",
  *     readonly files: readonly string[], readonly runs: readonly IsoRun[]}
- *   | {readonly kind: "rebatch-passers", readonly ahead: readonly string[]}
+ *   | {readonly kind: "rebatch-passers", readonly ahead: readonly string[],
+ *     readonly withdrawn?: readonly string[]}
  *   | {readonly kind: "land-step" | "record-step", readonly sha: string,
  *     readonly name: string}
  *   | {readonly kind: "fast-forward-main", readonly sha: string}
@@ -313,7 +314,8 @@ class TransientFault extends Error {}
  *   branch holds; `settle-drop` the `main` holding the drop's work, and
  *   whether its ticket closes; `wait`,
  *   which no run takes, a batch whose next step waits on another's;
- *   `relaunch`, the `main` a fresh run on the new code takes the queue on from
+ *   `withdrawn`, the members `rebatch-passers` leaves out as gone from the
+ *   remote; `relaunch`, the `main` a fresh run on the new code takes the queue on from
  * @typedef {Extract<QueueAction, {kind: "exit"}>} QueueEnd
  * @typedef {{readonly sha: string, readonly files: readonly string[],
  *   readonly pass: number}} TestRun a run at `sha` on `files`, the whole
@@ -1269,21 +1271,29 @@ function detachAction(s, { line, search }, red) {
 }
 
 /**
+ * Whether `m`'s queue ref is gone from the remote: its session withdrew it.
+ * @param {QueueState} s
+ * @param {Member} m
+ */
+const isWithdrawn = (s, m) => !s.queue.some((r) => r.name === m.name);
+
+/**
  * The merge of `b` onto `base`, where it is not merged there yet: a batch
  * merged onto a base that has since moved is merged again onto the new one,
  * so `main` only ever fast-forwards; else null. A member whose queue ref is
- * gone from the remote, withdrawn, is left out of it first (#5308).
+ * gone from the remote, withdrawn, is left out of it first, merged or not,
+ * so `main` never takes it (#5308, #5316).
  * @param {Batch} b
  * @param {QueueState} s
  * @param {string} base
  * @returns {QueueAction|null}
  */
 function mergeStep(b, s, base) {
+	const members = included(b);
+	const gone = members.find((m) => isWithdrawn(s, m));
+	if (gone) return { kind: "leave-withdrawn", name: gone.name, sha: gone.sha };
 	if (b.phase !== "merging" && b.onto === base && b.integration !== null)
 		return null;
-	const members = included(b);
-	const gone = members.find((m) => !s.queue.some((r) => r.name === m.name));
-	if (gone) return { kind: "leave-withdrawn", name: gone.name, sha: gone.sha };
 	return {
 		kind: "merge-members",
 		onto: base,
@@ -1385,7 +1395,9 @@ function searchAction(b, s, main) {
 
 /**
  * The search's first steps, its whole suite red at its integration commit:
- * the rerun and the base check, at the `main` it was merged onto.
+ * the rerun and the base check, at the `main` it was merged onto. A member
+ * withdrawn has the rest batched again without it, so `main` never takes
+ * it (#5316).
  * @param {Batch} b
  * @param {QueueState} s
  * @param {string} main
@@ -1394,6 +1406,14 @@ function searchAction(b, s, main) {
 function searchRedAction(b, s, main) {
 	const sha = b.integration;
 	if (sha === null) return exit("a search with no integration commit");
+	const members = included(b);
+	const withdrawn = members.filter((m) => isWithdrawn(s, m));
+	if (withdrawn.length > 0)
+		return {
+			kind: "rebatch-passers",
+			ahead: members.filter((m) => !isWithdrawn(s, m)).map((m) => m.name),
+			withdrawn: withdrawn.map((m) => m.name),
+		};
 	const refused = refusedHold(s, b.onto, sha);
 	if (refused) return refused;
 	/** @type {QueueAction} */
@@ -1409,7 +1429,7 @@ function searchRedAction(b, s, main) {
 				: landGreen(got.v, s, land);
 	}
 	if (next.kind === "fast-forward-main" && main !== b.onto)
-		return { kind: "rebatch-passers", ahead: included(b).map((m) => m.name) };
+		return { kind: "rebatch-passers", ahead: members.map((m) => m.name) };
 	return next;
 }
 
@@ -2636,7 +2656,13 @@ async function act(deps, action, run) {
 		}
 		case "leave-withdrawn": {
 			/* Listed with the deferred, the members left out; a withdrawn one
-			 * owes no drop and no fix ticket. */
+			 * owes no drop and no fix ticket. A merged batch's run at the
+			 * commit carrying it is unwanted (#5316). */
+			const { integration: was, slot } = batchOf(run);
+			if (was !== null) {
+				forgetAsks(run, was);
+				cancelRuns(deps, slot, null, [was]);
+			}
 			const batch = leaveOut(batchOf(run), action.name, "deferred");
 			record.write(batch);
 			return { ...run, acting: batch, unmerged: null, alone: null };
@@ -3187,8 +3213,12 @@ function buildQueueActionLine(a) {
 		case "isolate-members":
 		case "confirm-members":
 			return `${a.kind} ${a.runs.map((r) => `alone ${r.k}@${short(r.sha)}`).join(", ")}`;
-		case "rebatch-passers":
-			return `rebatch-passers ${a.ahead.map((n) => queueBranch(n)).join(", ")}`;
+		case "rebatch-passers": {
+			const line = `rebatch-passers ${a.ahead.map((n) => queueBranch(n)).join(", ")}`;
+			return a.withdrawn?.length
+				? `${line}, leaving out ${a.withdrawn.map((n) => queueBranch(n)).join(", ")}: its queue ref is gone from the remote`
+				: line;
+		}
 		case "land-step":
 		case "record-step":
 			return `${a.kind} ${queueBranch(a.name)} at ${a.sha}`;
