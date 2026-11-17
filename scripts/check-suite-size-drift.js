@@ -27,7 +27,7 @@
  * A LOWER-BOUND LADDER READS OK WHATEVER THE DRIFT (#4606, #2726 Q1): its dips
  * came from suites the suite ceiling cut short, so its rungs are already floors
  * under a whole suite's, and no whole suite runs locally fast enough to bench.
- * File growth then asks for a re-measure nobody can run. What reopens it is
+ * What reopens it is
  * evidence the ladder admits too many concurrent runs, which this check does
  * not read. `--baseline` asks the drift question alone.
  *
