@@ -218,10 +218,12 @@ export const ROW_FIXTURES: Record<string, RowFixture> = {
 	},
 	"rule-fragments": { path: "docs/agents/dependabot.md" },
 	"effort-guide-routing": { path: "docs/effort-guide.md" },
+	"core-docs": { path: "GLOSSARY.md" },
 	"user-settings-drift": { path: "README.md" },
 	"code-standards": { path: "README.md" },
 	primitives: { path: "README.md" },
 	"skill-body-size": { path: ".claude/skills/s/SKILL.md" },
+	"adopter-boundary": { path: "README.md" },
 	"workflow-permissions": { path: ".github/workflows/x.yml" },
 	"doc-map": { path: "docs/notes.md" },
 	"context-budget": {

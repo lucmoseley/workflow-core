@@ -400,7 +400,7 @@ describe("the envelope at the longest adopter base path (#1882)", () => {
 describe("any other skill", () => {
 	it.each([
 		["code-review:code-review", "the plugin's pull-request review"],
-		["last30days", "an unrelated skill"],
+		["tdd", "an unrelated skill"],
 		["concision-pass", "the pass that follows a review"],
 		["", "an empty name"],
 	])("%j is told nothing — %s", (skill) => {

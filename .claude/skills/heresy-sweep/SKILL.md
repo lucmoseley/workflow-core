@@ -5,7 +5,7 @@ name: heresy-sweep
 # heresy-sweep
 
 The method a session follows on a *Heresy sweep due* issue: find the
-heresies (`GLOSSARY.md`) no check, table row or ticket names yet, file each
+heresies (`.claude/workflow-core.glossary.md`) no check, table row or ticket names yet, file each
 standalone, and close the due issue with the count in the same session.
 Spec: #3365.
 

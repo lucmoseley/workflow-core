@@ -59,7 +59,7 @@ describe("false enforcement claims — the reason the script exists", () => {
 			),
 			files: {
 				"scripts/guard-branch.sh": "#!/bin/sh\nexit 0\n",
-				[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-last30days.sh"),
+				[SELF_PLUGIN_HOOKS]: hooksWiring("scripts/guard-pull-form.sh"),
 			},
 		});
 		const r = run(root);

@@ -104,7 +104,7 @@ A resolution comment naming a commit sha carries a `**Door:**` line (#895, ruled
 - `**Door:** two-way — <what undoing it takes>`
 - `**Door:** one-way — <which entry below>; <what undoing it takes, or that it cannot be undone>`
 
-The undo step is the content: a bare label passes the check and still fails the rule. The session that did the work calls it, against the list below — never Jev, never the `/code-review` Spec reviewer. Term: `GLOSSARY.md` **Door**.
+The undo step is the content: a bare label passes the check and still fails the rule. The session that did the work calls it, against the list below — never Jev, never the `/code-review` Spec reviewer. Term: `.claude/workflow-core.glossary.md` **Door**.
 
 **The one-way list.** Add an entry when a close finds a case none of these covers.
 

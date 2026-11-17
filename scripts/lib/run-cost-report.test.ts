@@ -319,28 +319,31 @@ describe("the program entry", () => {
 		return () => fs.rmSync(scratch, { recursive: true, force: true });
 	});
 
-	/* The tracker answers only the open-issue title search for `old.test.ts`:
-	 * one issue naming it, one naming a file whose name only contains it, one
-	 * naming neither. Any other query fails, so a broken query reads unknown. */
+	/* The tracker answers only the open-issue listing: one issue naming
+	 * `old.test.ts`, one naming a file whose name only contains it, one naming
+	 * neither. Any other query fails, so a broken query reads unknown. */
 	const routes = {
-		'issue list --state open --search "old.test.ts" in:title --json number,title':
-			printed(
-				JSON.stringify([
-					{ number: 12, title: "Cut old.test.ts" },
-					{ number: 13, title: "Cut bold.test.tsx" },
-					{ number: 14, title: "Something else" },
-				]),
-			),
+		"issue list --state open --limit 1000 --json number,title": printed(
+			JSON.stringify([
+				{ number: 12, title: "Cut old.test.ts" },
+				{ number: 13, title: "Cut bold.test.tsx" },
+				{ number: 14, title: "Something else" },
+			]),
+		),
 	};
 
 	const run = (
 		body: string,
 		argv?: string[],
-		{ extraEnv = {} as Record<string, string>, ghFailing = false } = {},
+		{
+			extraEnv = {} as Record<string, string>,
+			ghFailing = false,
+			log = undefined as string | undefined,
+		} = {},
 	) => {
 		const file = path.join(scratch, "timings.json");
 		fs.writeFileSync(file, body);
-		const stub = stubGhRoutes(scratch, routes, { failing: ghFailing });
+		const stub = stubGhRoutes(scratch, routes, { failing: ghFailing, log });
 		return runInProcess(PROGRAM, argv ?? [file], {
 			cwd: repo,
 			env: {
@@ -395,6 +398,22 @@ describe("the program entry", () => {
 		const r = run("{not json", undefined, { extraEnv: { CI: "true" } });
 		expect(r.status).toBe(0);
 		expect(r.stdout).toMatch(/^RUN COST: the report failed/);
+	});
+
+	it("lists the open issues once for every pre-existing file over budget", () => {
+		const log = path.join(scratch, "gh.log");
+		const r = run(
+			JSON.stringify({ "old.test.ts": 20, "bare.test.ts": 15 }),
+			undefined,
+			{ log },
+		);
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("open ticket: #12 (Cut old.test.ts).");
+		expect(r.stdout).toContain(
+			"bare.test.ts took 15.0 s, over the 10 s budget — pre-existing",
+		);
+		expect(r.stdout).toContain("no open issue's title names it");
+		expect(fs.readFileSync(log, "utf8").trimEnd().split("\n")).toHaveLength(1);
 	});
 
 	it("says the ticket lookup failed where gh cannot answer, and still exits 0", () => {

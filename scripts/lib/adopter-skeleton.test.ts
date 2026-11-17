@@ -153,6 +153,15 @@ describe("the core-owned rules file", () => {
 		expect(text).not.toContain("operating-manual.md");
 	});
 
+	it("spells a core command at the plugin root, the absolute path the output style points at (#5294)", () => {
+		const text = renderSessionRules({
+			modules: [],
+			founder: "A Founder",
+			pluginRoot: "/opt/plugin-root",
+		});
+		expect(text).toMatch(/node \/opt\/plugin-root\/scripts\/\S+\.js/);
+	});
+
 	it("gives the queue-ref push line (#2409)", () => {
 		const text = renderSessionRules({
 			modules: [],
@@ -276,7 +285,6 @@ describe("the core-owned rules file", () => {
 			"rule:shellcheck-not-installed",
 			"guard-uncommitted-work.js",
 			"check-gate-switches.js",
-			"guard-last30days.sh",
 			"Artefact: <path>",
 			"rename the session",
 			"Anyone may apply `urgent`",
@@ -456,13 +464,30 @@ describe("the day-one code standards (#3466)", () => {
 describe("the day-one doc-map (#662)", () => {
 	/* init writes it once and upgrade never re-renders it, so a core script
 	 * path here — relative or at a versioned plugin root — would not run. */
-	it("names no core script, pointing at the gate's refusal for the commands (#2066)", () => {
+	it("names no core script (#2066)", () => {
 		const text = renderDocMap({ project: "demo", date: "2026-01-01" });
 		expect(text).not.toMatch(/scripts\//);
-		expect(text).toContain(
-			"doc-map gate refusal that needs one prints its command",
-		);
 		expect(text).not.toContain("`.claude/workflow-core.md`");
+	});
+
+	/* The method is the core's, rewritten on every bump in the core-owned
+	 * method file; a copy here would never refresh (#5294). */
+	/* §Capture and placement stays as a heading: its §5 shed ledger is the
+	 * adopter's own, found by that heading (lib/doc-map-regions.js), and the
+	 * method's rules, §1–4, are the core's (#5296). */
+	it("carries no core method section, only the pointer to the core's", () => {
+		const text = renderDocMap({ project: "demo", date: "2026-01-01" });
+		for (const heading of [
+			"## Authority classes",
+			"## The propagation pass",
+			"### 1.",
+			"### 2.",
+			"### 3.",
+			"### 4.",
+		])
+			expect(text).not.toContain(heading);
+		expect(text).toContain("`.claude/workflow-core.doc-map.md`");
+		expect(text).toMatch(/^### 5\. Sheds paid — the ledger$/m);
 	});
 
 	it("renders under the plugin's generator from an adopter tree", () => {

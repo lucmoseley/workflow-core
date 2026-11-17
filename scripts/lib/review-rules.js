@@ -74,7 +74,7 @@ const BUILT_IN = `A bare \`code-review\` here is the harness's built-in reviewer
  * `workflow-core:code-review`. `code-review:code-review` is Anthropic's own
  * pull-request plugin, a different skill, excluded BEFORE the namespaced arm
  * rather than by narrowing that arm — a plugin may name itself anything, and
- * only this one collision is known. lib/last30days.js matches the same way.
+ * only this one collision is known.
  * @param {string} skill
  */
 const ours = (skill) =>

@@ -100,6 +100,22 @@ describe("the tree rendered from the core", () => {
 		expect(shipped).toContain("scripts/session-arbiter.js");
 		// The adopter's ruff gate reads it by --config (#106).
 		expect(shipped).toContain("ruff.toml");
+		// An adopter's Leading-practice gate falls back to the plugin's notes,
+		// each less its lines holding for workflow-core alone (#5294).
+		const notes = shipped.filter((f) => f.startsWith("docs/practice/"));
+		expect(notes).toContain("docs/practice/ci-and-repo-quality-gates.md");
+		for (const note of notes)
+			expect(fs.readFileSync(path.join(out, note), "utf8"), note).not.toContain(
+				"## In workflow-core",
+			);
+		expect(
+			notes.some((note) =>
+				fs
+					.readFileSync(path.join(CORE, note), "utf8")
+					.includes("\n## In workflow-core\n"),
+			),
+			"no core note carries the section the render drops",
+		).toBe(true);
 		expect(shipped).not.toContain("package.json");
 		// #1380: js-yaml's consumers ship, loading it from the adopter's install.
 		expect(shipped).toContain("scripts/check-workflow-permissions.js");
@@ -456,6 +472,8 @@ describe("the core-only class (#440)", () => {
 		"scripts/check-host-root.js -> scripts/cut-mantahostels.js",
 		// Required only where docs/code-standards-base.md exists: the core (#963).
 		"scripts/check-code-standards.js -> scripts/lib/plugin-tree.js",
+		// Required only where docs/adopter-boundary.md exists: the core (#5294).
+		"scripts/check-adopter-boundary.js -> scripts/lib/plugin-tree.js",
 		// Required only where it exists beside it: the core (#1151).
 		"scripts/lib/write-scan.js -> scripts/lib/plugin-tree.js",
 		// release-plugin.js, run in the core, files into each adopter tracker it

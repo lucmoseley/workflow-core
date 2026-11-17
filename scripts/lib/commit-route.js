@@ -1,6 +1,6 @@
 /*
  * commit-route.js — which git operation made the commit a hook is asked
- * about: its commit route (GLOSSARY.md), the route's abort and name, and
+ * about: its commit route (.claude/workflow-core.glossary.md), the route's abort and name, and
  * the replay secrets scan's refusal (#1503). lib/commit-route.test.ts drives
  * every row of the marker table below through real git.
  *

@@ -20,8 +20,7 @@
  *      because it is local and certain.
  *
  *   2. NEW-PACKAGE LEGITIMACY. For each new name, normalised per PEP 503,
- *      three facts, keyless (`docs/working-contract.md` §No paid research or
- *      data APIs):
+ *      three facts, keyless (`~/.claude/CLAUDE.md` §Reports and paid data):
  *
  *        - the name exists        `https://pypi.org/pypi/<name>/json` is 200
  *        - its first upload, the earliest `upload_time_iso_8601` across its
