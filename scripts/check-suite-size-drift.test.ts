@@ -14,9 +14,12 @@
  * particular size, and a suite that outgrows it makes the ladder wrong with
  * nothing else having changed (mantahostels#954).
  *
- * It runs in `npm run status` and the daily repo-checks run: loosen a case and a grown suite stops
- * prompting a re-measure, so sessions keep admitting concurrent suites on
- * headroom that no longer holds and the machine freezes under `earlyoom`.
+ * It runs in `npm run status` and the daily repo-checks run: loosen a drift case and a grown suite
+ * stops prompting a re-measure of a whole-suite ladder, so sessions keep
+ * admitting concurrent suites on headroom that no longer holds and the machine
+ * freezes under `earlyoom`. While the ladder is stamped a lower bound it reads
+ * OK whatever the drift (#5357): loosen that case and it warns for a re-measure
+ * no local suite can run, a finding that stands on #2679 for ever.
  */
 
 import { execFileSync } from "node:child_process";
@@ -242,17 +245,18 @@ describe("the real repo", () => {
 		expect(r.json().baseline).toBe(SUITE_LADDER_MEASURED_AT.files);
 	});
 
-	it("WARNs on the live lower-bound ladder, naming its successor, and not under --baseline (#4606)", () => {
+	it("reads OK on the live lower-bound ladder whatever the drift, naming no successor, and asks the drift question alone under --baseline (#4606, #5357)", () => {
 		const { SUITE_LADDER_MEASURED_AT } = require("./lib/admission.js");
 		expect(SUITE_LADDER_MEASURED_AT.lowerBound).toBeDefined();
-		const r = runIn(REPO);
+		const r = runIn(REPO, "--json", "--threshold", "1");
 		expect(r.status).toBe(0);
-		expect(r.out).toContain("is a lower bound");
-		expect(r.out).toContain(SUITE_LADDER_MEASURED_AT.lowerBound.successor);
-		expect(r.out).toContain("scripts/bench_suite_concurrency.py");
-		expect(runIn(REPO, "--baseline", "10").out).not.toContain(
-			"is a lower bound",
-		);
+		expect(r.json().outcome).toBe("OK");
+		const plain = runIn(REPO);
+		expect(plain.out).toContain("is a lower bound");
+		expect(plain.out).not.toMatch(/#4607|bench_suite_concurrency/);
+		const drifted = runIn(REPO, "--json", "--baseline", "10");
+		expect(drifted.json().outcome).toBe("WARN");
+		expect(drifted.out).not.toContain("is a lower bound");
 	});
 
 	it("counts the same suite from a subdirectory as from the repo root", () => {

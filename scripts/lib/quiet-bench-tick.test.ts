@@ -183,9 +183,10 @@ it("keeps its runs outside what the scratch sweep reaps", () => {
 	expect(runs).not.toContain(path.join(".claude", "tmp"));
 });
 
-/* An empty checkout's suite has drifted -100% from the ladder's, so the lone
- * whole suite in its markers decides. The fit runs 280–504 s across core
- * counts, so 1 s and 600 s fall either side on any machine. */
+/* The live ladder is a lower bound, so the drift check reads OK on an empty
+ * checkout and no lone suite makes the bench due (#5357). The fit runs
+ * 280–504 s across core counts, so 1 s and 600 s fall either side on any
+ * machine. */
 const tendOnLoneSuite = (seconds: number) => {
 	execFileSync("git", ["init", "-q", checkout]);
 	const markers = markersDir(checkout);
@@ -208,9 +209,9 @@ const tendOnLoneSuite = (seconds: number) => {
 	return tend(baseControl);
 };
 
-it("is due on a lone whole suite short enough for the top row to finish (#4931)", () => {
-	expect(tendOnLoneSuite(1).next.paused?.by).toBe(QUIET_BENCH_PAUSE);
-	expect(readState().due.value).toBe(true);
+it("is not due on a lone whole suite short enough for the top row while the ladder is a lower bound (#5357)", () => {
+	expect(tendOnLoneSuite(1).next.paused).toBeUndefined();
+	expect(readState().due.value).toBe(false);
 });
 
 it("is not due on a lone whole suite too long for the top row (#4931)", () => {

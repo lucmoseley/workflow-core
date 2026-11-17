@@ -25,6 +25,8 @@ const { recordTicket } = require("./record-ticket.js");
  * @property {string|null} batch the batch the queue lander has under test
  */
 
+const CRITERION = "The cause is fixed, and the lander moves `main` again.";
+
 /** @param {Stall} s */
 function buildStallBody({ waiting, movedAt, batch }) {
 	return `## What to build
@@ -37,7 +39,7 @@ The lander's log: \`.lander.log\` in the checkout's markers directory.
 
 ## Acceptance criteria
 
-- [ ] The cause is fixed, and the lander moves \`main\` again.
+- [ ] ${CRITERION}
 `;
 }
 
@@ -87,6 +89,7 @@ function stallTicketTender(deps, markers) {
 		parse: parseStallRecord,
 		noun: "stall ticket",
 		subject: "the stalled queue",
+		criterion: CRITERION,
 		/* Fail-open (#4443): the ticket stays open, and the next stall's
 		 * filing refreshes it and writes a fresh record. */
 		tornNote: "; an open stall ticket stays open until the next stall",

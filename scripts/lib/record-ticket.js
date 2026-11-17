@@ -51,11 +51,16 @@ function readTicketRecord(file, parse) {
  * @param {(rec: unknown) => T|null} spec.parse null where the record is torn
  * @param {string} spec.noun what its lines and refreshes call the ticket
  * @param {string} spec.subject what a refusal names it filed for
+ * @param {string} spec.criterion the criterion its bodies carry, ticked as
+ *   it closes
  * @param {string} [spec.tornNote] what a dropped record leaves open, after
  *   the line naming it
  * @returns {RecordTicket<T>}
  */
-function recordTicket(deps, { record, parse, noun, subject, tornNote = "" }) {
+function recordTicket(
+	deps,
+	{ record, parse, noun, subject, criterion, tornNote = "" },
+) {
 	const fileIssue = queueIssueFiler(deps);
 	const closeIssue = queueIssueCloser(deps);
 	const standalone = `The ${noun} tracks the landing queue, not one ticket's work.`;
@@ -76,7 +81,7 @@ function recordTicket(deps, { record, parse, noun, subject, tornNote = "" }) {
 			return rec;
 		},
 		close(title, why, next, said) {
-			const closed = closeIssue(title, why);
+			const closed = closeIssue(title, criterion, why);
 			save(next);
 			if (closed !== null) said.push(`${noun}: closed #${closed}.`);
 		},
