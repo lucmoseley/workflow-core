@@ -39,21 +39,32 @@ const {
 	readRunningVitestSuites,
 	suiteRungMb,
 } = require("./lib/admission");
-const { readAvailableMb } = require("./lib/meminfo.js");
+const { readAvailableMb, readTotalMb } = require("./lib/meminfo.js");
+const { clampedClause, reachableRung } = require("./lib/suite-ladder.js");
 
 const REAP_SCRIPT = () =>
 	process.env.WFC_REAP_SCRIPT ||
 	nodePath.join(__dirname, "reap-finished-sessions.js");
 
-/** @param {number} busy the vitest workers already running */
-function rungName(busy) {
+/**
+ * The starting suite's rung, clamped to the machine's reach (#5310).
+ * @param {number} busy the vitest workers already running
+ */
+const reachOf = (busy) =>
+	reachableRung(suiteRungMb(busy + WHOLE_SUITE_WORKERS), readTotalMb());
+
+/**
+ * @param {number} busy the vitest workers already running
+ * @param {import("./lib/suite-ladder.js").Reach} reach
+ */
+function rungName(busy, { rungMb: mb, ladderMb }) {
 	const workers = busy + WHOLE_SUITE_WORKERS;
-	const mb = suiteRungMb(workers);
 	const suite = workers / WHOLE_SUITE_WORKERS;
-	if (suite === 1) return `the ${mb} MB one-suite rung`;
+	const clamp = clampedClause(ladderMb);
+	if (suite === 1) return `the ${mb} MB one-suite rung${clamp}`;
 	return Number.isInteger(suite) && suite <= SUITE_MAX
-		? `the ${mb} MB rung for suite ${suite} of ${SUITE_MAX}`
-		: `the ${mb} MB rung for ${workers} vitest workers, ${busy} of them already running`;
+		? `the ${mb} MB rung for suite ${suite} of ${SUITE_MAX}${clamp}`
+		: `the ${mb} MB rung for ${workers} vitest workers, ${busy} of them already running${clamp}`;
 }
 
 function runReapScript() {
@@ -71,11 +82,12 @@ function pretestReap() {
 	const running = readRunningVitestSuites();
 	if (!running.ok)
 		log(
-			`pretest: running suites unread (${running.error}) — judging against ${rungName(0)}`,
+			`pretest: running suites unread (${running.error}) — judging against ${rungName(0, reachOf(0))}`,
 		);
 	const busy = running.ok ? running.workers : 0;
-	const rungMb = suiteRungMb(busy + WHOLE_SUITE_WORKERS);
-	const rung = rungName(busy);
+	const reach = reachOf(busy);
+	const rungMb = reach.rungMb;
+	const rung = rungName(busy, reach);
 
 	const before = readAvailableMb();
 	if (!before.ok) {

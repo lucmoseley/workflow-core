@@ -444,17 +444,21 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 	 * 16 Nov's ~13150 MB on a 9930 MB machine (#5310). */
 	it("clamps a rung past MemTotal less earlyoom's line, and says so", () => {
 		const part = "npm run test -- a.test.ts";
+		const ceiling = 9930 - EARLYOOM_FLOOR_MB;
+		const ladder = suiteRungMb(4 * WHOLE_SUITE_WORKERS + 1);
 		const { verdict, text } = judge(part, 4219, psWith(4), { totalMb: 9930 });
-		expect(verdict?.gate).toMatchObject({
+		expect(verdict?.gate).toEqual({
 			limb: "memory",
-			rungMb: 9930 - EARLYOOM_FLOOR_MB,
+			mb: 4219,
+			rungMb: ceiling,
+			ladderMb: ladder,
+			busy: 4 * WHOLE_SUITE_WORKERS,
 		});
+		expect(text).toContain(
+			`under the ~${ceiling} MB docs/environment.md §6 says a test run needs resting for the 1 vitest worker(s) its named files can occupy, beside ${4 * WHOLE_SUITE_WORKERS} running (clamped from ~${ladder} MB, out of the machine's reach`,
+		);
 		expect(
-			verdict?.gate && "ladderMb" in verdict.gate && verdict.gate.ladderMb,
-		).toBeGreaterThan(9930);
-		expect(text).toContain("out of the machine's reach");
-		expect(
-			judge(part, 9136, psWith(4), { totalMb: 9930 }).verdict?.gate,
+			judge(part, ceiling, psWith(4), { totalMb: 9930 }).verdict?.gate,
 		).toBeUndefined();
 	});
 

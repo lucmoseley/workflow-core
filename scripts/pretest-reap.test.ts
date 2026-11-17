@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { suiteRungMb, WHOLE_SUITE_WORKERS } from "./lib/admission.js";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process.js";
+import { EARLYOOM_FLOOR_MB } from "./lib/suite-ladder.js";
 
 const SCRIPT = path.join(__dirname, "pretest-reap.js");
 
@@ -40,10 +41,13 @@ beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "pretest-reap-"));
 });
 afterEach(() => {
+	totalLine = "";
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const buildMeminfoLine = (mb: number) => `MemAvailable: ${mb * 1024} kB\n`;
+let totalLine = "";
+const buildMeminfoLine = (mb: number) =>
+	`${totalLine}MemAvailable: ${mb * 1024} kB\n`;
 
 /**
  * Run the script with `mbs[0]` MB available before the reap and `mbs[1]` (or
@@ -177,6 +181,19 @@ describe("pretest-reap.js", () => {
 		const above = run({ mbs: [10_500], suites: 3 });
 		expect(above.reaps).toBe(0);
 		expect(above.lines).toEqual([]);
+	});
+
+	/* 16 Nov's ~13150 MB rung on a 9930 MB machine (#5310). */
+	it("clamps a rung past MemTotal less earlyoom's line, and says so", () => {
+		totalLine = "MemTotal: 10168320 kB\n";
+		const ceiling = 9930 - EARLYOOM_FLOOR_MB;
+		const short = run({ mbs: [ceiling - 1], suites: 3 });
+		expect(short.reaps).toBe(1);
+		expect(short.text).toContain(
+			`under the ${ceiling} MB rung for 20 vitest workers, 15 of them already running (clamped from ~${suiteRungMb(20)} MB, out of the machine's reach`,
+		);
+		const at = run({ mbs: [ceiling], suites: 3 });
+		expect(at.reaps).toBe(0);
 	});
 
 	/* A running 1-file run weighs 1 worker, not a whole suite (#2560). */

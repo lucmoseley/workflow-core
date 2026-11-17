@@ -18,6 +18,7 @@ const { caught } = require("./caught.js");
 const { GATE_ROLE, GATE_SEAT_DEFAULT_MB } = require("./gate-seat.js");
 const {
 	WHOLE_SUITE_MAX,
+	clampedClause,
 	isNextRunnerLine,
 	isVitestRunnerLine,
 	readCarriedWeightOf,
@@ -1389,7 +1390,7 @@ function describeLimb(hold) {
 	if (mb === undefined) return LIMB_NAMES.memory;
 	const climb = climbMb ? `, less ${climbMb} MB yet to draw` : "";
 	const rung = rungMb === undefined ? "" : ` against ~${rungMb} MB`;
-	return `${LIMB_NAMES.memory}, MemAvailable ${mb} MB${climb}${rung}${outOfReach(ladderMb)}`;
+	return `${LIMB_NAMES.memory}, MemAvailable ${mb} MB${climb}${rung}${clampedClause(ladderMb)}`;
 }
 
 /**
@@ -1533,16 +1534,6 @@ function limbTrace(clock, started) {
 }
 
 /**
- * The clause a clamped rung adds (#5310), so a reader tells a rung busy
- * neighbours hold from one the machine could never meet.
- * @param {number | undefined} ladderMb
- */
-const outOfReach = (ladderMb) =>
-	ladderMb === undefined
-		? ""
-		: ` — clamped: its priced ~${ladderMb} MB is out of the machine's reach, past MemTotal less earlyoom's line`;
-
-/**
  * The line a wait the memory rung still holds at its timeout ends on (#2421):
  * the reading, the other queue's climb charged on it (#3416) and the rung
  * where the guard gave them, whether that rung was clamped to the machine's
@@ -1557,7 +1548,7 @@ function memoryRefusal(label, secs, { mb, rungMb, climbMb, ladderMb }) {
 	const rung =
 		rungMb === undefined
 			? ""
-			: ` against the ~${rungMb} MB rung${outOfReach(ladderMb)}`;
+			: ` against the ~${rungMb} MB rung${clampedClause(ladderMb)}`;
 	const climb = climbMb
 		? `, less ${climbMb} MB the other queue's launches have yet to draw${rung ? "," : ""}`
 		: "";

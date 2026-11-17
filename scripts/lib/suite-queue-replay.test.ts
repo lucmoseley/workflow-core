@@ -641,6 +641,55 @@ describe("the peer-climb limb, a younger waiter yielding to a climb-held one (#4
 	});
 });
 
+describe("the rung clamped to MemTotal less earlyoom's line (#5310)", () => {
+	/* A 5-file waiter beside four 5-file runs prices 25 workers' rung, past
+	 * the 10,000 MB window's reach; memwatch reads 9,500 MB available. */
+	const memoryHeldS = (at: string) => {
+		const later = (t: number) => t + Date.parse(at) - T0;
+		const r = replay(
+			{
+				exits: [
+					{ from: 0, to: 10, slotFree: true, reason: "opened", session: "w" },
+				].map((waiter, i) => {
+					const e = exit(waiter, i);
+					return { ...e, at: iso(later(Date.parse(e.at))) };
+				}),
+				runs: [
+					{ from: 10, to: 12, session: "w", resolvedFiles: 5 },
+					...["a", "b", "c", "d"].map((session) => ({
+						from: 0,
+						to: 20,
+						session,
+						resolvedFiles: 5,
+					})),
+				].map((spec) => {
+					const x = run(spec);
+					return { ...x, st: later(x.st), en: later(x.en) };
+				}),
+				mem: new Map(
+					Array.from({ length: 20 }, (_, m) => [
+						Math.floor(later(T0) / MIN) + m,
+						{ used: 500, load: 1, tsc: 0 },
+					]),
+				),
+				windows: new Map(),
+				unread: { absent: [], unparsed: 0 },
+			},
+			{ ...window(), since: later(T0), until: later(T0 + 60 * MIN) },
+		);
+		return r.limb.get("memory") ?? 0;
+	};
+
+	it("opens at the ceiling from #5310's commit", () => {
+		expect(suiteRungMb(25)).toBeGreaterThan(10_000);
+		expect(memoryHeldS("2026-11-18T00:00:00Z")).toBe(0);
+	});
+
+	it("held it on the rung as priced before", () => {
+		expect(memoryHeldS("2026-11-16T00:00:00Z")).toBe(600);
+	});
+});
+
 describe("the pass past a head the memory rung holds at rest (#4783)", () => {
 	/* A 4-file head held from minute 0 to its bound with no run alive, and a
 	 * 1-file part waiting from minute 10, past PART_PASS_AGE_MS, that fits:

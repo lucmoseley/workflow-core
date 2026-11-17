@@ -7,7 +7,7 @@
  */
 
 const { readAvailableMb, readTotalMb } = require("./meminfo.js");
-const { reachableRung, rungMb } = require("./suite-ladder.js");
+const { clampedClause, reachableRung, rungMb } = require("./suite-ladder.js");
 const { gateDenies, queueSeat } = require("./suite-queue.js");
 
 /* The queue marker's role, which session admission reads (#2416). */
@@ -48,7 +48,7 @@ async function suiteSlot({
 		queue: { queueDir },
 		join: { role: LANDER_ROLE, chargeMb },
 	});
-	const { rungMb: rung, ladderMb } = reachableRung(rungMb(chargeMb), totalMb());
+	const reach = reachableRung(rungMb(chargeMb), totalMb());
 	let mem = memory();
 	let memoryShut = false;
 	const outcome = await seat.wait({
@@ -56,13 +56,12 @@ async function suiteSlot({
 		timeoutMs,
 		gate: (climbMb) => {
 			mem = memory();
-			memoryShut = !mem.ok || mem.mb - climbMb < rung;
+			memoryShut = !mem.ok || mem.mb - climbMb < reach.rungMb;
 			if (memoryShut)
 				return {
 					limb: "memory",
 					...(mem.ok ? { mb: mem.mb } : {}),
-					rungMb: rung,
-					...(ladderMb === undefined ? {} : { ladderMb }),
+					...reach,
 					...(climbMb > 0 ? { climbMb } : {}),
 				};
 			return gate(climbMb);
@@ -72,7 +71,7 @@ async function suiteSlot({
 	if (outcome !== "refused")
 		return { ok: true, spawned: seat.spawned, release: seat.leave };
 	const memoryRead = mem.ok
-		? `${mem.mb} MB available against ${rung} MB${ladderMb === undefined ? "" : `, clamped from ${ladderMb} MB past the machine's reach`}`
+		? `${mem.mb} MB available against ${reach.rungMb} MB${clampedClause(reach.ladderMb)}`
 		: `memory unread: ${mem.error}`;
 	return {
 		ok: false,

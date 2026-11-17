@@ -17,7 +17,7 @@ import { markersDir } from "./marker-root.js";
 import { writePsStub } from "./ps-stub.js";
 import type { QueueTester } from "./queue-lander.js";
 import { shellQuote } from "./sh-quote.js";
-import { rungMb } from "./suite-ladder.js";
+import { EARLYOOM_FLOOR_MB, rungMb } from "./suite-ladder.js";
 import { queueSeat } from "./suite-queue.js";
 import { suiteSlot } from "./suite-slot.js";
 import { admitted } from "./suite-slot-fake";
@@ -528,6 +528,8 @@ it("clamps a charge past MemTotal to what the machine can supply, and says so on
 			lines.push(String(s));
 			return true;
 		});
+	const ceiling = 9930 - EARLYOOM_FLOOR_MB;
+	const ladder = rungMb(12_000);
 	const past = {
 		chargeMb: 12_000,
 		gate: () => null,
@@ -539,21 +541,21 @@ it("clamps a charge past MemTotal to what the machine can supply, and says so on
 	try {
 		const short = await suiteSlot({
 			...past,
-			memory: () => ({ ok: true, mb: 9135 }),
+			memory: () => ({ ok: true, mb: ceiling - 1 }),
 		});
 		expect(short).toMatchObject({
 			ok: false,
 			memoryShut: true,
 			reason: expect.stringContaining(
-				"9135 MB available against 9136 MB, clamped from 13100 MB past the machine's reach",
+				`${ceiling - 1} MB available against ${ceiling} MB (clamped from ~${ladder} MB, out of the machine's reach`,
 			),
 		});
-		expect(lines.join("")).toMatch(
-			/against the ~9136 MB rung — clamped: its priced ~13100 MB is out of the machine's reach/,
+		expect(lines.join("")).toContain(
+			`against the ~${ceiling} MB rung (clamped from ~${ladder} MB, out of the machine's reach`,
 		);
 		const slot = await suiteSlot({
 			...past,
-			memory: () => ({ ok: true, mb: 9136 }),
+			memory: () => ({ ok: true, mb: ceiling }),
 		});
 		expect(slot.ok).toBe(true);
 		if (slot.ok) slot.release();
