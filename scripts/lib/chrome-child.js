@@ -124,9 +124,10 @@ function applyLine(open, line) {
 /**
  * The tabs a child leaves open, read off its `--output-format stream-json`
  * rows in order: those its group still holds, and those of a group it was cut
- * off from.
+ * off from. `missingIsEmpty` reads a missing group as no tab instead, as the
+ * leftover census does, where a resume finding no group settles the child.
  */
-function createTabTally() {
+function createTabTally({ missingIsEmpty = false } = {}) {
 	/** @type {Tabs} */
 	let open = new Map();
 	/** @type {OpenTab[]} */
@@ -136,7 +137,13 @@ function createTabTally() {
 		read(row) {
 			for (const text of toolResultTexts(row)) {
 				for (const line of text.split("\n")) applyLine(open, line);
-				if (text.includes(NO_GROUP)) {
+				if (
+					missingIsEmpty &&
+					(text.includes(NO_GROUP) || text.includes(GROUP_GONE))
+				) {
+					orphaned.length = 0;
+					open = new Map();
+				} else if (text.includes(NO_GROUP)) {
 					orphaned.push(...open.values());
 					open = new Map();
 				}

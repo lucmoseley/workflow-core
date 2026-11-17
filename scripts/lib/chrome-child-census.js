@@ -35,9 +35,9 @@ const {
 	HOLD_MS,
 	listGivenUp,
 	listRecords,
-	processLive,
+	isProcessLive,
 	readClosedLog,
-	storeDir,
+	readLastSweep,
 } = require("./chrome-child-store.js");
 const { parseJsonlRow } = require("./jsonl.js");
 const { readSeatTranscripts } = require("./project-dirs.js");
@@ -55,19 +55,8 @@ const SESSION_ID = /"sessionId":"([^"]+)"/;
  *   unreadable: string[], lastSweep: string | null}} Census
  */
 
-/** The time of the last session-start sweep, or null where none has run. */
-function readLastSweep() {
-	try {
-		const text = fs.readFileSync(path.join(storeDir(), "last-sweep"), "utf8");
-		return Number.isNaN(Date.parse(text.trim())) ? null : text.trim();
-	} catch (e) {
-		if (caught(e).code === "ENOENT") return null;
-		throw e;
-	}
-}
-
 /** @param {unknown} row */
-function callsChrome(row) {
+function isChromeCall(row) {
 	const { type, message } =
 		/** @type {{type?: unknown, message?: {content?: unknown}}} */ (row);
 	if (type !== "assistant" || !Array.isArray(message?.content)) return false;
@@ -90,7 +79,7 @@ function callsChrome(row) {
  * @param {string} line
  * @param {Session | undefined} session
  */
-const carriesResult = (line, session) =>
+const isResultLine = (line, session) =>
 	session?.chrome === true && line.includes('"tool_result"');
 
 /**
@@ -98,7 +87,8 @@ const carriesResult = (line, session) =>
  * naming one, else on the file's name.
  * @param {string} file
  * @param {string} seat
- * @param {Map<string, Session>} sessions
+ * @param {Map<string, Session>} sessions accumulator: each session read is
+ *   added or extended here
  * @returns {(line: string) => void}
  */
 function lineReader(file, seat, sessions) {
@@ -107,7 +97,12 @@ function lineReader(file, seat, sessions) {
 	const sessionOf = (/** @type {string} */ id) => {
 		let s = sessions.get(id);
 		if (!s) {
-			s = { sessionId: id, seat, chrome: false, tally: createTabTally() };
+			s = {
+				sessionId: id,
+				seat,
+				chrome: false,
+				tally: createTabTally({ missingIsEmpty: true }),
+			};
 			sessions.set(id, s);
 		}
 		return s;
@@ -118,11 +113,11 @@ function lineReader(file, seat, sessions) {
 			if (id) session = sessionOf(id);
 		}
 		const names = line.includes(CHROME_TOOL);
-		if (!names && !carriesResult(line, session)) return;
+		if (!names && !isResultLine(line, session)) return;
 		const row = parseJsonlRow(line);
 		if (!row) return;
 		session ??= sessionOf(path.basename(file, ".jsonl"));
-		if (names && callsChrome(row)) session.chrome = true;
+		if (names && isChromeCall(row)) session.chrome = true;
 		if (session.chrome) session.tally.read(row);
 	};
 }
@@ -131,7 +126,8 @@ function lineReader(file, seat, sessions) {
  * Feed one transcript into its session, a line at a time.
  * @param {string} file
  * @param {string} seat
- * @param {Map<string, Session>} sessions
+ * @param {Map<string, Session>} sessions accumulator: each session read is
+ *   added or extended here
  */
 async function readTranscript(file, seat, sessions) {
 	const read = lineReader(file, seat, sessions);
@@ -212,7 +208,7 @@ async function readCensus(fromMs) {
 					givenUp: givenUp.has(s.sessionId),
 					lastSweepMs,
 					launcherLive: record
-						? processLive(record.launcherPid, record.launcherStart)
+						? isProcessLive(record.launcherPid, record.launcherStart)
 						: false,
 				}),
 			};
@@ -244,4 +240,4 @@ function readTurnarounds() {
 	);
 }
 
-module.exports = { classify, readCensus, readLastSweep, readTurnarounds };
+module.exports = { readCensus, readTurnarounds };

@@ -13,7 +13,9 @@
  * mode of the launcher (`chrome-close`, `usage`) and a merge in another
  * segment pass.
  *
- * A CORE: it does no I/O.
+ * A CORE: it does no I/O. It fails open: a crash here would otherwise refuse
+ * every launch, where a merge it misses costs one report, the record and the
+ * sweep still closing the tabs.
  *
  * Its lib/guard-cores.json row runs it only on a call
  * `if: Bash(*claude-child*)` admits.
@@ -58,10 +60,10 @@ function decide(command, ctx) {
 		walkVerdict(
 			parsed,
 			(cmd) => {
-				if (!launchesChrome(cmd, parsed.spans)) return;
+				if (!isChromeLaunch(cmd, parsed.spans)) return;
 				if (
-					cmd.redirects().some(mergesStderr) ||
-					pipesStderr(parsed.masked, cmd.segment)
+					cmd.redirects().some(isStderrMerge) ||
+					isStderrPiped(parsed.masked, cmd.segment)
 				)
 					deny(
 						ctx,
@@ -80,7 +82,7 @@ function decide(command, ctx) {
  * @param {Command} cmd
  * @param {string[]} spans
  */
-function launchesChrome(cmd, spans) {
+function isChromeLaunch(cmd, spans) {
 	return cmd.runs().some(({ words }) => {
 		const [head] = words;
 		if (head === undefined) return false;
@@ -102,7 +104,7 @@ const isLauncher = (word, spans) => {
  * `>&<file>`).
  * @param {Redirect} r
  */
-const mergesStderr = (r) =>
+const isStderrMerge = (r) =>
 	r.fd === "&" || (r.fd === "2" && r.kind === "copy" && /^1-?$/.test(r.target));
 
 /**
@@ -111,7 +113,7 @@ const mergesStderr = (r) =>
  * @param {string} masked
  * @param {string} segment
  */
-function pipesStderr(masked, segment) {
+function isStderrPiped(masked, segment) {
 	const own = segment.trim();
 	if (!own) return false;
 	for (

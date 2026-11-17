@@ -15,6 +15,14 @@
  */
 
 const { spawn } = require("node:child_process");
+/* The flags that make a `claude -p` child read and write stream-json. */
+const STREAM_ARGS = [
+	"--input-format",
+	"stream-json",
+	"--output-format",
+	"stream-json",
+	"--verbose",
+];
 const crypto = require("node:crypto");
 const readline = require("node:readline");
 const { parseJsonlRow } = require("./jsonl.js");
@@ -63,7 +71,8 @@ function startStreamChild(bin, args, opts, onRow) {
 
 	/** @type {Record<string, unknown> | undefined} */
 	let lastResult;
-	let assistants = 0;
+	/* One model turn streams a row per content block, under one message id. */
+	const assistants = new Set();
 	if (child.stdout) {
 		const lines = readline.createInterface({ input: child.stdout });
 		lines.on("line", (line) => {
@@ -71,7 +80,10 @@ function startStreamChild(bin, args, opts, onRow) {
 			if (row === undefined) writeFd(2, `${line}\n`);
 			if (!row) return;
 			onRow(row);
-			if (row.type === "assistant") assistants++;
+			if (row.type === "assistant") {
+				const message = /** @type {{id?: unknown} | undefined} */ (row.message);
+				assistants.add(message?.id ?? assistants.size);
+			}
 			if (row.type === "result") lastResult = row;
 			wake();
 		});
@@ -118,7 +130,7 @@ function startStreamChild(bin, args, opts, onRow) {
 		 */
 		turn({ capMs, capAssistants = Number.POSITIVE_INFINITY, graceMs }) {
 			lastResult = undefined;
-			assistants = 0;
+			assistants.clear();
 			return new Promise((resolve) => {
 				let capped = false;
 				/** @type {NodeJS.Timeout | undefined} */
@@ -142,7 +154,7 @@ function startStreamChild(bin, args, opts, onRow) {
 				waiter = () => {
 					if (lastResult) return done({ result: lastResult, capped });
 					if (gone) return done({ result: undefined, capped });
-					if (assistants >= capAssistants) hitCap();
+					if (assistants.size >= capAssistants) hitCap();
 				};
 				waiter();
 			});
@@ -167,4 +179,4 @@ function startStreamChild(bin, args, opts, onRow) {
 	};
 }
 
-module.exports = { KILL_AFTER_MS, startStreamChild };
+module.exports = { STREAM_ARGS, startStreamChild };

@@ -8,8 +8,9 @@
  * spawn-kept: a real fd (§X3) — the script hands the child real fds —
  * its own stdout and stderr, and the prompt file as stdin.
  *
- * Each of the Chrome mode's ends (#4847, #5385) is a launch of its own, a
- * third of a second apiece: clean, a close turn, its caps, the limit's
+ * Each of the Chrome mode's ends (#4847, #5385) is a launch of its own, most
+ * a third of a second, those waiting out the 1.5 s SIGKILL or a closer's 5 s
+ * wait for a live child longer: clean, a close turn, its caps, the limit's
  * interrupt, a hold, a trim, a trapped SIGTERM, a signal, a binary that is
  * gone; and each of chrome-close's outcomes and skips. The rows are
  * hand-built in the extension's wording (lib/chrome-rows-fake.ts): a
@@ -386,6 +387,21 @@ describe("chrome", () => {
 		expect(r.status).toBe(0);
 	});
 
+	it("counts a model turn's rows, one per content block, as one assistant message", () => {
+		const block = {
+			...Assistant,
+			message: { ...Assistant.message, id: "msg_1" },
+		};
+		writeTurns([
+			[Open8, buildResultRow()],
+			[block, block, block, block, block, block, Close8, buildResultRow()],
+		]);
+		const row = oneLine(chrome());
+		expect(sent().filter((m) => m.type === "control_request")).toEqual([]);
+		expect(row.tabsLeftOpen).toEqual([]);
+		expect(records()).toEqual([]);
+	});
+
 	it("caps the close turn at its seconds too", () => {
 		writeTurns([[Open8, buildResultRow()], [Assistant]]);
 		const r = chrome({ WFC_CHROME_CLOSE_CAP_MS: "300" });
@@ -429,6 +445,18 @@ describe("chrome", () => {
 		expect(row.tabsLeftOpen).toHaveLength(1);
 		expect(signals()).toEqual(["SIGTERM"]);
 		expect(stdinClosed()).toBe(false);
+		expect(records()).toEqual([`${row.sessionId}.json`]);
+	});
+
+	it("keeps the record of a child it stopped by signal with no tab seen open", () => {
+		writeTurns([[]], { ignoreInterrupt: true });
+		const r = chrome({
+			WFC_CHROME_CHILD_LIMIT_MS: "300",
+			WFC_CHROME_INTERRUPT_WAIT_MS: "300",
+		});
+		const row = oneLine(r);
+		expect(row.tabsLeftOpen).toEqual([]);
+		expect(signals()).toEqual(["SIGTERM"]);
 		expect(records()).toEqual([`${row.sessionId}.json`]);
 	});
 
@@ -517,7 +545,7 @@ describe("chrome", () => {
 				prompt(),
 			],
 			{
-				env: runEnv({ WFC_CHROME_TRAP_WRAP: JSON.stringify([wrap]) }),
+				env: runEnv({ WFC_USER_MANAGER: "yes", WFC_SYSTEMD_RUN: wrap }),
 				stdio: ["ignore", "pipe", "pipe"],
 			},
 		);
@@ -531,7 +559,8 @@ describe("chrome", () => {
 			},
 			{ timeout: 5000, interval: 50 },
 		);
-		/* The fake has printed its rows by the time the tally reads them. */
+		/* The prompt is sent before the fake answers it: a guessed 200 ms
+		 * lets its tab-opening row reach the tally, so the record names it. */
 		await new Promise((r) => setTimeout(r, 200));
 		launcher.kill("SIGTERM");
 		const [status] = await once(launcher, "exit");

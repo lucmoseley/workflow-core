@@ -5,6 +5,7 @@
  * launcher's stdout is one JSON line on every end path, and a merged note
  * breaks the parse (#5381). The dispatcher entry is run on the core alone:
  * the payload on stdin, end to end. The command judged is never run.
+ * Loosening a case lets a merged launch through, and its tab report is lost.
  */
 
 import { execFileSync } from "node:child_process";

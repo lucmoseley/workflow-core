@@ -13,8 +13,9 @@
  * Held and given-up children are counted on their own lines, not findings.
  *
  * THE WINDOW is the transcripts written in the last `--since` days (30 by
- * default; repo-checks.js passes its widening window), never before
- * FIX_LANDED_AT. A session whose earlier transcript fell outside the window
+ * default; repo-checks.js passes its widening window), never before the
+ * store's first recorded launch: an older child ran under a launcher that
+ * kept no record, #5349's census. A session whose earlier transcript fell outside the window
  * is read from its later one alone.
  *
  * `--turnaround` prints, from the closed log, each held tab's time from
@@ -24,11 +25,7 @@
 
 const { now, runCheck } = require("./lib/check.js");
 const { readCensus, readTurnarounds } = require("./lib/chrome-child-census.js");
-const { HOLD_MS } = require("./lib/chrome-child-store.js");
-
-/* The build's fix landed then; children before it are #5349's census,
- * already closed. */
-const FIX_LANDED_AT = "2026-11-17T12:00:00Z";
+const { HOLD_MS, readFirstLaunch } = require("./lib/chrome-child-store.js");
 const DAY_MS = 86_400_000;
 
 /** @typedef {import("./lib/check.js").Ctx} Ctx */
@@ -52,8 +49,15 @@ const tabsText = (left) =>
 /** @param {Ctx} ctx */
 async function run(ctx) {
 	if (ctx.has("--turnaround")) return turnaround(ctx);
+	/* An ad-hoc run's default, check-clobbered-bodies.js's own; the daily run
+	 * passes its window. */
 	const days = ctx.numberValue("--since", 30, "positive");
-	const fromMs = Math.max(now() - days * DAY_MS, Date.parse(FIX_LANDED_AT));
+	const firstLaunch = readFirstLaunch();
+	if (firstLaunch === null)
+		ctx.skip(
+			"no Chrome child has run under the recording launcher yet, so none was counted.",
+		);
+	const fromMs = Math.max(now() - days * DAY_MS, firstLaunch);
 	const census = await readCensus(fromMs);
 	if (census.listed === 0)
 		ctx.skip(

@@ -5,7 +5,9 @@
  *
  * The rows are hand-built in the Claude in Chrome extension's wording
  * (lib/chrome-rows-fake.ts); a rewording in the extension is caught only by
- * a live run.
+ * a live run. Each case runs under a temporary seat and project root, never
+ * the real ones. Loosening a case lets a leftover tab pass the daily core
+ * gate unreported.
  */
 
 import fs from "node:fs";
@@ -31,7 +33,13 @@ beforeEach(() => {
 	seatB = path.join(dir, ".claude2");
 	fs.mkdirSync(seatA);
 	fs.mkdirSync(seatB);
+	firstLaunch("2026-11-17T12:00:00Z");
 });
+
+const firstLaunch = (iso: string) => {
+	fs.mkdirSync(store(), { recursive: true });
+	fs.writeFileSync(path.join(store(), "first-launch"), `${iso}\n`);
+};
 
 afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
@@ -161,6 +169,21 @@ describe("classing each Chrome child", () => {
 		expect(await keys()).toEqual([]);
 	});
 
+	it("passes a child whose resume found its group gone", async () => {
+		const id = child([[7, "https://a.example/", "Page A"]], {
+			at: "2026-11-24T10:00:00Z",
+		});
+		transcript(
+			id,
+			[
+				chromeCall(id),
+				result(id, "This session's tab group no longer exists."),
+			],
+			{ at: "2026-11-24T11:00:00Z", name: uuid() },
+		);
+		expect(await keys()).toEqual([]);
+	});
+
 	it("reports an unexplained leftover naming session, seat, title and URL", async () => {
 		const id = child([[7, "https://a.example/", "Page A"]], { seat: seatB });
 		const r = await report();
@@ -235,11 +258,21 @@ describe("classing each Chrome child", () => {
 });
 
 describe("the window", () => {
-	it("reads nothing written before the fix landed, whatever --since says", async () => {
+	it("reads nothing written before the store's first recorded launch, whatever --since says", async () => {
 		child([[1, "https://old.example/", "Old"]], {
 			at: "2026-11-17T11:00:00Z",
 		});
 		expect(await keys(["--since", "30"])).toEqual([]);
+	});
+
+	it("counts nothing where no launch was ever recorded", async () => {
+		fs.rmSync(path.join(store(), "first-launch"));
+		child([[1, "https://a.example/", "A"]]);
+		const r = await run(["--json-text"]);
+		expect(JSON.parse(r.stdout).findings).toEqual([]);
+		expect(r.stdout).toContain(
+			"no Chrome child has run under the recording launcher yet",
+		);
 	});
 
 	it("reads only the last --since days", async () => {

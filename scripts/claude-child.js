@@ -78,6 +78,7 @@ const {
 	createTabTally,
 } = require("./lib/chrome-child.js");
 const {
+	UUID,
 	deleteRecord,
 	readRecord,
 	writeRecord,
@@ -88,7 +89,7 @@ const {
 	listHeld,
 	sweep,
 } = require("./lib/chrome-close.js");
-const { startStreamChild } = require("./lib/chrome-stream.js");
+const { STREAM_ARGS, startStreamChild } = require("./lib/chrome-stream.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { configDirs } = require("./lib/arbiter-store.js");
@@ -207,16 +208,13 @@ function timeoutOrFail(given) {
 /**
  * The trap's closer, outliving this process and its session's scope, so
  * neither the parent's tree kill nor the session's end takes it down.
- * WFC_CHROME_TRAP_WRAP, a JSON list of words, replaces the scope words for a
- * test.
  * @param {string} sessionId
  */
 function startTrapCloser(sessionId) {
-	const wrap = process.env.WFC_CHROME_TRAP_WRAP;
 	spawnOutliving(
 		process.execPath,
 		[__filename, "chrome-close", "--session", sessionId, "--trap"],
-		{ stdio: "ignore", ...(wrap ? { wrap: JSON.parse(wrap) } : {}) },
+		{ stdio: "ignore" },
 	).unref();
 }
 
@@ -292,24 +290,24 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 		const tabs = tally.left();
 		try {
 			writeRecord({ ...(readRecord(sessionId) ?? record), tabs, ...over });
-		} catch {
-			/* the record as first written still finds the session */
+		} catch (e) {
+			/* The record as first written still finds the session. */
+			writeFd(
+				2,
+				`claude-child: could not update the child's record (${caught(e).message}).\n`,
+			);
 		}
 		return tabs;
 	};
 
-	for (const signal of /** @type {const} */ (["SIGTERM", "SIGINT", "SIGHUP"]))
-		process.on(signal, () => {
+	trapSignals(
+		() => {
 			run.signalGroup("SIGTERM");
-			const left = keep();
-			try {
-				startTrapCloser(sessionId);
-			} catch {
-				/* the session-start sweep is the backstop */
-			}
-			print({ left, killedBy: signal });
-			process.exit(1);
-		});
+			return keep();
+		},
+		sessionId,
+		print,
+	);
 
 	run.send(prompt);
 	const first = await run.turn({
@@ -320,8 +318,9 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 	result = first.result;
 	if (!result) {
 		const end = await stopOrWait(run);
+		/* A stop may cut a tab-opening call off before its result. */
 		const left = keep();
-		if (left.length === 0) deleteRecord(sessionId);
+		if (left.length === 0 && !end.stopped) deleteRecord(sessionId);
 		return print({ ...end, left, limitMs: limited });
 	}
 
@@ -349,6 +348,30 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 		...(heldTab ? { heldTab } : {}),
 	});
 	return print({ ...end, held: left, limitMs: limited });
+}
+
+/**
+ * On SIGTERM, SIGINT or SIGHUP: `stop` the child, keeping its tabs, start a
+ * closer outliving this launcher, print the one line and exit 1.
+ * @param {() => import("./lib/chrome-child.js").OpenTab[]} stop
+ * @param {string} sessionId
+ * @param {(over: {left: import("./lib/chrome-child.js").OpenTab[], killedBy: NodeJS.Signals}) => void} print
+ */
+function trapSignals(stop, sessionId, print) {
+	for (const signal of /** @type {const} */ (["SIGTERM", "SIGINT", "SIGHUP"]))
+		process.on(signal, () => {
+			const left = stop();
+			try {
+				startTrapCloser(sessionId);
+			} catch (e) {
+				writeFd(
+					2,
+					`claude-child: no closer started (${caught(e).message}); the next session-start sweep closes the tabs.\n`,
+				);
+			}
+			print({ left, killedBy: signal });
+			process.exit(1);
+		});
 }
 
 /**
@@ -396,7 +419,7 @@ async function runChromeClose(flags) {
 		fail("--trap goes with --session.", 2);
 	let end;
 	if (session !== undefined) {
-		if (typeof session !== "string" || !/^[0-9a-f-]{36}$/i.test(session))
+		if (typeof session !== "string" || !UUID.test(session))
 			fail(`--session '${session}' is not a session id.`, 2);
 		end = await closeSession(session, {
 			trap: flags["--trap"] === true,
@@ -434,11 +457,7 @@ function launchChrome(seat, flags) {
 			"mcp__claude-in-chrome__file_upload",
 			"--max-turns",
 			String(maxTurns(pages)),
-			"--input-format",
-			"stream-json",
-			"--output-format",
-			"stream-json",
-			"--verbose",
+			...STREAM_ARGS,
 			"--append-system-prompt",
 			chromeStandingLines(handOver),
 		],

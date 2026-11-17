@@ -343,7 +343,7 @@
 			"name": "guard-chrome-merge",
 			"core": "chrome-merge.js",
 			"tools": "Bash",
-			"failure": "closed",
+			"failure": "open",
 			"tree": "host",
 			"if": ["Bash(*claude-child*)"]
 		},

@@ -17,27 +17,26 @@
  * Every form prints one JSON line on stdout.
  */
 
-const fs = require("node:fs");
-const path = require("node:path");
 const { sleepSync } = require("./sleep-sync.js");
 const { writeReport } = require("./notify-report.js");
 const { reportOwner } = require("./session-id.js");
 const {
+	GIVE_UP_MS,
 	HOLD_MS,
 	appendClosed,
 	deleteRecord,
 	giveUp,
 	isSpent,
 	listRecords,
-	processLive,
+	isProcessLive,
 	readRecord,
 	recordLock,
-	storeDir,
 	sweepSkip,
+	writeLastSweep,
 	writeRecord,
 } = require("./chrome-child-store.js");
 const { RESUME_PROMPT, createCloseReader } = require("./chrome-child.js");
-const { startStreamChild } = require("./chrome-stream.js");
+const { STREAM_ARGS, startStreamChild } = require("./chrome-stream.js");
 
 /* Untraced: how long a closer waits for a still-live child to exit. */
 const CHILD_WAIT_MS = 5000;
@@ -46,7 +45,16 @@ const CLOSE_CAP_ASSISTANTS = 5;
 const CLOSE_CAP_MS = 60_000;
 /* Untraced: how long an interrupted turn has to give its result row. */
 const INTERRUPT_WAIT_MS = 10_000;
+/* Untraced: how often a wait re-reads /proc, and how long a SIGKILLed child
+ * gets to be reaped before the resume starts anyway. */
 const POLL_MS = 100;
+const KILLED_WAIT_MS = 1000;
+
+/**
+ * Whether a resume left the group empty or found none left.
+ * @param {string | undefined} outcome
+ */
+const isSettled = (outcome) => outcome === "closed" || outcome === "gone";
 
 const RESUME_TOOLS = [
 	"mcp__claude-in-chrome__tabs_context_mcp",
@@ -78,7 +86,7 @@ const closeCaps = () => ({
  */
 function waitGone(pid, start, ms) {
 	const deadline = Date.now() + ms;
-	while (processLive(pid, start)) {
+	while (isProcessLive(pid, start)) {
 		if (Date.now() > deadline) return false;
 		sleepSync(POLL_MS);
 	}
@@ -97,7 +105,7 @@ function endChild({ childPid, childStart }) {
 		} catch {
 			/* not a group leader, or already gone */
 		}
-	waitGone(childPid, childStart, 1000);
+	waitGone(childPid, childStart, KILLED_WAIT_MS);
 }
 
 /**
@@ -121,11 +129,7 @@ async function resume(record, launchFor) {
 			"",
 			"--allowedTools",
 			RESUME_TOOLS.join(","),
-			"--input-format",
-			"stream-json",
-			"--output-format",
-			"stream-json",
-			"--verbose",
+			...STREAM_ARGS,
 		],
 		{ env: launch.env, cwd: launch.cwd },
 		(row) => reader.read(row),
@@ -133,7 +137,7 @@ async function resume(record, launchFor) {
 	run.send(RESUME_PROMPT);
 	const end = await run.turn(closeCaps());
 	const outcome = reader.outcome();
-	if (outcome === "closed" || outcome === "gone") await run.finish();
+	if (isSettled(outcome)) await run.finish();
 	else await run.stop();
 	const said =
 		typeof end.result?.result === "string" ? end.result.result : undefined;
@@ -176,7 +180,7 @@ function reportGivenUp(gone) {
  */
 function settle(record, { outcome, reason }, by, at) {
 	const { sessionId, heldSince } = record;
-	if (outcome === "closed" || outcome === "gone") {
+	if (isSettled(outcome)) {
 		deleteRecord(sessionId);
 		if (outcome === "closed")
 			appendClosed({
@@ -217,7 +221,7 @@ async function closeRecord(record, by, launchFor, now) {
 				fresh,
 				fresh.lastReason
 					? `past its limits, last: ${fresh.lastReason}`
-					: "past its 7 days",
+					: `past its ${GIVE_UP_MS / 86_400_000} days`,
 				now,
 			);
 		endChild(fresh);
@@ -266,7 +270,7 @@ async function closeSession(
 		};
 	const launcherGone = trap
 		? waitGone(record.launcherPid, record.launcherStart, CHILD_WAIT_MS)
-		: !processLive(record.launcherPid, record.launcherStart);
+		: !isProcessLive(record.launcherPid, record.launcherStart);
 	if (!launcherGone)
 		return {
 			line: {
@@ -284,7 +288,7 @@ async function closeSession(
 	);
 	return {
 		line: done,
-		exit: done.outcome === "closed" || done.outcome === "gone" ? 0 : 1,
+		exit: isSettled(done.outcome) ? 0 : 1,
 	};
 }
 
@@ -295,16 +299,12 @@ async function closeSession(
  * @param {{launchFor: LaunchFor, now?: () => Date}} opts
  */
 async function sweep({ launchFor, now = () => new Date() }) {
-	fs.mkdirSync(storeDir(), { recursive: true, mode: 0o700 });
-	fs.writeFileSync(
-		path.join(storeDir(), "last-sweep"),
-		`${now().toISOString()}\n`,
-	);
+	writeLastSweep(now());
 	const closed = [];
 	const skipped = [];
 	for (const record of listRecords()) {
 		const why = sweepSkip(record, now().getTime(), {
-			launcherLive: processLive(record.launcherPid, record.launcherStart),
+			launcherLive: isProcessLive(record.launcherPid, record.launcherStart),
 			locked: recordLock(record.sessionId).holder() !== null,
 		});
 		if (why) skipped.push({ sessionId: record.sessionId, why });

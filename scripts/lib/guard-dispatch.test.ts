@@ -967,7 +967,7 @@ describe("the manifest", () => {
 			["guard-issue-phase-scope", "Bash", "closed", "function"],
 			["guard-headroom-read", "Bash", "open", "function"],
 			["guard-hook-escape", "Bash", "closed", "function"],
-			["guard-chrome-merge", "Bash", "closed", "function"],
+			["guard-chrome-merge", "Bash", "open", "function"],
 			["guard-suite-concurrency", "Bash", "closed", "function"],
 			["guard-unasked-rerun", "Bash", "closed", "function"],
 			["guard-vitest-wrapper", "Bash", "open", "function"],

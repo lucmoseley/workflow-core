@@ -19,6 +19,9 @@
  * no attempt and backs the sweep off for an hour, or the failure's text.
  * `tabs` are the tabs the launcher last saw open, for a give-up's report.
  *
+ * `first-launch` holds the ISO time of the first record ever written here:
+ * before it, no launcher kept records, so the census reads nothing older.
+ *
  * `given-up/<uuid>.json` keeps each record no closer could close, with
  * `givenUpAt` and `reason`: nothing resumes it, and the leftover census reads
  * it. `closed.jsonl` takes one line per close a closer confirmed, `by` one of
@@ -33,6 +36,8 @@ const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { readJsonl } = require("./jsonl.js");
 const { pidLock } = require("./pid-lock.js");
+const { readText } = require("./file-read.js");
+const { writeFd } = require("./write-fd.js");
 
 /* #5376 (founder ruling): how long a held hand-over tab is the founder's. */
 const HOLD_MS = 2 * 60 * 60 * 1000;
@@ -62,6 +67,11 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const storeDir = () => path.join(storeConfigDir(), "chrome-children");
 const givenUpDir = () => path.join(storeDir(), "given-up");
 const closedLog = () => path.join(storeDir(), "closed.jsonl");
+const firstLaunchFile = () => path.join(storeDir(), "first-launch");
+const lastSweepFile = () => path.join(storeDir(), "last-sweep");
+/** Make `dir`, the store's own or its given-up folder, this user's alone. */
+const makeDir = (dir = storeDir()) =>
+	fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
 /** @param {string} id */
 const recordFile = (id) => path.join(storeDir(), `${id}.json`);
 
@@ -79,7 +89,15 @@ function readJson(file) {
 		return JSON.parse(fs.readFileSync(file, "utf8"));
 	} catch (e) {
 		if (caught(e).code === "ENOENT") return null;
-		if (e instanceof SyntaxError) return null;
+		/* Records are written atomically, so one that will not parse was
+		 * damaged outside this store: said, and left on disk for a hand. */
+		if (e instanceof SyntaxError) {
+			writeFd(
+				2,
+				`chrome-child-store: ${file} is not JSON, so no closer reads it (${e.message}).\n`,
+			);
+			return null;
+		}
 		throw e;
 	}
 }
@@ -87,7 +105,14 @@ function readJson(file) {
 /** @param {ChildRecord} record */
 function writeRecord(record) {
 	assertId(record.sessionId);
-	fs.mkdirSync(storeDir(), { recursive: true, mode: 0o700 });
+	makeDir();
+	try {
+		fs.writeFileSync(firstLaunchFile(), `${record.startedAt}\n`, {
+			flag: "wx",
+		});
+	} catch (e) {
+		if (caught(e).code !== "EEXIST") throw e;
+	}
 	writeFileAtomic(
 		recordFile(record.sessionId),
 		`${JSON.stringify(record, null, "\t")}\n`,
@@ -101,6 +126,33 @@ function writeRecord(record) {
 function readRecord(id) {
 	assertId(id);
 	return /** @type {ChildRecord | null} */ (readJson(recordFile(id)));
+}
+
+/**
+ * The ISO time a stamp file holds, null where it is absent or no time.
+ * @param {string} file
+ */
+function readStamp(file) {
+	const read = readText(file);
+	if (read.state === "absent") return null;
+	if (read.state === "unreadable") throw read.error;
+	const text = read.data.trim();
+	return Number.isNaN(Date.parse(text)) ? null : text;
+}
+
+/** When the first record was written here, in ms; null where none was. */
+function readFirstLaunch() {
+	const stamp = readStamp(firstLaunchFile());
+	return stamp === null ? null : Date.parse(stamp);
+}
+
+/** The time of the last session-start sweep, or null where none has run. */
+const readLastSweep = () => readStamp(lastSweepFile());
+
+/** @param {Date} at */
+function writeLastSweep(at) {
+	makeDir();
+	fs.writeFileSync(lastSweepFile(), `${at.toISOString()}\n`);
 }
 
 /** @param {string} id */
@@ -145,7 +197,7 @@ const listGivenUp = () =>
  */
 function giveUp(record, reason, at) {
 	const gone = { ...record, givenUpAt: at.toISOString(), reason };
-	fs.mkdirSync(givenUpDir(), { recursive: true, mode: 0o700 });
+	makeDir(givenUpDir());
 	writeFileAtomic(
 		path.join(givenUpDir(), `${record.sessionId}.json`),
 		`${JSON.stringify(gone, null, "\t")}\n`,
@@ -156,7 +208,7 @@ function giveUp(record, reason, at) {
 
 /** @param {ClosedLine} line */
 function appendClosed(line) {
-	fs.mkdirSync(storeDir(), { recursive: true, mode: 0o700 });
+	makeDir();
 	fs.appendFileSync(closedLog(), `${JSON.stringify(line)}\n`);
 }
 
@@ -174,7 +226,7 @@ function readClosedLog() {
  */
 function recordLock(id) {
 	assertId(id);
-	fs.mkdirSync(storeDir(), { recursive: true, mode: 0o700 });
+	makeDir();
 	return pidLock(path.join(storeDir(), `${id}.lock`), "claude-child.js");
 }
 
@@ -183,7 +235,7 @@ function recordLock(id) {
  * @param {number | null} pid
  * @param {string | null} start
  */
-function processLive(pid, start) {
+function isProcessLive(pid, start) {
 	if (!pid || !start || !pidAlive(pid)) return false;
 	return readProcStartOf(pid) === start;
 }
@@ -230,21 +282,23 @@ const isSpent = (record, now) =>
 	record.attempts >= GIVE_UP_ATTEMPTS || now - clockStart(record) >= GIVE_UP_MS;
 
 module.exports = {
-	GIVE_UP_ATTEMPTS,
 	GIVE_UP_MS,
 	HOLD_MS,
-	NOT_CONNECTED_BACKOFF_MS,
+	UUID,
 	appendClosed,
 	deleteRecord,
 	giveUp,
 	isSpent,
 	listGivenUp,
 	listRecords,
-	processLive,
+	isProcessLive,
 	readClosedLog,
+	readFirstLaunch,
+	readLastSweep,
 	readRecord,
 	recordLock,
 	storeDir,
 	sweepSkip,
+	writeLastSweep,
 	writeRecord,
 };
