@@ -3416,6 +3416,44 @@ describe("a serial step", () => {
 		expect(r.main).toBe("merge(m0;a1)");
 		expect(disk.green.has(step)).toBe(false);
 	});
+
+	/* Positive pair: "lands a step red once that passes its confirm,
+	 * dropping nothing". */
+	it.each([
+		["the step before its own", "merge(m0;a1)"],
+		["its own step", "merge(merge(m0;a1);b1)"],
+	])(
+		"skips a member withdrawn while %s is under test, landing the rest without it (#5318)",
+		async (_, at) => {
+			const r = remoteOf("m0", {
+				a: { sha: "a1", pushedAt: 1 },
+				b: { sha: "b1", pushedAt: 2 },
+				c: { sha: "c1", pushedAt: 3 },
+			});
+
+			const { end, actions, pushed, asked } = await land(r, freshDisk(), {
+				verdict: (sha) =>
+					sha === "merge(m0;a1,b1,c1)"
+						? { kind: "red", files: [Y] }
+						: { kind: "green", run: 1 },
+				onAsk: (sha, rem) => {
+					if (sha === at) rem.refs.delete("b");
+				},
+			});
+
+			expect(end).toEqual(NO_QUEUE);
+			expect(asked).toContain(at);
+			expect(
+				actions.flatMap((a) =>
+					a.kind === "leave-withdrawn" ? [buildQueueActionLine(a)] : [],
+				),
+			).toEqual([
+				"leave-withdrawn queue/b@b1: its queue ref is gone from the remote",
+			]);
+			expect(pushed.filter((sha) => sha.includes("b1"))).toEqual([]);
+			expect(r.main).toBe("merge(merge(m0;a1);c1)");
+		},
+	);
 });
 
 describe("paths this machine does not take", () => {

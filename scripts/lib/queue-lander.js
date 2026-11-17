@@ -1112,6 +1112,8 @@ function serialAction(b, s, main) {
 	const at = b.serial?.step;
 	if (at?.name === next.name && at.sha === main)
 		return { kind: "record-step", sha: main, name: next.name };
+	const gone = left.find((m) => isWithdrawn(s, m));
+	if (gone) return { kind: "leave-withdrawn", name: gone.name, sha: gone.sha };
 	if (at?.name === next.name && at.onto === main)
 		return stepAction(
 			b,
@@ -1978,6 +1980,25 @@ const leaveOut = (b, name, as) => ({
 });
 
 /**
+ * The batch with the withdrawn `name` left out: merged again without it, or,
+ * landing serially, going on without it and its step (#5318).
+ * @param {Batch} b
+ * @param {string} name
+ * @returns {Batch}
+ */
+const withdrawnFrom = (b, name) =>
+	b.phase === "serial" && b.serial
+		? {
+				...b,
+				deferred: [...b.deferred, name],
+				serial: {
+					...b.serial,
+					step: b.serial.step?.name === name ? null : b.serial.step,
+				},
+			}
+		: leaveOut(b, name, "deferred");
+
+/**
  * The batch with `name` dropped: merged again without it, or, isolating or
  * landing serially, going on without it.
  * @param {Batch} b
@@ -2666,10 +2687,17 @@ async function act(deps, action, run) {
 		case "leave-withdrawn": {
 			/* Listed with the deferred, the members left out; a withdrawn one
 			 * owes no drop and no fix ticket. A merged batch's run at the
-			 * commit carrying it is unwanted (#5316). */
-			const { integration: was, slot } = batchOf(run);
-			if (was !== null) dropRunsAt(deps, run, { sha: was, slot });
-			const batch = leaveOut(batchOf(run), action.name, "deferred");
+			 * commit carrying it, or a serial step's, is unwanted (#5316, #5318). */
+			const b = batchOf(run);
+			const at = b.serial?.step ?? null;
+			const own = at?.name === action.name;
+			const carrying = [b.integration, own ? at.sha : null].filter(
+				(sha) => sha !== null,
+			);
+			for (const sha of carrying) forgetAsks(run, sha);
+			if (carrying.length > 0)
+				cancelRuns(deps, b.slot, own ? null : (at?.sha ?? null), carrying);
+			const batch = withdrawnFrom(b, action.name);
 			record.write(batch);
 			return { ...run, acting: batch, unmerged: null, alone: null };
 		}
