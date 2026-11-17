@@ -12,7 +12,8 @@ const {
 	withUnretired,
 } = require("./refill-block-core.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
-const { buildMovedReason, seatIdOf } = require("./refill-seats.js");
+const { carriedOnto, parkedSeatOf } = require("./refill-carry.js");
+const { seatIdOf } = require("./refill-seats.js");
 const {
 	DEFAULT_STAGGER_SECONDS,
 	MEMBER_REFUSED_TAIL,
@@ -339,9 +340,8 @@ function buildParkedRecord(l, target, r, { launchedAt, actsBefore }) {
 		issues: l.issues,
 		prompt: l.prompt,
 		seat: target.seat,
-		reason: target.from
-			? buildMovedReason(target.from)
-			: "parked session's seat",
+		reason: "parked session's seat",
+		...carriedOnto(parkedSeatOf(target), target.seat),
 		jobId: r.jobId,
 		launchedAt,
 		finishedAt: null,

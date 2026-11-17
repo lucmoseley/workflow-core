@@ -59,6 +59,11 @@ const {
 const { stopOn } = require("./claude-stop.js");
 const { jobDirPath, readJobCwd } = require("./job-paths.js");
 const { resumeSteps } = require("./refill-resume.js");
+const {
+	adoptOnSeat,
+	parkedSeatOf,
+	resumeOnSeat,
+} = require("./refill-carry.js");
 const { buildSeatEnv } = require("./seat-claude.js");
 const { buildResumeIo } = require("./resume-io.js");
 const { parseJsonl } = require("./jsonl.js");
@@ -703,12 +708,12 @@ const adoptKilledLaunches = (state, served) =>
 			sessionOf: readHeadlessSession,
 			readActsBefore: buildActsBeforeReader(served),
 			recordLaunch,
-			adoptResumed: (l, { seat, sessionId, cwd, from }, since) =>
-				resume.adoptResumed(
-					{ ...l, seat },
-					{ sessionId, cwd },
-					since,
-					from ? { seat } : undefined,
+			adoptResumed: (l, target, since) =>
+				adoptOnSeat(
+					resume.adoptResumed,
+					{ ...l, seat: parkedSeatOf(target) },
+					target.seat,
+					{ ids: { sessionId: target.sessionId, cwd: target.cwd }, since },
 				),
 			log,
 		});
@@ -817,22 +822,16 @@ const staggerResume = () => sleepSync(refillBatch.readStaggerMs());
 const launchOrResume = (batch, served) =>
 	refillBatch.launchOrResume(batch, {
 		readActsBefore: buildActsBeforeReader(served),
-		resume: (
-			{ root, issues, prompt },
-			{ seat, from, sessionId, cwd, parkCause },
-		) =>
-			from
-				? resume.moveSession(
-						{ root, issues, seat: from, prompt },
-						{ seat },
-						parkedPromptOf(parkCause),
-						{ sessionId, cwd },
-					)
-				: resume.resumeStopped(
-						{ root, issues, seat },
-						parkedPromptOf(parkCause),
-						{ sessionId, cwd },
-					),
+		resume: ({ root, issues, prompt }, target) =>
+			resumeOnSeat(
+				resume,
+				{ root, issues, prompt, seat: parkedSeatOf(target) },
+				target.seat,
+				{
+					prompt: parkedPromptOf(target.parkCause),
+					ids: { sessionId: target.sessionId, cwd: target.cwd },
+				},
+			),
 		admitResume,
 		stagger: staggerResume,
 		recordLaunch,
