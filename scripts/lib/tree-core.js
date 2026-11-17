@@ -29,8 +29,8 @@ class CoreUnresolved extends Error {}
 /**
  * The core the hook shim in the tree at `dir` runs, asked in a child so the
  * tree's code stays out of this process. Throws a CoreUnresolved carrying
- * the resolver's reason, and the spawn's error, ETIMEDOUT
- * past `timeoutMs` among them, where the child does not finish.
+ * the resolver's reason where it finds none. Throws the spawn's own error,
+ * ETIMEDOUT past `timeoutMs` among them, where the child does not finish.
  * @param {string} dir
  * @param {number} timeoutMs
  * @returns {string}

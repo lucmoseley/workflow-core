@@ -405,7 +405,7 @@ function queueGit(
 			tree = readRegistry(merged.sha, gateCopy);
 		} catch (err) {
 			if (!(err instanceof CoreUnresolved)) throw err;
-			return unresolved(last.name, err);
+			return refusedWith(last.name, err);
 		}
 		const gating = tree ? newFaultItems(tree, {}, REGISTRY_PROFILE) : [];
 		if (!tree || gating.length === 0) return merged;
@@ -619,9 +619,9 @@ function queueGit(
 
 	/**
 	 * Why `m` did not merge, else null. Gates run past their limit are a
-	 * refusal, said on stderr, and so is a tree resolving no core; any other fault that is no git refusal, a spawn
-	 * failure or a git step timing out among them, throws for the run to
-	 * retry.
+	 * refusal, said on stderr. A tree resolving no core is a refusal too. Any
+	 * other fault that is no git refusal, a spawn failure or a git step timing
+	 * out among them, throws for the run to retry.
 	 * @param {Member} m
 	 * @param {(args: string[]) => string} inTree
 	 * @param {() => unknown} merge
@@ -632,13 +632,13 @@ function queueGit(
 			merge();
 			return null;
 		} catch (err) {
-			if (err instanceof CoreUnresolved) return unresolved(m.name, err);
+			if (err instanceof CoreUnresolved) return refusedWith(m.name, err);
 			if (!(err instanceof GateTimeout)) return judgeFault(m, inTree, err);
 			writeFd(
 				2,
 				`queue-lander: ${queueBranch(m.name)}'s merge refused: ${parseRefusal(err.message)}\n`,
 			);
-			return { kind: "refused", name: m.name, reason: err.message };
+			return refusedWith(m.name, err);
 		}
 	}
 
@@ -671,11 +671,12 @@ function queueGit(
 }
 
 /**
+ * The refusal of member `name` for the reason `err` gives.
  * @param {string} name
- * @param {Error} err a CoreUnresolved
+ * @param {Error} err
  * @returns {MergeResult}
  */
-const unresolved = (name, err) => ({
+const refusedWith = (name, err) => ({
 	kind: "refused",
 	name,
 	reason: err.message,
