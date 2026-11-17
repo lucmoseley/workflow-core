@@ -1104,7 +1104,11 @@ function tick({ dryRun }) {
 		runTick(productionIo, {
 			dryRun,
 			now,
-			opening: { control, declared, typed: readLastTyped(declared) },
+			opening: {
+				control,
+				declared,
+				typedSeat: readLastTyped(declared).seat,
+			},
 		}),
 	);
 }

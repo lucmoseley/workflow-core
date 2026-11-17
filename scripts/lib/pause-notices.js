@@ -6,7 +6,8 @@
  * retry and record-before-dispatch are lib/repo-hold-notices.js's tendPhase, under
  * the same one-page-a-cause budget.
  *
- * The loop-wide pause sends nothing: a founder's he made. Nor does a tripped throughput breaker (#5268).
+ * The loop-wide pause sends nothing, since the founder made it. Nor does a
+ * tripped throughput breaker (#5268).
  *
  * The notice comments on the first of the pause's issues whose checkout sets a
  * `founderNotice` whose `repo` is that checkout's tracker. A pause none of whose

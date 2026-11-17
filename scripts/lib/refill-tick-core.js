@@ -10,8 +10,8 @@
  * stops at its decision.
  *
  * A TICK: read founder presence, untick each repo its owner opted out under the
- * control lock (#4188), reap, settle what a kill before the last tick's write left out of the state (#4180), stop
- * each job that never started, tend the served checkouts (their landing queue,
+ * control lock (#4188), reap, settle what a kill before the last tick's write
+ * left out of the state (#4180), stop each job that never started, tend the served checkouts (their landing queue,
  * the machine's children, the repo holds and the `.git` probe), read the
  * listing, stop each overflow session past its allowance (#3698), send each repo
  * hold's notice, queue the launches a boot killed (#3880), judge the finished
@@ -986,7 +986,7 @@ const buildStandInControl = (io, dryRun, now) => ({
  * @param {TickIo} adapter
  * @param {{dryRun: boolean, now: number, opening: {control: ControlRead,
  *   declared: DeclaredSeats,
- *   typed: {seat: string|null}}}} tick
+ *   typedSeat: string|null}}} tick
  * @returns {Promise<{decision: import("./refill-decide.js").Decision,
  *   read?: FrontierRead|null, noProgressFrom: number,
  *   agents: AgentRecord[]|null}>}
@@ -996,7 +996,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 	const io = dryRun ? buildDryIo(adapter) : adapter;
 	const acts = dryRun ? SKIPPED_LAUNCH_ACTS : LIVE_LAUNCH_ACTS;
 	const { control: stored, damaged } = opening.control;
-	const { declared, typed } = opening;
+	const { declared, typedSeat } = opening;
 	const parsed = settleOptedOut(io, dryRun, stored);
 	const control = parsed ?? buildStandInControl(io, dryRun, now);
 	io.reap();
@@ -1084,7 +1084,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		seen,
 		served,
 		declared,
-		typedSeat: typed.seat,
+		typedSeat,
 		seatTriedAt: state.seatTriedAt,
 		lastActAt,
 		breakerRoom,
@@ -1108,7 +1108,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		running: runningOf(launches),
 		freeSlots: slots,
 		limitHeldLines: launches.filter(isLimitHeld).map(limits.buildHeldStopText),
-		typedSeat: typed.seat,
+		typedSeat,
 		seats: sizeResumeSeats(seats, resumable, slots, io.capSizer(served[0])),
 		overflow,
 		history: launches,

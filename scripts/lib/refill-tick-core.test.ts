@@ -276,7 +276,7 @@ function fakeIo(
 const opening = (c: Control | null, damaged: string | null = null) => ({
 	control: { control: c, damaged },
 	declared: { seats: [], errors: [] } as never,
-	typed: { seat: null },
+	typedSeat: null,
 });
 
 const tickOf = (io: TickIo, c: Control | null = control(), dryRun = false) =>
@@ -1110,7 +1110,7 @@ describe("the dry-run policy (#4212)", () => {
 			now: NOW,
 			opening: {
 				...opening(awayControl()),
-				typed: { seat: null },
+				typedSeat: null,
 			},
 		});
 		expect(calls).toContain("previewReap");
@@ -1125,7 +1125,7 @@ describe("the dry-run policy (#4212)", () => {
 				now: NOW,
 				opening: {
 					...opening(awayControl()),
-					typed: { seat: null },
+					typedSeat: null,
 				},
 			});
 			return blockCalls(calls);

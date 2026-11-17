@@ -91,8 +91,9 @@ const NOT_RUNNING = buildNotice(
 /**
  * The fields a `set` names, each absent where it does not; `repos`, the whole
  * ticked set; `pause`, `--pause`, or false for `--resume`; `goal`, the goal to
- * store, or null for `--clear-goal`; `holdMinutes`, `--hold-launches`'s minutes, or null for
- * `--release-launches`; `holder`, the session asking, null where none is named.
+ * store, or null for `--clear-goal`; `holdMinutes`, `--hold-launches`'s
+ * minutes, or null for `--release-launches`; `holder`, the session asking, null
+ * where none is named.
  * @typedef {{form: import("./refill-goal.js").GoalForm, text: string,
  *   refs: import("./refill-goal.js").AskedRef[]}} GoalAsk
  * @typedef {{pause?: boolean, mode?: Scope["mode"], repos?: string[],
@@ -431,8 +432,8 @@ function buildUntickedLines({ scope }, root) {
  * and moves the point the no-progress count counts from, so the finishes before
  * it do not count (#3856, #5275). With no process it also
  * drops any stop, whatever the pause read, since its caller starts one from this
- * control (#3861). A stop pending on a running loop stands. Otherwise asking for what already holds changes nothing, a repeat pause keeping
- * its time.
+ * control (#3861). A stop pending on a running loop stands. Otherwise asking
+ * for what already holds changes nothing, a repeat pause keeping its time.
  * @param {Control} control
  * @param {boolean} pause
  * @param {SetContext} context

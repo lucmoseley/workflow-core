@@ -300,6 +300,7 @@ describe("control commands from a stale checkout (#4337)", () => {
 	let pinned: string;
 
 	const controlFile = () => path.join(state, ".refill-loop-control.json");
+	/* Until the latest time a Date holds, so no writer drops it as lapsed. */
 	const Hold = { holder: "a dispatcher", until: 8.64e15 };
 	const readControl = () => JSON.parse(fs.readFileSync(controlFile(), "utf8"));
 
