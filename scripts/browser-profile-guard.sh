@@ -19,7 +19,10 @@
 # ~/.claude/hooks/ carries this name, and check:settings pairs the two by it.
 set -uo pipefail
 
-cmd=$(jq -r '.tool_input.command // empty')
+if ! cmd=$(jq -r 'if type == "object" then .tool_input.command // empty else error end' 2>/dev/null); then
+  echo "browser-profile-guard: the hook payload is not JSON, so nothing is judged" >&2
+  exit 0
+fi
 [[ -z "$cmd" ]] && exit 0
 
 deny() {

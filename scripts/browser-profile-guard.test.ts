@@ -362,6 +362,28 @@ describe("the sanctioned forms pass", () => {
 	});
 });
 
+describe("a payload it cannot judge passes", () => {
+	const raw = (input: string) =>
+		spawnSync("bash", [HOOK], { input, encoding: "utf8", timeout: 10_000 });
+
+	it.each(["not json", "[1,2]", '"npm login"'])(
+		"names %s on stderr as unjudged",
+		(input) => {
+			const r = raw(input);
+			expect(r.status).toBe(0);
+			expect(r.stdout).toBe("");
+			expect(r.stderr).toBe(
+				"browser-profile-guard: the hook payload is not JSON, so nothing is judged\n",
+			);
+		},
+	);
+
+	it("passes a payload with no command silently", () => {
+		const r = raw(JSON.stringify({ tool_input: {} }));
+		expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
+	});
+});
+
 describe("malformed input ends", () => {
 	it.each([
 		'echo "unterminated npm login',
