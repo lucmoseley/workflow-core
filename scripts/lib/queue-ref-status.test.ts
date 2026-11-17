@@ -11,11 +11,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { redPathAtRest } from "./lander-records.js";
 import type { QueueEvent } from "./queue-log.js";
-import {
-	buildQueueRefLine,
-	readQueueRefStates,
-	trialQueueOf,
-} from "./queue-ref-status.js";
+import { buildQueueRefLine, readQueueRefStates } from "./queue-ref-status.js";
 
 const SINCE = Date.parse("2026-11-01T00:00:00Z");
 const REF = "refs/heads/queue/alpha";
@@ -447,33 +443,5 @@ describe("a dropped ref", () => {
 		).toEqual([
 			`dropped: queue/alpha at ${short(member)} — no dropped ref holds it; the drop record is torn, so its cause and fix ticket are unknown`,
 		]);
-	});
-});
-
-describe("a breaker trial's queue ref (#5300)", () => {
-	it("reads a queue ref's stays as landed, waiting or gone, and unread where a stay's state will not read", () => {
-		const at = { name: "w", sha: "abcdef1234" };
-		expect(
-			trialQueueOf([
-				{ ...at, state: "dropped", ref: null, record: "torn" },
-				{ ...at, state: "landed", main: null },
-			]),
-		).toEqual({ state: "landed" });
-		expect(trialQueueOf([{ ...at, state: "queued", snapshot: null }])).toEqual({
-			state: "waiting",
-		});
-		expect(trialQueueOf([{ ...at, state: "testing" }])).toEqual({
-			state: "waiting",
-		});
-		expect(
-			trialQueueOf([{ ...at, state: "dropped", ref: null, record: "torn" }]),
-		).toEqual({ state: "gone" });
-		expect(trialQueueOf([])).toEqual({ state: "gone" });
-		expect(
-			trialQueueOf([{ ...at, state: "unwalked", fault: "no git" }]),
-		).toEqual({
-			state: "unread",
-			why: "queue/w at abcdef1 is queued, under test or landed, which will not read",
-		});
 	});
 });

@@ -58,6 +58,10 @@ delete process.env.WFC_ROWLESS_RUN;
  * it. Deleted in the worker, so vitest's own process keeps it. */
 delete process.env.WFC_GATE_SEAT;
 
+/* Nor the merge parents a merge's gate hands its suite (#5334): a case's own
+ * `head` selection would read them as its fixture's. */
+delete process.env.WFC_MERGE_PARENTS;
+
 /* The files the suite's own launch cached (#4790) are its reporter's, not a
  * case's: a reporter a case drives would fold them into its certificate.
  * Deleted in the worker, so vitest's own process still reads them. */
