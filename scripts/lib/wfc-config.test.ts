@@ -297,6 +297,12 @@ describe("parity with the JS reader (#1481)", () => {
 			js: (root: string) =>
 				cfg.readConfig({ root, quiet: true }).suiteRunners?.join(",") || "none",
 		},
+		polled: {
+			sh: () => "wfc_polled",
+			shAnswer: (out: string) => out.trim().split("\n").join(",") || "none",
+			js: (root: string) =>
+				cfg.readConfig({ root, quiet: true }).polled.join(",") || "none",
+		},
 		outputStyle: {
 			sh: () => "wfc_output_style",
 			shAnswer: (out: string) => out,
@@ -329,6 +335,7 @@ describe("parity with the JS reader (#1481)", () => {
 		command: "undeclared",
 		deploy: "none",
 		suiteRunners: "none",
+		polled: "none",
 		outputStyle: coreVoicePath,
 		disabled: "no",
 		tracker: "none",
@@ -339,6 +346,7 @@ describe("parity with the JS reader (#1481)", () => {
 		command: "refused",
 		deploy: "refused",
 		suiteRunners: "refused",
+		polled: "refused",
 		tracker: "refused",
 	};
 	const fullConfig = {
@@ -346,6 +354,7 @@ describe("parity with the JS reader (#1481)", () => {
 		commands: { test: "npm test" },
 		deploy: "vercel",
 		suiteRunners: ["a.sh", "b.sh"],
+		polled: ["scripts/poll.js", "bin/tick.sh"],
 		overrides: { output_style: "docs/voice.md" },
 		disabled: ["guard-branch.sh"],
 		tracker: "acme/declared",
@@ -366,6 +375,7 @@ describe("parity with the JS reader (#1481)", () => {
 		command: "broken",
 		deploy: "broken",
 		suiteRunners: "broken",
+		polled: "broken",
 		tracker: "broken",
 	};
 	const notRead = {
@@ -383,6 +393,7 @@ describe("parity with the JS reader (#1481)", () => {
 				command: "npm test",
 				deploy: "vercel",
 				suiteRunners: "a.sh,b.sh",
+				polled: "scripts/poll.js,bin/tick.sh",
 				outputStyle: "docs/voice.md",
 				disabled: "yes",
 				tracker: "acme/declared",
@@ -462,6 +473,17 @@ describe("parity with the JS reader (#1481)", () => {
 			name: "suiteRunners not an array",
 			config: { suiteRunners: "a.sh" },
 		},
+		...[
+			[3],
+			["../poll.js"],
+			["/abs/poll.js"],
+			["scripts\\..\\poll.js"],
+			[""],
+			"poll.js",
+		].map((polled) => ({
+			name: `polled ${JSON.stringify(polled)}`,
+			config: { polled },
+		})),
 		{
 			name: "disabled holding a non-string",
 			config: { disabled: ["guard-branch.sh", 3] },

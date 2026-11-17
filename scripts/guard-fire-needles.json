@@ -98,6 +98,12 @@
 					"text": "A test names what it reads where the repo's test selector can see it"
 				},
 				{
+					"id": "hot-path-cost",
+					"core": "inject-hot-path-cost",
+					"kind": "inject",
+					"text": "A hot-path program costs no more per call than its work needs"
+				},
+				{
 					"id": "citation-tracker-write",
 					"core": "guard-citation-tracker",
 					"kind": "warn",

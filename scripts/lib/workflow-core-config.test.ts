@@ -131,6 +131,7 @@ describe("readConfig — defaults", () => {
 			capacityLadder: undefined,
 			refillLoop: true,
 			refillPanel: false,
+			polled: [],
 			alwaysLoaded: undefined,
 			warnings: [],
 			faults: [],
@@ -664,6 +665,13 @@ describe("readConfig — each simple key's valid, malformed and absent value (#1
 			["../outside"],
 			"an array of repo-relative paths",
 			undefined,
+		],
+		[
+			"polled",
+			["scripts/refill-loop.js"],
+			["scripts/a.js", "../outside.js"],
+			"an array of repo-relative paths",
+			[],
 		],
 	];
 	it.each(

@@ -1,0 +1,13 @@
+### §G13 · A hot-path program costs no more per call than its work needs — **judgement**
+
+A hot-path program is one the harness or git runs per tool call or per commit, or one polled every few seconds: a program a `PreToolUse`, `PostToolUse`, `PostToolUseFailure` or `PostToolBatch` hook entry runs, a module a hook or git-hook dispatcher loads for one, a program a git hook git runs on each commit runs, the status line's command, and a command the repo declares polled. It binds what a change adds or rewrites (#5319).
+
+1. Load only what the common path uses. Profile (`--cpu-prof`) before cutting. Defer a rare, heavy module with a `require()` inside its one caller, commented; never a module loaded for its side effects.
+2. A new guard or gate joins the existing dispatcher process rather than registering its own hook entry (#2786, #5166). No child process where an in-process core serves (#2186).
+3. One pass over a shared input, as §X8 (3).
+4. A change made for speed records a before/after median per call, old and new alternating, on its ticket (#2797).
+5. Each hot-path program has a pin test asserting the modules one common-path call loads and the child processes it starts. The pin fails a run; no timing figure ever refuses (mantahostels#2255).
+
+- *House, Node programs only*: pin through `callCost` (or `callCostAsync`) in the plugin's pin helper.
+- *House, Python programs only*: pin through the helper's `call_cost`.
+- *House, shell*: pin through the helper's shell half, which records each watched binary the script starts.
