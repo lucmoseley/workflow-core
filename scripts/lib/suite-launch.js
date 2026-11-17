@@ -27,7 +27,8 @@ const { unwrapArgv } = require("./shell-words.js");
  * @typedef {{ kind: LaunchKind, script: string, taken: number,
  *   queued: boolean }} Launch
  * @typedef {object} LaunchPorts
- * @property {() => string[]} runners the host's declared `suiteRunners`
+ * @property {() => string[]} runners the declared `suiteRunners` the caller
+ *   reads, the host's or a process's own checkout's (lib/gate-seat.js)
  * @property {(script: string) => boolean} isWrapperScript whether the
  *   host's npm script runs run-vitest.js, the one runner `--queue` belongs
  *   to; a package.json or script it cannot read answers yes
@@ -43,8 +44,8 @@ const afterSlash = (/** @type {string} */ w) => w.slice(w.lastIndexOf("/") + 1);
  * children carry no `--test` of their own, so one run counts once.
  *
  * A HOST'S OWN RUNNER SCRIPTS COUNT TOO, declared under `suiteRunners` as
- * repo-relative paths, matched as a path suffix of the script word. Only the
- * host running this guard is read.
+ * repo-relative paths, matched as a path suffix of the script word, read off
+ * the `runners` the caller passes.
  *
  * A FLAG THAT TAKES A VALUE ENDS THE READ: its value is taken for the script,
  * so `node --import x --test` and `python3 -W ignore -m pytest` go uncounted.
