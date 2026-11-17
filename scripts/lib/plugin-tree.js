@@ -116,7 +116,10 @@ const { trimStartRun } = require("./trim-run.js");
 const { CORE_DOCS } = require("./core-docs.js");
 
 const PRACTICE_DIR = "docs/practice";
-/* A practice note's closing section of lines holding for this repo alone. */
+/* A practice note's closing section: lines true only in workflow-core's own
+ * repo, its releases, its CI and its unshipped tools. A line about shipped
+ * machinery belongs in its entry, since that machinery runs in every adopter
+ * (#5345). */
 const CORE_ONLY_PRACTICE = "\n## In workflow-core\n";
 
 const COPIED = [

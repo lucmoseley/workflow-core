@@ -25,6 +25,7 @@ Researched: 2026-10-21
 - Publishing a repo publishes its history: a file deleted from the tree stays readable in every earlier commit, so scrub before the code is public or publish without the history. GitHub "Setting repository visibility" (Actions history and logs too) [standard or field body]; Google Open Source "Preparing for release"; GitGuardian, "Safely open source software" [named expert]
 - Scan the tree you publish, and any history published with it, with a secrets scanner, not only the patterns you already know: gitleaks (v8.30.1, read 2026-10-26) or GitHub secret scanning, and a read for names, emails, internal hosts and code names, which no scanner finds. Google Open Source "Preparing for release" [named expert]; GitHub secret scanning runs over every branch once the repo is public [standard or field body]
 - Default the Actions token to read-only and grant write per job; avoid `pull_request_target`; never run a self-hosted runner for a public repo, since anyone can open a pull request. GitHub "Security hardening for GitHub Actions" [standard or field body]
+- The same guide asks for CODEOWNERS on `.github/workflows`. A repo with one maintainer, where no outside pull request runs its workflows unreviewed, gains nothing from it: there is no second reviewer for it to require. Derived from the guide's reason, so it sets no default [unverified]
 
 ## Installs in CI
 
@@ -40,6 +41,7 @@ Researched: 2026-10-21
 - Batch changes into fewer semver releases rather than shipping each commit: consumers take grouped, scheduled upgrades, not one per change. Renovate "Dependency Pinning" (grouping, schedules) [named expert]; agentpatterns.ai "Central Repo for Shared Agent Standards" (pin to a version, stage the rollout) [survey or curated list]. One adopter for shared agent tooling: `mattpocock/skills`, about one release a fortnight [unverified]
 - Claude Code's `ref` and `autoUpdate`: a marketplace or plugin entry's `ref` names a branch or tag, `sha` a full commit that wins over `ref`; auto-update is off by default for third-party marketplaces and is turned on by `extraKnownMarketplaces.<name>.autoUpdate: true` or in `/plugin`; an update arrives only when the computed version changes (`plugin.json` `version`, then the marketplace entry's, then the commit SHA), so a fixed `version` on a moving ref updates nothing; the refresh runs up to 10 minutes after a session's first prompt, and open sessions keep the old hooks until `/reload-plugins`. There are no release channels: one marketplace name per user serves one version. Claude Code docs "Host a marketplace", "Marketplace reference", "Plugin loading" [standard or field body]
 - `autoUpdate` never updates an existing install while upstream anthropics/claude-code#83422 stays open (OPEN on 2026-11-15, labelled `reproduced`). #208, #5223 [unverified]
+- House: each adopter pins a workflow-core tag in its own repo and moves the pin to take a release; releases are batched to about one a week. Founder ruling #5223 Q1 (A)
 
 ## Tool text inside a file the user owns (#5277, read 2026-11-16)
 
@@ -51,6 +53,4 @@ Researched: 2026-10-21
 ## In workflow-core
 
 - **Release notes for adopters:** Departure: this repo's notes sit on SemVer patch versions for compatible additions and carry no Added/Changed headings; `scripts/lib/migration-note.js` fixes the note's sections
-- **Publishing a private repo's code:** Departure: the same guide asks for CODEOWNERS on `.github/workflows`; a repo with one maintainer and outside pull requests held for approval gains nothing from it
 - **Installs in CI:** Departure: ci.yml's Mod tests take Claude Code's latest release unpinned, since adopters run whatever release they have and a break must surface at once (#828). Its trust rests on the release manifest's GPG signature, checked against the key fingerprint pinned in the workflow (code.claude.com/docs/en/setup, "Binary integrity and code signing")
-- **Pinning or floating the plugin:** House: adopters keep per-repo tag pins, and releases are batched to about one a week, gated by `scripts/release-plugin.js`. Founder ruling #5223 Q1 (A)
