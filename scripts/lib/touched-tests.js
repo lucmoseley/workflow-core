@@ -28,6 +28,15 @@
  * `vitest list`, asked where a config can narrow its include or exclude.
  * Pytest's is read off its config, by `pytest-collection.js`.
  *
+ * THE OWN WORK IS TAKEN FROM ONE OF TWO BASES. `merge-base`, the default,
+ * is all the session's own work since the merge base with verified main: a
+ * bare run's check of the whole branch. `head` is the tree's changes over
+ * HEAD, which a commit gate's tree holds as the commit's paths (#5320): each
+ * commit's gate answers for its own commit, the branch's earlier commits
+ * having answered for themselves at theirs. A runner takes `head` only
+ * inside a live commit-gate seat, judged by its process ancestry, never by
+ * the seat's variable alone (`touchedBaseHere`, #5273).
+ *
  * WHERE THE MANIFEST IS UNREADABLE OR WILL NOT RENDER, its readers give way
  * to each changed file's same-stem siblings: for `<dir>/<stem>.<ext>`, the
  * test files in `<dir>` that `JS_TEST_FILE` takes and that open `<stem>.`
@@ -57,13 +66,15 @@ const {
 	readDefaultChangedBase,
 } = require("./changed-selection.js");
 const { readVitestCollected } = require("./vitest-collected.js");
-const { readUntrackedFiles } = require("./dirty-tree.js");
+const { gitRead, readUntrackedFiles } = require("./dirty-tree.js");
 const { readOwnWork } = require("./own-work.js");
+const { readGateSeats } = require("./suite-queue.js");
 const idSeam = require("./session-id.js");
 const { EDGES_FILE, shortSha } = require("./test-pass-marker.js");
 
 /** @typedef {import("./dirty-tree.js").ExecFn} ExecFn */
 /** @typedef {import("./own-selection.js").OwnSet} OwnSet */
+/** @typedef {"merge-base"|"head"} TouchedBase */
 
 /**
  * The checker-only files, each with its checker tests: a path, or a pattern
@@ -415,39 +426,69 @@ function resolveTouched(
 }
 
 /**
- * The session's own changed paths in the tree at `at` since the default's
- * base, untracked files included. `ownWork` stands in for the own-work read
- * where the caller already holds it; null reads the plain diff. One that
- * `carriesUntracked` is the whole set, so the tree's untracked files, a
- * neighbour's among them, are not added (#2958).
+ * The base a touched run started here selects from: `head` inside a live
+ * commit-gate seat, its ancestry the test as the suite gate's count reads it
+ * (lib/suite-queue.js `readGateSeats`), else `merge-base`.
+ *
+ * @param {{ pid?: number, seats?: () => { under: (pid: number) => boolean } }} [options]
+ * @returns {TouchedBase}
+ */
+function touchedBaseHere({ pid = process.pid, seats = readGateSeats } = {}) {
+	return seats().under(pid) ? "head" : "merge-base";
+}
+
+/**
+ * The session's own changed paths in the tree at `at` since `from`'s base,
+ * untracked files included. Under `merge-base`, `ownWork` stands in for the
+ * own-work read where the caller already holds it; null reads the plain
+ * diff. One that `carriesUntracked` is the whole set, so the tree's untracked
+ * files, a neighbour's among them, are not added (#2958). Under `head`, the
+ * tree's changes over HEAD, `ownWork` being a range's and not read.
  *
  * @param {string} at
- * @param {{ sessionId?: string|null, execFn?: ExecFn,
+ * @param {{ from?: TouchedBase, sessionId?: string|null, execFn?: ExecFn,
  *   ledger?: import("./own-work.js").CommitLedger,
  *   ownWork?: OwnSet|null }} options
  * @returns {{ base: string, changed: string[] }}
  */
-function readTouchedPaths(at, { execFn = execFileSync, ...options }) {
+function readTouchedPaths(
+	at,
+	{ from = "merge-base", execFn = execFileSync, ...options },
+) {
+	if (from === "head") {
+		const head = gitRead(["rev-parse", "HEAD"], at, execFn)?.trim();
+		if (!head) throw new Error("git would not name HEAD");
+		return { base: head, changed: readChanged(at, head, null, execFn) };
+	}
 	const base = readDefaultChangedBase(at, execFn);
 	const own =
 		options.ownWork === undefined
 			? readOwnWork(at, base, { ...options, execFn })
 			: options.ownWork;
-	const changed = [
-		...new Set([
-			...(own?.paths ?? readChangedPaths(at, base, execFn)),
-			...(options.ownWork?.carriesUntracked
-				? []
-				: (readUntrackedFiles(at, execFn) ?? [])),
-		]),
-	].sort();
-	return { base, changed };
+	return { base, changed: readChanged(at, base, own, execFn) };
 }
 
 /**
+ * `own`'s paths, else the tree's diff against `base`, with the tree's
+ * untracked files unless `own` carries its own.
+ *
+ * @param {string} at
+ * @param {string} base
+ * @param {OwnSet|null|undefined} own
+ * @param {ExecFn} execFn
+ */
+function readChanged(at, base, own, execFn) {
+	return [
+		...new Set([
+			...(own?.paths ?? readChangedPaths(at, base, execFn)),
+			...(own?.carriesUntracked ? [] : (readUntrackedFiles(at, execFn) ?? [])),
+		]),
+	].sort();
+}
+/**
  * A touched run's selection in the tree at `at`: the session's changed
- * paths, the tests they touch on `suite`'s route, and the banner the run
- * prints.
+ * paths since `from`'s base, the tests they touch on `suite`'s route, and the
+ * banner the run prints.
  *
  * @param {string} at
  * @param {Parameters<typeof readTouchedPaths>[1] &
@@ -470,18 +511,25 @@ function selectTouched(at, { suite, loadEdges, renderEdges, ...options } = {}) {
 		changed,
 		files: resolved.files,
 		leftOut: resolved.leftOut,
-		banner: touchedBanner(resolved, base),
+		banner: touchedBanner(resolved, base, options.from ?? "merge-base"),
 	};
 }
 
 /**
  * @param {ReturnType<typeof resolveTouched>} resolved
  * @param {string} base
+ * @param {TouchedBase} from
  */
 function touchedBanner(
 	{ files, uncollected, leftOut, leftBy, fallback },
 	base,
+	from,
 ) {
+	const at = shortSha(base);
+	const ownWork =
+		from === "head"
+			? `this commit's changes over HEAD ${at}`
+			: `your own work since ${at}`;
 	const lines = [];
 	if (fallback !== null)
 		lines.push(
@@ -498,19 +546,21 @@ function touchedBanner(
 		);
 	if (files.length === 0 && uncollected.length > 0)
 		lines.push(
-			`NO TOUCHED TESTS — every test file your own work touched since ${shortSha(base)} is one the runner does not collect, so nothing ran. The lander runs the full suite (#2952).`,
+			`NO TOUCHED TESTS — every test file ${ownWork} touched is one the runner does not collect, so nothing ran. The lander runs the full suite (#2952).`,
 		);
 	else if (files.length === 0 && leftOut.length > 0)
 		lines.push(
-			`NO TOUCHED TESTS — every test file your own work since ${shortSha(base)} touched is left to the lander above, so nothing ran (#4967).`,
+			`NO TOUCHED TESTS — every test file ${ownWork} touched is left to the lander above, so nothing ran (#4967).`,
 		);
 	else if (files.length === 0)
 		lines.push(
-			`NO TOUCHED TESTS — no test file is edited, imports or reads a file your own work changed since ${shortSha(base)}, so nothing ran. The lander runs the full suite (#2930).`,
+			`NO TOUCHED TESTS — no test file is edited, imports or reads a file ${ownWork} changed, so nothing ran. The lander runs the full suite (#2930).`,
 		);
 	else
 		lines.push(
-			`TOUCHED TESTS ONLY — ${files.length} test file(s) your own work since ${shortSha(base)} edited, or that directly import or read a file it changed. The lander runs the full suite (#2930).`,
+			from === "head"
+				? `TOUCHED TESTS ONLY — ${files.length} test file(s) ${ownWork} edited, or that directly import or read a file they changed. The branch's earlier commits answered for themselves at their own commits, and the lander runs the full suite (#2930, #5320).`
+				: `TOUCHED TESTS ONLY — ${files.length} test file(s) ${ownWork} edited, or that directly import or read a file it changed. The lander runs the full suite (#2930).`,
 			...files.map((f) => `  ${f}`),
 		);
 	return `${lines.join("\n")}\n`;
@@ -519,4 +569,4 @@ function touchedBanner(
 /** @param {string[][]} lists */
 const sortedUnion = (...lists) => [...new Set(lists.flat())].sort();
 
-module.exports = { selectTouched };
+module.exports = { selectTouched, touchedBaseHere };

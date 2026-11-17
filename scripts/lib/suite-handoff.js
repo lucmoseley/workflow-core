@@ -35,7 +35,11 @@
 
 const { readEnvironVar } = require("./proc-environ.js");
 const { procRoot } = require("./proc-root.js");
-const { FULL_REASONS, FULL_CAUSES } = require("./test-pass-marker.js");
+const {
+	FULL_REASONS,
+	FULL_CAUSES,
+	TOUCHED_BASES,
+} = require("./test-pass-marker.js");
 
 const LAUNCH_ENV = "WFC_SUITE_LAUNCH";
 
@@ -68,6 +72,8 @@ const LAUNCH_ENV = "WFC_SUITE_LAUNCH";
  * - `leftOut`: the tests a touched run left to the lander, a checker-only
  *   file alone selecting them (#4967), empty where it left none; null on any
  *   other run.
+ * - `touchedBase`: the base a touched run's selection took, `merge-base` or,
+ *   inside a commit-gate seat, `head` (#5320); null on any other run.
  * - `changedPaths`, `base`: the diff the narrowed selection was computed from
  *   and what it was diffed against (#189); absent on an expansion that failed
  *   open, so such a certificate attests no path by them. A full run carries
@@ -85,6 +91,7 @@ const LAUNCH_ENV = "WFC_SUITE_LAUNCH";
  *   resolvedFiles: number|null,
  *   wholeSlot: boolean,
  *   leftOut: string[]|null,
+ *   touchedBase: "merge-base"|"head"|null,
  *   changedPaths: string[]|null,
  *   base: string|null,
  * }} Launch
@@ -119,6 +126,9 @@ function validLaunch(raw) {
 				: null,
 		wholeSlot: raw.wholeSlot === true,
 		leftOut: stringsOrNull(raw.leftOut),
+		touchedBase: /** @type {Launch["touchedBase"]} */ (
+			oneOf(TOUCHED_BASES, raw.touchedBase)
+		),
 		changedPaths: stringsOrNull(raw.changedPaths),
 		base:
 			typeof raw.base === "string" && raw.base.trim() ? raw.base.trim() : null,

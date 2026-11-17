@@ -61,7 +61,7 @@ const {
 	repoRoot,
 } = require("./lib/test-pass-marker.js");
 const { worktreeRoot } = require("./lib/host-root.js");
-const { selectTouched } = require("./lib/touched-tests.js");
+const { selectTouched, touchedBaseHere } = require("./lib/touched-tests.js");
 const { ownDefaultWork } = require("./lib/own-selection.js");
 const { appendEmptyTouchedLine } = require("./lib/run-ledger.js");
 const idSeam = require("./lib/session-id.js");
@@ -101,7 +101,8 @@ async function main(argv = process.argv.slice(2)) {
  * @param {string} root
  * @returns {Promise<void>}
  */
-async function runAndRecord({ args, resolvedFiles, leftOut }, root) {
+async function runAndRecord(plan, root) {
+	const { args } = plan;
 	// Before the spawn, so the marker's duration covers the whole run (mantahostels#1953).
 	const startedAtMs = Date.now();
 	const startedAtMono = monotonicMs();
@@ -138,7 +139,7 @@ async function runAndRecord({ args, resolvedFiles, leftOut }, root) {
 	if (!run.forcedRed && run.status === 0 && result?.passed === true && after) {
 		record(
 			markerFrom(before, after, drifted, {
-				scope: runScope(result.scope, resolvedFiles, leftOut),
+				scope: runScope(result.scope, plan),
 				suite: "pytest",
 				startedAtMs,
 				elapsedMs: monotonicMs() - startedAtMono,
@@ -190,22 +191,23 @@ function recordCeilingKill(root, kill, { sha, startedAtMs, argv }) {
 /**
  * The plugin's scope, marked touched with its file count on a touched run, so
  * the run ledger keys its kind on them (#2958), and carrying the tests the
- * run left to the lander (#4967).
+ * run left to the lander (#4967) and the base its selection took (#5320).
  *
  * @param {import("./lib/test-pass-marker.js").Scope|null|undefined} scope
- * @param {number|null} resolvedFiles
- * @param {string[]} leftOut
+ * @param {Plan} plan
  */
-function runScope(scope, resolvedFiles, leftOut) {
-	return resolvedFiles === null || !scope
+function runScope(scope, { resolvedFiles, leftOut, touchedBase }) {
+	return resolvedFiles === null || !scope || !touchedBase
 		? scope
-		: { ...scope, touched: true, resolvedFiles, leftOut };
+		: { ...scope, touched: true, resolvedFiles, leftOut, touchedBase };
 }
 
 /**
- * @typedef {{ args: string[], resolvedFiles: number|null, leftOut: string[] }} Plan
+ * @typedef {{ args: string[], resolvedFiles: number|null, leftOut: string[],
+ *   touchedBase: import("./lib/touched-tests.js").TouchedBase|null }} Plan
  *   what pytest is handed, a touched run's file count, null on a run as
- *   typed, and the tests a touched run left to the lander
+ *   typed, the tests a touched run left to the lander, and the base its
+ *   selection took
  */
 
 /**
@@ -224,21 +226,34 @@ function pytestPlan(argv, root) {
 			args: argv.length === 1 && argv[0] === FULL ? [] : argv,
 			resolvedFiles: null,
 			leftOut: [],
+			touchedBase: null,
 		};
 	const sessionId = idSeam.fromEnv();
+	const from = touchedBaseHere();
 	try {
-		const ownWork = sessionId ? ownDefaultWork(root, sessionId) : undefined;
+		/* Under `head` the commit's changes over HEAD are the set: no range
+		 * to read own work across. */
+		const ownWork =
+			sessionId && from === "merge-base"
+				? ownDefaultWork(root, sessionId)
+				: undefined;
 		if (ownWork === null)
 			throw new Error(
 				"this session's own work could not be read: git would not say what is uncommitted, write the commit carrying it, or diff that commit",
 			);
 		const { files, leftOut, banner } = selectTouched(root, {
 			suite: "pytest",
+			from,
 			...(ownWork ? { ownWork } : {}),
 		});
 		writeFd(1, banner);
 		if (files.length > 0)
-			return { args: files, resolvedFiles: files.length, leftOut };
+			return {
+				args: files,
+				resolvedFiles: files.length,
+				leftOut,
+				touchedBase: from,
+			};
 		appendEmptyTouchedLine(repoRoot(root) || root, root, {
 			suite: "pytest",
 			sessionId: sessionId || null,

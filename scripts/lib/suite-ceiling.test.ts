@@ -16,6 +16,7 @@ const {
 	CEILING_MS,
 	DEADLINE_ENV,
 	armCeiling,
+	ceilingHeadline,
 	ceilingMs,
 	OWNER_ENV,
 	killCarrying,
@@ -191,4 +192,26 @@ it("asks the real process table, not the fixture's listing, whether an owner liv
 	const killed: number[] = [];
 	sweepOrphanedRuns({ proc, self: 0, kill: (pid: number) => killed.push(pid) });
 	expect(killed).toEqual([]);
+});
+
+/* #5320's fault signature, which the outcome review counts, reads a real
+ * kill by the headline's ceiling suffix: the suite-ceiling tests print the
+ * line without it, and a gate run's log carries their output. */
+it("counts every runner's kill line under #5320's signature, and never the suite-ceiling tests' printed line", () => {
+	const line = fs
+		.readFileSync(
+			path.join(__dirname, "../../docs/data/outcome-signatures.jsonl"),
+			"utf8",
+		)
+		.split("\n")
+		.filter(Boolean)
+		.map((l) => JSON.parse(l))
+		.find((l) => l.issue === "lucmoseley/workflow-core-tracker#5320");
+	const signature = new RegExp(line.signature.pattern);
+	const run = { elapsed: 840_000, ceiling: 840_000 };
+	for (const what of ["vitest", "pytest", "'npm run test'"])
+		expect(ceilingHeadline(what, run)).toMatch(signature);
+	expect(
+		"SUITE CEILING — killed 840s after vitest spawned\nSUITE CEILING — killed 840s after vitest spawned",
+	).not.toMatch(signature);
 });

@@ -302,6 +302,83 @@ describe("a bare run", () => {
 		]);
 	});
 
+	describe("selects from HEAD only inside a live commit-gate seat (#5320, #5273)", () => {
+		/** `pyRepo()` with verified main at its tip, then `scripts/scan.py`
+		 * committed as own work and `scripts/test_other.py` edited. */
+		function branch() {
+			const root = pyRepo();
+			spawnSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], {
+				cwd: root,
+			});
+			fs.appendFileSync(path.join(root, "scripts/scan.py"), "Y = 2\n");
+			spawnSync("git", ["commit", "-qam", "own"], { cwd: root });
+			fs.appendFileSync(path.join(root, "scripts/test_other.py"), "# edit\n");
+			return root;
+		}
+		/** A temp root whose suite queue holds a spawned gate seat this
+		 * process holds where `seated`, else none. */
+		function tempRoot(seated: boolean) {
+			const tmp = fs.realpathSync(
+				fs.mkdtempSync(path.join(os.tmpdir(), "runpy-tmp-")),
+			);
+			dirs.push(tmp);
+			const queue = path.join(tmp, "wfc-suite-queue");
+			fs.mkdirSync(queue);
+			if (seated)
+				fs.writeFileSync(
+					path.join(queue, `wfc-suite-queue-${process.pid}.json`),
+					JSON.stringify({
+						at: 0,
+						pid: process.pid,
+						role: "gate",
+						spawned: true,
+					}),
+				);
+			return tmp;
+		}
+
+		it("takes `head` inside a fixture gate seat, and its certificate's scope names it", async () => {
+			const root = branch();
+			const [python, readCalls] = fakePytest(
+				{ passed: true, scope: scope() },
+				0,
+			);
+			const r = await wrap(python, root, [], {
+				...Bare,
+				TMPDIR: tempRoot(true),
+			});
+			expect(readCalls()[0]?.args.slice(-1)).toEqual(["scripts/test_other.py"]);
+			expect(r.stdout).toContain("this commit's changes over HEAD");
+			expect(readMarkers({ root })[0].scope).toMatchObject({
+				touched: true,
+				touchedBase: "head",
+			});
+		});
+
+		it("takes `merge-base` with only the seat's variable set and no seat in its ancestry", async () => {
+			const root = branch();
+			const tmp = tempRoot(false);
+			const [python, readCalls] = fakePytest(
+				{ passed: true, scope: scope() },
+				0,
+			);
+			const r = await wrap(python, root, [], {
+				...Bare,
+				TMPDIR: tmp,
+				WFC_GATE_SEAT: path.join(tmp, "inherited.json"),
+			});
+			expect(readCalls()[0]?.args.slice(-2)).toEqual([
+				"scripts/test_other.py",
+				"scripts/test_scan.py",
+			]);
+			expect(r.stdout).toContain("your own work since");
+			expect(readMarkers({ root })[0].scope).toMatchObject({
+				touched: true,
+				touchedBase: "merge-base",
+			});
+		});
+	});
+
 	describe("with a checker-only file in the session's diff (#4967)", () => {
 		const Anchors = "scripts/instruction-surface-anchors.json";
 		const Reader = "scripts/test_anchors.py";
