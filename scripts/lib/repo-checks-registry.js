@@ -42,7 +42,12 @@
  *   kind: "check" | "reporter", since?: true, rescan?: true,
  *   ceilingScale?: number, settled?: string[],
  *   gate: Gate }} RepoCheck
+ * @typedef {{ root: string, file: string, core: boolean, modules: Set<string>,
+ *   config: Record<string, unknown>, tracker: () => string | null }} Host
  */
+
+const fs = require("node:fs");
+const path = require("node:path");
 
 const ROADMAP = { modules: ["roadmap"] };
 const GOVERNANCE = { modules: ["governance"] };
@@ -247,4 +252,29 @@ function entryOf(id) {
 	return entry;
 }
 
-module.exports = { REPO_CHECKS, entryOf };
+/**
+ * Why `entry` may not run here, or null where every limb of its gate holds.
+ *
+ * @param {RepoCheck} entry
+ * @param {Host} host
+ * @returns {string | null}
+ */
+function gateFault({ gate }, host) {
+	for (const m of gate.modules ?? [])
+		if (!host.modules.has(m)) return `module "${m}" is off in ${host.file}`;
+	// The core runs a check with its input missing, so it reports BROKEN (#1722).
+	if (
+		gate.input &&
+		!host.core &&
+		!fs.existsSync(path.join(host.root, gate.input))
+	)
+		return `this repo keeps no ${gate.input}`;
+	if (gate.config && host.config[gate.config] === undefined)
+		return `${host.file} carries no "${gate.config}" key`;
+	if (gate.tracker && !host.tracker())
+		return `no tracker resolves from ${host.file} or the origin remote`;
+	if (gate.core && !host.core) return "this repo is not workflow-core itself";
+	return null;
+}
+
+module.exports = { REPO_CHECKS, entryOf, gateFault };

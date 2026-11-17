@@ -102,6 +102,9 @@ const OWN_MISSING_LINE = `WARN ${CONFIG_PATH}: no own tracker resolves, so "corp
  * the Vercel rule only where this names it. */
 const DEPLOYS = /** @type {const} */ (["vercel"]);
 const LANDING_TESTERS = /** @type {const} */ (["local", "actions"]);
+/* The runners the core-owned CI workflow may name (lib/adopter-ci.js, #5347):
+ * the 1-core x64 at a third of the standard rate, else the 2-core ARM64. */
+const CI_RUNNERS = /** @type {const} */ (["ubuntu-slim", "ubuntu-24.04-arm"]);
 
 const MODULES = /** @type {const} */ ([
 	"roadmap",
@@ -166,6 +169,7 @@ const KNOWN_KEYS = [
 	"fullTestShards",
 	"landingTester",
 	"founderNotice",
+	"ci",
 	"suiteRunners",
 	"worktreeLinks",
 	/* Read off the raw file by the migration walker (`upgrade.js` and
@@ -195,6 +199,8 @@ const unsetCommands = () =>
 /** @typedef {typeof COMMANDS[number]} Command */
 /** @typedef {typeof DEPLOYS[number]} Deploy */
 /** @typedef {typeof LANDING_TESTERS[number]} LandingTester */
+/** @typedef {typeof CI_RUNNERS[number]} CiRunner */
+/** @typedef {{runner: CiRunner, timeoutMinutes?: number}} Ci */
 /** @typedef {typeof PYTHON_KINDS[number]} PythonKind */
 /**
  * @typedef {object} ConfigOpts
@@ -238,6 +244,7 @@ const unsetCommands = () =>
  * @property {number} [gateSeatMb] what admission holds for this host's gate seat, set by hand to the highest `peakTreeMb` on its gate-run record (#5274); absent is the whole-suite rung
  * @property {LandingTester} [landingTester] which tester the lander runs: `local`, the suite in its own worktree (lib/local-tester.js), or `actions`, the suite workflow's run on the `lander/batch-<k>` or the `lander/iso-suite-<k>` ref holding the sha (lib/actions-tester.js); absent is `local` (#2413)
  * @property {number} [fullTestShards] how many `--shard=k/n` runs the lander's local tester splits `full_test` into, each in its own suite slot; absent runs it whole (#2996)
+ * @property {Ci} [ci] the core-owned CI workflow's runner and job ceiling (lib/adopter-ci.js, #5347); absent, no workflow is written
  * @property {FounderNotice} [founderNotice] where a repo hold's phone notice goes (lib/repo-holds.js, #3871); absent, the loop sends none, so the plugin never pages a stranger
  * @property {string[]} [suiteRunners] scripts the suite guard counts and judges as suites (#330)
  * @property {string[]} [worktreeLinks] gitignored paths the suite reads, linked into each throwaway worktree a suite runs in (#1767)
@@ -338,6 +345,17 @@ const isDeploy = (v) => DEPLOYS.includes(/** @type {Deploy} */ (v));
 /** @param {unknown} v @returns {v is LandingTester} */
 const isLandingTester = (v) =>
 	LANDING_TESTERS.includes(/** @type {LandingTester} */ (v));
+
+/** @param {unknown} v @returns {v is Ci} */
+function isCi(v) {
+	if (!isPlainObject(v)) return false;
+	const o = /** @type {Record<string, unknown>} */ (v);
+	return (
+		Object.keys(o).every((k) => k === "runner" || k === "timeoutMinutes") &&
+		CI_RUNNERS.includes(/** @type {CiRunner} */ (o.runner)) &&
+		(o.timeoutMinutes === undefined || isPositiveInt(o.timeoutMinutes))
+	);
+}
 
 /** @param {unknown} v @returns {v is Record<string, PythonKind>} */
 const isPythonRoutes = (v) =>
@@ -924,6 +942,12 @@ function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
 		isLandingTester,
 		`one of ${LANDING_TESTERS.join(", ")}`,
 	);
+	const ci = readKey(
+		cfg,
+		"ci",
+		isCi,
+		`an object of "runner" (one of ${CI_RUNNERS.join(", ")}) and an optional "timeoutMinutes" (a positive integer)`,
+	);
 	const founderNotice = readKey(
 		cfg,
 		"founderNotice",
@@ -1028,6 +1052,7 @@ function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
 		gateSeatMb,
 		fullTestShards,
 		landingTester,
+		ci,
 		founderNotice,
 		suiteRunners,
 		worktreeLinks,
@@ -1633,6 +1658,7 @@ module.exports = {
 	MODULES,
 	COMMANDS,
 	DEPLOYS,
+	CI_RUNNERS,
 	unsetCommands,
 	UPSTREAM_TRACKER,
 	UPSTREAM_CODE_REPO,

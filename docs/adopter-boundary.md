@@ -33,6 +33,7 @@ The release tree an adopter installs. Tests, fixtures and TypeScript are left ou
 - `.claude/workflow-core.reference.md` — what a session looks up rather than obeys, rewritten on every upgrade.
 - `.claude/workflow-core.glossary.md` — the core's terms, which the shipped rules cite; rewritten on every upgrade, never loaded at session start. The adopter's own `GLOSSARY.md`, if any, is its own and untouched.
 - `.claude/workflow-core.doc-map.md` — the doc-map method: authority classes, the rules for §A and §B, the propagation pass, and where a settled fact goes; rewritten on every upgrade, never loaded at session start.
+- `.github/workflows/workflow-core-ci.yml` — one CI job on each push to `main`, sized to the account's Actions minutes: the repo's declared commands, the shipped checks on its documents and workflows, and Semgrep. Written where `.claude/workflow-core.json` carries a `ci` key, rewritten on every upgrade, and removed when the key goes.
 - `.claude/settings.json` `.gitignore` `package.json` — the core's keys, block and status script, merged into the adopter's own on every upgrade.
 - `.claude/plugin-context-cost.json` `docs/data/session-cost-table.json` `.claude/registrations.json` `.claude/guard-fire-needles.json` — measured tables and registries, brought current on every upgrade.
 - `CLAUDE.md` `AGENTS.md` — the adopter's own contract, written once from a template.
@@ -60,7 +61,7 @@ The founder's personal files on this laptop, which every session on it loads wha
 - `scripts/typecheck-mods.js` — type-checks this repo's own mods.
 - `.claude/skills/new-repo` — creates repos under the founder's account.
 - The `scripts/measure-*`, `bench_*`, `probe-*` and `sample_*` instruments not listed under "Ships in the plugin" — they re-derive figures only this repo's documents hold.
-- `.github` — this repo's CI. An adopter writes its own; init detects it, and the lander needs none, running the local tester unless `landingTester` is `actions`.
+- `.github` — this repo's CI: its whole suite, CodeQL and hourly alarms, run free because this repo is public. An adopter gets the one workflow above instead; the lander needs no CI, running the local tester unless `landingTester` is `actions`.
 - `.agents` `.claude` `docs` — everything under them not named above.
 - `.claude-plugin` — anything there but the two manifests.
 - `GLOSSARY.md` `self-plugin` `.out-of-scope` `skills-lock.json` — this repo's glossary, its own plugin wiring, its rejected-requests record and its vendored-skills lock.

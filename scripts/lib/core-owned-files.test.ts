@@ -146,6 +146,59 @@ describe("the core glossary and doc-map method (#5294)", () => {
 	});
 });
 
+describe("the CI workflow (#5347)", () => {
+	const Ci = ".github/workflows/workflow-core-ci.yml";
+	const read = () => fs.readFileSync(path.join(root, Ci), "utf8");
+	const config = (ci?: object) =>
+		write(
+			root,
+			".claude/workflow-core.json",
+			JSON.stringify({ contract: 1, founder: "A Founder", modules: [], ci }),
+		);
+
+	it("writes none where the config carries no ci key", () => {
+		run();
+		expect(fs.existsSync(path.join(root, Ci))).toBe(false);
+	});
+
+	it("runs one job on the key's runner on pushes to main alone, and rewrites it when the key changes", () => {
+		config({ runner: "ubuntu-slim" });
+		expect(run()).toContain(`wrote   ${Ci}`);
+		const body = read();
+		expect(body).toMatch(/^# CORE-OWNED\./);
+		expect(body).toContain("  push:\n    branches: [main]\n");
+		expect(body).not.toContain("lander/");
+		expect(body).toContain("runs-on: ubuntu-slim\n");
+		expect(body).toContain("timeout-minutes: 15\n");
+		const jobs = body.slice(body.indexOf("\njobs:\n"));
+		expect(jobs.match(/^ {2}[a-z-]+:$/gm)).toEqual(["  ci:"]);
+		config({ runner: "ubuntu-24.04-arm", timeoutMinutes: 40 });
+		run();
+		expect(read()).toContain("runs-on: ubuntu-24.04-arm\n");
+		expect(read()).toContain("timeout-minutes: 40\n");
+		expect(run().filter((l) => l.includes(Ci))).toEqual([]);
+	});
+
+	it("removes the core's copy once the key is gone", () => {
+		config({ runner: "ubuntu-slim" });
+		run();
+		config();
+		expect(run()).toContain(
+			`removed ${Ci} — .claude/workflow-core.json carries no "ci" key`,
+		);
+		expect(fs.existsSync(path.join(root, Ci))).toBe(false);
+	});
+
+	it("leaves an adopter's own file at that path alone, key or none", () => {
+		write(root, Ci, "name: own\n");
+		config({ runner: "ubuntu-slim" });
+		expect(run().join("\n")).toContain(`skipped ${Ci}`);
+		config();
+		run();
+		expect(read()).toBe("name: own\n");
+	});
+});
+
 describe("settings.json's layout (#1484)", () => {
 	it("is written 2-space, and a second upgrade leaves it byte for byte", () => {
 		run();

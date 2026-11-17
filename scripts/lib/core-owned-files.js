@@ -51,6 +51,7 @@ const { seedCoreCost, COST_TABLE } = require("./core-context-cost.js");
 const { ledgerPath } = require("./dispatch-ledger.js");
 const { MARKERS_REL } = require("./marker-root.js");
 const { CORE_DOCS } = require("./core-docs.js");
+const { CI_WORKFLOW, renderCiWorkflow, isCoreCi } = require("./adopter-ci.js");
 const { SESSION_COST_TABLE, readCostTableIn } = require("./session-spend.js");
 const { gh, ghJson, parseErrLine } = require("./gh.js");
 const { caught } = require("./caught.js");
@@ -231,6 +232,44 @@ function bringCoreDocs(ctx) {
 			lost: "it differed from the plugin's copy, so any local edit to it is gone",
 		});
 	});
+}
+
+/**
+ * The CI workflow (lib/adopter-ci.js, #5347), rendered from the `ci` key of
+ * the config on disk: init's own config carries no `ci`, so reading it there
+ * would remove a workflow on a re-run. Where the key is absent the core's copy
+ * is deleted; a file at that path not opening on its marker is the adopter's
+ * own, and left alone either way.
+ * @param {Context} ctx
+ */
+function bringCi(ctx) {
+	const { root, dryRun, out } = ctx;
+	let ci;
+	try {
+		ci = readConfig({ root, quiet: true }).ci;
+	} catch (err) {
+		out(`skipped ${CI_WORKFLOW}: ${caught(err).message}`);
+		return [];
+	}
+	const existing = readIfPresent(path.join(root, CI_WORKFLOW));
+	if (existing !== null && !isCoreCi(existing)) {
+		out(
+			`skipped ${CI_WORKFLOW} — it does not open on the CORE-OWNED marker, so the core did not write it`,
+		);
+		return [];
+	}
+	if (ci)
+		return bringFile(ctx, { rel: CI_WORKFLOW, body: renderCiWorkflow(ci) });
+	if (existing === null) return [];
+	if (dryRun) {
+		out(`would   remove ${CI_WORKFLOW}`);
+		return [];
+	}
+	fs.rmSync(path.join(root, CI_WORKFLOW));
+	out(
+		`removed ${CI_WORKFLOW} — .claude/workflow-core.json carries no "ci" key`,
+	);
+	return [CI_WORKFLOW];
 }
 
 /**
@@ -600,6 +639,7 @@ const ENTRIES = [
 	{ bring: bringHelpers, paths: HELPERS },
 	{ bring: bringRules, paths: [RULES_FILE, REFERENCE_FILE] },
 	{ bring: bringCoreDocs, paths: CORE_DOCS },
+	{ bring: bringCi, paths: [CI_WORKFLOW] },
 	{ bring: bringSettings, paths: [SETTINGS] },
 	{ bring: bringIgnoreBlock, paths: [".gitignore"] },
 	{ bring: bringStatusScript, paths: ["package.json"] },

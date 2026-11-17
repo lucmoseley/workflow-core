@@ -59,6 +59,12 @@ A module switches on extra rules and gates. Each needs documents or tests a new 
 
 To switch one on, ask a session in that repo to. It adds the module to the repo's workflow-core settings and re-runs the core's setup, which reads them.
 
+## Turning on CI
+
+A new repo runs no GitHub CI. Once its test command is declared, ask a session in it to add a `ci` key to its workflow-core settings: `{"runner": "ubuntu-slim"}`, or `"ubuntu-24.04-arm"` where the job needs more than one core, and `"timeoutMinutes"` above the default 15 where it runs longer. The next upgrade writes `.github/workflows/workflow-core-ci.yml`: one job on each push to `main` that runs the repo's declared commands, the core's checks on its documents and workflows, and a Semgrep scan.
+
+Every private repo on your account draws on one pool of 3,000 Actions minutes a month. Once, for the whole account, make a spent pool block jobs rather than bill: open https://github.com/settings/billing, click **Budgets and alerts**, then **New budget**; choose **Product-level budget** and Actions, set the amount to $0, and tick **Stop usage when budget limit is reached** where it is offered. Jobs then wait for the month to turn. GitHub warns that the first month after the budget is made may still overrun.
+
 ## What it does not do
 
 - Upgrade a repo already on the core to a newer release — #207.
