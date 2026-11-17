@@ -122,7 +122,7 @@ const { persisting: sharedPersisting } = require("./lib/persist-mode.js");
 const { reportOwner } = require("./lib/session-id.js");
 /* The judgement and the report, every reading below handed in (#1369). */
 const { DEGRADED, openedRecord, reap } = require("./lib/reaper.js");
-const { recordReaped } = require("./lib/reaped-jobs.js");
+const { journalReapedJobs } = require("./lib/reaped-jobs.js");
 
 /* PERSIST MODE (mantahostels#2152).
  *
@@ -532,7 +532,7 @@ function main(argv) {
 			runs,
 			startedAt,
 			recordRun: writeRuns,
-			recordStopped: recordReaped,
+			recordStopped: journalReapedJobs,
 			/* Buffered rather than printed under persist mode: stdout must stay empty
 			 * for an `async` hook, whose stdout the harness discards. */
 			log: notify

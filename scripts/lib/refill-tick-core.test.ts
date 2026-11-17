@@ -1937,7 +1937,7 @@ describe("a launch the harness ended on a synthetic reply, through the tick (#53
 								cwd: "/home/u/work",
 							},
 						],
-						through: 0,
+						read: [],
 					}),
 					syntheticStopOf: () =>
 						syntheticStopAt({ job: stopped, rows: stoppedRows(stopAt(20)) }),

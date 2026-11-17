@@ -5,13 +5,12 @@
  * its synthetic stop: such a job has left the registry listing, and the job
  * store itself is thousands of records a tick.
  *
- * An entry's `at` is when it was written, so the loop's cursor past it never
- * skips an entry a slower reaper run writes later. Two reaper runs writing at
- * once can lose one's entries; check-ghost-jobs's SYNTHETIC-STOP finding still
- * reports such a job.
+ * Two reaper runs writing at once can lose one's entries; check-ghost-jobs's
+ * SYNTHETIC-STOP finding still reports such a job.
  */
 
 const { refillPath } = require("./refill-dir.js");
+const { caught } = require("./caught.js");
 const { readJsonOutcome, writeJson } = require("./refill-json.js");
 
 const REAPED_FILE = ".reaped-jobs.json";
@@ -66,27 +65,29 @@ function withReaped(list, stopped, at) {
  * The journal's entries, none where it is absent or will not read.
  * @returns {ReapedJob[]}
  */
-function readReaped() {
+function readReapedJobs() {
 	const { value } = readJsonOutcome(refillPath(REAPED_FILE));
 	return Array.isArray(value) ? value.filter(isEntry) : [];
 }
 
 /**
- * Add the reaper's `stopped` rows to the journal, stamped now; nothing where
- * there are none. A journal that will not write costs the loop those
- * resumes, never the reaper its run: check-ghost-jobs still reports them.
+ * Add the reaper's `stopped` rows to the journal, stamped with the write;
+ * nothing where there are none. A journal that will not write costs the loop
+ * those resumes, never the reaper its run (#5331): why it failed, else null.
  * @param {import("./agent-liveness.js").AgentRecord[]} stopped
+ * @returns {string|null}
  */
-function recordReaped(stopped) {
-	if (stopped.length === 0) return;
+function journalReapedJobs(stopped) {
+	if (stopped.length === 0) return null;
 	try {
 		writeJson(
 			refillPath(REAPED_FILE),
-			withReaped(readReaped(), stopped, Date.now()),
+			withReaped(readReapedJobs(), stopped, Date.now()),
 		);
-	} catch {
-		/* See above. */
+		return null;
+	} catch (err) {
+		return caught(err).message;
 	}
 }
 
-module.exports = { readReaped, recordReaped, withReaped };
+module.exports = { journalReapedJobs, readReapedJobs };

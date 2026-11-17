@@ -659,9 +659,10 @@ function logStopped(done, kept, isDirty, log) {
  *   runs?: Record<string, RunRecord>,
  *   startedAt?: string,
  *   recordRun?: (record: RunRecord) => void,
- *   recordStopped?: (stopped: DoneRow[]) => void,
+ *   recordStopped?: (stopped: DoneRow[]) => string|null,
  *   log: (line: string) => void}} input  `recordStopped`, the rows a live
- *   run stopped, for lib/reaped-jobs.js's journal (#5331)
+ *   run stopped, for lib/reaped-jobs.js's journal (#5331): why it failed,
+ *   else null
  * @returns {typeof DEGRADED | typeof CLEAN}
  */
 function reap({
@@ -689,9 +690,7 @@ function reap({
 	recordRun = () => {
 		/* unrecorded unless a caller asks */
 	},
-	recordStopped = () => {
-		/* unjournalled unless a caller asks */
-	},
+	recordStopped = () => null,
 	log,
 }) {
 	const dryRun = argv.includes("--dry-run");
@@ -786,7 +785,7 @@ function reap({
 	const done = stopEach(due, nextState, { dryRun, now, stop, readPss });
 	carryUnlisted(listed, state, nextState);
 	saveState(nextState);
-	recordStopped(done.filter((d) => d.stopped));
+	const unjournalled = recordStopped(done.filter((d) => d.stopped));
 
 	finish({
 		source: "registry",
@@ -822,6 +821,10 @@ function reap({
 		return verdictOf(listed);
 	}
 	logStopped(done, kept, isDirty, log);
+	if (unjournalled)
+		log(
+			`reap: could not journal the jobs it stopped (${unjournalled}), so the refill loop cannot resume one the harness ended on a synthetic reply; check-ghost-jobs still reports it`,
+		);
 	return verdictOf(listed);
 }
 

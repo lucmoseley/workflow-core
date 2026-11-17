@@ -48,9 +48,9 @@ export function fakeIo(over: Partial<BlockIo> = {}) {
 	/* lib/refill-outside.js's records, as its file would hold them. */
 	let outside: Outside[] = [];
 	/* lib/reaped-jobs.js's journal, entries pushed by a test, and the loop's
-	 * cursor through it. */
+	 * keys of the entries the loop has read. */
 	const reaped: ReapedJob[] = [];
-	let through = 0;
+	let read: string[] = [];
 	const io: BlockIo = {
 		stop: (_, id) => {
 			calls.push(`stop ${id}`);
@@ -144,9 +144,9 @@ export function fakeIo(over: Partial<BlockIo> = {}) {
 		writeOutside: (records) => {
 			outside = records;
 		},
-		readReaped: () => ({ jobs: reaped, through }),
-		writeReapedThrough: (at) => {
-			through = at;
+		readReaped: () => ({ jobs: reaped, read }),
+		writeReapedRead: (keys) => {
+			read = keys;
 		},
 		...over,
 	};

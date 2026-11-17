@@ -214,9 +214,8 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  *   lib/refill-outside.js's records, none where its file is absent or will
  *   not read
  * @property {() => {jobs: import("./reaped-jobs.js").ReapedJob[],
- *   through: number}} readReaped  lib/reaped-jobs.js's journal, none where
- *   it will not read, and the `at` of the last entry the loop read, 0 where
- *   none
+ *   read: string[]}} readReaped  lib/reaped-jobs.js's journal, none where
+ *   it will not read, and the keys of the entries the loop has read
  * @property {(l: SessionRef) => boolean|null} hasFounderTypedSinceStop
  *   lib/block-cause.js's hasFounderTypedSinceApiStop on its transcript, null
  *   unread
@@ -281,8 +280,8 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  *   dispatch-ledger hold of job `jobId`; whether it went
  * @property {(records: import("./refill-outside.js").Outside[]) => void}
  *   writeOutside  lib/refill-outside.js's records, in place of its file's
- * @property {(at: number) => void} writeReapedThrough  the `at` of the last
- *   journal entry the loop read
+ * @property {(keys: string[]) => void} writeReapedRead  the keys of the
+ *   journal entries the loop has read
  */
 
 /** @typedef {BlockReads & BlockActs} BlockIo */

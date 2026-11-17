@@ -507,31 +507,52 @@ function actOnOutside(launches, registry, causeOf, seen) {
 	const { io, agents } = seen;
 	const had = io.readOutside();
 	const retried = had.map((o) => withOriginalsRetried(o, io));
-	if (!agents) {
-		if (JSON.stringify(retried) !== JSON.stringify(had))
-			io.writeOutside(retried);
-		return;
+	let kept = retried;
+	if (agents) {
+		const turned = turnOutside(
+			retried,
+			{ launches, registry, causeOf, agents },
+			seen,
+		);
+		kept = [...turned, ...takeUpReaped({ launches, registry, turned }, seen)];
 	}
-	const turned = turnOutside(
-		retried,
-		{ launches, registry, causeOf, agents },
-		seen,
-	);
-	const { jobs, through } = io.readReaped();
-	const unread = jobs.filter((j) => j.at > through);
-	const taken = new Set([
-		...launches.flatMap((l) => [l.jobId, l.copiedFrom]),
-		...registry.map((a) => a.id),
-		...retried.map((o) => o.jobId),
-		...turned.map((o) => o.jobId),
-	]);
-	const kept = [
-		...turned,
-		...unread.flatMap((j) => (taken.has(j.jobId) ? [] : reapedTurn(j, seen))),
-	];
 	if (JSON.stringify(kept) !== JSON.stringify(had)) io.writeOutside(kept);
-	if (unread.length > 0)
-		io.writeReapedThrough(Math.max(...unread.map((j) => j.at)));
+}
+
+/** @param {import("./reaped-jobs.js").ReapedJob} j */
+const reapedKey = (j) => `${j.seat}\0${j.jobId}\0${j.at}`;
+
+/**
+ * The records the reaper's journal entries the loop has not read start, each
+ * entry read once: none for a launch's job or session, past or present, a
+ * listed session, or one this tick's records hold, as their own acts reach
+ * them. The entries read are remembered by key, never by a high-water mark,
+ * which a slower reaper run's earlier-stamped write could slip under.
+ * @param {{launches: import("./refill-loop.js").LoopLaunch[],
+ *   registry: AgentRecord[], turned: Outside[]}} known
+ * @param {Tick} seen
+ * @returns {Outside[]}
+ */
+function takeUpReaped({ launches, registry, turned }, seen) {
+	const { jobs, read } = seen.io.readReaped();
+	const wasRead = new Set(read);
+	const unread = jobs.filter((j) => !wasRead.has(reapedKey(j)));
+	if (unread.length === 0) return [];
+	const taken = new Set([
+		...launches.flatMap((l) => [
+			l.jobId,
+			l.copiedFrom,
+			l.sessionId,
+			...(l.pastSessionIds ?? []),
+		]),
+		...registry.flatMap((a) => [a.id, a.sessionId]),
+		...turned.flatMap((o) => [o.jobId, o.sessionId]),
+	]);
+	const out = unread.flatMap((j) =>
+		taken.has(j.jobId) || taken.has(j.sessionId) ? [] : reapedTurn(j, seen),
+	);
+	seen.io.writeReapedRead(jobs.map(reapedKey));
+	return out;
 }
 
 /**

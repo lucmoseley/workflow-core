@@ -122,10 +122,10 @@ const {
 const { readJson, writeJson } = require("./refill-json.js");
 const { actOnOutside } = require("./refill-outside.js");
 const { OUTSIDE_FILE, refillPath } = require("./refill-dir.js");
-const { readReaped: readReapedJobs } = require("./reaped-jobs.js");
+const { readReapedJobs } = require("./reaped-jobs.js");
 
-/* How far through lib/reaped-jobs.js's journal the loop has read. */
-const REAPED_CURSOR_FILE = ".refill-reaped-cursor.json";
+/* The keys of lib/reaped-jobs.js's journal entries the loop has read. */
+const REAPED_READ_FILE = ".refill-reaped-read.json";
 const {
 	launchRecorded,
 	ledgerJobOf,
@@ -681,19 +681,15 @@ function readOutside() {
 }
 
 /**
- * lib/reaped-jobs.js's journal and the loop's cursor through it
+ * lib/reaped-jobs.js's journal and the keys of the entries the loop has read
  * (BlockReads' readReaped, #5331).
  */
 function readReaped() {
-	const cursor = readJson(refillPath(REAPED_CURSOR_FILE), log);
-	const through =
-		typeof cursor === "object" &&
-		cursor !== null &&
-		"through" in cursor &&
-		typeof cursor.through === "number"
-			? cursor.through
-			: 0;
-	return { jobs: readReapedJobs(), through };
+	const raw = readJson(refillPath(REAPED_READ_FILE), log);
+	const read = Array.isArray(raw)
+		? raw.filter((k) => typeof k === "string")
+		: [];
+	return { jobs: readReapedJobs(), read };
 }
 
 /**
@@ -962,8 +958,7 @@ const blockIo = (served) => ({
 	readOutside,
 	writeOutside: (records) => writeJson(refillPath(OUTSIDE_FILE), records),
 	readReaped,
-	writeReapedThrough: (through) =>
-		writeJson(refillPath(REAPED_CURSOR_FILE), { through }),
+	writeReapedRead: (keys) => writeJson(refillPath(REAPED_READ_FILE), keys),
 	holdLockedOut: (l, { refusal, call }, now) =>
 		holdLockedOut(l.root, { job: l.jobId, refusal, call }, now, log),
 	labelParked,

@@ -5,10 +5,12 @@
  * write, and entries past the keep window drop. Loosen it and the loop either
  * misses a reaped session it could resume or reads a journal that only grows.
  */
-import { expect, it } from "vitest";
-import { withReaped } from "./reaped-jobs.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { journalReapedJobs, readReapedJobs } from "./reaped-jobs.js";
 
-const NOW = 1_792_324_800_000;
 const HOUR = 60 * 60_000;
 const row = {
 	id: "f1",
@@ -26,17 +28,46 @@ const entry = (at: number) => ({
 	cwd: row.cwd,
 });
 
+let dir = "";
+beforeEach(() => {
+	dir = fs.mkdtempSync(path.join(os.tmpdir(), "reaped-jobs-"));
+	vi.stubEnv("WFC_REFILL_DIR", dir);
+});
+afterEach(() => {
+	vi.unstubAllEnvs();
+	fs.rmSync(dir, { recursive: true, force: true });
+});
+const seed = (list: unknown[]) =>
+	fs.writeFileSync(path.join(dir, ".reaped-jobs.json"), JSON.stringify(list));
+
 it("adds an entry, stamped with its write, for each stopped row", () => {
-	expect(withReaped([], [row], NOW)).toEqual([entry(NOW)]);
+	const before = Date.now();
+	expect(journalReapedJobs([row])).toBeNull();
+	const [e] = readReapedJobs();
+	expect(e).toEqual({ ...entry(e.at) });
+	expect(e.at).toBeGreaterThanOrEqual(before);
 });
 
-it("drops entries older than a day, and keeps the rest", () => {
-	expect(
-		withReaped([entry(NOW - 25 * HOUR), entry(NOW - 23 * HOUR)], [], NOW),
-	).toEqual([entry(NOW - 23 * HOUR)]);
+it("drops entries older than a day on its next write, and keeps the rest", () => {
+	const now = Date.now();
+	seed([entry(now - 25 * HOUR), entry(now - 23 * HOUR)]);
+	journalReapedJobs([{ ...row, id: "f2" }]);
+	expect(readReapedJobs().map((e) => [e.jobId, e.at])).toEqual([
+		["f1", now - 23 * HOUR],
+		["f2", expect.any(Number)],
+	]);
 });
 
-it("adds no entry for a row that names no seat or cwd, and keeps no malformed one", () => {
+it("adds no entry for a row that names no seat or cwd, and reads no malformed one", () => {
 	const { cwd: _, ...noCwd } = row;
-	expect(withReaped([{ at: "x" }, null], [noCwd], NOW)).toEqual([]);
+	seed([{ at: "x" }, null]);
+	journalReapedJobs([noCwd]);
+	expect(readReapedJobs()).toEqual([]);
+});
+
+it("says why where the journal will not write", () => {
+	const blocker = path.join(dir, "a-file");
+	fs.writeFileSync(blocker, "");
+	vi.stubEnv("WFC_REFILL_DIR", path.join(blocker, "sub"));
+	expect(journalReapedJobs([row])).toEqual(expect.any(String));
 });

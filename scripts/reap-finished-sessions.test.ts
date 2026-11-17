@@ -98,7 +98,7 @@ interface ReapOverrides {
 	stop?: (id: string) => { ok: boolean; why?: string };
 	isDirty?: (f: string) => boolean | null;
 	runs?: Record<string, object>;
-	recordStopped?: (rows: Agent[]) => void;
+	recordStopped?: (rows: Agent[]) => string | null;
 }
 
 /**
@@ -2011,7 +2011,13 @@ describe("a previous run that never finished (mantahostels#1920)", () => {
 describe("the journal of the jobs a run stopped (#5331)", () => {
 	const journalled = (over: ReapOverrides) => {
 		const rows: Agent[][] = [];
-		reapWith({ ...over, recordStopped: (r) => rows.push(r) });
+		reapWith({
+			...over,
+			recordStopped: (r) => {
+				rows.push(r);
+				return null;
+			},
+		});
 		return rows.flat().map((a) => a.id);
 	};
 
@@ -2024,6 +2030,13 @@ describe("the journal of the jobs a run stopped (#5331)", () => {
 			[],
 		);
 		expect(journalled({ argv: ["--dry-run"] })).toEqual([]);
+	});
+
+	it("says so where the journal would not write", () => {
+		const h = reapWith({ recordStopped: () => "EACCES" });
+		expect(h.out).toContain(
+			"reap: could not journal the jobs it stopped (EACCES)",
+		);
 	});
 });
 

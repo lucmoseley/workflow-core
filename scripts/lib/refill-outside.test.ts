@@ -733,7 +733,7 @@ it("reads each journal entry once, past its cursor, and takes up none that is no
 	expect(l.readings()).toBe(1);
 	expect(l.calls).not.toContain("resume f1");
 	expect(l.io.readOutside()).toEqual([]);
-	expect(l.io.readReaped().through).toBe(NOW - MIN);
+	expect(l.io.readReaped().read).toHaveLength(1);
 });
 
 it("takes up no loop launch the reaper stopped", () => {
@@ -755,4 +755,47 @@ it("acts on nothing, and says so, where a reaped session's reading will not read
 	expect(logs(l.calls)).toContain(
 		`could not read whether ${NAME}, which the reaper stopped, was ended on a synthetic reply, so the loop does not resume it`,
 	);
+});
+
+it("takes up a reaped session whose record the loop dropped as it left the listing", () => {
+	const l = reapedLoop({
+		job: doneJob({ state: "stopped" }),
+		rows: stoppedRows(minutesAgo(20)),
+	});
+	l.io.writeOutside([
+		{
+			seat: SEAT,
+			jobId: "f1",
+			name: "founder-session",
+			cwd: "/home/u/work",
+			sessionId: "sess-f1",
+			tries: 3,
+		},
+	]);
+	l.entry(NOW - MIN);
+	l.tick(NOW);
+	expect(l.calls).toContain("resume f1");
+});
+
+it("takes up no reaped job of a launch's past session", () => {
+	const l = reapedLoop({
+		job: doneJob({ state: "stopped" }),
+		rows: stoppedRows(minutesAgo(20)),
+	});
+	l.entry(NOW - MIN);
+	l.tick(NOW, [{ jobId: "c3", pastSessionIds: ["sess-f1"] } as Launch]);
+	expect(l.readings()).toBe(0);
+	expect(l.calls).not.toContain("resume f1");
+});
+
+it("reads an entry a slower reaper run wrote after a later-stamped one was read", () => {
+	const l = reapedLoop({
+		job: doneJob({ state: "stopped" }),
+		rows: [...stoppedRows(minutesAgo(20)), founderRow("go on", minutesAgo(1))],
+	});
+	l.entry(NOW - MIN);
+	l.tick(NOW);
+	l.entry(NOW - 2 * MIN);
+	l.tick(NOW + MIN);
+	expect(l.readings()).toBe(2);
 });
