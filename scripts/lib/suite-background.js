@@ -2,7 +2,7 @@
  * suite-background.js — the dispatcher core that refuses a suite DETACHED
  * INSIDE THE SHELL — `&`, `nohup`, `setsid`, `disown` — which registers no
  * job, so nothing will ever wake the session, and the `waiting:` turn that
- * follows sits in `working` until the founder notices.
+ * follows stalls until the founder notices.
  *
  * AND (#1186) A SUITE WITH NO UPPER BOUND WRAPPED IN A SHELL `timeout N`,
  * which kills it at its clock with no result (ruled at #1181 Q1–Q4 (A)).
