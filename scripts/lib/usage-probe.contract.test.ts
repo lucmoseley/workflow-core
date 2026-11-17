@@ -31,6 +31,7 @@ import {
 	buildRefreshLine,
 	buildUsageCache,
 	buildUsageText,
+	printedLines,
 	recorded,
 	recordedLimit,
 } from "./usage-probe-fake";
@@ -76,9 +77,16 @@ const expectRecordedBars = (limits: { kind: string }[], kinds: string[]) => {
 		expect(keyTypes(limit)).toEqual(keyTypes(recordedLimit(limit.kind)));
 };
 
+/** The recording's printed lines and cached limits, less its session bar:
+ * what a seat listing none answers. */
+const sessionless = {
+	printed: recorded.printed.filter((l) => !l.startsWith("Current session:")),
+	limits: recorded.cache.utilization.limits.filter((l) => l.kind !== "session"),
+};
+
 describe("the /usage fake against the recording (#3266)", () => {
 	it("reads its printed bars as the recorded ones read, the cache's percents", () => {
-		expect(printedBars(recorded.printed.join("\n"))).toEqual({
+		expect(printedBars(printedLines.join("\n"))).toEqual({
 			session: recordedPercent("session"),
 			week: recordedPercent("weekly_all"),
 			resets: true,
@@ -88,6 +96,41 @@ describe("the /usage fake against the recording (#3266)", () => {
 			week: 3,
 			resets: true,
 		});
+	});
+
+	it("answers a seat with no session bar as the recording read without one (#5332)", () => {
+		const week = recordedPercent("weekly_all");
+		const printedTrust = (usageText: string) =>
+			readAllowance({ configDir: path.join(dir, "no-seat"), usageText }).session
+				.trust;
+		expect(printedTrust(buildUsageText({ week }))).toBe("unreported");
+		expect(printedTrust(sessionless.printed.join("\n"))).toBe("unreported");
+		const cachedTrust = (limits: unknown[]) => {
+			writeConfig(
+				JSON.stringify({
+					cachedUsageUtilization: {
+						...recorded.cache,
+						fetchedAtMs: Date.now(),
+						utilization: { limits },
+					},
+				}),
+			);
+			return readAllowance({ configDir: dir }).session.trust;
+		};
+		expect(
+			cachedTrust(
+				buildUsageCache({ week }, Date.now()).cachedUsageUtilization.utilization
+					.limits,
+			),
+		).toBe("unreported");
+		expect(
+			cachedTrust(
+				sessionless.limits.map((l) => ({
+					...l,
+					resets_at: new Date(Date.now() + 60_000).toISOString(),
+				})),
+			),
+		).toBe("unreported");
 	});
 
 	it("writes a cache of the recorded shape, read fresh with its own percents", () => {
@@ -124,10 +167,7 @@ describe("the /usage fake against the recording (#3266)", () => {
 			scoped: [{ model: "Opus", percent: 77, resetsAt }],
 		});
 		const limits = written.cachedUsageUtilization.utilization.limits;
-		expectRecordedBars(
-			limits,
-			recorded.cache.utilization.limits.map((l) => l.kind),
-		);
+		expectRecordedBars(limits, ["session", "weekly_all", "weekly_scoped"]);
 		const scope = (l: Record<string, unknown>) =>
 			(l.scope ?? {}) as { model: object };
 		const recordedScoped = recordedLimit("weekly_scoped");

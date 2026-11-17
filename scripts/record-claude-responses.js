@@ -30,7 +30,8 @@
  *     prints and the seat cache it rewrites, which lib/usage-probe.js,
  *     lib/allowance.js and lib/seat-utilisation.js read (#3266, #3282), off one
  *     probe of this session's seat run as lib/usage-probe.js runs it, to its
- *     end.
+ *     end; a seat listing no session bar keeps the previous recording's
+ *     (lib/session-bar-carry.js).
  *
  * Run it by hand after a harness upgrade, from a session worktree with its
  * edits committed, then `npm
@@ -73,6 +74,7 @@ const {
 	PROMPT,
 	SCRIPTED_PROMPT,
 } = require("./lib/recorder-prompts.js");
+const { carrySessionBar } = require("./lib/session-bar-carry.js");
 const {
 	PROBE_ARGV,
 	PROBE_CWD,
@@ -490,7 +492,7 @@ async function main() {
 		cwd: process.cwd(),
 	});
 	if (refusal) throw new Error(refusal);
-	const harness = claude(["--version"]).stdout.split(" ")[0];
+	const [harness = ""] = claude(["--version"]).stdout.split(" ");
 	const launched = launch(PROMPT);
 	const original = launched.id;
 	const started = [original];
@@ -654,11 +656,15 @@ async function main() {
 	}
 	/* Last, once every job is stopped, so its wait or a failure costs no
 	 * other fixture. */
-	writeFixture(USAGE_FIXTURE, {
-		recordedBy: RECORDED_BY,
-		harness,
-		...(await recordUsage()),
-	});
+	writeFixture(
+		USAGE_FIXTURE,
+		carrySessionBar(
+			{ recordedBy: RECORDED_BY, harness, ...(await recordUsage()) },
+			fs.existsSync(USAGE_FIXTURE)
+				? JSON.parse(fs.readFileSync(USAGE_FIXTURE, "utf8"))
+				: null,
+		),
+	);
 }
 
 main().catch((e) => {
