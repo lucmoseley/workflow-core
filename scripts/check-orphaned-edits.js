@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /*
- * check-orphaned-edits.js — report an ORPHANED EDIT (GLOSSARY.md): a tracked
+ * check-orphaned-edits.js — report an ORPHANED EDIT (.claude/workflow-core.glossary.md): a tracked
  * file with uncommitted changes that no live session claims, observes or has
  * in its write ledger, unchanged for at least 24 hours — and file each one
  * once as a `takes:triage` issue.
@@ -412,7 +412,7 @@ function buildFileIssue(f) {
 	const body = [
 		"## What",
 		"",
-		`\`${o.path}\` has uncommitted changes that no live session owns, unchanged for ${describeAge(o.ageHours)} (an **Orphaned edit**, \`GLOSSARY.md\`). Reported by \`scripts/check-orphaned-edits.js\` at session start (#813).`,
+		`\`${o.path}\` has uncommitted changes that no live session owns, unchanged for ${describeAge(o.ageHours)} (an **Orphaned edit**, \`.claude/workflow-core.glossary.md\`). Reported by \`scripts/check-orphaned-edits.js\` at session start (#813).`,
 		"",
 		`- Last known writer: ${o.writer}`,
 		`- Working-copy blob: \`${o.blob}\``,
@@ -510,7 +510,7 @@ function buildWorktreeIssue(f, supersedes) {
 	const body = [
 		"## What",
 		"",
-		`The worktree \`${f.worktree}\` holds ${String(f.orphans.length)} uncommitted file(s) no live session owns (each an **Orphaned edit**, \`GLOSSARY.md\`). Reported by \`scripts/check-orphaned-edits.js\` at session start (#813, #4439).`,
+		`The worktree \`${f.worktree}\` holds ${String(f.orphans.length)} uncommitted file(s) no live session owns (each an **Orphaned edit**, \`.claude/workflow-core.glossary.md\`). Reported by \`scripts/check-orphaned-edits.js\` at session start (#813, #4439).`,
 		"",
 		`| File | Unchanged | Blob | On \`${LANDED_REF}\` |`,
 		"| --- | --- | --- | --- |",

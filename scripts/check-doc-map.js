@@ -879,7 +879,7 @@ function checkSidecarVocabulary(r) {
 		line: (e) => `${e.path} — \`${e.cls}\``,
 		advice:
 			`The vocabulary is exactly ${DOC_CLASSES.join(", ")} ` +
-			"(docs/doc-map.md §Authority classes), and §A's rendered Update route " +
+			"(.claude/workflow-core.doc-map.md §Authority classes), and §A's rendered Update route " +
 			"is derived from it, so a seventh value would render a row nothing " +
 			"knows how to edit. A dual-class judgement goes in `classQualifier`, " +
 			"which is free prose beside a real token — never in `class` itself. " +
@@ -2448,7 +2448,7 @@ function checkTriggerVerdict(r) {
 		items: triggerFaults,
 		line: (e) => `${e.label} — ${e.fault}`,
 		advice:
-			"docs/doc-map.md §Capture and placement §4 already obliges a tranche " +
+			".claude/workflow-core.doc-map.md §Capture and placement §4 already obliges a tranche " +
 			"adding pool bytes to name its shed in the same commit. This adds one " +
 			"line to that entry: the trigger the rule binds behind, written\n" +
 			`  ${TRIGGER_VERDICT_MARKER} <the nearest observable event — a tool ` +

@@ -170,6 +170,7 @@ const HOOK_ERE: Record<string, string> = {
 	"scripts/generate-plugin-hooks.js": String.raw`^(self-plugin/hooks/hooks\.json|hooks/hooks\.json|scripts/[^/]+|scripts/lib/(core-hooks|deny-capable|guard-fires)\.js)$`,
 	"scripts/generate-rule-fragments.js": "^docs/agents/rules/",
 	"scripts/generate-effort-guide-routing.js": String.raw`^(docs/effort-guide\.md|scripts/lib/model-routing\.json|scripts/generate-effort-guide-routing\.js|scripts/lib/model-table\.js)$`,
+	"scripts/generate-core-docs.js": String.raw`^(GLOSSARY\.md|docs/doc-map\.md|\.claude/workflow-core\.(glossary|doc-map)\.md|scripts/generate-core-docs\.js|scripts/lib/core-docs\.js)$`,
 	"scripts/lib/doc-map-gate-program.js": String.raw`^(docs/|\.claude/|hooks/|self-plugin/|AGENTS\.md$|CLAUDE\.md$|PRODUCT\.md$|DESIGN\.md$|GLOSSARY\.md$)`,
 	"scripts/check-context-budget.js": String.raw`^(CLAUDE\.md$|AGENTS\.md$|docs/|\.claude/|scripts/|self-plugin/)`,
 	"scripts/check-injector-margin.js": String.raw`^(scripts/lib/tracker-inject-text\.js|docs/agents/rules/review-(dispatch-shape|deviations-read|finding-destination)\.txt)$`,

@@ -845,6 +845,23 @@ const GATES = [
 		kind: "program",
 	},
 	/*
+	 * The core glossary and doc-map method renders against GLOSSARY.md and
+	 * docs/doc-map.md, which an edit to either without a re-render leaves
+	 * shipping stale (#5294). It SKIPs in a repo shipping no plugin.
+	 */
+	{
+		id: "core-docs",
+		script: "scripts/generate-core-docs.js",
+		lander: "batch",
+		args: ["--check"],
+		arm: {
+			pattern:
+				/^(GLOSSARY\.md|docs\/doc-map\.md|\.claude\/workflow-core\.(glossary|doc-map)\.md|scripts\/generate-core-docs\.js|scripts\/lib\/core-docs\.js)$/,
+		},
+		policy: "gate",
+		kind: "program",
+	},
+	/*
 	 * The user-settings snapshot against ~/.claude/settings.json, checked here
 	 * and not in CI: its source lives outside the repo, so a runner could only
 	 * ever skip. Report-only, since drift in an unrelated file must not block
@@ -904,6 +921,22 @@ const GATES = [
 		script: "scripts/check-skill-body-size.js",
 		lander: "batch",
 		args: ["--touching", "HEAD"],
+		arm: { always: true },
+		policy: "gate",
+		kind: "checker",
+	},
+	/*
+	 * docs/adopter-boundary.md against what the release ships and init writes
+	 * (#5294). Always armed: a new top-level directory shows only as a path
+	 * under it, which no pattern tells from an existing one. It reads the
+	 * worktree, so an unstaged page edit can surface here; it SKIPs in an
+	 * adopter, which holds no page.
+	 */
+	{
+		id: "adopter-boundary",
+		script: "scripts/check-adopter-boundary.js",
+		lander: "batch",
+		args: [],
 		arm: { always: true },
 		policy: "gate",
 		kind: "checker",

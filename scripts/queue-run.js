@@ -584,6 +584,9 @@ function readTicket(session) {
 	}
 }
 
+/** @param {string[]} words */
+const asGiven = (words) => words;
+
 /**
  * One kind per slot flag and `other` for a launch with none (#2918, #3163,
  * #5274), "slot" naming the flag family, the gate seat among them.
@@ -593,6 +596,7 @@ function readTicket(session) {
  *   heldMarkerEnv: string,
  *   runsAtOnceInSuite: (options: Options) => boolean,
  *   wait: (options: Options, words: string[]) => SlotWait,
+ *   argv: (words: string[]) => string[],
  * }>}
  */
 const SLOT_KINDS = {
@@ -601,12 +605,14 @@ const SLOT_KINDS = {
 		heldMarkerEnv: GATE_ENV,
 		runsAtOnceInSuite: () => false,
 		wait: buildSeatWait,
+		argv: asGiven,
 	},
 	tsc: {
 		refusal: suiteRefusedWith(TSC_REFUSAL),
 		heldMarkerEnv: TSC_SLOT_ENV,
 		runsAtOnceInSuite: () => false,
 		wait: buildTscWait,
+		argv: asGiven,
 	},
 	gate: {
 		/* A gate's command is taken by its role, never by the classifier. */
@@ -615,12 +621,16 @@ const SLOT_KINDS = {
 		runsAtOnceInSuite: (options) =>
 			(options.inSuite ?? (() => isInSuite(options)))(),
 		wait: buildGateWait,
+		/* A gate's command is one shell string, as spawnGate runs it, held or
+		 * not. */
+		argv: (words) => ["sh", "-c", words.join(" ")],
 	},
 	other: {
 		refusal: plainRefusal,
 		heldMarkerEnv: GATE_ENV,
 		runsAtOnceInSuite: () => false,
 		wait: buildOtherWait,
+		argv: asGiven,
 	},
 };
 
@@ -748,7 +758,7 @@ async function run(words, slot, options, err) {
 	if (outcome === "refused") finish(refused(err));
 	else
 		child = held
-			? spawnCommand(words, { handed: null, ...launch })
+			? spawnCommand(kind.argv(words), { handed: null, ...launch })
 			: slotted.start(words, launch);
 	return done;
 }

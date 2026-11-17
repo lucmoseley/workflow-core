@@ -166,7 +166,7 @@ bodies are 70–670 lines of bespoke judgement.
      route; `scripts/check-context-budget.js --against HEAD` refuses a commit
      adding a pool rule with none. Those bytes load every session against the
      pool's cap, so name the shed that pays for the sentence before writing it
-     (`docs/doc-map.md` §Capture and placement).
+     (`.claude/workflow-core.doc-map.md` §Capture and placement).
 
 <!-- guard-registry:begin -->
 - **A session creating a guard is pointed at this list as it writes the script.**

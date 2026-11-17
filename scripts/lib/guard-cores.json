@@ -98,13 +98,6 @@
 			"host": "file-claim-host.js"
 		},
 		{
-			"name": "guard-last30days",
-			"core": "last30days.js",
-			"tools": "Skill",
-			"failure": "closed",
-			"tree": "host"
-		},
-		{
 			"name": "inject-review-tier",
 			"core": "review-tier.js",
 			"tools": "Skill",

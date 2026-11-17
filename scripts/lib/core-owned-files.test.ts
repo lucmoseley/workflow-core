@@ -114,6 +114,38 @@ describe("the helpers (#1453)", () => {
 	});
 });
 
+describe("the core glossary and doc-map method (#5294)", () => {
+	const Glossary = ".claude/workflow-core.glossary.md";
+	const Method = ".claude/workflow-core.doc-map.md";
+	const read = (rel: string) => fs.readFileSync(path.join(root, rel), "utf8");
+
+	it("writes both from the plugin root and rewrites them when the plugin's change", () => {
+		write(pluginRoot, Glossary, "glossary v1\n");
+		write(pluginRoot, Method, "method v1\n");
+		const first = run();
+		expect(first).toContain(`wrote   ${Glossary}`);
+		expect(first).toContain(`wrote   ${Method}`);
+		write(pluginRoot, Glossary, "glossary v2\n");
+		write(pluginRoot, Method, "method v2\n");
+		run();
+		expect(read(Glossary)).toBe("glossary v2\n");
+		expect(read(Method)).toBe("method v2\n");
+		expect(run().filter((l) => l.includes(".claude/workflow-core."))).toEqual(
+			[],
+		);
+	});
+
+	it("leaves the adopter's own GLOSSARY.md and doc map untouched", () => {
+		write(pluginRoot, Glossary, "core terms\n");
+		write(pluginRoot, Method, "core method\n");
+		write(root, "GLOSSARY.md", "product terms\n");
+		write(root, "docs/doc-map.md", "# own map\n");
+		run();
+		expect(read("GLOSSARY.md")).toBe("product terms\n");
+		expect(read("docs/doc-map.md")).toBe("# own map\n");
+	});
+});
+
 describe("settings.json's layout (#1484)", () => {
 	it("is written 2-space, and a second upgrade leaves it byte for byte", () => {
 		run();

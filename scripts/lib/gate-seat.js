@@ -2,7 +2,7 @@
  * gate-seat.js — the gate seat (#5274, spec #5273 §1-§2): the suite-queue
  * hold one gate run takes, a gate run being one run of a repo's declared test
  * command for one commit's verdict, however many runner processes it starts
- * (GLOSSARY.md).
+ * (.claude/workflow-core.glossary.md).
  *
  * THE SEAT IS THE WHOLE-SUITE SLOT. `queue-run.js --gate` joins the suite
  * queue's FIFO as a whole suite, marked role `gate`, and hands its command the

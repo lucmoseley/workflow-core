@@ -34,6 +34,11 @@ const { readGatePids } = require("./lib/gate-seat.js");
 const PROGRAM = path.resolve(__dirname, "queue-run.js");
 
 const dirs: string[] = [];
+/* A run inside a gate seat's tree (a commit's pre-lock run) hands it
+ * WFC_GATE_SEAT, which would read every launch here as already seated. */
+beforeEach(() => {
+	vi.stubEnv("WFC_GATE_SEAT", undefined);
+});
 afterEach(() => {
 	while (dirs.length > 0)
 		fs.rmSync(dirs.pop() as string, { recursive: true, force: true });
@@ -713,6 +718,34 @@ describe("queue-run.js", () => {
 			await tick();
 			expect(f.spawned).toHaveLength(1);
 			expect(f.readMarkers()).toEqual(["wfc-suite-queue-20.json"]);
+			f.spawned[0].child.emit("exit", 0, null);
+			expect(await done).toBe(0);
+		});
+
+		/* A nested --gate once spawned its joined words as one program name and
+		 * died ENOENT (#5296); its pair, the unnested gate, is "joins whole, as
+		 * role gate" above. */
+		it("runs a --gate launch inside a gate seat's tree as the one shell string a gate's command is", async () => {
+			const f = fixture();
+			const outer = path.join(f.dir, "wfc-suite-queue-20.json");
+			fs.writeFileSync(
+				outer,
+				JSON.stringify({ pid: 20, at: 0, role: "gate", spawned: true }),
+			);
+			const done = main(
+				["--gate", "--", "sh stub.sh"],
+				f.options({
+					env: { WFC_GATE_SEAT: outer },
+					pid: 40,
+					parentOf: (pid: number) => (pid > 10 ? pid - 10 : 1),
+					alive: () => true,
+					gate: () => ({ limb: "count" }),
+				}),
+			);
+			await tick();
+			expect(f.spawned.map((s) => [s.command, s.args])).toEqual([
+				["sh", ["-c", "sh stub.sh"]],
+			]);
 			f.spawned[0].child.emit("exit", 0, null);
 			expect(await done).toBe(0);
 		});

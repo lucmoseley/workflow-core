@@ -50,6 +50,7 @@ const {
 const { seedCoreCost, COST_TABLE } = require("./core-context-cost.js");
 const { ledgerPath } = require("./dispatch-ledger.js");
 const { MARKERS_REL } = require("./marker-root.js");
+const { CORE_DOCS } = require("./core-docs.js");
 const { SESSION_COST_TABLE, readCostTableIn } = require("./session-spend.js");
 const { gh, ghJson, parseErrLine } = require("./gh.js");
 const { caught } = require("./caught.js");
@@ -206,6 +207,27 @@ function bringHelpers(ctx) {
 			rel,
 			body,
 			mode: 0o755,
+			lost: "it differed from the plugin's copy, so any local edit to it is gone",
+		});
+	});
+}
+
+/**
+ * The core's glossary and doc-map method, copied from the plugin root and
+ * rewritten wherever they differ (lib/core-docs.js, #5294). The adopter's own
+ * GLOSSARY.md and docs/doc-map.md sit at other paths, never touched.
+ * @param {Context} ctx
+ */
+function bringCoreDocs(ctx) {
+	return CORE_DOCS.flatMap((rel) => {
+		const body = readIfPresent(path.join(ctx.pluginRoot, rel));
+		if (body === null) {
+			ctx.out(`MISSING ${rel} — the plugin root carries no copy`);
+			return [];
+		}
+		return bringFile(ctx, {
+			rel,
+			body,
 			lost: "it differed from the plugin's copy, so any local edit to it is gone",
 		});
 	});
@@ -577,6 +599,7 @@ const ENTRIES = [
 	{ bring: bringHooks, paths: HOOKS.map((hook) => `.husky/${hook}`) },
 	{ bring: bringHelpers, paths: HELPERS },
 	{ bring: bringRules, paths: [RULES_FILE, REFERENCE_FILE] },
+	{ bring: bringCoreDocs, paths: CORE_DOCS },
 	{ bring: bringSettings, paths: [SETTINGS] },
 	{ bring: bringIgnoreBlock, paths: [".gitignore"] },
 	{ bring: bringStatusScript, paths: ["package.json"] },

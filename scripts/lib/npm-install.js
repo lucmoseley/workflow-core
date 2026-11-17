@@ -34,8 +34,8 @@
  *      untouched for the same reason.
  *
  *   2. NEW-PACKAGE LEGITIMACY. For each named package absent from
- *      `package.json`, three registry facts, keyless (`docs/working-contract.md`
- *      §No paid research or data APIs):
+ *      `package.json`, three registry facts, keyless (`~/.claude/CLAUDE.md`
+ *      §Reports and paid data):
  *
  *        - the name exists            `npm view <pkg> time.created --json`
  *        - it is at least MIN_AGE_DAYS old              (the same call)

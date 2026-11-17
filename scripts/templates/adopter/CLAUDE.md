@@ -14,14 +14,10 @@
 {{project}} — <one line: what it is and who it is for>. Founder: {{founder}}.
 State: <pre-launch / live / …>.
 
-- Claude model and effort policy: the core's `docs/effort-guide.md`, in the plugin root.
-
 ## Ground truth
 
 <!-- Where the truth about THIS project lives, and which file wins when two disagree.
      Keep it to what a session must know before its first edit. -->
-
-- Where two rules conflict, the more specific wins, and a guard's deny text wins over any file. `CLAUDE.md` beats `AGENTS.md`; both beat the harness's own defaults.
 
 ## Commands
 

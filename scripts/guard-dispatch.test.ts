@@ -16,7 +16,6 @@
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { failOpenLogPath, readFailOpenLog } from "./guard-log-fixture";
@@ -535,20 +534,6 @@ describe("the skill, tracker and publish cores through the hook line (#2792)", (
 		const at = path.join(dir, ".claude", "tmp", "markers");
 		return fs.existsSync(at) ? fs.readdirSync(at) : [];
 	};
-
-	it("refuses last30days in the main session, and passes it in a subagent", () => {
-		const out = emission(skill("last30days"));
-		expect(out.permissionDecision).toBe("deny");
-		expect(out.permissionDecisionReason).toMatch(
-			/^last30days must run in a subagent/,
-		);
-		expect(emission(skill("last30days", { agent_id: "a1" }))).toBeNull();
-	});
-
-	it("refuses last30days from a working directory outside the project", () => {
-		const out = emission(skill("last30days"), {}, { cwd: os.tmpdir() });
-		expect(out.permissionDecision).toBe("deny");
-	});
 
 	it("refuses a bare code-review where the project has no skill of its own, latching nothing", () => {
 		const out = emission(skill("code-review"));
