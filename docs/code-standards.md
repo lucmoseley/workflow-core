@@ -22,7 +22,7 @@ The core's own primitives, beside the base's table.
 |---|---|---|---|---|
 | Quoting a word for sh | `shellQuote` in `scripts/lib/sh-quote.js`; `sp_shell_word` in `scripts/lib/script-path.sh` in shell | `scripts/check-plugin-gap.js`, `scripts/lib/script-path.sh` | §LG1 | Standards axis criterion |
 | Reading a file that may be absent | `readText` or `readBytes` in `scripts/lib/file-read.js`, answering absent, read or unreadable; `readTail` there for a file's last N bytes | `scripts/lib/agent-poll-host.js` | §LG2 | Standards axis criterion |
-| Whether a path sits inside a directory | `isUnder` for a path and a set of roots spelt alike, `relativeUnder` for a root and a path wanted relative to it, in `scripts/lib/is-under.js` | `scripts/lib/session-worktrees.js` | §LG3 | Standards axis criterion |
+| Whether a path sits inside a directory | `isUnder` for a path and a set of roots spelt alike, `relativeUnder` for a root and a path wanted relative to it, in `scripts/lib/is-under.js`; in Python, `relative_under` in `scripts/lib/is_under.py` | `scripts/lib/session-worktrees.js`, `scripts/lib/call_cost_harness.py` | §LG3 | Standards axis criterion |
 | Blocking the thread for a wait | `sleepSync` in `scripts/lib/sleep-sync.js` | `scripts/check-kernel-stall.js` | §LG4 | Standards axis criterion |
 | Escaping a literal into a regex | `escapeRe` in `scripts/lib/regex-group.js` | `scripts/lib/run-cost-report.js` | §LG5 | Standards axis criterion |
 | Building a git repo for a test | `defineTemplate` in `scripts/lib/git-fixture.ts` at module or describe scope, never inside a hook or `it`, building the repo once per file; `instantiate` copies it into the directory each `beforeEach` mints | `scripts/review-hold-gate.test.ts` | §X8 | Standards axis criterion |
@@ -44,7 +44,7 @@ Outside it: a catch that guards more than the one read, such as a rename then a 
 
 ### §LG3 · Path containment goes through the one module — **hard**
 
-**Every code kind but shell.** Code asking whether a path is a given directory or sits beneath it calls `isUnder` or `relativeUnder` in `scripts/lib/is-under.js`; strictly beneath is `relativeUnder`'s truthy answer, or `isUnder` with the path unequal to the root. A hand-written `startsWith(dir + sep)` test, or a `path.relative` answer tested for a leading `..`, is the breach (#4021).
+**Every code kind but shell.** Code asking whether a path is a given directory or sits beneath it calls `isUnder` or `relativeUnder` in `scripts/lib/is-under.js`, or in Python `relative_under` in `scripts/lib/is_under.py` (#5374); strictly beneath is a `relativeUnder` or `relative_under` truthy answer, or `isUnder` with the path unequal to the root. A hand-written `startsWith(dir + sep)` test, or a `path.relative` or `os.path.relpath` answer tested for a leading `..`, is the breach (#4021).
 
 Outside it: a glob or pathspec match, such as the sensitive-paths match (#1654); a prefix test on a name that is no directory.
 

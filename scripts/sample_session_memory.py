@@ -52,6 +52,7 @@ from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 from claude_sessions import session_pair, spare_socket
+from is_under import relative_under
 from wfc_bin import bin_path
 
 SAMPLES_HEADER = ["ts", "mem_available_kb", "swap_used_kb", "sessions", "sample_ms"]
@@ -127,8 +128,9 @@ def command_key(argv):
 
 def repo_of(cwd):
     """The repo a session belongs to: the first path segment under $HOME."""
-    if cwd and cwd.startswith(HOME + os.sep):
-        return cwd[len(HOME) + 1 :].split(os.sep, 1)[0]
+    rel = relative_under(HOME, cwd) if cwd else None
+    if rel:
+        return rel.split(os.sep, 1)[0]
     return os.path.basename(cwd or "") or "?"
 
 

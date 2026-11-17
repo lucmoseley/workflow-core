@@ -52,6 +52,8 @@ import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from is_under import relative_under
+
 _SELF = os.path.realpath(__file__)
 _VENDORED = ("site-packages", "dist-packages")
 
@@ -76,17 +78,9 @@ def _scripts_root_of(script: str) -> str:
     return os.path.dirname(script)
 
 
-def _relative_under(path: str, root: str) -> str | None:
-    """`path` from `root` where it lies strictly inside it, else None."""
-    rel = os.path.relpath(path, root)
-    if rel == "." or rel == os.pardir or rel.startswith(os.pardir + os.sep):
-        return None
-    return rel
-
-
 def _under(file: str, root: str) -> bool:
     return (
-        _relative_under(file, root) is not None
+        relative_under(root, file)
         and file != _SELF
         and not any(part in _VENDORED for part in Path(file).parts)
     )
@@ -108,8 +102,8 @@ def _shown_arg(arg: str, root: str, cwd: str) -> str:
     if not os.path.isabs(arg):
         return arg
     for base in (root, cwd):
-        rel = _relative_under(arg, base)
-        if rel is not None:
+        rel = relative_under(base, arg)
+        if rel:
             return rel
     return os.path.basename(arg)
 
