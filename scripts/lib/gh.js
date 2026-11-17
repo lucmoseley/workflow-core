@@ -24,9 +24,11 @@ const pExecFile = promisify(execFile);
 /*
  * A full-tracker response runs to megabytes; Node's 1 MB default does not
  * truncate it, it kills the call with ENOBUFS. Measured at mantahostels#2466: the widest
- * query any checker makes — every issue's body and comments,
- * check-issue-citations.js's — was 26.67 MB across 2,456 issues, ~10.6 KiB per
- * issue, so 256 MB carries ~23,500.
+ * query any checker then made — every issue's body and comments in one
+ * `gh issue list` — was 26.67 MB across 2,456 issues, ~10.6 KiB per issue, so
+ * 256 MB carries ~23,500. The widest single read now is check-issue-citations.js's
+ * cold read of the repo-wide comments list: 53 MB across 14,433 comments
+ * (#5355), so 256 MB carries ~70,000.
  *
  * Memory is not the binding constraint: buffering and parsing the full 256 MB
  * costs ~2x payload in heap and ~3.6x in RSS, peaking at 925 MB RSS / 530 MB
@@ -128,6 +130,14 @@ const parseErrLine = (raw) => {
  */
 const isNotFound = (raw) =>
 	/\(HTTP 404\)/.test(String(asExecError(raw).stderr ?? ""));
+
+/**
+ * Whether a failed read was of something deleted: GitHub's 404, or the 410 it
+ * answers for a deleted issue.
+ * @param {unknown} raw
+ */
+const isGone = (raw) =>
+	/\(HTTP (?:404|410)\)/.test(String(asExecError(raw).stderr ?? ""));
 
 /**
  * Whether a failed call was GitHub's 403, by gh's `(HTTP 403)`, as isNotFound.
@@ -641,6 +651,13 @@ function ghClosedIssuesWithLabel(label) {
 	return ghIssuesInState("closed", ["-f", `labels=${label}`]);
 }
 
+/*
+ * How far before a cache's stamp an updated-since read starts, so a clock
+ * running ahead of GitHub's loses no update. Re-reading an issue merges to
+ * the same entry. Five minutes is a guess.
+ */
+const SINCE_SKEW_MS = 5 * 60 * 1000;
+
 /**
  * The issues on `repo`, open or closed, updated since `since`: the REST list,
  * current at once where search's index lags a fresh create, and with no
@@ -694,6 +711,7 @@ module.exports = {
 	ghApiSlurp,
 	ghApiSlurpAsync,
 	ghIssuesUpdatedSince,
+	SINCE_SKEW_MS,
 	ghGetRetrying,
 	retryingOnce,
 	retryingOnceSync,
@@ -701,6 +719,7 @@ module.exports = {
 	ISSUE_READ_CONCURRENCY,
 	parseErrLine,
 	isForbidden,
+	isGone,
 	isNotFound,
 	parseGhFailureReason,
 	raiseGhFailure,

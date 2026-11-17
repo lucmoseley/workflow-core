@@ -9,8 +9,5 @@ Researched: 2026-10-24
 - Display scaling divides device pixels into CSS pixels (125% turns 1920 into 1536), so a screenshot's pixel width gives the screen, not its CSS width. Where the reader's scaling is unknown, render at both the 100% and the 125% width. Ours, no source [unverified]: it sets no default alone.
 - Render headless with Playwright (1.64.1, read 2026-10-26) where it is installed. Rendering varies with OS, browser version, fonts and hardware, so compare screenshots only against ones taken in the same environment. Playwright docs, "Screenshots" and "Visual comparisons" (what the tool does) [standard or field body]; the default to render in a real browser rests on web.dev and WCAG above.
 - A model reading the screenshot sees it downscaled past its long-edge or visual-token limit (2,576 px and 4,784 tokens on Claude 4.7 and later; 1920×1080 is not resized), so capture one tile per viewport height rather than one full-page image, and judge legibility only on a tile read at full size. Claude docs, "Vision" §Resolution and token cost (what the model does) [standard or field body]
+- workflow-core's `scripts/browse.py shot` renders this way: `--viewport WxH` sets the width, and `--tiles` takes one tile per viewport height and exits 6 on sideways scroll or an image drawn below its own pixel width. `scripts/browse.py` (what the tool does) [standard or field body]
 - Research: #2753, its research comment (issuecomment-6382827617).
-
-## In workflow-core
-
-- **Rendering checks before hand-over:** Render through `scripts/browse.py shot` (`--viewport WxH`, `--tiles`, which exits 6 on sideways scroll or an image drawn below its own pixel width).
