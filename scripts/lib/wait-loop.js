@@ -1,8 +1,9 @@
 /*
  * wait-loop.js — the dispatcher core that judges a hand-rolled wait in a Bash
  * call (mantahostels#2042, spec mantahostels#2017, from the snapshot at
- * mantahostels#2012): a loop around `sleep` with no ceiling is warned, and a
- * wait over 15 minutes is refused (#1288).
+ * mantahostels#2012): a loop around `sleep` with no ceiling is warned, a
+ * wait over 15 minutes is refused (#1288), and a wait loop gated on machine
+ * load is refused at any length (#5330).
  *
  * Why: an `until`/`while` loop around `sleep` inside one Bash call is one tool
  * call, so nothing else here sees it. When its condition can never become true
@@ -13,6 +14,14 @@
  * THE UNBOUNDED LOOP ONLY WARNS (mantahostels#103, mantahostels#2017 §Out of
  * Scope): an unbounded wait is sometimes the right call and only the caller
  * knows.
+ *
+ * A WAIT LOOP GATED ON MACHINE LOAD IS DENIED FIRST (#5330, spec #5328), ceiling
+ * or none, before the length and the warning are read (#5325). A gate is a
+ * loop holding a `sleep` that reads load — `/proc/loadavg`, `uptime` as a
+ * command, `loadavg` or `getloadavg` as a word — in its condition, or in its
+ * body beside a `break` or `exit`. A loop reading load in its body alone is a
+ * sampler, and passes. The deny quotes
+ * docs/agents/rules/load-wait.txt, or a fallback naming it.
  *
  * A WAIT OVER 15 MINUTES IS DENIED (#1288, ruled at #1286). Three shapes are a
  * wait, foreground or backgrounded alike:
@@ -30,10 +39,10 @@
  *
  * LIMITS
  *  - It is a RAW REGEX over the command text, not a walk over parsed commands,
- *    there being no `-f`-shaped flag to key off. Both verdicts read it with
- *    every quoted span and heredoc body emptied but a shell's own script (see
- *    THE DENY below), so a commit message or issue body mentioning `while`
- *    passes and `bash -c 'until …'` is still read.
+ *    there being no `-f`-shaped flag to key off. The warning and the length
+ *    deny read it with every quoted span and heredoc body emptied but a
+ *    shell's own script (see THE DENY below), so a commit message or issue
+ *    body mentioning `while` passes and `bash -c 'until …'` is still read.
  *  - A `for` loop never warns, being bounded by construction; the deny counts
  *    one only where `seq` or `{a..b}` states its count.
  *  - A loop's extent is read as the text from its keyword to the `done` that
@@ -53,6 +62,14 @@
  *    bash -c 'until npm test; do sleep 5; done'`, a retry loop, is refused as a
  *    wait. A counted loop past the cap is refused even inside a shorter
  *    `timeout`, and a backgrounded `sleep 600 & sleep 600` reads as 20 minutes.
+ *  - THE LOAD DENY reads its own masking: `node`, `perl` or `ruby`'s `-e`/`-p`
+ *    script is kept beside a `-c` one, so `node -e '…os.loadavg…'` is read,
+ *    and a double-quoted span keeps its unescaped `$(…)` and backtick
+ *    substitutions, so `[ "$(cut … /proc/loadavg)" … ]` is read. A substitution
+ *    holding a `"` is cut at it. It is blind to a
+ *    load read through a variable or a command it does not name, to a loop in
+ *    a script file the shell runs, and to an interpreter's own polling loop
+ *    with no shell loop around it.
  *  - A `break` is not read as a ceiling, so `while :; do check && break;
  *    sleep 5; done` warns.
  *  - A ceiling is recognised lexically, and in TWO PARTS TOGETHER: a numeric
@@ -71,6 +88,7 @@
  */
 
 const { ruleOrFallback } = require("./guard-verdict.js");
+const { requiredGroup } = require("./regex-group.js");
 const { endRun } = require("./trim-run.js");
 
 /** `[[:space:]]`, without JavaScript's wider Unicode `\s`. */
@@ -81,12 +99,15 @@ const SP = " \\t\\n\\v\\f\\r";
  * class, so `bash -c 'until …'` is seen. */
 const SEP = `(^|['";&|(!{${SP}])`;
 
+/* Where a command word ends. */
+const END = `[;&|)}'"${SP}]`;
+
 const LOOP_RE = new RegExp(`${SEP}(while|until|for)[${SP}]`);
 /* The loop's end: `done` closing a command, never `done` as an argument to
  * one. It carries its own trailing delimiter, which is what the truncation
  * cuts on; a quote is one, closing a `bash -c '…; done'` script (#1808). */
 // eslint-disable-next-line regexp/no-super-linear-move -- input is a Bash command a session sends; a crafted one slows the hook, nothing worse (#4642)
-const DONE_RE = new RegExp(`[;&|)}\\n][${SP}]*done[;&|)}${SP}'"]`);
+const DONE_RE = new RegExp(`[;&|)}\\n][${SP}]*done${END}`);
 const SLEEP_RE = new RegExp(`${SEP}sleep[${SP}]`);
 const SLEEP_RUN_RE = new RegExp(`${SEP}sleep[${SP}][${SP}]*`);
 /* `((n++))`, `((n += 1))` and `n=$((n+1))` — the increment idioms
@@ -121,6 +142,17 @@ const DURATION_RE = /^([0-9]*)(\.([0-9]*))?([smhd]?)$/;
 const QUOTE_RE = /^([^'"]*)(['"])/;
 const DQUOTED_RE = /^((?:[^"\\]|\\[\s\S])*)"/;
 const SHELL_C_RE = new RegExp(`(^|[${SP}])-[A-Za-z]*c[${SP}]+$`);
+/* The load limb also keeps an interpreter's `-e`/`-p` script, where
+ * `os.loadavg` is spelled — never `echo -e`'s or `sed -e`'s text. */
+const SCRIPT_RE = new RegExp(
+	`(^|[${SP}])(-[A-Za-z]*c|(node|nodejs|perl|ruby)([${SP}]+-[A-Za-z-]+)*[${SP}]+(-[A-Za-z]*[ep]|--eval|--print))[${SP}]+$`,
+);
+const LOAD_RE = new RegExp(
+	`(^|[^A-Za-z0-9_])(get)?loadavg([^A-Za-z0-9_]|$)|${SEP}uptime(${END}|$)`,
+);
+const LEAVE_RE = new RegExp(`${SEP}(break|exit)(${END}|$)`);
+/* A substitution's opening, unescaped: an even run of backslashes before it. */
+const SUB_OPEN_RE = /(?<!\\)(?:\\\\)*(\$\(|`)/;
 const HEREDOC_RE = new RegExp(
 	`(^|[^<])<<-?[${SP}]*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?`,
 );
@@ -146,6 +178,7 @@ const WRAPPED_LOOP_RE = new RegExp(`^(while|until)[${SP}]`);
 
 /**
  * @typedef {{ kw: string, body: string, condition: string }} Loop
+ * @typedef {{ script: RegExp, subs: boolean }} Masking
  */
 
 /**
@@ -300,41 +333,99 @@ function durations(text) {
 }
 
 /**
- * `text` with every quoted span emptied but a shell's `-c` script, which is
- * kept with its own quoted spans emptied in turn. An unclosed quote empties
- * the rest.
+ * `text` with every quoted span emptied but a script `script` matches the
+ * flag of, which is kept with its own quoted spans emptied in turn. Where
+ * `subs`, a double-quoted span keeps its command substitutions. An unclosed
+ * quote empties the rest.
  * @param {string} text
+ * @param {Masking} [how]
  * @returns {string}
  */
-function mask(text) {
+function mask(text, how = { script: SHELL_C_RE, subs: false }) {
 	let s = text;
 	let out = "";
 	for (;;) {
 		const m = QUOTE_RE.exec(s);
 		if (!m) break;
 		out += m[1];
-		const q = m[2];
-		s = s.slice(m[0].length);
-		let span;
-		if (q === "'") {
-			if (!s.includes("'")) {
-				s = "";
-				break;
-			}
-			span = before(s, "'");
-			s = after(s, "'");
-		} else {
-			const d = DQUOTED_RE.exec(s);
-			if (!d) {
-				s = "";
-				break;
-			}
-			span = d[1] ?? "";
-			s = s.slice(d[0].length);
-		}
-		out += SHELL_C_RE.test(out) ? `${q}${mask(span)}${q}` : `${q}${q}`;
+		const q = requiredGroup(m, 2, QUOTE_RE);
+		const quoted = closeQuote(q, s.slice(m[0].length));
+		if (!quoted) return out;
+		s = quoted.rest;
+		out += `${q}${keptOf(quoted.span, q, how.script.test(out), how)}${q}`;
 	}
 	return out + s;
+}
+
+/**
+ * The quoted span `text` opens with, up to its closing `q`, and the text
+ * after; null where it never closes.
+ * @param {string} q
+ * @param {string} text
+ */
+function closeQuote(q, text) {
+	if (q === "'")
+		return text.includes("'")
+			? { span: before(text, "'"), rest: after(text, "'") }
+			: null;
+	const d = DQUOTED_RE.exec(text);
+	return d
+		? { span: requiredGroup(d, 1, DQUOTED_RE), rest: text.slice(d[0].length) }
+		: null;
+}
+
+/**
+ * What `mask` keeps of a quoted span: all of a script, masked; a
+ * double-quoted span's substitutions where `how.subs`; else nothing.
+ * @param {string} span
+ * @param {string} q
+ * @param {boolean} isScript
+ * @param {Masking} how
+ */
+function keptOf(span, q, isScript, how) {
+	if (isScript) return mask(span, how);
+	if (q === '"' && how.subs) return substitutions(span, how);
+	return "";
+}
+
+/**
+ * Each unescaped `$(…)` and backtick substitution in a double-quoted `span`,
+ * masked in turn and joined by `;`.
+ * @param {string} span
+ * @param {Masking} how
+ */
+function substitutions(span, how) {
+	/** @type {string[]} */
+	const found = [];
+	let rest = span;
+	for (;;) {
+		const m = SUB_OPEN_RE.exec(rest);
+		if (!m) break;
+		const token = requiredGroup(m, 1, SUB_OPEN_RE);
+		const at = m.index + m[0].length - token.length;
+		const tick = token === "`";
+		const open = rest.slice(at + (tick ? 1 : 2));
+		const end = tick ? open.indexOf("`") : closingParen(open);
+		if (end < 0) break;
+		found.push(open.slice(0, end));
+		rest = open.slice(end + 1);
+	}
+	return found.map((sub) => mask(sub, how)).join("; ");
+}
+
+/**
+ * Where the `)` closing a `$(` that `text` follows stands, counting nested
+ * parentheses; -1 where none closes it.
+ * @param {string} text
+ */
+function closingParen(text) {
+	let depth = 1;
+	for (let i = 0; i < text.length; i++) {
+		if (text[i] === "(") depth++;
+		if (text[i] === ")") depth--;
+		if (depth === 0) return i;
+	}
+	return -1;
 }
 
 /**
@@ -540,12 +631,44 @@ What this guard cannot see: it reads a ceiling as a \`timeout\`, or a numeric co
 }
 
 /**
+ * The refusal of the first wait loop gated on machine load: one reading load
+ * in its condition, or in its body beside a `break` or `exit`.
+ * @param {string} written
+ * @param {import("./core-contract.js").CoreContext} ctx
+ */
+function loadDenial(written, ctx) {
+	const text = mask(written, { script: SCRIPT_RE, subs: true });
+	for (const loop of loops(text)) {
+		const body = loop.body.slice(loop.condition.length);
+		if (
+			!LOAD_RE.test(loop.condition) &&
+			!(LOAD_RE.test(body) && LEAVE_RE.test(body))
+		)
+			continue;
+		const rule = ruleOrFallback(
+			ctx,
+			"load-wait",
+			"A Bash wait gated on machine load is banned, and the rule says where each kind of wait goes instead",
+		);
+		return {
+			deny: ctx.corePaths(
+				`This wait loop gates on machine load — \`${named(loop.body, /[wuf]/)}\`.\n\n${rule}`,
+			),
+		};
+	}
+	return null;
+}
+
+/**
  * @param {string} command
  * @param {import("./core-contract.js").CoreContext} ctx
  * @returns {import("./core-contract.js").CoreDecision}
  */
 function decide(command, ctx) {
-	const waits = mask(unheredoc(command));
+	const written = unheredoc(command);
+	const load = loadDenial(written, ctx);
+	if (load) return load;
+	const waits = mask(written);
 	const deny = denial(waits, ctx);
 	if (deny) return deny;
 	const warn = warning(waits);
