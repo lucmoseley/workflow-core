@@ -101,7 +101,7 @@ function buildNotGateLine(want, { gate, command, proof }) {
 	if (gate === "push")
 		return command === null
 			? 'commands.test is gated at push, where the lander runs the full suite — module "suites" is on and nothing is declared'
-			: "commands.test is gated at push, where the lander runs the full suite — its verdict probe passed for this command and canary";
+			: "commands.test is gated at push, where the lander runs the full suite — its verdict probe passed for this command, runner and canary";
 	if (gate === "commit") return buildStaysLine(proof);
 	return config.buildModuleOffLine("suites");
 }

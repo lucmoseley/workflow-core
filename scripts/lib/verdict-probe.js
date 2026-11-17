@@ -21,7 +21,8 @@
  * it resolves to and the canary's content, so a change to any of them makes
  * it stale. The runner is every file a word of the command names, in the
  * working copy or else the core (an adopter's `resolve-core.js` runs a core
- * script), with everything each one's run reaches (lib/code-edges.js), so a
+ * script), and each runner config at its root with the files it names, with
+ * everything each one's run reaches (lib/code-edges.js), so a
  * fix to the runner reprobes a failed record and a break in it a passed one
  * (#5327). Keys are kept side by side, because the record is the main
  * checkout's and worktrees at different bases hold different runners. A
@@ -39,6 +40,7 @@ const { spawnSync } = require("node:child_process");
 const { caught } = require("./caught.js");
 const { now } = require("./clock.js");
 const { readRunReach } = require("./code-edges.js");
+const { isFile } = require("./file-reach.js");
 const { readText } = require("./file-read.js");
 const { markersDir } = require("./marker-root.js");
 const { coreRoot, docPath } = require("./script-path.js");
@@ -105,87 +107,124 @@ function resolvedCommand(command, root) {
 	return `${command}\n${script}`;
 }
 
+/* Config files a test runner reads by name, not through a load the walk
+ * follows: what they name decides what runs and how a failure prints. */
+const RUNNER_CONFIGS = [
+	"vitest.config.ts",
+	"vitest.config.mts",
+	"vitest.config.js",
+	"vitest.config.mjs",
+	"pytest.ini",
+];
+
+/* A quoted string, such as a config's `"./scripts/vitest-pass-reporter.ts"`. */
+const QUOTED = /["'`]([^"'`\s]+)["'`]/g;
+
 /**
- * Each word of `text` naming a file, as a root-relative path and the root it
- * sits under: the working copy, else the core.
+ * Each word and quoted string of `text`, the candidates for a path.
  * @param {string} text
+ * @returns {string[]}
+ */
+function pathWords(text) {
+	const words = text.split(/\s+/).map((w) => w.replace(/^['"]|['"]$/g, ""));
+	for (const m of text.matchAll(QUOTED)) words.push(m[1] ?? "");
+	return words.filter(
+		(w) => w !== "" && !w.startsWith("-") && !w.includes("="),
+	);
+}
+
+/**
+ * Where the runner a command resolves to starts: each file a word names, in
+ * the working copy or else the core, then each base's runner configs and the
+ * files they name.
+ * @param {string} resolved the command as it runs
  * @param {string} root
  * @returns {{ base: string, rel: string }[]}
  */
-function namedFiles(text, root) {
-	const core = coreRoot();
+function runnerStarts(resolved, root) {
 	/** @type {Map<string, { base: string, rel: string }>} */
 	const found = new Map();
-	for (const raw of text.split(/\s+/)) {
-		const word = raw.replace(/^['"]|['"]$/g, "");
-		if (word === "" || word.startsWith("-") || word.includes("=")) continue;
+	/** @param {string[]} bases @param {string} word */
+	const add = (bases, word) => {
 		const rel = path.normalize(word);
-		if (path.isAbsolute(rel)) continue;
-		const base = [root, core].find((b) => isFileAt(path.join(b, rel)));
+		if (path.isAbsolute(rel)) return;
+		const base = bases.find((b) => isFile(path.join(b, rel)));
 		if (base !== undefined) found.set(`${base}\0${rel}`, { base, rel });
-	}
+	};
+	for (const word of pathWords(resolved)) add([root, coreRoot()], word);
+	for (const base of new Set([...found.values()].map((s) => s.base)))
+		for (const config of RUNNER_CONFIGS) {
+			const text = readAt(base, config);
+			if (text === null) continue;
+			add([base], config);
+			for (const word of pathWords(text)) add([base], word);
+		}
 	return [...found.values()];
 }
 
-/** @param {string} abs */
-function isFileAt(abs) {
-	try {
-		return fs.statSync(abs).isFile();
-	} catch {
-		return false;
-	}
-}
-
 /**
- * What the runner a command resolves to holds: each file its words name and
- * each one their runs reach, with its content. A reach the walk cannot make
- * keys as its fault, so fixing it reprobes.
+ * A digest of what the runner holds: each start and each file its run
+ * reaches, with its content. A gap in the walk keys as its fault, so the
+ * walk's fix reprobes, and is returned for the probe to print.
  * @param {string} resolved the command as it runs
  * @param {string} root
- * @returns {string}
+ * @returns {{ digest: string, faults: string[] }}
  */
-function runnerContent(resolved, root) {
+function runnerDigest(resolved, root) {
 	const hash = crypto.createHash("sha256");
-	/** @type {Map<string, (start: string) => import("./code-edges.js").RunReach>} */
+	/** @type {string[]} */
+	const faults = [];
+	/** @type {Map<string, (start: string, fault?: (file: string, msg: string) => void) => import("./code-edges.js").RunReach>} */
 	const walkers = new Map();
-	for (const { base, rel } of namedFiles(resolved, root)) {
+	for (const { base, rel } of runnerStarts(resolved, root)) {
 		let walk = walkers.get(base);
 		if (walk === undefined) {
 			walk = readRunReach(base);
 			walkers.set(base, walk);
 		}
-		let files;
+		let reach;
 		try {
-			files = walk(rel).files;
+			reach = walk(rel, (file, msg) => faults.push(`${file} ${msg}`));
 		} catch (err) {
-			hash.update(`${rel}\0unwalked\0${caught(err).message}\0`);
+			faults.push(`${rel} goes unwalked: ${caught(err).message}`);
 			continue;
 		}
-		for (const file of files)
-			hash.update(`${base}\0${file}\0${readAt(base, file) ?? ""}\0`);
+		for (const { file } of reach.missing) faults.push(`${file} is missing`);
+		for (const file of [...reach.unread, ...reach.unknown])
+			faults.push(`${file} holds a load the walk cannot read`);
+		for (const file of reach.files) {
+			const body = readAt(base, file);
+			hash.update(
+				`${base}\0${file}\0${body === null ? "\0unreadable" : body}\0`,
+			);
+		}
 	}
-	return hash.digest("hex");
+	for (const fault of faults) hash.update(`fault\0${fault}\0`);
+	return { digest: hash.digest("hex"), faults };
 }
 
 /**
- * The proof key, or null where the canary cannot be read.
+ * The proof key and the runner walk's faults, or null where the canary
+ * cannot be read.
  * @param {{ root: string, command: string, canary: string }} at
- * @returns {string | null}
+ * @returns {{ key: string, faults: string[] } | null}
  */
 function proofKey({ root, command, canary }) {
 	const body = readAt(root, canary);
 	if (body === null) return null;
 	const resolved = resolvedCommand(command, root);
-	return crypto
+	const runner = runnerDigest(resolved, root);
+	const key = crypto
 		.createHash("sha256")
 		.update(resolved)
 		.update("\0")
-		.update(runnerContent(resolved, root))
+		.update(runner.digest)
 		.update("\0")
 		.update(canary)
 		.update("\0")
 		.update(body)
 		.digest("hex");
+	return { key, faults: runner.faults };
 }
 
 /** @param {string} markers */
@@ -249,8 +288,8 @@ function recordVerdict(markers, key, verdict) {
  */
 function proofState({ root, command, canary, markers = markersDir() }) {
 	if (command === null || canary === null) return { state: "none" };
-	const key = proofKey({ root, command, canary });
-	const verdict = key === null ? undefined : readProof(markers)[key];
+	const key = proofKey({ root, command, canary })?.key;
+	const verdict = key === undefined ? undefined : readProof(markers)[key];
 	if (verdict === undefined) return { state: "stale" };
 	return verdict.verdict === "pass"
 		? { state: "fresh" }
@@ -326,19 +365,23 @@ function ensureProof({
 	const before = proofState({ root, command, canary, markers });
 	if (before.state !== "stale" || command === null || canary === null)
 		return before;
-	const key = proofKey({ root, command, canary });
-	if (key === null) {
+	const proof = proofKey({ root, command, canary });
+	if (proof === null) {
 		const clause = `the canary ${canary} cannot be read`;
 		say(`verdict probe: ${clause}`);
 		return { state: "failed", clause };
 	}
+	for (const fault of proof.faults)
+		say(
+			`verdict probe: the runner's walk cannot follow ${fault}, so its key holds the gap, not what lies past it (#5327)`,
+		);
 	say(
 		`verdict probe: running \`${command} ${canary}\` with and without ${PROBE_VAR}=1`,
 	);
 	const result = probe({ root, command, canary, run });
 	recordVerdict(
 		markers,
-		key,
+		proof.key,
 		result.ok
 			? { verdict: "pass" }
 			: { verdict: "fail", clause: result.clause },
@@ -350,7 +393,8 @@ function ensureProof({
 
 /**
  * Marks every passed verdict failed: the lander's backstop, on a red that
- * named no failing file in its tree, which it cannot tie to one key.
+ * named no failing file in its tree. The lander's merged tree holds a key no
+ * worktree does, so every worktree reprobes after it (#5327).
  * @param {string} reason
  * @param {string} [markers]
  * @returns {boolean} whether a passed verdict was there to mark

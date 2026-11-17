@@ -3453,6 +3453,7 @@
 		"pytest.ini": [
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
+			"scripts/check-verdict-proof.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/coverage-declined.test.ts",
 			"scripts/file-issue.test.ts",
@@ -3468,6 +3469,7 @@
 			"scripts/lib/issue-create-label.test.ts",
 			"scripts/lib/morning-review-filing.test.ts",
 			"scripts/lib/test-kind.test.ts",
+			"scripts/lib/verdict-probe.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/precommit-staged-gate.test.ts"
 		],
@@ -60541,6 +60543,7 @@
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-guard-registry-implicit.test.ts",
 			"scripts/check-issue-labels.test.ts",
+			"scripts/check-verdict-proof.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/coverage-declined.test.ts",
 			"scripts/file-issue.test.ts",
@@ -60559,6 +60562,7 @@
 			"scripts/lib/read-audit.test.ts",
 			"scripts/lib/suite-bounded.test.ts",
 			"scripts/lib/test-kind.test.ts",
+			"scripts/lib/verdict-probe.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/run-vitest.test.ts",
 			"scripts/vitest-tree-watch.test.ts"

@@ -8,7 +8,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	buildStaysLine,
 	ensureProof,
@@ -145,7 +145,7 @@ describe("the proof record", () => {
 		return { root, command: "node runner.js", canary: CANARY, markers };
 	}
 
-	it("reprobes a failed record once a module the runner requires is fixed", () => {
+	it("reprobes a failed record once a module the runner requires is fixed (#5327)", () => {
 		const at = nodeRunner(0);
 		expect(ensureProof(at).state).toBe("failed");
 		nodeRunner(1);
@@ -153,7 +153,7 @@ describe("the proof record", () => {
 		expect(ensureProof(at)).toEqual({ state: "fresh" });
 	});
 
-	it("reprobes a passed record once a module the runner requires changes", () => {
+	it("reprobes a passed record once a module the runner requires changes (#5327)", () => {
 		const at = nodeRunner(1);
 		expect(ensureProof(at)).toEqual({ state: "fresh" });
 		nodeRunner(0);
@@ -161,13 +161,49 @@ describe("the proof record", () => {
 		expect(ensureProof(at).state).toBe("failed");
 	});
 
-	it("keeps each runner's verdict beside the others, so a worktree at another base keeps its own", () => {
+	it("keeps each runner's verdict beside the others, so a worktree at another base keeps its own (#5327)", () => {
 		const at = nodeRunner(1);
 		ensureProof(at);
 		nodeRunner(0);
 		ensureProof(at);
 		nodeRunner(1);
 		expect(proofState(at)).toEqual({ state: "fresh" });
+	});
+
+	it("reprobes a passed record once a file the runner's config names changes (#5327)", () => {
+		const at = nodeRunner(1);
+		fs.writeFileSync(
+			path.join(root, "vitest.config.ts"),
+			`export default { test: { reporters: ["./reporter.ts"] } };\n`,
+		);
+		fs.writeFileSync(path.join(root, "reporter.ts"), "export default {};\n");
+		expect(ensureProof(at)).toEqual({ state: "fresh" });
+		fs.appendFileSync(path.join(root, "reporter.ts"), "// prints no FAIL\n");
+		expect(proofState(at)).toEqual({ state: "stale" });
+	});
+
+	it("keys a runner the command reaches in the core, where the working copy lacks it (#5327)", () => {
+		const core = fs.mkdtempSync(path.join(os.tmpdir(), "verdict-core-"));
+		vi.stubEnv("WFC_SCRIPT_ROOT", core);
+		try {
+			fs.writeFileSync(path.join(core, "core-runner.js"), "// v1\n");
+			const at = {
+				root,
+				command: "node core-runner.js",
+				canary: CANARY,
+				markers,
+			};
+			const run = (_line: string, { env }: { env: NodeJS.ProcessEnv }) =>
+				env.WFC_VERDICT_PROBE
+					? { code: 1, out: ` FAIL  ${CANARY}` }
+					: { code: 0, out: "" };
+			expect(ensureProof({ ...at, run })).toEqual({ state: "fresh" });
+			fs.writeFileSync(path.join(core, "core-runner.js"), "// v2\n");
+			expect(proofState(at)).toEqual({ state: "stale" });
+		} finally {
+			vi.unstubAllEnvs();
+			fs.rmSync(core, { recursive: true, force: true });
+		}
 	});
 
 	it("reads an unreadable record as stale, never fresh", () => {
