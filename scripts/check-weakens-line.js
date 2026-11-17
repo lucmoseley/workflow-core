@@ -10,7 +10,7 @@
  * only here. .husky/commit-msg runs it: the one hook that sees both the
  * finished message and the commit's index.
  *
- * A WEAKENING is one of three staged changes against HEAD:
+ * A WEAKENING is one of four staged changes against HEAD:
  *   - MODULE-OFF   an entry added to `.claude/workflow-core.json`'s
  *                  `disabled`, or dropped from its `modules`. A config new at
  *                  this commit counts every `disabled` entry it carries.
@@ -23,6 +23,12 @@
  *   - TEST-SKIP    more skip lines in a test file than HEAD held, the file
  *                  existing at HEAD under this name or the one a rename left.
  *                  A test file new at this commit is never one.
+ *   - GUARD-GONE   a guard removed outright: a row's name dropped from
+ *                  `scripts/lib/guard-cores.json`, or a `scripts/guard-*.js`
+ *                  deleted, named by the guard's id (the row's name, the
+ *                  script's basename less `.js`). A row renamed onto the same
+ *                  core module, a core module renamed under the same row, or a
+ *                  script git pairs as a rename is none.
  * And one the environment carries, not the diff:
  *   - STAND-DOWN   a `WFC_<NAME>_OFF` variable set non-empty in the commit's
  *                  environment, the shape a gate's one-commit stand-down takes
@@ -42,7 +48,7 @@
  * an amend, whose diff against HEAD leaves out what the amended commit
  * weakened.
  *
- * IMPLICIT:  on every commit, refuses one whose staged diff turns a module off, drops a CI gate command, adds a skip to an existing test file or runs under a WFC_*_OFF stand-down, until its message names each on a `Weakens:` line; the refusal prints rule:weakens-line.
+ * IMPLICIT:  on every commit, refuses one whose staged diff turns a module off, drops a CI gate command, adds a skip to an existing test file, removes a guard or runs under a WFC_*_OFF stand-down, until its message names each on a `Weakens:` line; the refusal prints rule:weakens-line.
  * JUSTIFIED: fail-safe — a check weakened inside a large commit goes unseen until it bites (#2203); the fix is one message line.
  * DEFEAT:    --warn caps the finding below the gating line, and the hook never passes it. `--no-verify` skips commit-msg, and HUSKY=0 or core.hooksPath off .husky/_ skip every hook (scripts/lib/commit-form.js's LIMITS). A replay or a merge stands it down in the hook.
  */
@@ -58,6 +64,7 @@ const { readRuleTextOr } = require("./lib/rule-text");
 const { COLLECTED_TEST } = require("./lib/test-kind.js");
 const { gitReader, spawnGitSync, GIT_TIMEOUT_MS } = require("./lib/git.js");
 const { CONFIG_PATH } = require("./lib/workflow-core-config.js");
+const { MANIFEST_REL } = require("./lib/guard-cores.js");
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
 /** @typedef {{ kind: string, name: string, what: string }} Weakening */
@@ -67,6 +74,7 @@ const { CONFIG_PATH } = require("./lib/workflow-core-config.js");
 const WEAKENS_LINE = /^\s*Weakens:\s*(\S.*|)$/i;
 const WORKFLOW = /^\.github\/workflows\/[^/]+\.ya?ml$/;
 const STAND_DOWN = /^WFC_[A-Z0-9_]+_OFF$/;
+const GUARD_SCRIPT = /^scripts\/(guard-[\w-]+)\.js$/;
 
 /* Each alternative's first group is the command's name. */
 const GATE_COMMANDS = [
@@ -219,6 +227,55 @@ function modulesOff(ctx, { before, after }) {
 }
 
 /**
+ * The guard-cores manifest's rows, as name and core module.
+ * @param {Ctx} ctx
+ * @param {string | null} text
+ * @param {string} side
+ * @returns {{ name: string, core: string }[]}
+ */
+function manifestRows(ctx, text, side) {
+	if (text === null) return [];
+	let value;
+	try {
+		value = JSON.parse(text);
+	} catch (e) {
+		ctx.broken(`${side} ${MANIFEST_REL} is not JSON — ${caught(e).message}`);
+	}
+	return Object.values(value ?? {})
+		.flatMap((rows) => (Array.isArray(rows) ? rows : []))
+		.filter((r) => typeof r?.name === "string")
+		.map((r) => ({ name: r.name, core: String(r.core ?? "") }));
+}
+
+/**
+ * Each row name HEAD's manifest dispatches that the staged one does not, less
+ * one whose core module a row new at this commit still runs: a rename.
+ * @param {Ctx} ctx
+ * @param {Sides} sides
+ * @returns {Weakening[]}
+ */
+function coresDropped(ctx, { before, after }) {
+	const was = manifestRows(ctx, before, "HEAD's");
+	const now = manifestRows(ctx, after, "the staged");
+	const wasNames = new Set(was.map((r) => r.name));
+	const nowNames = new Set(now.map((r) => r.name));
+	const renamedCores = new Set(
+		now.filter((r) => !wasNames.has(r.name)).map((r) => r.core),
+	);
+	return [
+		...new Set(
+			was
+				.filter((r) => !nowNames.has(r.name) && !renamedCores.has(r.core))
+				.map((r) => r.name),
+		),
+	].map((name) => ({
+		kind: "GUARD-GONE",
+		name,
+		what: `${name} dropped from ${MANIFEST_REL}`,
+	}));
+}
+
+/**
  * How many times each gate command appears on a workflow's command lines.
  * @param {string | null} text
  * @returns {Map<string, number>}
@@ -306,7 +363,18 @@ function parseWeakensLines(message) {
  * @returns {Weakening[]}
  */
 function weakenings(ctx, changes) {
-	return changes.flatMap((change) => {
+	const found = changes.flatMap((change) => {
+		const script = change.deleted ? GUARD_SCRIPT.exec(change.path) : null;
+		if (script)
+			return [
+				{
+					kind: "GUARD-GONE",
+					name: requiredGroup(script, 1, GUARD_SCRIPT),
+					what: `${change.path} deleted`,
+				},
+			];
+		if (change.path === MANIFEST_REL)
+			return coresDropped(ctx, readSides(ctx, change));
 		if (change.path === CONFIG_PATH)
 			return modulesOff(ctx, readSides(ctx, change));
 		if (
@@ -318,6 +386,10 @@ function weakenings(ctx, changes) {
 			return skipsAdded(change.path, readSides(ctx, change));
 		return [];
 	});
+	return found.filter(
+		(w, i) =>
+			found.findIndex((o) => o.kind === w.kind && o.name === w.name) === i,
+	);
 }
 
 /**
