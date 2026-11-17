@@ -219,6 +219,12 @@ class TransientFault extends Error {}
  * @typedef {{readonly name: string, readonly sha: string,
  *   readonly pushedAt: number}} QueueRef a queue ref on the remote: `name`
  *   after `queue/`, `pushedAt` its push time in ms
+ * @typedef {{readonly name: string, readonly sha: string}} Lease the queue
+ *   ref `queue/<name>` a push to `main` requires the remote still hold at
+ *   `sha`, the sha the step deciding the push read there
+ * @typedef {{readonly kind: "pushed"} | {readonly kind: "refused",
+ *   readonly line: string} | {readonly kind: "lease-lost",
+ *   readonly names: readonly string[]}} PushResult
  * @typedef {import("./lander-records.js").Member} Member
  * @typedef {import("./lander-records.js").Hold} Hold
  * @typedef {import("./lander-records.js").Blame} Blame
@@ -301,9 +307,12 @@ class TransientFault extends Error {}
  *     readonly files: readonly string[], readonly runs: readonly IsoRun[]}
  *   | {readonly kind: "rebatch-passers", readonly ahead: readonly string[],
  *     readonly withdrawn?: readonly string[]}
- *   | {readonly kind: "land-step" | "record-step", readonly sha: string,
+ *   | {readonly kind: "land-step", readonly sha: string,
+ *     readonly name: string, readonly leases: readonly Lease[]}
+ *   | {readonly kind: "record-step", readonly sha: string,
  *     readonly name: string}
- *   | {readonly kind: "fast-forward-main", readonly sha: string}
+ *   | {readonly kind: "fast-forward-main", readonly sha: string,
+ *     readonly leases: readonly Lease[]}
  *   | {readonly kind: "record-landed", readonly sha: string}
  *   | {readonly kind: "delete-landed-ref", readonly name: string,
  *     readonly sha: string}
@@ -463,6 +472,14 @@ const included = (b) =>
 	b.members.filter(
 		(m) => !b.deferred.includes(m.name) && !b.dropped.includes(m.name),
 	);
+
+/**
+ * The members `b`'s fast-forward of `main` lands: those no serial step
+ * landed before it.
+ * @param {Batch} b
+ */
+const unlanded = (b) =>
+	included(b).filter((m) => !b.serial?.landed.includes(m.name));
 
 /**
  * Whether the batch ended without landing: its passers to form the next
@@ -866,8 +883,7 @@ function baseAction(s, main, { base, baseOnly, noRun }, land) {
  * @returns {QueueAction}
  */
 function redAction(b, s, main, { sha, whole }) {
-	/** @type {QueueAction} */
-	const land = { kind: "fast-forward-main", sha };
+	const land = fastForward(b, s, sha);
 	const rerun = { sha, files: whole.files, pass: 2 };
 	/* Retried in its own run already: red again there, so no re-run (#4545). */
 	const filesAgain = whole.retried ? { v: whole } : askRerun(s, rerun);
@@ -1149,8 +1165,11 @@ function serialAction(b, s, main) {
 function stepAction(b, s, { sha, onto, member }, { blame, landed, rebatch }) {
 	const refused = refusedHold(s, onto, sha);
 	if (refused) return refused;
-	/** @type {QueueAction} */
-	const land = { kind: "land-step", sha, name: member.name };
+	const land = leased(s, [member], {
+		kind: "land-step",
+		sha,
+		name: member.name,
+	});
 	if (s.isGreen(sha)) return land;
 	const first = verdictOr(s, wholeRun(sha), { kind: "test-sha", sha });
 	if ("action" in first) return first.action;
@@ -1284,7 +1303,7 @@ const isWithdrawn = (s, m) => !s.queue.some((r) => r.name === m.name);
 /**
  * @param {QueueState} s
  * @param {readonly Member[]} members
- * @returns {QueueAction|null}
+ * @returns {Extract<QueueAction, {kind: "leave-withdrawn"}>|null}
  */
 function leaveWithdrawn(s, members) {
 	const gone = members.find((m) => isWithdrawn(s, m));
@@ -1292,6 +1311,41 @@ function leaveWithdrawn(s, members) {
 		? { kind: "leave-withdrawn", name: gone.name, sha: gone.sha }
 		: null;
 }
+
+/**
+ * `land`, a push to `main` landing `members`, leasing each one's queue ref
+ * at the sha this step read, so one withdrawn before the push lands keeps
+ * `main` where it is (#5326). The read sha, not the merged one: a ref pushed
+ * again costs one step, then its merged sha lands, where leasing the merged
+ * sha would fail every step. A ref gone already has no read sha to lease,
+ * so its member is left out instead of pushed unleased.
+ * @template {{kind: "fast-forward-main", sha: string}
+ *   | {kind: "land-step", sha: string, name: string}} L
+ * @param {QueueState} s
+ * @param {readonly Member[]} members
+ * @param {L} land
+ * @returns {Extract<QueueAction, {kind: "fast-forward-main" | "land-step"
+ *   | "leave-withdrawn"}>}
+ */
+function leased(s, members, land) {
+	const gone = leaveWithdrawn(s, members);
+	if (gone) return gone;
+	const leases = s.queue.flatMap(({ name, sha }) =>
+		members.some((m) => m.name === name) ? [{ name, sha }] : [],
+	);
+	return /** @type {Extract<QueueAction, {kind: L["kind"]}>} */ ({
+		...land,
+		leases,
+	});
+}
+
+/**
+ * @param {Batch} b
+ * @param {QueueState} s
+ * @param {string} sha
+ */
+const fastForward = (b, s, sha) =>
+	leased(s, unlanded(b), { kind: "fast-forward-main", sha });
 
 /**
  * The merge of `b` onto `base`, where it is not merged there yet: a batch
@@ -1350,8 +1404,7 @@ function headAction(b, s, main, live) {
 	if (merge || b.integration === null) return merge ?? WAIT;
 	const sha = b.integration;
 	if (s.refusalOf(sha) !== null) return detachAction(s, live, false);
-	/** @type {QueueAction} */
-	const land = { kind: "fast-forward-main", sha };
+	const land = fastForward(b, s, sha);
 	if (s.isGreen(sha)) return land;
 	const got = verdictOr(s, wholeRun(sha), { kind: "test-sha", sha });
 	if ("action" in got) return got.action;
@@ -1431,8 +1484,7 @@ function searchRedAction(b, s, main) {
 		return { kind: "rebatch-passers", ahead: kept, withdrawn };
 	const refused = refusedHold(s, b.onto, sha);
 	if (refused) return refused;
-	/** @type {QueueAction} */
-	const land = { kind: "fast-forward-main", sha };
+	const land = fastForward(b, s, sha);
 	/** @type {QueueAction} */
 	let next = land;
 	if (!s.isGreen(sha)) {
@@ -1859,9 +1911,11 @@ function stepOrEnd(s) {
  *   where it is merged as a new commit. Where the tester's run repeats the
  *   gates the batch's pass leaves out, `started` is given the members'
  *   merges before that pass runs, so their run starts alongside it (#4573)
- * @property {(sha: string) => string|null} pushMain a plain, non-forced push
- *   of `sha` to the remote's `main`: the remote's refusal line where it
- *   refused it for good, as a ruleset does, else null, throwing on any other
+ * @property {(sha: string, leases: readonly Lease[]) => PushResult} pushMain
+ *   a non-forced push of `sha` to the remote's `main`, atomic with a check
+ *   that each leased queue ref holds its sha: `refused` with the remote's
+ *   refusal line where it refused it for good, as a ruleset does,
+ *   `lease-lost` where a leased ref moved or went, throwing on any other
  *   failure, a network fault or `main` moved under it among them
  * @property {(branch: string, sha: string) => boolean} deleteRef deletes the
  *   remote's `branch` only where it still holds `sha`, false where it moved
@@ -1935,7 +1989,8 @@ function stepOrEnd(s) {
  * @property {(line: string) => void} [say] reports a fix or base-red ticket
  *   filed, updated or left unfiled, one whose state was not read or that
  *   would not close, and a run not cancelled or an early batch push that
- *   failed, and a torn pipeline record moved aside
+ *   failed, a push of `main` a lost lease stopped, and a torn pipeline
+ *   record moved aside
  * @typedef {Pick<QueueState, "pipeline" | "unread" | "unmerged" | "alone"
  *   | "deferrals" | "kept" | "unfiled" | "leftToNextRun" | "isClosed" | "baseFiled"
  *   | "baseTicket" | "superseded"> & {pending: Map<string, Pending>,
@@ -2602,20 +2657,28 @@ function recorded(deps, batch, run) {
 /**
  * Moves `main` to `sha`, the integration commit or a serial step, then
  * records what landed; a push the remote refuses is written to the refused
- * record instead, for the machine to hold the batch on.
+ * record instead, for the machine to hold the batch on. A push a lost lease
+ * stops lands nothing, for the next step to decide again on a fresh read.
  * @param {BatchDeps} deps
- * @param {string} sha
+ * @param {Extract<QueueAction, {kind: "fast-forward-main" | "land-step"}>}
+ *   action
  * @param {QueueRun} run
  * @param {(run: QueueRun) => QueueRun} landed records the landing
  * @returns {QueueRun}
  */
-function moveMain(deps, sha, run, landed) {
+function moveMain(deps, { sha, leases }, run, landed) {
 	/* Ledgered first, so the pre-push gate can tell this push from any
 	 * other. */
 	if (!deps.ledger.has(sha)) deps.ledger.add(sha);
-	const refusal = deps.git.pushMain(sha);
-	if (refusal !== null) {
-		deps.refused.add(sha, refusal);
+	const pushed = deps.git.pushMain(sha, leases);
+	if (pushed.kind === "refused") {
+		deps.refused.add(sha, pushed.line);
+		return run;
+	}
+	if (pushed.kind === "lease-lost") {
+		deps.say?.(
+			`main not moved to ${short(sha)}: ${pushed.names.map((n) => queueBranch(n)).join(", ")} moved or went since this step read the refs`,
+		);
 		return run;
 	}
 	const next = landed(run);
@@ -2633,8 +2696,7 @@ function moveMain(deps, sha, run, landed) {
 function recordLanded(deps, run) {
 	/** @type {Batch} */
 	const batch = { ...batchOf(run), phase: "landed" };
-	for (const m of included(batch))
-		if (!batch.serial?.landed.includes(m.name)) deps.logQueue("land", m);
+	for (const m of unlanded(batch)) deps.logQueue("land", m);
 	deps.record.write(batch);
 	return { ...run, acting: batch };
 }
@@ -2744,7 +2806,7 @@ async function act(deps, action, run) {
 		case "test-sha":
 			return testSha(deps, action.sha, run);
 		case "fast-forward-main":
-			return moveMain(deps, action.sha, run, (r) => recordLanded(deps, r));
+			return moveMain(deps, action, run, (r) => recordLanded(deps, r));
 		case "unledger":
 			deps.ledger.remove(action.sha);
 			return run;
@@ -2839,7 +2901,7 @@ async function actRed(deps, action, run) {
 			);
 		}
 		case "land-step":
-			return moveMain(deps, action.sha, run, (r) =>
+			return moveMain(deps, action, run, (r) =>
 				recordStep(deps, action.name, r),
 			);
 		case "record-step":

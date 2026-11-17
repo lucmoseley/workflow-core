@@ -315,6 +315,43 @@ describe("a checkout's loop sessions (#5289)", () => {
 		expect(hoursOf([launchOf(seat, "gone")])).toBe(0);
 	});
 
+	/* Positive pair: "counts a launch's current job to its finish, dropping a malformed row". */
+	it("counts no hours for a job whose timeline will not stat or read, and names it (#5301)", () => {
+		const seat = path.join(tmp, "seat");
+		writeJob(seat, "j1", HI - 2 * HOUR);
+		writeJob(seat, "j2", HI - 2 * HOUR);
+		const dir = path.join(seat, "jobs", "j1");
+		const file = path.join(seat, "jobs", "j2", "timeline.jsonl");
+		fs.chmodSync(dir, 0o000);
+		fs.chmodSync(file, 0o000);
+		try {
+			const launches = [launchOf(seat, "j1"), launchOf(seat, "j2")];
+			expect(windowOf(launches)).toMatchObject({
+				workingHours: 0,
+				timelinesUnread: [
+					expect.stringMatching(/^job j1's timeline \(EACCES/),
+					expect.stringMatching(/^job j2's timeline \(EACCES/),
+				],
+			});
+			const read = readThroughput({
+				roots: ["/srv/dv"],
+				launches,
+				lookbackOf: () => LO,
+				now: HI,
+			});
+			expect(read.byRoot["/srv/dv"]).toMatchObject({
+				sessions: [],
+				timelinesUnread: [
+					expect.stringMatching(/^job j1's/),
+					expect.stringMatching(/^job j2's/),
+				],
+			});
+		} finally {
+			fs.chmodSync(dir, 0o755);
+			fs.chmodSync(file, 0o644);
+		}
+	});
+
 	it("counts the launches alone where the record will not read, and says so", () => {
 		const seat = path.join(tmp, "seat");
 		writeJob(seat, "j1", HI - 2 * HOUR);
@@ -388,6 +425,7 @@ describe("readThroughputWindow", () => {
 			commits: null,
 			workingHours: 1,
 			jobsRead: true,
+			timelinesUnread: [],
 			gateRuns: null,
 			state: { state: "open", since: hi - Hour },
 			events: [ev(hi - Hour, "reopen")],

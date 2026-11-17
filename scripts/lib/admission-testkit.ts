@@ -32,7 +32,11 @@ export interface Gate {
 /* A temp root whose suite queue holds a marker per lander and per gate seat,
  * the root every case's TMPDIR names, so no case reads the machine's own
  * suite queue. */
-const tmpRootWithMarkers = (dir: string, landers: Lander[], gates: Gate[]) => {
+export const tmpRootWithMarkers = (
+	dir: string,
+	landers: Lander[],
+	gates: Gate[],
+) => {
 	const root = path.join(dir, "tmp");
 	const q = path.join(root, "wfc-suite-queue");
 	fs.mkdirSync(q, { recursive: true });

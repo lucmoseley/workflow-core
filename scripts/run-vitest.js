@@ -151,7 +151,7 @@ const {
 const { worktreeRoot } = require("./lib/host-root.js");
 const { readDeclaredCommand } = require("./lib/workflow-core-config.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
-const { selectTouched } = require("./lib/touched-tests.js");
+const { selectTouched, touchedBaseHere } = require("./lib/touched-tests.js");
 const { yieldToWhole } = require("./lib/cpu-yield.js");
 const { appendEmptyTouchedLine, kindOfLaunch } = require("./lib/run-ledger.js");
 const runMemory = require("./lib/run-memory.js");
@@ -730,6 +730,7 @@ function runOnce(
 			sessionId: session,
 			argv: launch.argv ?? [],
 			leftOut: plan.leftOut ?? [],
+			touchedBase: launch.touchedBase ?? "merge-base",
 		});
 		return Promise.resolve(0);
 	}
@@ -1402,7 +1403,7 @@ function runTouched(route, options) {
 
 /**
  * The touched-test plan in the tree at `at`: the session's own changed paths
- * since the default's base, resolved by `selectTouched`, as the plan
+ * since the launch's touched base, resolved by `selectTouched`, as the plan
  * `runOnce` hands vitest. Admissible never: the lander is the full gate.
  *
  * Throws `SelectionFailed` where the diff or the own-work read fails (#2698).
@@ -1416,6 +1417,7 @@ function planTouched(rest, at, options) {
 	try {
 		const { base, changed, files, leftOut, banner } = selectTouched(at, {
 			...ownOptions(options),
+			from: options.launch?.touchedBase ?? "merge-base",
 			...(options.ownWork === undefined ? {} : { ownWork: options.ownWork }),
 			...(options.loadEdges ? { loadEdges: options.loadEdges } : {}),
 			...(options.renderEdges ? { renderEdges: options.renderEdges } : {}),
@@ -1844,6 +1846,9 @@ function ownProbeSet(route, options) {
 	const { root = TREE_ROOT, err = process.stderr } = options;
 	if (route.source !== "own") return null;
 	const isDefault = route.kind === "touched";
+	/* The commit's changes over HEAD are read by the plan itself: an empty
+	 * one is named as the diff against HEAD. */
+	if (isDefault && options.launch?.touchedBase === "head") return null;
 	/* An own source is only ever decided with a session id. */
 	const sessionId = /** @type {string} */ (route.sessionId);
 	if (isDefault) {
@@ -2086,7 +2091,7 @@ function emptiedSince(route, options) {
 	const own = ownProbeSet(route, options);
 	const ref =
 		route.kind === "touched"
-			? readDefaultChangedBase(root, execFn)
+			? touchedRef(options, root, execFn)
 			: (changedFlag(route.rest)?.ref ?? null);
 	const edges = (options.loadEdges ?? (() => readCommittedEdges(root)))();
 	const reachable = (own?.paths ?? readChangedPaths(root, ref, execFn)).some(
@@ -2094,6 +2099,18 @@ function emptiedSince(route, options) {
 	);
 	return reachable ? null : emptySelectionSource(route, options, own);
 }
+
+/**
+ * The ref a touched launch's paths are diffed from: HEAD where it selects
+ * from the commit's changes over HEAD, else the default's base.
+ * @param {RouteOptions} options
+ * @param {string} root
+ * @param {ExecFn} execFn
+ */
+const touchedRef = (options, root, execFn) =>
+	options.launch?.touchedBase === "head"
+		? "HEAD"
+		: readDefaultChangedBase(root, execFn);
 
 /**
  * The queue wait's outcome, or `"refused"` once the re-check's selection
@@ -2382,6 +2399,8 @@ function main(argv = process.argv.slice(2), options = {}) {
 		isolated: false,
 		viaChanged: isChangedOnlyArgv(rest),
 		touched: route.kind === "touched",
+		/* Judged once, here, so the probe, the plan and the record agree. */
+		touchedBase: route.kind === "touched" ? touchedBaseHere() : null,
 		slotFree: isTouchedRun(route),
 		/* "flag" for a typed `--full` (mantahostels#3207). */
 		full: fullFlag ? "flag" : null,
