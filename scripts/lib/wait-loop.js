@@ -18,10 +18,12 @@
  * A WAIT LOOP GATED ON MACHINE LOAD IS DENIED FIRST (#5330, spec #5328), ceiling
  * or none, before the length and the warning are read (#5325). A gate is a
  * loop holding a `sleep` that reads load — `/proc/loadavg`, `uptime` as a
- * command, `loadavg` or `getloadavg` as a word — in its condition, or in its
- * body beside a `break` or `exit`. A loop reading load in its body alone is a
- * sampler, and passes. The deny quotes
- * docs/agents/rules/load-wait.txt, or a fallback naming it.
+ * command, a `loadavg(` or `getloadavg(` call — in its condition, or in the
+ * test deciding a `break` or `exit` in its body: the `&&`/`||` list holding
+ * it, or the `if`/`elif` condition around it, read directly or through a
+ * variable a load read in the body assigned. A loop that reads load beside an
+ * exit something else decides is a sampler or a retry, and passes. The deny
+ * quotes docs/agents/rules/load-wait.txt, or a fallback naming it.
  *
  * A WAIT OVER 15 MINUTES IS DENIED (#1288, ruled at #1286). Three shapes are a
  * wait, foreground or backgrounded alike:
@@ -66,10 +68,16 @@
  *    script is kept beside a `-c` one, so `node -e '…os.loadavg…'` is read,
  *    and a double-quoted span keeps its unescaped `$(…)` and backtick
  *    substitutions, so `[ "$(cut … /proc/loadavg)" … ]` is read. A substitution
- *    holding a `"` is cut at it. It is blind to a
- *    load read through a variable or a command it does not name, to a loop in
- *    a script file the shell runs, and to an interpreter's own polling loop
- *    with no shell loop around it.
+ *    holding a `"` is cut at it; a double-quoted span keeps its `$name` and
+ *    `${name}` expansions too, so `awk "…$l…" && break` reads `$l`. A load
+ *    read inside any other command's quoted script — `awk '…/proc/loadavg…'`,
+ *    `jq`, a `python3 -` heredoc — is emptied and not seen. A body's tests
+ *    are split on `;`, `&` and newlines, and an `if` is matched to the nearest
+ *    `then` with no nesting read, so a `break` under a nested `if` is judged
+ *    by the inner one. A variable is tracked only where a load read assigns it
+ *    by `name=` or `read`. It is blind to a load read through a command it
+ *    does not name, to a loop in a script file the shell runs, and to an
+ *    interpreter's own polling loop with no shell loop around it.
  *  - A `break` is not read as a ceiling, so `while :; do check && break;
  *    sleep 5; done` warns.
  *  - A ceiling is recognised lexically, and in TWO PARTS TOGETHER: a numeric
@@ -141,16 +149,34 @@ const DURATION_RE = /^([0-9]*)(\.([0-9]*))?([smhd]?)$/;
 
 const QUOTE_RE = /^([^'"]*)(['"])/;
 const DQUOTED_RE = /^((?:[^"\\]|\\[\s\S])*)"/;
-const SHELL_C_RE = new RegExp(`(^|[${SP}])-[A-Za-z]*c[${SP}]+$`);
+/* A shell's `-c`, alone or in a flag cluster. */
+const C_FLAG = "-[A-Za-z]*c";
+const SHELL_C_RE = new RegExp(`(^|[${SP}])${C_FLAG}[${SP}]+$`);
 /* The load limb also keeps an interpreter's `-e`/`-p` script, where
  * `os.loadavg` is spelled — never `echo -e`'s or `sed -e`'s text. */
 const SCRIPT_RE = new RegExp(
-	`(^|[${SP}])(-[A-Za-z]*c|(node|nodejs|perl|ruby)([${SP}]+-[A-Za-z-]+)*[${SP}]+(-[A-Za-z]*[ep]|--eval|--print))[${SP}]+$`,
+	`(^|[${SP}])(${C_FLAG}|(node|nodejs|perl|ruby)([${SP}]+-[A-Za-z-]+)*[${SP}]+(-[A-Za-z]*[ep]|--eval|--print))[${SP}]+$`,
 );
+/* A load read: the kernel's file, Node's `os.loadavg()`, Python's
+ * `os.getloadavg()`, or `uptime` run as a command — never a file name such as
+ * `loadavg.log`. */
 const LOAD_RE = new RegExp(
-	`(^|[^A-Za-z0-9_])(get)?loadavg([^A-Za-z0-9_]|$)|${SEP}uptime(${END}|$)`,
+	`/proc/loadavg|loadavg[${SP}]*\\(|${SEP}uptime(${END}|$)`,
 );
-const LEAVE_RE = new RegExp(`${SEP}(break|exit)(${END}|$)`);
+const LEAVE_RE = new RegExp(`${SEP}(break|exit)(${END}|$)`, "g");
+/* Where one test in a loop body ends: `;`, a newline, or a lone `&`. */
+const STATEMENT_END_RE = /;|\n|(?<!&)&(?!&)/;
+const IF_RE = new RegExp(`${SEP}(if|elif)[${SP}]`, "g");
+const THEN_RE = new RegExp(`${SEP}then${END}`);
+const FI_RE = new RegExp(`${SEP}fi(${END}|$)`);
+/* `name=` and `read [-flags] name…`, the two ways a load read lands in a
+ * variable. */
+const ASSIGNED_RE = /(?:^|[^A-Za-z0-9_$])([A-Za-z_][A-Za-z0-9_]*)=/g;
+const READ_RE = new RegExp(
+	`${SEP}read(?:[${SP}]+-[A-Za-z]+)*((?:[${SP}]+[A-Za-z_][A-Za-z0-9_]*)+)`,
+);
+/* A parameter expansion, unescaped: `$name` or `${name`. */
+const PARAM_RE = /(?<!\\)(?:\\\\)*\$\{?[A-Za-z_][A-Za-z0-9_]*/g;
 /* A substitution's opening, unescaped: an even run of backslashes before it. */
 const SUB_OPEN_RE = /(?<!\\)(?:\\\\)*(\$\(|`)/;
 const HEREDOC_RE = new RegExp(
@@ -177,7 +203,7 @@ const WRAPPED_SLEEP_RE = new RegExp(`^sleep[${SP}]+([^${SP}]*)`);
 const WRAPPED_LOOP_RE = new RegExp(`^(while|until)[${SP}]`);
 
 /**
- * @typedef {{ kw: string, body: string, condition: string }} Loop
+ * @typedef {{ kw: string, body: string, condition: string, doBody: string }} Loop
  * @typedef {{ script: RegExp, subs: boolean }} Masking
  */
 
@@ -223,10 +249,12 @@ function* loops(text) {
 		 * user story 6). */
 		if (!SLEEP_RE.test(body)) continue;
 		const doAt = DO_RE.exec(body);
+		const condition = doAt ? before(body, doAt[0]) : body;
 		yield {
 			kw: m[2] ?? "",
 			body,
-			condition: doAt ? before(body, doAt[0]) : body,
+			condition,
+			doBody: body.slice(condition.length),
 		};
 	}
 }
@@ -335,8 +363,8 @@ function durations(text) {
 /**
  * `text` with every quoted span emptied but a script `script` matches the
  * flag of, which is kept with its own quoted spans emptied in turn. Where
- * `subs`, a double-quoted span keeps its command substitutions. An unclosed
- * quote empties the rest.
+ * `subs`, a double-quoted span keeps its command substitutions and parameter
+ * expansions. An unclosed quote empties the rest.
  * @param {string} text
  * @param {Masking} [how]
  * @returns {string}
@@ -375,22 +403,26 @@ function closeQuote(q, text) {
 }
 
 /**
- * What `mask` keeps of a quoted span: all of a script, masked; a
- * double-quoted span's substitutions where `how.subs`; else nothing.
+ * What `mask` keeps of a quoted span: all of a script, masked — a
+ * double-quoted one first unescaped a level, as the shell hands it on; a
+ * double-quoted span's substitutions and expansions where `how.subs`; else
+ * nothing.
  * @param {string} span
  * @param {string} q
  * @param {boolean} isScript
  * @param {Masking} how
  */
 function keptOf(span, q, isScript, how) {
-	if (isScript) return mask(span, how);
+	if (isScript)
+		return mask(q === '"' ? span.replace(/\\(["\\$`])/g, "$1") : span, how);
 	if (q === '"' && how.subs) return substitutions(span, how);
 	return "";
 }
 
 /**
  * Each unescaped `$(…)` and backtick substitution in a double-quoted `span`,
- * masked in turn and joined by `;`.
+ * masked in turn, then its unescaped `$name` and `${name}` expansions, joined
+ * by spaces.
  * @param {string} span
  * @param {Masking} how
  */
@@ -410,7 +442,8 @@ function substitutions(span, how) {
 		found.push(open.slice(0, end));
 		rest = open.slice(end + 1);
 	}
-	return found.map((sub) => mask(sub, how)).join("; ");
+	const params = span.match(PARAM_RE) ?? [];
+	return [...found.map((sub) => mask(sub, how)), ...params].join(" ");
 }
 
 /**
@@ -489,6 +522,17 @@ const named = (body, from) => {
 };
 
 /**
+ * A refusal opening on `lead`, then `rule`'s text. Each caller fetches its
+ * rule by a literal id, which the fragment checkers read.
+ * @param {string} lead
+ * @param {string} rule
+ * @param {import("./core-contract.js").CoreContext} ctx
+ */
+function ruleDeny(lead, rule, ctx) {
+	return { deny: ctx.corePaths(`${lead}\n\n${rule}`) };
+}
+
+/**
  * The refusal of a wait `what` long `ms`.
  * @param {string} what
  * @param {number} ms
@@ -499,16 +543,15 @@ function waitDeny(what, ms, ctx) {
 		ms >= ENDLESS_MS
 			? "without end"
 			: `${Math.floor((ms + 59_999) / 60_000)} minutes`;
-	const rule = ruleOrFallback(
-		ctx,
-		"wait-length",
-		"A Bash wait past the limit is banned, and the rule says how to hand the work back instead",
-	);
-	return {
-		deny: ctx.corePaths(
-			`This waits ${length} — ${what} — and the limit is 15 minutes.\n\n${rule}`,
+	return ruleDeny(
+		`This waits ${length} — ${what} — and the limit is 15 minutes.`,
+		ruleOrFallback(
+			ctx,
+			"wait-length",
+			"A Bash wait past the limit is banned, and the rule says how to hand the work back instead",
 		),
-	};
+		ctx,
+	);
 }
 
 /**
@@ -631,30 +674,86 @@ What this guard cannot see: it reads a ceiling as a \`timeout\`, or a numeric co
 }
 
 /**
+ * The statement of `text` that position `at` stands in.
+ * @param {string} text
+ * @param {number} at
+ */
+function statementAt(text, at) {
+	const head = text.slice(0, at).split(STATEMENT_END_RE).pop() ?? "";
+	const tail = text.slice(at).split(STATEMENT_END_RE)[0] ?? "";
+	return `${head}${tail}`;
+}
+
+/**
+ * The condition of the `if` or `elif` whose `then` branch position `at`
+ * stands in, read to the nearest `then` with no nesting; "" where none.
+ * @param {string} text
+ * @param {number} at
+ */
+function ifConditionAt(text, at) {
+	const head = text.slice(0, at);
+	const opens = [...head.matchAll(IF_RE)];
+	const open = opens.at(-1);
+	if (!open) return "";
+	const from = head.slice(open.index);
+	const then = THEN_RE.exec(from);
+	if (!then || FI_RE.test(from.slice(then.index + then[0].length))) return "";
+	return from.slice(0, then.index);
+}
+
+/**
+ * The variables a load read in `doBody` assigns, by `name=` or `read`.
+ * @param {string} doBody
+ */
+function loadVars(doBody) {
+	/** @type {Set<string>} */
+	const names = new Set();
+	for (const statement of doBody.split(STATEMENT_END_RE)) {
+		if (!LOAD_RE.test(statement)) continue;
+		for (const m of statement.matchAll(ASSIGNED_RE))
+			names.add(requiredGroup(m, 1, ASSIGNED_RE));
+		const read = READ_RE.exec(statement);
+		for (const name of (read?.[2] ?? "").split(/[^A-Za-z0-9_]+/))
+			if (name) names.add(name);
+	}
+	return names;
+}
+
+/**
+ * Whether a `break` or `exit` in `doBody` is decided by a load read: one in
+ * its own `&&`/`||` list or its `if` condition, or a variable one assigned.
+ * @param {string} doBody
+ */
+function bodyGates(doBody) {
+	const vars = loadVars(doBody);
+	for (const leave of doBody.matchAll(LEAVE_RE)) {
+		const test = `${statementAt(doBody, leave.index)} ${ifConditionAt(doBody, leave.index)}`;
+		if (LOAD_RE.test(test)) return true;
+		for (const ref of test.match(PARAM_RE) ?? [])
+			if (vars.has(ref.replace(/^[\\]*\$\{?/, ""))) return true;
+	}
+	return false;
+}
+
+/**
  * The refusal of the first wait loop gated on machine load: one reading load
- * in its condition, or in its body beside a `break` or `exit`.
+ * in its condition, or deciding a `break` or `exit` in its body on load.
  * @param {string} written
  * @param {import("./core-contract.js").CoreContext} ctx
  */
 function loadDenial(written, ctx) {
 	const text = mask(written, { script: SCRIPT_RE, subs: true });
 	for (const loop of loops(text)) {
-		const body = loop.body.slice(loop.condition.length);
-		if (
-			!LOAD_RE.test(loop.condition) &&
-			!(LOAD_RE.test(body) && LEAVE_RE.test(body))
-		)
-			continue;
-		const rule = ruleOrFallback(
-			ctx,
-			"load-wait",
-			"A Bash wait gated on machine load is banned, and the rule says where each kind of wait goes instead",
-		);
-		return {
-			deny: ctx.corePaths(
-				`This wait loop gates on machine load — \`${named(loop.body, /[wuf]/)}\`.\n\n${rule}`,
+		if (!LOAD_RE.test(loop.condition) && !bodyGates(loop.doBody)) continue;
+		return ruleDeny(
+			`This wait loop gates on machine load — \`${named(loop.body, /[wuf]/)}\`.`,
+			ruleOrFallback(
+				ctx,
+				"load-wait",
+				"A Bash wait gated on machine load is banned, and the rule says where each kind of wait goes instead",
 			),
-		};
+			ctx,
+		);
 	}
 	return null;
 }
