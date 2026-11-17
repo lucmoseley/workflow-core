@@ -155,15 +155,15 @@ const TELLS = [
 	{
 		tag: "CURLY-QUOTE",
 		fix: "Straight quotes and apostrophes throughout. In JSX, &apos; renders the straight apostrophe.",
-		/* #821[6789] is the numeric-entity range, not a ticket cite — kept bare
-		 * so a citation-rewriter doesn't recorrupt it into
-		 * mantahostels#821[6789] again (#47). */
-		pattern: /[‘’“”]|&(lsquo|rsquo|ldquo|rdquo|#821[6789]|#x201[89CD]);/giu,
+		/* The numeric entities sit in a `#(?:…)` group so no digit follows a
+		 * `#`, which the release build's citation rewriter would read as a
+		 * ticket cite (#47). */
+		pattern: /[‘’“”]|&(lsquo|rsquo|ldquo|rdquo|#(?:821[6789]|x201[89CD]));/giu,
 	},
 	{
 		tag: "EM-DASH",
 		fix: "A comma, a full stop or a colon does the job; · separates the halves of a metadata title. An en dash is not a substitute.",
-		pattern: /—|&(mdash|#8212|#x2014);/giu,
+		pattern: /—|&(mdash|#(?:8212|x2014));/giu,
 	},
 ];
 
