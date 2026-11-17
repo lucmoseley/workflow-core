@@ -1,26 +1,33 @@
 /*
- * journalctl.js — journalctl runs: a journal read, and the boot list, which
- * places an earlyoom kill's time (#4143) and bounds check-kernel-stall.js's
- * --boot offsets (#5299). WFC_JOURNALCTL
- * injects the binary (§N7).
+ * journalctl.js — journalctl runs: a journal read, which check-kernel-stall.js
+ * takes its kernel log by (#5304), and the boot list, which places an earlyoom
+ * kill's time (#4143) and bounds check-kernel-stall.js's --boot offsets
+ * (#5299). WFC_JOURNALCTL injects the binary (§N7). The bounded read under it
+ * also serves check-kernel-stall.js's dmesg reader, the same kernel log.
  */
 
 const { spawnSync } = require("node:child_process");
 const { caught } = require("./caught.js");
 
-/* As check-kernel-stall.js's journal reader, whose comments derive them: a
- * read is well under 1 s, and an overflow is a failed read, never "no kills".
- * The whole earlyoom journal, 11 Sep to 26 Oct 2026, read 0.8 MB. */
+/** Per read. Measured at 0.05 s for a 15-hour boot's 542 kernel lines; the rest is margin. */
 const READ_TIMEOUT_MS = 5000;
+
+/**
+ * Per read. The largest boot journalctl held on 8 Oct 2026 was 1.93 MB (19,526
+ * lines over five days), and the whole earlyoom journal, 11 Sep to 26 Oct 2026,
+ * 0.8 MB; this is ~30x the larger, so only a boot of months would overflow it —
+ * and an overflow is a failed read, never "clean" or "no kills".
+ */
 const MAX_BUFFER = 64 * 1024 * 1024;
 
 /**
- * journalctl's stdout for `args`, or why it failed.
+ * `cmd`'s stdout for `args` under the bounds above, or why it failed.
+ * @param {string} cmd
  * @param {string[]} args
  * @returns {{stdout: string, why: string|null}}
  */
-function runJournalctl(args) {
-	const r = spawnSync(process.env.WFC_JOURNALCTL || "journalctl", args, {
+function runBoundedRead(cmd, args) {
+	const r = spawnSync(cmd, args, {
 		encoding: "utf8",
 		timeout: READ_TIMEOUT_MS,
 		stdio: ["ignore", "pipe", "pipe"],
@@ -33,6 +40,13 @@ function runJournalctl(args) {
 		};
 	return { stdout: r.stdout, why: null };
 }
+
+/**
+ * journalctl's stdout for `args`, or why it failed.
+ * @param {string[]} args
+ */
+const runJournalctl = (args) =>
+	runBoundedRead(process.env.WFC_JOURNALCTL || "journalctl", args);
 
 /** @param {number} ms floored to the second */
 const toSecond = (ms) => Math.floor(ms / 1000) * 1000;
@@ -88,6 +102,7 @@ module.exports = {
 	READ_TIMEOUT_MS,
 	bootKey,
 	readBoots,
+	runBoundedRead,
 	runJournalctl,
 	toSecond,
 };
