@@ -38,8 +38,7 @@ const IDLE_RETYPE_MS = 5 * MIN_MS;
  * untraced (#2978, delegated). */
 const IDLE_TRIES = 2;
 /* How long a job the harness ended on a synthetic reply sits before the loop
- * acts, so the founder may type in first, and from each resume to the next:
- * untraced (#5322). */
+ * acts, so the founder may type in first: untraced (#5322). */
 const SYNTHETIC_QUIET_MS = 5 * MIN_MS;
 /* The resumes one synthetic stop gets: untraced (#5322, IDLE_TRIES's figure). */
 const SYNTHETIC_TRIES = 2;

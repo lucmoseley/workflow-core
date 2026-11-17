@@ -616,7 +616,7 @@ function hasEndedUnblocked(rows, since) {
 const SYNTHETIC_MODEL = "<synthetic>";
 const NO_RESPONSE_TEXT = "No response requested.";
 /* `state` reads `done` until the reaper stops the job, then `stopped`
- * (measured on ~/.claude3/jobs, 2026-11-17): a reaped stop is still one. */
+ * (#5324). */
 const SYNTHETIC_STOP_STATES = new Set(["done", "stopped"]);
 const ENDING_MARKERS = new Set(["result:", "needs input:"]);
 
@@ -626,8 +626,8 @@ const ENDING_MARKERS = new Set(["result:", "needs input:"]);
  * reaped), its last turn row is that `<synthetic>` assistant row, and the last
  * reply a real model wrote before it carries no governing `result:` or
  * `needs input:`. Null where the job is not one; "unread" where a record will
- * not read or has an unexpected shape, on which nothing acts. Read by the
- * refill loop and check-ghost-jobs alike. `rows` may be a function that reads
+ * not read or has an unexpected shape, on which nothing acts. `rows` may be a
+ * function that reads
  * them, called only for a job in a stop state, so a caller judging every live
  * session reads no transcript of a running one.
  * @param {{job: unknown, rows: unknown}} records  as resumedIdleSince's

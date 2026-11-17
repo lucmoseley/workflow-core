@@ -579,8 +579,7 @@ it("takes up no copy's unretired original as a session of its own", () => {
 	expect(l.calls.filter((c) => c.startsWith("type"))).toEqual([]);
 });
 
-/* A `done` session the harness ended on a synthetic reply (#5324): its
- * reading the real one, over the job record and rows the case sets. */
+/* A `done` session the harness ended on a synthetic reply (#5324). */
 function syntheticLoop(start: { job: unknown; rows: unknown }) {
 	const read = { ...start };
 	const l = loop({
@@ -621,7 +620,6 @@ it("leaves a done outside session alone once a turn row follows its stop, the fo
 it("relaunches an outside session the reaper stopped, by --bg --resume alone", () => {
 	const l = syntheticLoop({ job: doneJob(), rows: stoppedRows(minutesAgo(2)) });
 	l.tick(NOW, { rows: [row("done")] });
-	/* Reaped: off the registry, its job record stopped. */
 	l.read.job = doneJob({ state: "stopped" });
 	l.tick(NOW + 4 * MIN, { rows: [] });
 	expect(l.calls).toContain("resume f1");
@@ -634,8 +632,6 @@ it("carries the count across stops a resume ran straight into, and logs the give
 		job: doneJob(),
 		rows: stoppedRows(minutesAgo(10)),
 	});
-	/* Each resume arrives, then the harness ends the turn again, no model
-	 * reply between. */
 	const endsAgain = (m: number) => {
 		l.read.rows = [
 			...stoppedRows(minutesAgo(10)),

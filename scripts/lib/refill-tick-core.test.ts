@@ -309,7 +309,7 @@ const expectSequence = (calls: string[], steps: string[]) => {
 };
 
 /* The BlockIo calls less the synthetic-stop read, which the judging makes on
- * a dry tick as on a live one, so both finish the same launches (#5324). */
+ * a dry tick as on a live one (#5324). */
 const blockCalls = (calls: string[]) =>
 	calls.filter(
 		(port) => port.startsWith("blockIo.") && port !== "blockIo.syntheticStopOf",
@@ -1147,8 +1147,7 @@ describe("the dry-run policy (#4212)", () => {
 	it("skips the block and limit acts, judging the launches as read rather than as the dry BlockIo would leave them (#4913)", async () => {
 		const { io, calls, lines } = actingTick();
 		const { decision } = await tickOf(io, control(), true);
-		/* No read but the synthetic-stop one the judging makes (blockCalls):
-		 * the dry BlockIo answers acts alone, so a call here would be a block
+		/* The dry BlockIo answers acts alone, so a call here would be a block
 		 * or limit decision run. */
 		expect(blockCalls(calls)).toEqual([]);
 		expect(lines.join("\n")).not.toContain("a dry run acts on nothing");
@@ -1696,8 +1695,6 @@ describe("a launch the harness ended on a synthetic reply, through the tick (#53
 		issues: [9],
 		launchedAt: NOW - 60 * MIN,
 	}) as Launch;
-	/* The tick's synthetic reading is the real one, over the job record and
-	 * transcript rows each case gives. */
 	const synTick = (
 		launch: Launch,
 		{

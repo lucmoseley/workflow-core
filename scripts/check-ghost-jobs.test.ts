@@ -129,7 +129,6 @@ function runAs(sessionId: string, ...args: string[]) {
 	return runWith({ CLAUDE_CODE_SESSION_ID: sessionId }, ...args);
 }
 
-/** With `extra` over the case's environment. */
 function runWith(extra: Record<string, string>, ...args: string[]) {
 	const res = runInProcess(SCRIPT, args, {
 		env: {
@@ -714,7 +713,6 @@ describe("SYNTHETIC-STOP — ended by the harness on a synthetic reply (#5324)",
 	const Cwd = "/home/u/a-checkout";
 	const ago = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
 
-	/** A finished job whose transcript holds `rows`; `rows` null names no file. */
 	function syntheticJob(rows: unknown[] | null, rec = {}) {
 		const project = path.join(dir, "projects", "a-project");
 		fs.mkdirSync(project, { recursive: true });
@@ -732,7 +730,6 @@ describe("SYNTHETIC-STOP — ended by the harness on a synthetic reply (#5324)",
 		});
 	}
 
-	/** An issue claim of `issue` by the job's session, in its checkout's store. */
 	function claim(issue: number) {
 		const { projectSlug } = createRequire(__filename)("./lib/project-slug.js");
 		const store = path.join(dir, "projects", projectSlug(Cwd), "issue-claims");

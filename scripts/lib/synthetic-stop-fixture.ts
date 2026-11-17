@@ -1,7 +1,5 @@
 /*
- * Rows trimmed from transcript 22cf8d98 lines 2823-2837 (#5322), ids
- * replaced: a tool call, its result, the `api-request` that followed, then
- * the harness's own "No response requested." record 32 s later, with no
+ * The incident's rows (#5322): after the synthetic record comes no
  * `turn_duration` row and no Stop hook record.
  */
 
@@ -83,7 +81,6 @@ export const founderRow = (
 	message: { role: "user", content: text },
 });
 
-/** The incident's tail: its last turn row the synthetic record. */
 export const stoppedRows = (at = STOP_AT) => [
 	toolCallRow(),
 	toolResultRow(),

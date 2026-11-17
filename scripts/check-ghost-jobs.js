@@ -50,13 +50,14 @@
  * delegated SUBAGENT works, so a session mid-dispatch reads here exactly as a
  * hung one.
  *
- * A JOB THE HARNESS ENDED ON A SYNTHETIC REPLY IS THE THIRD FINDING
+ * A JOB THE HARNESS ENDED ON A SYNTHETIC REPLY IS A FINDING
  * (SYNTHETIC-STOP, #5324). Its record reads `done`, or `stopped` once the
  * reaper has stopped it, though the model never wrote an ending: its last turn
  * row is the harness's own "No response requested." record. The refill loop
- * resumes such a job twice; this names the one it did not reach or gave up
- * on, older than 5 minutes, with the `claude attach` line that reopens it
- * (lib/synthetic-jobs.js). It reads files alone, so the oracle is not asked.
+ * resumes such a job; this names the one it did not reach or gave up on,
+ * older than 5 minutes (lib/synthetic-jobs.js). It reads files alone, but a
+ * run that skips on an unread oracle, with a working job to judge, reports
+ * none.
  *
  * DEGRADES TO SILENCE, NEVER TO "DEAD". An oracle that will not run, reads short
  * or has changed shape leaves through ctx.skip() and raises no finding.

@@ -5,20 +5,13 @@
  * the loop's own launches and the sessions it did not launch
  * (lib/refill-outside.js), each through a Subject adapter of its record.
  *
- * The reading is lib/block-cause.js's syntheticStopAt, off the job store and
- * transcript alone; the act is lib/block-act.js's SYNTHETIC_STOP row. A resume
- * is typed into the job first, and where the transcript still shows the stop
- * past the attach-verdict window, or the typing fails, the job is stopped and
- * `claude --bg --resume`d under its own id; a job the reaper already stopped
- * goes straight to that resume. Arrival is read off the transcript, not the
- * timeline: any turn row after the synthetic record, the founder's typing
- * included, ends the stop, so the loop never stops a job he has typed into.
+ * Arrival is read off the transcript, not the timeline: any turn row after
+ * the synthetic record, the founder's typing included, ends the stop.
  *
  * The count is per stop, keyed to the synthetic record's timestamp. A later
  * stop starts afresh only where a model reply came between it and the loop's
  * last resume; one that a resume ran straight into carries the count on, so a
- * job that ends this way on every resume meets the cap. At the cap the loop
- * logs it and lets go; check-ghost-jobs then reports the job.
+ * job that ends this way on every resume meets the cap.
  */
 
 const { SYNTHETIC_TRIES, blockAct } = require("./block-act.js");
@@ -127,7 +120,7 @@ function relaunch(s, rec, reaped, { agents, io }) {
 
 /**
  * Resume `s`'s stop: typed into its job unless the reaper stopped it, where
- * the typing fails by relaunch. One more try either way.
+ * the typing fails by relaunch.
  * @template T
  * @param {Subject<T>} s
  * @param {SyntheticResumes} rec
@@ -204,7 +197,7 @@ function judgeStop(s, at, mode, seen) {
 
 /**
  * Whether the loop leaves `l` to other acts: one it resumes after an API
- * error, holds stopped, owes a hand-off or a step resume.
+ * error, holds stopped or limit-held, owes a hand-off or a step resume.
  * @param {LoopLaunch} l
  */
 const isOthers = (l) =>

@@ -1,15 +1,11 @@
 /*
  * synthetic-jobs.js — the background jobs the harness ended on its own "No
  * response requested." record (#5322, #5324), for check-ghost-jobs's
- * SYNTHETIC-STOP finding: a `done` job, or one the reaper has since stopped,
- * whose transcript reads lib/block-cause.js's syntheticStopAt older than the
- * window. Each names its claimed issues and whether the refill loop's resumes
- * of that stop are spent.
+ * SYNTHETIC-STOP finding.
  *
  * READS ONLY, AND DEGRADES TO SILENCE: a record, transcript or loop file that
- * will not read names no job. The job store holds thousands of finished jobs,
- * so a transcript is parsed only where its tail holds the synthetic record's
- * model and text.
+ * will not read names no job. A transcript is parsed only where its tail
+ * holds the synthetic record's model and text.
  */
 
 const { syntheticStopAt } = require("./block-cause.js");

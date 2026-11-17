@@ -14,12 +14,9 @@
  * (#4871), never one without `--resume` (#2359).
  *
  * A `done` one the harness ended on its own "No response requested." record
- * (#5324) is resumed as a loop launch is (lib/refill-synthetic.js): typed
- * into once the quiet window passes, stopped and `--bg --resume`d where the
- * typed one is unseen, straight to that resume where the reaper stopped it,
- * twice per stop, then logged and left for check-ghost-jobs to report. The
- * reaped one is reached only where the loop read the stop while its process
- * still ran.
+ * (#5324) is resumed as a loop launch is (lib/refill-synthetic.js). One the
+ * reaper stopped is reached only where the loop read the stop while its
+ * process still ran (#5331).
  *
  * Its records live in their own file, lib/refill-dir.js's OUTSIDE_FILE, as
  * they are no launches:
@@ -397,8 +394,7 @@ function judge(o, row, causeOf, seen) {
 
 /**
  * The record of a session the registry no longer lists: one held stopped
- * retried, one owing a synthetic stop's resume judged, its process gone, as
- * the reaper's stop leaves it; null for any other.
+ * retried, one owing a synthetic stop's resume judged; null for any other.
  * @param {Outside} o
  * @param {Tick} seen
  * @returns {Outside|null}
@@ -412,8 +408,7 @@ function unlistedTurn(o, seen) {
 }
 
 /**
- * `o` as lib/refill-synthetic.js's Subject: resumed only behind the network
- * gate, each resume logged.
+ * `o` as lib/refill-synthetic.js's Subject.
  * @param {Outside} o
  * @param {Tick} seen
  * @returns {import("./refill-synthetic.js").Subject<Outside>}
@@ -441,9 +436,8 @@ function syntheticSubject(o, seen) {
 }
 
 /**
- * `o`'s synthetic stop this tick (#5324), its job reading `done` or, once
- * reaped, `stopped`, judged by lib/refill-synthetic.js's judgeStop; `o`
- * unchanged where that leaves it so.
+ * `o`'s synthetic stop this tick (#5324), judged by lib/refill-synthetic.js's
+ * judgeStop; `o` unchanged where that leaves it so.
  * @param {Outside} o
  * @param {Tick} seen
  * @param {import("./block-cause.js").IdleReading} [at]  its reading, where
@@ -459,8 +453,8 @@ const judgeSynthetic = (
 /**
  * The record of a session the registry lists live, `o` where the loop had
  * one, else `fresh`: judged where the listing shows it blocked; else its
- * synthetic stop judged where its job store and transcript read one, or the
- * loop holds a record of one; else between stops.
+ * synthetic stop judged where its job store and transcript read one, or a
+ * typed resume of one is in flight; else between stops.
  * @param {Outside|undefined} o
  * @param {Outside} fresh
  * @param {{row: AgentRecord, blocked: Set<string|undefined>, causeOf: CauseOf}}
@@ -497,7 +491,8 @@ const withOriginalsRetried = (o, io) =>
  * lists live that no launch in `launches` is (#4815): each copy's unretired
  * original tried again (#4829), each session blocked on a transient API error
  * taken up and acted on, every record of one no longer listed dropped, save
- * one the loop stopped and holds for a retry (retryHeld), and any record kept
+ * one the loop stopped and holds for a retry (retryHeld), one still owed a
+ * synthetic stop's resume (unlistedTurn), and any record kept
  * while an original of its copy is unretired. Only the retirements off an
  * unread listing, which cannot tell blocked from working; a barred tick types
  * nothing.
