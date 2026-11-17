@@ -41,8 +41,8 @@
  * it would never disagree with them.
  *
  * FAILS OPEN. Neither reader present, permitted or answering inside
- * READ_TIMEOUT_MS, with no clock read showing a freeze, is SKIP, which --notify
- * prints nothing for. A clock it cannot read is WARN on a plain run, not the SKIP
+ * lib/journalctl.js's READ_TIMEOUT_MS, with no clock read showing a freeze, is
+ * SKIP, which --notify prints nothing for. A clock it cannot read is WARN on a plain run, not the SKIP
  * an unavailable subject otherwise is, since `npm run status` hides a SKIP's body;
  * --notify raises nothing for it, as no session can act on the line (#4092). Never
  * FAIL, whose exit would refuse every launch on a kernel lacking the source. The
