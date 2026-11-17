@@ -116,7 +116,7 @@ function fileTicket(title, body) {
 			"--label",
 			"takes:wayfinder",
 			"--standalone",
-			"the sparse watch of #5044, whose ticket is closed",
+			"the sparse watch of workflow-core#5044, whose ticket is closed",
 			"--body-file",
 			file,
 			"--origin",
