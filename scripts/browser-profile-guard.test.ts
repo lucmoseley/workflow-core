@@ -362,7 +362,7 @@ describe("the sanctioned forms pass", () => {
 	});
 });
 
-describe("a payload it cannot judge passes", () => {
+describe("a payload with nothing to judge passes", () => {
 	const raw = (input: string) =>
 		spawnSync("bash", [HOOK], { input, encoding: "utf8", timeout: 10_000 });
 
