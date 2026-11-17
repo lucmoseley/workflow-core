@@ -646,7 +646,7 @@ function withLaunch(options, fields) {
  * @param {{ spawnFn?: typeof import("node:child_process").spawn, root?: string, fs?: WrapperFs, bin?: string, stall?: number, ceiling?: number, inflightFile?: string, timingsFile?: string,
  *   expand?: typeof expandChanged, out?: { write: (s: string) => unknown },
  *   execFn?: ExecFn, loadEdges?: () => Record<string, string[]>, err?: { write: (s: string) => unknown },
- *   launch?: LauncherLaunch, onSpawn?: (charge?: { chargeMb?: number }) => void, emptyOnly?: boolean,
+ *   launch?: LauncherLaunch, onSpawn?: (charge?: import("./lib/suite-queue.js").SpawnCharge) => void, emptyOnly?: boolean,
  *   escalationRequeues?: boolean, session?: string|null,
  *   admission?: PartAdmission|null,
  *   readAdmission?: ((words: string[]) => PartAdmission|null)|null,
@@ -2349,7 +2349,7 @@ const buildQueueSkipLine = (emptySource) =>
  * Only a wait that held it, or a refusal, is an exit line, of kind `seat`:
  * the alarm keeps counting a rung wait (#2911).
  *
- * @param {{ options: import("./lib/suite-queue.js").QueuedLaunchOptions & { loadHold?: () => Promise<boolean>, err?: { write: (s: string) => unknown }, queueLog?: string|null, root?: string }, words: string[], weight: import("./lib/suite-handoff.js").CarriedWeight, kind: import("./lib/suite-queue.js").PartKind, session: string|null, run: (extra?: { escalationRequeues?: boolean, onSpawn?: () => void, admission?: PartAdmission }) => Promise<number>, queued: () => Promise<number>, requeueWhole: () => Promise<number> }} seat
+ * @param {{ options: import("./lib/suite-queue.js").QueuedLaunchOptions & { loadHold?: () => Promise<boolean>, err?: { write: (s: string) => unknown }, queueLog?: string|null, root?: string }, words: string[], weight: import("./lib/suite-handoff.js").CarriedWeight, kind: import("./lib/suite-queue.js").PartKind, session: string|null, run: (extra?: { escalationRequeues?: boolean, onSpawn?: (charge?: import("./lib/suite-queue.js").SpawnCharge) => void, admission?: PartAdmission }) => Promise<number>, queued: () => Promise<number>, requeueWhole: () => Promise<number> }} seat
  * @returns {Promise<number>}
  */
 async function runSeated({
@@ -2380,6 +2380,7 @@ async function runSeated({
 	const logExit = queueExitLogger({
 		file: queueLogFile(options),
 		kind: "seat",
+		lane: kind,
 		session,
 		label: "--queue",
 		err: options.err ?? process.stderr,

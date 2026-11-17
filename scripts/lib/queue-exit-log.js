@@ -74,8 +74,8 @@ function queueExitLogPath(root) {
  * not land is said on `err`, opened by the waiter's `label`.
  *
  * @param {{ file: string|null, kind: string, lane?: import("./part-suite-peak.js").PartKind, slotFree?: boolean, session: string|null, label: string, err: { write: (s: string) => unknown } }} waiter
- *   `lane` a part-suite's lane in the queue (#5367), which its `kind` does
- *   not always tell
+ *   `lane` the lane the run queues in were it a part-suite (#5367), which
+ *   its `kind` does not always tell; read only off a part-suite's line
  * @returns {(reason: QueueExitReason, waitMs: number, extra?: object) => void}
  */
 function queueExitLogger({ file, kind, lane, slotFree, session, label, err }) {

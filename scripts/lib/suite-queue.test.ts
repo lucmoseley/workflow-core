@@ -31,6 +31,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { suiteRungMb, WHOLE_SUITE_WORKERS } from "./admission.js";
 import { mkScratchDir } from "./git-fixture";
 import { chargeMb as launchChargeMb } from "./launch-charge";
+import type { PartAdmission } from "./part-suite-peak.js";
 import { writePsStub } from "./ps-stub";
 import { runInProcess } from "./run-in-process.js";
 import { tscDenial } from "./tsc-slot";
@@ -2697,7 +2698,7 @@ describe("waitForGate's timeout, judged on the last poll (#2421, #2714)", () => 
 	});
 
 	it("records the admission a given gate hears on its exit line, as a seat's does (#5366)", async () => {
-		const admission = {
+		const admission: PartAdmission = {
 			mode: "peak",
 			kind: "touched",
 			bucket: "2-4",
@@ -2708,8 +2709,8 @@ describe("waitForGate's timeout, judged on the last poll (#2421, #2714)", () => 
 		};
 		const exits: unknown[][] = [];
 		await waitForGate({
-			gate: (_climb: number, hear?: (a: never) => void) => {
-				hear?.(admission as never);
+			gate: (_climb: number, hear?: (a: PartAdmission) => void) => {
+				hear?.(admission);
 				return null;
 			},
 			admit: noQueue,

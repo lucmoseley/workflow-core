@@ -325,7 +325,7 @@ describe("the peak tripwire", () => {
 				readRunFiles: store(),
 			}),
 		).toEqual({
-			cause: "state-unread",
+			cause: "journal-unread",
 			why: "peak tripwire check failed: boom",
 		});
 	});

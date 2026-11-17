@@ -112,6 +112,8 @@ const MARKER_STAMPS = [
  * the slot as a waiting gate names it (lib/gate-seat.js).
  * @typedef {{ repo: string | null, session: string | null, command: string }} SeatHolder
  * @typedef {import("./part-suite-peak.js").PartKind} PartKind
+ * @typedef {{ chargeMb?: number }} SpawnCharge the peak a spawned launch's
+ *   climb is charged, where its gate measured one (#5366)
  * @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, part?: boolean, kind?: PartKind, files?: number, spawned?: boolean } & Partial<SeatHolder> & { [K in MarkerStamp]?: boolean }} QueueRecord
  */
 /**
@@ -793,7 +795,7 @@ function queueAdmit(
  *
  * @param {string} file
  * @param {QueueOptions} [options]
- * @param {{ chargeMb?: number }} [charge]
+ * @param {SpawnCharge} [charge]
  */
 function queueSpawned(file, options = {}, charge = {}) {
 	stampMarker(file, { spawned: true, ...charge }, options);
@@ -2191,7 +2193,7 @@ function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
 		ticket,
 		stamps,
 		wait,
-		spawned: (/** @type {{ chargeMb?: number }} */ charge = {}) =>
+		spawned: (/** @type {SpawnCharge} */ charge = {}) =>
 			queueSpawned(ticket, queue, charge),
 		leave,
 	};

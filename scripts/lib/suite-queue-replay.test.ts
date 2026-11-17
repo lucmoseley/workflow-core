@@ -754,8 +754,10 @@ describe("the pass past a head the memory rung holds at rest (#4783)", () => {
 
 describe("the named lane and a touched waiter's first claim (#5367)", () => {
 	/* A touched part waiting from minute 0, and a named part waiting
-	 * minutes [from, from + 2), its ticks starting at `start`. Nothing else
-	 * holds either: no memwatch block, no run. */
+	 * minutes [from, from + 2), its ticks starting at `start`, its exit line
+	 * carrying `lane` where given, else none, as one logged before #5366's
+	 * review recorded lanes. Nothing else holds either: no memwatch block,
+	 * no run. */
 	const named = (from: number, start: number, lane?: "touched") => {
 		const later = (t: number) => t - T0 - from * MIN + start;
 		const r = replay(

@@ -24,7 +24,9 @@
  * the cursor; the gate judges part-suites on the ladder until a readable check
  * clears it. A state file that will not parse, or a check that will not
  * write it, falls to the ladder too, as `state-unread`, and only `arm`
- * rewrites a torn file, so a torn trip is never lost to a check.
+ * rewrites a torn file, so a torn trip is never lost to a check. A write
+ * that fails persists nothing, so `npm run status` cannot see it: only the
+ * guard-error log does.
  *
  * The gate's reads never throw; `arm` throws where the file will not write.
  */
@@ -182,6 +184,21 @@ function findTrip(since, { readIncidents, readRunFiles }) {
 }
 
 /**
+ * `findTrip`, a reader that throws reading as one that reports itself
+ * unreadable, so the check records it blind (`unread`) and keeps the cursor.
+ * @param {number} since
+ * @param {Parameters<typeof findTrip>[1]} readers
+ * @returns {ReturnType<typeof findTrip>}
+ */
+function findTripOrWhy(since, readers) {
+	try {
+		return findTrip(since, readers);
+	} catch (e) {
+		return { why: `peak tripwire check failed: ${caught(e).message}` };
+	}
+}
+
+/**
  * The state after a check at `now`, from `read`, the state as last read.
  * @param {Tripwire} read
  * @param {number} now
@@ -230,7 +247,7 @@ function checkTripwire({
 			return { ...read, checked: false };
 		const since =
 			Date.parse(read.tripwire.checkedThrough ?? "") || now - CHECK_MS;
-		const found = findTrip(since, { readIncidents, readRunFiles });
+		const found = findTripOrWhy(since, { readIncidents, readRunFiles });
 		/* Re-read: another process may have tripped or re-armed it meanwhile. */
 		const latest = readTripwire({ file: target });
 		if (latest.corrupt !== null) return { ...latest, checked: true };

@@ -86,11 +86,11 @@ function nearestRank(values, p) {
 
 /**
  * Why a part-suite was judged on the ladder (#5366): its bucket holds too few
- * runs, the ledger would not read, the tripwire is tripped or its journal
- * would not read, or its own state file would not (lib/peak-tripwire.js), a
- * touched run's selection is unresolved, so it has no bucket, or its kind
- * cannot be told (`partKindOfRoute`).
- * @typedef {"thin" | "unread" | "tripped" | "journal-unread" | "state-unread" | "unsized" | "untold"} LadderCause
+ * runs, the ledger would not read, the tripwire holds it there
+ * (lib/peak-tripwire.js `Fallback`), a touched run's selection is
+ * unresolved, so it has no bucket, or its kind cannot be told
+ * (`partKindOfRoute`).
+ * @typedef {import("./peak-tripwire.js").Fallback["cause"] | "thin" | "unread" | "unsized" | "untold"} LadderCause
  */
 
 /**
