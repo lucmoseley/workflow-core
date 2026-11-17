@@ -131,6 +131,45 @@ describe("the proof record", () => {
 		expect(proofState(at)).toEqual({ state: "stale" });
 	});
 
+	/* A node runner whose verdict a module it requires decides: the shape of
+	 * this repo's own, scripts/run-vitest.js and its scripts/lib/ (#5327). */
+	function nodeRunner(exitOnRed: number) {
+		fs.writeFileSync(
+			path.join(root, "runner.js"),
+			`process.exit(require("./decide.js")(process.argv[2]));\n`,
+		);
+		fs.writeFileSync(
+			path.join(root, "decide.js"),
+			`module.exports = (f) => { if (!process.env.WFC_VERDICT_PROBE) return 0; console.log(" FAIL  " + f); return ${exitOnRed}; };\n`,
+		);
+		return { root, command: "node runner.js", canary: CANARY, markers };
+	}
+
+	it("reprobes a failed record once a module the runner requires is fixed", () => {
+		const at = nodeRunner(0);
+		expect(ensureProof(at).state).toBe("failed");
+		nodeRunner(1);
+		expect(proofState(at)).toEqual({ state: "stale" });
+		expect(ensureProof(at)).toEqual({ state: "fresh" });
+	});
+
+	it("reprobes a passed record once a module the runner requires changes", () => {
+		const at = nodeRunner(1);
+		expect(ensureProof(at)).toEqual({ state: "fresh" });
+		nodeRunner(0);
+		expect(proofState(at)).toEqual({ state: "stale" });
+		expect(ensureProof(at).state).toBe("failed");
+	});
+
+	it("keeps each runner's verdict beside the others, so a worktree at another base keeps its own", () => {
+		const at = nodeRunner(1);
+		ensureProof(at);
+		nodeRunner(0);
+		ensureProof(at);
+		nodeRunner(1);
+		expect(proofState(at)).toEqual({ state: "fresh" });
+	});
+
 	it("reads an unreadable record as stale, never fresh", () => {
 		fs.writeFileSync(path.join(markers, "verdict-proof.json"), "{not json");
 		expect(
@@ -148,7 +187,7 @@ describe("the proof record", () => {
 		expect(buildStaysLine(s)).toMatch(/code-standards-base\.md/);
 	});
 
-	it("the lander's backstop marks a passed record failed", () => {
+	it("the lander's backstop marks every passed verdict failed", () => {
 		command(CONFORMING);
 		const at = { root, command: COMMAND, canary: CANARY, markers };
 		ensureProof(at);

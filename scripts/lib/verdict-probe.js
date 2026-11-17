@@ -1,7 +1,7 @@
 /*
  * verdict-probe.js — whether a repo's declared test command gives the lander
- * a verdict on a red, proved once per command and canary rather than trusted
- * (#5294). A command that has proved it stands its commit-time run down
+ * a verdict on a red, proved once per command, runner and canary rather than
+ * trusted (#5294). A command that has proved it stands its commit-time run down
  * (lib/test-gate.js): the lander's run before `main` moves is then the gate.
  *
  * THE VERDICT CONTRACT, written for a person at the `commands.test` row of the
@@ -16,13 +16,20 @@
  * non-zero, name the canary on a failing-file line and name no other file;
  * without it, it must exit 0. A failing probe names the clause it broke.
  *
- * THE PROOF RECORD sits in the markers directory, keyed by a hash of the
- * command as it runs (an npm script's own text included) and the canary's
- * content, so a change to either makes it stale. A record that cannot be
- * read is stale, never fresh (fail closed, #5275). A failed probe is recorded
- * too, so the probe runs again only once the command or canary changes; the
- * lander marks a passed record failed on a red naming no failing file in its
- * tree (lib/local-tester.js), which gives the commit its gate back.
+ * THE PROOF RECORD sits in the markers directory, one verdict per key: a hash
+ * of the command as it runs (an npm script's own text included), the runner
+ * it resolves to and the canary's content, so a change to any of them makes
+ * it stale. The runner is every file a word of the command names, in the
+ * working copy or else the core (an adopter's `resolve-core.js` runs a core
+ * script), with everything each one's run reaches (lib/code-edges.js), so a
+ * fix to the runner reprobes a failed record and a break in it a passed one
+ * (#5327). Keys are kept side by side, because the record is the main
+ * checkout's and worktrees at different bases hold different runners. A
+ * record that cannot be read is stale, never fresh (fail closed, #5275). A
+ * failed probe is recorded too, so it runs again only once its key changes;
+ * the lander marks every passed verdict failed on a red naming no failing
+ * file in its tree (lib/local-tester.js), which gives the commit its gate
+ * back.
  */
 
 const crypto = require("node:crypto");
@@ -31,9 +38,10 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { caught } = require("./caught.js");
 const { now } = require("./clock.js");
+const { readRunReach } = require("./code-edges.js");
 const { readText } = require("./file-read.js");
 const { markersDir } = require("./marker-root.js");
-const { docPath } = require("./script-path.js");
+const { coreRoot, docPath } = require("./script-path.js");
 const { shellQuote } = require("./sh-quote.js");
 const { parseFailingFiles } = require("./suite-output.js");
 
@@ -48,6 +56,9 @@ const PROBE_TIMEOUT_MS = 600_000;
 /* A guess, never measured: room for a runner's full output on one file
  * (#5294). */
 const PROBE_MAX_BUFFER = 64 * 1024 * 1024;
+/* How many keys the record keeps, most recent first. A guess, never
+ * measured: room for each worktree's base at once (#5327). */
+const KEPT_KEYS = 16;
 
 /* `npm test`, `npm t`, `npm run[-script] <name>` — the script whose text is
  * what actually runs. */
@@ -57,8 +68,8 @@ const NPM_SCRIPT = /^npm\s+(?:(?:test|t)|run(?:-script)?\s+(\S+))(?=\s|$)/;
  * @typedef {{ code: number | null, out: string }} RunResult
  * @typedef {(line: string, opts: { cwd: string, env: NodeJS.ProcessEnv }) =>
  *   RunResult} Runner
- * @typedef {{ key: string, verdict: "pass" | "fail", clause?: string,
- *   at: string }} ProofRecord
+ * @typedef {{ verdict: "pass" | "fail", clause?: string, at: string }} Verdict
+ * @typedef {Record<string, Verdict>} ProofRecord verdicts by key
  * @typedef {{ state: "fresh" } | { state: "stale" } |
  *   { state: "failed", clause: string } | { state: "none" }} ProofState
  */
@@ -95,6 +106,68 @@ function resolvedCommand(command, root) {
 }
 
 /**
+ * Each word of `text` naming a file, as a root-relative path and the root it
+ * sits under: the working copy, else the core.
+ * @param {string} text
+ * @param {string} root
+ * @returns {{ base: string, rel: string }[]}
+ */
+function namedFiles(text, root) {
+	const core = coreRoot();
+	/** @type {Map<string, { base: string, rel: string }>} */
+	const found = new Map();
+	for (const raw of text.split(/\s+/)) {
+		const word = raw.replace(/^['"]|['"]$/g, "");
+		if (word === "" || word.startsWith("-") || word.includes("=")) continue;
+		const rel = path.normalize(word);
+		if (path.isAbsolute(rel)) continue;
+		const base = [root, core].find((b) => isFileAt(path.join(b, rel)));
+		if (base !== undefined) found.set(`${base}\0${rel}`, { base, rel });
+	}
+	return [...found.values()];
+}
+
+/** @param {string} abs */
+function isFileAt(abs) {
+	try {
+		return fs.statSync(abs).isFile();
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * What the runner a command resolves to holds: each file its words name and
+ * each one their runs reach, with its content. A reach the walk cannot make
+ * keys as its fault, so fixing it reprobes.
+ * @param {string} resolved the command as it runs
+ * @param {string} root
+ * @returns {string}
+ */
+function runnerContent(resolved, root) {
+	const hash = crypto.createHash("sha256");
+	/** @type {Map<string, (start: string) => import("./code-edges.js").RunReach>} */
+	const walkers = new Map();
+	for (const { base, rel } of namedFiles(resolved, root)) {
+		let walk = walkers.get(base);
+		if (walk === undefined) {
+			walk = readRunReach(base);
+			walkers.set(base, walk);
+		}
+		let files;
+		try {
+			files = walk(rel).files;
+		} catch (err) {
+			hash.update(`${rel}\0unwalked\0${caught(err).message}\0`);
+			continue;
+		}
+		for (const file of files)
+			hash.update(`${base}\0${file}\0${readAt(base, file) ?? ""}\0`);
+	}
+	return hash.digest("hex");
+}
+
+/**
  * The proof key, or null where the canary cannot be read.
  * @param {{ root: string, command: string, canary: string }} at
  * @returns {string | null}
@@ -102,9 +175,12 @@ function resolvedCommand(command, root) {
 function proofKey({ root, command, canary }) {
 	const body = readAt(root, canary);
 	if (body === null) return null;
+	const resolved = resolvedCommand(command, root);
 	return crypto
 		.createHash("sha256")
-		.update(resolvedCommand(command, root))
+		.update(resolved)
+		.update("\0")
+		.update(runnerContent(resolved, root))
 		.update("\0")
 		.update(canary)
 		.update("\0")
@@ -116,32 +192,54 @@ function proofKey({ root, command, canary }) {
 const recordPath = (markers) => path.join(markers, RECORD);
 
 /**
- * The record, or null where it is absent or does not read as one.
+ * The record's verdicts; none where it is absent or does not read as one,
+ * and none for an entry that is no verdict.
  * @param {string} markers
- * @returns {ProofRecord | null}
+ * @returns {ProofRecord}
  */
 function readProof(markers) {
 	const read = readText(recordPath(markers));
-	if (read.state !== "read") return null;
+	if (read.state !== "read") return {};
+	let parsed;
 	try {
-		const r = JSON.parse(read.data);
-		if (typeof r?.key !== "string") return null;
-		if (r.verdict !== "pass" && r.verdict !== "fail") return null;
-		return r;
+		parsed = JSON.parse(read.data);
 	} catch {
-		return null;
+		return {};
 	}
+	/** @type {ProofRecord} */
+	const record = {};
+	if (parsed === null || typeof parsed !== "object") return record;
+	for (const [key, v] of Object.entries(parsed))
+		if (v?.verdict === "pass" || v?.verdict === "fail") record[key] = v;
+	return record;
 }
 
 /**
+ * Writes `record`, keeping its KEPT_KEYS most recent verdicts.
  * @param {string} markers
- * @param {Omit<ProofRecord, "at">} record
+ * @param {ProofRecord} record
  */
 function writeProof(markers, record) {
+	const kept = Object.entries(record)
+		.sort(([, a], [, b]) => String(b.at).localeCompare(String(a.at)))
+		.slice(0, KEPT_KEYS);
 	fs.writeFileSync(
 		recordPath(markers),
-		`${JSON.stringify({ ...record, at: new Date(now()).toISOString() })}\n`,
+		`${JSON.stringify(Object.fromEntries(kept))}\n`,
 	);
+}
+
+/**
+ * Records `verdict` under `key`, beside the other keys' verdicts.
+ * @param {string} markers
+ * @param {string} key
+ * @param {Omit<Verdict, "at">} verdict
+ */
+function recordVerdict(markers, key, verdict) {
+	writeProof(markers, {
+		...readProof(markers),
+		[key]: { ...verdict, at: new Date(now()).toISOString() },
+	});
 }
 
 /**
@@ -152,12 +250,11 @@ function writeProof(markers, record) {
 function proofState({ root, command, canary, markers = markersDir() }) {
 	if (command === null || canary === null) return { state: "none" };
 	const key = proofKey({ root, command, canary });
-	const record = readProof(markers);
-	if (key === null || record === null || record.key !== key)
-		return { state: "stale" };
-	return record.verdict === "pass"
+	const verdict = key === null ? undefined : readProof(markers)[key];
+	if (verdict === undefined) return { state: "stale" };
+	return verdict.verdict === "pass"
 		? { state: "fresh" }
-		: { state: "failed", clause: record.clause ?? "the probe failed" };
+		: { state: "failed", clause: verdict.clause ?? "the probe failed" };
 }
 
 /** @type {Runner} */
@@ -239,11 +336,12 @@ function ensureProof({
 		`verdict probe: running \`${command} ${canary}\` with and without ${PROBE_VAR}=1`,
 	);
 	const result = probe({ root, command, canary, run });
-	writeProof(
+	recordVerdict(
 		markers,
+		key,
 		result.ok
-			? { key, verdict: "pass" }
-			: { key, verdict: "fail", clause: result.clause },
+			? { verdict: "pass" }
+			: { verdict: "fail", clause: result.clause },
 	);
 	return result.ok
 		? { state: "fresh" }
@@ -251,20 +349,26 @@ function ensureProof({
 }
 
 /**
- * Marks a passed record failed: the lander's backstop, on a red that named no
- * failing file in its tree.
+ * Marks every passed verdict failed: the lander's backstop, on a red that
+ * named no failing file in its tree, which it cannot tie to one key.
  * @param {string} reason
  * @param {string} [markers]
- * @returns {boolean} whether a passed record was there to mark
+ * @returns {boolean} whether a passed verdict was there to mark
  */
 function voidProof(reason, markers = markersDir()) {
 	const record = readProof(markers);
-	if (record === null || record.verdict !== "pass") return false;
-	writeProof(markers, {
-		key: record.key,
-		verdict: "fail",
-		clause: `the lander's run went red naming no failing file in its tree (${reason})`,
-	});
+	const passed = Object.keys(record).filter(
+		(k) => record[k]?.verdict === "pass",
+	);
+	if (passed.length === 0) return false;
+	const clause = `the lander's run went red naming no failing file in its tree (${reason})`;
+	for (const key of passed)
+		record[key] = {
+			verdict: "fail",
+			clause,
+			at: new Date(now()).toISOString(),
+		};
+	writeProof(markers, record);
 	return true;
 }
 
