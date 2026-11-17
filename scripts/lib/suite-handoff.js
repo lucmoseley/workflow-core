@@ -91,7 +91,7 @@ const LAUNCH_ENV = "WFC_SUITE_LAUNCH";
  *   resolvedFiles: number|null,
  *   wholeSlot: boolean,
  *   leftOut: string[]|null,
- *   touchedBase: "merge-base"|"head"|null,
+ *   touchedBase: import("./test-pass-marker.js").TouchedBase|null,
  *   changedPaths: string[]|null,
  *   base: string|null,
  * }} Launch
@@ -101,7 +101,7 @@ const LAUNCH_ENV = "WFC_SUITE_LAUNCH";
 const stringsOrNull = (v) =>
 	Array.isArray(v) && v.every((w) => typeof w === "string") ? v : null;
 
-/** @param {string[]} vocabulary @param {unknown} v @returns {string|null} */
+/** @param {readonly string[]} vocabulary @param {unknown} v @returns {string|null} */
 const oneOf = (vocabulary, v) =>
 	typeof v === "string" && vocabulary.includes(v) ? v : null;
 

@@ -30,7 +30,8 @@
  *     prints and the seat cache it rewrites, which lib/usage-probe.js,
  *     lib/allowance.js and lib/seat-utilisation.js read (#3266, #3282), off one
  *     probe of this session's seat run as lib/usage-probe.js runs it, to its
- *     end.
+ *     end; a seat listing no session bar keeps the previous recording's
+ *     (lib/session-bar-carry.js).
  *
  * Run it by hand after a harness upgrade, from a session worktree with its
  * edits committed, then `npm
@@ -62,7 +63,9 @@ const {
 	buildTypedAttach,
 } = require("./lib/claude-attach.js");
 const { claudeBin } = require("./lib/claude-bin.js");
+const { NO_JOB_ANSWER } = require("./lib/claude-stop.js");
 const { configDir } = require("./lib/config-dir.js");
+const { readText } = require("./lib/file-read.js");
 const { sessionTree } = require("./lib/host-root.js");
 const { jobDirPath, readJobRecord } = require("./lib/job-paths.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
@@ -73,6 +76,7 @@ const {
 	PROMPT,
 	SCRIPTED_PROMPT,
 } = require("./lib/recorder-prompts.js");
+const { carrySessionBar } = require("./lib/session-bar-carry.js");
 const {
 	PROBE_ARGV,
 	PROBE_CWD,
@@ -91,7 +95,7 @@ const ATTACH_FIXTURE = path.join(__dirname, "fixtures", "claude-attach.json");
 const USAGE_FIXTURE = path.join(__dirname, "fixtures", "usage-probe.json");
 const RECORDED_BY = "node scripts/record-claude-responses.js";
 /* An 8-hex job id no daemon issued, for `claude stop`'s and `claude rm`'s
- * "No job matching". */
+ * NO_JOB_ANSWER. */
 const NO_JOB = "00000000";
 /* A guess: one such Haiku turn took about 25 s here, under load. */
 const WAIT_MS = 180_000;
@@ -463,6 +467,14 @@ async function recordUsage() {
 	};
 }
 
+/** The usage-probe fixture this run replaces; null where none is tracked. */
+function previousRecording() {
+	const read = readText(USAGE_FIXTURE);
+	if (read.state === "absent") return null;
+	if (read.state === "unreadable") throw read.error;
+	return JSON.parse(read.data);
+}
+
 /**
  * @param {string} file
  * @param {object} recorded
@@ -491,6 +503,7 @@ async function main() {
 	});
 	if (refusal) throw new Error(refusal);
 	const harness = claude(["--version"]).stdout.split(" ")[0];
+	if (!harness) throw new Error("claude --version printed no version");
 	const launched = launch(PROMPT);
 	const original = launched.id;
 	const started = [original];
@@ -645,20 +658,25 @@ async function main() {
 			},
 		});
 	} finally {
-		/* A job reaped or already stopped answers "No job matching". */
+		/* A job reaped or already stopped answers NO_JOB_ANSWER. */
 		const unstopped = stopAll(started).filter(
-			(why) => !why.includes("No job matching"),
+			(why) => !NO_JOB_ANSWER.test(why),
 		);
 		if (unstopped.length > 0)
 			writeFd(2, `still running, stop by hand: ${unstopped.join("; ")}\n`);
 	}
 	/* Last, once every job is stopped, so its wait or a failure costs no
 	 * other fixture. */
-	writeFixture(USAGE_FIXTURE, {
-		recordedBy: RECORDED_BY,
-		harness,
-		...(await recordUsage()),
-	});
+	const usage = carrySessionBar(
+		{ recordedBy: RECORDED_BY, harness, ...(await recordUsage()) },
+		previousRecording(),
+	);
+	if (usage.sessionBar)
+		writeFd(
+			2,
+			`the seat listed no session bar: kept ${usage.sessionBar.harness}'s, which this harness's shape goes unchecked against\n`,
+		);
+	writeFixture(USAGE_FIXTURE, usage);
 }
 
 main().catch((e) => {

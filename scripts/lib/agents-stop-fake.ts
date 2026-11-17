@@ -161,6 +161,8 @@ const FAULTS = {
 	busy: "echo 'daemon socket is busy' >&2; exit 1",
 	warnedNoJob: `echo 'warning: daemon slow to answer' >&2; printf '%s' ${buildJobIdWord(noJob.stderr, noJob.id)} >&2; exit ${noJob.status}`,
 	killed: "echo 'going down' >&2; kill -KILL $$",
+	/* The no-job answer before 2.1.326, still read as no job (#5329). */
+	oldNoJob: `printf '%s' ${buildJobIdWord(`No job matching '${noJob.id}'. Run 'claude agents' to list running sessions.\n`, noJob.id)} >&2; exit ${noJob.status}`,
 };
 
 export type StopAnswer = StopKind | keyof typeof FAULTS;

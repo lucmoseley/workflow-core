@@ -9,7 +9,7 @@
  * prints, and, on the founder's machine, against the real `claude` where a
  * call is free. Breaking it costs the refill loop's judging of its launches: a
  * row the fake shapes as the harness never would passes a test the loop
- * fails, and a "No job matching" the stop misreads stops on the wrong seat or
+ * fails, and a no-job answer the stop misreads stops on the wrong seat or
  * not at all.
  */
 import fs from "node:fs";
@@ -244,6 +244,10 @@ describe.each([
 	{ answer: "busy", outcome: { ok: false, noJob: false, timedOut: false } },
 	{
 		answer: "warnedNoJob",
+		outcome: { ok: false, noJob: true, said: expect.stringContaining("job7") },
+	},
+	{
+		answer: "oldNoJob",
 		outcome: { ok: false, noJob: true, said: expect.stringContaining("job7") },
 	},
 	{

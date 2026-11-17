@@ -28,7 +28,7 @@
  *      where CLAUDE_CODE_SESSION_ID is unset: a session that passes it is
  *      still told apart from the rest;
  *   3. its registry record names a job id — `claude stop` is addressed by that, and
- *      answers anything else with "No job matching" and exit 1;
+ *      answers anything else with lib/claude-stop.js's NO_JOB_ANSWER and exit 1;
  *   4. it finished at least GRACE_MS ago, and its transcript shows its last
  *      turn ended — else it is held for the windows HOW LONG A JOB WHOSE TURN
  *      HAS NOT VISIBLY ENDED IS LEFT ALONE sets (lib/reaper.js, which holds the

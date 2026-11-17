@@ -69,7 +69,7 @@ const { readTreeIds, isSameContent } = require("./content-ids.js");
  *   skipped: number, nameFilter?: string|null,
  *   fileFilters?: string[], changed?: string|boolean|null, admissible?: boolean,
  *   viaChanged?: boolean, touched?: boolean, resolvedFiles?: number,
- *   leftOut?: string[], touchedBase?: "merge-base"|"head",
+ *   leftOut?: string[], touchedBase?: TouchedBase,
  *   wholeSlot?: boolean, full?: "flag"|"stale-manifest"|"dependency-root",
  *   fullCause?: "push-gate"|"coverage"|"empty-diff"|"sha-moved"|"rule-edit"|"other"|null,
  *   shard?: {index: number, count: number},
@@ -88,6 +88,7 @@ const { readTreeIds, isSameContent } = require("./content-ids.js");
  *   base?: string, refused?: boolean, refusedWhy?: string, refusedWord?: string,
  *   stalled?: boolean, stallMs?: number,
  *   ceilingKill?: boolean, ceilingMs?: number, neverStarted?: string[]|null,
+ *   touchedBase?: TouchedBase,
  *   full?: string|null,
  *   inflight?: {module: string, stage: string}[], finished?: string[],
  *   testsInFlight?: {nodeid: string, stage: string}[]|null,
@@ -173,7 +174,8 @@ const FULL_REASONS = ["flag", "stale-manifest", "dependency-root"];
  * taken from, the session's own work since the merge base, or the commit's
  * changes over HEAD inside a commit-gate seat (#5320).
  */
-const TOUCHED_BASES = ["merge-base", "head"];
+const TOUCHED_BASES = /** @type {const} */ (["merge-base", "head"]);
+/** @typedef {(typeof TOUCHED_BASES)[number]} TouchedBase */
 
 /*
  * The dependency-graph roots every narrowed closure carries (#189): what the

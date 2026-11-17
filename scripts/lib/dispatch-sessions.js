@@ -1314,13 +1314,13 @@ class Dispatch {
 
 	loadRemedy() {
 		this.err(
-			"  A CPU load hold: wait for load1 to fall under the ceiling, then re-run\n",
+			"  A CPU load hold: re-run this member later with the same command; it holds\n",
 		);
 		this.err(
-			"  this member — `cat /proc/loadavg` reads it. Neither --force nor\n",
+			"  on load by itself (rule:load-wait). Neither --force nor --force-memory\n",
 		);
 		this.err(
-			"  --force-memory lifts it; WFC_LOAD_CEILING=0 or a 0 in ~/.claude/load-ceiling does, at the risk of\n",
+			"  lifts it; WFC_LOAD_CEILING=0 or a 0 in ~/.claude/load-ceiling does, at the risk of\n",
 		);
 		this.err("  freezing WSL (#830).\n");
 	}
