@@ -1977,8 +1977,8 @@ function stepOrEnd(s) {
  *   of `queue/<name>` is working; `stopped` where it is not or the read is
  *   in doubt, and it never throws
  * @property {{acquire: () => boolean, release: () => void}} lock
- * @property {(batch: string|null) => void} beat writes the heartbeat,
- *   naming the sha under test
+ * @property {(batch?: string|null) => void} beat writes the heartbeat,
+ *   naming the batch under test, or the one last named where omitted
  * @property {(ms: number) => Promise<void>} [wait] the backoff between tries
  *   of a faulted call
  * @property {(action: QueueAction) => void} [log]
@@ -2362,8 +2362,8 @@ function writeVerdict(deps, { sha, files, pass, v }, run, keep) {
  */
 async function verdictAt(deps, place, sha, { files, again } = {}) {
 	const { tester, beat } = deps;
-	beat(sha);
-	const timer = setInterval(() => beat(sha), HEARTBEAT_MS);
+	beat();
+	const timer = setInterval(() => beat(), HEARTBEAT_MS);
 	try {
 		return await remote(
 			retrying(

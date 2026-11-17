@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { stubGhScript } from "./lib/gh-stub.js";
+import { heartbeatWriter } from "./lib/lander-files.js";
 import { OWN_CORE, seedAdopterTree } from "./lib/lander-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
@@ -227,6 +228,24 @@ it("files one urgent bug stall ticket for a running lander whose main has stood 
 	expect(ticket.body).toContain(`with \`queue/work at ${tip}\` waiting`);
 	expect(ticket.body).toContain(`Batch under test: \`${tip}\``);
 	expect(ticket.body).toContain("Standalone:");
+});
+
+it("leaves the stall ticket's body unchanged across passes while the lander's verdict keepalives beat between them (#5360)", () => {
+	commit("seed", 8 * 60 * MIN, "main");
+	const tip = commit("work", 121 * MIN, "refs/heads/queue/work");
+	const beatAs = heartbeatWriter(
+		path.join(markers(), ".queue-lander-heartbeat.json"),
+	);
+	fs.mkdirSync(markers(), { recursive: true });
+	beatAs(tip);
+
+	expect(supervise().stdout).toContain("Filed #100");
+	const [filed] = stallTickets();
+	beatAs();
+	const second = supervise();
+
+	expect(second.stdout).toContain("stall ticket: #100 is open and current.\n");
+	expect(stallTickets()[0].body).toBe(filed.body);
 });
 
 it("closes the stall ticket with the stall's length once main moves, and files a new one for a later stall (#4443)", () => {
