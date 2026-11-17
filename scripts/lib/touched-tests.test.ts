@@ -10,7 +10,7 @@
  * Its merge cases (#5334) build merging repos and run throwaway worktrees:
  * a merge's own content has no cheaper witness than git's own merge.
  */
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -29,8 +29,20 @@ import type { TouchedBase } from "./test-pass-marker.js";
 
 const require = createRequire(import.meta.url);
 const { selectTouched } = require("./touched-tests.js");
-/* lib/merge-heads.js's hand-off variable (#5334). */
-const MERGE_PARENTS_ENV = "WFC_MERGE_PARENTS";
+const { MERGE_PARENTS_ENV } = require("./merge-heads.js");
+const QUEUE_RUN = path.join(
+	path.dirname(fileURLToPath(import.meta.url)),
+	"..",
+	"queue-run.js",
+);
+
+/** `git` at `dir`, as a committer named for the fixture; its trimmed output. */
+const git = (dir: string, ...args: string[]) =>
+	execFileSync(
+		"git",
+		["-c", "user.email=t@example.com", "-c", "user.name=t", ...args],
+		{ cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+	).trim();
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -92,19 +104,9 @@ function seed(dir: string, files: Record<string, string>) {
 		fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
 		fs.writeFileSync(path.join(dir, f), text);
 	}
-	const git = (...args: string[]) =>
-		execFileSync("git", args, { cwd: dir, stdio: "ignore" });
-	git("init", "-q");
-	git("add", ".");
-	git(
-		"-c",
-		"user.email=t@example.com",
-		"-c",
-		"user.name=t",
-		"commit",
-		"-qm",
-		"root",
-	);
+	git(dir, "init", "-q");
+	git(dir, "add", ".");
+	git(dir, "commit", "-qm", "root");
 }
 
 /* Built once for the cases that only read it. */
@@ -586,21 +588,10 @@ describe("a checker-only file selects its checker tests alone (#4967)", () => {
  * shape a commit gate's tree holds (#5320). Under `head` only the staged
  * paths are the session's; under `merge-base`, all three. */
 describe("the base a touched selection takes (#5320)", () => {
-	const git = (dir: string, ...args: string[]) =>
-		execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
 	const commit = (dir: string, file: string, message: string) => {
 		fs.appendFileSync(path.join(dir, file), "// more\n");
 		git(dir, "add", file);
-		git(
-			dir,
-			"-c",
-			"user.email=t@example.com",
-			"-c",
-			"user.name=t",
-			"commit",
-			"-qm",
-			message,
-		);
+		git(dir, "commit", "-qm", message);
 	};
 	/** `files`' repo at `dir`, verified main at its root, then `own`
 	 * committed and `paths` staged, each with `edit` appended in a form its
@@ -732,68 +723,64 @@ describe("the base a touched selection takes (#5320)", () => {
 /* A merge answers for its own content alone, never for main's incoming
  * paths (#5334). */
 describe("a merge's own content under `head` (#5334)", () => {
-	const git = (dir: string, ...args: string[]) =>
-		execFileSync(
-			"git",
-			["-c", "user.email=t@example.com", "-c", "user.name=t", ...args],
-			{ cwd: dir, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
-		).trim();
 	const write = (dir: string, file: string, text: string) =>
 		fs.writeFileSync(path.join(dir, file), text);
+	const writeAll = (dir: string, edits: Record<string, string>) => {
+		for (const [f, t] of Object.entries(edits)) write(dir, f, t);
+	};
 	const commitAll = (dir: string, message: string) => {
 		git(dir, "add", "-A");
 		git(dir, "commit", "-qm", message);
 	};
 	const branchA = { "lib/a.js": "ONE\ntwo\nthree\nfour\nfive\n" };
 	const mainA = { "lib/a.js": "one\ntwo\nthree\nfour\nFIVE\n" };
-	/** MERGE_HEAD as git leaves it, a conflict resolved to "resolved".
-	 * Popped, so `afterEach` leaves it; a case writing to one pushes it. */
-	function merging(
-		branchEdits: Record<string, string>,
-		mainEdits: Record<string, string>,
-	) {
-		const dir = repo({
-			...FILES,
-			"lib/a.js": "one\ntwo\nthree\nfour\nfive\n",
-		});
-		dirs.pop();
-		git(dir, "branch", "-M", "br");
-		git(dir, "branch", "main");
-		for (const [f, t] of Object.entries(branchEdits)) write(dir, f, t);
-		commitAll(dir, "branch");
-		git(dir, "checkout", "-q", "main");
-		write(dir, "doc.md", "# doc, main's\n");
-		for (const [f, t] of Object.entries(mainEdits)) write(dir, f, t);
-		commitAll(dir, "main");
-		git(dir, "checkout", "-q", "br");
-		try {
-			git(dir, "merge", "--no-commit", "--no-ff", "main");
-		} catch {
-			for (const f of Object.keys(mainEdits)) write(dir, f, "resolved\n");
-			git(dir, "add", "-A");
-		}
-		return { dir, main: git(dir, "rev-parse", "main") };
-	}
-	/* `premerge` has no MERGE_HEAD, as pre-merge-commit runs before git
-	 * writes it. */
-	let disjoint: ReturnType<typeof merging>;
-	let both: ReturnType<typeof merging>;
-	let conflicted: ReturnType<typeof merging>;
-	let premerge: ReturnType<typeof merging>;
-	beforeAll(() => {
-		disjoint = merging(branchA, { "lib/setup.js": "main\n" });
-		both = merging(branchA, mainA);
-		conflicted = merging(
+	/** Branch `br` merging `main` uncommitted, MERGE_HEAD as git leaves it, a
+	 * conflict resolved to "resolved"; with `premerge`, MERGE_HEAD removed, as
+	 * pre-merge-commit runs before git writes it. */
+	const merging =
+		(
+			branchEdits: Record<string, string>,
+			mainEdits: Record<string, string>,
+			premerge = false,
+		) =>
+		(dir: string) => {
+			seed(dir, { ...FILES, "lib/a.js": "one\ntwo\nthree\nfour\nfive\n" });
+			git(dir, "branch", "-M", "br");
+			git(dir, "branch", "main");
+			writeAll(dir, branchEdits);
+			commitAll(dir, "branch");
+			git(dir, "checkout", "-q", "main");
+			writeAll(dir, { "doc.md": "# doc, main's\n", ...mainEdits });
+			commitAll(dir, "main");
+			git(dir, "checkout", "-q", "br");
+			try {
+				git(dir, "merge", "--no-commit", "--no-ff", "main");
+			} catch {
+				for (const f of Object.keys(mainEdits)) write(dir, f, "resolved\n");
+				git(dir, "add", "-A");
+			}
+			if (premerge) fs.rmSync(path.join(dir, ".git", "MERGE_HEAD"));
+		};
+	const fixture = defineTemplate({
+		disjoint: merging(branchA, { "lib/setup.js": "main\n" }),
+		both: merging(branchA, mainA),
+		conflicted: merging(
 			{ ...branchA, "lib/setup.js": "branch\n" },
 			{ "lib/setup.js": "main\n" },
-		);
-		premerge = merging(branchA, mainA);
-		fs.rmSync(path.join(premerge.dir, ".git", "MERGE_HEAD"));
+		),
+		premerge: merging(branchA, mainA, true),
+		pytest: merging(
+			{ ...branchA, "scripts/m/scan.py": "X = 2\n" },
+			{ "scripts/m/scan.py": "X = 3\n" },
+		),
 	});
-	afterAll(() => {
-		for (const { dir } of [disjoint, both, conflicted, premerge])
-			fs.rmSync(dir, { recursive: true, force: true });
-	});
+	/** A copy of `variant`'s repo, and the merged-in main's sha. */
+	const copy = (variant: string) => {
+		const dir = mkScratchDir("touched-");
+		dirs.push(dir);
+		fixture.instantiate(dir, variant);
+		return { dir, main: git(dir, "rev-parse", "main") };
+	};
 	const at = (dir: string, env: NodeJS.ProcessEnv = {}) =>
 		selectTouched(dir, {
 			from: "head",
@@ -806,7 +793,7 @@ describe("a merge's own content under `head` (#5334)", () => {
 	});
 
 	it("selects no test that only main's incoming paths reach, and says so worded for the merge", () => {
-		const { dir, main } = disjoint;
+		const { dir, main } = copy("disjoint");
 		const head = git(dir, "rev-parse", "HEAD");
 		const { changed, files, banner } = at(dir);
 		expect(changed).toEqual([]);
@@ -820,7 +807,7 @@ describe("a merge's own content under `head` (#5334)", () => {
 	});
 
 	it("selects exactly the tests a file both sides changed and git auto-merged reaches", () => {
-		const { changed, files, banner } = at(both.dir);
+		const { changed, files, banner } = at(copy("both").dir);
 		expect(changed).toEqual(["lib/a.js"]);
 		expect(files).toEqual(["lib/a.test.ts"]);
 		expect(banner).toContain(
@@ -829,24 +816,20 @@ describe("a merge's own content under `head` (#5334)", () => {
 	});
 
 	it("selects a hand-resolved conflict's tests with MERGE_HEAD present, main-only paths adding nothing", () => {
-		const { dir } = conflicted;
+		const { dir } = copy("conflicted");
 		expect(git(dir, "rev-parse", "-q", "--verify", "MERGE_HEAD")).not.toBe("");
 		expect(at(dir).files).toEqual(["lib/setup.test.ts"]);
 	});
 
 	it("reads the parents off GITHEAD_<sha> where git has written no MERGE_HEAD yet, as pre-merge-commit sees them", () => {
+		const premerge = copy("premerge");
 		expect(at(premerge.dir, githead(premerge)).files).toEqual([
 			"lib/a.test.ts",
 		]);
 	});
 
-	it("takes the same merge content on pytest's route", () => {
-		const { dir } = merging(
-			{ ...branchA, "scripts/m/scan.py": "X = 2\n" },
-			{ "scripts/m/scan.py": "X = 3\n" },
-		);
-		dirs.push(dir);
-		const { changed, banner } = selectTouched(dir, {
+	it("takes the same merge content on pytest's route, naming only the nets that reach pytest", () => {
+		const { changed, banner } = selectTouched(copy("pytest").dir, {
 			from: "head",
 			env: {},
 			suite: "pytest",
@@ -855,10 +838,15 @@ describe("a merge's own content under `head` (#5334)", () => {
 		});
 		expect(changed).toEqual(["scripts/m/scan.py"]);
 		expect(banner).toContain("this merge's own content over HEAD");
+		expect(banner).toContain(
+			"Tests reading one side's change through the other's are left to the bare `npm run test:py` before landing and the lander's full suite (#2930, #5334).",
+		);
 	});
 
 	it("falls back to the tree's changes over HEAD where no merge parent will read, with no crash", () => {
 		const overHead = ["doc.test.ts", "lib/a.test.ts"];
+		const premerge = copy("premerge");
+		const both = copy("both");
 		expect(at(premerge.dir).files).toEqual(overHead);
 		expect(at(premerge.dir).banner).not.toContain("MERGE");
 		const unread = at(both.dir, { [MERGE_PARENTS_ENV]: "no-sha" });
@@ -877,8 +865,7 @@ describe("a merge's own content under `head` (#5334)", () => {
 	});
 
 	it("leaves a `merge-base` run selecting every path since the merge base, main's included", () => {
-		const { dir } = merging(branchA, { "lib/setup.js": "main\n" });
-		dirs.push(dir);
+		const { dir } = copy("disjoint");
 		git(dir, "update-ref", "refs/remotes/origin/main", "HEAD~1");
 		expect(
 			selectTouched(dir, {
@@ -918,10 +905,11 @@ process.stdout.write(JSON.stringify({ cwd: process.cwd(), changed: r.changed }))
 		};
 
 		it("takes the parents from MERGE_HEAD on a resolution commit", () => {
-			expect(gateRun(conflicted.dir)).toEqual(["lib/setup.js"]);
+			expect(gateRun(copy("conflicted").dir)).toEqual(["lib/setup.js"]);
 		});
 
 		it("takes the parents from GITHEAD_<sha> on pre-merge-commit's route", () => {
+			const premerge = copy("premerge");
 			expect(gateRun(premerge.dir, githead(premerge))).toEqual(["lib/a.js"]);
 		});
 
@@ -931,5 +919,46 @@ process.stdout.write(JSON.stringify({ cwd: process.cwd(), changed: r.changed }))
 			git(dir, "add", "doc.md");
 			expect(gateRun(dir)).toEqual(["doc.md"]);
 		});
+	});
+
+	/* The hook's in-place fallback: queue-run's gate in the committing
+	 * checkout, a touched run then moving into an overlay worktree that has no
+	 * MERGE_HEAD of its own (run-vitest.js `runChangedOverlaid`). */
+	it("hands the checkout's merge parents to an overlay a gate run in place moves into", () => {
+		const probeDir = mkScratchDir("touched-probe-");
+		dirs.push(probeDir);
+		const probe = path.join(probeDir, "overlay-probe.js");
+		fs.writeFileSync(
+			probe,
+			`const { execFileSync } = require("node:child_process");
+const fs = require("node:fs");
+const path = require("node:path");
+const { selectTouched } = require(${JSON.stringify(require.resolve("./touched-tests.js"))});
+const overlay = process.argv[2];
+const git = (...args) => execFileSync("git", args, { encoding: "utf8" });
+git("worktree", "add", "-q", "--detach", overlay, "HEAD");
+for (const f of git("diff", "--name-only", "HEAD").split("\\n").filter(Boolean))
+	fs.copyFileSync(f, path.join(overlay, f));
+const r = selectTouched(overlay, { from: "head", loadEdges: () => ({}), renderEdges: () => ({}) });
+process.stdout.write(JSON.stringify(r.changed));
+`,
+		);
+		const { dir } = copy("conflicted");
+		const overlay = mkScratchDir("touched-overlay-");
+		dirs.push(overlay);
+		const env = { ...process.env };
+		for (const k of Object.keys(env))
+			if (k.startsWith("GITHEAD_") || k === MERGE_PARENTS_ENV) delete env[k];
+		/* spawn-kept: a real fd — the gate's command inherits queue-run's stdout,
+		 * which an in-process run cannot capture apart from vitest's own. */
+		const r = spawnSync(
+			process.execPath,
+			[QUEUE_RUN, "--gate", "--", `node ${probe} ${overlay}`],
+			{ cwd: dir, env, encoding: "utf8" },
+		);
+		expect(r.status, r.stderr).toBe(0);
+		expect(JSON.parse(r.stdout.trim().split("\n").at(-1) ?? "")).toEqual([
+			"lib/setup.js",
+		]);
 	});
 });

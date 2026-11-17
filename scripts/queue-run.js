@@ -110,6 +110,7 @@ const {
 	isInSuite,
 	startGatePids,
 } = require("./lib/gate-seat.js");
+const { MERGE_PARENTS_ENV, withMergeParents } = require("./lib/merge-heads.js");
 const {
 	CEILING_CLOSE,
 	armCeiling,
@@ -789,6 +790,9 @@ function withExitExtra(logExit, exitExtra) {
  * red; its tree's PSS sampled for its peak from spawn (lib/admission.js
  * `sampleTreePeak`), each sample's pids on the seat's pid record
  * (lib/gate-seat.js); and, on its exit, one line on the gate-run record.
+ * Run in the committing checkout, with no throwaway worktree's runner to
+ * hand them, it hands this checkout's merge parents to the overlay a touched
+ * run moves into (lib/merge-heads.js, #5334).
  *
  * @param {{
  *   seat: ReturnType<typeof queueSeat>,
@@ -832,7 +836,12 @@ function spawnGate({ seat, options, err, finish, holder, waitMs }) {
 	const running = (options.spawnFn ?? spawn)("sh", ["-c", command], {
 		stdio: ["inherit", "inherit", 1],
 		detached: true,
-		env: { ...process.env, [GATE_ENV]: seat.ticket },
+		env: {
+			...(process.env[MERGE_PARENTS_ENV] === undefined
+				? withMergeParents(process.cwd(), process.env)
+				: process.env),
+			[GATE_ENV]: seat.ticket,
+		},
 	});
 	const spawnedAt = clock();
 	/** @type {ReturnType<typeof sampleTreePeak> | undefined} */

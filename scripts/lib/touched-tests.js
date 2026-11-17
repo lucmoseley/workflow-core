@@ -42,8 +42,9 @@
  * both sides changed and every hand resolution. A path taken whole from one
  * side adds nothing, each side having answered for it already. Tests reading
  * one side's change through the other's are left to the bare run before
- * landing, the push-coverage warning and the lander's full suite. Where no
- * parent will read, or a diff against one fails, the tree's changes over HEAD.
+ * landing, on vitest's route the push-coverage warning, and the lander's
+ * full suite. Where no parent will read, or a diff against one fails, the
+ * tree's changes over HEAD.
  *
  * WHERE THE MANIFEST IS UNREADABLE OR WILL NOT RENDER, its readers give way
  * to each changed file's same-stem siblings: for `<dir>/<stem>.<ext>`, the
@@ -450,15 +451,13 @@ const readTouchedBase = () =>
  * diff. One that `carriesUntracked` is the whole set, so the tree's untracked
  * files, a neighbour's among them, are not added (#2958). Under `head`, the
  * tree's changes over HEAD, `ownWork` being a range's and not read, or on a
- * merge its own content, `merged` naming the merge parents read from `env`.
+ * merge its own content, `merge` its parents as read from `env`.
  *
  * @param {string} at
  * @param {{ from: TouchedBase, sessionId?: string|null, execFn?: ExecFn,
  *   ledger?: import("./own-work.js").CommitLedger,
  *   ownWork?: OwnSet|null, env?: NodeJS.ProcessEnv }} options
- * @returns {{ base: string, changed: string[], merged: string[],
- *   mergeUnread?: string }} `mergeUnread` why a merge's parents would not
- *   read
+ * @returns {{ base: string, changed: string[], merge: MergeState }}
  */
 function readTouchedPaths(
 	at,
@@ -468,47 +467,54 @@ function readTouchedPaths(
 		const head = gitRead(["rev-parse", "HEAD"], at, execFn)?.trim();
 		if (!head) throw new Error("git would not name HEAD");
 		const changed = readChanged(at, head, null, execFn);
-		const merge = mergeOwnContent(at, changed, env, execFn);
-		return "unread" in merge
-			? { base: head, changed, merged: [], mergeUnread: merge.unread }
-			: { base: head, changed: merge.changed, merged: merge.parents };
+		return { base: head, ...readMergeOwnContent(at, changed, env, execFn) };
 	}
 	const base = readDefaultChangedBase(at, execFn);
 	const own =
 		options.ownWork === undefined
 			? readOwnWork(at, base, { ...options, execFn })
 			: options.ownWork;
-	return { base, changed: readChanged(at, base, own, execFn), merged: [] };
+	return {
+		base,
+		changed: readChanged(at, base, own, execFn),
+		merge: { parents: [] },
+	};
 }
+
+/**
+ * A commit's merge parents besides HEAD, none where it is no merge, or why
+ * they would not read (#5334).
+ * @typedef {{ parents: string[] }|{ unread: string }} MergeState
+ */
 
 /**
  * Of `changed`, the tree's changes over HEAD, those that also differ from
  * every merge parent, untracked files kept: `changed` whole where the commit
- * is no merge, and `unread` why where its parents or a diff against one will
- * not read (#5334).
+ * is no merge, or where its parents or a diff against one will not read
+ * (#5334).
  *
  * @param {string} at
  * @param {string[]} changed
  * @param {NodeJS.ProcessEnv|undefined} env
  * @param {ExecFn} execFn
- * @returns {{ changed: string[], parents: string[] }|{ unread: string }}
+ * @returns {{ changed: string[], merge: MergeState }}
  */
-function mergeOwnContent(at, changed, env, execFn) {
+function readMergeOwnContent(at, changed, env, execFn) {
 	let parents;
 	let ownContent;
 	try {
 		parents = readMergeParents(at, env);
-		if (parents.length === 0) return { changed, parents };
+		if (parents.length === 0) return { changed, merge: { parents } };
 		ownContent = parents.map((p) => new Set(readChangedPaths(at, p, execFn)));
 	} catch (error) {
-		return { unread: caught(error).message.trim() };
+		return { changed, merge: { unread: caught(error).message.trim() } };
 	}
 	const untracked = new Set(readUntrackedFiles(at, execFn) ?? []);
 	return {
 		changed: changed.filter(
 			(p) => untracked.has(p) || ownContent.every((s) => s.has(p)),
 		),
-		parents,
+		merge: { parents },
 	};
 }
 
@@ -539,7 +545,7 @@ function selectTouched(
 	at,
 	{ suite, loadEdges, renderEdges, from = "merge-base", ...options } = {},
 ) {
-	const { base, changed, merged, mergeUnread } = readTouchedPaths(at, {
+	const { base, changed, merge } = readTouchedPaths(at, {
 		...options,
 		from,
 		/* `||`, not `??`: the suite stubs the id to "", which is no session. */
@@ -556,10 +562,7 @@ function selectTouched(
 		changed,
 		files: resolved.files,
 		leftOut: resolved.leftOut,
-		banner: touchedBanner(
-			resolved,
-			scopeWording(base, from, merged, mergeUnread),
-		),
+		banner: touchedBanner(resolved, scopeWording(base, from, merge, suite)),
 	};
 }
 
@@ -567,27 +570,32 @@ function selectTouched(
  * How the banner names the work a selection answers for: a merge's own
  * content, a commit's changes over HEAD, or the session's own work since the
  * merge base; `selected` its TOUCHED TESTS ONLY line's tail, `coda` a last
- * line or none.
+ * line or none. A merge's coda names the nets left on `suite`'s route: the
+ * push-coverage warning reads vitest's alone.
  *
  * @param {string} base
  * @param {TouchedBase} from
- * @param {string[]} merged the merge parents, none where no merge
- * @param {string} [mergeUnread] why the merge parents would not read
+ * @param {MergeState} merge
+ * @param {"vitest"|"pytest"} [suite]
  * @returns {{ ownWork: string, uncollectedWork: string, selected: string,
  *   coda: string|null }}
  */
-function scopeWording(base, from, merged, mergeUnread) {
+function scopeWording(base, from, merge, suite = "vitest") {
 	const at = shortSha(base);
 	/** @param {string} work @param {string} pronoun @param {string} after */
 	const selected = (work, pronoun, after) =>
 		`${work} edited, or that directly import or read a file ${pronoun} changed.${after}`;
-	if (merged.length > 0) {
-		const ownWork = `this merge's own content over HEAD ${at} and the merged-in ${merged.map(shortSha).join(", ")}`;
+	if ("parents" in merge && merge.parents.length > 0) {
+		const ownWork = `this merge's own content over HEAD ${at} and the merged-in ${merge.parents.map(shortSha).join(", ")}`;
+		const nets =
+			suite === "pytest"
+				? "the bare `npm run test:py` before landing and the lander's full suite"
+				: "the bare `npm run test` before landing, the push-coverage warning and the lander's full suite";
 		return {
 			ownWork,
 			uncollectedWork: `${ownWork} touched`,
 			selected: selected(ownWork, "it", ""),
-			coda: "A path taken whole from one side of this merge was gated on that side. Tests reading one side's change through the other's are left to the bare `npm run test` before landing, the push-coverage warning and the lander's full suite (#2930, #5334).",
+			coda: `A path taken whole from one side of this merge was gated on that side. Tests reading one side's change through the other's are left to ${nets} (#2930, #5334).`,
 		};
 	}
 	if (from === "head") {
@@ -601,9 +609,9 @@ function scopeWording(base, from, merged, mergeUnread) {
 				" The branch's earlier commits answered for themselves at their own commits, and the lander runs the full suite (#2930, #5320).",
 			),
 			coda:
-				mergeUnread === undefined
-					? null
-					: `MERGE PARENTS UNREAD — ${mergeUnread}, so every change over HEAD is selected, a merge's incoming paths included (#5334).`,
+				"unread" in merge
+					? `MERGE PARENTS UNREAD — ${merge.unread}, so every change over HEAD is selected, a merge's incoming paths included (#5334).`
+					: null,
 		};
 	}
 	const ownWork = `your own work since ${at}`;
