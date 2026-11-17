@@ -26,7 +26,7 @@ const { buildStandaloneLine } = require("./standalone-line.js");
 const { similarTitles } = require("./tracker-ops.js");
 const { refresh: refreshBody } = require("./tracking-issue.js");
 const { takesLabel } = require("./takes-label.js");
-const { tickCriteria } = require("./ticket-criteria.js");
+const { tickBeforeClose } = require("./ticket-criteria.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
 const { requireKey } = require("./workflow-core-config.js");
 
@@ -91,22 +91,19 @@ function queueIssueFiler({
 }
 
 /**
- * The comment states the criterion met, so its body's criteria are ticked
- * before the close (#5354): a close that then throws leaves the issue open
- * and ticked until the next pass retries it.
  * @param {Pick<QueueIssueDeps, "openIssue" | "refresh" | "close">} deps
- * @returns {(title: string, why: (body: string) => string|null) =>
- *   number|null} closes the open issue titled `title` with the comment `why`
- *   makes of its body, returning its number, or null where none is open or
+ * @returns {(title: string, criterion: string,
+ *   why: (body: string) => string|null) => number|null} closes the open
+ *   issue titled `title` with the comment `why` makes of its body, its
+ *   `criterion` ticked first, returning its number, or null where none is open or
  *   `why` gives none
  */
 function queueIssueCloser({ openIssue, refresh, close }) {
-	return (title, why) => {
+	return (title, criterion, why) => {
 		const found = openIssue(title);
 		const comment = found === null ? null : why(found.body);
 		if (found === null || comment === null) return null;
-		const ticked = tickCriteria(found.body);
-		if (ticked !== found.body) refresh(found.number, ticked);
+		tickBeforeClose(found.number, found.body, criterion, refresh);
 		close(found.number, comment);
 		return found.number;
 	};

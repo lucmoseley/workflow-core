@@ -12,6 +12,7 @@
 
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
+import { buildDropAcceptance } from "./drop-evidence.js";
 import { dropTicketFiler } from "./fix-ticket.js";
 import { parseGateRefusal } from "./lander-git.js";
 import type { Drop } from "./queue-lander.js";
@@ -36,6 +37,7 @@ const DROP: Drop = {
 	decidedAt: 0,
 };
 const HELD = [{ ref: DROP.ref, sha: A }];
+const OWN_BODY = `## Acceptance criteria\n\n- [ ] ${buildDropAcceptance(DROP)}\n- [ ] Added by hand.\n`;
 
 describe("dropTicketFiler", () => {
 	/**
@@ -95,7 +97,7 @@ describe("dropTicketFiler", () => {
 					? { status, stdout: "Filed #9: https://x/9\n", stderr: "" }
 					: { status, stdout: "", stderr };
 			},
-			bodyOf: () => "## Acceptance criteria\n\n- [ ] `main` holds the work.\n",
+			bodyOf: () => OWN_BODY,
 			stateOf: (n) => {
 				const state = states[n];
 				if (!state) throw new Error(`no issue #${n}`);
@@ -257,7 +259,10 @@ describe("dropTicketFiler", () => {
 		expect(f.bodies).toEqual([
 			{
 				n: 5,
-				body: "## Acceptance criteria\n\n- [x] `main` holds the work.\n",
+				body: OWN_BODY.replace(
+					`- [ ] ${buildDropAcceptance(DROP)}`,
+					`- [x] ${buildDropAcceptance(DROP)}`,
+				),
 			},
 		]);
 	});

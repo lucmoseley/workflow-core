@@ -29,7 +29,7 @@ const { short } = require("./lander-git.js");
 const { queueBranch } = require("./landing-refs.js");
 const { liveQueueDeps } = require("./queue-issue.js");
 const { takesLabel } = require("./takes-label.js");
-const { tickCriteria } = require("./ticket-criteria.js");
+const { tickBeforeClose } = require("./ticket-criteria.js");
 const { readOwnFilings, similarTitles } = require("./tracker-ops.js");
 const { readSubIssues } = require("./issue-tree.js");
 const { requireKey } = require("./workflow-core-config.js");
@@ -211,10 +211,12 @@ function dropTicketFiler(deps) {
 		},
 		closeDropTicket(ticket, d, main) {
 			if (deps.stateOf(ticket) === "closed") return;
-			/* The close comment states the criterion met (#5354). */
-			const body = deps.bodyOf(ticket);
-			const ticked = tickCriteria(body);
-			if (ticked !== body) deps.refresh(ticket, ticked);
+			tickBeforeClose(
+				ticket,
+				deps.bodyOf(ticket),
+				buildDropAcceptance(d),
+				deps.refresh,
+			);
 			deps.close(
 				ticket,
 				`Closed by the queue lander: \`main\` at ${main} holds the work of \`${queueBranch(d.name)}\` dropped at ${d.sha}.`,
