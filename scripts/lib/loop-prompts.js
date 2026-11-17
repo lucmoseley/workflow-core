@@ -17,7 +17,7 @@ const SCRIPT_PROMPT_PREFIX = "[script] ";
 const API_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your last turn ended on an API error. Before repeating your last tool call, check whether it already took effect.`;
 /* #2659's wording. */
 const IDLE_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your host was restarted and your last turn never ran. Before repeating your last tool call, check whether it already took effect.`;
-/* The re-claim every resume that a copy of the session may share runs first. */
+/* The re-claim a resumed session runs first where a copy of it may be live. */
 const RECLAIM = `re-run \`node ${scriptPath("claim-issue.js")} <n>\` on each issue you hold: where it refuses on a live holder, that session carries the work, so make no other tool call and end your turn saying so.`;
 /* A job the harness ended on its own "No response requested." record
  * (#5322). */
