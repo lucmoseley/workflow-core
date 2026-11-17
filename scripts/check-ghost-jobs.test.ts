@@ -33,6 +33,12 @@ import {
 import { writeClaudeStub } from "./lib/claude-stub";
 import { spawnLoopHolder } from "./lib/refill-loop-testkit";
 import { runInProcess } from "./lib/run-in-process";
+import {
+	founderRow,
+	STOP_AT,
+	stoppedRows,
+	syntheticRow,
+} from "./lib/synthetic-stop-fixture";
 
 const SCRIPT = path.join(__dirname, "check-ghost-jobs.js");
 
@@ -120,6 +126,10 @@ function run(...args: string[]) {
 
 /** Under a session id, the shape every mid-session caller has. */
 function runAs(sessionId: string, ...args: string[]) {
+	return runWith({ CLAUDE_CODE_SESSION_ID: sessionId }, ...args);
+}
+
+function runWith(extra: Record<string, string>, ...args: string[]) {
 	const res = runInProcess(SCRIPT, args, {
 		env: {
 			...process.env,
@@ -130,8 +140,8 @@ function runAs(sessionId: string, ...args: string[]) {
 			WFC_CLAUDE_CONFIG_B: second,
 			WFC_CLAUDE_CONFIG_C: second,
 			WFC_CLAUDE_BIN: path.join(dir, "bin", "claude"),
-			CLAUDE_CODE_SESSION_ID: sessionId,
 			WFC_REFILL_DIR: dir,
+			...extra,
 		},
 	});
 	return { ...res, out: `${res.stdout}${res.stderr}` };
@@ -687,5 +697,141 @@ describe("HUNG-JOB — live, listed, and silent (mantahostels#2588)", () => {
 		const out = run().out;
 		expect(out).toContain("HUNG-JOB");
 		expect(out).toContain("GHOST-JOB");
+	});
+});
+
+/*
+ * SYNTHETIC-STOP (#5324): a job whose record reads done, or stopped once
+ * reaped, ended by the harness's own "No response requested." record. Loosen
+ * a case and the founder never hears of a session that stopped mid-task, or
+ * is told of one inside the loop's window, after he typed into it, or for an
+ * API error or limit the harness wrote in the same shape.
+ */
+describe("SYNTHETIC-STOP — ended by the harness on a synthetic reply (#5324)", () => {
+	const Job = "5e5e5e5e";
+	const Sid = "5e5e5e5e-0000-4000-8000-000000000001";
+	const Cwd = "/home/u/a-checkout";
+	const ago = (m: number) => new Date(Date.now() - m * 60_000).toISOString();
+
+	function syntheticJob(rows: unknown[] | null, rec = {}) {
+		const project = path.join(dir, "projects", "a-project");
+		fs.mkdirSync(project, { recursive: true });
+		const file = path.join(project, `${Sid}.jsonl`);
+		if (rows)
+			fs.writeFileSync(file, rows.map((r) => JSON.stringify(r)).join("\n"));
+		job(Job, {
+			state: "done",
+			detail: "done",
+			sessionId: Sid,
+			name: "Implement 9001: a ticket",
+			cwd: Cwd,
+			linkScanPath: file,
+			...rec,
+		});
+	}
+
+	function claim(issue: number) {
+		const { projectSlug } = createRequire(__filename)("./lib/project-slug.js");
+		const store = path.join(dir, "projects", projectSlug(Cwd), "issue-claims");
+		fs.mkdirSync(store, { recursive: true });
+		fs.writeFileSync(
+			path.join(store, `${issue}.json`),
+			JSON.stringify({ issue, sessionId: Sid, claimedAt: ago(30) }),
+		);
+	}
+
+	it("names the job, its claims, the stop's time and the attach line, as a warning", () => {
+		const at = ago(10);
+		syntheticJob(stoppedRows(at));
+		claim(9001);
+		const r = run();
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("SYNTHETIC-STOP");
+		expect(r.out).toContain("Implement 9001: a ticket");
+		expect(r.out).toContain(Sid);
+		expect(r.out).toContain("claiming #9001");
+		expect(r.out).toContain(`stopped at ${at}`);
+		expect(r.out).toContain("the refill loop has not resumed it");
+		expect(r.out).toContain(`claude attach ${Job}`);
+	});
+
+	it("reports one the reaper has since stopped", () => {
+		syntheticJob(stoppedRows(ago(30)), { state: "stopped", detail: "stopped" });
+		expect(run().out).toContain("SYNTHETIC-STOP");
+	});
+
+	it("says where the refill loop's resumes of that stop are spent", () => {
+		const at = ago(30);
+		syntheticJob(stoppedRows(at));
+		fs.writeFileSync(
+			path.join(dir, ".refill-loop-state.json"),
+			JSON.stringify({
+				launches: [
+					{
+						jobId: Job,
+						synthetic: {
+							at: Date.parse(at),
+							tries: 2,
+							resumed: 2,
+							spent: true,
+						},
+					},
+				],
+			}),
+		);
+		expect(run().out).toContain("the refill loop's 2 resumes of it are spent");
+	});
+
+	it("stays silent inside the 5-minute window, and speaks past it", () => {
+		const at = Date.parse(STOP_AT);
+		syntheticJob(stoppedRows(STOP_AT));
+		const runAt = (m: number) =>
+			runWith({ WFC_NOW: new Date(at + m * 60_000).toISOString() }).out;
+		expect(runAt(4)).not.toContain("SYNTHETIC-STOP");
+		expect(runAt(6)).toContain("SYNTHETIC-STOP");
+	});
+
+	it("stays silent once a turn row follows the stop", () => {
+		syntheticJob([...stoppedRows(ago(30)), founderRow("go on", ago(20))]);
+		expect(run().out).not.toContain("SYNTHETIC-STOP");
+	});
+
+	it("stays silent on an API-error or a limit record of the same shape", () => {
+		syntheticJob([
+			...stoppedRows(ago(40)).slice(0, -1),
+			syntheticRow(ago(30), "No response requested.", {
+				isApiErrorMessage: true,
+			}),
+		]);
+		expect(run().out).not.toContain("SYNTHETIC-STOP");
+		syntheticJob([
+			...stoppedRows(ago(40)).slice(0, -1),
+			syntheticRow(ago(30), "You've hit your session limit"),
+		]);
+		expect(run().out).not.toContain("SYNTHETIC-STOP");
+	});
+
+	it("stays silent where the transcript will not read", () => {
+		syntheticJob(null);
+		expect(run().out).not.toContain("SYNTHETIC-STOP");
+	});
+
+	it("writes nothing to the job record", () => {
+		syntheticJob(stoppedRows(ago(10)));
+		const before = fs.readFileSync(jobPath(Job), "utf8");
+		run();
+		expect(fs.readFileSync(jobPath(Job), "utf8")).toBe(before);
+	});
+
+	it("--notify reports a stop once, and a later separate stop afresh", () => {
+		syntheticJob(stoppedRows(ago(60)));
+		expect(run("--notify").out).toContain("SYNTHETIC-STOP");
+		expect(run("--notify").out).not.toContain("SYNTHETIC-STOP");
+		syntheticJob([
+			...stoppedRows(ago(60)),
+			founderRow("go on", ago(50)),
+			syntheticRow(ago(10)),
+		]);
+		expect(run("--notify").out).toContain("SYNTHETIC-STOP");
 	});
 });

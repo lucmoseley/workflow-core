@@ -51,6 +51,7 @@ const { readJobs } = require("./hung-jobs.js");
 const { readSwapHold } = require("./admission.js");
 const {
 	resumedIdleSince,
+	syntheticStopAt,
 	hasRepliedSince,
 	isResumedSinceApiStop,
 	hasFounderTypedSinceApiStop,
@@ -119,8 +120,8 @@ const {
 	writeRepoPauses,
 } = require("./refill-files.js");
 const { readJson, writeJson } = require("./refill-json.js");
-const { OUTSIDE_FILE, actOnOutside } = require("./refill-outside.js");
-const { refillPath } = require("./refill-dir.js");
+const { actOnOutside } = require("./refill-outside.js");
+const { OUTSIDE_FILE, refillPath } = require("./refill-dir.js");
 const {
 	launchRecorded,
 	ledgerJobOf,
@@ -926,6 +927,10 @@ const blockIo = (served) => ({
 		}),
 	readTimeline: readTimelineOf,
 	idleSince: readIdleSince,
+	syntheticStopOf: (l) => {
+		const job = readJobRecordOf(l);
+		return syntheticStopAt({ job, rows: () => readTranscriptRows(l, job) });
+	},
 	hasTurnedSince: (l, at) =>
 		hasTurnedSince(readTranscriptRows(l, readJobRecordOf(l)), at),
 	hasRepliedSince: (l, at) =>

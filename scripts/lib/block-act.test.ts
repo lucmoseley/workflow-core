@@ -324,3 +324,28 @@ describe("the RESUMED_IDLE row (#2659, #2978)", () => {
 			expect(blockAct(idle(5, 2), mode, NOW)).toBe("handoff-relaunch");
 	});
 });
+
+describe("the SYNTHETIC_STOP row (#5322)", () => {
+	const stop = (minutes: number, tries?: number, typing?: boolean) => ({
+		cause: "SYNTHETIC_STOP" as const,
+		since: NOW - minutes * MIN,
+		...(tries === undefined ? {} : { tries }),
+		...(typing ? { typing } : {}),
+	});
+
+	it("waits the 5-min quiet window, then resumes, in either mode", () => {
+		for (const mode of ["away", "normal"] as const) {
+			expect(blockAct(stop(5), mode, NOW - 1)).toBe("wait");
+			expect(blockAct(stop(5), mode, NOW)).toBe("resume");
+		}
+	});
+
+	it("waits on a typed resume not yet seen", () => {
+		expect(blockAct(stop(30, 1, true), "normal", NOW)).toBe("wait");
+	});
+
+	it("resumes twice, then leaves the stop", () => {
+		expect(blockAct(stop(5, 1), "normal", NOW)).toBe("resume");
+		expect(blockAct(stop(5, 2), "normal", NOW)).toBe("none");
+	});
+});

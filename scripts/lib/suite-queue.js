@@ -840,20 +840,28 @@ function queueStamps(file, options = {}) {
 }
 
 /**
- * The live markers `role` names, waiting or running. Sweeps nothing: a stale
- * marker is `readTurn`'s to remove.
+ * The live markers `role` names, waiting or running, and why the queue would
+ * not read, null where it did (#5301). Sweeps nothing: a stale marker is
+ * `readTurn`'s to remove.
  *
  * @param {string} role
  * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
- * @returns {QueueRecord[]}
+ * @returns {{ records: QueueRecord[], unread: string | null }}
  */
 function readLiveRoleMarkers(
 	role,
 	{ queueDir = defaultQueueDir(), queueFs = fs, alive = pidAlive } = {},
 ) {
-	return readMarkers(queueDir, queueFs)
-		.markers.map((m) => m.record)
-		.filter((r) => r.role === role && !isMarkerStale(r, { alive }));
+	const { markers, error } = readMarkers(queueDir, queueFs);
+	return {
+		records: markers
+			.map((m) => m.record)
+			.filter((r) => r.role === role && !isMarkerStale(r, { alive })),
+		unread:
+			error === null
+				? null
+				: `the suite queue ${queueDir} would not read (${caught(error).message})`,
+	};
 }
 
 /**
@@ -1247,9 +1255,8 @@ function passingTurn(options = {}) {
 }
 
 /* The age past which no part-suite passes an older one the memory rung holds
- * but not at rest (#3058, #4783), so passing never starves it: the p90 of opened part-suite waits the
- * memory rung held, rounded up to the minute, from the replay's memory-held
- * line over the window after #3246's WSL change. p90 is a chosen rate, not a
+ * but not at rest (#3058, #4783), so passing never starves it: the p90 of
+ * opened part-suite waits the memory rung held. p90 is a chosen rate, not a
  * measured safe pass time. Its figure and window are on #3361. */
 const PART_PASS_AGE_MS = 7 * 60 * 1000;
 
@@ -1258,17 +1265,15 @@ const PART_PASS_AGE_MS = 7 * 60 * 1000;
 const QUEUE_SIGNALS = { SIGTERM: 143, SIGINT: 130, SIGHUP: 129 };
 
 /* The 10 s poll is a guess, set when the queue was built (mantahostels#2024)
- * and never measured: it asks the guard a few times a minute. The 40-minute
- * bound clears the measured wait (#5252): the p99 wait that ended in a run
- * was 20.5 min over 31,402 waits in workflow-core, and 33 min in
- * design-vault. A gate seat waits past it (queue-run.js `--gate`, #5274). */
+ * and never measured. The 40-minute bound clears the measured p99 wait that
+ * ended in a run, in each repo (#5252). A gate seat waits past it
+ * (queue-run.js `--gate`, #5274). */
 const QUEUE_POLL_MS = 10_000;
 const QUEUE_TIMEOUT_MS = 40 * 60 * 1000;
 
 /* How long one spell of the Windows-memory hold may hold a wait before the
- * wait runs anyway, logged (#4850). A first guess that has not yet bound:
- * over the 24 h #4852 read, the hold's spells at the 750 MB floor ran p50 1,
- * p90 4 and max 8 minutes, and no wait reached it. */
+ * wait runs anyway, logged (#4850). A first guess that has not yet bound
+ * (#4852). */
 const WINDOWS_MAX_HOLD_MS = 10 * 60 * 1000;
 
 /**
@@ -2072,19 +2077,44 @@ function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
 /** @typedef {ReturnType<typeof queueSeat>} QueueSeat */
 
 /**
- * The live gate seats, queued or running, each with the charge admission holds
- * for it: its marker's, else the default. Sweeps nothing.
+ * The live markers `role` names, each with the charge admission holds for
+ * it: its marker's, else `defaultMb`. A queue that will not read holds
+ * `defaultMb`, failing closed (#5301).
+ * @param {string} role
+ * @param {number} defaultMb
+ * @param {string} [queueDir]
+ * @returns {{ records: (QueueRecord & { chargeMb: number })[], unread: import("./admission.js").UnreadReserve | null }}
+ */
+function readLiveCharged(role, defaultMb, queueDir) {
+	const { records, unread } = readLiveRoleMarkers(role, { queueDir });
+	return {
+		records: records.map((r) => ({
+			...r,
+			chargeMb: Number.isFinite(r.chargeMb) ? Number(r.chargeMb) : defaultMb,
+		})),
+		unread: unread === null ? null : { why: unread, chargeMb: defaultMb },
+	};
+}
+
+/**
+ * The live gate seats, queued or running, each with its charge.
  * @param {{ queueDir?: string }} [options]
- * @returns {{ pid: number, chargeMb: number, spawned: boolean }[]}
+ * @returns {import("./admission.js").Gates}
  */
 function readLiveGateSeats({ queueDir } = {}) {
-	return readLiveRoleMarkers(GATE_ROLE, { queueDir }).map((r) => ({
-		pid: r.pid,
-		chargeMb: Number.isFinite(r.chargeMb)
-			? Number(r.chargeMb)
-			: GATE_SEAT_DEFAULT_MB,
-		spawned: r.spawned === true,
-	}));
+	const { records, unread } = readLiveCharged(
+		GATE_ROLE,
+		GATE_SEAT_DEFAULT_MB,
+		queueDir,
+	);
+	return {
+		live: records.map((r) => ({
+			pid: r.pid,
+			chargeMb: r.chargeMb,
+			spawned: r.spawned === true,
+		})),
+		unread,
+	};
 }
 
 /**
@@ -2099,11 +2129,11 @@ function readLiveGateSeats({ queueDir } = {}) {
  * @returns {import("./suite-ladder.js").GateSeats}
  */
 function readGateSeats({ queueDir, parentOf = readParentOf } = {}) {
-	const holders = readLiveGateSeats({ queueDir })
-		.filter((g) => g.spawned)
-		.map((g) => g.pid);
+	const { live, unread } = readLiveGateSeats({ queueDir });
+	const holders = live.filter((g) => g.spawned).map((g) => g.pid);
 	return {
 		count: holders.length,
+		unread: unread?.why ?? null,
 		under: (pid) =>
 			pid !== null &&
 			holders.length > 0 &&
@@ -2128,6 +2158,7 @@ module.exports = {
 	readStartTimeOf,
 	isMarkerStale,
 	readMarkers,
+	readLiveCharged,
 	readLiveRoleMarkers,
 	readTestsHeldOnWindows,
 	readQueuesClimbMb,

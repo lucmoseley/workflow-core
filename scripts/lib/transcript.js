@@ -302,23 +302,31 @@ function autocompactions(text, tier) {
 function lastTurn(text) {
 	let last = null;
 	for (const record of mainChainRecords(text, "main")) {
-		const ended =
-			record.type === "system" && record.subtype === "turn_duration";
-		if (
-			ended ||
-			record.type === "assistant" ||
-			record.type === "user" ||
-			record.type === "api-request" ||
-			(record.type === "attachment" &&
-				record.attachment?.type === "hook_blocking_error" &&
-				record.attachment?.hookEvent === "Stop")
-		) {
+		if (isTurnRow(record)) {
 			const at = Date.parse(record.timestamp ?? "");
-			last = { ended, at: Number.isFinite(at) ? at : null };
+			last = { ended: isTurnEnd(record), at: Number.isFinite(at) ? at : null };
 		}
 	}
 	return last;
 }
+
+/** @param {TranscriptRecord} record */
+const isTurnEnd = (record) =>
+	record.type === "system" && record.subtype === "turn_duration";
+
+/**
+ * Whether `record` marks a turn: a model or user row, an API request, the
+ * turn's end, or a Stop hook's block.
+ * @param {TranscriptRecord} record
+ */
+const isTurnRow = (record) =>
+	isTurnEnd(record) ||
+	record.type === "assistant" ||
+	record.type === "user" ||
+	record.type === "api-request" ||
+	(record.type === "attachment" &&
+		record.attachment?.type === "hook_blocking_error" &&
+		record.attachment?.hookEvent === "Stop");
 
 /**
  * The transcript file for one session id, or `null`.
@@ -390,5 +398,6 @@ module.exports = {
 	turnRecords,
 	autocompactions,
 	lastTurn,
+	isTurnRow,
 	findTranscript,
 };
