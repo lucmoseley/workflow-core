@@ -57,7 +57,9 @@
  *    Deliberately loose; one inside a quoted span or heredoc body does not.
  *  - THE DENY reads the command with every quoted span and heredoc body
  *    emptied but a shell's own script (`bash -c '…'`, `bash <<EOF`), so a
- *    commit message or a written file quoting a long sleep passes. A comment
+ *    commit message or a written file quoting a long sleep passes; a
+ *    double-quoted script is unescaped a level first, as the shell hands it
+ *    on, so `bash -c "…\"…\"…"` is read whole. A comment
  *    and an `eval` string are still read; `grep -c "…"` is read
  *    as a `-c` script. It is blind to `sleep "$n"` or `sleep $((60*60))`. A
  *    `timeout`'s wrapped command is judged by its first word, so `timeout 3600
@@ -68,16 +70,20 @@
  *    script is kept beside a `-c` one, so `node -e '…os.loadavg…'` is read,
  *    and a double-quoted span keeps its unescaped `$(…)` and backtick
  *    substitutions, so `[ "$(cut … /proc/loadavg)" … ]` is read. A substitution
- *    holding a `"` is cut at it; a double-quoted span keeps its `$name` and
+ *    holding a `"` is not read at all; a double-quoted span keeps its `$name` and
  *    `${name}` expansions too, so `awk "…$l…" && break` reads `$l`. A load
  *    read inside any other command's quoted script — `awk '…/proc/loadavg…'`,
  *    `jq`, a `python3 -` heredoc — is emptied and not seen. A body's tests
  *    are split on `;`, `&` and newlines, and an `if` is matched to the nearest
  *    `then` with no nesting read, so a `break` under a nested `if` is judged
- *    by the inner one. A variable is tracked only where a load read assigns it
- *    by `name=` or `read`. It is blind to a load read through a command it
- *    does not name, to a loop in a script file the shell runs, and to an
- *    interpreter's own polling loop with no shell loop around it.
+ *    by the inner one, and one after a nested `fi` by none. A variable is
+ *    tracked where a load read, or a tracked variable, assigns it by `name=`
+ *    or `read`, and read as `$name`, `${name}` or a bare name in `((…))` — a
+ *    bare name in `[[…]]` is not. A load read whose own failure exits, `cat
+ *    /proc/loadavg || exit 1`, is read as a gate. It is blind to a load read
+ *    through a command it does not name (`/usr/bin/uptime`, `sysctl -n
+ *    vm.loadavg`, `bun -e`), to a loop in a script file the shell runs, and
+ *    to an interpreter's own polling loop with no shell loop around it.
  *  - A `break` is not read as a ceiling, so `while :; do check && break;
  *    sleep 5; done` warns.
  *  - A ceiling is recognised lexically, and in TWO PARTS TOGETHER: a numeric
@@ -164,19 +170,23 @@ const LOAD_RE = new RegExp(
 	`/proc/loadavg|loadavg[${SP}]*\\(|${SEP}uptime(${END}|$)`,
 );
 const LEAVE_RE = new RegExp(`${SEP}(break|exit)(${END}|$)`, "g");
-/* Where one test in a loop body ends: `;`, a newline, or a lone `&`. */
-const STATEMENT_END_RE = /;|\n|(?<!&)&(?!&)/;
+/* Where one test in a loop body ends: `;`, a newline, or a lone `&` — never
+ * `&&` or a redirection's `>&`/`&>`. */
+const STATEMENT_END_RE = /;|\n|(?<![&<>])&(?![&>])/;
 const IF_RE = new RegExp(`${SEP}(if|elif)[${SP}]`, "g");
 const THEN_RE = new RegExp(`${SEP}then${END}`);
 const FI_RE = new RegExp(`${SEP}fi(${END}|$)`);
 /* `name=` and `read [-flags] name…`, the two ways a load read lands in a
- * variable. */
+ * variable; a numeric flag value (`-t 5`) is skipped. */
 const ASSIGNED_RE = /(?:^|[^A-Za-z0-9_$])([A-Za-z_][A-Za-z0-9_]*)=/g;
 const READ_RE = new RegExp(
-	`${SEP}read(?:[${SP}]+-[A-Za-z]+)*((?:[${SP}]+[A-Za-z_][A-Za-z0-9_]*)+)`,
+	`${SEP}read(?:[${SP}]+-[A-Za-z]+(?:[${SP}]+[0-9]+)?)*((?:[${SP}]+[A-Za-z_][A-Za-z0-9_]*)+)`,
 );
-/* A parameter expansion, unescaped: `$name` or `${name`. */
-const PARAM_RE = /(?<!\\)(?:\\\\)*\$\{?[A-Za-z_][A-Za-z0-9_]*/g;
+/* A parameter expansion, unescaped: `$name` or `${name`, the name captured. */
+const PARAM_RE = /(?<!\\)(?:\\\\)*\$\{?([A-Za-z_][A-Za-z0-9_]*)/g;
+/* An arithmetic test, `((…))`, where a variable is named bare. */
+const ARITH_RE = /\(\(([^()]*)\)\)/g;
+const NAME_RE = /[A-Za-z_][A-Za-z0-9_]*/g;
 /* A substitution's opening, unescaped: an even run of backslashes before it. */
 const SUB_OPEN_RE = /(?<!\\)(?:\\\\)*(\$\(|`)/;
 const HEREDOC_RE = new RegExp(
@@ -702,20 +712,52 @@ function ifConditionAt(text, at) {
 }
 
 /**
- * The variables a load read in `doBody` assigns, by `name=` or `read`.
+ * The variables `text` reads: each `$name` and `${name}`, and each name
+ * inside a `((…))`.
+ * @param {string} text
+ */
+function refs(text) {
+	const names = [...text.matchAll(PARAM_RE)].map((m) =>
+		requiredGroup(m, 1, PARAM_RE),
+	);
+	for (const m of text.matchAll(ARITH_RE))
+		names.push(...(requiredGroup(m, 1, ARITH_RE).match(NAME_RE) ?? []));
+	return names;
+}
+
+/**
+ * The variables a load read in `doBody` assigns, by `name=` or `read`, and
+ * those assigned in turn from one of them.
  * @param {string} doBody
  */
 function loadVars(doBody) {
 	/** @type {Set<string>} */
 	const names = new Set();
-	for (const statement of doBody.split(STATEMENT_END_RE)) {
-		if (!LOAD_RE.test(statement)) continue;
-		for (const m of statement.matchAll(ASSIGNED_RE))
-			names.add(requiredGroup(m, 1, ASSIGNED_RE));
-		const read = READ_RE.exec(statement);
-		for (const name of (read?.[2] ?? "").split(/[^A-Za-z0-9_]+/))
-			if (name) names.add(name);
+	const statements = doBody.split(STATEMENT_END_RE);
+	for (let size = -1; size !== names.size; ) {
+		size = names.size;
+		for (const statement of statements) {
+			if (
+				!LOAD_RE.test(statement) &&
+				!refs(statement).some((name) => names.has(name))
+			)
+				continue;
+			for (const name of assigned(statement)) names.add(name);
+		}
 	}
+	return names;
+}
+
+/**
+ * The variables `statement` assigns, by `name=` or `read`.
+ * @param {string} statement
+ */
+function assigned(statement) {
+	const names = [...statement.matchAll(ASSIGNED_RE)].map((m) =>
+		requiredGroup(m, 1, ASSIGNED_RE),
+	);
+	const read = READ_RE.exec(statement);
+	names.push(...(read?.[2] ?? "").split(/[^A-Za-z0-9_]+/).filter(Boolean));
 	return names;
 }
 
@@ -727,10 +769,11 @@ function loadVars(doBody) {
 function bodyGates(doBody) {
 	const vars = loadVars(doBody);
 	for (const leave of doBody.matchAll(LEAVE_RE)) {
-		const test = `${statementAt(doBody, leave.index)} ${ifConditionAt(doBody, leave.index)}`;
-		if (LOAD_RE.test(test)) return true;
-		for (const ref of test.match(PARAM_RE) ?? [])
-			if (vars.has(ref.replace(/^[\\]*\$\{?/, ""))) return true;
+		/* Past the separator LEAVE_RE matched, so `then break` keeps its `then `. */
+		const at = leave.index + (leave[1] ?? "").length;
+		const test = `${statementAt(doBody, at)} ${ifConditionAt(doBody, at)}`;
+		if (LOAD_RE.test(test) || refs(test).some((name) => vars.has(name)))
+			return true;
 	}
 	return false;
 }
