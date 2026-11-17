@@ -17,6 +17,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
+import { seedRegistryRegion } from "./lib/lander-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -86,6 +87,7 @@ beforeEach(() => {
 	work = path.join(tmp, "work");
 	git(tmp, "init", "-q", "--bare", "-b", "main", remote);
 	git(tmp, "clone", "-q", remote, work);
+	seedRegistryRegion(work);
 	commit("seed");
 	git(work, "push", "-q", "origin", "HEAD:main", ":refs/heads/queue/seed");
 });

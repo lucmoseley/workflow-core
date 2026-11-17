@@ -1005,7 +1005,9 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/register-doc.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/start-lander.test.ts",
 			"scripts/status-report.test.ts",
+			"scripts/supervise-landing.test.ts",
 			"scripts/upgrade.test.ts",
 			"scripts/write-secret.test.ts"
 		],
@@ -57460,7 +57462,9 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts",
-			"scripts/session-checkout.test.ts"
+			"scripts/session-checkout.test.ts",
+			"scripts/start-lander.test.ts",
+			"scripts/supervise-landing.test.ts"
 		],
 		"scripts/queue-lander.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
