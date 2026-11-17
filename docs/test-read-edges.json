@@ -3737,6 +3737,7 @@
 			"scripts/arm-tasks.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -3813,6 +3814,7 @@
 		],
 		"scripts/arm-tasks/tasks.json": [
 			"scripts/arm-tasks.test.ts",
+			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
@@ -7921,6 +7923,7 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/fixtures/gate-judge-cases.json": [
+			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/gate-judge-cases.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
@@ -7931,6 +7934,7 @@
 			"scripts/file-issue.test.ts",
 			"scripts/guard-issue-create-label.test.ts",
 			"scripts/issue-body.test.ts",
+			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/file-issue-core.test.ts",
 			"scripts/lib/gate-judge.contract.test.ts",
 			"scripts/lib/gate-judge.test.ts",
