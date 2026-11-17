@@ -53,8 +53,6 @@ def test_a_path_on_another_drive_is_outside(monkeypatch):
 
 
 class _NtOs:
-    """`os` as Windows spells paths, so the drive case runs on any host."""
-
     path = ntpath
     curdir = "."
     pardir = ".."
