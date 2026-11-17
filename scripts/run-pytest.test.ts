@@ -349,9 +349,25 @@ describe("a bare run", () => {
 			});
 		});
 
+		/* On the real 1 s ceiling, as the ceiling-kill cases below. */
+		it("records `head` on a gate run's ceiling kill, which carries no scope (#5321)", async () => {
+			const root = branch();
+			const [python] = fakePytest({ passed: true, scope: scope() }, 0, {});
+			await wrap(python, root, [], {
+				...Bare,
+				TMPDIR: tempRoot(process.pid),
+				[CEILING_ENV]: "1000",
+				[DEADLINE_ENV]: path.join(root, "deadline"),
+			});
+			expect(readFailures({ root })).toEqual([
+				expect.objectContaining({ ceilingKill: true, touchedBase: "head" }),
+			]);
+		});
+
 		it("takes `merge-base` with only the seat's variable set and a live seat outside its ancestry", async () => {
 			const root = branch();
-			/* A live seat this process is not under: its holder is a child. */
+			/* A live seat this process is not under: its holder is a child, its
+			 * 30 s any span that outlives the case, which kills it. */
 			const stranger = spawn("sleep", ["30"], { stdio: "ignore" });
 			onTestFinished(() => {
 				stranger.kill();
@@ -972,6 +988,7 @@ describe("the suite ceiling (#2702)", () => {
 				argv: ["scripts"],
 				sessionId: null,
 				lander: false,
+				touchedBase: null,
 			},
 		);
 
@@ -993,6 +1010,26 @@ describe("the suite ceiling (#2702)", () => {
 		});
 	});
 
+	it("carries a touched run's base on its kill's row, which has no scope (#5321)", () => {
+		const row = ceilingKillRow(
+			{
+				at: "2026-11-10T12:00:01Z",
+				ceilingMs: 1000,
+				elapsedMs: 1000,
+				inflight: null,
+			},
+			{
+				sha: "a".repeat(40),
+				startedAtMs: Date.parse("2026-11-10T12:00:00Z"),
+				argv: [],
+				sessionId: null,
+				lander: false,
+				touchedBase: "head",
+			},
+		);
+		expect(row.touchedBase).toBe("head");
+	});
+
 	it("leaves a kill's row with no tests named where pytest reported none in flight", () => {
 		const row = ceilingKillRow(
 			{
@@ -1007,6 +1044,7 @@ describe("the suite ceiling (#2702)", () => {
 				argv: [],
 				sessionId: null,
 				lander: true,
+				touchedBase: null,
 			},
 		);
 

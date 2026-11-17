@@ -72,6 +72,18 @@ afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });
 });
 
+it.each(["noJob", "oldNoJob"] as const)(
+	"reads the %s answer as no job",
+	(answer) => {
+		seatsAnswering(answer);
+		expect(stopOn(seats[0], "aaaa1111")).toMatchObject({
+			ok: false,
+			noJob: true,
+			said: expect.stringContaining("aaaa1111"),
+		});
+	},
+);
+
 describe("stopSession", () => {
 	it("stops the job on the seat whose record names its session, asking no other", () => {
 		recordJob(1, "aaaa1111", "s-1");
@@ -84,7 +96,7 @@ describe("stopSession", () => {
 		expect(readStopsTaken()).toEqual(["b aaaa1111"]);
 	});
 
-	it("moves to the next seat on 'No job matching', and stops it there", () => {
+	it("moves to the next seat on a no-job answer, and stops it there", () => {
 		seatsAnswering("noJob", "ok", "ok");
 		expect(stopSession("aaaa1111", "s-1").ok).toBe(true);
 		expect(readStopsTaken()).toEqual(["a aaaa1111", "b aaaa1111"]);

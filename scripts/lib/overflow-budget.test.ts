@@ -1025,7 +1025,7 @@ describe("the per-session cap (#3698)", () => {
 		appendTranscript(recordLaunch("0000bad0"), buildModelTurn(15_000_000));
 		const [line] = stopOverAllowance(declared(), [listed("0000bad0")]);
 		expect(line).toMatch(
-			/^could not stop overflow session .*0000bad0.*spent \$60\.00 of its \$50\.00 allowance: .*No job matching/,
+			/^could not stop overflow session .*0000bad0.*spent \$60\.00 of its \$50\.00 allowance: .*No session matching/,
 		);
 		stopOverAllowance(declared(), [listed("0000bad0")]);
 		expect(readStops()).toHaveLength(2);

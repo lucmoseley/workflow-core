@@ -35,7 +35,8 @@
  * having answered for themselves at theirs. A seat is judged by process
  * ancestry, never by the seat's variable alone (#5273). Residual: an earlier
  * commit made with no gate run is not touched-tested before the lander's
- * full suite.
+ * full suite, and a merge commit's gate still selects every path `main`
+ * brought in (#5334).
  *
  * WHERE THE MANIFEST IS UNREADABLE OR WILL NOT RENDER, its readers give way
  * to each changed file's same-stem siblings: for `<dir>/<stem>.<ext>`, the
@@ -73,7 +74,7 @@ const { EDGES_FILE, shortSha } = require("./test-pass-marker.js");
 
 /** @typedef {import("./dirty-tree.js").ExecFn} ExecFn */
 /** @typedef {import("./own-selection.js").OwnSet} OwnSet */
-/** @typedef {"merge-base"|"head"} TouchedBase */
+/** @typedef {import("./test-pass-marker.js").TouchedBase} TouchedBase */
 
 /**
  * The checker-only files, each with its checker tests: a path, or a pattern
@@ -430,7 +431,7 @@ function resolveTouched(
  *
  * @returns {TouchedBase}
  */
-const touchedBaseHere = () =>
+const readTouchedBase = () =>
 	readGateSeats().under(process.pid) ? "head" : "merge-base";
 
 /**
@@ -442,15 +443,12 @@ const touchedBaseHere = () =>
  * tree's changes over HEAD, `ownWork` being a range's and not read.
  *
  * @param {string} at
- * @param {{ from?: TouchedBase, sessionId?: string|null, execFn?: ExecFn,
+ * @param {{ from: TouchedBase, sessionId?: string|null, execFn?: ExecFn,
  *   ledger?: import("./own-work.js").CommitLedger,
  *   ownWork?: OwnSet|null }} options
  * @returns {{ base: string, changed: string[] }}
  */
-function readTouchedPaths(
-	at,
-	{ from = "merge-base", execFn = execFileSync, ...options },
-) {
+function readTouchedPaths(at, { from, execFn = execFileSync, ...options }) {
 	if (from === "head") {
 		const head = gitRead(["rev-parse", "HEAD"], at, execFn)?.trim();
 		if (!head) throw new Error("git would not name HEAD");
@@ -484,12 +482,16 @@ function readChanged(at, base, own, execFn) {
  * banner the run prints.
  *
  * @param {string} at
- * @param {Parameters<typeof readTouchedPaths>[1] &
+ * @param {Partial<Parameters<typeof readTouchedPaths>[1]> &
  *   Parameters<typeof resolveTouched>[2]} [options]
  */
-function selectTouched(at, { suite, loadEdges, renderEdges, ...options } = {}) {
+function selectTouched(
+	at,
+	{ suite, loadEdges, renderEdges, from = "merge-base", ...options } = {},
+) {
 	const { base, changed } = readTouchedPaths(at, {
 		...options,
+		from,
 		/* `||`, not `??`: the suite stubs the id to "", which is no session. */
 		sessionId: options.sessionId || idSeam.fromEnv(),
 	});
@@ -504,7 +506,7 @@ function selectTouched(at, { suite, loadEdges, renderEdges, ...options } = {}) {
 		changed,
 		files: resolved.files,
 		leftOut: resolved.leftOut,
-		banner: touchedBanner(resolved, base, options.from ?? "merge-base"),
+		banner: touchedBanner(resolved, base, from),
 	};
 }
 
@@ -566,4 +568,4 @@ function touchedBanner(
 /** @param {string[][]} lists */
 const sortedUnion = (...lists) => [...new Set(lists.flat())].sort();
 
-module.exports = { selectTouched, touchedBaseHere };
+module.exports = { readTouchedBase, selectTouched };

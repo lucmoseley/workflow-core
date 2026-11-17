@@ -25,14 +25,17 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readAllowance } from "./allowance.js";
 import { writeClaudeStub } from "./claude-stub";
+import { SESSION_PREFIX } from "./session-bar-carry.js";
 import { readUsageCache } from "./usage-cache.js";
 import {
 	buildRefreshBranch,
 	buildRefreshLine,
 	buildUsageCache,
 	buildUsageText,
+	printedLines,
 	recorded,
 	recordedLimit,
+	recordedLimits,
 } from "./usage-probe-fake";
 
 let dir: string;
@@ -68,6 +71,10 @@ const keyTypes = (o: object) =>
 		.map(([key, value]) => `${key}:${value === null ? "null" : typeof value}`)
 		.sort();
 
+/** The order the fake writes its bars in: a carried session bar sits last
+ * in the recording but first in a written cache. */
+const KIND_ORDER = ["session", "weekly_all", "weekly_scoped"];
+
 /** The written bars are of `kinds`, in order, each of its recorded bar's
  * key types. */
 const expectRecordedBars = (limits: { kind: string }[], kinds: string[]) => {
@@ -76,9 +83,14 @@ const expectRecordedBars = (limits: { kind: string }[], kinds: string[]) => {
 		expect(keyTypes(limit)).toEqual(keyTypes(recordedLimit(limit.kind)));
 };
 
+const SESSIONLESS = {
+	printed: recorded.printed.filter((l) => !l.startsWith(SESSION_PREFIX)),
+	limits: recorded.cache.utilization.limits.filter((l) => l.kind !== "session"),
+};
+
 describe("the /usage fake against the recording (#3266)", () => {
 	it("reads its printed bars as the recorded ones read, the cache's percents", () => {
-		expect(printedBars(recorded.printed.join("\n"))).toEqual({
+		expect(printedBars(printedLines.join("\n"))).toEqual({
 			session: recordedPercent("session"),
 			week: recordedPercent("weekly_all"),
 			resets: true,
@@ -88,6 +100,49 @@ describe("the /usage fake against the recording (#3266)", () => {
 			week: 3,
 			resets: true,
 		});
+	});
+
+	// The session-less pair of the case above, which reads both bars.
+	it("answers a seat with no session bar as the recording read without one (#5332)", () => {
+		const week = recordedPercent("weekly_all");
+		const reading = (opts: { configDir: string; usageText?: string }) => {
+			const { session, weekly_all } = readAllowance(opts);
+			return [session.trust, weekly_all.percent];
+		};
+		const printed = (lines: string[]) =>
+			reading({
+				configDir: path.join(dir, "no-seat"),
+				usageText: lines.join("\n"),
+			});
+		const cached = (limits: unknown[]) => {
+			writeConfig(
+				JSON.stringify({
+					cachedUsageUtilization: {
+						...recorded.cache,
+						fetchedAtMs: Date.now(),
+						utilization: { limits },
+					},
+				}),
+			);
+			return reading({ configDir: dir });
+		};
+		const expected = ["unreported", week];
+		expect(printed(SESSIONLESS.printed)).toEqual(expected);
+		expect(printed([buildUsageText({ week })])).toEqual(expected);
+		expect(
+			cached(
+				SESSIONLESS.limits.map((l) => ({
+					...l,
+					resets_at: new Date(Date.now() + 60_000).toISOString(),
+				})),
+			),
+		).toEqual(expected);
+		expect(
+			cached(
+				buildUsageCache({ week }, Date.now()).cachedUsageUtilization.utilization
+					.limits,
+			),
+		).toEqual(expected);
 	});
 
 	it("writes a cache of the recorded shape, read fresh with its own percents", () => {
@@ -126,7 +181,9 @@ describe("the /usage fake against the recording (#3266)", () => {
 		const limits = written.cachedUsageUtilization.utilization.limits;
 		expectRecordedBars(
 			limits,
-			recorded.cache.utilization.limits.map((l) => l.kind),
+			recordedLimits
+				.map((l) => l.kind)
+				.sort((a, b) => KIND_ORDER.indexOf(a) - KIND_ORDER.indexOf(b)),
 		);
 		const scope = (l: Record<string, unknown>) =>
 			(l.scope ?? {}) as { model: object };
