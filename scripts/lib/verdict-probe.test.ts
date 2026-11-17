@@ -38,7 +38,6 @@ function command(body: string) {
 	});
 }
 
-/* One probe, run through ensureProof on a fresh markers directory. */
 function probe() {
 	const s = ensureProof({ root, command: COMMAND, canary: CANARY, markers });
 	return s.state === "fresh"
@@ -161,7 +160,7 @@ describe("the proof record", () => {
 		expect(ensureProof(at).state).toBe("failed");
 	});
 
-	it("keeps each runner's verdict beside the others, so a worktree at another base keeps its own (#5327)", () => {
+	it("keeps each runner's verdict beside the others (#5327)", () => {
 		const at = nodeRunner(1);
 		ensureProof(at);
 		nodeRunner(0);

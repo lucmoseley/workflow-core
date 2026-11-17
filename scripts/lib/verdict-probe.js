@@ -22,9 +22,7 @@
  * it stale. The runner is every file a word of the command names, in the
  * working copy or else the core (an adopter's `resolve-core.js` runs a core
  * script), and each runner config at its root with the files it names, with
- * everything each one's run reaches (lib/code-edges.js), so a
- * fix to the runner reprobes a failed record and a break in it a passed one
- * (#5327). Keys are kept side by side, because the record is the main
+ * everything each one's run reaches (lib/code-edges.js) (#5327). Keys are kept side by side, because the record is the main
  * checkout's and worktrees at different bases hold different runners. A
  * record that cannot be read is stale, never fresh (fail closed, #5275). A
  * failed probe is recorded too, so it runs again only once its key changes;
@@ -108,7 +106,7 @@ function resolvedCommand(command, root) {
 }
 
 /* Config files a test runner reads by name, not through a load the walk
- * follows: what they name decides what runs and how a failure prints. */
+ * follows. */
 const RUNNER_CONFIGS = [
 	"vitest.config.ts",
 	"vitest.config.mts",
@@ -164,8 +162,8 @@ function runnerStarts(resolved, root) {
 
 /**
  * A digest of what the runner holds: each start and each file its run
- * reaches, with its content. A gap in the walk keys as its fault, so the
- * walk's fix reprobes, and is returned for the probe to print.
+ * reaches, with its content. A gap in the walk keys as its fault, and is
+ * returned for the probe to print.
  * @param {string} resolved the command as it runs
  * @param {string} root
  * @returns {{ digest: string, faults: string[] }}
@@ -254,7 +252,6 @@ function readProof(markers) {
 }
 
 /**
- * Writes `record`, keeping its KEPT_KEYS most recent verdicts.
  * @param {string} markers
  * @param {ProofRecord} record
  */
