@@ -137,6 +137,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | Writing a program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/check-plugin-gap.js` | §N6 | `scripts/check-program-output.js` |
 | A `report-*` program filing an issue | `createIssue` in `scripts/lib/tracking-issue.js`, or its `fileOrRefresh` | `scripts/report-remeasure-due.js` | §N3 | `scripts/check-report-programs.js` |
 | Running a program under test | `runInProcess` in `scripts/lib/run-in-process.js`, `runInProcessAsync` for an async entry | `scripts/lib/run-in-process.js`, its header's contract | §X3 | `scripts/check-test-spawn.js` |
+| Pinning a hot-path program's per-call load and starts | `callCost` or `callCostAsync` in `scripts/lib/call-cost-harness.js`, its `shellCallCost` for a shell program; `call_cost` in `scripts/lib/call_cost_harness.py` | `scripts/lib/call-cost-harness.js`, `scripts/lib/call_cost_harness.py` | §G13 | Standards axis criterion |
 | A pre-commit gate line | the checker's own exit code passed on, `exit "$?"`, or `staged_gate`'s `status` mode in `scripts/lib/precommit-gate.sh`; a literal `exit 2` where the hook reads a probe's or lister's output, since a crash's own code may be 1 | `.husky/pre-commit` | §N4 | `scripts/check-precommit-exit.js` |
 | A pre-commit gate staging blobs out of the index | `staged_gate` in `scripts/lib/precommit-gate.sh` | `.husky/pre-commit` | §S6 | Standards axis criterion |
 | Ending a Stop hook with a block | `blockStop` in `scripts/lib/hook-block.js`, with its `charge` and `capSpent` | `scripts/guard-uncommitted-work.js` | §G10 | Standards axis criterion |
@@ -222,7 +223,7 @@ Where neither fits, remove the seam: create the dependency in place, and let the
 
 **Every code kind.** Where the repo has a `GLOSSARY.md`, a new name for a concept the glossary defines uses the glossary's term and none of its *Avoid* words.
 
-A homonym, a name for a different concept that happens to share a word, is outside the rule: `unreachableRemedy` at `scripts/lib/gh.js:370` names GitHub not answering, not the glossary's *Unreachable* page.
+A homonym, a name for a different concept that happens to share a word, is outside the rule: `unreachableRemedy` at `scripts/lib/gh.js:432` names GitHub not answering, not the glossary's *Unreachable* page.
 
 The unasked-rerun guard asks whether certificates attest a commit, so its verdict is `attestationOf` (`scripts/lib/test-pass-marker.js:1340`), never `coverOf`; a standards file's line pins are read by `parseLinePins` (`scripts/lib/standards-pins.js:176`), never `parsePins` (#1373).
 
@@ -263,6 +264,24 @@ The fixes, best first: return the value, so the caller holds it; pass it in, so 
 *House, Node programs only*: that builder is `envelope` in `scripts/lib/hook-envelope.js` (#4025).
 
 **Outside the rule:** a shell hook, which builds the shape with one `jq` expression, as `scripts/place-new-issue.sh` does, since a Node process per run would cost more than the copy.
+
+<!-- rule:hot-path-cost:begin -->
+### §G13 · A hot-path program costs no more per call than its work needs — **judgement**
+
+A hot-path program is one the harness or git runs per tool call or per commit, or one polled every few seconds: a program a `PreToolUse`, `PostToolUse`, `PostToolUseFailure` or `PostToolBatch` hook entry runs, a module a hook or git-hook dispatcher loads for one, a program a git hook git runs on each commit runs, the status line's command, and a command the repo declares polled. It binds what a change adds or rewrites (#5319).
+
+1. Load only what the common path uses. Profile (`--cpu-prof`) before cutting. Defer a rare, heavy module with a `require()` inside its one caller, commented; never a module loaded for its side effects.
+2. A new guard or gate joins the existing dispatcher process rather than registering its own hook entry (#2786, #5166). No child process where an in-process core serves (#2186).
+3. One pass over a shared input, as §X8 (3).
+4. A change made for speed records a before/after median per call, old and new alternating, on its ticket (#2797).
+5. Each hot-path program has a pin test asserting the modules one common-path call loads and the child processes it starts. The pin fails a run; no timing figure ever refuses (mantahostels#2255).
+
+- *House, Node programs only*: pin through `callCost` (or `callCostAsync`) in the plugin's pin harness, `scripts/lib/call-cost-harness.js`.
+- *House, Python programs only*: pin through `call_cost` in the harness's Python half, `scripts/lib/call_cost_harness.py`.
+- *House, shell*: pin through the harness's `shellCallCost`, which records each watched binary the script starts.
+<!-- rule:hot-path-cost:end -->
+
+Judge (4) from the ticket's comments: a change made for speed with no before/after medians there is the finding. Judge (5) from the change's test files. A good reason to differ: a program with no common path a pin can drive, said in its header (§G4), under (5); or a guard that must run in its own process for a reason the hook docs give, such as fail-closed isolation or a timeout of its own, said at its entry, under (2).
 
 ---
 

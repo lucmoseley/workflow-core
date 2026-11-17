@@ -167,6 +167,16 @@ wfc_suite_runners() {
   printf '%s\n' "$out"
 }
 
+# Prints each "polled" entry, one per line (#5335) — none where any entry is
+# not a repo-relative path, as the JS reader drops the whole key.
+wfc_polled() {
+  local out
+  out="$(_wfc_jq 'wfc_contract_gated((.polled? // []) | if type == "array" and all(type == "string" and . != "" and (startswith("/") | not) and (split("/") | map(split("\\")[]) | index("..") | not)) then .[] else empty end)' -r)" || return 1
+  ! _wfc_refused "$out" || return 0
+  [[ -n "$out" && "$out" != null ]] || return 0
+  printf '%s\n' "$out"
+}
+
 # Prints the declared "tracker", else the origin remote's owner/name as the JS
 # reader's parseGithubRemote() parses it; returns 1 where neither resolves. A
 # declared value that is not a string reads as undeclared.

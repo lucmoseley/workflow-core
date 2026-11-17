@@ -913,6 +913,7 @@ describe("the manifest", () => {
 		).toEqual([
 			["guard-bg-job", "Bash", "open", "function"],
 			["inject-test-rules", "Write|Edit|NotebookEdit", "open", "function"],
+			["inject-hot-path-cost", "Write|Edit|NotebookEdit", "open", "function"],
 			["guard-citation-tracker", "Write|Edit", "open", "function"],
 			["guard-scratch-git", "Bash", "open", "function"],
 			[

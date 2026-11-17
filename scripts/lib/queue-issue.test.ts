@@ -109,14 +109,45 @@ it("keeps a gate a session wrote on the body through a refresh (#3636)", () => {
 
 it("closes the open issue with the comment its body earns, and none where the body earns none (#3636)", () => {
 	const closed: [number, string][] = [];
+	const refreshed: number[] = [];
 	const close = queueIssueCloser({
 		openIssue: () => ({ number: 7, labels: LABELS, body: "ready" }),
+		refresh: (n) => {
+			refreshed.push(n);
+			return "refreshed";
+		},
 		close: (n, c) => {
 			closed.push([n, c]);
 		},
 	});
 
-	expect(close(ISSUE.title, (b) => (b === "ready" ? "done" : null))).toBe(7);
-	expect(close(ISSUE.title, () => null)).toBeNull();
+	expect(close(ISSUE.title, "x", (b) => (b === "ready" ? "done" : null))).toBe(
+		7,
+	);
+	expect(close(ISSUE.title, "x", () => null)).toBeNull();
 	expect(closed).toEqual([[7, "done"]]);
+	expect(refreshed).toEqual([]);
+});
+
+it("ticks the filer's own criterion before the close, as its comment states it met, and no other (#5354)", () => {
+	const calls: string[] = [];
+	const body =
+		"## Acceptance criteria\n\n- [ ] The cause is fixed.\n- [ ] Added by hand.\n";
+	const close = queueIssueCloser({
+		openIssue: () => ({ number: 7, labels: LABELS, body }),
+		refresh: (n, b) => {
+			calls.push(`refresh #${n}: ${b}`);
+			return "refreshed";
+		},
+		close: (n) => {
+			calls.push(`close #${n}`);
+		},
+	});
+
+	close(ISSUE.title, "The cause is fixed.", () => "done");
+
+	expect(calls).toEqual([
+		"refresh #7: ## Acceptance criteria\n\n- [x] The cause is fixed.\n- [ ] Added by hand.\n",
+		"close #7",
+	]);
 });
