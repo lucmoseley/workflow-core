@@ -592,18 +592,31 @@ describe("the base a touched selection takes (#5320)", () => {
 		);
 	};
 	/** `files`' repo, verified main at its root, then `lib/a.js` and `doc.md`
-	 * committed and `staged` staged. */
-	function branch(staged: string[], files: Record<string, string> = FILES) {
+	 * committed and `paths` staged. */
+	function branch(paths: string[], files: Record<string, string> = FILES) {
 		const dir = repo(files);
 		git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
 		commit(dir, "lib/a.js", "own one");
 		commit(dir, "doc.md", "own two");
-		for (const f of staged) {
+		for (const f of paths) {
 			fs.appendFileSync(path.join(dir, f), "// staged\n");
 			git(dir, "add", f);
 		}
 		return dir;
 	}
+	/* Built once for the cases that only read them: popped, so `afterEach`
+	 * leaves them for `afterAll`. */
+	let staged: string;
+	let clean: string;
+	beforeAll(() => {
+		staged = branch(["lib/setup.js"]);
+		clean = branch([]);
+		dirs.splice(-2);
+	});
+	afterAll(() => {
+		for (const d of [staged, clean])
+			fs.rmSync(d, { recursive: true, force: true });
+	});
 	const at = (dir: string, from: "head" | "merge-base", options = {}) =>
 		selectTouched(dir, {
 			from,
@@ -614,7 +627,7 @@ describe("the base a touched selection takes (#5320)", () => {
 		});
 
 	it("selects under `head` only what the staged paths reach, and under `merge-base` what all three commits' paths reach", () => {
-		const dir = branch(["lib/setup.js"]);
+		const dir = staged;
 		expect(at(dir, "head").files).toEqual(["lib/setup.test.ts"]);
 		expect(at(dir, "merge-base").files).toEqual([
 			"doc.test.ts",
@@ -624,7 +637,7 @@ describe("the base a touched selection takes (#5320)", () => {
 	});
 
 	it("names the commit's changes over HEAD's short sha under `head`, and says the earlier commits answered for themselves", () => {
-		const dir = branch(["lib/setup.js"]);
+		const dir = staged;
 		const head = git(dir, "rev-parse", "HEAD");
 		const { base, banner } = at(dir, "head");
 		expect(base).toBe(head);
@@ -638,7 +651,7 @@ describe("the base a touched selection takes (#5320)", () => {
 	});
 
 	it("keeps the merge-base wording under `merge-base`", () => {
-		const dir = branch(["lib/setup.js"]);
+		const dir = staged;
 		const { base, banner } = at(dir, "merge-base");
 		expect(banner).toContain(
 			`TOUCHED TESTS ONLY — 3 test file(s) your own work since ${base.slice(0, 12)} edited, or that directly import or read a file it changed. The lander runs the full suite (#2930).`,
@@ -652,7 +665,7 @@ describe("the base a touched selection takes (#5320)", () => {
 	});
 
 	it("gives the no-touched-tests line worded for the commit where nothing changed over HEAD", () => {
-		const dir = branch([]);
+		const dir = clean;
 		const head = git(dir, "rev-parse", "HEAD");
 		const { files, banner } = at(dir, "head");
 		expect(files).toEqual([]);

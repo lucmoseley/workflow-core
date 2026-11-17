@@ -131,6 +131,18 @@ function verdictOf(m, green) {
 }
 
 /**
+ * The ledger line's fields read off the run's scope.
+ * @param {Marker["scope"]} scope
+ */
+const scopeFields = (scope) => ({
+	resolvedFiles: scope?.resolvedFiles ?? null,
+	leftOut: scope?.leftOut ?? null,
+	touchedBase: scope?.touchedBase ?? null,
+	wholeSlot: scope?.wholeSlot === true,
+	ranFiles: scope?.modulesRun ?? null,
+});
+
+/**
  * @param {Marker} m
  * @param {{ green: boolean, root: string }} where
  */
@@ -151,11 +163,8 @@ function buildLedgerLine(m, { green, root }) {
 		sha: m.sha,
 		treeAtEnd: m.treeAtEnd ?? null,
 		argv: m.argv ?? null,
-		resolvedFiles: m.scope?.resolvedFiles ?? null,
-		leftOut: m.scope?.leftOut ?? null,
-		wholeSlot: m.scope?.wholeSlot === true,
+		...scopeFields(m.scope),
 		cachedFiles: Array.isArray(m.cached) ? m.cached.length : null,
-		ranFiles: m.scope?.modulesRun ?? null,
 		memory: m.memory ?? null,
 		repo: path.basename(root),
 	};
@@ -190,12 +199,14 @@ function appendLedgerLine(root, marker, green) {
  * @param {string} root the canonical checkout
  * @param {string} tree the tree the run selected in, whose HEAD it records
  * @param {{ suite: string, sessionId?: string|null, argv: string[],
- *   leftOut: string[] }} run `leftOut` the tests left to the lander (#4967)
+ *   leftOut: string[], touchedBase: "merge-base"|"head" }} run `leftOut` the
+ *   tests left to the lander (#4967), `touchedBase` the base the selection
+ *   took (#5320)
  */
 function appendEmptyTouchedLine(
 	root,
 	tree,
-	{ suite, sessionId, argv, leftOut },
+	{ suite, sessionId, argv, leftOut, touchedBase },
 ) {
 	const at = new Date().toISOString();
 	appendLedgerLine(
@@ -214,6 +225,7 @@ function appendEmptyTouchedLine(
 				touched: true,
 				resolvedFiles: 0,
 				leftOut,
+				touchedBase,
 			},
 			sessionId,
 			argv,

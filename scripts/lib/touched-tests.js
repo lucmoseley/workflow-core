@@ -35,7 +35,9 @@
  * commit's gate answers for its own commit, the branch's earlier commits
  * having answered for themselves at theirs. A runner takes `head` only
  * inside a live commit-gate seat, judged by its process ancestry, never by
- * the seat's variable alone (`touchedBaseHere`, #5273).
+ * the seat's variable alone (`touchedBaseHere`, #5273). Residual: an earlier
+ * commit made with no gate run is not touched-tested before the lander's
+ * full suite.
  *
  * WHERE THE MANIFEST IS UNREADABLE OR WILL NOT RENDER, its readers give way
  * to each changed file's same-stem siblings: for `<dir>/<stem>.<ext>`, the
@@ -430,12 +432,10 @@ function resolveTouched(
  * commit-gate seat, its ancestry the test as the suite gate's count reads it
  * (lib/suite-queue.js `readGateSeats`), else `merge-base`.
  *
- * @param {{ pid?: number, seats?: () => { under: (pid: number) => boolean } }} [options]
  * @returns {TouchedBase}
  */
-function touchedBaseHere({ pid = process.pid, seats = readGateSeats } = {}) {
-	return seats().under(pid) ? "head" : "merge-base";
-}
+const touchedBaseHere = () =>
+	readGateSeats().under(process.pid) ? "head" : "merge-base";
 
 /**
  * The session's own changed paths in the tree at `at` since `from`'s base,
@@ -530,6 +530,11 @@ function touchedBanner(
 		from === "head"
 			? `this commit's changes over HEAD ${at}`
 			: `your own work since ${at}`;
+	/* This line's merge-base wording predates the others' (#2952). */
+	const uncollectedWork =
+		from === "head"
+			? `${ownWork} touched`
+			: `your own work touched since ${at}`;
 	const lines = [];
 	if (fallback !== null)
 		lines.push(
@@ -546,7 +551,7 @@ function touchedBanner(
 		);
 	if (files.length === 0 && uncollected.length > 0)
 		lines.push(
-			`NO TOUCHED TESTS — every test file ${ownWork} touched is one the runner does not collect, so nothing ran. The lander runs the full suite (#2952).`,
+			`NO TOUCHED TESTS — every test file ${uncollectedWork} is one the runner does not collect, so nothing ran. The lander runs the full suite (#2952).`,
 		);
 	else if (files.length === 0 && leftOut.length > 0)
 		lines.push(

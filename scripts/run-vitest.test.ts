@@ -47,8 +47,10 @@ import {
 	describe,
 	expect,
 	it,
+	onTestFinished,
 	vi,
 } from "vitest";
+import { tmpRootWithMarkers } from "./lib/admission-testkit";
 import {
 	arbiterCli,
 	freshSandbox,
@@ -7256,30 +7258,21 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 			fs.appendFileSync(path.join(dir, "lib/chain.test.ts"), "// edit\n");
 			return dir;
 		}
-		/** A temp root whose suite queue holds a spawned gate seat this
-		 * process holds, so it runs inside the seat; none where `seated` is
-		 * false. */
-		function tempRoot(seated: boolean) {
-			const tmp = qdir();
-			const queue = path.join(tmp, "wfc-suite-queue");
-			fs.mkdirSync(queue);
-			if (seated)
-				fs.writeFileSync(
-					path.join(queue, `wfc-suite-queue-${process.pid}.json`),
-					JSON.stringify({
-						at: 0,
-						pid: process.pid,
-						role: "gate",
-						spawned: true,
-					}),
-				);
+		/** A temp root whose suite queue holds one spawned gate seat,
+		 * `holder`'s. */
+		function tempRoot(holder: number) {
+			const tmp = tmpRootWithMarkers(
+				qdir(),
+				[],
+				[{ pid: holder, spawned: true }],
+			);
 			vi.stubEnv("TMPDIR", tmp);
 			return tmp;
 		}
 
 		it("takes `head` inside a fixture gate seat: the commit's own test alone, carried on the launch", async () => {
 			const dir = branch();
-			tempRoot(true);
+			tempRoot(process.pid);
 			const { out, spawned } = await launch(dir);
 			expect(spawned).toHaveLength(1);
 			expect(spawned[0].args.slice(-1)).toEqual(["lib/chain.test.ts"]);
@@ -7290,9 +7283,31 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 			expect(out).toContain("this commit's changes over HEAD");
 		});
 
-		it("takes `merge-base` with only the seat's variable set and no seat in its ancestry", async () => {
+		it("records `head` on the ledger line of a gate run that selects nothing", async () => {
 			const dir = branch();
-			const tmp = tempRoot(false);
+			require("node:child_process").execFileSync(
+				"git",
+				["checkout", "--", "lib/chain.test.ts"],
+				{ cwd: dir },
+			);
+			tempRoot(process.pid);
+			const { spawned } = await launch(dir);
+			expect(spawned).toEqual([]);
+			const ledger = path.join(dir, ".claude/tmp/markers/.test-runs.jsonl");
+			expect(readJsonl(ledger).at(-1)).toMatchObject({
+				kind: "touched",
+				touchedBase: "head",
+			});
+		});
+
+		it("takes `merge-base` with only the seat's variable set and a live seat outside its ancestry", async () => {
+			const dir = branch();
+			/* A live seat this process is not under: its holder is a child. */
+			const stranger = realSpawn("sleep", ["30"], { stdio: "ignore" });
+			onTestFinished(() => {
+				stranger.kill();
+			});
+			const tmp = tempRoot(stranger.pid as number);
 			vi.stubEnv("WFC_GATE_SEAT", path.join(tmp, "inherited.json"));
 			const { out, spawned } = await launch(dir);
 			expect(spawned).toHaveLength(1);
@@ -7319,6 +7334,7 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 		expect(readJsonl(ledger).at(-1)).toMatchObject({
 			kind: "touched",
 			resolvedFiles: 0,
+			touchedBase: "merge-base",
 		});
 	});
 });

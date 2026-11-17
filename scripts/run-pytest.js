@@ -259,6 +259,7 @@ function pytestPlan(argv, root) {
 			sessionId: sessionId || null,
 			argv: [],
 			leftOut,
+			touchedBase: from,
 		});
 		return 0;
 	} catch (error) {

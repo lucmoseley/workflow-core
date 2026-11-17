@@ -12,12 +12,13 @@
  * a red or dead run leaves one counted as attesting.
  */
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { tmpRootWithMarkers } from "./lib/admission-testkit";
 import { freshSandbox, ledger } from "./lib/arbiter-testkit";
 import { runInProcessAsync } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -287,7 +288,12 @@ describe("a bare run", () => {
 		expect(r.stdout).toContain("The lander runs the full suite");
 		expect(readMarkers({ root })).toEqual([]);
 		expect(readLedger(root)).toMatchObject([
-			{ kind: "touched", suite: "pytest", resolvedFiles: 0 },
+			{
+				kind: "touched",
+				suite: "pytest",
+				resolvedFiles: 0,
+				touchedBase: "merge-base",
+			},
 		]);
 	});
 
@@ -315,26 +321,14 @@ describe("a bare run", () => {
 			fs.appendFileSync(path.join(root, "scripts/test_other.py"), "# edit\n");
 			return root;
 		}
-		/** A temp root whose suite queue holds a spawned gate seat this
-		 * process holds where `seated`, else none. */
-		function tempRoot(seated: boolean) {
-			const tmp = fs.realpathSync(
+		/** A temp root whose suite queue holds one spawned gate seat,
+		 * `holder`'s. */
+		function tempRoot(holder: number) {
+			const dir = fs.realpathSync(
 				fs.mkdtempSync(path.join(os.tmpdir(), "runpy-tmp-")),
 			);
-			dirs.push(tmp);
-			const queue = path.join(tmp, "wfc-suite-queue");
-			fs.mkdirSync(queue);
-			if (seated)
-				fs.writeFileSync(
-					path.join(queue, `wfc-suite-queue-${process.pid}.json`),
-					JSON.stringify({
-						at: 0,
-						pid: process.pid,
-						role: "gate",
-						spawned: true,
-					}),
-				);
-			return tmp;
+			dirs.push(dir);
+			return tmpRootWithMarkers(dir, [], [{ pid: holder, spawned: true }]);
 		}
 
 		it("takes `head` inside a fixture gate seat, and its certificate's scope names it", async () => {
@@ -345,7 +339,7 @@ describe("a bare run", () => {
 			);
 			const r = await wrap(python, root, [], {
 				...Bare,
-				TMPDIR: tempRoot(true),
+				TMPDIR: tempRoot(process.pid),
 			});
 			expect(readCalls()[0]?.args.slice(-1)).toEqual(["scripts/test_other.py"]);
 			expect(r.stdout).toContain("this commit's changes over HEAD");
@@ -355,9 +349,14 @@ describe("a bare run", () => {
 			});
 		});
 
-		it("takes `merge-base` with only the seat's variable set and no seat in its ancestry", async () => {
+		it("takes `merge-base` with only the seat's variable set and a live seat outside its ancestry", async () => {
 			const root = branch();
-			const tmp = tempRoot(false);
+			/* A live seat this process is not under: its holder is a child. */
+			const stranger = spawn("sleep", ["30"], { stdio: "ignore" });
+			onTestFinished(() => {
+				stranger.kill();
+			});
+			const tmp = tempRoot(stranger.pid as number);
 			const [python, readCalls] = fakePytest(
 				{ passed: true, scope: scope() },
 				0,
