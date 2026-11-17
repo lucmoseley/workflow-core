@@ -1,9 +1,8 @@
 /*
  * wait-loop.js — the dispatcher core that judges a hand-rolled wait in a Bash
- * call (mantahostels#2042, spec mantahostels#2017, from the snapshot at
- * mantahostels#2012): a loop around `sleep` with no ceiling is warned, a
- * wait over 15 minutes is refused (#1288), and a wait loop gated on machine
- * load is refused at any length (#5330).
+ * call (mantahostels#2042, spec mantahostels#2017): a loop around `sleep`
+ * with no ceiling is warned, a wait over 15 minutes is refused (#1288), and a
+ * wait loop gated on machine load is refused at any length (#5330).
  *
  * Why: an `until`/`while` loop around `sleep` inside one Bash call is one tool
  * call, so nothing else here sees it. When its condition can never become true
@@ -25,7 +24,7 @@
  * exit something else decides is a sampler or a retry, and passes. The deny
  * quotes docs/agents/rules/load-wait.txt, or a fallback naming it.
  *
- * A WAIT OVER 15 MINUTES IS DENIED (#1288, ruled at #1286). Three shapes are a
+ * A WAIT OVER 15 MINUTES IS DENIED (#1288, #1286). Three shapes are a
  * wait, foreground or backgrounded alike:
  *  - the command's literal `sleep`s, summed past 900 s (GNU sums `sleep 1h
  *    30m` too; `infinity` counts);
@@ -70,9 +69,9 @@
  *    script is kept beside a `-c` one, so `node -e '…os.loadavg…'` is read,
  *    and a double-quoted span keeps its unescaped `$(…)` and backtick
  *    substitutions, so `[ "$(cut … /proc/loadavg)" … ]` is read. A substitution
- *    holding a `"` is not read at all; a double-quoted span keeps its `$name` and
- *    `${name}` expansions too, so `awk "…$l…" && break` reads `$l`. A load
- *    read inside any other command's quoted script — `awk '…/proc/loadavg…'`,
+ *    holding a `"` is not read at all; a double-quoted span keeps its `$name`
+ *    and `${name}` expansions too. A load read inside any other command's
+ *    quoted script — `awk '…/proc/loadavg…'`,
  *    `jq`, a `python3 -` heredoc — is emptied and not seen. A body's tests
  *    are split on `;`, `&` and newlines, and an `if` is matched to the nearest
  *    `then` with no nesting read, so a `break` under a nested `if` is judged
@@ -670,7 +669,7 @@ function warning(waits) {
 		if (loop.kw === "for" || count(loop) !== null) continue;
 		/* The loop is named back, so a compound command's first-fire-wins
 		 * warning says which of its loops was matched. */
-		return `This wait loop has no ceiling — \`${named(loop.body, /[wu]/)}\` — so if its condition never becomes true the shell runs for ever. It outlives the session that wrote it, reparents to init, and goes on holding a slot after the session reads as Completed — mantahostels#2012 found one still running 13 hours later, its session gone.
+		return `This wait loop has no ceiling — \`${named(loop.body, /[wu]/)}\` — so if its condition never becomes true the shell runs for ever. It outlives the session that wrote it, reparents to init, and goes on holding a slot after the session reads as Completed (mantahostels#2012).
 
 Bound it, either way:
 
@@ -696,7 +695,7 @@ function statementAt(text, at) {
 
 /**
  * The condition of the `if` or `elif` whose `then` branch position `at`
- * stands in, read to the nearest `then` with no nesting; "" where none.
+ * stands in; "" where none.
  * @param {string} text
  * @param {number} at
  */
@@ -762,8 +761,7 @@ function assigned(statement) {
 }
 
 /**
- * Whether a `break` or `exit` in `doBody` is decided by a load read: one in
- * its own `&&`/`||` list or its `if` condition, or a variable one assigned.
+ * Whether a `break` or `exit` in `doBody` is decided by a load read.
  * @param {string} doBody
  */
 function bodyGates(doBody) {
@@ -779,8 +777,7 @@ function bodyGates(doBody) {
 }
 
 /**
- * The refusal of the first wait loop gated on machine load: one reading load
- * in its condition, or deciding a `break` or `exit` in its body on load.
+ * The refusal of the first wait loop gated on machine load.
  * @param {string} written
  * @param {import("./core-contract.js").CoreContext} ctx
  */
