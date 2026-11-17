@@ -2,10 +2,8 @@
  * citation-findings-cache.js — check-issue-citations.js's read of the tracker
  * (#5355): every surface once, then only what changed since the last run.
  *
- * One GraphQL walk of every body and comment timed out at GitHub's gateway
- * once the tracker passed ~5,300 issues (HTTP 502, then 504). The cold read is
- * REST instead, the issues list and the repo-wide comments list in parallel,
- * 100 rows a page, so no single request grows with the tracker. Every later
+ * The cold read is REST, the issues list and the repo-wide comments list in
+ * parallel, 100 rows a page, so no single request grows with the tracker. Every later
  * run reads only the issues and comments updated since the cache's stamp, and
  * carries every other surface's findings from the cache.
  *
@@ -14,19 +12,15 @@
  * cannot have changed its findings. Three changes reach no `since` read: a
  * deleted comment, a deleted issue and an issue transferred out. So every
  * cached finding the since read did not touch is probed by its own id each
- * run, and a 404, a 410 or a row from another repo drops it — a cost bounded
- * by the findings, not the tracker. Residual: an issue transferred IN keeps
+ * run, and a 404, a 410 or a row from another repo drops it. Residual: an issue transferred IN keeps
  * its comments' old `updated_at`, so they go unscanned until the next cold
  * read.
  *
  * The cache carries the scanner's version, a hash of its source: a changed
- * rule rescans everything rather than reporting under the old one. A failed
- * read throws and leaves the cache as it was, so the next run re-reads the
- * same window.
+ * rule rescans everything rather than reporting under the old one.
  *
- * One file per tracker under the gitignored markers directory of the main
- * checkout, shared by every worktree, written by rename. Last writer wins:
- * every write is a whole cache.
+ * Shared by every worktree and written by rename. Last writer wins: every
+ * write is a whole cache.
  */
 
 const path = require("node:path");
@@ -54,7 +48,7 @@ const { writeFd } = require("./write-fd.js");
  * @typedef {{title: string, url: string, body?: Finding, comments: Record<string, Finding>}} Entry
  * @typedef {{version: string, stamp: string, fullStamp: string, issues: Record<string, Entry>}} Cache
  * @typedef {object} Scanner
- * @property {string} version changes whenever what a scan finds could
+ * @property {string} version changes whenever what a scan finds could change
  * @property {(text: string) => Finding|null} body a body's findings
  * @property {(text: string) => Finding|null} comment a comment's findings
  * @typedef {object} Deps
@@ -77,7 +71,7 @@ function buildGhDeps(repo) {
 			throw e;
 		}
 	};
-	/** `-f` query fields, 100 rows a page. @param {string[]} fields */
+	/** @param {string[]} fields `-f` query fields */
 	const listQuery = (fields) => [
 		"-X",
 		"GET",
@@ -281,8 +275,7 @@ function scanSince(deps, scan, cache, since) {
  * reached only through a comment: dropped where it is gone, transferred or a
  * pull request, else given its current title.
  * @param {Deps} deps
- * @param {Record<string, Entry>} issues accumulator: `n` is dropped from it
- *   where it is gone
+ * @param {Record<string, Entry>} issues accumulator
  * @param {string} n
  * @param {Entry} entry `issues[n]`, retitled in place
  */

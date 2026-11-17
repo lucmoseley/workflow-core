@@ -75,7 +75,6 @@ const commentRows = (issues: Issue[]) =>
 		})),
 	);
 
-/** A stub `gh` answering the cold read with `issues` and their comments. */
 const stubGh = (issues: Issue[], { failing = false } = {}) =>
 	stubGhRoutes(
 		dir,
