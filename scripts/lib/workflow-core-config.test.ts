@@ -123,6 +123,7 @@ describe("readConfig — defaults", () => {
 				helper_check: null,
 				full_test: null,
 			},
+			testCanary: null,
 			modules: [],
 			categories: {},
 			disabled: [],
@@ -563,6 +564,32 @@ describe("readConfig — type warnings reach stderr (#1530)", () => {
 	});
 });
 
+describe("readConfig — commands.testCanary (#5294)", () => {
+	const read = (testCanary: unknown) => {
+		fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
+		fs.writeFileSync(
+			path.join(dir, ".claude", "workflow-core.json"),
+			JSON.stringify({ contract: 1, commands: { test: "t", testCanary } }),
+		);
+		return readConfig({ root: dir, quiet: true });
+	};
+
+	it("reads a repo-relative path, beside the commands and never as one", () => {
+		const c = read("tests/canary.test.ts");
+		expect(c.testCanary).toBe("tests/canary.test.ts");
+		expect(c.commands).not.toHaveProperty("testCanary");
+		expect(c.warnings).toEqual([]);
+	});
+
+	it("reads an absolute or escaping path as none, warning", () => {
+		for (const bad of ["/etc/x", "../x", 3]) {
+			const c = read(bad);
+			expect(c.testCanary).toBe(null);
+			expect(c.warnings.join("\n")).toContain("commands.testCanary");
+		}
+	});
+});
+
 describe("readConfig — the known-key list (#1534)", () => {
 	it("lists exactly the keys readConfig returns, plus those read elsewhere", () => {
 		const returned = Object.keys(readConfig({ root: dir, quiet: true }));
@@ -572,7 +599,10 @@ describe("readConfig — the known-key list (#1534)", () => {
 		expect(new Set(KNOWN_KEYS).size).toBe(KNOWN_KEYS.length);
 		expect([...KNOWN_KEYS].sort()).toEqual(
 			[
-				...returned.filter((k) => !["file", "warnings", "faults"].includes(k)),
+				/* testCanary is read under `commands`, never a key of its own. */
+				...returned.filter(
+					(k) => !["file", "warnings", "faults", "testCanary"].includes(k),
+				),
 				...readElsewhere,
 			].sort(),
 		);

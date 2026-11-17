@@ -17,6 +17,7 @@
 	],
 	"commands": {
 		"test": "npm run test",
+		"testCanary": "scripts/verdict-canary.test.ts",
 		"lint": "npm run lint",
 		"typecheck": "npm run typecheck",
 		"check": "npm run check",

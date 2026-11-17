@@ -125,6 +125,10 @@ const COMMANDS = /** @type {const} */ ([
 	 * tester, which runs `test` where it is undeclared (#2403). */
 	"full_test",
 ]);
+/* Beside the commands, never one: the test file the verdict probe runs
+ * `commands.test` on, which fails only under WFC_VERDICT_PROBE=1
+ * (lib/verdict-probe.js, #5294). */
+const TEST_CANARY = "testCanary";
 /* The base's code kinds a Python path can take; only `program` binds §N5. */
 const PYTHON_KINDS = /** @type {const} */ ([
 	"program",
@@ -215,6 +219,7 @@ const unsetCommands = () =>
  * @property {string} [name]
  * @property {string[]} [corpus] declared only; resolveKey derives it
  * @property {Record<Command, string|null>} commands
+ * @property {string|null} testCanary `commands.testCanary`: the test file the verdict probe runs `commands.test` on (lib/verdict-probe.js, #5294); null where undeclared
  * @property {Deploy} [deploy]
  * @property {Module[]} modules
  * @property {Record<string, string>} categories
@@ -502,6 +507,7 @@ function readCommands(cfg) {
 	for (const [k, v] of Object.entries(
 		/** @type {Record<string, unknown>} */ (cfg.raw.commands),
 	)) {
+		if (k === TEST_CANARY) continue;
 		if (!COMMANDS.includes(/** @type {Command} */ (k)))
 			warnUnknownKey(cfg, `commands.${k}`);
 		else if (typeof v === "string" && v.trim())
@@ -510,6 +516,26 @@ function readCommands(cfg) {
 			warnReadAsDefault(cfg, `commands.${k}`, "a command string or null");
 	}
 	return commands;
+}
+
+/**
+ * `commands.testCanary`, a repo-relative path, else null.
+ * @param {RawConfig} cfg accumulator: a warning is pushed onto `warnings`; `raw` is read
+ * @returns {string|null}
+ */
+function readTestCanary(cfg) {
+	if (!isPlainObject(cfg.raw.commands)) return null;
+	const commands = /** @type {Record<string, unknown>} */ (cfg.raw.commands);
+	if (!(TEST_CANARY in commands)) return null;
+	const v = commands[TEST_CANARY];
+	if (isRepoPath(v)) return v;
+	if (v !== null)
+		warnReadAsDefault(
+			cfg,
+			`commands.${TEST_CANARY}`,
+			"a repo-relative path or null",
+		);
+	return null;
 }
 
 /**
@@ -837,6 +863,7 @@ function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
 		readKey(cfg, key, isStringArray, "an array of strings");
 
 	const commands = readCommands(cfg);
+	const testCanary = readTestCanary(cfg);
 	const deploy = readKey(
 		cfg,
 		"deploy",
@@ -981,6 +1008,7 @@ function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
 		name,
 		corpus,
 		commands,
+		testCanary,
 		deploy,
 		modules,
 		categories,
