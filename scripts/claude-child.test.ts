@@ -878,6 +878,54 @@ describe("chrome-close", () => {
 			expect(fs.existsSync(recordAt())).toBe(true);
 		});
 
+		it("leaves a failed record 6 h, then resumes it", () => {
+			const failed = (ago: number) => ({
+				attempts: 1,
+				lastReason: "out of allowance",
+				lastAttemptAt: new Date(Date.now() - ago).toISOString(),
+			});
+			writeRecordFile(failed(Hour));
+			resumeWith([CLOSED_ROW, buildResultRow()]);
+			expect(line(close(["--sweep"])).skipped).toEqual([
+				{ sessionId: Id, why: expect.stringContaining("failed within 6 h") },
+			]);
+			expect(launched()).toBe(false);
+			writeRecordFile(failed(6 * Hour + 1));
+			expect(line(close(["--sweep"])).swept).toEqual([
+				expect.objectContaining({ sessionId: Id, outcome: "closed" }),
+			]);
+		});
+
+		it("gives a failing record up only once 12 h have passed since its first failure", () => {
+			writeRecordFile();
+			resumeWith([buildResultRow({ result: "out of allowance" })]);
+			/* Moves the record's clock back past the back-off, as 6 h passing would. */
+			const age = () => {
+				const r = storedRecord();
+				for (const k of ["startedAt", "lastAttemptAt"])
+					r[k] = new Date(Date.parse(r[k]) - 6 * Hour - 1).toISOString();
+				fs.writeFileSync(recordAt(), JSON.stringify(r));
+			};
+			const outcomes = () =>
+				line(close(["--sweep"])).swept.map(
+					(s: { outcome: string }) => s.outcome,
+				);
+			expect(outcomes()).toEqual(["failed"]);
+			expect(outcomes()).toEqual([]);
+			age();
+			expect(outcomes()).toEqual(["failed"]);
+			expect(outcomes()).toEqual([]);
+			expect(fs.existsSync(recordAt())).toBe(true);
+			age();
+			expect(outcomes()).toEqual(["given-up"]);
+			const gone = JSON.parse(
+				fs.readFileSync(path.join(store(), "given-up", `${Id}.json`), "utf8"),
+			);
+			expect(
+				Date.parse(gone.lastAttemptAt) - Date.parse(gone.startedAt),
+			).toBeGreaterThanOrEqual(12 * Hour);
+		});
+
 		it("sweeps a held record past its 2 h", () => {
 			writeRecordFile({
 				heldSince: new Date(Date.now() - 3 * Hour).toISOString(),
