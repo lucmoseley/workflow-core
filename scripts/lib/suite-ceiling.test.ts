@@ -197,7 +197,7 @@ it("asks the real process table, not the fixture's listing, whether an owner liv
 
 /* #5320's fault signature, which the outcome review counts, reads a real
  * kill by the headline's ceiling suffix: the suite-ceiling tests print the
- * line without it, and a gate run's log carries their output. */
+ * line without it. */
 it("counts every runner's kill line under #5320's signature, and never the suite-ceiling tests' printed line", () => {
 	const entry = readJsonl(
 		path.join(__dirname, "../../docs/data/outcome-signatures.jsonl"),

@@ -28,22 +28,19 @@
  * `vitest list`, asked where a config can narrow its include or exclude.
  * Pytest's is read off its config, by `pytest-collection.js`.
  *
- * THE OWN WORK IS TAKEN FROM ONE OF TWO BASES. `merge-base`, the default,
- * is all the session's own work since the merge base with verified main: a
+ * THE OWN WORK'S BASE. `merge-base`, the default, is all the session's own work since the merge base with verified main: a
  * bare run's check of the whole branch. `head` is the tree's changes over
  * HEAD, which a commit gate's tree holds as the commit's paths (#5320): each
  * commit's gate answers for its own commit, the branch's earlier commits
- * having answered for themselves at theirs. A runner takes `head` only
- * inside a live commit-gate seat, judged by its process ancestry, never by
- * the seat's variable alone (`touchedBaseHere`, #5273). Residual: an earlier
+ * having answered for themselves at theirs. A seat is judged by process
+ * ancestry, never by the seat's variable alone (#5273). Residual: an earlier
  * commit made with no gate run is not touched-tested before the lander's
  * full suite.
  *
  * WHERE THE MANIFEST IS UNREADABLE OR WILL NOT RENDER, its readers give way
  * to each changed file's same-stem siblings: for `<dir>/<stem>.<ext>`, the
- * test files in `<dir>` that `JS_TEST_FILE` takes and that open `<stem>.`
- * (`<stem>.test.*`, `<stem>.spec.*`, `<stem>.<infix>.test.*`), or
- * `test_<stem>.py` and `<stem>_test.py` on pytest's route. The lexical edges, needing no
+ * test files in `<dir>` that `JS_TEST_FILE` takes and that open `<stem>.`,
+ * or pytest's own sibling names on its route. The lexical edges, needing no
  * manifest, stay. It never widens, and no checker-only file cuts it.
  */
 
@@ -139,8 +136,7 @@ function checkerTests(p, tracked) {
  * at a line's start. A parenthesised name list continued past the line is
  * read for its module alone. An absent module is exactly one blank before
  * the blanks ahead of `import`, so the two runs never split one run of
- * blanks every way (#3383); group 1 is then
- * undefined, which pythonModules reads as "".
+ * blanks every way (#3383).
  */
 const PY_IMPORT = /^[ \t]*import[ \t]+([\w.][\w., \t]*)/gm;
 const PY_FROM =
@@ -469,9 +465,6 @@ function readTouchedPaths(
 }
 
 /**
- * `own`'s paths, else the tree's diff against `base`, with the tree's
- * untracked files unless `own` carries its own.
- *
  * @param {string} at
  * @param {string} base
  * @param {OwnSet|null|undefined} own
@@ -530,7 +523,6 @@ function touchedBanner(
 		from === "head"
 			? `this commit's changes over HEAD ${at}`
 			: `your own work since ${at}`;
-	/* This line's merge-base wording predates the others' (#2952). */
 	const uncollectedWork =
 		from === "head"
 			? `${ownWork} touched`
