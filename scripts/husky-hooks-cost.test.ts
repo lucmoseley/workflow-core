@@ -10,8 +10,8 @@
  * hooks before it leave on a real commit — the staged file, pre-commit's
  * stand-down stamp, the message file, the commit itself — and runs its hook
  * with the arguments and GIT_* variables git hands it. A checker a hook runs
- * through lib/hook-bound.sh's run-budgeted.js shows after it (#5361). The dispatchers' own loads and starts are
- * commit-dispatch-cost.test.ts's.
+ * through lib/hook-bound.sh's run-budgeted.js shows after it (#5361). The
+ * dispatchers' own loads and starts are commit-dispatch-cost.test.ts's.
  */
 
 import fs from "node:fs";

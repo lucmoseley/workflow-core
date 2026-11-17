@@ -1,7 +1,6 @@
 /*
  * run-budgeted-argv.js — run-budgeted.js's command line split into its
- * fields, read by run-budgeted.js itself and by the pin harness's shell half,
- * which records a budgeted start by the command it runs (#5361).
+ * fields, read by run-budgeted.js and by the pin harness's shell half (#5361).
  *
  *   <budget-ms> <kill-after-ms> <command> [args…]
  *   --hook <hook> [--pausable] <command> [args…]

@@ -17,11 +17,10 @@
  * absolute first argument is shown relative to the scripts root, else to the
  * call's cwd, else as its basename, so a pin holds no machine path. The shell
  * half follows a `node run-budgeted.js` start with the command it runs, as
- * one entry: `node run-budgeted.js node precommit-dispatch.js` (#5361).
+ * one entry (#5361).
  *
  * Every call throws where the program exits other than `expectStatus`
- * (default 0) or writes stderr without `allowStderr`: a pin over a broken
- * call is not a pin over the common path.
+ * (default 0) or writes stderr without `allowStderr`.
  *
  * BLIND SPOT (Node): children are counted by replacing each process-starting
  * function on the shared `node:child_process` export for the call's duration.
