@@ -16,11 +16,11 @@
  * knows.
  *
  * A WAIT LOOP GATED ON MACHINE LOAD IS DENIED FIRST (#5330, spec #5328), ceiling
- * or none, before the length and the warning are read: it ends only when other
- * work stops (#5325). A gate is a loop holding a `sleep` that reads load —
- * `/proc/loadavg`, `uptime` as a command, `loadavg` or `getloadavg` as a word —
- * in its condition, or in its body beside a `break` or `exit`. A loop reading
- * load in its body alone is a sampler, and passes. The deny quotes
+ * or none, before the length and the warning are read (#5325). A gate is a
+ * loop holding a `sleep` that reads load — `/proc/loadavg`, `uptime` as a
+ * command, `loadavg` or `getloadavg` as a word — in its condition, or in its
+ * body beside a `break` or `exit`. A loop reading load in its body alone is a
+ * sampler, and passes. The deny quotes
  * docs/agents/rules/load-wait.txt, or a fallback naming it.
  *
  * A WAIT OVER 15 MINUTES IS DENIED (#1288, ruled at #1286). Three shapes are a
@@ -66,8 +66,7 @@
  *    script is kept beside a `-c` one, so `node -e '…os.loadavg…'` is read,
  *    and a double-quoted span keeps its unescaped `$(…)` and backtick
  *    substitutions, so `[ "$(cut … /proc/loadavg)" … ]` is read. A substitution
- *    holding a `"` is cut at it. A `-c` script is kept whatever the command,
- *    so `grep -c loadavg` in a loop reads as a load read. It is blind to a
+ *    holding a `"` is cut at it. It is blind to a
  *    load read through a variable or a command it does not name, to a loop in
  *    a script file the shell runs, and to an interpreter's own polling loop
  *    with no shell loop around it.
@@ -179,8 +178,7 @@ const WRAPPED_LOOP_RE = new RegExp(`^(while|until)[${SP}]`);
 
 /**
  * @typedef {{ kw: string, body: string, condition: string }} Loop
- * @typedef {{ script: RegExp, subs: boolean }} Masking which quoted scripts
- *   `mask` keeps, and whether a double-quoted span keeps its substitutions
+ * @typedef {{ script: RegExp, subs: boolean }} Masking
  */
 
 /**
@@ -337,8 +335,8 @@ function durations(text) {
 /**
  * `text` with every quoted span emptied but a script `script` matches the
  * flag of, which is kept with its own quoted spans emptied in turn. Where
- * `subs`, a double-quoted span keeps its command substitutions, which run. An
- * unclosed quote empties the rest.
+ * `subs`, a double-quoted span keeps its command substitutions. An unclosed
+ * quote empties the rest.
  * @param {string} text
  * @param {Masking} [how]
  * @returns {string}
@@ -634,8 +632,7 @@ What this guard cannot see: it reads a ceiling as a \`timeout\`, or a numeric co
 
 /**
  * The refusal of the first wait loop gated on machine load: one reading load
- * in its condition, or in its body beside a `break` or `exit`. A loop reading
- * load in its body alone samples it, and passes.
+ * in its condition, or in its body beside a `break` or `exit`.
  * @param {string} written
  * @param {import("./core-contract.js").CoreContext} ctx
  */

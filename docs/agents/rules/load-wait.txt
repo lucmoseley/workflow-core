@@ -14,6 +14,4 @@ founder and on every other session.
     machine reached that figure in the run records — the test-run markers'
     `machine` block (`load1`, `load1AtStart`) under
     `.claude/tmp/markers/.test-logs/`, and memwatch's minute log
-    (`~/memwatch-minute.jsonl`, `load1` per minute). A figure the records show
-    the machine never reached is a wait that cannot end without stopping other
-    work.
+    (`~/memwatch-minute.jsonl`, `load1` per minute).
