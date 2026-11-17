@@ -1,7 +1,10 @@
 // @vitest-environment node
 /*
  * lib/throughput-reads.js — the throughput breaker's reads (#5275), crossed for
- * real: git and the files in the test's own temp directory.
+ * real: git and the files in the test's own temp directory. Broken, the
+ * breaker counts merges or another branch's commits as landings, reads an
+ * unreadable record as an empty one and closes a breaker it should hold, or
+ * counts only the loop sessions the state still keeps (#5289).
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -139,12 +142,17 @@ describe("the breaker's record", () => {
 	});
 });
 
-/** A checkout `repo` whose `main` is pushed to the bare `origin.git` beside it. */
+const WORKTREE = "implement-1-abc";
+
+/**
+ * A checkout `repo`, holding the worktree directory WORKTREE, whose `main`
+ * is pushed to the bare `origin.git` beside it.
+ */
 const lander = defineTemplate((dir) => {
 	const origin = path.join(dir, "origin.git");
 	const repo = path.join(dir, "repo");
 	git(dir, "init", "-q", "--bare", "-b", "main", origin);
-	fs.mkdirSync(path.join(repo, ".claude", "worktrees", "implement-1-abc"), {
+	fs.mkdirSync(path.join(repo, ".claude", "worktrees", WORKTREE), {
 		recursive: true,
 	});
 	git(repo, "init", "-q", "-b", "main");
@@ -194,7 +202,7 @@ describe("a breaker trial's landing reads (#5300)", () => {
 			lander.instantiate(path.join(tmp, "lander")),
 			"repo",
 		);
-		const name = "implement-1-abc";
+		const name = WORKTREE;
 		const seat = path.join(tmp, "seat");
 		fs.mkdirSync(path.join(seat, "jobs", "j1"), { recursive: true });
 		fs.writeFileSync(
@@ -287,6 +295,7 @@ describe("a breaker trial's landing reads (#5300)", () => {
 		batch(sha);
 		const read = tickRead(repo);
 		expect(read.queueOf(l)).toEqual({ state: "waiting" });
+		/* The tick's refs are already read, so only the walk of main faults. */
 		const main = git(repo, "rev-parse", "main");
 		fs.rmSync(
 			path.join(repo, ".git", "objects", main.slice(0, 2), main.slice(2)),
@@ -297,7 +306,7 @@ describe("a breaker trial's landing reads (#5300)", () => {
 	it("reads a worktree's queue ref it cannot reach as unread, and why", () => {
 		const repo = repoAt("repo");
 		const seat = path.join(tmp, "seat");
-		const tree = path.join(repo, ".claude", "worktrees", "implement-1-abc");
+		const tree = path.join(repo, ".claude", "worktrees", WORKTREE);
 		fs.mkdirSync(tree, { recursive: true });
 		fs.mkdirSync(path.dirname(queueLogFile(repo)), { recursive: true });
 		fs.writeFileSync(queueLogFile(repo), "");
