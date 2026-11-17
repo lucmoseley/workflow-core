@@ -3475,8 +3475,9 @@ describe("a serial step", () => {
 		},
 	);
 
-	/* Positive pair: "lands a lone ref as the integration commit its merge
-	 * names". */
+	/* Positive pairs: "lands a lone ref as the integration commit its merge
+	 * names" for the fast-forward, "skips a member withdrawn while %s is
+	 * under test…" for the serial step. */
 	it.each([
 		["a batch's fast-forward", "merge(m0;a1,b1)", false, "merge(m0;a1)"],
 		["a serial step", "merge(merge(m0;a1);b1)", true, "merge(merge(m0;a1);c1)"],
@@ -3489,7 +3490,8 @@ describe("a serial step", () => {
 				...(serial ? { c: { sha: "c1", pushedAt: 3 } } : {}),
 			});
 
-			const { end, actions, pushed, said } = await land(r, freshDisk(), {
+			const disk = freshDisk();
+			const { end, actions, pushed, said } = await land(r, disk, {
 				...(serial
 					? {
 							verdict: (sha: string) =>
@@ -3522,25 +3524,31 @@ describe("a serial step", () => {
 				"leave-withdrawn queue/b@b1: its queue ref is gone from the remote",
 			]);
 			expect(pushed.filter((sha) => sha.includes("b1"))).toEqual([]);
+			expect(disk.refused.size).toBe(0);
 			expect(r.main).toBe(landed);
 		},
 	);
 
+	/* Positive pair: "lands a lone ref as the integration commit its merge
+	 * names". */
 	it("leases each queue ref at the sha the step read, so a member pushed again before the push lands on the step after (#5326)", async () => {
 		const r = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },
 			b: { sha: "b1", pushedAt: 2 },
 		});
 		let pushes = 0;
+		const disk = freshDisk();
 
-		const { pushed, said } = await land(r, freshDisk(), {
+		const { pushed, said } = await land(r, disk, {
 			beforePush: (_, rem) => {
 				if (++pushes === 1) rem.refs.set("b", { sha: "b2", pushedAt: 3 });
 			},
 		});
 
 		expect(said.filter((l) => l.startsWith("main not moved"))).toHaveLength(1);
-		expect(pushed[0]).toBe("merge(m0;a1,b1)");
+		expect(pushed).toEqual(["merge(m0;a1,b1)", "merge(merge(m0;a1,b1);b2)"]);
+		expect(disk.refused.size).toBe(0);
+		expect(r.main).toBe("merge(merge(m0;a1,b1);b2)");
 	});
 });
 

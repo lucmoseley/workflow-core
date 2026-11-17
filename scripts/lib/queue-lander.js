@@ -1317,8 +1317,10 @@ function leaveWithdrawn(s, members) {
 /**
  * `land`, a push to `main` landing `members`, leasing each one's queue ref
  * at the sha this step read, so one withdrawn before the push lands keeps
- * `main` where it is (#5326); where one's ref is gone already, its
- * leave-withdrawn instead, as a lease cannot require a ref to exist.
+ * `main` where it is (#5326). The read sha, not the merged one: a ref pushed
+ * again costs one step, then its merged sha lands, where leasing the merged
+ * sha would fail every step. A ref gone already has no read sha to lease,
+ * so its member is left out instead of pushed unleased.
  * @template {{kind: "fast-forward-main", sha: string}
  *   | {kind: "land-step", sha: string, name: string}} L
  * @param {QueueState} s
@@ -1990,7 +1992,8 @@ function stepOrEnd(s) {
  * @property {(line: string) => void} [say] reports a fix or base-red ticket
  *   filed, updated or left unfiled, one whose state was not read or that
  *   would not close, and a run not cancelled or an early batch push that
- *   failed, and a torn pipeline record moved aside
+ *   failed, a push of `main` a lost lease stopped, and a torn pipeline
+ *   record moved aside
  * @typedef {Pick<QueueState, "pipeline" | "unread" | "unmerged" | "alone"
  *   | "deferrals" | "kept" | "unfiled" | "leftToNextRun" | "isClosed" | "baseFiled"
  *   | "baseTicket" | "superseded"> & {pending: Map<string, Pending>,
