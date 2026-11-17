@@ -2144,7 +2144,7 @@
 		"section": "Research runs",
 		"class": "source-of-truth",
 		"classQualifier": null,
-		"role": "The census `scripts/check-instruction-surface.js` reads (#1604): 47 always-loaded rules (38 printed by nothing at need), 63 hook entries, 66 guards each fed a triggering payload, 41 skill directories. Its first section lists the guard defects the measurement found, filed at #1717.",
+		"role": "The census `scripts/check-instruction-surface.js` reads (#1604): 47 always-loaded rules (38 printed by nothing at need), 63 hook entries, 71 guards each fed a triggering payload, 41 skill directories. Its first section lists the guard defects the measurement found, filed at #1717.",
 		"route": "Replaced whole by the next census; anchored by scripts/instruction-surface-anchors.json",
 		"consumes": null,
 		"reader": "agent"

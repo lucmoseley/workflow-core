@@ -14,12 +14,12 @@ Resolves #1604 (bring the census up to the live surface). The census `scripts/ch
 | Skill descriptions (41 directories, at `bba80f019`) | **3,633 B** | every session | trigger text only |
 | Skill bodies (41 directories, at `bba80f019`) | **337,986 B** | on trigger | — |
 | Hook entries (the self-plugin's and `.claude/settings.json`'s, at `bba80f019`, #5359) | **63** across 9 events | per matching event | Table A |
-| Hook-wired guards carrying rule text, plus `check-roadmap-valid.js` and `check-weakens-line.js` | **66** measured | per triggering call | Table B |
+| Hook-wired guards carrying rule text, plus `check-roadmap-valid.js` and `check-weakens-line.js` | **71** measured | per triggering call | Table B |
 
 - **38 of 47 pool rules (81%) have nothing that prints them at the moment of need**: CLAUDE.md 17/20, `docs/working-contract.md` 4/5, `core-voice.md` 17/22. Counting a doc pointer or a skill as a mechanism, as the first edition did, the figure is **31 (66%)**. At `437c94164` it was 67 of 124 (54%): the rules that left the pool were mostly the guard-printed ones.
 - **Subject split: 0 manta-world rules, 47 repo-machinery.** The infra-region rule, the one manta-world rule at `437c94164`, has left the pool.
-- **Timing across 66 guards: at need 59 · at need but also firing on a wrong trigger 3 · too late 3 · never fires on the common path 1.**
-- **Self-sufficient: yes 62 · same subject only 2 · pointer only 1 · no 1** (`guard-jev-advisory.js`, which warns the founder's screen and never the session).
+- **Timing across 71 guards: at need 64 · at need but also firing on a wrong trigger 3 · too late 3 · never fires on the common path 1.**
+- **Self-sufficient: yes 67 · same subject only 2 · pointer only 1 · no 1** (`guard-jev-advisory.js`, which warns the founder's screen and never the session).
 - **Revised against the first edition**, of the 19 guards it measured: `guard-issue-body.sh`, `guard-wide-read.sh` and `guard-uncommitted-work.js` now carry their whole rule (self-sufficient upgraded to yes), and `guard-suite-concurrency.sh`'s memory-ladder warns, untested in August, are now reached through its `WFC_MEMINFO` seam and are self-sufficient.
 - **Only three guards print a literal `rule:<id>`** (`guard-inventory.js`, `guard-unpushed-commits.js`, and `inject-tracker-docs.sh`'s fetch-by-id index; `guard-vitest-wrapper.sh` on its short repeat only).
 
@@ -167,7 +167,7 @@ Re-read under #2263 at `a6d66be90` (5,979 B): the same 22 rules on the same line
 
 # Part 2 — hook entries and guard scripts
 
-Table A lists every hook entry the core runs, in the order `lib/core-hooks.js`'s `ownHooks` reads them (`self-plugin/hooks/hooks.json`, then `.claude/settings.json`'s canary), re-listed at `bba80f019` (#5359), a row kept from `11cb1fa3d` (#2932) keeping its text, with each script's own account of itself (its `IMPLICIT:` line, else its header's first sentence); a row marked `measured (#2263)` or `measured (#2586)` gives instead what the entry printed and when, as batch H or I fed it. The two `run-pinned-guards.js` rows run every PreToolUse and PostToolUse core through `guard-dispatch.js` from the pinned guard code (#4227); Table B's rows measure those cores, each under the entry name of the tree it was measured at. A `measured` row's text, and each measurement block below and each defect above, keeps the script name and wording of the tree it was measured at, so a guard since ported to Node is named `.sh` there. A row marked *Table B* was measured behaviourally; the rest are recorders, formatters and session-start reporters that carry no rule text, measured only where Batch E or F names them. Five guards that do print rule text carry `—` too, as no payload has yet been fed them: `guard-typecheck-owed.js`, `guard-exhausted-map.js`, `guard-held-ticket.js`, `guard-session-id-prose.js` and `guard-main-checkout-job.js` (#5371). Table B gives each measured guard's verdicts in brief, with its prior verdict from the first edition where it had one; the measurement blocks below hold the payload, the bytes printed, the full verdicts and the limbs left untried.
+Table A lists every hook entry the core runs, in the order `lib/core-hooks.js`'s `ownHooks` reads them (`self-plugin/hooks/hooks.json`, then `.claude/settings.json`'s canary), re-listed at `bba80f019` (#5359), a row kept from `11cb1fa3d` (#2932) keeping its text, with each script's own account of itself (its `IMPLICIT:` line, else its header's first sentence); a row marked `measured (#2263)` or `measured (#2586)` gives instead what the entry printed and when, as batch H or I fed it. The two `run-pinned-guards.js` rows run every PreToolUse and PostToolUse core through `guard-dispatch.js` from the pinned guard code (#4227); Table B's rows measure those cores, each under the entry name of the tree it was measured at. A `measured` row's text, and each measurement block below and each defect above, keeps the script name and wording of the tree it was measured at, so a guard since ported to Node is named `.sh` there. A row marked *Table B* was measured behaviourally; the rest are recorders, formatters and session-start reporters that carry no rule text, measured only where Batch E or F names them. Table B gives each measured guard's verdicts in brief, with its prior verdict from the first edition where it had one; the measurement blocks below hold the payload, the bytes printed, the full verdicts and the limbs left untried.
 
 ## Table A — hook entries (63)
 
@@ -229,11 +229,11 @@ Table A lists every hook entry the core runs, in the order `lib/core-hooks.js`'s
 |27|`*`|—|`guard-lost-deny.js`|Table B|reads this session's own transcript at every Stop and refuses one turn where a deny-capable PreToolUse guard was cancelled or exited non-zero, and the call went ahead, since the…|
 |28|`*`|—|`guard-automode-refusal.js`|Table B|reads this session's own transcript at every Stop and refuses one turn carrying an auto-mode refusal it has not yet shown the rule for.|
 |29|`*`|—|`guard-unpushed-commits.js`|Table B|reads this session's commit ledger and git at every Stop, and blocks one turn when a commit it made is on HEAD but not on the pushed ref and has not been warned about before.|
-|30|`*`|—|`guard-typecheck-owed.js`|—|reads the queue exit log at every Stop, and blocks the turn when this session has a held try and no own run after it, or an unheard RED record, which it deletes.|
-|31|`*`|—|`guard-exhausted-map.js`|—|at every Stop of a session holding an issue claim, reads each claimed issue from GitHub and refuses the turn where one is an exhausted map.|
-|32|`*`|—|`guard-held-ticket.js`|—|at every Stop of a session holding an issue claim and ending on `result:` or no marker, reads each claimed issue from GitHub and refuses the turn where one is an unfinished build unit.|
+|30|`*`|—|`guard-typecheck-owed.js`|Table B|reads the queue exit log at every Stop, and blocks the turn when this session has a held try and no own run after it, or an unheard RED record, which it deletes.|
+|31|`*`|—|`guard-exhausted-map.js`|Table B|at every Stop of a session holding an issue claim, reads each claimed issue from GitHub and refuses the turn where one is an exhausted map.|
+|32|`*`|—|`guard-held-ticket.js`|Table B|at every Stop of a session holding an issue claim and ending on `result:` or no marker, reads each claimed issue from GitHub and refuses the turn where one is an unfinished build unit.|
 |33|`*`|—|`guard-paste-self-match.js`|Table B|scans every outgoing message for `!` code with a pgrep or pkill in it, and runs one bash per such block.|
-|34|`*`|—|`guard-session-id-prose.js`|—|scans every outgoing message, and reads the sessions registry where one holds a UUID or an 8-hex word.|
+|34|`*`|—|`guard-session-id-prose.js`|Table B|scans every outgoing message, and reads the sessions registry where one holds a UUID or an 8-hex word.|
 |35|`*`|—|`park-on-round.js`|—|measured (#2263): prints nothing. At a background job's passing `needs input:` Stop whose round sits on an issue this session claims, labels that issue `parked` and records it in the `.parked-` marker; a `result:` ending or an interactive session parks nothing.|
 |36|`*`|—|`refill-wake.sh`|—|measured (#2586): prints nothing. Where the refill loop's pidfile exists and the ending session is an unfinished launch's, matched on its session id or its job id, appends `<ms> <session id>` to `.refill-loop-wake`; background work in flight wakes nothing unless the last line opens `result:` or `needs input:`.|
 
@@ -249,7 +249,7 @@ Table A lists every hook entry the core runs, in the order `lib/core-hooks.js`'s
 | # | Matcher | `if` | Script | Measured | What it does (its own header) |
 |---|---|---|---|---|---|
 |39|`compact`|—|`inject-compaction-count.js`|Table B|at every compaction, writes a trigger marker; after one, reads and deletes it, reads the transcript tail and writes the compaction set.|
-|40|`startup\|resume`|—|`guard-main-checkout-job.js`|—|at every startup or resume of a background job in the main checkout, cuts a worktree; at a startup with a prompt, copies the files it names in the job directory there, starts a second job there and removes the first.|
+|40|`startup\|resume`|—|`guard-main-checkout-job.js`|Table B|at every startup or resume of a background job in the main checkout, cuts a worktree; at a startup with a prompt, copies the files it names in the job directory there, starts a second job there and removes the first.|
 |41|`*`|—|`write-self-plugin-marker.sh`|—|measured (#2586): prints nothing on stdout. At every session start writes an empty `.self-plugin-loaded-<session id>` under `.claude/tmp/markers/`, the proof `self-plugin-canary.sh` reads; where that directory is unwritable it logs to `guard-errors.log`, puts a stray 207 B on stderr (#2626), and the canary refuses the session's first call.|
 |42|`*`|—|`replay-notify-reports.js` `--notify`|—|reads the persisted report files at every session start and injects into the session whatever a slow async producer finished after the harness had stopped listening to it, bar the…|
 |43|`*`|—|`check-plugin-gap.js` `--notify`|—|on every SessionStart, injects a version-gap line, the adopter-upgrade rule text and the consent accept/decline commands into the session's context when the pin, supply and install…|
@@ -279,7 +279,7 @@ Table A lists every hook entry the core runs, in the order `lib/core-hooks.js`'s
 |---|---|---|---|---|---|
 |63|`*`|—|`reconcile-plugin.js` `--session-end`|—|on every SessionEnd, where the founder's yes for this exact repo+tag is pending and no other Claude session is live under this config dir, runs `claude plugin marketplace add` →…|
 
-## Table B — measured guards (66)
+## Table B — measured guards (71)
 
 | Script | Batch, or the ticket that measured it | Timing | Self-sufficient | Against the first edition |
 |---|---|---|---|---|
@@ -349,6 +349,11 @@ Table A lists every hook entry the core runs, in the order `lib/core-hooks.js`'s
 |`guard-rm-unchecked.js`|I|at need (before the call, once per command)|yes|not measured|
 |`self-plugin-canary.sh`|I|at need (every tool call of a session the self-plugin did not load)|yes|not measured|
 |`guard-cpu-load.js`|J|at need (before the call, every time)|yes|not measured|
+|`guard-typecheck-owed.js`|#5371|at need (the Stop ending a turn whose commit's type-check found the slot held, or ran RED unheard)|yes|not measured|
+|`guard-exhausted-map.js`|#5371|at need (the Stop of a session claiming an exhausted map)|yes|not measured|
+|`guard-held-ticket.js`|#5371|at need (the Stop ending on `result:` or no marker while the session claims an unfinished build unit)|yes|not measured|
+|`guard-session-id-prose.js`|#5371|at need (the Stop carrying the reply, before the founder reads it)|yes|not measured|
+|`guard-main-checkout-job.js`|#5371|at need (the SessionStart before a background job's first turn in the main checkout)|yes|not measured|
 
 ## Measurement blocks
 
