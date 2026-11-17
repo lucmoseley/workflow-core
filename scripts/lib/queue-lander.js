@@ -1977,8 +1977,8 @@ function stepOrEnd(s) {
  *   of `queue/<name>` is working; `stopped` where it is not or the read is
  *   in doubt, and it never throws
  * @property {{acquire: () => boolean, release: () => void}} lock
- * @property {(batch: string|null) => void} beat writes the heartbeat,
- *   naming the sha under test
+ * @property {(batch?: string|null) => void} beat writes the heartbeat,
+ *   naming the batch under test, or the one last named where omitted
  * @property {(ms: number) => Promise<void>} [wait] the backoff between tries
  *   of a faulted call
  * @property {(action: QueueAction) => void} [log]
@@ -2362,8 +2362,8 @@ function writeVerdict(deps, { sha, files, pass, v }, run, keep) {
  */
 async function verdictAt(deps, place, sha, { files, again } = {}) {
 	const { tester, beat } = deps;
-	beat(sha);
-	const timer = setInterval(() => beat(sha), HEARTBEAT_MS);
+	beat();
+	const timer = setInterval(() => beat(), HEARTBEAT_MS);
 	try {
 		return await remote(
 			retrying(
@@ -3065,8 +3065,10 @@ async function actOnPipeline(deps, action, run) {
  */
 async function step(deps, before, log) {
 	const run = keepEnded(deps, before);
-	const head = run.pipeline.line[0] ?? run.pipeline.search;
-	deps.beat(head?.integration ?? null);
+	/* The search first: it holds `main`, and a line rebuilt behind it has no
+	 * integration commit yet (#5360). */
+	const { search, line } = run.pipeline;
+	deps.beat(search?.integration ?? line[0]?.integration ?? null);
 	const refs = deps.git.refs();
 	/** @type {readonly Landing[]|null} */
 	let landings = null;

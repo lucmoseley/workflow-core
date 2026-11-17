@@ -99,14 +99,23 @@ function fileLedger(file) {
 }
 
 /**
+ * A beat naming no batch names the one last named, so a verdict's keepalive
+ * never puts the sha it asks, a base or bisect step, in the batch's place:
+ * the stall ticket's body reads it (#5360).
  * @param {string} file
- * @returns {(batch: string|null) => void}
+ * @returns {(batch?: string|null) => void}
  */
-const heartbeatWriter = (file) => (batch) =>
-	writeFileAtomic(
-		file,
-		`${JSON.stringify({ pid: process.pid, at: new Date(now()).toISOString(), batch })}\n`,
-	);
+function heartbeatWriter(file) {
+	/** @type {string|null} */
+	let last = null;
+	return (batch = last) => {
+		last = batch;
+		writeFileAtomic(
+			file,
+			`${JSON.stringify({ pid: process.pid, at: new Date(now()).toISOString(), batch })}\n`,
+		);
+	};
+}
 
 /**
  * The heartbeat, or null where it is absent or not a heartbeat; any other
