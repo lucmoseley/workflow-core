@@ -5,18 +5,20 @@
  *
  * It runs on every Write, Edit and NotebookEdit: it returns on the latch before any read; it reads the
  * registrations (lib/hot-path-set.js) only for a path spelt as a program —
- * a code extension, or none and a shebang — as only those enter the set;
- * and it starts no child process.
+ * a code extension, or none and a shebang — the spelling a registration's
+ * program must have to enter the set; and it starts no child process.
  *
  * LIMITS
  *  - INJECTION ONLY: it never refuses.
  *  - A file written through Bash is never seen.
+ *  - A `polled` program spelt otherwise (another extension, or none and no
+ *    shebang) is in the set but never told.
  */
 
 const path = require("node:path");
 const {
 	CODE_FILE,
-	PROGRAM_NAME,
+	PROGRAM_SPELLING,
 	hotPathSet,
 	isHookRegistration,
 } = require("./hot-path-set.js");
@@ -31,8 +33,8 @@ const INJECT = { injectRules: ["hot-path-cost"] };
  * @param {string} rel
  * @param {() => string | null} text the written file's text
  */
-function spelledAsProgram(rel, text) {
-	if (isTestKind(rel) || !PROGRAM_NAME.test(rel)) return false;
+function isSpeltAsProgram(rel, text) {
+	if (isTestKind(rel) || !PROGRAM_SPELLING.test(rel)) return false;
 	return CODE_FILE.test(rel) || (text() ?? "").startsWith("#!");
 }
 
@@ -51,7 +53,7 @@ function decide(file, ctx) {
 		typeof ctx.input.content === "string"
 			? ctx.input.content
 			: tree.readText(rel);
-	if (!spelledAsProgram(rel, written)) return null;
+	if (!isSpeltAsProgram(rel, written)) return null;
 	const set = hotPathSet(tree.root, {
 		readText: tree.readText,
 		isFile: (p) => ctx.isFile(path.join(tree.root, p)),

@@ -87,8 +87,11 @@ const TOKEN = /[\w.@+/-]+/g;
 const CODE_EXTENSION = String.raw`\.(?:c?js|mjs|ts|sh|py)`;
 /** A path ending in a program's code extension. */
 const CODE_FILE = new RegExp(`${CODE_EXTENSION}$`);
-/** A path spelt as a program: a code extension, or none. */
-const PROGRAM_NAME = new RegExp(`(?:^|/)(?:[^./]+|[^/]+${CODE_EXTENSION})$`);
+/** A path spelt as something that runs — a code extension, or none — whatever
+ *  its code kind under base §0. */
+const PROGRAM_SPELLING = new RegExp(
+	`(?:^|/)(?:[^./]+|[^/]+${CODE_EXTENSION})$`,
+);
 const STRING_LITERAL = new RegExp(
 	`(["'\`])([^"'\`\\s]+${CODE_EXTENSION})\\1`,
 	"g",
@@ -149,7 +152,7 @@ function inTree(root, port, token, base) {
 const namedFiles = (root, port, text) =>
 	[...text.replace(ROOT_VARS, "").matchAll(TOKEN)]
 		.map(([token]) => token)
-		.filter((token) => /[/.]/.test(token) && PROGRAM_NAME.test(token))
+		.filter((token) => /[/.]/.test(token) && PROGRAM_SPELLING.test(token))
 		.map((token) => inTree(root, port, token));
 
 /**
@@ -268,4 +271,9 @@ function hotPathSet(root, port) {
 	].sort();
 }
 
-module.exports = { CODE_FILE, PROGRAM_NAME, hotPathSet, isHookRegistration };
+module.exports = {
+	CODE_FILE,
+	PROGRAM_SPELLING,
+	hotPathSet,
+	isHookRegistration,
+};
