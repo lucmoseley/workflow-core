@@ -75,7 +75,7 @@
 	"scripts/name-issue-session.sh": "491c47bf8adab775",
 	"scripts/park-on-round.js": "5ea13bdeebb9b80b",
 	"scripts/place-new-issue.sh": "d51a92cbf631b8f6",
-	"scripts/practice-guard.sh": "9522dd54d0ff62ec",
+	"scripts/practice-guard.sh": "74e3f735eeb241e3",
 	"scripts/queue-run.js": "bc5ab35795a30ce3",
 	"scripts/reap-finished-sessions.js": "c138adf45f11b2e4",
 	"scripts/reap-orphan-hooks.js": "4ab95230d53a14c7",

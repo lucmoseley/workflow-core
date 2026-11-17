@@ -68,15 +68,22 @@
 # currency judged on whichever is found. Run as the founder's machine copy at
 # ~/.claude/hooks/, whose parent holds no such file, the list is
 # ~/.claude/practice-crafts.md and a note resolves at the work tree root alone.
+# So at Stop the machine copy stands down, silent and latching nothing, where a
+# work tree root it would judge enables workflow-core@<any marketplace> in
+# enabledPlugins, read local, then project, then user settings, a key in a
+# higher file winning: there the plugin's copy judges the stop, and the machine
+# copy, blind to the plugin's notes, would refuse one only the plugin holds,
+# the latch they share letting it decide (#5394). Elsewhere it judges as the
+# only copy, keeping the rule's reach outside adopters (#2258 user story 6).
 # `npm run check:settings` holds both machine files to this repo's.
 #
 # Named for what it guards, not `guard-*`: the founder's machine copy under
 # ~/.claude/hooks/ carries this name, and check:settings pairs the two by it.
 #
-# IMPLICIT:  on a session's first touch of docs/practice/ hands over the craft list, refuses a Write of an off-list note, and at Stop refuses once a session that wrote a tracked file with no **Practice:** line that holds up.
+# IMPLICIT:  on a session's first touch of docs/practice/ hands over the craft list, refuses a Write of an off-list note, and at Stop refuses once a session that wrote a tracked file with no **Practice:** line that holds up, the machine copy standing down at Stop where the work tree enables the plugin.
 # JUSTIFIED: fail-safe — refusing once is the only Stop channel that reaches the model (#829).
 # DEFEAT:    none — each refusal fires once a session, and is cleared by declaring a line that holds up.
-# TREE:      session — the work tree roots of the files the session wrote, and the plugin root beside this script.
+# TREE:      session — the work tree roots of the files the session wrote, the plugin root beside this script, and, for the machine copy, the user and those roots' Claude Code settings.
 #
 # Self-contained: it also runs outside any adopter, so it sources nothing from
 # workflow-core and writes its own envelopes. The latch is shared by path, so
@@ -97,6 +104,8 @@ if [[ -n $plugin_root && -f $plugin_root/docs/practice-crafts.md ]]; then
 else
   plugin_root='' list_file=$HOME/.claude/practice-crafts.md
 fi
+note_where="docs/practice/<craft>.md at the work tree's root"
+[[ -n $plugin_root ]] && note_where+=", else the plugin's copy"
 list=$(cat "$list_file" 2>/dev/null)
 if [[ -z "$list" ]]; then
   echo "practice-guard: no craft list at $list_file, so nothing is judged" >&2
@@ -358,6 +367,20 @@ fault_in() {
   [[ $expiry > $TODAY ]] || echo "covered names $note, researched $date, 6 months ago or more"
 }
 
+# Whether Claude Code's settings for the work tree at "$1" enable the
+# workflow-core plugin: enabledPlugins merged user, then project, then local,
+# each key taking its highest file's value, and any workflow-core@<marketplace>
+# key left true. A file missing, not one JSON object, or whose enabledPlugins is
+# no object enables nothing.
+plugin_enabled_at() {
+  local file merged='{}' layer
+  for file in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" "$1/.claude/settings.json" "$1/.claude/settings.local.json"; do
+    layer=$(jq -cs 'if length == 1 and (.[0] | type) == "object" and (.[0].enabledPlugins | type) == "object" then .[0].enabledPlugins else {} end' "$file" 2>/dev/null) || continue
+    merged=$(jq -c --argjson l "$layer" '. + $l' <<<"$merged")
+  done
+  jq -e 'any(to_entries[]; (.key | startswith("workflow-core@")) and .value == true)' <<<"$merged" >/dev/null 2>&1
+}
+
 if [[ "$event" = stop ]]; then
   EXEMPT_PATTERN=$(exempt_pattern)
   readonly EXEMPT_PATTERN
@@ -416,6 +439,12 @@ if [[ "$event" = stop ]]; then
   [[ -n "$written" ]] || exit 0
   roots+=$(git -C "$(jq -r '.cwd // "."' <<<"$input")" rev-parse --show-toplevel 2>/dev/null)
 
+  if [[ -z $plugin_root ]]; then
+    while IFS= read -r root; do
+      [[ -n "$root" ]] && plugin_enabled_at "$root" && exit 0
+    done <<<"$roots"
+  fi
+
   fault=$(fault_in "$decl")
   [[ -n "$fault" ]] || exit 0
   latch stop-
@@ -423,7 +452,7 @@ if [[ "$event" = stop ]]; then
     1) exit 0 ;;
     2) [[ "$(jq -r '.stop_hook_active // false' <<<"$input")" = true ]] && exit 0 ;;
   esac
-  jq -n --arg r "Leading practice: this session wrote a tracked file, and its **Practice:** declaration does not hold up: $fault. Declare one line, in your reply or the close comment: \`**Practice:** ran — <note>\`, \`covered — <note>, <Researched date>\`, \`skipped — <exempt kind>\`, or \`none-fits — nearest <craft>\`. The exempt kinds: $EXEMPT_KINDS. A note is docs/practice/<craft>.md at the work tree's root, else the plugin's copy, current for 6 months from its Researched: date. This refuses once a session. The crafts:
+  jq -n --arg r "Leading practice: this session wrote a tracked file, and its **Practice:** declaration does not hold up: $fault. Declare one line, in your reply or the close comment: \`**Practice:** ran — <note>\`, \`covered — <note>, <Researched date>\`, \`skipped — <exempt kind>\`, or \`none-fits — nearest <craft>\`. The exempt kinds: $EXEMPT_KINDS. A note is $note_where, current for 6 months from its Researched: date. This refuses once a session. The crafts:
 $list" '{decision:"block",reason:$r}'
   exit 0
 fi
@@ -468,7 +497,7 @@ $RANKING" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"d
 fi
 
 first_touch || exit 0
-jq -n --arg c "The practice craft list, $list_file. A practice note is docs/practice/<craft>.md at the work tree's root, else the plugin's copy, named for one of these crafts:
+jq -n --arg c "The practice craft list, $list_file. A practice note is $note_where, named for one of these crafts:
 $list
 
 $RANKING" '{hookSpecificOutput:{hookEventName:"PreToolUse",additionalContext:$c}}'
