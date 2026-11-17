@@ -8,10 +8,15 @@
 const { spawnSync } = require("node:child_process");
 const { caught } = require("./caught.js");
 
-/* As check-kernel-stall.js's journal reader, whose comments derive them: a
- * read is well under 1 s, and an overflow is a failed read, never "no kills".
- * The whole earlyoom journal, 11 Sep to 26 Oct 2026, read 0.8 MB. */
+/** Per read. Measured at 0.05 s for a 15-hour boot's 542 kernel lines; the rest is margin. */
 const READ_TIMEOUT_MS = 5000;
+
+/**
+ * Per read. The largest boot journalctl held on 8 Oct 2026 was 1.93 MB (19,526
+ * lines over five days), and the whole earlyoom journal, 11 Sep to 26 Oct 2026,
+ * 0.8 MB; this is ~30x the larger, so only a boot of months would overflow it —
+ * and an overflow is a failed read, never "clean" or "no kills".
+ */
 const MAX_BUFFER = 64 * 1024 * 1024;
 
 /**
@@ -85,6 +90,7 @@ function readBoots() {
 const bootKey = (/** @type {string} */ id) => id.replace(/-/g, "");
 
 module.exports = {
+	MAX_BUFFER,
 	READ_TIMEOUT_MS,
 	bootKey,
 	readBoots,
