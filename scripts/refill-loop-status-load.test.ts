@@ -195,6 +195,7 @@ describe("refill-loop.js status's per-call cost (#4821)", () => {
 			"lib/repo-path.js",
 			"lib/retained-jsonl.js",
 			"lib/review-hour.js",
+			"lib/run-budgeted-argv.js",
 			"lib/run-budgeted.js",
 			"lib/run-command.js",
 			"lib/run-ledger.js",

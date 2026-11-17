@@ -4,6 +4,7 @@
  * exist holds no sha, and one that will not read throws rather than reading
  * as empty. A directory stands in for the
  * unreadable ledger: its read fails with EISDIR whatever the user's rights.
+ * And its heartbeat's keepalive keeps the batch last named (#5360).
  */
 
 import fs from "node:fs";
@@ -12,7 +13,8 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 
-const { fileLedger } = createRequire(__filename)("./lander-files.js");
+const { fileLedger, heartbeatWriter, readHeartbeat } =
+	createRequire(__filename)("./lander-files.js");
 
 let dir: string;
 
@@ -45,4 +47,15 @@ it("throws on a ledger that will not read, naming the fault", () => {
 		() => ledger.remove("abc"),
 	])
 		expect(read).toThrow(/EISDIR/);
+});
+
+it("keeps the batch last named on a heartbeat that names none (#5360)", () => {
+	const file = path.join(dir, "heartbeat");
+	const beat = heartbeatWriter(file);
+	beat("tip");
+	beat();
+	expect(readHeartbeat(file).batch).toBe("tip");
+	beat(null);
+	beat();
+	expect(readHeartbeat(file).batch).toBeNull();
 });

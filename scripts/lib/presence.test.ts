@@ -17,7 +17,8 @@ import {
 	isAbsentSinceSwitch,
 	markPresent,
 	presenceAt,
-	readLastTyped,
+	readLastTypedAt,
+	readLastTypedSeat,
 } from "./presence";
 import { readDeclaredSeats } from "./refill-seats";
 
@@ -102,10 +103,8 @@ describe("the marker", () => {
 
 	it("reads back the time and the typing session's seat", () => {
 		markPresent(NOW, env);
-		expect(readLastTyped(plans, env)).toEqual({
-			at: NOW.getTime(),
-			seat: seatB,
-		});
+		expect(readLastTypedAt(env)).toBe(NOW.getTime());
+		expect(readLastTypedSeat(plans, env)).toBe(seatB);
 		expect(fs.readdirSync(dir)).toEqual(["marker"]);
 	});
 
@@ -117,23 +116,21 @@ describe("the marker", () => {
 		);
 		const declared = readDeclaredSeats(dir);
 		markPresent(NOW, { ...env, HOME: dir, CLAUDE_CONFIG_DIR: seatA });
-		expect(readLastTyped(declared, env).seat).toBe(seatA);
+		expect(readLastTypedSeat(declared, env)).toBe(seatA);
 		const { CLAUDE_CONFIG_DIR: _, ...unset } = env;
 		markPresent(NOW, { ...unset, HOME: dir });
-		expect(readLastTyped(declared, env).seat).toBe(path.join(dir, ".claude"));
+		expect(readLastTypedSeat(declared, env)).toBe(path.join(dir, ".claude"));
 	});
 
 	it("reads a time-only marker as a time with no seat", () => {
 		fs.writeFileSync(env.WFC_PRESENCE_MARKER, `${NOW.toISOString()}\n`);
-		expect(readLastTyped(plans, env)).toEqual({
-			at: NOW.getTime(),
-			seat: null,
-		});
+		expect(readLastTypedAt(env)).toBe(NOW.getTime());
+		expect(readLastTypedSeat(plans, env)).toBeNull();
 	});
 
 	it("reads a seat the seat file does not list as a plan seat as none", () => {
 		markPresent(NOW, env);
-		expect(readLastTyped(list(seatA), env).seat).toBeNull();
+		expect(readLastTypedSeat(list(seatA), env)).toBeNull();
 		const overflow = {
 			seats: [
 				{
@@ -146,18 +143,19 @@ describe("the marker", () => {
 			],
 			errors: [],
 		};
-		expect(readLastTyped(overflow, env).seat).toBeNull();
+		expect(readLastTypedSeat(overflow, env)).toBeNull();
 	});
 
 	it("reads every seat as none while the seat file refuses", () => {
 		markPresent(NOW, env);
-		expect(readLastTyped({ ...plans, errors: ["bad"] }, env).seat).toBeNull();
+		expect(readLastTypedSeat({ ...plans, errors: ["bad"] }, env)).toBeNull();
 	});
 
 	it("reads a missing or garbled marker as no record", () => {
-		expect(readLastTyped(plans, env)).toEqual({ at: null, seat: null });
+		expect(readLastTypedAt(env)).toBeNull();
+		expect(readLastTypedSeat(plans, env)).toBeNull();
 		fs.writeFileSync(env.WFC_PRESENCE_MARKER, "not a time\n");
-		expect(readLastTyped(plans, env).at).toBeNull();
+		expect(readLastTypedAt(env)).toBeNull();
 	});
 
 	it("lives in ~/.claude, one per machine", () => {

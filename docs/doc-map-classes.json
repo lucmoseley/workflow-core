@@ -1105,12 +1105,12 @@
 			{
 				"kind": "path",
 				"ref": "scripts/lib/resolve-core.js",
-				"gloss": "the resolver whose CI variable the recipe sets"
+				"gloss": "the resolver whose CI variable the workflow sets"
 			},
 			{
 				"kind": "path",
-				"ref": "scripts/lib/helper-surface-ci.test.ts",
-				"gloss": "runs the recipe steps as written"
+				"ref": "scripts/lib/adopter-ci.js",
+				"gloss": "the workflow its CI section describes"
 			}
 		],
 		"reader": "agent"
@@ -2144,7 +2144,7 @@
 		"section": "Research runs",
 		"class": "source-of-truth",
 		"classQualifier": null,
-		"role": "The census `scripts/check-instruction-surface.js` reads (#1604): 49 always-loaded rules (39 printed by nothing at need), 125 hook entries, 66 guards each fed a triggering payload, 40 skill directories. Its first section lists the guard defects the measurement found, filed at #1717.",
+		"role": "The census `scripts/check-instruction-surface.js` reads (#1604): 47 always-loaded rules (38 printed by nothing at need), 63 hook entries, 71 guards each fed a triggering payload, 41 skill directories. Its first section lists the guard defects the measurement found, filed at #1717.",
 		"route": "Replaced whole by the next census; anchored by scripts/instruction-surface-anchors.json",
 		"consumes": null,
 		"reader": "agent"

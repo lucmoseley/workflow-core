@@ -278,7 +278,7 @@ A hot-path program is one the harness or git runs per tool call or per commit, o
 
 - *House, Node programs only*: pin through `callCost` (or `callCostAsync`) in the plugin's pin harness, `scripts/lib/call-cost-harness.js`.
 - *House, Python programs only*: pin through `call_cost` in the harness's Python half, `scripts/lib/call_cost_harness.py`.
-- *House, shell*: pin through the harness's `shellCallCost`, which records each watched binary the script starts.
+- *House, shell*: pin through the harness's `shellCallCost`, which records each watched binary the script starts, a `run-budgeted.js` start followed by the checker it runs.
 <!-- rule:hot-path-cost:end -->
 
 Judge (4) from the ticket's comments: a change made for speed with no before/after medians there is the finding. Judge (5) from the change's test files. A good reason to differ: a program with no common path a pin can drive, said in its header (§G4), under (5); or a guard that must run in its own process for a reason the hook docs give, such as fail-closed isolation or a timeout of its own, said at its entry, under (2).

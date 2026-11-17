@@ -237,6 +237,8 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 	let inFlight = 0;
 	let peak = 0;
 	const said: string[] = [];
+	/** Each heartbeat's batch, undefined where it names none afresh. */
+	const beats: (string | null | undefined)[] = [];
 	/** Each push to `main` tried, refused or not. */
 	const pushed: string[] = [];
 	const events: string[] = [];
@@ -471,7 +473,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 		landings: () => disk.landedAt,
 		owningSessionStateOf: (name) => o.owningSessionState?.(name) ?? "stopped",
 		lock: { acquire: () => o.acquired ?? true, release: () => undefined },
-		beat: () => undefined,
+		beat: (batch) => beats.push(batch),
 		wait: async () => undefined,
 		/* A machine that loops on microtasks starves vitest's timeout, so a
 		 * runaway fails its case here rather than hanging the file. */
@@ -488,6 +490,7 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 		end,
 		actions,
 		asked,
+		beats,
 		placements,
 		said,
 		peak,
@@ -2537,7 +2540,7 @@ describe("the red path", () => {
 		disk.verdicts.set(verdictKey("m0", ["scripts/x.test.ts"], 1), Green);
 		const isoAtAsk: (string | undefined)[] = [];
 
-		const { asked } = await land(remote, disk, {
+		const { asked, beats } = await land(remote, disk, {
 			requiresRun: false,
 			verdict: (sha, r) => {
 				if (sha === "m0") isoAtAsk.push(r.placed.get("iso-base"));
@@ -2547,6 +2550,9 @@ describe("the red path", () => {
 
 		expect(asked).toContain("m0:scripts/x.test.ts");
 		expect(isoAtAsk).toEqual(["m0"]);
+		/* The stall ticket names the heartbeat's batch, never the base (#5360). */
+		expect(beats).toContain(batchIn(disk)?.integration);
+		expect(beats).not.toContain("m0");
 		expect(batchIn(disk)?.bases).toContainEqual({
 			sha: "m0",
 			files: ["scripts/x.test.ts"],
@@ -3697,7 +3703,7 @@ describe("the pipeline (#4556)", () => {
 		const rebuilt = "merge(m0;b1)";
 		const isoA = `${A}:${RedA}`;
 
-		const { end, actions, events, depths } = await land(remote, disk, {
+		const { end, actions, events, depths, beats } = await land(remote, disk, {
 			parallel: true,
 			verdict: redWhereA,
 			onAsk: pushB,
@@ -3720,6 +3726,12 @@ describe("the pipeline (#4556)", () => {
 		expect(taken(actions)).toEqual([["a@a1", "c@c1"], ["b@b1"], ["c@c1"]]);
 		expect(remote.main).toBe(`merge(${rebuilt};c1)`);
 		expect(depths).toEqual([2, 1, 2, 3]);
+		/* The heartbeat names the red batch under search, not the line rebuilt
+		 * behind it (#5360). */
+		expect(beats.lastIndexOf(Ac)).toBeGreaterThan(beats.indexOf(rebuilt));
+		expect(beats.slice(beats.indexOf(Ac), beats.lastIndexOf(Ac))).not.toContain(
+			null,
+		);
 	});
 
 	it("cancels a follower's run on a restart that finds its head red, though this run never asked it", async () => {

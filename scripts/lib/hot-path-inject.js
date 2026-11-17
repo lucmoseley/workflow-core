@@ -3,8 +3,7 @@
  * the first time it writes a hot-path program or a hook registration
  * (#5335 §Injection), as lib/test-rules-inject.js hands §X8.
  *
- * It runs on every Write, Edit and NotebookEdit, so it holds itself to the
- * rule it prints: it returns on the latch before any read; it reads the
+ * It runs on every Write, Edit and NotebookEdit: it returns on the latch before any read; it reads the
  * registrations (lib/hot-path-set.js) only for a path base §0 routes as
  * program, shell or hook module; and it starts no child process.
  *

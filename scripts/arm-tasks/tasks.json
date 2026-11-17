@@ -121,7 +121,8 @@
 			"docChecks": [
 				{
 					"file": "docs/machinery-superseded.json",
-					"pattern": "scripts/lib/log-reading\\.js"
+					"pattern": "^(?![\\s\\S]*\"scripts/report-(close|round)-check-reading\\.js\")",
+					"why": "#1875 dropped the two report scripts' allowlist rows, whose anchored text had moved out; this passes only where neither report script keeps a row."
 				}
 			],
 			"neighbour": null,

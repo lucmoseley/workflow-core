@@ -40,7 +40,6 @@ const { buildSeatName } = require("./refill-seats.js");
  * @property {import("./refill-decide.js").AwaySwitch} [away] absent in normal
  *   mode, or where the file holds no readable switch, status then naming no
  *   switch time
- * @property {true} [quietBenchOff] the quiet bench route is off (#3852)
  * @property {string[]} seats config dirs, in failover order
  * @property {Scope} scope
  */
@@ -167,7 +166,6 @@ function parsePause(raw) {
 			...(Array.isArray(r.issues)
 				? { issues: r.issues.filter(isPauseIssue) }
 				: {}),
-			...(typeof r.why === "string" ? { why: r.why } : {}),
 		},
 	};
 }
@@ -230,9 +228,6 @@ function parseControl(raw) {
 		...parseRepoPaused(raw.repoPaused),
 		...parseLaunchHold(raw.launchHold),
 		...parseAway(raw.away),
-		...(raw.quietBenchOff === true
-			? { quietBenchOff: /** @type {const} */ (true) }
-			: {}),
 		seats: parseStrings(raw.seats),
 		scope: parseScope(raw.scope),
 	};

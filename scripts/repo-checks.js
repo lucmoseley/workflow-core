@@ -101,7 +101,6 @@ const {
 	keysOf,
 } = require("./lib/key-delta");
 const notify = require("./lib/notify-report");
-const { isCoreHost } = require("./lib/plugin-state");
 const { periodicReading, buildSkipLine } = require("./lib/periodic-reading");
 const { projectSlug } = require("./lib/project-slug");
 const {
@@ -109,7 +108,12 @@ const {
 	carriedArgs,
 	carriedNext,
 } = require("./lib/repo-checks-carry");
-const { REPO_CHECKS, entryOf } = require("./lib/repo-checks-registry");
+const {
+	REPO_CHECKS,
+	entryOf,
+	gateFault,
+	readHost,
+} = require("./lib/repo-checks-registry");
 const { coreRoot, scriptPath } = require("./lib/script-path");
 const { reportOwner } = require("./lib/session-id");
 const {
@@ -117,7 +121,6 @@ const {
 	openTrackingIssue,
 	refresh,
 } = require("./lib/tracking-issue");
-const { readConfig, resolveKey } = require("./lib/workflow-core-config");
 const {
 	WHERE,
 	buildHandCommand,
@@ -150,8 +153,7 @@ const STDERR_LINE_MAX_CHARS = 300;
  * @typedef {import("./lib/check").Outcome | "MISSING"} JobOutcome
  * @typedef {{ job: string, outcome: JobOutcome, count: number, keys: string[],
  *   summary: string, [k: string]: unknown }} Job
- * @typedef {{ root: string, file: string, core: boolean, modules: Set<string>,
- *   config: Record<string, unknown>, tracker: () => string | null }} Host
+ * @typedef {import("./lib/repo-checks-registry").Host} Host
  */
 
 /**
@@ -202,31 +204,6 @@ const buildJob = ({ job, outcome, summary }) => ({
 	keys: [],
 	summary,
 });
-
-/**
- * Why `entry` may not run here, or null where every limb of its gate holds.
- *
- * @param {RepoCheck} entry
- * @param {Host} host
- * @returns {string | null}
- */
-function gateFault({ gate }, host) {
-	for (const m of gate.modules ?? [])
-		if (!host.modules.has(m)) return `module "${m}" is off in ${host.file}`;
-	// The core runs a check with its input missing, so it reports BROKEN (#1722).
-	if (
-		gate.input &&
-		!host.core &&
-		!fs.existsSync(path.join(host.root, gate.input))
-	)
-		return `this repo keeps no ${gate.input}`;
-	if (gate.config && host.config[gate.config] === undefined)
-		return `${host.file} carries no "${gate.config}" key`;
-	if (gate.tracker && !host.tracker())
-		return `no tracker resolves from ${host.file} or the origin remote`;
-	if (gate.core && !host.core) return "this repo is not workflow-core itself";
-	return null;
-}
 
 /* A stack frame, which names where a throw passed through and never what
  * failed (#2480). */
@@ -346,27 +323,6 @@ function launch(entry, root, limit, extra) {
 		}),
 		r.stderr,
 	);
-}
-
-/** @param {string} root @returns {Host} */
-function readHost(root) {
-	const c = readConfig({ root, quiet: true });
-	/** @type {string | null | undefined} */
-	let tracker;
-	return {
-		root,
-		file: path.relative(root, c.file),
-		core: isCoreHost(root),
-		modules: new Set(c.modules),
-		config: /** @type {Record<string, unknown>} */ (c),
-		tracker: () => {
-			if (tracker === undefined) {
-				const t = resolveKey("tracker", { root });
-				tracker = typeof t === "string" ? t : null;
-			}
-			return tracker;
-		},
-	};
 }
 
 /**
