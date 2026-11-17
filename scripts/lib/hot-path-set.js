@@ -11,8 +11,9 @@
  * that resolves to a file in the tree counts, an argument's included.
  *
  * `${CLAUDE_PROJECT_DIR}`, `${CLAUDE_PLUGIN_ROOT}` and `$WFC_PLUGIN_ROOT`
- * (with any `:-` default) read as the tree root, and so does a leading `../`,
- * which a `.husky` hook spells as `$(dirname "$0")/..`.
+ * (with any `:-` default) read as the tree root, and so does a leading `../`
+ * in a hook line, which a `.husky` hook spells as `$(dirname "$0")/..`; a
+ * registry's own `./` or `../` starts from the registry's directory.
  */
 
 const path = require("node:path");
@@ -82,14 +83,12 @@ const isHookRegistration = (rel) => REGISTRATIONS.has(rel);
 const ROOT_VARS =
 	/\$\{(?:CLAUDE_PROJECT_DIR|CLAUDE_PLUGIN_ROOT|WFC_PLUGIN_ROOT)(?::-[^}]*)?\}|\$(?:CLAUDE_PROJECT_DIR|CLAUDE_PLUGIN_ROOT|WFC_PLUGIN_ROOT)\b/g;
 const TOKEN = /[\w.@+/-]+/g;
-/* A program's spelling: a code extension, or none. A data file a hook names
- * (a config, a doc a gate reads) is no program. */
+/* A program's spelling: a code extension, or none. */
 const PROGRAM_NAME = /(?:^|\/)(?:[^./]+|[^/]+\.(?:c?js|mjs|ts|sh|py))$/;
 const STRING_LITERAL = /(["'`])([^"'`\s]+\.(?:c?js|mjs|ts|sh|py))\1/g;
 
 /**
- * `token`'s path from the tree root, or null where it names none. A
- * relative spelling joins `base`.
+ * `token`'s path from the tree root, or null where it names none.
  * @param {string} root
  * @param {string} token
  * @param {string} [base] the directory a `./` or `../` spelling starts from;
@@ -110,7 +109,6 @@ function fromRoot(root, token, base) {
 const list = (v) => (Array.isArray(v) ? v : []);
 
 /**
- * `v[key]` where `v` is an object, else undefined.
  * @param {unknown} v
  * @param {string} key
  * @returns {unknown}
@@ -124,7 +122,6 @@ const field = (v, key) =>
 const isString = (v) => typeof v === "string";
 
 /**
- * `token` as a file in the tree, by its path from the root, or null.
  * @param {string} root
  * @param {TreeReader} port
  * @param {string} token
@@ -136,7 +133,7 @@ function inTree(root, port, token, base) {
 }
 
 /**
- * Each program `text` names that is a file in the tree.
+ * Each program `text` names: its path in the tree, or null where none.
  * @param {string} root
  * @param {TreeReader} port
  * @param {string} text
@@ -160,8 +157,8 @@ function readJson(port, rel) {
 		const parsed = JSON.parse(text);
 		return parsed !== null && typeof parsed === "object" ? parsed : null;
 	} catch {
-		/* Fail open (#5338): a source that will not parse names no program, so
-		 * the set lacks its programs and nothing is said here. The injector
+		/* Fail open (#5338): a source that will not parse names no program,
+		 * and nothing is said here. The injector
 		 * must never block a write; a write to a broken hook file or registry
 		 * is told §G13 as a registration whatever it holds; and each file's
 		 * own loader (the harness, a dispatcher, the config reader) reports
@@ -190,8 +187,7 @@ const perCallCommands = (settings) =>
 	].filter(isString);
 
 /**
- * Every module the core registry names, `core` and `host` alike, spelt from
- * the registry's own directory.
+ * Every module the core registry names, `core` and `host` alike.
  * @param {string} root
  * @param {TreeReader} port
  */

@@ -2,10 +2,7 @@
  * hook-cost-testkit.ts — the fixture a hot-path pin (base §G13, #5338) runs
  * its program in: a git repo on `main` with one commit pushed to a bare
  * `origin`, a contract-1 `.claude/workflow-core.json`, and an environment
- * holding nothing of the machine's but PATH. HOME, the config dir, the
- * project dir and TMPDIR all sit inside the fixture, so a pin neither reads
- * this machine's state nor writes to it, and its lists do not move with what
- * the machine holds.
+ * holding nothing of the machine's but PATH.
  *
  * Each fixture is a lib/git-fixture.ts template, built once per test file
  * and copied per case: call `defineCostFixture` or `defineCommitFixture` at
@@ -24,15 +21,14 @@ import { shellQuote } from "./sh-quote.js";
 const CHECKOUT = path.resolve(__dirname, "..", "..");
 
 export interface CostFixture {
-	/** The temp directory holding everything below; remove it after. */
+	/** The temp directory holding everything below. */
 	dir: string;
-	/** The fixture repo, and the call's project dir. */
+	/** The fixture repo. */
 	repo: string;
 	/** The whole environment for a call. */
 	env: Record<string, string | undefined>;
 }
 
-/** The fixture rooted at `dir`, whose contents are already in place. */
 function costFixtureAt(dir: string): CostFixture {
 	const repo = path.join(dir, "repo");
 	return {
@@ -50,13 +46,11 @@ function costFixtureAt(dir: string): CostFixture {
 	};
 }
 
-/** Runs git in `cwd` under `env`. */
 const gitIn =
 	(cwd: string, env: CostFixture["env"]) =>
 	(...args: string[]) =>
 		execFileSync("git", args, { cwd, env, encoding: "utf8" });
 
-/** Builds the fixture's repo and its pushed `origin` into `dir`. */
 function buildCost(dir: string): void {
 	for (const sub of ["home", "config", "tmp", "repo", "origin.git"])
 		fs.mkdirSync(path.join(dir, sub));
@@ -95,8 +89,14 @@ export function defineCostFixture(): (prefix: string) => CostFixture {
 	};
 }
 
-/** The session's linked worktree, under `.claude/worktrees/`. */
-const SESSION_WT = path.join(".claude", "worktrees", "pin-session");
+/** The session worktree's name: its branch and its directory's. */
+const WT_NAME = "pin-session";
+
+const SESSION_WT = path.join(".claude", "worktrees", WT_NAME);
+
+/** The session worktree's git dir in the fixture repo `repo`. */
+const wtGitDir = (repo: string) =>
+	path.join(repo, ".git", "worktrees", WT_NAME);
 
 /** The session id an ordinary commit's session carries. */
 const SESSION = "sess-5338";
@@ -106,7 +106,6 @@ export interface SessionWorktree {
 	wt: string;
 	/** Its git dir, under the fixture repo's `.git/worktrees/`. */
 	gitDir: string;
-	/** Runs git in the worktree under the fixture's env. */
 	git: (...args: string[]) => string;
 }
 
@@ -131,13 +130,10 @@ function buildCommit(dir: string): void {
 	buildCost(dir);
 	const { repo, env } = costFixtureAt(dir);
 	const wt = path.join(repo, SESSION_WT);
-	gitIn(repo, env)("worktree", "add", "-q", "-b", "pin-session", wt);
+	gitIn(repo, env)("worktree", "add", "-q", "-b", WT_NAME, wt);
 	fs.writeFileSync(path.join(wt, "notes.txt"), "a note\n");
 	gitIn(wt, env)("add", "notes.txt");
-	fs.writeFileSync(
-		path.join(repo, ".git", "worktrees", "pin-session", "COMMIT_EDITMSG"),
-		"Add a note\n",
-	);
+	fs.writeFileSync(path.join(wtGitDir(repo), "COMMIT_EDITMSG"), "Add a note\n");
 }
 
 /**
@@ -151,13 +147,13 @@ export function defineCommitFixture(): (prefix: string) => CommitFixture {
 		template.instantiate(dir);
 		const fx = costFixtureAt(dir);
 		const wtDir = path.join(fx.repo, SESSION_WT);
-		const gitDir = path.join(fx.repo, ".git", "worktrees", "pin-session");
+		const gitDir = wtGitDir(fx.repo);
 		const wt = { wt: wtDir, gitDir, git: gitIn(wtDir, fx.env) };
 		const claude = path.join(dir, "bin", "claude");
 		fs.mkdirSync(path.dirname(claude));
 		fs.writeFileSync(
 			claude,
-			`#!/bin/sh\nprintf '[{"sessionId":"${SESSION}","cwd":"%s"}]\\n' ${shellQuote(wtDir)}\n`,
+			`#!/bin/sh\nprintf '%s\\n' ${shellQuote(JSON.stringify([{ sessionId: SESSION, cwd: wtDir }]))}\n`,
 			{ mode: 0o755 },
 		);
 		const message = path.join(gitDir, "COMMIT_EDITMSG");
