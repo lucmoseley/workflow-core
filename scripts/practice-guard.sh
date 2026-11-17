@@ -22,8 +22,8 @@
 # marker opening its line. It refuses the stop once a session,
 # naming the fault and printing the list, where: there is no line; the line is
 # none of the four forms; covered names a note that is missing at both the
-# work tree root and the plugin (the machine copy: the work tree root alone,
-# as below), or, as the first found, has no
+# work tree root and the plugin (the machine copy: the root alone), or, as
+# the first found, has no
 # Researched: date, is 6 months old or more, or is off the list; ran names a
 # note this session did not write; skipped names a kind off the exempt list,
 # matched on its whole phrase, an article before any word but "or" optional,
@@ -71,8 +71,7 @@
 # ~/.claude/practice-crafts.md and a note resolves at the work tree root alone.
 # So at Stop the machine copy stands down, silent and latching nothing, where
 # the session's project ($CLAUDE_PROJECT_DIR, else the payload's cwd) enables
-# workflow-core@<any marketplace> in enabledPlugins, read local, then project,
-# then user settings, a key in a higher file winning: there the plugin's copy
+# workflow-core@<any marketplace> in enabledPlugins: there the plugin's copy
 # judges the stop, and the machine copy, blind to the plugin's notes, would
 # refuse one only the plugin holds, the latch they share letting it decide
 # (#5394). Elsewhere it judges as the only copy, keeping the rule's reach
@@ -84,10 +83,10 @@
 # Named for what it guards, not `guard-*`: the founder's machine copy under
 # ~/.claude/hooks/ carries this name, and check:settings pairs the two by it.
 #
-# IMPLICIT:  on a session's first touch of docs/practice/ hands over the craft list, refuses a Write of an off-list note, and at Stop refuses once a session that wrote a tracked file with no **Practice:** line that holds up, the machine copy standing down at Stop where the work tree enables the plugin.
+# IMPLICIT:  on a session's first touch of docs/practice/ hands over the craft list, refuses a Write of an off-list note, and at Stop refuses once a session that wrote a tracked file with no **Practice:** line that holds up, the machine copy standing down at Stop where the session's project enables the plugin.
 # JUSTIFIED: fail-safe — refusing once is the only Stop channel that reaches the model (#829).
 # DEFEAT:    none — each refusal fires once a session, and is cleared by declaring a line that holds up.
-# TREE:      session — the work tree roots of the files the session wrote, the plugin root beside this script, and, for the machine copy, the user and those roots' Claude Code settings.
+# TREE:      session — the work tree roots of the files the session wrote, the plugin root beside this script, and, for the machine copy, the user's and the session project's Claude Code settings.
 #
 # Self-contained: it also runs outside any adopter, so it sources nothing from
 # workflow-core and writes its own envelopes. The latch is shared by path, so
