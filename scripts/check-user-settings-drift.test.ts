@@ -260,6 +260,16 @@ describe("machine copies of shipped files, against their repo sources (#5344)", 
 		expect(status).toBe(0);
 		expect(out).toContain("practice-guard.sh not compared");
 	});
+
+	it("is BROKEN where a live copy is there but unreadable", () => {
+		/* A directory at the copy's path: present, but no file read answers it. */
+		fs.mkdirSync(path.join(dir, ".claude", "practice-crafts.md"), {
+			recursive: true,
+		});
+		const { status, out } = run({ theme: "dark" }, { theme: "dark" });
+		expect(status).toBe(2);
+		expect(out).toMatch(/practice-crafts\.md is unreadable/);
+	});
 });
 
 describe("the working-rule sections of the user-level CLAUDE.md (#5344)", () => {
@@ -316,6 +326,17 @@ describe("the working-rule sections of the user-level CLAUDE.md (#5344)", () => 
 		);
 		expect(status).toBe(1);
 		expect(out).toMatch(/has no "## Leading practice" section/);
+	});
+
+	it("is BROKEN where the live CLAUDE.md is there but unreadable", () => {
+		fs.mkdirSync(path.join(dir, ".claude", "CLAUDE.md"), { recursive: true });
+		const { status, out } = run(
+			{ theme: "dark" },
+			{ theme: "dark" },
+			withBlock,
+		);
+		expect(status).toBe(2);
+		expect(out).toMatch(/CLAUDE\.md is unreadable/);
 	});
 });
 

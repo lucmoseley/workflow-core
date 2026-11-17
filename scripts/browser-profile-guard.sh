@@ -19,7 +19,15 @@
 # ~/.claude/hooks/ carries this name, and check:settings pairs the two by it.
 set -uo pipefail
 
-cmd=$(jq -r '.tool_input.command // empty')
+# What cannot be judged passes, named on stderr in place of jq's own text (#5389).
+if ! command -v jq >/dev/null; then
+  echo "browser-profile-guard: jq is not installed, so nothing is judged" >&2
+  exit 0
+fi
+if ! cmd=$(jq -r 'if type == "object" then .tool_input.command? // empty else error end' 2>/dev/null); then
+  echo "browser-profile-guard: the hook payload is not a JSON object, so nothing is judged" >&2
+  exit 0
+fi
 [[ -z "$cmd" ]] && exit 0
 
 deny() {

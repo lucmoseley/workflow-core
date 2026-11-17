@@ -59,4 +59,4 @@ function runOnTrigger(script, trigger, subject, ctx) {
 	return relay(ctx.runShellGuard(script, payloadFor(ctx)));
 }
 
-module.exports = { payloadFor, relay, runOnTrigger };
+module.exports = { runOnTrigger };
