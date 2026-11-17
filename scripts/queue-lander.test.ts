@@ -64,7 +64,7 @@ import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 import { restoreStderr, spyStderr } from "./lib/write-fd-testkit";
 
-landerSandbox();
+landerSandbox({ coreHost: true });
 afterEach(removeTemps);
 
 // Required, not imported: an ESM import would load a second copy of
@@ -542,20 +542,22 @@ describe("a run", () => {
 		});
 
 		describe("off a checker that gives no reading (#4904)", () => {
-			/** `body` as the checker's copy the batch's tree is judged with. */
+			/** The core whose checker the batch's tree is judged with. */
+			const core = () => path.join(tmp, "plugin");
+			/** `body` as that core's checker. */
 			const checker = (body: string) => {
-				const root = path.join(tmp, "plugin");
-				fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
+				fs.mkdirSync(path.join(core(), "scripts"), { recursive: true });
 				fs.writeFileSync(
-					path.join(root, "scripts", "check-guard-registry.js"),
+					path.join(core(), "scripts", "check-guard-registry.js"),
 					body,
 				);
-				vi.stubEnv("WFC_PLUGIN_ROOT", root);
 			};
 			const envelope = (outcome: string) =>
 				`process.stdout.write(${JSON.stringify(JSON.stringify({ outcome, summary: `${outcome}: stub` }))});\n`;
-			afterEach(() => {
-				vi.unstubAllEnvs();
+			/* An adopter's tree, so the core's checker judges it, not its own. */
+			beforeEach(() => {
+				git(work, "rm", "-rq", ".claude-plugin");
+				commit("adopter");
 			});
 
 			it("merges a batch whose stale row its checker SKIPped, saying so, as a SKIP gates nothing (mantahostels#155)", () => {
@@ -565,15 +567,17 @@ describe("a run", () => {
 				 * read as a reading, it holds the batch as stale-base. */
 				checker(
 					`const { spawnSync } = require("node:child_process");
-const env = { ...process.env };
-delete env.WFC_PLUGIN_ROOT;
-const r = spawnSync(process.execPath, [${JSON.stringify(path.resolve(__dirname, "check-guard-registry.js"))}, ...process.argv.slice(2)], { encoding: "utf8", env });
+const r = spawnSync(process.execPath, [${JSON.stringify(path.resolve(__dirname, "check-guard-registry.js"))}, ...process.argv.slice(2)], { encoding: "utf8" });
 process.stdout.write(JSON.stringify({ ...JSON.parse(r.stdout), outcome: "SKIP", summary: "SKIP: stub" }));
 `,
 				);
 				const stderr = spyStderr();
 				try {
-					expect(queueGit(work).mergeMembers(main, [member("a", a)])).toEqual({
+					expect(
+						queueGit(work, { core: core() }).mergeMembers(main, [
+							member("a", a),
+						]),
+					).toEqual({
 						kind: "merged",
 						sha: a,
 					});
@@ -590,7 +594,7 @@ process.stdout.write(JSON.stringify({ ...JSON.parse(r.stdout), outcome: "SKIP", 
 			it("throws a plain error, naming the commit, on a BROKEN envelope and on output that is no envelope", () => {
 				const main = staleMain();
 				const a = pushQueue("a", main);
-				const g = queueGit(work);
+				const g = queueGit(work, { core: core() });
 				const fault = () => {
 					try {
 						g.mergeMembers(main, [member("a", a)]);
@@ -622,9 +626,10 @@ process.stdout.write(JSON.stringify({ ...JSON.parse(r.stdout), outcome: "SKIP", 
 				 * to keep the case cheap; the stub's 60 s need only outlast it. */
 				let thrown: unknown;
 				try {
-					queueGit(work, { mergeTimeoutMs: 3000 }).mergeMembers(main, [
-						member("a", a),
-					]);
+					queueGit(work, { mergeTimeoutMs: 3000, core: core() }).mergeMembers(
+						main,
+						[member("a", a)],
+					);
 				} catch (err) {
 					thrown = err;
 				}
@@ -957,13 +962,6 @@ describe("the adapters", () => {
 			return r.kind === "merged" ? r.sha : "";
 		};
 
-		beforeEach(() => {
-			vi.stubEnv("WFC_PLUGIN_ROOT", "");
-		});
-		afterEach(() => {
-			vi.unstubAllEnvs();
-		});
-
 		it("lands a merge whose text-merged copy is clean but stale", () => {
 			const seed = seeded(counting);
 			const a = pushGenerated("a", seed);
@@ -1033,6 +1031,53 @@ describe("the adapters", () => {
 				files: [genFile],
 			});
 		});
+	});
+
+	it("regenerates an adopter's read-edges with the lander's own generator, WFC_PLUGIN_ROOT unset, dropping no member (#5309)", () => {
+		vi.stubEnv("WFC_PLUGIN_ROOT", undefined);
+		try {
+			const edges = "docs/test-read-edges.json";
+			const generator = path.resolve(__dirname, "generate-test-read-edges.js");
+			const render = () => {
+				git(work, "add", "-A");
+				expect(runInProcess(generator, [], { cwd: work }).status).toBe(0);
+			};
+			fs.rmSync(path.join(work, ".claude-plugin"), { recursive: true });
+			fs.mkdirSync(path.join(work, "docs"), { recursive: true });
+			for (const name of ["a", "b"])
+				fs.writeFileSync(path.join(work, "docs", `${name}.md`), name);
+			render();
+			const seed = commit("adopter seed");
+			expect(fs.existsSync(path.join(work, "scripts"))).toBe(false);
+			const pushRendered = (name: string) =>
+				pushQueue(name, seed, () => {
+					fs.writeFileSync(
+						path.join(work, `${name}.test.ts`),
+						`import fs from "node:fs";\nimport path from "node:path";\nfs.readFileSync(path.resolve(__dirname, "docs/${name}.md"));\n`,
+					);
+					render();
+				});
+			const a = pushRendered("a");
+			const b = pushRendered("b");
+			const g = queueGit(work);
+			g.refs();
+
+			const r = g.mergeMembers(seed, [
+				{ name: "a", sha: a, pushedAt: 1 },
+				{ name: "b", sha: b, pushedAt: 2 },
+			]);
+
+			expect(r.kind).toBe("merged");
+			const sha = r.kind === "merged" ? r.sha : "";
+			git(work, "checkout", "-q", "--detach", sha);
+			const landed = fs.readFileSync(path.join(work, edges), "utf8");
+			render();
+			expect(fs.readFileSync(path.join(work, edges), "utf8")).toBe(landed);
+			expect(landed).toContain("a.test.ts");
+			expect(landed).toContain("b.test.ts");
+		} finally {
+			vi.unstubAllEnvs();
+		}
 	});
 
 	it("throws a merge that times out as a transient fault, for the run to retry, never a refusal that drops it", () => {

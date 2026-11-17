@@ -72,8 +72,14 @@ export const levelStub = () => {
 	return stub;
 };
 
-/** Register the hooks that build the seeded template once and copy it per case. */
-export function landerSandbox(): void {
+/**
+ * Register the hooks that build the seeded template once and copy it per case.
+ * The seed carries an empty guard-registry region, as every adopter's and the
+ * core's own CLAUDE.md does, which the lander's registry check judges. With
+ * `coreHost`, the seed is workflow-core itself, so the lander runs the tree's
+ * own gate scripts rather than its own install's (#5309).
+ */
+export function landerSandbox({ coreHost = false } = {}): void {
 	let template: string;
 
 	beforeAll(() => {
@@ -84,6 +90,17 @@ export function landerSandbox(): void {
 		git(template, "clone", "-q", bare, clone);
 		git(clone, "config", "user.email", "t@t");
 		git(clone, "config", "user.name", "t");
+		fs.writeFileSync(
+			path.join(clone, "CLAUDE.md"),
+			"<!-- guard-registry:begin -->\n<!-- guard-registry:end -->\n",
+		);
+		if (coreHost) {
+			fs.mkdirSync(path.join(clone, ".claude-plugin"));
+			fs.writeFileSync(
+				path.join(clone, ".claude-plugin", "plugin.json"),
+				JSON.stringify({ name: "workflow-core" }),
+			);
+		}
 		commitIn(clone, "seed");
 		git(clone, "push", "-q", "origin", "HEAD:main");
 	});

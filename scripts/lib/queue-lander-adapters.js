@@ -58,6 +58,8 @@ const { TransientFault, fileSetKey } = require("./queue-lander.js");
 const { REGENERATED_FILES } = require("./regenerated-files.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { isStringList, parseVerdict } = require("./lander-records.js");
+const { isCoreHost } = require("./plugin-state.js");
+const { coreRoot } = require("./script-path.js");
 
 const REGISTRY_PROFILE = (() => {
 	const profile = PROFILES["guard-registry"];
@@ -91,15 +93,6 @@ const BROKEN_OBJECT =
  * @typedef {import("./queue-lander.js").QueueLanderDeps} QueueLanderDeps
  * @typedef {import("./regenerated-files.js").Regenerated} Regenerated
  */
-
-/**
- * The copy of `rel` the commit gate runs over the merged tree at `dir`:
- * `WFC_PLUGIN_ROOT`'s, else the tree's own.
- * @param {string} dir
- * @param {string} rel
- */
-const gateCopy = (dir, rel) =>
-	path.join(process.env.WFC_PLUGIN_ROOT || dir, rel);
 
 /**
  * The registry checker's --json envelope out of its run over `sha`, null
@@ -159,6 +152,9 @@ function readEnvelope(r, sha, timeoutMs) {
  * @param {boolean} [options.ciRepeats] where the tester's run repeats the
  *   gates the batch's set leaves out, its `repeatsGates`; else the batch
  *   runs every gate
+ * @param {string} [options.core] the core whose gate scripts judge an
+ *   adopter's tree: the one this module ships in, found by its own path,
+ *   which every launcher shares (#5309)
  * @returns {QueueGit}
  */
 function queueGit(
@@ -167,8 +163,18 @@ function queueGit(
 		mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS,
 		regenerated = REGENERATED_FILES,
 		ciRepeats = false,
+		core = coreRoot(),
 	} = {},
 ) {
+	/**
+	 * The copy of `rel` the commit gate runs over the merged tree at `dir`:
+	 * the tree's own where the tree is workflow-core, as its hook runs it,
+	 * else `core`'s, as an adopter's shim runs the plugin's.
+	 * @param {string} dir
+	 * @param {string} rel
+	 */
+	const gateCopy = (dir, rel) => path.join(isCoreHost(dir) ? dir : core, rel);
+
 	const fetchSpecs = [
 		trackingRefspec(VERIFIED_BRANCH),
 		QUEUE_REFSPEC,
@@ -502,9 +508,8 @@ function queueGit(
 	 * Stages each regenerated file the merge in `dir` holds as its generator
 	 * writes it there: two sides' copies merged as text, or merged cleanly, can
 	 * still disagree with the tree they describe. The generator is the copy the
-	 * commit gate runs, `WFC_PLUGIN_ROOT`'s else the merged tree's own, so the
-	 * gate passes what it writes; one that fails is a refusal carrying its
-	 * output.
+	 * commit gate runs (gateCopy), so the gate passes what it writes; one that
+	 * fails is a refusal carrying its output.
 	 * @param {string} dir
 	 * @param {(args: string[]) => string} inTree
 	 */
