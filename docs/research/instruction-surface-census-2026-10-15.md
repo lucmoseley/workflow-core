@@ -106,7 +106,7 @@ Re-inventoried under #2263 at `a6d66be90`: #2034 and later cuts left the file 6,
 
 ## docs/working-contract.md
 
-Re-inventoried under #5359 at `bba80f019` (2,737 B). Not counted: title, the `How work is sequenced…` scene-setter (:3), heading, registry comment lines (:7, :9). The Anthropic-report and paid-data rules this file carried at `a6d66be90` now sit in the machine-wide `~/.claude/CLAUDE.md`, outside this census's three-file pool.
+Re-inventoried under #5359 at `bba80f019` (2,737 B). Not counted: title, the `How work is sequenced…` scene-setter (:3), heading, registry comment lines (:7, :9). The Anthropic-report and paid-data rules sit in the machine-wide `~/.claude/CLAUDE.md`, outside this census's three-file pool.
 
 | # | Loc | Gist | Subject | Mech (strict) | P1 route | Note |
 |---|---|---|---|---|---|---|
@@ -135,14 +135,14 @@ Re-read under #2263 at `a6d66be90` (5,979 B): the same 22 rules on the same line
 | 34 | core-voice.md:24 | Headers, tables, lists only where they carry structure | machinery | none | — | new |
 | 35 | core-voice.md:25 | Blunt, precise, sceptical; concede only on argument | machinery | none | — | |
 | 36 | core-voice.md:26 | One recommendation, briefly justified | machinery | none | — | |
-| 37 | core-voice.md:27 | State confidence numerically with band, or say unknowable | machinery | named: `scripts/inject-tracker-docs.sh` (priced-options block, tracker skills only) | — | partial |
+| 37 | core-voice.md:27 | State confidence numerically with band, or say unknowable | machinery | named: `scripts/inject-tracker-docs.js` (priced-options block, tracker skills only) | — | partial |
 | 38 | core-voice.md:28 | Price an option on what it does from now on | machinery | none | — | new |
 | 39 | core-voice.md:29 | Ask clarifying questions on vague requests; overrides harness default | machinery | none | — | |
 | 40 | core-voice.md:30 | Every doc agent-written; "automatic" reserved for scripts/hooks/CI | machinery | none | — | |
 | 41 | core-voice.md:34 | Gloss an identifier at first appearance; questions spell out options | machinery | none | — | |
 | 42 | core-voice.md:36 | In files, a line stays only where a reader acts differently | machinery | named: `scripts/concision-backstop.sh` (Stop; demands concision-pass over a word threshold) | skill `concision-pass` | |
 | 43 | core-voice.md:40 | Name the next task and its order above the status marker | machinery | none | — | |
-| 44 | core-voice.md:45 | Question round: lettered options, each priced; `needs input:` below it | machinery | named: `scripts/guard-priced-options.js`; `scripts/inject-tracker-docs.sh` | — | |
+| 44 | core-voice.md:45 | Question round: lettered options, each priced; `needs input:` below it | machinery | named: `scripts/guard-priced-options.js`; `scripts/inject-tracker-docs.js` | — | |
 | 45 | core-voice.md:46 | Plain-prose choice still owes the lettered priced form | machinery | none | — | `guard-jev-advisory.js` warn reaches screen, never the model; `npm run status` quotes it back |
 | 46 | core-voice.md:47 | `result:` only when nothing waits; recommendation awaiting approval is `needs input:` | machinery | named: `scripts/guard-priced-options.js` (Stop) | — | |
 | 47 | core-voice.md:48 | Founder hand-over: do every step first; surface, literal text, what he sees | machinery | named: `scripts/guard-priced-options.js` (`rule:founder-handover`) | — | new |
@@ -167,7 +167,7 @@ Re-read under #2263 at `a6d66be90` (5,979 B): the same 22 rules on the same line
 
 # Part 2 — hook entries and guard scripts
 
-Table A lists every hook entry the core runs, in the order `lib/core-hooks.js`'s `ownHooks` reads them (`self-plugin/hooks/hooks.json`, then `.claude/settings.json`'s canary), re-listed at `bba80f019` (#5359), a row kept from `11cb1fa3d` (#2932) keeping its text, with each script's own account of itself (its `IMPLICIT:` line, else its header's first sentence); a row marked `measured (#2263)`, `measured (#2586)` or `measured (#2861)` gives instead what the entry printed and when, as batch H, I or J fed it. The two `run-pinned-guards.js` rows run every PreToolUse and PostToolUse core through `guard-dispatch.js` from the pinned guard code (#4227); Table B's `scripts/lib/` rows measure those cores. A `measured` row's text, and each measurement block below and each defect above, keeps the script name and wording of the tree it was measured at, so a guard since ported to Node is named `.sh` there. A row marked *Table B* was measured behaviourally; the rest are recorders, formatters and session-start reporters that carry no rule text, measured only where Batch E or F names them, and the five guards no payload has yet been fed (`guard-typecheck-owed.js`, `guard-exhausted-map.js`, `guard-held-ticket.js`, `guard-session-id-prose.js`, `guard-main-checkout-job.js`; #5337). Table B gives each measured guard's verdicts in brief, with its prior verdict from the first edition where it had one; the measurement blocks below hold the payload, the bytes printed, the full verdicts and the limbs left untried.
+Table A lists every hook entry the core runs, in the order `lib/core-hooks.js`'s `ownHooks` reads them (`self-plugin/hooks/hooks.json`, then `.claude/settings.json`'s canary), re-listed at `bba80f019` (#5359), a row kept from `11cb1fa3d` (#2932) keeping its text, with each script's own account of itself (its `IMPLICIT:` line, else its header's first sentence); a row marked `measured (#2263)` or `measured (#2586)` gives instead what the entry printed and when, as batch H or I fed it. The two `run-pinned-guards.js` rows run every PreToolUse and PostToolUse core through `guard-dispatch.js` from the pinned guard code (#4227); Table B's rows measure those cores, each under the entry name of the tree it was measured at. A `measured` row's text, and each measurement block below and each defect above, keeps the script name and wording of the tree it was measured at, so a guard since ported to Node is named `.sh` there. A row marked *Table B* was measured behaviourally; the rest are recorders, formatters and session-start reporters that carry no rule text, measured only where Batch E or F names them. Five guards that do print rule text carry `—` too, as no payload has yet been fed them: `guard-typecheck-owed.js`, `guard-exhausted-map.js`, `guard-held-ticket.js`, `guard-session-id-prose.js` and `guard-main-checkout-job.js` (#5371). Table B gives each measured guard's verdicts in brief, with its prior verdict from the first edition where it had one; the measurement blocks below hold the payload, the bytes printed, the full verdicts and the limbs left untried.
 
 ## Table A — hook entries (63)
 
