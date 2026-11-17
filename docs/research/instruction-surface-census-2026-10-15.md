@@ -1,6 +1,6 @@
 # Instruction-surface census, second edition — 15 October 2026
 
-Resolves #1604 (bring the census up to the live surface). The census `scripts/check-instruction-surface.js` reads: `scripts/instruction-surface-anchors.json`'s `measuredAt.document` names this file. Measured at commit `437c94164`. Re-measured under #2263 at `a6d66be90`: Part 1's CLAUDE.md and docs/working-contract.md inventories, Table A whole, Table B's rows for guards later tickets measured, Part 3 whole, and batch H. Batch I under #2586 at `2d182ffc6`: the twelve hook entries added since `a6d66be90`. Batch J under #2861 at `4a37e3500`: `guard-cpu-load.js`'s five entries.
+Resolves #1604 (bring the census up to the live surface). The census `scripts/check-instruction-surface.js` reads: `scripts/instruction-surface-anchors.json`'s `measuredAt.document` names this file. Measured at commit `437c94164`. Re-measured under #2263 at `a6d66be90`: Part 1's CLAUDE.md inventory, Table A's rows then live, Table B's rows for guards later tickets measured, and batch H. Batch I under #2586 at `2d182ffc6`: the twelve hook entries added since `a6d66be90`. Batch J under #2861 at `4a37e3500`: `guard-cpu-load.js`'s five entries. Under #5359 at `bba80f019`: Part 1's docs/working-contract.md inventory, Table A's listing and Part 3 whole.
 
 **Method.** Counts are mechanical. Every guard verdict is behavioural, per mantahostels#886: each guard was fed a crafted triggering payload in a sandbox clone of the repo at `437c94164` (batch G at `34e4151f1`, batch H at `a6d66be90`, batch I at `2d182ffc6`, batch J at `4a37e3500`), and its real output was read. Table B's rows marked with a ticket carry the verdict that ticket's fed payload anchored. Eleven measurements, retained below: the pool inventory as Part 1, ten guard batches (A to J) as Part 2's measurement blocks. The skill table, Part 3, is generated from the tree.
 
@@ -10,14 +10,14 @@ Resolves #1604 (bring the census up to the live surface). The census `scripts/ch
 
 | Surface | Size (at `437c94164` unless named) | Paid when | Carries |
 |---|---|---|---|
-| Always-loaded pool (3 files) | **15,402 B** (at `a6d66be90`, #2263) | every turn | **49 rules** |
-| Skill descriptions (40 directories, at `a6d66be90`) | **3,612 B** | every session | trigger text only |
-| Skill bodies (40 directories, at `a6d66be90`) | **316,905 B** | on trigger | — |
-| Hook entries (the self-plugin's and `.claude/settings.json`'s, at `f88268a62`, #2941) | **125** across 9 events | per matching event | Table A |
+| Always-loaded pool (3 files) | **14,769 B** (at `a6d66be90`, #2263; `docs/working-contract.md` at `bba80f019`, #5359) | every turn | **47 rules** |
+| Skill descriptions (41 directories, at `bba80f019`) | **3,633 B** | every session | trigger text only |
+| Skill bodies (41 directories, at `bba80f019`) | **337,986 B** | on trigger | — |
+| Hook entries (the self-plugin's and `.claude/settings.json`'s, at `bba80f019`, #5359) | **63** across 9 events | per matching event | Table A |
 | Hook-wired guards carrying rule text, plus `check-roadmap-valid.js` and `check-weakens-line.js` | **66** measured | per triggering call | Table B |
 
-- **39 of 49 pool rules (80%) have nothing that prints them at the moment of need**: CLAUDE.md 17/20, `docs/working-contract.md` 5/7, `core-voice.md` 17/22. Counting a doc pointer or a skill as a mechanism, as the first edition did, the figure is **32 (65%)**. At `437c94164` it was 67 of 124 (54%): the rules that left the pool were mostly the guard-printed ones.
-- **Subject split: 0 manta-world rules, 49 repo-machinery.** The infra-region rule, the one manta-world rule at `437c94164`, has left the pool.
+- **38 of 47 pool rules (81%) have nothing that prints them at the moment of need**: CLAUDE.md 17/20, `docs/working-contract.md` 4/5, `core-voice.md` 17/22. Counting a doc pointer or a skill as a mechanism, as the first edition did, the figure is **31 (66%)**. At `437c94164` it was 67 of 124 (54%): the rules that left the pool were mostly the guard-printed ones.
+- **Subject split: 0 manta-world rules, 47 repo-machinery.** The infra-region rule, the one manta-world rule at `437c94164`, has left the pool.
 - **Timing across 66 guards: at need 59 · at need but also firing on a wrong trigger 3 · too late 3 · never fires on the common path 1.**
 - **Self-sufficient: yes 62 · same subject only 2 · pointer only 1 · no 1** (`guard-jev-advisory.js`, which warns the founder's screen and never the session).
 - **Revised against the first edition**, of the 19 guards it measured: `guard-issue-body.sh`, `guard-wide-read.sh` and `guard-uncommitted-work.js` now carry their whole rule (self-sufficient upgraded to yes), and `guard-suite-concurrency.sh`'s memory-ladder warns, untested in August, are now reached through its `WFC_MEMINFO` seam and are self-sufficient.
@@ -106,242 +106,178 @@ Re-inventoried under #2263 at `a6d66be90`: #2034 and later cuts left the file 6,
 
 ## docs/working-contract.md
 
-Re-inventoried under #2263 at `a6d66be90` (3,370 B). Not counted: title, the `How work is sequenced…` scene-setter (:3), heading, registry comment lines (:7, :10).
+Re-inventoried under #5359 at `bba80f019` (2,737 B). Not counted: title, the `How work is sequenced…` scene-setter (:3), heading, registry comment lines (:7, :9). The Anthropic-report and paid-data rules sit in the machine-wide `~/.claude/CLAUDE.md`, outside this census's three-file pool.
 
 | # | Loc | Gist | Subject | Mech (strict) | P1 route | Note |
 |---|---|---|---|---|---|---|
-| 21 | working-contract.md:8 | Only a house decision reaches the founder; research first, ask only the gap; record a delegated decision | machinery | named: `scripts/guard-priced-options.js` (`rule:house-decision`, a close round or one under 10 tool calls, once) + `scripts/inject-tracker-docs.sh` (index) | — | |
-| 22 | working-contract.md:9 | Nothing reported or requested to Anthropic | machinery | named: `scripts/guard-anthropic-report.sh` (`rule:anthropic-report`) | — | partial: the `gh` route only |
-| 23 | working-contract.md:11 | A value called house is unsourced until traced; agent advice is no source | machinery | none | — | `house-decision.txt` carries no tracing limb |
-| 24 | working-contract.md:12 | Build for long-term health: the durable fix over the quick one | machinery | none | — | Unenforceable, as the rule says |
-| 25 | working-contract.md:13 | Queue actionable items when agreed; audit against the ledger | machinery | none | — | |
-| 26 | working-contract.md:14 | Test a blocker before it ends a turn; record the verified reason | machinery | none | — | |
-| 27 | working-contract.md:15 | No paid research or data APIs; paid tooling is approve-before-execute | machinery | none | — | |
+| 21 | working-contract.md:8 | Only a house decision reaches the founder; research first, ask only the gap; record a delegated decision | machinery | named: `scripts/guard-priced-options.js` (`rule:house-decision`, a close round or one under 10 tool calls, once) + `scripts/inject-tracker-docs.js` (index) | — | |
+| 22 | working-contract.md:10 | A value called house is unsourced until traced; agent advice is no source | machinery | none | — | `house-decision.txt` carries no tracing limb |
+| 23 | working-contract.md:11 | Build for long-term health: the durable fix over the quick one | machinery | none | — | Unenforceable, as the rule says |
+| 24 | working-contract.md:12 | Queue actionable items when agreed; audit against the ledger | machinery | none | — | |
+| 25 | working-contract.md:13 | Test a blocker before it ends a turn; record the verified reason | machinery | none | — | |
 
-**working-contract.md subtotal: 7 rules; strict `none` 5; manta-world 0.**
+**working-contract.md subtotal: 5 rules; strict `none` 4; manta-world 0.**
 
 ## .claude/output-styles/core-voice.md
 
-Re-read under #2263 at `a6d66be90` (5,979 B): the same 22 rules on the same lines, reworded only; row 47's note follows the Jev guard's change. Not counted: frontmatter (:1-5), headings, registry comment lines (:42-43, :49). Renamed from manta-voice.md since ed.1.
+Re-read under #2263 at `a6d66be90` (5,979 B): the same 22 rules on the same lines, reworded only; row 45's note follows the Jev guard's change. Not counted: frontmatter (:1-5), headings, registry comment lines (:42-43, :49). Renamed from manta-voice.md since ed.1.
 
 | # | Loc | Gist | Subject | Mech (strict) | P1 route | Note |
 |---|---|---|---|---|---|---|
-| 28 | core-voice.md:9 | Explain diffs plainly; surface judgement calls, never resolve silently | machinery | none | — | preamble directive; not counted in Part 1 |
-| 29 | core-voice.md:13 | Decision goes last in a reply | machinery | none | — | |
-| 30 | core-voice.md:15 | No reasoning prose unless asked | machinery | none | — | |
-| 31 | core-voice.md:16 | Every repo-state claim carries its source as a fragment | machinery | none | — | |
-| 32 | core-voice.md:17 | Never restate what they just said | machinery | none | — | |
-| 33 | core-voice.md:18 | Concision stops at a correctness signal | machinery | none | — | new |
-| 34 | core-voice.md:22 | British spelling | machinery | none | — | |
-| 35 | core-voice.md:23 | Fragments for status; full sentences on first introduction | machinery | none | — | |
-| 36 | core-voice.md:24 | Headers, tables, lists only where they carry structure | machinery | none | — | new |
-| 37 | core-voice.md:25 | Blunt, precise, sceptical; concede only on argument | machinery | none | — | |
-| 38 | core-voice.md:26 | One recommendation, briefly justified | machinery | none | — | |
-| 39 | core-voice.md:27 | State confidence numerically with band, or say unknowable | machinery | named: `scripts/inject-tracker-docs.sh` (priced-options block, tracker skills only) | — | partial |
-| 40 | core-voice.md:28 | Price an option on what it does from now on | machinery | none | — | new |
-| 41 | core-voice.md:29 | Ask clarifying questions on vague requests; overrides harness default | machinery | none | — | |
-| 42 | core-voice.md:30 | Every doc agent-written; "automatic" reserved for scripts/hooks/CI | machinery | none | — | |
-| 43 | core-voice.md:34 | Gloss an identifier at first appearance; questions spell out options | machinery | none | — | |
-| 44 | core-voice.md:36 | In files, a line stays only where a reader acts differently | machinery | named: `scripts/concision-backstop.sh` (Stop; demands concision-pass over a word threshold) | skill `concision-pass` | |
-| 45 | core-voice.md:40 | Name the next task and its order above the status marker | machinery | none | — | |
-| 46 | core-voice.md:45 | Question round: lettered options, each priced; `needs input:` below it | machinery | named: `scripts/guard-priced-options.js`; `scripts/inject-tracker-docs.sh` | — | |
-| 47 | core-voice.md:46 | Plain-prose choice still owes the lettered priced form | machinery | none | — | `guard-jev-advisory.js` warn reaches screen, never the model; `npm run status` quotes it back |
-| 48 | core-voice.md:47 | `result:` only when nothing waits; recommendation awaiting approval is `needs input:` | machinery | named: `scripts/guard-priced-options.js` (Stop) | — | |
-| 49 | core-voice.md:48 | Founder hand-over: do every step first; surface, literal text, what he sees | machinery | named: `scripts/guard-priced-options.js` (`rule:founder-handover`) | — | new |
+| 26 | core-voice.md:9 | Explain diffs plainly; surface judgement calls, never resolve silently | machinery | none | — | preamble directive; not counted in Part 1 |
+| 27 | core-voice.md:13 | Decision goes last in a reply | machinery | none | — | |
+| 28 | core-voice.md:15 | No reasoning prose unless asked | machinery | none | — | |
+| 29 | core-voice.md:16 | Every repo-state claim carries its source as a fragment | machinery | none | — | |
+| 30 | core-voice.md:17 | Never restate what they just said | machinery | none | — | |
+| 31 | core-voice.md:18 | Concision stops at a correctness signal | machinery | none | — | new |
+| 32 | core-voice.md:22 | British spelling | machinery | none | — | |
+| 33 | core-voice.md:23 | Fragments for status; full sentences on first introduction | machinery | none | — | |
+| 34 | core-voice.md:24 | Headers, tables, lists only where they carry structure | machinery | none | — | new |
+| 35 | core-voice.md:25 | Blunt, precise, sceptical; concede only on argument | machinery | none | — | |
+| 36 | core-voice.md:26 | One recommendation, briefly justified | machinery | none | — | |
+| 37 | core-voice.md:27 | State confidence numerically with band, or say unknowable | machinery | named: `scripts/inject-tracker-docs.js` (priced-options block, tracker skills only) | — | partial |
+| 38 | core-voice.md:28 | Price an option on what it does from now on | machinery | none | — | new |
+| 39 | core-voice.md:29 | Ask clarifying questions on vague requests; overrides harness default | machinery | none | — | |
+| 40 | core-voice.md:30 | Every doc agent-written; "automatic" reserved for scripts/hooks/CI | machinery | none | — | |
+| 41 | core-voice.md:34 | Gloss an identifier at first appearance; questions spell out options | machinery | none | — | |
+| 42 | core-voice.md:36 | In files, a line stays only where a reader acts differently | machinery | named: `scripts/concision-backstop.sh` (Stop; demands concision-pass over a word threshold) | skill `concision-pass` | |
+| 43 | core-voice.md:40 | Name the next task and its order above the status marker | machinery | none | — | |
+| 44 | core-voice.md:45 | Question round: lettered options, each priced; `needs input:` below it | machinery | named: `scripts/guard-priced-options.js`; `scripts/inject-tracker-docs.js` | — | |
+| 45 | core-voice.md:46 | Plain-prose choice still owes the lettered priced form | machinery | none | — | `guard-jev-advisory.js` warn reaches screen, never the model; `npm run status` quotes it back |
+| 46 | core-voice.md:47 | `result:` only when nothing waits; recommendation awaiting approval is `needs input:` | machinery | named: `scripts/guard-priced-options.js` (Stop) | — | |
+| 47 | core-voice.md:48 | Founder hand-over: do every step first; surface, literal text, what he sees | machinery | named: `scripts/guard-priced-options.js` (`rule:founder-handover`) | — | new |
 
-**core-voice.md subtotal: 22 rules; strict `none` 17 (unchanged under Part 1 routes — row 44's skill sits beside a named printer); manta-world 0.**
+**core-voice.md subtotal: 22 rules; strict `none` 17 (unchanged under Part 1 routes — row 42's skill sits beside a named printer); manta-world 0.**
 
 ## Summary
 
 | File | Bytes | Rules | Strict `none` | `none` under Part 1 routes | manta-world (strict / Part 1 classing) |
 |---|---|---|---|---|---|
 | CLAUDE.md | 6,053 @a6d66be90 | 20 | 17 (85%) | 10 | 0 / 0 |
-| docs/working-contract.md | 3,370 @a6d66be90 | 7 | 5 (71%) | 5 | 0 / 0 |
+| docs/working-contract.md | 2,737 @bba80f019 | 5 | 4 (80%) | 4 | 0 / 0 |
 | .claude/output-styles/core-voice.md | 5,979 @a6d66be90 | 22 | 17 (77%) | 17 | 0 / 0 |
-| **Total** | **15,402** | **49** | **39 (80%)** | **32 (65%)** | **0 / 0** |
+| **Total** | **14,769** | **47** | **38 (81%)** | **31 (66%)** | **0 / 0** |
 
 - Bytes: `git show <rev>:<path> | wc -c`.
 - Against `437c94164` (124 rules, 67 `none`): CLAUDE.md's guard-registry block, §Gotchas and §Agent skills left the pool, taking most of its guard-printed rules with them, and the infra-region rule, the pool's one manta-world rule, went too.
 - Splitting calls that move the count: CLAUDE.md:15 splits at its §A, §B and §C clauses; CLAUDE.md:38 and core-voice.md:9 preambles counted as directives.
-- Partial-reach mechanisms (counted named, would flip to none on a stricter reading): rows 4, 5, 14, 22, 39 (tracker-skill-only injection, two document classes only, the `waiting:` limb only, or the `gh` route only).
+- Partial-reach mechanisms (counted named, would flip to none on a stricter reading): rows 4, 5, 14, 37 (tracker-skill-only injection, two document classes only, or the `waiting:` limb only).
 
 ---
 
 # Part 2 — hook entries and guard scripts
 
-Table A lists every hook entry the core runs, in the order `lib/core-hooks.js`'s `ownHooks` reads them (`self-plugin/hooks/hooks.json`, then `.claude/settings.json`'s canary), every row read at `11cb1fa3d` (#2932) and recounted at `f88268a62` (#2941), with each script's own account of itself (its `IMPLICIT:` line, else its header's first sentence); a row marked `measured (#2263)`, `measured (#2586)` or `measured (#2861)` gives instead what the entry printed and when, as batch H, I or J fed it. Where #2786 and #2789 folded seven guards into `guard-dispatch.js`, its row names their cores. A `measured` row's text, and each measurement block below and each defect above, keeps the script name and wording of the tree it was measured at, so a guard since ported to Node is named `.sh` there, and rows 26–32's fourth-suite deny is the cap #2680 has since lowered to a second whole suite. A row marked *Table B* was measured behaviourally; the rest are recorders, formatters and session-start reporters that carry no rule text, measured only where Batch E or F names them. Table B gives each measured guard's verdicts in brief, with its prior verdict from the first edition where it had one; the measurement blocks below hold the payload, the bytes printed, the full verdicts and the limbs left untried.
+Table A lists every hook entry the core runs, in the order `lib/core-hooks.js`'s `ownHooks` reads them (`self-plugin/hooks/hooks.json`, then `.claude/settings.json`'s canary), re-listed at `bba80f019` (#5359), a row kept from `11cb1fa3d` (#2932) keeping its text, with each script's own account of itself (its `IMPLICIT:` line, else its header's first sentence); a row marked `measured (#2263)` or `measured (#2586)` gives instead what the entry printed and when, as batch H or I fed it. The two `run-pinned-guards.js` rows run every PreToolUse and PostToolUse core through `guard-dispatch.js` from the pinned guard code (#4227); Table B's rows measure those cores, each under the entry name of the tree it was measured at. A `measured` row's text, and each measurement block below and each defect above, keeps the script name and wording of the tree it was measured at, so a guard since ported to Node is named `.sh` there. A row marked *Table B* was measured behaviourally; the rest are recorders, formatters and session-start reporters that carry no rule text, measured only where Batch E or F names them. Five guards that do print rule text carry `—` too, as no payload has yet been fed them: `guard-typecheck-owed.js`, `guard-exhausted-map.js`, `guard-held-ticket.js`, `guard-session-id-prose.js` and `guard-main-checkout-job.js` (#5371). Table B gives each measured guard's verdicts in brief, with its prior verdict from the first edition where it had one; the measurement blocks below hold the payload, the bytes printed, the full verdicts and the limbs left untried.
 
-## Table A — hook entries (125)
+## Table A — hook entries (63)
 
-### PreToolUse (71)
-
-| # | Matcher | `if` | Script | Measured | What it does (its own header) |
-|---|---|---|---|---|---|
-|1|`Skill`|—|`guard-last30days.sh`|Table B|PreToolUse guard: last30days may only run inside a subagent.|
-|2|`Skill`|—|`guard-review-rules.sh`|Table B|on a Skill call naming `code-review` it injects the six review rules and this session's two review-axis Artefact paths as additionalContext, and writes a `.rule-injected-*` latch…|
-|3|`Skill`|—|`inject-review-tier.sh`|Table B|on a Skill call naming `code-review`, runs scripts/lib/sensitive-paths.js over the staged paths and the paths this session changed since its base, in the root and in the worktree…|
-|4|`Skill`|—|`inject-founder-wording.sh`|Table B|injects the four recurrence checks and this host's tracker corpus into a session whose prompt names a fault coming back, or starts with `/diagnosing-bugs`, at UserPromptSubmit, and…|
-|5|`Bash`|`Bash(git *)`|`guard-branch.js`|Table B|PreToolUse guard: the shared working tree stays on `main`, and a throwaway worktree needs `-b <name>` or `--detach` (mantahostels#100, mantahostels#1648).|
-|6|`Bash`|`Bash(git *)`|`guard-commit-form.js`|Table B|PreToolUse guard on the commit forms (mantahostels#117).|
-|7|`Bash`|`Bash(git *)`|`guard-registry-atomicity.js`|Table B|PreToolUse guard: a commit that lands a member of a repo-wide registry without the wiring that registers it (mantahostels#2671).|
-|8|`Bash`|`Bash(*commit-paths.js*)`|`guard-registry-atomicity.js`|Table B|PreToolUse guard: a commit that lands a member of a repo-wide registry without the wiring that registers it (mantahostels#2671).|
-|9|`Bash`|`Bash(*commit-paths.js*)`|`guard-commit-form.js`|Table B|measured (#2263): on a session's first `commit-paths.js` call, before it runs, hands over the show-the-diff and commit-message rules (337 B), and where a path is under `docs/` the guard-registry gate and machinery-superseded rules too (1,429 B for `-- docs/doc-map.md`); nothing on the repeat.|
-|10|`Bash`|`Bash(git *)`|`guard-pull-form.js`|Table B|PreToolUse guard: divergence on the shared `main` is reconciled by fast-forward or not at all, `main` is never moved backwards (#765), and the shared tree's uncommitted work is…|
-|11|`Bash`|`Bash(git *)`|`guard-push-rules.js`|Table B|on an allowed `git push` it injects the push rules as additionalContext and writes a `.rule-injected-*` latch per rule under .claude/tmp/markers; where the session's pushed code…|
-|12|`Bash`|`Bash(gh *)`|`guard-issue-body.js`|Table B|PreToolUse guard: the raw issue-body write (mantahostels#132).|
-|13|`Bash`|`Bash(gh *)`|`guard-issue-close.js`|Table B|PreToolUse guard: a close must say what is still outstanding (mantahostels#185), must not close a roadmap card's issue while the card is still not done (mantahostels#220), must not…|
-|14|`Bash`|`Bash(gh *)`|`guard-issue-create-label.js`|Table B|PreToolUse guard: every issue created from a Bash call carries a `takes:` label (mantahostels#453, which ruled it).|
-|15|`Bash`|`Bash(*gh *)`|`guard-anthropic-report.js`|Table B|PreToolUse guard: nothing is written to an Anthropic repo from a Bash call (#1967, which ruled that nothing is reported or requested to Anthropic; #1987, which gave the ruling one…|
-|16|`Bash`|—|`guard-tracker-rules.sh`|Table B|on an allowed call it injects the rules as additionalContext and writes a `.rule-injected-*` latch under .claude/tmp/markers.|
-|17|`Bash`|`Bash(*gh *)`|`guard-issue-phase-scope.js`|Table B|besides refusing the create, WRITES a fail-open record whenever it cannot read a title, the roadmap or the register — a file this session never asked it to touch.|
-|18|`Bash`|—|`guard-claimed-bash-write.sh`|Table B|before a Bash command whose write target is a tier-1 guarded path — or, where it runs an inline interpreter, whose QUOTED tier-1 paths include one (mantahostels#2854) — injects the…|
-|19|`Bash`|—|`guard-self-match.sh`|Table B|PreToolUse guard: a process pattern run through the Bash tool matches the shell running it.|
-|20|`Bash`|—|`guard-wait-loop.sh`|Table B|PreToolUse guard: a hand-rolled wait loop with no ceiling is about to run (mantahostels#2042, spec mantahostels#2017, from the snapshot at mantahostels#2012).|
-|21|`Bash`|`Bash(*npm *)`|`guard-suite-concurrency.js`|Table B|it denies a SECOND concurrent whole suite (#2680), and one under its ladder rung (#2305), unless the launch carries `--queue` or runs through scripts/queue-run.js…|
-|22|`Bash`|`Bash(*node *)`|`guard-suite-concurrency.js`|Table B|it denies a SECOND concurrent whole suite (#2680), and one under its ladder rung (#2305), unless the launch carries `--queue` or runs through scripts/queue-run.js…|
-|23|`Bash`|`Bash(*next *)`|`guard-suite-concurrency.js`|Table B|it denies a SECOND concurrent whole suite (#2680), and one under its ladder rung (#2305), unless the launch carries `--queue` or runs through scripts/queue-run.js…|
-|24|`Bash`|`Bash(*python*)`|`guard-suite-concurrency.js`|Table B|it denies a SECOND concurrent whole suite (#2680), and one under its ladder rung (#2305), unless the launch carries `--queue` or runs through scripts/queue-run.js…|
-|25|`Bash`|`Bash(*pytest*)`|`guard-suite-concurrency.js`|Table B|it denies a SECOND concurrent whole suite (#2680), and one under its ladder rung (#2305), unless the launch carries `--queue` or runs through scripts/queue-run.js…|
-|26|`Bash`|`Bash(*npx *)`|`guard-suite-concurrency.js`|Table B|measured (#2586): in a host declaring `npx jest` as `commands.test`, with `suites` on, that launch typed bare is handed `rule:targeted-runs` (270 B) before it runs, once a session; silent on the repeat, on a narrowed launch and in a host declaring no `commands.test`, and never counted toward the fourth-suite deny.|
-|27|`Bash`|`Bash(*yarn *)`|`guard-suite-concurrency.js`|Table B|measured (#2586): in a host declaring `yarn test` as `commands.test`, with `suites` on, that launch typed bare is handed `rule:targeted-runs` (270 B) before it runs, once a session; silent on the repeat, on a narrowed launch and in a host declaring no `commands.test`, and never counted toward the fourth-suite deny.|
-|28|`Bash`|`Bash(*pnpm *)`|`guard-suite-concurrency.js`|Table B|measured (#2586): in a host declaring `pnpm test` as `commands.test`, with `suites` on, that launch typed bare is handed `rule:targeted-runs` (270 B) before it runs, once a session; silent on the repeat, on a narrowed launch and in a host declaring no `commands.test`, and never counted toward the fourth-suite deny.|
-|29|`Bash`|`Bash(*bun *)`|`guard-suite-concurrency.js`|Table B|measured (#2586): in a host declaring `bun test` as `commands.test`, with `suites` on, that launch typed bare is handed `rule:targeted-runs` (270 B) before it runs, once a session; silent on the repeat, on a narrowed launch and in a host declaring no `commands.test`, and never counted toward the fourth-suite deny.|
-|30|`Bash`|`Bash(*make *)`|`guard-suite-concurrency.js`|Table B|measured (#2586): in a host declaring `make test` as `commands.test`, with `suites` on, that launch typed bare is handed `rule:targeted-runs` (270 B) before it runs, once a session; silent on the repeat, on a narrowed launch and in a host declaring no `commands.test`, and never counted toward the fourth-suite deny.|
-|31|`Bash`|`Bash(*cargo *)`|`guard-suite-concurrency.js`|Table B|measured (#2586): in a host declaring `cargo test` as `commands.test`, with `suites` on, that launch typed bare is handed `rule:targeted-runs` (270 B) before it runs, once a session; silent on the repeat, on a narrowed launch and in a host declaring no `commands.test`, and never counted toward the fourth-suite deny.|
-|32|`Bash`|`Bash(*go test*)`|`guard-suite-concurrency.js`|Table B|measured (#2586): in a host declaring `go test ./...` as `commands.test`, with `suites` on, that launch typed bare is handed `rule:targeted-runs` (270 B) before it runs, once a session; silent on the repeat, on a narrowed launch and in a host declaring no `commands.test`, and never counted toward the fourth-suite deny.|
-|33|`Bash`|`Bash(*vitest *)`|`guard-vitest-wrapper.js`|Table B|on an unwrapped one-shot vitest run it hands the session the rule and the wrapped command as additionalContext, and on the first such run writes a…|
-|34|`Bash`|`Bash(*npx *)`|`guard-vitest-wrapper.js`|Table B|on an unwrapped one-shot vitest run it hands the session the rule and the wrapped command as additionalContext, and on the first such run writes a…|
-|35|`Bash`|—|`guard-suite-background.sh`|Table B|it refuses a suite launch detached inside the shell, and an unbounded one wrapped in a shell `timeout`, and emits nothing at all on the pass path.|
-|36|`Bash`|`Bash(*npm *)`|`guard-unasked-rerun.js`|Table B|it refuses the first bare test run in a session whose own work — its commits and its uncommitted files — green runs already cover. It writes an unreferenced commit object of that…|
-|37|`Bash`|`Bash(*free *)`|`guard-headroom-read.js`|Table B|on an ALLOWED memory read it injects one rule as additionalContext and writes a `.rule-injected-*` latch under .claude/tmp/markers.|
-|38|`Bash`|`Bash(*/proc/meminfo*)`|`guard-headroom-read.js`|Table B|on an ALLOWED memory read it injects one rule as additionalContext and writes a `.rule-injected-*` latch under .claude/tmp/markers.|
-|39|`Bash`|`Bash(*max-old-space-size*)`|`guard-node-heap.js`|Table B|on a Bash command naming the flag it injects `rule:node-heap` as additionalContext and writes a `.rule-injected-*` latch under .claude/tmp/markers.|
-|40|`Bash`|`Bash(*max_old_space_size*)`|`guard-node-heap.js`|Table B|on a Bash command naming the flag it injects `rule:node-heap` as additionalContext and writes a `.rule-injected-*` latch under .claude/tmp/markers.|
-|41|`Bash`|—|`guard-recursive-dot-read.sh`|Table B|PreToolUse guard: warn on a recursive `grep`/`rg` rooted at the project directory — named as `.` or its path, or named not at all (`rg PAT`) — leading with the same command with…|
-|42|`Bash`|`Bash(*rm *)`|`guard-rm-unchecked.js`|Table B|measured (#2586): refuses once per command, before it runs, an `rm` the harness's removal check cannot resolve — a target opening on a variable followed by `/` where the command never sets that variable, a relative glob after a `cd`, or any `rm` beside a `bash -c` — naming the reason and the two spellings that never meet the check (1,157–1,212 B); the identical re-send passes.|
-|43|`Bash`|`Bash(*find *)`|`guard-root-find.js`|Table B|PreToolUse guard: refuse a `find` whose start point is `/`, at any depth, and hand over the cheaper routes (#1006).|
-|44|`Bash`|`Bash(*yes*)`|`guard-cpu-load.js`|Table B|measured (#2861): refuses, before it runs, a `yes` not feeding a command and outside a CPU cap (`yes > /dev/null &`, 477 B), naming the two capped forms; `yes | head -3` passes, 0 B.|
-|45|`Bash`|`Bash(*stress*)`|`guard-cpu-load.js`|Table B|measured (#2861): refuses, before it runs, an uncapped `stress-ng --cpu 8 --timeout 60` (490 B); `stress-ng --version` and the `systemd-run … -p CPUQuota=400%` form pass, 0 B.|
-|46|`Bash`|`Bash(*done*)`|`guard-cpu-load.js`|Table B|measured (#2861): refuses, before it runs, a backgrounded busy loop of builtins (`while true; do :; done &`, 486 B); a loop whose body runs `sleep` passes, 0 B.|
-|47|`Bash`|`Bash(*.sh*)`|`guard-cpu-load.js`|Table B|measured (#2861): reads the script a shell runs and refuses `bash load.sh` where the script backgrounds `yes > /dev/null` (490 B, the generator named `(in load.sh)`); a script with no generator passes, 0 B.|
-|48|`Bash`|`Bash(*sh -*)`|`guard-cpu-load.js`|Table B|measured (#2861): reads a `bash -c` string and refuses `bash -c 'yes > /dev/null &'` (496 B); `sh -c 'echo hi'` and the same load under `taskset -c 0-3` pass, 0 B.|
-|49|`Bash`|`Bash(grep *)`|`guard-ugrep-pattern.js`|Table B|on a matching `grep` it injects one note as additionalContext and writes a `.rule-injected-warn.ugrep-pattern-*` latch under .claude/tmp/markers, once the note is out…|
-|50|`Bash`|`Bash(*npm *)`|`guard-npm-install.js`|Table B|it refuses a new dependency the three checks cannot vouch for, with no warning tier: a package name is a structured fact (mantahostels#103).|
-|51|`Bash`|`Bash(*npx *)`|`guard-npm-install.js`|Table B|it refuses a new dependency the three checks cannot vouch for, with no warning tier: a package name is a structured fact (mantahostels#103).|
-|52|`Bash`|`Bash(*shellcheck *)`|`guard-check-sh.js`|Table B|on a shell-gate command it injects two rules as additionalContext (three texts before the full run) and writes a `.rule-injected-*` latch per text under .claude/tmp/markers.|
-|53|`Bash`|`Bash(*npm *)`|`guard-check-sh.js`|Table B|on a shell-gate command it injects two rules as additionalContext (three texts before the full run) and writes a `.rule-injected-*` latch per text under .claude/tmp/markers.|
-|54|`Bash`|—|`guard-sweep-fire.sh`|Table B|it SPENDS one unit of the day's sweep budget on every matching command it allows, writing the shared `.sweep-autofire` marker in the git common dir before the command runs.|
-|55|`Bash`|`Bash(*WFC_ALLOW_*)`|`guard-hook-escape.js`|Table B|it refuses any Bash command assigning or exporting one of the two escapes, whatever the command runs.|
-|56|`Bash`|—|`guard-branch-publish.sh`|Table B|PreToolUse guard: work lands on `main` directly — no branch on the remote, and never a pull request (#764) — and a Dependabot PR is never merged (mantahostels#3351).|
-|57|`Bash`|`Bash(*cat *)`|`guard-wide-read.sh`|Table B|PreToolUse guard: this command reads a whole file, a wide slice or an uncounted glob back into the context window (mantahostels#1562).|
-|58|`Bash`|`Bash(*sed *)`|`guard-wide-read.sh`|Table B|PreToolUse guard: this command reads a whole file, a wide slice or an uncounted glob back into the context window (mantahostels#1562).|
-|59|`Bash`|`Bash(*awk *)`|`guard-wide-read.sh`|Table B|PreToolUse guard: this command reads a whole file, a wide slice or an uncounted glob back into the context window (mantahostels#1562).|
-|60|`Bash`|`Bash(*sleep *)`|`guard-agent-poll.sh`|Table B|PreToolUse guard: stop a session waiting by looking (mantahostels#627, widened at mantahostels#659).|
-|61|`Bash`|`Bash(true*)`|`guard-agent-poll.sh`|Table B|PreToolUse guard: stop a session waiting by looking (mantahostels#627, widened at mantahostels#659).|
-|62|`Bash`|`Bash(:*)`|`guard-agent-poll.sh`|Table B|PreToolUse guard: stop a session waiting by looking (mantahostels#627, widened at mantahostels#659).|
-|63|`Bash`|`Bash(exit*)`|`guard-agent-poll.sh`|Table B|PreToolUse guard: stop a session waiting by looking (mantahostels#627, widened at mantahostels#659).|
-|64|`Write\|Edit\|NotebookEdit`|—|`guard-file-claim.sh`|Table B|besides refusing a write to a held file, TAKES a claim on the file this session is writing and pins its prior bytes for recovery, and on an ALLOWED write hands over the claim…|
-|65|`Bash\|Write\|Edit\|NotebookEdit`|—|`guard-dispatch.js`|Table B (its cores: `lib/bg-job.js`, `lib/test-rules-inject.js`, `lib/citation-write.js`, `lib/stale-script.js`, `lib/job-dir-scratch.js`, `lib/root-scratch.js`, `lib/scratch-overwrite.js`)|on a backgrounded Bash call (guard-bg-job) injects rule:killed-background-job; on a Write, Edit or NotebookEdit of a test file (inject-test-rules) injects base §X8, §X9 and §X10; on a Write or Edit adding a mantahostels#N citation the inherited tracker never used (guard-citation-tracker), names each such number and injects rule:citation-tracker — each rule once per session and agent, latched under .claude/tmp/markers; on a `Write` to `.claude/tmp/` (guard-scratch-overwrite) appends that path to the session's record in `.claude/tmp/markers/` (#1167).|
-|66|`Agent\|Task`|—|`guard-dispatch-rewrite.sh`|Table B|adds an `Artefact:` line to a dispatch prompt naming no usable one, and while burn mode is on moves a `sonnet` dispatch to `opus` — neither asked for by the session dispatching…|
-|67|`Agent\|Task`|—|`guard-blind-dispatch.sh`|Table B|PreToolUse guard: a blind dispatch states that its git snapshot names no answer (#1783).|
-|68|`Read\|ListAgents`|—|`guard-agent-poll.sh`|Table B|PreToolUse guard: stop a session waiting by looking (mantahostels#627, widened at mantahostels#659).|
-|69|`Bash\|Read`|—|`guard-echo-call.sh`|Table B|PreToolUse guard: refuse a tool call that has already answered the same thing twice in a row (mantahostels#2570).|
-|70|`Read`|—|`guard-wide-read.sh`|Table B|PreToolUse guard: this command reads a whole file, a wide slice or an uncounted glob back into the context window (mantahostels#1562).|
-|71|`*`|—|`self-plugin-canary.sh`|Table B|measured (#2586): on every tool call of a session with no self-plugin marker, exits 2 with the refusal on stderr, naming the founder's `! claude plugin marketplace add '<main checkout>/self-plugin' --scope user` and the restart (622 B; 767 B with a could-not-check line where the input carries no session id); silent once the marker exists.|
-
-### PostToolUse (12)
+### PreToolUse (2)
 
 | # | Matcher | `if` | Script | Measured | What it does (its own header) |
 |---|---|---|---|---|---|
-|72|`Bash\|Read`|—|`record-tool-echo.sh`|—|hashes every Bash and Read call's input and its response into a per-agent scratch chain, so guard-echo-call.sh can refuse a third identical call that has already given the same…|
-|73|`Bash`|`Bash(gh *)`|`place-new-issue.sh`|—|after a `gh issue create`, injects an ask to place the new issue under a parent and label it — once per prompt for placement, every issue for labels; it applies neither itself.|
-|74|`Bash`|—|`refresh-claims.sh`|—|after every Bash call, re-records the bytes of the files this session holds and baselines whatever moved under the watched tiers.|
-|75|`Bash`|`Bash(gh *)`|`record-issue-claim.js`|—|after a `gh issue edit <n> --add-assignee @me`, records that issue claim in the session arbiter without the session asking.|
-|76|`Bash`|`Bash(gh *)`|`release-issue-claim.js`|—|after a `gh issue close <n>`, drops this session's arbiter claim on that issue.|
-|77|`Bash`|`Bash(gh *)`|`record-acts.js`|—|after a `gh issue close`, a round-opening `gh issue comment`, a `takes:` label added by `gh issue edit` or a blocked-by edge added, appends one line per act to the session's acts…|
-|78|`Bash`|`Bash(git *)`|`record-divergence.js`|—|appends one row per refused `git pull` and per rejected `git push` to a per-repo log under the Claude config directory. Records only; it reaches no verdict and refuses nothing.|
-|79|`Bash`|`Bash(*push*)`|`start-lander-on-push.js`|—|measured (#2586): prints nothing. After a Bash call pushing to `landing` with the `landing` module on, starts `start-lander.js` detached, its output to `.claude/tmp/markers/.lander.log`; a push elsewhere, a `--dry-run`, an `echo`ed push and the module off start nothing.|
-|80|`Bash`|`Bash(*test*)`|`guard-lost-verdict.js`|Table B|after a suite run whose output shows no pass/fail line, hands the session that run's verdict lines and TEST LOG path.|
-|81|`Write\|Edit\|NotebookEdit`|—|`post-write.sh`|—|after every Write/Edit/NotebookEdit, rewrites the file with Biome, shfmt or `ruff format` and then records its bytes as the session's write-ledger entry and clobber baseline; a…|
-|82|`WebFetch\|WebSearch\|Read`|—|`scan-injection.js`|—|after every WebFetch, WebSearch and `.claude/tmp/research-*.md` Read, injects an advisory line into the session's context when the fetched text matches an injection pattern.|
-|83|`Read`|—|`guard-image-budget.sh`|Table B|after an image Read, tells the agent when its images near or pass the per-request budget, naming the files that no longer reach it.|
+|1|`Bash\|Write\|Edit\|NotebookEdit\|Skill\|Read\|ListAgents\|Agent\|Task`|—|`run-pinned-guards.js`|Table B (its cores)|on every call the guard entry's registrations match, runs scripts/guard-dispatch.js from the pinned guard code, and refuses the call with exit 2 where that code is missing or throws. Its cores are Table B's `scripts/lib/` rows; the code it runs lags `origin/main` until the lander or `scripts/adopt-guard-code.js` adopts a new tip (#4227).|
+|2|`*`|—|`self-plugin-canary.sh`|Table B|measured (#2586): on every tool call of a session with no self-plugin marker, exits 2 with the refusal on stderr, naming the founder's `! claude plugin marketplace add '<main checkout>/self-plugin' --scope user` and the restart (622 B; 767 B with a could-not-check line where the input carries no session id); silent once the marker exists.|
 
-### PostToolUseFailure (2)
+### PostToolUse (8)
 
 | # | Matcher | `if` | Script | Measured | What it does (its own header) |
 |---|---|---|---|---|---|
-|84|`Bash`|`Bash(*test*)`|`guard-lost-verdict.js`|Table B|after a suite run whose output shows no pass/fail line, hands the session that run's verdict lines and TEST LOG path.|
-|85|`Bash`|—|`guard-failed-call-rules.js`|Table B|measured (#2263): after a Bash call failing `Exit code 137` or `143`, not interrupted, hands over `rule:silent-kill` (635 B), on every hit; silent on any other exit or an interrupt.|
+|3|`Bash\|Read\|Write\|Edit\|NotebookEdit\|WebFetch\|WebSearch`|—|`run-pinned-guards.js`|Table B (its cores)|on every call the guard entry's registrations match, runs scripts/guard-dispatch.js from the pinned guard code, and refuses the call with exit 2 where that code is missing or throws. Its cores are Table B's `scripts/lib/` rows; the code it runs lags `origin/main` until the lander or `scripts/adopt-guard-code.js` adopts a new tip (#4227).|
+|4|`Bash`|`Bash(gh *)`|`place-new-issue.sh`|—|after a `gh issue create`, injects an ask to place the new issue under a parent and label it — once per prompt for placement, every issue for labels; it applies neither itself.|
+|5|`Bash`|`Bash(gh *)`|`record-issue-claim.js`|—|after a `gh issue edit <n> --add-assignee @me`, records that issue claim in the session arbiter without the session asking.|
+|6|`Bash`|`Bash(gh *)`|`release-issue-claim.js`|—|after a `gh issue close <n>`, drops this session's arbiter claim on that issue.|
+|7|`Bash`|`Bash(gh *)`|`record-acts.js`|—|after a `gh issue close`, a round-opening `gh issue comment`, a `takes:` label added by `gh issue edit` or a blocked-by edge added, appends one line per act to the session's acts…|
+|8|`Bash`|`Bash(git *)`|`record-divergence.js`|—|appends one row per refused `git pull` and per rejected `git push` to a per-repo log under the Claude config directory. Records only; it reaches no verdict and refuses nothing.|
+|9|`Bash`|`Bash(*push*)`|`start-lander-on-push.js`|—|measured (#2586): prints nothing. After a Bash call pushing to `landing` with the `landing` module on, starts `start-lander.js` detached, its output to `.claude/tmp/markers/.lander.log`; a push elsewhere, a `--dry-run`, an `echo`ed push and the module off start nothing.|
+|10|`Bash`|—|`guard-lost-verdict.js`|Table B|after a suite run whose output shows no pass/fail line, hands the session that run's verdict lines and TEST LOG path.|
+
+### PostToolUseFailure (3)
+
+| # | Matcher | `if` | Script | Measured | What it does (its own header) |
+|---|---|---|---|---|---|
+|11|`Bash`|—|`guard-lost-verdict.js`|Table B|after a suite run whose output shows no pass/fail line, hands the session that run's verdict lines and TEST LOG path.|
+|12|`Bash`|`Bash(git *)`|`record-divergence.js`|—|appends one row per refused `git pull` and per rejected `git push` to a per-repo log under the Claude config directory. Records only; it reaches no verdict and refuses nothing.|
+|13|`Bash`|—|`guard-failed-call-rules.js`|Table B|measured (#2263): after a Bash call failing `Exit code 137` or `143`, not interrupted, hands over `rule:silent-kill` (635 B), on every hit; silent on any other exit or an interrupt.|
 
 ### PostToolBatch (1)
 
 | # | Matcher | `if` | Script | Measured | What it does (its own header) |
 |---|---|---|---|---|---|
-|86|`*`|—|`guard-failed-call-rules.js`|Table B|measured (#2263): after a batch whose `Skill` call the harness refused for `disable-model-invocation`, hands over `rule:skill-refused` (419 B), on every hit; silent otherwise.|
+|14|`*`|—|`guard-failed-call-rules.js`|Table B|measured (#2263): after a batch whose `Skill` call the harness refused for `disable-model-invocation`, hands over `rule:skill-refused` (419 B), on every hit; silent otherwise.|
 
 ### UserPromptSubmit (5)
 
 | # | Matcher | `if` | Script | Measured | What it does (its own header) |
 |---|---|---|---|---|---|
-|87|`*`|—|`name-issue-session.sh`|—|renames the session (a registry write) after the issue(s) it was opened on, or /pick-next's start time, at UserPromptSubmit and SessionStart, and announces the name in a…|
-|88|`*`|—|`inject-tracker-docs.sh`|Table B|pastes the tracker overrides and the priced-options shape (a pointer to it where Core voice loads, #2039), and hands each of the seven tracker commands its own residue index of…|
-|89|`*`|—|`inject-founder-wording.sh`|Table B|injects the four recurrence checks and this host's tracker corpus into a session whose prompt names a fault coming back, or starts with `/diagnosing-bugs`, at UserPromptSubmit, and…|
-|90|`*`|—|`unpark-on-prompt.js`|—|measured (#2263): prints nothing. At a prompt in a session whose `.parked-` marker lists an issue, removes that issue's `parked` label and drops it from the marker.|
-|91|`*`|—|`mark-presence.js`|—|measured (#2263): prints nothing. At a typed prompt, writes the time to `~/.claude/.founder-presence`; an `<agent-message` prompt or a print-mode run writes nothing.|
+|15|`*`|—|`name-issue-session.sh`|—|renames the session (a registry write) after the issue(s) it was opened on, or /pick-next's start time, at UserPromptSubmit and SessionStart, and announces the name in a…|
+|16|`*`|—|`inject-tracker-docs.js`|Table B|pastes the tracker overrides and the priced-options shape (a pointer to it where Core voice loads, #2039), and hands each of the seven tracker commands its own residue index of…|
+|17|`*`|—|`inject-founder-wording.js`|Table B|injects the four recurrence checks and this host's tracker corpus into a session whose prompt names a fault coming back, or starts with `/diagnosing-bugs`, at UserPromptSubmit, and…|
+|18|`*`|—|`unpark-on-prompt.js`|—|measured (#2263): prints nothing. At a prompt in a session whose `.parked-` marker lists an issue, removes that issue's `parked` label and drops it from the marker.|
+|19|`*`|—|`mark-presence.js`|—|measured (#2263): prints nothing. At a typed prompt, writes the time to `~/.claude/.founder-presence`; an `<agent-message` prompt or a print-mode run writes nothing.|
 
-### Stop (13)
+### Stop (17)
 
 | # | Matcher | `if` | Script | Measured | What it does (its own header) |
 |---|---|---|---|---|---|
-|92|`*`|—|`concision-backstop.sh` `stop`|Table B|records the session's base sha at SessionStart, and at Stop blocks the turn ending once per unmet signal — demanding the concision pass over prose added, or code-review over code…|
-|93|`*`|—|`guard-priced-options.js`|Table B|reads the session's ending message at every Stop and blocks the turn where a question to the founder is not in the lettered priced form, naming the fault to the founder and sending…|
-|94|`*`|—|`guard-inventory.js`|Table B|reads the session's ending message at every Stop and blocks the turn where a background job's `result:` or `needs input:` carries no `waits on you:` inventory, or where any…|
-|95|`*`|—|`guard-jev-advisory.js`|Table B|appends one JSONL line per turn under `.claude/tmp/markers/`, carrying the outgoing text itself on a `flagged` line and on no other (#285), and on a turn that passes every gate…|
-|96|`*`|—|`guard-selection-sum.js`|Table B|reads the session's ending message at every Stop and blocks a selection session that dispatches work without stating the frontier arithmetic — its three terms including the count…|
-|97|`*`|—|`guard-uncommitted-work.js`|Table B|reads git state at Stop and refuses the turn while this session's own tracked edits sit uncommitted in the shared tree — unless the turn is the `waiting:` hand-off…|
-|98|`*`|—|`guard-session-ceiling.js`|Table B|reads this session's own transcript at every Stop and, once a band other than the tripwire has been crossed, the turn's status marker; once a band is crossed, reads the…|
-|99|`*`|—|`guard-lost-deny.js`|Table B|reads this session's own transcript at every Stop and refuses one turn where a deny-capable PreToolUse guard was cancelled or exited non-zero, and the call went ahead, since the…|
-|100|`*`|—|`guard-automode-refusal.js`|Table B|reads this session's own transcript at every Stop and refuses one turn carrying an auto-mode refusal it has not yet shown the rule for.|
-|101|`*`|—|`guard-unpushed-commits.js`|Table B|reads this session's commit ledger and git at every Stop, and blocks one turn when a commit it made is on HEAD but not on the pushed ref and has not been warned about before.|
-|102|`*`|—|`guard-paste-self-match.js`|Table B|scans every outgoing message for `!` code with a pgrep or pkill in it, and runs one bash per such block.|
-|103|`*`|—|`park-on-round.js`|—|measured (#2263): prints nothing. At a background job's passing `needs input:` Stop whose round sits on an issue this session claims, labels that issue `parked` and records it in the `.parked-` marker; a `result:` ending or an interactive session parks nothing.|
-|104|`*`|—|`refill-wake.sh`|—|measured (#2586): prints nothing. Where the refill loop's pidfile exists and the ending session is an unfinished launch's, matched on its session id or its job id, appends `<ms> <session id>` to `.refill-loop-wake`; background work in flight wakes nothing unless the last line opens `result:` or `needs input:`.|
+|20|`*`|—|`concision-backstop.sh` `stop`|Table B|records the session's base sha at SessionStart, and at Stop blocks the turn ending once per unmet signal — demanding the concision pass over prose added, or code-review over code…|
+|21|`*`|—|`guard-priced-options.js`|Table B|reads the session's ending message at every Stop and blocks the turn where a question to the founder is not in the lettered priced form, naming the fault to the founder and sending…|
+|22|`*`|—|`guard-inventory.js`|Table B|reads the session's ending message at every Stop and blocks the turn where a background job's `result:` or `needs input:` carries no `waits on you:` inventory, or where any…|
+|23|`*`|—|`guard-jev-advisory.js`|Table B|appends one JSONL line per turn under `.claude/tmp/markers/`, carrying the outgoing text itself on a `flagged` line and on no other (#285), and on a turn that passes every gate…|
+|24|`*`|—|`guard-selection-sum.js`|Table B|reads the session's ending message at every Stop and blocks a selection session that dispatches work without stating the frontier arithmetic — its three terms including the count…|
+|25|`*`|—|`guard-uncommitted-work.js`|Table B|reads git state at Stop and refuses the turn while this session's own tracked edits sit uncommitted in the shared tree — unless the turn is the `waiting:` hand-off…|
+|26|`*`|—|`guard-session-ceiling.js`|Table B|reads this session's own transcript at every Stop and, once a band other than the tripwire has been crossed, the turn's status marker; once a band is crossed, reads the…|
+|27|`*`|—|`guard-lost-deny.js`|Table B|reads this session's own transcript at every Stop and refuses one turn where a deny-capable PreToolUse guard was cancelled or exited non-zero, and the call went ahead, since the…|
+|28|`*`|—|`guard-automode-refusal.js`|Table B|reads this session's own transcript at every Stop and refuses one turn carrying an auto-mode refusal it has not yet shown the rule for.|
+|29|`*`|—|`guard-unpushed-commits.js`|Table B|reads this session's commit ledger and git at every Stop, and blocks one turn when a commit it made is on HEAD but not on the pushed ref and has not been warned about before.|
+|30|`*`|—|`guard-typecheck-owed.js`|—|reads the queue exit log at every Stop, and blocks the turn when this session has a held try and no own run after it, or an unheard RED record, which it deletes.|
+|31|`*`|—|`guard-exhausted-map.js`|—|at every Stop of a session holding an issue claim, reads each claimed issue from GitHub and refuses the turn where one is an exhausted map.|
+|32|`*`|—|`guard-held-ticket.js`|—|at every Stop of a session holding an issue claim and ending on `result:` or no marker, reads each claimed issue from GitHub and refuses the turn where one is an unfinished build unit.|
+|33|`*`|—|`guard-paste-self-match.js`|Table B|scans every outgoing message for `!` code with a pgrep or pkill in it, and runs one bash per such block.|
+|34|`*`|—|`guard-session-id-prose.js`|—|scans every outgoing message, and reads the sessions registry where one holds a UUID or an 8-hex word.|
+|35|`*`|—|`park-on-round.js`|—|measured (#2263): prints nothing. At a background job's passing `needs input:` Stop whose round sits on an issue this session claims, labels that issue `parked` and records it in the `.parked-` marker; a `result:` ending or an interactive session parks nothing.|
+|36|`*`|—|`refill-wake.sh`|—|measured (#2586): prints nothing. Where the refill loop's pidfile exists and the ending session is an unfinished launch's, matched on its session id or its job id, appends `<ms> <session id>` to `.refill-loop-wake`; background work in flight wakes nothing unless the last line opens `result:` or `needs input:`.|
 
 ### PreCompact (2)
 
 | # | Matcher | `if` | Script | Measured | What it does (its own header) |
 |---|---|---|---|---|---|
-|105|`*`|—|`clear-rule-latch.sh`|—|at every compaction, deletes this session's (and its subagents') rule-injection latch markers from .claude/tmp/markers, so each relocated rule is handed to the session once more…|
-|106|`*`|—|`inject-compaction-count.js`|Table B|at every compaction, writes a trigger marker; after one, reads and deletes it, reads the transcript tail and writes the compaction set.|
+|37|`*`|—|`clear-rule-latch.sh`|—|at every compaction, deletes this session's (and its subagents') rule-injection latch markers from .claude/tmp/markers, so each relocated rule is handed to the session once more…|
+|38|`*`|—|`inject-compaction-count.js`|Table B|at every compaction, writes a trigger marker; after one, reads and deletes it, reads the transcript tail and writes the compaction set.|
 
-### SessionStart (18)
+### SessionStart (24)
 
 | # | Matcher | `if` | Script | Measured | What it does (its own header) |
 |---|---|---|---|---|---|
-|107|`compact`|—|`inject-compaction-count.js`|Table B|at every compaction, writes a trigger marker; after one, reads and deletes it, reads the transcript tail and writes the compaction set.|
-|108|`*`|—|`write-self-plugin-marker.sh`|—|measured (#2586): prints nothing on stdout. At every session start writes an empty `.self-plugin-loaded-<session id>` under `.claude/tmp/markers/`, the proof `self-plugin-canary.sh` reads; where that directory is unwritable it logs to `guard-errors.log`, puts a stray 207 B on stderr (#2626), and the canary refuses the session's first call.|
-|109|`*`|—|`replay-notify-reports.js` `--notify`|—|reads the persisted report files at every session start and injects into the session whatever a slow async producer finished after the harness had stopped listening to it, bar the…|
-|110|`*`|—|`check-plugin-gap.js` `--notify`|—|on every SessionStart, injects a version-gap line, the adopter-upgrade rule text and the consent accept/decline commands into the session's context when the pin, supply and install…|
-|111|`*`|—|`concision-backstop.sh` `start`|Table B|records the session's base sha at SessionStart, and at Stop blocks the turn ending once per unmet signal — demanding the concision pass over prose added, or code-review over code…|
-|112|`*`|—|`name-issue-session.sh`|—|renames the session (a registry write) after the issue(s) it was opened on, or /pick-next's start time, at UserPromptSubmit and SessionStart, and announces the name in a…|
-|113|`*`|—|`inject-tracker-docs.sh`|Table B|pastes the tracker overrides and the priced-options shape (a pointer to it where Core voice loads, #2039), and hands each of the seven tracker commands its own residue index of…|
-|114|`*`|—|`session-arbiter.js` `prune-markers --detach`|—|wired at SessionStart as `prune-markers --detach`, which records HEAD as the session's fallback base (#110) and launches a detached `prune-markers` and returns at once; that child…|
-|115|`*`|—|`sweep-debts-detached.sh`|—|at every session start, launches `debt sweep` detached, which asks GitHub for closed issues, deletes the debt entries they own, and deletes any entry that is unowned, has no gist…|
-|116|`*`|—|`check-ci-status.js` `--notify`|—|at every session start, asks GitHub whether the last sweep on the branch went red, injects the verdict into the session's context, dispatches a billed sweep the session never asked…|
-|117|`*`|—|`check-orphan-wait-loops.js` `--notify`|—|at every session start, injects a report naming each orphaned wait loop still running on this machine — every time, while it runs. It never kills one.|
-|118|`*`|—|`check-kernel-stall.js` `--notify`|—|at every session start, reads this boot's kernel log and the scheduler clock over 1 s and, where the log holds an RCU stall or the clock is frozen, prints that the VM is unhealthy…|
-|119|`*`|—|`check-refill-loop-stop.js` `--notify`|—|at every session start, prints the refill loop's last stop where it was no progress or the allowance cut and is newer than the stamp, then stamps it.|
-|120|`*`|—|`check-harness-canary.js` `--notify`|—|at every session start, reads the installed Claude Code version; where no probe has passed on it, launches one detached `claude -p` haiku turn against a throwaway plugin, and…|
-|121|`*`|—|`check-orphaned-edits.js` `--notify`|—|at every session start, files each uncommitted tracked file no live session owns and nobody has touched for 24 hours once as a takes:triage issue, printing nothing. It never…|
-|122|`*`|—|`audit-escape-lines.js` `--notify`|—|at every session start, at most once in six hours, starts a detached batch that reads every seat's transcripts for this repo and sends each close question block that passed on an…|
-|123|`*`|—|`check-seat-utilisation.js` `--notify`|—|at every session start, reads each seat's usage cache and injects a blocked-work notice when every live seat is exhausted, a tier-drop notice when a model's weekly allowance is…|
-|124|`*`|—|`reap-finished-sessions.js` `--notify`|—|at every session start, runs `claude stop` against OTHER background sessions, on every seat, judged finished but still resident, so their 330-450 MB returns to the admission…|
+|39|`compact`|—|`inject-compaction-count.js`|Table B|at every compaction, writes a trigger marker; after one, reads and deletes it, reads the transcript tail and writes the compaction set.|
+|40|`startup\|resume`|—|`guard-main-checkout-job.js`|—|at every startup or resume of a background job in the main checkout, cuts a worktree; at a startup with a prompt, copies the files it names in the job directory there, starts a second job there and removes the first.|
+|41|`*`|—|`write-self-plugin-marker.sh`|—|measured (#2586): prints nothing on stdout. At every session start writes an empty `.self-plugin-loaded-<session id>` under `.claude/tmp/markers/`, the proof `self-plugin-canary.sh` reads; where that directory is unwritable it logs to `guard-errors.log`, puts a stray 207 B on stderr (#2626), and the canary refuses the session's first call.|
+|42|`*`|—|`replay-notify-reports.js` `--notify`|—|reads the persisted report files at every session start and injects into the session whatever a slow async producer finished after the harness had stopped listening to it, bar the…|
+|43|`*`|—|`check-plugin-gap.js` `--notify`|—|on every SessionStart, injects a version-gap line, the adopter-upgrade rule text and the consent accept/decline commands into the session's context when the pin, supply and install…|
+|44|`*`|—|`concision-backstop.sh` `start`|Table B|records the session's base sha at SessionStart, and at Stop blocks the turn ending once per unmet signal — demanding the concision pass over prose added, or code-review over code…|
+|45|`*`|—|`name-issue-session.sh`|—|renames the session (a registry write) after the issue(s) it was opened on, or /pick-next's start time, at UserPromptSubmit and SessionStart, and announces the name in a…|
+|46|`*`|—|`inject-tracker-docs.js`|Table B|pastes the tracker overrides and the priced-options shape (a pointer to it where Core voice loads, #2039), and hands each of the seven tracker commands its own residue index of…|
+|47|`*`|—|`session-arbiter.js` `prune-markers --detach`|—|wired at SessionStart as `prune-markers --detach`, which records HEAD as the session's fallback base (#110) and launches a detached `prune-markers` and returns at once; that child…|
+|48|`*`|—|`session-start-sweeps.sh`|—|at every session start, unless `VITEST` is set, launches every job below but `session-scope.js` as no session's process — `CLAUDE_CODE_SESSION_ID`, `CLAUDE_JOB_DIR` and `WFC_REPORT_OWNER` unset, then `WFC_REPORT_OWNER` set to this session's id — in a systemd user scope of its own, stopped with everything it started after 45 minutes, and marked `WFC_OUTLIVES` with this session's process and that ceiling, where a user manager answers (#4706, #4749); launches `session-scope.js` detached, which moves this Claude session's process (`CLAUDE_PID`) and every process it has started into a systemd user scope of its own, then moves any job so marked that it took in to a scope of its own at its ceiling (#4749), bounded at 3.5 GiB of memory with no swap, past which the kernel kills the scope's largest process and nothing else (#4590), and starts a user service that, once that process has exited, moves any Claude daemon, pty host or spare out of the scope and kills every other process left in it (#4341); kicks a once-daily transcript sweep whose reading is appended to `~/.claude/.self-throttling-history.jsonl`, injecting nothing into the session while `NOTICE_ON_SESSION_START` is off (mantahostels#1404); and — unless `VITEST` is set — clears a stale `.git/gc.log` and launches `git gc --auto` detached, repacking and, past git's default 2-week grace, pruning objects nothing references, launches `retire-stale-containers.js` detached, which asks GitHub for the open issues — and for the sub-issues of each open `takes:to-tickets` one — and moves any `takes:children` with no open child left to `takes:triage`, and any `takes:to-tickets` that already has tickets to `takes:children` or `takes:triage`; and launches `lib/scratch-sweep.js` detached, which deletes from `.claude/tmp/` every file over 24 hours old — 7 days for one named with `research` or under `agents/` — that no live session predates, and nothing at all if it cannot read which sessions are live; and launches `report-close-check-reading.js` detached, which, until its reading is filed, reads the close-check log of every workflow-core adopter on this laptop and every seat's transcripts and — only once the week-one reading point is reached — files one `takes:wayfinder` issue on GitHub, and never again once it exists, open or closed; and launches `report-round-check-reading.js` detached, which does the same for the round-check log of every repo its baseline has rows for, then, once that issue exists, does the same for its second reading; and launches `report-flip-line-reading.js` detached, which does the same for the low-top test's flip line, reading the close-check logs; and launches `report-suite-queue-wait.js` detached, which — where the `suites` module is on — at most hourly sums the last 24 h of suite queue wait from the local queue-exit log and — only at 2 h or more — files or refreshes one `takes:wayfinder` issue in the host repo's own tracker, filing again after a close only for a window that starts after it; and launches `report-arch-scan-due.js` detached, which at most daily counts the net growth of the host repo's ten busiest code files since its last architecture scan and — at or over the threshold, and while no scan is in flight — files or refreshes one `takes:implement` *Architecture scan due* issue in the host repo's own tracker; and launches `report-heresy-sweep-due.js` detached, which at most daily asks GitHub for the newest *Heresy sweep due* issue and — 30 days after its close, or after the open one's creation where none has closed, or at once where none was ever filed — files or refreshes one `takes:implement` *Heresy sweep due* issue in the host repo's own tracker; and launches `repo-checks.js` detached, which at most daily runs the host repo's own state checks as the main checkout, even from a linked worktree — reporters among them filing or refreshing their own issue — writes its result to the git common directory and a notify report naming any check that gained a finding, broke or went missing, and files or refreshes one `takes:triage` *Repo checks: standing findings* issue in the host repo's own tracker; and launches `start-lander.js` detached, which — where no lander runs and a queue ref waits on the remote or a drop is owed a decision — starts the queue lander, which batches the waiting queue refs onto `main`, tests the batch and fast-forwards `main` to it on green; and launches `check-landing-stall.js --notify` detached, which reads the remote's `main` and queue refs, the queue log and the queue lander's heartbeat and writes its notify report, warning where a queue ref waits and `main` has not moved for 2 h since the oldest waiting ref's push and the machine's last boot or resume, or where a queue ref waits with no queue lander running, or where the oldest waiting queue ref has waited, or more queue refs wait, past the queue's limits (scripts/lib/queue-gauge.js); and launches `start-orphan-sweep-timer.js` detached, which — where a systemd user manager answers and no `wfc-orphan-sweep.timer` runs a script that still exists and is no older than its own — starts that transient timer, running `reap-orphan-hooks.js` every 5 minutes, which SIGKILLs every process whose Claude session has ended, with no session open.|
+|49|`*`|—|`check-ci-status.js` `--notify --write`|—|at every session start (its hook passing --write, without which neither the dispatch nor the filer launch below happens, #4449), asks GitHub whether the last sweep on the branch went red, injects the verdict into the session's context, dispatches a sweep the session never asked for when that verdict has gone stale (mantahostels#1816), and launches the red-suite filer — as no session's process, in a systemd user scope of its own stopped after 45 minutes where a user manager answers (#4706) — which files or comments on the tracker, where the daily filer did not (#2480).|
+|50|`*`|—|`reap-orphan-hooks.js` `--notify`|—|at every session start, and every few minutes from a user timer, SIGKILLs every process on this machine that runs any `scripts/guard-*` script or a registered hook invocation, has an init for a parent and is older than the longest registered hook timeout plus a minute, together with its process group where it leads it or the group holds nothing else, else its descendant tree; appends one line per kill to `.orphan-hook-reaps.jsonl` under the canonical checkout's .claude/tmp/markers; SIGKILLs every process whose WFC_INFLIGHT_OWNER names a run-vitest.js pid no longer running; SIGKILLs every process with an init for a parent whose CLAUDE_CODE_SESSION_ID and CLAUDE_PID name a session whose leader is gone, with its descendants, and appends one line per kill to `~/.local/state/workflow-core/orphan-session-reaps.jsonl`, making that directory where it is missing; names each kill in the session; and at a session start names the kills that log holds that no start in this checkout has named, writing `.orphan-session-reaps-shown` under its markers, or says it cannot read that log and writes nothing.|
+|51|`*`|—|`check-orphan-wait-loops.js` `--notify`|—|at every session start, injects a report naming each orphaned wait loop still running on this machine — every time, while it runs. It never kills one.|
+|52|`*`|—|`check-kernel-stall.js` `--notify`|—|at every session start, reads this boot's kernel log and the scheduler clock over 1 s and, where the log holds an RCU stall or the clock is frozen, prints that the VM is unhealthy…|
+|53|`*`|—|`check-release-lag.js` `--notify`|—|at every session start, reads the newest release tag's source, `origin/main`, each adopter checkout's pin and its installed version, and where the source is more than LAG_WARN_DAYS behind `origin/main`, or unreadable, or an adopter's install is not at its pin, prints that with the pins and installs it concerns; prints nothing otherwise.|
+|54|`*`|—|`check-main-checkout-cutover.js` `--notify`|—|at every session start (`--notify`), reads the main checkout's upstream; where it is not cut over, lists the live sessions (`claude agents --json`) and, where none stands in the main checkout, runs the cutover (lib/cutover-run.js) — landing the main checkout's local commits through a queue ref, removing `main`'s upstream and running a levelling pass — and prints its report; where one does, prints a FAIL naming each; prints nothing once cut over. Run without `--notify`, as `npm run status` does, it reports a main checkout not cut over and cuts nothing.|
+|55|`*`|—|`check-interop-latency.js` `--notify`|—|at every session start, times one Windows policy query through the interop bridge, and a second where the first is slow; where both are slow, appends one evidence record to `.interop-degraded.jsonl` under .claude/tmp/markers and prints that the bridge is degraded with the sync-then-shutdown recovery; prints nothing on a fast or unprobeable bridge.|
+|56|`*`|—|`check-refill-loop-stop.js` `--notify`|—|at every session start, prints the refill loop's last stop where it was no progress or the allowance cut and is newer than the stamp, then stamps it.|
+|57|`*`|—|`check-idle-efforts.js` `--notify`|—|at every session start, reads every adopting checkout's tracker and reports a stopped refill loop, a live loop's damaged file and each tracker holding an effort idle past 2 days, or unread, whose finding was not yet shown that machine-local day; a dispatcher's or the loop's job start, or any job's resume, stamps none of it, and through the hooks shows none of it.|
+|58|`*`|—|`check-harness-canary.js` `--notify`|—|at every session start, reads the installed Claude Code version; where no probe has passed on it, launches one detached `claude -p` haiku turn against a throwaway plugin, and…|
+|59|`*`|—|`check-orphaned-edits.js` `--notify --write --hourly`|—|at session start, at most once a clock hour across the repository's worktrees (its hook passes --write --hourly), files each uncommitted tracked file that no live session owns once as a takes:triage issue, a linked worktree's together as one, printing nothing: in a linked worktree, or in a main checkout not yet cut over, once nobody has touched it for 24 hours; in a cut-over main checkout, at any age. It never reverts or writes the file.|
+|60|`*`|—|`audit-escape-lines.js` `--notify`|—|at every session start, at most once in six hours, starts a detached batch that reads every seat's transcripts for this repo and sends each close question block that passed on an…|
+|61|`*`|—|`check-seat-utilisation.js` `--notify`|—|at every session start, reads each seat's usage cache and injects a blocked-work notice when every live seat is exhausted, a tier-drop notice when a model's weekly allowance is…|
+|62|`*`|—|`reap-finished-sessions.js` `--notify`|—|at every session start, runs `claude stop` against OTHER background sessions, on every seat, judged finished but still resident, so their 330-450 MB returns to the admission…|
 
 ### SessionEnd (1)
 
 | # | Matcher | `if` | Script | Measured | What it does (its own header) |
 |---|---|---|---|---|---|
-|125|`*`|—|`reconcile-plugin.js` `--session-end`|—|on every SessionEnd, where the founder's yes for this exact repo+tag is pending and no other Claude session is live under this config dir, runs `claude plugin marketplace add` →…|
+|63|`*`|—|`reconcile-plugin.js` `--session-end`|—|on every SessionEnd, where the founder's yes for this exact repo+tag is pending and no other Claude session is live under this config dir, runs `claude plugin marketplace add` →…|
 
 ## Table B — measured guards (66)
 
@@ -1212,47 +1148,48 @@ Measured under #2861 at `4a37e3500`: `guard-cpu-load.js`'s five entries. The ent
 
 # Part 3 — the skill layer
 
-40 directories under `.claude/skills/` at `a6d66be90`, read from git as the checker reads them (#2263): 16 own, 24 vendored (symlinks), split on the symlink as the checker splits them. 17 carry `disable-model-invocation: true`. Description bytes are the frontmatter `description:` as delivered (folded blocks joined); body bytes are `SKILL.md` less its frontmatter. Descriptions total 3,612 B, paid every session; bodies 316,905 B, paid on trigger. A description of 0 B is a skill whose frontmatter carries none. The first edition's per-skill trigger and duplication columns are not re-taken: the checker anchors counts only, and no allocation decision waits on them.
+41 directories under `.claude/skills/` carrying a `SKILL.md` at `bba80f019`, read from git as the checker reads them (#5359): 17 own, 24 vendored (symlinks), split on the symlink as the checker splits them. 17 carry `disable-model-invocation: true`. Description bytes are the frontmatter `description:` as delivered (folded blocks joined); body bytes are `SKILL.md` less its frontmatter. Descriptions total 3,633 B, paid every session; bodies 337,986 B, paid on trigger. A description of 0 B is a skill whose frontmatter carries none. The first edition's per-skill trigger and duplication columns are not re-taken: the checker anchors counts only, and no allocation decision waits on them.
 
 | # | Skill | Own or vendored | Desc bytes | Body bytes | Model-invocable? |
 |---|---|---|---|---|---|
-|1|animate|vendored → `../../.agents/skills/animate`|649|12,741|yes|
-|2|architecture-scan|own|0|11,140|yes|
-|3|ask-matt|vendored → `../../.agents/skills/ask-matt`|83|10,328|no|
-|4|browser-ladder|own|288|10,202|yes|
-|5|burn-mode|own|146|1,465|yes|
-|6|capture-drain|own|0|5,056|yes|
-|7|card-close|own|0|13,536|yes|
-|8|code-review|vendored → `../../.agents/skills/code-review`|0|7,310|yes|
+|1|animate|vendored → `../../.agents/skills/animate`|649|12,791|yes|
+|2|architecture-scan|own|0|11,728|yes|
+|3|ask-matt|vendored → `../../.agents/skills/ask-matt`|83|10,470|no|
+|4|browser-ladder|own|288|11,406|yes|
+|5|burn-mode|own|167|1,667|yes|
+|6|capture-drain|own|0|4,968|yes|
+|7|card-close|own|0|12,462|yes|
+|8|code-review|vendored → `../../.agents/skills/code-review`|0|7,346|yes|
 |9|codebase-design|vendored → `../../.agents/skills/codebase-design`|0|6,137|yes|
-|10|concision-pass|own|0|18,327|yes|
+|10|concision-pass|own|0|18,523|yes|
 |11|design-mode|own|270|1,109|yes|
-|12|diagnosing-bugs|vendored → `../../.agents/skills/diagnosing-bugs`|0|8,330|yes|
+|12|diagnosing-bugs|vendored → `../../.agents/skills/diagnosing-bugs`|0|8,464|yes|
 |13|domain-modeling|vendored → `../../.agents/skills/domain-modeling`|0|3,248|yes|
 |14|grill-me|vendored → `../../.agents/skills/grill-me`|51|38|no|
 |15|grill-with-docs|vendored → `../../.agents/skills/grill-with-docs`|106|66|no|
-|16|grilling|vendored → `../../.agents/skills/grilling`|0|2,258|yes|
-|17|handoff|vendored → `../../.agents/skills/handoff`|86|684|no|
-|18|implement|vendored → `../../.agents/skills/implement`|60|1,078|no|
-|19|improve-codebase-architecture|vendored → `../../.agents/skills/improve-codebase-architecture`|125|5,786|no|
-|20|manual-sync|own|179|13,444|yes|
-|21|new-repo|own|38|3,638|no|
-|22|pick-next|own|0|58,653|yes|
-|23|pressure-test|own|150|5,939|yes|
-|24|prototype|vendored → `../../.agents/skills/prototype`|0|2,714|yes|
-|25|rescue-sessions|own|125|10,163|yes|
-|26|research|vendored → `../../.agents/skills/research`|0|730|yes|
-|27|retire-to-roadmap|own|101|5,686|no|
-|28|retro|vendored → `../../.agents/skills/retro`|44|4,258|no|
-|29|retro-sweep|own|0|13,186|yes|
-|30|roadmap-edit|own|0|19,236|yes|
-|31|setup-matt-pocock-skills|vendored → `../../.agents/skills/setup-matt-pocock-skills`|180|6,581|no|
-|32|tdd|vendored → `../../.agents/skills/tdd`|0|3,369|yes|
-|33|teach|vendored → `../../.agents/skills/teach`|61|9,327|no|
-|34|to-questionnaire|vendored → `../../.agents/skills/to-questionnaire`|88|2,740|no|
-|35|to-spec|vendored → `../../.agents/skills/to-spec`|149|3,320|no|
-|36|to-tickets|vendored → `../../.agents/skills/to-tickets`|247|5,354|no|
-|37|triage|vendored → `../../.agents/skills/triage`|136|6,356|no|
-|38|wait-what|own|53|683|no|
-|39|wayfinder|vendored → `../../.agents/skills/wayfinder`|197|11,953|no|
-|40|writing-for-agents|vendored → `../../.agents/skills/writing-for-agents`|0|10,736|yes|
+|16|grilling|vendored → `../../.agents/skills/grilling`|0|2,286|yes|
+|17|handoff|vendored → `../../.agents/skills/handoff`|86|730|no|
+|18|heresy-sweep|own|0|7,064|yes|
+|19|implement|vendored → `../../.agents/skills/implement`|60|1,682|no|
+|20|improve-codebase-architecture|vendored → `../../.agents/skills/improve-codebase-architecture`|125|5,814|no|
+|21|manual-sync|own|179|13,346|yes|
+|22|new-repo|own|38|3,757|no|
+|23|pick-next|own|0|61,283|yes|
+|24|pressure-test|own|150|5,939|yes|
+|25|prototype|vendored → `../../.agents/skills/prototype`|0|2,872|yes|
+|26|rescue-sessions|own|125|10,494|yes|
+|27|research|vendored → `../../.agents/skills/research`|0|1,080|yes|
+|28|retire-to-roadmap|own|101|5,742|no|
+|29|retro|vendored → `../../.agents/skills/retro`|44|4,258|no|
+|30|retro-sweep|own|0|20,847|yes|
+|31|roadmap-edit|own|0|18,089|yes|
+|32|setup-matt-pocock-skills|vendored → `../../.agents/skills/setup-matt-pocock-skills`|180|7,260|no|
+|33|tdd|vendored → `../../.agents/skills/tdd`|0|3,448|yes|
+|34|teach|vendored → `../../.agents/skills/teach`|61|9,554|no|
+|35|to-questionnaire|vendored → `../../.agents/skills/to-questionnaire`|88|2,740|no|
+|36|to-spec|vendored → `../../.agents/skills/to-spec`|149|3,320|no|
+|37|to-tickets|vendored → `../../.agents/skills/to-tickets`|247|5,495|no|
+|38|triage|vendored → `../../.agents/skills/triage`|136|6,356|no|
+|39|wait-what|own|53|683|no|
+|40|wayfinder|vendored → `../../.agents/skills/wayfinder`|197|12,688|no|
+|41|writing-for-agents|vendored → `../../.agents/skills/writing-for-agents`|0|10,736|yes|

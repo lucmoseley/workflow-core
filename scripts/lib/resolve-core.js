@@ -15,7 +15,7 @@
  * LOOKUP, first hit wins:
  *   1. WORKFLOW_CORE_DIR — an explicit override, for a test or an unusual layout.
  *   2. WORKFLOW_CORE_CHECKOUT — where CI checked the core out, at the pin.
- *      The workflow steps: docs/agents/helper-surface.md.
+ *      The workflow: lib/adopter-ci.js.
  *   3. The installed plugin: the last `workflow-core@<marketplace>` row of
  *      `<config>/plugins/installed_plugins.json` whose `projectPath` is the
  *      adopter root as spelt, else, where the root is a checkout's top level,

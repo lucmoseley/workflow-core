@@ -10,7 +10,7 @@
 const path = require("node:path");
 
 /**
- * A non-empty relative path that does not climb out of the repo.
+ * A non-empty relative path with no `..` segment.
  * @param {unknown} v
  * @returns {v is string}
  */

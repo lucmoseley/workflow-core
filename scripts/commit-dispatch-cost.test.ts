@@ -67,6 +67,7 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 			"check-skill-body-size.js",
 			"check-user-settings-drift.js",
 			"generate-rule-fragments.js",
+			"lib/adopter-ci.js",
 			"lib/adopter-skeleton.js",
 			"lib/always-loaded-pool.js",
 			"lib/arbiter-core.js",

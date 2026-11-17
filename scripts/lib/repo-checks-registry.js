@@ -2,7 +2,9 @@
  * repo-checks-registry.js — every state check and reporter the daily
  * repo-checks run launches, and the gate each passes first (#1548, spec #1510
  * §The list and its gates), and `entryOf`, the one lookup by id, which
- * throws on an id it lacks. Adding a check is one entry.
+ * throws on an id it lacks. Adding a check is one entry. `readHost` and
+ * `gateFault` judge an entry's gate against a repo's tree and config, for the
+ * daily run and for an adopter's CI job (scripts/adopter-ci.js, #5347).
  *
  * LISTED IN RUN ORDER: the tree checks first, then the reporters, then the
  * tracker checks, with clobbered bodies last.
@@ -42,7 +44,14 @@
  *   kind: "check" | "reporter", since?: true, rescan?: true,
  *   ceilingScale?: number, settled?: string[],
  *   gate: Gate }} RepoCheck
+ * @typedef {{ root: string, file: string, core: boolean, modules: Set<string>,
+ *   config: Record<string, unknown>, tracker: () => string | null }} Host
  */
+
+const fs = require("node:fs");
+const path = require("node:path");
+const { isCoreHost } = require("./plugin-state.js");
+const { readConfig, resolveKey } = require("./workflow-core-config.js");
 
 const ROADMAP = { modules: ["roadmap"] };
 const GOVERNANCE = { modules: ["governance"] };
@@ -217,8 +226,7 @@ const REPO_CHECKS = [
 		kind: "check",
 		gate: TRACKER,
 	},
-	/* Moved from the sweep for the reason red-suite was (#1963). Its own
-	 * gate SKIPs outside the core. */
+	/* Its own gate SKIPs outside the core (#1963). */
 	{
 		id: "citation-ceiling",
 		script: "check-citation-ceiling.js",
@@ -251,4 +259,60 @@ function entryOf(id) {
 	return entry;
 }
 
-module.exports = { REPO_CHECKS, entryOf };
+/**
+ * The repo at `root` as the gates read it. The tracker is resolved on first
+ * ask, through `resolveTracker`; a run holding no token passes one that
+ * answers null.
+ *
+ * @param {string} root
+ * @param {(root: string) => unknown} [resolveTracker]
+ * @returns {Host}
+ */
+function readHost(
+	root,
+	resolveTracker = (r) => resolveKey("tracker", { root: r }),
+) {
+	const c = readConfig({ root, quiet: true });
+	/** @type {string | null | undefined} */
+	let tracker;
+	return {
+		root,
+		file: path.relative(root, c.file),
+		core: isCoreHost(root),
+		modules: new Set(c.modules),
+		config: /** @type {Record<string, unknown>} */ (c),
+		tracker: () => {
+			if (tracker === undefined) {
+				const t = resolveTracker(root);
+				tracker = typeof t === "string" ? t : null;
+			}
+			return tracker;
+		},
+	};
+}
+
+/**
+ * Why `entry` may not run here, or null where every limb of its gate holds.
+ *
+ * @param {RepoCheck} entry
+ * @param {Host} host
+ * @returns {string | null}
+ */
+function gateFault({ gate }, host) {
+	for (const m of gate.modules ?? [])
+		if (!host.modules.has(m)) return `module "${m}" is off in ${host.file}`;
+	if (
+		gate.input &&
+		!host.core &&
+		!fs.existsSync(path.join(host.root, gate.input))
+	)
+		return `this repo keeps no ${gate.input}`;
+	if (gate.config && host.config[gate.config] === undefined)
+		return `${host.file} carries no "${gate.config}" key`;
+	if (gate.tracker && !host.tracker())
+		return `no tracker resolves from ${host.file} or the origin remote`;
+	if (gate.core && !host.core) return "this repo is not workflow-core itself";
+	return null;
+}
+
+module.exports = { REPO_CHECKS, entryOf, gateFault, readHost };

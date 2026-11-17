@@ -51,6 +51,7 @@ const { seedCoreCost, COST_TABLE } = require("./core-context-cost.js");
 const { ledgerPath } = require("./dispatch-ledger.js");
 const { MARKERS_REL } = require("./marker-root.js");
 const { CORE_DOCS } = require("./core-docs.js");
+const { CI_WORKFLOW, renderCiWorkflow, isCoreCi } = require("./adopter-ci.js");
 const { SESSION_COST_TABLE, readCostTableIn } = require("./session-spend.js");
 const { gh, ghJson, parseErrLine } = require("./gh.js");
 const { caught } = require("./caught.js");
@@ -160,7 +161,7 @@ function readIfPresent(at) {
 }
 
 /**
- * The seven husky hook shims, executable. A hook written before #1839, which
+ * The husky hook shims, executable. A hook written before #1839, which
  * names the plugin on a `WFC_PLUGIN_ROOT` line, becomes its shim here. An
  * adopter's own hook under a shipped name, neither shim nor root-line hook, is
  * left alone, with a line saying the core's gate does not run there and,
@@ -214,7 +215,7 @@ function bringHelpers(ctx) {
 
 /**
  * The core's glossary and doc-map method, copied from the plugin root and
- * rewritten wherever they differ (lib/core-docs.js, #5294). The adopter's own
+ * rewritten wherever they differ (#5294). The adopter's own
  * GLOSSARY.md and docs/doc-map.md sit at other paths, never touched.
  * @param {Context} ctx
  */
@@ -231,6 +232,53 @@ function bringCoreDocs(ctx) {
 			lost: "it differed from the plugin's copy, so any local edit to it is gone",
 		});
 	});
+}
+
+/**
+ * The CI workflow (#5347), rendered from the `ci` key of
+ * the config on disk: init's own config carries no `ci`, so reading it there
+ * would remove a workflow on a re-run. Where the key is absent the core's copy
+ * is deleted; a file at that path not opening on its marker is the adopter's
+ * own, and left alone either way.
+ * @param {Context} ctx
+ */
+function bringCi(ctx) {
+	const { root, dryRun, out } = ctx;
+	/* A config that will not read, or a malformed `ci`, skips rather than
+	 * fails or removes: either read as no key would delete a working CI over
+	 * a typo (#5347), and the other entries still have their work to do. */
+	let cfg;
+	try {
+		cfg = readConfig({ root, quiet: true });
+	} catch (err) {
+		out(`skipped ${CI_WORKFLOW}: ${caught(err).message}`);
+		return [];
+	}
+	const fault = cfg.faults.find((f) => f.key === "ci");
+	if (fault) {
+		out(`skipped ${CI_WORKFLOW}: ${fault.text}`);
+		return [];
+	}
+	const { ci } = cfg;
+	const existing = readIfPresent(path.join(root, CI_WORKFLOW));
+	if (existing !== null && !isCoreCi(existing)) {
+		out(
+			`skipped ${CI_WORKFLOW} — it does not open on the CORE-OWNED marker, so the core did not write it`,
+		);
+		return [];
+	}
+	if (ci)
+		return bringFile(ctx, { rel: CI_WORKFLOW, body: renderCiWorkflow(ci) });
+	if (existing === null) return [];
+	if (dryRun) {
+		out(`would   remove ${CI_WORKFLOW}`);
+		return [];
+	}
+	fs.rmSync(path.join(root, CI_WORKFLOW));
+	out(
+		`removed ${CI_WORKFLOW} — .claude/workflow-core.json carries no "ci" key`,
+	);
+	return [CI_WORKFLOW];
 }
 
 /**
@@ -600,6 +648,7 @@ const ENTRIES = [
 	{ bring: bringHelpers, paths: HELPERS },
 	{ bring: bringRules, paths: [RULES_FILE, REFERENCE_FILE] },
 	{ bring: bringCoreDocs, paths: CORE_DOCS },
+	{ bring: bringCi, paths: [CI_WORKFLOW] },
 	{ bring: bringSettings, paths: [SETTINGS] },
 	{ bring: bringIgnoreBlock, paths: [".gitignore"] },
 	{ bring: bringStatusScript, paths: ["package.json"] },
