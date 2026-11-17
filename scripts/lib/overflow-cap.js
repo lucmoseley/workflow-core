@@ -94,7 +94,7 @@ function priceOverAllowance(seat, agents, lookup) {
  * Stop every listed overflow session past its allowance (#3698): one log line
  * per stop and one per seat that could not be judged.
  * A failed stop is not marked capped, so the next tick tries again. Residual:
- * one the daemon holds no job for ("No job matching") logs its failure every
+ * one the daemon holds no job for (NO_JOB_ANSWER in lib/claude-stop.js) logs its failure every
  * tick for as long as the listing shows it.
  * @param {import("./refill-seats.js").SeatList} declared
  * @param {import("./agent-liveness.js").AgentRecord[]|null} agents the tick's

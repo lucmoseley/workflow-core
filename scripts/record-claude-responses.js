@@ -63,6 +63,7 @@ const {
 	buildTypedAttach,
 } = require("./lib/claude-attach.js");
 const { claudeBin } = require("./lib/claude-bin.js");
+const { NO_JOB_ANSWER } = require("./lib/claude-stop.js");
 const { configDir } = require("./lib/config-dir.js");
 const { readText } = require("./lib/file-read.js");
 const { sessionTree } = require("./lib/host-root.js");
@@ -94,7 +95,7 @@ const ATTACH_FIXTURE = path.join(__dirname, "fixtures", "claude-attach.json");
 const USAGE_FIXTURE = path.join(__dirname, "fixtures", "usage-probe.json");
 const RECORDED_BY = "node scripts/record-claude-responses.js";
 /* An 8-hex job id no daemon issued, for `claude stop`'s and `claude rm`'s
- * "No job matching". */
+ * NO_JOB_ANSWER. */
 const NO_JOB = "00000000";
 /* A guess: one such Haiku turn took about 25 s here, under load. */
 const WAIT_MS = 180_000;
@@ -657,9 +658,9 @@ async function main() {
 			},
 		});
 	} finally {
-		/* A job reaped or already stopped answers "No job matching". */
+		/* A job reaped or already stopped answers NO_JOB_ANSWER. */
 		const unstopped = stopAll(started).filter(
-			(why) => !why.includes("No job matching"),
+			(why) => !NO_JOB_ANSWER.test(why),
 		);
 		if (unstopped.length > 0)
 			writeFd(2, `still running, stop by hand: ${unstopped.join("; ")}\n`);

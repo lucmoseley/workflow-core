@@ -151,7 +151,7 @@ const {
 const { worktreeRoot } = require("./lib/host-root.js");
 const { readDeclaredCommand } = require("./lib/workflow-core-config.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
-const { selectTouched, touchedBaseHere } = require("./lib/touched-tests.js");
+const { readTouchedBase, selectTouched } = require("./lib/touched-tests.js");
 const { yieldToWhole } = require("./lib/cpu-yield.js");
 const { appendEmptyTouchedLine, kindOfLaunch } = require("./lib/run-ledger.js");
 const runMemory = require("./lib/run-memory.js");
@@ -897,6 +897,8 @@ function runOnce(
 			argv: launch.argv ?? [],
 			memory: memory.current(),
 			...(idSeam.isLanderRun() ? { lander: true } : {}),
+			/* So gate kills count apart from bare ones (#5321). */
+			...(launch.touchedBase ? { touchedBase: launch.touchedBase } : {}),
 			/* A killed run writes no scope, and an escalated whole run's argv
 			 * names no `--full=`; the margin check reads this (#3237). */
 			...(weighed.full ? { full: weighed.full } : {}),
@@ -2091,7 +2093,7 @@ function emptiedSince(route, options) {
 	const own = ownProbeSet(route, options);
 	const ref =
 		route.kind === "touched"
-			? touchedRef(options, root, execFn)
+			? readTouchedRef(options, root, execFn)
 			: (changedFlag(route.rest)?.ref ?? null);
 	const edges = (options.loadEdges ?? (() => readCommittedEdges(root)))();
 	const reachable = (own?.paths ?? readChangedPaths(root, ref, execFn)).some(
@@ -2107,7 +2109,7 @@ function emptiedSince(route, options) {
  * @param {string} root
  * @param {ExecFn} execFn
  */
-const touchedRef = (options, root, execFn) =>
+const readTouchedRef = (options, root, execFn) =>
 	options.launch?.touchedBase === "head"
 		? "HEAD"
 		: readDefaultChangedBase(root, execFn);
@@ -2400,7 +2402,7 @@ function main(argv = process.argv.slice(2), options = {}) {
 		viaChanged: isChangedOnlyArgv(rest),
 		touched: route.kind === "touched",
 		/* Judged once, here, so the probe, the plan and the record agree. */
-		touchedBase: route.kind === "touched" ? touchedBaseHere() : null,
+		touchedBase: route.kind === "touched" ? readTouchedBase() : null,
 		slotFree: isTouchedRun(route),
 		/* "flag" for a typed `--full` (mantahostels#3207). */
 		full: fullFlag ? "flag" : null,
