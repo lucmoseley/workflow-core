@@ -191,7 +191,7 @@ function closeSaid(text, before) {
 
 /**
  * The launcher's own result row, where the child gave none.
- * @param {"time_limit" | "killed" | "no_result"} end
+ * @param {"time_limit" | "killed" | "no_result" | "failed"} end
  */
 const launcherRow = (end) => ({
 	type: "result",
@@ -201,7 +201,8 @@ const launcherRow = (end) => ({
 });
 
 /** @param {OpenTab} t */
-const named = (t) => `"${t.title}" (${t.url})`;
+const named = (t) =>
+	`${t.title ? `"${t.title}"` : "an untitled tab"} (${t.url})`;
 
 /**
  * What the launcher prints and exits with once the child has ended: one JSON
@@ -308,9 +309,10 @@ function endNotes({
 /**
  * Which end the launcher's own row names.
  * @param {ChromeEnd} end
- * @returns {"time_limit" | "killed" | "no_result"}
+ * @returns {"time_limit" | "killed" | "no_result" | "failed"}
  */
-function launcherEnd({ killedBy, limitMs }) {
+function launcherEnd({ failed, killedBy, limitMs }) {
+	if (failed) return "failed";
 	if (killedBy) return "killed";
 	return limitMs === undefined ? "no_result" : "time_limit";
 }

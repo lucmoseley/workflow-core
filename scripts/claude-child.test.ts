@@ -103,7 +103,7 @@ const run = (
 	});
 
 /** The clock every launcher and closer test runs at, through WFC_NOW. */
-const Now = "2026-11-17T12:00:00.000Z";
+const NOW = "2026-11-17T12:00:00.000Z";
 
 /** A resume's tool result emptying the group. */
 const CLOSED_ROW = buildToolResultRow(
@@ -487,7 +487,7 @@ describe("chrome", () => {
 
 	it("holds the one tab a --hand-over child leaves, naming it and the command that closes it", () => {
 		writeTurns([[Open8, buildResultRow()]]);
-		const r = chrome({ WFC_NOW: Now }, ["--hand-over"]);
+		const r = chrome({ WFC_NOW: NOW }, ["--hand-over"]);
 		expect(r.status).toBe(0);
 		const row = oneLine(r);
 		const tab = { tabId: 8, title: "Example", url: "https://example.com/" };
@@ -503,7 +503,7 @@ describe("chrome", () => {
 		expect(row.notes[0]).not.toMatch(/the child left \d+ tab\(s\) open/);
 		const record = readStoredRecord(row.sessionId);
 		expect(record.heldTab).toEqual(tab);
-		expect(record.heldSince).toBe(Now);
+		expect(record.heldSince).toBe(NOW);
 	});
 
 	it("trims a --hand-over child's group to one tab, then holds it", () => {
@@ -630,10 +630,23 @@ describe("chrome", () => {
 		const r = chrome({ WFC_CLAUDE_BIN: vanishing });
 		expect(r.status).toBe(1);
 		const row = oneLine(r);
-		expect(row.subtype).toBe("launcher_no_result");
+		expect(row.subtype).toBe("launcher_failed");
 		expect(row.notes[0]).toMatch(/^claude-child: the child did not finish/);
 		expect(r.stderr).toContain(row.notes[0]);
 		expect(records()).toEqual([]);
+	});
+
+	it("prints one line and starts no child where the record cannot be written", () => {
+		writeTurns([[buildResultRow()]]);
+		fs.writeFileSync(store(), "not a directory");
+		const r = chrome();
+		expect(r.status).toBe(1);
+		const row = oneLine(r);
+		expect(row.subtype).toBe("launcher_failed");
+		expect(row.notes[0]).toMatch(
+			/^claude-child: could not write the child's record/,
+		);
+		expect(fs.existsSync(eventsLog())).toBe(false);
 	});
 
 	it.each([
@@ -690,7 +703,7 @@ describe("chrome-close", () => {
 				launcherStart: "1",
 				childPid: null,
 				childStart: null,
-				startedAt: Now,
+				startedAt: NOW,
 				attempts: 0,
 				...over,
 			}),
@@ -708,8 +721,8 @@ describe("chrome-close", () => {
 			),
 		]);
 	const close = (args: string[]) =>
-		run(["chrome-close", ...args], { TMPDIR: dir, WFC_NOW: Now });
-	const ago = (ms: number) => new Date(Date.parse(Now) - ms).toISOString();
+		run(["chrome-close", ...args], { TMPDIR: dir, WFC_NOW: NOW });
+	const ago = (ms: number) => new Date(Date.parse(NOW) - ms).toISOString();
 	const line = (r: { stdout: string }) => {
 		expect(r.stdout.trimEnd().split("\n")).toHaveLength(1);
 		return JSON.parse(r.stdout);
@@ -757,7 +770,7 @@ describe("chrome-close", () => {
 	});
 
 	it("keeps a held record's heldSince on its closed-log line, its hold ignored on --session", () => {
-		const heldSince = Now;
+		const heldSince = NOW;
 		writeRecordFile({ heldSince });
 		resumeWith([CLOSED_ROW, buildResultRow()]);
 		expect(close(["--session", Id]).status).toBe(0);
@@ -870,7 +883,7 @@ describe("chrome-close", () => {
 		});
 
 		it.each([
-			["a held record within its 2 h", () => ({ heldSince: Now }), "held"],
+			["a held record within its 2 h", () => ({ heldSince: NOW }), "held"],
 			[
 				"a record whose launcher still runs",
 				() => ({
@@ -883,7 +896,7 @@ describe("chrome-close", () => {
 				"a record not connected within the hour",
 				() => ({
 					lastReason: "not-connected",
-					lastAttemptAt: Now,
+					lastAttemptAt: NOW,
 				}),
 				"not connected",
 			],
@@ -932,7 +945,7 @@ describe("chrome-close", () => {
 	});
 
 	it("lists held records with their seat, hold start, title and URL", () => {
-		const heldSince = Now;
+		const heldSince = NOW;
 		writeRecordFile({
 			heldSince,
 			heldTab: { tabId: 8, title: "Example", url: "https://example.com/" },

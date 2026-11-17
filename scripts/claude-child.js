@@ -67,6 +67,9 @@ const os = require("node:os");
 const path = require("node:path");
 const { caught } = require("./lib/caught.js");
 const { now } = require("./lib/clock.js");
+
+/* A durable stamp, so an exported WFC_NOW skews it (clock.js RESIDUAL). */
+const stamp = () => new Date(now()).toISOString();
 const { readProcStartOf } = require("./lib/arbiter-proc.js");
 const { CHROME_TIMEOUT_MS_A_PAGE } = require("./lib/child-spawn.js");
 const {
@@ -216,14 +219,15 @@ function startTrapCloser(sessionId) {
 	).unref();
 }
 
+/** @typedef {import("./lib/chrome-child-store.js").ChildRecord} ChildRecord */
+
 /**
- * Run the Chrome child to one of its ends, printing one JSON line.
- * @param {{bin: string, args: string[], env: NodeJS.ProcessEnv, seat: string,
- *   prompt: string, limitMs: number, handOver: boolean}} launch
+ * The child's record, written before the child starts.
+ * @param {string} sessionId
+ * @param {string} seat
+ * @returns {ChildRecord}
  */
-async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
-	const sessionId = crypto.randomUUID();
-	/** @type {import("./lib/chrome-child-store.js").ChildRecord} */
+function firstRecord(sessionId, seat) {
 	const record = {
 		sessionId,
 		seat,
@@ -231,9 +235,40 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 		launcherStart: readProcStartOf(process.pid),
 		childPid: null,
 		childStart: null,
-		startedAt: new Date(now()).toISOString(),
+		startedAt: stamp(),
 		attempts: 0,
 	};
+	writeRecord(record);
+	return record;
+}
+
+/**
+ * Write the child's pid to its record, noting in `said` where it cannot:
+ * without the pid a closer cannot wait the child out, and the record as first
+ * written still finds the session.
+ * @param {ChildRecord} record
+ * @param {number} pid
+ * @param {string[]} said accumulator: a failed write is added to the launcher's notes
+ */
+function recordChild(record, pid, said) {
+	record.childPid = pid;
+	record.childStart = readProcStartOf(pid);
+	try {
+		writeRecord(record);
+	} catch (e) {
+		said.push(
+			`could not write the child's pid to its record (${caught(e).message}).`,
+		);
+	}
+}
+
+/**
+ * Run the Chrome child to one of its ends, printing one JSON line.
+ * @param {{bin: string, args: string[], env: NodeJS.ProcessEnv, seat: string,
+ *   prompt: string, limitMs: number, handOver: boolean}} launch
+ */
+async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
+	const sessionId = crypto.randomUUID();
 	/** @type {Record<string, unknown> | undefined} */
 	let result;
 	/** @type {string[]} What the launcher said along the way, for `notes`. */
@@ -262,13 +297,15 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 		writeFd(1, out.stdout);
 		process.exitCode = out.exit;
 	};
-	/** @param {string} failed */
+	/** @type {(failed: string) => never} */
 	const failWith = (failed) => {
 		print({ failed });
 		process.exit();
 	};
+	/** @type {ChildRecord} */
+	let record;
 	try {
-		writeRecord(record);
+		record = firstRecord(sessionId, seat);
 	} catch (e) {
 		failWith(`could not write the child's record (${caught(e).message}).`);
 	}
@@ -283,11 +320,7 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 		deleteRecord(sessionId);
 		failWith(`the child did not finish (${e.message}).`);
 	});
-	if (run.child.pid) {
-		record.childPid = run.child.pid;
-		record.childStart = readProcStartOf(run.child.pid);
-		writeRecord(record);
-	}
+	if (run.child.pid) recordChild(record, run.child.pid, said);
 
 	/**
 	 * Keep the record, `over` and the tabs still open written to it.
@@ -326,7 +359,7 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 		/* A stop or kill may cut a tab-opening call off before its result,
 		 * and a kill keeps the group for a resume (#5352). */
 		const left = keep();
-		if (left.length === 0 && !end.stopped && !end.signal)
+		if (left.length === 0 && end.status === 0 && !end.signal)
 			deleteRecord(sessionId);
 		return print({ ...end, left, limitMs: limited });
 	}
@@ -350,7 +383,7 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 	}
 	const heldTab = left.at(-1);
 	keep({
-		heldSince: new Date(now()).toISOString(),
+		heldSince: stamp(),
 		...(heldTab ? { heldTab } : {}),
 	});
 	return print({ ...end, held: left, limitMs: limited });
@@ -361,7 +394,7 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
  * closer outliving this launcher, print the one line and exit 1.
  * @param {() => import("./lib/chrome-child.js").OpenTab[]} stop
  * @param {string} sessionId
- * @param {string[]} said the launcher's notes, a failed closer start added
+ * @param {string[]} said accumulator: a failed closer start is added to the launcher's notes
  * @param {(over: {left: import("./lib/chrome-child.js").OpenTab[], killedBy: NodeJS.Signals}) => void} print
  */
 function trapSignals(stop, sessionId, said, print) {
@@ -412,11 +445,13 @@ function seatLaunch(seat, cwd) {
 function launchFor(seat) {
 	if (!isSeat(seat))
 		return `the record's seat ${seat} is not one of this machine's seats`;
+	let cwd;
 	try {
-		return seatLaunch(seat, emptyDir("chrome-close"));
+		cwd = emptyDir("chrome-close");
 	} catch (e) {
 		return caught(e).message;
 	}
+	return seatLaunch(seat, cwd);
 }
 
 /** @param {Record<string, string | true>} flags */

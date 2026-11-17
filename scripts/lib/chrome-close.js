@@ -14,6 +14,8 @@
  * Every form prints one JSON line on stdout.
  */
 
+/* Every record, closed-log and sweep time here is written from now(), so an
+ * exported WFC_NOW skews it (clock.js RESIDUAL). */
 const { now } = require("./clock.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { writeReport } = require("./notify-report.js");

@@ -12,6 +12,7 @@ import {
 	chromeStandingLines,
 	createCloseReader,
 	createTabTally,
+	named,
 } from "./chrome-child.js";
 import { buildTabContext, buildToolResultRow } from "./chrome-rows-fake";
 
@@ -244,7 +245,7 @@ describe("chromeOutcome", () => {
 		[
 			"a launch that failed before the child ran",
 			{ status: null, failed: "the child did not finish (spawn ENOENT)." },
-			"launcher_no_result",
+			"launcher_failed",
 			"claude-child: the child did not finish (spawn ENOENT).",
 		],
 		[
@@ -332,6 +333,20 @@ describe("createCloseReader", () => {
 				message: { content: [{ type: "text", text: "Group is now empty" }] },
 			}),
 		).toBe("failed");
+	});
+});
+
+describe("named", () => {
+	it("quotes a tab's title before its URL", () => {
+		expect(named({ tabId: 1, title: "A", url: "https://a.example/" })).toBe(
+			'"A" (https://a.example/)',
+		);
+	});
+
+	it("names an untitled tab as such", () => {
+		expect(named({ tabId: 1, title: "", url: "https://a.example/" })).toBe(
+			"an untitled tab (https://a.example/)",
+		);
 	});
 });
 
