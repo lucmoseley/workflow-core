@@ -14,6 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CI_WORKFLOW } from "./adopter-ci.js";
 import { labelPlan } from "./adopter-skeleton.js";
 import { bringCoreFiles, skeletonPaths } from "./core-owned-files.js";
 import { SESSION_COST_TABLE } from "./session-spend.js";
@@ -143,6 +144,70 @@ describe("the core glossary and doc-map method (#5294)", () => {
 		run();
 		expect(read("GLOSSARY.md")).toBe("product terms\n");
 		expect(read("docs/doc-map.md")).toBe("# own map\n");
+	});
+});
+
+describe("the CI workflow (#5347)", () => {
+	const read = () => fs.readFileSync(path.join(root, CI_WORKFLOW), "utf8");
+	const config = (ci?: object) =>
+		write(
+			root,
+			".claude/workflow-core.json",
+			JSON.stringify({ contract: 1, founder: "A Founder", modules: [], ci }),
+		);
+
+	it("writes none where the config carries no ci key", () => {
+		run();
+		expect(fs.existsSync(path.join(root, CI_WORKFLOW))).toBe(false);
+	});
+
+	it("runs one job on the key's runner on pushes to main alone, and rewrites it when the key changes", () => {
+		config({ runner: "ubuntu-slim" });
+		expect(run()).toContain(`wrote   ${CI_WORKFLOW}`);
+		const body = read();
+		expect(body).toMatch(/^# CORE-OWNED\./);
+		expect(body).toContain("  push:\n    branches: [main]\n");
+		expect(body).not.toContain("lander/");
+		expect(body).toContain("runs-on: ubuntu-slim\n");
+		expect(body).toContain("timeout-minutes: 15\n");
+		const jobs = body.slice(body.indexOf("\njobs:\n"));
+		expect(jobs.match(/^ {2}[a-z-]+:$/gm)).toEqual(["  ci:"]);
+		config({ runner: "ubuntu-24.04-arm", timeoutMinutes: 40 });
+		run();
+		expect(read()).toContain("runs-on: ubuntu-24.04-arm\n");
+		expect(read()).toContain("timeout-minutes: 40\n");
+		expect(run().filter((l) => l.includes(CI_WORKFLOW))).toEqual([]);
+	});
+
+	it("removes the core's copy once the key is gone", () => {
+		config({ runner: "ubuntu-slim" });
+		run();
+		config();
+		expect(run()).toContain(
+			`removed ${CI_WORKFLOW} — .claude/workflow-core.json carries no "ci" key`,
+		);
+		expect(fs.existsSync(path.join(root, CI_WORKFLOW))).toBe(false);
+	});
+
+	it("keeps the core's copy, naming the fault, where the key is malformed", () => {
+		config({ runner: "ubuntu-slim" });
+		run();
+		config({ runner: "ubuntu-slimm" });
+		expect(run().join("\n")).toContain(`skipped ${CI_WORKFLOW}: `);
+		expect(read()).toContain("runs-on: ubuntu-slim\n");
+		/* GitHub ends a single-CPU job at 15 minutes. */
+		config({ runner: "ubuntu-slim", timeoutMinutes: 16 });
+		expect(run().join("\n")).toContain("at most 15 on ubuntu-slim");
+		expect(read()).toContain("timeout-minutes: 15\n");
+	});
+
+	it("leaves an adopter's own file at that path alone, key or none", () => {
+		write(root, CI_WORKFLOW, "name: own\n");
+		config({ runner: "ubuntu-slim" });
+		expect(run().join("\n")).toContain(`skipped ${CI_WORKFLOW}`);
+		config();
+		run();
+		expect(read()).toBe("name: own\n");
 	});
 });
 

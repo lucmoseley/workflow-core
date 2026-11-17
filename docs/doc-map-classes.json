@@ -1105,12 +1105,12 @@
 			{
 				"kind": "path",
 				"ref": "scripts/lib/resolve-core.js",
-				"gloss": "the resolver whose CI variable the recipe sets"
+				"gloss": "the resolver whose CI variable the workflow sets"
 			},
 			{
 				"kind": "path",
-				"ref": "scripts/lib/helper-surface-ci.test.ts",
-				"gloss": "runs the recipe steps as written"
+				"ref": "scripts/lib/adopter-ci.js",
+				"gloss": "the workflow its CI section describes"
 			}
 		],
 		"reader": "agent"

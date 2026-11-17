@@ -19,7 +19,7 @@ A new machine, or a new Claude config folder, needs both again: ask a workflow-c
 
 ## What you approve
 
-It asks, one at a time: your idea, in your own words, asked once and kept as written; the repo name; a source repo to copy, or none; a spec already written on another tracker, or none; and other trackers holding rulings for this repo, pre-filled with any your idea names.
+It asks, one at a time: your idea, in your own words, asked once; the repo name; a source repo to copy, or none; a spec already written on another tracker, or none; and other trackers holding rulings for this repo, pre-filled with any your idea names.
 
 It then drafts two things for you to approve or change: the Project one-liner and the first map's title. Last, it asks the alias prefix as a question of its own, pre-filled with the repo name's initials, so design-vault gives dv1, dv2 and dv3. A prefix clashing with anything you already type is refused, and it asks again.
 
@@ -53,11 +53,17 @@ A module switches on extra rules and gates. Each needs documents or tests a new 
 
 - **roadmap** — the roadmap page and its digest, changed only through the roadmap-edit skill. On once the roadmap page exists.
 - **governance** — the document map's figure registry and the operating manual. On once the manual or a figure-registry entry exists.
-- **suites** — the vitest suite rules: the targeted-runs rule, the suite-size drift check, the suite-queue wait report and the ci-red label, each written for vitest. On for a copied repo whose tests run on vitest. Any test file also needs its test command declared, whatever this module says; whether a commit runs that command is its verdict probe's answer, not this module's.
+- **suites** — the vitest suite rules: the targeted-runs rule, the suite-size drift check, the suite-queue wait report and the ci-red label. On for a copied repo whose tests run on vitest. Any test file also needs its test command declared, whatever this module says; whether a commit runs that command is its verdict probe's answer, not this module's.
 - **site** — the rendered pages and their copy checks, gating a commit that touches them. On once the brand sheet and the site's pages both exist.
 - **mutation** — a commit changing a line on a declared sensitive path is refused while a planted bug on that line survives every test. Never on by itself: switch it on only where those paths are tested in-process by vitest.
 
-To switch one on, ask a session in that repo to. It adds the module to the repo's workflow-core settings and re-runs the core's setup, which reads them.
+To switch one on, ask a session in that repo to.
+
+## Turning on CI
+
+A new repo runs no GitHub CI. Once its test command is declared, ask a session in it to turn CI on, naming the runner: the cheap one-core runner, or the two-core ARM runner where the job needs more. The next upgrade writes one workflow: one job on each push to the main branch that runs the repo's declared commands, the core's checks on its documents and workflows, and a Semgrep scan. A job is stopped at 15 minutes; on the two-core runner the session may set a longer limit.
+
+Every private repo on your account draws on one pool of 3,000 Actions minutes a month. Once, for the whole account, make a spent pool block jobs rather than bill: open https://github.com/settings/billing, click **Budgets and alerts**, then **New budget**; choose **Product-level budget** and Actions, set the amount to $0, and tick **Stop usage when budget limit is reached** where it is offered. Jobs then wait for the month to turn. GitHub warns that the first month after the budget is made may still overrun.
 
 ## What it does not do
 
