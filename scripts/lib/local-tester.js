@@ -22,7 +22,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { readPsRows, readTreePssKb, sampleTreePeak } = require("./admission.js");
 const { caught } = require("./caught.js");
-const { markersDir } = require("./marker-root.js");
+const { MARKERS_REL, markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { writeFd } = require("./write-fd.js");
 const { CEILING_LINE } = require("./suite-ceiling.js");
@@ -38,6 +38,7 @@ const { LANDER_WORKTREE } = require("./worktree-dirs.js");
 const { readConfig } = require("./workflow-core-config.js");
 const { latestTimings } = require("./latest-timings.js");
 const { LANDER_RUN } = require("./session-id.js");
+const { voidProof } = require("./verdict-probe.js");
 const { npmBin } = require("./npm-bin.js");
 const { INSTALL_TIMEOUT_MS, LOCKFILE } = require("./npm-ci-staging.js");
 
@@ -423,6 +424,7 @@ async function runEach(groups, checkout, { admit, treePss, tally }) {
 				tally,
 				failing,
 				failures,
+				root: checkout.root,
 			});
 			/* No verdict, never red, though an earlier shard failed: a red
 			 * would send the lander to rerun those files alone, and a pass
@@ -448,19 +450,40 @@ async function runEach(groups, checkout, { admit, treePss, tally }) {
 }
 
 /**
+ * Why a red naming no failing file in the tree reached no verdict. Short of a
+ * ceiling kill, that is the verdict contract broken in the field, so the
+ * proof that stood the commit gate down is marked failed (#5294).
+ * @param {string} command
+ * @param {{ code: number | null, out: string }} r
+ * @param {string} root the main checkout
+ */
+function namelessRed(command, r, root) {
+	const ceiling = parseCeilingKillReason(r.out);
+	if (ceiling !== null) return `${command} exited ${r.code} ${ceiling}`;
+	if (voidProof(`${command} exited ${r.code}`, path.join(root, MARKERS_REL)))
+		writeFd(
+			2,
+			`local-tester: ${command} went red naming no failing file in the tree, so its verdict proof is marked failed and commits run the suite again.\n`,
+		);
+	return `${command} exited ${r.code} naming no failing file in the tree`;
+}
+
+/**
  * Each of `runs` in `dir`, in turn, adding the files a failing one names to
  * `failing` and its tree peak to `tally`.
  * @param {Run[]} runs
  * @param {string} dir
  * @param {{spawned: () => void, treePss: (pid: number) => number,
  *   tally: SlotRuns["tally"], failing: Set<string>,
- *   failures: import("./queue-lander.js").Failure[]}} into accumulator
+ *   failures: import("./queue-lander.js").Failure[], root: string}} into
+ *   accumulator, and `root` the main checkout whose verdict proof a red
+ *   naming no file voids
  * @returns {Promise<string|null>} why a run reached no verdict, or null
  */
 async function runInSlot(
 	runs,
 	dir,
-	{ spawned, treePss, tally, failing, failures },
+	{ spawned, treePss, tally, failing, failures, root },
 ) {
 	for (const run of runs) {
 		const r = await shellRun(run, dir, spawned, treePss);
@@ -477,8 +500,7 @@ async function runInSlot(
 		const files = parseFailingFiles(r.out).filter((f) =>
 			fs.existsSync(path.join(dir, f)),
 		);
-		if (files.length === 0)
-			return `${command} exited ${r.code} ${parseCeilingKillReason(r.out) ?? "naming no failing file in the tree"}`;
+		if (files.length === 0) return namelessRed(command, r, root);
 		for (const f of files) failing.add(f);
 		failures.push(
 			...parseFailingTests(r.out).filter((t) => files.includes(t.file)),

@@ -3,7 +3,7 @@
  * The four .husky/pre-commit gates that run an adopter's declared command —
  * `commands.check_staged`, `commands.typecheck`, `commands.lint` and
  * `commands.test` in `.claude/workflow-core.json` (#2, #740). The test gate
- * skips a command that writes the test-pass marker.
+ * skips a command whose verdict probe passed (#5294).
  *
  * The fixture copies the real readers into a throwaway repo, and stands a stub
  * on PATH for `eslint`, the one binary a gate names itself.
@@ -276,24 +276,50 @@ it("refuses the commit where the declared test command is red, printing its outp
 	expect(out).toContain("the declared test command is RED");
 });
 
-/* The comment is what names the runner: the fixture has no run-vitest.js. */
-const MINTING = 'touch "$RAN_DIR/RAN-test" # scripts/run-vitest.js';
+/* A test command meeting the verdict contract, a script on the gate's PATH:
+ * under the probe it fails the file it is given, naming it; a run given no
+ * file is the gate's own. */
+const PROVEN =
+	'if [ -n "$WFC_VERDICT_PROBE" ]; then echo " FAIL  $1"; exit 1; fi; [ -n "$1" ] || touch "$RAN_DIR/RAN-test"';
+const CANARY = "canary.test.ts";
 
-it("leaves a test command that writes the test-pass marker to pre-push, running nothing", () => {
-	const root = fixture({ commands: { test: MINTING } });
-	const { code, out, ran } = run(root, GATES.test);
+function canaryFixture(body: string, canary: string | null) {
+	const root = fixture({
+		commands: { test: "run-tests", ...(canary ? { testCanary: canary } : {}) },
+	});
+	fs.writeFileSync(path.join(root, "bin/run-tests"), `#!/bin/sh\n${body}\n`, {
+		mode: 0o755,
+	});
+	fs.writeFileSync(path.join(root, CANARY), "fails under the probe\n");
+	return root;
+}
+
+it("stands the test gate down once the command's verdict probe passes, running nothing (#5294)", () => {
+	const { code, out, ran } = run(canaryFixture(PROVEN, CANARY), GATES.test);
 	expect(code).toBe(0);
 	expect(ran("test")).toBe(false);
-	expect(out).toBe(
-		'SKIP: commands.test is gated at push, where the lander runs the full suite — module "suites" is on and it runs scripts/run-vitest.js\n',
+	expect(out).toContain("verdict probe: running");
+	expect(out).toContain(
+		"SKIP: commands.test is gated at push, where the lander runs the full suite — its verdict probe passed for this command and canary\n",
 	);
 });
 
-it("runs that same command at commit where suites is off, since no push reads its marker", () => {
-	const root = fixture({ commands: { test: MINTING } });
-	const { code, ran } = run(root, `WFC_MODULES=\n${GATES.test}`);
+it("keeps the test gate where no canary is declared, saying so and where the contract is written", () => {
+	const { code, out, ran } = run(canaryFixture(PROVEN, null), GATES.test);
 	expect(code).toBe(0);
 	expect(ran("test")).toBe(true);
+	expect(out).toContain("no canary declared (`commands.testCanary`)");
+	expect(out).toContain("docs/code-standards-base.md");
+});
+
+it("keeps the test gate on a failed probe, naming the clause the command broke", () => {
+	const { code, out, ran } = run(
+		canaryFixture('touch "$RAN_DIR/RAN-test"', CANARY),
+		GATES.test,
+	);
+	expect(code).toBe(0);
+	expect(ran("test")).toBe(true);
+	expect(out).toContain("the verdict probe failed: it exits 0 on a red");
 });
 
 /* A stand-in `biome` (or any command) that leaves the gate's marker, and on

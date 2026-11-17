@@ -51,7 +51,8 @@
  * rebuilt before and after it, the commit. Nothing is written to the
  * worktree's index before the last refusal has passed.
  *
- * THE PRE-LOCK TEST RUN (#1651, spec #1639). Where test-gate.js says the
+ * THE PRE-LOCK TEST RUN (#1651, spec #1639). Where test-gate.js, probing first
+ * where the verdict proof is stale (#5294), says the
  * declared `commands.test` is gated at commit, it runs here, before the commit
  * takes the index lock, so the worktree's other git commands are not held up
  * for a suite's length. It runs in a throwaway worktree
@@ -145,7 +146,7 @@ const {
 	stampFile,
 	writeStamp,
 } = require("./lib/commit-key.js");
-const { testGate } = require("./lib/test-gate.js");
+const { settleTestGate } = require("./lib/test-gate.js");
 const { isHoldArmable, readConfig } = require("./lib/workflow-core-config.js");
 const { runInTree } = require("./lib/isolated-worktree.js");
 const { trimEndRun } = require("./lib/trim-run.js");
@@ -1359,7 +1360,7 @@ const runHold = (root, env, mode) =>
 function preLockRun(runFilesNow, build) {
 	let found;
 	try {
-		found = testGate();
+		found = settleTestGate((line) => err(`${NAME}: ${line}\n`));
 	} catch {
 		// Fails open to the hook, whose test gate reads the same config and
 		// refuses on it: one refusal, from one place (spec #1639).

@@ -298,9 +298,19 @@ describe("launches that look nothing up", () => {
 	});
 
 	it("looks up a named run otherwise", () => {
-		expect(isPassStoreLaunch({ kind: "named", source: "named" }, [A])).toBe(
+		expect(isPassStoreLaunch({ kind: "named", source: "named" }, [A], {})).toBe(
 			true,
 		);
+	});
+
+	/* The probe's red run would otherwise skip a canary passed without the
+	 * variable and exit 0, failing every honest command's probe (#5296). */
+	it("looks nothing up under the verdict probe", () => {
+		expect(
+			isPassStoreLaunch({ kind: "named", source: "named" }, [A], {
+				WFC_VERDICT_PROBE: "1",
+			}),
+		).toBe(false);
 	});
 });
 

@@ -53,6 +53,11 @@ for (const name of GIT_DIR_VARS) delete process.env[name];
 delete process.env.WFC_LANDER_RUN;
 delete process.env.WFC_ROWLESS_RUN;
 
+/* Nor a gate seat's, though a commit's gate run holds one (#5296): a case's
+ * own hook or commit-paths would read the seat as theirs and run nested in
+ * it. Deleted in the worker, so vitest's own process keeps it. */
+delete process.env.WFC_GATE_SEAT;
+
 /* The files the suite's own launch cached (#4790) are its reporter's, not a
  * case's: a reporter a case drives would fold them into its certificate.
  * Deleted in the worker, so vitest's own process still reads them. */

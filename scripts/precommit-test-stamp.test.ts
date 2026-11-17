@@ -160,6 +160,13 @@ git update-ref HEAD "$(git commit-tree $p -m other "$tree")"
 rm -f "$t"
 `;
 
+/* A test command meeting the verdict contract, its own canary: PUSH declares
+ * it, so the probe passes and the test is gated at push (#5294). */
+const PROVEN_STUB = `if [ -n "$WFC_VERDICT_PROBE" ]; then echo " FAIL  $1"; exit 1; fi\n`;
+const PUSH = JSON.stringify({
+	commands: { test: "sh stub-proven.sh", testCanary: "stub-proven.sh" },
+});
+
 /**
  * `adopter` commits as an adopter does: its `.husky/pre-commit` is the core's
  * shim, which runs the hook of a core outside the repo, found through
@@ -198,6 +205,7 @@ function fixture({
 	fs.mkdirSync(path.join(root, ".claude"));
 	fs.writeFileSync(path.join(root, ".claude/workflow-core.json"), config);
 	fs.writeFileSync(path.join(root, "stub.sh"), stub(root));
+	fs.writeFileSync(path.join(root, "stub-proven.sh"), PROVEN_STUB);
 	// Everything but stub.sh and a top-level *.txt other than gen.txt, the files
 	// commit-paths may add: the pre-lock run sees only what HEAD and the commit
 	// hold (#1760).
@@ -850,13 +858,7 @@ it("runs the gates before the pre-lock suite and again in the lock, where only t
 });
 
 it.each([
-	[
-		"gated at push",
-		JSON.stringify({
-			modules: ["suites"],
-			commands: { test: "sh stub.sh run-vitest.js" },
-		}),
-	],
+	["gated at push", PUSH],
 	["with no test command", JSON.stringify({ commands: {} })],
 ])(
 	"runs the gates in the lock alone where the test is %s (#1763)",
@@ -980,10 +982,7 @@ it("ends the live hook's early gates on one line directly above its test gate, b
 
 it("runs nothing before the lock where the test is gated at push", () => {
 	const f = fixture({
-		config: JSON.stringify({
-			modules: ["suites"],
-			commands: { test: "sh stub.sh run-vitest.js" },
-		}),
+		config: PUSH,
 	});
 	f.edit("a.txt", "changed\n");
 	const r = f.commitPaths();
@@ -1015,14 +1014,7 @@ it("runs nothing before the lock on an unreadable config, leaving the hook's ref
 });
 
 it.each([
-	[
-		"gated at push",
-		JSON.stringify({
-			modules: ["suites"],
-			commands: { test: "sh stub.sh run-vitest.js" },
-		}),
-		false,
-	],
+	["gated at push", PUSH, false],
 	["with no test command", JSON.stringify({ commands: {} }), false],
 	["gated at commit", undefined, true],
 ] as const)(

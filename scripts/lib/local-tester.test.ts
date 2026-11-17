@@ -809,6 +809,36 @@ it("names only failing files the tree holds, a test's printed fixture output nam
 	});
 });
 
+it("marks the verdict proof failed on a red naming no failing file, and leaves it on a red naming one (#5294)", async () => {
+	const record = path.join(
+		work,
+		".claude",
+		"tmp",
+		"markers",
+		"verdict-proof.json",
+	);
+	const seed = () => {
+		fs.mkdirSync(path.dirname(record), { recursive: true });
+		fs.writeFileSync(record, JSON.stringify({ key: "k", verdict: "pass" }));
+	};
+	const verdict = () => JSON.parse(fs.readFileSync(record, "utf8")).verdict;
+	const tester = localTester({
+		root: work,
+		admit: admitted().admit,
+		exec: recordingExec().exec,
+	});
+	write("b.check.js", "throw new Error('red')");
+	const named = commit("named");
+	seed();
+	expect((await tester.verdict(BATCH0, named)).kind).toBe("red");
+	expect(verdict()).toBe("pass");
+	config({ commands: { test: "exit 1" } });
+	const nameless = commit("nameless");
+	seed();
+	expect((await tester.verdict(BATCH0, nameless)).kind).toBe("unknown");
+	expect(verdict()).toBe("fail");
+});
+
 /* A runner taking vitest's `--shard=k/n`: the kth of every n `*.check.js`
  * files by name, each run's files logged to `shards.log`; with no shard, all
  * of them. */

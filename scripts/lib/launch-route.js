@@ -316,14 +316,18 @@ function noCacheRefusal(argv) {
 
 /**
  * Whether a launch looks its files up in the pass store (#4790): never where
- * it asks every file to run — a typed full run, a retest, `--fresh`.
+ * it asks every file to run — a typed full run, a retest, `--fresh` — nor
+ * under the verdict probe, whose variable fails the canary a pass was stored
+ * for without it (lib/verdict-probe.js, #5296).
  * @param {Pick<LaunchRoute, "kind"|"source">} route
  * @param {string[]} argv the launch's own words, wrapper flags included
+ * @param {NodeJS.ProcessEnv} [env]
  */
-const isPassStoreLaunch = (route, argv) =>
+const isPassStoreLaunch = (route, argv, env = process.env) =>
 	route.kind !== "full" &&
 	route.source !== "retest" &&
-	!argv.includes(FRESH_FLAG);
+	!argv.includes(FRESH_FLAG) &&
+	!env.WFC_VERDICT_PROBE;
 
 module.exports = {
 	isPassStoreLaunch,

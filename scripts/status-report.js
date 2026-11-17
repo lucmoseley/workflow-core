@@ -84,6 +84,8 @@ const POOL_WIDTH = 4;
  * `orphan-reaps` (#4342) reads the reaper's kill logs rather than running the
  * reaper, which kills.
  * `session-draw` (#5274) reads every served repo's config.
+ * `adopter-boundary` (#5294) also runs in .husky/pre-commit, and SKIPs in an
+ * adopter, which holds no boundary page.
  * `effort-guide-routing` (#5033) also runs in .husky/pre-commit, on a commit
  * staging the guide, the routing file or the generator.
  *
@@ -129,6 +131,8 @@ const CHECKS = [
 	["orphan-reaps", "check-orphan-reaps.js"],
 	["husky-shim", "check-husky-shim.js"],
 	["primitives", "check-primitives.js"],
+	["adopter-boundary", "check-adopter-boundary.js"],
+	["verdict-proof", "check-verdict-proof.js"],
 	["output-style", "check-output-style.js"],
 	["held-reports", "replay-notify-reports.js", "--status"],
 	["jev-flags", "check-jev-flags.js", "--notify"],

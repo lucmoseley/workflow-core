@@ -490,10 +490,10 @@ fi
 # early where it is gone; nothing here reads a switch to stop at it.
 # ---- end of the gates commit-paths runs before its suite ----
 
-# The declared `commands.test`, HARD-FAILING, wherever it writes no test-pass
-# marker (#740) — a repo's suite that pre-push's marker check can never see is
-# otherwise gated by nothing. Where it does write one, the pre-push warning
-# owns the suite and this skips; test-gate.js holds that line for both hooks.
+# The declared `commands.test`, HARD-FAILING, unless its verdict probe has
+# proved the lander gets a verdict from it (#740, #5294): then the lander's run
+# before main moves is the gate and this skips. test-gate.js holds that answer,
+# probing first where the proof is stale, and prints why the run stays.
 # Last of the core gates, being the slowest.
 #
 # It runs in a throwaway worktree holding HEAD plus exactly the changes git

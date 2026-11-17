@@ -51,7 +51,6 @@ import {
 	PROFILE_GATES as PRECOMMIT_GATES,
 } from "./lib/precommit-gates.js";
 import { runInProcess } from "./lib/run-in-process.js";
-import { testGate } from "./lib/test-gate.js";
 
 const ROOT = path.join(__dirname, "..");
 const read = (...p: string[]) => fs.readFileSync(path.join(ROOT, ...p), "utf8");
@@ -720,13 +719,9 @@ describe("§W — which gate runs it in CI", () => {
 			"§W: commands.check_staged is Biome over the staged paths",
 		).toMatch(/^node scripts\/biome-staged\.js /);
 		expect(
-			core.modules,
-			"§W: commands.test writes a test-pass marker — module suites is on",
-		).toContain("suites");
-		expect(
-			testGate({ root: ROOT }).gate,
-			"§W: commands.test writes a test-pass marker — gated at push",
-		).toBe("push");
+			fs.existsSync(path.join(ROOT, core.commands.testCanary ?? "")),
+			"§W: commands.test is gated at push through its verdict probe, so a canary is declared",
+		).toBe(true);
 	});
 
 	it("runs Biome, ESLint, shellcheck, shfmt, actionlint, tsc and the suite in CI", () => {
