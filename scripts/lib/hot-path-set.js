@@ -8,7 +8,8 @@
  * A core: every read goes through the port, and each source is read as data,
  * never loaded, so a registry's own load set is never paid for. Paths are
  * read lexically: a path built in a variable goes unseen, and every token
- * that resolves to a file in the tree counts, an argument's included.
+ * spelt as a program (a code extension or none) that resolves to a file in
+ * the tree counts, an argument's included.
  *
  * `${CLAUDE_PROJECT_DIR}`, `${CLAUDE_PLUGIN_ROOT}` and `$WFC_PLUGIN_ROOT`
  * (with any `:-` default) read as the tree root, and so does a leading `../`
@@ -83,9 +84,15 @@ const isHookRegistration = (rel) => REGISTRATIONS.has(rel);
 const ROOT_VARS =
 	/\$\{(?:CLAUDE_PROJECT_DIR|CLAUDE_PLUGIN_ROOT|WFC_PLUGIN_ROOT)(?::-[^}]*)?\}|\$(?:CLAUDE_PROJECT_DIR|CLAUDE_PLUGIN_ROOT|WFC_PLUGIN_ROOT)\b/g;
 const TOKEN = /[\w.@+/-]+/g;
-/* A program's spelling: a code extension, or none. */
-const PROGRAM_NAME = /(?:^|\/)(?:[^./]+|[^/]+\.(?:c?js|mjs|ts|sh|py))$/;
-const STRING_LITERAL = /(["'`])([^"'`\s]+\.(?:c?js|mjs|ts|sh|py))\1/g;
+const CODE_EXTENSION = String.raw`\.(?:c?js|mjs|ts|sh|py)`;
+/** A path ending in a program's code extension. */
+const CODE_FILE = new RegExp(`${CODE_EXTENSION}$`);
+/** A path spelt as a program: a code extension, or none. */
+const PROGRAM_NAME = new RegExp(`(?:^|/)(?:[^./]+|[^/]+${CODE_EXTENSION})$`);
+const STRING_LITERAL = new RegExp(
+	`(["'\`])([^"'\`\\s]+${CODE_EXTENSION})\\1`,
+	"g",
+);
 
 /**
  * `token`'s path from the tree root, or null where it names none.
@@ -101,8 +108,8 @@ function fromRoot(root, token, base) {
 		rel = path.posix.join(base, token);
 	else if (under) rel = under;
 	else rel = token.replace(/^(?:\.{0,2}\/)+/, "");
-	rel = path.posix.normalize(rel);
-	return rel === "." || rel.startsWith("../") || rel === ".." ? null : rel;
+	const inside = relativeUnder(root, path.join(root, rel));
+	return inside ? inside.split(path.sep).join("/") : null;
 }
 
 /** @param {unknown} v @returns {unknown[]} */
@@ -261,4 +268,4 @@ function hotPathSet(root, port) {
 	].sort();
 }
 
-module.exports = { hotPathSet, isHookRegistration };
+module.exports = { CODE_FILE, PROGRAM_NAME, hotPathSet, isHookRegistration };

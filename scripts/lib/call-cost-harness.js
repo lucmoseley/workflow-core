@@ -48,8 +48,6 @@ const { shellQuote } = require("./sh-quote.js");
  * @typedef {object} CostOptions
  * @property {number} [expectStatus] the exit the call must end on (default 0)
  * @property {boolean} [allowStderr] whether stderr may carry text
- * @property {string} [root] the directory `modules` is relative to and
- *           filtered by (default: the program's nearest `scripts` ancestor)
  *
  * @typedef {RunResult & { modules: string[], children: string[] }} CostResult
  */
@@ -188,7 +186,7 @@ function loadedUnder(root) {
 
 /**
  * @param {string} label
- * @param {RunResult} r
+ * @param {{ status: number, stdout: string, stderr: string }} r
  * @param {CostOptions} options
  */
 function refuseBroken(label, r, options) {
@@ -210,7 +208,7 @@ function refuseBroken(label, r, options) {
  */
 function setUp(scriptPath, options) {
 	const script = path.resolve(scriptPath);
-	const root = options.root ?? scriptsRootOf(script);
+	const root = scriptsRootOf(script);
 	/** @type {string[]} */
 	const children = [];
 	const restore = recordStarts(children, root, options.cwd ?? process.cwd());
@@ -330,7 +328,6 @@ function* loggedStarts(log) {
  * @property {Record<string, string | undefined>} [env] full environment
  * @property {string} [stdin]
  * @property {string[]} [watch] binaries beyond node, python3, git and gh
- * @property {string} [shell] the interpreter (default `sh`)
  * @property {number} [expectStatus]
  * @property {boolean} [allowStderr]
  *
@@ -375,7 +372,7 @@ function shellCallCost(scriptPath, args = [], options = {}) {
 				{ mode: 0o755 },
 			);
 		}
-		const r = childProcess.spawnSync(options.shell ?? "sh", [script, ...args], {
+		const r = childProcess.spawnSync("sh", [script, ...args], {
 			cwd,
 			env: { ...env, PATH: `${shims}${path.delimiter}${realPath}` },
 			input: options.stdin ?? "",
@@ -388,11 +385,7 @@ function shellCallCost(scriptPath, args = [], options = {}) {
 			stderr: r.stderr,
 		};
 		const root = scriptsRootOf(script);
-		refuseBroken(
-			path.relative(root, script),
-			{ ...result, restoreFailures: [] },
-			options,
-		);
+		refuseBroken(path.relative(root, script), result, options);
 		const children = Array.from(
 			loggedStarts(fs.readFileSync(log, "utf8")),
 			(start) => shellChildOf(start.name, start.args, root, cwd),

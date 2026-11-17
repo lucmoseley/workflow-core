@@ -76,12 +76,19 @@ def _scripts_root_of(script: str) -> str:
     return os.path.dirname(script)
 
 
+def _relative_under(path: str, root: str) -> str | None:
+    """`path` from `root` where it lies strictly inside it, else None."""
+    rel = os.path.relpath(path, root)
+    if rel == "." or rel == os.pardir or rel.startswith(os.pardir + os.sep):
+        return None
+    return rel
+
+
 def _under(file: str, root: str) -> bool:
-    parts = Path(file).parts
     return (
-        file.startswith(root + os.sep)
+        _relative_under(file, root) is not None
         and file != _SELF
-        and not any(part in _VENDORED for part in parts)
+        and not any(part in _VENDORED for part in Path(file).parts)
     )
 
 
@@ -101,8 +108,8 @@ def _shown_arg(arg: str, root: str, cwd: str) -> str:
     if not os.path.isabs(arg):
         return arg
     for base in (root, cwd):
-        rel = os.path.relpath(arg, base)
-        if not rel.startswith("..") and not os.path.isabs(rel) and rel != ".":
+        rel = _relative_under(arg, base)
+        if rel is not None:
             return rel
     return os.path.basename(arg)
 
@@ -267,7 +274,6 @@ def call_cost(
     stdin: str | bytes = "",
     expect_status: int = 0,
     allow_stderr: bool = False,
-    root: str | os.PathLike | None = None,
 ) -> CallCost:
     """Runs the program at `path` once in-process and returns its exit, its
     output, the repo modules it loaded and the children it started.
@@ -275,7 +281,7 @@ def call_cost(
     `env`, where given, replaces the environment for the call; `stdin` is
     what fd 0 holds, empty by default as a spawn's closed pipe reads."""
     script = os.path.realpath(path)
-    scripts_root = os.path.realpath(root) if root else _scripts_root_of(script)
+    scripts_root = _scripts_root_of(script)
     call_cwd = os.path.realpath(cwd) if cwd else os.getcwd()
     purged = {name: sys.modules.pop(name) for name in _repo_modules(scripts_root)}
     children: list[str] = []
