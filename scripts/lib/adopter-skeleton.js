@@ -29,6 +29,7 @@ const { CORE_STYLE, namespaced } = require("./output-styles.js");
 const { withoutSelfPlugin } = require("./core-hooks.js");
 const { shellQuote } = require("./sh-quote.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
+const { RESOLVE_CORE_SCRIPT } = require("./tree-core.js");
 
 const TEMPLATES = path.join(__dirname, "..", "templates", "adopter");
 
@@ -344,13 +345,7 @@ ${SHIM_MARK} core-owned; init and upgrade write it and a plugin
 # DEFEAT:    WORKFLOW_CORE_DIR or WORKFLOW_CORE_CHECKOUT chooses the core that runs; the core's .husky/${hook} names its own.
 
 set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
-WFC_PLUGIN_ROOT="$(node -e '
-try {
-  process.stdout.write(require("./scripts/lib/resolve-core.js").resolveCore());
-} catch (err) {
-  process.stderr.write(String(err instanceof Error ? err.message : err) + "\\n");
-  process.exit(1);
-}' </dev/null)" || {
+WFC_PLUGIN_ROOT="$(node -e '${RESOLVE_CORE_SCRIPT}' </dev/null)" || {
   echo ${shellQuote(`${hook}: ${consequence} ${NO_CORE_FIX}`)} >&2
   exit ${failOpen ? 0 : 1}
 }

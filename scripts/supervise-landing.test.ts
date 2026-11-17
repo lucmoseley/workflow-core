@@ -10,9 +10,9 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { stubGhScript } from "./lib/gh-stub.js";
-import { seedRegistryRegion } from "./lib/lander-testkit";
+import { OWN_CORE, seedAdopterTree } from "./lib/lander-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SUPERVISE = path.resolve(__dirname, "supervise-landing.js");
@@ -114,7 +114,8 @@ beforeEach(() => {
 		path.join(work, ".claude", "workflow-core.json"),
 		JSON.stringify({ tracker: "o/here" }),
 	);
-	seedRegistryRegion(work);
+	seedAdopterTree(work);
+	vi.stubEnv("WORKFLOW_CORE_DIR", OWN_CORE);
 	git(work, ["add", "-A"]);
 	store = path.join(tmp, "issues.json");
 	fs.writeFileSync(store, "[]");
