@@ -17,7 +17,7 @@ import { markersDir } from "./marker-root.js";
 import { writePsStub } from "./ps-stub.js";
 import type { QueueTester } from "./queue-lander.js";
 import { shellQuote } from "./sh-quote.js";
-import { rungMb } from "./suite-ladder.js";
+import { EARLYOOM_FLOOR_MB, rungMb } from "./suite-ladder.js";
 import { queueSeat } from "./suite-queue.js";
 import { suiteSlot } from "./suite-slot.js";
 import { admitted } from "./suite-slot-fake";
@@ -517,6 +517,51 @@ it("refuses at the ceiling on the limb the guard named, never running anyway (#2
 	const memory = await slotAndStderr({ limb: "memory", mb: 900, rungMb: 3250 });
 	expect(memory.slot.ok).toBe(false);
 	expect(memory.text).toMatch(/lander: gate still denies on memory/);
+});
+
+/* 16 Nov's lander waited 2,400 s on a ~13150 MB rung of a 9930 MB machine (#5310). */
+it("clamps a charge past MemTotal to what the machine can supply, and says so on refusal", async () => {
+	const lines: string[] = [];
+	const stderr = vi
+		.spyOn(process.stderr, "write")
+		.mockImplementation((s: string | Uint8Array) => {
+			lines.push(String(s));
+			return true;
+		});
+	const ceiling = 9930 - EARLYOOM_FLOOR_MB;
+	const ladder = rungMb(12_000);
+	const past = {
+		chargeMb: 12_000,
+		gate: () => null,
+		totalMb: () => 9930,
+		queueDir: tmp,
+		timeoutMs: 30,
+		pollMs: 10,
+	};
+	try {
+		const short = await suiteSlot({
+			...past,
+			memory: () => ({ ok: true, mb: ceiling - 1 }),
+		});
+		expect(short).toMatchObject({
+			ok: false,
+			memoryShut: true,
+			reason: expect.stringContaining(
+				`${ceiling - 1} MB available against ${ceiling} MB (clamped from ~${ladder} MB, out of the machine's reach`,
+			),
+		});
+		expect(lines.join("")).toContain(
+			`against the ~${ceiling} MB rung (clamped from ~${ladder} MB, out of the machine's reach`,
+		);
+		const slot = await suiteSlot({
+			...past,
+			memory: () => ({ ok: true, mb: ceiling }),
+		});
+		expect(slot.ok).toBe(true);
+		if (slot.ok) slot.release();
+	} finally {
+		stderr.mockRestore();
+	}
 });
 
 it("yields to a waiter whose turn came true on the same poll, launching only once it spawns (#2650)", async () => {
