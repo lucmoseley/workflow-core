@@ -902,11 +902,11 @@ describe("a lookup that never ends (#5311)", () => {
 		commit("doc.md", "add the rule");
 		stubGhHanging();
 
-		const r = spawned({ TENURE_LOOKUP_TIMEOUT_MS: "1000" }, SENTENCE, "doc.md");
+		const r = spawned({ TENURE_LOOKUP_TIMEOUT_MS: "500" }, SENTENCE, "doc.md");
 
 		expect(r.code).toBe(3);
 		expect(r.out).toMatch(
-			/2\. earlier ruling[^\n]*\n {3}UNRESOLVED: gh issue list failed: timed out after 1 s/,
+			/2\. earlier ruling[^\n]*\n {3}UNRESOLVED: gh issue list failed: timed out after 0.5 s/,
 		);
 		expect(r.out).toContain("COMMIT");
 		expect(r.ms).toBeLessThan(15_000);
@@ -918,14 +918,14 @@ describe("a lookup that never ends (#5311)", () => {
 		stubGhHanging();
 
 		const r = spawned(
-			{ TENURE_LOOKUP_TIMEOUT_MS: "60000", TENURE_CEILING_MS: "2000" },
+			{ TENURE_LOOKUP_TIMEOUT_MS: "60000", TENURE_CEILING_MS: "1000" },
 			SENTENCE,
 			"doc.md",
 		);
 
 		expect(r.code).toBe(3);
 		expect(r.out).toContain(
-			"UNRESOLVED: tenure.js ran past its 2 s ceiling and was killed",
+			"UNRESOLVED: tenure.js ran past its 1 s ceiling and was killed",
 		);
 		expect(r.ms).toBeLessThan(15_000);
 	});
