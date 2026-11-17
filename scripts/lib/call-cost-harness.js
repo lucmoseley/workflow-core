@@ -15,7 +15,9 @@
  * A child is recorded as the executable's basename and its first argument,
  * joined by a space: `git rev-parse`, `node precommit-dispatch.js`. An
  * absolute first argument is shown relative to the scripts root, else to the
- * call's cwd, else as its basename, so a pin holds no machine path.
+ * call's cwd, else as its basename, so a pin holds no machine path. The shell
+ * half records a `node run-budgeted.js` start as the command run-budgeted.js
+ * runs, so a hook's bounded checker shows by its own name (#5361).
  *
  * Every call throws where the program exits other than `expectStatus`
  * (default 0) or writes stderr without `allowStderr`: a pin over a broken
@@ -38,6 +40,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
 const { relativeUnder } = require("./is-under.js");
+const { parseRun, RUN_BUDGETED } = require("./run-budgeted.js");
 const { runInProcess, runInProcessAsync } = require("./run-in-process.js");
 const { shellQuote } = require("./sh-quote.js");
 
@@ -265,6 +268,7 @@ async function callCostAsync(scriptPath, args = [], options = {}) {
 }
 
 const WATCHED = ["node", "python3", "git", "gh"];
+const RUNNER = path.basename(RUN_BUDGETED);
 const INNER = "WFC_CALL_COST_INNER";
 
 /**
@@ -288,6 +292,44 @@ function isExecutable(file) {
 		return true;
 	} catch {
 		return false;
+	}
+}
+
+/**
+ * One shim-recorded start as `basename firstArg`, a `node run-budgeted.js`
+ * start as the command it wraps.
+ *
+ * @param {string} name
+ * @param {string[]} args
+ * @param {string} root
+ * @param {string} cwd
+ * @returns {string}
+ */
+function shellChildOf(name, args, root, cwd) {
+	const [first, ...rest] = args;
+	if (name === "node" && first && path.basename(first) === RUNNER) {
+		const run = parseRun(rest);
+		if (run.command)
+			return shellChildOf(path.basename(run.command), run.args, root, cwd);
+	}
+	return first ? `${name} ${shownArg(first, root, cwd)}` : name;
+}
+
+/**
+ * The shim log's starts: each a count, the binary, then that many arguments,
+ * every field NUL-terminated so an argument may hold any other byte.
+ *
+ * @param {string} log
+ */
+function* loggedStarts(log) {
+	const fields = log.split("\0");
+	for (let i = 0; i + 1 < fields.length; ) {
+		const count = Number(fields[i]);
+		yield {
+			name: fields[i + 1] ?? "",
+			args: fields.slice(i + 2, i + 2 + count),
+		};
+		i += 2 + count;
 	}
 }
 
@@ -332,7 +374,7 @@ function shellCallCost(scriptPath, args = [], options = {}) {
 				[
 					"#!/bin/sh",
 					`if [ -z "\${${INNER}:-}" ]; then`,
-					`  printf '%s\\t%s\\n' ${shellQuote(name)} "\${1-}" >>${shellQuote(log)}`,
+					`  printf '%s\\0' "$#" ${shellQuote(name)} "$@" >>${shellQuote(log)}`,
 					`  ${INNER}=1`,
 					`  export ${INNER}`,
 					"fi",
@@ -360,14 +402,10 @@ function shellCallCost(scriptPath, args = [], options = {}) {
 			{ ...result, restoreFailures: [] },
 			options,
 		);
-		const children = fs
-			.readFileSync(log, "utf8")
-			.split("\n")
-			.filter(Boolean)
-			.map((line) => {
-				const [name = "", first] = line.split("\t");
-				return first ? `${name} ${shownArg(first, root, cwd)}` : name;
-			});
+		const children = Array.from(
+			loggedStarts(fs.readFileSync(log, "utf8")),
+			(start) => shellChildOf(start.name, start.args, root, cwd),
+		);
 		return { ...result, children };
 	} finally {
 		fs.rmSync(shims, { recursive: true, force: true });

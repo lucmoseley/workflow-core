@@ -335,5 +335,6 @@ module.exports = {
 	APPARATUS_EXIT,
 	APPARATUS_PREFIX,
 	isRunnerFailure,
+	parseRun,
 	takeHookPause,
 };

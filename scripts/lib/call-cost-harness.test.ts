@@ -16,6 +16,7 @@ const FIXTURES = path.resolve(__dirname, "fixtures");
 const STARTS = path.join(FIXTURES, "call-cost-starts.js");
 const LAZY = path.join(FIXTURES, "call-cost-lazy.js");
 const SHELL = path.join(FIXTURES, "call-cost-starts.sh");
+const WRAPPED = path.join(FIXTURES, "call-cost-wrapped.sh");
 const UNGUARDED = path.join(FIXTURES, "in-process-unguarded-probe.js");
 
 const STARTERS = [
@@ -133,6 +134,14 @@ describe("shellCallCost", () => {
 			"git rev-parse",
 			"node -e",
 			"cat",
+		]);
+	});
+
+	it("records a run-budgeted.js start as the command it runs (#5361)", () => {
+		const r = shellCallCost(WRAPPED, [], { cwd: tmpdir() });
+		expect(r.children).toEqual([
+			"node lib/fixtures/call-cost-child.js",
+			"git --version",
 		]);
 	});
 
