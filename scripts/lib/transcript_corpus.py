@@ -21,6 +21,7 @@ import os
 from collections import defaultdict
 
 from host_root import host_root
+from is_under import relative_under
 from project_slug import project_slug
 
 # The two skip counts every transcript scanner prints (#1274), one spelling each.
@@ -122,10 +123,10 @@ def seat_of(path):
     """The label of the seat whose root holds `path`, or None."""
     main, worktree = _repo_slugs()
     for d, label in seats().items():
-        projects = os.path.join(d, "projects").rstrip(os.sep) + os.sep
-        if not path.startswith(projects):
+        rel = relative_under(os.path.join(d, "projects"), path)
+        if not rel:
             continue
-        slug = path[len(projects) :].split(os.sep, 1)[0]
+        slug = rel.split(os.sep, 1)[0]
         if slug == main or slug.startswith(worktree):
             return label
     return None

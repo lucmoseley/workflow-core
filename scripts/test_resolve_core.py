@@ -501,12 +501,13 @@ sys.path.insert(0, os.path.join(resolve_core(), "scripts", "lib"))
 
 SURFACE_TEST = """
 import os
+from pathlib import Path
 
 import project_slug
 
 
 def test_imports_the_surface_from_the_core():
-    assert project_slug.__file__.startswith(os.environ["EXPECT_CORE"])
+    assert Path(project_slug.__file__).is_relative_to(os.environ["EXPECT_CORE"])
     assert project_slug.slug_for_repo() == os.environ["EXPECT_SLUG"]
 """
 

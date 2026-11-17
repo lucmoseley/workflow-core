@@ -41,13 +41,20 @@ freshSandbox((sb) => {
 				PreToolUse: [
 					{
 						matcher: "Bash",
-						hooks: [{ type: "command", command: "node scripts/guard-x.js" }],
+						hooks: [
+							{ type: "command", command: "node scripts/guard-x.js" },
+							{
+								type: "command",
+								command: 'node "$CLAUDE_PROJECT_DIR"/.claude/hooks/guard.mjs',
+							},
+						],
 					},
 				],
 			},
 		}),
 	);
 	plant("scripts/guard-x.js", "x\n");
+	plant(".claude/hooks/guard.mjs", "x\n");
 	plant("scripts/ordinary.js", "x\n");
 });
 
@@ -67,6 +74,12 @@ describe("a write the core sees", () => {
 	it("hands it again to a subagent, which never saw its parent's", () => {
 		expect(write("scripts/guard-x.js")).not.toBe("");
 		expect(write("scripts/guard-x.js", { agent_id: "sub1" })).toBe(
+			readRuleText("hot-path-cost"),
+		);
+	});
+
+	it("hands it on a write to a hot-path program outside scripts/, with no shebang", () => {
+		expect(write(".claude/hooks/guard.mjs")).toBe(
 			readRuleText("hot-path-cost"),
 		);
 	});
