@@ -188,7 +188,7 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  * @property {number} freeSlots admission's count
  * @property {string|null} [typedSeat] the plan seat the founder last typed
  *   on, null or absent where none is recorded (lib/presence.js's
- *   readLastTyped)
+ *   readLastTypedSeat)
  * @property {SizedSeat[]} seats the plan seats, seat-file order or any
  *   order of it: pickSeat orders them
  * @property {OverflowReading[]} [overflow] the overflow seats, in failover
