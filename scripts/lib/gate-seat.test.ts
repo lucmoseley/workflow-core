@@ -67,9 +67,28 @@ describe("readLiveGateSeats", () => {
 		q.marker({ pid: process.pid, role: "gate", chargeMb: 2100, spawned: true });
 		q.marker({ pid: 999_999_999, role: "gate" });
 		q.marker({ pid: process.ppid, role: "lander", chargeMb: 1 });
-		expect(readLiveGateSeats({ queueDir: q.dir })).toEqual([
-			{ pid: process.pid, chargeMb: 2100, spawned: true },
-		]);
+		expect(readLiveGateSeats({ queueDir: q.dir })).toEqual({
+			live: [{ pid: process.pid, chargeMb: 2100, spawned: true }],
+			unread: null,
+		});
+	});
+
+	/* Positive pair: "reads every live gate marker, queued or running, with its charge". */
+	it("holds the default charge, and says why, where the queue will not read (#5301)", () => {
+		const q = queue();
+		q.marker({ pid: process.pid, role: "gate", chargeMb: 2100 });
+		fs.chmodSync(q.dir, 0o000);
+		try {
+			expect(readLiveGateSeats({ queueDir: q.dir })).toEqual({
+				live: [],
+				unread: {
+					why: expect.stringMatching(/would not read \(EACCES/),
+					chargeMb: GATE_SEAT_DEFAULT_MB,
+				},
+			});
+		} finally {
+			fs.chmodSync(q.dir, 0o755);
+		}
 	});
 });
 
@@ -92,6 +111,24 @@ describe("readGateSeats, the count's reading of the seats", () => {
 		const seats = readGateSeats({ queueDir: q.dir, parentOf: () => 1 });
 		expect(seats.under(40)).toBe(false);
 		expect(seats.under(null)).toBe(false);
+	});
+
+	/* Positive pair: "places a runner among a spawned seat's holder's descendants under it". */
+	it("counts no seat, and says why, where the queue will not read (#5301)", () => {
+		const q = queue();
+		q.marker({ pid: process.pid, role: "gate", spawned: true });
+		fs.chmodSync(q.dir, 0o000);
+		try {
+			const seats = readGateSeats({
+				queueDir: q.dir,
+				parentOf: tree(process.pid),
+			});
+			expect(seats.count).toBe(0);
+			expect(seats.under(40)).toBe(false);
+			expect(seats.unread).toMatch(/would not read \(EACCES/);
+		} finally {
+			fs.chmodSync(q.dir, 0o755);
+		}
 	});
 
 	it("places nothing under a seat still waiting, which holds no slot", () => {

@@ -93,6 +93,7 @@ describe("the ledger beside the marker stores (#2824)", () => {
 				argv: [],
 				resolvedFiles: null,
 				leftOut: null,
+				touchedBase: null,
 				wholeSlot: false,
 				cachedFiles: null,
 				ranFiles: 3,

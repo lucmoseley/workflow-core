@@ -47,8 +47,10 @@ import {
 	describe,
 	expect,
 	it,
+	onTestFinished,
 	vi,
 } from "vitest";
+import { tmpRootWithMarkers } from "./lib/admission-testkit";
 import {
 	arbiterCli,
 	freshSandbox,
@@ -3590,6 +3592,7 @@ describe("the launch record each route hands the child (#1596)", () => {
 			viaChanged: true,
 			touched: false,
 			leftOut: null,
+			touchedBase: null,
 			full: null,
 			fullCause: null,
 			argv,
@@ -3637,6 +3640,7 @@ describe("the launch record each route hands the child (#1596)", () => {
 			viaChanged: false,
 			touched: false,
 			leftOut: null,
+			touchedBase: null,
 			full: "flag",
 			fullCause: "coverage",
 			argv,
@@ -3733,6 +3737,7 @@ describe("the launch record each route hands the child (#1596)", () => {
 			viaChanged: false,
 			touched: false,
 			leftOut: null,
+			touchedBase: null,
 			full: null,
 			fullCause: null,
 			argv,
@@ -7237,6 +7242,86 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 		});
 	});
 
+	describe("selects from HEAD only inside a live commit-gate seat (#5320, #5273)", () => {
+		/** `touchedRepo()` with verified main at its tip, then `lib/a.js`
+		 * committed as own work and `lib/chain.test.ts` edited. */
+		function branch() {
+			const dir = touchedRepo();
+			const git = (...args: string[]) =>
+				require("node:child_process").execFileSync("git", args, {
+					cwd: dir,
+					stdio: "ignore",
+				});
+			git("update-ref", "refs/remotes/origin/main", "HEAD");
+			fs.appendFileSync(path.join(dir, "lib/a.js"), "// own\n");
+			git("commit", "-qam", "own");
+			fs.appendFileSync(path.join(dir, "lib/chain.test.ts"), "// edit\n");
+			return dir;
+		}
+		/** A temp root whose suite queue holds one spawned gate seat,
+		 * `holder`'s. */
+		function tempRoot(holder: number) {
+			const tmp = tmpRootWithMarkers(
+				qdir(),
+				[],
+				[{ pid: holder, spawned: true }],
+			);
+			vi.stubEnv("TMPDIR", tmp);
+			return tmp;
+		}
+
+		it("takes `head` inside a fixture gate seat: the commit's own test alone, carried on the launch", async () => {
+			const dir = branch();
+			tempRoot(process.pid);
+			const { out, spawned } = await launch(dir);
+			expect(spawned).toHaveLength(1);
+			expect(spawned[0].args.slice(-1)).toEqual(["lib/chain.test.ts"]);
+			expect(readLaunch(spawned[0].env)).toMatchObject({
+				touched: true,
+				touchedBase: "head",
+			});
+			expect(out).toContain("this commit's changes over HEAD");
+		});
+
+		it("records `head` on the ledger line of a gate run that selects nothing", async () => {
+			const dir = branch();
+			require("node:child_process").execFileSync(
+				"git",
+				["checkout", "--", "lib/chain.test.ts"],
+				{ cwd: dir },
+			);
+			tempRoot(process.pid);
+			const { spawned } = await launch(dir);
+			expect(spawned).toEqual([]);
+			const ledger = path.join(dir, ".claude/tmp/markers/.test-runs.jsonl");
+			expect(readJsonl(ledger).at(-1)).toMatchObject({
+				kind: "touched",
+				touchedBase: "head",
+			});
+		});
+
+		it("takes `merge-base` with only the seat's variable set and a live seat outside its ancestry", async () => {
+			const dir = branch();
+			/* A live seat this process is not under: its holder is a child. */
+			const stranger = realSpawn("sleep", ["30"], { stdio: "ignore" });
+			onTestFinished(() => {
+				stranger.kill();
+			});
+			const tmp = tempRoot(stranger.pid as number);
+			vi.stubEnv("WFC_GATE_SEAT", path.join(tmp, "inherited.json"));
+			const { out, spawned } = await launch(dir);
+			expect(spawned).toHaveLength(1);
+			expect(spawned[0].args.slice(-2)).toEqual([
+				"lib/a.test.ts",
+				"lib/chain.test.ts",
+			]);
+			expect(readLaunch(spawned[0].env)).toMatchObject({
+				touchedBase: "merge-base",
+			});
+			expect(out).toContain("your own work since");
+		});
+	});
+
 	it("runs nothing and exits 0 on an empty selection, naming the lander", async () => {
 		const dir = touchedRepo();
 		fs.writeFileSync(path.join(dir, "notes.md"), "untested\n");
@@ -7249,6 +7334,7 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 		expect(readJsonl(ledger).at(-1)).toMatchObject({
 			kind: "touched",
 			resolvedFiles: 0,
+			touchedBase: "merge-base",
 		});
 	});
 });

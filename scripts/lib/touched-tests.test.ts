@@ -570,3 +570,149 @@ describe("a checker-only file selects its checker tests alone (#4967)", () => {
 		expect(leftOut).toEqual([]);
 	});
 });
+
+/* A branch of two own commits past verified main, then a staged change: the
+ * shape a commit gate's tree holds (#5320). Under `head` only the staged
+ * paths are the session's; under `merge-base`, all three. */
+describe("the base a touched selection takes (#5320)", () => {
+	const git = (dir: string, ...args: string[]) =>
+		execFileSync("git", args, { cwd: dir, encoding: "utf8" }).trim();
+	const commit = (dir: string, file: string, message: string) => {
+		fs.appendFileSync(path.join(dir, file), "// more\n");
+		git(dir, "add", file);
+		git(
+			dir,
+			"-c",
+			"user.email=t@example.com",
+			"-c",
+			"user.name=t",
+			"commit",
+			"-qm",
+			message,
+		);
+	};
+	/** `files`' repo, verified main at its root, then `lib/a.js` and `doc.md`
+	 * committed and `paths` staged. */
+	function branch(paths: string[], files: Record<string, string> = FILES) {
+		const dir = repo(files);
+		git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
+		commit(dir, "lib/a.js", "own one");
+		commit(dir, "doc.md", "own two");
+		for (const f of paths) {
+			fs.appendFileSync(path.join(dir, f), "// staged\n");
+			git(dir, "add", f);
+		}
+		return dir;
+	}
+	/* Built once for the cases that only read them: popped, so `afterEach`
+	 * leaves them for `afterAll`. */
+	let staged: string;
+	let clean: string;
+	beforeAll(() => {
+		staged = branch(["lib/setup.js"]);
+		clean = branch([]);
+		dirs.splice(-2);
+	});
+	afterAll(() => {
+		for (const d of [staged, clean])
+			fs.rmSync(d, { recursive: true, force: true });
+	});
+	const at = (dir: string, from: "head" | "merge-base", options = {}) =>
+		selectTouched(dir, {
+			from,
+			ownWork: null,
+			loadEdges: () => EDGES,
+			renderEdges: () => EDGES,
+			...options,
+		});
+
+	it("selects under `head` only what the staged paths reach, and under `merge-base` what all three commits' paths reach", () => {
+		const dir = staged;
+		expect(at(dir, "head").files).toEqual(["lib/setup.test.ts"]);
+		expect(at(dir, "merge-base").files).toEqual([
+			"doc.test.ts",
+			"lib/a.test.ts",
+			"lib/setup.test.ts",
+		]);
+	});
+
+	it("names the commit's changes over HEAD's short sha under `head`, and says the earlier commits answered for themselves", () => {
+		const dir = staged;
+		const head = git(dir, "rev-parse", "HEAD");
+		const { base, banner } = at(dir, "head");
+		expect(base).toBe(head);
+		expect(banner).toContain(
+			`TOUCHED TESTS ONLY — 1 test file(s) this commit's changes over HEAD ${head.slice(0, 12)} edited`,
+		);
+		expect(banner).toContain(
+			"The branch's earlier commits answered for themselves at their own commits, and the lander runs the full suite (#2930, #5320).",
+		);
+		expect(banner).not.toContain("your own work");
+	});
+
+	it("keeps the merge-base wording under `merge-base`", () => {
+		const dir = staged;
+		const { base, banner } = at(dir, "merge-base");
+		expect(banner).toContain(
+			`TOUCHED TESTS ONLY — 3 test file(s) your own work since ${base.slice(0, 12)} edited, or that directly import or read a file it changed. The lander runs the full suite (#2930).`,
+		);
+	});
+
+	it("takes an untracked file under `head`", () => {
+		const dir = branch([]);
+		fs.writeFileSync(path.join(dir, "lib/new.test.ts"), "export {};\n");
+		expect(at(dir, "head").files).toEqual(["lib/new.test.ts"]);
+	});
+
+	it("gives the no-touched-tests line worded for the commit where nothing changed over HEAD", () => {
+		const dir = clean;
+		const head = git(dir, "rev-parse", "HEAD");
+		const { files, banner } = at(dir, "head");
+		expect(files).toEqual([]);
+		expect(banner).toContain(
+			`NO TOUCHED TESTS — no test file is edited, imports or reads a file this commit's changes over HEAD ${head.slice(0, 12)} changed, so nothing ran.`,
+		);
+	});
+
+	it("keeps the checker-only rule under `head`: a staged checker-only file selects its checkers alone (#4967)", () => {
+		const dir = repo(CHECKER_ONLY_FILES);
+		git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
+		commit(dir, "scripts/unit.js", "own one");
+		fs.appendFileSync(path.join(dir, GUARD), "\n");
+		git(dir, "add", GUARD);
+		const { files, leftOut } = selectTouched(dir, {
+			from: "head",
+			loadEdges: () => CHECKER_ONLY_EDGES,
+			renderEdges: () => CHECKER_ONLY_EDGES,
+		});
+		expect(files).toEqual(GUARD_CHECKERS);
+		expect(leftOut).toEqual([BYSTANDER, READER]);
+	});
+
+	it("keeps the collection filter under `head`: a staged test the runner does not collect is named, not run (#2952)", () => {
+		const dir = branch([], {
+			...FILES,
+			"pytest.ini": "[pytest]\npython_files = check_*.py\n",
+		});
+		fs.appendFileSync(path.join(dir, "scripts/m/test_scan.py"), "# staged\n");
+		git(dir, "add", "scripts/m/test_scan.py");
+		const { files, banner } = at(dir, "head", { suite: "pytest" });
+		expect(files).toEqual([]);
+		expect(uncollectedIn(banner)).toEqual(["scripts/m/test_scan.py"]);
+		expect(banner).toContain("every test file this commit's changes over HEAD");
+	});
+
+	it("falls back to the staged paths' same-stem siblings alone under `head`", () => {
+		const dir = branch(["lib/a.js"]);
+		const { files, banner } = at(dir, "head", {
+			loadEdges: failing,
+			renderEdges: failing,
+		});
+		expect(files).toEqual([
+			"lib/a.extra.test.ts",
+			"lib/a.spec.ts",
+			"lib/a.test.ts",
+		]);
+		expect(banner).toContain("FELL BACK");
+	});
+});

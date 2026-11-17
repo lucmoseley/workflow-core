@@ -594,6 +594,7 @@ function renderThroughputLines(reading) {
 						...(r.events === null ? ["breaker record"] : []),
 						...(r.gateRuns === null ? ["gate-run record"] : []),
 						...(r.jobsRead ? [] : ["loop-job record"]),
+						...r.timelinesUnread,
 					];
 					return what.length === 0
 						? []

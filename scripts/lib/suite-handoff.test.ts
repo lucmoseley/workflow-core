@@ -38,6 +38,7 @@ const LAUNCH = {
 	resolvedFiles: 485,
 	wholeSlot: true,
 	leftOut: ["lib/b.test.ts"],
+	touchedBase: "head" as const,
 	changedPaths: ["lib/a.js", "docs/b.md"],
 	base: "b".repeat(40),
 };
@@ -53,6 +54,7 @@ const ABSENT = {
 	resolvedFiles: null,
 	wholeSlot: false,
 	leftOut: null,
+	touchedBase: null,
 	changedPaths: null,
 	base: null,
 };
@@ -97,6 +99,7 @@ describe("the launch record", () => {
 		["wholeSlot", "true"],
 		["leftOut", "lib/b.test.ts"],
 		["leftOut", [7]],
+		["touchedBase", "tip"],
 		["changedPaths", "lib/a.js"],
 		["changedPaths", ["lib/a.js", null]],
 		["base", 42],
