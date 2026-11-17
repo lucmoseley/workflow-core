@@ -5,19 +5,23 @@
  * option `claude --help` lists, with whether it takes a value, each hidden
  * one lib/headless-options.js names, and the
  * `result` row of one run lib/headless-sessions.js launched, which
- * lib/headless-runs.js reads. lib/headless-run-fake.ts serves both to the
- * suites' `claude` stubs.
+ * lib/headless-runs.js reads, and what a `--input-format stream-json` run
+ * answers an interrupt control request with mid-turn, which
+ * lib/chrome-stream.js's capped turn rests on (#5388).
+ * lib/headless-run-fake.ts serves all three to the suites' `claude` stubs.
  *
  *   node scripts/record-headless-run.js [--key <key var>]
  *
  * The run goes on the overflow seat whose key `--key` names, else the
  * seat file's first, from an empty directory and into a throwaway run store,
- * so the refill loop never lists it. It spends one short turn on that key.
+ * so the refill loop never lists it. It spends one short turn on that key. The
+ * interrupted run goes on the recorder's own plan seat, as claude-child.js's
+ * Chrome child does.
  *
  * Run it by hand after a harness upgrade, then `npm run test --
  * scripts/lib/headless-run.contract.test.ts`.
  *
- * In no family (§N3): it writes a fixture, but spends a turn to do it, so it
+ * In no family (§N3): it writes a fixture, but spends turns to do it, so it
  * is no `generate-*` a gate may run. No suite runs it: the contract holds what
  * it writes.
  */
@@ -36,7 +40,12 @@ const {
 	parseHelpOptions,
 	parseMissingValueRefusal,
 } = require("./lib/headless-options.js");
+const { INTERRUPT_WAIT_MS } = require("./lib/chrome-close.js");
+const { STREAM_ARGS, startStreamChild } = require("./lib/chrome-stream.js");
 const { readJsonl } = require("./lib/jsonl.js");
+const { configDir } = require("./lib/config-dir.js");
+const { launchAuthRefusal } = require("./lib/launch-auth.js");
+const { buildSeatEnv } = require("./lib/seat-claude.js");
 const { overflowSeatsOf, readDeclaredSeats } = require("./lib/refill-seats.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -51,7 +60,13 @@ const BUDGET_USD = 1;
 const SYNTHETIC = {
 	session_id: "5e551011-0000-4000-8000-000000000000",
 	uuid: "0e5017ed-0000-4000-8000-000000000000",
+	credential_expires_at: "2000-01-01T00:00:00.000Z",
 };
+const SYNTHETIC_REQUEST_ID = "1e7e5e47-0000-4000-8000-000000000000";
+const LONG_PROMPT =
+	"Write a 1500-word essay on the history of the lighthouse. Use no tools.";
+/* A guess: past the first token, well short of the essay's end. */
+const INTERRUPT_AT_MS = 5000;
 
 /** @param {string|undefined} key */
 function readOverflowKey(key) {
@@ -125,10 +140,74 @@ async function recordResult(keyVar) {
 			(r) => r.type === "result",
 		);
 		if (!row) throw new Error(`no result row in ${WAIT_MS / 1000} s`);
-		return { ...row, ...SYNTHETIC };
+		return synthesise(row);
 	} finally {
 		await stop(record.jobId, { graceMs: 0 });
 		fs.rmSync(store, { recursive: true, force: true });
+	}
+}
+
+/**
+ * A row with the run's own ids swapped for the fixture's.
+ * @param {Record<string, unknown>} row
+ */
+function synthesise(row) {
+	const out = { ...row };
+	for (const [field, value] of Object.entries(SYNTHETIC))
+		if (field in out) out[field] = value;
+	if (out.response && typeof out.response === "object")
+		out.response = { ...out.response, request_id: SYNTHETIC_REQUEST_ID };
+	return out;
+}
+
+/**
+ * One stream-json run interrupted mid-turn: its `control_response` to the
+ * interrupt and its result row.
+ */
+async function recordInterrupt() {
+	const env = buildSeatEnv(process.env, configDir());
+	const bin = claudeBin(env);
+	const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "headless-record-"));
+	/** @type {ReturnType<typeof startStreamChild> | undefined} */
+	let run;
+	try {
+		const refusal = launchAuthRefusal({ bin, env, cwd });
+		if (refusal) throw new Error(`REFUSED: ${refusal}`);
+		/** @type {Record<string, unknown>[]} */
+		const rows = [];
+		run = startStreamChild(
+			bin,
+			["-p", ...STREAM_ARGS, "--tools", ""],
+			{ cwd, env },
+			(row) => rows.push(row),
+		);
+		run.send(LONG_PROMPT);
+		/* The closer's grace, so a row the launcher would miss fails the
+		 * recording. */
+		const { result, capped } = await run.turn({
+			capMs: INTERRUPT_AT_MS,
+			graceMs: INTERRUPT_WAIT_MS,
+		});
+		if (!capped)
+			throw new Error(
+				`the turn ended before its interrupt at ${INTERRUPT_AT_MS} ms`,
+			);
+		if (!result)
+			throw new Error(
+				`no result row ${INTERRUPT_WAIT_MS / 1000} s after the interrupt`,
+			);
+		const controlResponse = rows.find((r) => r.type === "control_response");
+		if (!controlResponse)
+			throw new Error(
+				"the run answered the interrupt with no control_response",
+			);
+		return {
+			controlResponse: synthesise(controlResponse),
+			result: synthesise(result),
+		};
+	} finally {
+		await run?.stop();
+		fs.rmSync(cwd, { recursive: true, force: true });
 	}
 }
 
@@ -150,6 +229,7 @@ async function main() {
 	const options = readOptions();
 	const hidden = readHiddenOptions();
 	const result = await recordResult(readOverflowKey(key));
+	const interrupt = await recordInterrupt();
 	fs.writeFileSync(
 		FIXTURE,
 		`${JSON.stringify(
@@ -159,6 +239,7 @@ async function main() {
 				options,
 				hidden,
 				result,
+				interrupt,
 			},
 			null,
 			"\t",
