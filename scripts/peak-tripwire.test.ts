@@ -85,8 +85,11 @@ describe("peak-tripwire.js", () => {
 	});
 
 	it("`arm` resets the state, records the session and advances the cursor to now", () => {
-		const before = Date.now();
-		const r = run(["arm"], { CLAUDE_CODE_SESSION_ID: "s-reader" });
+		const at = "2026-11-17T04:00:00.000Z";
+		const r = run(["arm"], {
+			CLAUDE_CODE_SESSION_ID: "s-reader",
+			WFC_NOW: at,
+		});
 		expect(r.status).toBe(0);
 		const t = state();
 		expect(t).toMatchObject({
@@ -96,10 +99,8 @@ describe("peak-tripwire.js", () => {
 			trippedAt: null,
 			armedBy: "s-reader",
 		});
-		expect(t.checkedThrough).toBe(t.armedAt);
-		expect(Date.parse(t.checkedThrough)).toBeGreaterThanOrEqual(
-			Math.floor(before / 1000) * 1000,
-		);
+		expect(t.checkedThrough).toBe(at);
+		expect(t.armedAt).toBe(at);
 		expect(run(["status"]).stdout).toContain("peak tripwire: armed");
 	});
 

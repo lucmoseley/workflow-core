@@ -22,16 +22,17 @@
  * BLIND FAILS TO THE LADDER: a journal the reader reports unreadable, or a run
  * store that will not read beside a test-run kill, records `unread` and keeps
  * the cursor; the gate judges part-suites on the ladder until a readable check
- * clears it. A state file that will not parse reads blind too, and only `arm`
- * rewrites it, so a torn trip is never lost to a check.
+ * clears it. A state file that will not parse, or a check that will not
+ * write it, falls to the ladder too, as `state-unread`, and only `arm`
+ * rewrites a torn file, so a torn trip is never lost to a check.
  *
  * The gate's reads never throw; `arm` throws where the file will not write.
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
+const { readText } = require("./file-read.js");
 const { hostRoot } = require("./host-root.js");
 const { toSecond } = require("./journalctl.js");
 const { markersDir } = require("./marker-root.js");
@@ -59,7 +60,7 @@ const CHECK_MS = 30 * 1000;
  * @property {string|null} armedBy the session that last re-armed it
  * @property {string|null} armedAt
  * @typedef {{ tripwire: Tripwire, corrupt: string|null }} Read
- * @typedef {{ cause: "tripped"|"journal-unread", why?: string }} Fallback
+ * @typedef {{ cause: "tripped"|"journal-unread"|"state-unread", why?: string }} Fallback
  * @typedef {(sinceMs: number) => { incidents: import("./earlyoom-kills.js").Incident[], why: string|null }} IncidentReader
  * @typedef {() => { runs: (import("./run-memory.js").RunFile & { mode?: string })[], why: string|null }} RunReader
  * @typedef {(what: string, detail?: string) => void} Log
@@ -94,16 +95,11 @@ const rearmCommands = () => {
  */
 function readTripwire({ file } = {}) {
 	try {
-		const target = file ?? defaultFile();
-		let text;
-		try {
-			text = fs.readFileSync(target, "utf8");
-		} catch (e) {
-			if (caught(e).code === "ENOENT")
-				return { tripwire: { ...ARMED }, corrupt: null };
-			throw e;
-		}
-		const parsed = JSON.parse(text);
+		const text = readText(file ?? defaultFile());
+		if (text.state === "absent")
+			return { tripwire: { ...ARMED }, corrupt: null };
+		if (text.state === "unreadable") throw text.error;
+		const parsed = JSON.parse(text.data);
 		if (
 			!(parsed instanceof Object) ||
 			(parsed.state !== "armed" && parsed.state !== "tripped")
@@ -279,7 +275,7 @@ function describeTrip(t) {
  */
 function gateTripwire(o = {}) {
 	const { tripwire, corrupt } = checkTripwire(o);
-	if (corrupt !== null) return { cause: "journal-unread", why: corrupt };
+	if (corrupt !== null) return { cause: "state-unread", why: corrupt };
 	if (tripwire.state === "tripped")
 		return { cause: "tripped", why: describeTrip(tripwire) };
 	if (tripwire.unread !== null)

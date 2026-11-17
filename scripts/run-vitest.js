@@ -89,10 +89,11 @@ const {
 	armSeatSignals,
 	gateDenies,
 	heldSeat,
+	partLaneOf,
 	peerClimbTurn,
 	queueSeat,
 } = require("./lib/suite-queue.js");
-const { partKindOf } = require("./lib/part-suite-peak.js");
+const { partKindOfRoute } = require("./lib/part-suite-peak.js");
 const { readOwnPaths, readOwnWork } = require("./lib/own-work.js");
 const idSeam = require("./lib/session-id.js");
 const {
@@ -645,10 +646,10 @@ function withLaunch(options, fields) {
  * @param {{ spawnFn?: typeof import("node:child_process").spawn, root?: string, fs?: WrapperFs, bin?: string, stall?: number, ceiling?: number, inflightFile?: string, timingsFile?: string,
  *   expand?: typeof expandChanged, out?: { write: (s: string) => unknown },
  *   execFn?: ExecFn, loadEdges?: () => Record<string, string[]>, err?: { write: (s: string) => unknown },
- *   launch?: LauncherLaunch, onSpawn?: () => void, emptyOnly?: boolean,
+ *   launch?: LauncherLaunch, onSpawn?: (charge?: { chargeMb?: number }) => void, emptyOnly?: boolean,
  *   escalationRequeues?: boolean, session?: string|null,
  *   admission?: PartAdmission|null,
- *   readAdmission?: ((words: string[], weight: import("./lib/suite-handoff.js").CarriedWeight) => PartAdmission|null)|null,
+ *   readAdmission?: ((words: string[]) => PartAdmission|null)|null,
  *   yieldCpu?: (child: { pid?: number }, options: { err: Writer }) => unknown,
  *   killCarrier?: typeof killPid }} [options]
  * @returns {Promise<number>}
@@ -831,7 +832,9 @@ function runOnce(
 		const spawnedAt = Date.now();
 		const spawnedAtMono = performance.now();
 		const machineStart = sampleCpu();
-		onSpawn();
+		/* A run admitted on its own peak is charged that peak as it climbs
+		 * (#5366). */
+		onSpawn(admission?.mode === "peak" ? { chargeMb: admission.p99Mb } : {});
 
 		// ENOENT, EACCES: spawn reports these through an `error` event on an
 		// async child, same shape as spawnSync's `.error` in run-pytest.js.
@@ -1076,33 +1079,31 @@ const markerAdmission = (admission) => (admission ? { admission } : {});
  * `readAdmission`, none for a whole run or the lander's, which the gate never
  * charges on its peak.
  * @param {PartAdmission|null} admitted
- * @param {((words: string[], weight: import("./lib/suite-handoff.js").CarriedWeight) => PartAdmission|null)|null} readAdmission
- * @param {{ wholeSlot?: boolean, resolvedFiles?: number|null }} weighed
+ * @param {((words: string[]) => PartAdmission|null)|null} readAdmission
+ * @param {{ wholeSlot?: boolean }} weighed
  * @param {string[]|null|undefined} words
  * @returns {PartAdmission|null}
  */
 function admissionOf(admitted, readAdmission, weighed, words) {
 	if (admitted) return admitted;
 	if (!readAdmission || weighed.wholeSlot || idSeam.isLanderRun()) return null;
-	return readAdmission(words ?? [], {
-		resolvedFiles: weighed.resolvedFiles ?? null,
-		wholeSlot: false,
-	});
+	return readAdmission(words ?? []);
 }
 
 /**
  * How the gate judges a part-suite the guard admitted unqueued (#5366), read
  * once as it starts, for its records alone: the guard's own reading ran in
- * the hook's process. Residual: memory moved between the two reads may judge
- * it otherwise than the guard did.
+ * the hook's process. Read off the words alone, as the guard read them, with
+ * no resolved weight: a bare touched run it judged `unsized` reads so here
+ * too. Residual: memory moved between the two reads may judge it otherwise
+ * than the guard did.
  * @param {string[]} words
- * @param {import("./lib/suite-handoff.js").CarriedWeight} weight
  * @returns {PartAdmission | null}
  */
-function readDirectAdmission(words, weight) {
+function readDirectAdmission(words) {
 	/** @type {PartAdmission | null} */
 	let heard = null;
-	gateDenies(words, undefined, weight, {
+	gateDenies(words, undefined, null, {
 		onAdmission: (a) => {
 			heard = a;
 		},
@@ -2365,13 +2366,15 @@ async function runSeated({
 	if (!seatFile) return queued();
 	/** @type {PartAdmission | undefined} */
 	let admission;
+	/** @type {(climbMb: number, hear?: (a: PartAdmission) => void) => import("./lib/suite-queue.js").GateDenial | null} */
 	const gate =
 		options.gate ??
-		((/** @type {number} */ climbMb) =>
+		((climbMb, hear) =>
 			gateDenies(words, options.gateRead, weight, {
 				climbMb,
 				onAdmission: (a) => {
 					admission = a;
+					hear?.(a);
 				},
 			}));
 	const logExit = queueExitLogger({
@@ -2401,8 +2404,8 @@ async function runSeated({
 			.wait({
 				hold: options.loadHold,
 				...options,
-				gate: (climbMb) => {
-					const denial = gate(climbMb);
+				gate: (climbMb, hear) => {
+					const denial = gate(climbMb, hear);
 					return denial?.limb === "memory" ? denial : null;
 				},
 				turn: peer.turn,
@@ -2509,13 +2512,13 @@ function main(argv = process.argv.slice(2), options = {}) {
 		runOptions.launch = { ...launch, ...weight };
 	};
 	reweigh(weight);
-	/* A part-suite's lane in the queue (#5367). */
-	/* An untold kind queues under a touched one's rules. */
-	const partKind = partKindOf(route.kind) ?? "touched";
+	/* The lane it queues in, were it a part-suite (#5367). */
+	const partKind = partLaneOf(partKindOfRoute(route));
 	const logFile = queueLogFile(options);
 	const logExit = queueExitLogger({
 		file: logFile,
 		kind: route.kind,
+		lane: partKind,
 		slotFree: launch.slotFree,
 		session: route.sessionId,
 		label: "--queue",

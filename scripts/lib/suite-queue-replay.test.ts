@@ -756,7 +756,7 @@ describe("the named lane and a touched waiter's first claim (#5367)", () => {
 	/* A touched part waiting from minute 0, and a named part waiting
 	 * minutes [from, from + 2), its ticks starting at `start`. Nothing else
 	 * holds either: no memwatch block, no run. */
-	const named = (from: number, start: number) => {
+	const named = (from: number, start: number, lane?: "touched") => {
 		const later = (t: number) => t - T0 - from * MIN + start;
 		const r = replay(
 			{
@@ -765,7 +765,11 @@ describe("the named lane and a touched waiter's first claim (#5367)", () => {
 					{ from, to: from + 2, slotFree: true, kind: "named" },
 				].map((waiter, i) => {
 					const e = exit(waiter, i);
-					return { ...e, at: iso(later(Date.parse(e.at))) };
+					return {
+						...e,
+						at: iso(later(Date.parse(e.at))),
+						...(i === 1 && lane ? { lane } : {}),
+					};
 				}),
 				runs: [],
 				mem: new Map(),
@@ -795,6 +799,10 @@ describe("the named lane and a touched waiter's first claim (#5367)", () => {
 
 	it("held it behind the touched waiter before", () => {
 		expect(named(2, BeforeLane)).toEqual({ "fifo-part": 120 });
+	});
+
+	it("reads the lane its exit line records over its kind, as an --adopt run's", () => {
+		expect(named(2, AfterLane, "touched")).toEqual({ "fifo-part": 120 });
 	});
 });
 
