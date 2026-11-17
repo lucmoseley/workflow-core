@@ -135,12 +135,15 @@ function numberlessBlockers(text) {
  * fault is fixed with `gh issue edit`, a comment fault needs the comments API
  * by its id, and pointing a reader at the wrong one wastes the trip.
  */
-const scanner = () => ({
-	/* Every source a finding depends on: a changed rule rescans the tracker. */
+/** @returns {import("./lib/citation-findings-cache").Scanner} */
+const buildScanner = () => ({
+	/* Every source a finding depends on: a changed rule rescans the tracker.
+	 * Sixteen hex digits name a version; nothing trusts them as a digest. */
 	version: crypto
 		.createHash("sha256")
 		.update(fs.readFileSync(__filename))
 		.update(fs.readFileSync(require.resolve("./lib/title-first-links")))
+		.update(fs.readFileSync(require.resolve("./lib/regex-group")))
 		.digest("hex")
 		.slice(0, 16),
 	/** @param {string} text */
@@ -166,17 +169,16 @@ const scanner = () => ({
 function splitFindings(issues) {
 	const titleFirst = [];
 	const noNumber = [];
-	const numbers = Object.keys(issues)
-		.map(Number)
-		.sort((a, b) => b - a);
-	for (const number of numbers) {
-		const e = /** @type {any} */ (issues[number]);
+	const entries = Object.entries(issues)
+		.map(([n, e]) => /** @type {const} */ ([Number(n), e]))
+		.sort(([a], [b]) => b - a);
+	for (const [number, e] of entries) {
 		const base = { number, title: e.title, url: e.url };
 		if (e.body?.links.length)
 			titleFirst.push({ ...base, where: "body", links: e.body.links });
 		for (const [id, c] of Object.entries(e.comments))
 			titleFirst.push({ ...base, where: `comment ${id}`, links: c.links });
-		if (e.body?.lines.length) noNumber.push({ ...base, lines: e.body.lines });
+		if (e.body?.lines?.length) noNumber.push({ ...base, lines: e.body.lines });
 	}
 	return { titleFirst, noNumber };
 }
@@ -228,7 +230,7 @@ const SPEC = {
 		tracker = requireKey("tracker");
 		let found;
 		try {
-			found = await readCitationFindings(tracker, scanner());
+			found = await readCitationFindings(tracker, buildScanner());
 		} catch (e) {
 			return raiseGhFailure(e);
 		}

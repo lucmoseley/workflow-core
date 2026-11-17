@@ -11,10 +11,13 @@
  *
  * ONLY FINDINGS ARE CACHED, per surface: an issue's body, or one comment by
  * its REST id. A surface that changed is rescanned whole; one that did not
- * cannot have changed its findings. Two changes reach no `since` read: a
- * deleted comment and a deleted issue. So every cached finding the since read
- * did not touch is probed by its own id each run, and a 404 or 410 drops it —
- * a cost bounded by the findings, not the tracker.
+ * cannot have changed its findings. Three changes reach no `since` read: a
+ * deleted comment, a deleted issue and an issue transferred out. So every
+ * cached finding the since read did not touch is probed by its own id each
+ * run, and a 404, a 410 or a row from another repo drops it — a cost bounded
+ * by the findings, not the tracker. Residual: an issue transferred IN keeps
+ * its comments' old `updated_at`, so they go unscanned until the next cold
+ * read.
  *
  * The cache carries the scanner's version, a hash of its source: a changed
  * rule rescans everything rather than reporting under the old one. A failed
@@ -26,7 +29,6 @@
  * every write is a whole cache.
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
 const {
 	assertOpenRead,
@@ -34,53 +36,35 @@ const {
 	ghApiSlurp,
 	ghApiSlurpAsync,
 	ghIssuesUpdatedSince,
-	isNotFound,
+	isGone,
 	parseErrLine,
+	SINCE_SKEW_MS,
 } = require("./gh.js");
 const { writeFileAtomic } = require("./atomic-write.js");
+const { readText } = require("./file-read.js");
 const { MARKERS_REL } = require("./marker-root.js");
 const { hostRoot } = require("./host-root.js");
 const { writeFd } = require("./write-fd.js");
 
-/*
- * The since read starts this far before the stamp, so a clock running ahead
- * of GitHub's loses no update. Re-reading a surface rescans it to the same
- * findings. Five minutes is a guess, as closed-title-cache.js's.
- */
-const SKEW_MS = 5 * 60 * 1000;
-
 /**
- * @typedef {{number: number, title: string, html_url: string, body?: string|null, pull_request?: object}} IssueRow
+ * @typedef {ReturnType<typeof import("./title-first-links").titleFirstLinks>} Links
+ * @typedef {{links: Links, lines?: string[]}} Finding
+ * @typedef {{number: number, title: string, html_url: string, repository_url?: string, body?: string|null, pull_request?: object}} IssueRow
  * @typedef {{id: number, issue_url: string, body?: string|null}} CommentRow
- * @typedef {{title: string, url: string, body?: any, comments: Record<string, any>}} Entry
+ * @typedef {{title: string, url: string, body?: Finding, comments: Record<string, Finding>}} Entry
  * @typedef {{version: string, stamp: string, fullStamp: string, issues: Record<string, Entry>}} Cache
  * @typedef {object} Scanner
  * @property {string} version changes whenever what a scan finds could
- * @property {(text: string) => any} body a body's findings, null where none
- * @property {(text: string) => any} comment a comment's findings, null where none
+ * @property {(text: string) => Finding|null} body a body's findings
+ * @property {(text: string) => Finding|null} comment a comment's findings
  * @typedef {object} Deps
- * @property {() => number} now
  * @property {string} file
  * @property {() => Promise<{issues: IssueRow[], comments: CommentRow[]}>} readAll
  * @property {(since: string) => {issues: IssueRow[], comments: CommentRow[]}} readSince
- * @property {(n: number) => IssueRow|null} probeIssue null where it is gone
+ * @property {(n: string) => IssueRow|null} probeIssue null where it is gone
  * @property {(id: string) => CommentRow|null} probeComment null where it is gone
  * @property {(text: string) => void} warn
  */
-
-/** @param {string} repo */
-const cacheFile = (repo) =>
-	path.join(
-		hostRoot(),
-		MARKERS_REL,
-		"issue-citations",
-		`${repo.replace("/", "__")}.json`,
-	);
-
-/** @param {unknown} e */
-const isGone = (e) =>
-	isNotFound(e) ||
-	/\(HTTP 410\)/.test(String(/** @type {any} */ (e)?.stderr ?? ""));
 
 /** @param {string} repo */
 function buildGhDeps(repo) {
@@ -93,31 +77,32 @@ function buildGhDeps(repo) {
 			throw e;
 		}
 	};
-	/** @param {string[]} extra */
-	const list = (extra) => [
+	/** `-f` query fields, 100 rows a page. @param {string[]} fields */
+	const listQuery = (fields) => [
 		"-X",
 		"GET",
-		...extra.flatMap((f) => ["-f", f]),
+		...fields.flatMap((f) => ["-f", f]),
 		"-f",
 		"per_page=100",
 	];
+	const allIssues = () =>
+		ghApiSlurpAsync([`repos/${repo}/issues`, ...listQuery(["state=all"])]);
 	/** @type {Deps} */
 	return {
-		now: Date.now,
-		file: cacheFile(repo),
+		file: path.join(
+			hostRoot(),
+			MARKERS_REL,
+			"issue-citations",
+			`${repo.replace("/", "__")}.json`,
+		),
 		readAll: async () => {
 			const [issues, comments] = await Promise.all([
-				ghApiSlurpAsync([`repos/${repo}/issues`, ...list(["state=all"])]),
-				ghApiSlurpAsync([`repos/${repo}/issues/comments`, ...list([])]),
+				allIssues(),
+				ghApiSlurpAsync([`repos/${repo}/issues/comments`, ...listQuery([])]),
 			]);
 			return {
 				issues: assertOpenRead(
-					issues.length > 0
-						? issues
-						: await ghApiSlurpAsync([
-								`repos/${repo}/issues`,
-								...list(["state=all"]),
-							]),
+					issues.length > 0 ? issues : await allIssues(),
 					repo,
 				),
 				comments,
@@ -127,10 +112,14 @@ function buildGhDeps(repo) {
 			issues: ghIssuesUpdatedSince(repo, since),
 			comments: ghApiSlurp([
 				`repos/${repo}/issues/comments`,
-				...list([`since=${since}`]),
+				...listQuery([`since=${since}`]),
 			]),
 		}),
-		probeIssue: (n) => probe(`repos/${repo}/issues/${n}`),
+		probeIssue: (n) => {
+			const row = probe(`repos/${repo}/issues/${n}`);
+			// A transferred issue redirects to its new repo, which gh follows.
+			return row?.repository_url?.endsWith(`/repos/${repo}`) ? row : null;
+		},
 		probeComment: (id) => probe(`repos/${repo}/issues/comments/${id}`),
 		warn: (text) => writeFd(2, `issue-citations: ${text}\n`),
 	};
@@ -138,21 +127,22 @@ function buildGhDeps(repo) {
 
 /**
  * The cache at `deps.file`, or null where it is absent, unusable or from
- * another scanner version.
+ * another scanner version — saying so where a file is there but unusable.
  * @param {Deps} deps
  * @param {string} version
  * @returns {Cache|null}
  */
 function readCache(deps, version) {
-	let bytes;
-	try {
-		bytes = fs.readFileSync(deps.file, "utf8");
-	} catch {
-		// Absent or unreadable: a cold cache, which the full read rebuilds.
+	const read = readText(deps.file);
+	if (read.state === "absent") return null;
+	if (read.state === "unreadable") {
+		deps.warn(
+			`the citation cache is unreadable (${read.message}) — reading the whole tracker.`,
+		);
 		return null;
 	}
 	try {
-		const c = JSON.parse(bytes);
+		const c = JSON.parse(read.data);
 		if (
 			typeof c?.stamp === "string" &&
 			!Number.isNaN(Date.parse(c.stamp)) &&
@@ -183,10 +173,14 @@ function writeCache(deps, cache) {
 }
 
 /** The issue number a comment row sits on. @param {CommentRow} c */
-const commentIssue = (c) => String(c.issue_url).split("/").pop() ?? "";
+function commentIssue(c) {
+	const n = /\/issues\/(\d+)$/.exec(c.issue_url)?.[1];
+	if (!n) throw new Error(`a comment row names no issue: ${c.issue_url}`);
+	return n;
+}
 
 /**
- * @param {Record<string, Entry>} issues
+ * @param {Record<string, Entry>} issues accumulator: the row's entry is set
  * @param {IssueRow} row
  * @param {Scanner} scan
  */
@@ -202,7 +196,8 @@ function rescanIssue(issues, row, scan) {
 }
 
 /**
- * @param {Record<string, Entry>} issues
+ * @param {Record<string, Entry>} issues accumulator: the comment's finding
+ *   is set or dropped on its issue's entry
  * @param {CommentRow} row
  * @param {Scanner} scan
  */
@@ -211,18 +206,18 @@ function rescanComment(issues, row, scan) {
 	const found = scan.comment(row.body ?? "");
 	const entry = issues[n];
 	if (found) {
-		issues[n] = entry ?? { title: "", url: "", comments: {} };
-		/** @type {Entry} */ (issues[n]).comments[row.id] = found;
+		const kept = entry ?? { title: "", url: "", comments: {} };
+		kept.comments[row.id] = found;
+		issues[n] = kept;
 	} else if (entry) delete entry.comments[row.id];
 }
 
 /** @param {Entry} e */
-const holdsFinding = (e) =>
-	Boolean(e.body) || Object.keys(e.comments).length > 0;
+const hasFinding = (e) => Boolean(e.body) || Object.keys(e.comments).length > 0;
 
 /** @param {Record<string, Entry>} issues */
 const prune = (issues) =>
-	Object.fromEntries(Object.entries(issues).filter(([, e]) => holdsFinding(e)));
+	Object.fromEntries(Object.entries(issues).filter(([, e]) => hasFinding(e)));
 
 /**
  * The whole tracker scanned: the cold read.
@@ -269,8 +264,8 @@ function scanSince(deps, scan, cache, since) {
 		for (const id of Object.keys(entry.comments))
 			if (!readComments.has(id) && !deps.probeComment(id))
 				delete entry.comments[id];
-		if (!readIssues.has(n) && holdsFinding(entry))
-			refreshUnread(deps, issues, n);
+		if (!readIssues.has(n) && hasFinding(entry))
+			refreshUnread(deps, issues, n, entry);
 	}
 	return {
 		issues,
@@ -283,15 +278,16 @@ function scanSince(deps, scan, cache, since) {
 
 /**
  * An issue holding a finding the since read did not return — untouched, or
- * reached only through a comment: dropped where it is gone or a pull
- * request, else given its current title.
+ * reached only through a comment: dropped where it is gone, transferred or a
+ * pull request, else given its current title.
  * @param {Deps} deps
- * @param {Record<string, Entry>} issues
+ * @param {Record<string, Entry>} issues accumulator: `n` is dropped from it
+ *   where it is gone
  * @param {string} n
+ * @param {Entry} entry `issues[n]`, retitled in place
  */
-function refreshUnread(deps, issues, n) {
-	const row = deps.probeIssue(Number(n));
-	const entry = /** @type {Entry} */ (issues[n]);
+function refreshUnread(deps, issues, n, entry) {
+	const row = deps.probeIssue(n);
 	if (!row || row.pull_request) delete issues[n];
 	else {
 		entry.title = row.title;
@@ -304,15 +300,14 @@ function refreshUnread(deps, issues, n) {
  * Throws where a read fails; the cache is then left as it was.
  * @param {string} repo
  * @param {Scanner} scan
- * @param {Partial<Deps>} [over]
  * @returns {Promise<{issues: Record<string, Entry>, read: {full: boolean, issues: number, comments: number, since?: string, fullStamp: string}}>}
  */
-async function readCitationFindings(repo, scan, over = {}) {
-	const deps = { ...buildGhDeps(repo), ...over };
-	const stamp = new Date(deps.now()).toISOString();
+async function readCitationFindings(repo, scan) {
+	const deps = buildGhDeps(repo);
+	const stamp = new Date().toISOString();
 	const cache = readCache(deps, scan.version);
 	const since =
-		cache && new Date(Date.parse(cache.stamp) - SKEW_MS).toISOString();
+		cache && new Date(Date.parse(cache.stamp) - SINCE_SKEW_MS).toISOString();
 	const fullStamp = cache ? cache.fullStamp : stamp;
 	const { issues, counts } =
 		cache && since
@@ -326,4 +321,4 @@ async function readCitationFindings(repo, scan, over = {}) {
 	};
 }
 
-module.exports = { readCitationFindings, cacheFile };
+module.exports = { readCitationFindings };

@@ -354,7 +354,13 @@ describe("reporting contract", () => {
 describe("incremental read (#5355)", () => {
 	const issue8 = { number: 8, body: `[A title](${URL_(32)})` };
 	const issue9 = { number: 9, body: `[Another title](${URL_(33)})` };
-	const probe = (n: number) => printed(JSON.stringify(issueRow({ number: n })));
+	const probe = (n: number, repo = "owner/repo") =>
+		printed(
+			JSON.stringify({
+				...issueRow({ number: n }),
+				repository_url: `https://api.github.com/repos/${repo}`,
+			}),
+		);
 
 	it("reads only what changed since the last run, rescans it, and carries the rest", async () => {
 		await run([], stubGh([issue8, issue9]));
@@ -391,6 +397,17 @@ describe("incremental read (#5355)", () => {
 			stubSince([], { [`${API}/8`]: refused("gh: Gone (HTTP 410)") }),
 		);
 		expect(r.status).toBe(0);
+		expect(r.out).toContain("OK:");
+	});
+
+	it("drops a cached body finding whose issue was transferred out", async () => {
+		await run([], stubGh([issue8]));
+		const r = await run(
+			[],
+			stubSince([], { [`${API}/8`]: probe(8, "owner/elsewhere") }),
+		);
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("OK:");
 	});
 
 	it("rereads the whole tracker when the cache is from another scanner version", async () => {
@@ -427,6 +444,8 @@ describe("incremental read (#5355)", () => {
 			}),
 		);
 		expect(r.status).toBe(2);
+		expect(r.out).toContain("BROKEN:");
+		expect(r.out).toContain("HTTP 504");
 		expect(fs.readFileSync(cacheFile(), "utf8")).toBe(before);
 	});
 });
