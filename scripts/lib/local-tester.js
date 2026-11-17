@@ -462,7 +462,7 @@ async function runEach(groups, checkout, { admit, treePss, tally }) {
  * @param {{ code: number | null, out: string }} r
  * @param {string} root the main checkout
  */
-function namelessRed(command, r, root) {
+function voidProofOnNamelessRed(command, r, root) {
 	const ceiling = parseCeilingKillReason(r.out);
 	if (ceiling !== null) return `${command} exited ${r.code} ${ceiling}`;
 	if (voidProof(`${command} exited ${r.code}`, path.join(root, MARKERS_REL)))
@@ -505,7 +505,7 @@ async function runInSlot(
 		const files = parseFailingFiles(r.out).filter((f) =>
 			fs.existsSync(path.join(dir, f)),
 		);
-		if (files.length === 0) return namelessRed(command, r, root);
+		if (files.length === 0) return voidProofOnNamelessRed(command, r, root);
 		for (const f of files) failing.add(f);
 		failures.push(
 			...parseFailingTests(r.out).filter((t) => files.includes(t.file)),

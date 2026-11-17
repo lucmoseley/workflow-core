@@ -217,8 +217,6 @@ describe("the workflow's pin step and core checkout", () => {
 				enabledPlugins: { "workflow-core@toString": true },
 			},
 		],
-		["no settings file", undefined],
-		["a malformed settings file", "{ not json"],
 	])(
 		"fails on %s, where resolveCore() reads no pin either, naming the fix and writing no output",
 		(_, settings) => {
@@ -226,6 +224,20 @@ describe("the workflow's pin step and core checkout", () => {
 			expect(r.status).not.toBe(0);
 			expect(r.stderr).toContain("pins no workflow-core release tag");
 			expect(r.stderr).toContain("pin a release tag");
+			expect(r.output).toBe("");
+		},
+	);
+
+	it.each([
+		["no settings file", undefined, "ENOENT"],
+		["a malformed settings file", "{ not json", "JSON"],
+	])(
+		"fails on %s naming the read fault, not a missing pin, and writes no output",
+		(_, settings, cause) => {
+			const r = runPinStep(settings);
+			expect(r.status).not.toBe(0);
+			expect(r.stderr).toContain(".claude/settings.json will not read");
+			expect(r.stderr).toContain(cause);
 			expect(r.output).toBe("");
 		},
 	);

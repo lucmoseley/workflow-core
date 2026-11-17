@@ -38,7 +38,7 @@ const CI_WORKFLOW = ".github/workflows/workflow-core-ci.yml";
  * adopter's own and never touched. */
 const CI_MARKER = "# CORE-OWNED.";
 
-/* A guess, unmeasured. */
+/* Untraced: a guess, carried as one on #5347's close. */
 const DEFAULT_TIMEOUT_MINUTES = 15;
 
 /* actions/checkout v4, pinned to a full commit sha as GitHub's secure-use
@@ -96,10 +96,13 @@ jobs:
         run: |
           node - >> "$GITHUB_OUTPUT" <<'EOF'
           const fs = require("node:fs");
-          let settings = null;
+          let settings;
           try {
             settings = JSON.parse(fs.readFileSync(".claude/settings.json", "utf8"));
-          } catch {}
+          } catch (e) {
+            console.error(\`.claude/settings.json will not read, so no workflow-core pin can be found: \${e.message}\`);
+            process.exit(1);
+          }
           const known = settings?.extraKnownMarketplaces ?? {};
           const key = Object.keys(settings?.enabledPlugins ?? {}).find((k) => {
             const [name, marketplace] = k.split("@");

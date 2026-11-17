@@ -719,9 +719,10 @@ describe("§W — which gate runs it in CI", () => {
 			"§W: commands.check_staged is Biome over the staged paths",
 		).toMatch(/^node scripts\/biome-staged\.js /);
 		expect(
-			fs.existsSync(path.join(ROOT, core.commands.testCanary ?? "")),
-			"§W: commands.test is gated at push through its verdict probe, so a canary is declared",
-		).toBe(true);
+			core.commands.testCanary,
+			"§W: commands.test is gated at commit through its verdict probe, so a canary is declared",
+		).toBe("scripts/verdict-canary.test.ts");
+		expect(fs.existsSync(path.join(ROOT, core.commands.testCanary))).toBe(true);
 	});
 
 	it("runs Biome, ESLint, shellcheck, shfmt, actionlint, tsc and the suite in CI", () => {

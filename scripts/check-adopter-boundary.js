@@ -148,9 +148,7 @@ function run(ctx) {
 	const root = path.resolve(ctx.value("--root") ?? worktreeRoot());
 	const page = readText(path.join(root, PAGE));
 	if (page.state === "absent")
-		return {
-			okLine: `no ${PAGE}: an adopter, which holds no boundary page`,
-		};
+		return ctx.skip(`no ${PAGE}: an adopter, which holds no boundary page.`);
 	if (page.state === "unreadable")
 		return ctx.broken(`${PAGE} will not read: ${page.message}`);
 	const tree = require("./lib/plugin-tree.js");

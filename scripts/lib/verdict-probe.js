@@ -32,9 +32,9 @@
  */
 
 const crypto = require("node:crypto");
-const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { now } = require("./clock.js");
 const { readRunReach } = require("./code-edges.js");
@@ -225,8 +225,8 @@ function proofKey({ root, command, canary }) {
 	return { key, faults: runner.faults };
 }
 
-/** @param {string} markers */
-const recordPath = (markers) => path.join(markers, RECORD);
+/** @param {string} [markers] */
+const recordPath = (markers = markersDir()) => path.join(markers, RECORD);
 
 /**
  * The record's verdicts; none where it is absent or does not read as one,
@@ -259,7 +259,11 @@ function writeProof(markers, record) {
 	const kept = Object.entries(record)
 		.sort(([, a], [, b]) => String(b.at).localeCompare(String(a.at)))
 		.slice(0, KEPT_KEYS);
-	fs.writeFileSync(
+	/* Renamed into place, so a concurrent reader never parses half a record.
+	 * Residual: two writers' read-modify-write can still race in a window of
+	 * milliseconds, at worst losing a lander's void, so commits skip their run
+	 * until its next nameless red; the lander still gates main. */
+	writeFileAtomic(
 		recordPath(markers),
 		`${JSON.stringify(Object.fromEntries(kept))}\n`,
 	);
@@ -439,5 +443,6 @@ module.exports = {
 	buildStaysLine,
 	ensureProof,
 	proofState,
+	recordPath,
 	voidProof,
 };

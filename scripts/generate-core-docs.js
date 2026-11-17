@@ -39,7 +39,7 @@ const {
  * @returns {number}
  */
 function render(root, { check }, write) {
-	if (!fs.existsSync(path.join(root, ".claude-plugin", "plugin.json"))) {
+	if (!require("./check-host-root.js").shipsPlugin(root)) {
 		write(
 			1,
 			"SKIP: this repo ships no plugin, so its glossary and doc map are its own\n",

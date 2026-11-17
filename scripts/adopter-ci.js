@@ -80,14 +80,15 @@ function runCommands(root, cfg) {
 	}
 	const pytest = path.join(coreRoot(), "scripts", "run-pytest.js");
 	const suite = readRunsAt(root, pytest, [], () => null);
-	if (typeof suite === "string") return [`the test suite: ${suite}`];
-	for (const run of suite.flat())
-		runs.push({
-			...run,
-			title: `suite: ${run.label ?? run.command}`,
-		});
 	/** @type {string[]} */
 	const failed = [];
+	if (typeof suite === "string") failed.push(`the test suite: ${suite}`);
+	else
+		for (const run of suite.flat())
+			runs.push({
+				...run,
+				title: `suite: ${run.label ?? run.command}`,
+			});
 	for (const { title, command, args, env } of runs) {
 		const argv = ["-c", `${command} "$@"`, "adopter-ci", ...args];
 		if (step(title, "sh", argv, { cwd: root, env }) !== 0) failed.push(title);

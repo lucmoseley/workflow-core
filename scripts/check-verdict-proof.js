@@ -16,6 +16,7 @@ const {
 	CONTRACT_AT,
 	buildNoProofReason,
 	proofState,
+	recordPath,
 } = require("./lib/verdict-probe.js");
 
 /** @type {import("./lib/check").CheckSpec} */
@@ -47,7 +48,7 @@ const SPEC = {
 			};
 		const until =
 			state.state === "failed"
-				? " until the command, its runner or the canary changes"
+				? ` until the command, its runner or the canary changes — or, its cause fixed outside them, until ${recordPath()} is deleted, so the next commit probes again`
 				: "";
 		ctx.fail(
 			state.state === "none" ? "NO-CANARY" : "PROBE-FAILED",

@@ -75,4 +75,7 @@ it("reports a failed probe with its clause", () => {
 	const { code, out } = status();
 	expect(code).toBe(1);
 	expect(out).toContain("the verdict probe failed: it exits 0 on a red");
+	expect(out).toContain(
+		`${path.join(markers(), "verdict-proof.json")} is deleted`,
+	);
 });
