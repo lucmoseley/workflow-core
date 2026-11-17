@@ -24,11 +24,15 @@ const { buildMovedReason, seatIdOf } = require("./refill-seats.js");
 const isCarried = (from, to) => to !== undefined && to !== from;
 
 /**
- * The seat a parked route's session stopped on: its `from` where the route
- * carries it, else the seat it resumes on.
+ * A parked route's carry: the seat `from` its session stopped on, the seat
+ * `to` it resumes on, and its ids.
  * @param {import("./refill-decide.js").ResumeTarget} target
  */
-const parkedSeatOf = ({ seat, from }) => from ?? seat;
+const parkedCarryOf = ({ seat, from, sessionId, cwd }) => ({
+	from: from ?? seat,
+	to: seat,
+	ids: { sessionId, cwd },
+});
 
 /**
  * Resume `l`'s stopped session on seat `to`: `inPlace`, by default
@@ -70,7 +74,7 @@ function adoptOnSeat(adoptResumed, l, to, { ids, since }) {
  * `to` takes: the seat it went to and why, none where it stayed.
  * @param {string} from
  * @param {string} [to]
- * @returns {{seat?: string, keyVar?: string,
+ * @returns {{seat?: string,
  *   reason?: import("./refill-decide.js").SeatReason}}
  */
 const carriedOnto = (from, to) =>
@@ -90,6 +94,6 @@ module.exports = {
 	adoptOnSeat,
 	buildCarriedText,
 	carriedOnto,
-	parkedSeatOf,
+	parkedCarryOf,
 	resumeOnSeat,
 };

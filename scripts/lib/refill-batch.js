@@ -12,7 +12,7 @@ const {
 	withUnretired,
 } = require("./refill-block-core.js");
 const { buildCheckoutEnv } = require("./refill-repos.js");
-const { carriedOnto, parkedSeatOf } = require("./refill-carry.js");
+const { carriedOnto, parkedCarryOf } = require("./refill-carry.js");
 const { seatIdOf } = require("./refill-seats.js");
 const {
 	DEFAULT_STAGGER_SECONDS,
@@ -334,6 +334,7 @@ function recordParkedResume(l, target, r, { launchedAt, actsBefore, io }) {
  * @returns {import("./refill-loop.js").LoopLaunch}
  */
 function buildParkedRecord(l, target, r, { launchedAt, actsBefore }) {
+	const { from, to } = parkedCarryOf(target);
 	/** @type {import("./refill-loop.js").LoopLaunch} */
 	const record = {
 		root: l.root,
@@ -341,7 +342,7 @@ function buildParkedRecord(l, target, r, { launchedAt, actsBefore }) {
 		prompt: l.prompt,
 		seat: target.seat,
 		reason: "parked session's seat",
-		...carriedOnto(parkedSeatOf(target), target.seat),
+		...carriedOnto(from, to),
 		jobId: r.jobId,
 		launchedAt,
 		finishedAt: null,

@@ -4,13 +4,15 @@
  * stopped session in place and carrying it to another seat (#5302). Loosen
  * it and a session routed to its own seat is moved onto itself, or one
  * routed elsewhere resumes where it parked and holds that seat's slot.
+ * Its doubles are hand-rolled: refill-blocks-fixture.ts's fakeIo is a whole
+ * BlockIo, whose ports take a JobLaunch these cases have no use for.
  */
 import { describe, expect, it } from "vitest";
 import {
 	adoptOnSeat,
 	buildCarriedText,
 	carriedOnto,
-	parkedSeatOf,
+	parkedCarryOf,
 	resumeOnSeat,
 } from "./refill-carry.js";
 
@@ -94,7 +96,11 @@ describe("the record of a carry", () => {
 
 	it("reads a parked route's stopped seat off `from`, else its own seat", () => {
 		const target = { seat: "/b", sessionId: "s", cwd: "/w" };
-		expect(parkedSeatOf({ ...target, from: "/a" })).toBe("/a");
-		expect(parkedSeatOf(target)).toBe("/b");
+		expect(parkedCarryOf({ ...target, from: "/a" })).toEqual({
+			from: "/a",
+			to: "/b",
+			ids: { sessionId: "s", cwd: "/w" },
+		});
+		expect(parkedCarryOf(target)).toMatchObject({ from: "/b", to: "/b" });
 	});
 });
