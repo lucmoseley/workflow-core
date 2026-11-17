@@ -106,7 +106,7 @@ const {
 	describeAge: describeAgeText,
 	MINUTE_MS,
 } = require("./lib/age-text.js");
-const { runCheck } = require("./lib/check");
+const { now, runCheck } = require("./lib/check");
 const { listedAgents } = require("./lib/agent-liveness");
 const deliveryStamp = require("./lib/delivery-stamp");
 const { pidLock } = require("./lib/pid-lock");
@@ -535,7 +535,7 @@ runCheck({
 		const standing = judged.ghosts;
 		const standingUnreadable = unreadable;
 		const standingHung = judged.hung;
-		const standingSynthetic = findSyntheticStops(jobs, { now: Date.now() });
+		const standingSynthetic = findSyntheticStops(jobs, { now: now() });
 		const seen = readNotified(ctx);
 		const ghosts = standing.filter((g) => !seen.has(keyOf(g)));
 		unreadable = standingUnreadable.filter(

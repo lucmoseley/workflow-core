@@ -35,6 +35,7 @@ import { spawnLoopHolder } from "./lib/refill-loop-testkit";
 import { runInProcess } from "./lib/run-in-process";
 import {
 	founderRow,
+	STOP_AT,
 	stoppedRows,
 	syntheticRow,
 } from "./lib/synthetic-stop-fixture";
@@ -125,6 +126,11 @@ function run(...args: string[]) {
 
 /** Under a session id, the shape every mid-session caller has. */
 function runAs(sessionId: string, ...args: string[]) {
+	return runWith({ CLAUDE_CODE_SESSION_ID: sessionId }, ...args);
+}
+
+/** With `extra` over the case's environment. */
+function runWith(extra: Record<string, string>, ...args: string[]) {
 	const res = runInProcess(SCRIPT, args, {
 		env: {
 			...process.env,
@@ -135,8 +141,8 @@ function runAs(sessionId: string, ...args: string[]) {
 			WFC_CLAUDE_CONFIG_B: second,
 			WFC_CLAUDE_CONFIG_C: second,
 			WFC_CLAUDE_BIN: path.join(dir, "bin", "claude"),
-			CLAUDE_CODE_SESSION_ID: sessionId,
 			WFC_REFILL_DIR: dir,
+			...extra,
 		},
 	});
 	return { ...res, out: `${res.stdout}${res.stderr}` };
@@ -779,9 +785,13 @@ describe("SYNTHETIC-STOP — ended by the harness on a synthetic reply (#5324)",
 		expect(run().out).toContain("the refill loop's 2 resumes of it are spent");
 	});
 
-	it("stays silent inside the 5-minute window", () => {
-		syntheticJob(stoppedRows(ago(2)));
-		expect(run().out).not.toContain("SYNTHETIC-STOP");
+	it("stays silent inside the 5-minute window, and speaks past it", () => {
+		const at = Date.parse(STOP_AT);
+		syntheticJob(stoppedRows(STOP_AT));
+		const runAt = (m: number) =>
+			runWith({ WFC_NOW: new Date(at + m * 60_000).toISOString() }).out;
+		expect(runAt(4)).not.toContain("SYNTHETIC-STOP");
+		expect(runAt(6)).toContain("SYNTHETIC-STOP");
 	});
 
 	it("stays silent once a turn row follows the stop", () => {

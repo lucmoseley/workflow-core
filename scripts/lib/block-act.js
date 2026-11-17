@@ -312,6 +312,7 @@ const blockAct = (block, mode, now) => TABLE[block.cause][mode](block, now);
 module.exports = {
 	IDLE_TRIES,
 	RESUME_CAP,
+	SYNTHETIC_QUIET_MS,
 	SYNTHETIC_TRIES,
 	blockAct,
 	buildLimitParkWhy,

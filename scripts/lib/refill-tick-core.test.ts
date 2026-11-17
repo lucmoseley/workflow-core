@@ -35,6 +35,7 @@ import {
 	stateFileFake,
 	WFC,
 } from "./refill-loop-fixture";
+import { actOnOutside } from "./refill-outside.js";
 import { loopStateOf } from "./refill-state-testkit";
 import { admissionRoot, buildFinishLine, runTick } from "./refill-tick-core.js";
 import {
@@ -1146,8 +1147,9 @@ describe("the dry-run policy (#4212)", () => {
 	it("skips the block and limit acts, judging the launches as read rather than as the dry BlockIo would leave them (#4913)", async () => {
 		const { io, calls, lines } = actingTick();
 		const { decision } = await tickOf(io, control(), true);
-		/* Not a read either: the dry BlockIo answers acts alone, so a call
-		 * here would be a block or limit decision run. */
+		/* No read but the synthetic-stop one the judging makes (blockCalls):
+		 * the dry BlockIo answers acts alone, so a call here would be a block
+		 * or limit decision run. */
 		expect(blockCalls(calls)).toEqual([]);
 		expect(lines.join("\n")).not.toContain("a dry run acts on nothing");
 		expect(decision).toMatchObject({ idle: null });
@@ -1866,11 +1868,49 @@ describe("a launch the harness ended on a synthetic reply, through the tick (#53
 		expect(calls).not.toContain("blockIo.type");
 	});
 
-	it("acts on nothing where the transcript is unread", async () => {
-		const { io, calls } = synTick(Syn, { rows: null });
+	it.each([
+		["transcript", { rows: null }],
+		["job record", { job: null }],
+	])("acts on nothing where the %s is unread", async (_what, unread) => {
+		const { io, calls } = synTick(Syn, unread);
 		await tickOf(io);
 		for (const act of ["blockIo.type", "blockIo.stop", "blockIo.resumeStopped"])
 			expect(calls).not.toContain(act);
+	});
+
+	it("types the resume into a session it did not launch, off the job store whatever the listing's state reads", async () => {
+		const outside = {
+			sessionId: "s-out",
+			id: "out1",
+			name: "founder-session",
+			kind: "background",
+			state: "working",
+			seat: SEAT,
+			cwd: "/home/u/work",
+		};
+		const { io, calls, lines } = fakeIo(
+			stateOf({ launches: [] }),
+			{
+				readListing: () => ({ agents: [outside] as never, why: null }),
+				readRegistry: () =>
+					({ seats: [SEAT], faults: [], agents: [outside] }) as never,
+				actOnOutside: (launches, registry, seen) =>
+					actOnOutside(launches, registry, () => null as never, seen),
+			},
+			{
+				frontier: [],
+				block: {
+					syntheticStopOf: () =>
+						syntheticStopAt({ job: doneJob(), rows: stoppedRows(stopAt(6)) }),
+					jobStateOf: () => doneJob() as never,
+				},
+			},
+		);
+		await tickOf(io);
+		expect(calls).toContain("blockIo.type");
+		expect(lines.join("\n")).toMatch(
+			/resumed founder-session .*whose last turn the harness ended on a synthetic reply.* try 1 of 2/,
+		);
 	});
 
 	it("names the cause on the finished-launch line", () => {

@@ -27,12 +27,7 @@
  */
 
 const { API_PROMPT, SYNTHETIC_PROMPT } = require("./loop-prompts.js");
-const {
-	RESUME_CAP,
-	SYNTHETIC_TRIES,
-	blockAct,
-	nextTryAt,
-} = require("./block-act.js");
+const { RESUME_CAP, blockAct, nextTryAt } = require("./block-act.js");
 const {
 	blockedIdsOf,
 	buildResumedHow,
@@ -40,12 +35,12 @@ const {
 	withUnretired,
 } = require("./refill-block-core.js");
 const {
-	ATTACH_VERDICT_MS,
 	isTakenSinceStop,
 	netGateOf,
 	typedVerdict,
 } = require("./refill-blocks.js");
 const { buildGiveUpFix, withRetried } = require("./refill-retire.js");
+const { judgeStop } = require("./refill-synthetic.js");
 const { shortJobId } = require("./job-paths.js");
 
 const MIN_MS = 60 * 1000;
@@ -71,8 +66,7 @@ const RE_ATTEMPTS = RE_ATTEMPT_GAPS_MS.length;
  *   capped?: true,
  *   held?: StoppedTarget, reAttempts?: number, reAttemptAt?: number,
  *   unretired?: Unretired[],
- *   synthetic?: Omit<import("./refill-synthetic.js").SyntheticResumes,
- *     "resumed">}}
+ *   synthetic?: import("./refill-synthetic.js").SyntheticResumes}}
  *   Outside  a session the loop took up: `since`, the first tick that read its
  *   current API-error stop, absent between stops; `tries`, the resumes the loop
  *   made since it took it up, the last at `triedAt`, the next due at `nextAt`;
@@ -411,159 +405,62 @@ function judge(o, row, causeOf, seen) {
  */
 function unlistedTurn(o, seen) {
 	if (o.held) return retryHeld({ ...o, held: o.held }, seen);
-	if (o.synthetic && !o.synthetic.spent) return judgeSynthetic(o, seen);
-	return null;
+	if (!o.synthetic || o.synthetic.spent) return null;
+	const at = seen.io.syntheticStopOf(sessionRefOf(o));
+	if (at === null && o.synthetic.attachAt === undefined) return null;
+	return judgeSynthetic(o, seen, at);
 }
 
 /**
- * The log line for one resume of `o`'s synthetic stop.
+ * `o` as lib/refill-synthetic.js's Subject: resumed only behind the network
+ * gate, each resume logged.
  * @param {Outside} o
- * @param {NonNullable<Outside["synthetic"]>} rec  after the try
- * @param {string} route
- * @param {string|null} failed
- */
-const buildSyntheticLine = (o, rec, route, failed) =>
-	`${failed ? "could not resume" : "resumed"} ${nameOf(o)}, whose last turn the harness ended on a synthetic reply at ${iso(rec.at)}, by ${route}, try ${rec.tries} of ${SYNTHETIC_TRIES}${failed ? `: ${failed}` : ""}`;
-
-/**
- * Stop `o`'s job, unless the reaper did, and `--bg --resume` it with the
- * synthetic prompt, logged; `rec` the try it makes or settles.
- * @param {Outside} o
- * @param {NonNullable<Outside["synthetic"]>} rec
  * @param {Tick} seen
- * @param {boolean} reaped
- * @returns {Outside}
+ * @returns {import("./refill-synthetic.js").Subject<Outside>}
  */
-function relaunchSynthetic(o, rec, { io }, reaped) {
-	const route = reaped
-		? "--bg --resume, the reaper having stopped it"
-		: "stop and --bg --resume";
-	const ref = sessionRefOf(o);
-	/** @param {string} why */
-	const failed = (why) => {
-		io.log(buildSyntheticLine(o, rec, route, why));
-		return { ...o, synthetic: rec };
+function syntheticSubject(o, seen) {
+	const { io } = seen;
+	return {
+		name: nameOf(o),
+		ref: sessionRefOf(o),
+		was: o.synthetic,
+		admitted: isRunAdmitted(o, seen),
+		keep: (rec) => ({ ...o, synthetic: rec }),
+		stop: () => {
+			const r = io.stop(o.seat, o.jobId);
+			return r.ok ? null : r.why;
+		},
+		resume: (target, rec) => {
+			const moved = relaunchOrWhy(o, target, io, SYNTHETIC_PROMPT);
+			return typeof moved === "string"
+				? moved
+				: { out: { ...moved, synthetic: rec } };
+		},
+		report: (line) => io.log(line),
 	};
-	const { sessionId, cwd } = io.resumeTargetOf(ref);
-	if (!sessionId) return failed("no session id read for it");
-	if (!reaped) {
-		const stop = io.stop(o.seat, o.jobId);
-		if (!stop.ok) return failed(`stop: ${stop.why}`);
-	}
-	const moved = relaunchOrWhy(o, { sessionId, cwd }, io, SYNTHETIC_PROMPT);
-	if (typeof moved === "string") return failed(moved);
-	io.log(buildSyntheticLine(o, rec, route, null));
-	return { ...moved, synthetic: rec };
 }
 
 /**
  * `o`'s synthetic stop this tick (#5324), its job reading `done` or, once
- * reaped, `stopped`: a typed resume judged once the attach-verdict window
- * passes, arrived where the transcript no longer reads that stop; else the
- * SYNTHETIC_STOP row's act. Kept while the stop reads, the record unchanged
- * where it will not read; null once no stop reads and nothing is in flight.
+ * reaped, `stopped`, judged by lib/refill-synthetic.js's judgeStop; `o`
+ * unchanged where that leaves it so.
  * @param {Outside} o
  * @param {Tick} seen
- * @returns {Outside|null}
- */
-function judgeSynthetic(o, seen) {
-	const was = o.synthetic;
-	const at = seen.io.syntheticStopOf(sessionRefOf(o));
-	if (at === "unread") return o;
-	if (was?.attachAt !== undefined)
-		return settleSyntheticTyped(
-			o,
-			{ ...was, attachAt: was.attachAt },
-			at,
-			seen,
-		);
-	if (at === null) {
-		const { synthetic: _, ...rest } = o;
-		return rest.tries > 0 || rest.unretired ? rest : null;
-	}
-	return actOnSyntheticStop(o, syntheticRecordOf(o, at, seen.io), seen);
-}
-
-/**
- * `o` with its typed synthetic resume judged against reading `at`: in flight
- * inside the attach-verdict window, arrived once the transcript no longer
- * reads that stop, else the same try relaunched.
- * @param {Outside} o
- * @param {NonNullable<Outside["synthetic"]> & {attachAt: number}} was
- * @param {number|null} at
- * @param {Tick} seen
+ * @param {import("./block-cause.js").IdleReading} [at]  its reading, where
+ *   already read this tick
  * @returns {Outside}
  */
-function settleSyntheticTyped(o, was, at, seen) {
-	if (seen.now - was.attachAt < ATTACH_VERDICT_MS) return o;
-	const { attachAt: _, ...settled } = was;
-	if (at !== was.at) return { ...o, synthetic: settled };
-	if (!isRunAdmitted(o, seen)) return o;
-	return relaunchSynthetic(o, settled, seen, false);
-}
-
-/**
- * The record of `o`'s stop `at`: its own where it is that stop's; else
- * afresh, the count carried where no model reply came since the last resume.
- * @param {Outside} o
- * @param {number} at
- * @param {Tick["io"]} io
- * @returns {NonNullable<Outside["synthetic"]>}
- */
-function syntheticRecordOf(o, at, io) {
-	const was = o.synthetic;
-	if (was?.at === at) return was;
-	const carried =
-		was?.triedAt !== undefined &&
-		io.hasRepliedSince(sessionRefOf(o), was.triedAt) === false;
-	return { at, tries: carried && was ? was.tries : 0 };
-}
-
-/**
- * The SYNTHETIC_STOP row's act on `o`'s stop `rec`: a resume, typed unless
- * the reaper stopped its job; the give-up, logged once; else the wait.
- * @param {Outside} o
- * @param {NonNullable<Outside["synthetic"]>} rec
- * @param {Tick} seen
- * @returns {Outside}
- */
-function actOnSyntheticStop(o, rec, seen) {
-	const { io, now } = seen;
-	const { at } = rec;
-	const ref = sessionRefOf(o);
-	const act = blockAct(
-		{
-			cause: "SYNTHETIC_STOP",
-			since: Math.max(at, rec.triedAt ?? 0),
-			tries: rec.tries,
-		},
-		"normal",
-		now,
-	);
-	if (act === "none" && !rec.spent) {
-		io.log(
-			`stopped trying to resume ${nameOf(o)} after ${rec.tries} resumes of its synthetic stop at ${iso(at)}: check-ghost-jobs reports it`,
-		);
-		return { ...o, synthetic: { ...rec, spent: true } };
-	}
-	if (act !== "resume" || !isRunAdmitted(o, seen))
-		return { ...o, synthetic: rec };
-	const tried = { ...rec, tries: rec.tries + 1, triedAt: now };
-	if (io.jobStateOf(ref)?.state === "stopped")
-		return relaunchSynthetic(o, tried, seen, true);
-	const typeFailed = io.type(ref, SYNTHETIC_PROMPT);
-	if (typeFailed) {
-		io.log(`could not type the resume into ${nameOf(o)}: ${typeFailed}`);
-		return relaunchSynthetic(o, tried, seen, false);
-	}
-	io.log(buildSyntheticLine(o, tried, "typing into the live session", null));
-	return { ...o, synthetic: { ...tried, attachAt: now } };
-}
+const judgeSynthetic = (
+	o,
+	seen,
+	at = seen.io.syntheticStopOf(sessionRefOf(o)),
+) => judgeStop(syntheticSubject(o, seen), at, "normal", seen) ?? o;
 
 /**
  * The record of a session the registry lists live, `o` where the loop had
- * one, else `fresh`: its synthetic stop judged where its job reads `done`,
- * judged where the listing shows it blocked, else between stops.
+ * one, else `fresh`: judged where the listing shows it blocked; else its
+ * synthetic stop judged where its job store and transcript read one, or the
+ * loop holds a record of one; else between stops.
  * @param {Outside|undefined} o
  * @param {Outside} fresh
  * @param {{row: AgentRecord, blocked: Set<string|undefined>, causeOf: CauseOf}}
@@ -572,12 +469,14 @@ function actOnSyntheticStop(o, rec, seen) {
  * @returns {Outside|null}
  */
 function listedTurn(o, fresh, { row, blocked, causeOf }, seen) {
-	if (row.state === "done") {
-		const { since: _, ...base } = fresh;
-		return judgeSynthetic(o ?? base, seen);
-	}
 	if (blocked.has(fresh.jobId))
 		return judge(o ? withoutHeld(o) : fresh, row, causeOf, seen);
+	const at = seen.io.syntheticStopOf(sessionRefOf(fresh));
+	const pending = o?.synthetic?.attachAt !== undefined;
+	if (typeof at === "number" || pending) {
+		const { since: _, ...base } = fresh;
+		return judgeSynthetic(o ?? base, seen, at);
+	}
 	return o ? betweenStops(o) : null;
 }
 

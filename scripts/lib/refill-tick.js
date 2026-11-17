@@ -933,7 +933,7 @@ const blockIo = (served) => ({
 	idleSince: readIdleSince,
 	syntheticStopOf: (l) => {
 		const job = readJobRecordOf(l);
-		return syntheticStopAt({ job, rows: readTranscriptRows(l, job) });
+		return syntheticStopAt({ job, rows: () => readTranscriptRows(l, job) });
 	},
 	hasTurnedSince: (l, at) =>
 		hasTurnedSince(readTranscriptRows(l, readJobRecordOf(l)), at),

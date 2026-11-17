@@ -2,7 +2,13 @@
 /*
  * The synthetic-stop reading (#5322): the shape table of a background job the
  * harness ended on its own "No response requested." record, read beside the
- * block-cause readings. Fixtures: lib/synthetic-stop-fixture.ts.
+ * block-cause readings. Fixtures: lib/synthetic-stop-fixture.ts, cut from the
+ * incident's transcript, so each case is a shape the harness wrote.
+ *
+ * A table over the pure reading, since the refill loop and check-ghost-jobs
+ * both act on it. Loosen a case and the loop types into a session the founder
+ * already answered, resumes one an API error or limit stopped, or acts on an
+ * unread record; tighten one and a stopped session is left for good.
  */
 import { describe, expect, it } from "vitest";
 import { syntheticStopAt } from "./block-cause.js";

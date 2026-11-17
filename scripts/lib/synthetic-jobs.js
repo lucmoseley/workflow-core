@@ -12,21 +12,22 @@
  * model and text.
  */
 
-const fs = require("node:fs");
 const { syntheticStopAt } = require("./block-cause.js");
-const { SYNTHETIC_TRIES } = require("./block-act.js");
+const { SYNTHETIC_QUIET_MS, SYNTHETIC_TRIES } = require("./block-act.js");
 const { listIssueClaims } = require("./arbiter-issue-claims.js");
 const {
 	OUTSIDE_FILE,
 	REFILL_STATE_FILE,
 	refillPath,
 } = require("./refill-dir.js");
+const { readJsonOutcome } = require("./refill-json.js");
 const { readTail } = require("./file-read.js");
 const { read: readTranscript } = require("./session-transcript.js");
 const { mainChainRecords } = require("./transcript.js");
 
-/* The quiet window before the finding fires: the loop's (#5322, untraced). */
-const SYNTHETIC_AFTER_MINUTES = 5;
+/* The quiet window before the finding fires: the loop's own, so the loop's
+ * resumes come first. */
+const SYNTHETIC_AFTER_MINUTES = SYNTHETIC_QUIET_MS / 60_000;
 /* How much of a transcript's end the cheap test reads: a synthetic record
  * and the rows after it fit well inside. Untraced. */
 const TAIL_BYTES = 64 * 1024;
@@ -74,14 +75,14 @@ function stopAtOf(rec) {
  * @returns {unknown[]}
  */
 function readLoopList(name) {
-	try {
-		const raw = JSON.parse(fs.readFileSync(refillPath(name), "utf8"));
-		const list = name === REFILL_STATE_FILE ? raw?.launches : raw;
-		return Array.isArray(list) ? list : [];
-	} catch {
-		return [];
-	}
+	const { value } = readJsonOutcome(refillPath(name));
+	const list =
+		name === REFILL_STATE_FILE && isObject(value) ? value.launches : value;
+	return Array.isArray(list) ? list : [];
 }
+
+/** @param {unknown} v @returns {v is Record<string, unknown>} */
+const isObject = (v) => typeof v === "object" && v !== null;
 
 /**
  * What the refill loop did with `job`'s stop at `at`, read off its launch
@@ -92,12 +93,15 @@ function readLoopList(name) {
  */
 function loopNoteOf(job, at, records) {
 	const rec = records
-		.map((r) => /** @type {{jobId?: unknown, synthetic?: any}} */ (r))
-		.find((r) => r?.jobId === job && r.synthetic?.at === at)?.synthetic;
-	if (!rec?.tries) return "the refill loop has not resumed it";
-	if (rec.spent || rec.tries >= SYNTHETIC_TRIES)
+		.filter(isObject)
+		.filter((r) => r.jobId === job)
+		.map((r) => r.synthetic)
+		.find((s) => isObject(s) && s.at === at);
+	const tries = isObject(rec) && typeof rec.tries === "number" ? rec.tries : 0;
+	if (!tries) return "the refill loop has not resumed it";
+	if ((isObject(rec) && rec.spent) || tries >= SYNTHETIC_TRIES)
 		return `the refill loop's ${SYNTHETIC_TRIES} resumes of it are spent`;
-	return `the refill loop has resumed it ${rec.tries} of ${SYNTHETIC_TRIES} times`;
+	return `the refill loop has resumed it ${tries} of ${SYNTHETIC_TRIES} times`;
 }
 
 /**

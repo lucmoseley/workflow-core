@@ -31,6 +31,7 @@ const { parseFirstLine } = require("./first-line.js");
 const { isMachineWrittenPrompt } = require("./founder-typing.js");
 const { HOLD_PROMPT } = require("./loop-prompts.js");
 const { parseStatus } = require("./status-marker.js");
+const { isTurnRow } = require("./transcript.js");
 
 /* Below it the transcript carries no `permissionDecision` (#2358 F8). */
 const MIN_CLI = [2, 1, 293];
@@ -620,31 +621,22 @@ const SYNTHETIC_STOP_STATES = new Set(["done", "stopped"]);
 const ENDING_MARKERS = new Set(["result:", "needs input:"]);
 
 /**
- * Whether `row` counts as a turn row, as lib/transcript.js's lastTurn counts
- * them.
- * @param {import("./transcript.js").TranscriptRecord} row
- */
-const isTurnRow = (row) =>
-	["assistant", "user", "api-request"].includes(row.type) ||
-	(row.type === "system" && row.subtype === "turn_duration") ||
-	(row.type === "attachment" &&
-		row.attachment?.type === "hook_blocking_error" &&
-		row.attachment?.hookEvent === "Stop");
-
-/**
  * When the harness ended a background job's turn on its own "No response
  * requested." record, ms (#5322): the job reads `done` (or `stopped`, once
  * reaped), its last turn row is that `<synthetic>` assistant row, and the last
  * reply a real model wrote before it carries no governing `result:` or
  * `needs input:`. Null where the job is not one; "unread" where a record will
  * not read or has an unexpected shape, on which nothing acts. Read by the
- * refill loop and check-ghost-jobs alike.
+ * refill loop and check-ghost-jobs alike. `rows` may be a function that reads
+ * them, called only for a job in a stop state, so a caller judging every live
+ * session reads no transcript of a running one.
  * @param {{job: unknown, rows: unknown}} records  as resumedIdleSince's
  * @returns {IdleReading}
  */
-function syntheticStopAt({ job, rows }) {
+function syntheticStopAt({ job, rows: read }) {
 	if (!isObject(job) || typeof job.state !== "string") return "unread";
 	if (!SYNTHETIC_STOP_STATES.has(job.state)) return null;
+	const rows = typeof read === "function" ? read() : read;
 	if (!Array.isArray(rows) || !rows.every(isObject)) return "unread";
 	const last = rows.findLastIndex(isTurnRow);
 	if (last === -1) return "unread";

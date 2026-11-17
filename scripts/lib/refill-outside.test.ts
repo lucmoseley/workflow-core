@@ -33,6 +33,7 @@ import {
 	record,
 } from "./refill-blocks-fixture";
 import { actOnOutside } from "./refill-outside.js";
+import { escapeRe } from "./regex-group.js";
 import {
 	doneJob,
 	founderRow,
@@ -598,9 +599,7 @@ it("types the synthetic resume into a done outside session once the quiet window
 	expect(typed(l.calls)).toBe(1);
 	expect(logs(l.calls)).toContainEqual(
 		expect.stringMatching(
-			new RegExp(
-				`^resumed ${NAME.replace(/[()]/g, "\\$&")}, whose last turn .* try 1 of 2$`,
-			),
+			new RegExp(`^resumed ${escapeRe(NAME)}, whose last turn .* try 1 of 2$`),
 		),
 	);
 	/* Unseen past the verdict window, the same try relaunches. */
