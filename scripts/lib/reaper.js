@@ -344,7 +344,8 @@ function timedRow(a, entry, at) {
  * proof the job has nothing left to wake it. Read last, on a session every
  * other gate would reap, because it reads the whole transcript.
  *
- * NO AGE RELEASES IT. An unreadable census keeps the session every run, and so
+ * NO AGE RELEASES IT. An unreadable census keeps the session every run, even
+ * one gate 4's hold has already let go (a record with no cwd included), and so
  * does a launch whose notification never reaches the transcript (lib/pending-tasks.js's
  * one wrong read); `waiting` names both in every live report.
  * @param {AgentRecord} a

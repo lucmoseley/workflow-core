@@ -1313,15 +1313,29 @@ describe("the finish clock, as the run reads it off disk", () => {
 		const waitingOn = () => {
 			lay({ transcriptAgo: 30 * minute });
 			const t = transcript();
-			const ended = fs.readFileSync(t, "utf8");
 			fs.writeFileSync(
 				t,
 				`${JSON.stringify(
 					buildBashCall("node scripts/landing-status.js --wait", "toolu_w", {
 						input: { run_in_background: true },
 					}),
-				)}\n${ended}`,
+				)}\n${[
+					{
+						type: "assistant",
+						message: {
+							content: [
+								{ type: "text", text: "waiting: the lander, testing abc123" },
+							],
+						},
+					},
+					{ type: "system", subtype: "stop_hook_summary" },
+					{ type: "system", subtype: "turn_duration" },
+				]
+					.map((r) => JSON.stringify(r))
+					.join("\n")}\n`,
 			);
+			const ago = Date.now() / 1000 - 1800;
+			fs.utimesSync(t, ago, ago);
 		};
 		const judged = (argv: string[] = ["--dry-run", "--json"]) =>
 			runReaper(sandbox, registered(sandbox, [agent({ tempo: "idle" })]), argv);
@@ -1355,6 +1369,16 @@ describe("the finish clock, as the run reads it off disk", () => {
 			const ago = Date.now() / 1000 - 1800;
 			fs.utimesSync(transcript(), ago, ago);
 			expect(ids(JSON.parse(judged().stdout).reaped)).toEqual(["aaaa-1"]);
+		});
+
+		it("keeps it, past the turn hold, where its transcript parses to nothing", () => {
+			lay({ transcriptAgo: 30 * minute });
+			fs.writeFileSync(transcript(), "");
+			const ago = Date.now() / 1000 - 1800;
+			fs.utimesSync(transcript(), ago, ago);
+			const out = JSON.parse(judged().stdout);
+			expect(out.reaped).toEqual([]);
+			expect(out.kept[0].gate).toBe("pending-unreadable");
 		});
 	});
 });

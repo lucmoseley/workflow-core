@@ -412,8 +412,8 @@ function readFinishAt(agent) {
  * @returns {{record: Record<string, any>, file: string}|null}
  */
 function readOwnTranscript(agent) {
-	/* `agent.id` is set: the one caller reaches here only past its own `!a.id`
-	 * gate. */
+	/* `agent.id` is set: lib/reaper.js asks for a transcript only past its own
+	 * `!a.id` gate. */
 	const own = readOwnJob(agent.sessionId, { jobId: agent.id });
 	if (!own?.job) return null;
 	const { seat, job: record } = own;
