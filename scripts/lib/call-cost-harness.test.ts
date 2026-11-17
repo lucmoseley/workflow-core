@@ -137,11 +137,11 @@ describe("shellCallCost", () => {
 		]);
 	});
 
-	it("records a run-budgeted.js start as the command it runs (#5361)", () => {
+	it("records a run-budgeted.js start with the command it runs (#5361)", () => {
 		const r = shellCallCost(WRAPPED, [], { cwd: tmpdir() });
 		expect(r.children).toEqual([
-			"node lib/fixtures/call-cost-child.js",
-			"git --version",
+			"node lib/run-budgeted.js node lib/fixtures/call-cost-child.js",
+			"node lib/run-budgeted.js git --version",
 		]);
 	});
 

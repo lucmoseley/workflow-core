@@ -42,6 +42,7 @@
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const { killGroup } = require("./grouped-child.js");
+const { splitRunArgv } = require("./run-budgeted-argv.js");
 const { caught } = require("./caught.js");
 const { writeFd } = require("./write-fd.js");
 
@@ -127,27 +128,18 @@ function checkerOf(command, args) {
  * @param {string[]} argv
  */
 function parseRun(argv) {
-	if (argv[0] === "--hook") {
-		const pausable = argv[2] === "--pausable";
-		const [command, ...args] = argv.slice(pausable ? 3 : 2);
-		const limitS = process.env.WFC_HOOK_LIMIT_S;
+	const { budgetRaw, killAfterRaw, ...run } = splitRunArgv(argv);
+	if (run.hook === undefined)
 		return {
-			hook: argv[1],
-			pausable,
-			budgetMs: limitS ? Number(limitS) * 1000 : HOOK_LIMIT_MS,
-			killAfterMs: HOOK_GRACE_MS,
-			command,
-			args,
+			...run,
+			budgetMs: Number(budgetRaw),
+			killAfterMs: Number(killAfterRaw),
 		};
-	}
-	const [budgetRaw, killAfterRaw, command, ...args] = argv;
+	const limitS = process.env.WFC_HOOK_LIMIT_S;
 	return {
-		hook: undefined,
-		pausable: false,
-		budgetMs: Number(budgetRaw),
-		killAfterMs: Number(killAfterRaw),
-		command,
-		args,
+		...run,
+		budgetMs: limitS ? Number(limitS) * 1000 : HOOK_LIMIT_MS,
+		killAfterMs: HOOK_GRACE_MS,
 	};
 }
 
@@ -335,6 +327,5 @@ module.exports = {
 	APPARATUS_EXIT,
 	APPARATUS_PREFIX,
 	isRunnerFailure,
-	parseRun,
 	takeHookPause,
 };

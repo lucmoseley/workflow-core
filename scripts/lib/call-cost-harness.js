@@ -16,8 +16,8 @@
  * joined by a space: `git rev-parse`, `node precommit-dispatch.js`. An
  * absolute first argument is shown relative to the scripts root, else to the
  * call's cwd, else as its basename, so a pin holds no machine path. The shell
- * half records a `node run-budgeted.js` start as the command run-budgeted.js
- * runs, so a hook's bounded checker shows by its own name (#5361).
+ * half follows a `node run-budgeted.js` start with the command it runs, as
+ * one entry: `node run-budgeted.js node precommit-dispatch.js` (#5361).
  *
  * Every call throws where the program exits other than `expectStatus`
  * (default 0) or writes stderr without `allowStderr`: a pin over a broken
@@ -40,7 +40,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
 const { relativeUnder } = require("./is-under.js");
-const { parseRun, RUN_BUDGETED } = require("./run-budgeted.js");
+const { splitRunArgv } = require("./run-budgeted-argv.js");
 const { runInProcess, runInProcessAsync } = require("./run-in-process.js");
 const { shellQuote } = require("./sh-quote.js");
 
@@ -268,7 +268,7 @@ async function callCostAsync(scriptPath, args = [], options = {}) {
 }
 
 const WATCHED = ["node", "python3", "git", "gh"];
-const RUNNER = path.basename(RUN_BUDGETED);
+const RUN_BUDGETED_NAME = "run-budgeted.js";
 const INNER = "WFC_CALL_COST_INNER";
 
 /**
@@ -296,8 +296,9 @@ function isExecutable(file) {
 }
 
 /**
- * One shim-recorded start as `basename firstArg`, a `node run-budgeted.js`
- * start as the command it wraps.
+ * One shim-recorded start as `basename firstArg`; a `node run-budgeted.js`
+ * start carries on with the command it runs, so the pin names the checker
+ * and still shows the bounding wrapper's own start (#5361).
  *
  * @param {string} name
  * @param {string[]} args
@@ -307,12 +308,14 @@ function isExecutable(file) {
  */
 function shellChildOf(name, args, root, cwd) {
 	const [first, ...rest] = args;
-	if (name === "node" && first && path.basename(first) === RUNNER) {
-		const run = parseRun(rest);
-		if (run.command)
-			return shellChildOf(path.basename(run.command), run.args, root, cwd);
-	}
-	return first ? `${name} ${shownArg(first, root, cwd)}` : name;
+	if (!first) return name;
+	const shown = `${name} ${shownArg(first, root, cwd)}`;
+	if (name !== "node" || path.basename(first) !== RUN_BUDGETED_NAME)
+		return shown;
+	const { command, args: wrapped } = splitRunArgv(rest);
+	return command
+		? `${shown} ${shellChildOf(path.basename(command), wrapped, root, cwd)}`
+		: shown;
 }
 
 /**
