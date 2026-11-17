@@ -100,6 +100,7 @@ export function fakeIo(over: Partial<BlockIo> = {}) {
 		},
 		readTimeline: () => [],
 		idleSince: () => null,
+		syntheticStopOf: () => null,
 		hasTurnedSince: () => false,
 		hasRepliedSince: () => false,
 		labelParked: () => [],

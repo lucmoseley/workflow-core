@@ -23,6 +23,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { ADMISSION_VERDICT } from "./admission-verdict-fake";
+import { syntheticStopAt } from "./block-cause.js";
 import { fakeIo as blockFake } from "./refill-blocks-fixture";
 import { buildHeldStopText } from "./refill-limits.js";
 import {
@@ -35,7 +36,13 @@ import {
 	WFC,
 } from "./refill-loop-fixture";
 import { loopStateOf } from "./refill-state-testkit";
-import { admissionRoot, runTick } from "./refill-tick-core.js";
+import { admissionRoot, buildFinishLine, runTick } from "./refill-tick-core.js";
+import {
+	doneJob,
+	founderRow,
+	replyRow,
+	stoppedRows,
+} from "./synthetic-stop-fixture";
 
 type TickIo = import("./refill-tick-core.js").TickIo;
 type TickActs = import("./refill-tick-core.js").TickActs;
@@ -300,8 +307,12 @@ const expectSequence = (calls: string[], steps: string[]) => {
 	}
 };
 
+/* The BlockIo calls less the synthetic-stop read, which the judging makes on
+ * a dry tick as on a live one, so both finish the same launches (#5324). */
 const blockCalls = (calls: string[]) =>
-	calls.filter((port) => port.startsWith("blockIo."));
+	calls.filter(
+		(port) => port.startsWith("blockIo.") && port !== "blockIo.syntheticStopOf",
+	);
 
 const LIMIT_HOLD = {
 	at: NOW - 60 * MIN,
@@ -1672,5 +1683,203 @@ describe("the throughput acts through the tick (#5275)", () => {
 		expect(appended).toEqual([
 			expect.objectContaining({ event: "trial-start", session: "s-w1" }),
 		]);
+	});
+});
+
+describe("a launch the harness ended on a synthetic reply, through the tick (#5324)", () => {
+	const stopAt = (minutesAgo: number) =>
+		new Date(NOW - minutesAgo * MIN).toISOString();
+	const Syn = record({
+		jobId: "syn",
+		issues: [9],
+		launchedAt: NOW - 60 * MIN,
+	}) as Launch;
+	/* The tick's synthetic reading is the real one, over the job record and
+	 * transcript rows each case gives. */
+	const synTick = (
+		launch: Launch,
+		{
+			job = doneJob(),
+			rows = stoppedRows(stopAt(6)),
+			replied = false,
+		}: { job?: unknown; rows?: unknown; replied?: boolean } = {},
+	) =>
+		fakeIo(
+			stateOf({ launches: [launch] }),
+			{ readListing: () => listedAs(["syn", "done"]) },
+			{
+				frontier: [],
+				block: {
+					syntheticStopOf: () => syntheticStopAt({ job, rows }),
+					jobStateOf: () => job as never,
+					hasRepliedSince: () => replied,
+				},
+			},
+		);
+	const synOf = (disk: () => LoopState) =>
+		disk().launches.find((l) => l.issues[0] === 9);
+	const typedAt = (minutesAgo: number) =>
+		record({
+			...Syn,
+			synthetic: {
+				at: Date.parse(stopAt(minutesAgo)),
+				tries: 1,
+				resumed: 1,
+				triedAt: NOW - 2 * MIN,
+				attachAt: NOW - 2 * MIN,
+			},
+		}) as Launch;
+
+	it("types the resume into a loop launch once the quiet window passes, keeping it unfinished", async () => {
+		const { io, calls, lines, disk } = synTick(Syn);
+		await tickOf(io);
+		expect(calls).toContain("blockIo.type");
+		expect(lines).toContainEqual(
+			expect.stringMatching(
+				/^resumed .*synthetic reply at .* by typing into the live session, try 1 of 2$/,
+			),
+		);
+		expect(synOf(disk)).toMatchObject({
+			finishedAt: null,
+			synthetic: { tries: 1, resumed: 1, attachAt: NOW },
+		});
+	});
+
+	it("waits inside the quiet window, the launch unfinished", async () => {
+		const { io, calls, disk } = synTick(Syn, { rows: stoppedRows(stopAt(2)) });
+		await tickOf(io);
+		expect(calls).not.toContain("blockIo.type");
+		expect(synOf(disk)?.finishedAt).toBeNull();
+	});
+
+	it("stands down where the founder typed after the stop, and the launch finishes", async () => {
+		const { io, calls, disk } = synTick(Syn, {
+			rows: [...stoppedRows(stopAt(6)), founderRow("go on", stopAt(1))],
+		});
+		await tickOf(io);
+		expect(calls).not.toContain("blockIo.type");
+		expect(calls).not.toContain("blockIo.stop");
+		expect(synOf(disk)?.finishedAt).toBe(NOW);
+	});
+
+	it("stands down where a later turn row follows the stop", async () => {
+		const { io, calls } = synTick(Syn, {
+			rows: [...stoppedRows(stopAt(6)), replyRow("result: done", stopAt(1))],
+		});
+		await tickOf(io);
+		expect(calls).not.toContain("blockIo.type");
+	});
+
+	it("relaunches a typed resume the transcript never shows, by stop and --bg --resume", async () => {
+		const { io, calls } = synTick(typedAt(8), { rows: stoppedRows(stopAt(8)) });
+		await tickOf(io);
+		expectOrder(calls, "blockIo.stop", "blockIo.resumeStopped");
+		expect(calls).not.toContain("blockIo.type");
+	});
+
+	it("takes a typed resume the transcript shows as arrived, stopping nothing", async () => {
+		const { io, calls, disk } = synTick(typedAt(8), {
+			job: doneJob({ state: "working" }),
+			rows: [
+				...stoppedRows(stopAt(8)),
+				founderRow("[refill loop] resume", stopAt(2)),
+			],
+		});
+		await tickOf(io);
+		expect(calls).not.toContain("blockIo.stop");
+		expect(synOf(disk)?.synthetic).not.toHaveProperty("attachAt");
+	});
+
+	it("resumes a job the reaper already stopped straight by --bg --resume", async () => {
+		const { io, calls, lines } = synTick(Syn, {
+			job: doneJob({ state: "stopped" }),
+		});
+		await tickOf(io);
+		expect(calls).toContain("blockIo.resumeStopped");
+		expect(calls).not.toContain("blockIo.stop");
+		expect(calls).not.toContain("blockIo.type");
+		expect(lines).toContainEqual(
+			expect.stringContaining("by --bg --resume, the reaper having stopped it"),
+		);
+	});
+
+	it("logs the give-up at the cap, then lets the launch finish", async () => {
+		const capped = record({
+			...Syn,
+			synthetic: {
+				at: Date.parse(stopAt(20)),
+				tries: 2,
+				resumed: 2,
+				triedAt: NOW - 10 * MIN,
+			},
+		}) as Launch;
+		const { io, calls, lines, disk } = synTick(capped, {
+			rows: stoppedRows(stopAt(20)),
+		});
+		await tickOf(io);
+		expect(calls).not.toContain("blockIo.type");
+		expect(lines).toContainEqual(
+			expect.stringMatching(
+				/^stopped trying to resume .* after 2 resumes of its synthetic stop/,
+			),
+		);
+		expect(synOf(disk)).toMatchObject({
+			finishedAt: null,
+			synthetic: { spent: true },
+		});
+		await runTick(io, {
+			dryRun: false,
+			now: NOW + MIN,
+			opening: opening(control()),
+		});
+		expect(synOf(disk)?.finishedAt).toBe(NOW + MIN);
+	});
+
+	it("starts a fresh count on a later, separate stop, a reply having come between", async () => {
+		const was = record({
+			...Syn,
+			synthetic: {
+				at: Date.parse(stopAt(60)),
+				tries: 2,
+				resumed: 2,
+				triedAt: NOW - 50 * MIN,
+				spent: true,
+			},
+		}) as Launch;
+		const { io, lines } = synTick(was, { replied: true });
+		await tickOf(io);
+		expect(lines).toContainEqual(expect.stringMatching(/try 1 of 2$/));
+	});
+
+	it("carries the count to a stop a resume ran straight into, with no reply between", async () => {
+		const was = record({
+			...Syn,
+			synthetic: {
+				at: Date.parse(stopAt(30)),
+				tries: 2,
+				resumed: 2,
+				triedAt: NOW - 25 * MIN,
+			},
+		}) as Launch;
+		const { io, calls } = synTick(was, { replied: false });
+		await tickOf(io);
+		expect(calls).not.toContain("blockIo.type");
+	});
+
+	it("acts on nothing where the transcript is unread", async () => {
+		const { io, calls } = synTick(Syn, { rows: null });
+		await tickOf(io);
+		for (const act of ["blockIo.type", "blockIo.stop", "blockIo.resumeStopped"])
+			expect(calls).not.toContain(act);
+	});
+
+	it("names the cause on the finished-launch line", () => {
+		const line = buildFinishLine({
+			...Syn,
+			synthetic: { at: NOW, tries: 1, resumed: 3 },
+		});
+		expect(line).toMatch(
+			/resumed 3 time\(s\) after the harness ended its turn on a synthetic reply$/,
+		);
 	});
 });

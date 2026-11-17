@@ -51,6 +51,7 @@ const { readJobs } = require("./hung-jobs.js");
 const { readSwapHold } = require("./admission.js");
 const {
 	resumedIdleSince,
+	syntheticStopAt,
 	hasRepliedSince,
 	isResumedSinceApiStop,
 	hasFounderTypedSinceApiStop,
@@ -930,6 +931,10 @@ const blockIo = (served) => ({
 		}),
 	readTimeline: readTimelineOf,
 	idleSince: readIdleSince,
+	syntheticStopOf: (l) => {
+		const job = readJobRecordOf(l);
+		return syntheticStopAt({ job, rows: readTranscriptRows(l, job) });
+	},
 	hasTurnedSince: (l, at) =>
 		hasTurnedSince(readTranscriptRows(l, readJobRecordOf(l)), at),
 	hasRepliedSince: (l, at) =>

@@ -37,6 +37,12 @@ const IDLE_RETYPE_MS = 5 * MIN_MS;
 /* The typed resumes a resumed-idle session gets before its hand-off:
  * untraced (#2978, delegated). */
 const IDLE_TRIES = 2;
+/* How long a job the harness ended on a synthetic reply sits before the loop
+ * acts, so the founder may type in first, and from each resume to the next:
+ * untraced (#5322). */
+const SYNTHETIC_QUIET_MS = 5 * MIN_MS;
+/* The resumes one synthetic stop gets: untraced (#5322, IDLE_TRIES's figure). */
+const SYNTHETIC_TRIES = 2;
 
 /**
  * @typedef {import("./block-cause.js").Cause} Cause
@@ -58,7 +64,8 @@ const IDLE_TRIES = 2;
  *   lockout?: import("./block-cause.js").Lockout}} Block  `since`,
  *   the first tick that
  *   read this cause, ms, or for RESUMED_IDLE the later of the harness's
- *   restart row and the loop's last resume; `sub`, an API_ERROR's kind;
+ *   restart row and the loop's last resume, for SYNTHETIC_STOP of the
+ *   synthetic record and the loop's last resume; `sub`, an API_ERROR's kind;
  *   `bar`, the bar a LIMIT's text names; `lockout`, a LOCKED_OUT's refusal;
  *   `tries`, the resumes made for the launch so far, the last at `triedAt`,
  *   and `nextAt`, when the next is due; `held`, its session stopped until
@@ -175,6 +182,18 @@ const resumedIdle = (block, now) => {
 };
 
 /**
+ * A job the harness ended on a synthetic reply is resumed once the stop, or
+ * the loop's last resume of it, has sat the quiet window, up to its cap per
+ * stop; at the cap the loop leaves it, for check-ghost-jobs to report
+ * (#5322).
+ * @type {Rule}
+ */
+const syntheticStop = (block, now) => {
+	if (block.typing || now - block.since < SYNTHETIC_QUIET_MS) return "wait";
+	return (block.tries ?? 0) < SYNTHETIC_TRIES ? "resume" : "none";
+};
+
+/**
  * When a limit hold begun at `heldAt` reaches LIMIT_HOLD_BOUND_DAYS.
  * @param {number} heldAt ms
  */
@@ -242,7 +261,7 @@ const limit = (block, now) => {
  * answered, so they stay in needs input: #3621; residual: each holds a launch
  * slot until then, admission's memory gate bounding the count. PERMISSION as
  * a question: #2360. API_ERROR: #2359. LIMIT: #2125, #3735. UNKNOWN: #2358 F9.
- * RESUMED_IDLE: #2659, #2978. LOCKED_OUT: #4228, in either mode, as no answer
+ * RESUMED_IDLE: #2659, #2978. SYNTHETIC_STOP: #5322. LOCKED_OUT: #4228, in either mode, as no answer
  * of the founder's mends it. `isFounderWait`, a block that waits on the founder, in a
  * thread his answer resumes (#3584).
  * @type {Record<Cause, {away: Rule, normal: Rule, isFounderWait: boolean}>}
@@ -267,6 +286,11 @@ const TABLE = {
 		normal: resumedIdle,
 		isFounderWait: false,
 	},
+	SYNTHETIC_STOP: {
+		away: syntheticStop,
+		normal: syntheticStop,
+		isFounderWait: false,
+	},
 	UNKNOWN: { away: leave, normal: leave, isFounderWait: false },
 };
 
@@ -288,6 +312,7 @@ const blockAct = (block, mode, now) => TABLE[block.cause][mode](block, now);
 module.exports = {
 	IDLE_TRIES,
 	RESUME_CAP,
+	SYNTHETIC_TRIES,
 	blockAct,
 	buildLimitParkWhy,
 	holdBoundAt,

@@ -17,6 +17,9 @@ const SCRIPT_PROMPT_PREFIX = "[script] ";
 const API_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your last turn ended on an API error. Before repeating your last tool call, check whether it already took effect.`;
 /* #2659's wording. */
 const IDLE_PROMPT = `${LOOP_PROMPT_PREFIX}resume — your host was restarted and your last turn never ran. Before repeating your last tool call, check whether it already took effect.`;
+/* A job the harness ended on its own "No response requested." record
+ * (#5322). */
+const SYNTHETIC_PROMPT = `${LOOP_PROMPT_PREFIX}resume — the harness ended your last turn with "No response requested.": you did not end it, and your task is not done. First re-run \`node ${scriptPath("claim-issue.js")} <n>\` on each issue you hold: where it refuses on a live holder, that session carries the work, so make no other tool call and end your turn saying so. Before repeating your last tool call, check whether it already took effect, then continue your task.`;
 const LOST =
 	"Your in-flight subagents, background tasks and monitors are gone.";
 const LIMIT_LOSS = `${LOST} Before repeating your last tool call, check whether it already took effect, then continue your task.`;
@@ -88,6 +91,7 @@ module.exports = {
 	HOLD_PROMPT,
 	LIMIT_PROMPT,
 	MOVED_PROMPT,
+	SYNTHETIC_PROMPT,
 	hasNothingToRepeat,
 	isLoopPrompt,
 	isPrefixedPrompt,

@@ -89,15 +89,17 @@ const API_NEEDS = new Set([
  * @typedef {"5-hour"|"weekly"} LimitBar  the bar a LIMIT's text names, where
  *   it names one
  * @typedef {"PERMISSION"|"QUESTION"|"LIMIT"|"API_ERROR"|"OTHER_DIALOG"
- *   |"LOCKED_OUT"|"RESUMED_IDLE"|"UNKNOWN"} Cause  RESUMED_IDLE is read from
- *   a `working` job by resumedIdleSince, not by blockCause (#2659)
+ *   |"LOCKED_OUT"|"RESUMED_IDLE"|"SYNTHETIC_STOP"|"UNKNOWN"} Cause
+ *   RESUMED_IDLE is read from a `working` job by resumedIdleSince, and
+ *   SYNTHETIC_STOP from a `done` one by syntheticStopAt, not by blockCause
+ *   (#2659, #5322)
  * @typedef {{tool_name: unknown, tool_input: unknown}} RefusedCall  the call
  *   a lockout's first refusal answered, as the session made it
  * @typedef {{refusal: string, call: RefusedCall|null}} Lockout  `refusal`,
  *   that refusal's first line; `call`, null where its call is not in the
  *   transcript
  * @typedef {{cause: Exclude<Cause,
- *   "API_ERROR"|"LIMIT"|"LOCKED_OUT"|"RESUMED_IDLE"|"UNKNOWN">}
+ *   "API_ERROR"|"LIMIT"|"LOCKED_OUT"|"RESUMED_IDLE"|"SYNTHETIC_STOP"|"UNKNOWN">}
  *   | {cause: "LIMIT", bar?: LimitBar}
  *   | {cause: "API_ERROR", sub: ApiErrorKind}
  *   | {cause: "LOCKED_OUT", lockout: Lockout}
@@ -606,7 +608,68 @@ function hasEndedUnblocked(rows, since) {
 	);
 }
 
+/* The record the harness writes in place of a reply when it ends a background
+ * job's turn itself (#5322): its model and its whole text, measured in
+ * transcript 22cf8d98 line 2836. Residual: a harness that rewords the text, or
+ * renames the model, makes syntheticStopAt read no stop, silent, never wrong. */
+const SYNTHETIC_MODEL = "<synthetic>";
+const NO_RESPONSE_TEXT = "No response requested.";
+/* `state` reads `done` until the reaper stops the job, then `stopped`
+ * (measured on ~/.claude3/jobs, 2026-11-17): a reaped stop is still one. */
+const SYNTHETIC_STOP_STATES = new Set(["done", "stopped"]);
+const ENDING_MARKERS = new Set(["result:", "needs input:"]);
+
+/**
+ * Whether `row` counts as a turn row, as lib/transcript.js's lastTurn counts
+ * them.
+ * @param {import("./transcript.js").TranscriptRecord} row
+ */
+const isTurnRow = (row) =>
+	["assistant", "user", "api-request"].includes(row.type) ||
+	(row.type === "system" && row.subtype === "turn_duration") ||
+	(row.type === "attachment" &&
+		row.attachment?.type === "hook_blocking_error" &&
+		row.attachment?.hookEvent === "Stop");
+
+/**
+ * When the harness ended a background job's turn on its own "No response
+ * requested." record, ms (#5322): the job reads `done` (or `stopped`, once
+ * reaped), its last turn row is that `<synthetic>` assistant row, and the last
+ * reply a real model wrote before it carries no governing `result:` or
+ * `needs input:`. Null where the job is not one; "unread" where a record will
+ * not read or has an unexpected shape, on which nothing acts. Read by the
+ * refill loop and check-ghost-jobs alike.
+ * @param {{job: unknown, rows: unknown}} records  as resumedIdleSince's
+ * @returns {IdleReading}
+ */
+function syntheticStopAt({ job, rows }) {
+	if (!isObject(job) || typeof job.state !== "string") return "unread";
+	if (!SYNTHETIC_STOP_STATES.has(job.state)) return null;
+	if (!Array.isArray(rows) || !rows.every(isObject)) return "unread";
+	const last = rows.findLastIndex(isTurnRow);
+	if (last === -1) return "unread";
+	const stop = /** @type {import("./transcript.js").TranscriptRecord} */ (
+		rows[last]
+	);
+	if (
+		stop.type !== "assistant" ||
+		stop.message?.model !== SYNTHETIC_MODEL ||
+		stop.isApiErrorMessage === true ||
+		rowText(stop) !== NO_RESPONSE_TEXT
+	)
+		return null;
+	const said = rows.slice(0, last).findLast(isModelReply);
+	const marker = said ? parseStatus(textOf(said)).governing?.name : undefined;
+	if (marker && ENDING_MARKERS.has(marker)) return null;
+	const at =
+		typeof stop.timestamp === "string"
+			? Date.parse(stop.timestamp)
+			: Number.NaN;
+	return Number.isNaN(at) ? "unread" : at;
+}
+
 module.exports = {
+	syntheticStopAt,
 	blockCause,
 	hasEndedUnblocked,
 	hasFounderTypedSinceApiStop,

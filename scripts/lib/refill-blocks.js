@@ -180,6 +180,8 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  *   timeline rows, null unread
  * @property {(l: JobLaunch) => import("./block-cause.js").IdleReading}
  *   idleSince  lib/block-cause.js's resumedIdleSince on its records
+ * @property {(l: SessionRef) => import("./block-cause.js").IdleReading}
+ *   syntheticStopOf  lib/block-cause.js's syntheticStopAt on its records
  * @property {(l: SessionRef, at: number) => boolean} hasTurnedSince
  *   lib/block-cause.js's hasTurnedSince on its transcript, false unread
  * @property {(l: SessionRef, at: number) => boolean|null} hasRepliedSince
@@ -1998,6 +2000,7 @@ function causeReader(io) {
 }
 
 module.exports = {
+	ATTACH_VERDICT_MS,
 	isTakenSinceStop,
 	typedVerdict,
 	causeReader,
