@@ -11,6 +11,13 @@
  *
  * Residual: acts are counted per session and kind, so a session that closed
  * some other issue reads as having closed this one, and is not caught.
+ *
+ * Its twin: a ticket whose latest such launch ended with no act at all
+ * (#5399). The likeliest cause is a session that found the ticket could not
+ * start yet and released it with only a comment, which gates nothing, so the
+ * loop launches it again until its no-progress brake pauses the checkout. The
+ * next launch is told to write that gate. A launch that died before acting
+ * reads the same way, and its prompt still lets it build.
  */
 
 const { takesValue } = require("./takes-label.js");
@@ -28,12 +35,46 @@ const IMPLEMENT_PREFIX = `/${IMPLEMENT} `;
  * @property {true} [gate]
  */
 
+/**
+ * A finished lone `/implement` launch's acts, or null where it is none or
+ * they were not read.
+ * @param {UnclosedRecord} l
+ * @returns {Record<string, number>|null}
+ */
+function readImplementActs(l) {
+	if (l.finishedAt === null || l.issues.length !== 1) return null;
+	if (!l.prompt?.startsWith(IMPLEMENT_PREFIX)) return null;
+	return typeof l.acts === "object" ? l.acts : null;
+}
+
 /** @param {UnclosedRecord} l */
 function isUnclosed(l) {
-	if (l.finishedAt === null || l.issues.length !== 1) return false;
-	if (!l.prompt?.startsWith(IMPLEMENT_PREFIX)) return false;
-	if (typeof l.acts !== "object") return false;
-	return (l.acts.commit ?? 0) > 0 && !l.acts.close;
+	const acts = readImplementActs(l);
+	return acts !== null && (acts.commit ?? 0) > 0 && !acts.close;
+}
+
+/** @param {UnclosedRecord} l */
+function isActless(l) {
+	const acts = readImplementActs(l);
+	return acts !== null && Object.values(acts).every((n) => n === 0);
+}
+
+/**
+ * Each launch that `is` reads as its ticket's latest, a gate judgement's
+ * passed over.
+ * @template {UnclosedRecord} L
+ * @param {L[]} launches in launch order
+ * @param {(l: L) => boolean} is
+ * @returns {L[]}
+ */
+function latestWhere(launches, is) {
+	/** @type {Map<string, L>} */
+	const latest = new Map();
+	for (const l of launches.filter((x) => !x.gate))
+		for (const n of l.issues) latest.set(`${l.root}#${n}`, l);
+	return launches.filter(
+		(l) => is(l) && latest.get(`${l.root}#${l.issues[0]}`) === l,
+	);
 }
 
 /**
@@ -41,15 +82,17 @@ function isUnclosed(l) {
  * @param {L[]} launches in launch order
  * @returns {L[]}
  */
-function unclosedLaunches(launches) {
-	/** @type {Map<string, L>} */
-	const latest = new Map();
-	for (const l of launches.filter((x) => !x.gate))
-		for (const n of l.issues) latest.set(`${l.root}#${n}`, l);
-	return launches.filter(
-		(l) => isUnclosed(l) && latest.get(`${l.root}#${l.issues[0]}`) === l,
+const unclosedLaunches = (launches) => latestWhere(launches, isUnclosed);
+
+/**
+ * @param {UnclosedRecord[]} launches in launch order
+ * @param {string} root
+ * @param {number} n
+ */
+const hasActlessLaunch = (launches, root, n) =>
+	latestWhere(launches, isActless).some(
+		(l) => l.root === root && l.issues[0] === n,
 	);
-}
 
 /**
  * @template {UnclosedRecord} L
@@ -73,18 +116,31 @@ const buildVerifyPrompt = (n) =>
 	`${IMPLEMENT_PREFIX}${n} — its last loop launch committed and ended without closing it. Before building anything, find that work (git log --all --grep=#${n}) and read it against the acceptance criteria. Finished: close with that evidence. Not finished: say on the ticket what remains, then build only that.`;
 
 /**
+ * @param {number} n
+ */
+const buildGateFirstPrompt = (n) =>
+	`${IMPLEMENT_PREFIX}${n} — its last loop launch ended with no act. Read its latest comment first. Where it found the ticket could not start yet and that still holds, write its gate (scripts/lib/rule-text.sh blocked-ticket-gate) and end. Otherwise build it.`;
+
+/**
  * The prompt a lone row launches on, the loop's and a manual /pick-next's
  * alike (#4351): its one `takes:` command, checking first whether the work
- * landed where an `/implement` launch committed and did not close (#3782).
+ * landed where an `/implement` launch committed and did not close (#3782), or
+ * whether the ticket owes a gate where one ended with no act (#5399).
  * @param {{root: string, number: number, takes: string[]}} row
  * @param {UnclosedRecord[]} launches in launch order
  */
-const buildRowPrompt = (row, launches) =>
-	row.takes[0] === IMPLEMENT && unclosedLaunchOf(launches, row.root, row.number)
-		? buildVerifyPrompt(row.number)
-		: `/${row.takes[0]} ${row.number}`;
+function buildRowPrompt(row, launches) {
+	if (row.takes[0] === IMPLEMENT) {
+		if (unclosedLaunchOf(launches, row.root, row.number))
+			return buildVerifyPrompt(row.number);
+		if (hasActlessLaunch(launches, row.root, row.number))
+			return buildGateFirstPrompt(row.number);
+	}
+	return `/${row.takes[0]} ${row.number}`;
+}
 
 module.exports = {
+	buildGateFirstPrompt,
 	buildRowPrompt,
 	buildVerifyPrompt,
 	unclosedLaunchOf,

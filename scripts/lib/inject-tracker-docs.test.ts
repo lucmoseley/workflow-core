@@ -634,6 +634,17 @@ describe("the rules that were already here", () => {
 			expect(inject(cmd)).not.toContain("build-state.js");
 	});
 
+	it("tells /implement alone to gate a ticket that cannot start yet before releasing it (#5399)", () => {
+		const ctx = inject("/implement 5399");
+		expect(ctx).toContain("gets its gate written before you release it");
+		expect(ctx).toContain("`node scripts/link-blocker.js <n> <blocker>`");
+		expect(ctx).toContain(
+			"`scripts/lib/rule-text.sh blocked-ticket-gate roadmap-gating`",
+		);
+		for (const cmd of ["/triage 5399", "/wayfinder 5399"])
+			expect(inject(cmd)).not.toContain("before you release it");
+	});
+
 	it("gives /triage alone the whole-spec review (#892)", () => {
 		const triage = inject("/triage 849");
 		expect(triage).toContain("node scripts/spec-commits.js <n>");

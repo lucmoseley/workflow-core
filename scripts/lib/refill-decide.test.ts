@@ -25,7 +25,10 @@ const {
 
 const buildIdle = (reason: string, detail = "") => ({ reason, detail });
 const { mergeFrontiers } = require("./frontier-order.js");
-const { buildVerifyPrompt } = require("./unclosed-launch.js");
+const {
+	buildGateFirstPrompt,
+	buildVerifyPrompt,
+} = require("./unclosed-launch.js");
 
 const NOW = Date.parse("2026-10-18T12:00:00Z");
 const HOUR = 60 * 60 * 1000;
@@ -1526,10 +1529,19 @@ describe("decideTick launch filter", () => {
 			frontier: [row("wfc", 1)],
 			history: [
 				finished(1, { prompt: "/implement 1", acts: { commit: 1 } }),
-				finished(1, { prompt: buildVerifyPrompt(1), acts: {} }),
+				finished(1, { prompt: buildVerifyPrompt(1), acts: { round: 1 } }),
 			],
 		});
 		expect(d.launches[0].prompt).toBe("/implement 1");
+	});
+
+	it("tells the next /implement launch to gate first where the last ended with no act (#5399)", () => {
+		const d = tick({
+			freeSlots: 1,
+			frontier: [row("wfc", 1)],
+			history: [finished(1, { prompt: "/implement 1", acts: {} })],
+		});
+		expect(d.launches[0].prompt).toBe(buildGateFirstPrompt(1));
 	});
 
 	it("launches a relabelled row on its own command, whatever its last launch did (#3782)", () => {

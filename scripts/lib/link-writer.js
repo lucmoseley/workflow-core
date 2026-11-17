@@ -56,6 +56,7 @@ const {
 const { resolveKey } = require("./workflow-core-config.js");
 const { caught } = require("./caught.js");
 const { docPath } = require("./script-path.js");
+const { recordOwnAct } = require("./tracker-ops.js");
 
 /** @typedef {import("./wait-graph.js").Ref} Ref */
 /** @typedef {import("./wait-graph.js").Link} Link */
@@ -464,8 +465,13 @@ async function linkBlocker(args, warn) {
 		const text = parseErrLine(e);
 		fail(postReason(text), `POST failed: ${text}`);
 	}
-	if (await waitFor(listed, { ...t, first: true }))
+	if (await waitFor(listed, { ...t, first: true })) {
+		// A script's own gh call never reaches record-acts.js, so the edge is
+		// recorded here, or the refill loop reads the launch as no progress
+		// (#5399).
+		recordOwnAct("block", blocked.repo, blocked.number);
 		return `linked ${subject} as blocked by ${label}\n`;
+	}
 	return fail(
 		"unlisted",
 		`POST returned success but ${subject}'s blocked_by list still does not name ${label} after ${t.retries} reads — do NOT re-POST; check the link in the web UI`,

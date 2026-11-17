@@ -26,6 +26,7 @@ import {
 	expect,
 	it,
 } from "vitest";
+import { store as arbiter } from "./lib/arbiter-testkit";
 import { readText } from "./lib/file-read.js";
 import { asRecorded, LINK_READ_FAKE, LINKS_GRAPHQL_FAKE } from "./lib/gh-fake";
 import { type GhStubServer, serveGhStub, stubGhScript } from "./lib/gh-stub";
@@ -77,7 +78,11 @@ beforeAll(async () => {
 });
 afterAll(() => server.close());
 
-const run = (args: string[], g: Gh = {}) => {
+const run = (
+	args: string[],
+	g: Gh = {},
+	extra: Record<string, string | undefined> = {},
+) => {
 	fs.writeFileSync(
 		path.join(dir, "gh-answers.json"),
 		JSON.stringify({
@@ -102,6 +107,7 @@ const run = (args: string[], g: Gh = {}) => {
 			WFC_LINK_REPO: "o/r",
 			WFC_LINK_RETRIES: "2",
 			WFC_LINK_SLEEP: "0",
+			...extra,
 		},
 	});
 };
@@ -179,6 +185,31 @@ describe("link-blocker.js", () => {
 		);
 		expect(verify).toBeGreaterThan(post);
 		expect(r.stderr).toBe("");
+	});
+
+	describe("the block act (#5399)", () => {
+		const Me = "link-blocker-act-session";
+		const acts = () => arbiter.readActsBy(Me, [dir]).acts;
+		const runAs = (g: Gh, args = ["#10", "m/t#20"]) =>
+			run(args, g, { CLAUDE_CODE_SESSION_ID: Me });
+
+		it("records a block act on the blocked issue once its new edge lists", async () => {
+			const r = await runAs({ listed: [{ number: 20, repo: "m/t" }] });
+			expect(r.status, r.stderr).toBe(0);
+			expect(acts()).toEqual(["block o/r#10"]);
+		});
+
+		it.each([
+			[
+				"the edge already stood",
+				{ postFails: true, listed: [{ number: 20, repo: "m/t" }] },
+			],
+			["the edge never lists", {}],
+			["the POST is refused", { postFails: true }],
+		] as const)("records nothing where %s", async (_, g) => {
+			await runAs(g as Gh);
+			expect(acts()).toEqual([]);
+		});
 	});
 
 	it("names a blocked issue in another repo by its full reference on success", async () => {
