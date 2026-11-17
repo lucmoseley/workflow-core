@@ -81,7 +81,7 @@ describe("the machine-figures line", () => {
 		);
 	});
 
-	it("reads this machine's figures, not fixed ones", () => {
+	it("prints whichever figures it reads, not fixed ones", () => {
 		expect(
 			figures({
 				uname: "x86_64",
@@ -93,6 +93,37 @@ describe("the machine-figures line", () => {
 		);
 	});
 });
+
+/* The seams' second adapter (base §G7): the real `uname`, `nproc` and
+ * /proc/meminfo, which cost nothing to call. */
+describe.runIf(fs.existsSync("/proc/meminfo"))(
+	"the real binaries and meminfo",
+	() => {
+		it("give the line this machine's own figures", () => {
+			/* Through bash as the hook is, since a traced run pins its bash
+			 * children to one CPU (lib/read-audit-trace.js), and nproc counts
+			 * the CPUs its process may use. */
+			const real = (cmd: string) =>
+				spawnSync("bash", ["-c", cmd], { encoding: "utf8" }).stdout.trim();
+			const kb = (field: string) =>
+				Number(
+					fs
+						.readFileSync("/proc/meminfo", "utf8")
+						.match(new RegExp(`^${field}:\\s+(\\d+) kB$`, "m"))?.[1],
+				);
+			const env = { ...process.env };
+			delete env.WFC_UNAME;
+			delete env.WFC_NPROC;
+			delete env.WFC_MEMINFO;
+			const r = spawnSync("bash", [HOOK], { env, encoding: "utf8" });
+			expect(r.stdout).toBe(
+				`Machine (read live): ${real("uname -m")}; ${real("nproc")} cores; ` +
+					`MemTotal ${Math.floor(kb("MemTotal") / 1024)} MiB; ` +
+					`SwapTotal ${Math.floor(kb("SwapTotal") / 1024)} MiB.\n`,
+			);
+		});
+	},
+);
 
 describe("a read that fails is named, never zeroed", () => {
 	it.each<[string, Stubs, string]>([

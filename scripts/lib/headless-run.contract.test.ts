@@ -1,15 +1,18 @@
 // @vitest-environment node
 /*
- * Holds a headless `claude -p` run's two faces (#4586) — the options it takes,
- * which lib/headless-sessions.js's launch and claude-child.js pass, and its
- * `result` row, which
- * lib/headless-runs.js's readEndResult reads — to the installed harness's
+ * Holds a headless `claude -p` run's three faces (#4586) — the options it
+ * takes, which lib/headless-sessions.js's launch and claude-child.js pass, its
+ * `result` row, which lib/headless-runs.js's readEndResult reads, and a
+ * stream-json run's answer to an interrupt, which lib/chrome-stream.js's
+ * capped turn reads (#5388) — to the installed harness's
  * recording (scripts/fixtures/headless-run.json, re-recorded by
  * `node scripts/record-headless-run.js`), to lib/headless-run-fake.ts, which
  * every suite's `claude` stub execs for `-p`, and, on the founder's machine,
  * to the real `claude` where a call is free: its `--help` and its refusal of
  * an unknown flag or a missing value, which is all that shows a hidden option. Breaking it lets a renamed flag or result field pass every
- * suite, and an overflow run launch refused or bill as a success it was not.
+ * suite, an overflow run launch refused or bill as a success it was not, and
+ * a Chrome child's capped turn read as ended where the binary's answer has
+ * drifted.
  */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -17,11 +20,13 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readProcStartOf } from "./arbiter-proc.js";
+import { STREAM_ARGS, startStreamChild } from "./chrome-stream.js";
 import { claudeLiveSkipReason } from "./claude-stub";
 import { LIVE_CALL_TIMEOUT_MS, parseHelpOptions } from "./headless-options.js";
 import {
 	buildResultRow,
 	readHeadlessCalls,
+	readStreamEvents,
 	recorded,
 	writeHeadlessFake,
 } from "./headless-run-fake";
@@ -106,6 +111,60 @@ describe("the result row", () => {
 			outcome: "success",
 			costUsd: recorded.result.total_cost_usd,
 			sessionId: SESSION,
+		});
+	});
+});
+
+describe("the interrupt answer", () => {
+	const { controlResponse, result } = recorded.interrupt;
+
+	it("is, in the recording, a control_response and an interrupted result row", () => {
+		expect(controlResponse).toMatchObject({
+			type: "control_response",
+			response: { subtype: "success" },
+		});
+		expect(result.type).toBe("result");
+		expect(result.subtype).not.toBe("success");
+	});
+
+	it("is the fake's too, as chrome-stream's capped turn reads it: the recorded control_response to the request sent, then a result row of the recorded subtype", async () => {
+		const bin = writeHeadlessFake(path.join(dir, "claude"), {
+			log: path.join(dir, "calls.jsonl"),
+			mode: "stream",
+			turns: [[]],
+			events: path.join(dir, "events.jsonl"),
+		});
+		const rows: Record<string, unknown>[] = [];
+		const run = startStreamChild(
+			bin,
+			["-p", ...STREAM_ARGS, "--session-id", SESSION],
+			{},
+			(row) => rows.push(row),
+		);
+		run.send("x");
+		const end = await run.turn({ capMs: 50, graceMs: 5000 });
+		await run.finish();
+		const interrupt = readStreamEvents(path.join(dir, "events.jsonl")).find(
+			(e) => "stdin" in e && e.stdin.type === "control_request",
+		);
+		const response = rows.find((r) => r.type === "control_response") as {
+			response: Record<string, unknown>;
+		};
+		expect(
+			interrupt && "stdin" in interrupt && interrupt.stdin.request_id,
+		).toBe(response.response.request_id);
+		expect({
+			...response,
+			response: {
+				...response.response,
+				request_id: controlResponse.response.request_id,
+			},
+		}).toEqual(controlResponse);
+		expect(end.capped).toBe(true);
+		expect(end.result).toMatchObject({
+			type: "result",
+			subtype: result.subtype,
+			is_error: result.is_error,
 		});
 	});
 });

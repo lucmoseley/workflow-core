@@ -11,7 +11,6 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import browser from "./browser-profile.js";
 import practice from "./practice-note.js";
-import { payloadFor, relay } from "./shell-guard.js";
 import { buildHostPorts } from "./shell-guard-host.js";
 
 /** A kit context carrying a spy for the port, over `input`. */
@@ -39,42 +38,63 @@ const denyOut = (r: string) =>
 		},
 	});
 
-describe("relay", () => {
-	it("reads a deny, a context and silence", () => {
-		expect(relay(denyOut("no"))).toEqual({ deny: "no" });
+const TRIGGERED = "chrome.exe https://example.com";
+
+/** The browser core run on a trigger command, its port answering `out`. */
+const browserOn = (out: string) => {
+	const { ctx, runShellGuard } = ctxFor({ command: TRIGGERED }, "Bash", out);
+	return { decision: () => browser.decide(TRIGGERED, ctx), runShellGuard };
+};
+
+describe("a script's answer", () => {
+	it("is relayed as a deny, a context or silence", () => {
+		expect(browserOn(denyOut("no")).decision()).toEqual({ deny: "no" });
 		expect(
-			relay(JSON.stringify({ hookSpecificOutput: { additionalContext: "c" } })),
+			browserOn(
+				JSON.stringify({ hookSpecificOutput: { additionalContext: "c" } }),
+			).decision(),
 		).toEqual({ context: "c" });
-		expect(relay("\n")).toBeNull();
+		expect(browserOn("\n").decision()).toBeNull();
 	});
 
-	it("throws on output that is not the hook JSON, for the row's failure policy", () => {
-		expect(() => relay("practice-guard: oops")).toThrow();
+	it("throws where it is not the hook JSON, for the row's failure policy", () => {
+		expect(() => browserOn("practice-guard: oops").decision()).toThrow();
 	});
 });
 
-describe("payloadFor", () => {
+describe("the payload a script is handed", () => {
 	it("rebuilds the fields the scripts read", () => {
-		const { ctx } = ctxFor({ command: "ls" }, "Bash");
-		expect(payloadFor(ctx)).toEqual({
+		const { decision, runShellGuard } = browserOn("");
+		decision();
+		expect(runShellGuard).toHaveBeenCalledWith("browser-profile-guard.sh", {
 			hook_event_name: "PreToolUse",
 			session_id: "s1",
 			tool_name: "Bash",
-			tool_input: { command: "ls" },
+			tool_input: { command: TRIGGERED },
 			cwd: "/w",
 		});
 	});
 });
 
 describe("the browser-profile core", () => {
-	it("tests the same trigger as the script's own first gate", () => {
+	it("admits every word of the script's own first gate", () => {
 		const script = fs.readFileSync(
 			path.join(__dirname, "../browser-profile-guard.sh"),
 			"utf8",
 		);
 		const gate = script.match(/grep -qiE '([^']+)' <<<"\$cmd" \|\| exit 0/);
-		expect(gate?.[1]).toBe(browser.TRIGGER.source);
-		expect(browser.TRIGGER.flags).toBe("i");
+		const words = (gate?.[1] ?? "").split("|");
+		expect(words.length).toBeGreaterThan(1);
+		for (const word of words) {
+			/* The word spelt as a command types it, upper-cased to hold the gate's -i. */
+			const typed = word
+				.replace(/\\\./g, ".")
+				.replace(/ \+/g, " ")
+				.toUpperCase();
+			const { ctx, runShellGuard } = ctxFor({ command: typed }, "Bash");
+			browser.decide(typed, ctx);
+			expect(runShellGuard, typed).toHaveBeenCalledOnce();
+		}
 	});
 
 	it("starts no script on a command naming no trigger word", () => {
@@ -133,13 +153,9 @@ describe("the host port", () => {
 	});
 
 	it("runs the real script, whose bare chrome.exe refusal reaches the core", () => {
-		const cmd = "chrome.exe https://example.com";
-		const { ctx } = ctxFor({ command: cmd }, "Bash");
-		const out = buildHostPorts().runShellGuard(
-			"browser-profile-guard.sh",
-			payloadFor(ctx),
-		);
-		expect(relay(out)).toEqual({
+		const { ctx } = ctxFor({ command: TRIGGERED }, "Bash");
+		const hosted = { ...(ctx as object), ...buildHostPorts() } as never;
+		expect(browser.decide(TRIGGERED, hosted)).toEqual({
 			deny: expect.stringContaining(
 				"chrome.exe without --profile-directory opens whichever profile",
 			),

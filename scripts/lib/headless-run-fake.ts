@@ -22,6 +22,11 @@ export const recorded: {
 	/** The options the binary takes and `--help` omits. */
 	hidden: HelpOption[];
 	result: Record<string, unknown>;
+	/** A stream-json run's answer to an interrupt control request mid-turn. */
+	interrupt: {
+		controlResponse: { response: Record<string, unknown> };
+		result: Record<string, unknown>;
+	};
 } = JSON.parse(
 	fs.readFileSync(
 		path.join(__dirname, "..", "fixtures", "headless-run.json"),
@@ -75,8 +80,9 @@ export interface HeadlessCall {
  *
  * `stream` answers each user message on stdin with the next of `turns`, a
  * default result row once they run out: a turn with no result row hangs until
- * an interrupt control request, answered with a `control_response` then
- * `interruptRows` unless `ignoreInterrupt`. It exits `exit` once stdin
+ * an interrupt control request, answered with the recorded `control_response`
+ * then `interruptRows`, the recorded interrupted result row by default (rows
+ * a suite passes are held to no recording), unless `ignoreInterrupt`. It exits `exit` once stdin
  * closes; on SIGTERM, SIGINT or SIGHUP it dies of that signal, or ignores
  * SIGTERM under `ignoreTerm`. Each message, signal and the close is logged to
  * `events`.
@@ -92,7 +98,7 @@ export function writeHeadlessFake(
 		/* Past one case and its hooks, so a fake never dies mid-case. */
 		holdMs = 2 * TEST_TIMEOUT_MS,
 		turns = [],
-		interruptRows = [buildResultRow({ subtype: "error_during_execution" })],
+		interruptRows = [recorded.interrupt.result],
 		ignoreInterrupt = false,
 		ignoreTerm = false,
 		events,
@@ -182,7 +188,7 @@ if (MODE === "stream") {
 		if (message.type === "user")
 			emit(TURNS[turn++] ?? [${JSON.stringify(buildResultRow())}]);
 		else if (message.type === "control_request" && message.request?.subtype === "interrupt" && !${ignoreInterrupt})
-			emit([{ type: "control_response", response: { subtype: "success", request_id: message.request_id } }, ...${JSON.stringify(interruptRows)}]);
+			emit([{ ...${JSON.stringify(recorded.interrupt.controlResponse)}, response: { ...${JSON.stringify(recorded.interrupt.controlResponse.response)}, request_id: message.request_id } }, ...${JSON.stringify(interruptRows)}]);
 	});
 	lines.on("close", () => {
 		event({ stdinClosed: true });
