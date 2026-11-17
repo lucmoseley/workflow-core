@@ -1112,6 +1112,10 @@ function serialAction(b, s, main) {
 	const at = b.serial?.step;
 	if (at?.name === next.name && at.sha === main)
 		return { kind: "record-step", sha: main, name: next.name };
+	/* After the record: a step `main` already holds has landed. Before the
+	 * test and the merge: either would take it onto `main` (#5318). */
+	const withdrawn = leaveWithdrawn(s, left);
+	if (withdrawn) return withdrawn;
 	if (at?.name === next.name && at.onto === main)
 		return stepAction(
 			b,
@@ -1278,6 +1282,18 @@ function detachAction(s, { line, search }, red) {
 const isWithdrawn = (s, m) => !s.queue.some((r) => r.name === m.name);
 
 /**
+ * @param {QueueState} s
+ * @param {readonly Member[]} members
+ * @returns {QueueAction|null}
+ */
+function leaveWithdrawn(s, members) {
+	const gone = members.find((m) => isWithdrawn(s, m));
+	return gone
+		? { kind: "leave-withdrawn", name: gone.name, sha: gone.sha }
+		: null;
+}
+
+/**
  * The merge of `b` onto `base`, where it is not merged there yet: a batch
  * merged onto a base that has since moved is merged again onto the new one,
  * so `main` only ever fast-forwards; else null. A withdrawn member is left
@@ -1289,8 +1305,8 @@ const isWithdrawn = (s, m) => !s.queue.some((r) => r.name === m.name);
  */
 function mergeStep(b, s, base) {
 	const members = included(b);
-	const gone = members.find((m) => isWithdrawn(s, m));
-	if (gone) return { kind: "leave-withdrawn", name: gone.name, sha: gone.sha };
+	const withdrawn = leaveWithdrawn(s, members);
+	if (withdrawn) return withdrawn;
 	if (b.phase !== "merging" && b.onto === base && b.integration !== null)
 		return null;
 	return {
@@ -1976,6 +1992,39 @@ const leaveOut = (b, name, as) => ({
 	integration: null,
 	phase: "merging",
 });
+
+/**
+ * The batch with the withdrawn `name` left out: merged again without it, or,
+ * landing serially, going on without it and its step (#5318).
+ * @param {Batch} b
+ * @param {string} name
+ * @returns {Batch}
+ */
+const withdrawnFrom = (b, name) =>
+	b.phase === "serial" && b.serial
+		? {
+				...b,
+				deferred: [...b.deferred, name],
+				serial: {
+					...b.serial,
+					step: b.serial.step?.name === name ? null : b.serial.step,
+				},
+			}
+		: leaveOut(b, name, "deferred");
+
+/**
+ * The commit of `b` carrying the withdrawn `name` whose run is unwanted: a
+ * merged batch's integration commit (#5316), or landing serially, its own
+ * step, if under test (#5318); else null.
+ * @param {Batch} b
+ * @param {string} name
+ * @returns {string|null}
+ */
+function carrying(b, name) {
+	if (b.phase !== "serial") return b.integration;
+	const tested = b.serial?.step;
+	return tested?.name === name ? tested.sha : null;
+}
 
 /**
  * The batch with `name` dropped: merged again without it, or, isolating or
@@ -2664,12 +2713,11 @@ async function act(deps, action, run) {
 			return { ...run, alone: { name: member.name, onto, result } };
 		}
 		case "leave-withdrawn": {
-			/* Listed with the deferred, the members left out; a withdrawn one
-			 * owes no drop and no fix ticket. A merged batch's run at the
-			 * commit carrying it is unwanted (#5316). */
-			const { integration: was, slot } = batchOf(run);
-			if (was !== null) dropRunsAt(deps, run, { sha: was, slot });
-			const batch = leaveOut(batchOf(run), action.name, "deferred");
+			/* A withdrawn member owes no drop and no fix ticket. */
+			const b = batchOf(run);
+			const sha = carrying(b, action.name);
+			if (sha !== null) dropRunsAt(deps, run, { sha, slot: b.slot });
+			const batch = withdrawnFrom(b, action.name);
 			record.write(batch);
 			return { ...run, acting: batch, unmerged: null, alone: null };
 		}
