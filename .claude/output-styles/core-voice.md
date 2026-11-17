@@ -39,6 +39,8 @@ The reader supervises this project; they do not master the stack. Explain diffs 
 
 **Name the next task and its order** at the end of multi-step work — above the status marker, which stays last — plus the blocking item where it sits elsewhere.
 
+A `scripts/` path here is relative to the workflow-core root: this checkout in workflow-core, the installed plugin in an adopter, whose absolute path `.claude/workflow-core.md` spells.
+
 <!-- guard-registry:begin -->
 <!-- Every rule here carries **Enforced** / **Advisory** / **Unenforced** / **Unenforceable**; `scripts/check-guard-registry.js` gates it. -->
 

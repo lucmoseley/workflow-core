@@ -69,7 +69,7 @@ const { readTreeIds, isSameContent } = require("./content-ids.js");
  *   skipped: number, nameFilter?: string|null,
  *   fileFilters?: string[], changed?: string|boolean|null, admissible?: boolean,
  *   viaChanged?: boolean, touched?: boolean, resolvedFiles?: number,
- *   leftOut?: string[],
+ *   leftOut?: string[], touchedBase?: "merge-base"|"head",
  *   wholeSlot?: boolean, full?: "flag"|"stale-manifest"|"dependency-root",
  *   fullCause?: "push-gate"|"coverage"|"empty-diff"|"sha-moved"|"rule-edit"|"other"|null,
  *   shard?: {index: number, count: number},
@@ -167,6 +167,13 @@ const RETEST_FLAG = "--retest";
  * default's escalation names (mantahostels#3208).
  */
 const FULL_REASONS = ["flag", "stale-manifest", "dependency-root"];
+
+/**
+ * The bases `scope.touchedBase` can carry: what a touched run's selection was
+ * taken from, the session's own work since the merge base, or the commit's
+ * changes over HEAD inside a commit-gate seat (#5320).
+ */
+const TOUCHED_BASES = ["merge-base", "head"];
 
 /*
  * The dependency-graph roots every narrowed closure carries (#189): what the
@@ -1901,6 +1908,7 @@ module.exports = {
 	attestedReading,
 	FULL_REASONS,
 	FULL_CAUSES,
+	TOUCHED_BASES,
 	shortSha,
 	DEFAULT_SUITE,
 	suiteOf,

@@ -1266,10 +1266,10 @@ function reportPoolBreach(ctx, root, { total, headroom, pool }) {
 		`ALWAYS-LOADED POOL ${capHeading(headroom)} — ${kb(total)} against the doc map's ${kb(CAP_BYTES)}, ${capClause(headroom)}.\n` +
 			rows(pool) +
 			"\n  Name the shed that pays for the bytes and take it in the same commit\n" +
-			"  (docs/doc-map.md §Capture and placement §4).\n" +
+			"  (.claude/workflow-core.doc-map.md §Capture and placement §4).\n" +
 			buildShedCandidatesLine(root, SHED_REGISTERS.pool) +
 			"  The only other way past this is to move the cap deliberately, by editing\n" +
-			"  docs/doc-map.md §Capture and placement §4 — the unpayable-correction trigger (mantahostels#1220).\n",
+			"  .claude/workflow-core.doc-map.md §Capture and placement §4 — the unpayable-correction trigger (mantahostels#1220).\n",
 	);
 }
 
@@ -1294,14 +1294,14 @@ function reportInjectionBreach(ctx, root, { injTotal, injHeadroom, injected }) {
 		`INJECTED TRACKER DOCS ${capHeading(injHeadroom)} — ${kb(injTotal)} against ${kb(INJECTION_CAP_BYTES)}, ${capClause(injHeadroom)}.\n` +
 			rows(injected) +
 			`\n  Pasted into ${TRACKER_TEXT}'s seven commands; the same shed rule applies\n` +
-			"  (docs/doc-map.md §Capture and placement §4).\n" +
+			"  (.claude/workflow-core.doc-map.md §Capture and placement §4).\n" +
 			buildShedCandidatesLine(
 				root,
 				SHED_REGISTERS.injection,
 				" (mantahostels#1259, mantahostels#1268)",
 			) +
 			"  The only other way past this is to move the cap deliberately, by editing\n" +
-			"  docs/doc-map.md §Capture and placement §4 — the unpayable-correction trigger (mantahostels#1220).\n",
+			"  .claude/workflow-core.doc-map.md §Capture and placement §4 — the unpayable-correction trigger (mantahostels#1220).\n",
 	);
 }
 
@@ -1332,7 +1332,7 @@ function reportSessionBreaches(ctx, reachTools) {
 				guardRows(group.guards) +
 				`\n  An injected id latches per (rule, agent, session), so this is the ${group.ids.length} distinct ids\n` +
 				`  every guard wired on ${tool} can reach, each paid once however many events carry it.\n` +
-				"  Shed fragment text, or move the cap deliberately in docs/doc-map.md\n" +
+				"  Shed fragment text, or move the cap deliberately in .claude/workflow-core.doc-map.md\n" +
 				"  §Capture and placement §3 route (f), which mantahostels#1720 owns.\n",
 		);
 	}
@@ -1552,7 +1552,7 @@ function afterCallSection(after) {
 			: `  no ${events} hook reaches a fragment.\n`) +
 		"  A hook lists every id its guard reaches, whichever event branch takes\n" +
 		"  it. On neither of route (f)'s caps, which price PreToolUse alone, and\n" +
-		"  no cap of its own is seated (docs/doc-map.md §Capture and placement §3).\n"
+		"  no cap of its own is seated (.claude/workflow-core.doc-map.md §Capture and placement §3).\n"
 	);
 }
 
@@ -1608,7 +1608,7 @@ function printTable(ctx, t) {
 	const { reachTools, reach, ratchetTotal, ratchetHeadroom } = t;
 	const { directTotal, directUncounted } = t;
 	ctx.say(
-		`ALWAYS-LOADED POOL — ${kb(total)} of ${kb(CAP_BYTES)}, ${headroom} B headroom (docs/doc-map.md §Capture and placement).\n` +
+		`ALWAYS-LOADED POOL — ${kb(total)} of ${kb(CAP_BYTES)}, ${headroom} B headroom (.claude/workflow-core.doc-map.md §Capture and placement).\n` +
 			rows(pool) +
 			`\n\nINJECTED TRACKER DOCS — ${kb(injTotal)} of ${kb(INJECTION_CAP_BYTES)}, ${injHeadroom} B headroom (~41% of sessions).\n` +
 			rows(injected) +
@@ -1634,7 +1634,7 @@ function printTable(ctx, t) {
 			`\nDIRECT RULE TEXT — ${directTotal} B across ${reach.direct.length}, of which ${directUncounted} B is on no figure above. Uncapped.\n` +
 			buildDirectLines(reach.direct) +
 			"  Spliced into the guard's own deny or warn text, so it is route (e)\n" +
-			"  (docs/doc-map.md §Capture and placement §3), which owes no shed. That\n" +
+			"  (.claude/workflow-core.doc-map.md §Capture and placement §3), which owes no shed. That\n" +
 			"  is why none of it is on route (f)'s caps: a cap bounds the standing\n" +
 			"  cost every session pays, and this is paid only by one that erred.\n" +
 			"  It is outside the injection latch, so unlike the figures above every line\n" +

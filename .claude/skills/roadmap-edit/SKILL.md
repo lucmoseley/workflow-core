@@ -76,8 +76,8 @@ scheduled census, is what lists it.
 - **Before cutting a sentence carrying a figure, threshold, licence condition
   or date from a card body, run `npm run report:card-restatements -- <card-id>`
   and read every entry it names** (mantahostels#3339). Where the sentence is the copy an
-  entry's *The claim* line describes, the cut is a **propagation pass**, not a
-  trim: correct `docs/doc-map-restatements.json` and the entry's `Restated in:`
+  entry's *The claim* line describes, the cut is a **propagation pass**
+  (the core doc-map method's §The propagation pass), not a trim: correct `docs/doc-map-restatements.json` and the entry's `Restated in:`
   count together, or leave the sentence. **Unenforced** (mantahostels#3191):
   every roadmap locator is a bare card id (mantahostels#1573),
   so `check-doc-map.js`'s DEAD-ANCHOR check reads quoted locators only and skips

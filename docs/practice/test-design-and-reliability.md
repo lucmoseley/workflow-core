@@ -80,5 +80,9 @@ Researched: 2026-10-21
 - Detection tools from research: DeFlaker (Bell et al., ICSE 2018; github.com/gmu-swe/deflaker, no tagged release, last pushed 2021-11-09), named by the pytest docs; Shaker (CPU and memory noise, ICSME 2020; artefact github.com/STAR-RG/shaker-artifacts-icsme, no tagged release, last pushed 2021-05-28). Both read 2026-10-26. docs.pytest.org flaky page [standard or field body]; Silva et al. ICSME 2020 [named expert]
 - Shell: bats-mock 1.2.5, read 2026-10-25, gives bats-core `PATH` stubs. github.com/jasonkarns/bats-mock [standard or field body]. Only its own docs vouch, so it sets no default to use it
 - Claude-compatible: the Superpowers plugin (Jesse Vincent; MIT; github.com/obra/superpowers v7.0.1, read 2026-10-26) has `test-driven-development` and `systematic-debugging`, with a `condition-based-waiting.md` page: "Wait for the actual condition you care about, not a guess about how long it takes", and "Always document WHY if using arbitrary timeout" [named expert]. Simon Willison vouches for the plugin as a whole, not for this page. simonwillison.net/2025/Oct/10/superpowers/ [named expert]
-- Superpowers is a full workflow plugin with always-on skills. Its test advice repeats Fowler and Luo et al. and adds nothing new. The repo already has `tdd` and `diagnosing-bugs` skills. Derived, so it sets no default [unverified]
+- Superpowers is a full workflow plugin with always-on skills. Its test advice repeats Fowler and Luo et al. and adds nothing new. Derived, so it sets no default [unverified]
 - No MCP server for test work was found that a standard body or a named expert vouches for. Search of 2026-10-21 [unverified]
+
+## In workflow-core
+
+- **Tools:** The repo already has `tdd` and `diagnosing-bugs` skills.

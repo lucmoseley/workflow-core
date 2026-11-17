@@ -634,6 +634,16 @@ describe("which command started the run (mantahostels#2303)", () => {
 		expect(await scopeWith({})).not.toHaveProperty("leftOut");
 	});
 
+	it("records the base a touched run's selection took, and none off any other run (#5320)", async () => {
+		expect(
+			await scopeWith({ touched: true, touchedBase: "head" }),
+		).toMatchObject({ touchedBase: "head" });
+		expect(
+			await scopeWith({ touched: true, touchedBase: "merge-base" }),
+		).toMatchObject({ touchedBase: "merge-base" });
+		expect(await scopeWith({})).not.toHaveProperty("touchedBase");
+	});
+
 	it("records the admission weight the run carried, for the ledger (#2931)", async () => {
 		expect(
 			await scopeWith({ resolvedFiles: 485, wholeSlot: true }),

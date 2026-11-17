@@ -934,7 +934,6 @@ describe("the manifest", () => {
 			["guard-sweep-fire", "Bash", "closed", "function"],
 			["guard-claimed-bash-write", "Bash", "open", "function"],
 			["guard-file-claim", "Write|Edit|NotebookEdit", "closed", "function"],
-			["guard-last30days", "Skill", "closed", "function"],
 			["inject-review-tier", "Skill", "open", "function"],
 			["guard-review-rules", "Skill", "closed", "function"],
 			["inject-founder-wording", "Skill", "open", "function"],

@@ -350,7 +350,6 @@ describe("every guard, not just the file-claim one (mantahostels#147)", () => {
 		"guard-file-claim.sh",
 		"guard-issue-body.sh",
 		"guard-issue-close.sh",
-		"guard-last30days.sh",
 		"guard-pull-form.sh",
 	];
 
@@ -364,10 +363,10 @@ describe("every guard, not just the file-claim one (mantahostels#147)", () => {
 
 	it("names every guard that spoke, not just the first", () => {
 		logAt(new Date(), "jq not found", "guard-branch.sh");
-		logAt(new Date(), "jq not found", "guard-last30days.sh");
+		logAt(new Date(), "jq not found", "guard-pull-form.sh");
 		const r = run([]);
 		expect(r.stderr).toContain("guard-branch.sh");
-		expect(r.stderr).toContain("guard-last30days.sh");
+		expect(r.stderr).toContain("guard-pull-form.sh");
 	});
 
 	it("collapses a repeated fault to one line with a count", () => {

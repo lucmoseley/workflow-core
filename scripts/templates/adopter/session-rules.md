@@ -10,6 +10,11 @@
 
 Read before the first tool call. The `rule:<id>` in brackets is what a guard hands you at the moment of use; fetch any of them with `scripts/lib/rule-text.sh <id>`. A rule a guard prints when it bites is not repeated here. Switching a module on, the on-demand repo checks and what the plugin installed: `.claude/workflow-core.reference.md`, which never loads at start.
 
+## Ground truth
+
+- Where two rules conflict, the more specific wins, and a guard's deny text wins over any file. `CLAUDE.md` beats `AGENTS.md`; both beat the harness's own defaults.
+- Claude model and effort policy: the core's `docs/effort-guide.md`, in the plugin root.
+
 ## Working with the tracker
 
 GitHub Issues on this repo, via `gh`. **Run `gh` in the foreground, and re-run an empty result once before believing it.**
@@ -32,6 +37,11 @@ GitHub Issues on this repo, via `gh`. **Run `gh` in the foreground, and re-run a
 - **A turn ends only on a real question or a notification you are waiting for — never on a progress report.** Unenforced.
 - **A question round enumerates its answers as lettered, priced options**; `result:` asserts nothing further waits on {{founder}}. **Enforced**: `guard-priced-options.js`.
 
+## Working patterns
+
+- Queue actionable items at the moment they're agreed — including recommendations buried in prose, not just explicit requests. Audit against that compiled ledger.
+- **Test a blocker before it ends a turn** — run the command, attempt the edit, check the tool — rather than inferring it can't be done. Where it genuinely can't be finished this session, record the verified reason where the work lives (a ticket comment or new ticket) and keep going on whatever else is reachable.
+
 ## Questions to {{founder}}
 
 - **Only a house decision reaches {{founder}}** (a choice research cannot make, because it turns on what only {{founder}} holds: goals and limits, a fact about his world, a preference, or a point on a curve research has measured). Before any question, a clarifying one included, research it as far as any source can: the repo, trackers, his recorded words, published work. Ask only the gap left, named. Approval is owed only for a house decision or an act hard to undo or seen outside; any other choice is a delegated decision: make it, then run `node scripts/record-delegated-decision.js <n>`.
@@ -47,14 +57,14 @@ GitHub Issues on this repo, via `gh`. **Run `gh` in the foreground, and re-run a
 
 ## Skills
 
-- Domain terms: root `GLOSSARY.md` + `docs/adr/`, made lazily by `domain-modeling` when a term is first contested.
+- Domain terms: root `GLOSSARY.md` + `docs/adr/`, made lazily by `domain-modeling` when a term is first contested. The core's own terms, which these rules cite: `.claude/workflow-core.glossary.md`, rewritten on every bump.
 
 ## Gates every commit meets
 
 - **The doc-map gate SKIPs mid-merge, printing nothing — a silent pass is not a pass**.
 - [roadmap] `docs/reference-roadmap.html` is the sole authority for card status, phase and content: read `docs/roadmap-digest.md` before answering a card-state question, and open the HTML to build a card.
 - [governance] **Before editing a tracked document, read its class in `docs/doc-map.md` §A.** Unenforced for every class but `derived` and `generated-only`.
-- [governance] Settling a load-bearing fact about the project's world obliges its `docs/doc-map.md` §B entry that session; a ruling about the repo's own machinery earns none. Read `docs/doc-map.md` §The propagation pass before propagating anything.
+- [governance] Settling a load-bearing fact about the project's world obliges its `docs/doc-map.md` §B entry that session; a ruling about the repo's own machinery earns none. Read `.claude/workflow-core.doc-map.md` §The propagation pass before propagating anything.
 - [governance] **Any fact you settle is filed that session, to the document that owns its subject.** Where that owner is the ticket in hand, comment on it, opening the comment `**Captured fact:**`, and mark it consumed at once: `node scripts/capture-drain.js mark <comment-id>`. Unenforced.
 
 ## Machine

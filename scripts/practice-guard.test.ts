@@ -312,6 +312,9 @@ describe("the Stop limb", () => {
 	const bad = "docs/practice/technical-documentation.md";
 	const boundary = "docs/practice/web-frontend-development.md";
 	const lastDay = "docs/practice/data-schema-and-validation.md";
+	/* An adopter's fallback: the plugin's own copy, outside the work tree (#5294). */
+	const pluginNote = () =>
+		path.join(dir, "plugin", "docs", "practice", "llm-evaluation.md");
 	const noKind =
 		'is no exempt kind: the line opens with a kind\'s whole phrase, its last word singular or plural, and no word before it but "a", "an" or "the", as in "version bump of biome"';
 	const clause = (phrase: string) =>
@@ -332,6 +335,8 @@ describe("the Stop limb", () => {
 		fs.writeFileSync(path.join(repo, undated), "# craft\n");
 		fs.writeFileSync(path.join(repo, bad), dated("2026-13-45"));
 		fs.writeFileSync(path.join(repo, precedent), "# logo precedent\n");
+		fs.mkdirSync(path.dirname(pluginNote()), { recursive: true });
+		fs.writeFileSync(pluginNote(), dated(FIVE_MONTHS_AGO));
 	});
 
 	describe("is silent where the session wrote nothing tracked", () => {
@@ -370,6 +375,10 @@ describe("the Stop limb", () => {
 			[
 				"covered — a note on its last day before 6 months (#2601)",
 				() => [declared(`covered — ${lastDay}, ${SIX_MONTHS_LESS_A_DAY}`)],
+			],
+			[
+				"covered — the plugin's note, by absolute path (#5294)",
+				() => [declared(`covered — ${pluginNote()}, ${FIVE_MONTHS_AGO}`)],
 			],
 			[
 				"none-fits — an on-list nearest craft",

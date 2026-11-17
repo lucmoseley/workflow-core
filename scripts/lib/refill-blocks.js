@@ -25,7 +25,13 @@ const {
 	BOOT_UNREAD_PROMPT,
 } = require("./loop-prompts.js");
 const { buildResumeWaitLine } = require("./refill-decide.js");
-const { buildMovedReason, seatIdOf } = require("./refill-seats.js");
+const {
+	adoptOnSeat,
+	buildCarriedText,
+	carriedOnto,
+	resumeOnSeat,
+} = require("./refill-carry.js");
+const { seatIdOf } = require("./refill-seats.js");
 const {
 	PARKED_STATE,
 	blockedIdsOf,
@@ -1270,8 +1276,9 @@ function resumableOf(launches, { agents, io, swapHold }) {
 }
 
 /**
- * `l` after its step resume `r` of session `from` at `at`, on seat `to`: one a restart killed is watched from the resume for a turn,
- * however many holds it meets on the way (isIdleSinceBootResume).
+ * `l` after its step resume `r` of session `from` at `at`, on seat `to`: one a
+ * restart killed is watched from the resume for a turn, however many holds it
+ * meets on the way (isIdleSinceBootResume).
  * @param {JobLaunch} l
  * @param {ReturnType<typeof stepResumeOf>} step
  * @param {Extract<Resumed, {failed: null}> & {fromSessionId: string}} r
@@ -1279,9 +1286,7 @@ function resumableOf(launches, { agents, io, swapHold }) {
  * @returns {LoopLaunch}
  */
 function afterStepResume(l, { rest, watchesTurn }, r, { at, to }) {
-	const on = to
-		? { ...rest, ...seatIdOf({ seat: to }), reason: buildMovedReason(l.seat) }
-		: rest;
+	const on = { ...rest, ...carriedOnto(l.seat, to) };
 	const resumed = relaunched(on, r, at, { tookSlot: true });
 	return watchesTurn || l.bootResumedAt !== undefined
 		? { ...resumed, bootResumedAt: at }
@@ -1317,14 +1322,10 @@ function adoptUnrecordedCopy(l, seen) {
 	const { held, what, why } = step;
 	const { sessionId, cwd, resumeStartedAt: at, resumeTo: to } = held;
 	if (at === undefined || !sessionId) return null;
-	const r = to
-		? seen.io.adoptResumed(
-				{ ...l, ...seatIdOf({ seat: to }) },
-				{ sessionId, cwd },
-				at,
-				{ seat: to },
-			)
-		: seen.io.adoptResumed(l, { sessionId, cwd }, at);
+	const r = adoptOnSeat(seen.io.adoptResumed, l, to, {
+		ids: { sessionId, cwd },
+		since: at,
+	});
 	if (r === null) return null;
 	if ("unread" in r) {
 		seen.io.log(
@@ -1367,9 +1368,12 @@ function resumeStepHeld(l, seen, to) {
 		return { launch: handOff(rest, seen, true), started: false };
 	}
 	const unpark = () => unparkStepped(l, sessionId, step, io);
-	const r = to
-		? io.moveSession(l, { seat: to }, step.prompt, { sessionId, cwd })
-		: step.resume(io, { sessionId, cwd });
+	const ids = { sessionId, cwd };
+	const r = resumeOnSeat(io, l, to, {
+		prompt: step.prompt,
+		ids,
+		inPlace: () => step.resume(io, ids),
+	});
 	if (r.failed === null) {
 		const launch = afterStepResume(
 			l,
@@ -1377,9 +1381,8 @@ function resumeStepHeld(l, seen, to) {
 			{ ...r, fromSessionId: sessionId },
 			{ at: now, to },
 		);
-		const moved = to ? `, moved from ${l.seat} to ${to}` : "";
 		io.log(
-			`resumed ${what}, ${why}, by --bg --resume${moved}, ${buildResumedHow(r)}`,
+			`resumed ${what}, ${why}, by --bg --resume${buildCarriedText(l.seat, to)}, ${buildResumedHow(r)}`,
 		);
 		unpark();
 		return { launch, started: true };

@@ -826,4 +826,3 @@ node '<absolute path to the main checkout>'/scripts/adopt-guard-code.js
 
 ⚠ **A `claude plugin` command writes enablement keys into `.claude/settings.json` — this repo's tracked file — and can empty the user one.** Measured at mantahostels#3246. **Read `git diff .claude/settings.json` and the user file's `enabledPlugins` after any plugin command**, and reverse what you did not intend with a targeted edit, never `git checkout --` (mantahostels#250).
 
-**A plugin update lands in a fresh cache directory carrying the upstream's hook files.** The version is in the path, so a hand edit to a plugin's `hooks.json` does not survive an update. `scripts/silence-last30days-hook.sh` does that for the one plugin this repo silences; `--check` reports without writing.

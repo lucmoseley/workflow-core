@@ -48,9 +48,12 @@ const validate = (dir: string) => {
 	return ran.stdout;
 };
 /** Each module's hook line, `❯ ./register.ts hooks: …`; never the
- * `Validating hooks: <path>` header above it. */
+ * `Validating hooks: <path>` header above it. A `(default matcher key: …)`
+ * note the validator adds since Claude Code 2.1.326 names no hook. */
 const hooked = (stdout: string) =>
-	[...stdout.matchAll(/\.tsx? hooks: (.+)$/gm)].map((m) => m[1]);
+	[...stdout.matchAll(/\.tsx? hooks: (.+)$/gm)].map((m) =>
+		m[1].replaceAll(/ \(default matcher key: [^)]*\)/g, ""),
+	);
 
 describe.skipIf(!hasClaude).each(MODS)(
 	"$mod under claude plugin validate",

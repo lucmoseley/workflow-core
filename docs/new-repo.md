@@ -29,6 +29,8 @@ Then comes one confirmation: a dry run that makes every check first and shows wh
 
 A report with one line per step, each done, skipped, repaired or STOPPED. Then the ~/.bashrc block with its line range — written, or kept as it was where you already had one; a line telling you to open a new terminal tab and which alias to type there, the one for the plan you are on; and the first prompt, ready to paste into that new session. That session fills the map in.
 
+What the new repo gets from the core, what it writes for itself and what it never gets: [the adopter boundary page](adopter-boundary.md).
+
 An empty repo starts with no module on and no test command. Once its first test, roadmap, manual or site lands, its next commit is refused until the matching switch is set, so no gate waits on anyone remembering it.
 
 ## When it stops part-way
@@ -51,7 +53,7 @@ A module switches on extra rules and gates. Each needs documents or tests a new 
 
 - **roadmap** — the roadmap page and its digest, changed only through the roadmap-edit skill. On once the roadmap page exists.
 - **governance** — the document map's figure registry and the operating manual. On once the manual or a figure-registry entry exists.
-- **suites** — the test-suite rules: a green run records a certificate, and a bare re-run of a tree certificates attest is refused once. On for a copied repo holding tests or a test command. Any test file also needs its test command declared, whatever this module says.
+- **suites** — the vitest suite rules: the targeted-runs rule, the suite-size drift check, the suite-queue wait report and the ci-red label, each written for vitest. On for a copied repo whose tests run on vitest. Any test file also needs its test command declared, whatever this module says; whether a commit runs that command is its verdict probe's answer, not this module's.
 - **site** — the rendered pages and their copy checks, gating a commit that touches them. On once the brand sheet and the site's pages both exist.
 - **mutation** — a commit changing a line on a declared sensitive path is refused while a planted bug on that line survives every test. Never on by itself: switch it on only where those paths are tested in-process by vitest.
 

@@ -226,41 +226,64 @@ function readCiRecord(root, timings) {
 	};
 }
 
+/* Above any open-issue count this tracker has held; an issue past it costs
+ * its file the ticket, never the run its end. */
+const OPEN_ISSUE_LIMIT = 1000;
+
 /**
  * The open issues whose title names `file`'s basename, in the tracker `gh`
- * reads from `root`, oldest first.
+ * reads from `root`, oldest first. The open issues are listed once a report,
+ * on the first file asked about: one search per file spent a minute of the
+ * search API's 30-a-minute limit for each 30 files over budget, past a gate's
+ * suite ceiling on a wide run (#5296).
  * @param {string} root
  * @returns {TicketFinder}
  */
-const openTicketFinder = (root) => (file) => {
-	const name = path.basename(file);
-	/* The whole name, so `old.test.ts` never matches `bold.test.tsx`. */
-	const named = new RegExp(`(?:^|[^\\w.-])${escapeRe(name)}(?![\\w-]|\\.\\w)`);
-	try {
-		/** @type {{ number: number, title: string }[]} */
-		const rows = ghJson(
-			[
-				"issue",
-				"list",
-				"--state",
-				"open",
-				"--search",
-				`"${name}" in:title`,
-				"--json",
-				"number,title",
-			],
-			{ cwd: root, timeout: TICKET_TIMEOUT_MS },
+const openTicketFinder = (root) => {
+	/** @type {{ rows: { number: number, title: string }[] } | { failed: string } | undefined} */
+	let open;
+	return (file) => {
+		open ??= listOpenIssues(root);
+		if ("failed" in open) return open;
+		const name = path.basename(file);
+		/* The whole name, so `old.test.ts` never matches `bold.test.tsx`. */
+		const named = new RegExp(
+			`(?:^|[^\\w.-])${escapeRe(name)}(?![\\w-]|\\.\\w)`,
 		);
 		return {
-			tickets: rows
+			tickets: open.rows
 				.filter((r) => named.test(r.title))
 				.sort((a, b) => a.number - b.number),
+		};
+	};
+};
+
+/**
+ * @param {string} root
+ * @returns {{ rows: { number: number, title: string }[] } | { failed: string }}
+ */
+function listOpenIssues(root) {
+	try {
+		return {
+			rows: ghJson(
+				[
+					"issue",
+					"list",
+					"--state",
+					"open",
+					"--limit",
+					String(OPEN_ISSUE_LIMIT),
+					"--json",
+					"number,title",
+				],
+				{ cwd: root, timeout: TICKET_TIMEOUT_MS },
+			),
 		};
 	} catch (error) {
 		/* Fails open (mantahostels#2255). */
 		return { failed: parseErrLine(error) };
 	}
-};
+}
 
 /**
  * @typedef {{ platform?: string, loadavg?: () => number[], freemem?: () => number }} MachineSeams

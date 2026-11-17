@@ -383,12 +383,15 @@ function classExemptMatchers(register) {
  * would sit DEAD-ENTRY until the first file lands, so the first file is covered
  * here instead — `manual-sync`'s archives (#428), the context-cost table an
  * upgrade may seed (#679), the two host registries it seeds (#1456), the
- * session cost table it builds from the host's dispatch ledger (#1734), and
- * the rules file's never-imported sibling (#2035).
+ * session cost table it builds from the host's dispatch ledger (#1734),
+ * the rules file's never-imported sibling (#2035), and the core glossary and
+ * doc-map method every bump rewrites (#5294).
  * @type {Readonly<Record<string, string>>}
  */
 const CORE_CLASSES = Object.freeze({
 	".claude/workflow-core.reference.md": "generated-only",
+	".claude/workflow-core.glossary.md": "generated-only",
+	".claude/workflow-core.doc-map.md": "generated-only",
 	"docs/archive/sync-proposals/*": "free-edit",
 	"docs/archive/sync-reports/*": "free-edit",
 	".claude/plugin-context-cost.json": "source-of-truth",
