@@ -37,7 +37,7 @@
 	"scripts/check-stray-scratch.js": "768d1d82f9260d20",
 	"scripts/check-superseded-values.js": "60924f515e2e2c1e",
 	"scripts/check-vendored-skills.js": "b95f3d8de41075ca",
-	"scripts/check-weakens-line.js": "2b57a4e85e1650a4",
+	"scripts/check-weakens-line.js": "de5f2a3b61be59eb",
 	"scripts/check-website-copy.js": "8c1da408b26b9275",
 	"scripts/check-workflow-permissions.js": "2fe8b9421061e614",
 	"scripts/claim-issue.js": "69f4859f638c24d7",

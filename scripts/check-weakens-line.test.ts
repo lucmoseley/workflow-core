@@ -140,6 +140,72 @@ describe("check-weakens-line (#2235)", () => {
 		},
 	);
 
+	describe("a removed guard (#5378)", () => {
+		const manifest = "scripts/lib/guard-cores.json";
+		const row = (name: string, core: string) => ({
+			name,
+			core,
+			tools: "Bash",
+			failure: "closed",
+			tree: "host",
+		});
+		const cores = (...rows: object[]) => config({ PreToolUse: rows });
+		const kept = row("guard-kept", "kept.js");
+
+		it("refuses a row dropped from guard-cores.json until a Weakens: line names its id", () => {
+			write(manifest, cores(kept, row("guard-last30days", "last30days.js")));
+			seed();
+			write(manifest, cores(kept));
+			const r = commit("drop it");
+			expectRefused(r, "guard-last30days");
+			expect(r.out).toContain(`guard-last30days dropped from ${manifest}`);
+			expect(
+				commit("drop it\n\nWeakens: guard-last30days — ruled at #1\n").status,
+			).toBe(0);
+		});
+
+		it("refuses a row dropped from one event while its name stays on another", () => {
+			const x = row("guard-x", "x.js");
+			write(manifest, config({ PreToolUse: [kept, x], PostToolUse: [x] }));
+			seed();
+			write(manifest, config({ PreToolUse: [kept], PostToolUse: [x] }));
+			const r = commit("narrow it");
+			expectRefused(r, "guard-x");
+			expect(r.out).toContain(`guard-x dropped from ${manifest}'s PreToolUse`);
+		});
+
+		it.each([
+			[
+				"its name, on the same core module",
+				row("guard-recency", "last30days.js"),
+			],
+			[
+				"its core module, under the same name",
+				row("guard-last30days", "recency.js"),
+			],
+		])("passes a row renamed in %s", (_, renamed) => {
+			write(manifest, cores(kept, row("guard-last30days", "last30days.js")));
+			seed();
+			write(manifest, cores(kept, renamed));
+			expect(commit("rename it").status).toBe(0);
+		});
+
+		it("refuses a deleted scripts/guard-*.js, naming its id, and passes one git pairs as a rename", () => {
+			const body = Array.from({ length: 6 }, (_, i) => `// line ${i}\n`).join(
+				"",
+			);
+			write("scripts/guard-foo.js", body);
+			write("scripts/guard-bar.js", body);
+			seed();
+			fs.rmSync(path.join(dir, "scripts/guard-foo.js"));
+			expectRefused(commit("drop foo"), "guard-foo");
+			expect(commit("drop foo\n\nWeakens: guard-foo — #1\n").status).toBe(0);
+			fs.rmSync(path.join(dir, "scripts/guard-bar.js"));
+			write("scripts/guard-baz.js", body);
+			expect(commit("rename bar").status).toBe(0);
+		});
+	});
+
 	it.each<{ case: string; after: string[]; name: string }>([
 		{
 			case: "a check script's step removed",

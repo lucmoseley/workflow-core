@@ -25174,6 +25174,7 @@
 			"scripts/check-host-root.test.ts",
 			"scripts/check-instruction-surface.test.ts",
 			"scripts/check-vendored-skills.test.ts",
+			"scripts/check-weakens-line.test.ts",
 			"scripts/commit-msg-dispatch.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
