@@ -21,6 +21,7 @@ const { scriptPath } = require("./lib/script-path.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { caught } = require("./lib/caught.js");
 const { capture } = require("./lib/check-sink.js");
+const { shipsPlugin } = require("./lib/plugin-state.js");
 const { writeFd } = require("./lib/write-fd.js");
 const {
 	DOC_MAP_METHOD_FILE,
@@ -39,7 +40,7 @@ const {
  * @returns {number}
  */
 function render(root, { check }, write) {
-	if (!require("./check-host-root.js").shipsPlugin(root)) {
+	if (!shipsPlugin(root)) {
 		write(
 			1,
 			"SKIP: this repo ships no plugin, so its glossary and doc map are its own\n",

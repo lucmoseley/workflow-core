@@ -23,7 +23,8 @@ const { relativeUnder } = require("./is-under.js");
  * @returns {string[]}
  */
 function faultsOf(root, rel) {
-	const { fileFaults, shipsPlugin } = require("../check-host-root.js");
+	const { fileFaults } = require("../check-host-root.js");
+	const { shipsPlugin } = require("./plugin-state.js");
 	if (!shipsPlugin(root)) return [];
 	const out = fileFaults(root, rel);
 	if (fs.existsSync(path.join(__dirname, "plugin-tree.js"))) {

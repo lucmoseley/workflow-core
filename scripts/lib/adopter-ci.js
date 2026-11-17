@@ -38,7 +38,8 @@ const CI_WORKFLOW = ".github/workflows/workflow-core-ci.yml";
  * adopter's own and never touched. */
 const CI_MARKER = "# CORE-OWNED.";
 
-/* Untraced: a guess, carried as one on #5347's close. */
+/* About five times the 2.9-minute job #5347's close measured; a guess past
+ * that, carried as one there. */
 const DEFAULT_TIMEOUT_MINUTES = 15;
 
 /* actions/checkout v4, pinned to a full commit sha as GitHub's secure-use
@@ -100,8 +101,10 @@ jobs:
           try {
             settings = JSON.parse(fs.readFileSync(".claude/settings.json", "utf8"));
           } catch (e) {
-            console.error(\`.claude/settings.json will not read, so no workflow-core pin can be found: \${e.message}\`);
-            process.exit(1);
+            if (e.code !== "ENOENT") {
+              console.error(\`.claude/settings.json will not read, so no workflow-core pin can be found: \${e.message} — commit a settings.json that parses and pins a workflow-core release tag\`);
+              process.exit(1);
+            }
           }
           const known = settings?.extraKnownMarketplaces ?? {};
           const key = Object.keys(settings?.enabledPlugins ?? {}).find((k) => {
