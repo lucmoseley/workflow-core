@@ -1,17 +1,28 @@
 // @vitest-environment node
+/*
+ * Pins lib/session-bar-carry.js, which keeps a session bar in the
+ * usage-probe recording when the probed seat lists none (#5332). Breaking it
+ * costs the suite: a session-less re-record leaves the fake no session line
+ * to print, and every case setting a session percent fails to load. Plain
+ * recordings, since the carry reads only their harness, lines and limits.
+ */
 import { describe, expect, it } from "vitest";
-import { carrySessionBar, sessionBarOf } from "./session-bar-carry.js";
+import { carrySessionBar } from "./session-bar-carry.js";
 
 const SESSION_LINE = "Current session: 37% used · resets Oct 28, 12:20am (UTC)";
 const WEEK_LINE =
 	"Current week (all models): 96% used · resets Nov 1, 8pm (UTC)";
-const session = { kind: "session", percent: 37 };
-const week = { kind: "weekly_all", percent: 96 };
+const SESSION_LIMIT = { kind: "session", percent: 37 };
+const WEEK_LIMIT = { kind: "weekly_all", percent: 96 };
 
 const recording = (harness: string, withSession: boolean) => ({
 	harness,
 	printed: withSession ? [SESSION_LINE, WEEK_LINE] : [WEEK_LINE],
-	cache: { utilization: { limits: withSession ? [session, week] : [week] } },
+	cache: {
+		utilization: {
+			limits: withSession ? [SESSION_LIMIT, WEEK_LIMIT] : [WEEK_LIMIT],
+		},
+	},
 });
 
 describe("carrySessionBar (#5332)", () => {
@@ -24,7 +35,11 @@ describe("carrySessionBar (#5332)", () => {
 		expect(
 			carrySessionBar(recording("2.1.326", false), recording("2.1.311", true))
 				.sessionBar,
-		).toEqual({ harness: "2.1.311", printed: SESSION_LINE, limit: session });
+		).toEqual({
+			harness: "2.1.311",
+			printed: SESSION_LINE,
+			limit: SESSION_LIMIT,
+		});
 	});
 
 	it("carries a bar the previous recording itself carried", () => {
@@ -50,10 +65,14 @@ describe("carrySessionBar (#5332)", () => {
 	it("refuses a bar printed but not cached, or the reverse", () => {
 		const printedOnly = {
 			...recording("2.1.326", true),
-			cache: { utilization: { limits: [week] } },
+			cache: { utilization: { limits: [WEEK_LIMIT] } },
 		};
-		expect(() => sessionBarOf(printedOnly)).toThrow(/printed a session bar/);
+		expect(() => carrySessionBar(printedOnly, null)).toThrow(
+			/printed a session bar/,
+		);
 		const cachedOnly = { ...recording("2.1.326", true), printed: [WEEK_LINE] };
-		expect(() => sessionBarOf(cachedOnly)).toThrow(/cached a session bar/);
+		expect(() => carrySessionBar(cachedOnly, null)).toThrow(
+			/cached a session bar/,
+		);
 	});
 });

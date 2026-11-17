@@ -9,6 +9,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { SESSION_PREFIX, type SessionBar } from "./session-bar-carry.js";
 import { shellQuote } from "./sh-quote.js";
 
 interface Limit {
@@ -30,7 +31,7 @@ export const recorded: {
 	};
 	/** The session bar an earlier harness recorded, kept when this probe's
 	 * seat listed none (lib/session-bar-carry.js). */
-	sessionBar?: { harness: string; printed: string; limit: Limit };
+	sessionBar?: SessionBar & { limit: Limit };
 } = JSON.parse(
 	fs.readFileSync(
 		path.join(__dirname, "..", "fixtures", "usage-probe.json"),
@@ -44,7 +45,7 @@ export const printedLines = [
 	...recorded.printed,
 	...(recorded.sessionBar ? [recorded.sessionBar.printed] : []),
 ];
-const recordedLimits = [
+export const recordedLimits = [
 	...recorded.cache.utilization.limits,
 	...(recorded.sessionBar ? [recorded.sessionBar.limit] : []),
 ];
@@ -62,7 +63,7 @@ export interface Bars {
 type Kind = "session" | "weekly_all";
 
 const PREFIX: Record<Kind, string> = {
-	session: "Current session:",
+	session: SESSION_PREFIX,
 	weekly_all: "Current week (all models):",
 };
 

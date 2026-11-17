@@ -64,6 +64,7 @@ const {
 } = require("./lib/claude-attach.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { configDir } = require("./lib/config-dir.js");
+const { readText } = require("./lib/file-read.js");
 const { sessionTree } = require("./lib/host-root.js");
 const { jobDirPath, readJobRecord } = require("./lib/job-paths.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
@@ -465,6 +466,14 @@ async function recordUsage() {
 	};
 }
 
+/** The usage-probe fixture this run replaces; null where none is tracked. */
+function previousRecording() {
+	const read = readText(USAGE_FIXTURE);
+	if (read.state === "absent") return null;
+	if (read.state === "unreadable") throw read.error;
+	return JSON.parse(read.data);
+}
+
 /**
  * @param {string} file
  * @param {object} recorded
@@ -492,7 +501,8 @@ async function main() {
 		cwd: process.cwd(),
 	});
 	if (refusal) throw new Error(refusal);
-	const [harness = ""] = claude(["--version"]).stdout.split(" ");
+	const harness = claude(["--version"]).stdout.split(" ")[0];
+	if (!harness) throw new Error("claude --version printed no version");
 	const launched = launch(PROMPT);
 	const original = launched.id;
 	const started = [original];
@@ -656,15 +666,16 @@ async function main() {
 	}
 	/* Last, once every job is stopped, so its wait or a failure costs no
 	 * other fixture. */
-	writeFixture(
-		USAGE_FIXTURE,
-		carrySessionBar(
-			{ recordedBy: RECORDED_BY, harness, ...(await recordUsage()) },
-			fs.existsSync(USAGE_FIXTURE)
-				? JSON.parse(fs.readFileSync(USAGE_FIXTURE, "utf8"))
-				: null,
-		),
+	const usage = carrySessionBar(
+		{ recordedBy: RECORDED_BY, harness, ...(await recordUsage()) },
+		previousRecording(),
 	);
+	if (usage.sessionBar)
+		writeFd(
+			2,
+			`the seat listed no session bar: kept ${usage.sessionBar.harness}'s, which this harness's shape goes unchecked against\n`,
+		);
+	writeFixture(USAGE_FIXTURE, usage);
 }
 
 main().catch((e) => {

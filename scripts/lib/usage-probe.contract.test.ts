@@ -25,6 +25,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readAllowance } from "./allowance.js";
 import { writeClaudeStub } from "./claude-stub";
+import { SESSION_PREFIX } from "./session-bar-carry.js";
 import { readUsageCache } from "./usage-cache.js";
 import {
 	buildRefreshBranch,
@@ -34,6 +35,7 @@ import {
 	printedLines,
 	recorded,
 	recordedLimit,
+	recordedLimits,
 } from "./usage-probe-fake";
 
 let dir: string;
@@ -69,6 +71,10 @@ const keyTypes = (o: object) =>
 		.map(([key, value]) => `${key}:${value === null ? "null" : typeof value}`)
 		.sort();
 
+/** The order the fake writes its bars in: a carried session bar sits last
+ * in the recording but first in a written cache. */
+const KIND_ORDER = ["session", "weekly_all", "weekly_scoped"];
+
 /** The written bars are of `kinds`, in order, each of its recorded bar's
  * key types. */
 const expectRecordedBars = (limits: { kind: string }[], kinds: string[]) => {
@@ -79,8 +85,8 @@ const expectRecordedBars = (limits: { kind: string }[], kinds: string[]) => {
 
 /** The recording's printed lines and cached limits, less its session bar:
  * what a seat listing none answers. */
-const sessionless = {
-	printed: recorded.printed.filter((l) => !l.startsWith("Current session:")),
+const SESSIONLESS = {
+	printed: recorded.printed.filter((l) => !l.startsWith(SESSION_PREFIX)),
 	limits: recorded.cache.utilization.limits.filter((l) => l.kind !== "session"),
 };
 
@@ -98,14 +104,20 @@ describe("the /usage fake against the recording (#3266)", () => {
 		});
 	});
 
+	// The session-less pair of the case above, which reads both bars.
 	it("answers a seat with no session bar as the recording read without one (#5332)", () => {
 		const week = recordedPercent("weekly_all");
-		const printedTrust = (usageText: string) =>
-			readAllowance({ configDir: path.join(dir, "no-seat"), usageText }).session
-				.trust;
-		expect(printedTrust(buildUsageText({ week }))).toBe("unreported");
-		expect(printedTrust(sessionless.printed.join("\n"))).toBe("unreported");
-		const cachedTrust = (limits: unknown[]) => {
+		/** The session bar's trust and the week's percent, as read. */
+		const reading = (opts: { configDir: string; usageText?: string }) => {
+			const { session, weekly_all } = readAllowance(opts);
+			return [session.trust, weekly_all.percent];
+		};
+		const printed = (lines: string[]) =>
+			reading({
+				configDir: path.join(dir, "no-seat"),
+				usageText: lines.join("\n"),
+			});
+		const cached = (limits: unknown[]) => {
 			writeConfig(
 				JSON.stringify({
 					cachedUsageUtilization: {
@@ -115,22 +127,25 @@ describe("the /usage fake against the recording (#3266)", () => {
 					},
 				}),
 			);
-			return readAllowance({ configDir: dir }).session.trust;
+			return reading({ configDir: dir });
 		};
+		const expected = ["unreported", week];
+		expect(printed(SESSIONLESS.printed)).toEqual(expected);
+		expect(printed([buildUsageText({ week })])).toEqual(expected);
 		expect(
-			cachedTrust(
-				buildUsageCache({ week }, Date.now()).cachedUsageUtilization.utilization
-					.limits,
-			),
-		).toBe("unreported");
-		expect(
-			cachedTrust(
-				sessionless.limits.map((l) => ({
+			cached(
+				SESSIONLESS.limits.map((l) => ({
 					...l,
 					resets_at: new Date(Date.now() + 60_000).toISOString(),
 				})),
 			),
-		).toBe("unreported");
+		).toEqual(expected);
+		expect(
+			cached(
+				buildUsageCache({ week }, Date.now()).cachedUsageUtilization.utilization
+					.limits,
+			),
+		).toEqual(expected);
 	});
 
 	it("writes a cache of the recorded shape, read fresh with its own percents", () => {
@@ -167,7 +182,12 @@ describe("the /usage fake against the recording (#3266)", () => {
 			scoped: [{ model: "Opus", percent: 77, resetsAt }],
 		});
 		const limits = written.cachedUsageUtilization.utilization.limits;
-		expectRecordedBars(limits, ["session", "weekly_all", "weekly_scoped"]);
+		expectRecordedBars(
+			limits,
+			recordedLimits
+				.map((l) => l.kind)
+				.sort((a, b) => KIND_ORDER.indexOf(a) - KIND_ORDER.indexOf(b)),
+		);
 		const scope = (l: Record<string, unknown>) =>
 			(l.scope ?? {}) as { model: object };
 		const recordedScoped = recordedLimit("weekly_scoped");

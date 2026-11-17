@@ -51,9 +51,9 @@ function carrySessionBar(probe, previous) {
 	const carried = previous && sessionBarOf(previous);
 	if (!carried)
 		throw new Error(
-			`${probe.harness} listed no session bar and no earlier recording holds one: re-record once the seat has a five-hour window open`,
+			`${probe.harness} listed no session bar and no earlier recording holds one: re-record once the seat has a five-hour window open, on a plan that has one (#3758)`,
 		);
 	return { ...probe, sessionBar: carried };
 }
 
-module.exports = { carrySessionBar, sessionBarOf };
+module.exports = { SESSION_PREFIX, carrySessionBar };
