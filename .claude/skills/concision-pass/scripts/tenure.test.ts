@@ -53,6 +53,11 @@
  * MUTATIONS RUN ON THE #1238 CLOSED-PIPE CASES: the EPIPE catch removed
  * turned all three red; EPIPE made `process.exit(0)` turned only the exit-3
  * case red. Each was reversed by its inverse edit.
+ *
+ * MUTATIONS RUN ON THE #5311 HANG CASES: READ_OPTS's timeout dropped turned
+ * only the lookup-timeout case red; the entry made to run `main` with no
+ * supervising parent turned only the ceiling case red. Each was reversed by
+ * its inverse edit.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -91,6 +96,16 @@ const commit = (rel: string, message: string) => {
 	git("commit", "-m", message);
 };
 
+/** Replaces the injected `gh` with one that never ends, recording its pid so
+ * afterEach can end it where the run under test only orphaned it. */
+const stubGhHanging = () => {
+	fs.writeFileSync(
+		ghStub,
+		`#!/bin/sh\necho $$ > "${ghStub}.pid"\nexec sleep 60\n`,
+		{ mode: 0o755 },
+	);
+};
+
 /** Replaces the injected `gh` with a script emitting `body` and exiting `code`. */
 const stubGh = (body: string, code = 0) => {
 	fs.writeFileSync(
@@ -100,10 +115,12 @@ const stubGh = (body: string, code = 0) => {
 	);
 };
 
+/** In process, as the worker: the parent's self-spawn would write past the
+ * captured stdout (run-in-process.js limit 6). */
 const runIn = (cwd: string, ...args: string[]) => {
 	const r = runInProcess(TENURE, args, {
 		cwd,
-		env: { ...process.env, WFC_GH: ghStub },
+		env: { ...process.env, WFC_GH: ghStub, TENURE_WORKER: "1" },
 	});
 	return { code: r.status, out: `${r.stdout}${r.stderr}` };
 };
@@ -126,6 +143,11 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+	try {
+		process.kill(Number(fs.readFileSync(`${ghStub}.pid`, "utf8")), "SIGKILL");
+	} catch {
+		// No hanging stub ran, or it is already gone.
+	}
 	fs.rmSync(repo, { recursive: true, force: true });
 });
 
@@ -858,6 +880,54 @@ describe("a reader that closes the pipe early (#1238)", () => {
 
 		expect(r.stdout).toBe("tenure-exit=3\n");
 		expect(r.stderr).not.toContain("EPIPE");
+	});
+});
+
+describe("a lookup that never ends (#5311)", () => {
+	/** The real entry, spawned: the ceiling lives in a parent process. */
+	const spawned = (env: Record<string, string>, ...args: string[]) => {
+		const t = Date.now();
+		// spawn-kept: two processes at once and a timeout (§X3).
+		const r = spawnSync("node", [TENURE, ...args], {
+			cwd: repo,
+			encoding: "utf8",
+			env: { ...process.env, WFC_GH: ghStub, ...env },
+			timeout: 30_000,
+		});
+		return { code: r.status, out: r.stdout + r.stderr, ms: Date.now() - t };
+	};
+
+	it("prints the hung lookup UNRESOLVED at its timeout and still reports the rest", () => {
+		write("doc.md", `${SENTENCE}\n`);
+		commit("doc.md", "add the rule");
+		stubGhHanging();
+
+		const r = spawned({ TENURE_LOOKUP_TIMEOUT_MS: "1000" }, SENTENCE, "doc.md");
+
+		expect(r.code).toBe(3);
+		expect(r.out).toMatch(
+			/2\. earlier ruling[^\n]*\n {3}UNRESOLVED: gh issue list failed: timed out after 1 s/,
+		);
+		expect(r.out).toContain("COMMIT");
+		expect(r.ms).toBeLessThan(15_000);
+	});
+
+	it("kills a run past the ceiling and exits 3, whatever its lookups' caps", () => {
+		write("doc.md", `${SENTENCE}\n`);
+		commit("doc.md", "add the rule");
+		stubGhHanging();
+
+		const r = spawned(
+			{ TENURE_LOOKUP_TIMEOUT_MS: "60000", TENURE_CEILING_MS: "2000" },
+			SENTENCE,
+			"doc.md",
+		);
+
+		expect(r.code).toBe(3);
+		expect(r.out).toContain(
+			"UNRESOLVED: tenure.js ran past its 2 s ceiling and was killed",
+		);
+		expect(r.ms).toBeLessThan(15_000);
 	});
 });
 

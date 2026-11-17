@@ -12,7 +12,9 @@
  * proof of absence (mantahostels#1114, mantahostels#587).
  *
  * Exit 0 — every lookup ran, whether or not it found anything.
- * Exit 3 — something is unresolved; the step goes back to the agent.
+ * Exit 3 — something is unresolved; the step goes back to the agent. A lookup
+ *          past its timeout is unresolved, and so is a run past the
+ *          ceiling (#5311).
  * Exit 1 — usage or IO error. A reader closing the pipe early is neither:
  *          output stops and the code above stands (#1238).
  *
@@ -24,7 +26,7 @@
 
 const fs = require("node:fs");
 const { writeFd } = require("../../../../scripts/lib/write-fd.js");
-const { execFileSync } = require("node:child_process");
+const { execFileSync, spawnSync } = require("node:child_process");
 const { execGit } = require("../../../../scripts/lib/git.js");
 const { gh: runGh } = require("../../../../scripts/lib/gh.js");
 const {
@@ -69,6 +71,18 @@ const MAX_BUFFER = 64e6;
 
 const GREP_TARGETS = ["scripts", "docs/doc-map.md"];
 
+/** Each subprocess's cap: `scripts/lib/gh.js`'s GH_TIMEOUT_MS, the slowest
+ * lookup here measured (#2677). The env override is for tests. */
+const LOOKUP_TIMEOUT_MS = Number(process.env.TENURE_LOOKUP_TIMEOUT_MS) || 300e3;
+/** The whole run's cap, enforced from a parent process: a run that hung after
+ * its last write, inside node's own exit, outlived every subprocess cap by
+ * 2 h (#5311). A guess: two slow lookups' worth. The env override is for
+ * tests. */
+const CEILING_MS = Number(process.env.TENURE_CEILING_MS) || 600e3;
+/** Set on the child that does the lookups, so the parent is the only process
+ * the caller waits on. */
+const WORKER_ENV = "TENURE_WORKER";
+
 let readerGone = false;
 /**
  * A reader that closes early (`| head -1`) makes the next write throw EPIPE.
@@ -92,6 +106,8 @@ const READ_OPTS = {
 	encoding: "utf8",
 	maxBuffer: MAX_BUFFER,
 	stdio: ["ignore", "pipe", "pipe"],
+	timeout: LOOKUP_TIMEOUT_MS,
+	killSignal: "SIGKILL",
 };
 
 /**
@@ -116,9 +132,16 @@ function settle(read) {
 		return { status: 0, stdout: read(), stderr: "" };
 	} catch (err) {
 		const e =
-			/** @type {{ status?: unknown, stdout?: unknown, stderr?: unknown, message?: unknown }} */ (
+			/** @type {{ status?: unknown, stdout?: unknown, stderr?: unknown, message?: unknown, code?: unknown }} */ (
 				err
 			);
+		if (e.code === "ETIMEDOUT") {
+			return {
+				status: null,
+				stdout: "",
+				stderr: `timed out after ${LOOKUP_TIMEOUT_MS / 1000} s and was killed`,
+			};
+		}
 		return {
 			status: typeof e.status === "number" ? e.status : null,
 			stdout: typeof e.stdout === "string" ? e.stdout : "",
@@ -841,4 +864,32 @@ function main(argv) {
 	return 0;
 }
 
-if (require.main === module) process.exit(main(process.argv.slice(2)));
+/**
+ * Runs `main` in a child and waits at most CEILING_MS for it. Nothing inside
+ * one process can bound it: a hang in node's own exit runs no timer.
+ *
+ * @param {string[]} argv
+ */
+function supervise(argv) {
+	const r = spawnSync(process.execPath, [__filename, ...argv], {
+		stdio: ["ignore", "inherit", "inherit"],
+		env: { ...process.env, [WORKER_ENV]: "1" },
+		timeout: CEILING_MS,
+		killSignal: "SIGKILL",
+	});
+	if (typeof r.status === "number") return r.status;
+	const why =
+		caught(r.error).code === "ETIMEDOUT"
+			? `ran past its ${CEILING_MS / 1000} s ceiling and was killed`
+			: `ended with no exit code (${r.signal ?? caught(r.error).message})`;
+	out(
+		`\nUNRESOLVED: tenure.js ${why}. Whatever printed above may be incomplete;\n` +
+			"nothing about tenure has been established either way.\n",
+	);
+	return 3;
+}
+
+if (require.main === module) {
+	const argv = process.argv.slice(2);
+	process.exit(process.env[WORKER_ENV] ? main(argv) : supervise(argv));
+}
