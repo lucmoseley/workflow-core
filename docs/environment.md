@@ -328,7 +328,7 @@ A count is admitted by what it needs *resting* in `MemAvailable` immediately bef
 
 ⚠ **The past-the-ladder row, and row 1's 5–120-file cell, are extrapolated**: their 10–12 workers pass the 9 measured, so it charges `w × ~527 MB` per worker past 9, the one-suite dip's share per worker, on top of the 3-suite dip.
 
-**No rung is ever above `MemTotal` less earlyoom's 794 MB line** (#5310): one priced past it — 25 workers price ~13,150 MB — is clamped to that ceiling, and the wait and refusal lines say so (`reachableRung`, `scripts/lib/suite-ladder.js`). MemAvailable at the ceiling means whatever the rung counted as running draws next to nothing.
+**No rung is ever above `MemTotal` less earlyoom's 794 MB line** (#5310): one priced past it is clamped to that ceiling, and the wait and refusal lines say so (`reachableRung`, `scripts/lib/suite-ladder.js`).
 
 **Every rung rests on two rows of its own at 3 workers a suite** (#2862).
 

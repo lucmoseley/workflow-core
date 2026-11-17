@@ -59,9 +59,7 @@ const rungMb = (chargeMb) =>
  * A rung as this machine can meet it (#5310): never above MemTotal less
  * EARLYOOM_FLOOR_MB, the most MemAvailable can ever read with earlyoom's line
  * kept. A rung past that is clamped to it, `ladderMb` keeping the rung as
- * priced; a wait for MemAvailable at the ceiling waits for the machine at its
- * emptiest, when whatever the rung counted as running draws next to nothing.
- * Residual: a run priced past the ceiling launches on less MemAvailable than
+ * priced. Residual: a run priced past the ceiling launches on less MemAvailable than
  * its rung asks, where what the rung counted as running still draws; and an
  * unread MemTotal clamps nothing, the rung waited on as priced.
  * @typedef {{ rungMb: number, ladderMb?: number }} Reach
@@ -78,8 +76,7 @@ function reachableRung(rung, totalMb) {
 }
 
 /**
- * What a clamped rung's reading adds, so a reader tells a rung busy
- * neighbours hold from one the machine could never meet (#5310).
+ * What a clamped rung's reading adds (#5310).
  * @param {number | undefined} ladderMb
  */
 const clampedClause = (ladderMb) =>
