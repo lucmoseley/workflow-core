@@ -967,6 +967,7 @@ describe("the manifest", () => {
 			["guard-issue-phase-scope", "Bash", "closed", "function"],
 			["guard-headroom-read", "Bash", "open", "function"],
 			["guard-hook-escape", "Bash", "closed", "function"],
+			["guard-chrome-merge", "Bash", "closed", "function"],
 			["guard-suite-concurrency", "Bash", "closed", "function"],
 			["guard-unasked-rerun", "Bash", "closed", "function"],
 			["guard-vitest-wrapper", "Bash", "open", "function"],
@@ -1023,6 +1024,7 @@ describe("the manifest", () => {
 			"guard-issue-phase-scope": ["Bash(*gh *)"],
 			"guard-headroom-read": ["Bash(*free *)", "Bash(*/proc/meminfo*)"],
 			"guard-hook-escape": ["Bash(*WFC_ALLOW_*)"],
+			"guard-chrome-merge": ["Bash(*claude-child*)"],
 			"guard-suite-concurrency": [
 				"Bash(*npm *)",
 				"Bash(*node *)",

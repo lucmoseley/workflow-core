@@ -6,8 +6,9 @@
  * `gateFault` judge an entry's gate against a repo's tree and config, for the
  * daily run and for an adopter's CI job (scripts/adopter-ci.js, #5347).
  *
- * LISTED IN RUN ORDER: the tree checks first, then the reporters, then the
- * tracker checks, with clobbered bodies last.
+ * LISTED IN RUN ORDER: the tree checks first, then the machine's Chrome tab
+ * census, then the reporters, then the tracker checks, with clobbered bodies
+ * last.
  *
  * AN ENTRY:
  *   id      the job name in the merged result. The tracker checks keep the
@@ -127,6 +128,15 @@ const REPO_CHECKS = [
 		script: "check-workflow-permissions.js",
 		kind: "check",
 		gate: { input: ".github/workflows" },
+	},
+	/* Core-only: the machine's transcripts are read once, from workflow-core's
+	 * checkout, so one tab is never reported by two repos (#5385). */
+	{
+		id: "chrome-tab-leftovers",
+		script: "check-chrome-tab-leftovers.js",
+		kind: "check",
+		since: true,
+		gate: { core: true },
 	},
 	{
 		id: "manual-staleness",

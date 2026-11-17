@@ -1,15 +1,16 @@
 // @vitest-environment node
 /*
- * Pins the tab tally and the launcher's closing report for a Chrome child
- * (#4847). The rows are hand-built in the extension's own wording
+ * Pins the tab tally, the launcher's closing report and the closer's reading
+ * of a resume for a Chrome child (#4847, #5385). The rows are hand-built in the extension's own wording
  * (lib/chrome-rows-fake.ts), since no Chrome runs under test: where the
  * extension rewords a result, these still pass and only a live run shows it.
  * Loosening one lets a child leave tabs in the founder's tab strip unnamed.
  */
 import { describe, expect, it } from "vitest";
 import {
-	CHROME_STANDING_LINES,
 	chromeOutcome,
+	chromeStandingLines,
+	createCloseReader,
 	createTabTally,
 } from "./chrome-child.js";
 import { buildTabContext, buildToolResultRow } from "./chrome-rows-fake";
@@ -119,56 +120,220 @@ describe("createTabTally", () => {
 });
 
 describe("chromeOutcome", () => {
-	const ended = { left: [], status: 0, signal: null, limitMs: undefined };
+	const Session = "0b8e1c2a-0000-4000-8000-000000000000";
+	const ended = {
+		sessionId: Session,
+		left: [],
+		held: [],
+		status: 0,
+		signal: null,
+		stopped: false,
+		limitMs: undefined,
+		killedBy: undefined,
+		closeCommand: `claude-child.js chrome-close --session ${Session}`,
+	};
 	const result = { type: "result", subtype: "success" };
+	const LeftOpen = /claude-child: the child left \d+ tab\(s\) open/;
+	const line = (out: { stdout: string }) => {
+		expect(out.stdout.endsWith("\n")).toBe(true);
+		expect(out.stdout.trimEnd().split("\n")).toHaveLength(1);
+		return JSON.parse(out.stdout);
+	};
 
 	it("prints the result row with no tab left, saying nothing, at the child's status", () => {
-		expect(chromeOutcome({ ...ended, result, status: 3 })).toEqual({
-			stdout: '{"type":"result","subtype":"success","tabsLeftOpen":[]}\n',
-			stderr: "",
-			exit: 3,
+		const out = chromeOutcome({ ...ended, result, status: 3 });
+		expect(line(out)).toEqual({
+			...result,
+			sessionId: Session,
+			tabsLeftOpen: [],
+			heldTab: null,
+			notes: [],
 		});
+		expect(out.stderr).toBe("");
+		expect(out.exit).toBe(3);
 	});
 
-	it("names each tab left, in the row and on stderr", () => {
-		const end = chromeOutcome({ ...ended, result, left: [NEW_TAB] });
-		expect(JSON.parse(end.stdout).tabsLeftOpen).toEqual([NEW_TAB]);
-		expect(end.stderr).toBe(
-			"claude-child: the child left 1 tab(s) open in its Claude tab group: 1 (chrome://newtab/)\n",
+	it("names each tab left, in the row and on stderr, the note mirrored word for word", () => {
+		const out = chromeOutcome({
+			...ended,
+			result,
+			left: [NEW_TAB],
+			stopped: true,
+		});
+		const row = line(out);
+		expect(row.tabsLeftOpen).toEqual([NEW_TAB]);
+		expect(out.stderr).toMatch(
+			/^claude-child: the child left 1 tab\(s\) open in its Claude tab group: 1 \(chrome:\/\/newtab\/\)/,
 		);
-		expect(end.exit).toBe(0);
+		expect(out.stderr).toContain(Session);
+		expect(row.notes).toEqual([out.stderr.trimEnd()]);
+		expect(out.exit).toBe(0);
+	});
+
+	it("holds one hand-over tab out of tabsLeftOpen and out of the fault's wording", () => {
+		const out = chromeOutcome({
+			...ended,
+			result,
+			held: [NEW_TAB],
+			stopped: true,
+		});
+		const row = line(out);
+		expect(row.tabsLeftOpen).toEqual([]);
+		expect(row.heldTab).toEqual(NEW_TAB);
+		expect(out.stderr).not.toMatch(LeftOpen);
+		expect(out.stderr).toContain('"New tab" (chrome://newtab/)');
+		expect(out.stderr).toContain(ended.closeCommand);
+		expect(out.exit).toBe(0);
+	});
+
+	it("says a hand-over leaves one tab where the child held more, still not in the fault's wording", () => {
+		const other = { tabId: 2, title: "B", url: "https://example.com/" };
+		const out = chromeOutcome({
+			...ended,
+			result,
+			held: [NEW_TAB, other],
+			stopped: true,
+		});
+		expect(out.stderr).toContain("a hand-over leaves one tab");
+		expect(out.stderr).not.toMatch(LeftOpen);
+		expect(line(out).heldTab).toEqual(other);
+	});
+
+	it("fails a stopped child whose result was an error", () => {
+		const out = chromeOutcome({
+			...ended,
+			result: { ...result, subtype: "error_max_turns", is_error: true },
+			left: [NEW_TAB],
+			stopped: true,
+		});
+		expect(out.exit).toBe(1);
 	});
 
 	it.each([
 		[
-			"a child killed at the limit",
-			{ status: null, signal: "SIGTERM", limitMs: 1500 },
-			"claude-child: the child was killed at its 1500 ms limit.\n",
+			"a child that gave no row after its interrupt",
+			{ status: null, signal: "SIGTERM", stopped: true, limitMs: 1500 },
+			"launcher_time_limit",
+			"claude-child: the child gave no result row after its interrupt at its 1500 ms limit, and was stopped.",
 		],
 		[
 			"a child killed from outside",
 			{ status: null, signal: "SIGKILL" },
-			"claude-child: the child was killed by SIGKILL.\n",
+			"launcher_no_result",
+			"claude-child: the child was killed by SIGKILL.",
 		],
 		[
 			"a child that ended clean with no result row",
 			{},
-			"claude-child: the child ended with no result row.\n",
+			"launcher_no_result",
+			"claude-child: the child ended with no result row.",
 		],
-	])("fails %s, saying which", (_, over, stderr) => {
-		expect(chromeOutcome({ ...ended, result: undefined, ...over })).toEqual({
-			stdout: "",
-			stderr,
-			exit: 1,
+		[
+			"a launcher killed by a signal",
+			{ status: null, killedBy: "SIGTERM" },
+			"launcher_killed",
+			`claude-child: the launcher was killed by SIGTERM; a closer resumes session ${Session} to close the child's tabs.`,
+		],
+	])("fails %s with a launcher row, saying which", (_, over, subtype, note) => {
+		const out = chromeOutcome({ ...ended, result: undefined, ...over });
+		expect(line(out)).toMatchObject({
+			type: "result",
+			subtype,
+			result: null,
+			sessionId: Session,
+			notes: [note],
 		});
+		expect(out.stderr).toBe(`${note}\n`);
+		expect(out.exit).toBe(1);
 	});
 });
 
-it("tells the child to close its own tabs and no other", () => {
-	expect(CHROME_STANDING_LINES).toContain(
-		"close every tab in your own tab group",
-	);
-	expect(CHROME_STANDING_LINES).toContain(
-		"Never close a tab or window outside your own tab group.",
-	);
+describe("createCloseReader", () => {
+	const outcome = (...rows: unknown[]) => {
+		const reader = createCloseReader();
+		for (const row of rows) reader.read(row);
+		return reader.outcome();
+	};
+
+	it.each([
+		[
+			"closed, where the last close empties the group",
+			[
+				buildToolResultRow(CONTEXT),
+				buildToolResultRow("Closed tab 2. 1 tab(s) remain."),
+				buildToolResultRow("Closed tab 1. Group is now empty (auto-removed)."),
+			],
+			"closed",
+		],
+		[
+			"closed, where the tab context lists no tab",
+			[buildToolResultRow("\n\nTab Context:\n- Available tabs:\n")],
+			"closed",
+		],
+		[
+			"gone, where the group no longer exists",
+			[
+				buildToolResultRow(
+					"This session's tab group no longer exists. Use createIfEmpty: true to create a new group.",
+				),
+			],
+			"gone",
+		],
+		[
+			"gone, where the session has no group of its own",
+			[
+				buildToolResultRow(
+					"This session has no tab group of its own. Any tabs opened earlier in this conversation may still be open in Chrome.",
+				),
+			],
+			"gone",
+		],
+		[
+			"not-connected, where the bridge did not answer",
+			[buildToolResultRow("Browser extension is not connected.")],
+			"not-connected",
+		],
+		[
+			"failed, where tabs are still listed",
+			[
+				buildToolResultRow(CONTEXT),
+				buildToolResultRow("Closed tab 2. 1 tab(s) remain."),
+			],
+			"failed",
+		],
+		["failed, where no tool ran", [], "failed"],
+	])("reads %s", (_, rows, want) => {
+		expect(outcome(...rows)).toBe(want);
+	});
+
+	it("reads the model's own words as nothing", () => {
+		expect(
+			outcome({
+				type: "assistant",
+				message: { content: [{ type: "text", text: "Group is now empty" }] },
+			}),
+		).toBe("failed");
+	});
+});
+
+describe("chromeStandingLines", () => {
+	it("tells every child to close its own tabs and no other", () => {
+		expect(chromeStandingLines(false)).toContain(
+			"close every tab in your own tab group",
+		);
+		expect(chromeStandingLines(false)).toContain(
+			"whatever the task says about leaving a tab open",
+		);
+		for (const handOver of [false, true])
+			expect(chromeStandingLines(handOver)).toContain(
+				"Never close a tab or window outside your own tab group.",
+			);
+	});
+
+	it("tells a hand-over child to leave exactly one tab, every allowed step taken", () => {
+		const lines = chromeStandingLines(true);
+		expect(lines).toContain("leave exactly one tab open");
+		expect(lines).toContain("Take every step you are allowed to take");
+		expect(lines).not.toContain("whatever the task says");
+	});
 });
