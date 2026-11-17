@@ -84,6 +84,13 @@ afterAll(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
+/** The spawn options every case shares, `homeDir` as HOME. */
+const spawnOptions = (homeDir = home, env: Record<string, string> = {}) => ({
+	project: repo,
+	config: path.join(homeDir, ".claude"),
+	env: { HOME: homeDir, XDG_RUNTIME_DIR: tmp, ...env },
+});
+
 /** What the guard hands the session on one call: hookSpecificOutput, or null. */
 const run = (
 	toolName: string,
@@ -110,12 +117,7 @@ const run = (
 			tool_name: toolName,
 			tool_input: toolInput,
 		},
-		{
-			project: repo,
-			config: path.join(homeDir, ".claude"),
-			env: { HOME: homeDir, XDG_RUNTIME_DIR: tmp },
-			stderr,
-		},
+		{ ...spawnOptions(homeDir), stderr },
 	);
 
 const note = (slug: string) =>
@@ -235,14 +237,11 @@ describe("silence", () => {
 	});
 });
 
+// The positive pair, an object payload with jq present judged, is "the craft
+// list on a session's first docs/practice/ touch" above.
 describe("a payload the guard cannot judge", () => {
 	const spawn = (stdin: string, env: Record<string, string> = {}) =>
-		spawnGuard(hook, null, {
-			project: repo,
-			config: path.join(home, ".claude"),
-			env: { HOME: home, XDG_RUNTIME_DIR: tmp, ...env },
-			stdin,
-		});
+		spawnGuard(hook, null, { ...spawnOptions(home, env), stdin });
 
 	it.each([
 		["a JSON array", '["docs/practice"]'],
