@@ -68,11 +68,11 @@ index 8a99d9899c04c3e1cde3af2a288935fe08064ecd..11d960d1af658c546b57b7788e438abc
  		expect(r.out).toContain("OK:");
  	});
  
--	it("ignores an explicit `Blocked by: None`", () => {
+-	it("ignores an explicit `Blocked by: None`", async () => {
 -		const stub = stubGh([
 -			{ number: 70, body: "Blocked by: None — can start immediately." },
 -		]);
--		expect(run([], stub).status).toBe(0);
+-		expect((await run([], stub)).status).toBe(0);
 +	it.each([
 +		"Blocked by: None — can start immediately.",
 +		"Blocked by nothing.",
@@ -91,16 +91,16 @@ index 8a99d9899c04c3e1cde3af2a288935fe08064ecd..11d960d1af658c546b57b7788e438abc
 +		"Blocked by: no blockers.",
 +	])(
 +		"ignores `%s`, which states there is no blocker (#1656, #2389)",
-+		(body) => {
-+			const r = run([], stubGh([{ number: 70, body }]));
++		async (body) => {
++			const r = await run([], stubGh([{ number: 70, body }]));
 +			expect(r.status).toBe(0);
 +			expect(r.out).toContain("OK:");
 +		},
 +	);
 +
-+	it("still flags `Blocked by the scope ticket.`, whose blocker is real but unnumbered", () => {
++	it("still flags `Blocked by the scope ticket.`, whose blocker is real but unnumbered", async () => {
 +		const stub = stubGh([{ number: 72, body: "Blocked by the scope ticket." }]);
-+		const r = run([], stub);
++		const r = await run([], stub);
 +		expect(r.status).toBe(1);
 +		expect(r.out).toContain("NO-NUMBER");
 +		expect(r.out).toContain("scope ticket");
@@ -117,22 +117,22 @@ index 8a99d9899c04c3e1cde3af2a288935fe08064ecd..11d960d1af658c546b57b7788e438abc
 +		"Blocked by upstream: nothing.",
 +	])(
 +		"still flags `%s`, a described blocker beside `nothing` or `none` (#2389)",
-+		(body) => {
-+			const r = run([], stubGh([{ number: 73, body }]));
++		async (body) => {
++			const r = await run([], stubGh([{ number: 73, body }]));
 +			expect(r.status).toBe(1);
 +			expect(r.out).toContain("NO-NUMBER");
 +			expect(r.out).toContain(body);
 +		},
 +	);
 +
- 	it("flags a half-cited line as NO-NUMBER: one numbered blocker beside a described one", () => {
+ 	it("flags a half-cited line as NO-NUMBER: one numbered blocker beside a described one", async () => {
  		// mantahostels#26's real form. A bare `#\d+` test passes this and the described half
  		// stays unfindable.
 @@ -202,6 +249,7 @@ describe("number-less blockers", () => {
- 		const r = run([], stub);
+ 		const r = await run([], stub);
  		expect(r.status).toBe(1);
  		expect(r.out).toContain("NO-NUMBER");
 +		expect(r.out).toContain("nav-layer ticket");
  	});
  
- 	it("accepts a fully numbered line that still contains ordinary prose", () => {
+ 	it("accepts a fully numbered line that still contains ordinary prose", async () => {
