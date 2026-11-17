@@ -72,7 +72,7 @@ Researched: 2026-10-21
 - XDG: `XDG_STATE_HOME` (default `$HOME/.local/state`) is for user state that must persist between application restarts. A relative path in any `XDG_*` variable is invalid and must be ignored. specifications.freedesktop.org/basedir/latest [standard or field body]
 - Thus a per-session latch fits `XDG_RUNTIME_DIR` (private, removed at logout) or a directory that the tool owns, not a shared `/tmp` name. Derived from the XDG rows, so it sets no default [unverified]
 - A latch that only `session_id` keys is shared by the main session and its subagents. Claude Code gives `agent_id` only when the hook fires in a subagent, so key on both if each agent must get the context. The docs do not say if a subagent has the parent's `session_id`. code.claude.com/docs/en/hooks §Common input fields (`agent_id`, `agent_type`) [standard or field body]
-- workflow-core's guards key a latch on both, through `agentKey` in `scripts/lib/kit-context.js` (re-exported by `scripts/lib/guard-entry.js`): `main` or `a<agent_id>`, plus the session id.
+- workflow-core's guards key a latch on both, through `agentKey` in `scripts/lib/kit-context.js` (re-exported by `scripts/lib/guard-entry.js`): `main` or `a<agent_id>`, plus the session id. `scripts/lib/kit-context.js` (what the tool does) [standard or field body]
 
 ## State files: race-free create for a once-only latch
 
@@ -94,7 +94,7 @@ Researched: 2026-10-21
 - OWASP: "Define what the application accepts and reject values outside those rules"; "Do not try to recognize every malicious string"; a regex must "Require a match of the entire value". cheatsheetseries.owasp.org Input_Validation_Cheat_Sheet [standard or field body]
 - Claude Code: "Validate and sanitize inputs"; "Block path traversal: check for `..` in file paths". code.claude.com/docs/en/hooks §Security best practices [standard or field body]
 - Thus, for `session_id`: accept it only if it matches the whole of an allowlist such as `[[ $sid =~ ^[A-Za-z0-9_-]{1,128}$ ]]`, else do not write a latch. Derived from the three rows above, so it sets no default [unverified]
-- workflow-core's hooks replace each other character with `_` instead (`${sid//[^A-Za-z0-9_-]/_}` in `scripts/clear-rule-latch.sh`, `segment` in `scripts/lib/review-suffix.js`). That also removes `/` and `.`, but two different ids can then map to one name.
+- workflow-core's hooks replace each other character with `_` instead (`${sid//[^A-Za-z0-9_-]/_}` in `scripts/clear-rule-latch.sh`, `segment` in `scripts/lib/review-suffix.js`). That also removes `/` and `.`, but two different ids can then map to one name. The two files (what the tool does) [standard or field body]
 
 ## Elapsed time: which clock
 
@@ -115,7 +115,7 @@ Researched: 2026-10-21
 - The pre-commit framework's docs (pre-commit.com, read 4 Nov 2026) name no timeout at all, and husky v9 runs the hook file as written. [standard or field body]
 - GNU `timeout`: exit 124 where the command timed out, 125 where `timeout` itself failed, 137 where the KILL was sent; `--kill-after` sends KILL that long after the first signal; under `--foreground`, "children of COMMAND will not be timed out". timeout(1), man.archlinux.org, read 4 Nov 2026 [standard or field body]
 - So the leading practice is a per-command limit that fails the hook naming the command, with a TERM then a KILL to everything the command started. A derivation from the three sources above [unverified]
-- workflow-core's git hooks get this bound from `scripts/lib/hook-bound.sh` through `scripts/run-budgeted.js` rather than `timeout`, which macOS lacks and whose uutils build signals only its direct child (#2855, #4187).
+- workflow-core's git hooks get this bound from `scripts/lib/hook-bound.sh` through `scripts/lib/run-budgeted.js` rather than `timeout`, which macOS lacks and whose uutils build signals only its direct child (#2855, #4187). `scripts/lib/hook-bound.sh` (what the tool does) [standard or field body]
 
 
 ## Child processes: containing a descendant tree

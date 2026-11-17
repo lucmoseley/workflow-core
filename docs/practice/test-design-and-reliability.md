@@ -82,4 +82,4 @@ Researched: 2026-10-21
 - Claude-compatible: the Superpowers plugin (Jesse Vincent; MIT; github.com/obra/superpowers v7.0.1, read 2026-10-26) has `test-driven-development` and `systematic-debugging`, with a `condition-based-waiting.md` page: "Wait for the actual condition you care about, not a guess about how long it takes", and "Always document WHY if using arbitrary timeout" [named expert]. Simon Willison vouches for the plugin as a whole, not for this page. simonwillison.net/2025/Oct/10/superpowers/ [named expert]
 - Superpowers is a full workflow plugin with always-on skills. Its test advice repeats Fowler and Luo et al. and adds nothing new. Derived, so it sets no default [unverified]
 - No MCP server for test work was found that a standard body or a named expert vouches for. Search of 2026-10-21 [unverified]
-- The workflow-core plugin ships `tdd` and `diagnosing-bugs` skills.
+- The workflow-core plugin ships `tdd` and `diagnosing-bugs` skills. The skills' own text (what the tool does) [standard or field body]

@@ -44,8 +44,8 @@ No source found covers gating a refactoring programme by measurement. The defaul
 - Break a tie in path length on successor count. CP/MISF is HLFET with ties going to more immediate successors, the survey's "major improvement"; Kolisch ranks most total successors third of six, good as a secondary key. Kwok and Ahmad 1999 [survey or curated list]; Kolisch 1994 [named expert].
 - Give a prerequisite the highest priority of everything it holds up, transitively. Sha, Rajkumar and Lehoczky, "Priority inheritance protocols", IEEE Trans. Computers 39(9), 1990 (a blocker "executes its critical section at the highest priority level of all the jobs it blocks"; "Priority inheritance is transitive") [named expert], which covers locks, not precedence edges; for precedence graphs, deadline modification passes a successor's deadline back to its predecessors in one backward pass (Chetto, Silly and Bouchentouf 1990, after Lawler 1973, read only through course slides; the paper is paywalled) [unverified]
 - Rank the inherited tier above path length, so a long chain to nothing urgent stays below urgent work. This follows from the two entries above and no source states it alone.
-- The plugin's `pick-next` skill breaks the tie on transitive reach, not immediate successors (mantahostels#101).
-- `pick-next` adds one more rule: a parent that only closes when its children close adds nothing to the path length, because it holds no work of its own (mantahostels#105 rule 5).
+- The plugin's `pick-next` skill breaks the tie on transitive reach, not immediate successors (mantahostels#101). `scripts/pick-next.js` (what the tool does) [standard or field body]
+- `pick-next` adds one more rule: a parent that only closes when its children close adds nothing to the path length, because it holds no work of its own (mantahostels#105 rule 5). `scripts/pick-next.js` (what the tool does) [standard or field body]
 
 ## Reviewing the ticket mix and judging process changes
 
