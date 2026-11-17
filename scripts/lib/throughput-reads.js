@@ -17,7 +17,7 @@ const { ownQueueName } = require("./landing-refs.js");
 const { isLoopJob, jobKeyOf, loopJobsPath } = require("./loop-jobs.js");
 const { queueGit } = require("./queue-lander-adapters.js");
 const { queueLogFile, readQueueRows } = require("./queue-log.js");
-const { readQueueStays, trialQueueOf } = require("./queue-ref-status.js");
+const { readQueueStays } = require("./queue-ref-status.js");
 const {
 	SILENCE_CAP_MS,
 	breakerRecordPath,
@@ -249,6 +249,28 @@ function readCommitsOf(l) {
 		shas.push(...mine);
 	}
 	return shas;
+}
+
+/**
+ * Where the stays of a queue ref stand for a breaker trial: one landed, one
+ * queued or under test, none left, or no reading where a stay's batch record
+ * or `main` will not read.
+ * @param {import("./queue-ref-status.js").RefState[]} stays
+ * @returns {TrialQueue}
+ */
+function trialQueueOf(stays) {
+	if (stays.some((s) => s.state === "landed")) return { state: "landed" };
+	if (stays.some((s) => s.state === "queued" || s.state === "testing"))
+		return { state: "waiting" };
+	const unread = stays.find(
+		(s) => s.state === "unread" || s.state === "unwalked",
+	);
+	if (unread)
+		return {
+			state: "unread",
+			why: `queue/${unread.name} at ${unread.sha.slice(0, 7)} is queued, under test or landed, which will not read`,
+		};
+	return { state: "gone" };
 }
 
 /**

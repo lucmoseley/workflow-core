@@ -57,7 +57,8 @@ function readMergeHeadLines(cwd) {
 
 /* git exports one per merged head to the hooks a `git merge` runs (its
  * conflict-marker labels), before MERGE_HEAD exists. */
-const GITHEAD_ENV = /^GITHEAD_([0-9a-f]{40}|[0-9a-f]{64})$/;
+const SHA_HEX = "[0-9a-f]{40}|[0-9a-f]{64}";
+const GITHEAD_ENV = new RegExp(`^GITHEAD_(${SHA_HEX})$`);
 
 /**
  * The shas `env`'s GITHEAD_<sha> names, as a hook `git merge` runs sees them.
@@ -84,4 +85,62 @@ function readMergingHeads(cwd, env = process.env) {
 	return lines.length > 0 ? lines : githeadShas(env);
 }
 
-module.exports = { githeadShas, readMergeHeadLines, readMergingHeads };
+/*
+ * The merge parents a commit gate hands the throwaway worktree its suite runs
+ * in, which has no MERGE_HEAD of its own: space-separated shas, empty where
+ * the committing checkout has no merge in flight, `UNREAD_PREFIX` and why
+ * where its merge state would not read (#5334).
+ */
+const MERGE_PARENTS_ENV = "WFC_MERGE_PARENTS";
+
+const UNREAD_PREFIX = "unread: ";
+
+const SHA = new RegExp(`^(?:${SHA_HEX})$`);
+
+/**
+ * `env` with the merge parents of the checkout at `cwd` handed off, or why
+ * they would not read, so the child reports that rather than reading its
+ * own worktree's lack of a merge as none (#5334).
+ * @param {string} cwd
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {NodeJS.ProcessEnv}
+ */
+function withMergeParents(cwd, env) {
+	const out = { ...env };
+	try {
+		out[MERGE_PARENTS_ENV] = readMergingHeads(cwd, env).join(" ");
+	} catch (error) {
+		out[MERGE_PARENTS_ENV] = `${UNREAD_PREFIX}${caught(error).message}`;
+	}
+	return out;
+}
+
+/**
+ * The merge parents a commit made at `cwd` has besides HEAD: those a gate
+ * handed off in `env`, else `readMergingHeads`'s. BROKEN as that is, where
+ * the gate handed off why they would not read, and where a handed-off value
+ * is no list of shas.
+ * @param {string} cwd
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string[]}
+ */
+function readMergeParents(cwd, env = process.env) {
+	const handed = env[MERGE_PARENTS_ENV];
+	if (handed === undefined) return readMergingHeads(cwd, env);
+	if (handed.startsWith(UNREAD_PREFIX))
+		throw brokenError(
+			`the committing checkout's merge parents would not read: ${handed.slice(UNREAD_PREFIX.length)}`,
+		);
+	const shas = handed.split(" ").filter(Boolean);
+	if (!shas.every((s) => SHA.test(s)))
+		throw brokenError(`${MERGE_PARENTS_ENV} holds no list of shas: ${handed}`);
+	return shas;
+}
+
+module.exports = {
+	githeadShas,
+	readMergeHeadLines,
+	readMergeParents,
+	readMergingHeads,
+	withMergeParents,
+};
