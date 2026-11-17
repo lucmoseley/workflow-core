@@ -13,36 +13,36 @@
 		"census": "#1604",
 		"standing": "mantahostels#1771",
 		"document": "docs/research/instruction-surface-census-2026-10-15.md",
-		"tree": "437c94164; a row whose `source` is not #1604 was re-measured under that ticket, at its tree. `hooks` and the docs/working-contract.md pool bytes, which carry no `source`, were re-anchored under #1879 at 89ff86007, and the CLAUDE.md pool bytes under #2073 at 2779798ac; the pool bytes and rule inventory, `hooks` and `skills` under #2263 at a6d66be90; the twelve hook entries added since, and the two guards among them, under #2586 at 2d182ffc6; guard-cpu-load.js's five hook entries and `hooks` under #2861 at 4a37e3500; the seventeen guard rows #3018's port move touched, sourced #3143, at 18a1598da"
+		"tree": "437c94164; a row whose `source` is not #1604 was re-measured under that ticket, at its tree. `hooks` and the docs/working-contract.md pool bytes, which carry no `source`, were re-anchored under #1879 at 89ff86007, and the CLAUDE.md pool bytes under #2073 at 2779798ac; the pool bytes and rule inventory, `hooks` and `skills` under #2263 at a6d66be90; the twelve hook entries added since, and the two guards among them, under #2586 at 2d182ffc6; guard-cpu-load.js's five hook entries and `hooks` under #2861 at 4a37e3500; the seventeen guard rows #3018's port move touched, sourced #3143, at 18a1598da; the docs/working-contract.md pool bytes and rule inventory, `hooks` and `skills` under #5359 at bba80f019"
 	},
 	"poolFiles": {
 		"CLAUDE.md": 6053,
-		"docs/working-contract.md": 3370,
+		"docs/working-contract.md": 2737,
 		".claude/output-styles/core-voice.md": 5979
 	},
 	"poolRules": {
-		"total": 49,
+		"total": 47,
 		"byFile": {
 			"CLAUDE.md": 20,
-			"docs/working-contract.md": 7,
+			"docs/working-contract.md": 5,
 			".claude/output-styles/core-voice.md": 22
 		},
-		"noRetrieval": 39,
+		"noRetrieval": 38,
 		"adopterWorld": 0,
-		"repoMachinery": 49,
-		"source": "#2263"
+		"repoMachinery": 47,
+		"source": "#2263, #5359"
 	},
 	"hooks": {
-		"total": 125,
+		"total": 63,
 		"byEvent": {
-			"PreToolUse": 71,
-			"PostToolUse": 12,
-			"PostToolUseFailure": 2,
+			"PreToolUse": 2,
+			"PostToolUse": 8,
+			"PostToolUseFailure": 3,
 			"PostToolBatch": 1,
 			"UserPromptSubmit": 5,
-			"Stop": 13,
+			"Stop": 17,
 			"PreCompact": 2,
-			"SessionStart": 18,
+			"SessionStart": 24,
 			"SessionEnd": 1
 		}
 	},
@@ -102,8 +102,8 @@
 		"PostToolUseFailure scripts/guard-lost-verdict.js": "command -v node >/dev/null 2>&1 || exit 0; node \"$CLAUDE_PROJECT_DIR\"/scripts/guard-lost-verdict.js"
 	},
 	"skills": {
-		"distinct": 40,
-		"own": 16,
+		"distinct": 41,
+		"own": 17,
 		"vendored": 24,
 		"disabled": 17
 	},
