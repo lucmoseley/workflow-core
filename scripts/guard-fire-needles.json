@@ -202,6 +202,12 @@
 					"text": ["This waits ", " and the limit is 15 minutes."]
 				},
 				{
+					"id": "load-wait",
+					"core": "guard-wait-loop",
+					"kind": "deny",
+					"text": "This wait loop gates on machine load"
+				},
+				{
 					"id": "suite-detached",
 					"core": "guard-suite-background",
 					"kind": "deny",

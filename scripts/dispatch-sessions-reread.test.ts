@@ -157,6 +157,11 @@ describe("a CPU load hold at the re-read (#830, #834)", () => {
 		expect(r.stderr).toContain("REFUSED: /implement 341");
 		expect(r.stderr).toContain("A CPU load hold");
 		expect(r.stderr).toContain("WFC_LOAD_CEILING=0");
+		expect(r.stderr).toContain(
+			"re-run this member later with the same command",
+		);
+		expect(r.stderr).toContain("rule:load-wait");
+		expect(r.stderr).not.toContain("/proc/loadavg");
 		expect(r.stderr).not.toContain("--force-memory overrides a memory one");
 		expect(r.stderr).not.toContain("check-ghost-jobs.js");
 		expect(readArgvLines().some((l) => l.includes("--bg"))).toBe(false);

@@ -46,7 +46,9 @@ const SPEC = {
 				okLine: `verdict proof stale: the next commit probes \`${command}\` on ${cfg.testCanary}.`,
 			};
 		const until =
-			state.state === "failed" ? " until the command or canary changes" : "";
+			state.state === "failed"
+				? " until the command, its runner or the canary changes"
+				: "";
 		ctx.fail(
 			state.state === "none" ? "NO-CANARY" : "PROBE-FAILED",
 			`${buildNoProofReason(state)}, so every commit runs \`${command}\`${until}. The verdict contract: ${CONTRACT_AT}.`,
