@@ -126,10 +126,10 @@ const SUITE_GATE_MB = SUITE_RESTING_MB[SUITE_MAX];
  *
  * `lowerBound` marks dips read off suites the `ceilingS` ceiling cut short
  * (#4606): on the 818-file suite each reached `reachedMin`–`reachedMax` files, so a rung is a floor
- * under the whole suite's, and `successor` is the whole-suite re-measure.
+ * under the whole suite's.
  *
  * `scripts/check-suite-size-drift.js` reads it, warning when the live suite has
- * drifted or the ladder is a lower bound. MOVE IT ONLY WITH A RE-MEASUREMENT.
+ * drifted from a whole-suite ladder. MOVE IT ONLY WITH A RE-MEASUREMENT.
  */
 const SUITE_LADDER_MEASURED_AT = {
 	files: 818,
@@ -137,7 +137,6 @@ const SUITE_LADDER_MEASURED_AT = {
 		ceilingS: 840,
 		reachedMin: 77,
 		reachedMax: 101,
-		successor: "workflow-core#4607",
 	},
 	issue: "workflow-core#2862",
 	date: "3 Nov 2026",

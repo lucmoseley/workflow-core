@@ -20,7 +20,7 @@ The release tree an adopter installs. Tests, fixtures and TypeScript are left ou
 - `docs/effort-guide.md` — which model and effort a job gets.
 - `docs/environment.md` — the machine's measured limits the shipped guards enforce.
 - `docs/code-standards-base.md` — the code standards every review reads.
-- `docs/practice` — the practice notes, without their `## In workflow-core` sections: an adopter's session reads the plugin's copy of a note where its own is missing or stale.
+- `docs/practice` — the practice notes, without their `## In workflow-core` sections, which hold only lines that would mislead an adopter: those about workflow-core's own release notes, its CI config and its unshipped tools. A line about shipped machinery, its measured evidence included, sits in its entry and ships: an adopter's session reads the plugin's copy of a note where its own is missing or stale.
 - `.husky` — the git hooks' source.
 - `ruff.toml` — the Python lint rules.
 - `migrations` — the release notes an adopter's upgrade walks.

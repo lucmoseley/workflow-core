@@ -25,6 +25,7 @@ const {
 	gh,
 	ghIssuesUpdatedSince,
 	ghIssueListAll,
+	SINCE_SKEW_MS,
 } = require("./gh.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { MARKERS_REL } = require("./marker-root.js");
@@ -37,13 +38,6 @@ const { writeFd } = require("./write-fd.js");
  * unmeasured (#2755).
  */
 const REFRESH_MS = 60 * 60 * 1000;
-
-/*
- * The refresh reads from this far before the stamp, so a clock running ahead
- * of GitHub's loses no update. Re-reading an issue merges to the same entry.
- * Five minutes is a guess.
- */
-const SKEW_MS = 5 * 60 * 1000;
 
 /**
  * @typedef {{number: number, title: string, state: string}} Row
@@ -180,7 +174,9 @@ function readTrackerTitles(repo, over = {}, run = gh) {
 	const open = deps.listOpen();
 	let closed = cache.closed;
 	if (deps.now() - Date.parse(cache.stamp) >= REFRESH_MS) {
-		const since = new Date(Date.parse(cache.stamp) - SKEW_MS).toISOString();
+		const since = new Date(
+			Date.parse(cache.stamp) - SINCE_SKEW_MS,
+		).toISOString();
 		try {
 			closed = { ...closed };
 			for (const r of deps.listSince(since)) {

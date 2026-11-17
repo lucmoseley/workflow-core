@@ -23,7 +23,7 @@ for unit in fstrim.timer fstrim.service; do
   dir="/etc/systemd/system/${unit}.d"
   mkdir -p "$dir"
   cat >"$dir/wsl.conf" <<'CONF'
-# workflow-core #5044: systemd counts WSL as a container, which the stock
+# workflow-core#5044: systemd counts WSL as a container, which the stock
 # unit's ConditionVirtualization=!container refuses. Empty resets it.
 [Unit]
 ConditionVirtualization=

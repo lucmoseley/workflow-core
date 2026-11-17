@@ -92,6 +92,12 @@ describe("a checkout's origin/main commits", () => {
 	it("reads origin/main's non-merge commits since a time, with their commit times, and none origin/main lacks", () => {
 		const repo = path.join(tmp, "repo");
 		fs.mkdirSync(repo);
+		// Committed before the read's second, so a lookback git takes for now
+		// reads none every run, not only when the clock ticks (#5336).
+		vi.stubEnv(
+			"GIT_COMMITTER_DATE",
+			`@${Math.floor(Date.now() / 1000) - 30} +0000`,
+		);
 		git(repo, "init", "-q", "-b", "main");
 		git(repo, "config", "user.email", "test@example.com");
 		git(repo, "config", "user.name", "test");

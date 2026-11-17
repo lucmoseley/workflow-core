@@ -186,10 +186,14 @@ const REPO_CHECKS = [
 		settled: ["WAIVED", "NO-CRITERIA"],
 		gate: TRACKER,
 	},
+	/* Its cold read took 123 s on 5,278 issues (#5355) and grows with the
+	 * tracker; a later run reads only what changed. Twice the ceiling keeps
+	 * the cold read inside it under load. */
 	{
 		id: "citations",
 		script: "check-issue-citations.js",
 		kind: "check",
+		ceilingScale: 2,
 		gate: TRACKER,
 	},
 	{
