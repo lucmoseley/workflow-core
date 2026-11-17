@@ -38,12 +38,13 @@ const GIT_LOG_TIMEOUT_MS = 20_000;
  * @typedef {import("./gate-seat.js").GateRun} GateRun
  * @typedef {import("./refill-breaker.js").TrialQueue} TrialQueue
  * @typedef {{checkout: string, commits: number|null, workingHours: number,
- *   jobsRead: boolean,
+ *   jobsRead: boolean, timelinesUnread: string[],
  *   gateRuns: number|null, state: import("./refill-breaker.js").BreakerState|null,
  *   events: BreakerEvent[]|null}} RepoThroughput a served checkout's window for
  *   the morning review: its commits on `origin/main`, its loop sessions'
  *   working hours, whether the loop-job record read (where not, the hours
- *   are the state's launches' alone), its gate runs, its breaker's state at the window's end and the record's events in
+ *   are the state's launches' alone), each job timeline that would not read
+ *   and so counts no hours, its gate runs, its breaker's state at the window's end and the record's events in
  *   the window
  */
 
@@ -106,25 +107,30 @@ const readBreakerRecord = () =>
 
 /**
  * Job `jobId`'s timeline on `seat`, its last row counted to `endAt`; null
- * where it is absent, will not read, or was last written before `since`.
+ * where it is absent or was last written before `since`, and why where it
+ * will not read (#5301).
  * @param {TimedJob} job
  * @param {number} since ms
- * @returns {SessionTimeline|null}
+ * @returns {SessionTimeline|{unread: string}|null}
  */
 function readJobTimeline({ seat, jobId, endAt }, since) {
 	const file = path.join(jobDirPath(seat, jobId), "timeline.jsonl");
-	let mtime;
+	const unread = (/** @type {string} */ message) => ({
+		unread: `job ${jobId}'s timeline (${message})`,
+	});
 	/* A stat first: a job with no recorded end may have stopped long before. */
+	let stat;
 	try {
-		mtime = fs.statSync(file).mtimeMs;
-	} catch {
-		return null;
+		stat = fs.statSync(file, { throwIfNoEntry: false });
+	} catch (err) {
+		return unread(parseErrorText(err));
 	}
-	if (mtime < since) return null;
-	const rows = readRows(file);
-	if (rows === null) return null;
+	if (stat === undefined || stat.mtimeMs < since) return null;
+	const read = readText(file);
+	if (read.state === "absent") return null;
+	if (read.state === "unreadable") return unread(read.message);
 	return {
-		rows: rows.flatMap((r) =>
+		rows: parseJsonl(read.data).rows.flatMap((r) =>
 			typeof r.at === "string" && typeof r.state === "string"
 				? [{ at: r.at, state: r.state }]
 				: [],
@@ -189,7 +195,9 @@ const launchJobsOf = (launches, now) => [
  * to its launch's finish where it is that launch's current job, else to `now`.
  * @param {{roots: string[], launches: SeatedLaunch[],
  *   lookbackOf: (root: string) => number, now: number}} window
- * @returns {{byRoot: Record<string, SessionTimeline[]>, recordRead: boolean}}
+ * @returns {{byRoot: Record<string, {sessions: SessionTimeline[],
+ *   unread: string[]}>, recordRead: boolean}}  `unread`, each job timeline
+ *   that would not read
  */
 function readLoopSessions({ roots, launches, lookbackOf, now }) {
 	const record = readRows(loopJobsPath());
@@ -209,17 +217,20 @@ function readLoopSessions({ roots, launches, lookbackOf, now }) {
 				endAt: recorded.get(key)?.endedAt ?? job.endAt,
 			});
 	}
+	/** @param {string} root */
+	const readRoot = (root) => {
+		const reads = [...timed.values()]
+			.filter((j) => j.root === root && j.endAt > lookbackOf(root))
+			.flatMap(
+				(j) => readJobTimeline(j, lookbackOf(root) - SILENCE_CAP_MS) ?? [],
+			);
+		return {
+			sessions: reads.flatMap((r) => ("unread" in r ? [] : [r])),
+			unread: reads.flatMap((r) => ("unread" in r ? [r.unread] : [])),
+		};
+	};
 	return {
-		byRoot: Object.fromEntries(
-			roots.map((root) => [
-				root,
-				[...timed.values()]
-					.filter((j) => j.root === root && j.endAt > lookbackOf(root))
-					.flatMap(
-						(j) => readJobTimeline(j, lookbackOf(root) - SILENCE_CAP_MS) ?? [],
-					),
-			]),
-		),
+		byRoot: Object.fromEntries(roots.map((root) => [root, readRoot(root)])),
 		recordRead: record !== null,
 	};
 }
@@ -314,7 +325,8 @@ function readThroughput({ roots, launches, lookbackOf, now }) {
 				{
 					commits: readMainCommits(root, lookback(root)),
 					gateRuns: readGateRuns(root),
-					sessions: sessions.byRoot[root] ?? [],
+					sessions: sessions.byRoot[root]?.sessions ?? [],
+					timelinesUnread: sessions.byRoot[root]?.unread ?? [],
 				},
 			]),
 		),
@@ -327,7 +339,7 @@ function readThroughput({ roots, launches, lookbackOf, now }) {
 /**
  * Each served checkout's throughput over [lo, hi] for the morning review
  * (#5275). A loop session counts where it worked in the window; one whose
- * timeline will not read counts no hours.
+ * timeline will not read counts no hours and is named.
  * @param {{roots: string[], launches: SeatedLaunch[], lo: number, hi: number}} window
  * @returns {RepoThroughput[]}
  */
@@ -349,8 +361,9 @@ function readThroughputWindow({ roots, launches, lo, hi }) {
 			commits:
 				commits === null ? null : commits.filter((c) => c.at <= hi).length,
 			workingHours:
-				workingMsOf(sessions.byRoot[root] ?? [], lo, hi) / 3_600_000,
+				workingMsOf(sessions.byRoot[root]?.sessions ?? [], lo, hi) / 3_600_000,
 			jobsRead: sessions.recordRead,
+			timelinesUnread: sessions.byRoot[root]?.unread ?? [],
 			gateRuns:
 				gateRuns === null
 					? null

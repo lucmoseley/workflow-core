@@ -92,6 +92,7 @@ function replay(f: Fixture, from: string, to: string) {
 					[root]: {
 						commits: commits.filter((c) => c.at <= t),
 						gateRuns: [],
+						timelinesUnread: [],
 						sessions: sessions
 							.filter((s) => s.launch.launchedAt <= t)
 							.map((s) => ({
@@ -213,15 +214,17 @@ const readOf = (
 	over: Partial<ThroughputRead> & {
 		commits?: { sha: string; at: number }[] | null;
 		sessions?: SessionTimeline[];
+		timelinesUnread?: string[];
 	} = {},
 ): ThroughputRead => {
 	const {
 		commits = [{ sha: "a", at: NOW - HOUR }],
 		sessions = FROM_LAUNCHES,
+		timelinesUnread = [],
 		...rest
 	} = over;
 	return {
-		byRoot: { [DV]: { commits, gateRuns: [], sessions } },
+		byRoot: { [DV]: { commits, gateRuns: [], sessions, timelinesUnread } },
 		commitsOf: () => [],
 		queueOf: () => {
 			throw new Error("the queue ref read where no trial asked for it");
@@ -287,6 +290,18 @@ describe("the breaker's steps", () => {
 			at: NOW - i * MIN,
 		}));
 		expect(step(busy(2), readOf({ commits })).events).toEqual([]);
+	});
+
+	it("opens nothing, and says why, where a session's timeline would not read (#5301)", () => {
+		const why =
+			"job j9's timeline (EACCES: permission denied, stat '/s/jobs/j9/timeline.jsonl')";
+		expect(step(busy(3), readOf({ timelinesUnread: [why] }))).toEqual({
+			events: [],
+			room: {},
+			notes: [
+				`breaker reading in ${DV} leaves out ${why}, so it opens nothing`,
+			],
+		});
 	});
 
 	it("leaves no room anywhere, and records nothing, where the record will not read", () => {

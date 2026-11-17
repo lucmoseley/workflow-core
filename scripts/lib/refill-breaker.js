@@ -74,10 +74,10 @@ const WORKING_STATES = new Set(["working", "running"]);
  *   gate-run budget
  * @property {Record<string, {commits: {sha: string, at: number}[]|null,
  *   gateRuns: import("./gate-seat.js").GateRun[]|null,
- *   sessions: SessionTimeline[]}>} byRoot each served checkout's non-merge
- *   `origin/main` commits and its loop sessions' job timelines since its
- *   lookback, and its gate-run record; commits or runs null where they will
- *   not read
+ *   sessions: SessionTimeline[], timelinesUnread: string[]}>} byRoot each
+ *   served checkout's non-merge `origin/main` commits and its loop sessions'
+ *   job timelines since its lookback, each timeline that would not read, and
+ *   its gate-run record; commits or runs null where they will not read
  * @property {(l: BreakerLaunch) => string[]|null} commitsOf the shas `l`'s
  *   sessions committed in its checkout, null where a ledger will not read
  * @property {(l: BreakerLaunch) => TrialQueue} queueOf where `l`'s queue ref
@@ -345,6 +345,39 @@ function trialOutcomeOf(trial, read) {
 const isRunning = (l) => l.finishedAt === null;
 
 /**
+ * `root`'s reading over the window, null where its commits will not read. A
+ * timeline that would not read understates the hours, so it leaves a closed
+ * breaker no reading, moving it nowhere, and is named in `note` (#5301).
+ * @param {string} root
+ * @param {BreakerState} state
+ * @param {ThroughputRead} read
+ * @param {number} now
+ * @returns {{reading: Reading|null, note?: string}}
+ */
+function rootReading(root, state, read, now) {
+	const commits = read.byRoot[root]?.commits ?? null;
+	const unread = read.byRoot[root]?.timelinesUnread ?? [];
+	const closed = state.state === "closed";
+	const note =
+		unread.length === 0
+			? {}
+			: {
+					note: `breaker reading in ${root} leaves out ${unread.join(", ")}${closed ? ", so it opens nothing" : ""}`,
+				};
+	if (commits === null || (closed && unread.length > 0))
+		return { reading: null, ...note };
+	return {
+		reading: readingOf({
+			commitTimes: commits.map((c) => c.at),
+			sessions: read.byRoot[root]?.sessions ?? [],
+			from: Math.max(now - BREAKER_WINDOW_MS, closed ? (state.since ?? 0) : 0),
+			to: now,
+		}),
+		...note,
+	};
+}
+
+/**
  * Every served checkout's breaker step: the events to record, and the launch
  * room each open breaker leaves, by root. An unread record leaves no room
  * anywhere, since no breaker's state can be known.
@@ -369,20 +402,8 @@ function stepBreakers({ roots, launches, read, now }) {
 		};
 	for (const root of roots) {
 		const state = foldBreaker(record, root);
-		const commits = read.byRoot[root]?.commits ?? null;
-		const sessions = read.byRoot[root]?.sessions ?? [];
-		const from = Math.max(
-			now - BREAKER_WINDOW_MS,
-			state.state === "closed" ? (state.since ?? 0) : 0,
-		);
-		const reading = commits
-			? readingOf({
-					commitTimes: commits.map((c) => c.at),
-					sessions,
-					from,
-					to: now,
-				})
-			: null;
+		const { reading, note } = rootReading(root, state, read, now);
+		if (note) notes.push(note);
 		const step = stepBreaker({ root, state, launches, reading, read, now });
 		if (step.event) events.push(step.event);
 		if (step.note) notes.push(step.note);
