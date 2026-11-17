@@ -61,7 +61,7 @@ const {
 	repoRoot,
 } = require("./lib/test-pass-marker.js");
 const { worktreeRoot } = require("./lib/host-root.js");
-const { selectTouched, touchedBaseHere } = require("./lib/touched-tests.js");
+const { readTouchedBase, selectTouched } = require("./lib/touched-tests.js");
 const { ownDefaultWork } = require("./lib/own-selection.js");
 const { appendEmptyTouchedLine } = require("./lib/run-ledger.js");
 const idSeam = require("./lib/session-id.js");
@@ -125,6 +125,7 @@ async function runAndRecord(plan, root) {
 			sha: before?.head,
 			startedAtMs,
 			argv: args,
+			touchedBase: plan.touched?.touchedBase ?? null,
 		});
 
 	const after = readTreeSnapshot(root);
@@ -139,7 +140,7 @@ async function runAndRecord(plan, root) {
 	if (!run.forcedRed && run.status === 0 && result?.passed === true && after) {
 		record(
 			markerFrom(before, after, drifted, {
-				scope: runScope(result.scope, plan),
+				scope: runScope(result.scope, plan.touched),
 				suite: "pytest",
 				startedAtMs,
 				elapsedMs: monotonicMs() - startedAtMono,
@@ -173,9 +174,14 @@ async function runAndRecord(plan, root) {
  *
  * @param {string} root
  * @param {import("./lib/pytest-child.js").CeilingKill} kill
- * @param {{ sha: string|undefined, startedAtMs: number, argv: string[] }} run
+ * @param {{ sha: string|undefined, startedAtMs: number, argv: string[],
+ *   touchedBase: import("./lib/touched-tests.js").TouchedBase|null }} run
  */
-function recordCeilingKill(root, kill, { sha, startedAtMs, argv }) {
+function recordCeilingKill(
+	root,
+	kill,
+	{ sha, startedAtMs, argv, touchedBase },
+) {
 	recordKill(
 		ceilingKillRow(kill, {
 			sha: sha ?? "",
@@ -183,6 +189,7 @@ function recordCeilingKill(root, kill, { sha, startedAtMs, argv }) {
 			argv,
 			sessionId: idSeam.fromEnv() || null,
 			lander: idSeam.isLanderRun(),
+			touchedBase,
 		}),
 		{ root: repoRoot(root), say: (text) => writeFd(2, text) },
 	);
@@ -194,20 +201,21 @@ function recordCeilingKill(root, kill, { sha, startedAtMs, argv }) {
  * run left to the lander (#4967) and the base its selection took (#5320).
  *
  * @param {import("./lib/test-pass-marker.js").Scope|null|undefined} scope
- * @param {Plan} plan
+ * @param {Plan["touched"]} touched
  */
-function runScope(scope, { resolvedFiles, leftOut, touchedBase }) {
-	return resolvedFiles === null || !scope || !touchedBase
+function runScope(scope, touched) {
+	return touched === null || !scope
 		? scope
-		: { ...scope, touched: true, resolvedFiles, leftOut, touchedBase };
+		: { ...scope, touched: true, ...touched };
 }
 
 /**
- * @typedef {{ args: string[], resolvedFiles: number|null, leftOut: string[],
- *   touchedBase: import("./lib/touched-tests.js").TouchedBase|null }} Plan
- *   what pytest is handed, a touched run's file count, null on a run as
- *   typed, the tests a touched run left to the lander, and the base its
- *   selection took
+ * @typedef {{ args: string[], touched: { resolvedFiles: number,
+ *   leftOut: string[],
+ *   touchedBase: import("./lib/touched-tests.js").TouchedBase }|null }} Plan
+ *   what pytest is handed and, on a touched run, null on a run as typed, its
+ *   file count, the tests it left to the lander and the base its selection
+ *   took
  */
 
 /**
@@ -224,12 +232,10 @@ function pytestPlan(argv, root) {
 	if (argv.length > 0)
 		return {
 			args: argv.length === 1 && argv[0] === FULL ? [] : argv,
-			resolvedFiles: null,
-			leftOut: [],
-			touchedBase: null,
+			touched: null,
 		};
 	const sessionId = idSeam.fromEnv();
-	const from = touchedBaseHere();
+	const from = readTouchedBase();
 	try {
 		/* Under `head` the commit's changes over HEAD are the set: no range
 		 * to read own work across. */
@@ -250,9 +256,7 @@ function pytestPlan(argv, root) {
 		if (files.length > 0)
 			return {
 				args: files,
-				resolvedFiles: files.length,
-				leftOut,
-				touchedBase: from,
+				touched: { resolvedFiles: files.length, leftOut, touchedBase: from },
 			};
 		appendEmptyTouchedLine(repoRoot(root) || root, root, {
 			suite: "pytest",

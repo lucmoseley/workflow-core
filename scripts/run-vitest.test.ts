@@ -7300,9 +7300,24 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 			});
 		});
 
+		it("records `head` on a gate run's ceiling kill, which carries no scope (#5321)", async () => {
+			const dir = branch();
+			tempRoot(process.pid);
+			await launch(dir, undefined, [], {
+				spawnFn: () => parkedChild(),
+				stall: 60_000,
+				ceiling: 50,
+			});
+			const { readFailures } = require("./lib/test-pass-marker.js");
+			expect(readFailures({ root: dir })).toMatchObject([
+				{ ceilingKill: true, touchedBase: "head" },
+			]);
+		});
+
 		it("takes `merge-base` with only the seat's variable set and a live seat outside its ancestry", async () => {
 			const dir = branch();
-			/* A live seat this process is not under: its holder is a child. */
+			/* A live seat this process is not under: its holder is a child, its
+			 * 30 s any span that outlives the case, which kills it. */
 			const stranger = realSpawn("sleep", ["30"], { stdio: "ignore" });
 			onTestFinished(() => {
 				stranger.kill();

@@ -21,7 +21,7 @@ import {
 	it,
 	vi,
 } from "vitest";
-import { mkScratchDir } from "./git-fixture";
+import { defineTemplate, mkScratchDir } from "./git-fixture";
 
 const require = createRequire(import.meta.url);
 const { selectTouched } = require("./touched-tests.js");
@@ -76,6 +76,12 @@ const EDGES = { "doc.md": ["doc.test.ts"] };
 function repo(files: Record<string, string> = FILES) {
 	const dir = mkScratchDir("touched-");
 	dirs.push(dir);
+	seed(dir, files);
+	return dir;
+}
+
+/** `files` committed as the root of a new repository at `dir`. */
+function seed(dir: string, files: Record<string, string>) {
 	for (const [f, text] of Object.entries(files)) {
 		fs.mkdirSync(path.dirname(path.join(dir, f)), { recursive: true });
 		fs.writeFileSync(path.join(dir, f), text);
@@ -93,7 +99,6 @@ function repo(files: Record<string, string> = FILES) {
 		"-qm",
 		"root",
 	);
-	return dir;
 }
 
 /* Built once for the cases that only read it. */
@@ -591,32 +596,39 @@ describe("the base a touched selection takes (#5320)", () => {
 			message,
 		);
 	};
-	/** `files`' repo, verified main at its root, then `lib/a.js` and `doc.md`
+	/** `files`' repo at `dir`, verified main at its root, then `own`
 	 * committed and `paths` staged. */
-	function branch(paths: string[], files: Record<string, string> = FILES) {
-		const dir = repo(files);
-		git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
-		commit(dir, "lib/a.js", "own one");
-		commit(dir, "doc.md", "own two");
-		for (const f of paths) {
-			fs.appendFileSync(path.join(dir, f), "// staged\n");
-			git(dir, "add", f);
-		}
+	const branch =
+		(
+			paths: string[],
+			files: Record<string, string> = FILES,
+			own = ["lib/a.js", "doc.md"],
+		) =>
+		(dir: string) => {
+			seed(dir, files);
+			git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
+			for (const f of own) commit(dir, f, `own ${f}`);
+			for (const f of paths) {
+				fs.appendFileSync(path.join(dir, f), "// staged\n");
+				git(dir, "add", f);
+			}
+		};
+	const fixture = defineTemplate({
+		staged: branch(["lib/setup.js"]),
+		clean: branch([]),
+		stagedUnit: branch(["lib/a.js"]),
+		uncollected: branch(["scripts/m/test_scan.py"], {
+			...FILES,
+			"pytest.ini": "[pytest]\npython_files = check_*.py\n",
+		}),
+		checkerOnly: branch([GUARD], CHECKER_ONLY_FILES, ["scripts/unit.js"]),
+	});
+	const copy = (variant: string) => {
+		const dir = mkScratchDir("touched-");
+		dirs.push(dir);
+		fixture.instantiate(dir, variant);
 		return dir;
-	}
-	/* Built once for the cases that only read them: popped, so `afterEach`
-	 * leaves them for `afterAll`. */
-	let staged: string;
-	let clean: string;
-	beforeAll(() => {
-		staged = branch(["lib/setup.js"]);
-		clean = branch([]);
-		dirs.splice(-2);
-	});
-	afterAll(() => {
-		for (const d of [staged, clean])
-			fs.rmSync(d, { recursive: true, force: true });
-	});
+	};
 	const at = (dir: string, from: "head" | "merge-base", options = {}) =>
 		selectTouched(dir, {
 			from,
@@ -627,7 +639,7 @@ describe("the base a touched selection takes (#5320)", () => {
 		});
 
 	it("selects under `head` only what the staged paths reach, and under `merge-base` what all three commits' paths reach", () => {
-		const dir = staged;
+		const dir = copy("staged");
 		expect(at(dir, "head").files).toEqual(["lib/setup.test.ts"]);
 		expect(at(dir, "merge-base").files).toEqual([
 			"doc.test.ts",
@@ -637,7 +649,7 @@ describe("the base a touched selection takes (#5320)", () => {
 	});
 
 	it("names the commit's changes over HEAD's short sha under `head`, and says the earlier commits answered for themselves", () => {
-		const dir = staged;
+		const dir = copy("staged");
 		const head = git(dir, "rev-parse", "HEAD");
 		const { base, banner } = at(dir, "head");
 		expect(base).toBe(head);
@@ -651,7 +663,7 @@ describe("the base a touched selection takes (#5320)", () => {
 	});
 
 	it("keeps the merge-base wording under `merge-base`", () => {
-		const dir = staged;
+		const dir = copy("staged");
 		const { base, banner } = at(dir, "merge-base");
 		expect(banner).toContain(
 			`TOUCHED TESTS ONLY — 3 test file(s) your own work since ${base.slice(0, 12)} edited, or that directly import or read a file it changed. The lander runs the full suite (#2930).`,
@@ -659,13 +671,13 @@ describe("the base a touched selection takes (#5320)", () => {
 	});
 
 	it("takes an untracked file under `head`", () => {
-		const dir = branch([]);
+		const dir = copy("clean");
 		fs.writeFileSync(path.join(dir, "lib/new.test.ts"), "export {};\n");
 		expect(at(dir, "head").files).toEqual(["lib/new.test.ts"]);
 	});
 
 	it("gives the no-touched-tests line worded for the commit where nothing changed over HEAD", () => {
-		const dir = clean;
+		const dir = copy("clean");
 		const head = git(dir, "rev-parse", "HEAD");
 		const { files, banner } = at(dir, "head");
 		expect(files).toEqual([]);
@@ -675,12 +687,7 @@ describe("the base a touched selection takes (#5320)", () => {
 	});
 
 	it("keeps the checker-only rule under `head`: a staged checker-only file selects its checkers alone (#4967)", () => {
-		const dir = repo(CHECKER_ONLY_FILES);
-		git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
-		commit(dir, "scripts/unit.js", "own one");
-		fs.appendFileSync(path.join(dir, GUARD), "\n");
-		git(dir, "add", GUARD);
-		const { files, leftOut } = selectTouched(dir, {
+		const { files, leftOut } = selectTouched(copy("checkerOnly"), {
 			from: "head",
 			loadEdges: () => CHECKER_ONLY_EDGES,
 			renderEdges: () => CHECKER_ONLY_EDGES,
@@ -690,21 +697,16 @@ describe("the base a touched selection takes (#5320)", () => {
 	});
 
 	it("keeps the collection filter under `head`: a staged test the runner does not collect is named, not run (#2952)", () => {
-		const dir = branch([], {
-			...FILES,
-			"pytest.ini": "[pytest]\npython_files = check_*.py\n",
+		const { files, banner } = at(copy("uncollected"), "head", {
+			suite: "pytest",
 		});
-		fs.appendFileSync(path.join(dir, "scripts/m/test_scan.py"), "# staged\n");
-		git(dir, "add", "scripts/m/test_scan.py");
-		const { files, banner } = at(dir, "head", { suite: "pytest" });
 		expect(files).toEqual([]);
 		expect(uncollectedIn(banner)).toEqual(["scripts/m/test_scan.py"]);
 		expect(banner).toContain("every test file this commit's changes over HEAD");
 	});
 
 	it("falls back to the staged paths' same-stem siblings alone under `head`", () => {
-		const dir = branch(["lib/a.js"]);
-		const { files, banner } = at(dir, "head", {
+		const { files, banner } = at(copy("stagedUnit"), "head", {
 			loadEdges: failing,
 			renderEdges: failing,
 		});
