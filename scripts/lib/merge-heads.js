@@ -1,8 +1,9 @@
 /*
  * merge-heads.js — the commits an unfinished merge is bringing in, read from
- * `$GIT_DIR/MERGE_HEAD` or, before git writes it, the GITHEAD_<sha> exports.
- * Apart from git.js so that a change here re-anchors only the guards that
- * read a merge's sides (#4529).
+ * `$GIT_DIR/MERGE_HEAD` or, before git writes it, the GITHEAD_<sha> exports,
+ * and handed by a commit gate to the tree its suite runs in (#5334). Apart
+ * from git.js so that a change here re-anchors only the guards that read a
+ * merge's sides (#4529).
  */
 
 const fs = require("node:fs");
@@ -86,10 +87,12 @@ function readMergingHeads(cwd, env = process.env) {
 }
 
 /*
- * The merge parents a commit gate hands the throwaway worktree its suite runs
- * in, which has no MERGE_HEAD of its own: space-separated shas, empty where
- * the committing checkout has no merge in flight, `UNREAD_PREFIX` and why
- * where its merge state would not read (#5334).
+ * The merge parents a commit gate hands the tree its suite runs in, a
+ * throwaway or overlay worktree with no MERGE_HEAD of its own: space-separated
+ * shas, empty where the committing checkout has no merge in flight,
+ * `UNREAD_PREFIX` and why where its merge state would not read (#5334). An
+ * environment variable, not a MERGE_HEAD written into that worktree, which
+ * would put every merge-aware guard in play there.
  */
 const MERGE_PARENTS_ENV = "WFC_MERGE_PARENTS";
 
@@ -100,13 +103,15 @@ const SHA = new RegExp(`^(?:${SHA_HEX})$`);
 /**
  * `env` with the merge parents of the checkout at `cwd` handed off, or why
  * they would not read, so the child reports that rather than reading its
- * own worktree's lack of a merge as none (#5334).
+ * own worktree's lack of a merge as none (#5334). One already handed in
+ * `env` is kept: `cwd` is then a worktree the gate built, which has none.
  * @param {string} cwd
  * @param {NodeJS.ProcessEnv} env
  * @returns {NodeJS.ProcessEnv}
  */
 function withMergeParents(cwd, env) {
 	const out = { ...env };
+	if (out[MERGE_PARENTS_ENV] !== undefined) return out;
 	try {
 		out[MERGE_PARENTS_ENV] = readMergingHeads(cwd, env).join(" ");
 	} catch (error) {
@@ -138,6 +143,7 @@ function readMergeParents(cwd, env = process.env) {
 }
 
 module.exports = {
+	MERGE_PARENTS_ENV,
 	githeadShas,
 	readMergeHeadLines,
 	readMergeParents,
