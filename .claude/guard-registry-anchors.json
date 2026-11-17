@@ -75,7 +75,7 @@
 	"scripts/park-on-round.js": "7edfc89efcbc1ba5",
 	"scripts/place-new-issue.sh": "d51a92cbf631b8f6",
 	"scripts/queue-run.js": "5ec98edba524c33d",
-	"scripts/reap-finished-sessions.js": "8d93b11aeaa55642",
+	"scripts/reap-finished-sessions.js": "d4f58ff2b6fbee95",
 	"scripts/reap-orphan-hooks.js": "cbbcc47d947deb30",
 	"scripts/reconcile-plugin.js": "a47f492a015d989e",
 	"scripts/record-acts.js": "0c1bdc95302a7f5d",

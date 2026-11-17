@@ -1305,8 +1305,6 @@ describe("the finish clock, as the run reads it off disk", () => {
 		heldUnreadable();
 	});
 
-	/* #5387: a job that ended its turn on `waiting:` with a launch still out,
-	 * listed `done` with an idle tempo all the same. */
 	describe("a job waiting on a launch it made", () => {
 		const transcript = () =>
 			path.join(sandbox, "projects", slug, "aaaa-1.jsonl");

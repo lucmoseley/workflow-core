@@ -339,10 +339,8 @@ function timedRow(a, entry, at) {
  * Gate 6 (#5387): the row a session otherwise due is kept under while its
  * transcript shows a launch still out, or cannot be read for one, else null.
  *
- * A job that ends its turn on `waiting:` can be listed `done` (#4659: the
- * end-of-turn classifier does not know the marker), so gate 1's `done` is no
- * proof the job has nothing left to wake it. Read last, on a session every
- * other gate would reap, because it reads the whole transcript.
+ * Read last, on a session every other gate would reap, because it reads the
+ * whole transcript.
  *
  * NO AGE RELEASES IT. An unreadable census keeps the session every run, even
  * one gate 4's hold has already let go (a record with no cwd included), and so

@@ -37,7 +37,7 @@
  *      opened — see HOW A STOP THAT FAILED IS LEFT ALONE in lib/reaper.js;
  *   6. its transcript reads, and shows no launch still out (lib/pending-tasks.js,
  *      the reading the `waiting:` Stop guard takes) — a job that ended its turn
- *      on `waiting:` can be listed `done` (#5387), so gate 1 alone would stop it
+ *      on `waiting:` can be listed `done` (#4659, #5387), so gate 1 alone would stop it
  *      mid-wait. lib/reaper.js's pendingHold says what keeps it.
  * Reaping stops entirely on an unset CLAUDE_CODE_SESSION_ID without
  * `--not-a-session`, because gate 2 cannot be applied without knowing which
