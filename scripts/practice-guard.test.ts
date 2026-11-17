@@ -1049,11 +1049,14 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 	/** A machine install whose list matches the plugin's, as the founder's does. */
 	let adopterHome: string;
 	let machine: string;
+	const pluginNote = () =>
+		path.join(dir, "plugin", "docs", "practice", "llm-evaluation.md");
 	const code = () => path.join(repo, "src", "a.js");
 	const pluginOnly = `covered — docs/practice/llm-evaluation.md, ${FIVE_MONTHS_AGO}`;
 	const nowhere =
 		"covered — docs/practice/prose-editing-and-style.md, 2026-01-01";
 	const settings = (file: string) => path.join(repo, ".claude", file);
+	const userSettings = () => path.join(adopterHome, ".claude", "settings.json");
 	const enable = (file: string, value: unknown) => {
 		fs.mkdirSync(path.dirname(file), { recursive: true });
 		fs.writeFileSync(
@@ -1063,20 +1066,23 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 				: JSON.stringify({ enabledPlugins: value }),
 		);
 	};
-	const ProjectOn = { "workflow-core@workflow-core": true };
+	const pluginOn = { "workflow-core@workflow-core": true };
+	const pluginOff = { "workflow-core@workflow-core": false };
+	const machineAlone = (
+		line: string,
+		{ env = {}, stderr }: { env?: NodeJS.ProcessEnv; stderr?: RegExp } = {},
+	) =>
+		stop([wrote(code()), declared(line)], {
+			script: machine,
+			homeDir: adopterHome,
+			env,
+			stderr,
+		});
 	/** Each copy's verdict on one Stop, the plugin's first, sharing one latch. */
 	const both = (line: string) => [
 		stop([wrote(code()), declared(line)]),
-		stop([wrote(code()), declared(line)], {
-			script: machine,
-			homeDir: adopterHome,
-		}),
+		machineAlone(line),
 	];
-	const machineAlone = (line: string) =>
-		stop([wrote(code()), declared(line)], {
-			script: machine,
-			homeDir: adopterHome,
-		});
 
 	beforeAll(() => {
 		adopterHome = path.join(dir, "adopter-home");
@@ -1087,31 +1093,29 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 			path.join(adopterHome, ".claude", "practice-crafts.md"),
 			`${list}\n`,
 		);
-		const pluginNote = path.join(
-			dir,
-			"plugin",
-			"docs",
-			"practice",
-			"llm-evaluation.md",
+		fs.mkdirSync(path.dirname(pluginNote()), { recursive: true });
+		fs.writeFileSync(
+			pluginNote(),
+			`# craft\n\nResearched: ${FIVE_MONTHS_AGO}\n`,
 		);
-		fs.mkdirSync(path.dirname(pluginNote), { recursive: true });
-		fs.writeFileSync(pluginNote, `# craft\n\nResearched: ${FIVE_MONTHS_AGO}\n`);
 	});
 
 	afterEach(() => {
 		fs.rmSync(path.join(repo, ".claude"), { recursive: true, force: true });
-		fs.rmSync(path.join(adopterHome, ".claude", "settings.json"), {
-			force: true,
-		});
+		fs.rmSync(userSettings(), { force: true });
+	});
+
+	afterAll(() => {
+		fs.rmSync(pluginNote(), { force: true });
 	});
 
 	it("neither copy refuses a note only the plugin holds", () => {
-		enable(settings("settings.json"), ProjectOn);
+		enable(settings("settings.json"), pluginOn);
 		expect(both(pluginOnly)).toEqual([null, null]);
 	});
 
 	it("a note neither holds is refused once across the two copies", () => {
-		enable(settings("settings.json"), ProjectOn);
+		enable(settings("settings.json"), pluginOn);
 		const [plugin, machineVerdict] = both(nowhere);
 		expect(plugin).toContain("which does not exist");
 		expect(plugin).toContain("else the plugin's copy");
@@ -1119,7 +1123,7 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 	});
 
 	it("the machine copy stands down whichever copy runs first", () => {
-		enable(settings("settings.json"), ProjectOn);
+		enable(settings("settings.json"), pluginOn);
 		expect(machineAlone(nowhere)).toBeNull();
 		expect(stop([wrote(code()), declared(nowhere)])).toContain(
 			"which does not exist",
@@ -1129,48 +1133,57 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 	it.each([
 		[
 			"the user settings enable it",
-			() =>
-				enable(path.join(adopterHome, ".claude", "settings.json"), {
-					"workflow-core@other-marketplace": true,
-				}),
+			() => enable(userSettings(), { "workflow-core@other-marketplace": true }),
+			{},
+		],
+		[
+			"the user settings under ~/.claude enable it, CLAUDE_CONFIG_DIR unset",
+			() => enable(userSettings(), pluginOn),
+			{ CLAUDE_CONFIG_DIR: "" },
 		],
 		[
 			"the local settings enable it over a project false",
 			() => {
-				enable(settings("settings.json"), {
-					"workflow-core@workflow-core": false,
-				});
-				enable(settings("settings.local.json"), ProjectOn);
+				enable(settings("settings.json"), pluginOff);
+				enable(settings("settings.local.json"), pluginOn);
 			},
+			{},
 		],
-	])("stands down where %s", (_, arrange) => {
+		[
+			"CLAUDE_PROJECT_DIR is unset and the payload's cwd enables it",
+			() => enable(settings("settings.json"), pluginOn),
+			{ CLAUDE_PROJECT_DIR: "" },
+		],
+	])("stands down where %s", (_, arrange, env) => {
 		arrange();
-		expect(machineAlone(nowhere)).toBeNull();
+		expect(machineAlone(nowhere, { env })).toBeNull();
 	});
 
 	it.each([
-		["no settings enable it", () => undefined],
+		["no settings enable it", () => undefined, {}, undefined],
 		[
 			"the local settings set it false over a project true",
 			() => {
-				enable(settings("settings.json"), ProjectOn);
-				enable(settings("settings.local.json"), {
-					"workflow-core@workflow-core": false,
-				});
+				enable(settings("settings.json"), pluginOn);
+				enable(settings("settings.local.json"), pluginOff);
 			},
+			{},
+			undefined,
 		],
 		[
 			"the project settings set it false over a user true",
 			() => {
-				enable(path.join(adopterHome, ".claude", "settings.json"), ProjectOn);
-				enable(settings("settings.json"), {
-					"workflow-core@workflow-core": false,
-				});
+				enable(userSettings(), pluginOn);
+				enable(settings("settings.json"), pluginOff);
 			},
+			{},
+			undefined,
 		],
 		[
 			"only another plugin is enabled",
 			() => enable(settings("settings.json"), { "other@workflow-core": true }),
+			{},
+			undefined,
 		],
 		[
 			"the value is truthy but not true",
@@ -1178,35 +1191,46 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 				enable(settings("settings.json"), {
 					"workflow-core@workflow-core": "yes",
 				}),
+			{},
+			undefined,
 		],
 		[
 			"the settings file is not JSON",
 			() => enable(settings("settings.json"), '{"enabledPlugins": {'),
+			{},
+			/^practice-guard: .*\/\.claude\/settings\.json is not JSON, so it enables no plugin\n$/,
 		],
 		[
 			"the settings file holds two JSON values",
 			() =>
 				enable(
 					settings("settings.json"),
-					`${JSON.stringify({ enabledPlugins: ProjectOn })}\n{}`,
+					`${JSON.stringify({ enabledPlugins: pluginOn })}\n{}`,
 				),
+			{},
+			undefined,
+		],
+		[
+			"the tree written enables it but the session's project does not",
+			() => {
+				enable(settings("settings.json"), pluginOn);
+				return { CLAUDE_PROJECT_DIR: path.join(dir, "loose") };
+			},
+			{},
+			undefined,
 		],
 	])(
 		"judges where %s, refusing the plugin-only note it cannot see",
-		(_, arrange) => {
-			arrange();
-			const reason = machineAlone(pluginOnly);
+		(_, arrange, env, stderr) => {
+			const project = arrange() as NodeJS.ProcessEnv | undefined;
+			const reason = machineAlone(pluginOnly, {
+				env: { ...env, ...project },
+				stderr,
+			});
 			expect(reason).toContain(
 				"covered names docs/practice/llm-evaluation.md, which does not exist",
 			);
 			expect(reason).not.toContain("plugin's copy");
 		},
 	);
-
-	it("the plugin's copy judges whatever the settings say", () => {
-		enable(settings("settings.json"), ProjectOn);
-		expect(stop([wrote(code()), declared(nowhere)])).toContain(
-			"which does not exist",
-		);
-	});
 });

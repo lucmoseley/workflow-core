@@ -22,7 +22,8 @@
 # marker opening its line. It refuses the stop once a session,
 # naming the fault and printing the list, where: there is no line; the line is
 # none of the four forms; covered names a note that is missing at both the
-# work tree root and the plugin, or, as the first found, has no
+# work tree root and the plugin (the machine copy: the work tree root alone,
+# as below), or, as the first found, has no
 # Researched: date, is 6 months old or more, or is off the list; ran names a
 # note this session did not write; skipped names a kind off the exempt list,
 # matched on its whole phrase, an article before any word but "or" optional,
@@ -68,13 +69,16 @@
 # currency judged on whichever is found. Run as the founder's machine copy at
 # ~/.claude/hooks/, whose parent holds no such file, the list is
 # ~/.claude/practice-crafts.md and a note resolves at the work tree root alone.
-# So at Stop the machine copy stands down, silent and latching nothing, where a
-# work tree root it would judge enables workflow-core@<any marketplace> in
-# enabledPlugins, read local, then project, then user settings, a key in a
-# higher file winning: there the plugin's copy judges the stop, and the machine
-# copy, blind to the plugin's notes, would refuse one only the plugin holds,
-# the latch they share letting it decide (#5394). Elsewhere it judges as the
-# only copy, keeping the rule's reach outside adopters (#2258 user story 6).
+# So at Stop the machine copy stands down, silent and latching nothing, where
+# the session's project ($CLAUDE_PROJECT_DIR, else the payload's cwd) enables
+# workflow-core@<any marketplace> in enabledPlugins, read local, then project,
+# then user settings, a key in a higher file winning: there the plugin's copy
+# judges the stop, and the machine copy, blind to the plugin's notes, would
+# refuse one only the plugin holds, the latch they share letting it decide
+# (#5394). Elsewhere it judges as the only copy, keeping the rule's reach
+# outside adopters (#2258 user story 6). Residual: managed settings and a
+# --plugin-dir load are not read, so there the machine copy still judges and
+# can refuse a plugin-only note.
 # `npm run check:settings` holds both machine files to this repo's.
 #
 # Named for what it guards, not `guard-*`: the founder's machine copy under
@@ -367,15 +371,19 @@ fault_in() {
   [[ $expiry > $TODAY ]] || echo "covered names $note, researched $date, 6 months ago or more"
 }
 
-# Whether Claude Code's settings for the work tree at "$1" enable the
+# Whether Claude Code's settings for the project at "$1" enable the
 # workflow-core plugin: enabledPlugins merged user, then project, then local,
 # each key taking its highest file's value, and any workflow-core@<marketplace>
 # key left true. A file missing, not one JSON object, or whose enabledPlugins is
-# no object enables nothing.
+# no object enables nothing; one there but unreadable says so on stderr.
 plugin_enabled_at() {
   local file merged='{}' layer
   for file in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" "$1/.claude/settings.json" "$1/.claude/settings.local.json"; do
-    layer=$(jq -cs 'if length == 1 and (.[0] | type) == "object" and (.[0].enabledPlugins | type) == "object" then .[0].enabledPlugins else {} end' "$file" 2>/dev/null) || continue
+    [[ -e "$file" ]] || continue
+    if ! layer=$(jq -cs 'if length == 1 and (.[0] | type) == "object" and (.[0].enabledPlugins | type) == "object" then .[0].enabledPlugins else {} end' "$file" 2>/dev/null); then
+      echo "practice-guard: $file is not JSON, so it enables no plugin" >&2
+      continue
+    fi
     merged=$(jq -c --argjson l "$layer" '. + $l' <<<"$merged")
   done
   jq -e 'any(to_entries[]; (.key | startswith("workflow-core@")) and .value == true)' <<<"$merged" >/dev/null 2>&1
@@ -439,11 +447,9 @@ if [[ "$event" = stop ]]; then
   [[ -n "$written" ]] || exit 0
   roots+=$(git -C "$(jq -r '.cwd // "."' <<<"$input")" rev-parse --show-toplevel 2>/dev/null)
 
-  if [[ -z $plugin_root ]]; then
-    while IFS= read -r root; do
-      [[ -n "$root" ]] && plugin_enabled_at "$root" && exit 0
-    done <<<"$roots"
-  fi
+  # The session's project decides whether the plugin loaded, not the trees it
+  # wrote into.
+  [[ -z $plugin_root ]] && plugin_enabled_at "${CLAUDE_PROJECT_DIR:-$(jq -r '.cwd // "."' <<<"$input")}" && exit 0
 
   fault=$(fault_in "$decl")
   [[ -n "$fault" ]] || exit 0
