@@ -33,14 +33,22 @@
  * A GATE INSIDE A RUNNING SUITE'S PROCESS TREE takes no seat: a test
  * committing in a fixture repo runs in the slot and on the rung its suite
  * already holds, and would otherwise wait on that suite for good. It still
- * runs under the ceiling and is recorded.
+ * runs under the ceiling and is recorded. A runner ancestor's declared
+ * `suiteRunners` are read from that ancestor's own checkout, the git top
+ * level of its cwd, never the host: the pre-commit hook repoints
+ * CLAUDE_PROJECT_DIR at the repo the commit is in (#3307), a fixture's when
+ * the suite is the host's (#5303). A runner whose cwd is outside its own
+ * checkout goes unread, and its gate takes a seat.
  */
 
+const fs = require("node:fs");
 const path = require("node:path");
 const { readCurrentBootId } = require("./arbiter-proc.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { readText } = require("./file-read.js");
+const { HOOK_GIT_TIMEOUT_MS } = require("./git.js");
+const { gitTopLevel } = require("./host-root.js");
 const { readAncestorsOf, readParentOf } = require("./proc-stat.js");
 const { procRoot } = require("./proc-root.js");
 const { isOtherRunner } = require("./suite-launch.js");
@@ -150,21 +158,41 @@ function readArgsOf(pid) {
 }
 
 /**
+ * The `suiteRunners` `pid`'s own checkout declares: the config at the git top
+ * level of its `/proc/<pid>/cwd`. None where the cwd, the checkout or the
+ * config will not read.
+ * @param {number} pid
+ * @returns {string[]}
+ */
+function readRunnersOf(pid) {
+	try {
+		const cwd = fs.readlinkSync(path.join(procRoot(), String(pid), "cwd"));
+		const { readConfig } = require("./workflow-core-config.js");
+		const root = gitTopLevel(cwd, HOOK_GIT_TIMEOUT_MS);
+		return readConfig({ root, quiet: true }).suiteRunners ?? [];
+	} catch {
+		return [];
+	}
+}
+
+/**
  * Whether an ancestor of `pid` is a suite runner the gate counts: a vitest
- * runner, or a non-vitest one (#330).
- * @param {{ pid?: number, parentOf?: (pid: number) => number, argsOf?: (pid: number) => string }} [options]
+ * runner, or a non-vitest one (#330), its declared runners read off
+ * `runnersOf` for that ancestor.
+ * @param {{ pid?: number, parentOf?: (pid: number) => number, argsOf?: (pid: number) => string, runnersOf?: (pid: number) => string[] }} [options]
  */
 function isInSuite({
 	pid = process.pid,
 	parentOf = readParentOf,
 	argsOf = readArgsOf,
+	runnersOf = readRunnersOf,
 } = {}) {
 	return readAncestorsOf(pid, { parentOf }).some((ancestor) => {
 		const args = argsOf(ancestor);
 		const words = args.split(" ").filter(Boolean);
 		return (
 			isVitestRunnerLine(args) ||
-			(words.length > 0 && isOtherRunner(words, () => []))
+			(words.length > 0 && isOtherRunner(words, () => runnersOf(ancestor)))
 		);
 	});
 }
