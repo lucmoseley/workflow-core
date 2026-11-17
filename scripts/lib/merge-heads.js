@@ -84,4 +84,55 @@ function readMergingHeads(cwd, env = process.env) {
 	return lines.length > 0 ? lines : githeadShas(env);
 }
 
-module.exports = { githeadShas, readMergeHeadLines, readMergingHeads };
+/*
+ * The merge parents a commit gate hands the throwaway worktree its suite runs
+ * in, which has no MERGE_HEAD of its own: space-separated shas, empty where
+ * the committing checkout has no merge in flight (#5334).
+ */
+const MERGE_PARENTS_ENV = "WFC_MERGE_PARENTS";
+
+const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
+/**
+ * `env` with the merge parents of the checkout at `cwd` handed off, for a
+ * child that runs elsewhere; with none handed off where they will not read,
+ * so the child reads its own as `readMergeParents` does.
+ * @param {string} cwd
+ * @param {NodeJS.ProcessEnv} env
+ * @returns {NodeJS.ProcessEnv}
+ */
+function withMergeParents(cwd, env) {
+	const out = { ...env };
+	try {
+		out[MERGE_PARENTS_ENV] = readMergingHeads(cwd, env).join(" ");
+	} catch {
+		delete out[MERGE_PARENTS_ENV];
+	}
+	return out;
+}
+
+/**
+ * The merge parents a commit made at `cwd` has besides HEAD: those a gate
+ * handed off in `env`, else `readMergingHeads`'s. BROKEN as that is, and
+ * where a handed-off value is no list of shas.
+ * @param {string} cwd
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string[]}
+ */
+function readMergeParents(cwd, env = process.env) {
+	const handed = env[MERGE_PARENTS_ENV];
+	if (handed === undefined) return readMergingHeads(cwd, env);
+	const shas = handed.split(" ").filter(Boolean);
+	if (!shas.every((s) => SHA.test(s)))
+		throw brokenError(`${MERGE_PARENTS_ENV} holds no list of shas: ${handed}`);
+	return shas;
+}
+
+module.exports = {
+	MERGE_PARENTS_ENV,
+	githeadShas,
+	readMergeHeadLines,
+	readMergeParents,
+	readMergingHeads,
+	withMergeParents,
+};

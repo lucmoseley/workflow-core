@@ -34,6 +34,7 @@ const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { writeFd } = require("./write-fd.js");
 const { readConfig } = require("./workflow-core-config.js");
 const { WORKTREES } = require("./worktree-dirs.js");
+const { withMergeParents } = require("./merge-heads.js");
 
 /** @typedef {import("./dirty-tree.js").ExecFn} ExecFn */
 
@@ -443,7 +444,8 @@ const GIT_REDIRECTS = ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE"];
  * @param {string} command
  * @param {{ env?: NodeJS.ProcessEnv, onStart?: () => void, gate?: boolean }} [options] `env`
  *   is the command's environment, less `GIT_REDIRECTS`, which no git call
- *   here sees either; `onStart` is called once the worktree stands
+ *   here sees either, plus `root`'s merge parents, which the worktree's own
+ *   git dir lacks (#5334); `onStart` is called once the worktree stands
  * @returns {{ error: string }|{ error: null, status: number|null, output: string, spawnError: Error|undefined }}
  */
 function runInTree(
@@ -453,7 +455,7 @@ function runInTree(
 	{ env = process.env, onStart, gate = false } = {},
 ) {
 	/** @type {NodeJS.ProcessEnv} */
-	const clean = { ...env };
+	const clean = withMergeParents(root, env);
 	for (const k of GIT_REDIRECTS) delete clean[k];
 	/** @type {ExecFn} */
 	const execFn = (file, args, options) =>
