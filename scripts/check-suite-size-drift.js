@@ -130,10 +130,11 @@ runCheck({
 		};
 
 		const signed = `${driftPct >= 0 ? "+" : ""}${driftPct}%`;
+		const stamp = `${SUITE_LADDER_MEASURED_AT.issue}, ${SUITE_LADDER_MEASURED_AT.date}`;
 		const { lowerBound } = SUITE_LADDER_MEASURED_AT;
 		if (lowerBound && baselineArg === null)
 			return {
-				okLine: `the concurrent-suite memory ladder is a lower bound (${SUITE_LADDER_MEASURED_AT.issue}, ${SUITE_LADDER_MEASURED_AT.date}): the ${lowerBound.ceilingS} s ceiling cut each bench suite after ${lowerBound.reachedMin}–${lowerBound.reachedMax} of its ${baseline} files, so its rungs are floors and the suite's ${files} test files, ${signed}, ask no re-measure.`,
+				okLine: `the concurrent-suite memory ladder is a lower bound (${stamp}): the ${lowerBound.ceilingS} s ceiling cut each bench suite after ${lowerBound.reachedMin}–${lowerBound.reachedMax} of its ${baseline} files, so its rungs are floors and the suite's ${files} test files, ${signed}, ask no re-measure.`,
 				data,
 			};
 		if (Math.abs(drift) < threshold)
@@ -144,14 +145,14 @@ runCheck({
 
 		ctx.warn(
 			"SUITE-SIZE-DRIFT",
-			`suite is ${files} test files, ${signed} against the ${baseline} the concurrent-suite memory ladder was measured on (${SUITE_LADDER_MEASURED_AT.issue}, ${SUITE_LADDER_MEASURED_AT.date}).`,
+			`suite is ${files} test files, ${signed} against the ${baseline} the concurrent-suite memory ladder was measured on (${stamp}).`,
 			data,
 			/* The live count is out of the key: it moves with every test file
 			 * added, and the finding stands until the ladder is re-measured (#1591). */
 			`SUITE-SIZE-DRIFT\t${baseline}`,
 		);
 		ctx.say(
-			`The concurrent-test-suite memory ladder was measured on a suite of ${baseline} test files (${SUITE_LADDER_MEASURED_AT.issue}, ${SUITE_LADDER_MEASURED_AT.date}). It is now ${files} — ${signed}.`,
+			`The concurrent-test-suite memory ladder was measured on a suite of ${baseline} test files (${stamp}). It is now ${files} — ${signed}.`,
 		);
 		ctx.say(
 			"Every figure in that ladder is earlyoom's line plus one suite's memory dip, and the dip scales with what the suite runs. Treat the ladder as unverified until it is re-measured.",
