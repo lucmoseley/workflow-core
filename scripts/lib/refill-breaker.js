@@ -201,8 +201,7 @@ function buildLookbackOf(launches, root, now, record) {
 			.filter(
 				(l) =>
 					l.root === root &&
-					(l.finishedAt === null ||
-						(trial !== null && idsOf(l).includes(trial))),
+					(isRunning(l) || (trial !== null && idsOf(l).includes(trial))),
 			)
 			.map((l) => l.launchedAt),
 	);
@@ -270,10 +269,7 @@ function stepBreaker({ root, state, launches, reading, read, now }) {
 			: { event: null, room: null };
 	if (state.state === "open") {
 		/* Only a launch with an id can be a trial: a line naming none would
-		 * match no launch, and the next tick would reopen. Residual (#5301): a
-		 * launch with no job id never finishes (lib/refill-block-core.js
-		 * isLive), so it holds the room at 0, as any running launch does,
-		 * until it leaves `launches`. */
+		 * match no launch, and the next tick would reopen. */
 		const trial = mine
 			.filter((l) => l.launchedAt > state.since && idsOf(l).length > 0)
 			.toSorted((a, b) => a.launchedAt - b.launchedAt)[0];
@@ -282,7 +278,11 @@ function stepBreaker({ root, state, launches, reading, read, now }) {
 				event: buildEvent(root, "trial-start", { reading: r, now }, trial),
 				room: 0,
 			};
-		return { event: null, room: mine.some(isRunning) ? 0 : 1 };
+		return {
+			event: null,
+			room: mine.some(isRunning) ? 0 : 1,
+			...idlessNote(root, mine),
+		};
 	}
 	return stepTrial({ root, state, mine, reading: r, read, now });
 }
@@ -341,8 +341,30 @@ function trialOutcomeOf(trial, read) {
 	return queue.state === "waiting" ? "queued" : "reopen";
 }
 
-/** @param {BreakerLaunch} l */
-const isRunning = (l) => l.finishedAt === null;
+/**
+ * Whether `l` runs: unfinished and tied to a job. A launch with no job id is
+ * never judged, so never finishes (lib/refill-block-core.js isLive), and an
+ * open breaker waiting on it would hold its checkout until it left
+ * `launches` (#5301).
+ * @param {BreakerLaunch} l
+ */
+const isRunning = (l) => l.finishedAt === null && l.jobId !== null;
+
+/**
+ * The loop's log line for `mine`'s unfinished launches with no job id, which
+ * an open breaker does not wait on.
+ * @param {string} root
+ * @param {BreakerLaunch[]} mine
+ * @returns {{note?: string}}
+ */
+function idlessNote(root, mine) {
+	const idless = mine.filter((l) => l.finishedAt === null && l.jobId === null);
+	if (idless.length === 0) return {};
+	const at = idless.map((l) => new Date(l.launchedAt).toISOString());
+	return {
+		note: `open breaker in ${root} waits on no launch without a job id: ${idless.length} launched at ${at.join(", ")}, never judged finished`,
+	};
+}
 
 /**
  * `root`'s reading over the window, null where its commits will not read. A

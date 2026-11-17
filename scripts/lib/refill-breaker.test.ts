@@ -345,13 +345,15 @@ describe("the breaker's steps", () => {
 		expect(room).toEqual({ [DV]: 0 });
 	});
 
-	it("takes no launch without an id for its trial, holding the room meanwhile", () => {
+	it("takes no launch without an id for its trial, and waits on none, saying so (#5301)", () => {
 		const record = [event("open", NOW - HOUR)];
 		const trial = busy(1, NOW - MIN, { jobId: null, sessionId: undefined });
 		expect(step(trial, readOf({ record }))).toEqual({
 			events: [],
-			room: { [DV]: 0 },
-			notes: [],
+			room: { [DV]: 1 },
+			notes: [
+				`open breaker in ${DV} waits on no launch without a job id: 1 launched at ${iso(NOW - MIN)}, never judged finished`,
+			],
 		});
 	});
 
