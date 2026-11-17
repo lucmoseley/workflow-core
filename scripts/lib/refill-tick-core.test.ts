@@ -69,7 +69,6 @@ const actedAt = (launches: { root: string }[], at: number) =>
 const ACTS = {
 	changeControl: true,
 	reap: true,
-	tendQuietBench: true,
 	adoptKilledLaunches: true,
 	stopNeverStarted: true,
 	superviseLanding: true,
@@ -172,7 +171,6 @@ function fakeIo(
 		servedRoots: (scope) => ({ roots: scope.repos, dropped: [] }),
 		previewReap: recorded("previewReap", () => undefined),
 		reap: recorded("reap", () => undefined),
-		tendQuietBench: recorded("tendQuietBench", (c) => c),
 		readManagerRestart: recorded("readManagerRestart", () => null),
 		readCurrentBootId: () => null,
 		readState: recorded("readState", () => onDisk((s) => s)),
@@ -278,7 +276,7 @@ function fakeIo(
 const opening = (c: Control | null, damaged: string | null = null) => ({
 	control: { control: c, damaged },
 	declared: { seats: [], errors: [] } as never,
-	typed: { at: null, seat: null },
+	typed: { seat: null },
 });
 
 const tickOf = (io: TickIo, c: Control | null = control(), dryRun = false) =>
@@ -1112,7 +1110,7 @@ describe("the dry-run policy (#4212)", () => {
 			now: NOW,
 			opening: {
 				...opening(awayControl()),
-				typed: { at: null, seat: null },
+				typed: { seat: null },
 			},
 		});
 		expect(calls).toContain("previewReap");
@@ -1127,7 +1125,7 @@ describe("the dry-run policy (#4212)", () => {
 				now: NOW,
 				opening: {
 					...opening(awayControl()),
-					typed: { at: null, seat: null },
+					typed: { seat: null },
 				},
 			});
 			return blockCalls(calls);
@@ -1231,21 +1229,11 @@ describe("a control change under the lock (#4846, #4188)", () => {
 });
 
 describe("away mode through the tick (#4846, #4976)", () => {
-	it("leaves the mode and its switch as they stand, absent or present", async () => {
+	it("leaves the mode and its switch as they stand", async () => {
 		const file = controlFileFake(awayControl());
 		const { io } = fakeIo(stateOf(), { changeControl: file.changeControl });
-		for (const [now, typedAt] of [
-			[NOW, null],
-			[NOW + MIN, NOW],
-		] as const)
-			await runTick(io, {
-				dryRun: false,
-				now,
-				opening: {
-					...opening(file.read()),
-					typed: { at: typedAt, seat: null },
-				},
-			});
+		for (const now of [NOW, NOW + MIN])
+			await runTick(io, { dryRun: false, now, opening: opening(file.read()) });
 		expect(file.read()).toEqual(awayControl());
 	});
 });

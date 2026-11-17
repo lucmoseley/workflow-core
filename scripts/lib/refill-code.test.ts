@@ -300,10 +300,11 @@ describe("control commands from a stale checkout (#4337)", () => {
 	let pinned: string;
 
 	const controlFile = () => path.join(state, ".refill-loop-control.json");
+	const Hold = { holder: "a dispatcher", until: 8.64e15 };
 	const readControl = () => JSON.parse(fs.readFileSync(controlFile(), "utf8"));
 
 	/* The pinned code, then a caller beside it whose control parse predates
-	 * quietBenchOff, whose status is not the loop's, whose argument parser
+	 * launchHold, whose status is not the loop's, whose argument parser
 	 * exits 2 silently and whose refill-code.js exports nothing. */
 	function plant(
 		install: (where: { scriptsDir: string; codeDir: string }) => string,
@@ -316,7 +317,7 @@ describe("control commands from a stale checkout (#4337)", () => {
 		});
 		fs.appendFileSync(
 			path.join(main, "scripts/lib/refill-loop.js"),
-			"\n{ const real = module.exports.parseControl; module.exports.parseControl = (raw) => { const c = real(raw); if (c) delete c.quietBenchOff; return c; }; }\n",
+			"\n{ const real = module.exports.parseControl; module.exports.parseControl = (raw) => { const c = real(raw); if (c) delete c.launchHold; return c; }; }\n",
 		);
 		fs.appendFileSync(
 			path.join(main, "scripts/lib/refill-commands.js"),
@@ -335,7 +336,7 @@ describe("control commands from a stale checkout (#4337)", () => {
 			JSON.stringify({
 				noProgressFrom: 5,
 				stopRequested: false,
-				quietBenchOff: true,
+				launchHold: Hold,
 				seats: [],
 				scope: { mode: "normal", repos: [], goal: null },
 			}),
@@ -370,7 +371,7 @@ describe("control commands from a stale checkout (#4337)", () => {
 		const stop = fromStale("stop");
 		expect(stop.status, stop.stderr).toBe(0);
 		expect(readControl()).toMatchObject({
-			quietBenchOff: true,
+			launchHold: Hold,
 			paused: { by: "founder" },
 			stopRequested: true,
 		});

@@ -42,8 +42,6 @@ const SHORTLIST_FAILED = "shortlist failed in";
 /* The idle reasons of a tick with no slot to launch into. */
 const NO_FREE_SLOT = "no free slot";
 const NO_PROGRESS_PAUSE = "no-progress";
-/* The pause lib/quiet-bench.js takes; only it and `set --resume` lift it (#3852). */
-const QUIET_BENCH_PAUSE = "quiet bench";
 /* A seat's reading, cap size or cap fit holds it, as one reason to the reader
  * (#2525, #3859). Residual: the log and the idle alarm lose which seat and hold;
  * `status`'s `passed over` names them. */
@@ -232,8 +230,8 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
 
 /**
  * Who paused the loop, and when, ms; the no-progress rule also records the
- * issues that made none, and the quiet bench route why it holds.
- * @typedef {{by: string, at: number, issues?: PauseIssue[], why?: string}} Pause
+ * issues that made none.
+ * @typedef {{by: string, at: number, issues?: PauseIssue[]}} Pause
  */
 
 /** @typedef {{root: string, number: number}} PauseIssue */
@@ -1160,14 +1158,14 @@ const buildPauseIssueText = ({ root, number }) =>
 	`${path.basename(root)}#${number}`;
 
 /** @param {Pause} pause */
-const buildPauseIdle = ({ by, at, issues = [], why }) =>
+const buildPauseIdle = ({ by, at, issues = [] }) =>
 	buildIdle(
 		PAUSED,
 		` ${by} at ${new Date(at).toISOString()}${
 			issues.length > 0
 				? `: no act from ${issues.map(buildPauseIssueText).join(", ")}`
 				: ""
-		}${why ? `: ${why}` : ""}`,
+		}`,
 	);
 
 /** @param {Pause} pause */
@@ -1251,11 +1249,7 @@ function buildNoSeatIdle(input, wait, held, resumes) {
 
 /** @param {Pause} pause */
 const buildPausedWaitText = (pause) =>
-	`${buildPauseText(pause)}; launches nothing until ${
-		pause.by === QUIET_BENCH_PAUSE
-			? "the bench ends or its drain limit passes, or `set --resume`"
-			: "`set --resume`"
-	}`;
+	`${buildPauseText(pause)}; launches nothing until \`set --resume\``;
 
 /* Idle reasons that stop no row in particular: the next slot goes to the top of
  * rank, and a failed shortlist may be another tracker's. */
@@ -1512,7 +1506,6 @@ module.exports = {
 	buildLaunchHoldText,
 	liveLaunchHold,
 	isLaunchBarred,
-	QUIET_BENCH_PAUSE,
 	RESUME_DUE_WAIT,
 	RESUMES_TAKE_SLOTS,
 	SHORTLIST_FAILED,

@@ -23,7 +23,6 @@ const {
 	LIMIT_HELD_WAIT,
 	NO_FREE_SLOT,
 	NO_PLAN_ROOM,
-	QUIET_BENCH_PAUSE,
 	NOTHING_LAUNCHABLE,
 	PROBE_HOLD_WAIT,
 	RESUME_DUE_WAIT,
@@ -323,11 +322,6 @@ function buildPausedLines(paused, { running, crashed }, now) {
 			},
 		];
 	const time = buildClock(paused.at, now);
-	if (paused.by === QUIET_BENCH_PAUSE)
-		return [
-			{ text: `Held for a bench since ${time}`, role: "value" },
-			{ text: paused.why ?? "Switch on to end the hold", role: "secondary" },
-		];
 	return [
 		{
 			text:
