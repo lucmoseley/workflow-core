@@ -10,7 +10,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { callCost, callCostAsync, shellCallCost } from "./call-cost.js";
+import { callCost, callCostAsync, shellCallCost } from "./call-cost-harness.js";
 
 const FIXTURES = path.resolve(__dirname, "fixtures");
 const STARTS = path.join(FIXTURES, "call-cost-starts.js");

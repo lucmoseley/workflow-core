@@ -145,7 +145,7 @@ describe("the hot-path set of a planted tree", () => {
 				'const ROWS = [{ script: "scripts/row-check.js" }];',
 			].join("\n"),
 			".claude/workflow-core.json": json({
-				polled: ["scripts/polled.js", "../outside.js", 3],
+				polled: ["scripts/polled.js"],
 			}),
 		});
 		expect(derived()).toEqual(
@@ -176,6 +176,16 @@ describe("the hot-path set of a planted tree", () => {
 			"scripts/start-only.js": "x\n",
 			".claude/settings.json": json({
 				hooks: { SessionStart: [entry("node scripts/start-only.js")] },
+			}),
+		});
+		expect(derived()).toEqual([]);
+	});
+
+	it("holds no polled program where one entry would make the config reader refuse the key", () => {
+		plant({
+			"scripts/polled.js": "x\n",
+			".claude/workflow-core.json": json({
+				polled: ["scripts/polled.js", "../outside.js", 3],
 			}),
 		});
 		expect(derived()).toEqual([]);

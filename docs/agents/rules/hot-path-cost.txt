@@ -8,6 +8,6 @@ A hot-path program is one the harness or git runs per tool call or per commit, o
 4. A change made for speed records a before/after median per call, old and new alternating, on its ticket (#2797).
 5. Each hot-path program has a pin test asserting the modules one common-path call loads and the child processes it starts. The pin fails a run; no timing figure ever refuses (mantahostels#2255).
 
-- *House, Node programs only*: pin through `callCost` (or `callCostAsync`) in the plugin's pin helper.
-- *House, Python programs only*: pin through the helper's `call_cost`.
-- *House, shell*: pin through the helper's shell half, which records each watched binary the script starts.
+- *House, Node programs only*: pin through `callCost` (or `callCostAsync`) in the plugin's pin harness, `scripts/lib/call-cost-harness.js`.
+- *House, Python programs only*: pin through `call_cost` in the harness's Python half, `scripts/lib/call_cost_harness.py`.
+- *House, shell*: pin through the harness's `shellCallCost`, which records each watched binary the script starts.

@@ -6,7 +6,7 @@
  * PostToolUseFailure and on every PostToolBatch, so each module or child past
  * what the call needs is paid on nearly every turn of every session.
  *
- * Program cases (base §X3), run through lib/call-cost.js in
+ * Program cases (base §X3), run through lib/call-cost-harness.js in
  * lib/hook-cost-testkit.ts's fixture repo. Which failure or batch draws a
  * rule is guard-failed-call-rules.test.ts's and lib/failed-call-rules.test.ts's.
  */
@@ -14,10 +14,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { callCost } from "./lib/call-cost.js";
-import { type CostFixture, costFixture } from "./lib/hook-cost-testkit";
+import { callCost } from "./lib/call-cost-harness.js";
+import { type CostFixture, defineCostFixture } from "./lib/hook-cost-testkit";
 
 const ENTRY = path.join(__dirname, "guard-failed-call-rules.js");
+
+const costFixture = defineCostFixture();
 
 let fx: CostFixture;
 
@@ -82,6 +84,7 @@ describe("guard-failed-call-rules.js's per-call cost (#5338)", () => {
 			"lib/outcome-error.js",
 			"lib/read-fd.js",
 			"lib/regex-group.js",
+			"lib/repo-path.js",
 			"lib/review-suffix.js",
 			"lib/sleep-sync.js",
 			"lib/trim-run.js",
@@ -138,6 +141,7 @@ describe("guard-failed-call-rules.js's per-call cost (#5338)", () => {
 			"lib/outcome-error.js",
 			"lib/read-fd.js",
 			"lib/regex-group.js",
+			"lib/repo-path.js",
 			"lib/review-suffix.js",
 			"lib/sleep-sync.js",
 			"lib/trim-run.js",

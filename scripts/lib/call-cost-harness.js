@@ -1,6 +1,6 @@
 /*
- * call-cost.js — what one call of a hot-path program costs: the repo modules
- * it loads and the child processes it starts (base §G13 (5), #5335).
+ * call-cost-harness.js — what one call of a hot-path program costs: the repo
+ * modules it loads and the child processes it starts (base §G13 (5), #5335).
  *
  * FOR TESTS ONLY, as lib/run-in-process.js is. A pin asserts both lists with
  * exact equality, so any growth fails the run naming what grew; no timing
@@ -10,7 +10,7 @@
  *       runInProcess / runInProcessAsync with their options unchanged.
  *   shellCallCost             a shell program, run as a real process with a
  *       recording shim first on PATH for each watched binary.
- *   call_cost (call_cost.py)  the Python half, for pytest.
+ *   call_cost (call_cost_harness.py)  the Python half, for pytest.
  *
  * A child is recorded as the executable's basename and its first argument,
  * joined by a space: `git rev-parse`, `node precommit-dispatch.js`. An
@@ -37,7 +37,9 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { relativeUnder } = require("./is-under.js");
 const { runInProcess, runInProcessAsync } = require("./run-in-process.js");
+const { shellQuote } = require("./sh-quote.js");
 
 /** @typedef {import("./run-in-process.js").RunOptions} RunOptions */
 /** @typedef {import("./run-in-process.js").RunResult} RunResult */
@@ -92,8 +94,8 @@ function scriptsRootOf(script) {
 function shownArg(arg, root, cwd) {
 	if (!path.isAbsolute(arg)) return arg;
 	for (const base of [root, cwd]) {
-		const rel = path.relative(base, arg);
-		if (rel && !rel.startsWith("..") && !path.isAbsolute(rel)) return rel;
+		const rel = relativeUnder(base, arg);
+		if (rel) return rel;
 	}
 	return path.basename(arg);
 }
@@ -135,7 +137,7 @@ function childOf(route, argv, root, cwd) {
  * Replaces every starter on `node:child_process` with a recorder that
  * forwards to the original, and returns the function putting them back.
  *
- * @param {string[]} children
+ * @param {string[]} children accumulator: each start is pushed here, in order
  * @param {string} root
  * @param {string} cwd
  */
@@ -187,13 +189,9 @@ function recordStarts(children, root, cwd) {
  * @param {string} root
  */
 function loadedUnder(root) {
-	const prefix = `${root}${path.sep}`;
 	return Object.keys(require.cache)
-		.filter(
-			(k) =>
-				k.startsWith(prefix) && !k.includes(NODE_MODULES) && !HARNESS.has(k),
-		)
-		.map((k) => path.relative(root, k))
+		.filter((k) => !k.includes(NODE_MODULES) && !HARNESS.has(k))
+		.flatMap((k) => relativeUnder(root, k) || [])
 		.sort();
 }
 
@@ -334,11 +332,11 @@ function shellCallCost(scriptPath, args = [], options = {}) {
 				[
 					"#!/bin/sh",
 					`if [ -z "\${${INNER}:-}" ]; then`,
-					`  printf '%s\\t%s\\n' ${name} "\${1-}" >>'${log}'`,
+					`  printf '%s\\t%s\\n' ${shellQuote(name)} "\${1-}" >>${shellQuote(log)}`,
 					`  ${INNER}=1`,
 					`  export ${INNER}`,
 					"fi",
-					`exec '${real}' "$@"`,
+					`exec ${shellQuote(real)} "$@"`,
 					"",
 				].join("\n"),
 				{ mode: 0o755 },

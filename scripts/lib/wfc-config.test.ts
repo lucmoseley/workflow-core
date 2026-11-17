@@ -476,6 +476,7 @@ describe("parity with the JS reader (#1481)", () => {
 		...[
 			[3],
 			["../poll.js"],
+			["scripts/poll.js", "../poll.js"],
 			["/abs/poll.js"],
 			["scripts\\..\\poll.js"],
 			[""],

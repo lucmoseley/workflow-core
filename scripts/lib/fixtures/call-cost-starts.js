@@ -1,5 +1,5 @@
 /* Starts one child by each node:child_process route, in a fixed order, each
- * with its own first argument, for call-cost.test.ts. */
+ * with its own first argument, for call-cost-harness.test.ts. */
 const childProcess = require("node:child_process");
 const path = require("node:path");
 const { promisify } = require("node:util");

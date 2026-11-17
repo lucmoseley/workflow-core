@@ -6,7 +6,7 @@
  * Bash, Write, Edit and Read call, so each module or child past what the
  * call needs is paid on nearly every tool call of every session.
  *
- * Program cases (base §X3), run through lib/call-cost.js in
+ * Program cases (base §X3), run through lib/call-cost-harness.js in
  * lib/hook-cost-testkit.ts's fixture repo. Which cores a tool or an
  * `if` clause selects is guard-dispatch.test.ts's and
  * lib/guard-dispatch.test.ts's; this pins the call's whole cost.
@@ -18,10 +18,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { callCost } from "./lib/call-cost.js";
-import { type CostFixture, costFixture } from "./lib/hook-cost-testkit";
+import { callCost } from "./lib/call-cost-harness.js";
+import { type CostFixture, defineCostFixture } from "./lib/hook-cost-testkit";
 
 const ENTRY = path.join(__dirname, "guard-dispatch.js");
+
+const costFixture = defineCostFixture();
 
 let fx: CostFixture;
 
@@ -49,12 +51,9 @@ const dispatch = (payload: Payload) =>
 	});
 
 const ls = { tool_name: "Bash", tool_input: { command: "ls" } };
-const write = () => ({
+const write = (rel = "notes.txt", content = "a note\n") => ({
 	tool_name: "Write",
-	tool_input: {
-		file_path: path.join(fx.repo, "notes.txt"),
-		content: "a note\n",
-	},
+	tool_input: { file_path: path.join(fx.repo, rel), content },
 });
 
 describe("guard-dispatch.js's per-call cost under PreToolUse (#5338)", () => {
@@ -137,6 +136,7 @@ describe("guard-dispatch.js's per-call cost under PreToolUse (#5338)", () => {
 			"lib/recursive-dot-read.js",
 			"lib/refuse-on-throw.js",
 			"lib/regex-group.js",
+			"lib/repo-path.js",
 			"lib/review-suffix.js",
 			"lib/root-scratch.js",
 			"lib/scratch-dir.js",
@@ -234,6 +234,7 @@ describe("guard-dispatch.js's per-call cost under PreToolUse (#5338)", () => {
 			"lib/read-fd.js",
 			"lib/refuse-on-throw.js",
 			"lib/regex-group.js",
+			"lib/repo-path.js",
 			"lib/review-suffix.js",
 			"lib/root-scratch.js",
 			"lib/rule-gates.js",
@@ -248,6 +249,114 @@ describe("guard-dispatch.js's per-call cost under PreToolUse (#5338)", () => {
 			"lib/shell-parse.js",
 			"lib/shell-words.js",
 			"lib/sleep-sync.js",
+			"lib/test-kind.js",
+			"lib/test-rules-inject.js",
+			"lib/tree-or.js",
+			"lib/trim-run.js",
+			"lib/workflow-core-config.js",
+			"lib/worktree-dirs.js",
+			"lib/worktree-paths.js",
+			"lib/write-fd.js",
+		]);
+		expect(r.children).toEqual([
+			"git rev-parse",
+			"node session-arbiter.js",
+			"git rev-parse",
+			"git -C",
+			"git check-ignore",
+			"git config",
+		]);
+	});
+
+	// The hot-path entry: the PreToolUse dispatcher line. The call: a Write of
+	// an ordinary program, neither a test nor hot-path, which is the write
+	// lib/hot-path-inject.js reads every registration for.
+	it("costs a Write of an ordinary program these modules and starts", () => {
+		const r = dispatch({
+			hook_event_name: "PreToolUse",
+			...write("scripts/tool.js", "module.exports = {};\n"),
+		});
+		// As above, base §X6, #1497.
+		expect(r.modules).toEqual([
+			"guard-dispatch.js",
+			"lib/caught.js",
+			"lib/child-buffer.js",
+			"lib/citation-tracker.js",
+			"lib/citation-write.js",
+			"lib/cli-args.js",
+			"lib/commit-sha.js",
+			"lib/core-fault.js",
+			"lib/core-hooks.js",
+			"lib/cut-at.js",
+			"lib/cutover.js",
+			"lib/deny-capable.js",
+			"lib/deref.js",
+			"lib/dirty-tree.js",
+			"lib/entry-input.js",
+			"lib/file-claim-host.js",
+			"lib/file-claim.js",
+			"lib/file-read.js",
+			"lib/git-alias.js",
+			"lib/git-mode.js",
+			"lib/git-objects.js",
+			"lib/git-options.js",
+			"lib/git-read-memo.js",
+			"lib/git-tree.js",
+			"lib/git.js",
+			"lib/guard-core-load.js",
+			"lib/guard-cores.js",
+			"lib/guard-dispatch.js",
+			"lib/guard-entry.js",
+			"lib/guard-host-ports.js",
+			"lib/guard-judge.js",
+			"lib/guard-reach.js",
+			"lib/guard-verdict.js",
+			"lib/home-path.js",
+			"lib/hook-deadline.js",
+			"lib/hook-envelope.js",
+			"lib/hook-events.js",
+			"lib/hook-limits.js",
+			"lib/host-root.js",
+			"lib/hot-path-inject.js",
+			"lib/hot-path-set.js",
+			"lib/if-clause.js",
+			"lib/is-under.js",
+			"lib/job-dir-scratch.js",
+			"lib/job-dir.js",
+			"lib/js-lex.js",
+			"lib/kit-context.js",
+			"lib/landing-refs.js",
+			"lib/line-scan.js",
+			"lib/line-terminators.js",
+			"lib/main-checkout-write.js",
+			"lib/main-checkout.js",
+			"lib/marker-root.js",
+			"lib/outcome-error.js",
+			"lib/push-refs.js",
+			"lib/qualify-citations.js",
+			"lib/read-fd.js",
+			"lib/refuse-on-throw.js",
+			"lib/regex-group.js",
+			"lib/repo-path.js",
+			"lib/review-suffix.js",
+			"lib/root-scratch.js",
+			"lib/rule-emission-calls.js",
+			"lib/rule-emission.js",
+			"lib/rule-gates.js",
+			"lib/rule-text.js",
+			"lib/scratch-dir.js",
+			"lib/scratch-overwrite-host.js",
+			"lib/scratch-overwrite.js",
+			"lib/scratch-remedy.js",
+			"lib/script-path.js",
+			"lib/sh-quote.js",
+			"lib/shell-dirs.js",
+			"lib/shell-lexer.js",
+			"lib/shell-operands.js",
+			"lib/shell-parse.js",
+			"lib/shell-words.js",
+			"lib/sleep-sync.js",
+			"lib/strip-comments.js",
 			"lib/test-kind.js",
 			"lib/test-rules-inject.js",
 			"lib/tree-or.js",
@@ -393,6 +502,7 @@ describe("guard-dispatch.js's per-call cost under PostToolUse (#5338)", () => {
 			"lib/refill-state.js",
 			"lib/refuse-on-throw.js",
 			"lib/regex-group.js",
+			"lib/repo-path.js",
 			"lib/resume-expected.js",
 			"lib/retained-jsonl.js",
 			"lib/review-suffix.js",
@@ -563,6 +673,7 @@ describe("guard-dispatch.js's per-call cost under PostToolUse (#5338)", () => {
 			"lib/refill-state.js",
 			"lib/refuse-on-throw.js",
 			"lib/regex-group.js",
+			"lib/repo-path.js",
 			"lib/resume-expected.js",
 			"lib/retained-jsonl.js",
 			"lib/review-suffix.js",

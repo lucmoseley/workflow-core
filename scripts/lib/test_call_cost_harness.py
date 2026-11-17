@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from call_cost import CallCostError, call_cost
+from call_cost_harness import CallCostError, call_cost
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 STARTS = FIXTURES / "call_cost_starts.py"

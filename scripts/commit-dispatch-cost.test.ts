@@ -6,7 +6,7 @@
  * one on every commit of every session, so a module or a start past what the
  * commit needs is paid on every commit.
  *
- * Program cases (base §X3) through lib/call-cost.js's Node half, in
+ * Program cases (base §X3) through lib/call-cost-harness.js's Node half, in
  * lib/hook-cost-testkit.ts's commit fixture: a session's linked worktree
  * committing one staged plain file. Each case seeds the state git and the
  * hooks before it leave on a real commit and calls its dispatcher with the
@@ -17,10 +17,15 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { callCostAsync } from "./lib/call-cost.js";
-import { type CommitFixture, commitFixture } from "./lib/hook-cost-testkit";
+import { callCostAsync } from "./lib/call-cost-harness.js";
+import {
+	type CommitFixture,
+	defineCommitFixture,
+} from "./lib/hook-cost-testkit";
 
 const HUSKY = path.resolve(__dirname, "..", ".husky");
+
+const commitFixture = defineCommitFixture();
 
 let c: CommitFixture;
 
@@ -159,6 +164,7 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 			"lib/regex-group.js",
 			"lib/registrations.js",
 			"lib/registry-anchors-file.js",
+			"lib/repo-path.js",
 			"lib/review-hold-host.js",
 			"lib/review-hold-marker.js",
 			"lib/review-hold.js",
@@ -256,6 +262,7 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 			"lib/proc-stat.js",
 			"lib/qualify-citations.js",
 			"lib/regex-group.js",
+			"lib/repo-path.js",
 			"lib/review-tier-stamp.js",
 			"lib/review-tier-trailer.js",
 			"lib/rule-text.js",
@@ -317,6 +324,7 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 			"lib/precommit-dispatch.js",
 			"lib/qualify-citations.js",
 			"lib/regex-group.js",
+			"lib/repo-path.js",
 			"lib/rule-text.js",
 			"lib/script-path.js",
 			"lib/session-id.js",
@@ -480,6 +488,7 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 			"lib/regex-group.js",
 			"lib/registry-anchors-file.js",
 			"lib/registry-carry.js",
+			"lib/repo-path.js",
 			"lib/resume-expected.js",
 			"lib/retained-jsonl.js",
 			"lib/rule-emission-calls.js",

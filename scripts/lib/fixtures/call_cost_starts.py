@@ -1,5 +1,5 @@
 """Starts one child by each process-starting route, in a fixed order, each
-with its own first argument, for test_call_cost.py."""
+with its own first argument, for test_call_cost_harness.py."""
 
 import os
 import shutil

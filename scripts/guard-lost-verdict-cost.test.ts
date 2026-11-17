@@ -6,7 +6,7 @@
  * PostToolUse and PostToolUseFailure, so each module or child past what the
  * call needs is paid on every Bash call of every session.
  *
- * Program cases (base §X3), run through lib/call-cost.js in
+ * Program cases (base §X3), run through lib/call-cost-harness.js in
  * lib/hook-cost-testkit.ts's fixture repo. Which run's verdict is handed
  * over is guard-lost-verdict.test.ts's and lib/lost-verdict.test.ts's.
  */
@@ -14,10 +14,12 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { callCost } from "./lib/call-cost.js";
-import { type CostFixture, costFixture } from "./lib/hook-cost-testkit";
+import { callCost } from "./lib/call-cost-harness.js";
+import { type CostFixture, defineCostFixture } from "./lib/hook-cost-testkit";
 
 const ENTRY = path.join(__dirname, "guard-lost-verdict.js");
+
+const costFixture = defineCostFixture();
 
 let fx: CostFixture;
 
@@ -100,6 +102,7 @@ describe("guard-lost-verdict.js's per-call cost (#5338)", () => {
 			"lib/push-refs.js",
 			"lib/read-fd.js",
 			"lib/regex-group.js",
+			"lib/repo-path.js",
 			"lib/retained-jsonl.js",
 			"lib/review-suffix.js",
 			"lib/run-ledger.js",
@@ -179,6 +182,7 @@ describe("guard-lost-verdict.js's per-call cost (#5338)", () => {
 			"lib/push-refs.js",
 			"lib/read-fd.js",
 			"lib/regex-group.js",
+			"lib/repo-path.js",
 			"lib/retained-jsonl.js",
 			"lib/review-suffix.js",
 			"lib/run-ledger.js",

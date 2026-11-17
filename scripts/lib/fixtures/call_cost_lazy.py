@@ -1,5 +1,5 @@
 """A program with a lazy import on its rare branch, a failing mode, a noisy
-mode and a throwing mode, for test_call_cost.py."""
+mode and a throwing mode, for test_call_cost_harness.py."""
 
 import sys
 

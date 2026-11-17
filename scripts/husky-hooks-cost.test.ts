@@ -4,25 +4,29 @@
  * commit (base §G13, #5338). Every commit of every session runs all four, so
  * a start past what the commit needs is paid on every commit.
  *
- * Program cases (base §X3) through lib/call-cost.js's shell half, in
+ * Program cases (base §X3) through lib/call-cost-harness.js's shell half, in
  * lib/hook-cost-testkit.ts's commit fixture: a session's linked worktree
  * committing one staged plain file. Each case seeds the state git and the
  * hooks before it leave on a real commit — the staged file, pre-commit's
  * stand-down stamp, the message file, the commit itself — and runs its hook
- * with the arguments and GIT_* variables git hands it. It runs past the 10 s
- * budget (base §X8 (5)) because its time is the four hooks' own, run for
- * real: what it pins is what they start, which no seeded stand-in shows. Every `node` a hook starts goes through
- * lib/hook-bound.sh's run-budgeted.js, so it shows as `node run-budgeted.js`.
- * The dispatchers' own loads and starts are commit-dispatch-cost.test.ts's.
+ * with the arguments and GIT_* variables git hands it. Every `node` a hook
+ * starts goes through lib/hook-bound.sh's run-budgeted.js, so it shows as
+ * `node run-budgeted.js`. The dispatchers' own loads and starts are
+ * commit-dispatch-cost.test.ts's.
  */
 
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { shellCallCost } from "./lib/call-cost.js";
-import { type CommitFixture, commitFixture } from "./lib/hook-cost-testkit";
+import { shellCallCost } from "./lib/call-cost-harness.js";
+import {
+	type CommitFixture,
+	defineCommitFixture,
+} from "./lib/hook-cost-testkit";
 
 const HUSKY = path.resolve(__dirname, "..", ".husky");
+
+const commitFixture = defineCommitFixture();
 
 let c: CommitFixture;
 

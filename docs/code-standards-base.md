@@ -137,7 +137,7 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 | Writing a program's output | `writeFd` in `scripts/lib/write-fd.js` | `scripts/check-plugin-gap.js` | §N6 | `scripts/check-program-output.js` |
 | A `report-*` program filing an issue | `createIssue` in `scripts/lib/tracking-issue.js`, or its `fileOrRefresh` | `scripts/report-remeasure-due.js` | §N3 | `scripts/check-report-programs.js` |
 | Running a program under test | `runInProcess` in `scripts/lib/run-in-process.js`, `runInProcessAsync` for an async entry | `scripts/lib/run-in-process.js`, its header's contract | §X3 | `scripts/check-test-spawn.js` |
-| Pinning a hot-path program's per-call load and starts | `callCost` or `callCostAsync` in `scripts/lib/call-cost.js`, its `shellCallCost` for a shell program; `call_cost` in `scripts/lib/call_cost.py` | `scripts/lib/call-cost.js`, `scripts/lib/call_cost.py` | §G13 | Standards axis criterion |
+| Pinning a hot-path program's per-call load and starts | `callCost` or `callCostAsync` in `scripts/lib/call-cost-harness.js`, its `shellCallCost` for a shell program; `call_cost` in `scripts/lib/call_cost_harness.py` | `scripts/lib/call-cost-harness.js`, `scripts/lib/call_cost_harness.py` | §G13 | Standards axis criterion |
 | A pre-commit gate line | the checker's own exit code passed on, `exit "$?"`, or `staged_gate`'s `status` mode in `scripts/lib/precommit-gate.sh`; a literal `exit 2` where the hook reads a probe's or lister's output, since a crash's own code may be 1 | `.husky/pre-commit` | §N4 | `scripts/check-precommit-exit.js` |
 | A pre-commit gate staging blobs out of the index | `staged_gate` in `scripts/lib/precommit-gate.sh` | `.husky/pre-commit` | §S6 | Standards axis criterion |
 | Ending a Stop hook with a block | `blockStop` in `scripts/lib/hook-block.js`, with its `charge` and `capSpent` | `scripts/guard-uncommitted-work.js` | §G10 | Standards axis criterion |
@@ -276,9 +276,9 @@ A hot-path program is one the harness or git runs per tool call or per commit, o
 4. A change made for speed records a before/after median per call, old and new alternating, on its ticket (#2797).
 5. Each hot-path program has a pin test asserting the modules one common-path call loads and the child processes it starts. The pin fails a run; no timing figure ever refuses (mantahostels#2255).
 
-- *House, Node programs only*: pin through `callCost` (or `callCostAsync`) in the plugin's pin helper.
-- *House, Python programs only*: pin through the helper's `call_cost`.
-- *House, shell*: pin through the helper's shell half, which records each watched binary the script starts.
+- *House, Node programs only*: pin through `callCost` (or `callCostAsync`) in the plugin's pin harness, `scripts/lib/call-cost-harness.js`.
+- *House, Python programs only*: pin through `call_cost` in the harness's Python half, `scripts/lib/call_cost_harness.py`.
+- *House, shell*: pin through the harness's `shellCallCost`, which records each watched binary the script starts.
 <!-- rule:hot-path-cost:end -->
 
 Judge (4) from the ticket's comments: a change made for speed with no before/after medians there is the finding. Judge (5) from the change's test files. A good reason to differ: a program with no common path a pin can drive, said in its header (§G4), under (5); or a guard that must run in its own process for a reason the hook docs give, such as fail-closed isolation or a timeout of its own, said at its entry, under (2).

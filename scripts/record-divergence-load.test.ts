@@ -5,7 +5,7 @@
  * every `git` call, and each module past its own costs that call start-up
  * time, so a later top-level require would bring back what #2899 cut.
  *
- * Program cases (base §X3), run through lib/call-cost.js (base §G13). A
+ * Program cases (base §X3), run through lib/call-cost-harness.js (base §G13). A
  * built-in (node:child_process) is loaded already in a test process and is
  * not seen here.
  */
@@ -14,7 +14,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { callCost } from "./lib/call-cost.js";
+import { callCost } from "./lib/call-cost-harness.js";
 
 const RECORDER = path.resolve(__dirname, "record-divergence.js");
 

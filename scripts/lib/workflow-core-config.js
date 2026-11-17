@@ -32,6 +32,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execGit } = require("./git.js");
 const { readCommittedFile } = require("./git-objects.js");
+const { isRepoPath, isRepoPathList } = require("./repo-path.js");
 /* Re-exported rather than merely used, because callers and this file's own
  * suite already import it from here. */
 const { hostRoot } = require("./host-root.js");
@@ -285,17 +286,6 @@ const warnOnce = (line, say = (l) => writeFd(2, `${l}\n`)) => {
 	warned.add(line);
 	say(line);
 };
-
-/**
- * A non-empty relative path that does not climb out of the repo.
- * @param {unknown} v
- * @returns {v is string}
- */
-const isRepoPath = (v) =>
-	typeof v === "string" &&
-	v !== "" &&
-	!path.isAbsolute(v) &&
-	!v.split(/[\\/]/).includes("..");
 
 /** @param {unknown} v @returns {v is number} */
 const isPositiveInt = (v) =>
@@ -991,16 +981,12 @@ function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
 	const worktreeLinks = readKey(
 		cfg,
 		"worktreeLinks",
-		(v) => Array.isArray(v) && v.every(isRepoPath),
+		isRepoPathList,
 		"an array of repo-relative paths",
 	);
 	const polled =
-		readKey(
-			cfg,
-			"polled",
-			(v) => Array.isArray(v) && v.every(isRepoPath),
-			"an array of repo-relative paths",
-		) ?? [];
+		readKey(cfg, "polled", isRepoPathList, "an array of repo-relative paths") ??
+		[];
 	readSubObject(cfg, "mods", MOD_SWITCHES);
 
 	/* Last: a key read after this line warns into `warnings` but never reaches

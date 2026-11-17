@@ -1,6 +1,7 @@
-"""call_cost.py — what one call of a hot-path Python program costs: the repo
-modules it loads and the child processes it starts (base §G13 (5), #5335).
-The Python half of lib/call-cost.js, for pytest.
+"""call_cost_harness.py — what one call of a hot-path Python program costs:
+the repo modules it loads and the child processes it starts (base §G13 (5),
+#5335).
+The Python half of lib/call-cost-harness.js, for pytest.
 
 FOR TESTS ONLY. A pin asserts both lists with exact equality, so any growth
 fails the run naming what grew; no timing figure is ever read
@@ -129,7 +130,8 @@ def _shell_child(command: object, root: str, cwd: str) -> str:
 
 def _record_starts(children: list[str], root: str, cwd: str):
     """Replaces each starter with a recorder forwarding to the original, and
-    returns the function putting them back."""
+    returns the function putting them back. `children` is the caller's
+    accumulator: each start is appended to it, in order."""
     popen = subprocess.Popen
     system = os.system
     spawn = os.posix_spawn

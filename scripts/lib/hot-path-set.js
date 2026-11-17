@@ -16,7 +16,9 @@
  */
 
 const path = require("node:path");
+const { relativeUnder } = require("./is-under.js");
 const { requiredGroup } = require("./regex-group.js");
+const { isRepoPathList } = require("./repo-path.js");
 
 /**
  * @typedef {{
@@ -94,17 +96,32 @@ const STRING_LITERAL = /(["'`])([^"'`\s]+\.(?:c?js|mjs|ts|sh|py))\1/g;
  *   absent, every leading `./`, `../` and `/` is the root
  */
 function fromRoot(root, token, base) {
+	const under = path.isAbsolute(token) ? relativeUnder(root, token) : null;
 	let rel;
 	if (base !== undefined && /^\.\.?\//.test(token))
 		rel = path.posix.join(base, token);
-	else if (token.startsWith(`${root}/`)) rel = token.slice(root.length + 1);
+	else if (under) rel = under;
 	else rel = token.replace(/^(?:\.{0,2}\/)+/, "");
 	rel = path.posix.normalize(rel);
 	return rel === "." || rel.startsWith("../") || rel === ".." ? null : rel;
 }
 
-/** @param {unknown} v @returns {any[]} */
+/** @param {unknown} v @returns {unknown[]} */
 const list = (v) => (Array.isArray(v) ? v : []);
+
+/**
+ * `v[key]` where `v` is an object, else undefined.
+ * @param {unknown} v
+ * @param {string} key
+ * @returns {unknown}
+ */
+const field = (v, key) =>
+	v !== null && typeof v === "object"
+		? /** @type {Record<string, unknown>} */ (v)[key]
+		: undefined;
+
+/** @param {unknown} v @returns {v is string} */
+const isString = (v) => typeof v === "string";
 
 /**
  * `token` as a file in the tree, by its path from the root, or null.
@@ -143,6 +160,12 @@ function readJson(port, rel) {
 		const parsed = JSON.parse(text);
 		return parsed !== null && typeof parsed === "object" ? parsed : null;
 	} catch {
+		/* Fail open (#5338): a source that will not parse names no program, so
+		 * the set lacks its programs and nothing is said here. The injector
+		 * must never block a write; a write to a broken hook file or registry
+		 * is told §G13 as a registration whatever it holds; and each file's
+		 * own loader (the harness, a dispatcher, the config reader) reports
+		 * the break. */
 		return null;
 	}
 }
@@ -150,16 +173,21 @@ function readJson(port, rel) {
 /**
  * The command lines a settings-shaped file runs per tool call, an exec
  * form's arguments included, and its status line's.
- * @param {Record<string, any>} settings
+ * @param {unknown} settings
  * @returns {string[]}
  */
 const perCallCommands = (settings) =>
 	[
-		...PER_CALL_EVENTS.flatMap((event) => list(settings.hooks?.[event]))
-			.flatMap((entry) => list(entry?.hooks))
-			.flatMap((hook) => [hook?.command, list(hook?.args).join(" ")]),
-		settings.statusLine?.command,
-	].filter((line) => typeof line === "string");
+		...PER_CALL_EVENTS.flatMap((event) =>
+			list(field(field(settings, "hooks"), event)),
+		)
+			.flatMap((entry) => list(field(entry, "hooks")))
+			.flatMap((hook) => [
+				field(hook, "command"),
+				list(field(hook, "args")).join(" "),
+			]),
+		field(field(settings, "statusLine"), "command"),
+	].filter(isString);
 
 /**
  * Every module the core registry names, `core` and `host` alike, spelt from
@@ -170,8 +198,8 @@ const perCallCommands = (settings) =>
 const registryModules = (root, port) =>
 	Object.values(readJson(port, CORE_REGISTRY) ?? {})
 		.flatMap(list)
-		.flatMap((row) => [row?.core, row?.host])
-		.filter((name) => typeof name === "string")
+		.flatMap((row) => [field(row, "core"), field(row, "host")])
+		.filter(isString)
 		.map((name) =>
 			inTree(root, port, `./${name}`, path.posix.dirname(CORE_REGISTRY)),
 		);
@@ -202,21 +230,17 @@ const uncommented = (text) =>
 		.join("\n");
 
 /**
- * The config's `polled` entries that are files in the tree. The config
- * reader is not loaded here, since it reaches for git; an entry it would
- * refuse is skipped.
+ * The config's `polled` entries that are files in the tree, none where the
+ * config reader would refuse the key.
  * @param {string} root
  * @param {TreeReader} port
  */
-const polledFiles = (root, port) =>
-	list(readJson(port, CONFIG)?.polled)
-		.filter(
-			(entry) =>
-				typeof entry === "string" &&
-				!entry.startsWith("/") &&
-				!entry.split(/[\\/]/).includes(".."),
-		)
-		.map((entry) => inTree(root, port, entry));
+function polledFiles(root, port) {
+	const polled = field(readJson(port, CONFIG), "polled");
+	return isRepoPathList(polled)
+		? polled.map((entry) => inTree(root, port, entry))
+		: [];
+}
 
 /**
  * The tree's hot-path programs, by path from `root`, sorted.
@@ -227,7 +251,7 @@ const polledFiles = (root, port) =>
 function hotPathSet(root, port) {
 	const found = [
 		...HOOK_FILES.flatMap((file) =>
-			perCallCommands(readJson(port, file) ?? {}),
+			perCallCommands(readJson(port, file)),
 		).flatMap((line) => namedFiles(root, port, line)),
 		...COMMIT_HOOKS.flatMap((hook) =>
 			namedFiles(root, port, uncommented(port.readText(hook) ?? "")),

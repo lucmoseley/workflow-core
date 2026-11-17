@@ -4,14 +4,14 @@
  * loads and the processes it starts. The refill panel runs it every 3 s, and
  * each module it loads costs that poll start-up time.
  *
- * A program case (base §X3), run through lib/call-cost.js (base §G13).
+ * A program case (base §X3), run through lib/call-cost-harness.js (base §G13).
  */
 
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { callCostAsync } from "./lib/call-cost.js";
+import { callCostAsync } from "./lib/call-cost-harness.js";
 
 const SCRIPT = path.resolve(__dirname, "refill-loop.js");
 
@@ -192,6 +192,7 @@ describe("refill-loop.js status's per-call cost (#4821)", () => {
 			"lib/refill-wake.js",
 			"lib/regex-group.js",
 			"lib/repo-holds.js",
+			"lib/repo-path.js",
 			"lib/retained-jsonl.js",
 			"lib/review-hour.js",
 			"lib/run-budgeted.js",
