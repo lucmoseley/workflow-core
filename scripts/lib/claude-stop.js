@@ -29,6 +29,10 @@ const { buildSeatEnv, runClaude } = require("./seat-claude.js");
  *   "No job matching '<id>'", the permanent failure of mantahostels#846.
  */
 
+/** A daemon's answer to a stop of an id it holds no job for: "No job matching"
+ * before 2.1.326, "No session matching" from it (#5329). */
+const NO_JOB_ANSWER = /No (?:job|session) matching/;
+
 /** A hang guard, never measured: a stop answers in seconds when well. */
 const STOP_TIMEOUT_MS = 15_000;
 
@@ -92,7 +96,7 @@ function readSeatsFor(jobId, sessionId) {
 /**
  * Stops a job on the first seat that holds it, readSeatsFor's order.
  *
- * ONLY "No job matching" MOVES ON TO THE NEXT SEAT — the answer of a seat whose
+ * ONLY NO_JOB_ANSWER MOVES ON TO THE NEXT SEAT — the answer of a seat whose
  * daemon has no such job. Any other failure, a timeout above all, is reported
  * from the seat that gave it: retrying a busy daemon elsewhere buys one STOP_TIMEOUT_MS
  * per seat and no memory. A reworded daemon costs the cross-seat retry, and the stop
@@ -165,7 +169,7 @@ function stopOn(seat, id, bin, { env = process.env, spawn } = {}) {
 		why: said ? `${code}: ${said}` : code,
 		said,
 		timedOut: errCode === "ETIMEDOUT",
-		noJob: /No job matching/.test(said ?? ""),
+		noJob: NO_JOB_ANSWER.test(said ?? ""),
 	};
 }
 
@@ -196,6 +200,7 @@ function stopHeadless(id) {
 }
 
 module.exports = {
+	NO_JOB_ANSWER,
 	readOwnJob,
 	stopOn,
 	stopSession,

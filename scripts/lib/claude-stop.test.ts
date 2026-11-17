@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { buildStopBranch, recorded, type StopAnswer } from "./agents-stop-fake";
 import { stopOn, stopSession } from "./claude-stop.js";
 import { writeClaudeStub } from "./claude-stub";
+import { shellQuote } from "./sh-quote.js";
 
 let root: string;
 let seats: string[];
@@ -70,6 +71,21 @@ beforeEach(() => {
 
 afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });
+});
+
+/* Each wording a supported harness prints for a stop of no job (#5329). */
+it.each([
+	"No job matching 'aaaa1111'. Run 'claude agents' to list running sessions.",
+	"No session matching 'aaaa1111'. Run 'claude agents' to list running sessions.",
+])("reads %s as no job", (line) => {
+	const bin = writeClaudeStub(at("claude"), [
+		`printf '%s\\n' ${shellQuote(line)} >&2; exit 1`,
+	]);
+	expect(stopOn(seats[0], "aaaa1111", bin)).toMatchObject({
+		ok: false,
+		noJob: true,
+		said: line,
+	});
 });
 
 describe("stopSession", () => {
