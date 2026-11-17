@@ -12,7 +12,8 @@
  * A pid counts as live only while its start time (/proc/<pid>/stat field 22)
  * still matches, so a recycled pid never holds a record. `lastReason` is the
  * last resume's outcome where it closed nothing: `not-connected`, which spends
- * no attempt, or the failure's text.
+ * no attempt, or the failure's text. The sweep leaves a not-connected record
+ * an hour and a failed one 6 h before resuming it again.
  * `tabs` are the tabs the launcher last saw open, for a give-up's report.
  *
  * `first-launch` holds the ISO time of the first record ever written here:
@@ -40,6 +41,10 @@ const GIVE_UP_ATTEMPTS = 3;
 const GIVE_UP_MS = 7 * 24 * 60 * 60 * 1000;
 /* Untraced: how long a sweep leaves a record whose bridge was not connected. */
 const NOT_CONNECTED_BACKOFF_MS = 60 * 60 * 1000;
+/* Delegated in #5392, untraced: how long a sweep leaves a record whose last
+ * resume failed, so its 3 attempts span at least 12 h and outlast a 5-hour
+ * seat window. Residual: a passing failure leaves its tab open 6 h too. */
+const FAILED_BACKOFF_MS = 6 * 60 * 60 * 1000;
 
 /**
  * @typedef {{tabId: number, title: string, url: string}} HeldTab
@@ -143,7 +148,7 @@ const readLastSweep = () => readStamp(lastSweepFile());
 /** @param {Date} at */
 function writeLastSweep(at) {
 	makeDir();
-	fs.writeFileSync(lastSweepFile(), `${at.toISOString()}\n`);
+	writeFileAtomic(lastSweepFile(), `${at.toISOString()}\n`);
 }
 
 /** @param {string} id */
@@ -257,11 +262,11 @@ function sweepSkip(record, now, { launcherLive, locked }) {
 	const last = record.lastAttemptAt
 		? Date.parse(record.lastAttemptAt)
 		: Number.NaN;
-	if (
-		record.lastReason === "not-connected" &&
-		now < last + NOT_CONNECTED_BACKOFF_MS
-	)
-		return "its bridge was not connected within the hour";
+	if (record.lastReason === "not-connected") {
+		if (now < last + NOT_CONNECTED_BACKOFF_MS)
+			return "its bridge was not connected within the hour";
+	} else if (now < last + FAILED_BACKOFF_MS)
+		return `its last resume failed within ${FAILED_BACKOFF_MS / 3_600_000} h`;
 	return null;
 }
 

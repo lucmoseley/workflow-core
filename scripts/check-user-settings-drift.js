@@ -367,9 +367,8 @@ function compareCopy(
 			`no ${name} block found in ${docPath} — expected between ${markers}.`,
 		);
 
-	const liveRead = readText(livePath);
-	brokenIfUnreadable(ctx, livePath, liveRead);
-	if (liveRead.state !== "read")
+	const liveData = readOrBreak(ctx, livePath);
+	if (liveData === null)
 		return { note: `, ${name} absent (not compared)`, difference: null };
 
 	if (!found)
@@ -378,7 +377,7 @@ function compareCopy(
 			difference: `${name}: ${livePath} has no copy in ${docPath} — expected between ${markers}`,
 		};
 
-	const read = trimEndRun(liveRead.data, "\n");
+	const read = trimEndRun(liveData, "\n");
 	const liveText = ruleSectionsCut
 		? trimEndRun(withoutRuleSections(read), "\n")
 		: read;
@@ -407,15 +406,21 @@ function compareCopy(
 }
 
 /**
- * BROKEN where `file` is there but could not be read: the apparatus failed,
- * so nothing can be said of its drift (base §N4).
+ * `file`'s text, or null where it is absent. BROKEN where it is there but
+ * unreadable: an absent copy is a machine that keeps none, while an
+ * unreadable one is a fault at a path the founder keeps, and calling it
+ * "not compared" would read as OK (base §N4, #5383's review).
  * @param {Ctx} ctx
  * @param {string} file
- * @param {import("./lib/file-read.js").FileRead<string>} read
+ * @returns {string | null}
  */
-function brokenIfUnreadable(ctx, file, read) {
+function readOrBreak(ctx, file) {
+	const read = readText(file);
 	if (read.state === "unreadable")
-		ctx.broken(`${file} is unreadable: ${read.message}`);
+		ctx.broken(
+			`${file} is unreadable (${read.message}): restore it as a readable file, or move it aside, and re-run`,
+		);
+	return read.state === "read" ? read.data : null;
 }
 
 /**
@@ -446,17 +451,12 @@ function compareSourcedFiles(ctx) {
 	for (const { live, source } of SOURCED) {
 		const livePath = path.join(os.homedir(), ".claude", ...live);
 		const name = path.basename(livePath);
-		const sourcePath = path.join(PLUGIN_ROOT, source);
-		const sourceRead = readText(sourcePath);
-		const liveRead = readText(livePath);
-		brokenIfUnreadable(ctx, sourcePath, sourceRead);
-		brokenIfUnreadable(ctx, livePath, liveRead);
-		if (sourceRead.state !== "read" || liveRead.state !== "read") {
+		const want = readOrBreak(ctx, path.join(PLUGIN_ROOT, source));
+		const got = readOrBreak(ctx, livePath);
+		if (want === null || got === null) {
 			notes.push(`, ${name} not compared`);
 			continue;
 		}
-		const want = sourceRead.data;
-		const got = liveRead.data;
 		if (want === got) notes.push(`, ${name} equal to ${source}`);
 		else
 			differences.push(
@@ -476,15 +476,10 @@ function compareSourcedFiles(ctx) {
  */
 function compareRuleSections(ctx) {
 	const claudeMd = path.join(os.homedir(), ".claude", "CLAUDE.md");
-	const contractPath = path.join(PLUGIN_ROOT, CONTRACT);
-	const liveRead = readText(claudeMd);
-	const contractRead = readText(contractPath);
-	brokenIfUnreadable(ctx, claudeMd, liveRead);
-	brokenIfUnreadable(ctx, contractPath, contractRead);
-	if (liveRead.state !== "read" || contractRead.state !== "read")
+	const liveText = readOrBreak(ctx, claudeMd);
+	const contract = readOrBreak(ctx, path.join(PLUGIN_ROOT, CONTRACT));
+	if (liveText === null || contract === null)
 		return { note: ", working rules not compared", differences: [] };
-	const liveText = liveRead.data;
-	const contract = contractRead.data;
 	const differences = [];
 	for (const heading of RULE_SECTIONS) {
 		const want = sectionBody(contract, heading);

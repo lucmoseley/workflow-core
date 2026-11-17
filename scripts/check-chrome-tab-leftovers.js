@@ -25,6 +25,7 @@
 const { now, runCheck } = require("./lib/check.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { readCensus, readTurnarounds } = require("./lib/chrome-child-census.js");
+const { named } = require("./lib/chrome-child.js");
 const { HOLD_MS, readFirstLaunch } = require("./lib/chrome-child-store.js");
 const DAY_MS = 86_400_000;
 
@@ -41,10 +42,6 @@ function turnaround(ctx) {
 		okLine: `${lines.length} held tab(s) closed, read from the closed log.`,
 	};
 }
-
-/** @param {import("./lib/chrome-child.js").OpenTab[]} left */
-const tabsText = (left) =>
-	left.map((t) => `${t.title || "(untitled)"} (${t.url})`).join("; ");
 
 /** @param {Ctx} ctx */
 async function run(ctx) {
@@ -67,14 +64,18 @@ async function run(ctx) {
 			{ dir },
 			`CENSUS-UNREAD\t${dir}`,
 		);
-	const of = (/** @type {string} */ c) =>
-		census.children.filter((child) => child.class === c);
+	const of = (
+		/** @type {import("./lib/chrome-child-census.js").ChildClass} */ c,
+	) => census.children.filter((child) => child.class === c);
 	const unexplained = of("unexplained");
 	for (const child of unexplained) {
-		const tabs = tabsText(child.left);
+		const tabs = child.left.map(named).join("; ");
+		const remedy = child.recorded
+			? `Close with: node ${scriptPath("claude-child.js")} chrome-close --session ${child.sessionId}`
+			: "No launcher record names it, so no closer can reach it: close it in Chrome by hand.";
 		ctx.warn(
 			"UNEXPLAINED-TAB",
-			`session ${child.sessionId} on ${child.seat} left ${child.left.length} tab(s) open: ${tabs}. Close with: node ${scriptPath("claude-child.js")} chrome-close --session ${child.sessionId}`,
+			`session ${child.sessionId} on ${child.seat} left ${child.left.length} tab(s) open: ${tabs}. ${remedy}`,
 			child,
 			`UNEXPLAINED-TAB\t${child.sessionId}\t${child.seat}\t${tabs}`,
 		);

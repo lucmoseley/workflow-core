@@ -46,7 +46,8 @@ const SESSION_ID = /"sessionId":"([^"]+)"/;
  * @typedef {import("./chrome-child.js").OpenTab} OpenTab
  * @typedef {"running" | "clean" | "held" | "given-up" | "unexplained"} ChildClass
  * @typedef {{sessionId: string, seat: string, left: OpenTab[],
- *   class: ChildClass}} Child
+ *   class: ChildClass, recorded: boolean}} Child `recorded`: a launcher
+ *   record still names it, so `chrome-close --session` can close it
  * @typedef {{children: Child[], listed: number, absent: string[],
  *   unreadable: string[], lastSweep: string | null}} Census
  */
@@ -195,6 +196,7 @@ async function readCensus(fromMs) {
 				sessionId: s.sessionId,
 				seat: s.seat,
 				left,
+				recorded: record !== undefined,
 				class: classify({
 					left,
 					record,

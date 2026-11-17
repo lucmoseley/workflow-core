@@ -86,7 +86,7 @@ describe("what passes", () => {
 		["a merge in an earlier segment", `ls 2>&1; ${LAUNCH}`],
 		["a |& in a later segment", `${LAUNCH}; ls |& cat`],
 		["a mention", `echo ${LAUNCH} |& cat`],
-	])("%s", (_label, command) => {
+	])("passes %s", (_label, command) => {
 		expect(emission(command)).toBeNull();
 	});
 });

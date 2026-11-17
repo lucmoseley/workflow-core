@@ -268,7 +268,9 @@ describe("machine copies of shipped files, against their repo sources (#5344)", 
 		});
 		const { status, out } = run({ theme: "dark" }, { theme: "dark" });
 		expect(status).toBe(2);
-		expect(out).toMatch(/practice-crafts\.md is unreadable/);
+		expect(out).toMatch(
+			/practice-crafts\.md is unreadable \(.*\): restore it as a readable file, or move it aside, and re-run/,
+		);
 	});
 });
 
@@ -337,6 +339,47 @@ describe("the working-rule sections of the user-level CLAUDE.md (#5344)", () => 
 		);
 		expect(status).toBe(2);
 		expect(out).toMatch(/CLAUDE\.md is unreadable/);
+	});
+
+	/** A plugin root under the fixture dir, its contract made by `make`. */
+	const pluginWith = (make: (at: string) => void) => {
+		const root = path.join(dir, "plugin");
+		fs.mkdirSync(path.join(root, "docs"), { recursive: true });
+		make(path.join(root, "docs", "working-contract.md"));
+		return { WFC_SCRIPT_ROOT: root };
+	};
+
+	it("is BROKEN where the contract has lost a section it names", () => {
+		writeLive(`${head}\n${ruleSections}\n`);
+		const env = pluginWith((at) =>
+			fs.writeFileSync(
+				at,
+				ruleSections.replace("## Leading practice", "## Something else"),
+			),
+		);
+		const { status, out } = run(
+			{ theme: "dark" },
+			{ theme: "dark" },
+			withBlock,
+			env,
+		);
+		expect(status).toBe(2);
+		expect(out).toMatch(
+			/docs\/working-contract\.md has no "## Leading practice" section/,
+		);
+	});
+
+	it("is BROKEN where the contract is there but unreadable", () => {
+		writeLive(`${head}\n${ruleSections}\n`);
+		const env = pluginWith((at) => fs.mkdirSync(at));
+		const { status, out } = run(
+			{ theme: "dark" },
+			{ theme: "dark" },
+			withBlock,
+			env,
+		);
+		expect(status).toBe(2);
+		expect(out).toMatch(/working-contract\.md is unreadable/);
 	});
 });
 

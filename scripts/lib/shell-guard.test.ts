@@ -58,7 +58,7 @@ describe("a script's answer", () => {
 	});
 
 	it("throws where it is not the hook JSON, for the row's failure policy", () => {
-		expect(() => browserOn("practice-guard: oops").decision()).toThrow();
+		expect(() => browserOn("browser-profile-guard: oops").decision()).toThrow();
 	});
 });
 
