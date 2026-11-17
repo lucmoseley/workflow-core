@@ -5,7 +5,7 @@
  * script makes the exact cut.
  *
  * FAILS CLOSED (guard-cores.json), as every deny-capable PreToolUse core does
- * (base §N2): where the script crashes, times out or answers no hook JSON, a
+ * (base §S3, #2670): where the script crashes, times out or answers no hook JSON, a
  * call naming docs/practice is refused until the fault is fixed, and
  * `disabled` listing guard-practice-note stands it down meanwhile.
  */
