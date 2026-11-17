@@ -72,7 +72,6 @@ afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });
 });
 
-/* Each wording a supported harness prints for a stop of no job (#5329). */
 it.each(["noJob", "oldNoJob"] as const)(
 	"reads the %s answer as no job",
 	(answer) => {
