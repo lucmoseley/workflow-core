@@ -57,7 +57,8 @@ function readMergeHeadLines(cwd) {
 
 /* git exports one per merged head to the hooks a `git merge` runs (its
  * conflict-marker labels), before MERGE_HEAD exists. */
-const GITHEAD_ENV = /^GITHEAD_([0-9a-f]{40}|[0-9a-f]{64})$/;
+const SHA_HEX = "[0-9a-f]{40}|[0-9a-f]{64}";
+const GITHEAD_ENV = new RegExp(`^GITHEAD_(${SHA_HEX})$`);
 
 /**
  * The shas `env`'s GITHEAD_<sha> names, as a hook `git merge` runs sees them.
@@ -91,7 +92,7 @@ function readMergingHeads(cwd, env = process.env) {
  */
 const MERGE_PARENTS_ENV = "WFC_MERGE_PARENTS";
 
-const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+const SHA = new RegExp(`^(?:${SHA_HEX})$`);
 
 /**
  * `env` with the merge parents of the checkout at `cwd` handed off, for a

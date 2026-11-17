@@ -60,7 +60,13 @@ delete process.env.WFC_GATE_SEAT;
 
 /* Nor the merge parents a merge's gate hands its suite (#5334): a case's own
  * `head` selection would read them as its fixture's. */
-delete process.env.WFC_MERGE_PARENTS;
+delete process.env[
+	(
+		createRequire(import.meta.url)("./scripts/lib/merge-heads.js") as {
+			MERGE_PARENTS_ENV: string;
+		}
+	).MERGE_PARENTS_ENV
+];
 
 /* The files the suite's own launch cached (#4790) are its reporter's, not a
  * case's: a reporter a case drives would fold them into its certificate.

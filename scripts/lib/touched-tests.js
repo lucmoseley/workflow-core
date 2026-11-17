@@ -76,6 +76,7 @@ const { readVitestCollected } = require("./vitest-collected.js");
 const { gitRead, readUntrackedFiles } = require("./dirty-tree.js");
 const { readOwnWork } = require("./own-work.js");
 const { readMergeParents } = require("./merge-heads.js");
+const { caught } = require("./caught.js");
 const { readGateSeats } = require("./suite-queue.js");
 const idSeam = require("./session-id.js");
 const { EDGES_FILE, shortSha } = require("./test-pass-marker.js");
@@ -455,7 +456,9 @@ const touchedBaseHere = () =>
  * @param {{ from?: TouchedBase, sessionId?: string|null, execFn?: ExecFn,
  *   ledger?: import("./own-work.js").CommitLedger,
  *   ownWork?: OwnSet|null, env?: NodeJS.ProcessEnv }} options
- * @returns {{ base: string, changed: string[], merged: string[] }}
+ * @returns {{ base: string, changed: string[], merged: string[],
+ *   mergeUnread?: string }} `mergeUnread` why a merge's parents would not
+ *   read, the tree's changes over HEAD taken instead
  */
 function readTouchedPaths(
 	at,
@@ -466,9 +469,9 @@ function readTouchedPaths(
 		if (!head) throw new Error("git would not name HEAD");
 		const changed = readChanged(at, head, null, execFn);
 		const merge = mergeOwnContent(at, changed, env, execFn);
-		return merge
-			? { base: head, changed: merge.changed, merged: merge.parents }
-			: { base: head, changed, merged: [] };
+		return "unread" in merge
+			? { base: head, changed, merged: [], mergeUnread: merge.unread }
+			: { base: head, changed: merge.changed, merged: merge.parents };
 	}
 	const base = readDefaultChangedBase(at, execFn);
 	const own =
@@ -480,24 +483,25 @@ function readTouchedPaths(
 
 /**
  * Of `changed`, the tree's changes over HEAD, those that also differ from
- * every merge parent, untracked files kept; null where the commit is no
- * merge, or its parents or a diff against one will not read.
+ * every merge parent, untracked files kept: `changed` whole where the commit
+ * is no merge, and `unread` why where its parents or a diff against one will
+ * not read.
  *
  * @param {string} at
  * @param {string[]} changed
  * @param {NodeJS.ProcessEnv|undefined} env
  * @param {ExecFn} execFn
- * @returns {{ changed: string[], parents: string[] }|null}
+ * @returns {{ changed: string[], parents: string[] }|{ unread: string }}
  */
 function mergeOwnContent(at, changed, env, execFn) {
 	let parents;
 	let ownContent;
 	try {
 		parents = readMergeParents(at, env);
-		if (parents.length === 0) return null;
+		if (parents.length === 0) return { changed, parents };
 		ownContent = parents.map((p) => new Set(readChangedPaths(at, p, execFn)));
-	} catch {
-		return null;
+	} catch (error) {
+		return { unread: String(caught(error).message).trim() };
 	}
 	const untracked = new Set(readUntrackedFiles(at, execFn) ?? []);
 	return {
@@ -532,7 +536,7 @@ function readChanged(at, base, own, execFn) {
  *   Parameters<typeof resolveTouched>[2]} [options]
  */
 function selectTouched(at, { suite, loadEdges, renderEdges, ...options } = {}) {
-	const { base, changed, merged } = readTouchedPaths(at, {
+	const { base, changed, merged, mergeUnread } = readTouchedPaths(at, {
 		...options,
 		/* `||`, not `??`: the suite stubs the id to "", which is no session. */
 		sessionId: options.sessionId || idSeam.fromEnv(),
@@ -550,7 +554,7 @@ function selectTouched(at, { suite, loadEdges, renderEdges, ...options } = {}) {
 		leftOut: resolved.leftOut,
 		banner: touchedBanner(
 			resolved,
-			scopeWording(base, options.from ?? "merge-base", merged),
+			scopeWording(base, options.from ?? "merge-base", merged, mergeUnread),
 		),
 	};
 }
@@ -564,17 +568,25 @@ function selectTouched(at, { suite, loadEdges, renderEdges, ...options } = {}) {
  * @param {string} base
  * @param {TouchedBase} from
  * @param {string[]} merged the merge parents, none where no merge
+ * @param {string} [mergeUnread] why the merge parents would not read
  * @returns {{ ownWork: string, uncollectedWork: string, selected: string,
  *   coda: string|null }}
  */
-function scopeWording(base, from, merged) {
+function scopeWording(base, from, merged, mergeUnread) {
 	const at = shortSha(base);
+	/** @param {string} work @param {string} pronoun @param {string} after */
+	const selected = (work, pronoun, after) =>
+		`${work} edited, or that directly import or read a file ${pronoun} changed. ${after}`;
 	if (merged.length > 0) {
 		const ownWork = `this merge's own content over HEAD ${at} and the merged-in ${merged.map(shortSha).join(", ")}`;
 		return {
 			ownWork,
 			uncollectedWork: `${ownWork} touched`,
-			selected: `${ownWork} edited, or that directly import or read a file it changed. The lander runs the full suite (#2930, #5334).`,
+			selected: selected(
+				ownWork,
+				"it",
+				"The lander runs the full suite (#2930, #5334).",
+			),
 			coda: "A MERGE answers for its own content alone: a path taken whole from one side was gated on that side. Tests reading one side's change through the other's are left to the bare `npm run test` before landing, the push-coverage warning and the lander's full suite (#2930, #5334).",
 		};
 	}
@@ -583,15 +595,26 @@ function scopeWording(base, from, merged) {
 		return {
 			ownWork,
 			uncollectedWork: `${ownWork} touched`,
-			selected: `${ownWork} edited, or that directly import or read a file they changed. The branch's earlier commits answered for themselves at their own commits, and the lander runs the full suite (#2930, #5320).`,
-			coda: null,
+			selected: selected(
+				ownWork,
+				"they",
+				"The branch's earlier commits answered for themselves at their own commits, and the lander runs the full suite (#2930, #5320).",
+			),
+			coda:
+				mergeUnread === undefined
+					? null
+					: `MERGE PARENTS UNREAD — ${mergeUnread}, so every change over HEAD is selected, a merge's incoming paths included (#5334).`,
 		};
 	}
 	const ownWork = `your own work since ${at}`;
 	return {
 		ownWork,
 		uncollectedWork: `your own work touched since ${at}`,
-		selected: `${ownWork} edited, or that directly import or read a file it changed. The lander runs the full suite (#2930).`,
+		selected: selected(
+			ownWork,
+			"it",
+			"The lander runs the full suite (#2930).",
+		),
 		coda: null,
 	};
 }

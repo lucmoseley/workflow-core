@@ -6,6 +6,10 @@
  *
  * A loosened case either widens the bare run past the unit changed or drops a
  * test that reads it, unrun until the lander's full suite.
+ *
+ * Its merge cases (#5334) build four merging repos and run two throwaway
+ * worktrees, about 3 s of its time: a merge's own content has no cheaper
+ * witness than git's own merge.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -25,6 +29,7 @@ import { mkScratchDir } from "./git-fixture";
 
 const require = createRequire(import.meta.url);
 const { selectTouched } = require("./touched-tests.js");
+const { MERGE_PARENTS_ENV } = require("./merge-heads.js");
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -832,18 +837,41 @@ describe("a merge's own content under `head` (#5334)", () => {
 		]);
 	});
 
+	it("takes the same merge content on pytest's route", () => {
+		const { dir } = conflicted;
+		write(dir, "scripts/m/scan.py", "X = 3\n");
+		try {
+			const { changed, banner } = selectTouched(dir, {
+				from: "head",
+				env: {},
+				suite: "pytest",
+				loadEdges: () => EDGES,
+				renderEdges: () => EDGES,
+			});
+			expect(changed).toEqual(["lib/setup.js", "scripts/m/scan.py"]);
+			expect(banner).toContain("this merge's own content over HEAD");
+		} finally {
+			git(dir, "checkout", "--", "scripts/m/scan.py");
+		}
+	});
+
 	it("falls back to the tree's changes over HEAD where no merge parent will read, with no crash", () => {
-		const today = ["doc.test.ts", "lib/a.test.ts"];
-		expect(at(premerge.dir).files).toEqual(today);
-		const unread = at(both.dir, { WFC_MERGE_PARENTS: "no-sha" });
-		expect(unread.files).toEqual(today);
-		expect(unread.banner).not.toContain("merge");
-		const gone = { WFC_MERGE_PARENTS: "f".repeat(40) };
-		expect(at(both.dir, gone).files).toEqual(today);
+		const overHead = ["doc.test.ts", "lib/a.test.ts"];
+		expect(at(premerge.dir).files).toEqual(overHead);
+		expect(at(premerge.dir).banner).not.toContain("MERGE");
+		const unread = at(both.dir, { [MERGE_PARENTS_ENV]: "no-sha" });
+		expect(unread.files).toEqual(overHead);
+		expect(unread.banner).toContain(
+			`MERGE PARENTS UNREAD — ${MERGE_PARENTS_ENV} holds no list of shas: no-sha, so every change over HEAD is selected`,
+		);
+		const gone = { [MERGE_PARENTS_ENV]: "f".repeat(40) };
+		expect(at(both.dir, gone).files).toEqual(overHead);
+		expect(at(both.dir, gone).banner).toContain("MERGE PARENTS UNREAD");
 	});
 
 	it("leaves a `merge-base` run selecting every path since the merge base, main's included", () => {
-		const { dir } = disjoint;
+		const { dir } = merging(branchA, { "lib/setup.js": "main\n" });
+		dirs.push(dir);
 		git(dir, "update-ref", "refs/remotes/origin/main", "HEAD~1");
 		expect(
 			selectTouched(dir, {
@@ -873,8 +901,7 @@ process.stdout.write(JSON.stringify({ cwd: process.cwd(), changed: r.changed }))
 		const gateRun = (dir: string, extra: NodeJS.ProcessEnv = {}) => {
 			const env = { ...process.env };
 			for (const k of Object.keys(env))
-				if (k.startsWith("GITHEAD_") || k === "WFC_MERGE_PARENTS")
-					delete env[k];
+				if (k.startsWith("GITHEAD_") || k === MERGE_PARENTS_ENV) delete env[k];
 			const r = runInTree(dir, git(dir, "write-tree"), `node ${probe}`, {
 				env: { ...env, ...extra },
 			});
@@ -893,7 +920,7 @@ process.stdout.write(JSON.stringify({ cwd: process.cwd(), changed: r.changed }))
 			expect(gateRun(premerge.dir, githead(premerge))).toEqual(["lib/a.js"]);
 		});
 
-		it("selects as today on an ordinary commit", () => {
+		it("selects the changes over HEAD on an ordinary commit", () => {
 			const dir = repo();
 			write(dir, "doc.md", "# staged\n");
 			git(dir, "add", "doc.md");
