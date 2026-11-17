@@ -340,6 +340,14 @@
 			"if": ["Bash(*WFC_ALLOW_*)"]
 		},
 		{
+			"name": "guard-chrome-merge",
+			"core": "chrome-merge.js",
+			"tools": "Bash",
+			"failure": "open",
+			"tree": "host",
+			"if": ["Bash(*claude-child*)"]
+		},
+		{
 			"name": "guard-suite-concurrency",
 			"core": "suite-concurrency.js",
 			"tools": "Bash",

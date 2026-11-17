@@ -1281,7 +1281,7 @@ function valueAfter({ text, known }, prefix) {
 	return known && value === "" ? null : { text: value, known };
 }
 
-/** node's own flags that take the next word, which commitPathsArgs steps. */
+/** node's own flags that take the next word, which nodeScriptArgs steps. */
 const NODE_VALUE_FLAGS = [
 	"-r",
 	"--require",
@@ -1305,16 +1305,19 @@ const NODE_VALUE_FLAGS = [
  */
 const commitPathsArgs = (words, spans) =>
 	unwrap(words, spans).flatMap((run) => {
-		const args = commitPathsRunArgs(run.words, spans);
+		const args = nodeScriptArgs(run.words, spans, "commit-paths.js");
 		return args ? [args] : [];
 	});
 
 /**
+ * Where one unwrap run's words are a `node …/<script>` call, the arguments
+ * after the script; null otherwise. The script is matched by basename.
  * @param {string[]} ws one unwrap run's words
  * @param {string[]} spans
+ * @param {string} script the script's basename
  * @returns {string[] | null}
  */
-function commitPathsRunArgs(ws, spans) {
+function nodeScriptArgs(ws, spans, script) {
 	const [cmd] = ws;
 	if (cmd === undefined) return null;
 	const head = afterSlash(literal(cmd, spans).text);
@@ -1325,9 +1328,9 @@ function commitPathsRunArgs(ws, spans) {
 		if (i + step > ws.length) return null;
 		i += step;
 	}
-	const script = ws[i];
-	if (script === undefined) return null;
-	return afterSlash(literal(script, spans).text) === "commit-paths.js"
+	const word = ws[i];
+	if (word === undefined) return null;
+	return afterSlash(literal(word, spans).text) === script
 		? ws.slice(i + 1)
 		: null;
 }
@@ -1641,6 +1644,7 @@ module.exports = {
 	valueAfter,
 	commitPathsArgs,
 	commitPathsParse,
+	nodeScriptArgs,
 	findStarts,
 	scanFlags,
 	gitValueFlags,

@@ -37,9 +37,17 @@ export const buildResultRow = (over: Record<string, unknown> = {}) => ({
 /**
  * `hold` runs on with a grandchild in its group, `stubborn` also ignores
  * SIGTERM, `orphan` leaves the grandchild behind and exits, `end` prints its
- * rows or text and exits.
+ * rows or text and exits, `stream` reads `--input-format stream-json` from
+ * stdin (#5385).
  */
-export type HeadlessMode = "hold" | "stubborn" | "orphan" | "end";
+export type HeadlessMode = "hold" | "stubborn" | "orphan" | "end" | "stream";
+
+/** What a `stream` run read and received, in order, one per line of its
+ * `events` log. */
+export type StreamEvent =
+	| { stdin: Record<string, unknown> }
+	| { signal: string }
+	| { stdinClosed: true };
 
 export interface HeadlessCall {
 	argv: string[];
@@ -64,6 +72,14 @@ export interface HeadlessCall {
  * checked each second (a guess): the launch detaches it, so no case's
  * teardown is its parent (#2678 (the leaked fakes)). `end` prints `text`
  * where given, else the stream `rows`, and exits `exit`.
+ *
+ * `stream` answers each user message on stdin with the next of `turns`, a
+ * default result row once they run out: a turn with no result row hangs until
+ * an interrupt control request, answered with a `control_response` then
+ * `interruptRows` unless `ignoreInterrupt`. It exits `exit` once stdin
+ * closes; on SIGTERM, SIGINT or SIGHUP it dies of that signal, or ignores
+ * SIGTERM under `ignoreTerm`. Each message, signal and the close is logged to
+ * `events`.
  */
 export function writeHeadlessFake(
 	file: string,
@@ -75,6 +91,11 @@ export function writeHeadlessFake(
 		exit = 0,
 		/* Past one case and its hooks, so a fake never dies mid-case. */
 		holdMs = 2 * TEST_TIMEOUT_MS,
+		turns = [],
+		interruptRows = [buildResultRow({ subtype: "error_during_execution" })],
+		ignoreInterrupt = false,
+		ignoreTerm = false,
+		events,
 	}: {
 		log: string;
 		mode?: HeadlessMode;
@@ -82,6 +103,11 @@ export function writeHeadlessFake(
 		text?: string;
 		exit?: number;
 		holdMs?: number;
+		turns?: Record<string, unknown>[][];
+		interruptRows?: Record<string, unknown>[];
+		ignoreInterrupt?: boolean;
+		ignoreTerm?: boolean;
+		events?: string;
 	},
 ) {
 	const program = `#!/usr/bin/env node
@@ -111,7 +137,7 @@ try {
 	/* no settings, no helper in them, or a helper that failed */
 }
 const sessionId = flag("--session-id") ?? flag("--resume");
-const grandchild = MODE === "end" ? null : spawn("sleep", [String(Math.ceil(HOLD_MS / 1000))], { stdio: "ignore" }).pid;
+const grandchild = MODE === "end" || MODE === "stream" ? null : spawn("sleep", [String(Math.ceil(HOLD_MS / 1000))], { stdio: "ignore" }).pid;
 if (MODE === "stubborn") process.on("SIGTERM", () => {});
 fs.appendFileSync(LOG, JSON.stringify({
 	argv, flags: Object.fromEntries(read.flags), prompt: read.positionals.at(-1) ?? null,
@@ -128,11 +154,46 @@ if (MODE === "end") {
 	process.exit(${exit});
 }
 if (MODE === "orphan") process.exit(0);
+if (MODE === "stream") {
+	const EVENTS = ${JSON.stringify(events ?? null)};
+	const TURNS = ${JSON.stringify(turns)};
+	const event = (e) => EVENTS && fs.appendFileSync(EVENTS, JSON.stringify(e) + "\\n");
+	const emit = (rows) => {
+		for (const row of rows)
+			process.stdout.write(JSON.stringify("session_id" in row ? { ...row, session_id: sessionId } : row) + "\\n");
+	};
+	for (const sig of ["SIGTERM", "SIGINT", "SIGHUP"])
+		process.on(sig, () => {
+			event({ signal: sig });
+			if (sig === "SIGTERM" && ${ignoreTerm}) return;
+			process.removeAllListeners(sig);
+			process.kill(process.pid, sig);
+		});
+	let turn = 0;
+	const lines = require("node:readline").createInterface({ input: process.stdin });
+	lines.on("line", (line) => {
+		let message;
+		try {
+			message = JSON.parse(line);
+		} catch {
+			return;
+		}
+		event({ stdin: message });
+		if (message.type === "user")
+			emit(TURNS[turn++] ?? [${JSON.stringify(buildResultRow())}]);
+		else if (message.type === "control_request" && message.request?.subtype === "interrupt" && !${ignoreInterrupt})
+			emit([{ type: "control_response", response: { subtype: "success", request_id: message.request_id } }, ...${JSON.stringify(interruptRows)}]);
+	});
+	lines.on("close", () => {
+		event({ stdinClosed: true });
+		process.exit(${exit});
+	});
+}
 const end = Date.now() + HOLD_MS;
 setInterval(() => {
 	if (Date.now() < end && fs.existsSync(path.dirname(LOG))) return;
 	try {
-		process.kill(grandchild, "SIGKILL");
+		if (grandchild) process.kill(grandchild, "SIGKILL");
 	} catch {
 		/* already gone */
 	}
@@ -147,6 +208,10 @@ setInterval(() => {
  * becomes the fake at `fake`. */
 export const buildHeadlessBranch = (fake: string, onLaunch = "") =>
 	`if [ "$1" = "-p" ]; then ${onLaunch} exec ${shellQuote(fake)} "$@"; fi`;
+
+/** Every event a `stream` run logged to `events`, in order. */
+export const readStreamEvents = (events: string) =>
+	(readJsonl(events)?.rows ?? []) as unknown as StreamEvent[];
 
 /** Every run the fake logged to `log`, in order; none where it never ran. */
 export const readHeadlessCalls = (log: string) =>

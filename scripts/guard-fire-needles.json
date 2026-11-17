@@ -977,6 +977,12 @@
 					"text": "This command sets a git-hook escape"
 				},
 				{
+					"id": "chrome-merge",
+					"core": "guard-chrome-merge",
+					"kind": "deny",
+					"text": "This launches a Chrome child with its stderr merged into stdout"
+				},
+				{
 					"id": "checker-unwired",
 					"core": "guard-registry-atomicity",
 					"kind": "deny",

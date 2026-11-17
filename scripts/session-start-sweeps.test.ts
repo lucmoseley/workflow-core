@@ -279,6 +279,7 @@ describe("the SessionStart housekeeping launcher", () => {
 		"report-flip-line-reading.js",
 		"report-heresy-sweep-due.js",
 		"start-orphan-sweep-timer.js",
+		"claude-child.js chrome-close --sweep",
 		" gc --auto",
 	];
 
