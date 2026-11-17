@@ -14,8 +14,7 @@
  */
 
 /* Appended to the child's system prompt on every launch, so no brief has to
- * carry them; the last line is the launch's: every tab closed, or the one
- * `--hand-over` tab left for the founder. */
+ * carry them. */
 const SHARED_LINES = [
 	"Stop when the same screen comes back twice, or after 2 failed tries at one action, and report what you saw.",
 	"Where a page you are only reading asks you to prove you are human, try to answer it yourself.",
@@ -27,14 +26,14 @@ const SHARED_LINES = [
 const CLOSE_ALL_LINE =
 	"Before your final report, close every tab in your own tab group with tabs_close_mcp, the one tabs_context_mcp made for you included, until the group is gone. Do it too when you stop early or the task failed, and whatever the task says about leaving a tab open.";
 const HAND_OVER_LINE =
-	"This task hands one tab over to the founder. Take every step you are allowed to take, then leave exactly one tab open in your own tab group, the one the founder acts in; close every other tab in it with tabs_close_mcp, and name the tab you left, by title and URL, in your report.";
+	"Take every step you are allowed to take, then leave exactly one tab open in your own tab group, the one the founder acts in; close every other tab in it with tabs_close_mcp, and name the tab you left, by title and URL, in your report.";
 
 /** @param {boolean} handOver */
 const chromeStandingLines = (handOver) =>
 	[...SHARED_LINES, handOver ? HAND_OVER_LINE : CLOSE_ALL_LINE].join("\n");
 
-/* The one user message of a close-only turn: the launcher's, and a closer's
- * resume. */
+/* The one user message of a close-only turn: the launcher's, its hand-over
+ * trim, and a closer's resume. */
 const CLOSE_PROMPT =
 	"Close every tab in your own tab group with tabs_close_mcp until the group is gone. Do nothing else: open no tab and create no group. Reply in one line once it is gone.";
 const TRIM_PROMPT =
@@ -124,8 +123,7 @@ function applyLine(open, line) {
 /**
  * The tabs a child leaves open, read off its `--output-format stream-json`
  * rows in order: those its group still holds, and those of a group it was cut
- * off from. `missingIsEmpty` reads a missing group as no tab instead, as the
- * leftover census does, where a resume finding no group settles the child.
+ * off from. `missingIsEmpty` reads a missing group as no tab instead.
  */
 function createTabTally({ missingIsEmpty = false } = {}) {
 	/** @type {Tabs} */

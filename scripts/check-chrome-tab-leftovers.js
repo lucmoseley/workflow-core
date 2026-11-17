@@ -8,19 +8,18 @@
  *
  * lib/chrome-child-census.js reads and classes every child on the machine.
  * Each unexplained child is one WARN finding, keyed
- * `UNEXPLAINED-TAB<TAB>sessionId<TAB>seat<TAB>title (url); …`, so a
- * session can close it at once with `claude-child.js chrome-close --session`.
+ * `UNEXPLAINED-TAB<TAB>sessionId<TAB>seat<TAB>title (url); …`.
  * Held and given-up children are counted on their own lines, not findings.
  *
  * THE WINDOW is the transcripts written in the last `--since` days (30 by
  * default; repo-checks.js passes its widening window), never before the
  * store's first recorded launch: an older child ran under a launcher that
- * kept no record, #5349's census. A session whose earlier transcript fell outside the window
- * is read from its later one alone.
+ * kept no record, #5349's census. A session whose earlier transcript fell
+ * outside the window is read from its later one alone.
  *
  * `--turnaround` prints, from the closed log, each held tab's time from
  * `heldSince` to its close and what closed it, one line each: the evidence
- * for revisiting the 2 h hold. It is hand-run only.
+ * for revisiting the hold. It is hand-run only.
  */
 
 const { now, runCheck } = require("./lib/check.js");
@@ -49,19 +48,16 @@ const tabsText = (left) =>
 /** @param {Ctx} ctx */
 async function run(ctx) {
 	if (ctx.has("--turnaround")) return turnaround(ctx);
-	/* An ad-hoc run's default, check-clobbered-bodies.js's own; the daily run
-	 * passes its window. */
+	/* Untraced: an ad-hoc run looks back a month. */
 	const days = ctx.numberValue("--since", 30, "positive");
 	const firstLaunch = readFirstLaunch();
 	if (firstLaunch === null)
-		ctx.skip(
-			"no Chrome child has run under the recording launcher yet, so none was counted.",
-		);
+		ctx.skip("no Chrome child has run under the recording launcher yet.");
 	const fromMs = Math.max(now() - days * DAY_MS, firstLaunch);
 	const census = await readCensus(fromMs);
 	if (census.listed === 0)
 		ctx.skip(
-			`no seat's projects/ could be read (${[...census.unreadable, ...census.absent].join("; ")}), so no Chrome child was counted.`,
+			`no seat's projects/ could be read (${[...census.unreadable, ...census.absent].join("; ")}).`,
 		);
 	for (const dir of census.unreadable)
 		ctx.warn(

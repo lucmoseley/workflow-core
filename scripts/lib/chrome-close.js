@@ -3,16 +3,13 @@
  * Chrome child's tab group once its launcher is gone (#5385). Three things
  * run it: the launcher's own SIGTERM trap (`--session <uuid> --trap`), the
  * founder's "done" on a held hand-over (`--session <uuid>`), and the
- * session-start sweep (`--sweep`), the backstop. `--held` lists held records
- * for a session told "done" without the id.
+ * session-start sweep (`--sweep`), the backstop.
  *
  * A close waits up to 5 s for the child to exit, then SIGKILLs it: a kill
  * keeps the group, a clean exit would drop it (#5352). It then resumes the
  * child's session on the record's own seat (another seat answers "No
  * conversation found") with only the two tab tools, and reads the outcome off
- * the extension's own tool-result text, never the model's reply. A resume
- * that closed nothing is stopped by signal too, so a later try still finds
- * the group.
+ * the extension's own tool-result text, never the model's reply.
  *
  * Every form prints one JSON line on stdout.
  */
@@ -67,7 +64,6 @@ const RESUME_TOOLS = [
  * @typedef {{bin: string, env: NodeJS.ProcessEnv, cwd: string}} Launch
  * @typedef {(seat: string) => Launch | string} LaunchFor what to run a
  *   resume on `seat` with, or why it may not run
- * @typedef {{capMs: number, graceMs: number}} Caps
  */
 
 /** The close turn's caps, a test's shorter where it sets them. */
@@ -152,8 +148,7 @@ async function resume(record, launchFor) {
 }
 
 /**
- * A notify report naming a given-up record's tabs, for a session to pass on
- * to the founder.
+ * A notify report naming a given-up record's tabs.
  * @param {import("./chrome-child-store.js").GivenUpRecord} gone
  */
 function reportGivenUp(gone) {
@@ -171,7 +166,8 @@ function reportGivenUp(gone) {
 
 /**
  * Write what a resume's outcome leaves of `record`: none on a close, the
- * closed-log line written; the record with its attempt counted otherwise.
+ * closed-log line written; else the record, an attempt counted where the
+ * resume failed, none where the bridge was not connected.
  * @param {ChildRecord} record
  * @param {{outcome: CloseOutcome, reason: string}} resumed
  * @param {"trap" | "done" | "sweep"} by

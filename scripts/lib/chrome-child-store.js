@@ -7,25 +7,19 @@
  * the launcher or a closer knows the group is empty. The store is the first
  * seat's, so every repo on the machine shares it: adopters launch Chrome
  * children too. A record outlives its launcher on purpose: only a resume of
- * the child's own session can close its group (#5352), so the record is what
- * the session-start sweep finds.
- *
- *   { sessionId, seat, launcherPid, launcherStart, childPid, childStart,
- *     startedAt, attempts, lastAttemptAt?, lastReason?, tabs?, heldSince?, heldTab? }
+ * the child's own session can close its group (#5352).
  *
  * A pid counts as live only while its start time (/proc/<pid>/stat field 22)
  * still matches, so a recycled pid never holds a record. `lastReason` is the
  * last resume's outcome where it closed nothing: `not-connected`, which spends
- * no attempt and backs the sweep off for an hour, or the failure's text.
+ * no attempt, or the failure's text.
  * `tabs` are the tabs the launcher last saw open, for a give-up's report.
  *
  * `first-launch` holds the ISO time of the first record ever written here:
  * before it, no launcher kept records, so the census reads nothing older.
  *
- * `given-up/<uuid>.json` keeps each record no closer could close, with
- * `givenUpAt` and `reason`: nothing resumes it, and the leftover census reads
- * it. `closed.jsonl` takes one line per close a closer confirmed, `by` one of
- * `trap`, `done`, `sweep`; the census's turnaround mode reads it.
+ * `given-up/<uuid>.json` keeps each record no closer could close: nothing
+ * resumes it. `closed.jsonl` takes one line per close a closer confirmed.
  */
 
 const fs = require("node:fs");
@@ -90,7 +84,8 @@ function readJson(file) {
 	} catch (e) {
 		if (caught(e).code === "ENOENT") return null;
 		/* Records are written atomically, so one that will not parse was
-		 * damaged outside this store: said, and left on disk for a hand. */
+		 * damaged outside this store: said, and left on disk for a hand
+		 * (#5386). */
 		if (e instanceof SyntaxError) {
 			writeFd(
 				2,
@@ -106,13 +101,9 @@ function readJson(file) {
 function writeRecord(record) {
 	assertId(record.sessionId);
 	makeDir();
-	try {
-		fs.writeFileSync(firstLaunchFile(), `${record.startedAt}\n`, {
-			flag: "wx",
-		});
-	} catch (e) {
-		if (caught(e).code !== "EEXIST") throw e;
-	}
+	/* Two first launches racing both write, a moment apart: either serves. */
+	if (!fs.existsSync(firstLaunchFile()))
+		writeFileAtomic(firstLaunchFile(), `${record.startedAt}\n`);
 	writeFileAtomic(
 		recordFile(record.sessionId),
 		`${JSON.stringify(record, null, "\t")}\n`,
@@ -180,7 +171,7 @@ function readRecordsIn(dir) {
 		.filter((r) => r !== null);
 }
 
-/** Every record not given up, oldest id first. @returns {ChildRecord[]} */
+/** Every record not given up. @returns {ChildRecord[]} */
 const listRecords = () =>
 	/** @type {ChildRecord[]} */ (readRecordsIn(storeDir()));
 
@@ -189,7 +180,7 @@ const listGivenUp = () =>
 	/** @type {GivenUpRecord[]} */ (readRecordsIn(givenUpDir()));
 
 /**
- * Move `record` to the given-up folder, so nothing resumes it again.
+ * Move `record` to the given-up folder.
  * @param {ChildRecord} record
  * @param {string} reason
  * @param {Date} at
@@ -254,7 +245,8 @@ function clockStart(record) {
  * Why the sweep leaves `record` alone at `now`, or null where it resumes it.
  * @param {ChildRecord} record
  * @param {number} now
- * @param {{launcherLive: boolean, locked: boolean}} seen
+ * @param {{launcherLive: boolean, locked: boolean}} state whether its
+ *   launcher still runs and whether a closer holds its lock
  * @returns {string | null}
  */
 function sweepSkip(record, now, { launcherLive, locked }) {
@@ -297,7 +289,6 @@ module.exports = {
 	readLastSweep,
 	readRecord,
 	recordLock,
-	storeDir,
 	sweepSkip,
 	writeLastSweep,
 	writeRecord,

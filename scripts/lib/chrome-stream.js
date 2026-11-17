@@ -15,6 +15,11 @@
  */
 
 const { spawn } = require("node:child_process");
+const crypto = require("node:crypto");
+const readline = require("node:readline");
+const { parseJsonlRow } = require("./jsonl.js");
+const { writeFd } = require("./write-fd.js");
+
 /* The flags that make a `claude -p` child read and write stream-json. */
 const STREAM_ARGS = [
 	"--input-format",
@@ -23,12 +28,8 @@ const STREAM_ARGS = [
 	"stream-json",
 	"--verbose",
 ];
-const crypto = require("node:crypto");
-const readline = require("node:readline");
-const { parseJsonlRow } = require("./jsonl.js");
-const { writeFd } = require("./write-fd.js");
 
-/* #5351: SIGTERM to the whole tree, then SIGKILL at 1.5 s. */
+/* #5351. */
 const KILL_AFTER_MS = 1500;
 
 /**
@@ -38,7 +39,7 @@ const KILL_AFTER_MS = 1500;
  */
 
 /**
- * Start the child. `onRow` sees every parsed row first.
+ * `onRow` sees every parsed row first.
  * @param {string} bin
  * @param {string[]} args
  * @param {import("node:child_process").SpawnOptions} opts
@@ -82,7 +83,7 @@ function startStreamChild(bin, args, opts, onRow) {
 			onRow(row);
 			if (row.type === "assistant") {
 				const message = /** @type {{id?: unknown} | undefined} */ (row.message);
-				assistants.add(message?.id ?? assistants.size);
+				assistants.add(message?.id);
 			}
 			if (row.type === "result") lastResult = row;
 			wake();
@@ -159,12 +160,11 @@ function startStreamChild(bin, args, opts, onRow) {
 				waiter();
 			});
 		},
-		/** Close stdin, so the child exits cleanly. */
 		async finish() {
 			child.stdin?.end();
 			return exited;
 		},
-		/** SIGTERM the child's process group, SIGKILL at 1.5 s; stdin kept. */
+		/** Stdin kept. */
 		async stop() {
 			signalGroup("SIGTERM");
 			const kill = setTimeout(() => signalGroup("SIGKILL"), KILL_AFTER_MS);

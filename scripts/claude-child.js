@@ -31,8 +31,7 @@
  *           tab, which is held: `heldSince` and `heldTab` written, the child
  *           stopped by signal so its group survives for `chrome-close`.
  *         - Only a child whose group is empty is let exit cleanly, and only
- *           then is its record deleted. Every other end is a signal, which
- *           keeps the group for a resume.
+ *           then is its record deleted. Every other end is a signal.
  *         - The limit, lib/child-spawn.js's a page or
  *           WFC_CHROME_CHILD_LIMIT_MS, interrupts the turn through stdin and
  *           waits 10 s for its result row.
@@ -45,8 +44,7 @@
  * chrome-close  lib/chrome-close.js: resume a record's session on the seat it
  *         names, from an empty directory, and close its group; `--sweep` does
  *         so for every record the session-start sweep may take; `--held`
- *         lists the held ones. One JSON line on stdout. Takes no
- *         --config-dir.
+ *         lists the held ones. One JSON line on stdout.
  * judge   the gate judge's one question of one issue body (#4964), for
  *         lib/gate-judge.js: lib/gate-judge-mode.js's flags, the prompt on
  *         stdin, an empty working directory; the JSON result on stdout. Killed once --timeout-ms have passed since this
@@ -172,7 +170,6 @@ function promptOrFail(given) {
  * since the harness leaves an empty project directory in the seat for each
  * directory a child runs in. Emptied before each call, a CLAUDE.md for the
  * child to load included; refused where it is not this user's own directory.
- * The gate judge's, and the Chrome closer's.
  * @param {string} name
  * @returns {string}
  * @throws {Error} saying why the directory could not be had
@@ -291,7 +288,7 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 		try {
 			writeRecord({ ...(readRecord(sessionId) ?? record), tabs, ...over });
 		} catch (e) {
-			/* The record as first written still finds the session. */
+			/* The record as first written still finds the session (#5386). */
 			writeFd(
 				2,
 				`claude-child: could not update the child's record (${caught(e).message}).\n`,
@@ -324,7 +321,6 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 		return print({ ...end, left, limitMs: limited });
 	}
 
-	/* One close-only turn, where tabs are open and may not all be held. */
 	let left = tally.left();
 	if (left.length > 0 && !run.gone && !(handOver && left.length === 1)) {
 		run.send(handOver ? TRIM_PROMPT : CLOSE_PROMPT);
@@ -364,6 +360,7 @@ function trapSignals(stop, sessionId, print) {
 			try {
 				startTrapCloser(sessionId);
 			} catch (e) {
+				/* The session-start sweep is the backstop (#5386). */
 				writeFd(
 					2,
 					`claude-child: no closer started (${caught(e).message}); the next session-start sweep closes the tabs.\n`,

@@ -5,13 +5,12 @@
  * Why: `claude-child.js chrome` prints exactly one JSON line on stdout on
  * every end path, and mirrors its `claude-child:` stderr notes inside it under
  * `notes` (#5381). A caller that merges stderr in hands its JSON reader extra
- * lines, the parse fails, and the tab report is lost — case D on #5349.
+ * lines and the parse fails (#5349).
  *
  * WHAT IT REFUSES: a command that runs `claude-child.js chrome` — through
  * `node`, by any path, behind any wrapper unwrap strips — whose own segment
  * carries `2>&1`, `&>`, `&>>` or `>&<file>`, or is piped on by `|&`. Another
- * mode of the launcher (`chrome-close`, `usage`) and a merge in another
- * segment pass.
+ * mode of the launcher (`chrome-close`, `usage`) passes.
  *
  * A CORE: it does no I/O. It fails open: a crash here would otherwise refuse
  * every launch, where a merge it misses costs one report, the record and the
@@ -26,8 +25,6 @@
  *    and passes;
  *  - a launch inside a `-c` string reads that string's redirections as
  *    words, so a merge there passes;
- *  - `|&` is read off the subject's quote-masked text after the launcher's
- *    segment, since the splitter joins it as a plain pipe;
  *  - a node flag taking a value outside shell-words.js's NODE_VALUE_FLAGS
  *    hides the script, and the launch passes;
  *  - a launch from a script file, or a variable naming the script, passes.

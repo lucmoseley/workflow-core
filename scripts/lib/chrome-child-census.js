@@ -5,8 +5,8 @@
  *
  * A CHILD is any main transcript session that called an
  * `mcp__claude-in-chrome__*` tool, launched by claude-child.js or not. Its
- * seat is the config dir its transcript sits under. Its tally is
- * lib/chrome-child.js's, fed every tool result after its first Chrome call;
+ * seat is the config dir its transcript sits under. Its tally is fed every
+ * tool result after its first Chrome call;
  * a closer's resume writes to the same session, in the same file or another,
  * so a session's files are read oldest first into one tally.
  *
@@ -15,14 +15,10 @@
  *   held        its record has `heldSince`, and no sweep has run since the
  *               hold ended (`heldSince` + HOLD_MS)
  *   given-up    its record is in `given-up/`
- *   unexplained any other leftover, a launcher-less session's included
+ *   unexplained any other leftover
  *
  * ONE READ PER TRANSCRIPT, line by line: a line is parsed only where it names
  * a Chrome tool, or carries a tool result once the session has called one.
- * The machine's transcripts run to tens of GB, nearly none of them Chrome.
- *
- * `last-sweep` in the store holds the ISO time of the closer's last
- * `--sweep` run; a missing one means none has run.
  */
 
 const fs = require("node:fs");
@@ -74,8 +70,6 @@ function isChromeCall(row) {
  */
 
 /**
- * Whether `line` may carry a Chrome tool's result: a tool result, once its
- * session has called one.
  * @param {string} line
  * @param {Session | undefined} session
  */
@@ -123,7 +117,6 @@ function lineReader(file, seat, sessions) {
 }
 
 /**
- * Feed one transcript into its session, a line at a time.
  * @param {string} file
  * @param {string} seat
  * @param {Map<string, Session>} sessions accumulator: each session read is

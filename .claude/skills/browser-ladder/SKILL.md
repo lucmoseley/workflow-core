@@ -100,9 +100,8 @@ node scripts/claude-child.js chrome --config-dir <the config dir the machine not
   --pages <n> --prompt-file <prompt file> [--hand-over]
 ```
 
-**Read its stdout alone; never merge stderr into it** (`2>&1`, `&>`, `|&`),
-which a guard refuses (#5381). Stdout is exactly one JSON line on every end
-path, and every `claude-child:` note is mirrored inside it under `notes`.
+**Read its stdout alone; never merge stderr into it** (`2>&1`, `&>`, `|&`;
+#5381). Stdout is exactly one JSON line on every end path.
 
 Never spell the `claude -p` launch out yourself: the auto-mode classifier
 refuses a hand-written child launch (#2040).
@@ -158,8 +157,7 @@ tab rule under §Safety.
   - Where the sweep closed the tab before he came back, re-run the child to
     take the steps again.
 - **A non-empty `tabsLeftOpen` means the session-start sweep will retry the
-  close.** The tab is still in its group: name it, with its URL, in your
-  report.
+  close.** Name each tab, with its URL, in your report.
 
 ## What needs the founder's yes
 

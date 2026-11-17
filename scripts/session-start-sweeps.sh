@@ -188,8 +188,7 @@ outlive_live node "$here/start-orphan-sweep-timer.js"
 
 # FIFTEENTH JOB, SAME HOOK ENTRY (#5385). The Chrome child closer's sweep,
 # the backstop behind the launcher's own trap and the founder's "done": not
-# the orphan timer nor the next Chrome launch (#5368), since session starts
-# come a median 0.9 min apart.
+# the orphan timer nor the next Chrome launch (#5368, #5385).
 #
 # WHY DETACHED. Each record it takes waits up to 5 s for its child and runs
 # one resumed `claude -p` turn of up to 70 s.

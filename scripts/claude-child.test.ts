@@ -259,10 +259,11 @@ describe("chrome", () => {
 	const Close8 = buildToolResultRow(
 		"Closed tab 8. Group is now empty (auto-removed).",
 	);
-	const Assistant = {
+	/** One model turn's text row, its message id `id`. */
+	const assistant = (id: string) => ({
 		type: "assistant",
-		message: { content: [{ type: "text", text: "closing" }] },
-	};
+		message: { id, content: [{ type: "text", text: "closing" }] },
+	});
 
 	it("gives the child the Chrome tools only, file_upload barred, 10 turns a page plus 5, its own session id, the prompt as one stream message", () => {
 		writeTurns([[buildResultRow()]]);
@@ -363,7 +364,7 @@ describe("chrome", () => {
 	it("caps the close turn at 5 assistant messages, then stops the child by signal, the record kept", () => {
 		writeTurns([
 			[Open8, buildResultRow()],
-			[Assistant, Assistant, Assistant, Assistant, Assistant, Assistant],
+			["m1", "m2", "m3", "m4", "m5", "m6"].map(assistant),
 		]);
 		const r = chrome();
 		const row = oneLine(r);
@@ -388,10 +389,7 @@ describe("chrome", () => {
 	});
 
 	it("counts a model turn's rows, one per content block, as one assistant message", () => {
-		const block = {
-			...Assistant,
-			message: { ...Assistant.message, id: "msg_1" },
-		};
+		const block = assistant("m1");
 		writeTurns([
 			[Open8, buildResultRow()],
 			[block, block, block, block, block, block, Close8, buildResultRow()],
@@ -403,7 +401,7 @@ describe("chrome", () => {
 	});
 
 	it("caps the close turn at its seconds too", () => {
-		writeTurns([[Open8, buildResultRow()], [Assistant]]);
+		writeTurns([[Open8, buildResultRow()], [assistant("m1")]]);
 		const r = chrome({ WFC_CHROME_CLOSE_CAP_MS: "300" });
 		expect(sent().filter((m) => m.type === "control_request")).toHaveLength(1);
 		expect(oneLine(r).tabsLeftOpen).toHaveLength(1);
@@ -559,9 +557,6 @@ describe("chrome", () => {
 			},
 			{ timeout: 5000, interval: 50 },
 		);
-		/* The prompt is sent before the fake answers it: a guessed 200 ms
-		 * lets its tab-opening row reach the tally, so the record names it. */
-		await new Promise((r) => setTimeout(r, 200));
 		launcher.kill("SIGTERM");
 		const [status] = await once(launcher, "exit");
 		expect(status).toBe(1);
