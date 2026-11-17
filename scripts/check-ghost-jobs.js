@@ -55,9 +55,8 @@
  * reaper has stopped it, though the model never wrote an ending: its last turn
  * row is the harness's own "No response requested." record. The refill loop
  * resumes such a job; this names the one it did not reach or gave up on,
- * older than 5 minutes (lib/synthetic-jobs.js). It reads files alone, but a
- * run that skips on an unread oracle, with a working job to judge, reports
- * none.
+ * older than 10 minutes (lib/synthetic-jobs.js). It reads files alone, so an
+ * unread oracle still reports it, saying the working jobs went unjudged.
  *
  * DEGRADES TO SILENCE, NEVER TO "DEAD". An oracle that will not run, reads short
  * or has changed shape leaves through ctx.skip() and raises no finding.
@@ -288,20 +287,25 @@ function judgeJob(
 
 /**
  * Judges every working job against the oracle, pushing the ones naming no
- * session onto `unreadable`.
+ * session onto `unreadable`; where the oracle will not read, `unjudged` says
+ * why and nothing is judged.
+ * @returns {{ghosts: Ghost[], hung: Hung[], young: number, listed: number,
+ *   unjudged?: string}}
  */
 function judgeWorking(
-	/** @type {Ctx} */ ctx,
 	/** @type {{jobs: Jobs, working: WorkingJob[], unreadable: UnreadableJob[], minutes: number, hungMinutes: number}} */ opts,
 ) {
 	const { jobs, working, unreadable, minutes, hungMinutes } = opts;
 	const live = liveSessions();
 	if (!live.ids)
-		ctx.skip(
-			`${live.why}. ${working.length} working job(s) went unjudged — none is being called a ghost or hung on an oracle this run could not read.`,
-		);
-	// ctx.skip throws, which the checker below cannot see through.
-	const ids = /** @type {Set<string>} */ (live.ids);
+		return {
+			ghosts: [],
+			hung: [],
+			young: 0,
+			listed: 0,
+			unjudged: `${live.why}. ${working.length} working job(s) went unjudged — none is being called a ghost or hung on an oracle this run could not read.`,
+		};
+	const ids = live.ids;
 	const pids = /** @type {Map<string, number>} */ (live.pids);
 	const me = process.env.CLAUDE_CODE_SESSION_ID;
 
@@ -521,9 +525,14 @@ runCheck({
 		// — too slow for a PreToolUse hook (mantahostels#411).
 		const judged =
 			working.length > 0
-				? judgeWorking(ctx, { jobs, working, unreadable, minutes, hungMinutes })
+				? judgeWorking({ jobs, working, unreadable, minutes, hungMinutes })
 				: { ghosts: [], hung: [], young: 0, listed: 0 };
 		const { young, listed } = judged;
+		/* A synthetic stop reads files alone, so an unread oracle skips the run
+		 * only where it has none to report. */
+		const standingSynthetic = findSyntheticStops(jobs, { now: now() });
+		if (judged.unjudged && standingSynthetic.length === 0)
+			ctx.skip(judged.unjudged);
 
 		/*
 		 * --notify reports each finding ONCE. A ghost stands for hours and every
@@ -536,7 +545,6 @@ runCheck({
 		const standing = judged.ghosts;
 		const standingUnreadable = unreadable;
 		const standingHung = judged.hung;
-		const standingSynthetic = findSyntheticStops(jobs, { now: now() });
 		const seen = readNotified(ctx);
 		const ghosts = standing.filter((g) => !seen.has(keyOf(g)));
 		unreadable = standingUnreadable.filter(
@@ -557,6 +565,7 @@ runCheck({
 			].sort(),
 		);
 
+		if (judged.unjudged && synthetic.length > 0) ctx.say(judged.unjudged);
 		report(ctx, {
 			ghosts,
 			hung,

@@ -39,6 +39,7 @@ const {
 const { buildGiveUpFix, withRetried } = require("./refill-retire.js");
 const { judgeStop } = require("./refill-synthetic.js");
 const { shortJobId } = require("./job-paths.js");
+const { reapedKey } = require("./reaped-jobs.js");
 
 const MIN_MS = 60 * 1000;
 /* The short re-attempts a failed scheduled relaunch earns, each no sooner
@@ -55,8 +56,7 @@ const RE_ATTEMPTS = RE_ATTEMPT_GAPS_MS.length;
  * @typedef {import("./refill-blocks.js").SessionRef} SessionRef
  * @typedef {import("./refill-blocks.js").CauseOf} CauseOf
  * @typedef {import("./refill-blocks.js").Unretired} Unretired
- * @typedef {import("./refill-blocks.js").ResumeTarget & {sessionId: string}}
- *   StoppedTarget  what a stopped session's `--bg --resume` runs under
+ * @typedef {import("./refill-blocks.js").StoppedTarget} StoppedTarget
  * @typedef {{seat: string, jobId: string, name: string, cwd: string,
  *   sessionId: string, since?: number, tries: number, triedAt?: number,
  *   nextAt?: number, attachAt?: number, handsOff?: true, typedUnread?: true,
@@ -401,8 +401,11 @@ function judge(o, row, causeOf, seen) {
  */
 function unlistedTurn(o, seen) {
 	if (o.held) return retryHeld({ ...o, held: o.held }, seen);
-	if (!o.synthetic || o.synthetic.spent) return null;
+	if (!o.synthetic) return null;
 	const at = seen.io.syntheticStopOf(sessionRefOf(o));
+	/* A spent record is kept while its stop stands, so the reaper's journal
+	 * entry for the same stop (takeUpReaped) cannot start a fresh count. */
+	if (o.synthetic.spent) return at === o.synthetic.at ? o : null;
 	if (at === null && o.synthetic.attachAt === undefined) return null;
 	return judgeSynthetic(o, seen, at);
 }
@@ -419,7 +422,7 @@ function syntheticSubject(o, seen) {
 		name: nameOf(o),
 		ref: sessionRefOf(o),
 		was: o.synthetic,
-		admitted: isRunAdmitted(o, seen),
+		admitted: () => isRunAdmitted(o, seen),
 		keep: (rec) => ({ ...o, synthetic: rec }),
 		stop: () => {
 			const r = io.stop(o.seat, o.jobId);
@@ -518,8 +521,19 @@ function actOnOutside(launches, registry, causeOf, seen) {
 	if (JSON.stringify(kept) !== JSON.stringify(had)) io.writeOutside(kept);
 }
 
-/** @param {import("./reaped-jobs.js").ReapedJob} j */
-const reapedKey = (j) => `${j.seat}\0${j.jobId}\0${j.at}`;
+/**
+ * Every job and session id the loop's launches hold, past ones included: a
+ * session under any of them is a launch's, which its own acts reach.
+ * @param {import("./refill-loop.js").LoopLaunch[]} launches
+ * @returns {string[]}
+ */
+const launchIdsOf = (launches) =>
+	launches.flatMap((l) =>
+		[l.jobId, l.copiedFrom, l.sessionId, ...(l.pastSessionIds ?? [])].filter(
+			/** @returns {id is string} */ (id) =>
+				typeof id === "string" && id !== "",
+		),
+	);
 
 /**
  * The records the reaper's journal entries the loop has not read start, each
@@ -537,12 +551,7 @@ function takeUpReaped({ launches, registry, turned }, seen) {
 	const unread = jobs.filter((j) => !wasRead.has(reapedKey(j)));
 	if (unread.length === 0) return [];
 	const taken = new Set([
-		...launches.flatMap((l) => [
-			l.jobId,
-			l.copiedFrom,
-			l.sessionId,
-			...(l.pastSessionIds ?? []),
-		]),
+		...launchIdsOf(launches),
 		...registry.flatMap((a) => [a.id, a.sessionId]),
 		...turned.flatMap((o) => [o.jobId, o.sessionId]),
 	]);
@@ -584,7 +593,7 @@ function reapedTurn({ seat, jobId, name, cwd, sessionId }, seen) {
  */
 function turnOutside(had, { launches, registry, causeOf, agents }, seen) {
 	const known = new Set([
-		...launches.flatMap((l) => [l.jobId, l.copiedFrom].filter(Boolean)),
+		...launchIdsOf(launches),
 		...had.flatMap((o) =>
 			(o.unretired ?? []).map((u) => shortJobId(u.sessionId)),
 		),
@@ -600,7 +609,8 @@ function turnOutside(had, { launches, registry, causeOf, agents }, seen) {
 	};
 	for (const row of registry) {
 		const fresh = buildOutside(row, seen.now);
-		if (!fresh || known.has(fresh.jobId)) continue;
+		if (!fresh || known.has(fresh.jobId) || known.has(fresh.sessionId))
+			continue;
 		const key = `${fresh.seat}\0${fresh.jobId}`;
 		const o = byJob.get(key);
 		byJob.delete(key);

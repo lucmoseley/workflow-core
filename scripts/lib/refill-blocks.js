@@ -127,6 +127,8 @@ const LISTING_GRACE_MS = 2 * 60 * 1000;
  *   ResumeTarget  a job's full session id, null unread, the directory its
  *   resume runs in, and the launch flags its job record saved, where it saved
  *   any (#4098)
+ * @typedef {ResumeTarget & {sessionId: string}} StoppedTarget  what a
+ *   stopped session's `--bg --resume` runs under
  * @typedef {(root: string, sessionId: string) =>
  *   NonNullable<LoopLaunch["actsBefore"]>} ReadActsBefore  the acts a session
  *   made before a new launch row wakes it, which are not that launch's (#3942)

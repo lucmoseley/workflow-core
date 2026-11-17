@@ -46,11 +46,11 @@ describe("a job the harness ended on a synthetic reply", () => {
 });
 
 describe("no synthetic stop", () => {
-	it("where a user row follows it, the founder's prompt included", () => {
+	it("reads none where a user row follows it, the founder's prompt included", () => {
 		expect(read(doneJob(), [...stoppedRows(), founderRow()])).toBeNull();
 	});
 
-	it("where a later turn row follows it", () => {
+	it("reads none where a later turn row follows it", () => {
 		const rows = [...stoppedRows(), apiRequestRow("2026-11-17T02:48:00.000Z")];
 		expect(read(doneJob(), rows)).toBeNull();
 		const ended = [
@@ -60,7 +60,7 @@ describe("no synthetic stop", () => {
 		expect(read(doneJob(), ended)).toBeNull();
 	});
 
-	it("where the synthetic record carries other text", () => {
+	it("reads none where the synthetic record carries other text", () => {
 		const rows = [
 			toolCallRow(),
 			toolResultRow(),
@@ -69,7 +69,7 @@ describe("no synthetic stop", () => {
 		expect(read(doneJob(), rows)).toBeNull();
 	});
 
-	it("where it is an API-error or a limit record", () => {
+	it("reads none where it is an API-error or a limit record", () => {
 		const apiError = syntheticRow(STOP_AT, "No response requested.", {
 			isApiErrorMessage: true,
 		});
@@ -78,12 +78,12 @@ describe("no synthetic stop", () => {
 		expect(read(doneJob(), [toolCallRow(), limit])).toBeNull();
 	});
 
-	it("where the last assistant row a model wrote is a real reply", () => {
+	it("reads none where the last assistant row a model wrote is a real reply", () => {
 		expect(read(doneJob(), [toolResultRow(), replyRow("done")])).toBeNull();
 	});
 
 	it.each(["result: shipped", "needs input: Q1 above — waits on you: #1"])(
-		"where the last real reply before it governs with %s",
+		"reads none where the last real reply before it governs with %s",
 		(marker) => {
 			const rows = [replyRow(`All done.\n\n${marker}`), syntheticRow()];
 			expect(read(doneJob(), rows)).toBeNull();
@@ -95,27 +95,27 @@ describe("no synthetic stop", () => {
 		expect(read(doneJob(), rows)).toBe(at);
 	});
 
-	it.each(["working", "blocked"])("on a %s job", (state) => {
+	it.each(["working", "blocked"])("reads none on a %s job", (state) => {
 		expect(read(doneJob({ state }), stoppedRows())).toBeNull();
 	});
 });
 
 describe("unread, on which nothing acts", () => {
-	it("an unread job record or one with no state", () => {
+	it("reads unread on an unread job record or one with no state", () => {
 		expect(read(null, stoppedRows())).toBe("unread");
 		expect(read({ detail: "done" }, stoppedRows())).toBe("unread");
 	});
 
-	it("an unread transcript", () => {
+	it("reads unread on an unread transcript", () => {
 		expect(read(doneJob(), null)).toBe("unread");
 	});
 
-	it("malformed rows", () => {
+	it("reads unread on malformed rows", () => {
 		expect(read(doneJob(), [...stoppedRows(), 7])).toBe("unread");
 		expect(read(doneJob(), [{ type: "custom-title" }])).toBe("unread");
 	});
 
-	it("a synthetic record with no readable time", () => {
+	it("reads unread on a synthetic record with no readable time", () => {
 		expect(read(doneJob(), [toolCallRow(), syntheticRow("never")])).toBe(
 			"unread",
 		);

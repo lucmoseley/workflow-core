@@ -8,7 +8,11 @@
  * holds the synthetic record's model and text.
  */
 
-const { syntheticStopAt } = require("./block-cause.js");
+const {
+	NO_RESPONSE_TEXT,
+	SYNTHETIC_MODEL,
+	syntheticStopAt,
+} = require("./block-cause.js");
 const { SYNTHETIC_QUIET_MS, SYNTHETIC_TRIES } = require("./block-act.js");
 const { listIssueClaims } = require("./arbiter-issue-claims.js");
 const {
@@ -17,17 +21,19 @@ const {
 	refillPath,
 } = require("./refill-dir.js");
 const { readJsonOutcome } = require("./refill-json.js");
+const { FALLBACK_MS } = require("./refill-wake.js");
 const { readTail } = require("./file-read.js");
 const { read: readTranscript } = require("./session-transcript.js");
 const { mainChainRecords } = require("./transcript.js");
 
-/* The quiet window before the finding fires: the loop's own, so the loop's
- * resumes come first. */
-const SYNTHETIC_AFTER_MINUTES = SYNTHETIC_QUIET_MS / 60_000;
+/* The finding waits out the loop's quiet window and its longest gap between
+ * ticks, so a running loop has made its first resume before a stop is
+ * reported as one it has not resumed. */
+const SYNTHETIC_AFTER_MINUTES = (SYNTHETIC_QUIET_MS + FALLBACK_MS) / 60_000;
 /* How much of a transcript's end the cheap test reads: a synthetic record
  * and the rows after it fit well inside. Untraced. */
 const TAIL_BYTES = 64 * 1024;
-const TAIL_NEEDLES = ['"<synthetic>"', "No response requested."];
+const TAIL_NEEDLES = [JSON.stringify(SYNTHETIC_MODEL), NO_RESPONSE_TEXT];
 
 /**
  * @typedef {import("./hung-jobs.js").Job} Job
@@ -66,16 +72,18 @@ function stopAtOf(rec) {
 	return typeof at === "number" ? at : null;
 }
 
-/**
- * @param {string} name
- * @returns {unknown[]}
- */
-function readLoopList(name) {
-	const { value } = readJsonOutcome(refillPath(name));
-	const list =
-		name === REFILL_STATE_FILE && isObject(value) ? value.launches : value;
-	return Array.isArray(list) ? list : [];
+/** @param {unknown} list @returns {unknown[]} */
+const listOrNone = (list) => (Array.isArray(list) ? list : []);
+
+/** The refill loop's launch records, none where they will not read. */
+function readLaunchRecords() {
+	const { value } = readJsonOutcome(refillPath(REFILL_STATE_FILE));
+	return listOrNone(isObject(value) ? value.launches : null);
 }
+
+/** The refill loop's outside-session records, none where they will not read. */
+const readOutsideRecords = () =>
+	listOrNone(readJsonOutcome(refillPath(OUTSIDE_FILE)).value);
 
 /** @param {unknown} v @returns {v is Record<string, unknown>} */
 const isObject = (v) => typeof v === "object" && v !== null;
@@ -122,12 +130,12 @@ function claimedIssuesOf(sessionId, cwd) {
 
 /**
  * The jobs in `jobs` the harness ended on a synthetic reply more than
- * `minutes` before `now`.
+ * SYNTHETIC_AFTER_MINUTES before `now`.
  * @param {Job[]} jobs
- * @param {{now: number, minutes?: number}} opts
+ * @param {{now: number}} opts
  * @returns {SyntheticJob[]}
  */
-function findSyntheticStops(jobs, { now, minutes = SYNTHETIC_AFTER_MINUTES }) {
+function findSyntheticStops(jobs, { now }) {
 	/** @type {SyntheticJob[]} */
 	const found = [];
 	/** @type {unknown[]|undefined} */
@@ -137,11 +145,8 @@ function findSyntheticStops(jobs, { now, minutes = SYNTHETIC_AFTER_MINUTES }) {
 		const { sessionId } = rec;
 		if (typeof sessionId !== "string" || !sessionId) continue;
 		const at = stopAtOf(rec);
-		if (at === null || now - at < minutes * 60_000) continue;
-		records ??= [
-			...readLoopList(REFILL_STATE_FILE),
-			...readLoopList(OUTSIDE_FILE),
-		];
+		if (at === null || now - at < SYNTHETIC_AFTER_MINUTES * 60_000) continue;
+		records ??= [...readLaunchRecords(), ...readOutsideRecords()];
 		found.push({
 			job,
 			sessionId,

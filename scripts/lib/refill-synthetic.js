@@ -28,15 +28,14 @@ const {
 	relaunched,
 	stopJob,
 } = require("./refill-block-core.js");
-const { ATTACH_VERDICT_MS } = require("./refill-blocks.js");
+const { ATTACH_VERDICT_MS, netGateOf } = require("./refill-blocks.js");
 
 /**
  * @typedef {import("./refill-loop.js").LoopLaunch} LoopLaunch
  * @typedef {import("./refill-blocks.js").JobLaunch} JobLaunch
  * @typedef {import("./refill-blocks.js").Tick} Tick
  * @typedef {import("./refill-blocks.js").SessionRef} SessionRef
- * @typedef {import("./refill-blocks.js").ResumeTarget & {sessionId: string}}
- *   StoppedTarget  what a stopped session's `--bg --resume` runs under
+ * @typedef {import("./refill-blocks.js").StoppedTarget} StoppedTarget
  * @typedef {{at: number, tries: number, resumed: number, triedAt?: number,
  *   attachAt?: number, spent?: true}} SyntheticResumes  a session's resumes
  *   of its synthetic stops: `at`, the stop's synthetic record, ms; `tries`,
@@ -47,12 +46,13 @@ const { ATTACH_VERDICT_MS } = require("./refill-blocks.js");
 /**
  * @template T
  * @typedef {{name: string, ref: SessionRef, was?: SyntheticResumes,
- *   admitted: boolean, keep: (rec: SyntheticResumes) => T,
+ *   admitted: () => boolean, keep: (rec: SyntheticResumes) => T,
  *   stop: () => string|null,
  *   resume: (target: StoppedTarget, rec: SyntheticResumes) =>
  *     {out: T, how?: string}|string,
  *   report: (line: string) => void}} Subject  one session's record as the
- *   judgement sees it: `keep` it with a record; `stop` its job, the why where
+ *   judgement sees it: `admitted`, whether the tick may set it running,
+ *   asked only of a due resume; `keep` it with a record; `stop` its job, the why where
  *   that failed; `resume` it stopped, the record it then is and how where
  *   its own log does not say, or the why;
  *   `report` a resume's line where its kind of session reports one
@@ -168,7 +168,7 @@ function judgeStop(s, at, mode, seen) {
 		if (now - was.attachAt < ATTACH_VERDICT_MS) return null;
 		const { attachAt: _, ...settled } = was;
 		if (at !== was.at) return s.keep(settled);
-		if (!s.admitted) return null;
+		if (!s.admitted()) return null;
 		io.log(
 			`${s.name} still reads its synthetic stop after the typed resume, so it is stopped and resumed`,
 		);
@@ -191,7 +191,7 @@ function judgeStop(s, at, mode, seen) {
 		);
 		return s.keep({ ...rec, spent: true });
 	}
-	if (act !== "resume" || !s.admitted) return s.keep(rec);
+	if (act !== "resume" || !s.admitted()) return s.keep(rec);
 	return resume(s, rec, seen);
 }
 
@@ -200,12 +200,19 @@ function judgeStop(s, at, mode, seen) {
  * error, holds stopped or limit-held, owes a hand-off or a step resume.
  * @param {LoopLaunch} l
  */
-const isOthers = (l) =>
+const isLeftToOtherActs = (l) =>
 	isResuming(l) ||
 	isHeld(l) ||
 	isStepResume(l) ||
 	isLimitHeld(l) ||
 	l.handOffTries !== undefined;
+
+/**
+ * Whether a synthetic stop of `l`'s is this cause's to act on.
+ * @param {LoopLaunch} l
+ * @returns {l is JobLaunch}
+ */
+const ownsSyntheticStop = (l) => isActionable(l) && !isLeftToOtherActs(l);
 
 /**
  * Whether `l`'s job, gone from the listing, still owes the loop a synthetic
@@ -215,7 +222,7 @@ const isOthers = (l) =>
  * @param {import("./refill-blocks.js").BlockIo} io
  */
 function isOwedResume(l, io) {
-	if (!isActionable(l) || isOthers(l)) return false;
+	if (!ownsSyntheticStop(l)) return false;
 	if (l.synthetic?.attachAt !== undefined) return true;
 	const at = io.syntheticStopOf(l);
 	if (typeof at !== "number") return false;
@@ -229,12 +236,13 @@ function isOwedResume(l, io) {
  * @param {Tick} seen
  * @returns {Subject<LoopLaunch>}
  */
-function launchSubject(l, { now, io }) {
+function launchSubject(l, seen) {
+	const { now, io } = seen;
 	return {
 		name: launchName(l),
 		ref: l,
 		was: l.synthetic,
-		admitted: true,
+		admitted: () => !seen.barred && netGateOf(seen).admit(launchName(l)),
 		keep: (rec) => ({ ...l, synthetic: rec }),
 		stop: () => stopJob(l, io),
 		resume: (target, rec) => {
@@ -266,7 +274,7 @@ function launchSubject(l, { now, io }) {
  */
 function actOnSynthetic(launches, mode, seen) {
 	return launches.map((l) => {
-		if (!isActionable(l) || isOthers(l)) return l;
+		if (!ownsSyntheticStop(l)) return l;
 		const at = seen.io.syntheticStopOf(l);
 		return judgeStop(launchSubject(l, seen), at, mode, seen) ?? l;
 	});

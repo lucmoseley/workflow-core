@@ -741,7 +741,7 @@ describe("SYNTHETIC-STOP — ended by the harness on a synthetic reply (#5324)",
 	}
 
 	it("names the job, its claims, the stop's time and the attach line, as a warning", () => {
-		const at = ago(10);
+		const at = ago(15);
 		syntheticJob(stoppedRows(at));
 		claim(9001);
 		const r = run();
@@ -782,13 +782,56 @@ describe("SYNTHETIC-STOP — ended by the harness on a synthetic reply (#5324)",
 		expect(run().out).toContain("the refill loop's 2 resumes of it are spent");
 	});
 
-	it("stays silent inside the 5-minute window, and speaks past it", () => {
+	it("stays silent until the loop's quiet window and a tick have passed, and speaks past them", () => {
 		const at = Date.parse(STOP_AT);
 		syntheticJob(stoppedRows(STOP_AT));
 		const runAt = (m: number) =>
 			runWith({ WFC_NOW: new Date(at + m * 60_000).toISOString() }).out;
-		expect(runAt(4)).not.toContain("SYNTHETIC-STOP");
-		expect(runAt(6)).toContain("SYNTHETIC-STOP");
+		expect(runAt(9)).not.toContain("SYNTHETIC-STOP");
+		expect(runAt(11)).toContain("SYNTHETIC-STOP");
+	});
+
+	it("reports a job in the second config dir", () => {
+		const project = path.join(second, "projects", "a-project");
+		fs.mkdirSync(project, { recursive: true });
+		const file = path.join(project, `${Sid}.jsonl`);
+		fs.writeFileSync(
+			file,
+			stoppedRows(ago(30))
+				.map((row) => JSON.stringify(row))
+				.join("\n"),
+		);
+		job(
+			Job,
+			{
+				state: "done",
+				sessionId: Sid,
+				name: "On the second plan",
+				cwd: Cwd,
+				linkScanPath: file,
+			},
+			60,
+			second,
+		);
+		const r = run();
+		expect(r.out).toContain("SYNTHETIC-STOP");
+		expect(r.out).toContain("On the second plan");
+	});
+
+	it("stays silent on a job whose state.json will not parse", () => {
+		syntheticJob(stoppedRows(ago(30)));
+		fs.writeFileSync(jobPath(Job), "{ not json");
+		expect(run().out).not.toContain("SYNTHETIC-STOP");
+	});
+
+	it("reports a stop where the oracle will not read, saying the working jobs went unjudged", () => {
+		syntheticJob(stoppedRows(ago(30)));
+		job("d06bf779");
+		fakeClaude(null);
+		const r = run();
+		expect(r.out).toContain("SYNTHETIC-STOP");
+		expect(r.out).toContain("went unjudged");
+		expect(r.out).not.toContain("SKIP:");
 	});
 
 	it("stays silent once a turn row follows the stop", () => {
@@ -817,7 +860,7 @@ describe("SYNTHETIC-STOP — ended by the harness on a synthetic reply (#5324)",
 	});
 
 	it("writes nothing to the job record", () => {
-		syntheticJob(stoppedRows(ago(10)));
+		syntheticJob(stoppedRows(ago(15)));
 		const before = fs.readFileSync(jobPath(Job), "utf8");
 		run();
 		expect(fs.readFileSync(jobPath(Job), "utf8")).toBe(before);
@@ -830,7 +873,7 @@ describe("SYNTHETIC-STOP — ended by the harness on a synthetic reply (#5324)",
 		syntheticJob([
 			...stoppedRows(ago(60)),
 			founderRow("go on", ago(50)),
-			syntheticRow(ago(10)),
+			syntheticRow(ago(15)),
 		]);
 		expect(run("--notify").out).toContain("SYNTHETIC-STOP");
 	});
