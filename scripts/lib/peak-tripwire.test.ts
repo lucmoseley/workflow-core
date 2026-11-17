@@ -293,7 +293,7 @@ describe("the peak tripwire", () => {
 		).toEqual({ cause: "journal-unread", why: "the test run store: EIO" });
 	});
 
-	it("reads a corrupt state file as blind, leaves it for `arm`, and never throws", () => {
+	it("reads a corrupt state file as `state-unread`, leaves it for `arm`, and never throws", () => {
 		fs.writeFileSync(file, "{ torn");
 		const readIncidents = vi.fn(NONE);
 		const got = wire.gateTripwire({
@@ -302,7 +302,7 @@ describe("the peak tripwire", () => {
 			readIncidents,
 			readRunFiles: store(),
 		});
-		expect(got?.cause).toBe("journal-unread");
+		expect(got?.cause).toBe("state-unread");
 		expect(got?.why).toContain("peak-tripwire.json");
 		expect(readIncidents).not.toHaveBeenCalled();
 		expect(fs.readFileSync(file, "utf8")).toBe("{ torn");

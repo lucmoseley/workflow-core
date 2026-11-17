@@ -67,10 +67,12 @@ const {
 	PART_PASS_AGE_MS,
 	WINDOWS_MAX_HOLD_MS,
 	isClimbKept,
+	partLaneOf,
 	turnOf,
+	waiterOf,
 } = require("./suite-queue");
 const { chargeMb } = require("./launch-charge");
-const { partKindOf: peakKindOf } = require("./part-suite-peak.js");
+const { partKindOf } = require("./part-suite-peak.js");
 const { TSC_MAX, isCutTscRunner } = require("./tsc-slot");
 const {
 	isWindowsFresh,
@@ -157,6 +159,7 @@ const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
  *   session: string | null, pid: number, slotFree?: boolean,
  *   skipped?: boolean, passed?: number, climbMb?: number,
  *   chargeMb?: number, peerS?: number,
+ *   lane?: import("./part-suite-peak.js").PartKind,
  *   admission?: import("./part-suite-peak.js").PartAdmission,
  *   limb?: import("./queue-exit-log.js").HeldLimb }} Exit
  * @typedef {{ st: number, en: number, session: string | null, kind: string,
@@ -777,8 +780,8 @@ const isRungHeld = (e, tick, w) =>
  * `opened` exit and its spawn; and an older waiter in the other queue the
  * tick stamps `climbHeld`. #3058's pass is on from its commit, the Windows
  * stamp from #4782's, the rest stamp from #4783's, and the named lane from
- * #5367's, a part waiter's lane read off its exit `kind` as run-vitest.js
- * joins it: `touched` its own, every other kind named.
+ * #5367's, a part waiter's lane its exit's `lane`, else read off its `kind`
+ * as run-vitest.js joins it (`laneOf`).
  * @param {Waiter} e
  * @param {Tick} tick
  * @param {Window} w
@@ -791,7 +794,7 @@ function turnReasonsOf(e, tick, w) {
 		.map((o) => ({
 			at: o.st,
 			part: !tsc && !o.whole,
-			kind: partKindOf(o),
+			kind: laneOf(o),
 			spawned: false,
 			memoryHeld: isRungHeld(o, tick, w),
 			restHeld:
@@ -805,9 +808,7 @@ function turnReasonsOf(e, tick, w) {
 				isWindowsHeld(o, tick),
 		}));
 	/** @type {import("./suite-queue.js").TurnWaiter} */
-	let waiter = "whole";
-	if (tsc) waiter = "tsc";
-	else if (!e.whole) waiter = partKindOf(e) === "named" ? "named" : "part";
+	const waiter = tsc ? "tsc" : waiterOf({ part: !e.whole, kind: laneOf(e) });
 	const peerClimbHeld =
 		tick.t >= PEER_CLIMB_FROM &&
 		tick.waiting.some(
@@ -834,11 +835,12 @@ function turnReasonsOf(e, tick, w) {
 }
 
 /**
- * A suite waiter's part-suite lane (#5367).
+ * A suite waiter's part-suite lane (#5367): the one its exit line records,
+ * else its kind's, a line logged before the lane was.
  * @param {Waiter} e
  * @returns {import("./suite-queue.js").PartKind}
  */
-const partKindOf = (e) => peakKindOf(e.kind) ?? "touched";
+const laneOf = (e) => e.lane ?? partLaneOf(partKindOf(e.kind));
 
 /**
  * Every limb that holds `e` at this tick, in the gate's order; `open` where

@@ -23,6 +23,7 @@
 
 const { parseOrCode, flagValue } = require("./lib/cli-args.js");
 const { caught } = require("./lib/caught.js");
+const { now: clockNow } = require("./lib/clock.js");
 const {
 	armTripwire,
 	describeTrip,
@@ -87,7 +88,7 @@ function statusText({ tripwire: t, corrupt }) {
  * @param {{ env?: Record<string, string|undefined>, now?: number, file?: string }} [o]
  * @returns {number}
  */
-function main(argv, { env = process.env, now = Date.now(), file } = {}) {
+function main(argv, { env = process.env, now = clockNow(env), file } = {}) {
 	const parsed = parseOrCode(argv, CLI);
 	if (typeof parsed === "number") return parsed;
 	if (parsed.command === "status") {

@@ -3090,7 +3090,11 @@ describe("judges a part-suite on its own measured peak (#5366)", () => {
 	/* One whole suite running: the ladder asks a 1-file run the rung of six
 	 * workers, the peak charge the rung of its p99 alone. */
 	const oneWhole = psListing(["node /r/node_modules/.bin/vitest run"]);
-	const Peak: PartPeak = { p99Mb: 609, samples: 683, bucket: "1" };
+	const Peak: Omit<PartPeak, "kind"> = {
+		p99Mb: 609,
+		samples: 683,
+		bucket: "1",
+	};
 	const PeakRung = rungMb(Peak.p99Mb);
 	const LadderRung = suiteRungMb(WHOLE_SUITE_WORKERS + 1);
 	const Between = PeakRung + 200;
@@ -3099,7 +3103,11 @@ describe("judges a part-suite on its own measured peak (#5366)", () => {
 	const run = (command: string, over: Over = {}) => {
 		const notes: PartAdmission[] = [];
 		const peakAsked: unknown[] = [];
-		const partPeak = over.partPeak ?? (() => ({ peak: Peak }));
+		const partPeak =
+			over.partPeak ??
+			((r: { kind: PartPeak["kind"] }) => ({
+				peak: { ...Peak, kind: r.kind },
+			}));
 		const { verdict, text } = judge(command, Between, oneWhole, {
 			...over,
 			partPeak: (r) => {
@@ -3217,6 +3225,17 @@ describe("judges a part-suite on its own measured peak (#5366)", () => {
 		expect(peakAsked).toEqual([]);
 		expect(notes[0]).toMatchObject({ mode: "ladder", cause: "untold" });
 		expect(notes[0]).not.toHaveProperty("kind");
+	});
+
+	it("judges an --adopt run, which routes as named but the ledger records as adopt, on the ladder, its kind untold", () => {
+		/* Queued, so it carries its resolved weight: the guard alone charges
+		 * an --adopt launch a whole suite. */
+		const { notes, peakAsked } = run(
+			"npm run test -- --adopt scripts/a.test.ts",
+			{ launchWeight: { resolvedFiles: 1, wholeSlot: false } },
+		);
+		expect(peakAsked).toEqual([]);
+		expect(notes[0]).toMatchObject({ mode: "ladder", cause: "untold" });
 	});
 
 	it("leaves a whole suite on the ladder, unasked", () => {
