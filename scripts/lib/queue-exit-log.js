@@ -7,9 +7,7 @@
  * `.claude/tmp/markers`, rooted through `test-pass-marker.js`'s `repoRoot` so a
  * worktree's run lands in the same file. `markers` is exempt from the scratch
  * sweep, and `pruneMarkers` touches only its own prefixes, so this file's only
- * pruning is its own: lines older than lib/retained-jsonl.js's
- * `QUEUE_EXIT_RETAIN_MS`, which must stay above the 14-day series #1157's filed
- * issue carries.
+ * pruning is its own: lines older than `QUEUE_EXIT_RETAIN_MS`.
  *
  * NEVER THROWS, like `queueJoin`: an unwritable log costs the record, never
  * the run.
@@ -52,10 +50,13 @@
 
 const path = require("node:path");
 const { markersDir } = require("./marker-root.js");
-const { QUEUE_EXIT_RETAIN_MS, appendRetained } = require("./retained-jsonl.js");
+const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { repoRoot } = require("./test-pass-marker.js");
 
 const QUEUE_EXIT_LOG = ".suite-queue-exits.jsonl";
+/* Must stay above the 14-day series #1157's filed issue carries; twice over,
+ * chosen, not measured. The gate-run and breaker records keep it too. */
+const QUEUE_EXIT_RETAIN_MS = 30 * DAY_MS;
 
 /**
  * The log's path for the checkout at `root`, or null where git will not
@@ -101,6 +102,7 @@ function queueExitLogger({ file, kind, slotFree, session, label, err }) {
 }
 
 module.exports = {
+	QUEUE_EXIT_RETAIN_MS,
 	queueExitLogPath,
 	queueExitLogger,
 };
