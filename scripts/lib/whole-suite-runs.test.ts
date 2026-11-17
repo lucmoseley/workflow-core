@@ -1,8 +1,8 @@
 // @vitest-environment node
 /*
- * The lone whole suite the quiet bench's due read times (#4931). Loosen it and
- * a bench suite or a shard reads as the lone suite, so the ladder bench starts
- * on a suite its top row cannot finish, or never starts.
+ * The lone whole suite check-suite-margin's arming sentence times (#4931,
+ * #5137). Loosen it and a bench suite or a shard reads as the lone suite, so
+ * the growth budget is offered to arm on a run that was never one.
  */
 
 import { expect, it } from "vitest";
