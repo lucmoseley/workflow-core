@@ -9462,6 +9462,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/act-line.test.ts": [
@@ -9604,6 +9605,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/admission-figures.test.ts": [
@@ -9770,6 +9772,7 @@
 			"scripts/refill-loop-run-outside.test.ts",
 			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/adopter-consent.js": [
@@ -9908,6 +9911,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/agent-liveness.js": [
@@ -9951,6 +9955,7 @@
 			"scripts/push-review-owed.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
@@ -10245,6 +10250,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/allowance.js": [
@@ -10280,6 +10286,7 @@
 			"scripts/refill-loop-run-outside.test.ts",
 			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/allowance.test.ts": [
@@ -10387,6 +10394,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/always-loaded-pool.test.ts": [
@@ -10710,6 +10718,7 @@
 			"scripts/push-review-owed.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts",
@@ -11073,6 +11082,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/refill-panel-open.test.ts",
 			"scripts/replay-notify-reports.test.ts",
 			"scripts/rule-fallback-template.test.ts",
@@ -11761,6 +11771,7 @@
 			"scripts/proving-run.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
@@ -11929,6 +11940,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/background-start.test.ts": [
@@ -12251,6 +12263,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/bg-launch-id.sh": [
@@ -12607,6 +12620,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/block-act.test.ts": [
@@ -12685,6 +12699,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/block-cause.test.ts": [
@@ -13265,6 +13280,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/statusline.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -13378,6 +13394,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/by-code-unit.test.ts": [
@@ -13703,6 +13720,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/cap-ms.test.ts": [
@@ -13997,6 +14015,7 @@
 			"scripts/queue-wait-alarm.test.ts",
 			"scripts/record-divergence-load.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/report-new-shared-faults-doc-map.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
 			"scripts/review-hold-gate.test.ts",
@@ -14357,6 +14376,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/check-sink.js": [
@@ -14388,6 +14408,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/check.declared-flags.test.ts": [
@@ -14457,6 +14478,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
@@ -14646,6 +14668,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-vitest.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -14677,6 +14700,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/child-failure.test.ts": [
@@ -14735,6 +14759,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -15469,6 +15494,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/claude-attach-fake.ts": [
@@ -15585,6 +15611,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/start-session.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -15674,6 +15701,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/claude-sessions.sh": [
@@ -15915,6 +15943,7 @@
 			"scripts/push-review-owed.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts",
@@ -15977,6 +16006,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/close-check-log.js": [
@@ -16796,6 +16826,7 @@
 			"scripts/push-review-owed.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts",
@@ -16939,6 +16970,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/compare-versions.test.ts": [
@@ -17109,6 +17141,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/concurrency.test.ts": [
@@ -17176,6 +17209,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -17400,6 +17434,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/console-credit.test.ts": [
@@ -17477,6 +17512,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/context-budget-pathspecs.js": [
@@ -17801,6 +17837,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/core-hooks-testkit.ts": [
@@ -17884,6 +17921,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/score-session-breaches.test.ts",
 			"scripts/status-report.test.ts",
@@ -18110,6 +18148,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/cpu-sample.test.ts": [
@@ -18217,6 +18256,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/cut-at.test.ts": [
@@ -18668,6 +18708,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/detach.sh": [
@@ -18802,6 +18843,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/dir-lock.test.ts": [
@@ -18912,6 +18954,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-vitest.test.ts"
 		],
@@ -19130,6 +19173,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/dispatch-ledger.test.ts": [
@@ -19407,6 +19451,7 @@
 			"scripts/refill-loop-run-outside.test.ts",
 			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -19920,6 +19965,7 @@
 			"scripts/push-review-owed.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -20010,6 +20056,7 @@
 			"scripts/push-review-owed.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/register-doc.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
@@ -20615,6 +20662,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/escape-audit.js": [
@@ -21313,6 +21361,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/score-session-breaches.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts",
@@ -21369,6 +21418,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/filed-line.js": [
@@ -21399,6 +21449,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/filed-line.test.ts": [
@@ -21561,6 +21612,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/fix-ticket.js": [
@@ -22415,6 +22467,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/founder-wording-host.js": [
@@ -22527,6 +22580,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/frontier-order.test.ts": [
@@ -22637,6 +22691,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -23014,6 +23069,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/gate-sweep.test.ts": [
@@ -23564,6 +23620,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
 			"scripts/session-start-outliving.test.ts",
@@ -23751,6 +23808,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/git-file.test.ts": [
@@ -23942,6 +24000,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/queue-wait-alarm.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/report-new-shared-faults-doc-map.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts",
@@ -23980,6 +24039,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/git-objects.test.ts": [
@@ -24033,6 +24093,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/git-read-memo.js": [
@@ -24062,6 +24123,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/git-read-memo.test.ts": [
@@ -24302,6 +24364,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/queue-wait-alarm.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/report-new-shared-faults-doc-map.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts",
@@ -24447,6 +24510,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/grouped-child.test.ts": [
@@ -25423,6 +25487,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/guard-probe.test.ts": [
@@ -25938,6 +26003,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/headless-sessions.js": [
@@ -26354,6 +26420,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/home-path.js": [
@@ -26383,6 +26450,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/home-path.test.ts": [
@@ -26661,6 +26729,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/hook-deadline.test.ts": [
@@ -26743,6 +26812,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/hook-envelope.js": [
@@ -26783,6 +26853,7 @@
 			"scripts/push-review-owed.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -27411,6 +27482,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
@@ -28150,6 +28222,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/start-session.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -28596,6 +28669,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-vitest.test.ts",
 			"scripts/session-start-outliving.test.ts",
@@ -28990,6 +29064,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/wayfinder-frontier.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -29287,6 +29362,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -29650,6 +29726,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/job-paths.test.ts": [
@@ -29908,6 +29985,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
@@ -30621,6 +30699,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/landing-refs.js": [
@@ -30657,6 +30736,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts",
 			"scripts/session-start-outliving.test.ts",
@@ -30999,6 +31079,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/launch-charge.test.ts": [
@@ -31051,6 +31132,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/launch-models.sh": [
@@ -31195,6 +31277,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/launch-room.test.ts": [
@@ -31645,6 +31728,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/local-hook.sh": [
@@ -31970,6 +32054,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/loop-prompts.js": [
@@ -32002,6 +32087,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/loop-prompts.test.ts": [
@@ -32135,6 +32221,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/machine-setting.js": [
@@ -32164,6 +32251,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/machine-setting.test.ts": [
@@ -32324,6 +32412,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/main-checkout.test.ts": [
@@ -32514,6 +32603,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts"
 		],
@@ -32720,6 +32810,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/memwatch_minute.py": [
@@ -32777,6 +32868,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-vitest.test.ts"
 		],
@@ -32893,6 +32985,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/statusline.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -33801,6 +33894,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/npm-options.test.ts": [
@@ -34008,6 +34102,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts"
 		],
@@ -34203,6 +34298,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/output-styles.js": [
@@ -34365,6 +34461,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/overflow-budget-core.test.ts": [
@@ -34418,6 +34515,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/overflow-budget.test.ts": [
@@ -34580,6 +34678,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/overflow-viewer.js": [
@@ -34849,6 +34948,7 @@
 			"scripts/push-review-owed.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -35373,6 +35473,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -35959,6 +36060,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/pid-lock.test.ts": [
@@ -36011,6 +36113,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/pip-install-host.js": [
@@ -36121,6 +36224,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/plugin-hooks-render.js": [
@@ -36240,6 +36344,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
@@ -36379,6 +36484,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/pool.js": [
@@ -37229,6 +37335,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/presence.test.ts": [
@@ -37540,6 +37647,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
@@ -37607,6 +37715,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
@@ -37647,6 +37756,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/proc-stat.test.ts": [
@@ -37702,6 +37812,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
@@ -37981,6 +38092,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-arm-test.test.ts",
 			"scripts/session-start-outliving.test.ts",
@@ -38381,6 +38493,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/push-review-fake.js": [
@@ -39022,6 +39135,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
@@ -40430,6 +40544,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-batch.test.ts": [
@@ -40482,6 +40597,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-blocks-fixture.ts": [
@@ -40536,6 +40652,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-blocks.test.ts": [
@@ -40589,6 +40706,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-boot.test.ts": [
@@ -40642,6 +40760,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-breaker.test.ts": [
@@ -40748,6 +40867,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-carry.test.ts": [
@@ -40801,6 +40921,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-code.test.ts": [
@@ -40855,6 +40976,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-commands.test.ts": [
@@ -40907,6 +41029,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-decide.js": [
@@ -40937,6 +41060,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-decide.test.ts": [
@@ -40989,6 +41113,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-files.js": [
@@ -41019,6 +41144,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/refill-panel-open.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -41127,6 +41253,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-goal.test.ts": [
@@ -41210,6 +41337,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-limits.js": [
@@ -41239,6 +41367,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-limits.test.ts": [
@@ -41374,6 +41503,7 @@
 			"scripts/refill-loop-run-outside.test.ts",
 			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-loop.test.ts": [
@@ -41426,6 +41556,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-outside.js": [
@@ -41968,6 +42099,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts"
 		],
@@ -42159,6 +42291,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -42238,6 +42371,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-state.test.ts": [
@@ -42430,6 +42564,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-wake.test.ts": [
@@ -42876,6 +43011,7 @@
 			"scripts/queue-wait-alarm.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/report-new-shared-faults-doc-map.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
 			"scripts/rule-fallback-template.test.ts",
@@ -43668,6 +43804,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/repo-holds.test.ts": [
@@ -44517,6 +44654,7 @@
 			"scripts/push-review-owed.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -45018,6 +45156,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/review-issues.js": [
@@ -46271,6 +46410,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/run-budgeted.test.ts": [
@@ -46327,6 +46467,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
@@ -46432,6 +46573,8 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
+			"scripts/record-divergence-load.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-vitest.test.ts",
 			"scripts/suite-timings.test.ts"
@@ -46487,6 +46630,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/run-ledger.test.ts": [
@@ -46798,6 +46942,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/scratch-git-host.js": [
@@ -47156,6 +47301,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/script-filer-argv.test.ts": [
@@ -47382,6 +47528,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/refill-panel-open.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
@@ -47541,6 +47688,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/seat-aliases.test.ts": [
@@ -47650,6 +47798,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/start-session.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -47735,6 +47884,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/seat-reading.test.ts": [
@@ -48296,6 +48446,7 @@
 			"scripts/push-review-owed.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts",
@@ -48471,6 +48622,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/session-spend.test.ts": [
@@ -48822,6 +48974,7 @@
 			"scripts/push-review-owed.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/refill-panel-open.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
@@ -49269,6 +49422,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/shell-words.test.ts": [
@@ -49467,6 +49621,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/size-line-check.js": [
@@ -49586,6 +49741,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence-load.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/refill-panel-open.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts",
@@ -49869,6 +50025,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/stamp-paths.test.ts": [
@@ -49986,6 +50143,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/status-marker.test.ts": [
@@ -50371,6 +50529,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/subagent-payload.sh": [
@@ -50604,6 +50763,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/suite-bounded.test.ts": [
@@ -50971,6 +51131,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/suite-ladder.test.ts": [
@@ -51024,6 +51185,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-pytest.test.ts"
 		],
@@ -51677,6 +51839,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
@@ -51763,6 +51926,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
@@ -52075,6 +52239,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
@@ -52192,6 +52357,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-pytest.test.ts",
 			"scripts/run-vitest.test.ts",
@@ -53214,6 +53380,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -53589,6 +53756,7 @@
 			"scripts/priced-options-copies.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/session-arbiter.test.ts"
 		],
@@ -53644,6 +53812,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/tsc-slot.js": [
@@ -53681,6 +53850,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/tsc-slot.test.ts": [
@@ -54299,6 +54469,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/unclosed-launch.test.ts": [
@@ -54502,6 +54673,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/usage-cache.test.ts": [
@@ -55608,6 +55780,7 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/windows-memory.test.ts": [
@@ -55661,6 +55834,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/wita.test.ts": [
@@ -55862,6 +56036,7 @@
 			"scripts/queue-wait-alarm.test.ts",
 			"scripts/reap-finished-sessions.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/refill-panel-open.test.ts",
 			"scripts/report-new-shared-faults-doc-map.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
@@ -55955,6 +56130,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-vitest.test.ts"
 		],
@@ -56207,6 +56383,7 @@
 			"scripts/queue-wait-alarm.test.ts",
 			"scripts/record-divergence-load.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-status-load.test.ts",
 			"scripts/refill-panel-open.test.ts",
 			"scripts/report-new-shared-faults-doc-map.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
