@@ -18,7 +18,12 @@
  * on a local tester or goes without its base-red ticket, or a push `main`
  * refuses reads as a fault or one `main` moved under reads as a refusal;
  * or a hook it cannot execute holds a merge, a registry SKIP holds one, or a
- * BROKEN, unparseable or timed-out registry run passes one (#4904).
+ * BROKEN, unparseable or timed-out registry run passes one (#4904); or an
+ * adopter's batch conflicting on docs/test-read-edges.json drops every member
+ * for want of WFC_PLUGIN_ROOT (#5309).
+ *
+ * The sandbox seeds workflow-core itself, so a merge runs the tree's own gate
+ * scripts; a case wanting an adopter's tree calls asAdopter().
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -41,6 +46,7 @@ import {
 	redPathAtRest,
 } from "./lib/lander-records.js";
 import {
+	asAdopter,
 	commit,
 	git,
 	landerSandbox,
@@ -64,7 +70,7 @@ import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 import { restoreStderr, spyStderr } from "./lib/write-fd-testkit";
 
-landerSandbox();
+landerSandbox({ coreHost: true });
 afterEach(removeTemps);
 
 // Required, not imported: an ESM import would load a second copy of
@@ -74,6 +80,15 @@ const { PushRefused } = createRequire(__filename)("./lib/network-fault.js");
 
 const START_LANDER = path.resolve(__dirname, "start-lander.js");
 const ANCHORS = ".claude/guard-registry-anchors.json";
+
+/** Whether `pid` runs, a zombie being no run. */
+const isLive = (pid: string) => {
+	try {
+		return !/\) [ZX] /.test(fs.readFileSync(`/proc/${pid}/stat`, "utf8"));
+	} catch {
+		return false;
+	}
+};
 
 /** A commit on `from`, after `write` where given, pushed as `queue/<name>`, returning its sha. */
 const pushQueue = (name: string, from: string, write?: () => void) => {
@@ -196,7 +211,7 @@ describe("a run", () => {
 		expect(fs.existsSync(path.join(hooks, "calls.log"))).toBe(false);
 	});
 
-	it("runs the batch gate set where the Actions run repeats the rest, and every gate where it does not (#4545)", () => {
+	it("runs the batch gate set where the Actions run repeats the rest, the tested set where the local tester repeats the suite, and every gate where neither does (#4545, #5308)", () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		const members = [
 			{ name: "a", sha: pushQueue("a", seed), pushedAt: 1 },
@@ -206,8 +221,50 @@ describe("a run", () => {
 
 		queueGit(work, { ciRepeats: true }).mergeMembers(seed, members);
 		expect(calls().at(-1)).toBe("pre-commit --gates=batch");
+		queueGit(work, { suiteRepeats: true }).mergeMembers(seed, members);
+		expect(calls().at(-1)).toBe("pre-commit --gates=tested");
 		queueGit(work).mergeMembers(seed, members);
 		expect(calls().at(-1)).toBe("pre-commit");
+	});
+
+	it("ends gates that trap SIGTERM at their limit, the processes they started with them, and refuses the merge with that reason rather than retrying it (#5308)", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const lone = { name: "a", sha: pushQueue("a", seed), pushedAt: 1 };
+		const pids = path.join(tmp, "gate.pids");
+		/* The batch pass's hook, and the child it waits on, both ignore TERM:
+		 * only the KILL to the group ends them. */
+		stubHooks(
+			["pre-commit"],
+			onBatchPass(
+				`trap '' TERM; echo $$ >> '${pids}'; sh -c 'echo $$ >> "$0"; sleep 60' '${pids}'`,
+			),
+		);
+		const stderr = spyStderr();
+		let merged: unknown;
+		try {
+			/* Crosses the real clock, as run-budgeted.js's kill is of real
+			 * processes. 2 s and 0.5 s are guesses, unmeasured: past the git
+			 * steps here, and far short of the stub's 60 s. */
+			merged = queueGit(work, {
+				mergeTimeoutMs: 2000,
+				gateGraceMs: 500,
+			}).mergeMembers(seed, [lone], true);
+		} finally {
+			restoreStderr();
+		}
+		expect(merged).toMatchObject({
+			kind: "refused",
+			name: "a",
+			reason: expect.stringMatching(
+				/^its gates ran past their 2 s limit and were ended, every process they started with them/,
+			),
+		});
+		const started = fs.readFileSync(pids, "utf8").trim().split("\n");
+		expect(started).toHaveLength(2);
+		expect(started.filter(isLive)).toEqual([]);
+		expect(stderr.mock.calls.join("")).toContain(
+			"queue-lander: queue/a's merge refused: its gates ran past their 2 s limit",
+		);
 	});
 
 	it("gives the merges to `started` before the batch's gates where the Actions run repeats the rest, and never where it does not (#4573)", () => {
@@ -542,21 +599,19 @@ describe("a run", () => {
 		});
 
 		describe("off a checker that gives no reading (#4904)", () => {
-			/** `body` as the checker's copy the batch's tree is judged with. */
+			/** The core whose checker the batch's tree is judged with. */
+			const core = () => path.join(tmp, "plugin");
+			/** `body` as that core's checker. */
 			const checker = (body: string) => {
-				const root = path.join(tmp, "plugin");
-				fs.mkdirSync(path.join(root, "scripts"), { recursive: true });
+				fs.mkdirSync(path.join(core(), "scripts"), { recursive: true });
 				fs.writeFileSync(
-					path.join(root, "scripts", "check-guard-registry.js"),
+					path.join(core(), "scripts", "check-guard-registry.js"),
 					body,
 				);
-				vi.stubEnv("WFC_PLUGIN_ROOT", root);
 			};
 			const envelope = (outcome: string) =>
 				`process.stdout.write(${JSON.stringify(JSON.stringify({ outcome, summary: `${outcome}: stub` }))});\n`;
-			afterEach(() => {
-				vi.unstubAllEnvs();
-			});
+			beforeEach(asAdopter);
 
 			it("merges a batch whose stale row its checker SKIPped, saying so, as a SKIP gates nothing (mantahostels#155)", () => {
 				const main = staleMain();
@@ -565,15 +620,17 @@ describe("a run", () => {
 				 * read as a reading, it holds the batch as stale-base. */
 				checker(
 					`const { spawnSync } = require("node:child_process");
-const env = { ...process.env };
-delete env.WFC_PLUGIN_ROOT;
-const r = spawnSync(process.execPath, [${JSON.stringify(path.resolve(__dirname, "check-guard-registry.js"))}, ...process.argv.slice(2)], { encoding: "utf8", env });
+const r = spawnSync(process.execPath, [${JSON.stringify(path.resolve(__dirname, "check-guard-registry.js"))}, ...process.argv.slice(2)], { encoding: "utf8" });
 process.stdout.write(JSON.stringify({ ...JSON.parse(r.stdout), outcome: "SKIP", summary: "SKIP: stub" }));
 `,
 				);
 				const stderr = spyStderr();
 				try {
-					expect(queueGit(work).mergeMembers(main, [member("a", a)])).toEqual({
+					expect(
+						queueGit(work, { core: core() }).mergeMembers(main, [
+							member("a", a),
+						]),
+					).toEqual({
 						kind: "merged",
 						sha: a,
 					});
@@ -590,7 +647,7 @@ process.stdout.write(JSON.stringify({ ...JSON.parse(r.stdout), outcome: "SKIP", 
 			it("throws a plain error, naming the commit, on a BROKEN envelope and on output that is no envelope", () => {
 				const main = staleMain();
 				const a = pushQueue("a", main);
-				const g = queueGit(work);
+				const g = queueGit(work, { core: core() });
 				const fault = () => {
 					try {
 						g.mergeMembers(main, [member("a", a)]);
@@ -622,9 +679,10 @@ process.stdout.write(JSON.stringify({ ...JSON.parse(r.stdout), outcome: "SKIP", 
 				 * to keep the case cheap; the stub's 60 s need only outlast it. */
 				let thrown: unknown;
 				try {
-					queueGit(work, { mergeTimeoutMs: 3000 }).mergeMembers(main, [
-						member("a", a),
-					]);
+					queueGit(work, { mergeTimeoutMs: 3000, core: core() }).mergeMembers(
+						main,
+						[member("a", a)],
+					);
 				} catch (err) {
 					thrown = err;
 				}
@@ -957,13 +1015,6 @@ describe("the adapters", () => {
 			return r.kind === "merged" ? r.sha : "";
 		};
 
-		beforeEach(() => {
-			vi.stubEnv("WFC_PLUGIN_ROOT", "");
-		});
-		afterEach(() => {
-			vi.unstubAllEnvs();
-		});
-
 		it("lands a merge whose text-merged copy is clean but stale", () => {
 			const seed = seeded(counting);
 			const a = pushGenerated("a", seed);
@@ -1033,6 +1084,51 @@ describe("the adapters", () => {
 				files: [genFile],
 			});
 		});
+	});
+
+	/* The positive pair of "lands a merge whose text-merged copy is clean but
+	 * stale", which renders with a core host's own generator. */
+	it("regenerates an adopter's read-edges with the lander's own generator, WFC_PLUGIN_ROOT unset, dropping no member (#5309)", () => {
+		vi.stubEnv("WFC_PLUGIN_ROOT", undefined);
+		const edges = "docs/test-read-edges.json";
+		const generator = path.resolve(__dirname, "generate-test-read-edges.js");
+		const render = () => {
+			git(work, "add", "-A");
+			expect(runInProcess(generator, [], { cwd: work }).status).toBe(0);
+		};
+		asAdopter();
+		fs.mkdirSync(path.join(work, "docs"), { recursive: true });
+		for (const name of ["a", "b"])
+			fs.writeFileSync(path.join(work, "docs", `${name}.md`), name);
+		render();
+		const seed = commit("adopter seed");
+		expect(fs.existsSync(path.join(work, "scripts"))).toBe(false);
+		const pushRendered = (name: string) =>
+			pushQueue(name, seed, () => {
+				fs.writeFileSync(
+					path.join(work, `${name}.test.ts`),
+					`import fs from "node:fs";\nimport path from "node:path";\nfs.readFileSync(path.resolve(__dirname, "docs/${name}.md"));\n`,
+				);
+				render();
+			});
+		const a = pushRendered("a");
+		const b = pushRendered("b");
+		const g = queueGit(work);
+		g.refs();
+
+		const r = g.mergeMembers(seed, [
+			{ name: "a", sha: a, pushedAt: 1 },
+			{ name: "b", sha: b, pushedAt: 2 },
+		]);
+
+		expect(r.kind).toBe("merged");
+		const sha = r.kind === "merged" ? r.sha : "";
+		git(work, "checkout", "-q", "--detach", sha);
+		const landed = fs.readFileSync(path.join(work, edges), "utf8");
+		render();
+		expect(fs.readFileSync(path.join(work, edges), "utf8")).toBe(landed);
+		expect(landed).toContain("a.test.ts");
+		expect(landed).toContain("b.test.ts");
 	});
 
 	it("throws a merge that times out as a transient fault, for the run to retry, never a refusal that drops it", () => {

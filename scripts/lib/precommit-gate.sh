@@ -412,3 +412,7 @@ staged_gate() {
 # `--gates=batch` that .husky/pre-commit parses into wfc_gates: each gate the
 # lander's Actions run repeats tests it and stands down.
 lander_batch() { [ "${wfc_gates:-all}" = batch ]; }
+
+# Whether the hook runs the batch pass whose declared test command the
+# lander's local tester runs itself (#5308), `--gates=tested`.
+lander_tested() { [ "${wfc_gates:-all}" = tested ]; }

@@ -4,7 +4,7 @@
  * every row of lib/precommit-gates.js in this one process, through
  * lib/precommit-dispatch.js.
  *
- *   node scripts/precommit-dispatch.js [--gates=merge|--gates=batch]
+ *   node scripts/precommit-dispatch.js [--gates=merge|--gates=batch|--gates=tested]
  *
  * .husky/pre-commit runs it once, after the shared-tree branch check, passing
  * its own arguments through.
@@ -35,7 +35,7 @@ const { writeFd } = require("./lib/write-fd.js");
 async function main() {
 	const interrupted = catchSignals();
 	const parsed = parseOrCode(process.argv.slice(2), {
-		usage: `node ${scriptPath("precommit-dispatch.js")} [--gates=merge|--gates=batch]`,
+		usage: `node ${scriptPath("precommit-dispatch.js")} [--gates=merge|--gates=batch|--gates=tested]`,
 		flags: { "--gates": "value" },
 	});
 	if (typeof parsed === "number") return parsed;

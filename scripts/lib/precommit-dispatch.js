@@ -301,7 +301,8 @@ async function runRow(row, ports, voice) {
 
 /**
  * The gate set `--gates` names, `merge` or `batch`, else every gate, as the
- * hook's own `case` reads it.
+ * hook's own `case` reads it: `tested` leaves out only the hook's own test
+ * gate, which is no row here.
  * @param {string | undefined} value
  * @returns {GateSet}
  */

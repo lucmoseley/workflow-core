@@ -12,7 +12,9 @@
  * proof of absence (mantahostels#1114, mantahostels#587).
  *
  * Exit 0 — every lookup ran, whether or not it found anything.
- * Exit 3 — something is unresolved; the step goes back to the agent.
+ * Exit 3 — something is unresolved; the step goes back to the agent. A lookup
+ *          past its timeout is unresolved, and so is a run past the
+ *          ceiling (#5311).
  * Exit 1 — usage or IO error. A reader closing the pipe early is neither:
  *          output stops and the code above stands (#1238).
  *
@@ -24,9 +26,10 @@
 
 const fs = require("node:fs");
 const { writeFd } = require("../../../../scripts/lib/write-fd.js");
-const { execFileSync } = require("node:child_process");
+const { execFileSync, spawnSync } = require("node:child_process");
 const { execGit } = require("../../../../scripts/lib/git.js");
-const { gh: runGh } = require("../../../../scripts/lib/gh.js");
+const { gh: runGh, GH_TIMEOUT_MS } = require("../../../../scripts/lib/gh.js");
+const { capMs } = require("../../../../scripts/lib/cap-ms.js");
 const {
 	escapeRe,
 	requiredGroup,
@@ -69,6 +72,16 @@ const MAX_BUFFER = 64e6;
 
 const GREP_TARGETS = ["scripts", "docs/doc-map.md"];
 
+/** Each subprocess's cap: gh's own, the slowest lookup here measured
+ * (#2677). */
+const LOOKUP_TIMEOUT_MS = capMs("WFC_TENURE_LOOKUP_TIMEOUT_MS", GH_TIMEOUT_MS);
+/** The whole run's cap, enforced from a parent process (#5311). A guess: two
+ * slow lookups' worth. */
+const CEILING_MS = capMs("WFC_TENURE_CEILING_MS", 600e3);
+/** Marks the child that does the lookups, so it runs `main` rather than
+ * supervising itself again. */
+const WORKER_ENV = "TENURE_WORKER";
+
 let readerGone = false;
 /**
  * A reader that closes early (`| head -1`) makes the next write throw EPIPE.
@@ -92,6 +105,8 @@ const READ_OPTS = {
 	encoding: "utf8",
 	maxBuffer: MAX_BUFFER,
 	stdio: ["ignore", "pipe", "pipe"],
+	timeout: LOOKUP_TIMEOUT_MS,
+	killSignal: "SIGKILL",
 };
 
 /**
@@ -116,9 +131,16 @@ function settle(read) {
 		return { status: 0, stdout: read(), stderr: "" };
 	} catch (err) {
 		const e =
-			/** @type {{ status?: unknown, stdout?: unknown, stderr?: unknown, message?: unknown }} */ (
+			/** @type {{ status?: unknown, stdout?: unknown, stderr?: unknown, message?: unknown, code?: unknown }} */ (
 				err
 			);
+		if (e.code === "ETIMEDOUT") {
+			return {
+				status: null,
+				stdout: "",
+				stderr: `timed out after ${LOOKUP_TIMEOUT_MS / 1000} s and was killed`,
+			};
+		}
 		return {
 			status: typeof e.status === "number" ? e.status : null,
 			stdout: typeof e.stdout === "string" ? e.stdout : "",
@@ -291,7 +313,11 @@ function lineHistory(target, phrase) {
 		state: /** @type {const} */ ("skipped"),
 		why: `the phrase is not in HEAD's copy of ${target} — uncommitted text has no line history`,
 	};
-	if (runGit(["cat-file", "-e", blob]).status !== 0) return skipped;
+	const present = runGit(["cat-file", "-e", blob]);
+	if (present.status === null) {
+		return { state: "unresolved", why: `git cat-file ${present.stderr}` };
+	}
+	if (present.status !== 0) return skipped;
 	const head = runGit(["show", blob]);
 	if (head.status !== 0) {
 		return {
@@ -322,10 +348,18 @@ function lineHistory(target, phrase) {
  * @param {string} needlePath @param {string} needle
  */
 function gitAxis(needlePath, needle) {
-	if (runGit(["rev-parse", "--git-dir"]).status !== 0) {
+	const repo = runGit(["rev-parse", "--git-dir"]);
+	if (repo.status === null) {
+		return { state: "unresolved", why: `git rev-parse ${repo.stderr}` };
+	}
+	if (repo.status !== 0) {
 		return { state: "unresolved", why: "not inside a git repository" };
 	}
-	if (runGit(["ls-files", "--error-unmatch", "--", needlePath]).status !== 0) {
+	const tracked = runGit(["ls-files", "--error-unmatch", "--", needlePath]);
+	if (tracked.status === null) {
+		return { state: "unresolved", why: `git ls-files ${tracked.stderr}` };
+	}
+	if (tracked.status !== 0) {
 		return {
 			state: "unresolved",
 			why: `${needlePath} is untracked, so git holds no history for it — the text has no tenure to clear yet`,
@@ -841,4 +875,45 @@ function main(argv) {
 	return 0;
 }
 
-if (require.main === module) process.exit(main(process.argv.slice(2)));
+/**
+ * Runs `main` in a child and waits at most CEILING_MS for it. Nothing inside
+ * one process can bound it: a hang in node's own exit runs no timer.
+ *
+ * The child leads its own process group, so the kill at the ceiling reaches
+ * the lookups it started too; their own timeouts died with it.
+ *
+ * @param {string[]} argv
+ */
+function supervise(argv) {
+	// `detached` reaches spawnSync's runner though @types/node omits it there.
+	const opts = /** @type {import("node:child_process").SpawnSyncOptions} */ ({
+		stdio: ["ignore", "inherit", "inherit"],
+		env: { ...process.env, [WORKER_ENV]: "1" },
+		timeout: CEILING_MS,
+		killSignal: "SIGKILL",
+		detached: true,
+	});
+	const r = spawnSync(process.execPath, [__filename, ...argv], opts);
+	if (r.pid) {
+		try {
+			process.kill(-r.pid, "SIGKILL");
+		} catch {
+			// The group is already empty.
+		}
+	}
+	if (typeof r.status === "number") return r.status;
+	const why =
+		caught(r.error).code === "ETIMEDOUT"
+			? `ran past its ${CEILING_MS / 1000} s ceiling and was killed`
+			: `ended with no exit code (${r.signal ?? caught(r.error).message})`;
+	out(
+		`\nUNRESOLVED: tenure.js ${why}. Whatever printed above may be incomplete;\n` +
+			"nothing about tenure has been established either way.\n",
+	);
+	return 3;
+}
+
+if (require.main === module) {
+	const argv = process.argv.slice(2);
+	process.exit(process.env[WORKER_ENV] ? main(argv) : supervise(argv));
+}

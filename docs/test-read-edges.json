@@ -942,6 +942,7 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
+			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/build-arm-sandbox.test.ts",
@@ -992,6 +993,7 @@
 			"scripts/lib/recursive-dot-read.test.ts",
 			"scripts/lib/throughput-reads.test.ts",
 			"scripts/lib/workflow-core-config.test.ts",
+			"scripts/log-queue-push.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
 			"scripts/npx-bare-name.test.ts",
 			"scripts/pick-next-output.test.ts",
@@ -1003,7 +1005,9 @@
 			"scripts/queue-lander.test.ts",
 			"scripts/register-doc.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
+			"scripts/start-lander.test.ts",
 			"scripts/status-report.test.ts",
+			"scripts/supervise-landing.test.ts",
 			"scripts/upgrade.test.ts",
 			"scripts/write-secret.test.ts"
 		],
@@ -8099,6 +8103,7 @@
 			"scripts/precommit-injector-margin-gate.test.ts",
 			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
+			"scripts/queue-lander.test.ts",
 			"scripts/report-new-shared-faults.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
@@ -57457,7 +57462,9 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts",
-			"scripts/session-checkout.test.ts"
+			"scripts/session-checkout.test.ts",
+			"scripts/start-lander.test.ts",
+			"scripts/supervise-landing.test.ts"
 		],
 		"scripts/queue-lander.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",

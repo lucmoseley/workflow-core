@@ -72,8 +72,23 @@ export const levelStub = () => {
 	return stub;
 };
 
-/** Register the hooks that build the seeded template once and copy it per case. */
-export function landerSandbox(): void {
+/**
+ * Writes an empty guard-registry region into `dir`'s CLAUDE.md, as the adopter
+ * template and the core's own carry: without one, the registry check the
+ * lander runs over a batch holds it as stale-base on NO-REGION (#5309).
+ */
+export const seedRegistryRegion = (dir: string) =>
+	fs.writeFileSync(
+		path.join(dir, "CLAUDE.md"),
+		"<!-- guard-registry:begin -->\n<!-- guard-registry:end -->\n",
+	);
+
+/**
+ * Register the hooks that build the seeded template once and copy it per case.
+ * With `coreHost`, the seed is workflow-core itself, so the lander runs the
+ * tree's own gate scripts rather than its own install's (#5309).
+ */
+export function landerSandbox({ coreHost = false } = {}): void {
 	let template: string;
 
 	beforeAll(() => {
@@ -84,6 +99,14 @@ export function landerSandbox(): void {
 		git(template, "clone", "-q", bare, clone);
 		git(clone, "config", "user.email", "t@t");
 		git(clone, "config", "user.name", "t");
+		seedRegistryRegion(clone);
+		if (coreHost) {
+			fs.mkdirSync(path.join(clone, ".claude-plugin"));
+			fs.writeFileSync(
+				path.join(clone, ".claude-plugin", "plugin.json"),
+				JSON.stringify({ name: "workflow-core" }),
+			);
+		}
 		commitIn(clone, "seed");
 		git(clone, "push", "-q", "origin", "HEAD:main");
 	});
@@ -108,6 +131,13 @@ export function landerSandbox(): void {
 	});
 	afterAll(() => fs.rmSync(template, { recursive: true, force: true }));
 }
+
+/** `work`'s tree made an adopter's, no longer workflow-core itself, so the
+ * lander runs its own install's gate scripts over it (#5309). */
+export const asAdopter = () => {
+	git(work, "rm", "-rq", ".claude-plugin");
+	commit("adopter");
+};
 
 export const stubTester = (code: number, failing = "") => {
 	const script = path.join(tmp, "tester.sh");

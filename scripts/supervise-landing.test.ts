@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { stubGhScript } from "./lib/gh-stub.js";
+import { seedRegistryRegion } from "./lib/lander-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SUPERVISE = path.resolve(__dirname, "supervise-landing.js");
@@ -113,6 +114,7 @@ beforeEach(() => {
 		path.join(work, ".claude", "workflow-core.json"),
 		JSON.stringify({ tracker: "o/here" }),
 	);
+	seedRegistryRegion(work);
 	git(work, ["add", "-A"]);
 	store = path.join(tmp, "issues.json");
 	fs.writeFileSync(store, "[]");
