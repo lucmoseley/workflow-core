@@ -362,6 +362,48 @@ describe("the sanctioned forms pass", () => {
 	});
 });
 
+describe("a payload with nothing to judge passes", () => {
+	const raw = (input: string) =>
+		spawnSync("bash", [HOOK], { input, encoding: "utf8", timeout: 10_000 });
+
+	it.each(["not json", "[1,2]", '"npm login"'])(
+		"names %s on stderr as unjudged",
+		(input) => {
+			const r = raw(input);
+			expect(r.status).toBe(0);
+			expect(r.stdout).toBe("");
+			expect(r.stderr).toBe(
+				"browser-profile-guard: the hook payload is not a JSON object, so nothing is judged\n",
+			);
+		},
+	);
+
+	it("names a missing jq on stderr as unjudged", () => {
+		const bin = tree({});
+		// PATH holds bash alone, so the guard finds no jq.
+		fs.symlinkSync("/bin/bash", path.join(bin, "bash"));
+		const r = spawnSync(path.join(bin, "bash"), [HOOK], {
+			input: JSON.stringify({ tool_input: { command: "npm login" } }),
+			env: { PATH: bin },
+			encoding: "utf8",
+			timeout: 10_000,
+		});
+		expect([r.status, r.stdout, r.stderr]).toEqual([
+			0,
+			"",
+			"browser-profile-guard: jq is not installed, so nothing is judged\n",
+		]);
+	});
+
+	it.each([{ tool_input: {} }, { tool_input: "abc" }])(
+		"passes %j, which carries no command, silently",
+		(payload) => {
+			const r = raw(JSON.stringify(payload));
+			expect([r.status, r.stdout, r.stderr]).toEqual([0, "", ""]);
+		},
+	);
+});
+
 describe("malformed input ends", () => {
 	it.each([
 		'echo "unterminated npm login',
