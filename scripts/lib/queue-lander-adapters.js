@@ -118,7 +118,7 @@ class GateTimeout extends Error {}
  *   inTree: (args: string[], timeout?: number) => string,
  *   gates: (set: "merge") => void,
  *   gateCopy: (rel: string) => string}} MergeTree a member's merge's
- *   throwaway tree: its path, its git, its hook's gates and its gate scripts
+ *   throwaway tree
  */
 
 /**
@@ -209,9 +209,21 @@ function queueGit(
 		/** @type {string | undefined} */
 		let core;
 		return (rel) => {
-			core ??= isCoreHost(dir) ? dir : resolveTreeCore(dir, mergeTimeoutMs);
+			core ??= isCoreHost(dir) ? dir : resolveCoreOf(dir);
 			return path.join(core, rel);
 		};
+	};
+	/** @param {string} dir */
+	const resolveCoreOf = (dir) => {
+		try {
+			return resolveTreeCore(dir, mergeTimeoutMs);
+		} catch (err) {
+			if (caught(err).code !== "ETIMEDOUT") throw err;
+			throw new TransientFault(
+				`resolving its tree's workflow-core timed out after ${mergeTimeoutMs / 1000} s`,
+				{ cause: err },
+			);
+		}
 	};
 	const fetchSpecs = [
 		trackingRefspec(VERIFIED_BRANCH),
@@ -363,6 +375,7 @@ function queueGit(
 					onto,
 					batchPass({ onto, sha, last }, inTree, gates),
 					last,
+					gateCopy,
 				);
 			},
 		);
@@ -380,17 +393,19 @@ function queueGit(
 	 * @param {string} onto
 	 * @param {MergeResult} merged
 	 * @param {Member} last
+	 * @param {(rel: string) => string} [gateCopy] the gate scripts of the
+	 *   tree that merged it, where one did
 	 * @returns {MergeResult}
 	 */
-	function judgeWhole(onto, merged, last) {
+	function judgeWhole(onto, merged, last, gateCopy) {
 		if (merged.kind !== "merged") return merged;
 		/** @type {Record<string, unknown> | null} */
 		let tree;
 		try {
-			tree = readRegistry(merged.sha);
+			tree = readRegistry(merged.sha, gateCopy);
 		} catch (err) {
 			if (!(err instanceof CoreUnresolved)) throw err;
-			return { kind: "refused", name: last.name, reason: err.message };
+			return unresolved(last.name, err);
 		}
 		const gating = tree ? newFaultItems(tree, {}, REGISTRY_PROFILE) : [];
 		if (!tree || gating.length === 0) return merged;
@@ -398,8 +413,7 @@ function queueGit(
 	}
 
 	/**
-	 * judgeWhole's verdict on a merged tree holding gating faults: refused
-	 * where `onto` lacks one, else stale-base.
+	 * judgeWhole's verdict on a merged tree holding gating faults.
 	 * @param {string} onto
 	 * @param {{sha: string, tree: Record<string, unknown>,
 	 *   gating: ReturnType<typeof newFaultItems>}} whole
@@ -431,6 +445,8 @@ function queueGit(
 
 	/**
 	 * readRegistry over `onto`, null where its tree resolves no core.
+	 * Residual: every gating fault then counts as the batch's own, so it is
+	 * refused rather than held stale-base on a fault `onto` may share.
 	 * @param {string} onto
 	 */
 	function readBaseRegistry(onto) {
@@ -446,15 +462,19 @@ function queueGit(
 	 * check-guard-registry.js's --json envelope over `sha`'s tree, null where
 	 * the tree carries no checker.
 	 * @param {string} sha
+	 * @param {(rel: string) => string} [gateCopy] `sha`'s gate scripts,
+	 *   already resolved; else resolved in the tree this checks out
 	 * @returns {Record<string, unknown> | null}
 	 */
-	function readRegistry(sha) {
+	function readRegistry(sha, gateCopy) {
 		return withThrowawayTree(
 			root,
 			sha,
 			{ program: "queue-lander", use: "registry" },
 			(dir) => {
-				const checker = gateCopies(dir)("scripts/check-guard-registry.js");
+				const checker = (gateCopy ?? gateCopies(dir))(
+					"scripts/check-guard-registry.js",
+				);
 				if (!fs.existsSync(checker)) return null;
 				const r = spawnSync(
 					process.execPath,
@@ -599,7 +619,7 @@ function queueGit(
 
 	/**
 	 * Why `m` did not merge, else null. Gates run past their limit are a
-	 * refusal, said on stderr; any other fault that is no git refusal, a spawn
+	 * refusal, said on stderr, and so is a tree resolving no core; any other fault that is no git refusal, a spawn
 	 * failure or a git step timing out among them, throws for the run to
 	 * retry.
 	 * @param {Member} m
@@ -612,8 +632,7 @@ function queueGit(
 			merge();
 			return null;
 		} catch (err) {
-			if (err instanceof CoreUnresolved)
-				return { kind: "refused", name: m.name, reason: err.message };
+			if (err instanceof CoreUnresolved) return unresolved(m.name, err);
 			if (!(err instanceof GateTimeout)) return judgeFault(m, inTree, err);
 			writeFd(
 				2,
@@ -650,6 +669,17 @@ function queueGit(
 				};
 	}
 }
+
+/**
+ * @param {string} name
+ * @param {Error} err a CoreUnresolved
+ * @returns {MergeResult}
+ */
+const unresolved = (name, err) => ({
+	kind: "refused",
+	name,
+	reason: err.message,
+});
 
 /**
  * @param {boolean} ciRepeats

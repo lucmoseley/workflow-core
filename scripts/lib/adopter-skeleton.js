@@ -29,6 +29,7 @@ const { CORE_STYLE, namespaced } = require("./output-styles.js");
 const { withoutSelfPlugin } = require("./core-hooks.js");
 const { shellQuote } = require("./sh-quote.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
+const { RESOLVE_CORE_SCRIPT } = require("./tree-core.js");
 
 const TEMPLATES = path.join(__dirname, "..", "templates", "adopter");
 
@@ -316,20 +317,6 @@ const SHIM_MARK = "# workflow-core hook shim:";
 /** What makes a shim resolve a core, said wherever one does not. */
 const NO_CORE_FIX =
 	"Fix: open a Claude Code session in this repo so its project-scope workflow-core plugin installs, or set WORKFLOW_CORE_DIR to a workflow-core checkout.";
-
-/**
- * The `node -e` program a hook shim finds its core with, run with the working
- * tree's top as its cwd: the core's directory on stdout, else exit 1 with the
- * reason on stderr. The queue lander runs it too, so its gate scripts judge an
- * adopter's tree with the core that tree's hook runs (#5314).
- */
-const RESOLVE_CORE_SCRIPT = `
-try {
-  process.stdout.write(require("./scripts/lib/resolve-core.js").resolveCore());
-} catch (err) {
-  process.stderr.write(String(err instanceof Error ? err.message : err) + "\\n");
-  process.exit(1);
-}`;
 
 /**
  * The hook an adopter commits under `.husky/<hook>`: it finds the core at run
@@ -782,7 +769,6 @@ module.exports = {
 	renderCalledCards,
 	renderRoadmap,
 	renderHookShim,
-	RESOLVE_CORE_SCRIPT,
 	isHookShim,
 	NO_CORE_FIX,
 	RULES_FILE,

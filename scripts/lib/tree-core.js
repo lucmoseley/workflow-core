@@ -6,21 +6,31 @@
  */
 
 const { spawnSync } = require("node:child_process");
-const { RESOLVE_CORE_SCRIPT } = require("./adopter-skeleton.js");
-const { caught } = require("./caught.js");
-const { TransientFault } = require("./queue-lander.js");
+
+/**
+ * The `node -e` program a hook shim (adopter-skeleton.js renderHookShim)
+ * finds its core with, run with the working tree's top as its cwd: the
+ * core's directory on stdout, else exit 1 with the reason on stderr.
+ */
+const RESOLVE_CORE_SCRIPT = `
+try {
+  process.stdout.write(require("./scripts/lib/resolve-core.js").resolveCore());
+} catch (err) {
+  process.stderr.write(String(err instanceof Error ? err.message : err) + "\\n");
+  process.exit(1);
+}`;
 
 /**
  * A tree whose hook shim would find no core: its hook refuses every commit
- * there, so what it holds is refused, never judged by another core.
+ * there.
  */
 class CoreUnresolved extends Error {}
 
 /**
  * The core the hook shim in the tree at `dir` runs, asked in a child so the
  * tree's code stays out of this process. Throws a CoreUnresolved carrying
- * the resolver's reason where it finds none, and a TransientFault where it
- * outruns `timeoutMs`.
+ * the resolver's reason, and the spawn's error, ETIMEDOUT
+ * past `timeoutMs` among them, where the child does not finish.
  * @param {string} dir
  * @param {number} timeoutMs
  * @returns {string}
@@ -32,11 +42,6 @@ function resolveTreeCore(dir, timeoutMs) {
 		stdio: ["ignore", "pipe", "pipe"],
 		timeout: timeoutMs,
 	});
-	if (caught(r.error).code === "ETIMEDOUT")
-		throw new TransientFault(
-			`resolving its tree's workflow-core timed out after ${timeoutMs / 1000} s`,
-			{ cause: r.error },
-		);
 	if (r.error) throw r.error;
 	if (r.status === 0 && r.stdout !== "") return r.stdout;
 	const reason = r.stderr.trim().split("\n")[0] || `exit ${r.status}`;
@@ -45,4 +50,4 @@ function resolveTreeCore(dir, timeoutMs) {
 	);
 }
 
-module.exports = { CoreUnresolved, resolveTreeCore };
+module.exports = { CoreUnresolved, RESOLVE_CORE_SCRIPT, resolveTreeCore };

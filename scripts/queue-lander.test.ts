@@ -91,6 +91,12 @@ const isLive = (pid: string) => {
 	}
 };
 
+/** `body` as the script at core-relative `rel` of a stub core at `core`. */
+const stubCoreScript = (core: string, rel: string, body: string) => {
+	fs.mkdirSync(path.dirname(path.join(core, rel)), { recursive: true });
+	fs.writeFileSync(path.join(core, rel), body);
+};
+
 /** A commit on `from`, after `write` where given, pushed as `queue/<name>`, returning its sha. */
 const pushQueue = (name: string, from: string, write?: () => void) => {
 	git(work, "checkout", "-q", "--detach", from);
@@ -603,13 +609,8 @@ describe("a run", () => {
 			/** The core the batch's tree resolves, whose checker judges it. */
 			const core = () => path.join(tmp, "plugin");
 			/** `body` as that core's checker. */
-			const checker = (body: string) => {
-				fs.mkdirSync(path.join(core(), "scripts"), { recursive: true });
-				fs.writeFileSync(
-					path.join(core(), "scripts", "check-guard-registry.js"),
-					body,
-				);
-			};
+			const checker = (body: string) =>
+				stubCoreScript(core(), "scripts/check-guard-registry.js", body);
 			const envelope = (outcome: string) =>
 				`process.stdout.write(${JSON.stringify(JSON.stringify({ outcome, summary: `${outcome}: stub` }))});\n`;
 			beforeEach(() => {
@@ -1153,17 +1154,16 @@ describe("the adapters", () => {
 		it("runs the read-edges generator and the registry checker from the core the tree resolves", () => {
 			const core = path.join(tmp, "pinned-core");
 			const ran = path.join(tmp, "ran");
-			const stub = (rel: string, extra = "") => {
-				fs.mkdirSync(path.dirname(path.join(core, rel)), { recursive: true });
-				fs.writeFileSync(
-					path.join(core, rel),
+			const stub = (rel: string, extra = "") =>
+				stubCoreScript(
+					core,
+					rel,
 					`require("node:fs").appendFileSync(${JSON.stringify(ran)}, ${JSON.stringify(`${rel}\n`)});\n${extra}`,
 				);
-			};
 			stub("scripts/generate-test-read-edges.js");
 			stub(
 				"scripts/check-guard-registry.js",
-				`process.stdout.write(${JSON.stringify(JSON.stringify({ outcome: "PASS", summary: "PASS: stub" }))});\n`,
+				`process.stdout.write(${JSON.stringify(JSON.stringify({ outcome: "OK", summary: "OK: stub" }))});\n`,
 			);
 			const { seed, members } = twoMembers();
 			vi.stubEnv("WORKFLOW_CORE_DIR", core);
