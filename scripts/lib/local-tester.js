@@ -117,17 +117,24 @@ function parseCeilingKillReason(out) {
 /**
  * The landers holding or waiting for a suite slot, each with the charge its
  * marker carries, for session admission to hold back (#2416, #3323). A marker
- * whose charge is not a number is held a whole run's.
- * @param {{queueDir?: string}} [options]
+ * whose charge is not a number is held a whole run's, as is a queue that will
+ * not read, failing closed (#5301).
+ * @param {{queueDir?: string, queueFs?: typeof import("node:fs")}} [options]
  * @returns {import("./admission.js").Landers}
  */
-function readLiveLanders({ queueDir } = {}) {
-	return readLiveRoleMarkers(LANDER_ROLE, { queueDir }).map((r) => ({
-		pid: r.pid,
-		chargeMb: Number.isFinite(r.chargeMb)
-			? Number(r.chargeMb)
-			: launchChargeMb({ kind: "lander", files: [] }),
-	}));
+function readLiveLanders({ queueDir, queueFs } = {}) {
+	const whole = launchChargeMb({ kind: "lander", files: [] });
+	const { records, unread } = readLiveRoleMarkers(LANDER_ROLE, {
+		queueDir,
+		queueFs,
+	});
+	return {
+		live: records.map((r) => ({
+			pid: r.pid,
+			chargeMb: Number.isFinite(r.chargeMb) ? Number(r.chargeMb) : whole,
+		})),
+		unread: unread === null ? null : { why: unread, chargeMb: whole },
+	};
 }
 
 /**

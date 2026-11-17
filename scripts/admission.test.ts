@@ -48,6 +48,7 @@ import {
 import { admissionSessionIds } from "./lib/agent-liveness";
 import { writeCache } from "./lib/dispatch-sessions-testkit";
 import { GATE_SEAT_DEFAULT_MB } from "./lib/gate-seat";
+import { chargeMb as launchChargeMb } from "./lib/launch-charge";
 import { readLiveLanders } from "./lib/local-tester";
 import { carrying } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
@@ -186,6 +187,8 @@ interface Machine {
 	states?: Record<string, string>;
 	/** Windows' free memory on a fresh memwatch reading; no memwatch unless given. */
 	windowsMb?: number;
+	/** The case's suite queue made unreadable for the run (#5301). */
+	queueUnreadable?: boolean;
 }
 
 /* This process as a lander holding a whole suite, at its charge (#3323). */
@@ -247,10 +250,18 @@ const machineEnv = (m: Machine = {}) => {
 };
 
 const run = (m: Machine = {}) => {
-	const { args = [], json = true } = m;
-	const r = runInProcess(SCRIPT, [...(json ? ["--json"] : []), ...args], {
-		env: { ...process.env, ...machineEnv(m) },
-	});
+	const { args = [], json = true, queueUnreadable = false } = m;
+	const env = machineEnv(m);
+	const queue = path.join(env.TMPDIR, "wfc-suite-queue");
+	if (queueUnreadable) fs.chmodSync(queue, 0o000);
+	let r: ReturnType<typeof runInProcess>;
+	try {
+		r = runInProcess(SCRIPT, [...(json ? ["--json"] : []), ...args], {
+			env: { ...process.env, ...env },
+		});
+	} finally {
+		if (queueUnreadable) fs.chmodSync(queue, 0o755);
+	}
 	return {
 		status: r.status,
 		stdout: r.stdout,
@@ -554,6 +565,29 @@ describe("the gate-seat reserve (#5274, spec #5273 §2)", () => {
 	it("holds nothing for a dead gate seat's marker", () => {
 		// Past 2^22, 64-bit Linux's pid_max ceiling, so no process holds it.
 		expect(run({ ...big, gates: [{ pid: 2 ** 22 + 1 }] }).json.gateMb).toBe(0);
+	});
+
+	it("holds both reserves' default charges, and says why, where the suite queue will not read (#5301)", () => {
+		const without = run(big).json;
+		const { json } = run({
+			...big,
+			gates: [{ pid: process.pid, chargeMb: 1800 }],
+			queueUnreadable: true,
+		});
+		const lander = launchChargeMb({ kind: "lander", files: [] });
+		expect(json.gateMb).toBe(Undeclared);
+		expect(json.landerMb).toBe(lander);
+		expect(json.budgetMb).toBe(without.budgetMb - Undeclared - lander);
+		expect(json.reason).toMatch(
+			new RegExp(
+				`holding ${lander} MB for the lander's suite, as the suite queue .* would not read \\(EACCES`,
+			),
+		);
+		expect(json.reason).toMatch(
+			new RegExp(
+				`holding ${Undeclared} MB for the gate seat, as the suite queue .* would not read \\(EACCES`,
+			),
+		);
 	});
 
 	it("prints the reserve in the slot arithmetic beside the lander's", () => {

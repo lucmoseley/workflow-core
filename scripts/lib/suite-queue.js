@@ -840,20 +840,28 @@ function queueStamps(file, options = {}) {
 }
 
 /**
- * The live markers `role` names, waiting or running. Sweeps nothing: a stale
- * marker is `readTurn`'s to remove.
+ * The live markers `role` names, waiting or running, and why the queue would
+ * not read, null where it did (#5301). Sweeps nothing: a stale marker is
+ * `readTurn`'s to remove.
  *
  * @param {string} role
  * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
- * @returns {QueueRecord[]}
+ * @returns {{ records: QueueRecord[], unread: string | null }}
  */
 function readLiveRoleMarkers(
 	role,
 	{ queueDir = defaultQueueDir(), queueFs = fs, alive = pidAlive } = {},
 ) {
-	return readMarkers(queueDir, queueFs)
-		.markers.map((m) => m.record)
-		.filter((r) => r.role === role && !isMarkerStale(r, { alive }));
+	const { markers, error } = readMarkers(queueDir, queueFs);
+	return {
+		records: markers
+			.map((m) => m.record)
+			.filter((r) => r.role === role && !isMarkerStale(r, { alive })),
+		unread:
+			error === null
+				? null
+				: `the suite queue ${queueDir} would not read (${caught(error).message})`,
+	};
 }
 
 /**
@@ -2073,18 +2081,27 @@ function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
 
 /**
  * The live gate seats, queued or running, each with the charge admission holds
- * for it: its marker's, else the default. Sweeps nothing.
- * @param {{ queueDir?: string }} [options]
- * @returns {{ pid: number, chargeMb: number, spawned: boolean }[]}
+ * for it: its marker's, else the default. A queue that will not read holds
+ * the default, failing closed (#5301). Sweeps nothing.
+ * @param {{ queueDir?: string, queueFs?: typeof fs }} [options]
+ * @returns {import("./admission.js").Gates}
  */
-function readLiveGateSeats({ queueDir } = {}) {
-	return readLiveRoleMarkers(GATE_ROLE, { queueDir }).map((r) => ({
-		pid: r.pid,
-		chargeMb: Number.isFinite(r.chargeMb)
-			? Number(r.chargeMb)
-			: GATE_SEAT_DEFAULT_MB,
-		spawned: r.spawned === true,
-	}));
+function readLiveGateSeats({ queueDir, queueFs } = {}) {
+	const { records, unread } = readLiveRoleMarkers(GATE_ROLE, {
+		queueDir,
+		queueFs,
+	});
+	return {
+		live: records.map((r) => ({
+			pid: r.pid,
+			chargeMb: Number.isFinite(r.chargeMb)
+				? Number(r.chargeMb)
+				: GATE_SEAT_DEFAULT_MB,
+			spawned: r.spawned === true,
+		})),
+		unread:
+			unread === null ? null : { why: unread, chargeMb: GATE_SEAT_DEFAULT_MB },
+	};
 }
 
 /**
@@ -2095,15 +2112,15 @@ function readLiveGateSeats({ queueDir } = {}) {
  * started with a scrubbed environment is still under its seat, and one
  * outside the seat's tree that inherited lib/gate-seat.js's GATE_ENV is
  * counted as itself.
- * @param {{ queueDir?: string, parentOf?: (pid: number) => number }} [options]
+ * @param {{ queueDir?: string, queueFs?: typeof fs, parentOf?: (pid: number) => number }} [options]
  * @returns {import("./suite-ladder.js").GateSeats}
  */
-function readGateSeats({ queueDir, parentOf = readParentOf } = {}) {
-	const holders = readLiveGateSeats({ queueDir })
-		.filter((g) => g.spawned)
-		.map((g) => g.pid);
+function readGateSeats({ queueDir, queueFs, parentOf = readParentOf } = {}) {
+	const { live, unread } = readLiveGateSeats({ queueDir, queueFs });
+	const holders = live.filter((g) => g.spawned).map((g) => g.pid);
 	return {
 		count: holders.length,
+		unread: unread?.why ?? null,
 		under: (pid) =>
 			pid !== null &&
 			holders.length > 0 &&

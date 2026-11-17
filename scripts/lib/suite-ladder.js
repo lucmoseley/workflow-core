@@ -220,12 +220,13 @@ function isNextRunnerLine(sub, line) {
  */
 
 /**
- * The live gate seats as the count reads them: how many are running, and
- * whether a process runs inside one.
- * @typedef {{ count: number, under: (pid: number | null) => boolean }} GateSeats
+ * The live gate seats as the count reads them: how many are running, whether
+ * a process runs inside one, and why the queue would not read, null where it
+ * did. An unread queue counts no seat, so every runner is counted as itself.
+ * @typedef {{ count: number, under: (pid: number | null) => boolean, unread: string | null }} GateSeats
  */
 /** @type {GateSeats} */
-const NO_SEATS = { count: 0, under: () => false };
+const NO_SEATS = { count: 0, under: () => false, unread: null };
 
 /**
  * The test runs a `ps` listing shows (mantahostels#1906, #2560). A vitest run

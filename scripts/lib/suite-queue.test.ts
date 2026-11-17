@@ -147,7 +147,7 @@ async function polled(
 const turnOpen = async (queue: Parameters<typeof polled>[0] = {}) =>
 	((await polled(queue)) as { reason: string }).reason === "opened";
 
-const noSeats = () => ({ count: 0, under: () => false });
+const noSeats = () => ({ count: 0, under: () => false, unread: null });
 
 describe("isMarkerStale", () => {
 	it("is stale when the pid is not alive", () => {
@@ -295,9 +295,9 @@ describe("the queue directory every default reads (#2889)", () => {
 		expect(fs.readdirSync(root)).toEqual(["wfc-suite-queue"]);
 		expect(path.dirname(file)).toBe(path.join(root, "wfc-suite-queue"));
 		expect(
-			readLiveRoleMarkers("lander").map((m: { pid: number }) => m.pid),
+			readLiveRoleMarkers("lander").records.map((m: { pid: number }) => m.pid),
 		).toEqual([process.pid]);
-		expect(readLiveLanders().map((l: { pid: number }) => l.pid)).toEqual([
+		expect(readLiveLanders().live.map((l: { pid: number }) => l.pid)).toEqual([
 			process.pid,
 		]);
 		expect(lander.stamps.admit()).toBe("admitted");
@@ -340,8 +340,25 @@ describe("readLiveRoleMarkers (#2416)", () => {
 				queueDir,
 				alive: (pid: number) => pid !== 22,
 			}),
-		).toMatchObject([{ pid: 11, role: "lander", chargeMb: 600 }]);
+		).toMatchObject({
+			records: [{ pid: 11, role: "lander", chargeMb: 600 }],
+			unread: null,
+		});
 		expect(fs.readdirSync(queueDir)).toHaveLength(3);
+	});
+
+	it("says the queue would not read rather than reading it empty (#5301)", () => {
+		const queueDir = qdir();
+		joined(queueDir, 11, 11, { role: "lander" });
+		fs.chmodSync(queueDir, 0o000);
+		try {
+			expect(readLiveRoleMarkers("lander", { queueDir })).toEqual({
+				records: [],
+				unread: expect.stringMatching(/would not read \(EACCES/),
+			});
+		} finally {
+			fs.chmodSync(queueDir, 0o755);
+		}
 	});
 });
 

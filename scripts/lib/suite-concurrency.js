@@ -834,11 +834,16 @@ function readRunning(st, s) {
 		);
 		return null;
 	}
+	const seats = st.ctx.gateSeats();
+	if (seats.unread !== null)
+		st.ctx.log(
+			`${seats.unread} — every runner counted as itself, a gate seat's included`,
+		);
 	return runningSuites(
 		out,
 		(w) => isOtherRunner(w, st.launchPorts.runners),
 		st.ctx.carriedOf,
-		st.ctx.gateSeats(),
+		seats,
 	);
 }
 
