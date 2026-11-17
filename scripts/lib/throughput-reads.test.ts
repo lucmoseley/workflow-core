@@ -1,10 +1,7 @@
 // @vitest-environment node
 /*
  * lib/throughput-reads.js — the throughput breaker's reads (#5275), crossed for
- * real: git and the files in the test's own temp directory. Broken, the
- * breaker counts merges or another branch's commits as landings, reads an
- * unreadable record as an empty one and closes a breaker it should hold, or
- * counts only the loop sessions the state still keeps (#5289).
+ * real: git and the files in the test's own temp directory.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -12,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { paths } from "./arbiter-core.js";
+import { defineTemplate } from "./git-fixture";
 import { queueLanderFiles } from "./lander-files.js";
 import { redPathAtRest } from "./lander-records.js";
 import { queueHead } from "./landing-refs.js";
@@ -141,6 +139,22 @@ describe("the breaker's record", () => {
 	});
 });
 
+/** A checkout `repo` whose `main` is pushed to the bare `origin.git` beside it. */
+const lander = defineTemplate((dir) => {
+	const origin = path.join(dir, "origin.git");
+	const repo = path.join(dir, "repo");
+	git(dir, "init", "-q", "--bare", "-b", "main", origin);
+	fs.mkdirSync(path.join(repo, ".claude", "worktrees", "implement-1-abc"), {
+		recursive: true,
+	});
+	git(repo, "init", "-q", "-b", "main");
+	git(repo, "config", "user.email", "test@example.com");
+	git(repo, "config", "user.name", "test");
+	git(repo, "commit", "-q", "--allow-empty", "-m", "one");
+	git(repo, "remote", "add", "origin", origin);
+	git(repo, "push", "-q", "origin", "main");
+});
+
 describe("a breaker trial's landing reads (#5300)", () => {
 	const repoAt = (name: string) => {
 		const repo = path.join(tmp, name);
@@ -175,53 +189,17 @@ describe("a breaker trial's landing reads (#5300)", () => {
 		expect(read.queueOf(l)).toEqual({ state: "gone" });
 	});
 
-	it("reads a checkout with no queue log as having no rows, so its remote's queue ref decides (#5273)", () => {
-		const repo = repoAt("repo");
-		const origin = path.join(tmp, "origin.git");
-		git(tmp, "init", "-q", "--bare", "-b", "main", origin);
-		git(repo, "config", "user.email", "test@example.com");
-		git(repo, "config", "user.name", "test");
-		git(repo, "commit", "-q", "--allow-empty", "-m", "one");
-		git(repo, "remote", "add", "origin", origin);
-		git(repo, "push", "-q", "origin", "main");
-		const seat = path.join(tmp, "seat");
-		const tree = path.join(repo, ".claude", "worktrees", "implement-1-abc");
-		fs.mkdirSync(tree, { recursive: true });
-		fs.mkdirSync(path.join(seat, "jobs", "j1"), { recursive: true });
-		fs.writeFileSync(
-			path.join(seat, "jobs", "j1", "state.json"),
-			JSON.stringify({ cwd: tree }),
-		);
-		const l = launchOf(seat, "j1", { root: repo });
-		expect(fs.existsSync(queueLogFile(repo))).toBe(false);
-		expect(tickRead(repo).queueOf(l)).toEqual({ state: "gone" });
-		git(repo, "commit", "-q", "--allow-empty", "-m", "mine");
-		git(repo, "push", "-q", "origin", "HEAD:refs/heads/queue/implement-1-abc");
-		expect(tickRead(repo).queueOf(l)).toEqual({ state: "waiting" });
-	});
-
-	/**
-	 * A checkout with a bare origin and a launch whose job ran in its worktree
-	 * `implement-1-abc`: `push` commits and pushes that worktree's queue ref,
-	 * `log` writes the checkout's queue-log row for it.
-	 */
 	function seedLander() {
-		const repo = repoAt("repo");
-		const origin = path.join(tmp, "origin.git");
-		git(tmp, "init", "-q", "--bare", "-b", "main", origin);
-		git(repo, "config", "user.email", "test@example.com");
-		git(repo, "config", "user.name", "test");
-		git(repo, "commit", "-q", "--allow-empty", "-m", "one");
-		git(repo, "remote", "add", "origin", origin);
-		git(repo, "push", "-q", "origin", "main");
+		const repo = path.join(
+			lander.instantiate(path.join(tmp, "lander")),
+			"repo",
+		);
 		const name = "implement-1-abc";
-		const tree = path.join(repo, ".claude", "worktrees", name);
-		fs.mkdirSync(tree, { recursive: true });
 		const seat = path.join(tmp, "seat");
 		fs.mkdirSync(path.join(seat, "jobs", "j1"), { recursive: true });
 		fs.writeFileSync(
 			path.join(seat, "jobs", "j1", "state.json"),
-			JSON.stringify({ cwd: tree }),
+			JSON.stringify({ cwd: path.join(repo, ".claude", "worktrees", name) }),
 		);
 		const push = (message: string) => {
 			git(repo, "checkout", "-q", "--detach", "main");
@@ -237,9 +215,37 @@ describe("a breaker trial's landing reads (#5300)", () => {
 			});
 		const unqueue = () =>
 			git(repo, "push", "-q", "origin", `:${queueHead(name)}`);
+		const batch = (sha: string) =>
+			fs.writeFileSync(
+				queueLanderFiles(repo).batch,
+				JSON.stringify({
+					line: [
+						{
+							slot: 0,
+							members: [{ name, sha, pushedAt: 1 }],
+							deferred: [],
+							dropped: [],
+							onto: git(repo, "rev-parse", "main"),
+							integration: null,
+							phase: "merging",
+							...redPathAtRest(),
+						},
+					],
+					search: null,
+					depth: 2,
+				}),
+			);
 		const l = launchOf(seat, "j1", { root: repo });
-		return { repo, name, l, push, log, unqueue };
+		return { repo, name, l, push, log, unqueue, batch };
 	}
+
+	it("reads a checkout with no queue log as having no rows, so its remote's queue ref decides (#5273)", () => {
+		const { repo, l, push } = seedLander();
+		expect(fs.existsSync(queueLogFile(repo))).toBe(false);
+		expect(tickRead(repo).queueOf(l)).toEqual({ state: "gone" });
+		push("mine");
+		expect(tickRead(repo).queueOf(l)).toEqual({ state: "waiting" });
+	});
 
 	it("reads a queue ref as waiting while it waits, then landed once the lander lands it, reading each checkout's lander once a tick", () => {
 		const { repo, l, push, log, unqueue } = seedLander();
@@ -255,28 +261,10 @@ describe("a breaker trial's landing reads (#5300)", () => {
 	});
 
 	it("reads a stay under test as waiting, a dropped one as gone, and landed where any stay landed", () => {
-		const { repo, name, l, push, log, unqueue } = seedLander();
+		const { repo, l, push, log, unqueue, batch } = seedLander();
 		const first = push("first");
 		log("enqueue", first);
-		fs.writeFileSync(
-			queueLanderFiles(repo).batch,
-			JSON.stringify({
-				line: [
-					{
-						slot: 0,
-						members: [{ name, sha: first, pushedAt: 1 }],
-						deferred: [],
-						dropped: [],
-						onto: git(repo, "rev-parse", "main"),
-						integration: null,
-						phase: "merging",
-						...redPathAtRest(),
-					},
-				],
-				search: null,
-				depth: 2,
-			}),
-		);
+		batch(first);
 		expect(tickRead(repo).queueOf(l)).toEqual({ state: "waiting" });
 		fs.rmSync(queueLanderFiles(repo).batch);
 		log("drop", first);
@@ -289,15 +277,21 @@ describe("a breaker trial's landing reads (#5300)", () => {
 		expect(tickRead(repo).queueOf(l)).toEqual({ state: "landed" });
 	});
 
-	it("reads a waiting stay whose batch record is torn as unread, and why", () => {
-		const { repo, name, l, push, log } = seedLander();
+	it("reads a waiting stay as unread, and why, where its batch record is torn or main will not walk", () => {
+		const { repo, name, l, push, log, batch } = seedLander();
 		const sha = push("mine");
 		log("enqueue", sha);
+		const why = `queue/${name} at ${sha.slice(0, 7)} is queued, under test or landed, which will not read`;
 		fs.writeFileSync(queueLanderFiles(repo).batch, "[{");
-		expect(tickRead(repo).queueOf(l)).toEqual({
-			state: "unread",
-			why: `queue/${name} at ${sha.slice(0, 7)} is queued, under test or landed, which will not read`,
-		});
+		expect(tickRead(repo).queueOf(l)).toEqual({ state: "unread", why });
+		batch(sha);
+		const read = tickRead(repo);
+		expect(read.queueOf(l)).toEqual({ state: "waiting" });
+		const main = git(repo, "rev-parse", "main");
+		fs.rmSync(
+			path.join(repo, ".git", "objects", main.slice(0, 2), main.slice(2)),
+		);
+		expect(read.queueOf(l)).toEqual({ state: "unread", why });
 	});
 
 	it("reads a worktree's queue ref it cannot reach as unread, and why", () => {

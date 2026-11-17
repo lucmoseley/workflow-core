@@ -55,7 +55,7 @@ const { repoRoot } = require("./test-pass-marker.js");
 
 const QUEUE_EXIT_LOG = ".suite-queue-exits.jsonl";
 /* Must stay above the 14-day series #1157's filed issue carries; twice over,
- * chosen, not measured. The gate-run and breaker records keep it too. */
+ * chosen, not measured. */
 const QUEUE_EXIT_RETAIN_MS = 30 * DAY_MS;
 
 /**
