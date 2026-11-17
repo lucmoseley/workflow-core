@@ -3,8 +3,7 @@
  * cache it rewrites, as the installed harness's recording
  * (scripts/fixtures/usage-probe.json, re-recorded by `node
  * scripts/record-claude-responses.js`) holds them, with a case's own
- * percents (#3266). A recording whose seat listed no session bar carries an
- * earlier one's, which the session line and limit come from (#5332).
+ * percents (#3266).
  */
 
 import fs from "node:fs";

@@ -83,8 +83,6 @@ const expectRecordedBars = (limits: { kind: string }[], kinds: string[]) => {
 		expect(keyTypes(limit)).toEqual(keyTypes(recordedLimit(limit.kind)));
 };
 
-/** The recording's printed lines and cached limits, less its session bar:
- * what a seat listing none answers. */
 const SESSIONLESS = {
 	printed: recorded.printed.filter((l) => !l.startsWith(SESSION_PREFIX)),
 	limits: recorded.cache.utilization.limits.filter((l) => l.kind !== "session"),
@@ -107,7 +105,6 @@ describe("the /usage fake against the recording (#3266)", () => {
 	// The session-less pair of the case above, which reads both bars.
 	it("answers a seat with no session bar as the recording read without one (#5332)", () => {
 		const week = recordedPercent("weekly_all");
-		/** The session bar's trust and the week's percent, as read. */
 		const reading = (opts: { configDir: string; usageText?: string }) => {
 			const { session, weekly_all } = readAllowance(opts);
 			return [session.trust, weekly_all.percent];

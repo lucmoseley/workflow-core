@@ -23,7 +23,7 @@ const SESSION_PREFIX = "Current session:";
 
 /** `recording`'s own session bar, or the one it carries; null when it has
  * neither. Throws on a probe that printed the bar but cached none, or the
- * reverse: no carry mends that.
+ * reverse.
  * @param {Recording} recording
  * @returns {SessionBar | null} */
 function sessionBarOf(recording) {
