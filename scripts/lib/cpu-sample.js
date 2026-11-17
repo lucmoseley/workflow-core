@@ -360,7 +360,7 @@ function holdForLoad({
 		if (Date.now() - started >= timeoutMs) {
 			out.write(
 				`run-vitest: REFUSED — load1 still ${r.load1}, at or above the ${r.ceiling} ceiling (#830), after ${secs()}s. ` +
-					"Re-run the same command later: it holds on load by itself, so never poll the load by hand (rule:load-wait).\n",
+					"Re-run the same command later; it holds on load by itself (rule:load-wait).\n",
 			);
 			return Promise.resolve(false);
 		}

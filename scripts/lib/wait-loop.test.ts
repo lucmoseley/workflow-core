@@ -1,13 +1,14 @@
 // @vitest-environment node
 /*
- * lib/wait-loop.js, a PreToolUse dispatcher core, answers two questions about
- * an opaque shell string: is this an `until`/`while` loop around `sleep` with
- * nothing to stop it (a warn), and does it wait more than 15 minutes (a deny,
- * #1288)?
+ * lib/wait-loop.js, a PreToolUse dispatcher core, answers three questions
+ * about an opaque shell string: is this an `until`/`while` loop around `sleep`
+ * with nothing to stop it (a warn), does it wait more than 15 minutes (a deny,
+ * #1288), and does a wait loop gate on machine load (a deny, #5330)?
  *
- * The fire cases are mantahostels#2012's two wedged commands verbatim
- * (mantahostels#2017 §Testing Decisions). The silent cases are the shapes that
- * would otherwise be false positives — do not thin them out.
+ * The fire cases are mantahostels#2012's two wedged commands and #5325's two
+ * load waits verbatim (mantahostels#2017, #5328 §Testing Decisions). The
+ * silent cases are the shapes that would otherwise be false positives — do
+ * not thin them out.
  *
  * Module cases, run in process through lib/guard-core-testkit.ts over the
  * real rule store. The core reads only the command string, so the temp dir is
@@ -15,7 +16,8 @@
  * inherits are scripts/guard-dispatch.test.ts's boundary set.
  *
  * Loosen a case here and an unbounded wait loop outlives its session
- * unwarned, or a wait past 15 minutes runs unrefused.
+ * unwarned, a wait past 15 minutes runs unrefused, or a load wait holds out
+ * until other sessions stop.
  */
 
 import fs from "node:fs";
@@ -481,6 +483,17 @@ describe("a wait loop gated on machine load is refused (#5325)", () => {
 	});
 });
 
+describe("where its rule will not read, it still refuses (#5330)", () => {
+	it("names the fragment's file in the fallback", () => {
+		vi.stubEnv("WFC_RULES_DIR", path.join(root, "no-rules"));
+		const { denied, reason } = run(UNTIL_6);
+		expect(denied).toBe(true);
+		expect(reason).toContain("gates on machine load");
+		expect(reason).toContain("agents/rules/load-wait.txt");
+		expect(reason).not.toContain(LOAD_RULE);
+	});
+});
+
 describe("what a load read leaves alone", () => {
 	it.each([
 		["cat /proc/loadavg", "a one-off read"],
@@ -504,6 +517,18 @@ describe("what a load read leaves alone", () => {
 		[
 			"cat > /tmp/w.sh <<EOF\nuntil [ $(cut -d. -f1 /proc/loadavg) -lt 6 ]; do sleep 30; done\nEOF",
 			"a heredoc writing one to a file",
+		],
+		[
+			'git commit -m "Deny a \\`until uptime; do sleep 5; done\\` wait"',
+			"a commit message quoting one in escaped backticks",
+		],
+		[
+			'gh issue create --title t --body "Shape: \\`until [ \\$(cut -d. -f1 /proc/loadavg) -lt 6 ]; do sleep 30; done\\`"',
+			"an issue body quoting one with an escaped substitution",
+		],
+		[
+			"echo -e 'while true; do cat /proc/loadavg; [ x ] && break; sleep 5; done' > /tmp/w.sh",
+			"echo -e writing one to a file",
 		],
 	])("%s — %s", (command) => {
 		expect(run(command)).toEqual({

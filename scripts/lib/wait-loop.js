@@ -39,10 +39,10 @@
  *
  * LIMITS
  *  - It is a RAW REGEX over the command text, not a walk over parsed commands,
- *    there being no `-f`-shaped flag to key off. Both verdicts read it with
- *    every quoted span and heredoc body emptied but a shell's own script (see
- *    THE DENY below), so a commit message or issue body mentioning `while`
- *    passes and `bash -c 'until …'` is still read.
+ *    there being no `-f`-shaped flag to key off. The warning and the length
+ *    deny read it with every quoted span and heredoc body emptied but a
+ *    shell's own script (see THE DENY below), so a commit message or issue
+ *    body mentioning `while` passes and `bash -c 'until …'` is still read.
  *  - A `for` loop never warns, being bounded by construction; the deny counts
  *    one only where `seq` or `{a..b}` states its count.
  *  - A loop's extent is read as the text from its keyword to the `done` that
@@ -62,13 +62,15 @@
  *    bash -c 'until npm test; do sleep 5; done'`, a retry loop, is refused as a
  *    wait. A counted loop past the cap is refused even inside a shorter
  *    `timeout`, and a backgrounded `sleep 600 & sleep 600` reads as 20 minutes.
- *  - THE LOAD DENY reads its own masking: a `-e` script is kept beside a `-c`
- *    one, so `node -e '…os.loadavg…'` is read, and a double-quoted span keeps
- *    its `$(…)` and backtick substitutions, so `[ "$(cut … /proc/loadavg)" … ]`
- *    is read. A substitution holding a `"` is cut at it. It is blind to a load
- *    read through a variable or a command it does not name, to a loop in a
- *    script file the shell runs, and to an interpreter's own polling loop with
- *    no shell loop around it; `grep -e loadavg` in a loop reads as a load read.
+ *  - THE LOAD DENY reads its own masking: `node`, `perl` or `ruby`'s `-e`/`-p`
+ *    script is kept beside a `-c` one, so `node -e '…os.loadavg…'` is read,
+ *    and a double-quoted span keeps its unescaped `$(…)` and backtick
+ *    substitutions, so `[ "$(cut … /proc/loadavg)" … ]` is read. A substitution
+ *    holding a `"` is cut at it. A `-c` script is kept whatever the command,
+ *    so `grep -c loadavg` in a loop reads as a load read. It is blind to a
+ *    load read through a variable or a command it does not name, to a loop in
+ *    a script file the shell runs, and to an interpreter's own polling loop
+ *    with no shell loop around it.
  *  - A `break` is not read as a ceiling, so `while :; do check && break;
  *    sleep 5; done` warns.
  *  - A ceiling is recognised lexically, and in TWO PARTS TOGETHER: a numeric
@@ -87,6 +89,7 @@
  */
 
 const { ruleOrFallback } = require("./guard-verdict.js");
+const { requiredGroup } = require("./regex-group.js");
 const { endRun } = require("./trim-run.js");
 
 /** `[[:space:]]`, without JavaScript's wider Unicode `\s`. */
@@ -97,12 +100,15 @@ const SP = " \\t\\n\\v\\f\\r";
  * class, so `bash -c 'until …'` is seen. */
 const SEP = `(^|['";&|(!{${SP}])`;
 
+/* Where a command word ends. */
+const END = `[;&|)}'"${SP}]`;
+
 const LOOP_RE = new RegExp(`${SEP}(while|until|for)[${SP}]`);
 /* The loop's end: `done` closing a command, never `done` as an argument to
  * one. It carries its own trailing delimiter, which is what the truncation
  * cuts on; a quote is one, closing a `bash -c '…; done'` script (#1808). */
 // eslint-disable-next-line regexp/no-super-linear-move -- input is a Bash command a session sends; a crafted one slows the hook, nothing worse (#4642)
-const DONE_RE = new RegExp(`[;&|)}\\n][${SP}]*done[;&|)}${SP}'"]`);
+const DONE_RE = new RegExp(`[;&|)}\\n][${SP}]*done${END}`);
 const SLEEP_RE = new RegExp(`${SEP}sleep[${SP}]`);
 const SLEEP_RUN_RE = new RegExp(`${SEP}sleep[${SP}][${SP}]*`);
 /* `((n++))`, `((n += 1))` and `n=$((n+1))` — the increment idioms
@@ -137,12 +143,17 @@ const DURATION_RE = /^([0-9]*)(\.([0-9]*))?([smhd]?)$/;
 const QUOTE_RE = /^([^'"]*)(['"])/;
 const DQUOTED_RE = /^((?:[^"\\]|\\[\s\S])*)"/;
 const SHELL_C_RE = new RegExp(`(^|[${SP}])-[A-Za-z]*c[${SP}]+$`);
-/* The load limb also keeps `node -e`'s script, where `os.loadavg` is spelled. */
-const SCRIPT_RE = new RegExp(`(^|[${SP}])-[A-Za-z]*[ce][${SP}]+$`);
-const LOAD_RE = new RegExp(
-	`(^|[^A-Za-z0-9_])(get)?loadavg([^A-Za-z0-9_]|$)|${SEP}uptime([;&|)}'"${SP}]|$)`,
+/* The load limb also keeps an interpreter's `-e`/`-p` script, where
+ * `os.loadavg` is spelled — never `echo -e`'s or `sed -e`'s text. */
+const SCRIPT_RE = new RegExp(
+	`(^|[${SP}])(-[A-Za-z]*c|(node|nodejs|perl|ruby)([${SP}]+-[A-Za-z-]+)*[${SP}]+(-[A-Za-z]*[ep]|--eval|--print))[${SP}]+$`,
 );
-const LEAVE_RE = new RegExp(`${SEP}(break|exit)([;&|)}'"${SP}]|$)`);
+const LOAD_RE = new RegExp(
+	`(^|[^A-Za-z0-9_])(get)?loadavg([^A-Za-z0-9_]|$)|${SEP}uptime(${END}|$)`,
+);
+const LEAVE_RE = new RegExp(`${SEP}(break|exit)(${END}|$)`);
+/* A substitution's opening, unescaped: an even run of backslashes before it. */
+const SUB_OPEN_RE = /(?<!\\)(?:\\\\)*(\$\(|`)/;
 const HEREDOC_RE = new RegExp(
 	`(^|[^<])<<-?[${SP}]*['"]?([A-Za-z_][A-Za-z0-9_]*)['"]?`,
 );
@@ -168,6 +179,8 @@ const WRAPPED_LOOP_RE = new RegExp(`^(while|until)[${SP}]`);
 
 /**
  * @typedef {{ kw: string, body: string, condition: string }} Loop
+ * @typedef {{ script: RegExp, subs: boolean }} Masking which quoted scripts
+ *   `mask` keeps, and whether a double-quoted span keeps its substitutions
  */
 
 /**
@@ -327,7 +340,7 @@ function durations(text) {
  * `subs`, a double-quoted span keeps its command substitutions, which run. An
  * unclosed quote empties the rest.
  * @param {string} text
- * @param {{ script: RegExp, subs: boolean }} [how]
+ * @param {Masking} [how]
  * @returns {string}
  */
 function mask(text, how = { script: SHELL_C_RE, subs: false }) {
@@ -337,7 +350,7 @@ function mask(text, how = { script: SHELL_C_RE, subs: false }) {
 		const m = QUOTE_RE.exec(s);
 		if (!m) break;
 		out += m[1];
-		const q = m[2] ?? "";
+		const q = requiredGroup(m, 2, QUOTE_RE);
 		const quoted = closeQuote(q, s.slice(m[0].length));
 		if (!quoted) return out;
 		s = quoted.rest;
@@ -358,7 +371,9 @@ function closeQuote(q, text) {
 			? { span: before(text, "'"), rest: after(text, "'") }
 			: null;
 	const d = DQUOTED_RE.exec(text);
-	return d ? { span: d[1] ?? "", rest: text.slice(d[0].length) } : null;
+	return d
+		? { span: requiredGroup(d, 1, DQUOTED_RE), rest: text.slice(d[0].length) }
+		: null;
 }
 
 /**
@@ -366,29 +381,31 @@ function closeQuote(q, text) {
  * double-quoted span's substitutions where `how.subs`; else nothing.
  * @param {string} span
  * @param {string} q
- * @param {boolean} script
- * @param {{ script: RegExp, subs: boolean }} how
+ * @param {boolean} isScript
+ * @param {Masking} how
  */
-function keptOf(span, q, script, how) {
-	if (script) return mask(span, how);
+function keptOf(span, q, isScript, how) {
+	if (isScript) return mask(span, how);
 	if (q === '"' && how.subs) return substitutions(span, how);
 	return "";
 }
 
 /**
- * Each `$(…)` and backtick substitution in a double-quoted `span`, masked in
- * turn and joined by `;`.
+ * Each unescaped `$(…)` and backtick substitution in a double-quoted `span`,
+ * masked in turn and joined by `;`.
  * @param {string} span
- * @param {{ script: RegExp, subs: boolean }} how
+ * @param {Masking} how
  */
 function substitutions(span, how) {
 	/** @type {string[]} */
 	const found = [];
 	let rest = span;
 	for (;;) {
-		const at = rest.search(/\$\(|`/);
-		if (at < 0) break;
-		const tick = rest[at] === "`";
+		const m = SUB_OPEN_RE.exec(rest);
+		if (!m) break;
+		const token = requiredGroup(m, 1, SUB_OPEN_RE);
+		const at = m.index + m[0].length - token.length;
+		const tick = token === "`";
 		const open = rest.slice(at + (tick ? 1 : 2));
 		const end = tick ? open.indexOf("`") : closingParen(open);
 		if (end < 0) break;

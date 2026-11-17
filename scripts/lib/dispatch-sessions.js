@@ -1317,10 +1317,10 @@ class Dispatch {
 			"  A CPU load hold: re-run this member later with the same command; it holds\n",
 		);
 		this.err(
-			"  on load by itself, so never poll the load by hand (rule:load-wait). Neither\n",
+			"  on load by itself (rule:load-wait). Neither --force nor --force-memory\n",
 		);
 		this.err(
-			"  --force nor --force-memory lifts it; WFC_LOAD_CEILING=0 or a 0 in ~/.claude/load-ceiling does, at the risk of\n",
+			"  lifts it; WFC_LOAD_CEILING=0 or a 0 in ~/.claude/load-ceiling does, at the risk of\n",
 		);
 		this.err("  freezing WSL (#830).\n");
 	}
