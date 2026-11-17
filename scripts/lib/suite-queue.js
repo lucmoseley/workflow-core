@@ -18,6 +18,7 @@ const { caught } = require("./caught.js");
 const { GATE_ROLE, GATE_SEAT_DEFAULT_MB } = require("./gate-seat.js");
 const {
 	WHOLE_SUITE_MAX,
+	clampedClause,
 	isNextRunnerLine,
 	isVitestRunnerLine,
 	readCarriedWeightOf,
@@ -47,9 +48,11 @@ const { describeWindowsHold } = require("./windows-memory.js");
  * where the gate read them (#4359), or its memory rung, with the reading and
  * the rung where the guard gave them, and what the other queue's launches have
  * yet to draw where the gate charged it (#3416), and `busy`, the vitest
- * workers running, where it read `ps` (#4783).
+ * workers running, where it read `ps` (#4783), and `ladderMb`, the rung as
+ * priced where it passed the machine's reach and `rungMb` is the clamp
+ * (#5310).
  * A count denial carries the memory reading where the rung fails too (#4359).
- * @typedef {{ mb?: number, rungMb?: number, climbMb?: number, busy?: number }} MemoryReading
+ * @typedef {{ mb?: number, rungMb?: number, climbMb?: number, busy?: number, ladderMb?: number }} MemoryReading
  * @typedef {{ limb: "windows" } & import("./windows-memory.js").WindowsHold} WindowsHold
  * @typedef {{ limb: "count", pids?: (number | null)[], memory?: MemoryReading } | ({ limb: "memory" } & MemoryReading) | WindowsHold} GateDenial
  */
@@ -1383,11 +1386,11 @@ function describeLimb(hold) {
 		return `${LIMB_NAMES.windows}, ${describeWindowsHold(hold)}`;
 	if (hold.limb !== "memory")
 		return `${LIMB_NAMES[hold.limb]}${limbHolder(hold)}`;
-	const { mb, rungMb, climbMb } = hold;
+	const { mb, rungMb, climbMb, ladderMb } = hold;
 	if (mb === undefined) return LIMB_NAMES.memory;
 	const climb = climbMb ? `, less ${climbMb} MB yet to draw` : "";
 	const rung = rungMb === undefined ? "" : ` against ~${rungMb} MB`;
-	return `${LIMB_NAMES.memory}, MemAvailable ${mb} MB${climb}${rung}`;
+	return `${LIMB_NAMES.memory}, MemAvailable ${mb} MB${climb}${rung}${clampedClause(ladderMb)}`;
 }
 
 /**
@@ -1533,15 +1536,19 @@ function limbTrace(clock, started) {
 /**
  * The line a wait the memory rung still holds at its timeout ends on (#2421):
  * the reading, the other queue's climb charged on it (#3416) and the rung
- * where the guard gave them, and the reap.
+ * where the guard gave them, whether that rung was clamped to the machine's
+ * reach (#5310), and the reap.
  *
  * @param {string} label
  * @param {number} secs
- * @param {{ mb?: number, rungMb?: number, climbMb?: number }} denial
+ * @param {MemoryReading} denial
  * @returns {string}
  */
-function memoryRefusal(label, secs, { mb, rungMb, climbMb }) {
-	const rung = rungMb === undefined ? "" : ` against the ~${rungMb} MB rung`;
+function memoryRefusal(label, secs, { mb, rungMb, climbMb, ladderMb }) {
+	const rung =
+		rungMb === undefined
+			? ""
+			: ` against the ~${rungMb} MB rung${clampedClause(ladderMb)}`;
 	const climb = climbMb
 		? `, less ${climbMb} MB the other queue's launches have yet to draw${rung ? "," : ""}`
 		: "";

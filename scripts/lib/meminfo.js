@@ -59,4 +59,15 @@ const availableFrom = (read) =>
  */
 const readAvailableMb = () => availableFrom(readMeminfoKb());
 
-module.exports = { availableFrom, readAvailableMb, readMeminfoKb };
+/**
+ * MemTotal in MB, null where it cannot be read.
+ * @returns {number | null}
+ */
+function readTotalMb() {
+	const read = readMeminfoKb();
+	return read.ok && read.totalKb !== null
+		? Math.floor(read.totalKb / 1024)
+		: null;
+}
+
+module.exports = { availableFrom, readAvailableMb, readMeminfoKb, readTotalMb };

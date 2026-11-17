@@ -136,7 +136,9 @@ const { ruleModule } = require("./rule-gates.js");
 const {
 	SUITE_MAX,
 	WHOLE_SUITE_MAX,
+	clampedClause,
 	isNextRunnerLine,
+	reachableRung,
 	runningSuites,
 	suiteRungMb,
 } = require("./suite-ladder.js");
@@ -172,10 +174,12 @@ const { treeOrHost } = require("./tree-or.js");
  * @typedef {import("./suite-ladder.js").Running} Running
  * @typedef {import("./suite-queue.js").ClimbScope} ClimbScope
  * @typedef {import("./shell-parse.js").Command} Command
- * @typedef {{ limb: "count" } | { limb: "memory", mb: number, rungMb: number, climbMb?: number, busy?: number } | import("./suite-queue.js").WindowsHold} Gate
+ * @typedef {{ limb: "count" } | { limb: "memory", mb: number, rungMb: number, ladderMb?: number, climbMb?: number, busy?: number } | import("./suite-queue.js").WindowsHold} Gate
  * @typedef {import("./guard-entry.js").Decision | ({ deny: string, gate: Gate })} Verdict
  * @typedef {object} SuitePorts
  * @property {() => number | null} availableMb MemAvailable, in MB
+ * @property {() => number | null} totalMb MemTotal, in MB, which caps the
+ *   rung (#5310)
  * @property {() => import("./windows-memory.js").WindowsRead} windowsMemory
  *   Windows' own free memory, off memwatch's newest reading (#4557)
  * @property {(scope: ClimbScope) => number} climbMb what the queues'
@@ -396,7 +400,8 @@ function queuedLaunch(segment, spans, queueRun) {
  * @property {number} whole
  * @property {number} busy
  * @property {number} watching
- * @property {number} floor the rung this launch reaches
+ * @property {import("./suite-ladder.js").Reach} reach the rung this launch
+ *   reaches, clamped to the machine's reach (#5310)
  * @property {number} nth
  * @property {string} lever
  * @property {string} tail
@@ -902,7 +907,7 @@ function judgedOf(st, at, s, readMb) {
 		whole: running?.whole ?? 0,
 		busy,
 		watching: running?.watchers ?? 0,
-		floor: suiteRungMb(busy + s.workers),
+		reach: reachableRung(suiteRungMb(busy + s.workers), st.ctx.totalMb()),
 		nth: running ? running.whole + 1 : 1,
 		/* Telling a narrowed launcher to narrow the run is a no-op. */
 		lever: s.narrowed
@@ -1016,8 +1021,8 @@ function countVerdict(st, j) {
 					: "Do not write your own waiter: one grepping `ps` for `vitest` counts the npm wrapper and every worker as suites, so it can wait for a gap that never comes.",
 		});
 	const pastLadder =
-		j.nth > SUITE_MAX && !(j.refusable && s.part && j.mb < j.floor);
-	const pastCap = j.nth > WHOLE_SUITE_MAX && !s.part && j.mb >= j.floor;
+		j.nth > SUITE_MAX && !(j.refusable && s.part && j.mb < j.reach.rungMb);
+	const pastCap = j.nth > WHOLE_SUITE_MAX && !s.part && j.mb >= j.reach.rungMb;
 	if (!pastLadder && !pastCap) return;
 	return buildWarnVerdict(
 		st,
@@ -1046,8 +1051,8 @@ function rungClause(j) {
  * @returns {Verdict | undefined}
  */
 function memoryVerdict(st, j) {
-	if (j.mb >= j.floor) return;
-	const rung = rungClause(j);
+	if (j.mb >= j.reach.rungMb) return;
+	const rung = `${rungClause(j)}${clampedClause(j.reach.ladderMb)}`;
 	const reapCmd = `node ${st.ctx.scriptPath("reap-finished-sessions.js")}`;
 	if (j.refusable) {
 		const reapNote = j.s.reaps
@@ -1057,12 +1062,12 @@ function memoryVerdict(st, j) {
 			gate: {
 				limb: "memory",
 				mb: j.readMb,
-				rungMb: j.floor,
+				...j.reach,
 				...(j.climbMb > 0 ? { climbMb: j.climbMb } : {}),
 				...(j.running ? { busy: j.busy } : {}),
 			},
-			watchLever: `Reap finished sessions (\`${reapCmd}\`) or wait for MemAvailable to reach ~${j.floor} MB`,
-			why: `${readingOf(j.readMb, j.climbMb, "off-rung")}, under the ~${j.floor} MB docs/environment.md §6 says a test run needs resting${rung}, and earlyoom's SIGTERM line is 8% of the cap.`,
+			watchLever: `Reap finished sessions (\`${reapCmd}\`) or wait for MemAvailable to reach ~${j.reach.rungMb} MB`,
+			why: `${readingOf(j.readMb, j.climbMb, "off-rung")}, under the ~${j.reach.rungMb} MB docs/environment.md §6 says a test run needs resting${rung}, and earlyoom's SIGTERM line is 8% of the cap.`,
 			waiter: `${reapNote} Do not write your own waiter.`,
 		});
 	}
@@ -1071,7 +1076,7 @@ function memoryVerdict(st, j) {
 		: `Reap the finished-but-resident sessions first (\`${reapCmd}\`) and re-read — a stopped session gives back ${REAP_GAIN}, though a shortfall held by LIVE neighbours is reaped by nothing`;
 	return buildWarnVerdict(
 		st,
-		`${readingOf(j.readMb, j.climbMb, j.climbScope)}, under the ~${j.floor} MB docs/environment.md §6 says a ${j.s.kind} run needs resting${rung} — earlyoom's SIGTERM line is 8% of the cap. ${reapLever}. Only a machine still short after that is a §Machine limits refusal, ${j.lever}${j.tail}`,
+		`${readingOf(j.readMb, j.climbMb, j.climbScope)}, under the ~${j.reach.rungMb} MB docs/environment.md §6 says a ${j.s.kind} run needs resting${rung} — earlyoom's SIGTERM line is 8% of the cap. ${reapLever}. Only a machine still short after that is a §Machine limits refusal, ${j.lever}${j.tail}`,
 	);
 }
 

@@ -57,6 +57,7 @@ const { WHOLE_SLOT_FILES, WHOLE_SUITE_WORKERS } = require("./suite-bounded");
 const {
 	DRAW_MARGIN_MB,
 	WHOLE_SUITE_MAX,
+	reachableRung,
 	rungMb,
 	suiteRungMb,
 } = require("./suite-ladder");
@@ -132,6 +133,9 @@ const REST_PASS_FROM = Date.parse("2026-11-09T15:00:37Z");
 /* #4760's commit, from which a waiter yields to an older one in the other
  * queue stamped `climbHeld`. */
 const PEER_CLIMB_FROM = Date.parse("2026-11-09T08:18:51Z");
+/* #5310's commit, from which a suite rung is clamped to MemTotal less
+ * earlyoom's line. */
+const RUNG_CLAMP_FROM = Date.parse("2026-11-17T02:16:39Z");
 /* #4799's commit, from which a wait keeps that stamp while it is charged. */
 const CLIMB_KEEP_FROM = Date.parse("2026-11-09T15:36:27Z");
 const MEMWATCH_HEADER =
@@ -675,18 +679,22 @@ const isCountHeld = (e, tick) =>
  */
 function isMemoryHeld(e, tick, w) {
 	return (
-		tick.mem !== undefined && w.memTotalMb - tick.mem.used < rungOf(e, tick)
+		tick.mem !== undefined && w.memTotalMb - tick.mem.used < rungOf(e, tick, w)
 	);
 }
 
 /**
  * @param {Waiter} e
  * @param {GateTick} tick
+ * @param {Window} w
  */
-const rungOf = (e, tick) =>
-	e.kind === "tsc"
-		? rungMb(tscChargeOf(e))
-		: suiteRungMb(tick.busy + e.workers);
+function rungOf(e, tick, w) {
+	if (e.kind === "tsc") return rungMb(tscChargeOf(e));
+	const rung = suiteRungMb(tick.busy + e.workers);
+	return tick.t >= RUNG_CLAMP_FROM
+		? reachableRung(rung, w.memTotalMb).rungMb
+		: rung;
+}
 
 /**
  * The peak a type-check waiter is charged: its exit line's, that of the
@@ -705,7 +713,7 @@ const tscChargeOf = (e) => e.chargeMb ?? chargeMb({ kind: "tsc", major: 5 });
 function isClimbHeld(e, tick, w) {
 	if (!e.climbMb || tick.mem === undefined) return false;
 	const available = w.memTotalMb - tick.mem.used;
-	const rung = rungOf(e, tick);
+	const rung = rungOf(e, tick, w);
 	return available >= rung && available - e.climbMb < rung;
 }
 
@@ -736,7 +744,7 @@ function isWindowsHeld(e, tick) {
 	const drawMb =
 		e.kind === "tsc"
 			? tscChargeOf(e)
-			: rungOf(e, tick) - suiteRungMb(tick.busy);
+			: suiteRungMb(tick.busy + e.workers) - suiteRungMb(tick.busy);
 	return tick.win.mb < drawMb + DRAW_MARGIN_MB;
 }
 

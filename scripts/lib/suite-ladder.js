@@ -56,6 +56,35 @@ const rungMb = (chargeMb) =>
 	Math.ceil((EARLYOOM_FLOOR_MB + chargeMb + DRAW_MARGIN_MB) / 50) * 50;
 
 /**
+ * A rung as this machine can meet it (#5310): never above MemTotal less
+ * EARLYOOM_FLOOR_MB, the most MemAvailable can ever read with earlyoom's line
+ * kept. A rung past that is clamped to it, `ladderMb` keeping the rung as
+ * priced. Residual: a run priced past the ceiling launches on less MemAvailable than
+ * its rung asks, where what the rung counted as running still draws; and an
+ * unread MemTotal clamps nothing, the rung waited on as priced.
+ * @typedef {{ rungMb: number, ladderMb?: number }} Reach
+ * @param {number} rung
+ * @param {number | null} totalMb
+ * @returns {Reach}
+ */
+function reachableRung(rung, totalMb) {
+	if (totalMb === null) return { rungMb: rung };
+	const ceiling = totalMb - EARLYOOM_FLOOR_MB;
+	return rung > ceiling
+		? { rungMb: ceiling, ladderMb: rung }
+		: { rungMb: rung };
+}
+
+/**
+ * What a clamped rung's reading adds (#5310).
+ * @param {number | undefined} ladderMb
+ */
+const clampedClause = (ladderMb) =>
+	ladderMb === undefined
+		? ""
+		: ` (clamped from ~${ladderMb} MB, out of the machine's reach: past MemTotal less earlyoom's line)`;
+
+/**
  * MB of available that must be resting before `workers` concurrent vitest
  * workers run.
  * @param {number} workers
@@ -336,6 +365,8 @@ module.exports = {
 	LADDER_SUITE_WORKERS,
 	SUITE_DIP_MB,
 	rungMb,
+	reachableRung,
+	clampedClause,
 	suiteRungMb,
 	SUITE_RESTING_MB,
 	SUITE_GATE_MB,
