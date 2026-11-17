@@ -23,6 +23,7 @@
  */
 
 const { now, runCheck } = require("./lib/check.js");
+const { scriptPath } = require("./lib/script-path.js");
 const { readCensus, readTurnarounds } = require("./lib/chrome-child-census.js");
 const { HOLD_MS, readFirstLaunch } = require("./lib/chrome-child-store.js");
 const DAY_MS = 86_400_000;
@@ -73,7 +74,7 @@ async function run(ctx) {
 		const tabs = tabsText(child.left);
 		ctx.warn(
 			"UNEXPLAINED-TAB",
-			`session ${child.sessionId} on ${child.seat} left ${child.left.length} tab(s) open: ${tabs}. Close with: node scripts/claude-child.js chrome-close --session ${child.sessionId}`,
+			`session ${child.sessionId} on ${child.seat} left ${child.left.length} tab(s) open: ${tabs}. Close with: node ${scriptPath("claude-child.js")} chrome-close --session ${child.sessionId}`,
 			child,
 			`UNEXPLAINED-TAB\t${child.sessionId}\t${child.seat}\t${tabs}`,
 		);
