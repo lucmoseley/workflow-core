@@ -9869,6 +9869,7 @@
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/commit-dispatch-cost.test.ts",
 			"scripts/commit-msg-dispatch.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
