@@ -137,6 +137,7 @@ const {
 	SUITE_MAX,
 	WHOLE_SUITE_MAX,
 	isNextRunnerLine,
+	reachableRung,
 	runningSuites,
 	suiteRungMb,
 } = require("./suite-ladder.js");
@@ -176,6 +177,8 @@ const { treeOrHost } = require("./tree-or.js");
  * @typedef {import("./guard-entry.js").Decision | ({ deny: string, gate: Gate })} Verdict
  * @typedef {object} SuitePorts
  * @property {() => number | null} availableMb MemAvailable, in MB
+ * @property {() => number | null} totalMb MemTotal, in MB, which caps the
+ *   rung (#5310)
  * @property {() => import("./windows-memory.js").WindowsRead} windowsMemory
  *   Windows' own free memory, off memwatch's newest reading (#4557)
  * @property {(scope: ClimbScope) => number} climbMb what the queues'
@@ -396,7 +399,10 @@ function queuedLaunch(segment, spans, queueRun) {
  * @property {number} whole
  * @property {number} busy
  * @property {number} watching
- * @property {number} floor the rung this launch reaches
+ * @property {number} floor the rung this launch reaches, clamped to the
+ *   machine's reach (#5310)
+ * @property {number | undefined} ladderMb the rung as the ladder priced it,
+ *   where it passed the machine's reach
  * @property {number} nth
  * @property {string} lever
  * @property {string} tail
@@ -890,6 +896,10 @@ function judgedOf(st, at, s, readMb) {
 	 * build pays every queue's climb (#4112). */
 	const climbScope = test ? "off-rung" : "all";
 	const climbMb = queued ? 0 : st.readClimb(climbScope);
+	const { rungMb: floor, ladderMb } = reachableRung(
+		suiteRungMb(busy + s.workers),
+		st.ctx.totalMb(),
+	);
 	return {
 		segment,
 		words,
@@ -902,7 +912,8 @@ function judgedOf(st, at, s, readMb) {
 		whole: running?.whole ?? 0,
 		busy,
 		watching: running?.watchers ?? 0,
-		floor: suiteRungMb(busy + s.workers),
+		floor,
+		ladderMb,
 		nth: running ? running.whole + 1 : 1,
 		/* Telling a narrowed launcher to narrow the run is a no-op. */
 		lever: s.narrowed
@@ -1047,7 +1058,7 @@ function rungClause(j) {
  */
 function memoryVerdict(st, j) {
 	if (j.mb >= j.floor) return;
-	const rung = rungClause(j);
+	const rung = `${rungClause(j)}${j.ladderMb === undefined ? "" : ` (clamped: the ladder's ~${j.ladderMb} MB is out of the machine's reach, past MemTotal less earlyoom's line)`}`;
 	const reapCmd = `node ${st.ctx.scriptPath("reap-finished-sessions.js")}`;
 	if (j.refusable) {
 		const reapNote = j.s.reaps
@@ -1058,6 +1069,7 @@ function memoryVerdict(st, j) {
 				limb: "memory",
 				mb: j.readMb,
 				rungMb: j.floor,
+				...(j.ladderMb === undefined ? {} : { ladderMb: j.ladderMb }),
 				...(j.climbMb > 0 ? { climbMb: j.climbMb } : {}),
 				...(j.running ? { busy: j.busy } : {}),
 			},

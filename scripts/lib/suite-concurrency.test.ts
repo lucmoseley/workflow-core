@@ -71,10 +71,12 @@ const { decide, FULL_LIMB_ID } = require("./suite-concurrency.js") as {
 	decide: (command: string, ctx: object) => Verdict;
 	FULL_LIMB_ID: string;
 };
-const { rungMb, suiteRungMb } = require("./suite-ladder.js") as {
-	rungMb: (peakMb: number) => number;
-	suiteRungMb: (workers: number) => number;
-};
+const { EARLYOOM_FLOOR_MB, rungMb, suiteRungMb } =
+	require("./suite-ladder.js") as {
+		EARLYOOM_FLOOR_MB: number;
+		rungMb: (peakMb: number) => number;
+		suiteRungMb: (workers: number) => number;
+	};
 const { chargeMb } = require("./launch-charge.js") as {
 	chargeMb: (launch: { kind: "tsc"; major: number }) => number;
 };
@@ -173,6 +175,7 @@ beforeEach(() => {
 
 interface Over {
 	mb?: number | null;
+	totalMb?: number | null;
 	ps?: string | null;
 	climb?: Partial<Record<ClimbScope, number>>;
 	declaredTest?: string | null;
@@ -199,6 +202,7 @@ function harness(over: Over = {}) {
 		told: (id: string) => (over.told ?? []).includes(id),
 		readLatch: (name: string) => (over.latches ?? LADDER_LATCHES)[name] ?? null,
 		availableMb: () => (over.mb === undefined ? ROOMY_MB : over.mb),
+		totalMb: () => over.totalMb ?? null,
 		windowsMemory: () => over.windows ?? { state: "absent" },
 		climbMb: (scope: ClimbScope) => over.climb?.[scope] ?? 0,
 		tscLaunchPeakMb: (dir: string) =>
@@ -434,6 +438,24 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 		expect(gated(WHOLE, ROOMY_MB, NEIGHBOURS_AT_CAP).verdict?.gate).toEqual({
 			limb: "count",
 		});
+	});
+
+	/* The ladder past its last measured rung prices more than the machine has:
+	 * 16 Nov's ~13150 MB on a 9930 MB machine (#5310). */
+	it("clamps a rung past MemTotal less earlyoom's line, and says so", () => {
+		const part = "npm run test -- a.test.ts";
+		const { verdict, text } = judge(part, 4219, psWith(4), { totalMb: 9930 });
+		expect(verdict?.gate).toMatchObject({
+			limb: "memory",
+			rungMb: 9930 - EARLYOOM_FLOOR_MB,
+		});
+		expect(
+			verdict?.gate && "ladderMb" in verdict.gate && verdict.gate.ladderMb,
+		).toBeGreaterThan(9930);
+		expect(text).toContain("out of the machine's reach");
+		expect(
+			judge(part, 9136, psWith(4), { totalMb: 9930 }).verdict?.gate,
+		).toBeUndefined();
 	});
 
 	/* A head its rung holds with none running is held at rest, which a

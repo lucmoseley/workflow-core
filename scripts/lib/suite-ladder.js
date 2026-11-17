@@ -56,6 +56,25 @@ const rungMb = (chargeMb) =>
 	Math.ceil((EARLYOOM_FLOOR_MB + chargeMb + DRAW_MARGIN_MB) / 50) * 50;
 
 /**
+ * A rung as this machine can meet it (#5310): never above MemTotal less
+ * EARLYOOM_FLOOR_MB, the most MemAvailable can ever read with earlyoom's line
+ * kept. A rung past that is clamped to it, `ladderMb` keeping the rung as
+ * priced; a wait for MemAvailable at the ceiling waits for the machine at its
+ * emptiest, when whatever the rung counted as running draws next to nothing.
+ * An unread MemTotal clamps nothing.
+ * @param {number} rung
+ * @param {number | null} totalMb
+ * @returns {{ rungMb: number, ladderMb?: number }}
+ */
+function reachableRung(rung, totalMb) {
+	if (totalMb === null) return { rungMb: rung };
+	const ceiling = totalMb - EARLYOOM_FLOOR_MB;
+	return rung > ceiling
+		? { rungMb: ceiling, ladderMb: rung }
+		: { rungMb: rung };
+}
+
+/**
  * MB of available that must be resting before `workers` concurrent vitest
  * workers run.
  * @param {number} workers
@@ -336,6 +355,7 @@ module.exports = {
 	LADDER_SUITE_WORKERS,
 	SUITE_DIP_MB,
 	rungMb,
+	reachableRung,
 	suiteRungMb,
 	SUITE_RESTING_MB,
 	SUITE_GATE_MB,

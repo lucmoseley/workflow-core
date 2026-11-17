@@ -11,7 +11,7 @@
  * cannot read reads as none (#2795).
  */
 
-const { readAvailableMb } = require("./meminfo.js");
+const { readAvailableMb, readTotalMb } = require("./meminfo.js");
 const { readWindowsMemory } = require("./windows-memory.js");
 const { treePorts } = require("./guard-host-ports.js");
 const { buildIsWrapperScript } = require("./suite-launch.js");
@@ -64,6 +64,7 @@ function buildHostPorts(root, log) {
 			const read = readAvailableMb();
 			return read.ok ? read.mb : null;
 		},
+		totalMb: readTotalMb,
 		windowsMemory: () => readWindowsMemory(),
 		psRows: () => {
 			const ps = readPs();

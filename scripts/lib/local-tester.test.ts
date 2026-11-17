@@ -519,6 +519,49 @@ it("refuses at the ceiling on the limb the guard named, never running anyway (#2
 	expect(memory.text).toMatch(/lander: gate still denies on memory/);
 });
 
+/* 16 Nov's lander waited 2,400 s on a ~13150 MB rung of a 9930 MB machine (#5310). */
+it("clamps a charge past MemTotal to what the machine can supply, and says so on refusal", async () => {
+	const lines: string[] = [];
+	const stderr = vi
+		.spyOn(process.stderr, "write")
+		.mockImplementation((s: string | Uint8Array) => {
+			lines.push(String(s));
+			return true;
+		});
+	const past = {
+		chargeMb: 12_000,
+		gate: () => null,
+		totalMb: () => 9930,
+		queueDir: tmp,
+		timeoutMs: 30,
+		pollMs: 10,
+	};
+	try {
+		const short = await suiteSlot({
+			...past,
+			memory: () => ({ ok: true, mb: 9135 }),
+		});
+		expect(short).toMatchObject({
+			ok: false,
+			memoryShut: true,
+			reason: expect.stringContaining(
+				"9135 MB available against 9136 MB, clamped from 13100 MB past the machine's reach",
+			),
+		});
+		expect(lines.join("")).toMatch(
+			/against the ~9136 MB rung — clamped: its priced ~13100 MB is out of the machine's reach/,
+		);
+		const slot = await suiteSlot({
+			...past,
+			memory: () => ({ ok: true, mb: 9136 }),
+		});
+		expect(slot.ok).toBe(true);
+		if (slot.ok) slot.release();
+	} finally {
+		stderr.mockRestore();
+	}
+});
+
 it("yields to a waiter whose turn came true on the same poll, launching only once it spawns (#2650)", async () => {
 	const rival = path.join(tmp, `wfc-suite-queue-${process.ppid}.json`);
 	const stamp = (fields: object) =>
