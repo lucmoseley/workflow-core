@@ -28,7 +28,8 @@ const fs = require("node:fs");
 const { writeFd } = require("../../../../scripts/lib/write-fd.js");
 const { execFileSync, spawnSync } = require("node:child_process");
 const { execGit } = require("../../../../scripts/lib/git.js");
-const { gh: runGh } = require("../../../../scripts/lib/gh.js");
+const { gh: runGh, GH_TIMEOUT_MS } = require("../../../../scripts/lib/gh.js");
+const { capMs } = require("../../../../scripts/lib/cap-ms.js");
 const {
 	escapeRe,
 	requiredGroup,
@@ -71,16 +72,14 @@ const MAX_BUFFER = 64e6;
 
 const GREP_TARGETS = ["scripts", "docs/doc-map.md"];
 
-/** Each subprocess's cap: `scripts/lib/gh.js`'s GH_TIMEOUT_MS, the slowest
- * lookup here measured (#2677). The env override is for tests. */
-const LOOKUP_TIMEOUT_MS = Number(process.env.TENURE_LOOKUP_TIMEOUT_MS) || 300e3;
-/** The whole run's cap, enforced from a parent process: a run that hung after
- * its last write, inside node's own exit, outlived every subprocess cap by
- * 2 h (#5311). A guess: two slow lookups' worth. The env override is for
- * tests. */
-const CEILING_MS = Number(process.env.TENURE_CEILING_MS) || 600e3;
-/** Set on the child that does the lookups, so the parent is the only process
- * the caller waits on. */
+/** Each subprocess's cap: gh's own, the slowest lookup here measured
+ * (#2677). */
+const LOOKUP_TIMEOUT_MS = capMs("WFC_TENURE_LOOKUP_TIMEOUT_MS", GH_TIMEOUT_MS);
+/** The whole run's cap, enforced from a parent process (#5311). A guess: two
+ * slow lookups' worth. */
+const CEILING_MS = capMs("WFC_TENURE_CEILING_MS", 600e3);
+/** Marks the child that does the lookups, so it runs `main` rather than
+ * supervising itself again. */
 const WORKER_ENV = "TENURE_WORKER";
 
 let readerGone = false;
@@ -314,7 +313,11 @@ function lineHistory(target, phrase) {
 		state: /** @type {const} */ ("skipped"),
 		why: `the phrase is not in HEAD's copy of ${target} — uncommitted text has no line history`,
 	};
-	if (runGit(["cat-file", "-e", blob]).status !== 0) return skipped;
+	const present = runGit(["cat-file", "-e", blob]);
+	if (present.status === null) {
+		return { state: "unresolved", why: `git cat-file ${present.stderr}` };
+	}
+	if (present.status !== 0) return skipped;
 	const head = runGit(["show", blob]);
 	if (head.status !== 0) {
 		return {
@@ -345,10 +348,18 @@ function lineHistory(target, phrase) {
  * @param {string} needlePath @param {string} needle
  */
 function gitAxis(needlePath, needle) {
-	if (runGit(["rev-parse", "--git-dir"]).status !== 0) {
+	const repo = runGit(["rev-parse", "--git-dir"]);
+	if (repo.status === null) {
+		return { state: "unresolved", why: `git rev-parse ${repo.stderr}` };
+	}
+	if (repo.status !== 0) {
 		return { state: "unresolved", why: "not inside a git repository" };
 	}
-	if (runGit(["ls-files", "--error-unmatch", "--", needlePath]).status !== 0) {
+	const tracked = runGit(["ls-files", "--error-unmatch", "--", needlePath]);
+	if (tracked.status === null) {
+		return { state: "unresolved", why: `git ls-files ${tracked.stderr}` };
+	}
+	if (tracked.status !== 0) {
 		return {
 			state: "unresolved",
 			why: `${needlePath} is untracked, so git holds no history for it — the text has no tenure to clear yet`,
@@ -868,15 +879,28 @@ function main(argv) {
  * Runs `main` in a child and waits at most CEILING_MS for it. Nothing inside
  * one process can bound it: a hang in node's own exit runs no timer.
  *
+ * The child leads its own process group, so the kill at the ceiling reaches
+ * the lookups it started too; their own timeouts died with it.
+ *
  * @param {string[]} argv
  */
 function supervise(argv) {
-	const r = spawnSync(process.execPath, [__filename, ...argv], {
+	// `detached` reaches spawnSync's runner though @types/node omits it there.
+	const opts = /** @type {import("node:child_process").SpawnSyncOptions} */ ({
 		stdio: ["ignore", "inherit", "inherit"],
 		env: { ...process.env, [WORKER_ENV]: "1" },
 		timeout: CEILING_MS,
 		killSignal: "SIGKILL",
+		detached: true,
 	});
+	const r = spawnSync(process.execPath, [__filename, ...argv], opts);
+	if (r.pid) {
+		try {
+			process.kill(-r.pid, "SIGKILL");
+		} catch {
+			// The group is already empty.
+		}
+	}
 	if (typeof r.status === "number") return r.status;
 	const why =
 		caught(r.error).code === "ETIMEDOUT"
