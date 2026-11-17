@@ -153,8 +153,11 @@ function readEnvelope(r, sha, timeoutMs) {
  *   gates the batch's set leaves out, its `repeatsGates`; else the batch
  *   runs every gate
  * @param {string} [options.core] the core whose gate scripts judge an
- *   adopter's tree: the one this module ships in, found by its own path,
- *   which every launcher shares (#5309)
+ *   adopter's tree: coreRoot()'s, the one this module ships in, which every
+ *   launcher shares (#5309), WFC_SCRIPT_ROOT standing in where set.
+ *   Residual: that install, not the core the adopter's hook resolves,
+ *   judges it, so a launcher running another install can disagree with the
+ *   hook's gates (#5314).
  * @returns {QueueGit}
  */
 function queueGit(

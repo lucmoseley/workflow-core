@@ -18,7 +18,12 @@
  * on a local tester or goes without its base-red ticket, or a push `main`
  * refuses reads as a fault or one `main` moved under reads as a refusal;
  * or a hook it cannot execute holds a merge, a registry SKIP holds one, or a
- * BROKEN, unparseable or timed-out registry run passes one (#4904).
+ * BROKEN, unparseable or timed-out registry run passes one (#4904); or an
+ * adopter's batch conflicting on docs/test-read-edges.json drops every member
+ * for want of WFC_PLUGIN_ROOT (#5309).
+ *
+ * The sandbox seeds workflow-core itself, so a merge runs the tree's own gate
+ * scripts; a case wanting an adopter's tree calls asAdopter().
  */
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -41,6 +46,7 @@ import {
 	redPathAtRest,
 } from "./lib/lander-records.js";
 import {
+	asAdopter,
 	commit,
 	git,
 	landerSandbox,
@@ -554,11 +560,7 @@ describe("a run", () => {
 			};
 			const envelope = (outcome: string) =>
 				`process.stdout.write(${JSON.stringify(JSON.stringify({ outcome, summary: `${outcome}: stub` }))});\n`;
-			/* An adopter's tree, so the core's checker judges it, not its own. */
-			beforeEach(() => {
-				git(work, "rm", "-rq", ".claude-plugin");
-				commit("adopter");
-			});
+			beforeEach(asAdopter);
 
 			it("merges a batch whose stale row its checker SKIPped, saying so, as a SKIP gates nothing (mantahostels#155)", () => {
 				const main = staleMain();
@@ -1033,51 +1035,49 @@ describe("the adapters", () => {
 		});
 	});
 
+	/* The positive pair of "lands a merge whose text-merged copy is clean but
+	 * stale", which renders with a core host's own generator. */
 	it("regenerates an adopter's read-edges with the lander's own generator, WFC_PLUGIN_ROOT unset, dropping no member (#5309)", () => {
 		vi.stubEnv("WFC_PLUGIN_ROOT", undefined);
-		try {
-			const edges = "docs/test-read-edges.json";
-			const generator = path.resolve(__dirname, "generate-test-read-edges.js");
-			const render = () => {
-				git(work, "add", "-A");
-				expect(runInProcess(generator, [], { cwd: work }).status).toBe(0);
-			};
-			fs.rmSync(path.join(work, ".claude-plugin"), { recursive: true });
-			fs.mkdirSync(path.join(work, "docs"), { recursive: true });
-			for (const name of ["a", "b"])
-				fs.writeFileSync(path.join(work, "docs", `${name}.md`), name);
-			render();
-			const seed = commit("adopter seed");
-			expect(fs.existsSync(path.join(work, "scripts"))).toBe(false);
-			const pushRendered = (name: string) =>
-				pushQueue(name, seed, () => {
-					fs.writeFileSync(
-						path.join(work, `${name}.test.ts`),
-						`import fs from "node:fs";\nimport path from "node:path";\nfs.readFileSync(path.resolve(__dirname, "docs/${name}.md"));\n`,
-					);
-					render();
-				});
-			const a = pushRendered("a");
-			const b = pushRendered("b");
-			const g = queueGit(work);
-			g.refs();
+		const edges = "docs/test-read-edges.json";
+		const generator = path.resolve(__dirname, "generate-test-read-edges.js");
+		const render = () => {
+			git(work, "add", "-A");
+			expect(runInProcess(generator, [], { cwd: work }).status).toBe(0);
+		};
+		asAdopter();
+		fs.mkdirSync(path.join(work, "docs"), { recursive: true });
+		for (const name of ["a", "b"])
+			fs.writeFileSync(path.join(work, "docs", `${name}.md`), name);
+		render();
+		const seed = commit("adopter seed");
+		expect(fs.existsSync(path.join(work, "scripts"))).toBe(false);
+		const pushRendered = (name: string) =>
+			pushQueue(name, seed, () => {
+				fs.writeFileSync(
+					path.join(work, `${name}.test.ts`),
+					`import fs from "node:fs";\nimport path from "node:path";\nfs.readFileSync(path.resolve(__dirname, "docs/${name}.md"));\n`,
+				);
+				render();
+			});
+		const a = pushRendered("a");
+		const b = pushRendered("b");
+		const g = queueGit(work);
+		g.refs();
 
-			const r = g.mergeMembers(seed, [
-				{ name: "a", sha: a, pushedAt: 1 },
-				{ name: "b", sha: b, pushedAt: 2 },
-			]);
+		const r = g.mergeMembers(seed, [
+			{ name: "a", sha: a, pushedAt: 1 },
+			{ name: "b", sha: b, pushedAt: 2 },
+		]);
 
-			expect(r.kind).toBe("merged");
-			const sha = r.kind === "merged" ? r.sha : "";
-			git(work, "checkout", "-q", "--detach", sha);
-			const landed = fs.readFileSync(path.join(work, edges), "utf8");
-			render();
-			expect(fs.readFileSync(path.join(work, edges), "utf8")).toBe(landed);
-			expect(landed).toContain("a.test.ts");
-			expect(landed).toContain("b.test.ts");
-		} finally {
-			vi.unstubAllEnvs();
-		}
+		expect(r.kind).toBe("merged");
+		const sha = r.kind === "merged" ? r.sha : "";
+		git(work, "checkout", "-q", "--detach", sha);
+		const landed = fs.readFileSync(path.join(work, edges), "utf8");
+		render();
+		expect(fs.readFileSync(path.join(work, edges), "utf8")).toBe(landed);
+		expect(landed).toContain("a.test.ts");
+		expect(landed).toContain("b.test.ts");
 	});
 
 	it("throws a merge that times out as a transient fault, for the run to retry, never a refusal that drops it", () => {

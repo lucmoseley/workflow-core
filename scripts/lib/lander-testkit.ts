@@ -126,6 +126,13 @@ export function landerSandbox({ coreHost = false } = {}): void {
 	afterAll(() => fs.rmSync(template, { recursive: true, force: true }));
 }
 
+/** `work`'s tree made an adopter's, no longer workflow-core itself, so the
+ * lander runs its own install's gate scripts over it (#5309). */
+export const asAdopter = () => {
+	git(work, "rm", "-rq", ".claude-plugin");
+	commit("adopter");
+};
+
 export const stubTester = (code: number, failing = "") => {
 	const script = path.join(tmp, "tester.sh");
 	fs.writeFileSync(
