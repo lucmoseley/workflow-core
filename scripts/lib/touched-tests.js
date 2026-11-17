@@ -458,7 +458,7 @@ const touchedBaseHere = () =>
  *   ownWork?: OwnSet|null, env?: NodeJS.ProcessEnv }} options
  * @returns {{ base: string, changed: string[], merged: string[],
  *   mergeUnread?: string }} `mergeUnread` why a merge's parents would not
- *   read, the tree's changes over HEAD taken instead
+ *   read
  */
 function readTouchedPaths(
 	at,
@@ -576,18 +576,14 @@ function scopeWording(base, from, merged, mergeUnread) {
 	const at = shortSha(base);
 	/** @param {string} work @param {string} pronoun @param {string} after */
 	const selected = (work, pronoun, after) =>
-		`${work} edited, or that directly import or read a file ${pronoun} changed. ${after}`;
+		`${work} edited, or that directly import or read a file ${pronoun} changed.${after}`;
 	if (merged.length > 0) {
 		const ownWork = `this merge's own content over HEAD ${at} and the merged-in ${merged.map(shortSha).join(", ")}`;
 		return {
 			ownWork,
 			uncollectedWork: `${ownWork} touched`,
-			selected: selected(
-				ownWork,
-				"it",
-				"The lander runs the full suite (#2930, #5334).",
-			),
-			coda: "A MERGE answers for its own content alone: a path taken whole from one side was gated on that side. Tests reading one side's change through the other's are left to the bare `npm run test` before landing, the push-coverage warning and the lander's full suite (#2930, #5334).",
+			selected: selected(ownWork, "it", ""),
+			coda: "A path taken whole from one side of this merge was gated on that side. Tests reading one side's change through the other's are left to the bare `npm run test` before landing, the push-coverage warning and the lander's full suite (#2930, #5334).",
 		};
 	}
 	if (from === "head") {
@@ -598,7 +594,7 @@ function scopeWording(base, from, merged, mergeUnread) {
 			selected: selected(
 				ownWork,
 				"they",
-				"The branch's earlier commits answered for themselves at their own commits, and the lander runs the full suite (#2930, #5320).",
+				" The branch's earlier commits answered for themselves at their own commits, and the lander runs the full suite (#2930, #5320).",
 			),
 			coda:
 				mergeUnread === undefined
@@ -613,7 +609,7 @@ function scopeWording(base, from, merged, mergeUnread) {
 		selected: selected(
 			ownWork,
 			"it",
-			"The lander runs the full suite (#2930).",
+			" The lander runs the full suite (#2930).",
 		),
 		coda: null,
 	};

@@ -7,9 +7,8 @@
  * A loosened case either widens the bare run past the unit changed or drops a
  * test that reads it, unrun until the lander's full suite.
  *
- * Its merge cases (#5334) build four merging repos and run two throwaway
- * worktrees, about 3 s of its time: a merge's own content has no cheaper
- * witness than git's own merge.
+ * Its merge cases (#5334) build merging repos and run throwaway worktrees:
+ * a merge's own content has no cheaper witness than git's own merge.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -722,9 +721,8 @@ describe("the base a touched selection takes (#5320)", () => {
 	});
 });
 
-/* A merge of main into a branch, the commit's gate under `head` (#5334): the
- * branch committed `lib/a.js`'s first line, main `doc.md`. A merge answers
- * for its own content alone, never for main's incoming paths. */
+/* A merge answers for its own content alone, never for main's incoming
+ * paths (#5334). */
 describe("a merge's own content under `head` (#5334)", () => {
 	const git = (dir: string, ...args: string[]) =>
 		execFileSync(
@@ -740,9 +738,7 @@ describe("a merge's own content under `head` (#5334)", () => {
 	};
 	const branchA = { "lib/a.js": "ONE\ntwo\nthree\nfour\nfive\n" };
 	const mainA = { "lib/a.js": "one\ntwo\nthree\nfour\nFIVE\n" };
-	/** The branch checked out, main's `edits` committed on `main`, then
-	 * `git merge --no-commit --no-ff main`; MERGE_HEAD as git leaves it, a
-	 * conflict resolved to "resolved". Popped, so `afterEach` leaves it. */
+	/** MERGE_HEAD as git leaves it. */
 	function merging(
 		branchEdits: Record<string, string>,
 		mainEdits: Record<string, string>,
@@ -769,10 +765,8 @@ describe("a merge's own content under `head` (#5334)", () => {
 		}
 		return { dir, main: git(dir, "rev-parse", "main") };
 	}
-	/* Built once: main's paths disjoint from the branch's; `lib/a.js` changed
-	 * on both sides and auto-merged; `lib/setup.js` conflicted and resolved;
-	 * and the auto-merge again with no MERGE_HEAD, as pre-merge-commit runs
-	 * before git writes it. */
+	/* `premerge` has no MERGE_HEAD, as pre-merge-commit runs before git
+	 * writes it. */
 	let disjoint: ReturnType<typeof merging>;
 	let both: ReturnType<typeof merging>;
 	let conflicted: ReturnType<typeof merging>;
@@ -896,8 +890,6 @@ process.stdout.write(JSON.stringify({ cwd: process.cwd(), changed: r.changed }))
 		);
 		afterAll(() => fs.rmSync(probeDir, { recursive: true, force: true }));
 		const { runInTree } = require("./isolated-worktree.js");
-		/** The probe's selection, run as the commit gate runs its suite, with
-		 * no merge parent in `env` but `extra`'s. */
 		const gateRun = (dir: string, extra: NodeJS.ProcessEnv = {}) => {
 			const env = { ...process.env };
 			for (const k of Object.keys(env))

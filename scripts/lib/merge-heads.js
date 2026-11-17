@@ -95,9 +95,8 @@ const MERGE_PARENTS_ENV = "WFC_MERGE_PARENTS";
 const SHA = new RegExp(`^(?:${SHA_HEX})$`);
 
 /**
- * `env` with the merge parents of the checkout at `cwd` handed off, for a
- * child that runs elsewhere; with none handed off where they will not read,
- * so the child reads its own as `readMergeParents` does.
+ * `env` with the merge parents of the checkout at `cwd` handed off; with
+ * none handed off where they will not read.
  * @param {string} cwd
  * @param {NodeJS.ProcessEnv} env
  * @returns {NodeJS.ProcessEnv}
