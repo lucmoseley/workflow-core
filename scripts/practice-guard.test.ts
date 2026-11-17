@@ -84,7 +84,6 @@ afterAll(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** The spawn options every case shares, `homeDir` as HOME. */
 const spawnOptions = (homeDir = home, env: Record<string, string> = {}) => ({
 	project: repo,
 	config: path.join(homeDir, ".claude"),
