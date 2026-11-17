@@ -92,6 +92,7 @@ describe("check-adopter-boundary", () => {
 	it("SKIPs a repo with no page: an adopter", () => {
 		const r = run();
 		expect(r.status).toBe(0);
+		expect(r.out).toContain("SKIP");
 		expect(r.out).toContain("no docs/adopter-boundary.md");
 	});
 });

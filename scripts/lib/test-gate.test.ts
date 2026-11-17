@@ -119,6 +119,8 @@ describe("node test-gate.js <verb>", () => {
 	])("%s over %j exits %i", (verb, cfg, status, stdout) => {
 		const r = run(verb, host(cfg));
 		expect([r.status, r.stdout]).toEqual([status, stdout]);
+		if (status === 1) expect(r.stderr).toMatch(/^SKIP: /m);
+		if (status === 2) expect(r.stderr).toMatch(/^BROKEN: /m);
 	});
 
 	it("says why the commit gate stays, and where the contract is written", () => {
@@ -128,6 +130,8 @@ describe("node test-gate.js <verb>", () => {
 	});
 
 	it("refuses a verb it does not know", () => {
-		expect(run("pull", host({})).status).toBe(2);
+		const r = run("pull", host({}));
+		expect(r.status).toBe(2);
+		expect(r.stderr).toBe("usage: node test-gate.js <commit|push>\n");
 	});
 });

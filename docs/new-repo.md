@@ -53,7 +53,7 @@ A module switches on extra rules and gates. Each needs documents or tests a new 
 
 - **roadmap** — the roadmap page and its digest, changed only through the roadmap-edit skill. On once the roadmap page exists.
 - **governance** — the document map's figure registry and the operating manual. On once the manual or a figure-registry entry exists.
-- **suites** — the vitest suite rules: the targeted-runs rule, the suite-size drift check, the suite-queue wait report and the ci-red label. On for a copied repo whose tests run on vitest. Any test file also needs its test command declared, whatever this module says; whether a commit runs that command is its verdict probe's answer, not this module's.
+- **suites** — the vitest suite rules: the targeted-runs rule, the suite-size drift check, the suite-queue wait report and the ci-red label. On for a copied repo that already holds test files, vitest or pytest. Any test file also needs its test command declared, whatever this module says; whether a commit runs that command is its verdict probe's answer, not this module's.
 - **site** — the rendered pages and their copy checks, gating a commit that touches them. On once the brand sheet and the site's pages both exist.
 - **mutation** — a commit changing a line on a declared sensitive path is refused while a planted bug on that line survives every test. Never on by itself: switch it on only where those paths are tested in-process by vitest.
 

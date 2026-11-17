@@ -226,8 +226,8 @@ function readCiRecord(root, timings) {
 	};
 }
 
-/* Above any open-issue count this tracker has held; an issue past it costs
- * its file the ticket, never the run its end. */
+/* Over 40 times the 23 issues open on 2026-11-17 (#5294's review); an issue
+ * past it costs its file the ticket, never the run its end. */
 const OPEN_ISSUE_LIMIT = 1000;
 
 /**
