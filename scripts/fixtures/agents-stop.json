@@ -1,6 +1,6 @@
 {
 	"recordedBy": "node scripts/record-claude-responses.js",
-	"harness": "2.1.318",
+	"harness": "2.1.326",
 	"rows": [
 		{
 			"id": "5e55101d",
@@ -89,7 +89,7 @@
 			"id": "00000000",
 			"status": 1,
 			"stdout": "",
-			"stderr": "No job matching '00000000'. Run 'claude agents' to list running sessions.\n"
+			"stderr": "No session matching '00000000'. Run 'claude agents' to list running sessions.\n"
 		}
 	}
 }

@@ -184,7 +184,11 @@ interface Over {
 	latches?: Record<string, string>;
 	plain?: Plain;
 	carriedOf?: (pid: number | null) => Weight | null;
-	gateSeats?: { count: number; under: (pid: number | null) => boolean };
+	gateSeats?: {
+		count: number;
+		under: (pid: number | null) => boolean;
+		unread: string | null;
+	};
 	launchWeight?: Weight | null;
 	windows?: WindowsRead;
 	tscPeakMb?: number;
@@ -214,7 +218,8 @@ function harness(over: Over = {}) {
 				: null;
 		},
 		carriedOf: over.carriedOf ?? (() => null),
-		gateSeats: () => over.gateSeats ?? { count: 0, under: () => false },
+		gateSeats: () =>
+			over.gateSeats ?? { count: 0, under: () => false, unread: null },
 		launchWeight: over.launchWeight ?? null,
 		runners: () => runners,
 		declaredTest: () =>
@@ -2416,15 +2421,29 @@ describe("counts and judges a suite vitest does not run (#330)", () => {
 		const lanes = psListing(["node --test lanes/a", "node --test lanes/b"]);
 		const seat = (under: boolean) =>
 			judge(WHOLE, ROOMY_MB, lanes, {
-				gateSeats: { count: 1, under: () => under },
+				gateSeats: { count: 1, under: () => under, unread: null },
 			}).text;
 		expect(seat(true)).toMatch(/1 whole suite\(s\) already running/);
 		expect(seat(false)).toMatch(/3 whole suite\(s\) already running/);
 		expect(
 			judge(WHOLE, ROOMY_MB, psListing(["bash -l"]), {
-				gateSeats: { count: 1, under: () => false },
+				gateSeats: { count: 1, under: () => false, unread: null },
 			}).verdict?.deny,
 		).toBeDefined();
+	});
+
+	/* Positive pair: "reads a running gate seat as one whole suite, its own runners not counted again (#5274)". */
+	it("counts every runner as itself, and logs why, where the gate seats will not read (#5301)", () => {
+		const lanes = psListing(["node --test lanes/a", "node --test lanes/b"]);
+		const why = "the suite queue /q would not read (EACCES: permission denied)";
+		expect(
+			judge(WHOLE, ROOMY_MB, lanes, {
+				gateSeats: { count: 0, under: () => true, unread: why },
+			}).text,
+		).toMatch(/2 whole suite\(s\) already running/);
+		expect(logs).toContain(
+			`${why} — every runner counted as itself, a gate seat's included`,
+		);
 	});
 
 	it("ignores a runner script no config declares", () => {

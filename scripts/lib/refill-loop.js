@@ -97,7 +97,8 @@ const { buildSeatName } = require("./refill-seats.js");
  * to another seat (#4257). `leftListing`, on a finish the listing's absence
  * made, as a manager restart reopens only those (#4145). `unretired`, the
  * originals of its copies whose jobs would not retire, retried each tick
- * (#4646).
+ * (#4646). `synthetic`, its resumes after the harness ended its turn on a
+ * synthetic reply (lib/refill-synthetic.js, #5324).
  * @typedef {import("./refill-decide.js").LaunchRecord & {
  *   prompt: string, seat: string, keyVar?: string, jobId: string|null,
  *   parked?: boolean, block?: import("./block-act.js").Block,
@@ -112,6 +113,7 @@ const { buildSeatName } = require("./refill-seats.js");
  *   limitParks?: number, handOffTries?: number, handedOff?: number, budgetParked?: number, copiedFrom?: string,
  *   relaunchedAt?: number, slotTakenAt?: number, movedAt?: number, pastSessionIds?: string[],
  *   resumeStarted?: import("./refill-blocks.js").ResumeStarted, leftListing?: true,
+ *   synthetic?: import("./refill-synthetic.js").SyntheticResumes,
  *   unretired?: import("./refill-blocks.js").Unretired[],
  *   actsBefore?: Record<string, number>|typeof UNREAD}} LoopLaunch
  * @typedef {(sessionId: string, roots: string[]) =>
@@ -668,12 +670,22 @@ function withSessionIds(launches, agents) {
  * @param {import("./agent-liveness.js").AgentRecord[]|null} agents
  * @param {number} now
  * @param {{progressOf: (l: LoopLaunch) => P,
- *   causeOf: import("./refill-blocks.js").CauseOf}} read
+ *   causeOf: import("./refill-blocks.js").CauseOf,
+ *   isOwedResume?: (l: LoopLaunch) => boolean}} read  `isOwedResume`, a
+ *   launch gone from the listing that the loop still owes a resume, so it is
+ *   not finished (lib/refill-synthetic.js, #5324)
  * @returns {LoopLaunch[]}
  */
-function judgedLaunches(launches, agents, now, { progressOf, causeOf }) {
+function judgedLaunches(
+	launches,
+	agents,
+	now,
+	{ progressOf, causeOf, isOwedResume = () => false },
+) {
 	const listed = withSessionIds(launches, agents);
-	const done = new Set(newlyFinished(listed, agents, now));
+	const done = new Set(
+		newlyFinished(listed, agents, now).filter((l) => !isOwedResume(l)),
+	);
 	const judged = listed.map((l) =>
 		done.has(l)
 			? { ...l, ...progressOf(l), finishedAt: now, leftListing: true }

@@ -92,6 +92,7 @@ function replay(f: Fixture, from: string, to: string) {
 					[root]: {
 						commits: commits.filter((c) => c.at <= t),
 						gateRuns: [],
+						timelinesUnread: [],
 						sessions: sessions
 							.filter((s) => s.launch.launchedAt <= t)
 							.map((s) => ({
@@ -213,15 +214,17 @@ const readOf = (
 	over: Partial<ThroughputRead> & {
 		commits?: { sha: string; at: number }[] | null;
 		sessions?: SessionTimeline[];
+		timelinesUnread?: string[];
 	} = {},
 ): ThroughputRead => {
 	const {
 		commits = [{ sha: "a", at: NOW - HOUR }],
 		sessions = FROM_LAUNCHES,
+		timelinesUnread = [],
 		...rest
 	} = over;
 	return {
-		byRoot: { [DV]: { commits, gateRuns: [], sessions } },
+		byRoot: { [DV]: { commits, gateRuns: [], sessions, timelinesUnread } },
 		commitsOf: () => [],
 		queueOf: () => {
 			throw new Error("the queue ref read where no trial asked for it");
@@ -289,6 +292,19 @@ describe("the breaker's steps", () => {
 		expect(step(busy(2), readOf({ commits })).events).toEqual([]);
 	});
 
+	/* Positive pair: "opens at 12 working hours under 0.3, barring the checkout while its sessions run". */
+	it("opens nothing, and says why, where a session's timeline would not read (#5301)", () => {
+		const why =
+			"job j9's timeline (EACCES: permission denied, stat '/s/jobs/j9/timeline.jsonl')";
+		expect(step(busy(3), readOf({ timelinesUnread: [why] }))).toEqual({
+			events: [],
+			room: {},
+			notes: [
+				`breaker reading in ${DV} leaves out ${why}, so it opens nothing`,
+			],
+		});
+	});
+
 	it("leaves no room anywhere, and records nothing, where the record will not read", () => {
 		expect(step(busy(1), readOf({ record: null }))).toEqual({
 			events: [],
@@ -330,13 +346,15 @@ describe("the breaker's steps", () => {
 		expect(room).toEqual({ [DV]: 0 });
 	});
 
-	it("takes no launch without an id for its trial, holding the room meanwhile", () => {
+	it("takes no launch without an id for its trial, and waits on none, saying so (#5301)", () => {
 		const record = [event("open", NOW - HOUR)];
 		const trial = busy(1, NOW - MIN, { jobId: null, sessionId: undefined });
 		expect(step(trial, readOf({ record }))).toEqual({
 			events: [],
-			room: { [DV]: 0 },
-			notes: [],
+			room: { [DV]: 1 },
+			notes: [
+				`open breaker in ${DV} waits on no launch without a job id: 1 launched at ${iso(NOW - MIN)}, never judged finished`,
+			],
 		});
 	});
 

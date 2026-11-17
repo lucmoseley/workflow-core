@@ -32,6 +32,7 @@ const { buildErrorText } = require("./caught.js");
 const { buildTickRecord } = require("./concurrency.js");
 const { neverStartedJobs } = require("./hung-jobs.js");
 const blocks = require("./refill-blocks.js");
+const synthetic = require("./refill-synthetic.js");
 const { isLimitHeld, launchName } = require("./refill-block-core.js");
 const limits = require("./refill-limits.js");
 const { stepBreakers } = require("./refill-breaker.js");
@@ -162,7 +163,7 @@ function buildFinishLine(l) {
 				.map(([kind, n]) => `${kind} ${n}`)
 				.join(", ") || "no acts"
 		: UNREAD;
-	return `finished ${launchName(l)}: ${acts}`;
+	return `finished ${launchName(l)}: ${acts}${synthetic.buildFinishNote(l)}`;
 }
 
 /**
@@ -414,7 +415,7 @@ function parkSweepRootsOf(io, served) {
 /**
  * The tick's acts on its launches: the answered parks taken off, the closed
  * issues' parks cleared (#3940), each copy's unretired original tried again
- * (#4646), the blocked and idle launches acted on, then
+ * (#4646), the blocked, idle and synthetic-stopped launches acted on, then
  * each away park's ledger row released once normal mode is live, ahead of the
  * shortlist read (#3872).
  * Then each served checkout's broken probe has the parks made meanwhile
@@ -435,7 +436,11 @@ function actOnLaunches(
 	io.tendClosedParks(served);
 	const tried = retireOriginals(listed, seen.io);
 	const acted = io.releaseAwayParks(
-		acts.actOnIdle(acts.actOnBlocks(tried, mode, seen), mode, seen),
+		acts.actOnSynthetic(
+			acts.actOnIdle(acts.actOnBlocks(tried, mode, seen), mode, seen),
+			mode,
+			seen,
+		),
 		mode,
 		served,
 		seen,
@@ -924,6 +929,7 @@ const DRY_BLOCK_ACTS = {
  *   unparkAnswered: typeof blocks.unparkAnswered,
  *   actOnBlocks: typeof blocks.actOnBlocks,
  *   actOnIdle: typeof blocks.actOnIdle,
+ *   actOnSynthetic: typeof synthetic.actOnSynthetic,
  *   actOnLimits: typeof limits.actOnLimits,
  *   releaseEndedHolds: typeof limits.releaseEndedHolds,
  *   parkOverBudget: typeof parkOverBudget,
@@ -935,6 +941,7 @@ const LIVE_LAUNCH_ACTS = {
 	unparkAnswered: blocks.unparkAnswered,
 	actOnBlocks: blocks.actOnBlocks,
 	actOnIdle: blocks.actOnIdle,
+	actOnSynthetic: synthetic.actOnSynthetic,
 	actOnLimits: limits.actOnLimits,
 	releaseEndedHolds: limits.releaseEndedHolds,
 	parkOverBudget,
@@ -952,6 +959,7 @@ const SKIPPED_LAUNCH_ACTS = {
 	unparkAnswered: doNothing,
 	actOnBlocks: (launches) => launches,
 	actOnIdle: (launches) => launches,
+	actOnSynthetic: (launches) => launches,
 	actOnLimits: (launches, _mode, { slots }) => ({
 		launches,
 		slots,
@@ -1058,6 +1066,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 	const listed = judgedLaunches(booted.launches, agents, now, {
 		progressOf: (l) => io.readProgress(l, served),
 		causeOf: io.readCause,
+		isOwedResume: (l) => synthetic.isOwedResume(l, seen.io),
 	});
 	const acted = actOnLaunches(io, listed, {
 		mode: control.scope.mode,

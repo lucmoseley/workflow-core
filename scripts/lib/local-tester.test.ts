@@ -632,11 +632,14 @@ it("shows session admission the held slot as a lander (#2416)", async () => {
 		queueDir: tmp,
 		memory: () => ({ ok: true, mb: Number.MAX_SAFE_INTEGER }),
 	});
-	expect(readLiveLanders({ queueDir: tmp })).toEqual([
+	expect(readLiveLanders({ queueDir: tmp }).live).toEqual([
 		{ pid: process.pid, ...WHOLE },
 	]);
 	if (slot.ok) slot.release();
-	expect(readLiveLanders({ queueDir: tmp })).toEqual([]);
+	expect(readLiveLanders({ queueDir: tmp })).toEqual({
+		live: [],
+		unread: null,
+	});
 });
 
 it("holds a lander marker whose charge is not a number a whole run's (#3323)", () => {
@@ -644,10 +647,26 @@ it("holds a lander marker whose charge is not a number a whole run's (#3323)", (
 		queue: { queueDir: tmp, pid: process.pid },
 		join: { role: "lander" },
 	});
-	expect(readLiveLanders({ queueDir: tmp })).toEqual([
+	expect(readLiveLanders({ queueDir: tmp }).live).toEqual([
 		{ pid: process.pid, ...WHOLE },
 	]);
 	seat.leave();
+});
+
+/* Positive pair: "shows session admission the held slot as a lander (#2416)". */
+it("holds a whole run's charge, and says why, where the queue will not read (#5301)", () => {
+	fs.chmodSync(tmp, 0o000);
+	try {
+		expect(readLiveLanders({ queueDir: tmp })).toEqual({
+			live: [],
+			unread: {
+				why: expect.stringMatching(/suite queue .* would not read \(EACCES/),
+				chargeMb: WHOLE.chargeMb,
+			},
+		});
+	} finally {
+		fs.chmodSync(tmp, 0o755);
+	}
 });
 
 it("charges a whole suite, a named-file rerun and one past six files as lander runs of those files on the marker, a named run under a whole one (#3323, #3973)", async () => {
@@ -661,7 +680,7 @@ it("charges a whole suite, a named-file rerun and one past six files as lander r
 				queueDir: tmp,
 				memory: () => ({ ok: true, mb: Number.MAX_SAFE_INTEGER }),
 			});
-			charged.push(readLiveLanders({ queueDir: tmp })[0]?.chargeMb);
+			charged.push(readLiveLanders({ queueDir: tmp }).live[0]?.chargeMb);
 			return slot;
 		},
 		exec: recordingExec().exec,

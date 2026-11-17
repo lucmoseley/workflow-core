@@ -83,6 +83,9 @@ const DROPPED_HEADS = `refs/heads/${DROPPED_PREFIX}`;
  * protected branch does: pushed again, it is refused again — save where the
  * refusal is the remote's own fault, which lib/network-fault.js names. */
 const REMOTE_REJECTED = /^ ! \[remote rejected\].*/m;
+/* git push's words for a ref of an atomic push it or the remote refused,
+ * naming the ref after `refs/heads/`. */
+const REJECTED_REF = /^ ! \[(?:remote )?rejected\]\s+\S+ -> (\S+) /gm;
 /* Git's words for a loose object a crash left empty or torn, naming its file
  * by its fan-out directory and name. */
 const BROKEN_OBJECT =
@@ -329,14 +332,35 @@ function queueGit(
 				}
 				return whole;
 			}),
-		pushMain(sha) {
+		pushMain(sha, leases) {
+			/* A leased ref left as it is goes unsent, so git checks its lease
+			 * against the ref list the remote opened the push with: a ref
+			 * withdrawn between that list and the remote's update of `main`
+			 * still lands, a window of the one push (#5326). */
+			const leasing = leases.flatMap((l) => {
+				const ref = `refs/heads/${queueBranch(l.name)}`;
+				return [`--force-with-lease=${ref}:${l.sha}`, `${l.sha}:${ref}`];
+			});
 			try {
-				pushRemote(root, [`${sha}:refs/heads/${VERIFIED_BRANCH}`]);
-				return null;
+				pushRemote(root, [
+					"--atomic",
+					...leasing,
+					`${sha}:refs/heads/${VERIFIED_BRANCH}`,
+				]);
+				return { kind: "pushed" };
 			} catch (err) {
-				const refused = REMOTE_REJECTED.exec(String(caught(err).stderr ?? ""));
-				if (refused === null || !(err instanceof PushRefused)) throw err;
-				return refused[0].trim();
+				if (!(err instanceof PushRefused)) throw err;
+				const stderr = String(err.stderr ?? "");
+				const rejected = new Set(
+					[...stderr.matchAll(REJECTED_REF)].map((m) => m[1]),
+				);
+				const lost = leases
+					.filter((l) => rejected.has(queueBranch(l.name)))
+					.map((l) => l.name);
+				if (lost.length > 0) return { kind: "lease-lost", names: lost };
+				const refused = REMOTE_REJECTED.exec(stderr);
+				if (refused === null) throw err;
+				return { kind: "refused", line: refused[0].trim() };
 			}
 		},
 		isAncestor: (sha, of) => isAncestor(root, sha, of),
