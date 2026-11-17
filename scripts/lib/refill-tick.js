@@ -80,7 +80,7 @@ const {
 const { read: readTranscript } = require("./session-transcript.js");
 const { findNewestTranscript, mainChainRecords } = require("./transcript.js");
 const { hasConfig, resolveKey } = require("./workflow-core-config.js");
-const { readLastTyped } = require("./presence.js");
+const { readLastTypedSeat } = require("./presence.js");
 const { MODEL } = require("./refill-decide.js");
 const { refillFrontier } = require("./refill-frontier.js");
 const { appendTick, concurrencyFiles } = require("./concurrency.js");
@@ -1107,7 +1107,7 @@ function tick({ dryRun }) {
 			opening: {
 				control,
 				declared,
-				typedSeat: readLastTyped(declared).seat,
+				typedSeat: readLastTypedSeat(declared),
 			},
 		}),
 	);

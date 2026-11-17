@@ -11,8 +11,9 @@
  *
  * A TICK: read founder presence, untick each repo its owner opted out under the
  * control lock (#4188), reap, settle what a kill before the last tick's write
- * left out of the state (#4180), stop each job that never started, tend the served checkouts (their landing queue,
- * the machine's children, the repo holds and the `.git` probe), read the
+ * left out of the state (#4180), stop each job that never started, tend the
+ * served checkouts (their landing queue, the machine's children, the repo
+ * holds and the `.git` probe), read the
  * listing, stop each overflow session past its allowance (#3698), send each repo
  * hold's notice, queue the launches a boot killed (#3880), judge the finished
  * launches for progress, act on the blocked and idle ones (lib/refill-blocks.js),
