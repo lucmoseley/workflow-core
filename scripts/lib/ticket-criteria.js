@@ -21,7 +21,7 @@ const HEADING = /^\s{0,3}(#{1,6})\s+/;
  * both would report as unmet criteria.
  */
 /**
- * The criteria section's line range, [from, to), or null where it has none.
+ * The criteria section's line range, [from, to).
  * @param {readonly string[]} lines
  * @returns {[number, number]|null}
  */
@@ -94,7 +94,7 @@ function unmetCriteria(body) {
 
 /**
  * The body with the unmet criterion reading `criterion` ticked, each line
- * keeping its own ending. Any other criterion is left as it is.
+ * keeping its own ending.
  * @param {string} body
  * @param {string} criterion the item's text, as taskItems reads it
  * @returns {string}
