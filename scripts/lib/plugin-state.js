@@ -66,6 +66,14 @@ function readJsonSafe(at) {
 }
 
 /**
+ * Whether `root` ships a plugin of any name: a `.claude-plugin/plugin.json`.
+ * @param {string} root
+ * @returns {boolean}
+ */
+const shipsPlugin = (root) =>
+	fs.existsSync(path.join(root, ".claude-plugin", "plugin.json"));
+
+/**
  * Whether the repo at `root` is workflow-core itself rather than an adopter:
  * its own `.claude-plugin/plugin.json` names it. An absent or unreadable
  * manifest answers false.
@@ -429,6 +437,7 @@ module.exports = {
 	/* scripts/pick-retro-sessions.js reads repo settings with it. */
 	readJsonSafe,
 	isCoreHost,
+	shipsPlugin,
 	findPin,
 	/* lib/landing-pin.js reads a served repo's pin with it. */
 	readPin,

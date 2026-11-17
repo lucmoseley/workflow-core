@@ -720,7 +720,7 @@ describe("§W — which gate runs it in CI", () => {
 		).toMatch(/^node scripts\/biome-staged\.js /);
 		expect(
 			core.commands.testCanary,
-			"§W: commands.test is gated at commit through its verdict probe, so a canary is declared",
+			"§W: commands.test is gated at push through its verdict probe, so a canary is declared",
 		).toBe("scripts/verdict-canary.test.ts");
 		expect(fs.existsSync(path.join(ROOT, core.commands.testCanary))).toBe(true);
 	});
