@@ -838,9 +838,12 @@ it("marks the verdict proof failed on a red naming no failing file, and leaves i
 	);
 	const seed = () => {
 		fs.mkdirSync(path.dirname(record), { recursive: true });
-		fs.writeFileSync(record, JSON.stringify({ key: "k", verdict: "pass" }));
+		fs.writeFileSync(
+			record,
+			JSON.stringify({ k: { verdict: "pass", at: "" } }),
+		);
 	};
-	const verdict = () => JSON.parse(fs.readFileSync(record, "utf8")).verdict;
+	const verdict = () => JSON.parse(fs.readFileSync(record, "utf8")).k.verdict;
 	const tester = localTester({
 		root: work,
 		admit: admitted().admit,
