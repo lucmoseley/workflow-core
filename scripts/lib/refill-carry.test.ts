@@ -94,7 +94,7 @@ describe("the record of a carry", () => {
 		expect(buildCarriedText("/a")).toBe("");
 	});
 
-	it("reads a parked route's stopped seat off `from`, else its own seat", () => {
+	it("splits a parked route into the seat it stopped on (`from`, else its own), the seat it resumes on and its ids", () => {
 		const target = { seat: "/b", sessionId: "s", cwd: "/w" };
 		expect(parkedCarryOf({ ...target, from: "/a" })).toEqual({
 			from: "/a",

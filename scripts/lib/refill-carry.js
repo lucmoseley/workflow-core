@@ -2,8 +2,7 @@
  * refill-carry.js — the refill loop's one choice between resuming a stopped
  * session on its own seat and carrying it to another first (#5302): its
  * resume, its adoption after a kill, and the record and log line of where it
- * went. Every site passes the seat `to` the session resumes on and these
- * decide; `to` unset or the session's own seat resumes in place.
+ * went. `to` unset or the session's own seat resumes in place.
  */
 
 const { buildMovedReason, seatIdOf } = require("./refill-seats.js");
@@ -35,9 +34,6 @@ const parkedCarryOf = ({ seat, from, sessionId, cwd }) => ({
 });
 
 /**
- * Resume `l`'s stopped session on seat `to`: `inPlace`, by default
- * resumeStopped, where that is its own seat, else carried there and resumed
- * (moveSession, #5293).
  * @template {Seated} L
  * @param {{resumeStopped: (l: L, prompt: string, ids: SessionIds) => Resumed,
  *   moveSession: (l: L, target: MoveTarget, prompt: string,
@@ -53,8 +49,6 @@ const resumeOnSeat = (io, l, to, { prompt, ids, inPlace }) =>
 		: (inPlace ?? (() => io.resumeStopped(l, prompt, ids)))();
 
 /**
- * adoptResumed of a resume of `l`'s session on seat `to` since `since`: looked
- * for on `to` with that move where it carried the session there.
  * @template {Seated} L
  * @param {(l: L, ids: SessionIds, since: number, move?: MoveTarget) =>
  *   Adopted} adoptResumed
