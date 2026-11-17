@@ -9,7 +9,7 @@
  * The scripted routes record their own acts: resolve-ticket.js its close,
  * file-issue.js its filing, link-blocker.js its new blocked-by edge (#5399), and
  * issue-body.js a `gate` where its write gives an issue its first live gate
- * line (#3301) (lib/tracker-ops.js's recordOwnAct).
+ * line (#3301) (lib/own-acts.js's recordOwnAct).
  * A commit is the post-commit hook's commit ledger, which the reader takes as
  * an act.
  *

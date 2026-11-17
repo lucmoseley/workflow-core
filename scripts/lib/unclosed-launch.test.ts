@@ -3,13 +3,12 @@
  * (#3782). A false reading sends a session to re-check finished work; a missed
  * one relaunches `/implement` on work already landed. And which reads as
  * having ended with no act (#5399): a missed one relaunches a ticket whose
- * session released it ungated, until the no-progress brake pauses the repo.
+ * session released it ungated.
  */
 
 import { describe, expect, it } from "vitest";
 
 const {
-	buildGateFirstPrompt,
 	buildRowPrompt,
 	buildVerifyPrompt,
 	unclosedLaunchOf,
@@ -104,21 +103,23 @@ describe("the gate-first prompt (#5399)", () => {
 	const actless = (over: Record<string, unknown> = {}) =>
 		buildLaunch(1, { acts: {}, ...over });
 
-	it("opens on the command the dispatcher's ledger keys on, and names only its issue", () => {
-		const prompt = buildGateFirstPrompt(5399);
+	const GateFirst = buildRowPrompt(row, [actless()]);
+
+	it("opens on the command the dispatcher's ledger keys on, names only its issue, and fetches the gate rule", () => {
+		const prompt = buildRowPrompt({ ...row, number: 5399 }, [
+			buildLaunch(5399, { acts: {} }),
+		]);
 		expect(prompt.startsWith("/implement 5399 ")).toBe(true);
 		expect(prompt.match(/\d+/g)?.every((d: string) => d === "5399")).toBe(true);
 		expect(prompt).not.toContain("\n");
-		expect(prompt).toContain("blocked-ticket-gate");
+		expect(prompt).toContain("rule-text.sh blocked-ticket-gate");
 	});
 
 	it.each([
 		["no act line at all", {}],
 		["every kind counted zero", { commit: 0, close: 0 }],
 	])("follows a finished /implement launch with %s", (_, acts) => {
-		expect(buildRowPrompt(row, [actless({ acts })])).toBe(
-			buildGateFirstPrompt(1),
-		);
+		expect(buildRowPrompt(row, [actless({ acts })])).toBe(GateFirst);
 	});
 
 	it.each([
@@ -137,9 +138,16 @@ describe("the gate-first prompt (#5399)", () => {
 			buildRowPrompt(row, [actless(), buildLaunch(1, { acts: { block: 1 } })]),
 		).toBe("/implement 1");
 		const judge = actless({ prompt: "/triage 1", gate: true });
-		expect(buildRowPrompt(row, [actless(), judge])).toBe(
-			buildGateFirstPrompt(1),
-		);
+		expect(buildRowPrompt(row, [actless(), judge])).toBe(GateFirst);
+	});
+
+	it("types the plain command where an earlier launch committed (#3782)", () => {
+		expect(
+			buildRowPrompt(row, [
+				buildLaunch(1),
+				actless({ prompt: buildVerifyPrompt(1) }),
+			]),
+		).toBe("/implement 1");
 	});
 
 	it("leaves a row of another command and another checkout alone", () => {

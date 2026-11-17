@@ -25,10 +25,7 @@ const {
 
 const buildIdle = (reason: string, detail = "") => ({ reason, detail });
 const { mergeFrontiers } = require("./frontier-order.js");
-const {
-	buildGateFirstPrompt,
-	buildVerifyPrompt,
-} = require("./unclosed-launch.js");
+const { buildVerifyPrompt } = require("./unclosed-launch.js");
 
 const NOW = Date.parse("2026-10-18T12:00:00Z");
 const HOUR = 60 * 60 * 1000;
@@ -1529,7 +1526,7 @@ describe("decideTick launch filter", () => {
 			frontier: [row("wfc", 1)],
 			history: [
 				finished(1, { prompt: "/implement 1", acts: { commit: 1 } }),
-				finished(1, { prompt: buildVerifyPrompt(1), acts: { round: 1 } }),
+				finished(1, { prompt: buildVerifyPrompt(1), acts: {} }),
 			],
 		});
 		expect(d.launches[0].prompt).toBe("/implement 1");
@@ -1541,7 +1538,9 @@ describe("decideTick launch filter", () => {
 			frontier: [row("wfc", 1)],
 			history: [finished(1, { prompt: "/implement 1", acts: {} })],
 		});
-		expect(d.launches[0].prompt).toBe(buildGateFirstPrompt(1));
+		expect(d.launches[0].prompt).toMatch(
+			/^\/implement 1 — .*rule-text\.sh blocked-ticket-gate/,
+		);
 	});
 
 	it("launches a relabelled row on its own command, whatever its last launch did (#3782)", () => {

@@ -6,7 +6,8 @@
  * reference; a link that closes none resolves the blocker's id itself, POSTs
  * it with -F and verifies in a separate read; a self-link is refused before
  * any read; an unread graph links anyway, warning; `--json` names each
- * failure's reason (#5096). Broken, it lets a
+ * failure's reason (#5096); a new edge, and only that, records a block act
+ * (#5399). Broken, it lets a
  * loop-closing blocker link through, and every issue in that loop stays open
  * for good.
  *
@@ -107,6 +108,7 @@ const run = (
 			WFC_LINK_REPO: "o/r",
 			WFC_LINK_RETRIES: "2",
 			WFC_LINK_SLEEP: "0",
+			CLAUDE_CODE_SESSION_ID: "",
 			...extra,
 		},
 	});

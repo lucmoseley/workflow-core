@@ -13,11 +13,7 @@
  * some other issue reads as having closed this one, and is not caught.
  *
  * Its twin: a ticket whose latest such launch ended with no act at all
- * (#5399). The likeliest cause is a session that found the ticket could not
- * start yet and released it with only a comment, which gates nothing, so the
- * loop launches it again until its no-progress brake pauses the checkout. The
- * next launch is told to write that gate. A launch that died before acting
- * reads the same way, and its prompt still lets it build.
+ * (#5399). A launch that died before acting reads the same way.
  */
 
 const { takesValue } = require("./takes-label.js");
@@ -60,8 +56,7 @@ function isActless(l) {
 }
 
 /**
- * Each launch that `is` reads as its ticket's latest, a gate judgement's
- * passed over.
+ * Each launch that `is` reads as its ticket's latest.
  * @template {UnclosedRecord} L
  * @param {L[]} launches in launch order
  * @param {(l: L) => boolean} is
@@ -85,14 +80,20 @@ function latestWhere(launches, is) {
 const unclosedLaunches = (launches) => latestWhere(launches, isUnclosed);
 
 /**
+ * Whether `n`'s latest launch ended with no act, no launch of it having
+ * committed: where one has, its work may have landed, and the plain command
+ * re-reads it (#3782).
  * @param {UnclosedRecord[]} launches in launch order
  * @param {string} root
  * @param {number} n
  */
-const hasActlessLaunch = (launches, root, n) =>
-	latestWhere(launches, isActless).some(
-		(l) => l.root === root && l.issues[0] === n,
+const hasActlessLaunch = (launches, root, n) => {
+	const own = launches.filter((l) => l.root === root && l.issues.includes(n));
+	return (
+		latestWhere(own, isActless).some((l) => l.issues[0] === n) &&
+		!own.some((l) => (readImplementActs(l)?.commit ?? 0) > 0)
 	);
+};
 
 /**
  * @template {UnclosedRecord} L
@@ -140,7 +141,6 @@ function buildRowPrompt(row, launches) {
 }
 
 module.exports = {
-	buildGateFirstPrompt,
 	buildRowPrompt,
 	buildVerifyPrompt,
 	unclosedLaunchOf,

@@ -39,11 +39,10 @@ const {
 	claimIfFree,
 	labelNames,
 	readIssue,
-	readOwnFilings,
 	readParent: readIssueParent,
-	recordOwnAct,
 	similarTitles,
 } = require("./tracker-ops.js");
+const { readOwnFilings, recordOwnAct } = require("./own-acts.js");
 const { requireKey } = require("./workflow-core-config.js");
 const { caught } = require("./caught.js");
 const { buildFiledLine } = require("./filed-line.js");

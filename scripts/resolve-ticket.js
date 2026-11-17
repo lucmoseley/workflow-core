@@ -118,11 +118,11 @@ const {
 	isCardOwnIssue,
 	readIssue,
 	readParent,
-	recordOwnAct,
 	releaseCleanFileClaims,
 	releaseOwnClaim,
 	scriptIo,
 } = require("./lib/tracker-ops.js");
+const { recordOwnAct } = require("./lib/own-acts.js");
 const {
 	buildFindingsRefusal,
 	hasRecordMention,

@@ -56,7 +56,7 @@ const {
 const { resolveKey } = require("./workflow-core-config.js");
 const { caught } = require("./caught.js");
 const { docPath } = require("./script-path.js");
-const { recordOwnAct } = require("./tracker-ops.js");
+const { recordOwnAct } = require("./own-acts.js");
 
 /** @typedef {import("./wait-graph.js").Ref} Ref */
 /** @typedef {import("./wait-graph.js").Link} Link */

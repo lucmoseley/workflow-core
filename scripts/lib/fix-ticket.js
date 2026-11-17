@@ -30,7 +30,8 @@ const { queueBranch } = require("./landing-refs.js");
 const { liveQueueDeps } = require("./queue-issue.js");
 const { takesLabel } = require("./takes-label.js");
 const { tickBeforeClose } = require("./ticket-criteria.js");
-const { readOwnFilings, similarTitles } = require("./tracker-ops.js");
+const { similarTitles } = require("./tracker-ops.js");
+const { readOwnFilings } = require("./own-acts.js");
 const { readSubIssues } = require("./issue-tree.js");
 const { requireKey } = require("./workflow-core-config.js");
 

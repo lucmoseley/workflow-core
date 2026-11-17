@@ -636,13 +636,12 @@ describe("the rules that were already here", () => {
 
 	it("tells /implement alone to gate a ticket that cannot start yet before releasing it (#5399)", () => {
 		const ctx = inject("/implement 5399");
-		expect(ctx).toContain("gets its gate written before you release it");
-		expect(ctx).toContain("`node scripts/link-blocker.js <n> <blocker>`");
+		expect(ctx).toContain("Found that the ticket cannot start yet");
 		expect(ctx).toContain(
 			"`scripts/lib/rule-text.sh blocked-ticket-gate roadmap-gating`",
 		);
 		for (const cmd of ["/triage 5399", "/wayfinder 5399"])
-			expect(inject(cmd)).not.toContain("before you release it");
+			expect(inject(cmd)).not.toContain("cannot start yet");
 	});
 
 	it("gives /triage alone the whole-spec review (#892)", () => {
