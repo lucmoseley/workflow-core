@@ -983,8 +983,7 @@ const heldReserves = ({ landers, gates }, tree) => [
 ];
 
 /**
- * A reserve's held MB and its reason's name: off its read, else its default
- * charge with why the read failed.
+ * A reserve's held MB and its reason's name.
  * @param {UnreadReserve | null} unread
  * @param {() => number} heldMb
  * @param {{ holding: string }} named

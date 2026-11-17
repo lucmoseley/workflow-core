@@ -185,7 +185,7 @@ const idsOf = (l) => [...(l.jobId ? [l.jobId] : []), ...sessionIdsOf(l)];
 
 /**
  * The earliest time `root`'s reads must reach back to: the window's start, or
- * the start of a live launch or of the trial `record` holds open, so its
+ * the start of a running launch or of the trial `record` holds open, so its
  * landing reads whenever it came (#5275, #5300).
  * @param {BreakerLaunch[]} launches
  * @param {string} root
@@ -351,8 +351,7 @@ function trialOutcomeOf(trial, read) {
 const isRunning = (l) => l.finishedAt === null && l.jobId !== null;
 
 /**
- * The loop's log line for `mine`'s unfinished launches with no job id, which
- * an open breaker does not wait on.
+ * The loop's log line for `mine`'s unfinished launches with no job id.
  * @param {string} root
  * @param {BreakerLaunch[]} mine
  * @returns {{note?: string}}
@@ -369,7 +368,7 @@ function idlessNote(root, mine) {
 /**
  * `root`'s reading over the window, null where its commits will not read. A
  * timeline that would not read understates the hours, so it leaves a closed
- * breaker no reading, moving it nowhere, and is named in `note` (#5301).
+ * breaker no reading, and is named in `note` (#5301).
  * @param {string} root
  * @param {BreakerState} state
  * @param {ThroughputRead} read

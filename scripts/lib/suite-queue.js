@@ -1255,9 +1255,8 @@ function passingTurn(options = {}) {
 }
 
 /* The age past which no part-suite passes an older one the memory rung holds
- * but not at rest (#3058, #4783), so passing never starves it: the p90 of opened part-suite waits the
- * memory rung held, rounded up to the minute, from the replay's memory-held
- * line over the window after #3246's WSL change. p90 is a chosen rate, not a
+ * but not at rest (#3058, #4783), so passing never starves it: the p90 of
+ * opened part-suite waits the memory rung held. p90 is a chosen rate, not a
  * measured safe pass time. Its figure and window are on #3361. */
 const PART_PASS_AGE_MS = 7 * 60 * 1000;
 
@@ -1266,17 +1265,15 @@ const PART_PASS_AGE_MS = 7 * 60 * 1000;
 const QUEUE_SIGNALS = { SIGTERM: 143, SIGINT: 130, SIGHUP: 129 };
 
 /* The 10 s poll is a guess, set when the queue was built (mantahostels#2024)
- * and never measured: it asks the guard a few times a minute. The 40-minute
- * bound clears the measured wait (#5252): the p99 wait that ended in a run
- * was 20.5 min over 31,402 waits in workflow-core, and 33 min in
- * design-vault. A gate seat waits past it (queue-run.js `--gate`, #5274). */
+ * and never measured. The 40-minute bound clears the measured p99 wait that
+ * ended in a run, in each repo (#5252). A gate seat waits past it
+ * (queue-run.js `--gate`, #5274). */
 const QUEUE_POLL_MS = 10_000;
 const QUEUE_TIMEOUT_MS = 40 * 60 * 1000;
 
 /* How long one spell of the Windows-memory hold may hold a wait before the
- * wait runs anyway, logged (#4850). A first guess that has not yet bound:
- * over the 24 h #4852 read, the hold's spells at the 750 MB floor ran p50 1,
- * p90 4 and max 8 minutes, and no wait reached it. */
+ * wait runs anyway, logged (#4850). A first guess that has not yet bound
+ * (#4852). */
 const WINDOWS_MAX_HOLD_MS = 10 * 60 * 1000;
 
 /**
@@ -2082,7 +2079,7 @@ function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
 /**
  * The live markers `role` names, each with the charge admission holds for
  * it: its marker's, else `defaultMb`. A queue that will not read holds
- * `defaultMb`, failing closed (#5301). Sweeps nothing.
+ * `defaultMb`, failing closed (#5301).
  * @param {string} role
  * @param {number} defaultMb
  * @param {string} [queueDir]
@@ -2100,8 +2097,7 @@ function readLiveCharged(role, defaultMb, queueDir) {
 }
 
 /**
- * The live gate seats, queued or running, each with its charge, the default
- * where its marker names none or the queue will not read.
+ * The live gate seats, queued or running, each with its charge.
  * @param {{ queueDir?: string }} [options]
  * @returns {import("./admission.js").Gates}
  */
