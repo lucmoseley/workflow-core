@@ -5,7 +5,7 @@
  * the live ~/.claude/settings.json, and its file copies the live files under
  * ~/.claude (COPIES below: #2174, #2322); and that the founder's machine copies
  * of what the plugin ships equal their sources in this repo (SOURCED below:
- * #5344), read straight from the repo rather than through a fenced copy.
+ * #5344).
  *
  * Usage:
  *   node check-user-settings-drift.js [--warn] [<doc.md>] [<settings.json>]
@@ -15,7 +15,7 @@
  * Why this is not a CI job. The source of truth lives OUTSIDE the repository,
  * is not version-controlled, and exists on exactly one laptop. A CI runner has
  * no ~/.claude/settings.json to compare against, so a CI job here could only
- * ever skip while showing green, which reads as coverage it is not.
+ * ever skip while showing green.
  *
  * A snapshot that has silently drifted is worse than none: it will be trusted
  * to restore settings it no longer describes.
@@ -84,8 +84,7 @@ const COPIES = [
 const PLUGIN_ROOT = coreRoot();
 const CONTRACT = path.join("docs", "working-contract.md");
 /* The working rules the founder's ~/.claude/CLAUDE.md carries as sections of
- * the same name, each held to the contract's section; the rest of that file
- * is held to the doc's CLAUDE.md block (#5344). */
+ * the same name (#5344). */
 const RULE_SECTIONS = [
 	"Removal means gone",
 	"Leading practice",

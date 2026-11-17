@@ -31,7 +31,6 @@ deny() {
 # the scan and reads neither store.
 grep -qiE 'chrome\.exe|xdg-open|wslview|explorer\.exe|cmd\.exe|start-process|url\.dll|auth +login|npm +login' <<<"$cmd" || exit 0
 
-# The profile directory signed in to this session's account, and its address.
 # Where CLAUDE_CONFIG_DIR is unset, Claude Code keeps `.claude.json` in $HOME.
 config_dir=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 claude_json=$config_dir/.claude.json
@@ -270,7 +269,6 @@ PERL
   run=$cmd
 }
 
-# Bare chrome.exe: Chrome picks the profile, not this session's.
 if grep -qiE 'chrome\.exe' <<<"$run" && ! grep -qiE -- '--profile-directory' <<<"$cmd"; then
   deny "chrome.exe without --profile-directory opens whichever profile Chrome picks, not this session's. $open_right $picker"
 fi
