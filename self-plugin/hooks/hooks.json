@@ -2,34 +2,12 @@
 	"hooks": {
 		"PreToolUse": [
 			{
-				"matcher": "Bash|Write|Edit|NotebookEdit|Skill|Read|ListAgents|Agent|Task",
+				"matcher": "Bash|Write|Edit|NotebookEdit|Skill|Read|Glob|ListAgents|Agent|Task",
 				"hooks": [
 					{
 						"type": "command",
 						"command": "command -v node >/dev/null 2>&1 || exit 0; node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/run-pinned-guards.js \"${WFC_GUARD_CODE_DIR:-$HOME/.claude/.guard-code}\".current/scripts/guard-dispatch.js",
 						"timeout": 60,
-						"onFailure": "block"
-					}
-				]
-			},
-			{
-				"matcher": "Bash",
-				"hooks": [
-					{
-						"type": "command",
-						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/browser-profile-guard.sh",
-						"timeout": 10,
-						"onFailure": "block"
-					}
-				]
-			},
-			{
-				"matcher": "Read|Glob|Write|Bash",
-				"hooks": [
-					{
-						"type": "command",
-						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/practice-guard.sh",
-						"timeout": 10,
 						"onFailure": "block"
 					}
 				]

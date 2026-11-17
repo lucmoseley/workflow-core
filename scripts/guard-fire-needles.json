@@ -1249,6 +1249,36 @@
 					"core": "guard-wide-read",
 					"kind": "warn",
 					"text": "pours a whole file into context"
+				},
+				{
+					"id": "bare-chrome",
+					"core": "guard-browser-profile",
+					"kind": "deny",
+					"text": "chrome.exe without --profile-directory opens whichever profile"
+				},
+				{
+					"id": "default-browser",
+					"core": "guard-browser-profile",
+					"kind": "deny",
+					"text": "This opens the URL in the Windows default browser"
+				},
+				{
+					"id": "login-tool",
+					"core": "guard-browser-profile",
+					"kind": "deny",
+					"text": "This tool opens the Windows default browser itself"
+				},
+				{
+					"id": "off-list-note",
+					"core": "guard-practice-note",
+					"kind": "deny",
+					"text": "is not a practice note:"
+				},
+				{
+					"id": "craft-list",
+					"core": "guard-practice-note",
+					"kind": "inject",
+					"text": "The practice craft list,"
 				}
 			]
 		},
@@ -1848,39 +1878,6 @@
 					"id": "lost-verdict",
 					"kind": "notice",
 					"text": "pass/fail lines were cut from its output"
-				}
-			]
-		},
-		"browser-profile-guard.sh": {
-			"needles": [
-				{
-					"id": "bare-chrome",
-					"kind": "deny",
-					"text": "chrome.exe without --profile-directory opens whichever profile"
-				},
-				{
-					"id": "default-browser",
-					"kind": "deny",
-					"text": "This opens the URL in the Windows default browser"
-				},
-				{
-					"id": "login-tool",
-					"kind": "deny",
-					"text": "This tool opens the Windows default browser itself"
-				}
-			]
-		},
-		"practice-guard.sh": {
-			"needles": [
-				{
-					"id": "off-list-note",
-					"kind": "deny",
-					"text": "is not a practice note:"
-				},
-				{
-					"id": "craft-list",
-					"kind": "inject",
-					"text": "The practice craft list,"
 				}
 			]
 		},

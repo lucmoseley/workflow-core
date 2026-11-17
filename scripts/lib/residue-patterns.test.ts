@@ -112,6 +112,22 @@ describe("the strict patterns", () => {
 	});
 });
 
+/*
+ * The working rule that bans residue names residue's own words, so its section
+ * is blanked, line numbers kept, before a template is held to the patterns
+ * (#5383). Every other line stays held.
+ */
+const withoutRemovalRule = (text: string) => {
+	let inRule = false;
+	return text
+		.split("\n")
+		.map((l) => {
+			if (l.startsWith("## ")) inRule = l === "## Removal means gone";
+			return inRule && !l.startsWith("## ") ? "" : l;
+		})
+		.join("\n");
+};
+
 describe("the adopter templates", () => {
 	it.each(fs.readdirSync(path.join(__dirname, "..", "templates", "adopter")))(
 		"%s carries no residue",
@@ -121,7 +137,7 @@ describe("the adopter templates", () => {
 				path.join(__dirname, "..", "templates", "adopter", `${name}`),
 				"utf8",
 			);
-			expect(residueHits(text, rel)).toEqual([]);
+			expect(residueHits(withoutRemovalRule(text), rel)).toEqual([]);
 		},
 	);
 });

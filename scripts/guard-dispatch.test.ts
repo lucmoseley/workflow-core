@@ -123,7 +123,7 @@ describe("the registration", () => {
 	it("is one PreToolUse entry over its cores' tools, fail-closed at 60 s (#3226)", () => {
 		const groups = readRegistered("PreToolUse");
 		expect(groups.map((g) => g.matcher)).toEqual([
-			"Bash|Write|Edit|NotebookEdit|Skill|Read|ListAgents|Agent|Task",
+			"Bash|Write|Edit|NotebookEdit|Skill|Read|Glob|ListAgents|Agent|Task",
 		]);
 		expect(groups[0]?.hooks.find((h) => h.command === LINES[0])).toMatchObject({
 			timeout: 60,

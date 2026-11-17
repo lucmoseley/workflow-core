@@ -35,6 +35,7 @@ const STOP_CLASS = {
 	"guard-held-ticket": "breach",
 	"guard-paste-self-match": "breach",
 	"guard-session-id-prose": "breach",
+	"practice-guard": "breach",
 	"guard-session-ceiling": "notice",
 	"guard-lost-deny": "notice",
 	"guard-automode-refusal": "notice",

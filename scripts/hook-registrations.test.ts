@@ -83,7 +83,8 @@ const REGISTRATIONS: Registration[] = [
 	{
 		event: "PreToolUse",
 		id: "scripts/guard-dispatch.js",
-		matcher: "Bash|Write|Edit|NotebookEdit|Skill|Read|ListAgents|Agent|Task",
+		matcher:
+			"Bash|Write|Edit|NotebookEdit|Skill|Read|Glob|ListAgents|Agent|Task",
 		covers: [
 			"Bash",
 			"Write",
@@ -91,6 +92,7 @@ const REGISTRATIONS: Registration[] = [
 			"NotebookEdit",
 			"Skill",
 			"Read",
+			"Glob",
 			"ListAgents",
 			"Agent",
 			"Task",
@@ -336,18 +338,6 @@ const REGISTRATIONS: Registration[] = [
 		id: "scripts/refill-wake.sh",
 		matcher: null,
 		covers: [],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/browser-profile-guard.sh",
-		matcher: "Bash",
-		covers: ["Bash"],
-	},
-	{
-		event: "PreToolUse",
-		id: "scripts/practice-guard.sh",
-		matcher: "Read|Glob|Write|Bash",
-		covers: ["Read", "Glob", "Write", "Bash"],
 	},
 	{
 		event: "Stop",

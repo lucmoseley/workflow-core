@@ -979,6 +979,8 @@ describe("the manifest", () => {
 			["guard-echo-call", "Bash|Read", "closed", "function"],
 			["guard-dispatch-rewrite", "Agent|Task", "closed", "function"],
 			["guard-blind-dispatch", "Agent|Task", "closed", "function"],
+			["guard-browser-profile", "Bash", "closed", "function"],
+			["guard-practice-note", "Read|Glob|Write|Bash", "closed", "function"],
 		]);
 		expect(loadCores("Stop")).toEqual([]);
 	});

@@ -452,6 +452,22 @@
 			"tools": "Agent|Task",
 			"failure": "closed",
 			"tree": "session"
+		},
+		{
+			"name": "guard-browser-profile",
+			"core": "browser-profile.js",
+			"tools": "Bash",
+			"failure": "closed",
+			"tree": "host",
+			"host": "shell-guard-host.js"
+		},
+		{
+			"name": "guard-practice-note",
+			"core": "practice-note.js",
+			"tools": "Read|Glob|Write|Bash",
+			"failure": "closed",
+			"tree": "host",
+			"host": "shell-guard-host.js"
 		}
 	],
 	"PostToolUse": [

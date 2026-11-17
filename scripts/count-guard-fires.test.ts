@@ -690,7 +690,7 @@ describe("the CLI, run as a command", () => {
 		const { out } = run(["--dir", corpus, "--mentions"]);
 		expect(out).toContain("MENTIONS");
 		expect(out).toContain(
-			"guard-dispatch.js  [PreToolUse:Bash|Write|Edit|NotebookEdit|Skill|Read|ListAgents|Agent|Task, PostToolUse:Bash|Read|Write|Edit|NotebookEdit|WebFetch|WebSearch]  (1 mention(s))",
+			"guard-dispatch.js  [PreToolUse:Bash|Write|Edit|NotebookEdit|Skill|Read|Glob|ListAgents|Agent|Task, PostToolUse:Bash|Read|Write|Edit|NotebookEdit|WebFetch|WebSearch]  (1 mention(s))",
 		);
 	});
 
@@ -743,7 +743,7 @@ describe("the CLI, run as a command", () => {
 			withDenyAt("undated.jsonl", null);
 			const { out } = run(["--dir", corpus, "--since", "2026-08-22"]);
 			expect(out).toContain(
-				"0  guard-dispatch.js  [PreToolUse:Bash|Write|Edit|NotebookEdit|Skill|Read|ListAgents|Agent|Task, PostToolUse:Bash|Read|Write|Edit|NotebookEdit|WebFetch|WebSearch]  (1 undated fire(s) excluded)",
+				"0  guard-dispatch.js  [PreToolUse:Bash|Write|Edit|NotebookEdit|Skill|Read|Glob|ListAgents|Agent|Task, PostToolUse:Bash|Read|Write|Edit|NotebookEdit|WebFetch|WebSearch]  (1 undated fire(s) excluded)",
 			);
 		});
 
@@ -780,7 +780,7 @@ describe("the CLI, run as a command", () => {
 				"2026-08-22",
 			]);
 			expect(out).toContain(
-				"guard-dispatch.js  [PreToolUse:Bash|Write|Edit|NotebookEdit|Skill|Read|ListAgents|Agent|Task, PostToolUse:Bash|Read|Write|Edit|NotebookEdit|WebFetch|WebSearch]  (1 mention(s))",
+				"guard-dispatch.js  [PreToolUse:Bash|Write|Edit|NotebookEdit|Skill|Read|Glob|ListAgents|Agent|Task, PostToolUse:Bash|Read|Write|Edit|NotebookEdit|WebFetch|WebSearch]  (1 mention(s))",
 			);
 		});
 
