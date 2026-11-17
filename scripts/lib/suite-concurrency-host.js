@@ -100,6 +100,8 @@ function buildHostPorts(root, log) {
 					}).state === "fresh"
 				);
 			} catch {
+				/* Fail open to no advice: targeted-runs arms only on a fresh proof,
+				 * so an unreadable one reads as unproven (#5383 user story 28). */
 				log("verdict proof unreadable — commands.test read as unproven");
 				return false;
 			}

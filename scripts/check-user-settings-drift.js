@@ -367,7 +367,9 @@ function compareCopy(
 			`no ${name} block found in ${docPath} — expected between ${markers}.`,
 		);
 
-	if (!fs.existsSync(livePath))
+	const liveRead = readText(livePath);
+	brokenIfUnreadable(ctx, livePath, liveRead);
+	if (liveRead.state !== "read")
 		return { note: `, ${name} absent (not compared)`, difference: null };
 
 	if (!found)
@@ -376,7 +378,7 @@ function compareCopy(
 			difference: `${name}: ${livePath} has no copy in ${docPath} — expected between ${markers}`,
 		};
 
-	const read = trimEndRun(fs.readFileSync(livePath, "utf8"), "\n");
+	const read = trimEndRun(liveRead.data, "\n");
 	const liveText = ruleSectionsCut
 		? trimEndRun(withoutRuleSections(read), "\n")
 		: read;
@@ -405,6 +407,18 @@ function compareCopy(
 }
 
 /**
+ * BROKEN where `file` is there but could not be read: the apparatus failed,
+ * so nothing can be said of its drift (base §N4).
+ * @param {Ctx} ctx
+ * @param {string} file
+ * @param {import("./lib/file-read.js").FileRead<string>} read
+ */
+function brokenIfUnreadable(ctx, file, read) {
+	if (read.state === "unreadable")
+		ctx.broken(`${file} is unreadable: ${read.message}`);
+}
+
+/**
  * Where two texts first part, for a DRIFT line.
  * @param {string} expected
  * @param {string} live
@@ -421,17 +435,22 @@ function firstDifference(expected, live) {
 /**
  * Each machine copy of a shipped file against its source in this repo: the ok
  * line's note, and the differences. A live file that is absent is not
- * compared; nor is a source this checkout lacks.
+ * compared; nor is a source this checkout lacks. One that is there but
+ * unreadable is BROKEN, as the check cannot say whether it drifted.
+ * @param {Ctx} ctx
  * @returns {{ note: string, differences: string[] }}
  */
-function compareSourcedFiles() {
+function compareSourcedFiles(ctx) {
 	const notes = [];
 	const differences = [];
 	for (const { live, source } of SOURCED) {
 		const livePath = path.join(os.homedir(), ".claude", ...live);
 		const name = path.basename(livePath);
-		const sourceRead = readText(path.join(PLUGIN_ROOT, source));
+		const sourcePath = path.join(PLUGIN_ROOT, source);
+		const sourceRead = readText(sourcePath);
 		const liveRead = readText(livePath);
+		brokenIfUnreadable(ctx, sourcePath, sourceRead);
+		brokenIfUnreadable(ctx, livePath, liveRead);
 		if (sourceRead.state !== "read" || liveRead.state !== "read") {
 			notes.push(`, ${name} not compared`);
 			continue;
@@ -450,13 +469,18 @@ function compareSourcedFiles() {
 /**
  * Each working-rule section of the live ~/.claude/CLAUDE.md against the
  * contract's: the ok line's note, and the differences. Not compared where
- * either file is absent, as an adopter's plugin holds no contract.
+ * either file is absent, as an adopter's plugin holds no contract; BROKEN
+ * where either is unreadable, or the contract has lost a section it names.
+ * @param {Ctx} ctx
  * @returns {{ note: string, differences: string[] }}
  */
-function compareRuleSections() {
+function compareRuleSections(ctx) {
 	const claudeMd = path.join(os.homedir(), ".claude", "CLAUDE.md");
+	const contractPath = path.join(PLUGIN_ROOT, CONTRACT);
 	const liveRead = readText(claudeMd);
-	const contractRead = readText(path.join(PLUGIN_ROOT, CONTRACT));
+	const contractRead = readText(contractPath);
+	brokenIfUnreadable(ctx, claudeMd, liveRead);
+	brokenIfUnreadable(ctx, contractPath, contractRead);
 	if (liveRead.state !== "read" || contractRead.state !== "read")
 		return { note: ", working rules not compared", differences: [] };
 	const liveText = liveRead.data;
@@ -465,7 +489,10 @@ function compareRuleSections() {
 	for (const heading of RULE_SECTIONS) {
 		const want = sectionBody(contract, heading);
 		const got = sectionBody(liveText, heading);
-		if (want === null) continue;
+		if (want === null)
+			ctx.broken(
+				`${CONTRACT} has no "## ${heading}" section, which RULE_SECTIONS names`,
+			);
 		if (got === null)
 			differences.push(
 				`CLAUDE.md: ${claudeMd} has no "## ${heading}" section, which ${CONTRACT} words`,
@@ -526,8 +553,8 @@ const SPEC = {
 		// --- Compare the file copies -----------------------------------------------
 
 		const copies = COPIES.map((sc) => compareCopy(ctx, { doc, docPath }, sc));
-		const files = compareSourcedFiles();
-		const rules = compareRuleSections();
+		const files = compareSourcedFiles(ctx);
+		const rules = compareRuleSections(ctx);
 		const copyNote =
 			copies.map((sc) => sc.note).join("") + files.note + rules.note;
 		const differences = [

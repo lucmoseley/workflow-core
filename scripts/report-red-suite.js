@@ -470,7 +470,10 @@ function main() {
 	}
 	const { rows, at } = redWindow;
 	const red = rows[at];
-	if (red === undefined) return;
+	if (red === undefined)
+		throw new Error(
+			`${redWindow.workflow.file}: judged run ${at} is missing from its window`,
+		);
 	const url = red.url || "";
 	const green =
 		rows.slice(at + 1).find((r) => r.verdict && GOOD.has(r.verdict)) || null;
