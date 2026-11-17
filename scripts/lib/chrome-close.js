@@ -322,6 +322,7 @@ function listHeld() {
 }
 
 module.exports = {
+	INTERRUPT_WAIT_MS,
 	closeCaps,
 	closeSession,
 	listHeld,
