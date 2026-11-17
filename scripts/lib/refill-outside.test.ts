@@ -18,7 +18,7 @@
 import { expect, it } from "vitest";
 import { COPY_WHY } from "./bg-resume-fake";
 import { nextTryAt, RESUME_CAP } from "./block-act.js";
-import type { Reading } from "./block-cause.js";
+import { type Reading, syntheticStopAt } from "./block-cause.js";
 import { API_PROMPT } from "./loop-prompts.js";
 import { NET_PROBE_OFFLINE_LINE } from "./net-probe-fake";
 import { logNetWaits } from "./refill-blocks.js";
@@ -33,6 +33,12 @@ import {
 	record,
 } from "./refill-blocks-fixture";
 import { actOnOutside } from "./refill-outside.js";
+import {
+	doneJob,
+	founderRow,
+	stoppedRows,
+	syntheticRow,
+} from "./synthetic-stop-fixture";
 
 const SEAT = "/home/u/.claude";
 const row = (state = "blocked") => ({
@@ -570,4 +576,96 @@ it("takes up no copy's unretired original as a session of its own", () => {
 	]);
 	l.tick(NOW, { rows: [{ ...row(), id: "sess-f1-" }] });
 	expect(l.calls.filter((c) => c.startsWith("type"))).toEqual([]);
+});
+
+/* A `done` session the harness ended on a synthetic reply (#5324): its
+ * reading the real one, over the job record and rows the case sets. */
+function syntheticLoop(start: { job: unknown; rows: unknown }) {
+	const read = { ...start };
+	const l = loop({
+		syntheticStopOf: () => syntheticStopAt(read),
+		jobStateOf: () => read.job as never,
+	});
+	return { ...l, read };
+}
+const minutesAgo = (m: number) => new Date(NOW - m * MIN).toISOString();
+
+it("types the synthetic resume into a done outside session once the quiet window passes, twice, then logs the give-up", () => {
+	const l = syntheticLoop({ job: doneJob(), rows: stoppedRows(minutesAgo(2)) });
+	l.tick(NOW, { rows: [row("done")] });
+	expect(typed(l.calls)).toBe(0);
+	l.tick(NOW + 4 * MIN, { rows: [row("done")] });
+	expect(typed(l.calls)).toBe(1);
+	expect(logs(l.calls)).toContainEqual(
+		expect.stringMatching(
+			new RegExp(
+				`^resumed ${NAME.replace(/[()]/g, "\\$&")}, whose last turn .* try 1 of 2$`,
+			),
+		),
+	);
+	/* Unseen past the verdict window, the same try relaunches. */
+	l.tick(NOW + 6 * MIN, { rows: [row("done")] });
+	expect(l.calls).toContain("stop f1");
+	expect(l.calls).toContain("resume f1");
+});
+
+it("leaves a done outside session alone once a turn row follows its stop, the founder's included", () => {
+	const l = syntheticLoop({
+		job: doneJob(),
+		rows: [...stoppedRows(minutesAgo(10)), founderRow("go on", minutesAgo(1))],
+	});
+	l.tick(NOW, { rows: [row("done")] });
+	expect(typed(l.calls)).toBe(0);
+	expect(l.calls).not.toContain("stop f1");
+});
+
+it("relaunches an outside session the reaper stopped, by --bg --resume alone", () => {
+	const l = syntheticLoop({ job: doneJob(), rows: stoppedRows(minutesAgo(2)) });
+	l.tick(NOW, { rows: [row("done")] });
+	/* Reaped: off the registry, its job record stopped. */
+	l.read.job = doneJob({ state: "stopped" });
+	l.tick(NOW + 4 * MIN, { rows: [] });
+	expect(l.calls).toContain("resume f1");
+	expect(l.calls).not.toContain("stop f1");
+	expect(typed(l.calls)).toBe(0);
+});
+
+it("carries the count across stops a resume ran straight into, and logs the give-up at the cap", () => {
+	const l = syntheticLoop({
+		job: doneJob(),
+		rows: stoppedRows(minutesAgo(10)),
+	});
+	/* Each resume arrives, then the harness ends the turn again, no model
+	 * reply between. */
+	const endsAgain = (m: number) => {
+		l.read.rows = [
+			...stoppedRows(minutesAgo(10)),
+			founderRow(
+				"[refill loop] resume",
+				new Date(NOW + (m - 1) * MIN).toISOString(),
+			),
+			syntheticRow(new Date(NOW + m * MIN).toISOString()),
+		];
+	};
+	l.tick(NOW, { rows: [row("done")] });
+	endsAgain(1);
+	l.tick(NOW + 6 * MIN, { rows: [row("done")] });
+	l.tick(NOW + 7 * MIN, { rows: [row("done")] });
+	expect(typed(l.calls)).toBe(2);
+	endsAgain(8);
+	l.tick(NOW + 14 * MIN, { rows: [row("done")] });
+	l.tick(NOW + 15 * MIN, { rows: [row("done")] });
+	expect(typed(l.calls)).toBe(2);
+	expect(logs(l.calls)).toContainEqual(
+		expect.stringMatching(
+			/^stopped trying to resume .* after 2 resumes of its synthetic stop/,
+		),
+	);
+});
+
+it("acts on nothing where the outside session's transcript is unread", () => {
+	const l = syntheticLoop({ job: doneJob(), rows: null });
+	l.tick(NOW, { rows: [row("done")] });
+	expect(typed(l.calls)).toBe(0);
+	expect(l.calls).not.toContain("stop f1");
 });
