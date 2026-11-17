@@ -46,7 +46,7 @@ if ($Register) {
 	# at this limit leaves the marker, which launcher.vbs boots past.
 	$settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Hours 2) -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew
 	Register-ScheduledTask -TaskName $self -Action $action -Principal $principal -Settings $settings -Force `
-		-Description 'Compacts the WSL disk with diskpart (workflow-core #5044). Started only by wsl-disk-compaction.js once no session is live, because it runs wsl --shutdown.' | Out-Null
+		-Description 'Compacts the WSL disk with diskpart (workflow-core#5044). Started only by wsl-disk-compaction.js once no session is live, because it runs wsl --shutdown.' | Out-Null
 	if (-not (Test-Path $log)) { Write-CompactLog "registered size_gb=$(ConvertTo-GB (Get-Item $Vhdx).Length) c_free_gb=$(Get-FreeGB)" }
 	Write-Host "Registered '$self'. Log: $log"
 	exit 0

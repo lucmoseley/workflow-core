@@ -98,7 +98,7 @@ interface ReapOverrides {
 	stop?: (id: string) => { ok: boolean; why?: string };
 	isDirty?: (f: string) => boolean | null;
 	runs?: Record<string, object>;
-	recordStopped?: (rows: Agent[]) => string | null;
+	recordStopped?: (rows: Agent[], now: number) => string | null;
 }
 
 /**

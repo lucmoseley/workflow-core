@@ -659,7 +659,7 @@ function logStopped(done, kept, isDirty, log) {
  *   runs?: Record<string, RunRecord>,
  *   startedAt?: string,
  *   recordRun?: (record: RunRecord) => void,
- *   recordStopped?: (stopped: DoneRow[]) => string|null,
+ *   recordStopped?: (stopped: DoneRow[], now: number) => string|null,
  *   log: (line: string) => void}} input  `recordStopped`, the rows a live
  *   run stopped, for lib/reaped-jobs.js's journal (#5331): why it failed,
  *   else null
@@ -785,7 +785,10 @@ function reap({
 	const done = stopEach(due, nextState, { dryRun, now, stop, readPss });
 	carryUnlisted(listed, state, nextState);
 	saveState(nextState);
-	const unjournalled = recordStopped(done.filter((d) => d.stopped));
+	const unjournalled = recordStopped(
+		done.filter((d) => d.stopped),
+		now,
+	);
 
 	finish({
 		source: "registry",

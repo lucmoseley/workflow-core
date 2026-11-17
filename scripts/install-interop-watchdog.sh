@@ -131,7 +131,7 @@ unit_dir="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
 mkdir -p "$unit_dir"
 cat >"$unit_dir/wsl-disk-compaction.service" <<UNIT
 [Unit]
-Description=Start the monthly WSL disk compaction once due and no session is live (workflow-core #5044)
+Description=Start the monthly WSL disk compaction once due and no session is live (workflow-core#5044)
 
 [Service]
 Type=oneshot
@@ -143,7 +143,7 @@ TimeoutStartSec=7h
 UNIT
 cat >"$unit_dir/wsl-disk-compaction.timer" <<UNIT
 [Unit]
-Description=Daily check whether the WSL disk compaction is due (workflow-core #5044)
+Description=Daily check whether the WSL disk compaction is due (workflow-core#5044)
 
 [Timer]
 # Untraced: 02:00 is when sessions are likeliest to have drained.

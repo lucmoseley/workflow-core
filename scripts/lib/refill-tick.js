@@ -122,10 +122,8 @@ const {
 const { readJson, writeJson } = require("./refill-json.js");
 const { actOnOutside } = require("./refill-outside.js");
 const { OUTSIDE_FILE, refillPath } = require("./refill-dir.js");
-const { readReapedJobs } = require("./reaped-jobs.js");
+const { readReaped, writeReapedRead } = require("./reaped-jobs.js");
 
-/* The keys of lib/reaped-jobs.js's journal entries the loop has read. */
-const REAPED_READ_FILE = ".refill-reaped-read.json";
 const {
 	launchRecorded,
 	ledgerJobOf,
@@ -681,18 +679,6 @@ function readOutside() {
 }
 
 /**
- * lib/reaped-jobs.js's journal and the keys of the entries the loop has read
- * (BlockReads' readReaped, #5331).
- */
-function readReaped() {
-	const raw = readJson(refillPath(REAPED_READ_FILE), log);
-	const read = Array.isArray(raw)
-		? raw.filter((k) => typeof k === "string")
-		: [];
-	return { jobs: readReapedJobs(), read };
-}
-
-/**
  * block-cause.js's isResumedSinceApiStop on `l`'s job record, transcript and
  * timeline (BlockReads' isResumedSinceStop, #4815).
  * @param {import("./refill-blocks.js").SessionRef} l
@@ -957,8 +943,8 @@ const blockIo = (served) => ({
 		hasFounderTypedSinceApiStop(readTranscriptRows(l, readJobRecordOf(l))),
 	readOutside,
 	writeOutside: (records) => writeJson(refillPath(OUTSIDE_FILE), records),
-	readReaped,
-	writeReapedRead: (keys) => writeJson(refillPath(REAPED_READ_FILE), keys),
+	readReaped: () => readReaped(log),
+	writeReapedRead,
 	holdLockedOut: (l, { refusal, call }, now) =>
 		holdLockedOut(l.root, { job: l.jobId, refusal, call }, now, log),
 	labelParked,

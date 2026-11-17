@@ -9,7 +9,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { journalReapedJobs, readReapedJobs } from "./reaped-jobs.js";
+import { journalReapedJobs, readReaped } from "./reaped-jobs.js";
+
+const readReapedJobs = () => readReaped(() => undefined).jobs;
 
 const HOUR = 60 * 60_000;
 const row = {
@@ -40,28 +42,26 @@ afterEach(() => {
 const seed = (list: unknown[]) =>
 	fs.writeFileSync(path.join(dir, ".reaped-jobs.json"), JSON.stringify(list));
 
-it("adds an entry, stamped with its write, for each stopped row", () => {
-	const before = Date.now();
-	expect(journalReapedJobs([row])).toBeNull();
-	const [e] = readReapedJobs();
-	expect(e).toEqual({ ...entry(e.at) });
-	expect(e.at).toBeGreaterThanOrEqual(before);
+const NOW = Date.parse("2026-11-17T03:00:00Z");
+
+it("adds an entry, stamped with the run's clock, for each stopped row", () => {
+	expect(journalReapedJobs([row], NOW)).toBeNull();
+	expect(readReapedJobs()).toEqual([entry(NOW)]);
 });
 
 it("drops entries older than a day on its next write, and keeps the rest", () => {
-	const now = Date.now();
-	seed([entry(now - 25 * HOUR), entry(now - 23 * HOUR)]);
-	journalReapedJobs([{ ...row, id: "f2" }]);
+	seed([entry(NOW - 25 * HOUR), entry(NOW - 23 * HOUR)]);
+	journalReapedJobs([{ ...row, id: "f2" }], NOW);
 	expect(readReapedJobs().map((e) => [e.jobId, e.at])).toEqual([
-		["f1", now - 23 * HOUR],
-		["f2", expect.any(Number)],
+		["f1", NOW - 23 * HOUR],
+		["f2", NOW],
 	]);
 });
 
 it("adds no entry for a row that names no seat or cwd, and reads no malformed one", () => {
 	const { cwd: _, ...noCwd } = row;
 	seed([{ at: "x" }, null]);
-	journalReapedJobs([noCwd]);
+	journalReapedJobs([noCwd], NOW);
 	expect(readReapedJobs()).toEqual([]);
 });
 
@@ -69,5 +69,5 @@ it("says why where the journal will not write", () => {
 	const blocker = path.join(dir, "a-file");
 	fs.writeFileSync(blocker, "");
 	vi.stubEnv("WFC_REFILL_DIR", path.join(blocker, "sub"));
-	expect(journalReapedJobs([row])).toEqual(expect.any(String));
+	expect(journalReapedJobs([row], NOW)).toEqual(expect.any(String));
 });

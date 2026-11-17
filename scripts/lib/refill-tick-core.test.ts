@@ -1804,6 +1804,41 @@ describe("a launch the harness ended on a synthetic reply, through the tick (#53
 		);
 	});
 
+	it.each([
+		[
+			"a launch hold stands",
+			{ launchHold: { holder: "s1", until: NOW + 20 * MIN } },
+		],
+		["the loop is paused", { paused: { by: "founder", at: 7 } }],
+	])("types nothing into a launch while %s", async (_why, over) => {
+		const { io, calls } = synTick(Syn);
+		await tickOf(io, control(over));
+		for (const act of ["blockIo.type", "blockIo.stop", "blockIo.resumeStopped"])
+			expect(calls).not.toContain(act);
+	});
+
+	it("holds a launch's due resume while the API host is unreachable, no try spent", async () => {
+		const { io, calls, lines, disk } = fakeIo(
+			stateOf({ launches: [Syn] }),
+			{ readListing: () => listedAs(["syn", "done"]) },
+			{
+				frontier: [],
+				block: {
+					syntheticStopOf: () =>
+						syntheticStopAt({ job: doneJob(), rows: stoppedRows(stopAt(6)) }),
+					jobStateOf: () => doneJob() as never,
+					probeNetwork: () => "offline",
+				},
+			},
+		);
+		await tickOf(io);
+		expect(calls).not.toContain("blockIo.type");
+		expect(lines.join("\n")).toContain(
+			"these due resumes wait for the next tick",
+		);
+		expect(synOf(disk)?.synthetic?.tries ?? 0).toBe(0);
+	});
+
 	it("logs the give-up at the cap, then lets the launch finish", async () => {
 		const capped = record({
 			...Syn,

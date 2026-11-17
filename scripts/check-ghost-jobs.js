@@ -55,9 +55,8 @@
  * reaper has stopped it, though the model never wrote an ending: its last turn
  * row is the harness's own "No response requested." record. The refill loop
  * resumes such a job; this names the one it did not reach or gave up on,
- * older than 5 minutes (lib/synthetic-jobs.js). It reads files alone, but a
- * run that skips on an unread oracle, with a working job to judge, reports
- * none.
+ * older than 10 minutes (lib/synthetic-jobs.js). It reads files alone, so an
+ * unread oracle still reports it, saying the working jobs went unjudged.
  *
  * DEGRADES TO SILENCE, NEVER TO "DEAD". An oracle that will not run, reads short
  * or has changed shape leaves through ctx.skip() and raises no finding.
@@ -163,12 +162,13 @@ const unreadableKeyOf = (u) => `unreadable\t${u.store}\t${u.job}`;
  */
 const hungKeyOf = (h) => `hung\t${h.job}\t${h.sessionId}`;
 
+const SYNTHETIC_KEY = "synthetic\t";
 /**
  * A synthetic stop's identity: its job and the stop's own time, so a later,
  * separate stop of the same job is reported afresh (#5324).
  * @param {{job: string, at: number}} s
  */
-const syntheticKeyOf = (s) => `synthetic\t${s.job}\t${s.at}`;
+const syntheticKeyOf = (s) => `${SYNTHETIC_KEY}${s.job}\t${s.at}`;
 
 /**
  * The ghost keys already delivered into a session — empty where none were, and
@@ -288,20 +288,25 @@ function judgeJob(
 
 /**
  * Judges every working job against the oracle, pushing the ones naming no
- * session onto `unreadable`.
+ * session onto `unreadable`; where the oracle will not read, `unjudged` says
+ * why and nothing is judged.
+ * @returns {{ghosts: Ghost[], hung: Hung[], young: number, listed: number,
+ *   unjudged?: string}}
  */
 function judgeWorking(
-	/** @type {Ctx} */ ctx,
 	/** @type {{jobs: Jobs, working: WorkingJob[], unreadable: UnreadableJob[], minutes: number, hungMinutes: number}} */ opts,
 ) {
 	const { jobs, working, unreadable, minutes, hungMinutes } = opts;
 	const live = liveSessions();
 	if (!live.ids)
-		ctx.skip(
-			`${live.why}. ${working.length} working job(s) went unjudged — none is being called a ghost or hung on an oracle this run could not read.`,
-		);
-	// ctx.skip throws, which the checker below cannot see through.
-	const ids = /** @type {Set<string>} */ (live.ids);
+		return {
+			ghosts: [],
+			hung: [],
+			young: 0,
+			listed: 0,
+			unjudged: `${live.why}. ${working.length} working job(s) went unjudged — none is being called a ghost or hung on an oracle this run could not read.`,
+		};
+	const ids = live.ids;
 	const pids = /** @type {Map<string, number>} */ (live.pids);
 	const me = process.env.CLAUDE_CODE_SESSION_ID;
 
@@ -521,7 +526,7 @@ runCheck({
 		// — too slow for a PreToolUse hook (mantahostels#411).
 		const judged =
 			working.length > 0
-				? judgeWorking(ctx, { jobs, working, unreadable, minutes, hungMinutes })
+				? judgeWorking({ jobs, working, unreadable, minutes, hungMinutes })
 				: { ghosts: [], hung: [], young: 0, listed: 0 };
 		const { young, listed } = judged;
 
@@ -546,17 +551,29 @@ runCheck({
 		const synthetic = standingSynthetic.filter(
 			(s) => !seen.has(syntheticKeyOf(s)),
 		);
+		/* A synthetic stop reads files alone, so an unread oracle skips the run
+		 * only where it has none to report. */
+		if (judged.unjudged && synthetic.length === 0) ctx.skip(judged.unjudged);
+		/* Nothing was judged against the oracle, so the ghosts and hung jobs
+		 * already reported stay stamped. */
+		const carried = judged.unjudged
+			? [...seen].filter((k) => !k.startsWith(SYNTHETIC_KEY))
+			: [];
 		/* Sorted, because this is also the signature the reader compares one
 		 * persisted report against the last delivered one by (mantahostels#1975). */
 		const signature = JSON.stringify(
 			[
-				...standing.map(keyOf),
-				...standingUnreadable.map(unreadableKeyOf),
-				...standingHung.map(hungKeyOf),
-				...standingSynthetic.map(syntheticKeyOf),
+				...new Set([
+					...standing.map(keyOf),
+					...standingUnreadable.map(unreadableKeyOf),
+					...standingHung.map(hungKeyOf),
+					...standingSynthetic.map(syntheticKeyOf),
+					...carried,
+				]),
 			].sort(),
 		);
 
+		if (judged.unjudged && synthetic.length > 0) ctx.say(judged.unjudged);
 		report(ctx, {
 			ghosts,
 			hung,

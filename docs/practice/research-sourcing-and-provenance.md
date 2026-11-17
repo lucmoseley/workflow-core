@@ -10,6 +10,7 @@ Researched: 2026-10-24
 - A vendor's or project's own docs are a primary source about that product only: good for plain facts about it, weak for an evaluation or a general claim, since the author has a vested interest. Wikipedia, "Reliable sources" §Self-published sources (usable "about themselves", not for "claims about third parties") and "Independent sources" ("can be used to fill in noncontroversial details or to provide the subject's viewpoint"); Garousi, Felderer, Mäntylä, grey-literature guidelines, IST 106 (2019), Table 7 ("Is there vested interest? E.g., a tool comparison by authors that are working for particular tool vendor"); Wineburg and McGrew, Stanford working paper 2017.A1 (fact-checkers judge a site by what other sites say of it) [named expert]
 - Popularity is not evidence of quality. Wikipedia, "Reliable sources" (user-generated sites "are generally unacceptable as sources"); Wineburg and McGrew 2017 [named expert]
 - Use the highest tier that exists, and say so where you drop a tier. A field body may use a practitioner survey for what data cannot yet show. McGill 6S guide ("begin your search at the highest possible level") [named expert]; OWASP Top 10 2021 introduction (8 of 10 categories "from contributed data", 2 from a survey, since "contributed data is looking into the past") [standard or field body]
+- workflow-core's Leading practice rule folds GRADE's and 6S's levels into four tiers: a field body's guidance on top; a paper, review or expert verdict with reasons next; surveys and curated lists below; a source about itself cited for a general claim, or popularity, unverified. No source states this mapping, so it sets no default [unverified]
 
 ## Tools
 
@@ -17,7 +18,3 @@ Researched: 2026-10-24
 - Lateral reading and SIFT (Caulfield, hapgood.us/2019/06/19/sift-the-four-moves/, post of 2019-06-19, read 2026-10-25) [named expert]; the CRAAP test (Sarah Blakeslee, CSU Chico Meriam Library, library.csuchico.edu/sites/default/files/craap-test.pdf, revision of 2010-09-17, read 2026-10-25) [named expert], which Wineburg and McGrew say can mislead when used alone [named expert]
 - Unread: Oxford CEBM Levels of Evidence (cebm.ox.ac.uk, free, returned 403 to every fetch); DiCenso, Bayley, Haynes 2009 (6S, seen through the McGill guide); Dybå, Kitchenham, Jørgensen, IEEE Software 22(1) 2005 (paywalled, abstract only)
 - Research: #2657, its research comment (issuecomment-6375859988).
-
-## In workflow-core
-
-- **Applying it to practice notes:** This repo's four tiers fold GRADE's and 6S's levels: a field body's guidance on top; a paper, review or expert verdict with reasons next; surveys and curated lists below; a source about itself cited for a general claim, or popularity, unverified. No source states this mapping, so it sets no default [unverified]

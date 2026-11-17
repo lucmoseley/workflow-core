@@ -44,6 +44,8 @@ No source found covers gating a refactoring programme by measurement. The defaul
 - Break a tie in path length on successor count. CP/MISF is HLFET with ties going to more immediate successors, the survey's "major improvement"; Kolisch ranks most total successors third of six, good as a secondary key. Kwok and Ahmad 1999 [survey or curated list]; Kolisch 1994 [named expert].
 - Give a prerequisite the highest priority of everything it holds up, transitively. Sha, Rajkumar and Lehoczky, "Priority inheritance protocols", IEEE Trans. Computers 39(9), 1990 (a blocker "executes its critical section at the highest priority level of all the jobs it blocks"; "Priority inheritance is transitive") [named expert], which covers locks, not precedence edges; for precedence graphs, deadline modification passes a successor's deadline back to its predecessors in one backward pass (Chetto, Silly and Bouchentouf 1990, after Lawler 1973, read only through course slides; the paper is paywalled) [unverified]
 - Rank the inherited tier above path length, so a long chain to nothing urgent stays below urgent work. This follows from the two entries above and no source states it alone.
+- The plugin's `pick-next` skill breaks the tie on transitive reach, not immediate successors (mantahostels#101). `scripts/pick-next.js` (what the tool does) [standard or field body]
+- `pick-next` adds one more rule: a parent that only closes when its children close adds nothing to the path length, because it holds no work of its own (mantahostels#105 rule 5). `scripts/pick-next.js` (what the tool does) [standard or field body]
 
 ## Reviewing the ticket mix and judging process changes
 
@@ -79,8 +81,3 @@ Researched: 2026-11-08 for this section.
 - hyperfine benchmarks commands over many runs, with warmup, outlier detection, several commands compared in one run (old against new as a concurrent control) and JSON export. Apache-2.0, v2.0.0, read 2026-10-26, with aarch64-unknown-linux builds. github.com/sharkdp/hyperfine README, which covers what the tool does only [standard or field body]. Its use as the per-batch gate rests on the SRE and Kohavi entries above
 
 **Not read (paywalled or blocked):** Hunt and Thomas, *The Pragmatic Programmer* (book; tracer bullets read through the Artima interview); Cohn, *User Stories Applied* and *Agile Estimating and Planning* (books); Reinertsen, *The Principles of Product Development Flow* (book); Kohavi, Tang and Xu, *Trustworthy Online Controlled Experiments* (book); Cockburn, "Walking Skeleton" and "Elephant Carpaccio" (alistair.cockburn.us returned 404); PMI, *PMBOK Guide* on schedule network dependencies (paywalled); Chetto, Silly and Bouchentouf 1990 (Springer, paywalled); Hu 1961, Adam, Chandy and Dickson 1974 and Kasahara and Narita 1984, read only through Kwok and Ahmad 1999; the ITIL 4 Problem Management and Change Enablement practice guides (paywalled); Seddon, *Freedom from Command and Control*, Wheeler, *Understanding Variation*, and Deming, *The New Economics* (books).
-
-## In workflow-core
-
-- **Ordering the frontier toward a target:** This repo breaks the tie on transitive reach, not immediate successors (mantahostels#101)
-- **Ordering the frontier toward a target:** This repo adds one more rule: a parent that only closes when its children close adds nothing to the path length, because it holds no work of its own (mantahostels#105 rule 5)

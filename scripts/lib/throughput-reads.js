@@ -63,7 +63,7 @@ function readMainCommits(root, since) {
 			"log",
 			"origin/main",
 			"--no-merges",
-			`--since=@${Math.floor(since / 1000)}`,
+			`--max-age=${Math.floor(since / 1000)}`,
 			"--format=%H %ct",
 		],
 		{ timeout: GIT_LOG_TIMEOUT_MS },

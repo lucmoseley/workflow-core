@@ -13,6 +13,7 @@ Tier tags: [standard or field body], [named expert], [survey or curated list], [
 - Vitest `--changed` uses the static module graph. The experimental `experimental.recordDependencies` option records the modules each test file loads, and uses that record "instead of the static module graph". A test file with no record always runs. https://vitest.dev/guide/cli (`--changed`, `experimental.recordDependencies`). [standard or field body]
 - Nx `affected` finds changed files with Git, then maps them to projects through the project graph: "Determine which projects depend on the projects you modified." https://nx.dev/docs/features/ci-features/affected. [standard or field body]
 - Agreement (4 sources): select by a file-to-test dependency map, measured or static.
+- workflow-core's read-edge manifest (`scripts/generate-test-read-edges.js`, `scripts/lib/test-read-edges.js`) is the dynamic form (Microsoft TIA, Vitest recordDependencies). The manifest's generator (what the tool does) [standard or field body]
 
 ### Safety rules that all leaders apply
 
@@ -49,6 +50,7 @@ Tier tags: [standard or field body], [named expert], [survey or curated list], [
 - Turborepo hashes the inputs of a task into a "fingerprint". On a hit, it replays the logs of the first run. "Turborepo assumes that your tasks are deterministic." https://turborepo.dev/docs/crafting-your-repository/caching. [standard or field body]
 - Bazel turns off test caching for tests with an external dependency: tag `external` means "test has an external dependency; disable test caching." https://bazel.build/reference/test-encyclopedia (tag conventions). [standard or field body]
 - Agreement (Bazel, Gradle, Turborepo): key a cached test result on a hash of all its inputs (test file, files it reads, config, tool version, relevant env). Do not cache a failed result by default (Bazel `auto`). Do not cache a test that reads inputs outside the hash. Three adopters alone, so this sets no default.
+- In a repo running workflow-core, its read-edge manifest gives the input set; a hash of those files plus config can be the key. Derived from the agreement above, so it sets no default [unverified]
 
 ### Deduplicate identical runs that are in flight
 
@@ -124,6 +126,7 @@ Tier tags: [standard or field body], [named expert], [survey or curated list], [
 - Bazel uses one resource budget for all local actions, not a worker count per action. `--local_resources`: "Bazel will limit concurrently running actions based on the available resources and the resources required." Tests can declare the resources they need. `--local_test_jobs` (default `auto`) is "The max number of local test jobs to run concurrently", and it accepts forms such as `HOST_CPUS*.5`. https://bazel.build/reference/command-line-reference (`--local_resources`, `--local_test_jobs`). [standard or field body]
 - Bazel common definitions assume each test size uses 1 CPU core when it schedules local tests. https://bazel.build/reference/be/common-definitions (`size`). [standard or field body]
 - Agreement (Vitest, Bazel user manual/command-line reference, Jest watch default): the sum of (workers + 1 main thread) over all concurrent runs must not exceed the cores. The leading design is one machine-wide budget of CPU (and RAM) that each run draws from, not a fixed count of slots that each start a full-size pool. The machine-wide budget rests on Bazel as an adopter, so that half sets no default; the worker sum rests on Vitest's own sharding guidance.
+- workflow-core runs one whole suite at a time, machine-wide (`WHOLE_SUITE_MAX` in `scripts/lib/suite-ladder.js`, #2680), so on 8 cores its workers plus one main thread fit with room to spare. `scripts/lib/suite-ladder.js` (what the tool does) [standard or field body]
 
 ### Effects of contention on wall time and flakiness
 
@@ -139,6 +142,7 @@ Tier tags: [standard or field body], [named expert], [survey or curated list], [
 - Buildkite Test Engine feeds historic timings to "a bin packing algorithm" across the parallel jobs, with per-test timings summed per file. https://buildkite.com/docs/test-engine/test-splitting. [named expert]
 - Vitest's `sequence.sequencer` is "A custom class that defines methods for sharding and sorting", and "Sharding is happening before sorting, and only if `--shard` option is provided". Its default `BaseSequencer.shard` sorts files by a hash of their path and cuts equal counts (vitest 4.1.11 source). https://vitest.dev/config/sequence. [standard or field body]
 - Agreement (CircleCI, Depot, Buildkite): split by each file's recorded time, packed so the jobs finish together, not by file count. One file longer than a job's budget caps that job whatever the packing, so it must be split or made faster. For a file with no timing Depot falls back to file size.
+- For a file with no timing, workflow-core's shard plan (`scripts/lib/shard-plan.js`) charges the dataset's median instead, since a file's size there says little about its spawns. `scripts/lib/shard-plan.js` (what the tool does) [standard or field body]
 
 ## Memory reservation for a test run
 
@@ -223,6 +227,7 @@ Researched 2026-11-06.
 - Pass reuse: a tree whose hash already passed needs no new run; reuse across different trees (Chromium's freshness window) breaks the exact-tree rule. [unverified]
 - Pipelining: every speculative queue (Zuul, GitHub, Mergify, Trunk, Graphite, Aviator; Uber [named expert]) starts batch N+1 on "main + N + N+1" before N finishes, fast-forwards in order, and on red at N cancels and rebuilds what follows without N's suspects. Shopify runs 3 batches of 8 at once and removes a change only after 3 successive failures, so a flake ejects 0.39% of changes against 25% at tolerance 0. https://shopify.engineering/successfully-merging-work-1000-developers. [named expert]
 - Agreement (git docs, Hoare, every forge queue, Chromium): the queue makes merges without client hooks, installs nothing an exact cache holds, and retries in the run that failed; the full suite on the exact tip stays the one gate.
+- Caching `node_modules` on an exact lockfile, OS and Node key was measured in workflow-core's CI at 30–53 s → 3–5 s per job (#4545). One repo's measurement, so it sets no default [unverified]
 
 ### Queue health
 
@@ -239,6 +244,7 @@ Researched 2026-11-10.
 - Batch size: direction only. Zuul's window starts at 20, floor 3, "increased by one" on a merge and "halved" on a failure. https://zuul-ci.org/docs/zuul/latest/gating.html. [standard or field body] Flaky failures cut one project's best batch from 9 to 4 (Najafi, Rigby, Shang, ESEC/FSE 2019, https://ece.uwaterloo.ca/~wshang/pubs/Armin_FSE_2019.pdf). [named expert] Mergify: with N parallel checks a batch of N + 1 resolves in one round, `(N^k - 1) / (N - 1)` in k. [unverified] No source gives batch size as a function of the red rate.
 - Time to merge against the suite. Uber's measured P95 waits are 18.6, 9.9 and 17.3 min on builds of 5–35 min (https://arxiv.org/abs/2501.03440). [named expert] Graphite claims "just 1 CI cycle", no method. [unverified] Chromium budgets one builder cycle: "Median cycle time needs to be under 40 minutes for trybots. 90th percentile should be around an hour". [standard or field body] None publishes a target of the form time-to-merge ≤ k × suite, and none has a suite as short as 180 s, where merge and dispatch overhead rival the test time.
 - Agreement (Mergify, Graphite, Trunk): a red batch's isolation runs start at once. Vendors alone, so this sets no default. Agreement (Rigby group, Mergify, Chromium): isolation reruns only the failed tests. Agreement (Chromium, Aviator, Shopify, Google): one failure never removes a change; a second failing run on the same tree, or a pass without the change, does. Agreement (GitHub, Mergify, Trunk, Aviator, Shopify): a pass on a tree that holds the change is proof for it.
+- workflow-core's lander (`scripts/queue-lander.js`) takes parallel isolation with the confirm as a twin: on a tester that runs named files in parallel, each member's two runs alone are asked together, and a member is dropped only where both are red (#4951). Reason: its red batches are mostly one-member, so the gain is in the confirm's round trip, not in a split. It does not drop a lone red batch unisolated: a flaky file's lone batches pass alone and land. Successor-evidence landing is not taken; it needs a full-suite run beside the isolation. Its time-to-land target is house: `docs/environment.md` §6. `scripts/queue-lander.js` (what the tool does) [standard or field body]
 - Unread: Ananthanarayanan et al., EuroSys 2019, in primary (403); Beheshtian, Bavand, Rigby, TSE 2021 (source of the 40% threshold); Bavand and Rigby, ICSME 2021.
 
 ## Mutation-test runs
@@ -273,10 +279,4 @@ Researched 2026-11-10.
 
 ## In workflow-core
 
-- **Selection from changed files:** The repo's read-edge manifest is the dynamic form (Microsoft TIA, Vitest recordDependencies).
-- **Cache test results by a hash of their inputs:** For this repo, a read-edge manifest gives the input set. A hash of those files plus config can be the key.
-- **Total workers across concurrent runs must fit the cores:** For this repo: 3 slots on 8 cores leaves about 2 workers per slot, if each slot also has one main thread ((1+1) x 3 = 6, or (1+2) x 3 = 9 for a small oversubscription).
-- **Splitting a suite across parallel jobs:** For a file with no timing, this repo charges the dataset's median instead, since a file's size here says little about its spawns.
-- **What the queue does not redo:** Caching `node_modules` on an exact lockfile, OS and Node key was measured here at 30–53 s → 3–5 s per job (#4545).
-- **A red batch: isolate, confirm, measure:** This repo takes parallel isolation with the confirm as a twin: on a tester that runs named files in parallel, each member's two runs alone are asked together, and a member is dropped only where both are red (#4951). Reason: its red batches are mostly one-member, so the gain is in the confirm's round trip, not in a split. It does not drop a lone red batch unisolated: a flaky file's lone batches pass alone and land. Successor-evidence landing is not taken; it needs a full-suite run beside the isolation. Its time-to-land target is house: `docs/environment.md` §6.
 - **Comparing two forms' latency on a loaded host:** This repo's form is `scripts/measure-guard-port/bench.py --paired` (#3216); its 3% margin (#3232) and one final 720-pair re-read of an INCONCLUSIVE (#4664) are house, its +30 step and 90 cap untraced, and its median of ratios departs from Duet's geometric mean so one loaded call does not move it.
