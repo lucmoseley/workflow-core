@@ -81,6 +81,15 @@ const { PushRefused } = createRequire(__filename)("./lib/network-fault.js");
 const START_LANDER = path.resolve(__dirname, "start-lander.js");
 const ANCHORS = ".claude/guard-registry-anchors.json";
 
+/** Whether `pid` runs, a zombie being no run. */
+const isLive = (pid: string) => {
+	try {
+		return !/\) [ZX] /.test(fs.readFileSync(`/proc/${pid}/stat`, "utf8"));
+	} catch {
+		return false;
+	}
+};
+
 /** A commit on `from`, after `write` where given, pushed as `queue/<name>`, returning its sha. */
 const pushQueue = (name: string, from: string, write?: () => void) => {
 	git(work, "checkout", "-q", "--detach", from);
@@ -202,7 +211,7 @@ describe("a run", () => {
 		expect(fs.existsSync(path.join(hooks, "calls.log"))).toBe(false);
 	});
 
-	it("runs the batch gate set where the Actions run repeats the rest, and every gate where it does not (#4545)", () => {
+	it("runs the batch gate set where the Actions run repeats the rest, the tested set where the local tester repeats the suite, and every gate where neither does (#4545, #5308)", () => {
 		const seed = git(work, "rev-parse", "HEAD");
 		const members = [
 			{ name: "a", sha: pushQueue("a", seed), pushedAt: 1 },
@@ -212,8 +221,50 @@ describe("a run", () => {
 
 		queueGit(work, { ciRepeats: true }).mergeMembers(seed, members);
 		expect(calls().at(-1)).toBe("pre-commit --gates=batch");
+		queueGit(work, { suiteRepeats: true }).mergeMembers(seed, members);
+		expect(calls().at(-1)).toBe("pre-commit --gates=tested");
 		queueGit(work).mergeMembers(seed, members);
 		expect(calls().at(-1)).toBe("pre-commit");
+	});
+
+	it("ends gates that trap SIGTERM at their limit, the processes they started with them, and refuses the merge with that reason rather than retrying it (#5308)", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const lone = { name: "a", sha: pushQueue("a", seed), pushedAt: 1 };
+		const pids = path.join(tmp, "gate.pids");
+		/* The batch pass's hook, and the child it waits on, both ignore TERM:
+		 * only the KILL to the group ends them. */
+		stubHooks(
+			["pre-commit"],
+			onBatchPass(
+				`trap '' TERM; echo $$ >> '${pids}'; sh -c 'echo $$ >> "$0"; sleep 60' '${pids}'`,
+			),
+		);
+		const stderr = spyStderr();
+		let merged: unknown;
+		try {
+			/* Crosses the real clock, as run-budgeted.js's kill is of real
+			 * processes. 2 s and 0.5 s are guesses, unmeasured: past the git
+			 * steps here, and far short of the stub's 60 s. */
+			merged = queueGit(work, {
+				mergeTimeoutMs: 2000,
+				gateGraceMs: 500,
+			}).mergeMembers(seed, [lone], true);
+		} finally {
+			restoreStderr();
+		}
+		expect(merged).toMatchObject({
+			kind: "refused",
+			name: "a",
+			reason: expect.stringMatching(
+				/^its gates ran past their 2 s limit and were ended, every process they started with them/,
+			),
+		});
+		const started = fs.readFileSync(pids, "utf8").trim().split("\n");
+		expect(started).toHaveLength(2);
+		expect(started.filter(isLive)).toEqual([]);
+		expect(stderr.mock.calls.join("")).toContain(
+			"queue-lander: queue/a's merge refused: its gates ran past their 2 s limit",
+		);
 	});
 
 	it("gives the merges to `started` before the batch's gates where the Actions run repeats the rest, and never where it does not (#4573)", () => {

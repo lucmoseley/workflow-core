@@ -123,6 +123,7 @@ function buildLanderDeps(
 	return {
 		git: queueGit(root, {
 			ciRepeats: built.repeatsGates === true,
+			suiteRepeats: built.repeatsSuite === true,
 		}),
 		tester: built,
 		ledger: fileLedger(files.ledger),

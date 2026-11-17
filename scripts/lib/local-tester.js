@@ -593,6 +593,7 @@ function localTester({
 }) {
 	const dir = path.join(root, LANDER_WORKTREE);
 	return {
+		repeatsSuite: true,
 		async verdict(_place, sha, files = []) {
 			/** @type {Checkout} */
 			const checkout = { root, dir, sha, exec };
