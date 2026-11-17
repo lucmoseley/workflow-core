@@ -55,24 +55,24 @@ function readMarker(env) {
 }
 
 /**
- * The last typed prompt's time in ms and the plan seat it was typed on. `at`
- * is null where no time is recorded or the marker is unreadable; `seat` is
- * null where none is recorded, it is not a plan seat `list` declares, or the
- * seat file refuses, as readConfiguredSeats reads it.
+ * The plan seat the last prompt was typed on: null where none is recorded, it
+ * is not a plan seat `list` declares, or the seat file refuses, as
+ * readConfiguredSeats reads it.
  * @param {import("./refill-seats.js").SeatList} list
  * @param {Record<string, string | undefined>} [env]
- * @returns {{at: number|null, seat: string|null}}
+ * @returns {string|null}
  */
-function readLastTyped(list, env = process.env) {
-	const { at, recorded } = readMarker(env);
+function readLastTypedSeat(list, env = process.env) {
+	const { recorded } = readMarker(env);
 	const listed =
 		list.errors.length === 0 &&
 		planSeatsOf(list.seats).some((s) => s.dir === recorded);
-	return { at, seat: recorded && listed ? recorded : null };
+	return recorded && listed ? recorded : null;
 }
 
 /**
- * The last typed prompt's time in ms, null as readLastTyped's `at` is.
+ * The last typed prompt's time in ms: null where no time is recorded or the
+ * marker is unreadable.
  * @param {Record<string, string | undefined>} [env]
  */
 const readLastTypedAt = (env = process.env) => readMarker(env).at;
@@ -109,7 +109,7 @@ function isAbsentSinceSwitch(switchedAt, lastTyped, now) {
 
 module.exports = {
 	isAbsentSinceSwitch,
-	readLastTyped,
+	readLastTypedSeat,
 	readLastTypedAt,
 	markPresent,
 	presenceAt,

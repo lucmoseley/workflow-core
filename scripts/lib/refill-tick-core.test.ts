@@ -1108,10 +1108,7 @@ describe("the dry-run policy (#4212)", () => {
 		await runTick(io, {
 			dryRun: true,
 			now: NOW,
-			opening: {
-				...opening(awayControl()),
-				typedSeat: null,
-			},
+			opening: opening(awayControl()),
 		});
 		expect(calls).toContain("previewReap");
 		expect(calls.filter((port) => Object.hasOwn(ACTS, port))).toEqual([]);
@@ -1123,10 +1120,7 @@ describe("the dry-run policy (#4212)", () => {
 			await runTick(io, {
 				dryRun,
 				now: NOW,
-				opening: {
-					...opening(awayControl()),
-					typedSeat: null,
-				},
+				opening: opening(awayControl()),
 			});
 			return blockCalls(calls);
 		};

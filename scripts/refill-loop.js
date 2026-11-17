@@ -124,7 +124,7 @@ const {
 	isNotice,
 } = require("./lib/refill-notice.js");
 const { configDir, seatDir } = require("./lib/config-dir.js");
-const { readLastTyped } = require("./lib/presence.js");
+const { readLastTypedSeat } = require("./lib/presence.js");
 const {
 	buildCheckoutEnv,
 	readExclusionWhy,
@@ -435,7 +435,7 @@ function readSeatsView(planSeats, { root, budgetOf, at, callerSeat }) {
 	return commands.buildSeatsView({
 		seats,
 		overflow: seatReading.overflowReadings(declared, seats, budgetOf),
-		typedSeat: readLastTyped(declared).seat,
+		typedSeat: readLastTypedSeat(declared),
 		ceilings,
 		callerSeat,
 	});
