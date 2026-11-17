@@ -132,7 +132,6 @@ const {
 	walkCommands,
 } = require("./shell-parse.js");
 const { QUOTED, literal, runText } = require("./shell-words.js");
-const { ruleModule } = require("./rule-gates.js");
 const {
 	SUITE_MAX,
 	WHOLE_SUITE_MAX,
@@ -214,12 +213,13 @@ const { treeOrHost } = require("./tree-or.js");
  *   part-suite was judged, where the queue records it
  * @property {() => string[]} runners the host's declared `suiteRunners`
  * @property {() => string | null} declaredTest the host's `commands.test`
+ * @property {(tree: string) => boolean} testProven whether `commands.test` has
+ *   a fresh verdict-proof record for the tree at `tree` (lib/verdict-probe.js)
  * @property {(argv: string[], tree: string) => { plain: boolean } | { fault: string }} fullLaunchPlain
  *   whether a `--full` launch's argv is plain and the read graph renders from
  *   the tree at `tree`, the session's
  * @typedef {import("./shell-parse.js").WalkPorts & SuitePorts &
  *   Pick<import("./kit-context.js").KitContext, "scriptPath" | "corePaths" | "ruleText" | "docPath"> & {
- *   moduleOn: (module: import("./workflow-core-config.js").Module) => boolean,
  *   log: (what: string, detail?: string) => void,
  *   told: (id: string) => boolean,
  *   readLatch: (name: string) => string | null,
@@ -1334,8 +1334,10 @@ function injectionOf(st, whole) {
 		prelude.push(
 			`BEFORE THIS ${st.memoryKind.toUpperCase()} RUN, MemAvailable reads ${st.memoryMb} MB.`,
 		);
-	if (!whole) skip.push("targeted-runs");
-	skip.push(...ruleModule(st.ctx, "suites", ["targeted-runs"]));
+	/* Only a command whose verdict probe passed is known to take file
+	 * arguments, so only its whole-suite launch is told to name files. */
+	if (!whole || !st.ctx.testProven(treeRoot(st.ctx)))
+		skip.push("targeted-runs");
 	return {
 		injectRules: ["targeted-runs", "suite-tree-dirty", "memory-figure"],
 		skip,

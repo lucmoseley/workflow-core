@@ -1071,7 +1071,7 @@ describe("--against HEAD over a guard's own bytes", () => {
 		fragment("rule-gated", gated);
 		write(
 			"scripts/guard-gated.js",
-			'module.exports = (ctx) => ({\n\tinjectRules: ["rule-gated"],\n\tskip: [\n\t\t...ruleModule(ctx, "suites", ["rule-gated"]),\n\t],\n});\n',
+			'module.exports = (ctx) => ({\n\tinjectRules: ["rule-gated"],\n\tskip: [\n\t\t...ruleModule(ctx, "site", ["rule-gated"]),\n\t],\n});\n',
 		);
 		write(
 			".claude/workflow-core.json",
@@ -1084,7 +1084,7 @@ describe("--against HEAD over a guard's own bytes", () => {
 	}
 
 	it("refuses a crossing whose bytes include a module-gated id, naming the group, its size at HEAD and the bytes added", () => {
-		const base = gatedCrossing(["suites"]);
+		const base = gatedCrossing(["site"]);
 		expect(
 			sessionFindings().map((f: { total: number }) => f.total),
 			"the level run must see the crossing",

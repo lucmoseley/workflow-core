@@ -56,7 +56,7 @@ function buildLaunchPorts({ root, log }) {
  *   gate seats, which the queue reads (lib/suite-queue.js `readGateSeats`)
  */
 function buildHostPorts(root, log) {
-	const { readCommandFor } = require("./workflow-core-config.js");
+	const { readCommandFor, readConfig } = require("./workflow-core-config.js");
 	return {
 		tscLaunchPeakMb: (dir, bin) =>
 			require("./tsc-slot.js").launchPeakMb(dir, { bin }),
@@ -82,6 +82,24 @@ function buildHostPorts(root, log) {
 			} catch {
 				log("workflow-core.json unreadable — no declared test command read");
 				return null;
+			}
+		},
+		testProven: (tree) => {
+			try {
+				const { commands, testCanary } = readConfig({ root, quiet: true });
+				const { proofState } = require("./verdict-probe.js");
+				const { markersDir } = require("./marker-root.js");
+				return (
+					proofState({
+						root: tree,
+						command: commands.test,
+						canary: testCanary,
+						markers: markersDir(root),
+					}).state === "fresh"
+				);
+			} catch {
+				log("verdict proof unreadable — commands.test read as unproven");
+				return false;
 			}
 		},
 		/* Required at the call: full-launch-plain.js requires run-vitest.js,

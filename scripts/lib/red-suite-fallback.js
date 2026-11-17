@@ -22,8 +22,8 @@
  * requires report-red-suite.js at load, so a launch only follows a load of
  * the filer's whole require tree from that same tree moments before.
  *
- * Core only: the registry gates `red-suite` on the core host, so an adopter
- * keeps no such reading and has no filer to launch.
+ * Core only: check-ci-status.js, which calls this, reads the core's own
+ * `scheduled-checks` sweep.
  */
 
 const { spawnOutliving } = require("./user-scope.js");

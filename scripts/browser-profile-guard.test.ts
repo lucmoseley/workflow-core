@@ -1,11 +1,11 @@
 // @vitest-environment node
 /*
  * The browser-profile guard refuses only a command that would really open a
- * URL, not the same words in a heredoc body or a quoted argument (#1547).
+ * URL, not the same words in a heredoc body or a quoted argument (#1547), and
+ * names the Chrome profile it derives from the session's own account (#5339).
  *
- * The guard is machine-level, at ~/.claude/hooks/browser-profile-guard.sh, so
- * what runs here is its reference copy in docs/claude-user-settings.md;
- * `npm run check:settings` holds that copy to the live file.
+ * The fixtures pin the two undocumented stores the guard reads: `.claude.json`'s
+ * `oauthAccount.emailAddress` and Chrome's `Local State` `.profile.info_cache`.
  */
 
 import { spawnSync } from "node:child_process";
@@ -13,45 +13,86 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { copyBlockPattern } from "./lib/settings-copy";
 
-const DOC = path.resolve(__dirname, "..", "docs", "claude-user-settings.md");
-const PATTERN = copyBlockPattern("browser-profile-guard.sh", "```bash");
+const HOOK = path.resolve(__dirname, "browser-profile-guard.sh");
 
 const CHROME = '"/mnt/c/Program Files/Google/Chrome/Application/chrome.exe"';
 const OPENER_OFF =
 	"BROWSER='C:\\Windows\\System32\\where.exe' WSLENV=BROWSER/w";
 
+const ACCOUNT = "travel@example.test";
+const INFO_CACHE = {
+	Default: { name: "Person 1", user_name: "other@example.test" },
+	"Profile 1": { name: "Travel", user_name: ACCOUNT },
+	"Profile 2": { name: "Work", user_name: "work@example.test" },
+};
+const LOCAL_STATE = "AppData/Local/Google/Chrome/User Data/Local State";
+
 let dir: string;
-let hook: string;
+let fixtures = 0;
 
 beforeAll(() => {
-	const found = fs.readFileSync(DOC, "utf8").match(PATTERN);
-	if (!found) throw new Error(`no browser-profile-guard.sh block in ${DOC}`);
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "browser-profile-guard-"));
-	hook = path.join(dir, "browser-profile-guard.sh");
-	fs.writeFileSync(hook, `${found[1]}\n`, { mode: 0o755 });
 });
 
 afterAll(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** The guard's refusal reason for one command, or "" where it allows; a null config dir runs it with none set. */
-const readReasonFor = (
+/** A fresh directory holding `files`, each a path and its JSON or raw text. */
+const tree = (files: Record<string, unknown>): string => {
+	const root = path.join(dir, `f${fixtures++}`);
+	fs.mkdirSync(root, { recursive: true });
+	for (const [rel, body] of Object.entries(files)) {
+		const file = path.join(root, rel);
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.writeFileSync(
+			file,
+			typeof body === "string" ? body : JSON.stringify(body),
+		);
+	}
+	return root;
+};
+
+const store = (infoCache: unknown) => ({ profile: { info_cache: infoCache } });
+const account = (email: string) => ({
+	oauthAccount: { emailAddress: email, displayName: "x" },
+});
+
+interface World {
+	/** `.claude.json`'s contents, or null for no file. */
+	claudeJson?: unknown;
+	/** One `Local State` per Windows user. */
+	stores?: unknown[];
+}
+
+/** Runs the guard on one command against a world's two stores. */
+const run = (
 	command: string,
-	configDir: string | null = "/home/u/.claude3",
-): string => {
-	const { CLAUDE_CONFIG_DIR: _, ...env } = process.env;
-	const r = spawnSync("bash", [hook], {
+	{ claudeJson = account(ACCOUNT), stores = [store(INFO_CACHE)] }: World = {},
+	bashArgs: string[] = [],
+) => {
+	const configDir = tree(
+		claudeJson === null ? {} : { ".claude.json": claudeJson },
+	);
+	const users = tree(
+		Object.fromEntries(stores.map((s, i) => [`u${i}/${LOCAL_STATE}`, s])),
+	);
+	return spawnSync("bash", [...bashArgs, HOOK], {
 		input: JSON.stringify({ tool_input: { command } }),
-		env:
-			configDir === null
-				? { ...env, HOME: "/home/u" }
-				: { ...env, CLAUDE_CONFIG_DIR: configDir },
+		env: {
+			...process.env,
+			CLAUDE_CONFIG_DIR: configDir,
+			BROWSER_GUARD_WINDOWS_USERS: users,
+		},
 		encoding: "utf8",
 		timeout: 10_000,
 	});
+};
+
+/** The guard's refusal reason for one command, or "" where it allows. */
+const readReasonFor = (command: string, world: World = {}): string => {
+	const r = run(command, world);
 	expect(r.status).toBe(0);
 	expect(r.stderr).toBe("");
 	if (!r.stdout.trim()) return "";
@@ -200,8 +241,8 @@ describe("openers hidden from the first scan are refused (#1547 review)", () => 
 		">log ./o.sh",
 		"sudo -u root ./o.sh",
 		"watch ./o.sh",
-	])("refuses a written file run as %s", (run) => {
-		expect(verdict(`cat > o.sh <<'EOF'\nnpm login\nEOF\n${run}`)).toBe(
+	])("refuses a written file run as %s", (launch) => {
+		expect(verdict(`cat > o.sh <<'EOF'\nnpm login\nEOF\n${launch}`)).toBe(
 			"login-tool",
 		);
 	});
@@ -228,40 +269,26 @@ describe("each refusal names its fix", () => {
 		expect(reason).toContain('--profile-directory="Profile 1" "<url>"');
 	});
 
-	// #1952
-	it.each([
-		["/home/u/.claude3", '--profile-directory="Profile 1" "<url>"'],
-		["/home/u/.claude2/", '--profile-directory="Profile 2" "<url>"'],
-		["/home/u/.claude", '--profile-directory="Default" "<url>"'],
-		[null, '--profile-directory="Default" "<url>"'],
-	])("a session under %s is told its own profile", (configDir, command) => {
-		expect(readReasonFor("xdg-open https://x", configDir)).toContain(command);
-	});
-
-	// #1986: Default is the profile every refusal warns against.
-	it("a session under an unknown config dir is given the map, not a profile", () => {
-		const reason = readReasonFor("xdg-open https://x", "/home/u/.other");
-		expect(reason).not.toContain("--profile-directory=");
-		expect(reason).toContain(
-			'the travel account, 3rd in the picker (directory "Profile 1"',
-		);
-	});
-
 	it.each(["chrome.exe https://x", "xdg-open https://x", "npm login"])(
-		"names the inactive subscription one way throughout: %s (#1986)",
+		"names the derived profile and its account, and no other address: %s",
 		(command) => {
 			const reason = readReasonFor(command);
-			expect(reason).toContain("the inactive subscription");
-			expect(reason).not.toContain("inactive account");
+			expect(reason).toContain('--profile-directory="Profile 1"');
+			expect(reason).toContain(`signed in to ${ACCOUNT}`);
+			expect(reason.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g)).toEqual([ACCOUNT]);
 		},
 	);
 
 	it.each(["chrome.exe https://x", "xdg-open https://x", "npm login"])(
-		"names no account's address: %s (#1962)",
+		"carries no account map and no machine path: %s",
 		(command) => {
 			const reason = readReasonFor(command);
-			expect(reason).not.toBe("");
-			expect(reason).not.toMatch(/@/);
+			expect(reason).not.toContain("machine-facts.md");
+			expect(reason).not.toContain("~/");
+			expect(reason).not.toMatch(/\.claude\d/);
+			expect(reason).toContain(
+				"the machine note the `browser-ladder` skill names",
+			);
 		},
 	);
 
@@ -273,6 +300,51 @@ describe("each refusal names its fix", () => {
 
 	it("a login tool is told the opener-disabling prefix", () => {
 		expect(readReasonFor("npm login")).toContain(OPENER_OFF);
+	});
+});
+
+describe("an underivable profile still refuses, naming none (#5339)", () => {
+	it.each<[string, World]>([
+		["no .claude.json", { claudeJson: null }],
+		["no email in .claude.json", { claudeJson: { oauthAccount: {} } }],
+		["an unreadable .claude.json", { claudeJson: "{not json" }],
+		["no Local State", { stores: [] }],
+		[
+			"two Local State files",
+			{ stores: [store(INFO_CACHE), store(INFO_CACHE)] },
+		],
+		[
+			"no profile signed in to the account",
+			{ claudeJson: account("nobody@example.test") },
+		],
+		[
+			"two profiles signed in to the account",
+			{
+				stores: [store({ ...INFO_CACHE, "Profile 3": { user_name: ACCOUNT } })],
+			},
+		],
+		["a Local State with no profile store", { stores: [{ browser: {} }] }],
+	])("%s", (_, world) => {
+		for (const command of [
+			"chrome.exe https://x",
+			"xdg-open https://x",
+			"npm login",
+		]) {
+			const reason = readReasonFor(command, world);
+			expect(reason).not.toBe("");
+			expect(reason).not.toContain("--profile-directory=");
+			expect(reason).not.toMatch(/@/);
+			expect(reason).toContain("No single Chrome profile could be matched");
+		}
+	});
+});
+
+describe("a command naming no trigger reads neither store", () => {
+	it("allows it without touching .claude.json or Local State", () => {
+		const r = run("git status", {}, ["-x"]);
+		expect(r.stdout).toBe("");
+		expect(r.stderr).not.toContain(".claude.json");
+		expect(r.stderr).not.toContain("Local State");
 	});
 });
 

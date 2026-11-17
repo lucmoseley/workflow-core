@@ -16,9 +16,13 @@ The release tree an adopter installs. Tests, fixtures and TypeScript are left ou
 - `.claude/skills` — every skill, bar `new-repo`.
 - `scripts` — the guards, checkers and helpers, bar the core-only scripts below.
 - `scripts/measure-turn-band.js` `scripts/bench_suite_concurrency.py` `scripts/measure-bundle-cost.js` `scripts/measure-session-cost.js` `scripts/measure-outcome-review.js` `scripts/measure-ticket-mix.js` — measuring tools a shipped file tells its reader to run, so they ship although their kind stays behind.
+- `scripts/browser-profile-guard.sh` — refuses a command that would open a URL in a Chrome profile other than the one signed in to the session's account, derived live from `.claude.json` and Chrome's `Local State`.
+- `scripts/machine-figures.sh` — prints the machine's architecture, cores, `MemTotal` and `SwapTotal` at each session start, read live.
+- `scripts/practice-guard.sh` `docs/practice-crafts.md` — the practice guard, which hands over the craft list on a first touch of `docs/practice/`, refuses an off-list note and refuses once a stop whose practice line does not hold up; and the craft list it reads.
+- `scripts/templates/adopter/session-rules.md` — the session rules' template, carrying the figure-free machine rules and the four working rules: Leading practice with the practice gate, removal means gone, nothing reported or requested to Anthropic, and no paid research or data APIs, worded once in `docs/working-contract.md`.
 - `docs/agents` — the rule text guards and skills read at runtime, the tracker rules among them.
 - `docs/effort-guide.md` — which model and effort a job gets.
-- `docs/environment.md` — the machine's measured limits the shipped guards enforce.
+- `docs/environment.md` — one machine's limits as a worked example, and which live figure each shipped guard reads.
 - `docs/code-standards-base.md` — the code standards every review reads.
 - `docs/practice` — the practice notes, without their `## In workflow-core` sections, which hold only lines that would mislead an adopter: those about workflow-core's own release notes, its CI config and its unshipped tools. A line about shipped machinery, its measured evidence included, sits in its entry and ships: an adopter's session reads the plugin's copy of a note where its own is missing or stale.
 - `.husky` — the git hooks' source.
@@ -46,16 +50,17 @@ The release tree an adopter installs. Tests, fixtures and TypeScript are left ou
 
 ## Reaches adopters through this machine only
 
-The founder's personal files on this laptop, which every session on it loads whatever repo it is in. A cloud session would get them through the setup-script route recorded on #3996, the browser guard excepted; a replacement laptop restores them from the reference copy in `docs/claude-user-settings.md` (#5292).
+The founder's personal copies on this laptop of what the plugin ships, kept so the repos outside the adopter channel get them too; an adopter session on this machine meets both. `npm run check:settings` holds each equal to its repo source (#5344).
 
-- `~/.claude/CLAUDE.md` — Leading practice and the practice gate, removal means gone, nothing reported or requested to Anthropic, and no paid research or data APIs.
-- `~/.claude/hooks/practice-guard.sh` — refuses a plan or close missing its practice line.
-- `~/.claude/hooks/browser-profile-guard.sh` — keeps browser sessions off the founder's own profile.
+- `~/.claude/CLAUDE.md` — the four working rules, each section equal to `docs/working-contract.md`'s.
+- `~/.claude/hooks/practice-guard.sh` `~/.claude/practice-crafts.md` — copies of `scripts/practice-guard.sh` and `docs/practice-crafts.md`, sharing the shipped guard's per-session latch.
+- `~/.claude/hooks/browser-profile-guard.sh` — a copy of `scripts/browser-profile-guard.sh`.
 
 ## Stays core-only
 
 - `scripts/check-surface-contract.js` `scripts/generate-plugin-tree.js` `scripts/lib/plugin-tree.js` `scripts/lib/release-tags.js` `scripts/lib/surface-closure.js` `scripts/release-contains.js` `scripts/release-plugin.js` — the release build, which no adopter runs.
 - `scripts/idle-maxworkers-bench.sh` — times this repo's own suite.
+- The suite-size drift check — ships with `scripts`, but the repo-checks registry runs it here alone: it re-measures a memory-ladder constant taken on this repo's suite.
 - `scripts/snapshot-memory.sh` — this repo's one-off memory backup.
 - `scripts/cut-mantahostels.js` — mantahostels' one-time cutover.
 - `scripts/typecheck-mods.js` — type-checks this repo's own mods.

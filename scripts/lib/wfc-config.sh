@@ -26,7 +26,7 @@ unset _wc_here
 
 WFC_KNOWN_CONTRACTS="1"
 # The JS reader's MODULES, in its order; wfc-config.test.ts pins the two equal.
-WFC_KNOWN_MODULES="roadmap governance suites site mutation"
+WFC_KNOWN_MODULES="roadmap governance site mutation"
 # The JS reader's DEPLOYS; wfc-config.test.ts pins the two equal.
 WFC_KNOWN_DEPLOYS="vercel"
 # The JS reader's COMMANDS; wfc-config.test.ts pins the two equal.

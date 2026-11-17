@@ -488,17 +488,21 @@ function settingsKeys(
 }
 
 /**
- * The tracker's labels: the core's 20, one per origin class, the
- * module-gated ones, and one per declared category. Never the five vendored-vocabulary names, which this repo
- * retired — a label created here is a label a skill will offer.
- * @param {{modules: Module[], categories: Record<string, string>}} at
+ * The tracker's labels: the core's 20, one per origin class, the gated ones,
+ * and one per declared category. Never the five vendored-vocabulary names, which this repo
+ * retired — a label created here is a label a skill will offer. `ci-red` is
+ * gated on the shipped CI workflow (lib/adopter-ci.js), the one whose red runs
+ * an adopter's daily repo checks file under it (#5383).
+ * @param {{modules: Module[], categories: Record<string, string>,
+ *   ciWorkflow: boolean}} at `ciWorkflow` whether the host keeps the shipped
+ *   CI workflow
  * @returns {{name: string, color: string, description: string}[]}
  */
-function labelPlan({ modules, categories }) {
+function labelPlan({ modules, categories, ciWorkflow }) {
 	const on = new Set(modules);
 	const labels = [...CORE_LABELS];
 	if (on.has("governance")) labels.push(GATED_LABELS["manual-finding"]);
-	if (on.has("suites")) labels.push(GATED_LABELS["ci-red"]);
+	if (ciWorkflow) labels.push(GATED_LABELS["ci-red"]);
 	for (const [key, title] of Object.entries(categories)) {
 		labels.push({
 			name: key,

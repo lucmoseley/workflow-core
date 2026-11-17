@@ -1844,6 +1844,57 @@
 					"text": "pass/fail lines were cut from its output"
 				}
 			]
+		},
+		"browser-profile-guard.sh": {
+			"needles": [
+				{
+					"id": "bare-chrome",
+					"kind": "deny",
+					"text": "chrome.exe without --profile-directory opens whichever profile"
+				},
+				{
+					"id": "default-browser",
+					"kind": "deny",
+					"text": "This opens the URL in the Windows default browser"
+				},
+				{
+					"id": "login-tool",
+					"kind": "deny",
+					"text": "This tool opens the Windows default browser itself"
+				}
+			]
+		},
+		"practice-guard.sh": {
+			"needles": [
+				{
+					"id": "off-list-note",
+					"kind": "deny",
+					"text": "is not a practice note:"
+				},
+				{
+					"id": "craft-list",
+					"kind": "inject",
+					"text": "The practice craft list,"
+				}
+			]
+		},
+		"practice-guard.sh stop": {
+			"needles": [
+				{
+					"id": "practice-line",
+					"kind": "block",
+					"text": "Leading practice: this session wrote a tracked file"
+				}
+			]
+		},
+		"machine-figures.sh": {
+			"needles": [
+				{
+					"id": "figures",
+					"kind": "inject",
+					"text": "Machine (read live):"
+				}
+			]
 		}
 	},
 	"candidates": {

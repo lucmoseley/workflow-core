@@ -69,7 +69,7 @@
 		},
 		{
 			"file": "CLAUDE.md",
-			"headline": "The machine is Snapdragon ARM64 under WSL2.",
+			"headline": "Check the architecture before suggesting a binary or a native dependency.",
 			"claim": "A session suggests an x86 binary",
 			"route": "no-trigger"
 		},
@@ -131,6 +131,18 @@
 			"file": "docs/working-contract.md",
 			"headline": "No paid research or data APIs.",
 			"claim": "A session buys facts",
+			"route": "no-trigger"
+		},
+		{
+			"file": "docs/working-contract.md",
+			"headline": "Leading practice.",
+			"claim": "A session does a task the way it first thinks of, never checking how the field's leading professionals do it or which tools they use",
+			"route": "no-trigger"
+		},
+		{
+			"file": "docs/working-contract.md",
+			"headline": "The practice gate.",
+			"claim": "A session researches afresh where a current practice note exists, or closes without declaring which note covered the task",
 			"route": "no-trigger"
 		},
 		{

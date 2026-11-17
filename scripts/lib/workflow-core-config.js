@@ -113,7 +113,6 @@ const SLIM_MAX_MINUTES = 15;
 const MODULES = /** @type {const} */ ([
 	"roadmap",
 	"governance",
-	"suites",
 	"site",
 	/* The hold on a surviving mutant on a declared sensitive path (#1906). */
 	"mutation",

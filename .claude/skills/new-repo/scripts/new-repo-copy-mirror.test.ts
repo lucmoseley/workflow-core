@@ -36,7 +36,7 @@ newRepoSuite();
 
 describe("new-repo.js copying a source repo", () => {
 	it.skipIf(!HAS_GITLEAKS)(
-		"mirrors the default branch as main with its tags, keeps the source as a fetch-only upstream, keeps init's files trackable, starts with suites and landing, and a second run finds every step done",
+		"mirrors the default branch as main with its tags, keeps the source as a fetch-only upstream, keeps init's files trackable, starts with no module and landing, and a second run finds every step done",
 		() => {
 			const s = sandbox({ source: SOURCE_IGNORE });
 			const r = s.run();
@@ -61,7 +61,7 @@ describe("new-repo.js copying a source repo", () => {
 				'source docs    done — 2 registered in docs/doc-map.md §A under "Source repo docs (octo/surf-lib)"\n',
 			);
 			expect(r.stdout).toContain("reconcile      done — #2 under #1\n");
-			expect(r.stdout).toMatch(/^init-adopter {3}done — .*, modules suites$/m);
+			expect(r.stdout).toMatch(/^init-adopter {3}done — .*, modules none$/m);
 
 			// The default branch and tags only: never the stale branch, never a fork.
 			expect(readEndState(s).originRefs).toEqual([
@@ -110,7 +110,7 @@ describe("new-repo.js copying a source repo", () => {
 					"utf8",
 				),
 			);
-			expect(config.modules).toEqual(["suites"]);
+			expect(config.modules).toEqual([]);
 			expect(isCutOver(s.clone)).toBe(true);
 			expect(config.commands.test).toBe("npm run test");
 

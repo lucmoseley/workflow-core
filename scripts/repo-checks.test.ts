@@ -41,7 +41,7 @@ const ALL = {
 	contract: 1,
 	founder: "F",
 	tracker: "o/r",
-	modules: ["roadmap", "governance", "suites"],
+	modules: ["roadmap", "governance"],
 	retro: { weeklyCount: 2 },
 };
 const ALL_INPUTS = [
@@ -95,6 +95,8 @@ function fixture(
 		stubs?: Record<string, Stub>;
 		/** Whether the host is workflow-core itself; ALL makes it so. */
 		core?: boolean;
+		/** Paths written and added to the index. */
+		tracked?: string[];
 	} = {},
 ) {
 	const base = fs.mkdtempSync(path.join(os.tmpdir(), "repo-checks-"));
@@ -111,6 +113,11 @@ function fixture(
 	for (const input of opts.inputs ?? (opts.config === ALL ? ALL_INPUTS : [])) {
 		fs.mkdirSync(path.dirname(path.join(root, input)), { recursive: true });
 		fs.writeFileSync(path.join(root, input), "{}\n");
+	}
+	for (const rel of opts.tracked ?? []) {
+		fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+		fs.writeFileSync(path.join(root, rel), "name: x\n");
+		execFileSync("git", ["add", "--", rel], { cwd: root });
 	}
 	if (opts.core ?? opts.config === ALL) {
 		fs.mkdirSync(path.join(root, ".claude-plugin"));
@@ -307,6 +314,36 @@ describe("repo-checks: gates and order", () => {
 		const core = fixture({ config: ROADMAP_ONLY, core: true });
 		run(core);
 		expect(ids(core.launched())).toContain("remeasure");
+	});
+
+	it("runs the suite-size drift check in workflow-core and SKIPs it in an adopter", () => {
+		const adopter = fixture({ config: ROADMAP_ONLY, core: false });
+		run(adopter);
+		expect(ids(adopter.launched())).not.toContain("suite-size");
+		expect(job(adopter, "suite-size")).toMatchObject({
+			outcome: "SKIP",
+			summary: "SKIP: this repo is not workflow-core itself",
+		});
+		const core = fixture({ config: ROADMAP_ONLY, core: true });
+		run(core);
+		expect(ids(core.launched())).toContain("suite-size");
+	});
+
+	it("runs the red-suite reporter in an adopter tracking the shipped CI workflow, SKIPs it in one that does not, and runs it in workflow-core", () => {
+		const Ci = ".github/workflows/workflow-core-ci.yml";
+		const tracking = fixture({ config: ROADMAP_ONLY, tracked: [Ci] });
+		run(tracking);
+		expect(ids(tracking.launched())).toContain("red-suite");
+		const untracked = fixture({ config: ROADMAP_ONLY, inputs: [Ci] });
+		run(untracked);
+		expect(ids(untracked.launched())).not.toContain("red-suite");
+		expect(job(untracked, "red-suite")).toMatchObject({
+			outcome: "SKIP",
+			summary: `SKIP: this repo tracks no ${Ci}`,
+		});
+		const core = fixture({ config: ROADMAP_ONLY, core: true });
+		run(core);
+		expect(ids(core.launched())).toContain("red-suite");
 	});
 
 	it("launches an input-gated check in workflow-core with its input missing rather than SKIPping it, and SKIPs it in an adopter (#1722)", () => {

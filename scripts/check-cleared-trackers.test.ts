@@ -34,6 +34,7 @@
  * read as outstanding, or a live one is called cleared and closed by hand.
  */
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -200,6 +201,12 @@ const fixture = ({
 } = {}) => {
 	fs.mkdirSync(path.join(dir, "docs"), { recursive: true });
 	fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
+	/* The red-suite reporter reads only the workflows the repo tracks. */
+	const sweepFile = ".github/workflows/scheduled-checks.yml";
+	fs.mkdirSync(path.join(dir, path.dirname(sweepFile)), { recursive: true });
+	fs.writeFileSync(path.join(dir, sweepFile), "name: scheduled-checks\n");
+	execFileSync("git", ["init", "-q", "."], { cwd: dir });
+	execFileSync("git", ["add", "--", sweepFile], { cwd: dir });
 	if (cycleLogPath) {
 		fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
 		fs.writeFileSync(

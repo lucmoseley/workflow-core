@@ -87,11 +87,11 @@ afterEach(() => {
 });
 
 describe("init-adopter's module choice on a copied repo", () => {
-	it("writes all four modules where the tree holds all four subjects, leaving the checker nothing to refuse", () => {
+	it("writes the three modules where the tree holds all four subjects, leaving the checker nothing to refuse", () => {
 		const r = init();
 		expect(r.status, r.stdout + r.stderr).toBe(0);
 		expect([...readModules()].sort()).toEqual(
-			["governance", "roadmap", "site", "suites"].sort(),
+			["governance", "roadmap", "site"].sort(),
 		);
 		const c = check();
 		expect(c.status, c.stderr).toBe(0);
@@ -117,13 +117,15 @@ describe("init-adopter's module choice on a copied repo", () => {
 			expect(c.stderr).toContain(line);
 	});
 
-	it("switches suites on for a test file no command is inferred for, and the checker still refuses it until commands.test is declared", () => {
+	it("switches no module on for a test file no command is inferred for, and the checker refuses it until commands.test is declared", () => {
 		/* A *.test.js file infers `node --test`; a *.test.ts file infers nothing. */
 		git("rm", "-q", "package.json");
 		git("mv", "lib/a.test.js", "lib/a.test.ts");
 		const r = init();
 		expect(r.status, r.stdout + r.stderr).toBe(0);
-		expect(readModules()).toContain("suites");
+		expect([...readModules()].sort()).toEqual(
+			["governance", "roadmap", "site"].sort(),
+		);
 		const c = check();
 		expect(c.status).toBe(1);
 		expect(c.stderr).toContain(

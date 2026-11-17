@@ -59,7 +59,7 @@ describe("readIndexSubjects", () => {
 	])("reads %s as a test file", (file) => {
 		track([file]);
 		expect(readIndexSubjects(dir)).toEqual([
-			{ subject: "tests", module: "suites", found: [file] },
+			{ subject: "tests", command: "test", found: [file] },
 		]);
 	});
 
@@ -127,7 +127,7 @@ describe("readIndexSubjects", () => {
 });
 
 describe("readSubjectModules", () => {
-	it("names each found subject's module", () => {
+	it("names each found module-switched subject's module, never one for test files, which commands.test switches", () => {
 		track({
 			"a.test.js": "x\n",
 			"docs/reference-roadmap.html": "x\n",
@@ -135,11 +135,6 @@ describe("readSubjectModules", () => {
 			"docs/brand-sheet.md": "x\n",
 			"app/page.tsx": "x\n",
 		});
-		expect(readSubjectModules(dir)).toEqual([
-			"suites",
-			"roadmap",
-			"governance",
-			"site",
-		]);
+		expect(readSubjectModules(dir)).toEqual(["roadmap", "governance", "site"]);
 	});
 });

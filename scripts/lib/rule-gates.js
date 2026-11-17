@@ -3,7 +3,7 @@
  * modules (#2785).
  *
  * Called statement-initial with a literal module and a literal id array,
- * `...ruleModule(ctx, "suites", ["x"])`, because lib/rule-emission.js reads
+ * `...ruleModule(ctx, "roadmap", ["x"])`, because lib/rule-emission.js reads
  * the call there to leave the ids out of the budget of a host with the module
  * off.
  */

@@ -3,7 +3,9 @@
  * check-user-settings-drift.js — local guard that the settings snapshot
  * (`userSettingsSnapshotPath`, else docs/claude-user-settings.md) still matches
  * the live ~/.claude/settings.json, and its file copies the live files under
- * ~/.claude (COPIES below: #1547, #2174, #2322, #2324).
+ * ~/.claude (COPIES below: #2174, #2322); and that the founder's machine copies
+ * of what the plugin ships equal their sources in this repo (SOURCED below:
+ * #5344), read straight from the repo rather than through a fenced copy.
  *
  * Usage:
  *   node check-user-settings-drift.js [--warn] [<doc.md>] [<settings.json>]
@@ -42,6 +44,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { hostRoot } = require("./lib/host-root");
+const { coreRoot } = require("./lib/script-path");
 const { requiredGroup } = require("./lib/regex-group");
 const {
 	userSettingsSnapshotPath,
@@ -63,19 +66,65 @@ const JSON_BLOCK = /```json\n([\s\S]*?)\n```/;
 // inside the file cannot close them (#2174).
 const COPIES = [
 	{ live: ["statusline.sh"], fence: "```bash", missingIsDrift: false },
+	{ live: ["CLAUDE.md"], fence: "````markdown", missingIsDrift: true },
+];
+
+/** The plugin root, where each SOURCED file's source lives. */
+const REPO = coreRoot();
+const CONTRACT = path.join("docs", "working-contract.md");
+/* The working rules the founder's ~/.claude/CLAUDE.md carries as sections of
+ * the same name, each held to the contract's section; the rest of that file
+ * is held to the doc's CLAUDE.md block (#5344). */
+const RULE_SECTIONS = [
+	"Removal means gone",
+	"Leading practice",
+	"Reports and paid data",
+];
+/** Machine copies of shipped files, each against its repo source, byte for byte. */
+const SOURCED = [
 	{
 		live: ["hooks", "browser-profile-guard.sh"],
-		fence: "```bash",
-		missingIsDrift: true,
+		source: path.join("scripts", "browser-profile-guard.sh"),
 	},
 	{
 		live: ["hooks", "practice-guard.sh"],
-		fence: "```bash",
-		missingIsDrift: true,
+		source: path.join("scripts", "practice-guard.sh"),
 	},
-	{ live: ["CLAUDE.md"], fence: "````markdown", missingIsDrift: true },
-	{ live: ["practice-crafts.md"], fence: "````markdown", missingIsDrift: true },
+	{
+		live: ["practice-crafts.md"],
+		source: path.join("docs", "practice-crafts.md"),
+	},
 ];
+
+/**
+ * A Markdown file cut at each `## ` heading: the text before the first, then
+ * one chunk per section, its heading line included.
+ * @param {string} text
+ */
+const chunks = (text) => text.split(/(?=^## )/m);
+
+/** The heading a chunk opens with, or null for the text before the first. */
+const headingOf = (/** @type {string} */ chunk) =>
+	chunk.startsWith("## ") ? chunk.slice(3).split("\n")[0] : null;
+
+/**
+ * The named section's body, its heading left out and its edges trimmed; null
+ * where the text has no such section.
+ * @param {string} text
+ * @param {string} heading
+ */
+function sectionBody(text, heading) {
+	const chunk = chunks(text).find((c) => headingOf(c) === heading);
+	return chunk === undefined
+		? null
+		: chunk.split("\n").slice(1).join("\n").trim();
+}
+
+/** The text with RULE_SECTIONS' sections cut out. */
+const withoutRuleSections = (/** @type {string} */ text) =>
+	chunks(text)
+		.filter((c) => !RULE_SECTIONS.includes(headingOf(c) ?? ""))
+		.join("");
 
 /** @param {unknown} v */
 const typeOf = (v) => {
@@ -307,7 +356,9 @@ function compareCopy(ctx, { doc, docPath }, { live, fence, missingIsDrift }) {
 			difference: `${name}: ${livePath} has no copy in ${docPath} — expected between ${markers}`,
 		};
 
-	const liveText = trimEndRun(fs.readFileSync(livePath, "utf8"), "\n");
+	const read = trimEndRun(fs.readFileSync(livePath, "utf8"), "\n");
+	const liveText =
+		name === "CLAUDE.md" ? trimEndRun(withoutRuleSections(read), "\n") : read;
 	const docText = requiredGroup(found, 1, pattern);
 	if (docText === liveText)
 		return {
@@ -329,6 +380,81 @@ function compareCopy(ctx, { doc, docPath }, { live, fence, missingIsDrift }) {
 		difference:
 			`${name}: doc copy differs from ${livePath} ` +
 			`(doc ${docLines.length} lines, live ${liveLines.length}; ${where})`,
+	};
+}
+
+/**
+ * Where two texts first part, for a DRIFT line.
+ * @param {string} expected
+ * @param {string} live
+ */
+function firstDifference(expected, live) {
+	const a = expected.split("\n");
+	const b = live.split("\n");
+	const at = a.findIndex((l, i) => l !== b[i]);
+	return at === -1
+		? `identical for the first ${Math.min(a.length, b.length)} lines, then one side continues`
+		: `first difference at line ${at + 1}`;
+}
+
+/**
+ * Each machine copy of a shipped file against its source in this repo: the ok
+ * line's note, and the differences. A live file that is absent is not
+ * compared; nor is a source this checkout lacks.
+ * @returns {{ note: string, differences: string[] }}
+ */
+function compareSourcedFiles() {
+	const notes = [];
+	const differences = [];
+	for (const { live, source } of SOURCED) {
+		const livePath = path.join(os.homedir(), ".claude", ...live);
+		const sourcePath = path.join(REPO, source);
+		const name = path.basename(livePath);
+		if (!fs.existsSync(livePath) || !fs.existsSync(sourcePath)) {
+			notes.push(`, ${name} not compared`);
+			continue;
+		}
+		const want = fs.readFileSync(sourcePath, "utf8");
+		const got = fs.readFileSync(livePath, "utf8");
+		if (want === got) notes.push(`, ${name} equal to ${source}`);
+		else
+			differences.push(
+				`${name}: ${livePath} differs from ${source} (${firstDifference(want, got)})`,
+			);
+	}
+	return { note: notes.join(""), differences };
+}
+
+/**
+ * Each working-rule section of the live ~/.claude/CLAUDE.md against the
+ * contract's: the ok line's note, and the differences. Not compared where
+ * either file is absent, as an adopter's plugin holds no contract.
+ * @returns {{ note: string, differences: string[] }}
+ */
+function compareRuleSections() {
+	const claudeMd = path.join(os.homedir(), ".claude", "CLAUDE.md");
+	const contractPath = path.join(REPO, CONTRACT);
+	if (!fs.existsSync(claudeMd) || !fs.existsSync(contractPath))
+		return { note: ", working rules not compared", differences: [] };
+	const liveText = fs.readFileSync(claudeMd, "utf8");
+	const contract = fs.readFileSync(contractPath, "utf8");
+	const differences = [];
+	for (const heading of RULE_SECTIONS) {
+		const want = sectionBody(contract, heading);
+		const got = sectionBody(liveText, heading);
+		if (want === null) continue;
+		if (got === null)
+			differences.push(
+				`CLAUDE.md: ${claudeMd} has no "## ${heading}" section, which ${CONTRACT} words`,
+			);
+		else if (got !== want)
+			differences.push(
+				`CLAUDE.md: "## ${heading}" differs from ${CONTRACT}'s (${firstDifference(want, got)})`,
+			);
+	}
+	return {
+		note: differences.length > 0 ? "" : `, working rules equal to ${CONTRACT}`,
+		differences,
 	};
 }
 
@@ -377,12 +503,17 @@ const SPEC = {
 		// --- Compare the file copies -----------------------------------------------
 
 		const copies = COPIES.map((sc) => compareCopy(ctx, { doc, docPath }, sc));
-		const copyNote = copies.map((sc) => sc.note).join("");
+		const files = compareSourcedFiles();
+		const rules = compareRuleSections();
+		const copyNote =
+			copies.map((sc) => sc.note).join("") + files.note + rules.note;
 		const differences = [
 			...settingsDiffs,
 			...copies.flatMap((sc) =>
 				sc.difference === null ? [] : [sc.difference],
 			),
+			...files.differences,
+			...rules.differences,
 		];
 
 		for (const d of differences) ctx.fail("DRIFT", d);
@@ -396,13 +527,16 @@ const SPEC = {
 			);
 			for (const d of differences) ctx.say(`  - ${d}`);
 			ctx.say(
-				"\nThe live files are the source of truth. Re-copy ~/.claude/settings.json into\n" +
-					"the ```json block, leaving out `model` and `modelSettings`, which the routing\n" +
-					"file owns (run scripts/burn-mode.sh for the current mode to re-apply them),\n" +
-					"and each file into its own block, from\n" +
-					`${COPIES.map((sc) => `~/.claude/${sc.live.join("/")}`).join(", ")},\n` +
+				"\nFor settings.json and the fenced files the live files are the source of truth.\n" +
+					"Re-copy ~/.claude/settings.json into the ```json block, leaving out `model` and\n" +
+					"`modelSettings`, which the routing file owns (run scripts/burn-mode.sh for the\n" +
+					"current mode to re-apply them), and each file into its own block, from\n" +
+					`${COPIES.map((sc) => `~/.claude/${sc.live.join("/")}`).join(", ")} (CLAUDE.md less its\n` +
+					`${RULE_SECTIONS.map((h) => `"${h}"`).join(", ")} sections),\n` +
 					"then re-date the snapshot line; never edit a block to change behaviour.\n" +
-					"See docs/doc-map.md §A.",
+					"For the shipped files and those sections the repo is the source: copy\n" +
+					`${SOURCED.map((sc) => `${sc.source} to ~/.claude/${sc.live.join("/")}`).join(", ")},\n` +
+					`and each section from ${CONTRACT}. See docs/doc-map.md §A.`,
 			);
 		}
 

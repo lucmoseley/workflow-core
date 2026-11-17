@@ -69,7 +69,7 @@ function harness(over: Over = {}) {
 		fallbackCwd: over.cwd ?? SHARED,
 		vars: over.vars ?? {},
 		isDir: () => true,
-		moduleOn: (m) => (over.modules ?? ["suites"]).includes(m),
+		moduleOn: (m) => (over.modules ?? []).includes(m),
 		treeClass,
 		log: (what, detail) => logs.push(detail ? `${what}\t${detail}` : what),
 		told: (id) => (over.told ?? []).includes(id),

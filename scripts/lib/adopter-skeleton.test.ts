@@ -123,7 +123,6 @@ describe("the core-owned rules file", () => {
 			pluginRoot: CORE,
 		});
 		expect(text).not.toContain("[governance]");
-		expect(text).not.toContain("[suites]");
 		expect(text).not.toContain("reference-roadmap.html");
 		expect(text).not.toContain("docs/doc-map.md");
 		expect(text).not.toContain("Prefer targeted runs");
@@ -131,7 +130,7 @@ describe("the core-owned rules file", () => {
 
 	it("carries a module's lines, untagged, when it is on", () => {
 		const text = renderSessionRules({
-			modules: ["roadmap", "suites"],
+			modules: ["roadmap"],
 			founder: "A Founder",
 			pluginRoot: CORE,
 		});
@@ -139,13 +138,12 @@ describe("the core-owned rules file", () => {
 		// The suite guard hands it over instead (#2237).
 		expect(text).not.toContain("Prefer targeted runs");
 		expect(text).not.toContain("[roadmap]");
-		expect(text).not.toContain("[suites]");
 		expect(text).not.toContain("docs/doc-map.md");
 	});
 
 	it("leaves the manual-sync rule to the claim guard, every module on (#2233)", () => {
 		const text = renderSessionRules({
-			modules: ["roadmap", "governance", "suites", "site"],
+			modules: ["roadmap", "governance", "site"],
 			founder: "A Founder",
 			pluginRoot: CORE,
 		});
@@ -186,7 +184,7 @@ describe("the core-owned rules file", () => {
 
 	it("names only rule ids the core's store can answer for", () => {
 		const text = renderSessionRules({
-			modules: ["roadmap", "governance", "suites", "site"],
+			modules: ["roadmap", "governance", "site"],
 			founder: "A Founder",
 			pluginRoot: CORE,
 		});
@@ -201,7 +199,7 @@ describe("the core-owned rules file", () => {
 	 * template should fail here until it is checked as runnable below. */
 	it("spells every core command at the plugin root, and names only scripts the plugin ships (#654)", () => {
 		const text = renderSessionRules({
-			modules: ["roadmap", "governance", "suites", "site"],
+			modules: ["roadmap", "governance", "site"],
 			founder: "A Founder",
 			pluginRoot: CORE,
 		});
@@ -926,7 +924,7 @@ describe("the settings keys", () => {
 
 describe("the label plan", () => {
 	it("is the core's twenty and one origin label per class with no module on", () => {
-		const plan = labelPlan({ modules: [], categories: {} });
+		const plan = labelPlan({ modules: [], categories: {}, ciWorkflow: false });
 		expect(plan).toHaveLength(20 + ORIGINS.length);
 		expect(plan.map((l) => l.name)).toEqual(
 			expect.arrayContaining(ORIGINS.map((o: string) => `origin:${o}`)),
@@ -938,7 +936,7 @@ describe("the label plan", () => {
 	});
 
 	it("creates one takes: label per value in TAKES_VALUES, in its order (#2193)", () => {
-		const plan = labelPlan({ modules: [], categories: {} });
+		const plan = labelPlan({ modules: [], categories: {}, ciWorkflow: false });
 		expect(
 			plan.map((l) => l.name).filter((n) => n.startsWith(TAKES_PREFIX)),
 		).toEqual(TAKES_VALUES.map(takesLabel));
@@ -946,16 +944,28 @@ describe("the label plan", () => {
 
 	it("adds a module's own label only when that module is on", () => {
 		const names = (modules: Module[]) =>
-			labelPlan({ modules, categories: {} }).map((l) => l.name);
+			labelPlan({ modules, categories: {}, ciWorkflow: false }).map(
+				(l) => l.name,
+			);
 		expect(names(["governance"])).toContain("manual-finding");
-		expect(names(["suites"])).toContain("ci-red");
 		expect(names(["roadmap"])).toHaveLength(20 + ORIGINS.length);
+	});
+
+	it("adds the bare ci-red label only with the shipped CI workflow, whatever modules holds (#5383)", () => {
+		const names = (ciWorkflow: boolean, modules: Module[] = []) =>
+			labelPlan({ modules, categories: {}, ciWorkflow }).map((l) => l.name);
+		expect(names(true)).toContain("ci-red");
+		expect(names(false)).not.toContain("ci-red");
+		expect(
+			names(false, ["roadmap", "governance", "site", "mutation"]),
+		).not.toContain("ci-red");
 	});
 
 	it("adds one label per category, even with the roadmap off", () => {
 		const plan = labelPlan({
 			modules: [],
 			categories: { tech: "Tech & Stack", ops: "Ops" },
+			ciWorkflow: false,
 		});
 		expect(plan.map((l) => l.name)).toEqual(
 			expect.arrayContaining(["tech", "ops"]),
@@ -965,8 +975,9 @@ describe("the label plan", () => {
 
 	it("has a description and a colour on every label", () => {
 		for (const label of labelPlan({
-			modules: ["governance", "suites"],
+			modules: ["governance"],
 			categories: { tech: "Tech" },
+			ciWorkflow: true,
 		})) {
 			expect(label.description.length).toBeGreaterThan(10);
 			// GitHub refuses a label description over 100 characters.

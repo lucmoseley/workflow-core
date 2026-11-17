@@ -144,8 +144,11 @@ const COPIED = [
 	 * to where its own note is missing or stale, each less its closing
 	 * `## In workflow-core` section (#5294). */
 	PRACTICE_DIR,
-	/* The machine's measured limits: the figures the shipped suite, admission
-	 * and scratch guards enforce, which their text sends a session to (#1452). */
+	/* The craft list the shipped practice guard hands over and judges a note's
+	 * slug against, outside PRACTICE_DIR so it is never judged as a note (#5344). */
+	"docs/practice-crafts.md",
+	/* The machine's limits and the guards' figures, which their text sends a
+	 * session to (#1452). */
 	"docs/environment.md",
 	/* The standards base, read at runtime: every review route hands it over
 	 * from here, beside the host's own local file, which never ships (#967). */

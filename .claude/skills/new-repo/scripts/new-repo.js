@@ -774,7 +774,7 @@ function sourcePreflight(inp, clone) {
 				fresh: !copied,
 			});
 		}
-		const modules = readCopiedModules(tree, commands);
+		const modules = readCopiedModules(tree);
 		const flows = path.join(tree, ".github/workflows");
 		const workflows = fs.existsSync(flows)
 			? fs
@@ -799,21 +799,16 @@ function sourcePreflight(inp, clone) {
 }
 
 /**
- * Each module whose subject the copy tracks (#1506), and `suites` wherever a
- * test command was inferred, as #704 ruled.
+ * Each module whose subject the copy tracks (#1506).
  * @param {string} tree
- * @param {ReturnType<typeof inferCommands>} commands
  * @returns {string[]}
  */
-function readCopiedModules(tree, commands) {
-	let modules;
+function readCopiedModules(tree) {
 	try {
-		modules = readSubjectModules(tree);
+		return readSubjectModules(tree);
 	} catch (e) {
 		throw new Stop(parseErrLine(e), { code: 1, cause: e });
 	}
-	if (commands.test && !modules.includes("suites")) modules.unshift("suites");
-	return modules;
 }
 
 /**

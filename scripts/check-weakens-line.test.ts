@@ -117,15 +117,15 @@ describe("check-weakens-line (#2235)", () => {
 	it.each<{ case: string; before: object; after: object; name: string }>([
 		{
 			case: "a disabled entry added",
-			before: { modules: ["suites"] },
-			after: { modules: ["suites"], disabled: ["guard-x.sh"] },
+			before: { modules: ["site"] },
+			after: { modules: ["site"], disabled: ["guard-x.sh"] },
 			name: "guard-x.sh",
 		},
 		{
 			case: "a module dropped",
-			before: { modules: ["suites", "roadmap"] },
+			before: { modules: ["site", "roadmap"] },
 			after: { modules: ["roadmap"] },
-			name: "suites",
+			name: "site",
 		},
 	])(
 		"refuses $case from the config until a Weakens: line names it",
@@ -328,9 +328,9 @@ describe("check-weakens-line (#2235)", () => {
 	describe("reads the lines git records (#3075)", () => {
 		const Scissors = "# ------------------------ >8 ------------------------";
 		beforeEach(() => {
-			write(CONFIG, config({ modules: ["suites"] }));
+			write(CONFIG, config({ modules: ["site"] }));
 			seed();
-			write(CONFIG, config({ modules: ["suites"], disabled: ["guard-x.sh"] }));
+			write(CONFIG, config({ modules: ["site"], disabled: ["guard-x.sh"] }));
 			git("add", "-A");
 		});
 
@@ -370,7 +370,7 @@ describe("check-weakens-line (#2235)", () => {
 	});
 
 	it("judges a pathspec commit's temporary index, as commit-paths.js commits", () => {
-		write(CONFIG, config({ modules: ["suites"] }));
+		write(CONFIG, config({ modules: ["site"] }));
 		write("b.md", "b\n");
 		seed();
 		write(CONFIG, config({ modules: [] }));
@@ -378,7 +378,7 @@ describe("check-weakens-line (#2235)", () => {
 		git("add", "b.md");
 		const r = git("commit", "-q", "-m", "off", "--", CONFIG);
 		expect(r.status).toBe(1);
-		expect(r.stderr).toContain("Weakens: suites");
+		expect(r.stderr).toContain("Weakens: site");
 	});
 
 	it("refuses a skip added under a rename, naming the new file", () => {
@@ -439,21 +439,21 @@ describe("check-weakens-line (#2235)", () => {
 	});
 
 	it("passes where one Weakens: line of two names one weakening and the other names the rest", () => {
-		write(CONFIG, config({ modules: ["suites", "roadmap"] }));
+		write(CONFIG, config({ modules: ["site", "roadmap"] }));
 		seed();
 		write(CONFIG, config({ modules: [], disabled: ["guard-x.sh"] }));
 		const r = commit(
-			"off\n\nWeakens: guard-x.sh — #1\nWeakens: suites and roadmap — #2\n",
+			"off\n\nWeakens: guard-x.sh — #1\nWeakens: site and roadmap — #2\n",
 		);
 		expect(r.status).toBe(0);
 	});
 
 	it("names only the weakening a Weakens: line leaves out", () => {
-		write(CONFIG, config({ modules: ["suites"] }));
+		write(CONFIG, config({ modules: ["site"] }));
 		seed();
 		write(CONFIG, config({ modules: [], disabled: ["guard-x.sh"] }));
 		const r = commit("off\n\nWeakens: guard-x.sh — #1\n");
-		expectRefused(r, "suites");
+		expectRefused(r, "site");
 		expect(r.out).not.toContain("Weakens: guard-x.sh — <why>");
 	});
 
@@ -513,18 +513,18 @@ describe(".husky/commit-msg runs check-weakens-line.js (#2235)", () => {
 	});
 
 	it("refuses an unnamed weakening on an ordinary commit", () => {
-		write(CONFIG, config({ modules: ["suites"] }));
+		write(CONFIG, config({ modules: ["site"] }));
 		seed();
 		write(CONFIG, config({ modules: [] }));
-		expectRefused(commit("off"), "suites");
+		expectRefused(commit("off"), "site");
 	});
 
 	it("stands down on a merge, whose joined commits were judged on their own", () => {
-		write(CONFIG, config({ modules: ["suites"] }));
+		write(CONFIG, config({ modules: ["site"] }));
 		seed();
 		git("checkout", "-q", "-b", "side");
 		write(CONFIG, config({ modules: [] }));
-		expect(commit("off\n\nWeakens: suites — #1\n").status).toBe(0);
+		expect(commit("off\n\nWeakens: site — #1\n").status).toBe(0);
 		git("checkout", "-q", "main");
 		write("b.md", "b\n");
 		seed();

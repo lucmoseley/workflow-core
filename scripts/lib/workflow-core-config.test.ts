@@ -147,7 +147,7 @@ describe("readConfig — defaults", () => {
 			name: "Repo",
 			corpus: ["owner/repo"],
 			commands: { test: "node --test", lint: null },
-			modules: ["roadmap", "suites"],
+			modules: ["roadmap", "site"],
 			categories: { tech: "Tech & Stack" },
 			disabled: ["guard-branch.sh"],
 			overrides: {
@@ -514,6 +514,13 @@ describe("readConfig — unknown keys", () => {
 			'unknown module "roadmaps"',
 		]);
 		expect(c.modules).toEqual([]);
+	});
+
+	it("reads `suites` as no module: a warning, never a refusal", () => {
+		writeConfig(dir, JSON.stringify({ modules: ["roadmap", "suites"] }));
+		const c = readConfig({ root: dir, quiet: true });
+		expect(c.warnings).toEqual(['unknown module "suites"']);
+		expect(c.modules).toEqual(["roadmap"]);
 	});
 
 	it("raises none on the liveness mod's off switch (#944)", () => {
@@ -1021,7 +1028,7 @@ describe("moduleOn and readCommandFor", () => {
 
 	it("reads WFC_MODULES in place of the declared list", () => {
 		writeConfig(dir, JSON.stringify({ modules: ["site"] }));
-		vi.stubEnv("WFC_MODULES", "roadmap,suites");
+		vi.stubEnv("WFC_MODULES", "roadmap,governance");
 		expect(moduleOn("roadmap", { root: dir })).toBe(true);
 		expect(moduleOn("site", { root: dir })).toBe(false);
 		vi.stubEnv("WFC_MODULES", "");

@@ -11,6 +11,28 @@
 						"onFailure": "block"
 					}
 				]
+			},
+			{
+				"matcher": "Bash",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/browser-profile-guard.sh",
+						"timeout": 10,
+						"onFailure": "block"
+					}
+				]
+			},
+			{
+				"matcher": "Read|Glob|Write|Bash",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/practice-guard.sh",
+						"timeout": 10,
+						"onFailure": "block"
+					}
+				]
 			}
 		],
 		"PostToolUse": [
@@ -223,6 +245,11 @@
 						"type": "command",
 						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/refill-wake.sh",
 						"timeout": 5
+					},
+					{
+						"type": "command",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/practice-guard.sh stop",
+						"timeout": 10
 					}
 				]
 			}
@@ -379,6 +406,11 @@
 						"command": "command -v node >/dev/null 2>&1 && WFC_NOTIFY_PERSIST=1 node \"${CLAUDE_PLUGIN_ROOT}\"/../scripts/reap-finished-sessions.js --notify || true",
 						"timeout": 65,
 						"async": true
+					},
+					{
+						"type": "command",
+						"command": "\"${CLAUDE_PLUGIN_ROOT}\"/../scripts/machine-figures.sh",
+						"timeout": 10
 					}
 				]
 			}

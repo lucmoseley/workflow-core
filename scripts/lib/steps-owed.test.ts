@@ -63,11 +63,11 @@ describe("steps-owed.js", () => {
 		fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
 		fs.writeFileSync(
 			configAt(root),
-			JSON.stringify({ modules: ["roadmap", "governance", "suites"] }),
+			JSON.stringify({ modules: ["roadmap", "governance", "site"] }),
 		);
 		appendStepsOwed(root, "v2.0.0", [{ type: "act", text: "a" }]);
 		expect(fs.readFileSync(configAt(root), "utf8")).toContain(
-			'\t"modules": ["roadmap", "governance", "suites"],\n',
+			'\t"modules": ["roadmap", "governance", "site"],\n',
 		);
 	});
 

@@ -230,7 +230,7 @@ const ROADMAP_CLASSES = {
 };
 
 const USAGE = `usage: node ${scriptPath("init-adopter.js")} --founder "<name>" [--root <dir>]
-  [--project <name>] [--modules roadmap,suites] [--category tech="Tech & Stack"]
+  [--project <name>] [--modules roadmap,governance] [--category tech="Tech & Stack"]
   [--command test="npm test"] [--corpus <owner/name>[,…]] [--plugin-root <dir>]
   [--marketplace <name>] [--marketplace-ref <tag>] [--no-tracker]
   [--no-plugin-install] [--dry-run] [--config-dir <dir>] [--help]`;

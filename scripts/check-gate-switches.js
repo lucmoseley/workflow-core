@@ -65,8 +65,7 @@ const moduleSwitch = (m) => ({
 });
 
 /**
- * A test file's switch is its command, not its `suites` module: the command
- * is gated at commit whatever `suites` says (#1410 row 4).
+ * A test file's switch is the command that runs it (#1410 row 4).
  * @type {Switch}
  */
 const TEST_SWITCH = {
@@ -76,8 +75,7 @@ const TEST_SWITCH = {
 };
 
 /** @param {import("./lib/gate-subjects.js").Found} s */
-const switchOf = (s) =>
-	s.subject === "tests" ? TEST_SWITCH : moduleSwitch(s.module);
+const switchOf = (s) => ("module" in s ? moduleSwitch(s.module) : TEST_SWITCH);
 
 /** @type {import("./lib/check.js").CheckSpec} */
 const SPEC = {

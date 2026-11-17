@@ -53,15 +53,16 @@ A module switches on extra rules and gates. Each needs documents or tests a new 
 
 - **roadmap** — the roadmap page and its digest, changed only through the roadmap-edit skill. On once the roadmap page exists.
 - **governance** — the document map's figure registry and the operating manual. On once the manual or a figure-registry entry exists.
-- **suites** — the vitest suite rules: the targeted-runs rule, the suite-size drift check, the suite-queue wait report and the ci-red label. On for a copied repo that already holds test files, vitest or pytest. Any test file also needs its test command declared, whatever this module says; whether a commit runs that command is its verdict probe's answer, not this module's.
 - **site** — the rendered pages and their copy checks, gating a commit that touches them. On once the brand sheet and the site's pages both exist.
 - **mutation** — a commit changing a line on a declared sensitive path is refused while a planted bug on that line survives every test. Never on by itself: switch it on only where those paths are tested in-process by vitest.
 
 To switch one on, ask a session in that repo to.
 
+Test files take no module: once one lands, a commit is refused until the repo's test command is declared. Whether a commit runs that command is its verdict probe's answer.
+
 ## Turning on CI
 
-A new repo runs no GitHub CI. Once its test command is declared, ask a session in it to turn CI on, naming the runner: the cheap one-core runner, or the two-core ARM runner where the job needs more. The next upgrade writes one workflow: one job on each push to the main branch that runs the repo's declared commands, the core's checks on its documents and workflows, and a Semgrep scan. A job is stopped at 15 minutes; on the two-core runner the session may set a longer limit.
+A new repo runs no GitHub CI. Once its test command is declared, ask a session in it to turn CI on, naming the runner: the cheap one-core runner, or the two-core ARM runner where the job needs more. The next upgrade writes one workflow: one job on each push to the main branch that runs the repo's declared commands, the core's checks on its documents and workflows, and a Semgrep scan. A job is stopped at 15 minutes; on the two-core runner the session may set a longer limit. Once that workflow is committed, the daily repo checks file a red run of it on the main branch as one issue labelled `ci-red`.
 
 Every private repo on your account draws on one pool of 3,000 Actions minutes a month. Once, for the whole account, make a spent pool block jobs rather than bill: open https://github.com/settings/billing, click **Budgets and alerts**, then **New budget**; choose **Product-level budget** and Actions, scope **Account**, set the amount to $0, tick **Stop usage when budget limit is reached** and, under Alerts, **Receive budget threshold alerts**; then **Create budget**. Back on **Budgets and alerts**, tick **Receive alerts when my included usage reaches 90% and 100%**, the warning as the free minutes run down. Jobs then wait for the month to turn. Make no second Actions budget for one repo: overlapping budgets block each other. GitHub warns that the first month after the budget is made may still overrun.
 

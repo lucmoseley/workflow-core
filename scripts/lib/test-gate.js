@@ -6,11 +6,12 @@
  *
  * "push" — the lander runs the full suite before main moves, and a commit runs
  * none: where the declared command has a fresh verdict proof
- * (lib/verdict-probe.js, #5294), or where `suites` is on and nothing is
- * declared.
+ * (lib/verdict-probe.js, #5294).
  *
  * "commit" — every other declared `commands.test`: pre-commit runs it and a
  * red refuses the commit.
+ *
+ * No gate — no `commands.test` is declared.
  */
 
 const config = require("./workflow-core-config.js");
@@ -38,16 +39,10 @@ const treeOf = (opts) => opts.root ?? worktreeRoot();
 /**
  * @param {string|null} command
  * @param {import("./verdict-probe.js").ProofState} proof
- * @param {import("./workflow-core-config.js").ConfigOpts} opts
  * @returns {TestGate}
  */
-function gateFor(command, proof, opts) {
-	if (command === null)
-		return {
-			gate: config.moduleOn("suites", opts) ? "push" : null,
-			command,
-			proof,
-		};
+function gateFor(command, proof) {
+	if (command === null) return { gate: null, command, proof };
 	return { gate: proof.state === "fresh" ? "push" : "commit", command, proof };
 }
 
@@ -74,7 +69,7 @@ function proofInputs(opts) {
  */
 function testGate(opts = {}) {
 	const at = proofInputs(opts);
-	return gateFor(at.command, proofState(at), opts);
+	return gateFor(at.command, proofState(at));
 }
 
 /**
@@ -87,23 +82,18 @@ function testGate(opts = {}) {
  */
 function settleTestGate(say, opts = {}) {
 	const at = proofInputs(opts);
-	return gateFor(at.command, ensureProof({ ...at, say }), opts);
+	return gateFor(at.command, ensureProof({ ...at, say }));
 }
 
 /**
- * The one-line reason `want` does not own the host's tests.
- * @param {"push"|"commit"} want
+ * The one-line reason the gate asked for does not own the host's tests.
  * @param {TestGate} found
  */
-function buildNotGateLine(want, { gate, command, proof }) {
-	if (want === "commit" && command === null)
-		return config.buildCommandUndeclaredLine("test");
+function buildNotGateLine({ gate, command, proof }) {
+	if (command === null) return config.buildCommandUndeclaredLine("test");
 	if (gate === "push")
-		return command === null
-			? 'commands.test is gated at push, where the lander runs the full suite — module "suites" is on and nothing is declared'
-			: "commands.test is gated at push, where the lander runs the full suite — its verdict probe passed for this command, runner and canary";
-	if (gate === "commit") return buildStaysLine(proof);
-	return config.buildModuleOffLine("suites");
+		return "commands.test is gated at push, where the lander runs the full suite — its verdict probe passed for this command, runner and canary";
+	return buildStaysLine(proof);
 }
 
 /* `node test-gate.js <commit|push>`: exit 0 where that gate owns the tests,
@@ -124,7 +114,7 @@ if (require.main === module) {
 		process.exit(2);
 	}
 	if (found.gate !== want) {
-		writeFd(2, `SKIP: ${buildNotGateLine(want, found)}\n`);
+		writeFd(2, `SKIP: ${buildNotGateLine(found)}\n`);
 		process.exit(1);
 	}
 	if (found.gate === "commit") writeFd(2, `${buildStaysLine(found.proof)}\n`);

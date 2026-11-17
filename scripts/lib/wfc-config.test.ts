@@ -59,7 +59,7 @@ describe("declared values", () => {
 		writeConfig(
 			JSON.stringify({
 				contract: 1,
-				modules: ["suites"],
+				modules: ["governance"],
 				commands: { test: "npm run test", lint: null },
 				disabled: ["guard-branch.sh"],
 			}),
@@ -68,7 +68,7 @@ describe("declared values", () => {
 
 	it("reads a listed module as on and an unlisted one as off", () => {
 		expect(
-			sh('wfc_module_on suites; echo "$?"; wfc_module_on site; echo "$?"')
+			sh('wfc_module_on governance; echo "$?"; wfc_module_on site; echo "$?"')
 				.stdout,
 		).toBe("0\n1\n");
 	});
@@ -162,7 +162,7 @@ describe("WFC_MODULES", () => {
 		writeConfig(JSON.stringify({ modules: ["site"] }));
 		expect(
 			sh('wfc_module_on roadmap; echo "$?"; wfc_module_on site; echo "$?"', {
-				WFC_MODULES: "roadmap,suites",
+				WFC_MODULES: "roadmap,governance",
 			}).stdout,
 		).toBe("0\n1\n");
 		expect(
@@ -174,10 +174,13 @@ describe("WFC_MODULES", () => {
 describe("the liveness mod's off switch (#944)", () => {
 	it("raises no warning, and is never read as a module list", () => {
 		writeConfig(
-			JSON.stringify({ modules: ["suites"], mods: { "wfc-liveness": false } }),
+			JSON.stringify({
+				modules: ["governance"],
+				mods: { "wfc-liveness": false },
+			}),
 		);
 		const r = sh(
-			'wfc_module_on suites; echo "$?"; wfc_module_on roadmap; echo "$?"; wfc_contract_ok; echo "$?"',
+			'wfc_module_on governance; echo "$?"; wfc_module_on roadmap; echo "$?"; wfc_contract_ok; echo "$?"',
 		);
 		expect(r.stdout).toBe("0\n1\n0\n");
 		expect(r.stderr).toBe("");
@@ -186,15 +189,17 @@ describe("the liveness mod's off switch (#944)", () => {
 
 describe("unknown module names (#43)", () => {
 	it("warns on an unknown name asked about, and reads it as off", () => {
-		const r = sh('wfc_module_on sutes; echo "$?"', { WFC_MODULES: "suites" });
+		const r = sh('wfc_module_on govrnance; echo "$?"', {
+			WFC_MODULES: "governance",
+		});
 		expect(r.stdout).toBe("1\n");
-		expect(r.stderr).toContain('unknown module "sutes"');
+		expect(r.stderr).toContain('unknown module "govrnance"');
 	});
 
 	it("warns on an unknown name in WFC_MODULES, once per process", () => {
 		const r = sh(
-			'wfc_module_on suites; echo "$?"; wfc_module_on roadmap; echo "$?"',
-			{ WFC_MODULES: "suites,rodmap" },
+			'wfc_module_on governance; echo "$?"; wfc_module_on roadmap; echo "$?"',
+			{ WFC_MODULES: "governance,rodmap" },
 		);
 		expect(r.stdout).toBe("0\n1\n");
 		expect(
@@ -203,9 +208,9 @@ describe("unknown module names (#43)", () => {
 	});
 
 	it("warns on an unknown name in the config's modules, once per process", () => {
-		writeConfig(JSON.stringify({ modules: ["suites", "rodmap"] }));
+		writeConfig(JSON.stringify({ modules: ["governance", "rodmap"] }));
 		const r = sh(
-			'wfc_module_on suites; echo "$?"; wfc_module_on roadmap; echo "$?"',
+			'wfc_module_on governance; echo "$?"; wfc_module_on roadmap; echo "$?"',
 		);
 		expect(r.stdout).toBe("0\n1\n");
 		expect(
@@ -422,7 +427,7 @@ describe("parity with the JS reader (#1481)", () => {
 		{
 			name: "WFC_MODULES over the declared list",
 			config: { modules: [] },
-			modulesEnv: "suites,roadmap",
+			modulesEnv: "governance,roadmap",
 			answers: { module: "on" },
 		},
 		{
@@ -433,8 +438,8 @@ describe("parity with the JS reader (#1481)", () => {
 		},
 		{
 			name: "a module entry holding a comma",
-			config: { modules: ["roadmap,suites"] },
-			asks: { module: "suites" },
+			config: { modules: ["roadmap,governance"] },
+			asks: { module: "governance" },
 		},
 		{
 			name: "modules not an array",

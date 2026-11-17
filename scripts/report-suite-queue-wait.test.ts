@@ -51,11 +51,21 @@ beforeEach(() => {
 		path.join(repo, ".claude-plugin", "plugin.json"),
 		JSON.stringify({ name: "workflow-core" }),
 	);
+	declareTest("npm run test");
 	markers = path.join(repo, MARKERS_REL);
 	fs.mkdirSync(markers, { recursive: true });
 	exitLog = queueExitLogPath(repo) as string;
 });
 afterEach(() => fs.rmSync(home, { recursive: true, force: true }));
+
+/** Writes the host's config, declaring `test` as its test command, or none. */
+function declareTest(test: string | null) {
+	fs.mkdirSync(path.join(repo, ".claude"), { recursive: true });
+	fs.writeFileSync(
+		path.join(repo, ".claude", "workflow-core.json"),
+		JSON.stringify({ commands: test === null ? {} : { test } }),
+	);
+}
 
 interface Exit {
 	at: number;
@@ -457,7 +467,8 @@ describe("in an adopter (#1454)", () => {
 		),
 	);
 
-	it("files one issue in the host's tracker with suites on", () => {
+	it("files one issue in the host's tracker whatever its declared runner", () => {
+		declareTest("bash test/all.sh");
 		waited(3);
 		const gh = stubGh();
 		const r = run(gh);
@@ -478,12 +489,13 @@ describe("in an adopter (#1454)", () => {
 		expect(body).not.toContain("replay-suite-queue-wait");
 	});
 
-	it("prints a SKIP and makes no gh call with suites off", () => {
+	it("prints a SKIP and makes no gh call where no commands.test is declared", () => {
+		declareTest(null);
 		waited(3);
 		const gh = stubGh();
-		const r = run({ env: { ...gh.env, WFC_MODULES: "roadmap" } });
+		const r = run(gh);
 		expect(r.status).toBe(0);
-		expect(r.stderr).toContain('SKIP: module "suites" is off');
+		expect(r.stderr).toContain("SKIP: commands.test is undeclared");
 		expect(gh.calls()).toBe("");
 	});
 });

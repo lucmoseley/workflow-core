@@ -370,7 +370,7 @@ describe("the labels (#1484)", () => {
 		]);
 		const { calls, gh } = stubGh();
 		const lines = run(gh);
-		const plan = labelPlan({ modules: [], categories: {} });
+		const plan = labelPlan({ modules: [], categories: {}, ciWorkflow: false });
 		expect(calls[0]).toBe("list acme/widgets");
 		expect(calls.filter((c) => c.startsWith("create"))).toHaveLength(
 			plan.length,
@@ -388,6 +388,30 @@ describe("the labels (#1484)", () => {
 		expect(calls).toEqual([]);
 	});
 
+	it("creates the bare ci-red label only where the shipped CI workflow is written (#5383)", () => {
+		const declare = (ci?: object) =>
+			write(
+				root,
+				".claude/workflow-core.json",
+				JSON.stringify({
+					contract: 1,
+					founder: "A Founder",
+					modules: [],
+					tracker: "acme/widgets",
+					ci,
+				}),
+			);
+		declare();
+		const without = stubGh();
+		run(without.gh);
+		expect(without.calls).not.toContain("create acme/widgets ci-red");
+		declare({ runner: "ubuntu-slim" });
+		const withCi = stubGh();
+		run(withCi.gh);
+		expect(fs.existsSync(path.join(root, CI_WORKFLOW))).toBe(true);
+		expect(withCi.calls).toContain("create acme/widgets ci-red");
+	});
+
 	it("makes one read and no create where every label is current", () => {
 		write(
 			root,
@@ -399,7 +423,7 @@ describe("the labels (#1484)", () => {
 				tracker: "acme/widgets",
 			}),
 		);
-		const plan = labelPlan({ modules: [], categories: {} });
+		const plan = labelPlan({ modules: [], categories: {}, ciWorkflow: false });
 		const { calls, gh } = stubGh(
 			plan.map((l: Label) => ({ ...l, color: l.color.toUpperCase() })),
 		);

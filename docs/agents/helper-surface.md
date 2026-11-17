@@ -46,7 +46,7 @@ Declare `commands.helper_check` in `.claude/workflow-core.json`: a command that 
 
 ## Running the suite through the core
 
-With the `suites` module on (`.claude/workflow-core.json` → `modules`), a green run records a certificate, and the unasked-rerun guard refuses a bare re-run of a tree certificates already attest. Two things record one, and an adopter wires both (#552).
+A green run records a certificate, and the unasked-rerun guard refuses a bare re-run of a tree certificates already attest. Two things record one, and an adopter wires both (#552).
 
 **The recorders**, attached in the adopter's `vitest.config.ts` from the resolved core. They ship in the plugin as the helper surface's three `.ts` entry points, which only vitest loads:
 

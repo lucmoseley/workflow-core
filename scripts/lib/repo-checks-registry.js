@@ -29,27 +29,32 @@
  *           those keys out of the standing issue and the notify line (#1700).
  *   gate    every limb must hold, or the entry is SKIP and never launched:
  *           `modules` the host config must list, an `input` path that must
- *           exist at the host root, `tracker` resolving, `config` naming a
- *           key the host config must carry, and `core`, the host being
- *           workflow-core itself. The core keeps every input, so there
- *           `input` never holds an entry back: a missing one is launched and
- *           reports its own BROKEN (#1510 story 18, #1722). An input-gated
- *           checker that SKIPs on a missing input goes silent in the core.
+ *           exist at the host root, a `tracked` path git must track there,
+ *           `tracker` resolving, `config` naming a key the host config must
+ *           carry, and `core`, the host being workflow-core itself. The core
+ *           keeps every input, so there `input` never holds an entry back: a
+ *           missing one is launched and reports its own BROKEN (#1510 story
+ *           18, #1722). An input-gated checker that SKIPs on a missing input
+ *           goes silent in the core. `tracked` holds no entry back in the
+ *           core either, whose own workflows the entry reads in its place.
  */
 
 /**
- * @typedef {{ modules?: string[], input?: string, tracker?: true,
- *   config?: string, core?: true }} Gate
+ * @typedef {{ modules?: string[], input?: string, tracked?: string,
+ *   tracker?: true, config?: string, core?: true }} Gate
  * @typedef {{ id: string, script: string, args?: string[],
  *   kind: "check" | "reporter", since?: true, rescan?: true,
  *   ceilingScale?: number, settled?: string[],
  *   gate: Gate }} RepoCheck
  * @typedef {{ root: string, file: string, core: boolean, modules: Set<string>,
- *   config: Record<string, unknown>, tracker: () => string | null }} Host
+ *   config: Record<string, unknown>, tracker: () => string | null,
+ *   tracked: (rel: string) => boolean }} Host
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { CI_WORKFLOW } = require("./adopter-ci.js");
+const { gitOrNull } = require("./git.js");
 const { isCoreHost } = require("./plugin-state.js");
 const { readConfig, resolveKey } = require("./workflow-core-config.js");
 
@@ -116,11 +121,13 @@ const REPO_CHECKS = [
 		kind: "check",
 		gate: { input: "scripts/instruction-surface-anchors.json" },
 	},
+	/* Core-only: the constant it re-measures is the plugin's own, measured on
+	 * this suite. */
 	{
 		id: "suite-size",
 		script: "check-suite-size-drift.js",
 		kind: "check",
-		gate: { modules: ["suites"] },
+		gate: { core: true },
 	},
 	{
 		id: "workflow-permissions",
@@ -165,13 +172,14 @@ const REPO_CHECKS = [
 		kind: "reporter",
 		gate: { core: true },
 	},
-	/* Core-only, and here rather than in the sweep: the sweep runs on the
-	 * public code repo, whose token cannot reach the private tracker (#1963). */
+	/* Here rather than in the sweep: the sweep runs on the public code repo,
+	 * whose token cannot reach the private tracker (#1963). Where the shipped
+	 * CI workflow is tracked, the reporter reads its runs (#5383). */
 	{
 		id: "red-suite",
 		script: "report-red-suite.js",
 		kind: "reporter",
-		gate: { core: true },
+		gate: { tracked: CI_WORKFLOW },
 	},
 	{
 		id: "drift",
@@ -288,6 +296,8 @@ function readHost(
 			}
 			return tracker;
 		},
+		tracked: (rel) =>
+			Boolean(gitOrNull(["ls-files", "--", rel], { cwd: root })?.trim()),
 	};
 }
 
@@ -307,6 +317,8 @@ function gateFault({ gate }, host) {
 		!fs.existsSync(path.join(host.root, gate.input))
 	)
 		return `this repo keeps no ${gate.input}`;
+	if (gate.tracked && !host.core && !host.tracked(gate.tracked))
+		return `this repo tracks no ${gate.tracked}`;
 	if (gate.config && host.config[gate.config] === undefined)
 		return `${host.file} carries no "${gate.config}" key`;
 	if (gate.tracker && !host.tracker())

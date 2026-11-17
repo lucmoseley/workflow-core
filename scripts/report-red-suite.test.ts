@@ -26,6 +26,9 @@ import { shellQuote } from "./lib/sh-quote.js";
 const SCRIPT = path.join(__dirname, "report-red-suite.js");
 const TITLE = "The scheduled full-suite run is red on main";
 const SUITE_JOB = "Full suite";
+/* The one job of the shipped CI workflow (lib/adopter-ci.js). */
+const CI_JOB = "Tests and guards";
+const CI_URL = "https://github.com/o/code/actions/runs/777";
 const RED_URL = "https://github.com/o/code/actions/runs/12345";
 
 const temps: string[] = [];
@@ -57,8 +60,10 @@ interface Sweep {
  *   issue list --state open  → `openIssues`
  *   issue list --state closed → `closedIssues`
  *   issue view → `issue` (body and comments)
- *   run list → `sweeps`, by default one red sweep of the newest commit
- *   run view <id> → that sweep's jobs
+ *   run list --workflow scheduled-checks.yml → `sweeps`, by default one red
+ *     sweep of the newest commit
+ *   run list --workflow workflow-core-ci.yml → `ciRuns`
+ *   run view <id> → that run's jobs
  *   issue create / issue comment → a URL
  */
 function fixture(opts: {
@@ -68,6 +73,10 @@ function fixture(opts: {
 	issue?: { body: string; comments: { body: string }[] };
 	/** Newest first, exactly as `gh run list` orders them. */
 	sweeps?: Sweep[];
+	/** The shipped CI workflow's runs, `suite` its one job's verdict. */
+	ciRuns?: Sweep[];
+	/** The workflow files the repo tracks; the sweep's alone by default. */
+	tracks?: string[];
 }): Fixture {
 	const root = fs.mkdtempSync(path.join(os.tmpdir(), "red-suite-"));
 	temps.push(root);
@@ -90,6 +99,14 @@ function fixture(opts: {
 		path.join(root, ".claude", "workflow-core.json"),
 		JSON.stringify({ tracker: "o/tracker", codeRepo: "o/code" }),
 	);
+	fs.mkdirSync(path.join(root, ".github", "workflows"), { recursive: true });
+	for (const file of opts.tracks ?? ["scheduled-checks.yml"]) {
+		fs.writeFileSync(
+			path.join(root, ".github", "workflows", file),
+			"on: push\n",
+		);
+		git(["add", "--", `.github/workflows/${file}`]);
+	}
 
 	const sweeps = opts.sweeps ?? [
 		{
@@ -100,10 +117,11 @@ function fixture(opts: {
 			suite: "failure",
 		},
 	];
-	fs.writeFileSync(
-		path.join(root, "runList.json"),
-		JSON.stringify(sweeps.map(({ suite: _suite, ...sweep }) => sweep)),
-	);
+	const ciRuns = opts.ciRuns ?? [];
+	const listed = (runs: Sweep[]) =>
+		JSON.stringify(runs.map(({ suite: _suite, ...listedRun }) => listedRun));
+	fs.writeFileSync(path.join(root, "runList.json"), listed(sweeps));
+	fs.writeFileSync(path.join(root, "runList-ci.json"), listed(ciRuns));
 	fs.writeFileSync(
 		path.join(root, "issueList.json"),
 		JSON.stringify(opts.openIssues ?? []),
@@ -126,6 +144,13 @@ function fixture(opts: {
 					: [{ name: `${SUITE_JOB} / Lint and tests`, conclusion: s.suite }],
 			),
 		);
+	for (const r of ciRuns)
+		fs.writeFileSync(
+			path.join(root, `jobs-${r.databaseId}.json`),
+			JSON.stringify(
+				r.suite === null ? [] : [{ name: CI_JOB, conclusion: r.suite }],
+			),
+		);
 
 	const bin = path.join(root, "bin");
 	fs.mkdirSync(bin);
@@ -145,7 +170,8 @@ function fixture(opts: {
 			'elif [ "$1" = "issue" ] && [ "$2" = "view" ]; then',
 			`  cat ${shellQuote(path.join(root, "issueView.json"))}`,
 			'elif [ "$1" = "run" ] && [ "$2" = "list" ]; then',
-			`  cat ${shellQuote(path.join(root, "runList.json"))}`,
+			'  case " $* " in *" workflow-core-ci.yml "*) list=runList-ci ;; *) list=runList ;; esac',
+			`  cat ${shellQuote(root)}/"$list".json`,
 			'elif [ "$1" = "run" ] && [ "$2" = "view" ]; then',
 			`  cat ${shellQuote(root)}/jobs-"$3".json`,
 			'elif [ "$1" = "issue" ] && [ "$2" = "create" ]; then',
@@ -264,7 +290,7 @@ describe("filing", () => {
 		);
 	});
 
-	it("says a red sweep is not evidence of a regression", () => {
+	it("says a red run is not evidence of a regression", () => {
 		const f = fixture({ commits: 2 });
 		run(f);
 		const create = (callOf(f, "create") as string[]).join("\n");
@@ -500,6 +526,80 @@ describe("which job's verdict counts", () => {
 	});
 });
 
+describe("the shipped CI workflow's runs (#5383)", () => {
+	const ciRun = (id: number, suite: string | null, createdAt: string) => ({
+		databaseId: id,
+		headSha: "c".repeat(40),
+		url: id === 777 ? CI_URL : `u${id}`,
+		createdAt,
+		suite,
+	});
+
+	it("files a red push run of workflow-core-ci.yml in a repo tracking it alone", () => {
+		const f = fixture({
+			commits: 2,
+			tracks: ["workflow-core-ci.yml"],
+			ciRuns: [ciRun(777, "failure", "2026-08-30T10:00:00Z")],
+		});
+		expect(run(f)).toContain("Filed");
+		const create = (callOf(f, "create") as string[]).join("\n");
+		expect(create).toContain(CI_URL);
+		expect(create).toContain("- **Workflow:** `workflow-core-ci.yml`");
+		expect(create).toContain("`workflow-core CI` run");
+		const lists = f
+			.ghCalls()
+			.filter((c) => c[0] === "run" && c[1] === "list")
+			.map((c) => c.join(" "));
+		expect(lists.every((c) => c.includes("workflow-core-ci.yml"))).toBe(true);
+	});
+
+	it("reads its verdict off its own job, not the sweep's", () => {
+		const f = fixture({
+			commits: 2,
+			tracks: ["workflow-core-ci.yml"],
+			ciRuns: [ciRun(777, "success", "2026-08-30T10:00:00Z")],
+		});
+		expect(run(f)).toContain("nothing to file");
+		expect(callOf(f, "create")).toBeUndefined();
+	});
+
+	it("reads both where both are tracked, filing the newer red", () => {
+		const f = fixture({
+			commits: 2,
+			tracks: ["scheduled-checks.yml", "workflow-core-ci.yml"],
+			ciRuns: [ciRun(777, "failure", "2026-08-30T10:00:00Z")],
+		});
+		run(f);
+		const create = (callOf(f, "create") as string[]).join("\n");
+		expect(create).toContain(CI_URL);
+		expect(create).not.toContain(RED_URL);
+	});
+
+	it("holds the condition while either tracked workflow's newest judged run is red", () => {
+		const f = fixture({
+			commits: 1,
+			tracks: ["scheduled-checks.yml", "workflow-core-ci.yml"],
+			sweeps: [
+				{
+					databaseId: 1,
+					headSha: "a".repeat(40),
+					url: "u1",
+					createdAt: "d1",
+					suite: "success",
+				},
+			],
+			ciRuns: [ciRun(777, "failure", "2026-08-30T10:00:00Z")],
+		});
+		expect(sweepStillRedOf(f).held).toBe(true);
+	});
+
+	it("reads no run and files nothing in a repo tracking neither workflow", () => {
+		const f = fixture({ commits: 2, tracks: [] });
+		expect(run(f)).toContain("nothing to read");
+		expect(f.ghCalls().filter((c) => c[0] === "run")).toEqual([]);
+	});
+});
+
 describe("de-duplication", () => {
 	it("comments on the open issue instead of filing a second one", () => {
 		const f = fixture({
@@ -514,7 +614,7 @@ describe("de-duplication", () => {
 		expect(comment).toBeTruthy();
 		const text = (comment as string[]).join("\n");
 		expect(text).toContain("500");
-		expect(text).toContain("Another red sweep");
+		expect(text).toContain("Another red run");
 	});
 
 	it("matches on the exact title, so another ci-red issue does not absorb it", () => {
@@ -533,7 +633,7 @@ describe("de-duplication", () => {
 			openIssues: [{ number: 500, title: TITLE }],
 			issue: { body: "", comments: [{ body: `- **Run:** ${RED_URL}` }] },
 		});
-		expect(run(f)).toContain("already names the newest red sweep");
+		expect(run(f)).toContain("already names the newest red run");
 		expect(callOf(f, "comment")).toBeUndefined();
 	});
 

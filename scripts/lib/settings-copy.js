@@ -2,10 +2,10 @@
  * settings-copy.js — builds the pattern that finds one global file's versioned
  * copy in docs/claude-user-settings.md.
  *
- * The files under ~/.claude are versioned as BEGIN/END-marked fenced blocks in
- * that doc (#2174). The drift check compares each block against the live file,
- * and both global hooks' tests run the doc's copy, so all three read a block
- * through this one pattern (#2324).
+ * The files under ~/.claude with no source in this repo are versioned as
+ * BEGIN/END-marked fenced blocks in that doc (#2174). The drift check compares
+ * each block against the live file, and the status line's test runs the doc's
+ * copy, so both read a block through this one pattern (#2324).
  */
 const { escapeRe } = require("./regex-group.js");
 

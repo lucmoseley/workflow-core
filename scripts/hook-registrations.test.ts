@@ -338,6 +338,30 @@ const REGISTRATIONS: Registration[] = [
 		covers: [],
 	},
 	{
+		event: "PreToolUse",
+		id: "scripts/browser-profile-guard.sh",
+		matcher: "Bash",
+		covers: ["Bash"],
+	},
+	{
+		event: "PreToolUse",
+		id: "scripts/practice-guard.sh",
+		matcher: "Read|Glob|Write|Bash",
+		covers: ["Read", "Glob", "Write", "Bash"],
+	},
+	{
+		event: "Stop",
+		id: "scripts/practice-guard.sh stop",
+		matcher: null,
+		covers: [],
+	},
+	{
+		event: "SessionStart",
+		id: "scripts/machine-figures.sh",
+		matcher: null,
+		covers: [],
+	},
+	{
 		/* Replays what the SessionStart producers below persisted at an earlier
 		 * start, before any of them runs again (mantahostels#2277). Its position in
 		 * .claude/settings.json is what carries that, and nothing here asserts it:

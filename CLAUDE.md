@@ -36,9 +36,9 @@ workflow-core — the hooks, guards, skills and checks that let many Claude Code
 
 ## Machine limits
 
-WSL2 with a **10 GB** memory cap and 2 GB swap, on **8 cores**. These are hard limits: exceeding them freezes the machine, not just the task. Never propose raising either without a measured peak, and **never propose raising swap at all** — an 8 GB swap once caused an hour-long page-fault loop, and more RAM removes the reason to want it. Full config, guards and incident runbook: `docs/environment.md`.
+The memory and swap limits are hard: exceeding them freezes the machine, not just the task. Never propose raising either without a measured peak, and **never propose raising swap at all** — an 8 GB swap once caused an hour-long page-fault loop, and more RAM removes the reason to want it. Full config, guards and incident runbook: `docs/environment.md`.
 
-- The machine is Snapdragon ARM64 under WSL2. Check architecture before suggesting binaries or native dependencies.
+- Check the architecture before suggesting a binary or a native dependency.
 - Kill background processes as soon as they're no longer needed.
 
 ## Subagent dispatch

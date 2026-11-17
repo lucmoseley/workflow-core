@@ -3,7 +3,8 @@
  * tracked tree (#1506). One predicate for every reader: check-gate-switches.js
  * refuses a commit while a subject is tracked and its switch is off, and
  * init-adopter.js and /new-repo switch on the module of each subject a
- * copied repo already holds.
+ * copied repo already holds. Test files are switched by `commands.test`, the
+ * command that runs them, never by a module.
  *
  * The tree is the INDEX — `git ls-files`, and the doc-map read as its staged
  * blob — so a commit is judged on its own bytes, never on a half-written
@@ -22,9 +23,11 @@ const SITE_DIR = "app/";
 
 /**
  * @typedef {"tests"|"roadmap"|"governance"|"site"} Subject
- * @typedef {{subject: Subject, module: import("./workflow-core-config.js").Module,
- *   found: string[]}} Found `found` is the tracked paths that make the
- *   subject, for the refusal to name
+ * @typedef {{subject: "tests", command: "test", found: string[]}} CommandFound
+ * @typedef {{subject: Exclude<Subject, "tests">,
+ *   module: import("./workflow-core-config.js").Module, found: string[]}} ModuleFound
+ * @typedef {CommandFound | ModuleFound} Found `found` is the tracked paths
+ *   that make the subject, for the refusal to name
  */
 
 /**
@@ -57,7 +60,7 @@ function readIndexSubjects(root) {
 	const out = [];
 	const tests = files.filter((f) => COLLECTED_TEST.test(f));
 	if (tests.length > 0)
-		out.push({ subject: "tests", module: "suites", found: tests });
+		out.push({ subject: "tests", command: "test", found: tests });
 	if (tracked.has(ROADMAP))
 		out.push({ subject: "roadmap", module: "roadmap", found: [ROADMAP] });
 	const governance = [
@@ -83,8 +86,11 @@ function readIndexSubjects(root) {
 	return out;
 }
 
-/** @param {string} root */
+/**
+ * The modules switching the subjects `root`'s index tracks.
+ * @param {string} root
+ */
 const readSubjectModules = (root) =>
-	readIndexSubjects(root).map((s) => s.module);
+	readIndexSubjects(root).flatMap((s) => ("module" in s ? [s.module] : []));
 
 module.exports = { readIndexSubjects, readSubjectModules };

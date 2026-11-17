@@ -81,12 +81,11 @@ describe("the push rules, end to end", () => {
 	};
 
 	/** A host meeting every rule's premise (#742). */
-	const fullHost = (modules = ["suites"]) => {
+	const fullHost = () => {
 		write(
 			".claude/workflow-core.json",
 			JSON.stringify({
 				contract: 1,
-				modules,
 				commands: {
 					test: "npm run test",
 					typecheck: "npm run typecheck",

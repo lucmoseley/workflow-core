@@ -780,6 +780,7 @@
 			"scripts/check-sh-changed.test.ts",
 			"scripts/check-shfmt.test.ts",
 			"scripts/check-swallowed-errors.test.ts",
+			"scripts/check-user-settings-drift.test.ts",
 			"scripts/check-vendored-skills.test.ts",
 			"scripts/checker-new-faults.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -984,6 +985,7 @@
 			"scripts/check-instruction-surface.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/check-plugin-gap.test.ts",
+			"scripts/check-user-settings-drift.test.ts",
 			"scripts/claude-child.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/file-issue.test.ts",
@@ -2731,8 +2733,8 @@
 		"docs/claude-user-settings.md": [
 			".claude/skills/new-repo/scripts/new-repo-page.test.ts",
 			"scripts/answer-review-reversals.test.ts",
-			"scripts/browser-profile-guard.test.ts",
 			"scripts/check-citation-ceiling.test.ts",
+			"scripts/check-user-settings-drift.test.ts",
 			"scripts/file-morning-review.test.ts",
 			"scripts/guard-agent-poll.test.ts",
 			"scripts/guard-disabled.test.ts",
@@ -2750,7 +2752,6 @@
 			"scripts/lib/sensitive-paths.test.ts",
 			"scripts/lib/wfc-config.test.ts",
 			"scripts/lib/workflow-core-config.test.ts",
-			"scripts/practice-guard.test.ts",
 			"scripts/statusline.test.ts"
 		],
 		"docs/clobber-reviewed.json": [
@@ -3020,6 +3021,15 @@
 			"scripts/lib/file-issue.contract.test.ts",
 			"scripts/lib/morning-review-filing.test.ts"
 		],
+		"docs/practice-crafts.md": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/check-user-settings-drift.test.ts",
+			"scripts/file-morning-review.test.ts",
+			"scripts/lib/checker-run.contract.test.ts",
+			"scripts/lib/file-issue.contract.test.ts",
+			"scripts/lib/morning-review-filing.test.ts",
+			"scripts/practice-guard.test.ts"
+		],
 		"docs/practice/ci-and-repo-quality-gates.md": [
 			"scripts/lib/plugin-tree.test.ts"
 		],
@@ -3120,6 +3130,7 @@
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
 			"scripts/check-instruction-surface.test.ts",
+			"scripts/check-user-settings-drift.test.ts",
 			"scripts/file-morning-review.test.ts",
 			"scripts/lib/checker-run.contract.test.ts",
 			"scripts/lib/config-json.test.ts",
@@ -3445,6 +3456,7 @@
 			"scripts/lib/script-path.test.ts",
 			"scripts/lib/serialised.test.ts",
 			"scripts/lib/suite-background.test.ts",
+			"scripts/lib/suite-concurrency.test.ts",
 			"scripts/lib/suite-queue.test.ts",
 			"scripts/lib/test-pass-marker.test.ts",
 			"scripts/lib/touched-tests.test.ts",
@@ -3486,6 +3498,7 @@
 			"scripts/file-issue.test.ts",
 			"scripts/file-morning-review.test.ts",
 			"scripts/guard-issue-create-label.test.ts",
+			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/issue-body.test.ts",
 			"scripts/lib/checker-run.contract.test.ts",
 			"scripts/lib/file-issue-core.test.ts",
@@ -3495,6 +3508,7 @@
 			"scripts/lib/infer-commands.test.ts",
 			"scripts/lib/issue-create-label.test.ts",
 			"scripts/lib/morning-review-filing.test.ts",
+			"scripts/lib/suite-concurrency.test.ts",
 			"scripts/lib/test-kind.test.ts",
 			"scripts/lib/touched-tests.test.ts",
 			"scripts/lib/verdict-probe.test.ts",
@@ -3990,6 +4004,21 @@
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/status-report.test.ts",
 			"scripts/upgrade.test.ts"
+		],
+		"scripts/browser-profile-guard.sh": [
+			"scripts/browser-profile-guard.test.ts",
+			"scripts/check-user-settings-drift.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/guard-priced-options-founder-act.test.ts",
+			"scripts/hook-registrations.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/pipefail-grep-quiet.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/browser-profile-guard.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -57870,6 +57899,26 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
+		"scripts/machine-figures.sh": [
+			"scripts/checker-registrations.test.ts",
+			"scripts/hook-registrations.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/machine-figures.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/pipefail-grep-quiet.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
+		],
+		"scripts/machine-figures.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/manual-path-allowlist.json": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
@@ -58970,6 +59019,20 @@
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/practice-guard.sh": [
+			"scripts/check-user-settings-drift.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/hook-registrations.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/pipefail-grep-quiet.test.ts",
+			"scripts/practice-guard.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"scripts/practice-guard.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -62056,6 +62119,7 @@
 			"scripts/file-issue.test.ts",
 			"scripts/file-morning-review.test.ts",
 			"scripts/guard-issue-create-label.test.ts",
+			"scripts/guard-suite-concurrency.test.ts",
 			"scripts/issue-body.test.ts",
 			"scripts/lib/checker-run.contract.test.ts",
 			"scripts/lib/doc-map.test.ts",
@@ -62068,6 +62132,7 @@
 			"scripts/lib/pass-store.test.ts",
 			"scripts/lib/read-audit.test.ts",
 			"scripts/lib/suite-bounded.test.ts",
+			"scripts/lib/suite-concurrency.test.ts",
 			"scripts/lib/test-kind.test.ts",
 			"scripts/lib/touched-tests.test.ts",
 			"scripts/lib/verdict-probe.test.ts",

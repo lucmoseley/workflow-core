@@ -36,6 +36,7 @@ import {
 } from "./lib/pretool-guard-testkit";
 import { writePsStub } from "./lib/ps-stub";
 import { readRuleText } from "./lib/rule-text";
+import { ensureProof } from "./lib/verdict-probe.js";
 
 const CORE = "guard-suite-concurrency";
 
@@ -255,20 +256,50 @@ describe("once a session, end to end", () => {
 		expect(limb("sess-2").additionalContext).toContain(Limb);
 	});
 
-	it("hands an adopter's declared whole-suite launch rule:targeted-runs once per session, off its own config and package.json (#2237)", () => {
-		write(
-			".claude/workflow-core.json",
-			JSON.stringify({ commands: { test: "npm run test" } }),
-		);
-		write("package.json", JSON.stringify({ scripts: { test: "vitest run" } }));
-		/* WFC_MODULES, not the config's list: vitest.setup.ts sets it to every
-		 * module, and it outranks the file. */
-		const env = { WFC_MODULES: "suites" };
-		const ctx = emission("npm run test", { session: "sess-T", env })
-			.additionalContext as string;
-		expect(ctx.indexOf(readRuleText("targeted-runs"))).toBe(0);
-		expect(ctx).toContain(readRuleText("suite-tree-dirty"));
-		expect(emission("npm test", { session: "sess-T", env })).toBeNull();
+	describe("an adopter's declared whole-suite launch (#2237)", () => {
+		const Canary = "canary.test.ts";
+		const Command = "npm run test";
+		beforeEach(() => {
+			write(
+				".claude/workflow-core.json",
+				JSON.stringify({ commands: { test: Command, testCanary: Canary } }),
+			);
+			write(
+				"package.json",
+				JSON.stringify({ scripts: { test: "vitest run" } }),
+			);
+			write(Canary, "it passes\n");
+		});
+		/** Records a passed verdict probe for the tree as it stands. */
+		const prove = () => {
+			fs.mkdirSync(markers(), { recursive: true });
+			expect(
+				ensureProof({
+					root,
+					command: Command,
+					canary: Canary,
+					markers: markers(),
+					run: (_line, { env }) =>
+						env.WFC_VERDICT_PROBE
+							? { code: 1, out: ` FAIL  ${Canary}\n` }
+							: { code: 0, out: "" },
+				}),
+			).toEqual({ state: "fresh" });
+		};
+
+		it("is handed rule:targeted-runs once per session where commands.test has a fresh verdict proof, off its own config and package.json", () => {
+			prove();
+			const ctx = emission(Command, { session: "sess-T" })
+				.additionalContext as string;
+			expect(ctx.indexOf(readRuleText("targeted-runs"))).toBe(0);
+			expect(ctx).toContain(readRuleText("suite-tree-dirty"));
+			expect(emission("npm test", { session: "sess-T" })).toBeNull();
+		});
+
+		it("is handed no rule:targeted-runs where no verdict proof is recorded", () => {
+			const ctx = emission(Command, { session: "sess-U" })?.additionalContext;
+			expect(String(ctx ?? "")).not.toContain(readRuleText("targeted-runs"));
+		});
 	});
 
 	it("says nothing and logs where the payload carries no session, a latch having no key", () => {

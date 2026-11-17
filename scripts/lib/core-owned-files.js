@@ -513,7 +513,7 @@ function bringRegistries(ctx) {
  * @param {Context} ctx
  */
 function bringLabels(ctx) {
-	const { labels, dryRun, out } = ctx;
+	const { root, labels, dryRun, out } = ctx;
 	if (labels && "off" in labels) {
 		out(`skipped the labels — ${labels.off}`);
 		return [];
@@ -541,6 +541,8 @@ function bringLabels(ctx) {
 	const plan = labelPlan({
 		modules: config.modules,
 		categories: config.categories,
+		/* bringCi, run first, has written it where the config asks for it. */
+		ciWorkflow: fs.existsSync(path.join(root, CI_WORKFLOW)),
 	});
 	const owed = plan.filter((want) => !have.some((h) => isSameLabel(h, want)));
 	if (owed.length === 0) return [];

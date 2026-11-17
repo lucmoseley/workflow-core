@@ -5,9 +5,9 @@
  * machine's real ~/.claude.
  *
  * Scope: the routed keys (#5032), against the fixture routing file by
- * WFC_MODEL_ROUTING — and where the snapshot is found with no argument (#447) — and that
- * the browser-profile guard's copy is held to the live hook (#1547), and the
- * user-level CLAUDE.md's to the live file through its own fence (#2174).
+ * WFC_MODEL_ROUTING — and where the snapshot is found with no argument (#447); the
+ * user-level CLAUDE.md held to the live file through its own fence (#2174); and the
+ * machine copies of shipped files and working rules held to this repo (#5344).
  *
  * It warns from `.husky/pre-commit` on every commit, so a loosened case either
  * fires on every mode switch or lets real drift go unsaid.
@@ -49,10 +49,23 @@ const BURN = {
 	},
 };
 
+const contract = fs.readFileSync(
+	path.resolve(__dirname, "..", "docs", "working-contract.md"),
+	"utf8",
+);
+/** The working-rule sections a live CLAUDE.md carries, as the contract words them. */
+const ruleSections = [
+	"Removal means gone",
+	"Leading practice",
+	"Reports and paid data",
+]
+	.map((h) => `## ${h}\n${contract.split(`## ${h}\n`)[1]?.split("\n## ")[0]}`)
+	.join("\n");
+
 let dir: string;
 
 /**
- * A doc with a ```json snapshot block and the two bash blocks, and no
+ * A doc with a ```json snapshot block and the status-line block, and no
  * CLAUDE.md block, so it reads as a snapshot predating #2174.
  */
 const doc = (settings: object) =>
@@ -68,12 +81,6 @@ const doc = (settings: object) =>
 		"echo hi",
 		"```",
 		"<!-- END statusline.sh -->",
-		"",
-		"<!-- BEGIN browser-profile-guard.sh -->",
-		"```bash",
-		"exit 0",
-		"```",
-		"<!-- END browser-profile-guard.sh -->",
 		"",
 	].join("\n");
 
@@ -212,41 +219,103 @@ describe("the routed keys, judged against the routing file's current mode", () =
 	});
 });
 
-describe("the browser-profile guard's copy (#1547)", () => {
-	const writeGuard = (body: string) => {
-		fs.mkdirSync(path.join(dir, ".claude", "hooks"), { recursive: true });
-		fs.writeFileSync(
-			path.join(dir, ".claude", "hooks", "browser-profile-guard.sh"),
-			body,
-		);
+describe("machine copies of shipped files, against their repo sources (#5344)", () => {
+	const Sources = [
+		["hooks/browser-profile-guard.sh", "scripts/browser-profile-guard.sh"],
+		["hooks/practice-guard.sh", "scripts/practice-guard.sh"],
+		["practice-crafts.md", "docs/practice-crafts.md"],
+	] as const;
+	const writeCopy = (live: string, body: string) => {
+		const at = path.join(dir, ".claude", live);
+		fs.mkdirSync(path.dirname(at), { recursive: true });
+		fs.writeFileSync(at, body);
 	};
+	const source = (rel: string) =>
+		fs.readFileSync(path.resolve(__dirname, "..", rel), "utf8");
 
-	it("matches a live guard identical to the doc's copy", () => {
-		writeGuard("exit 0\n");
+	it.each(Sources)("passes a live %s equal to %s", (live, rel) => {
+		writeCopy(live, source(rel));
 		const { status, out } = run({ theme: "dark" }, { theme: "dark" });
 		expect(status).toBe(0);
-		expect(out).toMatch(/browser-profile-guard\.sh 1 lines/);
+		expect(out).toContain(`${path.basename(live)} equal to ${rel}`);
 	});
 
-	it("reports a live guard that has moved on from the doc's copy", () => {
-		writeGuard("exit 1\n");
+	it.each(Sources)("reports a live %s one byte off %s", (live, rel) => {
+		writeCopy(live, source(rel).replace("e", "f"));
 		const { status, out } = run({ theme: "dark" }, { theme: "dark" });
 		expect(status).toBe(1);
-		expect(out).toMatch(/browser-profile-guard\.sh: doc copy differs/);
+		expect(out).toContain(`${path.basename(live)}: `);
+		expect(out).toContain(`differs from ${rel}`);
 	});
 
-	it("reports a snapshot predating the guard's block as drift, not broken", () => {
-		writeGuard("exit 0\n");
+	it("needs no fenced copy of any of them in the snapshot", () => {
+		for (const [live, rel] of Sources) writeCopy(live, source(rel));
+		const { status, out } = run({ theme: "dark" }, { theme: "dark" });
+		expect(status).toBe(0);
+		expect(out).not.toMatch(/has no copy in/);
+	});
+
+	it("leaves an absent live copy uncompared", () => {
+		const { status, out } = run({ theme: "dark" }, { theme: "dark" });
+		expect(status).toBe(0);
+		expect(out).toContain("practice-guard.sh not compared");
+	});
+});
+
+describe("the working-rule sections of the user-level CLAUDE.md (#5344)", () => {
+	const head = "# Machine notes\n\nThis machine is a test.\n";
+	const withBlock = [
+		doc({ theme: "dark" }),
+		"<!-- BEGIN CLAUDE.md -->",
+		"````markdown",
+		head.trimEnd(),
+		"````",
+		"<!-- END CLAUDE.md -->",
+		"",
+	].join("\n");
+	const writeLive = (body: string) => {
+		fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
+		fs.writeFileSync(path.join(dir, ".claude", "CLAUDE.md"), body);
+	};
+
+	it("passes sections equal to the contract's, the rest held to the doc's block", () => {
+		writeLive(`${head}\n${ruleSections}\n`);
 		const { status, out } = run(
 			{ theme: "dark" },
 			{ theme: "dark" },
-			doc({ theme: "dark" }).replace(
-				/<!-- BEGIN browser-profile-guard[\s\S]*$/,
-				"",
-			),
+			withBlock,
+		);
+		expect(status).toBe(0);
+		expect(out).toContain("working rules equal to docs/working-contract.md");
+		expect(out).toMatch(/CLAUDE\.md 3 lines/);
+	});
+
+	it("reports a section one byte off the contract's", () => {
+		writeLive(
+			`${head}\n${ruleSections.replace("as if it never existed", "as if it never existef")}\n`,
+		);
+		const { status, out } = run(
+			{ theme: "dark" },
+			{ theme: "dark" },
+			withBlock,
 		);
 		expect(status).toBe(1);
-		expect(out).toMatch(/has no copy in/);
+		expect(out).toMatch(
+			/"## Removal means gone" differs from docs\/working-contract\.md/,
+		);
+	});
+
+	it("reports a section the live file lacks", () => {
+		writeLive(
+			`${head}\n${ruleSections.replace("## Leading practice", "## Something else")}\n`,
+		);
+		const { status, out } = run(
+			{ theme: "dark" },
+			{ theme: "dark" },
+			withBlock,
+		);
+		expect(status).toBe(1);
+		expect(out).toMatch(/has no "## Leading practice" section/);
 	});
 });
 
@@ -273,7 +342,10 @@ describe("the user-level CLAUDE.md's copy (#2174)", () => {
 		].join("\n");
 	const writeLive = (body: string) => {
 		fs.mkdirSync(path.join(dir, ".claude"), { recursive: true });
-		fs.writeFileSync(path.join(dir, ".claude", "CLAUDE.md"), body);
+		fs.writeFileSync(
+			path.join(dir, ".claude", "CLAUDE.md"),
+			`${body}\n${ruleSections}\n`,
+		);
 	};
 
 	it("matches a live file holding fences and headings identical to the doc's copy", () => {

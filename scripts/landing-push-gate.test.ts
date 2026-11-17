@@ -138,12 +138,12 @@ describe("the gate", () => {
 	});
 });
 
-const hook = (stdin: string, modules = "") =>
+const hook = (stdin: string) =>
 	spawnSync("sh", [path.join(ROOT, ".husky", "pre-push")], {
 		cwd: work,
 		input: stdin,
 		encoding: "utf8",
-		env: { ...process.env, WFC_MODULES: modules, WFC_PLUGIN_ROOT: ROOT },
+		env: { ...process.env, WFC_MODULES: "", WFC_PLUGIN_ROOT: ROOT },
 	});
 
 it("makes .husky/pre-push refuse an unledgered push to main and pass a ledgered one", () => {
@@ -155,8 +155,8 @@ it("makes .husky/pre-push refuse an unledgered push to main and pass a ledgered 
 	expect(r.status, r.stderr).toBe(0);
 });
 
-it("makes .husky/pre-push pass a push to a queue ref with no coverage warning, suites on (#2929)", () => {
-	const r = hook(buildRefLine(sha, "refs/heads/queue/s1"), "suites");
+it("makes .husky/pre-push pass a push to a queue ref with no coverage warning (#2929)", () => {
+	const r = hook(buildRefLine(sha, "refs/heads/queue/s1"));
 	expect(r.status, r.stderr).toBe(0);
 	expect(r.stderr).not.toContain("CERTIFICATE:");
 });

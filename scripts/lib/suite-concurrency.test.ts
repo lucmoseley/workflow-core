@@ -43,8 +43,10 @@ import {
 	writeHostConfig,
 } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
+import { markersDir } from "./marker-root.js";
 import type { PartAdmission, PartPeak } from "./part-suite-peak.js";
 import type { ClimbScope } from "./suite-queue.js";
+import { ensureProof } from "./verdict-probe.js";
 import { WHOLE_SLOT_BOUND } from "./whole-slot-bound";
 import type { WindowsRead } from "./windows-memory.js";
 
@@ -180,6 +182,8 @@ interface Over {
 	ps?: string | null;
 	climb?: Partial<Record<ClimbScope, number>>;
 	declaredTest?: string | null;
+	/** Whether `commands.test` has a fresh verdict proof; proven by default. */
+	proven?: boolean;
 	modules?: string[];
 	told?: string[];
 	latches?: Record<string, string>;
@@ -208,7 +212,7 @@ interface Over {
 function harness(over: Over = {}) {
 	return kitContextFake({
 		cwd: "/repo",
-		moduleOn: (m: string) => (over.modules ?? ["suites"]).includes(m),
+		moduleOn: (m: string) => (over.modules ?? []).includes(m),
 		log: (what: string, detail?: string) =>
 			logs.push(detail ? `${what}\t${detail}` : what),
 		told: (id: string) => (over.told ?? []).includes(id),
@@ -235,6 +239,7 @@ function harness(over: Over = {}) {
 		runners: () => runners,
 		declaredTest: () =>
 			over.declaredTest === undefined ? null : over.declaredTest,
+		testProven: () => over.proven ?? true,
 		fullLaunchPlain: (argv: string[]) => {
 			asked.push(argv);
 			return over.plain ?? { plain: false };
@@ -1439,8 +1444,8 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 
 	describe("never holds a touched run at the count cap (#2935)", () => {
 		const oneWhole = psListing(["node /r/node_modules/.bin/vitest run"]);
-		const at = (command: string, modules = ["suites"]) =>
-			outcome(judge(command, ROOMY_MB, oneWhole, { modules }).verdict);
+		const at = (command: string) =>
+			outcome(judge(command, ROOMY_MB, oneWhole).verdict);
 		const named200 = Array.from(
 			{ length: 200 },
 			(_, i) => `scripts/t${i}.test.ts`,
@@ -1466,9 +1471,7 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 
 		it("still charges a bare touched run, its files unresolved, a whole suite's rung", () => {
 			const alone = (command: string) =>
-				outcome(
-					judge(command, 2000, psWith(0), { modules: ["suites"] }).verdict,
-				);
+				outcome(judge(command, 2000, psWith(0)).verdict);
 			expect(alone("npm run test")).toBe("deny");
 			expect(alone("npm run test -- scripts/a.test.ts")).toBe("allow");
 		});
@@ -1519,9 +1522,9 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 	});
 
 	describe("a whole `npm run test:py` takes the whole-suite slot (#4775)", () => {
-		const at = (command: string, modules = ["suites"]) =>
+		const at = (command: string) =>
 			fixChecked(
-				judge(command, 8000, psWith(NEIGHBOURS_AT_CAP), { modules }).verdict,
+				judge(command, 8000, psWith(NEIGHBOURS_AT_CAP)).verdict,
 				command,
 			);
 
@@ -2763,10 +2766,14 @@ describe("an adopter's whole-suite launch is handed rule:targeted-runs (#2237)",
 		pkg = { test: script };
 		return test;
 	};
-	const told = (command: string, declared: string, modules = ["suites"]) =>
-		handed(quiet(command, { declaredTest: declared, modules })).includes(
-			"targeted-runs",
-		);
+	const told = (
+		command: string,
+		declared: string,
+		{ proven = true, modules = [] as string[] } = {},
+	) =>
+		handed(
+			quiet(command, { declaredTest: declared, proven, modules }),
+		).includes("targeted-runs");
 
 	it.each([
 		["npm run test", "as declared"],
@@ -2792,9 +2799,21 @@ describe("an adopter's whole-suite launch is handed rule:targeted-runs (#2237)",
 		expect(handed(v)).toEqual(["targeted-runs", "suite-tree-dirty"]);
 	});
 
-	it("is silent with suites off", () => {
-		expect(told("npm run test", adopter(), ["roadmap"])).toBe(false);
-	});
+	it.each([[[]], [["roadmap"]], [["roadmap", "governance", "site"]]])(
+		"is told with a fresh verdict proof whatever modules holds — %j",
+		(modules) => {
+			expect(told("npm run test", adopter(), { modules })).toBe(true);
+		},
+	);
+
+	it.each([[[]], [["roadmap", "governance", "site", "mutation"]]])(
+		"is silent with a stale or absent verdict proof whatever modules holds — %j",
+		(modules) => {
+			expect(told("npm run test", adopter(), { proven: false, modules })).toBe(
+				false,
+			);
+		},
+	);
 
 	it("is silent where the declared command runs run-vitest.js, which selects from the diff", () => {
 		expect(
@@ -2960,6 +2979,8 @@ describe("a bare `tsc` the type-check slot would hold is sent to `queue-run.js -
 });
 
 describe("a whole-suite launch from a session in its own worktree (#4242)", () => {
+	const Canary = "canary.test.ts";
+	const declared = { test: "npm run test", testCanary: Canary };
 	let at: { main: string; worktree: string };
 	freshSandbox((sb) => {
 		at = splitCheckout(path.join(sb.dir, "split"));
@@ -2969,19 +2990,27 @@ describe("a whole-suite launch from a session in its own worktree (#4242)", () =
 		fs.writeFileSync(ps, "#!/bin/sh\necho '1 sleep 1'\n", { mode: 0o755 });
 		vi.stubEnv("WFC_MEMINFO", meminfo);
 		vi.stubEnv("WFC_PS", ps);
-		fs.mkdirSync(path.join(at.main, ".claude"), { recursive: true });
-		fs.writeFileSync(
-			path.join(at.main, ".claude", "workflow-core.json"),
-			JSON.stringify({
-				commands: { test: "npm run test" },
-				modules: ["suites"],
-			}),
-		);
+		writeHostConfig(at.main, { commands: declared });
+		fs.writeFileSync(path.join(at.worktree, Canary), "it passes\n");
 	});
 	const plainScript = JSON.stringify({ scripts: { test: "vitest run" } });
 	const wrappedScript = JSON.stringify({
 		scripts: { test: "node scripts/run-vitest.js" },
 	});
+	/** Records a passed verdict probe for the worktree's tree as it stands. */
+	const prove = () =>
+		expect(
+			ensureProof({
+				root: at.worktree,
+				command: declared.test,
+				canary: Canary,
+				markers: markersDir(at.main),
+				run: (_line, { env }) =>
+					env.WFC_VERDICT_PROBE
+						? { code: 1, out: ` FAIL  ${Canary}\n` }
+						: { code: 0, out: "" },
+			}),
+		).toEqual({ state: "fresh" });
 	const told = () =>
 		runCore(
 			"guard-suite-concurrency",
@@ -2992,26 +3021,41 @@ describe("a whole-suite launch from a session in its own worktree (#4242)", () =
 			},
 		).output?.additionalContext ?? "";
 
-	it("hands rule:targeted-runs where the worktree's test script is a plain vitest run", () => {
+	it("hands rule:targeted-runs where the worktree's test script is a plain vitest run with a fresh proof", () => {
 		fs.writeFileSync(path.join(at.worktree, "package.json"), plainScript);
 		fs.writeFileSync(path.join(at.main, "package.json"), wrappedScript);
+		prove();
 		expect(told()).toContain(readRuleText("targeted-runs"));
+	});
+
+	it("withholds it where no verdict proof was recorded", () => {
+		fs.writeFileSync(path.join(at.worktree, "package.json"), plainScript);
+		expect(told()).not.toContain(readRuleText("targeted-runs"));
+	});
+
+	it("withholds it once the proof is stale: the test script changed after the probe", () => {
+		fs.writeFileSync(path.join(at.worktree, "package.json"), plainScript);
+		prove();
+		fs.writeFileSync(
+			path.join(at.worktree, "package.json"),
+			JSON.stringify({ scripts: { test: "vitest run --silent" } }),
+		);
+		expect(told()).not.toContain(readRuleText("targeted-runs"));
 	});
 
 	it("withholds it where the worktree's test script runs run-vitest.js, whatever the main checkout's says", () => {
 		fs.writeFileSync(path.join(at.worktree, "package.json"), wrappedScript);
 		fs.writeFileSync(path.join(at.main, "package.json"), plainScript);
+		prove();
 		expect(told()).not.toContain(readRuleText("targeted-runs"));
 	});
 
 	it("reads the declared test command from the main checkout's config, never the worktree's (#4274)", () => {
 		fs.writeFileSync(path.join(at.worktree, "package.json"), plainScript);
+		prove();
 		expect(told()).toContain(readRuleText("targeted-runs"));
-		writeHostConfig(at.main, { commands: {}, modules: ["suites"] });
-		writeHostConfig(at.worktree, {
-			commands: { test: "npm run test" },
-			modules: ["suites"],
-		});
+		writeHostConfig(at.main, { commands: {} });
+		writeHostConfig(at.worktree, { commands: declared });
 		expect(told()).not.toContain(readRuleText("targeted-runs"));
 	});
 });

@@ -9,11 +9,14 @@ The dev machine and the guards that keep it alive. Snapdragon ARM64 under WSL2 �
 ## 1. Host and guest configuration
 
 ⚠ **Every value in this section is one machine's, kept as a worked example, not a
-figure the core asserts about yours.** The figures the guards act on — the memory
-cap, `MemTotal`, earlyoom's 8% threshold — are declared in
-`~/.claude/workflow-core/machine.json`, and the numbers below are the documented
-defaults where that profile is absent. Read your own with `free -m`, `nproc` and
-`cat /etc/default/earlyoom` before acting on any of them.
+figure the core asserts about yours.** The guards read live figures: admission and
+the suite queue admit on `MemAvailable` (`scripts/lib/meminfo.js`); the suite
+ladder clamps a rung at `MemTotal` less earlyoom's kill line
+(`scripts/lib/suite-ladder.js`, #5310), a line fixed at 794 MiB, 8% of this
+machine's 10 GB cap; the session ceiling counts the machine's cores
+(`scripts/lib/cpu-sample.js`). A session's start line gives the machine's
+architecture, cores, `MemTotal` and `SwapTotal` (`scripts/machine-figures.sh`).
+Read the earlyoom threshold with `cat /etc/default/earlyoom` before acting on it.
 
 **`C:\Users\<you>\.wslconfig`**
 
@@ -354,7 +357,7 @@ All six `baseline_stationary: true` (shifts 0–65.7 MB), `cpu_valid: true`, non
 
 **#1603's six rows** (16 October 2026, a 485-file suite that ran to its end) set the rungs this run raised: raw dips 943.1 / **1,046.4**, **2,124.4** / 2,112.2 and **2,546.0** / 2,390.5 MB. Their record is on #1603.
 
-**The mutation hold's Stryker run, off the ladder (#1851, #1912).** One cold run at concurrency 2 over Manta's 3,694 sensitive-path lines (the count is #1871's): 285 MB peak parent RSS, `MemAvailable` falling 2,796 → 2,072 MiB, a **724 MiB dip inside the one-suite dip's 1,582 MB** (the bench's MB is MiB), in 5 min 05 s. Its tests ran under vitest's `node` environment; a `jsdom` one's cost per worker is unmeasured. That is `CONCURRENCY` in `scripts/mutation-hold-gate.js`, the only setting measured. **`scripts/guard-dispatch.js` (its `guard-suite-concurrency` core) never counts the run**: a commit starts it, and Stryker drives vitest through its API rather than `.bin/vitest`. commit-paths' pre-lock suite is started unjudged too, but a running one's `.bin/vitest` line is counted like any other run's (#2830). The pre-lock suite runs only where `commands.test` is gated at commit, which a command running `run-vitest.js` never is while the `suites` module is on, as it is here (`scripts/lib/test-gate.js`), so it never runs a suite sized by this repo's `maxWorkers`. One reading, not a bench row: no stationarity check, and nothing measured it beside a running suite.
+**The mutation hold's Stryker run, off the ladder (#1851, #1912).** One cold run at concurrency 2 over Manta's 3,694 sensitive-path lines (the count is #1871's): 285 MB peak parent RSS, `MemAvailable` falling 2,796 → 2,072 MiB, a **724 MiB dip inside the one-suite dip's 1,582 MB** (the bench's MB is MiB), in 5 min 05 s. Its tests ran under vitest's `node` environment; a `jsdom` one's cost per worker is unmeasured. That is `CONCURRENCY` in `scripts/mutation-hold-gate.js`, the only setting measured. **`scripts/guard-dispatch.js` (its `guard-suite-concurrency` core) never counts the run**: a commit starts it, and Stryker drives vitest through its API rather than `.bin/vitest`. commit-paths' pre-lock suite is started unjudged too, but a running one's `.bin/vitest` line is counted like any other run's (#2830). The pre-lock suite runs only where `commands.test` is gated at commit, which this repo's is not while its verdict proof is fresh (`scripts/lib/test-gate.js`), so it never runs a suite sized by this repo's `maxWorkers` then. One reading, not a bench row: no stationarity check, and nothing measured it beside a running suite.
 
 **Measurement record:** full tables on mantahostels#229, mantahostels#352, mantahostels#462, mantahostels#463, mantahostels#954, mantahostels#1449, mantahostels#1841, mantahostels#1875, mantahostels#2673 and mantahostels#2705, #1603 and **#2862 (all three rungs, lower bounds)**; harness `scripts/bench_suite_concurrency.py`, raw JSON and per-suite vitest logs under `~/.claude/quiet-bench-runs/2026-11-03T19-53-27.124Z/`. **Idle `MemAvailable` wanders up to 214 MB between two 20 s resting settles** with three sessions live (mantahostels#1449) — what `BASELINE_SHIFT_TOLERANCE_MB` is set from; mantahostels#1841 re-read it at **8.0 MB** on the same gate.
 

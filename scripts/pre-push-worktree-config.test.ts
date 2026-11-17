@@ -64,7 +64,6 @@ beforeEach(() => {
 		contract: 1,
 		tracker: "o/tracker",
 		codeRepo: "o/code",
-		modules: ["suites"],
 	});
 	git(shared, "add", ".");
 	git(shared, "commit", "-q", "-m", "seed");

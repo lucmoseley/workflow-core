@@ -32,7 +32,7 @@ const fill = (n: number) => "a".repeat(n - 2 - 6 - 2 - 2);
 const CASES: Record<string, unknown> = {
 	"an adopter config after an upgrade": {
 		contract: 1,
-		modules: ["roadmap", "governance", "suites"],
+		modules: ["roadmap", "governance", "site"],
 		manualRender: {
 			command: "npm run gen:doc-pages",
 			outputs: ["docs/pages/operating-manual.html", "docs/pages/index.html"],
@@ -78,8 +78,8 @@ describe("formatConfigJson", () => {
 		});
 
 	it("keeps a short array on the line its key starts", () => {
-		expect(formatConfigJson({ modules: ["roadmap", "suites"] })).toBe(
-			'{\n\t"modules": ["roadmap", "suites"]\n}\n',
+		expect(formatConfigJson({ modules: ["roadmap", "site"] })).toBe(
+			'{\n\t"modules": ["roadmap", "site"]\n}\n',
 		);
 	});
 });

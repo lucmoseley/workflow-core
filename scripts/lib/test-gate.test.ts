@@ -12,7 +12,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./run-in-process.js";
 import { settleTestGate, testGate } from "./test-gate.js";
 
@@ -21,11 +21,6 @@ const COMMAND = "./run-tests";
 const CONFORMING = `if [ -n "$WFC_VERDICT_PROBE" ]; then echo " FAIL  $1"; exit 1; fi; exit 0`;
 
 const dirs: string[] = [];
-/* WFC_MODULES replaces the declared module list, so a value inherited from
- * the shell would decide `suites` instead of each case's own config. */
-beforeEach(() => {
-	vi.stubEnv("WFC_MODULES", undefined);
-});
 afterEach(() => {
 	while (dirs.length > 0)
 		fs.rmSync(dirs.pop() as string, { recursive: true, force: true });
@@ -90,8 +85,7 @@ describe("testGate", () => {
 		expect(testGate({ root }).gate).toBe("commit");
 	});
 
-	it("gives an undeclared command to the lander with suites on, and to no gate with it off", () => {
-		expect(testGate({ root: host({ modules: ["suites"] }) }).gate).toBe("push");
+	it("gives an undeclared command no gate", () => {
 		expect(testGate({ root: host({ modules: [] }) }).gate).toBe(null);
 	});
 });
@@ -99,18 +93,10 @@ describe("testGate", () => {
 describe("node test-gate.js <verb>", () => {
 	const run = (verb: string, root: string) => {
 		const env: NodeJS.ProcessEnv = { ...process.env, CLAUDE_PROJECT_DIR: root };
-		delete env.WFC_MODULES;
 		return runInProcess(path.join(__dirname, "test-gate.js"), [verb], { env });
 	};
 
 	it.each([
-		{
-			verb: "push",
-			cfg: { modules: ["suites"] },
-			status: 0,
-			stdout: "",
-			stderr: "",
-		},
 		{
 			verb: "push",
 			cfg: { commands: { test: COMMAND } },
@@ -144,7 +130,14 @@ describe("node test-gate.js <verb>", () => {
 			cfg: { modules: [] },
 			status: 1,
 			stdout: "",
-			stderr: 'SKIP: module "suites"',
+			stderr: "SKIP: commands.test is undeclared",
+		},
+		{
+			verb: "commit",
+			cfg: { modules: [] },
+			status: 1,
+			stdout: "",
+			stderr: "SKIP: commands.test is undeclared",
 		},
 		{
 			verb: "push",

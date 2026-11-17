@@ -6,11 +6,12 @@
  * refuses once a session that wrote a tracked file with no **Practice:** line,
  * or one that does not hold up (#2326).
  *
- * The guard is machine-level, at ~/.claude/hooks/practice-guard.sh, so what
- * runs here is its reference copy in docs/claude-user-settings.md, against the
- * craft list's reference copy there; `npm run check:settings` holds both to the
- * live files. A miss here lets an off-list note land in every repo on the
- * machine, or charges every session the list where none touched a note.
+ * What runs here is the shipped scripts/practice-guard.sh, copied byte for byte
+ * into a fixture plugin root beside the shipped docs/practice-crafts.md, and
+ * into a fixture ~/.claude/hooks/ as the founder's machine copy, so each craft
+ * list and note lookup is driven (#5344). A miss here lets an off-list note
+ * land in every adopter, or charges every session the list where none touched
+ * a note.
  */
 
 import { execFileSync } from "node:child_process";
@@ -19,9 +20,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { guardOutput, spawnGuard } from "./lib/pretool-guard-testkit";
-import { copyBlockPattern } from "./lib/settings-copy";
 
-const DOC = path.resolve(__dirname, "..", "docs", "claude-user-settings.md");
+const SCRIPT = path.resolve(__dirname, "practice-guard.sh");
+const CRAFTS = path.resolve(__dirname, "..", "docs", "practice-crafts.md");
 const SESSION = "s1";
 const NO_LIST = /^practice-guard: no craft list at .*, so nothing is judged\n$/;
 /** The clause of the evidence-tier ranking a note writer most often gets wrong (#2637, #2657). */
@@ -29,35 +30,45 @@ const RANKING =
 	"A project's docs, open-source or company-run, earn the top tier only for how that project's own product behaves or is configured";
 
 let dir: string;
+/** The shipped guard, run from a fixture plugin root. */
 let hook: string;
+/** The same script as the founder's machine copy, under `home`. */
+let machineHook: string;
 let home: string;
 let repo: string;
 let list: string;
 /** The session latch's XDG_RUNTIME_DIR, fresh for each case. */
 let tmp: string;
 
-const block = (doc: string, name: string, fence: string) => {
-	const found = doc.match(copyBlockPattern(name, fence));
-	if (!found) throw new Error(`no ${name} block in ${DOC}`);
-	return found[1];
+/** A byte-for-byte copy of the shipped guard at `at`. */
+const install = (at: string) => {
+	fs.mkdirSync(path.dirname(at), { recursive: true });
+	fs.copyFileSync(SCRIPT, at);
+	fs.chmodSync(at, 0o755);
+	return at;
 };
 
+/** The machine copy's own list: one craft, so a case can tell which list it was handed. */
+const MACHINE_LIST =
+	"- machine-only-craft: a craft only the machine list holds.";
+
 beforeAll(() => {
-	const doc = fs.readFileSync(DOC, "utf8");
 	// Real, so the work tree root git prints matches the paths fed in.
 	dir = fs.realpathSync(
 		fs.mkdtempSync(path.join(os.tmpdir(), "practice-guard-")),
 	);
-	hook = path.join(dir, "practice-guard.sh");
-	fs.writeFileSync(hook, `${block(doc, "practice-guard.sh", "```bash")}\n`, {
-		mode: 0o755,
-	});
-	list = block(doc, "practice-crafts.md", "````markdown");
+	const plugin = path.join(dir, "plugin");
+	hook = install(path.join(plugin, "scripts", "practice-guard.sh"));
+	fs.mkdirSync(path.join(plugin, "docs"), { recursive: true });
+	fs.copyFileSync(CRAFTS, path.join(plugin, "docs", "practice-crafts.md"));
+	list = fs.readFileSync(CRAFTS, "utf8").trimEnd();
 	home = path.join(dir, "home");
-	fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
+	machineHook = install(
+		path.join(home, ".claude", "hooks", "practice-guard.sh"),
+	);
 	fs.writeFileSync(
 		path.join(home, ".claude", "practice-crafts.md"),
-		`${list}\n`,
+		`${MACHINE_LIST}\n`,
 	);
 	repo = path.join(dir, "repo");
 	execFileSync("git", ["init", "-q", repo]);
@@ -82,15 +93,17 @@ const run = (
 		agent,
 		homeDir = home,
 		stderr,
+		script = hook,
 	}: {
 		session?: string;
 		agent?: string;
 		homeDir?: string;
 		stderr?: RegExp;
+		script?: string;
 	} = {},
 ) =>
 	guardOutput(
-		hook,
+		script,
 		{
 			session_id: session,
 			...(agent ? { agent_id: agent } : {}),
@@ -210,11 +223,42 @@ describe("silence", () => {
 		expect(run(tool, input)).toBeNull();
 	});
 
-	it("refuses nothing where no craft list is installed, and says why on stderr", () => {
+	it("a machine copy refuses nothing where no craft list is installed, and says why on stderr", () => {
 		const bare = path.join(dir, "bare-home");
-		fs.mkdirSync(path.join(bare, ".claude"), { recursive: true });
+		const script = install(
+			path.join(bare, ".claude", "hooks", "practice-guard.sh"),
+		);
 		const write = { file_path: note("bash-hooks"), content: "x" };
-		expect(run("Write", write, { homeDir: bare, stderr: NO_LIST })).toBeNull();
+		expect(
+			run("Write", write, { homeDir: bare, stderr: NO_LIST, script }),
+		).toBeNull();
+	});
+});
+
+describe("the craft list each copy reads (#5344)", () => {
+	it("the plugin's copy hands over the list beside its plugin root, not the machine list", () => {
+		const out = run("Read", { file_path: note("llm-agent-design") });
+		expect(out.additionalContext).toContain(
+			path.join(dir, "plugin", "docs", "practice-crafts.md"),
+		);
+		expect(out.additionalContext).toContain(list);
+		expect(out.additionalContext).not.toContain("machine-only-craft");
+	});
+
+	it("the machine copy, with no plugin root, hands over ~/.claude/practice-crafts.md", () => {
+		const out = run(
+			"Read",
+			{ file_path: note("llm-agent-design") },
+			{ script: machineHook },
+		);
+		expect(out.additionalContext).toContain(MACHINE_LIST);
+		expect(out.additionalContext).not.toContain("shell-scripting-and-hooks:");
+	});
+
+	it("the two copies latch once between them", () => {
+		const input = { file_path: note("llm-agent-design") };
+		expect(run("Read", input).additionalContext).toContain(list);
+		expect(run("Read", input, { script: machineHook })).toBeNull();
 	});
 });
 
@@ -337,6 +381,8 @@ describe("the Stop limb", () => {
 		fs.writeFileSync(path.join(repo, precedent), "# logo precedent\n");
 		fs.mkdirSync(path.dirname(pluginNote()), { recursive: true });
 		fs.writeFileSync(pluginNote(), dated(FIVE_MONTHS_AGO));
+		// A current plugin copy of the work tree's stale note, which the work tree's outranks.
+		fs.writeFileSync(path.join(dir, "plugin", stale), dated(FIVE_MONTHS_AGO));
 	});
 
 	describe("is silent where the session wrote nothing tracked", () => {
@@ -375,6 +421,14 @@ describe("the Stop limb", () => {
 			[
 				"covered — a note on its last day before 6 months (#2601)",
 				() => [declared(`covered — ${lastDay}, ${SIX_MONTHS_LESS_A_DAY}`)],
+			],
+			[
+				"covered — the plugin's note, where the work tree has none (#5344)",
+				() => [
+					declared(
+						`covered — docs/practice/llm-evaluation.md, ${FIVE_MONTHS_AGO}`,
+					),
+				],
 			],
 			[
 				"covered — the plugin's note, by absolute path (#5294)",
@@ -499,13 +553,22 @@ describe("the Stop limb", () => {
 				"none of the four forms",
 			],
 			[
-				"covered — a missing note",
-				[declared("covered — docs/practice/llm-evaluation.md, 2026-10-01")],
+				"covered — a note at neither the work tree root nor the plugin",
+				[
+					declared(
+						"covered — docs/practice/prose-editing-and-style.md, 2026-10-01",
+					),
+				],
 				"which does not exist",
 			],
 			[
 				"covered — a note 6 months old or more",
 				[declared(`covered — ${stale}, ${SEVEN_MONTHS_AGO}`)],
+				"6 months ago or more",
+			],
+			[
+				"covered — a stale work tree note, the plugin's current copy notwithstanding (#5344)",
+				[declared(`covered — ${stale}, ${FIVE_MONTHS_AGO}`)],
 				"6 months ago or more",
 			],
 			[

@@ -31,8 +31,8 @@
  * RUNS DETACHED AT EVERY SESSION START, from scripts/session-start-sweeps.sh,
  * because the log is machine-local and no CI runner can read it.
  *
- * EVERY REPO WITH THE `suites` MODULE ON (#1454); where it is off it prints a
- * SKIP and exits 0. It files in the host's own tracker. Outside workflow-core
+ * EVERY REPO DECLARING `commands.test` (#1454), whatever its runner; where none
+ * is declared it prints a SKIP and exits 0. It files in the host's own tracker. Outside workflow-core
  * the body's core citations are qualified `workflow-core#N` (#396), and its
  * candidate questions route to the host's own `/wayfinder`, not workflow-core's
  * map.
@@ -56,7 +56,10 @@ const { isCoreHost } = require("./lib/plugin-state");
 const { qualifyProse } = require("./lib/qualify-citations");
 const { queueExitLogPath } = require("./lib/queue-exit-log");
 const { fileOrRefresh, findTrackingIssue } = require("./lib/tracking-issue");
-const { buildModuleOffLine, moduleOn } = require("./lib/workflow-core-config");
+const {
+	buildCommandUndeclaredLine,
+	readCommandFor,
+} = require("./lib/workflow-core-config");
 const { caught } = require("./lib/caught.js");
 const { readJsonl } = require("./lib/jsonl.js");
 const { takesLabel } = require("./lib/takes-label");
@@ -321,8 +324,8 @@ function main() {
 	});
 	const dryRun = "--dry-run" in flags;
 	try {
-		if (!moduleOn("suites")) {
-			writeFd(2, `SKIP: ${buildModuleOffLine("suites")}\n`);
+		if (readCommandFor("test") === null) {
+			writeFd(2, `SKIP: ${buildCommandUndeclaredLine("test")}\n`);
 			return;
 		}
 		const core = isCoreHost(hostRoot());

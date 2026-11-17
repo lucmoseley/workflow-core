@@ -1,5 +1,5 @@
 <!-- TEMPLATE for .claude/workflow-core.md, rendered by scripts/lib/adopter-skeleton.js.
-     `[roadmap]` / `[governance]` / `[suites]` / `[site]` at the start of a line's
+     `[roadmap]` / `[governance]` / `[site]` at the start of a line's
      content emits that line only when the module is on, and the tag is stripped.
      `{{founder}}` is substituted, and a `node`/`bash`/`sh`/`python3 scripts/…` or
      backticked `scripts/… <arg>` command is spelled at the plugin root. -->
@@ -67,6 +67,25 @@ GitHub Issues on this repo, via `gh`. **Run `gh` in the foreground, and re-run a
 - [governance] Settling a load-bearing fact about the project's world obliges its `docs/doc-map.md` §B entry that session; a ruling about the repo's own machinery earns none. Read `.claude/workflow-core.doc-map.md` §The propagation pass before propagating anything.
 - [governance] **Any fact you settle is filed that session, to the document that owns its subject.** Where that owner is the ticket in hand, comment on it, opening the comment `**Captured fact:**`, and mark it consumed at once: `node scripts/capture-drain.js mark <comment-id>`. Unenforced.
 
+## Removal means gone
+
+When asked to remove, reverse or kill something, delete it and every reference to it, as if it never existed. Leave no "don't do X" line about it, no note of what changed or was removed, no deprecation or legacy comment, and no backward-compatibility code, fallback or test for the removed behaviour. Code, docs, skills and instructions describe only what is current and in use, after any change. The why goes in the issue or the commit message, never in a file.
+
+## Leading practice
+
+**Leading practice.** Before a task the practice gate does not exempt, find how leading professionals in its field do it and the tools they use, Claude-compatible ones (skills, plugins, MCP servers) included, and use them. Read the repo's practice note for that kind of task first; research only where none is current. Rank evidence: a standard or field body's free guidance, then named experts' verdicts with reasons, then adoption surveys and curated lists; stars and installs only check a named candidate. Where a field has no recognised authority, survey its nearest analogue (same audience or same promise); a practice no source vouches for is unverified and sets no default. Free sources only; a paywalled one is named as unread, never bought. Depart from the leading practice only for a reason this repo's rules or facts give, and say where and why. Where a domain has its own precedent step, such as design-vault's, that step is this rule there. A plugin or MCP server is never installed on a session's own reading: file a proposal ticket naming the tool, its fit, its always-on cost and its supply-chain check, for {{founder}} to rule.
+
+**The practice gate.** Exempt: a typo or wording fix, a re-anchor or regeneration, a concision cut, propagating an already-settled fact, a revert, a version bump, a reply that only answers a question. Pick the task's craft from `docs/practice-crafts.md` in the plugin; its note is `docs/practice/<craft>.md` at the work tree root, else the plugin's copy, current for 6 months from its `Researched:` date. Where none is current, run one research pass (the `research` skill), stopping once three independent sources agree, and write or rewrite the note at the work tree root. Where no craft fits, research into a sub-section of the nearest craft's note and file a workflow-core ticket proposing the craft. Declare one line in the plan or close comment: `**Practice:** ran — <note>`, `covered — <note>, <Researched date>`, `skipped — <exempt kind>`, or `none-fits — nearest <craft>`.
+
+## Reports and paid data
+
+- **Nothing is reported or requested to Anthropic, of any kind**. A harness gap gets an in-repo fix or workaround, or is recorded as a harness limit. **Enforced** on the `gh` route: workflow-core's `scripts/guard-dispatch.js` refuses a `gh` issue, PR or API write it ties to an `anthropics/*` repo, printing `rule:anthropic-report`.
+- **No paid research or data APIs.** What is banned is buying *facts* — a source, a feed, anything paid to answer a question. A paid tool the repo runs on is not reached by this line at all; it is an ordinary approve-before-execute call. Recommend free keyless sources and free tiers that need no card; say plainly when a tool is crippled without payment. A free tier behind a signup is welcome. **Unenforceable**: no hook can tell buying a fact from an approved paid-tool call.
+
 ## Machine
 
-Limits, session counters and the memory ladder come from `~/.claude/workflow-core/machine.json` (absent → core defaults). Never propose raising memory or swap without a measured peak. A build, test or session dying with no error of its own is probably the OOM killer. Kill a background process as soon as nothing needs it. Count sessions with `claude agents --json`.
+- Check the architecture before suggesting a binary or a native dependency.
+- Never propose raising memory without a measured peak, and never propose raising swap.
+- A build, test or session dying with no error of its own is probably the OOM killer.
+- Kill a background process as soon as nothing needs it.
+- Count sessions with `claude agents --json`.

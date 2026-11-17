@@ -109,3 +109,28 @@ describe("the working-pattern rules in the adopter session rules (#5294)", () =>
 		]);
 	});
 });
+
+/** A contract section's lines, guard-registry markers and blank lines left out. */
+const contractSection = (heading: string) =>
+	(fs.readFileSync(CONTRACT, "utf8").split(`## ${heading}\n`)[1] ?? "")
+		.split("\n## ")[0]
+		.split("\n")
+		.filter((l) => l.trim() && !l.startsWith("<!-- guard-registry"));
+
+describe("the founder's working rules in the adopter session rules (#5344)", () => {
+	it.each([
+		["Removal means gone", 1],
+		["Leading practice", 2],
+		["Reports and paid data", 2],
+	])("%s holds the contract's text, as it words it", (heading, lines) => {
+		const contract = contractSection(heading);
+		expect(contract).toHaveLength(lines);
+		expect(adopterSection(heading).filter((l) => l.trim())).toEqual(
+			contract.map(toAdopter),
+		);
+	});
+
+	it("the Leading practice text names no machine path", () => {
+		expect(contractSection("Leading practice").join("\n")).not.toMatch(/~\//);
+	});
+});

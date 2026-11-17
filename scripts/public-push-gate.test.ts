@@ -196,7 +196,7 @@ it("makes .husky/pre-push refuse tracker history to the code repo and pass the s
 				cwd: work,
 				input: stdin,
 				encoding: "utf8",
-				env: { ...process.env, WFC_MODULES: "suites", WFC_PLUGIN_ROOT: ROOT },
+				env: { ...process.env, WFC_MODULES: "", WFC_PLUGIN_ROOT: ROOT },
 			},
 		);
 	const refused = hook(buildRefLine(old));

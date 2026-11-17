@@ -559,7 +559,7 @@ describe("gating", () => {
 	it("runs a module-gated core only where .claude/workflow-core.json lists the module", () => {
 		fragment("alpha");
 		const cores = [
-			core("a", answers({ injectRules: ["alpha"] }), { module: "suites" }),
+			core("a", answers({ injectRules: ["alpha"] }), { module: "site" }),
 		];
 		/* The suite injects its module list through WFC_MODULES, which replaces
 		 * the file's; this case reads the file. */
@@ -568,7 +568,7 @@ describe("gating", () => {
 		const config = path.join(dir, ".claude", "workflow-core.json");
 		fs.writeFileSync(config, JSON.stringify({ modules: [] }));
 		expect(run(cores)).toBeNull();
-		fs.writeFileSync(config, JSON.stringify({ modules: ["suites"] }));
+		fs.writeFileSync(config, JSON.stringify({ modules: ["site"] }));
 		expect(run(cores)?.additionalContext).toBe(readText("alpha"));
 	});
 
