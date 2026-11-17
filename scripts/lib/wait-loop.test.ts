@@ -456,6 +456,26 @@ describe("a wait loop gated on machine load is refused (#5325)", () => {
 			"while :; do read -r l _ < /proc/loadavg; [ $l -lt 6 ] && break; sleep 15; done",
 			"a load read by read, tested beside the break",
 		],
+		[
+			"while true; do if [ $(cut -d. -f1 /proc/loadavg) -lt 6 ]; then break; fi; sleep 30; done",
+			"the spec's own `if …; then break; fi` form",
+		],
+		[
+			"for i in $(seq 1 10); do if [ $(cut -d. -f1 /proc/loadavg) -lt 6 ]; then exit 0; fi; sleep 15; done",
+			"the same with `then exit 0`",
+		],
+		[
+			"while :; do node -e 'process.exit(require(\"os\").loadavg()[0] < 6 ? 0 : 1)' >/dev/null 2>&1 && break; sleep 10; done",
+			"an interpreter test with its output redirected",
+		],
+		[
+			"while :; do read -t 5 l _ < /proc/loadavg; (( l < 6 )) && break; sleep 15; done",
+			"a bare name in an arithmetic test, read with a valued flag",
+		],
+		[
+			"while :; do l=$(cut -d. -f1 /proc/loadavg); busy=$((l>5)); [ $busy = 0 ] && break; sleep 15; done",
+			"a variable assigned from a load variable",
+		],
 	])("%s — %s", (command) => {
 		const v = run(command);
 		expect(v.denied).toBe(true);
@@ -492,6 +512,24 @@ describe("a wait loop gated on machine load is refused (#5325)", () => {
 			"memwatch-minute.jsonl",
 		])
 			expect(reason).toContain(piece);
+	});
+});
+
+describe("a double-quoted shell script is read unescaped, by every limb (#5328)", () => {
+	it("refuses a counted wait whose inner quotes are escaped", () => {
+		const v = run(
+			'bash -c "for i in \\$(seq 1 100); do [ \\"\\$x\\" ] && break; sleep 30; done"',
+		);
+		expect(v.denied).toBe(true);
+		expect(v.reason).toContain("the limit is 15 minutes");
+	});
+
+	it("warns on an unbounded one", () => {
+		const v = run(
+			'bash -c "until [ \\"\\$(cat f)\\" = ok ]; do sleep 5; done"',
+		);
+		expect(v).toMatchObject({ denied: false });
+		expect(v.warning).not.toBeNull();
 	});
 });
 
@@ -567,9 +605,12 @@ describe("what a load read leaves alone", () => {
 			`while true; do gh run view 1 | grep -q completed && break; echo "load $(cut -d' ' -f1 /proc/loadavg)"; sleep 30; done`,
 			"a CI poll that logs load beside a break on its run",
 		],
-	])("%s — %s: a break something else decides is no load gate", (command) => {
-		expect(run(command).denied).toBe(false);
-	});
+	])(
+		"%s — %s: a break something else decides is no load gate (#5328)",
+		(command) => {
+			expect(run(command).denied).toBe(false);
+		},
+	);
 
 	it("leaves an unbounded sampler to the no-ceiling warning alone", () => {
 		const v = run(
