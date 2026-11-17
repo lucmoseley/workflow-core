@@ -1950,8 +1950,10 @@ function waitingUnverified(status, transcript) {
 		finishedLead +
 		"That marker means a subagent or a background " +
 		"Bash job will wake the session with its own notification; with none out, " +
-		"the job is filed busy and sits there for ever, because no notification " +
-		"is coming and the founder is never told.\n\n" +
+		"no notification is coming, so the session sits there for ever and the " +
+		"founder is never told. The job listing is no guide: it may read a " +
+		"`waiting:` job as completed, and the reaper keeps one only while its " +
+		"transcript shows a launch still out.\n\n" +
 		"Three launches this cannot see, and each is a real stall rather than a " +
 		"miscount: a job backgrounded with `&` or `nohup` inside an ordinary " +
 		"Bash call, one started from inside a script, and a wait loop the founder " +

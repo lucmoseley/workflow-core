@@ -28,6 +28,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
+import { buildBashCall } from "./lib/transcript-testkit";
 
 // biome-ignore lint/suspicious/noExplicitAny: CommonJS module
 const { readProcStartOf } = require("./lib/arbiter-proc.js") as any;
@@ -95,6 +96,7 @@ interface ReapOverrides {
 	state?: Record<string, StateRow>;
 	finishAt?: (a: Agent) => number | null;
 	lastTurn?: (a: Agent) => { ended: boolean; at: number | null } | null;
+	pending?: (a: Agent) => { name: string }[] | null;
 	stop?: (id: string) => { ok: boolean; why?: string };
 	isDirty?: (f: string) => boolean | null;
 	runs?: Record<string, object>;
@@ -125,6 +127,8 @@ function reapWith(over: ReapOverrides = {}) {
 		finishAt: () => null,
 		// Default: its transcript shows its last turn ended.
 		lastTurn: () => ({ ended: true, at: null }),
+		// Default: its transcript shows no launch still out.
+		pending: () => [],
 		stop: (id: string) => {
 			stopped.push(id);
 			return { ok: true };
@@ -1300,6 +1304,81 @@ describe("the finish clock, as the run reads it off disk", () => {
 		lay({ transcriptAgo: null });
 		heldUnreadable();
 	});
+
+	describe("a job waiting on a launch it made", () => {
+		const transcript = () =>
+			path.join(sandbox, "projects", slug, "aaaa-1.jsonl");
+		const waitingOn = () => {
+			lay({ transcriptAgo: 30 * minute });
+			const t = transcript();
+			fs.writeFileSync(
+				t,
+				`${JSON.stringify(
+					buildBashCall("node scripts/landing-status.js --wait", "toolu_w", {
+						input: { run_in_background: true },
+					}),
+				)}\n${[
+					{
+						type: "assistant",
+						message: {
+							content: [
+								{ type: "text", text: "waiting: the lander, testing abc123" },
+							],
+						},
+					},
+					{ type: "system", subtype: "stop_hook_summary" },
+					{ type: "system", subtype: "turn_duration" },
+				]
+					.map((r) => JSON.stringify(r))
+					.join("\n")}\n`,
+			);
+			const ago = Date.now() / 1000 - 1800;
+			fs.utimesSync(t, ago, ago);
+		};
+		const judged = (argv: string[] = ["--dry-run", "--json"]) =>
+			runReaper(sandbox, registered(sandbox, [agent({ tempo: "idle" })]), argv);
+
+		it("keeps it, and the report names the launch", () => {
+			waitingOn();
+			const out = JSON.parse(judged().stdout);
+			expect(out.reaped).toEqual([]);
+			expect(out.kept[0].gate).toBe("pending");
+			expect(out.kept[0].why).toMatch(
+				/1 launch\(es\) still out \(node scripts\/landing-status\.js --wait\)/,
+			);
+			const live = judged([]).stdout;
+			expect(live).toMatch(
+				/reap: keeping aaaa \(a finished session\) — .*still out/,
+			);
+			expect(live).not.toMatch(/reap: stopped/);
+		});
+
+		it("reaps it once the launch's notification is in its transcript", () => {
+			waitingOn();
+			fs.appendFileSync(
+				transcript(),
+				`${JSON.stringify({
+					type: "queue-operation",
+					operation: "enqueue",
+					content:
+						"<task-notification>\n<tool-use-id>toolu_w</tool-use-id>\n<status>completed</status>\n</task-notification>",
+				})}\n${ENDED_TURN}`,
+			);
+			const ago = Date.now() / 1000 - 1800;
+			fs.utimesSync(transcript(), ago, ago);
+			expect(ids(JSON.parse(judged().stdout).reaped)).toEqual(["aaaa-1"]);
+		});
+
+		it("keeps it, past the turn hold, where its transcript parses to nothing", () => {
+			lay({ transcriptAgo: 30 * minute });
+			fs.writeFileSync(transcript(), "");
+			const ago = Date.now() / 1000 - 1800;
+			fs.utimesSync(transcript(), ago, ago);
+			const out = JSON.parse(judged().stdout);
+			expect(out.reaped).toEqual([]);
+			expect(out.kept[0].gate).toBe("pending-unreadable");
+		});
+	});
 });
 
 /* #2980: a job reads `done` before its Stop hooks run, and a blocking one
@@ -1339,6 +1418,48 @@ describe("plan — holding a job whose turn has not visibly ended", () => {
 
 	it("reaps a job whose turn ended at once", () => {
 		expect(ids(withTurn({ ended: true, at: NOW }, 0).reap)).toEqual(["aaaa-1"]);
+	});
+});
+
+/* #5387: gate 1's `done` is no proof a job has nothing left to wake it. */
+describe("plan — keeping a job with a launch still out", () => {
+	it("keeps a job whose transcript shows a launch still out, naming it", () => {
+		const p = run({ pending: () => [{ name: "landing-status.js --wait" }] });
+		expect(p.reap).toEqual([]);
+		expect([p.kept[0].gate, p.kept[0].waiting]).toEqual(["pending", true]);
+		expect(p.kept[0].why).toMatch(
+			/1 launch\(es\) still out \(landing-status\.js --wait\)/,
+		);
+	});
+
+	it("keeps a job whose transcript the pending reader cannot read, at any age", () => {
+		const p = run({ pending: () => null, finishAt: () => NOW - 7 * DAY });
+		expect(p.reap).toEqual([]);
+		expect(p.kept[0].gate).toBe("pending-unreadable");
+	});
+
+	it("reaps a job whose launches have all come back", () => {
+		expect(ids(run({ pending: () => [] }).reap)).toEqual(["aaaa-1"]);
+	});
+
+	it("names the kept job in a live run's report", () => {
+		const h = reapWith({ pending: () => [{ name: "an agent" }] });
+		expect(h.stopped).toEqual([]);
+		expect(h.out).toMatch(
+			/reap: keeping aaaa \(a finished session\) — .*\(an agent\)/,
+		);
+	});
+
+	it("does not read the transcript for a job an earlier gate keeps", () => {
+		const seen: string[] = [];
+		run({
+			lastTurn: () => ({ ended: false, at: null }),
+			pending: (a) => {
+				seen.push(a.sessionId);
+				return [];
+			},
+		});
+		expect(seen).toEqual([]);
 	});
 });
 
@@ -1434,7 +1555,7 @@ describe("the SessionStart wiring: one sighting is enough", () => {
 			);
 			fs.mkdirSync(proj, { recursive: true });
 			const t = path.join(proj, "burst-1.jsonl");
-			fs.writeFileSync(t, "");
+			fs.writeFileSync(t, ENDED_TURN);
 			const ms = Date.now() - 25 * 60_000;
 			fs.utimesSync(t, ms / 1000, ms / 1000);
 		}
@@ -2570,7 +2691,7 @@ describe("seats other than the run's own (#1571)", () => {
 		const transcript = path.join(seatB, "projects", "-home-lucmo-mantahostels");
 		fs.mkdirSync(transcript, { recursive: true });
 		const t = path.join(transcript, "bbbb-1.jsonl");
-		fs.writeFileSync(t, "");
+		fs.writeFileSync(t, ENDED_TURN);
 		const ms = Date.now() - 30 * 60_000;
 		fs.utimesSync(t, ms / 1000, ms / 1000);
 		const plan = JSON.parse(reapFromA(["--dry-run", "--json"]));

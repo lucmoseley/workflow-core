@@ -6,7 +6,7 @@
  * each exists, are in that program's header.
  *
  * WHY THIS IS A MODULE OF ITS OWN (#1369, §G6 of spec #1348: nothing is
- * exported for its tests alone). The decision table — five gates, the window a
+ * exported for its tests alone). The decision table — six gates, the window a
  * failed stop opens, the per-run ceiling, the deaths a wedged run accumulates
  * — is pinned case by case against a frozen clock and injected readings: a
  * PSS figure, git's dirty answer, an unreadable claim store, a stop that
@@ -31,7 +31,8 @@
  * @typedef {{mode: string, startedAt: string, openedSince?: string,
  *   deaths?: number, finishedAt?: string}} RunRecord
  * @typedef {AgentRecord & {gate: string, why: string, clock?: string,
- *   heldBack?: boolean, failures?: number, retryAt?: number}} KeptRow
+ *   heldBack?: boolean, waiting?: boolean, failures?: number,
+ *   retryAt?: number}} KeptRow
  * @typedef {AgentRecord & {claims: string[], clock: string, why: string}} ReapRow
  * @typedef {AgentRecord & {gate: string}} GatedRow
  * @typedef {ReapRow & {pss: number|null, stopped: boolean, dryRun?: boolean,
@@ -335,18 +336,53 @@ function timedRow(a, entry, at) {
 }
 
 /**
+ * Gate 6 (#5387): the row a session otherwise due is kept under while its
+ * transcript shows a launch still out, or cannot be read for one, else null.
+ *
+ * Read last, on a session every other gate would reap, because it reads the
+ * whole transcript.
+ *
+ * NO AGE RELEASES IT. An unreadable census keeps the session every run, even
+ * one gate 4's hold has already let go (a record with no cwd included), and so
+ * does a launch whose notification never reaches the transcript (lib/pending-tasks.js's
+ * one wrong read); `waiting` names both in every live report.
+ * @param {AgentRecord} a
+ * @param {{name: string}[]|null} out the launches still out, null where unread
+ * @returns {KeptRow|null}
+ */
+function pendingHold(a, out) {
+	if (out === null)
+		return {
+			...a,
+			gate: "pending-unreadable",
+			waiting: true,
+			why: "its transcript will not read for launches still out, so a `waiting:` cannot be ruled out",
+		};
+	if (out.length === 0) return null;
+	const names = out.map((l) => l.name || "an unnamed launch").join("; ");
+	return {
+		...a,
+		gate: "pending",
+		waiting: true,
+		why: `its transcript shows ${out.length} launch(es) still out (${names}), so it is waiting rather than finished`,
+	};
+}
+
+/**
  * The reap decision, as data, split from the doing in `reap` below — so a
  * `--dry-run` reap, which skips the doing, reports every branch of it and
  * stops nothing.
  *
- * `finishAt` and `lastTurn` are injected so the clock and the transcript can
- * be driven without a job dir on disk.
+ * `finishAt`, `lastTurn` and `pending` are injected so the clock and the
+ * transcript can be driven without a job dir on disk.
  *
  * @param {{agents: AgentRecord[], held: Map<string, string[]>,
  *   self: Self, now: number, state: State,
  *   finishAt?: (a: {id?: string, sessionId: string}) => number|null,
  *   lastTurn: (a: {id?: string, sessionId: string}) =>
- *     {ended: boolean, at: number|null}|null}} input
+ *     {ended: boolean, at: number|null}|null,
+ *   pending: (a: {id?: string, sessionId: string}) =>
+ *     {name: string}[]|null}} input
  */
 function plan({
 	agents,
@@ -359,6 +395,8 @@ function plan({
 	 * "cannot say", and a caller that forgot the reader must not reap a turn
 	 * still running on either. */
 	lastTurn,
+	/* Required for the same reason. */
+	pending,
 }) {
 	/** @type {State} */
 	const nextState = {};
@@ -405,7 +443,12 @@ function plan({
 			turn: lastTurn(a),
 			claims,
 		});
-		if ("kept" in row) kept.push(row.kept);
+		if ("kept" in row) {
+			kept.push(row.kept);
+			continue;
+		}
+		const waiting = pendingHold(a, pending(a));
+		if (waiting) kept.push(waiting);
 		else toReap.push(row.reap);
 	}
 
@@ -638,6 +681,8 @@ function logStopped(done, kept, isDirty, log) {
 	 * visible while costing neither a MAX_PER_RUN slot nor a stop call (mantahostels#846). */
 	for (const a of kept.filter((k) => k.heldBack))
 		log(`reap: not retrying ${a.id} (${a.name}) — ${a.why}`);
+	for (const a of kept.filter((k) => k.waiting))
+		log(`reap: keeping ${a.id} (${a.name}) — ${a.why}`);
 }
 
 /**
@@ -655,6 +700,8 @@ function logStopped(done, kept, isDirty, log) {
  *   finishAt: (a: {id?: string, sessionId: string}) => number|null,
  *   lastTurn: (a: {id?: string, sessionId: string}) =>
  *     {ended: boolean, at: number|null}|null,
+ *   pending: (a: {id?: string, sessionId: string}) =>
+ *     {name: string}[]|null,
  *   isDirty?: (subject: string, sessionId: string) => boolean|null,
  *   runs?: Record<string, RunRecord>,
  *   startedAt?: string,
@@ -677,6 +724,7 @@ function reap({
 	saveState,
 	finishAt,
 	lastTurn,
+	pending,
 	/* Defaulted, never required: a caller that forgot the reader must lose the
 	 * DIRTY marker rather than throw. */
 	isDirty = () => null,
@@ -780,6 +828,7 @@ function reap({
 		state,
 		finishAt,
 		lastTurn,
+		pending,
 	});
 
 	const done = stopEach(due, nextState, { dryRun, now, stop, readPss });
