@@ -13,6 +13,14 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+const { readText } = require("./file-read.js") as {
+	readText: (
+		file: string,
+	) =>
+		| { state: "absent" }
+		| { state: "read"; data: string }
+		| { state: "unreadable"; error: unknown };
+};
 const { hotPathSet, isHookRegistration } = require("./hot-path-set.js") as {
 	hotPathSet: (
 		root: string,
@@ -49,11 +57,9 @@ const entry = (command: string, extra: Record<string, unknown> = {}) => ({
 const derived = () =>
 	hotPathSet(root, {
 		readText: (rel) => {
-			try {
-				return fs.readFileSync(path.join(root, rel), "utf8");
-			} catch {
-				return null;
-			}
+			const read = readText(path.join(root, rel));
+			if (read.state === "unreadable") throw read.error;
+			return read.state === "read" ? read.data : null;
 		},
 		isFile: (rel) =>
 			fs.statSync(path.join(root, rel), { throwIfNoEntry: false })?.isFile() ??
