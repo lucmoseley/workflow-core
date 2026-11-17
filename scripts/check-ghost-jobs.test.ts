@@ -859,6 +859,15 @@ describe("SYNTHETIC-STOP — ended by the harness on a synthetic reply (#5324)",
 		expect(run().out).not.toContain("SYNTHETIC-STOP");
 	});
 
+	it("--notify skips an unread-oracle run once its stops are all reported", () => {
+		syntheticJob(stoppedRows(ago(30)));
+		job("d06bf779");
+		fakeClaude(null);
+		expect(run("--notify").out).toContain("SYNTHETIC-STOP");
+		const again = run("--notify", "--json").stdout;
+		expect(JSON.parse(again).outcome).toBe("SKIP");
+	});
+
 	it("writes nothing to the job record", () => {
 		syntheticJob(stoppedRows(ago(15)));
 		const before = fs.readFileSync(jobPath(Job), "utf8");

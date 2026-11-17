@@ -162,12 +162,13 @@ const unreadableKeyOf = (u) => `unreadable\t${u.store}\t${u.job}`;
  */
 const hungKeyOf = (h) => `hung\t${h.job}\t${h.sessionId}`;
 
+const SYNTHETIC_KEY = "synthetic\t";
 /**
  * A synthetic stop's identity: its job and the stop's own time, so a later,
  * separate stop of the same job is reported afresh (#5324).
  * @param {{job: string, at: number}} s
  */
-const syntheticKeyOf = (s) => `synthetic\t${s.job}\t${s.at}`;
+const syntheticKeyOf = (s) => `${SYNTHETIC_KEY}${s.job}\t${s.at}`;
 
 /**
  * The ghost keys already delivered into a session — empty where none were, and
@@ -528,11 +529,6 @@ runCheck({
 				? judgeWorking({ jobs, working, unreadable, minutes, hungMinutes })
 				: { ghosts: [], hung: [], young: 0, listed: 0 };
 		const { young, listed } = judged;
-		/* A synthetic stop reads files alone, so an unread oracle skips the run
-		 * only where it has none to report. */
-		const standingSynthetic = findSyntheticStops(jobs, { now: now() });
-		if (judged.unjudged && standingSynthetic.length === 0)
-			ctx.skip(judged.unjudged);
 
 		/*
 		 * --notify reports each finding ONCE. A ghost stands for hours and every
@@ -545,6 +541,7 @@ runCheck({
 		const standing = judged.ghosts;
 		const standingUnreadable = unreadable;
 		const standingHung = judged.hung;
+		const standingSynthetic = findSyntheticStops(jobs, { now: now() });
 		const seen = readNotified(ctx);
 		const ghosts = standing.filter((g) => !seen.has(keyOf(g)));
 		unreadable = standingUnreadable.filter(
@@ -554,14 +551,25 @@ runCheck({
 		const synthetic = standingSynthetic.filter(
 			(s) => !seen.has(syntheticKeyOf(s)),
 		);
+		/* A synthetic stop reads files alone, so an unread oracle skips the run
+		 * only where it has none to report. */
+		if (judged.unjudged && synthetic.length === 0) ctx.skip(judged.unjudged);
+		/* Nothing was judged against the oracle, so the ghosts and hung jobs
+		 * already reported stay stamped. */
+		const carried = judged.unjudged
+			? [...seen].filter((k) => !k.startsWith(SYNTHETIC_KEY))
+			: [];
 		/* Sorted, because this is also the signature the reader compares one
 		 * persisted report against the last delivered one by (mantahostels#1975). */
 		const signature = JSON.stringify(
 			[
-				...standing.map(keyOf),
-				...standingUnreadable.map(unreadableKeyOf),
-				...standingHung.map(hungKeyOf),
-				...standingSynthetic.map(syntheticKeyOf),
+				...new Set([
+					...standing.map(keyOf),
+					...standingUnreadable.map(unreadableKeyOf),
+					...standingHung.map(hungKeyOf),
+					...standingSynthetic.map(syntheticKeyOf),
+					...carried,
+				]),
 			].sort(),
 		);
 

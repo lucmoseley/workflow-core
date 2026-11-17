@@ -28,7 +28,7 @@ const {
 	relaunched,
 	stopJob,
 } = require("./refill-block-core.js");
-const { ATTACH_VERDICT_MS, netGateOf } = require("./refill-blocks.js");
+const { ATTACH_VERDICT_MS, isRunAdmitted } = require("./refill-blocks.js");
 
 /**
  * @typedef {import("./refill-loop.js").LoopLaunch} LoopLaunch
@@ -212,7 +212,7 @@ const isLeftToOtherActs = (l) =>
  * @param {LoopLaunch} l
  * @returns {l is JobLaunch}
  */
-const ownsSyntheticStop = (l) => isActionable(l) && !isLeftToOtherActs(l);
+const isOwnSyntheticStop = (l) => isActionable(l) && !isLeftToOtherActs(l);
 
 /**
  * Whether `l`'s job, gone from the listing, still owes the loop a synthetic
@@ -222,7 +222,7 @@ const ownsSyntheticStop = (l) => isActionable(l) && !isLeftToOtherActs(l);
  * @param {import("./refill-blocks.js").BlockIo} io
  */
 function isOwedResume(l, io) {
-	if (!ownsSyntheticStop(l)) return false;
+	if (!isOwnSyntheticStop(l)) return false;
 	if (l.synthetic?.attachAt !== undefined) return true;
 	const at = io.syntheticStopOf(l);
 	if (typeof at !== "number") return false;
@@ -242,7 +242,7 @@ function launchSubject(l, seen) {
 		name: launchName(l),
 		ref: l,
 		was: l.synthetic,
-		admitted: () => !seen.barred && netGateOf(seen).admit(launchName(l)),
+		admitted: () => isRunAdmitted(launchName(l), seen),
 		keep: (rec) => ({ ...l, synthetic: rec }),
 		stop: () => stopJob(l, io),
 		resume: (target, rec) => {
@@ -274,7 +274,7 @@ function launchSubject(l, seen) {
  */
 function actOnSynthetic(launches, mode, seen) {
 	return launches.map((l) => {
-		if (!ownsSyntheticStop(l)) return l;
+		if (!isOwnSyntheticStop(l)) return l;
 		const at = seen.io.syntheticStopOf(l);
 		return judgeStop(launchSubject(l, seen), at, mode, seen) ?? l;
 	});

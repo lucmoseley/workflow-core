@@ -736,7 +736,10 @@ it("reads each journal entry once, by its key, and takes up none that is no synt
 	expect(l.io.readReaped().read).toHaveLength(1);
 });
 
-it("starts no fresh count off the journal for a session whose resumes of that stop are spent", () => {
+/* Regression (#5322): every reap used to grant a spent session two more
+ * resumes. Its pair: "resumes by --bg --resume alone an outside session the
+ * reaper stopped…" above. */
+it("starts no fresh count off the journal for a session whose resumes of that stop are spent, and drops the record once the journal would", () => {
 	const l = reapedLoop({
 		job: doneJob({ state: "stopped" }),
 		rows: stoppedRows(minutesAgo(20)),
@@ -770,6 +773,9 @@ it("starts no fresh count off the journal for a session whose resumes of that st
 			synthetic: expect.objectContaining({ spent: true }),
 		}),
 	]);
+	expect(l.readings()).toBe(0);
+	l.tick(stopAt + 25 * 60 * MIN);
+	expect(l.io.readOutside()).toEqual([]);
 });
 
 it("takes up no loop launch the reaper stopped", () => {

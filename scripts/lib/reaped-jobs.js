@@ -112,9 +112,9 @@ function readReaped(log) {
 const writeReapedRead = (keys) => writeJson(refillPath(REAPED_READ_FILE), keys);
 
 module.exports = {
+	REAPED_KEEP_MS,
 	journalReapedJobs,
 	readReaped,
-	readReapedJobs,
 	reapedKey,
 	writeReapedRead,
 };

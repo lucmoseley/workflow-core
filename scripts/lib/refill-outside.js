@@ -32,14 +32,14 @@ const {
 	withUnretired,
 } = require("./refill-block-core.js");
 const {
+	isRunAdmitted,
 	isTakenSinceStop,
-	netGateOf,
 	typedVerdict,
 } = require("./refill-blocks.js");
 const { buildGiveUpFix, withRetried } = require("./refill-retire.js");
 const { judgeStop } = require("./refill-synthetic.js");
 const { shortJobId } = require("./job-paths.js");
-const { reapedKey } = require("./reaped-jobs.js");
+const { REAPED_KEEP_MS, reapedKey } = require("./reaped-jobs.js");
 
 const MIN_MS = 60 * 1000;
 /* The short re-attempts a failed scheduled relaunch earns, each no sooner
@@ -92,15 +92,6 @@ const sessionRefOf = (o) => ({
 
 /** @param {Outside} o */
 const nameOf = (o) => `${o.name} (${o.jobId}, started outside the loop)`;
-
-/**
- * Whether the tick may set `o` running: launching unbarred and the network
- * up (netGateOf, which logs a resume it holds back).
- * @param {Outside} o
- * @param {Tick} seen
- */
-const isRunAdmitted = (o, seen) =>
-	!seen.barred && netGateOf(seen).admit(nameOf(o));
 
 /**
  * `o` between stops: its resume count kept, its stop's fields dropped; none
@@ -281,7 +272,8 @@ function retryHeld(o, seen) {
 	const { now, io } = seen;
 	const isTryDue = (o.nextAt ?? 0) <= now;
 	const isReAttemptDue = o.reAttemptAt !== undefined && o.reAttemptAt <= now;
-	if (!(isTryDue || isReAttemptDue) || !isRunAdmitted(o, seen)) return o;
+	if (!(isTryDue || isReAttemptDue) || !isRunAdmitted(nameOf(o), seen))
+		return o;
 	if (!isTryDue) return relaunch(o, o.held, seen, (o.reAttempts ?? 0) + 1);
 	if (o.tries >= RESUME_CAP) return lastRelaunch(o, io);
 	const tries = o.tries + 1;
@@ -327,7 +319,7 @@ function actOn(o, seen) {
 		if (verdict === "pending") return o;
 		const { attachAt: _, ...settled } = o;
 		if (verdict === "arrived") return settled;
-		if (!isRunAdmitted(o, seen)) return o;
+		if (!isRunAdmitted(nameOf(o), seen)) return o;
 		return fallBack(settled, seen);
 	}
 	const act = blockAct(
@@ -348,7 +340,7 @@ function actOn(o, seen) {
 		);
 		return { ...o, capped: true };
 	}
-	if (act !== "resume" || !isRunAdmitted(o, seen)) return o;
+	if (act !== "resume" || !isRunAdmitted(nameOf(o), seen)) return o;
 	return resume(o, seen);
 }
 
@@ -402,10 +394,12 @@ function judge(o, row, causeOf, seen) {
 function unlistedTurn(o, seen) {
 	if (o.held) return retryHeld({ ...o, held: o.held }, seen);
 	if (!o.synthetic) return null;
+	/* A spent record is kept, unread, as long as the reaper's journal keeps
+	 * the entry for its stop, so that entry (takeUpReaped) cannot start a
+	 * fresh count; a later stop needs the session run again, so listed. */
+	if (o.synthetic.spent)
+		return seen.now - o.synthetic.at < REAPED_KEEP_MS ? o : null;
 	const at = seen.io.syntheticStopOf(sessionRefOf(o));
-	/* A spent record is kept while its stop stands, so the reaper's journal
-	 * entry for the same stop (takeUpReaped) cannot start a fresh count. */
-	if (o.synthetic.spent) return at === o.synthetic.at ? o : null;
 	if (at === null && o.synthetic.attachAt === undefined) return null;
 	return judgeSynthetic(o, seen, at);
 }
@@ -422,7 +416,7 @@ function syntheticSubject(o, seen) {
 		name: nameOf(o),
 		ref: sessionRefOf(o),
 		was: o.synthetic,
-		admitted: () => isRunAdmitted(o, seen),
+		admitted: () => isRunAdmitted(nameOf(o), seen),
 		keep: (rec) => ({ ...o, synthetic: rec }),
 		stop: () => {
 			const r = io.stop(o.seat, o.jobId);
@@ -609,11 +603,11 @@ function turnOutside(had, { launches, registry, causeOf, agents }, seen) {
 	};
 	for (const row of registry) {
 		const fresh = buildOutside(row, seen.now);
-		if (!fresh || known.has(fresh.jobId) || known.has(fresh.sessionId))
-			continue;
+		if (!fresh) continue;
 		const key = `${fresh.seat}\0${fresh.jobId}`;
 		const o = byJob.get(key);
 		byJob.delete(key);
+		if (known.has(fresh.jobId) || known.has(fresh.sessionId)) continue;
 		keep(listedTurn(o, fresh, { row, blocked, causeOf }, seen), o ?? fresh);
 	}
 	for (const o of byJob.values()) keep(unlistedTurn(o, seen), o);

@@ -357,6 +357,15 @@ function netGateOf(seen) {
 }
 
 /**
+ * Whether tick `seen` may set the session named `name` running: launching
+ * unbarred and the network up (netGateOf, which logs a resume it holds back).
+ * @param {string} name
+ * @param {Tick} seen
+ */
+const isRunAdmitted = (name, seen) =>
+	!seen.barred && netGateOf(seen).admit(name);
+
+/**
  * Log the due resumes tick `seen` held back for the network, once a tick
  * (#4815).
  * @param {Tick} seen
@@ -2016,6 +2025,7 @@ module.exports = {
 	causeReader,
 	actOnBlocks,
 	logNetWaits,
+	isRunAdmitted,
 	netGateOf,
 	actOnIdle,
 	unparkAnswered,

@@ -9,7 +9,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { journalReapedJobs, readReapedJobs } from "./reaped-jobs.js";
+import { journalReapedJobs, readReaped } from "./reaped-jobs.js";
+
+const readReapedJobs = () => readReaped(() => undefined).jobs;
 
 const HOUR = 60 * 60_000;
 const row = {

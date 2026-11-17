@@ -26,9 +26,11 @@ const { readTail } = require("./file-read.js");
 const { read: readTranscript } = require("./session-transcript.js");
 const { mainChainRecords } = require("./transcript.js");
 
-/* The finding waits out the loop's quiet window and its longest gap between
- * ticks, so a running loop has made its first resume before a stop is
- * reported as one it has not resumed. */
+/* The finding waits out the loop's quiet window and its fallback sleep
+ * between ticks, so a running loop has made its first resume before a stop is
+ * reported as one it has not resumed. Residual: the sleep counts from a
+ * tick's end, so a tick slower than the margin left here can still be
+ * reported as not having resumed a stop it is about to. */
 const SYNTHETIC_AFTER_MINUTES = (SYNTHETIC_QUIET_MS + FALLBACK_MS) / 60_000;
 /* How much of a transcript's end the cheap test reads: a synthetic record
  * and the rows after it fit well inside. Untraced. */
