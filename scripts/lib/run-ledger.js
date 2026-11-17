@@ -199,7 +199,8 @@ function appendLedgerLine(root, marker, green) {
  * @param {string} root the canonical checkout
  * @param {string} tree the tree the run selected in, whose HEAD it records
  * @param {{ suite: string, sessionId?: string|null, argv: string[],
- *   leftOut: string[], touchedBase: "merge-base"|"head" }} run `leftOut` the
+ *   leftOut: string[],
+ *   touchedBase: import("./test-pass-marker.js").TouchedBase }} run `leftOut` the
  *   tests left to the lander (#4967), `touchedBase` the base the selection
  *   took (#5320)
  */
