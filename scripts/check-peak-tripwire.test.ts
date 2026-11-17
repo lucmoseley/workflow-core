@@ -104,6 +104,9 @@ describe("check-peak-tripwire", () => {
 		expect(blind.stdout).toContain("peak-tripwire.js status");
 		const torn = run("{ torn");
 		expect(envelope(torn).outcome).toBe("WARN");
-		expect(torn.stdout).toContain("peak-tripwire.json unreadable");
+		expect(torn.stdout).toContain(
+			"the peak tripwire's state will not read, so part-suites are judged on the ladder: peak-tripwire.json unreadable",
+		);
+		expect(torn.stdout).toContain("peak-tripwire.js arm");
 	});
 });

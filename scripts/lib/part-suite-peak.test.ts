@@ -1,14 +1,18 @@
 /*
  * part-suite-peak.test.ts — the part-suite peak (#5366): its buckets, the
  * nearest-rank p99 over a kind and bucket's 7 days of ledger lines, and the
- * ledger reader's torn, absent and unreadable cases.
+ * ledger reader's torn, absent and unreadable cases. Pure, on fixture lines
+ * and a temp ledger, so no case reads this repo's real ledger. Break it and
+ * a part-suite is admitted on another kind's or bucket's peak, on runs
+ * outside the window or on a bucket too thin to measure, so it starts beside
+ * a neighbour with less room than it draws.
  */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { readPartSuitePeak } from "./part-suite-ledger.js";
-import { bucketOf, partSuitePeak } from "./part-suite-peak.js";
+import { bucketOf, partKindOfRoute, partSuitePeak } from "./part-suite-peak.js";
 
 /* part-suite-peak.js's floor: a bucket under 30 runs is thin. */
 const MIN_SAMPLES = 30;
@@ -58,6 +62,7 @@ describe("partSuitePeak", () => {
 	it("is the nearest-rank p99 of the bucket's peaks", () => {
 		/* 200 runs, 1..200 MiB: rank ceil(0.99 * 200) = 198. */
 		expect(partSuitePeak(lines(200), named1)).toEqual({
+			kind: "named",
 			p99Mb: 198,
 			samples: 200,
 			bucket: "1",
@@ -124,7 +129,9 @@ describe("readPartSuitePeak", () => {
 		);
 		expect(
 			readPartSuitePeak({ kind: "named", files: 1 }, { file, now: NOW }),
-		).toEqual({ peak: { p99Mb: 30, samples: 30, bucket: "1" } });
+		).toEqual({
+			peak: { kind: "named", p99Mb: 30, samples: 30, bucket: "1" },
+		});
 	});
 
 	it("reads an absent ledger as thin", () => {
@@ -141,5 +148,16 @@ describe("readPartSuitePeak", () => {
 			{ file: dir, now: NOW },
 		);
 		expect(got).toHaveProperty("why");
+	});
+});
+
+describe("partKindOfRoute", () => {
+	it("tells a named or touched route, and no other, an --adopt one included", () => {
+		expect(partKindOfRoute({ kind: "named", source: "named" })).toBe("named");
+		expect(partKindOfRoute({ kind: "named", source: "retest" })).toBe("named");
+		expect(partKindOfRoute({ kind: "touched", source: "own" })).toBe("touched");
+		expect(partKindOfRoute({ kind: "named", source: "adopt" })).toBeNull();
+		expect(partKindOfRoute({ kind: "changed", source: "changed" })).toBeNull();
+		expect(partKindOfRoute(null)).toBeNull();
 	});
 });

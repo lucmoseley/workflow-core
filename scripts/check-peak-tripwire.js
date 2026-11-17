@@ -2,7 +2,8 @@
 /*
  * check-peak-tripwire.js — say so on `npm run status` when the peak tripwire
  * (lib/peak-tripwire.js, #5367) holds part-suites on the ladder: tripped by an
- * earlyoom kill, or blind on a journal or state file that would not read.
+ * earlyoom kill, blind on a journal that would not read, or on a state file
+ * that would not.
  *
  * WARNS on either, naming the re-arm route; OK while armed and seeing. Reads
  * the persisted state alone, never the journal.
@@ -29,11 +30,15 @@ runCheck({
 				tag: "TRIPPED",
 				line: `the peak tripwire is tripped since ${t.trippedAt}: part-suites are judged on the ladder (${describeTrip(t)}); ${route}.`,
 			});
-		const blind = corrupt ?? t.unread?.why ?? null;
-		if (blind !== null)
+		if (corrupt !== null)
+			warnings.push({
+				tag: "STATE-UNREAD",
+				line: `the peak tripwire's state will not read, so part-suites are judged on the ladder: ${corrupt}; \`${arm}\` rewrites the state file.`,
+			});
+		else if (t.unread !== null)
 			warnings.push({
 				tag: "JOURNAL-BLIND",
-				line: `the peak tripwire is blind, so part-suites are judged on the ladder: ${blind}; \`${status}\` shows the last check${corrupt === null ? "" : `, and \`${arm}\` rewrites the state file`}.`,
+				line: `the peak tripwire is blind, so part-suites are judged on the ladder: ${t.unread.why}; \`${status}\` shows the last check.`,
 			});
 		if (warnings.length === 0) {
 			const okLine = "peak tripwire armed";

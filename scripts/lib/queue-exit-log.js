@@ -73,10 +73,12 @@ function queueExitLogPath(root) {
  * One waiter's exit-log writer: each call is one line, and a line that does
  * not land is said on `err`, opened by the waiter's `label`.
  *
- * @param {{ file: string|null, kind: string, slotFree?: boolean, session: string|null, label: string, err: { write: (s: string) => unknown } }} waiter
+ * @param {{ file: string|null, kind: string, lane?: import("./part-suite-peak.js").PartKind, slotFree?: boolean, session: string|null, label: string, err: { write: (s: string) => unknown } }} waiter
+ *   `lane` the lane the run queues in were it a part-suite (#5367), which
+ *   its `kind` does not always tell; read only off a part-suite's line
  * @returns {(reason: QueueExitReason, waitMs: number, extra?: object) => void}
  */
-function queueExitLogger({ file, kind, slotFree, session, label, err }) {
+function queueExitLogger({ file, kind, lane, slotFree, session, label, err }) {
 	return (reason, waitMs, extra = {}) => {
 		const landed = appendRetained(
 			file,
@@ -85,6 +87,7 @@ function queueExitLogger({ file, kind, slotFree, session, label, err }) {
 				waitS: Math.round(waitMs / 1000),
 				reason,
 				kind,
+				...(lane === undefined ? {} : { lane }),
 				...(slotFree === undefined ? {} : { slotFree }),
 				session,
 				/* A refill after the leave rejoins the queue as a new line (REQUEUE). */
