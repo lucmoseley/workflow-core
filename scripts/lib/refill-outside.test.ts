@@ -664,3 +664,95 @@ it("acts on nothing where the outside session's transcript is unread", () => {
 	expect(typed(l.calls)).toBe(0);
 	expect(l.calls).not.toContain("stop f1");
 });
+
+/* A session the reaper stopped before the loop read its synthetic stop,
+ * reached only through the reaper's journal (#5331). */
+function reapedLoop(start: { job: unknown; rows: unknown }) {
+	const read = { ...start };
+	let readings = 0;
+	const { io, calls, reaped } = fakeIo({
+		syntheticStopOf: () => {
+			readings++;
+			return syntheticStopAt(read);
+		},
+		jobStateOf: () => read.job as never,
+	});
+	const tick = (now: number, launches: Launch[] = []) =>
+		actOnOutside(launches, [], () => TRANSIENT, {
+			agents: [],
+			now,
+			io,
+			swapHold: NO_HOLD,
+		});
+	const entry = (written: number) => {
+		const { sessionId, id, name, cwd } = row("stopped");
+		reaped.push({
+			at: written,
+			seat: SEAT,
+			jobId: id,
+			sessionId,
+			name,
+			cwd,
+		});
+	};
+	return { io, calls, read, tick, entry, readings: () => readings };
+}
+
+it("resumes by --bg --resume alone an outside session the reaper stopped before the loop read its synthetic stop", () => {
+	const l = reapedLoop({
+		job: doneJob({ state: "stopped" }),
+		rows: stoppedRows(minutesAgo(20)),
+	});
+	l.entry(NOW - MIN);
+	l.tick(NOW);
+	expect(l.calls).toContain("resume f1");
+	expect(l.calls).not.toContain("stop f1");
+	expect(typed(l.calls)).toBe(0);
+	expect(logs(l.calls)).toContainEqual(
+		expect.stringMatching(
+			new RegExp(
+				`^resumed ${escapeRe(NAME)}, whose last turn .* by --bg --resume, the reaper having stopped it.* try 1 of 2$`,
+			),
+		),
+	);
+	expect(l.io.readOutside()).toEqual([
+		expect.objectContaining({
+			synthetic: expect.objectContaining({ tries: 1 }),
+		}),
+	]);
+});
+
+it("reads each journal entry once, past its cursor, and takes up none that is no synthetic stop", () => {
+	const l = reapedLoop({
+		job: doneJob({ state: "stopped" }),
+		rows: [...stoppedRows(minutesAgo(20)), founderRow("go on", minutesAgo(1))],
+	});
+	l.entry(NOW - MIN);
+	l.tick(NOW);
+	l.tick(NOW + MIN);
+	expect(l.readings()).toBe(1);
+	expect(l.calls).not.toContain("resume f1");
+	expect(l.io.readOutside()).toEqual([]);
+	expect(l.io.readReaped().through).toBe(NOW - MIN);
+});
+
+it("takes up no loop launch the reaper stopped", () => {
+	const l = reapedLoop({
+		job: doneJob({ state: "stopped" }),
+		rows: stoppedRows(minutesAgo(20)),
+	});
+	l.entry(NOW - MIN);
+	l.tick(NOW, [{ jobId: "f1" } as Launch]);
+	expect(l.readings()).toBe(0);
+	expect(l.calls).not.toContain("resume f1");
+});
+
+it("acts on nothing, and says so, where a reaped session's reading will not read", () => {
+	const l = reapedLoop({ job: doneJob({ state: "stopped" }), rows: null });
+	l.entry(NOW - MIN);
+	l.tick(NOW);
+	expect(l.calls).not.toContain("resume f1");
+	expect(logs(l.calls)).toContain(
+		`could not read whether ${NAME}, which the reaper stopped, was ended on a synthetic reply, so the loop does not resume it`,
+	);
+});

@@ -88,7 +88,7 @@
  * See PERSIST MODE below. Without both, every path is exactly as it was; the
  * SessionStart registration passes both.
  *
- * IMPLICIT:  at every session start, runs `claude stop` against OTHER background sessions, on every seat, judged finished but still resident, so their 330-450 MB returns to the admission arithmetic; and writes a record of the run itself to `wfc-reap-run.json` in the session's Claude config dir (`CLAUDE_CONFIG_DIR`, else ~/.claude), whether or not it took anything, and, on any run that can judge, its fallback finish clock to `wfc-reap-state.json` beside it; under persist mode it also writes a report and an open-run record into the shared notify-reports directory under whichever ~/.claude config dir can hold state.
+ * IMPLICIT:  at every session start, runs `claude stop` against OTHER background sessions, on every seat, judged finished but still resident, so their 330-450 MB returns to the admission arithmetic; and writes a record of the run itself to `wfc-reap-run.json` in the session's Claude config dir (`CLAUDE_CONFIG_DIR`, else ~/.claude), whether or not it took anything, and, on any run that can judge, its fallback finish clock to `wfc-reap-state.json` beside it; on a run that stops something, each job it stopped to the machine-wide `.reaped-jobs.json` beside the refill loop's files (lib/reaped-jobs.js); under persist mode it also writes a report and an open-run record into the shared notify-reports directory under whichever ~/.claude config dir can hold state.
  * JUSTIFIED: fail-safe — a finished session that stays resident is read as spent memory and pick-next admits fewer sessions than fit (mantahostels#421); the conversation is kept and resumable.
  * DEFEAT:    --dry-run exists on the script, but the SessionStart registration does not pass it, so the wired path has no escape.
  * TREE:      host — reaps from machine-wide seat and job state and the host root's claims
@@ -122,6 +122,7 @@ const { persisting: sharedPersisting } = require("./lib/persist-mode.js");
 const { reportOwner } = require("./lib/session-id.js");
 /* The judgement and the report, every reading below handed in (#1369). */
 const { DEGRADED, openedRecord, reap } = require("./lib/reaper.js");
+const { recordReaped } = require("./lib/reaped-jobs.js");
 
 /* PERSIST MODE (mantahostels#2152).
  *
@@ -531,6 +532,7 @@ function main(argv) {
 			runs,
 			startedAt,
 			recordRun: writeRuns,
+			recordStopped: recordReaped,
 			/* Buffered rather than printed under persist mode: stdout must stay empty
 			 * for an `async` hook, whose stdout the harness discards. */
 			log: notify

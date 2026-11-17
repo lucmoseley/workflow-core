@@ -15,6 +15,7 @@ export type Launch = import("./refill-loop.js").LoopLaunch;
 export type BlockIo = import("./refill-blocks.js").BlockIo;
 export type Agents = import("./refill-blocks.js").Tick["agents"];
 export type Outside = import("./refill-outside.js").Outside;
+export type ReapedJob = import("./reaped-jobs.js").ReapedJob;
 
 export const NO_HOLD: import("./admission.js").SwapHold = { held: false };
 
@@ -46,6 +47,10 @@ export function fakeIo(over: Partial<BlockIo> = {}) {
 	const started: Launch[] = [];
 	/* lib/refill-outside.js's records, as its file would hold them. */
 	let outside: Outside[] = [];
+	/* lib/reaped-jobs.js's journal, entries pushed by a test, and the loop's
+	 * cursor through it. */
+	const reaped: ReapedJob[] = [];
+	let through = 0;
 	const io: BlockIo = {
 		stop: (_, id) => {
 			calls.push(`stop ${id}`);
@@ -139,9 +144,13 @@ export function fakeIo(over: Partial<BlockIo> = {}) {
 		writeOutside: (records) => {
 			outside = records;
 		},
+		readReaped: () => ({ jobs: reaped, through }),
+		writeReapedThrough: (at) => {
+			through = at;
+		},
 		...over,
 	};
-	return { io, calls, started };
+	return { io, calls, started, reaped };
 }
 
 export const logs = (calls: string[]) =>

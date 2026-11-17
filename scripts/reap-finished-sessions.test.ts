@@ -98,6 +98,7 @@ interface ReapOverrides {
 	stop?: (id: string) => { ok: boolean; why?: string };
 	isDirty?: (f: string) => boolean | null;
 	runs?: Record<string, object>;
+	recordStopped?: (rows: Agent[]) => void;
 }
 
 /**
@@ -289,6 +290,8 @@ function runReaper(
 		WFC_CLAUDE_CONFIG_B: sandbox,
 		WFC_CLAUDE_CONFIG_C: sandbox,
 		WFC_CLAUDE_BIN: bin,
+		/* The stop journal's dir, kept off the real machine one (#5331). */
+		WFC_REFILL_DIR: sandbox,
 		CLAUDE_CODE_SESSION_ID: "the-session-this-hook-started-in",
 		...opts.env,
 	};
@@ -2002,6 +2005,25 @@ describe("a previous run that never finished (mantahostels#1920)", () => {
 	it("reads only its own mode, so a dry run cannot mask a live one", () => {
 		const out = reapWith({ argv: ["--dry-run"], runs: unfinished }).out;
 		expect(out).not.toContain("never finished");
+	});
+});
+
+describe("the journal of the jobs a run stopped (#5331)", () => {
+	const journalled = (over: ReapOverrides) => {
+		const rows: Agent[][] = [];
+		reapWith({ ...over, recordStopped: (r) => rows.push(r) });
+		return rows.flat().map((a) => a.id);
+	};
+
+	it("hands it each job a live run stopped", () => {
+		expect(journalled({})).toEqual(["aaaa"]);
+	});
+
+	it("hands it none a stop failed on, nor any a dry run would stop", () => {
+		expect(journalled({ stop: () => ({ ok: false, why: "exit 1" }) })).toEqual(
+			[],
+		);
+		expect(journalled({ argv: ["--dry-run"] })).toEqual([]);
 	});
 });
 

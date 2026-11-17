@@ -919,6 +919,7 @@ const DRY_BLOCK_ACTS = {
 	postHandOff: () => ({ failed: DRY_RUN_WHY, out: "" }),
 	release: () => false,
 	writeOutside: doNothing,
+	writeReapedThrough: doNothing,
 };
 
 /**

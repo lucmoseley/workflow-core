@@ -15,8 +15,9 @@
  *
  * A `done` one the harness ended on its own "No response requested." record
  * (#5324) is resumed as a loop launch is (lib/refill-synthetic.js). One the
- * reaper stopped is reached only where the loop read the stop while its
- * process still ran (#5331).
+ * reaper stopped before the loop read that stop has left the listing, so it
+ * is reached through the reaper's journal (lib/reaped-jobs.js), each entry
+ * read once past the loop's cursor (#5331).
  *
  * Its records live in their own file, lib/refill-dir.js's OUTSIDE_FILE, as
  * they are no launches:
@@ -493,22 +494,65 @@ const withOriginalsRetried = (o, io) =>
  * taken up and acted on, every record of one no longer listed dropped, save
  * one the loop stopped and holds for a retry (retryHeld), one still owed a
  * synthetic stop's resume (unlistedTurn), and any record kept
- * while an original of its copy is unretired. Only the retirements off an
- * unread listing, which cannot tell blocked from working; a barred tick types
- * nothing.
+ * while an original of its copy is unretired; and each the reaper stopped
+ * on a synthetic stop the loop never read taken up (reapedTurn). Only the
+ * retirements off an unread listing, which cannot tell blocked from working;
+ * a barred tick types nothing.
  * @param {import("./refill-loop.js").LoopLaunch[]} launches
  * @param {AgentRecord[]} registry  the registry listing's agents
  * @param {CauseOf} causeOf
  * @param {Tick} seen
  */
 function actOnOutside(launches, registry, causeOf, seen) {
-	const had = seen.io.readOutside();
-	const retried = had.map((o) => withOriginalsRetried(o, seen.io));
-	const { agents } = seen;
-	const kept = agents
-		? turnOutside(retried, { launches, registry, causeOf, agents }, seen)
-		: retried;
-	if (JSON.stringify(kept) !== JSON.stringify(had)) seen.io.writeOutside(kept);
+	const { io, agents } = seen;
+	const had = io.readOutside();
+	const retried = had.map((o) => withOriginalsRetried(o, io));
+	if (!agents) {
+		if (JSON.stringify(retried) !== JSON.stringify(had))
+			io.writeOutside(retried);
+		return;
+	}
+	const turned = turnOutside(
+		retried,
+		{ launches, registry, causeOf, agents },
+		seen,
+	);
+	const { jobs, through } = io.readReaped();
+	const unread = jobs.filter((j) => j.at > through);
+	const taken = new Set([
+		...launches.flatMap((l) => [l.jobId, l.copiedFrom]),
+		...registry.map((a) => a.id),
+		...retried.map((o) => o.jobId),
+		...turned.map((o) => o.jobId),
+	]);
+	const kept = [
+		...turned,
+		...unread.flatMap((j) => (taken.has(j.jobId) ? [] : reapedTurn(j, seen))),
+	];
+	if (JSON.stringify(kept) !== JSON.stringify(had)) io.writeOutside(kept);
+	if (unread.length > 0)
+		io.writeReapedThrough(Math.max(...unread.map((j) => j.at)));
+}
+
+/**
+ * The record a job the reaper stopped starts (#5331): where its job store and
+ * transcript read a synthetic stop, judged at once, as the reaper's stop came
+ * after the quiet window; none for any other, nor where the reading will not
+ * read, which is logged as it is not read again.
+ * @param {import("./reaped-jobs.js").ReapedJob} j
+ * @param {Tick} seen
+ * @returns {Outside[]}
+ */
+function reapedTurn({ seat, jobId, name, cwd, sessionId }, seen) {
+	const o = { seat, jobId, name, cwd, sessionId, tries: 0 };
+	const at = seen.io.syntheticStopOf(sessionRefOf(o));
+	if (at === "unread")
+		seen.io.log(
+			`could not read whether ${nameOf(o)}, which the reaper stopped, was ended on a synthetic reply, so the loop does not resume it`,
+		);
+	if (typeof at !== "number") return [];
+	const turned = judgeSynthetic(o, seen, at);
+	return turned.synthetic ? [turned] : [];
 }
 
 /**

@@ -122,6 +122,10 @@ const {
 const { readJson, writeJson } = require("./refill-json.js");
 const { actOnOutside } = require("./refill-outside.js");
 const { OUTSIDE_FILE, refillPath } = require("./refill-dir.js");
+const { readReaped: readReapedJobs } = require("./reaped-jobs.js");
+
+/* How far through lib/reaped-jobs.js's journal the loop has read. */
+const REAPED_CURSOR_FILE = ".refill-reaped-cursor.json";
 const {
 	launchRecorded,
 	ledgerJobOf,
@@ -677,6 +681,22 @@ function readOutside() {
 }
 
 /**
+ * lib/reaped-jobs.js's journal and the loop's cursor through it
+ * (BlockReads' readReaped, #5331).
+ */
+function readReaped() {
+	const cursor = readJson(refillPath(REAPED_CURSOR_FILE), log);
+	const through =
+		typeof cursor === "object" &&
+		cursor !== null &&
+		"through" in cursor &&
+		typeof cursor.through === "number"
+			? cursor.through
+			: 0;
+	return { jobs: readReapedJobs(), through };
+}
+
+/**
  * block-cause.js's isResumedSinceApiStop on `l`'s job record, transcript and
  * timeline (BlockReads' isResumedSinceStop, #4815).
  * @param {import("./refill-blocks.js").SessionRef} l
@@ -941,6 +961,9 @@ const blockIo = (served) => ({
 		hasFounderTypedSinceApiStop(readTranscriptRows(l, readJobRecordOf(l))),
 	readOutside,
 	writeOutside: (records) => writeJson(refillPath(OUTSIDE_FILE), records),
+	readReaped,
+	writeReapedThrough: (through) =>
+		writeJson(refillPath(REAPED_CURSOR_FILE), { through }),
 	holdLockedOut: (l, { refusal, call }, now) =>
 		holdLockedOut(l.root, { job: l.jobId, refusal, call }, now, log),
 	labelParked,
