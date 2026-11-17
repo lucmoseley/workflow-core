@@ -18,7 +18,7 @@
  * is safe here and nowhere that judges a session dead by its absence.
  *
  * IT REAPS ONLY WHAT IT CAN PROVE IS FINISHED, AND DEGRADES TO REAPING NOTHING.
- * Five gates, every one of which must pass:
+ * Six gates, every one of which must pass:
  *   1. its registry record says `kind: bg` (the listing's `background`) AND
  *      its job record says `state: done` with `tempo` not `active` — a
  *      session mid-decision reads `working`, one in a forced Stop-hook turn
@@ -34,7 +34,11 @@
  *      HAS NOT VISIBLY ENDED IS LEFT ALONE sets (lib/reaper.js, which holds the
  *      gates' code and the constants this header names);
  *   5. its last `claude stop` did not fail inside the retry window that failure
- *      opened — see HOW A STOP THAT FAILED IS LEFT ALONE in lib/reaper.js.
+ *      opened — see HOW A STOP THAT FAILED IS LEFT ALONE in lib/reaper.js;
+ *   6. its transcript reads, and shows no launch still out (lib/pending-tasks.js,
+ *      the reading the `waiting:` Stop guard takes) — a job that ended its turn
+ *      on `waiting:` can be listed `done` (#5387), so gate 1 alone would stop it
+ *      mid-wait. lib/reaper.js's pendingHold says what keeps it.
  * Reaping stops entirely on an unset CLAUDE_CODE_SESSION_ID without
  * `--not-a-session`, because gate 2 cannot be applied without knowing which
  * session is this one. A seat whose registry will not read costs that seat's
@@ -115,6 +119,7 @@ const {
 } = require("./lib/arbiter-store");
 const { transcriptPath } = require("./lib/project-slug.js");
 const { lastTurn } = require("./lib/transcript.js");
+const { readPendingTasks } = require("./lib/pending-tasks.js");
 const { readTail } = require("./lib/file-read.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -440,6 +445,25 @@ function readLastTurn(agent) {
 }
 
 /**
+ * The launches a session's transcript shows still out, or null where it cannot
+ * say: no transcript found, a read that threw, or nothing parsed — which
+ * lib/reaper.js keeps the session on (#5387).
+ *
+ * @param {{id?: string, sessionId: string}} agent
+ * @returns {{name: string}[]|null}
+ */
+function readPending(agent) {
+	const own = readOwnTranscript(agent);
+	if (!own) return null;
+	try {
+		const seen = readPendingTasks(own.file);
+		return seen.records > 0 ? seen.pending : null;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Land a persist-mode run: the report file, then the open run record closed.
  * Both halves are `lib/check.js`'s `persistReport`.
  *
@@ -528,6 +552,7 @@ function main(argv) {
 			saveState: writeState,
 			finishAt: readFinishAt,
 			lastTurn: readLastTurn,
+			pending: readPending,
 			isDirty: claimDirty,
 			runs,
 			startedAt,
