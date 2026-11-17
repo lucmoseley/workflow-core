@@ -71,6 +71,10 @@ function buildHostPorts(root, log) {
 			return ps.ok ? ps.rows : null;
 		},
 		carriedOf: readCarriedWeightOf,
+		/* Required at the call: only a part-suite's judgement reads them. */
+		partPeak: (run) =>
+			require("./part-suite-ledger.js").readPartSuitePeak(run, { root }),
+		tripwire: () => require("./peak-tripwire.js").gateTripwire({ log }),
 		runners: buildRunners(root, log),
 		declaredTest: () => {
 			try {
@@ -97,12 +101,20 @@ function buildHostPorts(root, log) {
  * `root` names the host and the tree whose npm scripts are read; absent, the
  * host is `hostRoot()` and the tree the polling process's own (#4242).
  * `gateSeats` reads the live gate seats (lib/suite-queue.js `readGateSeats`).
+ * A part-suite on its own peak pays every queue's climb, its own queue's
+ * included (#5366): `allClimbMb` reads it, in place of `climbMb`. The queue
+ * hands it in, this file reading no queue (lib/suite-concurrency-hook-host.js).
+ * `onAdmission` hears how a part-suite was judged, for its records.
  * @param {string} command
  * @param {string | undefined} root
- * @param {{ weight?: import("./suite-handoff.js").CarriedWeight | null, climbMb?: number, gateSeats: () => import("./suite-ladder.js").GateSeats }} reads
+ * @param {{ weight?: import("./suite-handoff.js").CarriedWeight | null, climbMb?: number, allClimbMb: () => number, gateSeats: () => import("./suite-ladder.js").GateSeats, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void }} reads
  * @returns {import("./suite-queue.js").GateDenial | null}
  */
-function readGate(command, root, { weight = null, climbMb = 0, gateSeats }) {
+function readGate(
+	command,
+	root,
+	{ weight = null, climbMb = 0, allClimbMb, gateSeats, onAdmission },
+) {
 	const { guardDisabled, hostRoot } = require("./workflow-core-config.js");
 	const host = root ?? hostRoot();
 	if (guardDisabled("guard-suite-concurrency", { root: host })) return null;
@@ -125,9 +137,10 @@ function readGate(command, root, { weight = null, climbMb = 0, gateSeats }) {
 		readLatch: () => "",
 		...treePorts(host),
 		...buildHostPorts(host, log),
-		climbMb: () => climbMb,
+		climbMb: (scope) => (scope === "all" ? allClimbMb() : climbMb),
 		gateSeats,
 		launchWeight: weight,
+		...(onAdmission ? { noteAdmission: onAdmission } : {}),
 		tree: () =>
 			treePorts(root ?? require("./host-root.js").sessionTree({}) ?? host),
 		/* Never asked: `told` answers yes, so the limb is never weighed. */

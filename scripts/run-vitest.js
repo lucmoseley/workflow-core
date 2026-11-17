@@ -92,6 +92,7 @@ const {
 	peerClimbTurn,
 	queueSeat,
 } = require("./lib/suite-queue.js");
+const { partKindOf } = require("./lib/part-suite-peak.js");
 const { readOwnPaths, readOwnWork } = require("./lib/own-work.js");
 const idSeam = require("./lib/session-id.js");
 const {
@@ -148,6 +149,7 @@ const {
 /** @typedef {import("./lib/isolated-worktree.js").WorktreeFs} WorktreeFs */
 /** @typedef {import("./lib/own-selection.js").Ledger} Ledger */
 /** @typedef {import("./lib/launch-route.js").LaunchRoute} LaunchRoute */
+/** @typedef {import("./lib/part-suite-peak.js").PartAdmission} PartAdmission */
 const { worktreeRoot } = require("./lib/host-root.js");
 const { readDeclaredCommand } = require("./lib/workflow-core-config.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
@@ -645,6 +647,8 @@ function withLaunch(options, fields) {
  *   execFn?: ExecFn, loadEdges?: () => Record<string, string[]>, err?: { write: (s: string) => unknown },
  *   launch?: LauncherLaunch, onSpawn?: () => void, emptyOnly?: boolean,
  *   escalationRequeues?: boolean, session?: string|null,
+ *   admission?: PartAdmission|null,
+ *   readAdmission?: ((words: string[], weight: import("./lib/suite-handoff.js").CarriedWeight) => PartAdmission|null)|null,
  *   yieldCpu?: (child: { pid?: number }, options: { err: Writer }) => unknown,
  *   killCarrier?: typeof killPid }} [options]
  * @returns {Promise<number>}
@@ -685,6 +689,8 @@ function runOnce(
 		err = process.stderr,
 		/* What SIGKILLs the run's carriers, here and in `releaseRunsAndWorktrees`. */
 		killCarrier = killPid,
+		admission: admitted = null,
+		readAdmission = null,
 		...expandOptions
 	} = {},
 ) {
@@ -723,6 +729,7 @@ function runOnce(
 			: launch;
 	if (escalationRequeues && weighed.wholeSlot)
 		return Promise.resolve(REQUEUE_WHOLE);
+	const admission = admissionOf(admitted, readAdmission, weighed, launch.argv);
 	if (plan && launch.touched && plan.files.length === 0) {
 		out.write(plan.banner);
 		appendEmptyTouchedLine(repoRoot(root) || root, root, {
@@ -794,6 +801,7 @@ function runOnce(
 			files: plan?.files ?? [],
 			fileCount: plan?.files.length ?? 0,
 			repo: path.basename(target),
+			...admissionFields(admission),
 		};
 		const memory = takeWrapperMemory() ?? runMemory.startSampler(runLaunch);
 		memory.setLaunch(runLaunch);
@@ -896,6 +904,7 @@ function runOnce(
 			finished: record.finished,
 			argv: launch.argv ?? [],
 			memory: memory.current(),
+			...markerAdmission(admission),
 			...(idSeam.isLanderRun() ? { lander: true } : {}),
 			/* So gate kills count apart from bare ones (#5321). */
 			...(launch.touchedBase ? { touchedBase: launch.touchedBase } : {}),
@@ -1048,6 +1057,57 @@ function runOnce(
 		};
 		child.on("close", settle);
 	});
+}
+
+/**
+ * What the run file records of an admission: its mode and the whole of it.
+ * @param {PartAdmission|null} admission
+ * @returns {{ mode?: PartAdmission["mode"], admission?: PartAdmission }}
+ */
+const admissionFields = (admission) =>
+	admission ? { mode: admission.mode, admission } : {};
+
+/** @param {PartAdmission|null} admission */
+const markerAdmission = (admission) => (admission ? { admission } : {});
+
+/**
+ * A part-suite's admission: the queue's, as it heard it, else, where no queue
+ * did, read once by
+ * `readAdmission`, none for a whole run or the lander's, which the gate never
+ * charges on its peak.
+ * @param {PartAdmission|null} admitted
+ * @param {((words: string[], weight: import("./lib/suite-handoff.js").CarriedWeight) => PartAdmission|null)|null} readAdmission
+ * @param {{ wholeSlot?: boolean, resolvedFiles?: number|null }} weighed
+ * @param {string[]|null|undefined} words
+ * @returns {PartAdmission|null}
+ */
+function admissionOf(admitted, readAdmission, weighed, words) {
+	if (admitted) return admitted;
+	if (!readAdmission || weighed.wholeSlot || idSeam.isLanderRun()) return null;
+	return readAdmission(words ?? [], {
+		resolvedFiles: weighed.resolvedFiles ?? null,
+		wholeSlot: false,
+	});
+}
+
+/**
+ * How the gate judges a part-suite the guard admitted unqueued (#5366), read
+ * once as it starts, for its records alone: the guard's own reading ran in
+ * the hook's process. Residual: memory moved between the two reads may judge
+ * it otherwise than the guard did.
+ * @param {string[]} words
+ * @param {import("./lib/suite-handoff.js").CarriedWeight} weight
+ * @returns {PartAdmission | null}
+ */
+function readDirectAdmission(words, weight) {
+	/** @type {PartAdmission | null} */
+	let heard = null;
+	gateDenies(words, undefined, weight, {
+		onAdmission: (a) => {
+			heard = a;
+		},
+	});
+	return heard;
 }
 
 /* The memory record the wrapper opened as it started, before its queue wait
@@ -2288,13 +2348,14 @@ const buildQueueSkipLine = (emptySource) =>
  * Only a wait that held it, or a refusal, is an exit line, of kind `seat`:
  * the alarm keeps counting a rung wait (#2911).
  *
- * @param {{ options: import("./lib/suite-queue.js").QueuedLaunchOptions & { loadHold?: () => Promise<boolean>, err?: { write: (s: string) => unknown }, queueLog?: string|null, root?: string }, words: string[], weight: import("./lib/suite-handoff.js").CarriedWeight, session: string|null, run: (extra?: { escalationRequeues?: boolean, onSpawn?: () => void }) => Promise<number>, queued: () => Promise<number>, requeueWhole: () => Promise<number> }} seat
+ * @param {{ options: import("./lib/suite-queue.js").QueuedLaunchOptions & { loadHold?: () => Promise<boolean>, err?: { write: (s: string) => unknown }, queueLog?: string|null, root?: string }, words: string[], weight: import("./lib/suite-handoff.js").CarriedWeight, kind: import("./lib/suite-queue.js").PartKind, session: string|null, run: (extra?: { escalationRequeues?: boolean, onSpawn?: () => void, admission?: PartAdmission }) => Promise<number>, queued: () => Promise<number>, requeueWhole: () => Promise<number> }} seat
  * @returns {Promise<number>}
  */
 async function runSeated({
 	options,
 	words,
 	weight,
+	kind,
 	session,
 	run,
 	queued,
@@ -2302,10 +2363,17 @@ async function runSeated({
 }) {
 	const seatFile = weight.wholeSlot ? null : heldSeat(options);
 	if (!seatFile) return queued();
+	/** @type {PartAdmission | undefined} */
+	let admission;
 	const gate =
 		options.gate ??
 		((/** @type {number} */ climbMb) =>
-			gateDenies(words, options.gateRead, weight, climbMb));
+			gateDenies(words, options.gateRead, weight, {
+				climbMb,
+				onAdmission: (a) => {
+					admission = a;
+				},
+			}));
 	const logExit = queueExitLogger({
 		file: queueLogFile(options),
 		kind: "seat",
@@ -2321,7 +2389,7 @@ async function runSeated({
 	const peer = peerClimbTurn(seatFile, options);
 	const seat = queueSeat({
 		queue: options,
-		join: { weight },
+		join: { weight, kind },
 		turn: peer.turn,
 		logExit: (reason, waitMs, extra) => {
 			if (reason !== "opened" || slept) logExit(reason, waitMs, extra);
@@ -2350,6 +2418,7 @@ async function runSeated({
 		const code = await run({
 			escalationRequeues: true,
 			onSpawn: seat.spawned,
+			...(admission ? { admission } : {}),
 		});
 		if (code !== REQUEUE_WHOLE) return code;
 	} finally {
@@ -2440,6 +2509,9 @@ function main(argv = process.argv.slice(2), options = {}) {
 		runOptions.launch = { ...launch, ...weight };
 	};
 	reweigh(weight);
+	/* A part-suite's lane in the queue (#5367). */
+	/* An untold kind queues under a touched one's rules. */
+	const partKind = partKindOf(route.kind) ?? "touched";
 	const logFile = queueLogFile(options);
 	const logExit = queueExitLogger({
 		file: logFile,
@@ -2460,12 +2532,14 @@ function main(argv = process.argv.slice(2), options = {}) {
 		const part = !weight.wholeSlot;
 		const seat = queueSeat({
 			queue: options,
-			join: { weight },
+			join: { weight, kind: partKind },
 			logExit,
 			signals: true,
 		});
 		const started = Date.now();
 		runOptions.onSpawn = seat.spawned;
+		/** @type {PartAdmission | undefined} */
+		let admission;
 		/* The marker is HELD until the run finishes, not dropped when the wait
 		 * ends. Dropped at launch, a waiter could take this run's slot in the gap
 		 * before vitest is up far enough for the guard to see it. Held, queued
@@ -2483,6 +2557,9 @@ function main(argv = process.argv.slice(2), options = {}) {
 						gateWeight: weight,
 						hold: options.loadHold,
 						...options,
+						onAdmission: (/** @type {PartAdmission} */ a) => {
+							admission = a;
+						},
 						part,
 					}),
 				options,
@@ -2492,7 +2569,10 @@ function main(argv = process.argv.slice(2), options = {}) {
 
 			if (outcome === "refused") return 1;
 			if (outcome === "run") {
-				const code = await run({ escalationRequeues: part });
+				const code = await run({
+					escalationRequeues: part,
+					...(admission ? { admission } : {}),
+				});
 				if (code !== REQUEUE_WHOLE) return code;
 				seat.leave();
 				(options.err ?? process.stderr).write(
@@ -2523,6 +2603,7 @@ function main(argv = process.argv.slice(2), options = {}) {
 		options,
 		words: rest,
 		weight,
+		kind: partKind,
 		session: route.sessionId,
 		run,
 		queued,
@@ -2560,6 +2641,7 @@ if (require.main === module) {
 						// never sees.
 						main(process.argv.slice(2), {
 							loadHold: () => holdForLoad(),
+							readAdmission: readDirectAdmission,
 							...(process.env.WFC_RUN_VITEST_BIN
 								? { bin: process.env.WFC_RUN_VITEST_BIN }
 								: {}),

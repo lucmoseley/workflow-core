@@ -507,10 +507,28 @@ const kindCell = (k) => {
 };
 
 /**
+ * @typedef {{ trip: { at: string, pid: number }|null,
+ *   rearm: { status: string, arm: string } }} TripwireNote the peak
+ *   tripwire's tripping kill and its re-arm commands (lib/peak-tripwire.js)
+ */
+
+/**
+ * @param {Incident} i
+ * @param {TripwireNote["trip"]} trip
+ */
+const isTrippedBy = (i, trip) =>
+	trip !== null && i.kills.some((k) => k.pid === trip.pid && k.at === trip.at);
+
+/**
  * The incident ticket's body.
  * @param {Incident} i
+ * @param {TripwireNote} [tripwire]
  */
-function buildIncidentBody(i) {
+function buildIncidentBody(i, tripwire) {
+	const rearm =
+		tripwire !== undefined && isTrippedBy(i, tripwire.trip)
+			? tripwire.rearm
+			: null;
 	const first = new Date(i.first);
 	const last = new Date(i.last);
 	const lowest = i.kills.reduce(
@@ -530,7 +548,7 @@ earlyoom killed ${i.kills.length} ${i.kills.length === 1 ? "process" : "processe
 
 By kind: ${byKind(i.kills)}. A headless run is a \`claude -p\` in the headless run store; a test run is a test launch's wrapper, vitest main or worker, matched by pid to its memory record (\`.test-run-memory\`); a gate run is any other process in a commit gate's tree, matched by pid to its gate seat's record; claude CLI is the daemon, \`claude agents\` or a \`-p\` the store has none for; a node or python process is any such program, the refill loop and test workers included; Chromium is a browser process (\`headless_shell\`, \`chrome\`, \`chromium\`) no record claims.${i.unjoined === null ? "" : `\n\nNot joined to the headless, test or gate runs, so a kill named by its process may be one: ${i.unjoined}.`}
 
-Lowest MemAvailable before a kill: ${lowest === null ? "unread" : `${lowest.availMiB} MiB, SwapFree ${mib(lowest.swapFreeMiB)}`}.
+${rearm === null ? "" : `**This incident tripped the peak tripwire** (#5367): its test-run kill came while a part-suite admitted on its own measured peak was live, so every part-suite is judged on the ladder until a session re-arms it. Read the kill with \`${rearm.status}\`, then re-arm with \`${rearm.arm}\` once its cause is understood.\n\n`}Lowest MemAvailable before a kill: ${lowest === null ? "unread" : `${lowest.availMiB} MiB, SwapFree ${mib(lowest.swapFreeMiB)}`}.
 
 | Time | Kind | Name | PID | UID | VmRSS | Badness | MemAvailable | SwapFree | Signals |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -548,7 +566,7 @@ Why admission let memory run out. Start from \`journalctl -u earlyoom --since @$
 ## Acceptance criteria
 
 - [ ] The cause is named, and fixed or ticketed.
-`;
+${rearm === null ? "" : `- [ ] The peak tripwire is re-armed (\`${rearm.arm}\`), or left tripped with the reason on this ticket.\n`}`;
 }
 
 /**

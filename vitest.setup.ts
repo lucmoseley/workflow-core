@@ -154,6 +154,14 @@ process.env.MEMWATCH_MINUTE_LOG = path.join(
 );
 
 /*
+ * NO TEST READS THIS MACHINE'S JOURNAL (#5366): the suite gate's peak
+ * tripwire reads earlyoom's kills from it, so a guard run through its real
+ * ports would answer to the machine's history. Pinned to a binary that does
+ * not exist, which reads as a blind journal; an override, as above.
+ */
+process.env.WFC_JOURNALCTL = path.join(testConfigDir, "no-journalctl");
+
+/*
  * NO TEST REACHES THE SESSION'S HOST THROUGH CLAUDE_PROJECT_DIR (#3334).
  * Pointed at an empty dir that is no repository, a test that drops its pin, or
  * reaches hostRoot() in process, is red in CI and locally alike. An override,

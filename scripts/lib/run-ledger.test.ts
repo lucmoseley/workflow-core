@@ -235,6 +235,53 @@ describe("a line's kind, cause and verdict (#2812 runs.py rules)", () => {
 		expect(lineFor({ stalled: true }, false).verdict).toBe("stalled");
 		expect(lineFor({}, false).verdict).toBe("red");
 	});
+	it("carries how the gate admitted a part-suite from the run file, peak and ladder alike (#5366)", () => {
+		const store = sandbox();
+		const peak = {
+			mode: "peak",
+			kind: "named",
+			bucket: "1",
+			p99Mb: 609,
+			rungMb: 1750,
+			climbMb: 120,
+			samples: 683,
+		} as const;
+		const ladder = {
+			mode: "ladder",
+			cause: "thin",
+			kind: "touched",
+			bucket: "5-20",
+			rungMb: 3650,
+			climbMb: 0,
+		} as const;
+		for (const admission of [peak, ladder]) {
+			const sampler = runMemory.startSampler(
+				{
+					session: "s-1",
+					kind: admission.kind,
+					argv: [],
+					files: [],
+					fileCount: 0,
+					repo: "r",
+					mode: admission.mode,
+					admission,
+				},
+				{ dir: store, intervalMs: 60_000, bootId: null },
+			);
+			const env = { [runMemory.MEMORY_ENV]: sampler.file };
+			const file = JSON.parse(fs.readFileSync(sampler.file, "utf8"));
+			sampler.stop();
+			expect(file.mode).toBe(admission.mode);
+			const built = markerFrom(null, { head: SHA }, null, {
+				admission: runMemory.readRunAdmission(env),
+			});
+			expect(lineFor(built).admission).toEqual(admission);
+		}
+		expect(
+			lineFor(markerFrom(null, { head: SHA }, null, {})),
+		).not.toHaveProperty("admission");
+	});
+
 	it("carries the run's pids and four peaks from the wrapper's run file, null where none was sampled (#5183)", () => {
 		const store = sandbox();
 		const sampler = runMemory.startSampler(

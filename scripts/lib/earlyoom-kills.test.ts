@@ -140,6 +140,29 @@ describe("buildIncidentBody and incidentTitle (#3094)", () => {
 			"Memory kill incident from 2026-10-25 19:56 UTC",
 		);
 	});
+
+	it("marks the incident whose kill tripped the peak tripwire and names its re-arm, and no other (#5367)", () => {
+		const [first, second] = readAll();
+		const killed = first.kills.find((k: { pid: number }) => k.pid === 658_446);
+		const trip = {
+			trip: { at: killed.at, pid: killed.pid },
+			rearm: {
+				status: "node scripts/peak-tripwire.js status",
+				arm: "node scripts/peak-tripwire.js arm",
+			},
+		};
+		const body = kills.buildIncidentBody(first, trip);
+		expect(body).toContain("**This incident tripped the peak tripwire**");
+		expect(body).toContain("`node scripts/peak-tripwire.js status`");
+		expect(body).toContain(
+			"- [ ] The peak tripwire is re-armed (`node scripts/peak-tripwire.js arm`)",
+		);
+		expect(basisFaults(body)).toEqual([]);
+		expect(kills.buildIncidentBody(second, trip)).not.toContain(
+			"peak tripwire",
+		);
+		expect(kills.buildIncidentBody(first)).not.toContain("peak tripwire");
+	});
 });
 
 describe("headless runs among the kills (#4143)", () => {

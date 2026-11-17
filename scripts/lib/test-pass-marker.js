@@ -94,7 +94,8 @@ const { readTreeIds, isSameContent } = require("./content-ids.js");
  *   testsInFlight?: {nodeid: string, stage: string}[]|null,
  *   testsNeverStarted?: number|null, testsFinished?: number|null,
  *   slowest?: import("./test-file-timings.js").SlowFile[],
- *   memory?: import("./run-memory.js").RunMemory|null}} Marker
+ *   memory?: import("./run-memory.js").RunMemory|null,
+ *   admission?: import("./part-suite-peak.js").PartAdmission}} Marker
  * @typedef {Marker & {sha: string, at: string, suite: string,
  *   startedAt: string, durationMs: number, argv: string[]}} KillRow the
  *   fields every stall or ceiling kill's fail-store row carries
@@ -578,6 +579,9 @@ function countMalformed({ root = repoRoot(), store = STORE } = {}) {
  * @param {import("./run-memory.js").RunMemory|null} [run.memory] The run's
  *   pids and peaks, off the wrapper's run file (#5183). Omitted where none
  *   was sampled.
+ * @param {import("./part-suite-peak.js").PartAdmission|null} [run.admission] How
+ *   the gate admitted a part-suite, off the same file (#5366). Omitted where
+ *   it records none.
  * @returns {Marker & {foreign: {path: string, why: string}[]}}
  */
 function markerFrom(
@@ -600,6 +604,7 @@ function markerFrom(
 		attestation = null,
 		slowest = null,
 		memory = null,
+		admission = null,
 	} = {},
 ) {
 	const attested = attestedFields(attestation);
@@ -664,6 +669,7 @@ function markerFrom(
 		...attested,
 		...(slowest?.length ? { slowest } : {}),
 		...(memory ? { memory } : {}),
+		...(admission ? { admission } : {}),
 		foreign: (drifted?.moved ?? []).map((e) => ({
 			path: e.path,
 			why: `${e.kind} while the suite ran`,

@@ -20,6 +20,7 @@
 		"check:gates": "node scripts/check-gates.js",
 		"check:wsl-currency": "node scripts/check-wsl-currency.js",
 		"check:wsl-disk": "node scripts/check-wsl-disk.js",
+		"check:peak-tripwire": "node scripts/check-peak-tripwire.js",
 		"check:citations": "node scripts/check-issue-citations.js",
 		"check:orphans": "node scripts/check-issue-orphans.js",
 		"check:labels": "node scripts/check-issue-labels.js",

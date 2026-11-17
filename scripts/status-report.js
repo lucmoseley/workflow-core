@@ -84,6 +84,7 @@ const POOL_WIDTH = 4;
  * `orphan-reaps` (#4342) reads the reaper's kill logs rather than running the
  * reaper, which kills.
  * `session-draw` (#5274) reads every served repo's config.
+ * `peak-tripwire` (#5367) reads the tripwire's state file, never the journal.
  * `adopter-boundary` (#5294) also runs in .husky/pre-commit, and SKIPs in an
  * adopter, which holds no boundary page.
  * `effort-guide-routing` (#5033) also runs in .husky/pre-commit, on a commit
@@ -151,6 +152,7 @@ const CHECKS = [
 	["unclosed-launches", "check-unclosed-launches.js"],
 	["compaction-backstop", "check-compaction-backstop.js"],
 	["session-draw", "check-session-draw.js"],
+	["peak-tripwire", "check-peak-tripwire.js"],
 ];
 
 /**

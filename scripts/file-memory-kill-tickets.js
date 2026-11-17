@@ -8,7 +8,9 @@
  *
  *   node scripts/file-memory-kill-tickets.js [--dry-run]
  *
- * Once per incident, through lib/incident-tickets.js.
+ * Once per incident, through lib/incident-tickets.js. The incident whose kill
+ * tripped the peak tripwire (lib/peak-tripwire.js) says so and names the
+ * re-arm command (#5367).
  *
  * Reads back LOOKBACK_MS, so a refill loop down for under that files its
  * missed incidents when it returns. An incident not yet over waits for a
@@ -29,6 +31,7 @@ const { parseOrExit } = require("./lib/cli-args.js");
 const kills = require("./lib/earlyoom-kills.js");
 const { hostRoot } = require("./lib/host-root.js");
 const { fileIncidents, LOOKBACK_MS } = require("./lib/incident-tickets.js");
+const { readTripwire, rearmCommands } = require("./lib/peak-tripwire.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const USAGE = `usage: node ${scriptPath("file-memory-kill-tickets.js")} [--dry-run]`;
@@ -47,6 +50,10 @@ function main() {
 		writeFd(2, `earlyoom's journal unread, nothing filed: ${why}\n`);
 		return 0;
 	}
+	const tripwire = {
+		trip: readTripwire().tripwire.trip,
+		rearm: rearmCommands(),
+	};
 	return fileIncidents({
 		root,
 		script: path.basename(__filename),
@@ -55,7 +62,7 @@ function main() {
 		standalone: STANDALONE,
 		incidents: incidents.filter((i) => kills.isOver(i, now)),
 		titleOf: kills.incidentTitle,
-		bodyOf: kills.buildIncidentBody,
+		bodyOf: (i) => kills.buildIncidentBody(i, tripwire),
 		readTickets: kills.readIncidentTickets,
 		dryRun: flags["--dry-run"] === true,
 	});

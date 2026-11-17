@@ -2796,7 +2796,14 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 				changed = [] as string[],
 				selects = [] as string[],
 				edges = {} as Record<string, string[]>,
-				gateRead = undefined as ((command: string) => null) | undefined,
+				gateRead = undefined as
+					| ((
+							command: string,
+							weight: unknown,
+							climb: number,
+							hear?: (a: unknown) => void,
+					  ) => null)
+					| undefined,
 				root = repo(),
 			} = {},
 		) => {
@@ -2923,8 +2930,46 @@ describe("`--changed`, expanded against the read graph (mantahostels#2095)", () 
 				"npm run test -- a.test.ts -t 'two words'",
 				{ resolvedFiles: 1, wholeSlot: false },
 				0,
+				expect.any(Function),
 			);
 			expect(got.args).toContain("a.test.ts");
+		});
+
+		it("records in its run file how the queue's gate admitted it, peak or ladder (#5366)", async () => {
+			const peak = {
+				mode: "peak",
+				kind: "named",
+				bucket: "1",
+				p99Mb: 609,
+				rungMb: 1750,
+				climbMb: 0,
+				samples: 683,
+			};
+			const ladder = {
+				mode: "ladder",
+				cause: "thin",
+				kind: "named",
+				bucket: "1",
+				rungMb: 3650,
+				climbMb: 0,
+			};
+			for (const admission of [peak, ladder]) {
+				const got = await launch(["--queue", "a.test.ts"], {
+					gateRead: (
+						_command: string,
+						_weight: unknown,
+						_climb: number,
+						hear?: (a: unknown) => void,
+					) => {
+						hear?.(admission);
+						return null;
+					},
+				});
+				const runFile = JSON.parse(
+					fs.readFileSync(String(got.env[MEMORY_ENV]), "utf8"),
+				);
+				expect(runFile).toMatchObject({ mode: admission.mode, admission });
+			}
 		});
 
 		it("still queues a --full run, which selects nothing to probe", async () => {

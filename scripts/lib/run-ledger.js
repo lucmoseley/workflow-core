@@ -25,6 +25,9 @@
  * `memory` is the run's pids and peak resident memory (lib/run-memory.js,
  * #5183): null on a run the wrapper did not sample.
  *
+ * `admission` is how the gate admitted a part-suite (#5366): on its own peak
+ * or on the ladder and why. Absent from every other run's line.
+ *
  * `kind` and `fullCause` are #2812's rules; `runs.py` reads them, with
  * `verdict`, from here. `kind` is `lander` where the marker carries the
  * lander's mark and its argv a `--full` flag (#4757). `lander` is that mark on
@@ -166,6 +169,7 @@ function buildLedgerLine(m, { green, root }) {
 		...scopeFields(m.scope),
 		cachedFiles: Array.isArray(m.cached) ? m.cached.length : null,
 		memory: m.memory ?? null,
+		...(m.admission ? { admission: m.admission } : {}),
 		repo: path.basename(root),
 	};
 }

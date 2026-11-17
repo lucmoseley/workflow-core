@@ -39,7 +39,7 @@ async function suiteSlot({
 	chargeMb,
 	pollMs,
 	timeoutMs,
-	gate = (climbMb) => gateDenies([], undefined, null, climbMb),
+	gate = (climbMb) => gateDenies([], undefined, null, { climbMb }),
 	memory = readAvailableMb,
 	totalMb = readTotalMb,
 	queueDir,

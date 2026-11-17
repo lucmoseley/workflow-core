@@ -10,6 +10,8 @@
  *   memory      memwatch's MemAvailable under suiteRungMb(busy + own workers)
  *   fifo-whole  a whole waiter behind any older waiter
  *   fifo-part   a part waiter behind an older part waiter
+ *   touched-claim  a named part waiter behind an older touched one's first
+ *               claim, from #5367's commit, its exit `kind` telling the two
  *   admitted    another waiter between its `opened` exit and its spawn
  *   load        memwatch load1 at or over the load ceiling (#830)
  *   open        none of these: the replay cannot say what held it
@@ -68,6 +70,7 @@ const {
 	turnOf,
 } = require("./suite-queue");
 const { chargeMb } = require("./launch-charge");
+const { partKindOf: peakKindOf } = require("./part-suite-peak.js");
 const { TSC_MAX, isCutTscRunner } = require("./tsc-slot");
 const {
 	isWindowsFresh,
@@ -100,6 +103,7 @@ const LIMBS = [
 	"windows",
 	"fifo-whole",
 	"fifo-part",
+	"touched-claim",
 	"tsc-fifo",
 	"admitted",
 	"peer-climb",
@@ -119,6 +123,10 @@ const PRE_FIELDS_GATE = {
 /* #3058's commit, from which a part waiter passes an older one the memory
  * rung holds. */
 const PART_PASS_FROM = Date.parse("2026-10-26T10:39:01Z");
+/* #5367's commit, from which a named part waiter skips every older part
+ * waiter but one holding first claim, and a part waiter the gate charged its
+ * own peak is held on that peak's rung. */
+const PART_PEAK_FROM = Date.parse("2026-11-17T09:59:14Z");
 /* #4557's commit, from which the Windows-memory hold holds a launch. */
 const WINDOWS_HOLD_FROM = Date.parse("2026-11-09T05:09:20Z");
 /* #4850's commit, from which that hold reads Windows' floor and paging in
@@ -149,6 +157,7 @@ const MEMWATCH_ROW = /^ *(\d+) +(?:[A-Z]+ +[\d.]+ +)?\d+ (.*)$/;
  *   session: string | null, pid: number, slotFree?: boolean,
  *   skipped?: boolean, passed?: number, climbMb?: number,
  *   chargeMb?: number, peerS?: number,
+ *   admission?: import("./part-suite-peak.js").PartAdmission,
  *   limb?: import("./queue-exit-log.js").HeldLimb }} Exit
  * @typedef {{ st: number, en: number, session: string | null, kind: string,
  *   wholeSlot: boolean | null, resolvedFiles: number | null, verdict: string,
@@ -690,6 +699,8 @@ function isMemoryHeld(e, tick, w) {
  */
 function rungOf(e, tick, w) {
 	if (e.kind === "tsc") return rungMb(tscChargeOf(e));
+	if (tick.t >= PART_PEAK_FROM && e.admission?.mode === "peak")
+		return e.admission.rungMb;
 	const rung = suiteRungMb(tick.busy + e.workers);
 	return tick.t >= RUNG_CLAMP_FROM
 		? reachableRung(rung, w.memTotalMb).rungMb
@@ -765,7 +776,9 @@ const isRungHeld = (e, tick, w) =>
  * `windowsHeld` where the Windows hold does; another waiter between its
  * `opened` exit and its spawn; and an older waiter in the other queue the
  * tick stamps `climbHeld`. #3058's pass is on from its commit, the Windows
- * stamp from #4782's, and the rest stamp from #4783's.
+ * stamp from #4782's, the rest stamp from #4783's, and the named lane from
+ * #5367's, a part waiter's lane read off its exit `kind` as run-vitest.js
+ * joins it: `touched` its own, every other kind named.
  * @param {Waiter} e
  * @param {Tick} tick
  * @param {Window} w
@@ -778,6 +791,7 @@ function turnReasonsOf(e, tick, w) {
 		.map((o) => ({
 			at: o.st,
 			part: !tsc && !o.whole,
+			kind: partKindOf(o),
 			spawned: false,
 			memoryHeld: isRungHeld(o, tick, w),
 			restHeld:
@@ -790,7 +804,10 @@ function turnReasonsOf(e, tick, w) {
 				!isRungHeld(o, tick, w) &&
 				isWindowsHeld(o, tick),
 		}));
-	const suite = e.whole ? "whole" : "part";
+	/** @type {import("./suite-queue.js").TurnWaiter} */
+	let waiter = "whole";
+	if (tsc) waiter = "tsc";
+	else if (!e.whole) waiter = partKindOf(e) === "named" ? "named" : "part";
 	const peerClimbHeld =
 		tick.t >= PEER_CLIMB_FROM &&
 		tick.waiting.some(
@@ -802,16 +819,26 @@ function turnReasonsOf(e, tick, w) {
 	);
 	return turnOf(
 		{
-			waiter: tsc ? "tsc" : suite,
+			waiter,
 			ahead,
 			admissionOpen,
 			peerClimbHeld,
 			slots: WHOLE_SUITE_MAX,
 			now: tick.t,
 		},
-		{ partPass: tick.t >= PART_PASS_FROM },
+		{
+			partPass: tick.t >= PART_PASS_FROM,
+			namedLane: tick.t >= PART_PEAK_FROM,
+		},
 	).reasons;
 }
+
+/**
+ * A suite waiter's part-suite lane (#5367).
+ * @param {Waiter} e
+ * @returns {import("./suite-queue.js").PartKind}
+ */
+const partKindOf = (e) => peakKindOf(e.kind) ?? "touched";
 
 /**
  * Every limb that holds `e` at this tick, in the gate's order; `open` where

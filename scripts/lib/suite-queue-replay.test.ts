@@ -273,10 +273,10 @@ describe("a `tsc` wait, on the type-check slot's gate (#3163)", () => {
 		const eras = [{ label: "later", from: 4 }];
 		const out = render(replayOf({ ...cfg, eras }), window(60, eras));
 		expect(out).toContain(
-			"| tsc-count | tsc-memory | climb | windows | fifo-whole | fifo-part | tsc-fifo |",
+			"| tsc-count | tsc-memory | climb | windows | fifo-whole | fifo-part | touched-claim | tsc-fifo |",
 		);
 		expect(out).toContain(
-			"| window start | 0.07 | 0.12 | 0.07 | — | 0.05 | — | — | — | — | — | — | — | — | — |",
+			"| window start | 0.07 | 0.12 | 0.07 | — | 0.05 | — | — | — | — | — | — | — | — | — | — |",
 		);
 	});
 
@@ -749,6 +749,104 @@ describe("the pass past a head the memory rung holds at rest (#4783)", () => {
 
 	it("held it behind the head before", () => {
 		expect(held(0)).toEqual({ "fifo-part": 120 });
+	});
+});
+
+describe("the named lane and a touched waiter's first claim (#5367)", () => {
+	/* A touched part waiting from minute 0, and a named part waiting
+	 * minutes [from, from + 2), its ticks starting at `start`. Nothing else
+	 * holds either: no memwatch block, no run. */
+	const named = (from: number, start: number) => {
+		const later = (t: number) => t - T0 - from * MIN + start;
+		const r = replay(
+			{
+				exits: [
+					{ from: 0, to: 30, slotFree: true, kind: "touched" },
+					{ from, to: from + 2, slotFree: true, kind: "named" },
+				].map((waiter, i) => {
+					const e = exit(waiter, i);
+					return { ...e, at: iso(later(Date.parse(e.at))) };
+				}),
+				runs: [],
+				mem: new Map(),
+				windows: new Map(),
+				unread: { absent: [], unparsed: 0 },
+			},
+			{ ...window(), since: later(T0), until: later(T0 + 60 * MIN) },
+		);
+		return Object.fromEntries(
+			r.sessions.find((x) => x.session === "s-1")?.limbs ?? [],
+		);
+	};
+
+	/* Either side of suite-queue-replay.js's NAMED_LANE_FROM, #5367's commit. */
+	const BeforeLane = Date.parse("2026-11-16T00:00:00Z");
+	const AfterLane = Date.parse("2027-01-01T00:00:00Z");
+
+	it("lets the named part pass a touched one younger than PART_PASS_AGE_MS, from #5367's commit", () => {
+		expect(named(2, AfterLane)).toEqual({ open: 120 });
+	});
+
+	it("holds it on the touched waiter's first claim past that age, from #5367's commit", () => {
+		expect(named(PART_PASS_AGE_MS / MIN + 1, AfterLane)).toEqual({
+			"touched-claim": 120,
+		});
+	});
+
+	it("held it behind the touched waiter before", () => {
+		expect(named(2, BeforeLane)).toEqual({ "fifo-part": 120 });
+	});
+});
+
+describe("a part waiter the gate charged its own peak (#5366)", () => {
+	/* A 1-file waiter beside a 5-file run: 2,000 MB available clears its
+	 * peak's 1,750 MB rung, under the ladder's for six workers. */
+	const memoryHeldS = (at: string) => {
+		const later = (t: number) => t + Date.parse(at) - T0;
+		const admission = {
+			mode: "peak",
+			kind: "named",
+			bucket: "1",
+			p99Mb: 609,
+			rungMb: 1750,
+			climbMb: 0,
+			samples: 683,
+		} as const;
+		const r = replay(
+			{
+				exits: [
+					{ from: 0, to: 10, slotFree: true, reason: "opened", session: "w" },
+				].map((waiter, i) => {
+					const e = exit(waiter, i);
+					return { ...e, admission, at: iso(later(Date.parse(e.at))) };
+				}),
+				runs: [{ from: 0, to: 20, session: "a", resolvedFiles: 5 }].map(
+					(spec) => {
+						const x = run(spec);
+						return { ...x, st: later(x.st), en: later(x.en) };
+					},
+				),
+				mem: new Map(
+					Array.from({ length: 20 }, (_, m) => [
+						Math.floor(later(T0) / MIN) + m,
+						{ used: 8000, load: 1, tsc: 0 },
+					]),
+				),
+				windows: new Map(),
+				unread: { absent: [], unparsed: 0 },
+			},
+			{ ...window(), since: later(T0), until: later(T0 + 60 * MIN) },
+		);
+		return r.limb.get("memory") ?? 0;
+	};
+
+	it("holds it on that peak's rung from #5367's commit", () => {
+		expect(suiteRungMb(6)).toBeGreaterThan(2000);
+		expect(memoryHeldS("2027-01-01T00:00:00Z")).toBe(0);
+	});
+
+	it("held it on the ladder's rung before", () => {
+		expect(memoryHeldS("2026-11-16T00:00:00Z")).toBe(600);
 	});
 });
 

@@ -65,8 +65,13 @@ const FILES_KEPT = 10;
  * @typedef {{ wrapper: number, main: number|null, workers: number[] }} RunPids
  * @typedef {{ wrapper: number, main: number, worker: number, sum: number }} PeaksMiB
  * @typedef {{ pids: RunPids, peaksMiB: PeaksMiB, workerFile: string|null }} RunMemory
+ * `mode` and `admission` say how the gate admitted a part-suite (#5366):
+ * lib/peak-tripwire.js reads `mode` to tell whether a peak-charged run was
+ * live at a kill, and the marker carries `admission` to the run ledger.
  * @typedef {{ session: string|null, kind: string, argv: string[],
- *   files: string[], fileCount: number, repo: string }} RunLaunch
+ *   files: string[], fileCount: number, repo: string,
+ *   mode?: "peak" | "ladder",
+ *   admission?: import("./part-suite-peak.js").PartAdmission }} RunLaunch
  * @typedef {RunLaunch & RunMemory & { at: string, bootId: string|null,
  *   sampledAt: string, workersSeenAt: Record<string, string>,
  *   endedAt?: string }} RunFile
@@ -338,6 +343,22 @@ function readRunMemory(env = process.env) {
 }
 
 /**
+ * How the gate admitted the run whose file `MEMORY_ENV` names (#5366), for
+ * the marker; null where it records none or will not read.
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {import("./part-suite-peak.js").PartAdmission|null}
+ */
+function readRunAdmission(env = process.env) {
+	const file = env[MEMORY_ENV];
+	if (!file) return null;
+	try {
+		return JSON.parse(fs.readFileSync(file, "utf8")).admission ?? null;
+	} catch {
+		return null;
+	}
+}
+
+/**
  * Records, from inside a worker, the test file it now runs, relative to the
  * tree it runs in.
  * @param {string} testPath
@@ -457,6 +478,7 @@ module.exports = {
 	holdsObject,
 	claimFile,
 	heldUntil,
+	readRunAdmission,
 	readRunFiles,
 	readRunMemory,
 	readStoreFiles,

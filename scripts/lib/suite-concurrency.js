@@ -139,9 +139,11 @@ const {
 	clampedClause,
 	isNextRunnerLine,
 	reachableRung,
+	rungMb,
 	runningSuites,
 	suiteRungMb,
 } = require("./suite-ladder.js");
+const { bucketOf, partKindOf, peakClause } = require("./part-suite-peak.js");
 const {
 	WHOLE_SUITE_WORKERS,
 	launchArgv,
@@ -174,7 +176,9 @@ const { treeOrHost } = require("./tree-or.js");
  * @typedef {import("./suite-ladder.js").Running} Running
  * @typedef {import("./suite-queue.js").ClimbScope} ClimbScope
  * @typedef {import("./shell-parse.js").Command} Command
- * @typedef {{ limb: "count" } | { limb: "memory", mb: number, rungMb: number, ladderMb?: number, climbMb?: number, busy?: number } | import("./suite-queue.js").WindowsHold} Gate
+ * @typedef {import("./part-suite-peak.js").PartAdmission} PartAdmission
+ * @typedef {Extract<PartAdmission, { mode: "peak" }>} PeakAdmission
+ * @typedef {{ limb: "count" } | { limb: "memory", mb: number, rungMb: number, ladderMb?: number, climbMb?: number, busy?: number, peak?: import("./part-suite-peak.js").PeakCharge } | import("./suite-queue.js").WindowsHold} Gate
  * @typedef {import("./guard-entry.js").Decision | ({ deny: string, gate: Gate })} Verdict
  * @typedef {object} SuitePorts
  * @property {() => number | null} availableMb MemAvailable, in MB
@@ -197,6 +201,13 @@ const { treeOrHost } = require("./tree-or.js");
  *   (#5274)
  * @property {import("./suite-handoff.js").CarriedWeight | null} [launchWeight]
  *   the judged launch's own carried weight, where the queue asks for it
+ * @property {(run: { kind: import("./part-suite-peak.js").PartKind, files: number }) => { peak: import("./part-suite-peak.js").PartPeak | null } | { why: string }} partPeak
+ *   a part-suite's measured peak off the host's run ledger (#5366)
+ * @property {() => { cause: "tripped" | "journal-unread", why?: string } | null} tripwire
+ *   why part-suites are back on the ladder, null while the peak charge is
+ *   armed and watched (lib/peak-tripwire.js)
+ * @property {(admission: PartAdmission) => void} [noteAdmission] hears how a
+ *   part-suite was judged, where the queue records it
  * @property {() => string[]} runners the host's declared `suiteRunners`
  * @property {() => string | null} declaredTest the host's `commands.test`
  * @property {(argv: string[], tree: string) => { plain: boolean } | { fault: string }} fullLaunchPlain
@@ -387,6 +398,12 @@ function queuedLaunch(segment, spans, queueRun) {
  *   test:py` (#4775), off the memory rung, which prices vitest workers, and
  *   off the Windows-memory hold, which holds what that rung admits
  * @property {number} workers
+ * @property {boolean} vitestPart a vitest part-suite (#5366)
+ * @property {import("./part-suite-peak.js").PartKind | null} partKind a vitest
+ *   part-suite's kind, which its peak charge reads, null where it cannot be
+ *   told (#5366)
+ * @property {number | null} files the test files a vitest part-suite resolves
+ *   to, null where unresolved
  *
  * @typedef {object} Judged a subject against the machine
  * @property {string} segment
@@ -402,6 +419,8 @@ function queuedLaunch(segment, spans, queueRun) {
  * @property {number} watching
  * @property {import("./suite-ladder.js").Reach} reach the rung this launch
  *   reaches, clamped to the machine's reach (#5310)
+ * @property {PeakAdmission | null} peak the part-suite's own peak charge,
+ *   null where it is judged on the ladder
  * @property {number} nth
  * @property {string} lever
  * @property {string} tail
@@ -561,6 +580,9 @@ const buildBlankSubject = () => ({
 	queued: false,
 	countOnly: false,
 	workers: WHOLE_SUITE_WORKERS,
+	vitestPart: false,
+	partKind: null,
+	files: null,
 });
 
 /**
@@ -592,10 +614,14 @@ function buildTestSubject(st, launch, words) {
 		(w) => literal(w, st.spans).text,
 	);
 	const watch = launch.kind === "npm-watch";
-	const weight = launchWeigh(st, launch, words, files);
+	const route = routedLaunch(st, launch, words);
+	const weight = launchWeigh(st, route, files);
 	if (weight.part) {
 		s.workers = weight.workers;
 		s.part = true;
+		s.vitestPart = true;
+		s.partKind = partKindOf(route?.kind);
+		s.files = st.ctx.launchWeight ? st.ctx.launchWeight.resolvedFiles : files;
 	}
 	/* `test:watch` runs the whole suite and takes no `--full`. */
 	s.narrowed = files !== null || (!watch && !hasFullFlag(words));
@@ -611,41 +637,40 @@ function buildTestSubject(st, launch, words) {
  * A test launch's weight: the one the queue hands in, else a touched run's,
  * which takes no whole slot (#2935), else its named files'.
  * @param {St} st
- * @param {Launch} launch
- * @param {string[]} words
+ * @param {{ slotFree: boolean } | null} route
  * @param {number | null} files
  */
-function launchWeigh(st, launch, words, files) {
+function launchWeigh(st, route, files) {
 	if (st.ctx.launchWeight) return weighCarried(st.ctx.launchWeight);
-	if (isTouchedLaunch(st, launch, words))
+	if (route?.slotFree)
 		return weighCarried({ resolvedFiles: files, wholeSlot: false });
 	return weighFiles(files);
 }
 
 /**
- * Whether a wrapper or npm vitest launch is a touched run (#2935), read off
- * its words as run-vitest.js routes them: such a run is never held at the
- * count cap, and a bare one, its selection unresolved, is charged a whole
- * suite's workers on the memory rung. A script that is plain vitest, not
- * run-vitest.js (#1776), routes nothing, so its bare run is the whole suite.
+ * A wrapper or npm vitest launch as run-vitest.js routes it: its route's
+ * kind, and whether it is a touched run in #2935's sense — a bare run, a
+ * `--retest` or one naming its files — `slotFree`. Null for a launch
+ * run-vitest.js does not route: a script that is plain vitest, not
+ * run-vitest.js (#1776), or a `test:changed`.
  * @param {St} st
  * @param {Launch} launch
  * @param {string[]} words
+ * @returns {{ kind: string, slotFree: boolean } | null}
  */
-function isTouchedLaunch(st, launch, words) {
+function routedLaunch(st, launch, words) {
 	const argv = launchArgv(launch, words);
-	if (argv === null || launch.script === "test:changed") return false;
+	if (argv === null || launch.script === "test:changed") return null;
 	if (launch.script && !st.launchPorts.isWrapperScript(launch.script))
-		return false;
+		return null;
 	/* Required here, not at load: its graph costs ~8 ms, which a folded core
 	 * pays serially on every admitted call (#3227). */
 	const { isTouchedRun, launchRoute } = require("./launch-route.js");
-	return isTouchedRun(
-		launchRoute(
-			argv.map((w) => literal(w, st.spans).text),
-			null,
-		),
+	const route = launchRoute(
+		argv.map((w) => literal(w, st.spans).text),
+		null,
 	);
+	return { kind: route.kind, slotFree: isTouchedRun(route) };
 }
 
 /**
@@ -876,6 +901,86 @@ function waitLeverOf(running) {
 }
 
 /**
+ * A vitest part-suite's own peak (#5366), or why it is judged on the ladder.
+ * The tripwire is read first: tripped or blind, the ledger goes unread. A
+ * fault — a ledger or journal that will not read — is logged; a thin bucket
+ * or a tripped wire is a state, and is not.
+ * @param {St} st
+ * @param {Subject} s
+ * @returns {import("./part-suite-peak.js").PartPeak | { cause: import("./part-suite-peak.js").LadderCause, bucket?: string }}
+ */
+function peakChargeOf(st, s) {
+	if (!s.partKind) return { cause: "untold" };
+	const bucket = s.files === null ? null : bucketOf(s.files);
+	if (s.files === null || bucket === null) return { cause: "unsized" };
+	const wire = st.ctx.tripwire();
+	if (wire) {
+		if (wire.cause === "journal-unread")
+			st.ctx.log(
+				"earlyoom's journal unreadable — a part-suite judged on the ladder (#5366)",
+				wire.why,
+			);
+		return { cause: wire.cause, bucket };
+	}
+	const read = st.ctx.partPeak({ kind: s.partKind, files: s.files });
+	if ("why" in read) {
+		st.ctx.log(
+			"the run ledger unreadable — a part-suite judged on the ladder (#5366)",
+			read.why,
+		);
+		return { cause: "unread", bucket };
+	}
+	return read.peak ?? { cause: "thin", bucket };
+}
+
+/**
+ * What a launch is charged: the climb it pays and the rung it must clear. A
+ * vitest part-suite on its own peak is charged that peak's rung and every
+ * queue's climb, and its admission is heard (#5366).
+ * @param {St} st
+ * @param {Subject} s
+ * @param {{ busy: number, queued: boolean }} read
+ * @returns {Pick<Judged, "climbScope" | "climbMb" | "reach" | "peak">}
+ */
+function chargeOf(st, s, { busy, queued }) {
+	const test = s.kind === "test";
+	const charge = test && s.vitestPart ? peakChargeOf(st, s) : null;
+	const peakRead = charge && "p99Mb" in charge ? charge : null;
+	/* A queued launch's own gate charges the climb its way (#3416); a test
+	 * launch's ladder rung counts every suite on `ps` (#4111), and a build's
+	 * none, so a build pays every queue's climb (#4112), and so does a
+	 * part-suite on its own peak, whose rung counts no suite (#5366). */
+	const climbScope = test && !peakRead ? "off-rung" : "all";
+	const climbMb = queued ? 0 : st.readClimb(climbScope);
+	const reach = reachableRung(
+		peakRead ? rungMb(peakRead.p99Mb) : suiteRungMb(busy + s.workers),
+		st.ctx.totalMb(),
+	);
+	if (!charge) return { climbScope, climbMb, reach, peak: null };
+	const figures = { rungMb: reach.rungMb, climbMb };
+	const kind = s.partKind;
+	if ("cause" in charge) {
+		st.ctx.noteAdmission?.({
+			mode: "ladder",
+			...(kind ? { kind } : {}),
+			...charge,
+			...figures,
+		});
+		return { climbScope, climbMb, reach, peak: null };
+	}
+	/** @type {PeakAdmission} */
+	const peak = {
+		mode: "peak",
+		/* peakChargeOf reads a peak only for a told kind. */
+		kind: /** @type {import("./part-suite-peak.js").PartKind} */ (kind),
+		...charge,
+		...figures,
+	};
+	st.ctx.noteAdmission?.(peak);
+	return { climbScope, climbMb, reach, peak };
+}
+
+/**
  * @param {St} st
  * @param {{ segment: string, words: string[], scripted: boolean }} at the
  *   segment and its words, unwrapped, and whether a `-c` string runs them
@@ -895,11 +1000,10 @@ function judgedOf(st, at, s, readMb) {
 		(!(s.other || s.plain) &&
 			s.launchKind !== "npm-watch" &&
 			hasQueueFlag(words));
-	/* A queued launch's own gate charges the climb its way (#3416); a test
-	 * launch's rung counts every suite on `ps` (#4111), and a build's none, so a
-	 * build pays every queue's climb (#4112). */
-	const climbScope = test ? "off-rung" : "all";
-	const climbMb = queued ? 0 : st.readClimb(climbScope);
+	const { climbScope, climbMb, reach, peak } = chargeOf(st, s, {
+		busy,
+		queued,
+	});
 	return {
 		segment,
 		words,
@@ -912,7 +1016,8 @@ function judgedOf(st, at, s, readMb) {
 		whole: running?.whole ?? 0,
 		busy,
 		watching: running?.watchers ?? 0,
-		reach: reachableRung(suiteRungMb(busy + s.workers), st.ctx.totalMb()),
+		reach,
+		peak,
 		nth: running ? running.whole + 1 : 1,
 		/* Telling a narrowed launcher to narrow the run is a no-op. */
 		lever: s.narrowed
@@ -1039,6 +1144,7 @@ function countVerdict(st, j) {
 
 /** @param {Judged} j */
 function rungClause(j) {
+	if (j.peak) return ` for ${peakClause(j.peak)}`;
 	if (j.s.part)
 		return ` for the ${j.s.workers} vitest worker(s) its named files can occupy, beside ${j.busy} running`;
 	if (j.busy > j.whole * WHOLE_SUITE_WORKERS)
@@ -1070,9 +1176,19 @@ function memoryVerdict(st, j) {
 				...j.reach,
 				...(j.climbMb > 0 ? { climbMb: j.climbMb } : {}),
 				...(j.running ? { busy: j.busy } : {}),
+				...(j.peak
+					? {
+							peak: {
+								kind: j.peak.kind,
+								bucket: j.peak.bucket,
+								p99Mb: j.peak.p99Mb,
+								samples: j.peak.samples,
+							},
+						}
+					: {}),
 			},
 			watchLever: `Reap finished sessions (\`${reapCmd}\`) or wait for MemAvailable to reach ~${j.reach.rungMb} MB`,
-			why: `${readingOf(j.readMb, j.climbMb, "off-rung")}, under the ~${j.reach.rungMb} MB docs/environment.md §6 says a test run needs resting${rung}, and earlyoom's SIGTERM line is 8% of the cap.`,
+			why: `${readingOf(j.readMb, j.climbMb, j.climbScope)}, under the ~${j.reach.rungMb} MB docs/environment.md §6 says a test run needs resting${rung}, and earlyoom's SIGTERM line is 8% of the cap.`,
 			waiter: `${reapNote} Do not write your own waiter.`,
 		});
 	}

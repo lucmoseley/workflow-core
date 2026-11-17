@@ -43,6 +43,7 @@ import {
 	writeHostConfig,
 } from "./guard-core-testkit";
 import { kitContextFake } from "./kit-context-fake";
+import type { PartAdmission, PartPeak } from "./part-suite-peak.js";
 import type { ClimbScope } from "./suite-queue.js";
 import { WHOLE_SLOT_BOUND } from "./whole-slot-bound";
 import type { WindowsRead } from "./windows-memory.js";
@@ -194,6 +195,13 @@ interface Over {
 	tscPeakMb?: number;
 	/** The compiler peak each launch directory resolves to. */
 	tscPeaks?: Record<string, number>;
+	/** A part-suite's peak off the ledger; thin by default (#5366). */
+	partPeak?: (run: {
+		kind: "named" | "touched";
+		files: number;
+	}) => { peak: PartPeak | null } | { why: string };
+	tripwire?: { cause: "tripped" | "journal-unread"; why?: string } | null;
+	noteAdmission?: (admission: PartAdmission) => void;
 }
 
 /** A context of fakes: a quiet machine, no package.json, no config. */
@@ -221,6 +229,9 @@ function harness(over: Over = {}) {
 		gateSeats: () =>
 			over.gateSeats ?? { count: 0, under: () => false, unread: null },
 		launchWeight: over.launchWeight ?? null,
+		partPeak: over.partPeak ?? (() => ({ peak: null })),
+		tripwire: () => over.tripwire ?? null,
+		...(over.noteAdmission ? { noteAdmission: over.noteAdmission } : {}),
 		runners: () => runners,
 		declaredTest: () =>
 			over.declaredTest === undefined ? null : over.declaredTest,
@@ -3072,5 +3083,164 @@ describe("the Windows-memory hold (#4557, #4850)", () => {
 		});
 		expect(text).toMatch(/queue-run\.js --tsc/);
 		expect(text).toContain("Windows itself has 700 MB free");
+	});
+});
+
+describe("judges a part-suite on its own measured peak (#5366)", () => {
+	/* One whole suite running: the ladder asks a 1-file run the rung of six
+	 * workers, the peak charge the rung of its p99 alone. */
+	const oneWhole = psListing(["node /r/node_modules/.bin/vitest run"]);
+	const Peak: PartPeak = { p99Mb: 609, samples: 683, bucket: "1" };
+	const PeakRung = rungMb(Peak.p99Mb);
+	const LadderRung = suiteRungMb(WHOLE_SUITE_WORKERS + 1);
+	const Between = PeakRung + 200;
+	const Named = "npm run test -- scripts/a.test.ts";
+
+	const run = (command: string, over: Over = {}) => {
+		const notes: PartAdmission[] = [];
+		const peakAsked: unknown[] = [];
+		const partPeak = over.partPeak ?? (() => ({ peak: Peak }));
+		const { verdict, text } = judge(command, Between, oneWhole, {
+			...over,
+			partPeak: (r) => {
+				peakAsked.push(r);
+				return partPeak(r);
+			},
+			noteAdmission: (a) => notes.push(a),
+		});
+		return { verdict, text, notes, peakAsked };
+	};
+
+	it("sits between the two rungs, so the cases below tell them apart", () => {
+		expect(PeakRung).toBeLessThan(Between);
+		expect(Between).toBeLessThan(LadderRung);
+	});
+
+	it("admits a 1-file named run beside a running 5-worker suite where the ladder denies", () => {
+		const { verdict, notes, peakAsked } = run(Named);
+		expect(outcome(verdict)).toBe("allow");
+		expect(peakAsked).toEqual([{ kind: "named", files: 1 }]);
+		expect(notes).toEqual([
+			{
+				mode: "peak",
+				kind: "named",
+				bucket: "1",
+				p99Mb: Peak.p99Mb,
+				rungMb: PeakRung,
+				climbMb: 0,
+				samples: Peak.samples,
+			},
+		]);
+		const thin = run(Named, { partPeak: () => ({ peak: null }) });
+		expect(outcome(thin.verdict)).toBe("deny");
+	});
+
+	it("denies it while a spawned neighbour's climb, every queue's, pushes it under", () => {
+		const { verdict, text } = run(Named, { climb: { all: 300 } });
+		expect(outcome(verdict)).toBe("deny");
+		expect(verdict?.gate).toEqual({
+			limb: "memory",
+			mb: Between,
+			rungMb: PeakRung,
+			climbMb: 300,
+			busy: WHOLE_SUITE_WORKERS,
+			peak: { kind: "named", bucket: "1", p99Mb: 609, samples: 683 },
+		});
+		for (const figure of [
+			"named part-suite of 1 file(s)",
+			"p99 peak over 683 runs in 7 days is 609 MB",
+			`~${PeakRung} MB`,
+			"less 300 MB",
+		])
+			expect(text).toContain(figure);
+		expect(text).not.toContain("vitest worker(s) its named files");
+	});
+
+	it("never charges it the ladder's off-rung climb", () => {
+		const { verdict } = run(Named, { climb: { "off-rung": 5000 } });
+		expect(outcome(verdict)).toBe("allow");
+	});
+
+	it("charges a touched run on touched buckets", () => {
+		const { peakAsked, notes } = run("npm run test", {
+			launchWeight: { resolvedFiles: 40, wholeSlot: false },
+		});
+		expect(peakAsked).toEqual([{ kind: "touched", files: 40 }]);
+		expect(notes[0]).toMatchObject({ mode: "peak", kind: "touched" });
+	});
+
+	it.each([
+		["thin", { partPeak: () => ({ peak: null }) }, false],
+		["unread", { partPeak: () => ({ why: "EACCES" }) }, true],
+		["tripped", { tripwire: { cause: "tripped" } }, false],
+		[
+			"journal-unread",
+			{ tripwire: { cause: "journal-unread", why: "journalctl: exit 1" } },
+			true,
+		],
+	] as const)(
+		"falls back to the ladder where %s, recording the cause",
+		(cause, over, logged) => {
+			const { verdict, notes } = run(Named, over as Over);
+			expect(outcome(verdict)).toBe("deny");
+			expect(verdict?.gate).toMatchObject({ rungMb: LadderRung });
+			expect(verdict?.gate).not.toHaveProperty("peak");
+			expect(notes).toEqual([
+				{
+					mode: "ladder",
+					cause,
+					kind: "named",
+					bucket: "1",
+					rungMb: LadderRung,
+					climbMb: 0,
+				},
+			]);
+			expect(readRecords().includes("judged on the ladder")).toBe(logged);
+		},
+	);
+
+	it("reads no ledger while the wire is tripped", () => {
+		const { peakAsked } = run(Named, { tripwire: { cause: "tripped" } });
+		expect(peakAsked).toEqual([]);
+	});
+
+	it("judges a bare touched run, its selection unresolved, on the ladder", () => {
+		const { notes, peakAsked } = run("npm run test");
+		expect(peakAsked).toEqual([]);
+		expect(notes[0]).toMatchObject({ mode: "ladder", cause: "unsized" });
+	});
+
+	it("judges a part-suite of neither kind, a --changed one, on the ladder, its kind untold", () => {
+		const { notes, peakAsked } = run(
+			"npm run test -- --changed HEAD~1 scripts/a.test.ts",
+		);
+		expect(peakAsked).toEqual([]);
+		expect(notes[0]).toMatchObject({ mode: "ladder", cause: "untold" });
+		expect(notes[0]).not.toHaveProperty("kind");
+	});
+
+	it("leaves a whole suite on the ladder, unasked", () => {
+		const { verdict, notes, peakAsked } = run("npm run test -- --full=flag", {
+			ps: psWith(0),
+			mb: 2000,
+		});
+		expect(peakAsked).toEqual([]);
+		expect(notes).toEqual([]);
+		expect(verdict?.gate).toMatchObject({
+			rungMb: suiteRungMb(WHOLE_SUITE_WORKERS),
+		});
+	});
+
+	it("agrees between a direct launch and the queue's poll", () => {
+		const polled = (climb: number) =>
+			run(Named, {
+				launchWeight: { resolvedFiles: 1, wholeSlot: false },
+				climb: { all: climb },
+			});
+		const direct = (climb: number) => run(Named, { climb: { all: climb } });
+		for (const climb of [0, 300]) {
+			expect(polled(climb).verdict?.gate).toEqual(direct(climb).verdict?.gate);
+			expect(polled(climb).notes).toEqual(direct(climb).notes);
+		}
 	});
 });

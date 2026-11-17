@@ -453,6 +453,7 @@ describe("turnOf, the turn's rule (#4260)", () => {
 	interface Ahead {
 		at: number;
 		part?: boolean;
+		kind?: "named" | "touched";
 		spawned?: boolean;
 		memoryHeld?: boolean;
 		restHeld?: boolean;
@@ -460,14 +461,19 @@ describe("turnOf, the turn's rule (#4260)", () => {
 	}
 	const turn = (
 		{
-			waiter = "whole" as "whole" | "part" | "tsc",
+			waiter = "whole" as "whole" | "part" | "named" | "tsc",
 			ahead = [] as Ahead[],
 			admissionOpen = false,
+			peerClimbHeld = false,
 			slots = WHOLE_SUITE_MAX,
 			now = 1000,
 		} = {},
-		options?: { partPass?: boolean },
-	) => turnOf({ waiter, ahead, admissionOpen, slots, now }, options);
+		options?: { partPass?: boolean; namedLane?: boolean },
+	) =>
+		turnOf(
+			{ waiter, ahead, admissionOpen, peerClimbHeld, slots, now },
+			options,
+		);
 	const reasons = (...args: Parameters<typeof turn>) => turn(...args).reasons;
 	const wholeAhead = { at: 0 };
 	const partAhead = { at: 0, part: true };
@@ -612,6 +618,114 @@ describe("turnOf, the turn's rule (#4260)", () => {
 				).toEqual(["fifo-part"]);
 				expect(reasons({ ahead: [held] })).toEqual(["fifo-whole"]);
 			});
+		});
+	});
+
+	describe("a named part-suite, in a lane of its own (#5367)", () => {
+		const named = { ...partAhead, kind: "named" as const };
+		const touched = { ...partAhead, kind: "touched" as const };
+
+		it("passes every older part-suite, named or touched, held or not, counting them", () => {
+			expect(
+				turn({
+					waiter: "named",
+					ahead: [named, touched, wholeAhead],
+					now: PART_PASS_AGE_MS - 1,
+				}),
+			).toEqual({ reasons: [], passed: 2 });
+			expect(
+				turn({
+					waiter: "named",
+					ahead: [{ ...named, at: 0 }],
+					now: 5 * PART_PASS_AGE_MS,
+				}),
+			).toEqual({ reasons: [], passed: 1 });
+		});
+
+		it("never counts a spawned part-suite as passed", () => {
+			expect(
+				turn({ waiter: "named", ahead: [{ ...touched, spawned: true }] }),
+			).toEqual({ reasons: [], passed: 0 });
+		});
+
+		it("closes on an older touched waiter's first claim from PART_PASS_AGE_MS, and not before", () => {
+			expect(
+				reasons({ waiter: "named", ahead: [touched], now: PART_PASS_AGE_MS }),
+			).toEqual(["touched-claim"]);
+			expect(
+				reasons({
+					waiter: "named",
+					ahead: [touched],
+					now: PART_PASS_AGE_MS - 1,
+				}),
+			).toEqual([]);
+		});
+
+		it("gives first claim to a part marker with no kind, one joined before markers carried it", () => {
+			expect(
+				reasons({ waiter: "named", ahead: [partAhead], now: PART_PASS_AGE_MS }),
+			).toEqual(["touched-claim"]);
+		});
+
+		it("gives no claim to an old named waiter, nor to a spawned touched one", () => {
+			expect(
+				reasons({
+					waiter: "named",
+					ahead: [named, { ...touched, spawned: true }],
+					now: 5 * PART_PASS_AGE_MS,
+				}),
+			).toEqual([]);
+		});
+
+		it("still closes on an admission open and on a peer the climb holds", () => {
+			expect(turn({ waiter: "named", admissionOpen: true })).toEqual({
+				reasons: ["admitted"],
+			});
+			expect(turn({ waiter: "named", peerClimbHeld: true })).toEqual({
+				reasons: ["peer-climb"],
+			});
+			expect(
+				reasons({
+					waiter: "named",
+					ahead: [touched],
+					admissionOpen: true,
+					peerClimbHeld: true,
+					now: PART_PASS_AGE_MS,
+				}),
+			).toEqual(["touched-claim", "admitted", "peer-climb"]);
+		});
+
+		it("takes a touched part-suite's rules with the lane off", () => {
+			expect(
+				reasons({ waiter: "named", ahead: [named] }, { namedLane: false }),
+			).toEqual(["fifo-part"]);
+		});
+
+		it("leaves a touched part-suite's rules as they were, behind a younger named one's lane", () => {
+			expect(reasons({ waiter: "part", ahead: [named] })).toEqual([
+				"fifo-part",
+			]);
+			expect(
+				turn({
+					waiter: "part",
+					ahead: [{ ...named, memoryHeld: true }],
+					now: PART_PASS_AGE_MS - 1,
+				}),
+			).toEqual({ reasons: [], passed: 1 });
+			expect(
+				turn({
+					waiter: "part",
+					ahead: [{ ...touched, windowsHeld: true }],
+					now: 5 * PART_PASS_AGE_MS,
+				}),
+			).toEqual({ reasons: [], passed: 1 });
+			expect(
+				reasons({
+					waiter: "part",
+					ahead: [{ ...touched, memoryHeld: true }],
+					now: PART_PASS_AGE_MS,
+				}),
+			).toEqual(["fifo-part"]);
 		});
 	});
 
@@ -891,6 +1005,62 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 
 		it("joins a waiter with no carried weight whole", async () => {
 			expect(await besideRunning()).toBe(false);
+		});
+	});
+
+	describe("a named part-suite's lane, by the kind its marker carries (#5367)", () => {
+		const kindsOf = (queueDir: string) =>
+			Object.fromEntries(
+				readMarkers(queueDir).markers.map(
+					(m: { record: { pid: number; kind?: string } }) => [
+						m.record.pid,
+						m.record.kind,
+					],
+				),
+			);
+
+		it("writes the kind on a part-suite's marker alone", () => {
+			const queueDir = qdir();
+			joined(queueDir, 11, 0, { weight: PART, kind: "named" });
+			joined(queueDir, 22, 0, { weight: weighed(485), kind: "named" });
+			expect(kindsOf(queueDir)).toEqual({ 11: "named", 22: undefined });
+		});
+
+		/** A named seat 99 joined at `at` behind a touched 11 joined at 0. */
+		const behindTouched = async (at: number) => {
+			const queueDir = qdir();
+			const touched = joined(queueDir, 11, 0, {
+				weight: PART,
+				kind: "touched",
+			});
+			const named = joined(queueDir, 99, at, { weight: PART, kind: "named" });
+			const lines: string[] = [];
+			let polls = 0;
+			await named.wait({
+				gate: () => null,
+				traceLimbs: true,
+				label: "q",
+				waiting: "waiting",
+				sleepFn: () => {
+					polls++;
+					touched.spawned();
+					return Promise.resolve();
+				},
+				out: { write: (line: string) => lines.push(line) },
+			});
+			return { lines, polls };
+		};
+
+		it("passes a younger touched waiter on its first poll", async () => {
+			expect((await behindTouched(PART_PASS_AGE_MS - 1)).polls).toBe(0);
+		});
+
+		it("names the touched waiter whose first claim holds it, until it spawns", async () => {
+			const { lines, polls } = await behindTouched(PART_PASS_AGE_MS);
+			expect(polls).toBe(1);
+			expect(lines[1]).toBe(
+				"q: after 0s, held on an older touched run's first claim on memory, PID 11\n",
+			);
 		});
 	});
 
@@ -1554,6 +1724,32 @@ describe("a launch still climbing, on the other queue's rung (#3416)", () => {
 		partIn(suiteDir, 12, 40);
 		expect(climbOf(tscDir, 100)).toBe(
 			one + launchChargeMb({ kind: "part", files: 40, workers: 5 }) - 100,
+		);
+	});
+
+	it("charges a spawned part-suite its kind and bucket's p99, else its line (#5366)", () => {
+		const { suiteDir, tscDir } = queues();
+		const seat = joined(suiteDir, 11, 0, {
+			weight: { resolvedFiles: 1, wholeSlot: false },
+			kind: "named",
+		});
+		seat.spawned();
+		const asked: unknown[] = [];
+		const charged = (p99: number | null) =>
+			seatStamps({
+				queueDir: tscDir,
+				alive,
+				ps: noRunners,
+				treePssKb: () => 100 * 1024,
+				partPeakMb: (kind: string, files: number) => {
+					asked.push({ kind, files });
+					return p99;
+				},
+			}).climbMb();
+		expect(charged(609)).toBe(609 - 100);
+		expect(asked).toEqual([{ kind: "named", files: 1 }]);
+		expect(charged(null)).toBe(
+			launchChargeMb({ kind: "part", files: 1, workers: 1 }) - 100,
 		);
 	});
 
@@ -2383,7 +2579,12 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 	it("asks the gate about the launch's own words", async () => {
 		const gateRead = vi.fn(() => null);
 		await sleepsUnder(gateRead, ["a.test.ts"]);
-		expect(gateRead).toHaveBeenCalledWith("npm run test -- a.test.ts", null, 0);
+		expect(gateRead).toHaveBeenCalledWith(
+			"npm run test -- a.test.ts",
+			null,
+			0,
+			expect.any(Function),
+		);
 	});
 
 	it("hands the gate the weight the launch carries (#2931)", async () => {
@@ -2401,6 +2602,7 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 			"npm run test -- --changed",
 			gateWeight,
 			0,
+			expect.any(Function),
 		);
 	});
 
@@ -2469,6 +2671,66 @@ describe("waitForGate's timeout, judged on the last poll (#2421, #2714)", () => 
 		});
 		return { outcome, said: said.join(""), exits, polls: poll };
 	};
+
+	it("records how the gate's last reading judged a part-suite on its exit line (#5366)", async () => {
+		const peak = {
+			mode: "peak",
+			kind: "named",
+			bucket: "1",
+			p99Mb: 609,
+			rungMb: 1750,
+			climbMb: 0,
+			samples: 683,
+		};
+		const ladder = { ...peak, mode: "ladder", cause: "tripped" };
+		const heard: unknown[] = [];
+		for (const admission of [peak, ladder]) {
+			const exits: unknown[][] = [];
+			await waitForGate({
+				gateRead: (
+					_command: string,
+					_weight: unknown,
+					_climb: number,
+					hear?: (a: unknown) => void,
+				) => {
+					hear?.(admission);
+					return null;
+				},
+				admit: noQueue,
+				sleepFn: () => Promise.resolve(),
+				out: { write: () => true },
+				onAdmission: (a: unknown) => heard.push(a),
+				onExit: (...args: unknown[]) => exits.push(args),
+			});
+			expect(exits).toEqual([["opened", expect.any(Number), { admission }]]);
+		}
+		expect(heard).toEqual([peak, ladder]);
+	});
+
+	it("names a part-suite's own peak in a memory hold's text (#5366)", async () => {
+		const said: string[] = [];
+		const limbs = [
+			{
+				limb: "memory",
+				mb: 1500,
+				rungMb: 1750,
+				climbMb: 300,
+				peak: { kind: "named", bucket: "1", p99Mb: 609, samples: 683 },
+			},
+			null,
+		];
+		let poll = 0;
+		await waitForGate({
+			gate: () => limbs[Math.min(poll++, limbs.length - 1)] ?? null,
+			traceLimbs: true,
+			admit: noQueue,
+			sleepFn: () => Promise.resolve(),
+			out: { write: (text: string) => said.push(text) },
+		});
+		expect(said.join("")).toContain(
+			"against ~1750 MB, the rung of a named part-suite of 1 file(s), whose p99 peak over 683 runs in 7 days is 609 MB",
+		);
+	});
 
 	it("records the highest charge that held a wait, on whichever exit ends it (#3806)", async () => {
 		const opened = await timedWait([Climb(1400), Climb(1900), null]);
@@ -2695,10 +2957,11 @@ describe("gateDenies, against the real gate (#2421)", () => {
 				readGate(command, dir, {
 					weight: carried,
 					climbMb: climb,
+					allClimbMb: () => climb,
 					gateSeats: noSeats,
 				}),
 			weight,
-			climbMb,
+			{ climbMb },
 		);
 	};
 
@@ -2819,10 +3082,11 @@ describe("the Windows-memory hold, against the real gate (#4557)", () => {
 						readGate(command, dir, {
 							weight: carried,
 							climbMb: climb,
+							allClimbMb: () => climb,
 							gateSeats: noSeats,
 						}),
 					null,
-					climbMb,
+					{ climbMb },
 				),
 			admit: noQueue,
 			timeoutMs,
