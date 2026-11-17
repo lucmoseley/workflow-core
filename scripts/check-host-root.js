@@ -109,6 +109,7 @@ const { isJsExt } = require("./lib/test-kind.js");
 const { isApparatus } = require("./lib/suite-apparatus.js");
 const { segmentTailMatches } = require("./lib/line-scan.js");
 const { blankComments } = require("./lib/strip-comments.js");
+const { shipsPlugin } = require("./lib/plugin-state.js");
 
 const CWD_SUITE_CHECKER = {
 	tags: ["SECOND-SEAM-JS"],
@@ -753,14 +754,6 @@ function judgePy(ctx, rel, text) {
 }
 
 /**
- * Whether `root` ships a plugin.
- * @param {string} root
- * @returns {boolean}
- */
-const shipsPlugin = (root) =>
-	fs.existsSync(path.join(root, ".claude-plugin", "plugin.json"));
-
-/**
  * Whether a scanned path is judged at all: a script file, neither the seam
  * itself nor the suite's apparatus.
  * @param {string} rel
@@ -981,4 +974,4 @@ function exemptingCtx(ctx, tags, seen) {
 
 if (require.main === module) runCheck(SPEC);
 
-module.exports = { SPEC, fileFaults, shipsPlugin };
+module.exports = { SPEC, fileFaults };

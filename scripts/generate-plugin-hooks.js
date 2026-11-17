@@ -38,6 +38,7 @@ const { extractTree, indexTree } = require("./lib/check.js");
 const { guardDirs, isDenyCapableIn } = require("./lib/deny-capable.js");
 const { SELF_PLUGIN_HOOKS, readHooksAt } = require("./lib/core-hooks.js");
 const { scriptPath } = require("./lib/script-path.js");
+const { shipsPlugin } = require("./lib/plugin-state.js");
 const {
 	ENTRY,
 	OUT,
@@ -57,10 +58,6 @@ const CLI = {
  * an absent self-plugin file (#5). */
 const SKIP =
 	"SKIP: this repo ships no plugin (.claude-plugin/plugin.json is absent), so there is no hook manifest to render\n";
-
-/** @param {string} root */
-const shipsPlugin = (root) =>
-	fs.existsSync(path.join(root, ".claude-plugin/plugin.json"));
 
 /** @param {string} root */
 const failClosedAt = (root) =>

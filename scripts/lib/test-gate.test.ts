@@ -104,24 +104,63 @@ describe("node test-gate.js <verb>", () => {
 	};
 
 	it.each([
-		["push", { modules: ["suites"] }, 0, ""],
-		["push", { commands: { test: COMMAND } }, 1, ""],
-		["commit", { commands: { test: COMMAND } }, 0, `${COMMAND}\n`],
-		["commit", { commands: { test: COMMAND, testCanary: CANARY } }, 1, ""],
-		[
-			"push",
-			{ commands: { test: COMMAND, testCanary: CANARY } },
-			0,
-			`${COMMAND}\n`,
-		],
-		["push", { modules: [] }, 1, ""],
-		["push", { contract: 99 }, 2, ""],
-	])("%s over %j exits %i", (verb, cfg, status, stdout) => {
-		const r = run(verb, host(cfg));
-		expect([r.status, r.stdout]).toEqual([status, stdout]);
-		if (status === 1) expect(r.stderr).toMatch(/^SKIP: /m);
-		if (status === 2) expect(r.stderr).toMatch(/^BROKEN: /m);
-	});
+		{
+			verb: "push",
+			cfg: { modules: ["suites"] },
+			status: 0,
+			stdout: "",
+			stderr: "",
+		},
+		{
+			verb: "push",
+			cfg: { commands: { test: COMMAND } },
+			status: 1,
+			stdout: "",
+			stderr: "SKIP: the commit-time gate run stays — no canary declared",
+		},
+		{
+			verb: "commit",
+			cfg: { commands: { test: COMMAND } },
+			status: 0,
+			stdout: `${COMMAND}\n`,
+			stderr: "no canary declared",
+		},
+		{
+			verb: "commit",
+			cfg: { commands: { test: COMMAND, testCanary: CANARY } },
+			status: 1,
+			stdout: "",
+			stderr: "SKIP: commands.test is gated at push",
+		},
+		{
+			verb: "push",
+			cfg: { commands: { test: COMMAND, testCanary: CANARY } },
+			status: 0,
+			stdout: `${COMMAND}\n`,
+			stderr: "",
+		},
+		{
+			verb: "push",
+			cfg: { modules: [] },
+			status: 1,
+			stdout: "",
+			stderr: 'SKIP: module "suites"',
+		},
+		{
+			verb: "push",
+			cfg: { contract: 99 },
+			status: 2,
+			stdout: "",
+			stderr: "BROKEN: ",
+		},
+	])(
+		"$verb over $cfg exits $status",
+		({ verb, cfg, status, stdout, stderr }) => {
+			const r = run(verb, host(cfg));
+			expect([r.status, r.stdout]).toEqual([status, stdout]);
+			expect(r.stderr).toContain(stderr);
+		},
+	);
 
 	it("says why the commit gate stays, and where the contract is written", () => {
 		const r = run("commit", host({ commands: { test: COMMAND } }));
