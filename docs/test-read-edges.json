@@ -165,6 +165,7 @@
 		],
 		".claude/settings.json": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			"scripts/adopter-ci.test.ts",
 			"scripts/auto-memory-disabled.test.ts",
 			"scripts/bg-shell-reaper-escape.test.ts",
 			"scripts/build-arm-sandbox.test.ts",
@@ -443,6 +444,7 @@
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			".claude/skills/roadmap-edit/scripts/gen-roadmap-digest.test.ts",
+			"scripts/adopter-ci.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
 			"scripts/adopter-landing.test.ts",
@@ -1097,9 +1099,6 @@
 		],
 		"docs/agents/guard-registry.md": [
 			"scripts/check-guard-registry.test.ts"
-		],
-		"docs/agents/helper-surface.md": [
-			"scripts/lib/helper-surface-ci.test.ts"
 		],
 		"docs/agents/issue-tracker.md": [
 			"scripts/check-guard-registry.test.ts",
@@ -3607,6 +3606,24 @@
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/run-pinned-guards.test.ts"
 		],
+		"scripts/adopter-ci.js": [
+			"scripts/adopter-ci.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/adopter-ci.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
 		"scripts/adopter-consent.js": [
 			"scripts/adopter-consent.test.ts",
 			"scripts/check-plugin-gap.test.ts",
@@ -3754,6 +3771,7 @@
 			"scripts/arm-tasks.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -3830,6 +3848,7 @@
 		],
 		"scripts/arm-tasks/tasks.json": [
 			"scripts/arm-tasks.test.ts",
+			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
@@ -7141,6 +7160,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-workflow-permissions.js": [
+			"scripts/adopter-ci.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/check-workflow-permissions.test.ts",
@@ -7961,6 +7981,7 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/fixtures/gate-judge-cases.json": [
+			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/gate-judge-cases.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
@@ -7971,6 +7992,7 @@
 			"scripts/file-issue.test.ts",
 			"scripts/guard-issue-create-label.test.ts",
 			"scripts/issue-body.test.ts",
+			"scripts/lib/doc-map.test.ts",
 			"scripts/lib/file-issue-core.test.ts",
 			"scripts/lib/gate-judge.contract.test.ts",
 			"scripts/lib/gate-judge.test.ts",
@@ -9836,6 +9858,35 @@
 			"scripts/refill-loop-run-recovery.test.ts",
 			"scripts/refill-loop-run.test.ts",
 			"scripts/refill-loop-status-load.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/adopter-ci.js": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-dispatchers.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-dispatch-cost.test.ts",
+			"scripts/commit-msg-dispatch.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/post-commit-dispatch.test.ts",
+			"scripts/prepare-commit-msg-gate.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/adopter-consent.js": [
@@ -26481,30 +26532,6 @@
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
-		],
-		"scripts/lib/helper-surface-ci.test.ts": [
-			"scripts/check-guard-errors.test.ts",
-			"scripts/check-guard-registry-carry.test.ts",
-			"scripts/check-guard-registry-dispatchers.test.ts",
-			"scripts/check-guard-registry-expiry-pathspec.test.ts",
-			"scripts/check-guard-registry-expiry.test.ts",
-			"scripts/check-guard-registry-implicit.test.ts",
-			"scripts/check-guard-registry-landing.test.ts",
-			"scripts/check-guard-registry-reads.test.ts",
-			"scripts/check-guard-registry-rule-text.test.ts",
-			"scripts/check-guard-registry-stale.test.ts",
-			"scripts/check-guard-registry.test.ts",
-			"scripts/commit-msg-dispatch.test.ts",
-			"scripts/commit-paths.test.ts",
-			"scripts/concision-backstop.test.ts",
-			"scripts/dispatch-sessions-probe-load.test.ts",
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/post-commit-dispatch.test.ts",
-			"scripts/prepare-commit-msg-gate.test.ts",
-			"scripts/queue-lander.test.ts",
-			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/helper-surface.json": [
 			"scripts/check-guard-errors.test.ts",
@@ -44930,6 +44957,7 @@
 		"scripts/lib/resolve-core.js": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
+			"scripts/adopter-ci.test.ts",
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
 			"scripts/adopter-landing.test.ts",
@@ -44958,7 +44986,6 @@
 			"scripts/lib/core-owned-files.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
-			"scripts/lib/helper-surface-ci.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/resolve-core.test.ts",
 			"scripts/lib/script-path-scan.test.ts",

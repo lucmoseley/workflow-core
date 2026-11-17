@@ -288,7 +288,8 @@ function rerunsOf(files, test, python) {
  * alone, and where that is unrouted too, no group: a repo declaring no suite
  * has nothing to fail, so its sha is green, which the commit gate keeps true
  * by refusing a test file while no test command is declared (#2412). Read
- * from the worktree's own config, the one the sha carries.
+ * from the worktree's own config, the one the sha carries. An adopter's CI
+ * job runs the same whole-run groups (scripts/adopter-ci.js, #5347).
  * @param {string} dir
  * @param {string} pytest
  * @param {string[]} files
@@ -700,4 +701,5 @@ module.exports = {
 	commandTester,
 	readLiveLanders,
 	localTester,
+	readRunsAt,
 };

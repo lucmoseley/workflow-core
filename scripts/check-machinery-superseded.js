@@ -41,8 +41,8 @@
  * exempt class is BROKEN. The data file drops out separately, by path — every
  * needle is live there by construction — and this checker and its test through
  * `scanScope`'s `selfFilter`. The dependency lockfiles drop out there too, by
- * basename, through `scanScope`'s `LOCKFILES` (mantahostels#2458), and the recorded
- * session transcripts by path, through its `isRecordedTranscript` (#2415).
+ * basename, through `scanScope`'s `LOCKFILES` (mantahostels#2458), and the frozen
+ * corpora by path, through its `isFrozenCorpus` (#2415, #5358).
  *
  * An allowlist entry names a path and the places in it the scan suppresses —
  * `L<n>` line pins or content anchors — in doc-map-superseded.json's shape. A
