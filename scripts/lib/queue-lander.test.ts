@@ -508,6 +508,7 @@ function bodyOf(drop: Drop, held: readonly DroppedRef[]) {
 		refresh: () => undefined,
 		comment: () => undefined,
 		hasComment: () => false,
+		bodyOf: () => "",
 		close: () => undefined,
 		fileIssue: (_args, input) => {
 			body = input;

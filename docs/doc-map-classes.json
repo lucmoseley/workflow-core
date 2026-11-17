@@ -1352,6 +1352,14 @@
 		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/agents/issue-tracker.md`. `--check` gates it in .husky/pre-commit.",
 		"consumes": null
 	},
+	"docs/agents/rules/hot-path-cost.txt": {
+		"section": "Agent-skill configuration",
+		"class": "generated-only",
+		"classQualifier": null,
+		"role": null,
+		"route": "`npm run gen:rule-fragments`, re-rendered from the anchored region in `docs/code-standards-base.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null
+	},
 	"docs/agents/rules/install-scripts-first.txt": {
 		"section": "Agent-skill configuration",
 		"class": "generated-only",

@@ -37,6 +37,7 @@
 	"capacityLadder": false,
 	"admissionGate": true,
 	"refillPanel": true,
+	"polled": ["scripts/refill-loop.js"],
 	"sessionMeanMb": 587,
 	"sessionSigmaMb": 304,
 	"retro": { "weeklyCount": 1 },

@@ -61,6 +61,8 @@ async function main() {
 	});
 }
 
+module.exports = { main };
+
 if (require.main === module) {
 	const crash = /** @type {const} */ ({
 		hook: "commit-msg",

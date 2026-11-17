@@ -28,6 +28,8 @@ const KINDS = /** @type {const} */ (["age", "depth"]);
 
 const RECORD = ".queue-alert.json";
 
+const CRITERION = "The cause is fixed, and the queue is back within its limit.";
+
 /**
  * Which crossings fire and which re-arm, from the record and the crossings
  * standing now.
@@ -67,7 +69,7 @@ ${kind === "age" ? "The queue lander takes every waiting ref" : "Each ref waits 
 
 ## Acceptance criteria
 
-- [ ] The cause is fixed, and the queue is back within its limit.
+- [ ] ${CRITERION}
 `;
 
 /**
@@ -100,6 +102,7 @@ function queueAlertTender(deps, markers) {
 		parse: parseAlertRecord,
 		noun: "queue alert",
 		subject: "the queue's crossing",
+		criterion: CRITERION,
 		/* Fail-open (#4485), as the stall ticket's record: a crossing still standing
 		 * is filed again, and a ticket open over a queue back within its
 		 * limit stays open until its next crossing. */

@@ -16,6 +16,9 @@ const { recordTicket } = require("./record-ticket.js");
 
 const RECORD = ".landing-alarm-ticket.json";
 
+const CRITERION =
+	"The cause is fixed, and `main` moves again or the alarm passes.";
+
 /**
  * @param {string} main
  * @param {import("./queue-alarms.js").FiringAlarm[]} alarms
@@ -31,7 +34,7 @@ ${alarms.map((a) => `- \`${a.name}\`: run ${a.run}, created ${new Date(a.at).toI
 
 ## Acceptance criteria
 
-- [ ] The cause is fixed, and \`main\` moves again or the alarm passes.
+- [ ] ${CRITERION}
 `;
 }
 
@@ -82,6 +85,7 @@ function alarmTicketTender(deps, markers) {
 		parse: parseAlarmRecord,
 		noun: "alarm ticket",
 		subject: "the firing queue alarm",
+		criterion: CRITERION,
 	});
 	return ({ main, alarms }) => {
 		/** @type {string[]} */

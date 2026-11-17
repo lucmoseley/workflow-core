@@ -32,6 +32,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { execGit } = require("./git.js");
 const { readCommittedFile } = require("./git-objects.js");
+const { isRepoPath, isRepoPathList } = require("./repo-path.js");
 /* Re-exported rather than merely used, because callers and this file's own
  * suite already import it from here. */
 const { hostRoot } = require("./host-root.js");
@@ -175,6 +176,7 @@ const KNOWN_KEYS = [
 	"ci",
 	"suiteRunners",
 	"worktreeLinks",
+	"polled",
 	/* Read off the raw file by the migration walker (`upgrade.js` and
 	 * lib/walk-and-commit.js), never through this reader; listed so it raises
 	 * no unknown-key warning. */
@@ -250,6 +252,7 @@ const unsetCommands = () =>
  * @property {FounderNotice} [founderNotice] where a repo hold's phone notice goes (lib/repo-holds.js, #3871); absent, the loop sends none
  * @property {string[]} [suiteRunners] scripts the suite guard counts and judges as suites (#330)
  * @property {string[]} [worktreeLinks] gitignored paths the suite reads, linked into each throwaway worktree a suite runs in (#1767)
+ * @property {string[]} polled the repo-relative programs the repo runs every few seconds, which base §G13 holds as hot-path (lib/hot-path-set.js, #5335); absent is `[]`
  * @property {string[]} [alwaysLoaded] declared only; lib/always-loaded-pool.js defaults it
  * @property {{weeklyCount?: number}} [retro] how many sessions retro-sweep's weekly run reviews (#964); unset until the calibration batch sets it
  * @property {{threshold?: number, exclude?: string[]}} [archScan] the architecture-scan counter's threshold override and extra pathspec-glob exclusions (#1362); neither switches the scan on or off
@@ -292,17 +295,6 @@ const warnOnce = (line, say = (l) => writeFd(2, `${l}\n`)) => {
 	warned.add(line);
 	say(line);
 };
-
-/**
- * A non-empty relative path that does not climb out of the repo.
- * @param {unknown} v
- * @returns {v is string}
- */
-const isRepoPath = (v) =>
-	typeof v === "string" &&
-	v !== "" &&
-	!path.isAbsolute(v) &&
-	!v.split(/[\\/]/).includes("..");
 
 /** @param {unknown} v @returns {v is number} */
 const isPositiveInt = (v) =>
@@ -1018,9 +1010,12 @@ function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
 	const worktreeLinks = readKey(
 		cfg,
 		"worktreeLinks",
-		(v) => Array.isArray(v) && v.every(isRepoPath),
+		isRepoPathList,
 		"an array of repo-relative paths",
 	);
+	const polled =
+		readKey(cfg, "polled", isRepoPathList, "an array of repo-relative paths") ??
+		[];
 	readSubObject(cfg, "mods", MOD_SWITCHES);
 
 	/* Last: a key read after this line warns into `warnings` but never reaches
@@ -1061,6 +1056,7 @@ function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
 		founderNotice,
 		suiteRunners,
 		worktreeLinks,
+		polled,
 		alwaysLoaded,
 		retro,
 		archScan,

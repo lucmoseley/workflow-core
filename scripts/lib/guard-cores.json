@@ -15,6 +15,13 @@
 			"tree": "session"
 		},
 		{
+			"name": "inject-hot-path-cost",
+			"core": "hot-path-inject.js",
+			"tools": "Write|Edit|NotebookEdit",
+			"failure": "open",
+			"tree": "session"
+		},
+		{
 			"name": "guard-citation-tracker",
 			"core": "citation-write.js",
 			"tools": "Write|Edit",
