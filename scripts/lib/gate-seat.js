@@ -49,6 +49,7 @@ const { caught } = require("./caught.js");
 const { readText } = require("./file-read.js");
 const { HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 const { gitTopLevel } = require("./host-root.js");
+const { readConfig } = require("./workflow-core-config.js");
 const { readAncestorsOf, readParentOf } = require("./proc-stat.js");
 const { procRoot } = require("./proc-root.js");
 const { isOtherRunner } = require("./suite-launch.js");
@@ -167,18 +168,20 @@ function readArgsOf(pid) {
 function readRunnersOf(pid) {
 	try {
 		const cwd = fs.readlinkSync(path.join(procRoot(), String(pid), "cwd"));
-		const { readConfig } = require("./workflow-core-config.js");
+		/* The gate runs under the pre-commit hook, so a wedged git is held to
+		 * the hooks' ceiling. */
 		const root = gitTopLevel(cwd, HOOK_GIT_TIMEOUT_MS);
 		return readConfig({ root, quiet: true }).suiteRunners ?? [];
 	} catch {
+		/* A runner whose checkout or config will not read is the module
+		 * header's residual: its gate takes a seat, as before #5303. */
 		return [];
 	}
 }
 
 /**
  * Whether an ancestor of `pid` is a suite runner the gate counts: a vitest
- * runner, or a non-vitest one (#330), its declared runners read off
- * `runnersOf` for that ancestor.
+ * runner, or a non-vitest one (#330).
  * @param {{ pid?: number, parentOf?: (pid: number) => number, argsOf?: (pid: number) => string, runnersOf?: (pid: number) => string[] }} [options]
  */
 function isInSuite({

@@ -459,6 +459,7 @@ describe("queue-run.js", () => {
 	});
 
 	describe("--gate, a commit gate's seat in the whole-suite slot (#5274)", () => {
+		const parentOf = (pid: number) => (pid > 10 ? pid - 10 : 0);
 		const gateRun = ["--gate", "--", "bash test/all.sh"];
 		const gateOptions = (f: ReturnType<typeof fixture>, extra: object = {}) => {
 			const gateLog = path.join(f.dir, "gate-runs.jsonl");
@@ -776,7 +777,6 @@ describe("queue-run.js", () => {
 				20: "node /x/node_modules/.bin/vitest run",
 				10: "bash",
 			};
-			const parentOf = (pid: number) => (pid > 10 ? pid - 10 : 0);
 			const argsOf = (pid: number) => args[pid] ?? "";
 			expect(isInSuite({ pid: 40, parentOf, argsOf })).toBe(true);
 			args[20] = "node scripts/commit-paths.js -m x -- a";
@@ -785,7 +785,7 @@ describe("queue-run.js", () => {
 			expect(isInSuite({ pid: 40, parentOf, argsOf })).toBe(true);
 		});
 
-		it("reads each runner ancestor's declared suiteRunners off that ancestor, not the host", () => {
+		it("reads each runner ancestor's declared suiteRunners off that ancestor, not the host (#5303)", () => {
 			const { isInSuite } = require("./lib/gate-seat.js");
 			const args: Record<number, string> = {
 				30: "sh -c bash test/all.sh",
@@ -796,7 +796,6 @@ describe("queue-run.js", () => {
 				asked.push(pid);
 				return pid === 20 ? ["scripts/run-all.js"] : [];
 			};
-			const parentOf = (pid: number) => (pid > 10 ? pid - 10 : 0);
 			const argsOf = (pid: number) => args[pid] ?? "";
 			expect(isInSuite({ pid: 40, parentOf, argsOf, runnersOf })).toBe(true);
 			expect(asked).toEqual([20]);
@@ -819,7 +818,9 @@ describe("queue-run.js", () => {
 						path.join(root, ".claude", "workflow-core.json"),
 						JSON.stringify({ contract: 1, ...config }),
 					);
-					spawnSync("git", ["init", "-q"], { cwd: root });
+					expect(spawnSync("git", ["init", "-q"], { cwd: root }).status).toBe(
+						0,
+					);
 					return root;
 				};
 				const host = repo("host", { suiteRunners: ["scripts/run-all.js"] });
@@ -839,7 +840,6 @@ describe("queue-run.js", () => {
 				vi.stubEnv("CLAUDE_PROJECT_DIR", fixtureRepo);
 				return { host, fixtureRepo, processAt };
 			};
-			const parentOf = (pid: number) => (pid > 10 ? pid - 10 : 0);
 
 			it("takes no seat under the host's declared runner, the commit in another repo", async () => {
 				const w = world();
