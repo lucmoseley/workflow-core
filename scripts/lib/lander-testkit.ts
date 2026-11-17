@@ -14,13 +14,16 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, afterEach, beforeAll, beforeEach } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, vi } from "vitest";
 import { RECORDED_SHAPES } from "./gh-fake.js";
 import { stubGhScript } from "./gh-stub.js";
 import { runInProcessAsync } from "./run-in-process.js";
 import { shellQuote } from "./sh-quote.js";
 
 const LANDER = path.resolve(__dirname, "../queue-lander.js");
+/** This checkout: the core a sandbox tree's hook resolves unless a case says otherwise. */
+export const OWN_CORE = path.resolve(__dirname, "../..");
+const RESOLVE_CORE = "scripts/lib/resolve-core.js";
 
 /** The case's sandbox root, fresh for each case once landerSandbox() is called. */
 export let tmp: string;
@@ -73,20 +76,31 @@ export const levelStub = () => {
 };
 
 /**
- * Writes an empty guard-registry region into `dir`'s CLAUDE.md, as the adopter
- * template and the core's own carry: without one, the registry check the
- * lander runs over a batch holds it as stale-base on NO-REGION (#5309).
+ * Writes what every adopter's tree carries for the lander to judge it: an
+ * empty guard-registry region in CLAUDE.md, without which its registry check
+ * holds a batch as stale-base on NO-REGION (#5309), and the core-owned
+ * scripts/lib/resolve-core.js, without which no core resolves to run its gate
+ * scripts (#5314). A case sets WORKFLOW_CORE_DIR to name the core it finds.
  */
-export const seedRegistryRegion = (dir: string) =>
+export const seedAdopterTree = (dir: string) => {
 	fs.writeFileSync(
 		path.join(dir, "CLAUDE.md"),
 		"<!-- guard-registry:begin -->\n<!-- guard-registry:end -->\n",
 	);
+	fs.mkdirSync(path.join(dir, path.dirname(RESOLVE_CORE)), {
+		recursive: true,
+	});
+	fs.copyFileSync(
+		path.join(OWN_CORE, RESOLVE_CORE),
+		path.join(dir, RESOLVE_CORE),
+	);
+};
 
 /**
  * Register the hooks that build the seeded template once and copy it per case.
  * With `coreHost`, the seed is workflow-core itself, so the lander runs the
- * tree's own gate scripts rather than its own install's (#5309).
+ * tree's own gate scripts; else they are the ones the core its
+ * resolve-core.js finds ships, WORKFLOW_CORE_DIR naming this checkout (#5314).
  */
 export function landerSandbox({ coreHost = false } = {}): void {
 	let template: string;
@@ -99,7 +113,7 @@ export function landerSandbox({ coreHost = false } = {}): void {
 		git(template, "clone", "-q", bare, clone);
 		git(clone, "config", "user.email", "t@t");
 		git(clone, "config", "user.name", "t");
-		seedRegistryRegion(clone);
+		seedAdopterTree(clone);
 		if (coreHost) {
 			fs.mkdirSync(path.join(clone, ".claude-plugin"));
 			fs.writeFileSync(
@@ -117,6 +131,8 @@ export function landerSandbox({ coreHost = false } = {}): void {
 		remote = path.join(tmp, "remote.git");
 		work = path.join(tmp, "work");
 		git(work, "remote", "set-url", "origin", remote);
+		vi.stubEnv("WORKFLOW_CORE_DIR", OWN_CORE);
+		vi.stubEnv("WORKFLOW_CORE_CHECKOUT", undefined);
 	});
 
 	afterEach(() => {
@@ -133,7 +149,7 @@ export function landerSandbox({ coreHost = false } = {}): void {
 }
 
 /** `work`'s tree made an adopter's, no longer workflow-core itself, so the
- * lander runs its own install's gate scripts over it (#5309). */
+ * lander runs the gate scripts of the core its resolve-core.js finds (#5314). */
 export const asAdopter = () => {
 	git(work, "rm", "-rq", ".claude-plugin");
 	commit("adopter");

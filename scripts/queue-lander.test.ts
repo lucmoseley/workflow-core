@@ -20,7 +20,8 @@
  * or a hook it cannot execute holds a merge, a registry SKIP holds one, or a
  * BROKEN, unparseable or timed-out registry run passes one (#4904); or an
  * adopter's batch conflicting on docs/test-read-edges.json drops every member
- * for want of WFC_PLUGIN_ROOT (#5309).
+ * for want of WFC_PLUGIN_ROOT (#5309), or is judged by a core other than the
+ * one its hook resolves (#5314).
  *
  * The sandbox seeds workflow-core itself, so a merge runs the tree's own gate
  * scripts; a case wanting an adopter's tree calls asAdopter().
@@ -599,7 +600,7 @@ describe("a run", () => {
 		});
 
 		describe("off a checker that gives no reading (#4904)", () => {
-			/** The core whose checker the batch's tree is judged with. */
+			/** The core the batch's tree resolves, whose checker judges it. */
 			const core = () => path.join(tmp, "plugin");
 			/** `body` as that core's checker. */
 			const checker = (body: string) => {
@@ -611,7 +612,10 @@ describe("a run", () => {
 			};
 			const envelope = (outcome: string) =>
 				`process.stdout.write(${JSON.stringify(JSON.stringify({ outcome, summary: `${outcome}: stub` }))});\n`;
-			beforeEach(asAdopter);
+			beforeEach(() => {
+				asAdopter();
+				vi.stubEnv("WORKFLOW_CORE_DIR", core());
+			});
 
 			it("merges a batch whose stale row its checker SKIPped, saying so, as a SKIP gates nothing (mantahostels#155)", () => {
 				const main = staleMain();
@@ -626,11 +630,7 @@ process.stdout.write(JSON.stringify({ ...JSON.parse(r.stdout), outcome: "SKIP", 
 				);
 				const stderr = spyStderr();
 				try {
-					expect(
-						queueGit(work, { core: core() }).mergeMembers(main, [
-							member("a", a),
-						]),
-					).toEqual({
+					expect(queueGit(work).mergeMembers(main, [member("a", a)])).toEqual({
 						kind: "merged",
 						sha: a,
 					});
@@ -647,7 +647,7 @@ process.stdout.write(JSON.stringify({ ...JSON.parse(r.stdout), outcome: "SKIP", 
 			it("throws a plain error, naming the commit, on a BROKEN envelope and on output that is no envelope", () => {
 				const main = staleMain();
 				const a = pushQueue("a", main);
-				const g = queueGit(work, { core: core() });
+				const g = queueGit(work);
 				const fault = () => {
 					try {
 						g.mergeMembers(main, [member("a", a)]);
@@ -679,10 +679,9 @@ process.stdout.write(JSON.stringify({ ...JSON.parse(r.stdout), outcome: "SKIP", 
 				 * to keep the case cheap; the stub's 60 s need only outlast it. */
 				let thrown: unknown;
 				try {
-					queueGit(work, { mergeTimeoutMs: 3000, core: core() }).mergeMembers(
-						main,
-						[member("a", a)],
-					);
+					queueGit(work, { mergeTimeoutMs: 3000 }).mergeMembers(main, [
+						member("a", a),
+					]);
 				} catch (err) {
 					thrown = err;
 				}
@@ -1088,7 +1087,7 @@ describe("the adapters", () => {
 
 	/* The positive pair of "lands a merge whose text-merged copy is clean but
 	 * stale", which renders with a core host's own generator. */
-	it("regenerates an adopter's read-edges with the lander's own generator, WFC_PLUGIN_ROOT unset, dropping no member (#5309)", () => {
+	it("regenerates an adopter's read-edges with its resolved core's generator, WFC_PLUGIN_ROOT unset, dropping no member (#5309)", () => {
 		vi.stubEnv("WFC_PLUGIN_ROOT", undefined);
 		const edges = "docs/test-read-edges.json";
 		const generator = path.resolve(__dirname, "generate-test-read-edges.js");
@@ -1102,7 +1101,9 @@ describe("the adapters", () => {
 			fs.writeFileSync(path.join(work, "docs", `${name}.md`), name);
 		render();
 		const seed = commit("adopter seed");
-		expect(fs.existsSync(path.join(work, "scripts"))).toBe(false);
+		expect(
+			fs.existsSync(path.join(work, "scripts/generate-test-read-edges.js")),
+		).toBe(false);
 		const pushRendered = (name: string) =>
 			pushQueue(name, seed, () => {
 				fs.writeFileSync(
@@ -1129,6 +1130,64 @@ describe("the adapters", () => {
 		expect(fs.readFileSync(path.join(work, edges), "utf8")).toBe(landed);
 		expect(landed).toContain("a.test.ts");
 		expect(landed).toContain("b.test.ts");
+	});
+
+	describe("an adopter's tree whose hook resolves a core other than the lander's own install (#5314)", () => {
+		const edges = "docs/test-read-edges.json";
+		/** Two members onto an adopter seed holding `edges`, so each merge regenerates it. */
+		const twoMembers = () => {
+			asAdopter();
+			fs.mkdirSync(path.join(work, "docs"), { recursive: true });
+			fs.writeFileSync(path.join(work, edges), "{}\n");
+			const seed = commit("adopter seed");
+			const members = ["a", "b"].map((name, i) => ({
+				name,
+				sha: pushQueue(name, seed, () =>
+					fs.writeFileSync(path.join(work, `${name}.md`), name),
+				),
+				pushedAt: i + 1,
+			}));
+			return { seed, members };
+		};
+
+		it("runs the read-edges generator and the registry checker from the core the tree resolves", () => {
+			const core = path.join(tmp, "pinned-core");
+			const ran = path.join(tmp, "ran");
+			const stub = (rel: string, extra = "") => {
+				fs.mkdirSync(path.dirname(path.join(core, rel)), { recursive: true });
+				fs.writeFileSync(
+					path.join(core, rel),
+					`require("node:fs").appendFileSync(${JSON.stringify(ran)}, ${JSON.stringify(`${rel}\n`)});\n${extra}`,
+				);
+			};
+			stub("scripts/generate-test-read-edges.js");
+			stub(
+				"scripts/check-guard-registry.js",
+				`process.stdout.write(${JSON.stringify(JSON.stringify({ outcome: "PASS", summary: "PASS: stub" }))});\n`,
+			);
+			const { seed, members } = twoMembers();
+			vi.stubEnv("WORKFLOW_CORE_DIR", core);
+
+			const r = queueGit(work).mergeMembers(seed, members);
+
+			expect(r.kind).toBe("merged");
+			const lines = fs.readFileSync(ran, "utf8").split("\n");
+			expect(lines).toContain("scripts/generate-test-read-edges.js");
+			expect(lines).toContain("scripts/check-guard-registry.js");
+		});
+
+		it("refuses the member whose merge meets a tree resolving no core, carrying the resolver's reason", () => {
+			const { seed, members } = twoMembers();
+			vi.stubEnv("WORKFLOW_CORE_DIR", undefined);
+			vi.stubEnv("CLAUDE_CONFIG_DIR", path.join(tmp, "config"));
+
+			const r = queueGit(work).mergeMembers(seed, members);
+
+			expect(r).toMatchObject({ kind: "refused", name: "a" });
+			expect(r.kind === "refused" ? r.reason : "").toMatch(
+				/^its tree's scripts\/lib\/resolve-core\.js finds no workflow-core to run its gate scripts with: resolve-core: no workflow-core directory for pin none — WORKFLOW_CORE_DIR and WORKFLOW_CORE_CHECKOUT are unset/,
+			);
+		});
 	});
 
 	it("throws a merge that times out as a transient fault, for the run to retry, never a refusal that drops it", () => {

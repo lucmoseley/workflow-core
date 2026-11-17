@@ -66,7 +66,7 @@ const { REGENERATED_FILES } = require("./regenerated-files.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { isStringList, parseVerdict } = require("./lander-records.js");
 const { isCoreHost } = require("./plugin-state.js");
-const { coreRoot } = require("./script-path.js");
+const { CoreUnresolved, resolveTreeCore } = require("./tree-core.js");
 
 const REGISTRY_PROFILE = (() => {
 	const profile = PROFILES["guard-registry"];
@@ -114,6 +114,11 @@ class GateTimeout extends Error {}
  * @typedef {import("./queue-lander.js").DroppedRef} DroppedRef
  * @typedef {import("./queue-lander.js").QueueLanderDeps} QueueLanderDeps
  * @typedef {import("./regenerated-files.js").Regenerated} Regenerated
+ * @typedef {{dir: string,
+ *   inTree: (args: string[], timeout?: number) => string,
+ *   gates: (set: "merge") => void,
+ *   gateCopy: (rel: string) => string}} MergeTree a member's merge's
+ *   throwaway tree: its path, its git, its hook's gates and its gate scripts
  */
 
 /**
@@ -179,12 +184,6 @@ function readEnvelope(r, sha, timeoutMs) {
  * @param {boolean} [options.suiteRepeats] where the tester's whole run is
  *   the declared test command the hook's test gate runs, its
  *   `repeatsSuite`: the batch runs every gate but that one (#5308)
- * @param {string} [options.core] the core whose gate scripts judge an
- *   adopter's tree: coreRoot()'s, the one this module ships in, found with
- *   no launcher's help (#5309), WFC_SCRIPT_ROOT standing in where set.
- *   Residual: that install, not the core the adopter's hook resolves,
- *   judges it, so a launcher running another install can disagree with the
- *   hook's gates (#5314).
  * @returns {QueueGit}
  */
 function queueGit(
@@ -195,18 +194,25 @@ function queueGit(
 		ciRepeats = false,
 		suiteRepeats = false,
 		gateGraceMs = HOOK_GRACE_MS,
-		core = coreRoot(),
 	} = {},
 ) {
 	const batchSet = batchGateSet(ciRepeats, suiteRepeats);
 	/**
-	 * The copy of `rel` the commit gate runs over the merged tree at `dir`:
-	 * the tree's own where the tree is workflow-core, as its hook runs it,
-	 * else `core`'s, as an adopter's shim runs the plugin's.
+	 * The copy of a gate script the commit gate runs over the tree at `dir`,
+	 * by its core-relative path: the tree's own where the tree is
+	 * workflow-core, as its hook runs it, else the core the tree's hook shim
+	 * resolves, asked once (#5314).
 	 * @param {string} dir
-	 * @param {string} rel
+	 * @returns {(rel: string) => string}
 	 */
-	const gateCopy = (dir, rel) => path.join(isCoreHost(dir) ? dir : core, rel);
+	const gateCopies = (dir) => {
+		/** @type {string | undefined} */
+		let core;
+		return (rel) => {
+			core ??= isCoreHost(dir) ? dir : resolveTreeCore(dir, mergeTimeoutMs);
+			return path.join(core, rel);
+		};
+	};
 	const fetchSpecs = [
 		trackingRefspec(VERIFIED_BRANCH),
 		QUEUE_REFSPEC,
@@ -342,9 +348,10 @@ function queueGit(
 			{ program: "queue-lander", use: "merge" },
 			(dir, inTree) => {
 				const gates = hookGates(dir, inTree);
+				const gateCopy = gateCopies(dir);
 				for (const m of members) {
 					const failed = mergeFailure(m, inTree, () =>
-						mergeMember(m, dir, inTree, gates),
+						mergeMember(m, { dir, inTree, gates, gateCopy }),
 					);
 					if (failed) return failed;
 				}
@@ -367,8 +374,9 @@ function queueGit(
 	 * refused, naming `last`; one whose every such fault `onto` holds too is
 	 * `stale-base`, which stops the line rather than drops a member, since
 	 * `main` must be re-anchored first. A tree its checker SKIPs passes, as a
-	 * SKIP gates nothing (mantahostels#155, #4904). Any other result passes
-	 * through.
+	 * SKIP gates nothing (mantahostels#155, #4904). A tree that resolves no
+	 * core is refused, naming `last`; an `onto` that resolves none reads as
+	 * one with no checker (#5314). Any other result passes through.
 	 * @param {string} onto
 	 * @param {MergeResult} merged
 	 * @param {Member} last
@@ -376,10 +384,30 @@ function queueGit(
 	 */
 	function judgeWhole(onto, merged, last) {
 		if (merged.kind !== "merged") return merged;
-		const tree = readRegistry(merged.sha);
+		/** @type {Record<string, unknown> | null} */
+		let tree;
+		try {
+			tree = readRegistry(merged.sha);
+		} catch (err) {
+			if (!(err instanceof CoreUnresolved)) throw err;
+			return { kind: "refused", name: last.name, reason: err.message };
+		}
 		const gating = tree ? newFaultItems(tree, {}, REGISTRY_PROFILE) : [];
 		if (!tree || gating.length === 0) return merged;
-		const base = readRegistry(onto);
+		return judgeGating(onto, { sha: merged.sha, tree, gating }, last);
+	}
+
+	/**
+	 * judgeWhole's verdict on a merged tree holding gating faults: refused
+	 * where `onto` lacks one, else stale-base.
+	 * @param {string} onto
+	 * @param {{sha: string, tree: Record<string, unknown>,
+	 *   gating: ReturnType<typeof newFaultItems>}} whole
+	 * @param {Member} last
+	 * @returns {MergeResult}
+	 */
+	function judgeGating(onto, { sha, tree, gating }, last) {
+		const base = readBaseRegistry(onto);
 		const added = base ? newFaultItems(tree, base, REGISTRY_PROFILE) : gating;
 		const inherited = gating.filter((f) => !added.includes(f));
 		if (added.length > 0)
@@ -395,10 +423,23 @@ function queueGit(
 		return {
 			kind: "stale-base",
 			name: last.name,
-			sha: merged.sha,
+			sha,
 			onto,
 			rows: gating.map((f) => f.line),
 		};
+	}
+
+	/**
+	 * readRegistry over `onto`, null where its tree resolves no core.
+	 * @param {string} onto
+	 */
+	function readBaseRegistry(onto) {
+		try {
+			return readRegistry(onto);
+		} catch (err) {
+			if (err instanceof CoreUnresolved) return null;
+			throw err;
+		}
 	}
 
 	/**
@@ -413,7 +454,7 @@ function queueGit(
 			sha,
 			{ program: "queue-lander", use: "registry" },
 			(dir) => {
-				const checker = gateCopy(dir, "scripts/check-guard-registry.js");
+				const checker = gateCopies(dir)("scripts/check-guard-registry.js");
 				if (!fs.existsSync(checker)) return null;
 				const r = spawnSync(
 					process.execPath,
@@ -501,11 +542,9 @@ function queueGit(
 	 * files alone, each changed on both sides, is no refusal; one deleted on a
 	 * side is, since a render would undo the deletion.
 	 * @param {Member} m
-	 * @param {string} dir
-	 * @param {(args: string[], timeout?: number) => string} inTree
-	 * @param {(set: "merge") => void} gates
+	 * @param {MergeTree} tree
 	 */
-	function mergeMember(m, dir, inTree, gates) {
+	function mergeMember(m, { dir, inTree, gates, gateCopy }) {
 		try {
 			inTree(
 				[
@@ -526,7 +565,7 @@ function queueGit(
 			for (const f of files) inTree(["checkout", "--ours", "--", f]);
 		}
 		if (!isMerging(inTree)) return;
-		regenerate(dir, inTree);
+		regenerate(dir, inTree, gateCopy);
 		gates("merge");
 		inTree(
 			["-c", "core.hooksPath=/dev/null", "commit", "--no-edit"],
@@ -542,12 +581,13 @@ function queueGit(
 	 * fails is a refusal carrying its output.
 	 * @param {string} dir
 	 * @param {(args: string[]) => string} inTree
+	 * @param {(rel: string) => string} gateCopy
 	 */
-	function regenerate(dir, inTree) {
+	function regenerate(dir, inTree, gateCopy) {
 		for (const [file, { generator }] of regenerated) {
 			/* Absent: the merge deleted it, and a deletion stands. */
 			if (!fs.existsSync(path.join(dir, file))) continue;
-			execFileSync(process.execPath, [gateCopy(dir, generator)], {
+			execFileSync(process.execPath, [gateCopy(generator)], {
 				cwd: dir,
 				encoding: "utf8",
 				stdio: ["ignore", "pipe", "pipe"],
@@ -572,6 +612,8 @@ function queueGit(
 			merge();
 			return null;
 		} catch (err) {
+			if (err instanceof CoreUnresolved)
+				return { kind: "refused", name: m.name, reason: err.message };
 			if (!(err instanceof GateTimeout)) return judgeFault(m, inTree, err);
 			writeFd(
 				2,

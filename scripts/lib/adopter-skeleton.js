@@ -318,6 +318,20 @@ const NO_CORE_FIX =
 	"Fix: open a Claude Code session in this repo so its project-scope workflow-core plugin installs, or set WORKFLOW_CORE_DIR to a workflow-core checkout.";
 
 /**
+ * The `node -e` program a hook shim finds its core with, run with the working
+ * tree's top as its cwd: the core's directory on stdout, else exit 1 with the
+ * reason on stderr. The queue lander runs it too, so its gate scripts judge an
+ * adopter's tree with the core that tree's hook runs (#5314).
+ */
+const RESOLVE_CORE_SCRIPT = `
+try {
+  process.stdout.write(require("./scripts/lib/resolve-core.js").resolveCore());
+} catch (err) {
+  process.stderr.write(String(err instanceof Error ? err.message : err) + "\\n");
+  process.exit(1);
+}`;
+
+/**
  * The hook an adopter commits under `.husky/<hook>`: it finds the core at run
  * time through the adopter's own `scripts/lib/resolve-core.js`, exports it as
  * `WFC_PLUGIN_ROOT`, and runs that core's `.husky/<hook>` (#1839). It names no
@@ -344,13 +358,7 @@ ${SHIM_MARK} core-owned; init and upgrade write it and a plugin
 # DEFEAT:    WORKFLOW_CORE_DIR or WORKFLOW_CORE_CHECKOUT chooses the core that runs; the core's .husky/${hook} names its own.
 
 set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
-WFC_PLUGIN_ROOT="$(node -e '
-try {
-  process.stdout.write(require("./scripts/lib/resolve-core.js").resolveCore());
-} catch (err) {
-  process.stderr.write(String(err instanceof Error ? err.message : err) + "\\n");
-  process.exit(1);
-}' </dev/null)" || {
+WFC_PLUGIN_ROOT="$(node -e '${RESOLVE_CORE_SCRIPT}' </dev/null)" || {
   echo ${shellQuote(`${hook}: ${consequence} ${NO_CORE_FIX}`)} >&2
   exit ${failOpen ? 0 : 1}
 }
@@ -774,6 +782,7 @@ module.exports = {
 	renderCalledCards,
 	renderRoadmap,
 	renderHookShim,
+	RESOLVE_CORE_SCRIPT,
 	isHookShim,
 	NO_CORE_FIX,
 	RULES_FILE,
