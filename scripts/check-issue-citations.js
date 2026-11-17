@@ -46,8 +46,11 @@
  * buried citation is a FAIL finding (exit 1, or 0 under --warn).
  */
 
+const crypto = require("node:crypto");
+const fs = require("node:fs");
 const { runCheck } = require("./lib/check");
-const { ghIssueListAll, raiseGhFailure } = require("./lib/gh");
+const { readCitationFindings } = require("./lib/citation-findings-cache");
+const { raiseGhFailure } = require("./lib/gh");
 const { titleFirstLinks } = require("./lib/title-first-links");
 const { requireKey } = require("./lib/workflow-core-config");
 
@@ -128,38 +131,52 @@ function numberlessBlockers(text) {
 }
 
 /*
- * Body and every comment, kept separate so the report can say WHERE — a body
- * fault is fixed with `gh issue edit`, a comment fault needs the comments API,
- * and pointing a reader at the wrong one wastes the trip.
+ * Each surface scanned on its own, so the report can say WHERE — a body
+ * fault is fixed with `gh issue edit`, a comment fault needs the comments API
+ * by its id, and pointing a reader at the wrong one wastes the trip.
  */
-/** @param {{ body?: string, comments?: Array<{ id?: number|string, body?: string }> }} iss */
-function surfaces(iss) {
-	const out = [{ where: "body", text: iss.body || "" }];
-	for (const c of iss.comments || [])
-		out.push({ where: `comment ${c.id ?? ""}`.trim(), text: c.body || "" });
-	return out;
-}
+const scanner = () => ({
+	/* Every source a finding depends on: a changed rule rescans the tracker. */
+	version: crypto
+		.createHash("sha256")
+		.update(fs.readFileSync(__filename))
+		.update(fs.readFileSync(require.resolve("./lib/title-first-links")))
+		.digest("hex")
+		.slice(0, 16),
+	/** @param {string} text */
+	body(text) {
+		const links = titleFirstLinks(text, tracker);
+		const lines = numberlessBlockers(text);
+		return links.length > 0 || lines.length > 0 ? { links, lines } : null;
+	},
+	/* Blocker prose lives in bodies; a comment saying "blocked by X" is
+	 * conversation, not the ticket's own state, so comments are scanned for
+	 * title-first links alone. */
+	/** @param {string} text */
+	comment(text) {
+		const links = titleFirstLinks(text, tracker);
+		return links.length > 0 ? { links } : null;
+	},
+});
 
 /**
- * Every issue's title-first citations (per surface) and numberless blocker
- * lines (bodies only).
- * @param {any[]} issues
+ * The cached findings as the report's two lists, highest issue first.
+ * @param {Record<string, import("./lib/citation-findings-cache").Entry>} issues
  */
-function scanIssues(issues) {
+function splitFindings(issues) {
 	const titleFirst = [];
 	const noNumber = [];
-
-	for (const iss of issues) {
-		const base = { number: iss.number, title: iss.title, url: iss.url };
-		for (const s of surfaces(iss)) {
-			const links = titleFirstLinks(s.text, tracker);
-			if (links.length > 0) titleFirst.push({ ...base, where: s.where, links });
-			// Blocker prose lives in bodies; a comment saying "blocked by X" is
-			// conversation, not the ticket's own state, so only bodies are scanned.
-			if (s.where !== "body") continue;
-			const bare = numberlessBlockers(s.text);
-			if (bare.length > 0) noNumber.push({ ...base, lines: bare });
-		}
+	const numbers = Object.keys(issues)
+		.map(Number)
+		.sort((a, b) => b - a);
+	for (const number of numbers) {
+		const e = /** @type {any} */ (issues[number]);
+		const base = { number, title: e.title, url: e.url };
+		if (e.body?.links.length)
+			titleFirst.push({ ...base, where: "body", links: e.body.links });
+		for (const [id, c] of Object.entries(e.comments))
+			titleFirst.push({ ...base, where: `comment ${id}`, links: c.links });
+		if (e.body?.lines.length) noNumber.push({ ...base, lines: e.body.lines });
 	}
 	return { titleFirst, noNumber };
 }
@@ -203,26 +220,20 @@ function sayNoNumber(ctx, noNumber, lineCount) {
 	);
 }
 
-runCheck({
+/** @type {import("./lib/check").CheckSpec} */
+const SPEC = {
 	name: "issue-citations",
 	usage: "node check-issue-citations.js [--warn] [--json]",
-	run(ctx) {
+	async run(ctx) {
 		tracker = requireKey("tracker");
-		let issues;
+		let found;
 		try {
-			issues = ghIssueListAll("issues", [
-				"--repo",
-				tracker,
-				"--state",
-				"all",
-				"--json",
-				"number,title,body,comments,url",
-			]);
+			found = await readCitationFindings(tracker, scanner());
 		} catch (e) {
 			return raiseGhFailure(e);
 		}
 
-		const { titleFirst, noNumber } = scanIssues(issues);
+		const { titleFirst, noNumber } = splitFindings(found.issues);
 
 		// --- report ---------------------------------------------------------------
 
@@ -248,7 +259,13 @@ runCheck({
 				`NO-NUMBER\t#${i.number}`,
 			);
 
-		ctx.say(`Checked ${issues.length} issue(s) on ${tracker}.\n`);
+		const r = found.read;
+		ctx.say(
+			r.full
+				? `Checked all ${r.issues} issue(s) and ${r.comments} comment(s) on ${tracker}.\n`
+				: `Checked the ${r.issues} issue(s) and ${r.comments} comment(s) on ${tracker} changed since ${r.since};\n` +
+						`every other surface's findings carried from the cache begun ${r.fullStamp}.\n`,
+		);
 
 		if (titleFirst.length > 0) sayTitleFirst(ctx, titleFirst, linkCount);
 
@@ -262,4 +279,9 @@ runCheck({
 			data: { titleFirst, noNumber, linkCount, lineCount, total },
 		};
 	},
-});
+};
+
+const main = () => runCheck(SPEC);
+
+module.exports = { main };
+if (require.main === module) main();
