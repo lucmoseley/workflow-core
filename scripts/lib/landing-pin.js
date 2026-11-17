@@ -11,6 +11,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { caught } = require("./caught.js");
 const { compareVersions } = require("./compare-versions.js");
 const { readPin } = require("./plugin-state.js");
 
@@ -26,38 +27,43 @@ function parseTag(tag) {
 	return m ? m.slice(1).map(Number) : null;
 }
 
+const ALWAYS_ON_PARTS = (() => {
+	const parts = parseTag(ALWAYS_ON);
+	if (parts === null) throw new Error(`ALWAYS_ON ${ALWAYS_ON} names no x.y.z`);
+	return parts;
+})();
+
 /**
- * Whether the config at `root` names `"landing"` in its `modules`.
+ * Whether the config at `root` names `"landing"` in its `modules`, or why it
+ * would not read (#5301).
  * @param {string} root
+ * @returns {boolean|{unread: string}}
  */
 function declaresLanding(root) {
+	const file = path.join(root, ".claude", "workflow-core.json");
 	try {
-		const raw = JSON.parse(
-			fs.readFileSync(path.join(root, ".claude", "workflow-core.json"), "utf8"),
-		);
+		const raw = JSON.parse(fs.readFileSync(file, "utf8"));
 		return Array.isArray(raw?.modules) && raw.modules.includes("landing");
-	} catch {
-		/* Fails open: a config that will not read is refill-repos.js's to
-		 * exclude (#5276). */
-		return true;
+	} catch (err) {
+		return { unread: `${file} would not read (${caught(err).message})` };
 	}
 }
 
 /**
  * Why the repo at `root` runs `landing` off on a release before ALWAYS_ON, or
- * null where it does not.
+ * might, its config unread, failing closed; null where it does not.
  * @param {string} root
  * @returns {string|null}
  */
 function readLandingOffWhy(root) {
 	const ref = readPin(root, "workflow-core").pin?.ref;
 	const parts = ref ? parseTag(ref) : null;
-	if (
-		parts === null ||
-		compareVersions(parts, /** @type {number[]} */ (parseTag(ALWAYS_ON))) >= 0
-	)
+	if (parts === null || compareVersions(parts, ALWAYS_ON_PARTS) >= 0)
 		return null;
-	if (declaresLanding(root)) return null;
+	const landing = declaresLanding(root);
+	if (typeof landing === "object")
+		return `pinned to workflow-core ${ref}, before ${ALWAYS_ON}, and ${landing.unread}, so whether it runs \`landing\` off is unknown`;
+	if (landing) return null;
 	return `pinned to workflow-core ${ref} with \`landing\` off, so its sessions share one unguarded tree — move its pin to ${ALWAYS_ON} or later`;
 }
 

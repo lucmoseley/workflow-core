@@ -11,6 +11,7 @@ const {
 	readAbsence,
 	readExclusionWhy,
 } = require("./refill-repos.js");
+const { readLandingOffWhy } = require("./landing-pin.js");
 
 let home: string;
 beforeEach(() => {
@@ -103,6 +104,20 @@ describe("readExclusionWhy (#5276)", () => {
 			"pinned to workflow-core v2.3.0 with `landing` off",
 		);
 		expect(isOptedOut(old)).toBe(false);
+	});
+
+	it("leaves out an old pin whose config will not read, and says why (#5301)", () => {
+		const old = pin(checkout("unread", {}), "v2.3.0");
+		const config = path.join(old, ".claude", "workflow-core.json");
+		fs.chmodSync(config, 0o000);
+		try {
+			expect(readLandingOffWhy(old)).toMatch(
+				/^pinned to workflow-core v2\.3\.0, before v3\.0\.0, and .*workflow-core\.json would not read \(EACCES.*so whether it runs `landing` off is unknown$/,
+			);
+			expect(readLandingOffWhy(pin(checkout("new", {}), "v3.0.0"))).toBeNull();
+		} finally {
+			fs.chmodSync(config, 0o644);
+		}
 	});
 
 	it("serves an old pin with landing on, a pin at or past v3.0.0, and a branch pin", () => {
