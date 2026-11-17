@@ -22,6 +22,7 @@ import {
 	vi,
 } from "vitest";
 import { defineTemplate, mkScratchDir } from "./git-fixture";
+import type { TouchedBase } from "./test-pass-marker.js";
 
 const require = createRequire(import.meta.url);
 const { selectTouched } = require("./touched-tests.js");
@@ -597,19 +598,21 @@ describe("the base a touched selection takes (#5320)", () => {
 		);
 	};
 	/** `files`' repo at `dir`, verified main at its root, then `own`
-	 * committed and `paths` staged. */
+	 * committed and `paths` staged, each with `edit` appended in a form its
+	 * file's language still parses. */
 	const branch =
 		(
 			paths: string[],
 			files: Record<string, string> = FILES,
 			own = ["lib/a.js", "doc.md"],
+			edit = "// staged\n",
 		) =>
 		(dir: string) => {
 			seed(dir, files);
 			git(dir, "update-ref", "refs/remotes/origin/main", "HEAD");
 			for (const f of own) commit(dir, f, `own ${f}`);
 			for (const f of paths) {
-				fs.appendFileSync(path.join(dir, f), "// staged\n");
+				fs.appendFileSync(path.join(dir, f), edit);
 				git(dir, "add", f);
 			}
 		};
@@ -617,11 +620,13 @@ describe("the base a touched selection takes (#5320)", () => {
 		staged: branch(["lib/setup.js"]),
 		clean: branch([]),
 		stagedUnit: branch(["lib/a.js"]),
-		uncollected: branch(["scripts/m/test_scan.py"], {
-			...FILES,
-			"pytest.ini": "[pytest]\npython_files = check_*.py\n",
-		}),
-		checkerOnly: branch([GUARD], CHECKER_ONLY_FILES, ["scripts/unit.js"]),
+		uncollected: branch(
+			["scripts/m/test_scan.py"],
+			{ ...FILES, "pytest.ini": "[pytest]\npython_files = check_*.py\n" },
+			undefined,
+			"# staged\n",
+		),
+		checkerOnly: branch([GUARD], CHECKER_ONLY_FILES, ["scripts/unit.js"], "\n"),
 	});
 	const copy = (variant: string) => {
 		const dir = mkScratchDir("touched-");
@@ -629,7 +634,7 @@ describe("the base a touched selection takes (#5320)", () => {
 		fixture.instantiate(dir, variant);
 		return dir;
 	};
-	const at = (dir: string, from: "head" | "merge-base", options = {}) =>
+	const at = (dir: string, from: TouchedBase, options = {}) =>
 		selectTouched(dir, {
 			from,
 			ownWork: null,

@@ -897,8 +897,7 @@ function runOnce(
 			argv: launch.argv ?? [],
 			memory: memory.current(),
 			...(idSeam.isLanderRun() ? { lander: true } : {}),
-			/* A kill writes no scope, so a touched run's base rides on the row
-			 * itself, counting gate kills apart from bare ones (#5321). */
+			/* So gate kills count apart from bare ones (#5321). */
 			...(launch.touchedBase ? { touchedBase: launch.touchedBase } : {}),
 			/* A killed run writes no scope, and an escalated whole run's argv
 			 * names no `--full=`; the margin check reads this (#3237). */

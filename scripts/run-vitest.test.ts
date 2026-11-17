@@ -7314,6 +7314,20 @@ describe("the bare run takes only the touched tests (#2930)", () => {
 			]);
 		});
 
+		it("records `head` on a gate run's stall kill too (#5321)", async () => {
+			const dir = branch();
+			tempRoot(process.pid);
+			await launch(dir, undefined, [], {
+				spawnFn: () => parkedChild(),
+				stall: 50,
+				ceiling: 60_000,
+			});
+			const { readFailures } = require("./lib/test-pass-marker.js");
+			expect(readFailures({ root: dir })).toMatchObject([
+				{ stalled: true, touchedBase: "head" },
+			]);
+		});
+
 		it("takes `merge-base` with only the seat's variable set and a live seat outside its ancestry", async () => {
 			const dir = branch();
 			/* A live seat this process is not under: its holder is a child, its

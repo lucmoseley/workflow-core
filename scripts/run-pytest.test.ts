@@ -988,6 +988,7 @@ describe("the suite ceiling (#2702)", () => {
 				argv: ["scripts"],
 				sessionId: null,
 				lander: false,
+				touchedBase: null,
 			},
 		);
 
@@ -1043,6 +1044,7 @@ describe("the suite ceiling (#2702)", () => {
 				argv: [],
 				sessionId: null,
 				lander: true,
+				touchedBase: null,
 			},
 		);
 

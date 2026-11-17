@@ -213,9 +213,9 @@ function runScope(scope, touched) {
  * @typedef {{ args: string[], touched: { resolvedFiles: number,
  *   leftOut: string[],
  *   touchedBase: import("./lib/touched-tests.js").TouchedBase }|null }} Plan
- *   what pytest is handed and, on a touched run, null on a run as typed, its
- *   file count, the tests it left to the lander and the base its selection
- *   took
+ *   what pytest is handed and, on a touched run (null on a run as typed),
+ *   its file count, the tests it left to the lander and the base its
+ *   selection took
  */
 
 /**
