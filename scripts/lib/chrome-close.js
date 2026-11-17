@@ -14,6 +14,9 @@
  * Every form prints one JSON line on stdout.
  */
 
+/* Every record, closed-log and sweep time here is written from now(), so an
+ * exported WFC_NOW skews it (clock.js RESIDUAL). */
+const { now } = require("./clock.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { writeReport } = require("./notify-report.js");
 const { reportOwner } = require("./session-id.js");
@@ -32,7 +35,11 @@ const {
 	writeLastSweep,
 	writeRecord,
 } = require("./chrome-child-store.js");
-const { RESUME_PROMPT, createCloseReader } = require("./chrome-child.js");
+const {
+	RESUME_PROMPT,
+	createCloseReader,
+	named,
+} = require("./chrome-child.js");
 const { STREAM_ARGS, startStreamChild } = require("./chrome-stream.js");
 
 /* Untraced: how long a closer waits for a still-live child to exit. */
@@ -153,13 +160,13 @@ async function resume(record, launchFor) {
  */
 function reportGivenUp(gone) {
 	const tabs = gone.heldTab ? [gone.heldTab] : (gone.tabs ?? []);
-	const named =
+	const listed =
 		tabs.length > 0
-			? tabs.map((t) => `"${t.title}" (${t.url})`).join(", ")
+			? tabs.map(named).join(", ")
 			: "tabs the record does not name";
 	writeReport(`chrome-give-up-${gone.sessionId}`, {
 		outcome: "WARN",
-		text: `A Chrome child's tab group could not be closed and was given up (${gone.reason}): ${named}, seat ${gone.seat}, session ${gone.sessionId}. Tell the founder to close it in Chrome by hand.`,
+		text: `A Chrome child's tab group could not be closed and was given up (${gone.reason}): ${listed}, seat ${gone.seat}, session ${gone.sessionId}. Tell the founder to close it in Chrome by hand.`,
 		owner: reportOwner(process.env),
 	});
 }
@@ -202,30 +209,27 @@ function settle(record, { outcome, reason }, by, at) {
  * @param {ChildRecord} record
  * @param {"trap" | "done" | "sweep"} by
  * @param {LaunchFor} launchFor
- * @param {() => Date} now
  * @returns {Promise<{sessionId: string, outcome: CloseOutcome | "given-up" | "locked", reason?: string}>}
  */
-async function closeRecord(record, by, launchFor, now) {
+async function closeRecord(record, by, launchFor) {
 	const { sessionId } = record;
 	const lock = recordLock(sessionId);
 	if (!lock.acquire()) return { sessionId, outcome: "locked" };
 	try {
 		const fresh = readRecord(sessionId);
 		if (!fresh) return { sessionId, outcome: "gone" };
-		if (isSpent(fresh, now().getTime()))
+		if (isSpent(fresh, now()))
 			return giveUpRecord(
 				fresh,
 				fresh.lastReason
 					? `past its limits, last: ${fresh.lastReason}`
 					: `past its ${GIVE_UP_MS / 86_400_000} days`,
-				now,
 			);
 		endChild(fresh);
 		const resumed = await resume(fresh, launchFor);
 		const { outcome, reason } = resumed;
-		const next = settle(fresh, resumed, by, now());
-		if (next && isSpent(next, now().getTime()))
-			return giveUpRecord(next, reason, now);
+		const next = settle(fresh, resumed, by, new Date(now()));
+		if (next && isSpent(next, now())) return giveUpRecord(next, reason);
 		return { sessionId, outcome, reason };
 	} finally {
 		lock.release();
@@ -235,10 +239,9 @@ async function closeRecord(record, by, launchFor, now) {
 /**
  * @param {ChildRecord} record
  * @param {string} reason
- * @param {() => Date} now
  */
-function giveUpRecord(record, reason, now) {
-	reportGivenUp(giveUp(record, reason, now()));
+function giveUpRecord(record, reason) {
+	reportGivenUp(giveUp(record, reason, new Date(now())));
 	return {
 		sessionId: record.sessionId,
 		outcome: /** @type {const} */ ("given-up"),
@@ -251,13 +254,10 @@ function giveUpRecord(record, reason, now) {
  * Refused (exit 2) while its launcher lives, which a trap closer first waits
  * out.
  * @param {string} sessionId
- * @param {{trap: boolean, launchFor: LaunchFor, now?: () => Date}} opts
+ * @param {{trap: boolean, launchFor: LaunchFor}} opts
  * @returns {Promise<{line: Record<string, unknown>, exit: number}>}
  */
-async function closeSession(
-	sessionId,
-	{ trap, launchFor, now = () => new Date() },
-) {
+async function closeSession(sessionId, { trap, launchFor }) {
 	const record = readRecord(sessionId);
 	if (!record)
 		return {
@@ -276,12 +276,7 @@ async function closeSession(
 			},
 			exit: 2,
 		};
-	const done = await closeRecord(
-		record,
-		trap ? "trap" : "done",
-		launchFor,
-		now,
-	);
+	const done = await closeRecord(record, trap ? "trap" : "done", launchFor);
 	return {
 		line: done,
 		exit: isSettled(done.outcome) ? 0 : 1,
@@ -292,19 +287,19 @@ async function closeSession(
  * `--sweep`: resume, one after another, every record whose launcher is dead,
  * that no closer holds, that is not held or is past its hold, and outside its
  * not-connected back-off.
- * @param {{launchFor: LaunchFor, now?: () => Date}} opts
+ * @param {{launchFor: LaunchFor}} opts
  */
-async function sweep({ launchFor, now = () => new Date() }) {
-	writeLastSweep(now());
+async function sweep({ launchFor }) {
+	writeLastSweep(new Date(now()));
 	const closed = [];
 	const skipped = [];
 	for (const record of listRecords()) {
-		const why = sweepSkip(record, now().getTime(), {
+		const why = sweepSkip(record, now(), {
 			launcherLive: isProcessLive(record.launcherPid, record.launcherStart),
 			locked: recordLock(record.sessionId).holder() !== null,
 		});
 		if (why) skipped.push({ sessionId: record.sessionId, why });
-		else closed.push(await closeRecord(record, "sweep", launchFor, now));
+		else closed.push(await closeRecord(record, "sweep", launchFor));
 	}
 	return { line: { swept: closed, skipped }, exit: 0 };
 }
@@ -327,9 +322,6 @@ function listHeld() {
 }
 
 module.exports = {
-	CLOSE_CAP_ASSISTANTS,
-	CLOSE_CAP_MS,
-	INTERRUPT_WAIT_MS,
 	closeCaps,
 	closeSession,
 	listHeld,

@@ -143,7 +143,7 @@ const readLastSweep = () => readStamp(lastSweepFile());
 /** @param {Date} at */
 function writeLastSweep(at) {
 	makeDir();
-	fs.writeFileSync(lastSweepFile(), `${at.toISOString()}\n`);
+	writeFileAtomic(lastSweepFile(), `${at.toISOString()}\n`);
 }
 
 /** @param {string} id */

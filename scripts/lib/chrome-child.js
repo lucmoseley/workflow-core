@@ -191,7 +191,7 @@ function closeSaid(text, before) {
 
 /**
  * The launcher's own result row, where the child gave none.
- * @param {"time_limit" | "killed" | "no_result"} end
+ * @param {"time_limit" | "killed" | "no_result" | "failed"} end
  */
 const launcherRow = (end) => ({
 	type: "result",
@@ -201,7 +201,8 @@ const launcherRow = (end) => ({
 });
 
 /** @param {OpenTab} t */
-const named = (t) => `"${t.title}" (${t.url})`;
+const named = (t) =>
+	`${t.title ? `"${t.title}"` : "an untitled tab"} (${t.url})`;
 
 /**
  * What the launcher prints and exits with once the child has ended: one JSON
@@ -222,15 +223,19 @@ const named = (t) => `"${t.title}" (${t.url})`;
  *   stopped: boolean,
  *   limitMs: number | undefined,
  *   killedBy: string | undefined,
+ *   failed: string | undefined,
+ *   said: string[],
  *   closeCommand: string,
  * }} end `stopped`: the launcher stopped the child by signal itself, to keep
  *   its group; `limitMs`: the limit the launcher interrupted the child at;
- *   `killedBy`: the signal the launcher itself was killed by
+ *   `killedBy`: the signal the launcher itself was killed by; `failed`: why
+ *   the launch failed before the child ran; `said`: what the launcher noted
+ *   along the way
  * @returns {{stdout: string, stderr: string, exit: number, notes: string[]}}
  */
 function chromeOutcome(end) {
 	const { sessionId, result, left, held } = end;
-	const notes = [...tabNotes(end), ...endNotes(end)].map(
+	const notes = [...end.said, ...tabNotes(end), ...endNotes(end)].map(
 		(line) => `claude-child: ${line}`,
 	);
 	return {
@@ -276,7 +281,16 @@ function tabNotes({ sessionId, left, held, closeCommand }) {
  * @param {ChromeEnd} end
  * @returns {string[]}
  */
-function endNotes({ sessionId, result, signal, stopped, limitMs, killedBy }) {
+function endNotes({
+	sessionId,
+	result,
+	signal,
+	stopped,
+	limitMs,
+	killedBy,
+	failed,
+}) {
+	if (failed) return [failed];
 	if (killedBy)
 		return [
 			`the launcher was killed by ${killedBy}; a closer resumes session ${sessionId} to close the child's tabs.`,
@@ -295,9 +309,10 @@ function endNotes({ sessionId, result, signal, stopped, limitMs, killedBy }) {
 /**
  * Which end the launcher's own row names.
  * @param {ChromeEnd} end
- * @returns {"time_limit" | "killed" | "no_result"}
+ * @returns {"time_limit" | "killed" | "no_result" | "failed"}
  */
-function launcherEnd({ killedBy, limitMs }) {
+function launcherEnd({ failed, killedBy, limitMs }) {
+	if (failed) return "failed";
 	if (killedBy) return "killed";
 	return limitMs === undefined ? "no_result" : "time_limit";
 }
@@ -321,4 +336,5 @@ module.exports = {
 	chromeStandingLines,
 	createCloseReader,
 	createTabTally,
+	named,
 };
