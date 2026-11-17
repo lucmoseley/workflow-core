@@ -20,10 +20,10 @@
 		],
 		"allowlist": [
 			{
-				"path": "scripts/lib/suite-concurrency.test.ts",
+				"path": "scripts/lib/suite-queue.test.ts",
 				"anchors": [
 					{
-						"anchor": "under the ~1800 MB .* for the 2 vitest worker",
+						"anchor": "MemAvailable at lowest 1800 MB",
 						"needle": "1800 MB"
 					}
 				]
@@ -78,6 +78,19 @@
 				"path": "scripts/measure-advisor/scan_advisor.py",
 				"anchors": [
 					"\"~$0.41 a call at 82k context\""
+				]
+			},
+			{
+				"path": "scripts/lib/residue-patterns.test.ts",
+				"anchors": [
+					{
+						"anchor": "needles: [{ needle: \"82k\" }]",
+						"needle": "82k"
+					},
+					{
+						"anchor": "figure: \"82k\", retiredBy: \"#9\"",
+						"needle": "82k"
+					}
 				]
 			}
 		]
@@ -248,14 +261,6 @@
 			},
 			{
 				"needle": "786 / 1412 / 2020",
-				"scanned": true
-			},
-			{
-				"needle": "3.15 GB",
-				"scanned": true
-			},
-			{
-				"needle": "3,150 MB",
 				"scanned": true
 			},
 			{
@@ -644,6 +649,15 @@
 					"| §Machine limits, the 1.7 / 2.1 / 2.4 GB gates |",
 					"that count's dip — 589 / 990 / 1271 MB"
 				]
+			},
+			{
+				"path": "scripts/lib/suite-queue-replay.test.ts",
+				"anchors": [
+					{
+						"anchor": "a `tsc` peak of ~1,800 to ~2,500 MB",
+						"needle": "2,500 MB"
+					}
+				]
 			}
 		]
 	},
@@ -791,6 +805,42 @@
 						"needle": "6 hours"
 					}
 				]
+			},
+			{
+				"path": "docs/environment.md",
+				"anchors": [
+					{
+						"anchor": "After 6 hours with sessions still live",
+						"needle": "6 hours"
+					}
+				]
+			},
+			{
+				"path": "migrations/v2.2.0.md",
+				"anchors": [
+					{
+						"anchor": "checked at most every 6 hours and",
+						"needle": "6 hours"
+					}
+				]
+			},
+			{
+				"path": "scripts/lib/gate-sweep.test.ts",
+				"anchors": [
+					{
+						"anchor": "queues a reading that changes every sweep once per 6 hours",
+						"needle": "6 hours"
+					}
+				]
+			},
+			{
+				"path": "scripts/lib/latest-timings.test.ts",
+				"anchors": [
+					{
+						"anchor": "checked at most every 6 hours and",
+						"needle": "6 hours"
+					}
+				]
 			}
 		]
 	},
@@ -872,6 +922,10 @@
 				"anchors": [
 					"validate-p0 · bill $400 · no change."
 				]
+			},
+			{
+				"path": "scripts/lib/refill-panel.test.ts",
+				"lines": []
 			}
 		]
 	},
@@ -1035,6 +1089,15 @@
 				"anchors": [
 					{
 						"anchor": "A review of 200-400 LOC over 60-90 minutes",
+						"needle": "90 minutes"
+					}
+				]
+			},
+			{
+				"path": "scripts/lib/age-text.js",
+				"anchors": [
+					{
+						"anchor": "in ms; 90 minutes where absent",
 						"needle": "90 minutes"
 					}
 				]
@@ -1335,6 +1398,24 @@
 				"path": "scripts/check-citation-tracker.js",
 				"anchors": [
 					"The ~13,000 citations already in the tree"
+				]
+			},
+			{
+				"path": "scripts/lib/image-budget.js",
+				"anchors": [
+					{
+						"anchor": "const WARN = 13_000_000;",
+						"needle": "13_000"
+					}
+				]
+			},
+			{
+				"path": "scripts/arm-tasks/tasks.json",
+				"anchors": [
+					{
+						"anchor": "Only the hits this ticket names are in scope",
+						"needle": "13,000"
+					}
 				]
 			}
 		]
@@ -1783,15 +1864,9 @@
 				]
 			},
 			{
-				"path": "scripts/pick-next.js",
+				"path": "scripts/lib/pick-next-verdict.js",
 				"anchors": [
 					"21 days, non-responsive at 45"
-				]
-			},
-			{
-				"path": "scripts/lib/log-reading.js",
-				"anchors": [
-					"21 days caps the wait"
 				]
 			},
 			{
@@ -1830,6 +1905,15 @@
 					"21 days after the first low-top refusal",
 					"is capped at 21 days, reading thin",
 					"is the 21-day ceiling while fewer than three repos"
+				]
+			},
+			{
+				"path": "scripts/arm-tasks/tasks.json",
+				"anchors": [
+					{
+						"anchor": "Only the hits this ticket names are in scope",
+						"needle": "21-day"
+					}
 				]
 			}
 		]
@@ -2188,7 +2272,7 @@
 			},
 			{
 				"needle": "1650",
-				"scanned": true
+				"scanned": false
 			},
 			{
 				"needle": "250 s",
@@ -2263,12 +2347,7 @@
 				"scanned": true
 			}
 		],
-		"allowlist": [
-			{
-				"path": "docs/data/issue-title-search-2026-09-27/titles.json",
-				"lines": []
-			}
-		]
+		"allowlist": []
 	},
 	"guard-count-s3": {
 		"needles": [
@@ -2632,20 +2711,6 @@
 				"scanned": true
 			}
 		],
-		"allowlist": [
-			{
-				"path": "scripts/fixtures/gate-judge-cases.json",
-				"lines": []
-			},
-			{
-				"path": "scripts/instruction-surface-anchors.json",
-				"anchors": [
-					{
-						"anchor": "after the hold moved to a 1,000 MB floor",
-						"needle": "1,000 MB floor"
-					}
-				]
-			}
-		]
+		"allowlist": []
 	}
 }

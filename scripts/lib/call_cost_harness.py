@@ -19,14 +19,12 @@ everything, the purged modules included, is put back after it, a throwing
 call too.
 
 A child is recorded as the executable's basename and its first argument,
-joined by a space: `git rev-parse`, `python3 -c`. An absolute first argument
-is shown relative to the scripts root, else to the call's cwd, else as its
+joined by a space. An absolute first argument is shown relative to the scripts root, else to the call's cwd, else as its
 basename, so a pin holds no machine path. A shell-string start (`os.system`,
 or a `Popen` given a string) is split on whitespace.
 
 Every call raises CallCostError where the program exits other than
-`expect_status` (default 0) or writes stderr without `allow_stderr`: a pin
-over a broken call is not a pin over the common path. An exception escaping
+`expect_status` (default 0) or writes stderr without `allow_stderr`. An exception escaping
 the program is exit 1 with its traceback on stderr, as under `python3`.
 
 BLIND SPOT: children are counted by replacing `subprocess.Popen`,
@@ -72,7 +70,6 @@ class CallCost:
 
 
 def _scripts_root_of(script: str) -> str:
-    """The nearest ancestor of `script` named `scripts`, or its own directory."""
     for parent in Path(script).parents:
         if parent.name == "scripts":
             return str(parent)
@@ -89,7 +86,6 @@ def _under(file: str, root: str) -> bool:
 
 
 def _repo_modules(root: str) -> dict[str, str]:
-    """Each repo module under `root` in sys.modules, by name, to its file."""
     found = {}
     for name, module in list(sys.modules.items()):
         file = getattr(module, "__file__", None)

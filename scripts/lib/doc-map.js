@@ -439,21 +439,25 @@ function isLockfile(file) {
 }
 
 /*
- * Recorded session transcripts, dropped by path: a recording is frozen at the
- * day it was made, so every figure or term it quotes is legitimate by
- * construction, and allowlisting them would cost a row per retired figure per
- * recording (#2415).
+ * Frozen corpora, dropped by path: each item quotes text as it stood on the day
+ * it was recorded, so every figure or term in it is legitimate by construction,
+ * and allowlisting them would cost a row per retired figure per item (#2415).
+ * They are the session transcripts, the gate judge's labelled ticket text and
+ * the arm tasks' patches, which replay past revisions as diffs (#5358).
  *
- * Residual: a hand-written fixture named like a recording is dropped from every
- * scan unchecked, and a recording kept outside `scripts/fixtures/` stays in
- * scope.
+ * Residual: a hand-written fixture named like a recording, and a gate-judge
+ * case's own fields beside its quoted text, are dropped from every scan
+ * unchecked; a recording kept outside these paths stays in scope.
  */
-const RECORDED_TRANSCRIPT =
-	/^scripts\/fixtures\/(?:[^/]+\/)*recorded-[^/]+\.jsonl$/;
+const FROZEN_CORPORA = [
+	/^scripts\/fixtures\/(?:[^/]+\/)*recorded-[^/]+\.jsonl$/,
+	/^scripts\/fixtures\/gate-judge-cases\.json$/,
+	/^scripts\/arm-tasks\/[^/]+\.patch$/,
+];
 
 /** @param {string} file */
-function isRecordedTranscript(file) {
-	return RECORDED_TRANSCRIPT.test(file);
+function isFrozenCorpus(file) {
+	return FROZEN_CORPORA.some((re) => re.test(file));
 }
 
 /**
@@ -487,11 +491,11 @@ function scanScope(ctx, { text, mapPath, checker }) {
 			(f) =>
 				!isSelf(f) &&
 				!isLockfile(f) &&
-				!isRecordedTranscript(f) &&
+				!isFrozenCorpus(f) &&
 				!exempt.some((m) => m(f)),
 		),
 		/* Counted against Section A, not as the scan's shortfall: the checker, its
-		 * test, the lockfiles and the recorded transcripts are dropped too, and
+		 * test, the lockfiles and the frozen corpora are dropped too, and
 		 * none of them is class-exempt. */
 		exemptCount: tracked.filter((f) => exempt.some((m) => m(f))).length,
 	};

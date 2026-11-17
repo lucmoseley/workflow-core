@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, expect, vi } from "vitest";
+import { CI_WORKFLOW } from "./lib/adopter-ci.js";
 import { skeletonPaths } from "./lib/core-owned-files.js";
 import { defineTemplate, mkDirOutsideRepo } from "./lib/git-fixture";
 import { adopt } from "./lib/init-adopter-core.js";
@@ -11,8 +12,11 @@ import { gateTmpdir } from "./lib/precommit-gate-harness.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { upgrade } from "./lib/upgrade-walk.js";
 
-/* These fixtures hold no package.json, and a pathspec naming it fails. */
-export const SKELETON_PATHS = skeletonPaths((rel) => rel !== "package.json");
+/* These fixtures hold no package.json, and init's config carries no `ci` key
+ * to write the CI workflow from; a pathspec naming either fails. */
+export const SKELETON_PATHS = skeletonPaths(
+	(rel) => rel !== "package.json" && rel !== CI_WORKFLOW,
+);
 
 export const CORE = path.resolve(__dirname, "..");
 export const SCRIPT = path.join(__dirname, "init-adopter.js");

@@ -1337,7 +1337,7 @@ describe("scanScope", () => {
 		expect(files).toEqual(["docs/my-package-lock.json", "package.json"]);
 	});
 
-	/* #2415 — why recordings leave scope: `isRecordedTranscript` in doc-map.js. */
+	/* #2415 — why recordings leave scope: `isFrozenCorpus` in doc-map.js. */
 	it("drops the recorded session transcripts from a scope that otherwise holds them", () => {
 		const recording = "scripts/fixtures/arm-secondary/recorded-69f9fc0f.jsonl";
 		// Positive control, as for the lockfiles.
@@ -1366,6 +1366,24 @@ describe("scanScope", () => {
 			"docs/data/recorded-e.jsonl",
 			"scripts/fixtures/x/not-recorded-d.jsonl",
 			"scripts/fixtures/x/recorded-c.json",
+		]);
+	});
+
+	it("drops the gate judge's labelled cases and the arm tasks' patches, and nothing beside them (#5358)", () => {
+		const { files } = scopeIn({
+			text: map,
+			files: [
+				"scripts/fixtures/gate-judge-cases.json",
+				"scripts/fixtures/gate-judge-reply.json",
+				"scripts/arm-tasks/tasks.json",
+				"scripts/arm-tasks/x.fix.patch",
+				"scripts/arm-tasks.js",
+			],
+		});
+		expect(files.sort()).toEqual([
+			"scripts/arm-tasks.js",
+			"scripts/arm-tasks/tasks.json",
+			"scripts/fixtures/gate-judge-reply.json",
 		]);
 	});
 

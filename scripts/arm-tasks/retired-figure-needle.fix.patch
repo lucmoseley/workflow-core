@@ -1,19 +1,22 @@
 diff --git a/docs/machinery-superseded.json b/docs/machinery-superseded.json
-index 815b89bb4cc976f3ff50de600c2b93bca1d0e455..ac46b7915a28d49fb751791f58e1c95d74175a93 100644
+index fe0eedb38d3cb4dbfe7d3d172385fe9adb981d85..545fb040acf0186be920849f0b9b96501c9ece4e 100644
 --- a/docs/machinery-superseded.json
 +++ b/docs/machinery-superseded.json
-@@ -1706,9 +1706,8 @@
+@@ -1860,13 +1860,6 @@
+ 					"21 days, non-responsive at 45"
  				]
  			},
- 			{
+-			{
 -				"path": "scripts/report-close-check-reading.js",
-+				"path": "scripts/lib/log-reading.js",
- 				"anchors": [
+-				"anchors": [
 -					"refused-then-answered question, whichever is later, and at most 21 days",
- 					"21 days caps the wait"
- 				]
- 			},
-@@ -1721,12 +1720,6 @@
+-					"21 days caps the wait"
+-				]
+-			},
+ 			{
+ 				"path": "scripts/report-close-check-reading.test.ts",
+ 				"anchors": [
+@@ -1876,12 +1869,6 @@
  					"whose first log line came after the 21-day ceiling"
  				]
  			},

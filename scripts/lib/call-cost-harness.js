@@ -8,18 +8,15 @@
  *
  *   callCost / callCostAsync  a Node program, run in-process through
  *       runInProcess / runInProcessAsync with their options unchanged.
- *   shellCallCost             a shell program, run as a real process with a
- *       recording shim first on PATH for each watched binary.
+ *   shellCallCost             a shell program.
  *   call_cost (call_cost_harness.py)  the Python half, for pytest.
  *
  * A child is recorded as the executable's basename and its first argument,
- * joined by a space: `git rev-parse`, `node precommit-dispatch.js`. An
- * absolute first argument is shown relative to the scripts root, else to the
+ * joined by a space. An absolute first argument is shown relative to the scripts root, else to the
  * call's cwd, else as its basename, so a pin holds no machine path.
  *
  * Every call throws where the program exits other than `expectStatus`
- * (default 0) or writes stderr without `allowStderr`: a pin over a broken
- * call is not a pin over the common path.
+ * (default 0) or writes stderr without `allowStderr`.
  *
  * BLIND SPOT (Node): children are counted by replacing each process-starting
  * function on the shared `node:child_process` export for the call's duration.
@@ -71,11 +68,7 @@ const HARNESS = new Set([
 
 const NODE_MODULES = `${path.sep}node_modules${path.sep}`;
 
-/**
- * The nearest ancestor of `script` named `scripts`, or its own directory.
- *
- * @param {string} script
- */
+/** @param {string} script */
 function scriptsRootOf(script) {
 	let dir = path.dirname(script);
 	for (;;) {
@@ -101,8 +94,8 @@ function shownArg(arg, root, cwd) {
 }
 
 /**
- * One child as `basename firstArg`. A shell-string start (exec, execSync, or
- * a spawn with no argv) is split on whitespace.
+ * A shell-string start (exec, execSync, or a spawn with no argv) is split on
+ * whitespace.
  *
  * @param {string} route
  * @param {unknown[]} argv the starter's own arguments
@@ -182,12 +175,7 @@ function recordStarts(children, root, cwd) {
 	};
 }
 
-/**
- * The repo modules under `root` left in require.cache, harness and
- * node_modules aside, relative and sorted.
- *
- * @param {string} root
- */
+/** @param {string} root */
 function loadedUnder(root) {
 	return Object.keys(require.cache)
 		.filter((k) => !k.includes(NODE_MODULES) && !HARNESS.has(k))
