@@ -13,11 +13,17 @@
  * one last relaunch at the cap, so 65 relaunch attempts for one stop at most
  * (#4871), never one without `--resume` (#2359).
  *
- * Its records live in their own file, OUTSIDE_FILE, as they are no launches:
+ * A `done` one the harness ended on its own "No response requested." record
+ * (#5324) is resumed as a loop launch is (lib/refill-synthetic.js). One the
+ * reaper stopped is reached only where the loop read the stop while its
+ * process still ran (#5331).
+ *
+ * Its records live in their own file, lib/refill-dir.js's OUTSIDE_FILE, as
+ * they are no launches:
  * nothing that counts, ranks or finishes launches reads them.
  */
 
-const { API_PROMPT } = require("./loop-prompts.js");
+const { API_PROMPT, SYNTHETIC_PROMPT } = require("./loop-prompts.js");
 const { RESUME_CAP, blockAct, nextTryAt } = require("./block-act.js");
 const {
 	blockedIdsOf,
@@ -31,9 +37,9 @@ const {
 	typedVerdict,
 } = require("./refill-blocks.js");
 const { buildGiveUpFix, withRetried } = require("./refill-retire.js");
+const { judgeStop } = require("./refill-synthetic.js");
 const { shortJobId } = require("./job-paths.js");
 
-const OUTSIDE_FILE = ".refill-outside.json";
 const MIN_MS = 60 * 1000;
 /* The short re-attempts a failed scheduled relaunch earns, each no sooner
  * than its gap after the failure before it. The gaps: untraced (delegated,
@@ -56,7 +62,8 @@ const RE_ATTEMPTS = RE_ATTEMPT_GAPS_MS.length;
  *   nextAt?: number, attachAt?: number, handsOff?: true, typedUnread?: true,
  *   capped?: true,
  *   held?: StoppedTarget, reAttempts?: number, reAttemptAt?: number,
- *   unretired?: Unretired[]}}
+ *   unretired?: Unretired[],
+ *   synthetic?: import("./refill-synthetic.js").SyntheticResumes}}
  *   Outside  a session the loop took up: `since`, the first tick that read its
  *   current API-error stop, absent between stops; `tries`, the resumes the loop
  *   made since it took it up, the last at `triedAt`, the next due at `nextAt`;
@@ -67,7 +74,8 @@ const RE_ATTEMPTS = RE_ATTEMPT_GAPS_MS.length;
  *   loop stopped whose `--bg --resume` failed, with `reAttempts`, the short
  *   re-attempts spent since its last scheduled try, the next due at
  *   `reAttemptAt`, absent once they are spent;
- *   `unretired`, the originals of its copies whose jobs would not retire
+ *   `unretired`, the originals of its copies whose jobs would not retire;
+ *   `synthetic`, its resumes of its current synthetic stop (#5324)
  */
 
 /**
@@ -169,10 +177,11 @@ function buildOutside(a, now) {
  * @param {Outside} o
  * @param {StoppedTarget} target
  * @param {Tick["io"]} io
+ * @param {string} [prompt]
  * @returns {Outside|string}
  */
-function relaunchOrWhy(o, target, io) {
-	const r = io.resumeStopped(sessionRefOf(o), API_PROMPT, target);
+function relaunchOrWhy(o, target, io, prompt = API_PROMPT) {
+	const r = io.resumeStopped(sessionRefOf(o), prompt, target);
 	if (r.failed !== null) return r.failed;
 	io.log(`resumed ${nameOf(o)} by --bg --resume, ${buildResumedHow(r)}`);
 	return withUnretired(
@@ -384,9 +393,68 @@ function judge(o, row, causeOf, seen) {
 }
 
 /**
+ * The record of a session the registry no longer lists: one held stopped
+ * retried, one owing a synthetic stop's resume judged; null for any other.
+ * @param {Outside} o
+ * @param {Tick} seen
+ * @returns {Outside|null}
+ */
+function unlistedTurn(o, seen) {
+	if (o.held) return retryHeld({ ...o, held: o.held }, seen);
+	if (!o.synthetic || o.synthetic.spent) return null;
+	const at = seen.io.syntheticStopOf(sessionRefOf(o));
+	if (at === null && o.synthetic.attachAt === undefined) return null;
+	return judgeSynthetic(o, seen, at);
+}
+
+/**
+ * `o` as lib/refill-synthetic.js's Subject.
+ * @param {Outside} o
+ * @param {Tick} seen
+ * @returns {import("./refill-synthetic.js").Subject<Outside>}
+ */
+function syntheticSubject(o, seen) {
+	const { io } = seen;
+	return {
+		name: nameOf(o),
+		ref: sessionRefOf(o),
+		was: o.synthetic,
+		admitted: isRunAdmitted(o, seen),
+		keep: (rec) => ({ ...o, synthetic: rec }),
+		stop: () => {
+			const r = io.stop(o.seat, o.jobId);
+			return r.ok ? null : r.why;
+		},
+		resume: (target, rec) => {
+			const moved = relaunchOrWhy(o, target, io, SYNTHETIC_PROMPT);
+			return typeof moved === "string"
+				? moved
+				: { out: { ...moved, synthetic: rec } };
+		},
+		report: (line) => io.log(line),
+	};
+}
+
+/**
+ * `o`'s synthetic stop this tick (#5324), judged by lib/refill-synthetic.js's
+ * judgeStop; `o` unchanged where that leaves it so.
+ * @param {Outside} o
+ * @param {Tick} seen
+ * @param {import("./block-cause.js").IdleReading} [at]  its reading, where
+ *   already read this tick
+ * @returns {Outside}
+ */
+const judgeSynthetic = (
+	o,
+	seen,
+	at = seen.io.syntheticStopOf(sessionRefOf(o)),
+) => judgeStop(syntheticSubject(o, seen), at, "normal", seen) ?? o;
+
+/**
  * The record of a session the registry lists live, `o` where the loop had
- * one, else `fresh`: judged where the listing shows it blocked, else between
- * stops.
+ * one, else `fresh`: judged where the listing shows it blocked; else its
+ * synthetic stop judged where its job store and transcript read one, or a
+ * typed resume of one is in flight; else between stops.
  * @param {Outside|undefined} o
  * @param {Outside} fresh
  * @param {{row: AgentRecord, blocked: Set<string|undefined>, causeOf: CauseOf}}
@@ -397,6 +465,12 @@ function judge(o, row, causeOf, seen) {
 function listedTurn(o, fresh, { row, blocked, causeOf }, seen) {
 	if (blocked.has(fresh.jobId))
 		return judge(o ? withoutHeld(o) : fresh, row, causeOf, seen);
+	const at = seen.io.syntheticStopOf(sessionRefOf(fresh));
+	const pending = o?.synthetic?.attachAt !== undefined;
+	if (typeof at === "number" || pending) {
+		const { since: _, ...base } = fresh;
+		return judgeSynthetic(o ?? base, seen, at);
+	}
 	return o ? betweenStops(o) : null;
 }
 
@@ -417,7 +491,8 @@ const withOriginalsRetried = (o, io) =>
  * lists live that no launch in `launches` is (#4815): each copy's unretired
  * original tried again (#4829), each session blocked on a transient API error
  * taken up and acted on, every record of one no longer listed dropped, save
- * one the loop stopped and holds for a retry (retryHeld), and any record kept
+ * one the loop stopped and holds for a retry (retryHeld), one still owed a
+ * synthetic stop's resume (unlistedTurn), and any record kept
  * while an original of its copy is unretired. Only the retirements off an
  * unread listing, which cannot tell blocked from working; a barred tick types
  * nothing.
@@ -469,9 +544,8 @@ function turnOutside(had, { launches, registry, causeOf, agents }, seen) {
 		byJob.delete(key);
 		keep(listedTurn(o, fresh, { row, blocked, causeOf }, seen), o ?? fresh);
 	}
-	for (const o of byJob.values())
-		keep(o.held ? retryHeld({ ...o, held: o.held }, seen) : null, o);
+	for (const o of byJob.values()) keep(unlistedTurn(o, seen), o);
 	return next;
 }
 
-module.exports = { OUTSIDE_FILE, actOnOutside };
+module.exports = { actOnOutside };

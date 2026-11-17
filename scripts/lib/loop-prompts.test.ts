@@ -9,7 +9,9 @@ import {
 	BOOT_PROMPT,
 	BOOT_UNREAD_PROMPT,
 	hasNothingToRepeat,
+	isLoopPrompt,
 	parkedPromptOf,
+	SYNTHETIC_PROMPT,
 } from "./loop-prompts.js";
 
 describe("a parked session's resume, by the block its marker names (#3949)", () => {
@@ -64,5 +66,20 @@ describe("a session a restart killed mid-work (#4098)", () => {
 		expect(BOOT_UNREAD_PROMPT).toContain(
 			"Where you continue, first re-run `node scripts/claim-issue.js <n>`",
 		);
+	});
+});
+
+describe("a job the harness ended on a synthetic reply (#5322)", () => {
+	it("carries the loop prefix, so no reader takes it for the founder's", () => {
+		expect(isLoopPrompt(SYNTHETIC_PROMPT)).toBe(true);
+	});
+
+	it("says the harness ended the turn, re-claims, and checks its last call", () => {
+		expect(SYNTHETIC_PROMPT).toContain("you did not end it");
+		expect(SYNTHETIC_PROMPT).toContain(
+			"`node scripts/claim-issue.js <n>` on each issue you hold",
+		);
+		expect(SYNTHETIC_PROMPT).toContain("where it refuses on a live holder");
+		expect(SYNTHETIC_PROMPT).toContain("check whether it already took effect");
 	});
 });

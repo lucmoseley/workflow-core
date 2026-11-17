@@ -9,6 +9,8 @@ const path = require("node:path");
 const { machineMarkerPath } = require("./machine-marker.js");
 
 const REFILL_STATE_FILE = ".refill-loop-state.json";
+/* lib/refill-outside.js's records of the sessions the loop did not launch. */
+const OUTSIDE_FILE = ".refill-outside.json";
 
 /** @param {string} name */
 function refillPath(name) {
@@ -17,4 +19,4 @@ function refillPath(name) {
 		: machineMarkerPath(name, process.env);
 }
 
-module.exports = { REFILL_STATE_FILE, refillPath };
+module.exports = { OUTSIDE_FILE, REFILL_STATE_FILE, refillPath };
