@@ -1118,7 +1118,7 @@ describe("faults", () => {
 	});
 
 	/* Positive pair: "lands a lone ref as the integration commit its merge
-	 * names", whose batch keeps its ref and lands at its first merge. */
+	 * names". */
 	it("merges a batch under test again without a member withdrawn meanwhile, so main never takes it (#5316)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },
@@ -1149,7 +1149,7 @@ describe("faults", () => {
 	});
 
 	/* Positive pair: "lands a batch whose failing files pass on their
-	 * rerun, isolating nothing", whose search keeps every ref and lands. */
+	 * rerun, isolating nothing". */
 	it("batches a search's members again without one withdrawn during its rerun, so main never takes it (#5316)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },

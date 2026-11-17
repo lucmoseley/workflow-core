@@ -1280,9 +1280,8 @@ const isWithdrawn = (s, m) => !s.queue.some((r) => r.name === m.name);
 /**
  * The merge of `b` onto `base`, where it is not merged there yet: a batch
  * merged onto a base that has since moved is merged again onto the new one,
- * so `main` only ever fast-forwards; else null. A member whose queue ref is
- * gone from the remote, withdrawn, is left out of it first, merged or not,
- * so `main` never takes it (#5308, #5316).
+ * so `main` only ever fast-forwards; else null. A withdrawn member is left
+ * out of it first, merged or not, so `main` never takes it (#5308, #5316).
  * @param {Batch} b
  * @param {QueueState} s
  * @param {string} base
@@ -1396,9 +1395,8 @@ function searchAction(b, s, main) {
 /**
  * The search's first steps, its whole suite red at its integration commit:
  * the rerun and the base check, at the `main` it was merged onto. A member
- * withdrawn has the rest batched again without it, so `main` never takes
- * it (#5316), ahead of any hold on a refusal, as the commit refused is
- * abandoned either way.
+ * withdrawn has the rest batched again, ahead of any hold on a refusal, as
+ * the commit refused is abandoned either way (#5316).
  * @param {Batch} b
  * @param {QueueState} s
  * @param {string} main
@@ -2390,8 +2388,6 @@ const batchPlace = (slot) => ({ kind: "batch", slot });
 const isoPlace = (k) => ({ kind: "iso", k });
 
 /**
- * Forgets the asks at `sha` and cancels the batch's runs there, its commit
- * abandoned.
  * @param {Pick<QueueLanderDeps, "tester" | "say">} deps
  * @param {QueueRun} run accumulator: as forgetAsks's
  * @param {{sha: string, slot: number}} at
@@ -3176,7 +3172,6 @@ const RED_KINDS = /** @type {const} */ ([
 const RED_PATH_KINDS = new Set(RED_KINDS);
 
 /**
- * Why `n` members are left out as withdrawn, for the log.
  * @param {number} n
  */
 const goneReason = (n) =>
