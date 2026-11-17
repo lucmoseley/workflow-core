@@ -111,6 +111,7 @@ it("closes the open issue with the comment its body earns, and none where the bo
 	const closed: [number, string][] = [];
 	const close = queueIssueCloser({
 		openIssue: () => ({ number: 7, labels: LABELS, body: "ready" }),
+		refresh: () => "refreshed",
 		close: (n, c) => {
 			closed.push([n, c]);
 		},
@@ -119,4 +120,26 @@ it("closes the open issue with the comment its body earns, and none where the bo
 	expect(close(ISSUE.title, (b) => (b === "ready" ? "done" : null))).toBe(7);
 	expect(close(ISSUE.title, () => null)).toBeNull();
 	expect(closed).toEqual([[7, "done"]]);
+});
+
+it("ticks the body's criteria before the close, as its comment states them met (#5354)", () => {
+	const calls: string[] = [];
+	const body = "## Acceptance criteria\n\n- [ ] The cause is fixed.\n";
+	const close = queueIssueCloser({
+		openIssue: () => ({ number: 7, labels: LABELS, body }),
+		refresh: (n, b) => {
+			calls.push(`refresh #${n}: ${b}`);
+			return "refreshed";
+		},
+		close: (n) => {
+			calls.push(`close #${n}`);
+		},
+	});
+
+	close(ISSUE.title, () => "done");
+
+	expect(calls).toEqual([
+		"refresh #7: ## Acceptance criteria\n\n- [x] The cause is fixed.\n",
+		"close #7",
+	]);
 });

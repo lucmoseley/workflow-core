@@ -29,6 +29,7 @@ const { short } = require("./lander-git.js");
 const { queueBranch } = require("./landing-refs.js");
 const { liveQueueDeps } = require("./queue-issue.js");
 const { takesLabel } = require("./takes-label.js");
+const { tickCriteria } = require("./ticket-criteria.js");
 const { readOwnFilings, similarTitles } = require("./tracker-ops.js");
 const { readSubIssues } = require("./issue-tree.js");
 const { requireKey } = require("./workflow-core-config.js");
@@ -135,6 +136,7 @@ Tip commit: ${quoteSubject(subject)}
  * @typedef {{number: number, title: string, body: string}} OpenTicket
  * @typedef {FilerDeps & {subjectsOf: (base: string,
  *   tip: string) => string[], openUnits: (parent: number|null) => number[],
+ *   bodyOf: (n: number) => string,
  *   openTitled: (prefix: string) => OpenTicket[],
  *   refresh: (n: number, body: string) => void,
  *   comment: (n: number, text: string) => void,
@@ -144,7 +146,7 @@ Tip commit: ${quoteSubject(subject)}
  *   `openUnits` the tickets rule:size-line weighs a new one under `parent`
  *   against: its sub-issues and this session's filings; `openTitled` the
  *   open issues whose titles start with `prefix`, read live; `refresh`
- *   replaces the issue's body; `comment` adds one; `hasComment` whether
+ *   replaces the issue's body; `bodyOf` reads it; `comment` adds one; `hasComment` whether
  *   a comment on it holds `text`; `close` closes it with `comment`
  */
 
@@ -209,6 +211,10 @@ function dropTicketFiler(deps) {
 		},
 		closeDropTicket(ticket, d, main) {
 			if (deps.stateOf(ticket) === "closed") return;
+			/* The close comment states the criterion met (#5354). */
+			const body = deps.bodyOf(ticket);
+			const ticked = tickCriteria(body);
+			if (ticked !== body) deps.refresh(ticket, ticked);
 			deps.close(
 				ticket,
 				`Closed by the queue lander: \`main\` at ${main} holds the work of \`${queueBranch(d.name)}\` dropped at ${d.sha}.`,
@@ -384,6 +390,18 @@ function liveFilerDeps(root) {
 				"--jq",
 				".comments[].body",
 			]).includes(text),
+		bodyOf: (n) =>
+			gh([
+				"issue",
+				"view",
+				String(n),
+				"--repo",
+				repo(),
+				"--json",
+				"body",
+				"--jq",
+				".body",
+			]),
 		close: queue.close,
 		fileIssue: queue.fileIssue,
 		openUnits: (parent) => [

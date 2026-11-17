@@ -95,6 +95,7 @@ describe("dropTicketFiler", () => {
 					? { status, stdout: "Filed #9: https://x/9\n", stderr: "" }
 					: { status, stdout: "", stderr };
 			},
+			bodyOf: () => "## Acceptance criteria\n\n- [ ] `main` holds the work.\n",
 			stateOf: (n) => {
 				const state = states[n];
 				if (!state) throw new Error(`no issue #${n}`);
@@ -251,6 +252,12 @@ describe("dropTicketFiler", () => {
 			{
 				n: 5,
 				comment: `Closed by the queue lander: \`main\` at ${M} holds the work of \`queue/wt-1\` dropped at ${A}.`,
+			},
+		]);
+		expect(f.bodies).toEqual([
+			{
+				n: 5,
+				body: "## Acceptance criteria\n\n- [x] `main` holds the work.\n",
 			},
 		]);
 	});

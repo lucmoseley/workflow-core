@@ -82,4 +82,29 @@ function unmetCriteria(body) {
 	return section === null ? [] : taskItems(section).filter(isUnmet);
 }
 
-module.exports = { criteriaSection, isUnmet, taskItems, unmetCriteria };
+/**
+ * The body with each unmet criterion of its criteria section ticked, for a
+ * closer whose close comment is that criterion's verification (#5354).
+ * @param {string} body
+ * @returns {string}
+ */
+function tickCriteria(body) {
+	const section = criteriaSection(body);
+	if (section === null) return body;
+	const ticked = section
+		.split("\n")
+		.map((line) => {
+			const [item] = TASK_ITEM.test(line) ? taskItems(line) : [];
+			return item && isUnmet(item) ? line.replace("[ ]", "[x]") : line;
+		})
+		.join("\n");
+	return body.replace(section, () => ticked);
+}
+
+module.exports = {
+	criteriaSection,
+	isUnmet,
+	taskItems,
+	tickCriteria,
+	unmetCriteria,
+};
