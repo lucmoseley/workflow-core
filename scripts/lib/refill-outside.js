@@ -16,8 +16,7 @@
  * A `done` one the harness ended on its own "No response requested." record
  * (#5324) is resumed as a loop launch is (lib/refill-synthetic.js). One the
  * reaper stopped before the loop read that stop has left the listing, so it
- * is reached through the reaper's journal (lib/reaped-jobs.js), each entry
- * read once past the loop's cursor (#5331).
+ * is reached through the reaper's journal (lib/reaped-jobs.js) (#5331).
  *
  * Its records live in their own file, lib/refill-dir.js's OUTSIDE_FILE, as
  * they are no launches:
@@ -526,8 +525,7 @@ const reapedKey = (j) => `${j.seat}\0${j.jobId}\0${j.at}`;
  * The records the reaper's journal entries the loop has not read start, each
  * entry read once: none for a launch's job or session, past or present, a
  * listed session, or one this tick's records hold, as their own acts reach
- * them. The entries read are remembered by key, never by a high-water mark,
- * which a slower reaper run's earlier-stamped write could slip under.
+ * them. The entries read are remembered by key, never by a high-water mark.
  * @param {{launches: import("./refill-loop.js").LoopLaunch[],
  *   registry: AgentRecord[], turned: Outside[]}} known
  * @param {Tick} seen
@@ -557,9 +555,8 @@ function takeUpReaped({ launches, registry, turned }, seen) {
 
 /**
  * The record a job the reaper stopped starts (#5331): where its job store and
- * transcript read a synthetic stop, judged at once, as the reaper's stop came
- * after the quiet window; none for any other, nor where the reading will not
- * read, which is logged as it is not read again.
+ * transcript read a synthetic stop, judged at once; none for any other, nor
+ * where the reading will not read, which is logged as it is not read again.
  * @param {import("./reaped-jobs.js").ReapedJob} j
  * @param {Tick} seen
  * @returns {Outside[]}

@@ -2,8 +2,7 @@
  * reaped-jobs.js — the journal of the background jobs the reaper stopped
  * (#5331), one machine-wide file whatever seat the reaper ran on. The refill
  * loop reads it to reach a session the reaper stopped before the loop read
- * its synthetic stop: such a job has left the registry listing, and the job
- * store itself is thousands of records a tick.
+ * its synthetic stop: such a job has left the registry listing.
  *
  * Two reaper runs writing at once can lose one's entries; check-ghost-jobs's
  * SYNTHETIC-STOP finding still reports such a job.
@@ -35,8 +34,6 @@ const isEntry = (e) =>
 	);
 
 /**
- * `list` pruned to REAPED_KEEP_MS before `at`, with an entry stamped `at` for
- * each row of `stopped` that names its seat, job, session and cwd.
  * @param {unknown[]} list
  * @param {import("./agent-liveness.js").AgentRecord[]} stopped
  * @param {number} at
@@ -71,9 +68,8 @@ function readReapedJobs() {
 }
 
 /**
- * Add the reaper's `stopped` rows to the journal, stamped with the write;
- * nothing where there are none. A journal that will not write costs the loop
- * those resumes, never the reaper its run (#5331): why it failed, else null.
+ * A journal that will not write costs the loop those resumes, never the
+ * reaper its run (#5331): why it failed, else null.
  * @param {import("./agent-liveness.js").AgentRecord[]} stopped
  * @returns {string|null}
  */
