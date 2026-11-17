@@ -230,20 +230,25 @@ it("files one urgent bug stall ticket for a running lander whose main has stood 
 	expect(ticket.body).toContain("Standalone:");
 });
 
+/* The positive pair: the case above, whose ticket names the batch. */
 it("leaves the stall ticket's body unchanged across passes while the lander's verdict keepalives beat between them (#5360)", () => {
 	commit("seed", 8 * 60 * MIN, "main");
 	const tip = commit("work", 121 * MIN, "refs/heads/queue/work");
+	/* The production writer, not `beat`: its keepalive's default is the case. */
 	const beatAs = heartbeatWriter(
 		path.join(markers(), ".queue-lander-heartbeat.json"),
 	);
 	fs.mkdirSync(markers(), { recursive: true });
 	beatAs(tip);
 
-	expect(supervise().stdout).toContain("Filed #100");
+	const first = supervise();
 	const [filed] = stallTickets();
 	beatAs();
 	const second = supervise();
 
+	expect(first.status, first.stderr).toBe(0);
+	expect(first.stdout).toContain("Filed #100");
+	expect(second.status, second.stderr).toBe(0);
 	expect(second.stdout).toContain("stall ticket: #100 is open and current.\n");
 	expect(stallTickets()[0].body).toBe(filed.body);
 });

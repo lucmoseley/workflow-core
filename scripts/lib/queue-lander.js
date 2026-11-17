@@ -3065,8 +3065,10 @@ async function actOnPipeline(deps, action, run) {
  */
 async function step(deps, before, log) {
 	const run = keepEnded(deps, before);
-	const head = run.pipeline.line[0] ?? run.pipeline.search;
-	deps.beat(head?.integration ?? null);
+	/* The search first: it holds `main`, and a line rebuilt behind it has no
+	 * integration commit yet (#5360). */
+	const { search, line } = run.pipeline;
+	deps.beat(search?.integration ?? line[0]?.integration ?? null);
 	const refs = deps.git.refs();
 	/** @type {readonly Landing[]|null} */
 	let landings = null;
