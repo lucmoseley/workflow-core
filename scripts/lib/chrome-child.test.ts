@@ -130,6 +130,8 @@ describe("chromeOutcome", () => {
 		stopped: false,
 		limitMs: undefined,
 		killedBy: undefined,
+		failed: undefined,
+		said: [],
 		closeCommand: `claude-child.js chrome-close --session ${Session}`,
 	};
 	const result = { type: "result", subtype: "success" };
@@ -209,6 +211,17 @@ describe("chromeOutcome", () => {
 		expect(out.exit).toBe(1);
 	});
 
+	it("mirrors what the launcher noted along the way into notes and stderr", () => {
+		const out = chromeOutcome({
+			...ended,
+			result,
+			said: ["could not update the child's record (EACCES)."],
+		});
+		const note = "claude-child: could not update the child's record (EACCES).";
+		expect(line(out).notes).toEqual([note]);
+		expect(out.stderr).toBe(`${note}\n`);
+	});
+
 	it.each([
 		[
 			"a child that gave no row after its interrupt",
@@ -227,6 +240,12 @@ describe("chromeOutcome", () => {
 			{},
 			"launcher_no_result",
 			"claude-child: the child ended with no result row.",
+		],
+		[
+			"a launch that failed before the child ran",
+			{ status: null, failed: "the child did not finish (spawn ENOENT)." },
+			"launcher_no_result",
+			"claude-child: the child did not finish (spawn ENOENT).",
 		],
 		[
 			"a launcher killed by a signal",

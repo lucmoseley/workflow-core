@@ -222,15 +222,19 @@ const named = (t) => `"${t.title}" (${t.url})`;
  *   stopped: boolean,
  *   limitMs: number | undefined,
  *   killedBy: string | undefined,
+ *   failed: string | undefined,
+ *   said: string[],
  *   closeCommand: string,
  * }} end `stopped`: the launcher stopped the child by signal itself, to keep
  *   its group; `limitMs`: the limit the launcher interrupted the child at;
- *   `killedBy`: the signal the launcher itself was killed by
+ *   `killedBy`: the signal the launcher itself was killed by; `failed`: why
+ *   the launch failed before the child ran; `said`: what the launcher noted
+ *   along the way
  * @returns {{stdout: string, stderr: string, exit: number, notes: string[]}}
  */
 function chromeOutcome(end) {
 	const { sessionId, result, left, held } = end;
-	const notes = [...tabNotes(end), ...endNotes(end)].map(
+	const notes = [...end.said, ...tabNotes(end), ...endNotes(end)].map(
 		(line) => `claude-child: ${line}`,
 	);
 	return {
@@ -276,7 +280,16 @@ function tabNotes({ sessionId, left, held, closeCommand }) {
  * @param {ChromeEnd} end
  * @returns {string[]}
  */
-function endNotes({ sessionId, result, signal, stopped, limitMs, killedBy }) {
+function endNotes({
+	sessionId,
+	result,
+	signal,
+	stopped,
+	limitMs,
+	killedBy,
+	failed,
+}) {
+	if (failed) return [failed];
 	if (killedBy)
 		return [
 			`the launcher was killed by ${killedBy}; a closer resumes session ${sessionId} to close the child's tabs.`,
@@ -321,4 +334,5 @@ module.exports = {
 	chromeStandingLines,
 	createCloseReader,
 	createTabTally,
+	named,
 };

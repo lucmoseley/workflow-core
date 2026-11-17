@@ -124,8 +124,9 @@ function startStreamChild(bin, args, opts, onRow) {
 		},
 		interrupt,
 		/**
-		 * Wait for the turn's result row. At `capMs`, or at `capAssistants`
-		 * assistant messages, interrupt it and wait `graceMs` more for the row.
+		 * Wait for the turn's result row. At `capMs`, or once an assistant
+		 * message past `capAssistants` arrives, so the last allowed one's call
+		 * finishes, interrupt it and wait `graceMs` more for the row.
 		 * @param {{capMs: number, capAssistants?: number, graceMs: number}} cap
 		 * @returns {Promise<TurnEnd>}
 		 */
@@ -155,7 +156,7 @@ function startStreamChild(bin, args, opts, onRow) {
 				waiter = () => {
 					if (lastResult) return done({ result: lastResult, capped });
 					if (gone) return done({ result: undefined, capped });
-					if (assistants.size >= capAssistants) hitCap();
+					if (assistants.size > capAssistants) hitCap();
 				};
 				waiter();
 			});

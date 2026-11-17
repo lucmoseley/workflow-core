@@ -66,6 +66,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { caught } = require("./lib/caught.js");
+const { now } = require("./lib/clock.js");
 const { readProcStartOf } = require("./lib/arbiter-proc.js");
 const { CHROME_TIMEOUT_MS_A_PAGE } = require("./lib/child-spawn.js");
 const {
@@ -230,33 +231,13 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 		launcherStart: readProcStartOf(process.pid),
 		childPid: null,
 		childStart: null,
-		startedAt: new Date().toISOString(),
+		startedAt: new Date(now()).toISOString(),
 		attempts: 0,
 	};
-	try {
-		writeRecord(record);
-	} catch (e) {
-		fail(`could not write the child's record (${caught(e).message}).`, 1);
-	}
-	const tally = createTabTally();
-	const run = startStreamChild(
-		bin,
-		[...args, "--session-id", sessionId],
-		{ env },
-		(row) => tally.read(row),
-	);
-	run.child.on("error", (e) => {
-		deleteRecord(sessionId);
-		fail(`the child did not finish (${e.message}).`, 1);
-	});
-	if (run.child.pid) {
-		record.childPid = run.child.pid;
-		record.childStart = readProcStartOf(run.child.pid);
-		writeRecord(record);
-	}
-
 	/** @type {Record<string, unknown> | undefined} */
 	let result;
+	/** @type {string[]} What the launcher said along the way, for `notes`. */
+	const said = [];
 	let printed = false;
 	/** @param {Partial<Parameters<typeof chromeOutcome>[0]>} over */
 	const print = (over) => {
@@ -272,6 +253,8 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 			stopped: false,
 			limitMs: undefined,
 			killedBy: undefined,
+			failed: undefined,
+			said,
 			closeCommand: `node ${scriptPath("claude-child.js")} chrome-close --session ${sessionId}`,
 			...over,
 		});
@@ -279,6 +262,33 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 		writeFd(1, out.stdout);
 		process.exitCode = out.exit;
 	};
+	/** @param {string} failed */
+	const failWith = (failed) => {
+		print({ failed });
+		process.exit();
+	};
+	try {
+		writeRecord(record);
+	} catch (e) {
+		failWith(`could not write the child's record (${caught(e).message}).`);
+	}
+	const tally = createTabTally();
+	const run = startStreamChild(
+		bin,
+		[...args, "--session-id", sessionId],
+		{ env },
+		(row) => tally.read(row),
+	);
+	run.child.on("error", (e) => {
+		deleteRecord(sessionId);
+		failWith(`the child did not finish (${e.message}).`);
+	});
+	if (run.child.pid) {
+		record.childPid = run.child.pid;
+		record.childStart = readProcStartOf(run.child.pid);
+		writeRecord(record);
+	}
+
 	/**
 	 * Keep the record, `over` and the tabs still open written to it.
 	 * @param {Partial<import("./lib/chrome-child-store.js").ChildRecord>} [over]
@@ -289,10 +299,7 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 			writeRecord({ ...(readRecord(sessionId) ?? record), tabs, ...over });
 		} catch (e) {
 			/* The record as first written still finds the session (#5386). */
-			writeFd(
-				2,
-				`claude-child: could not update the child's record (${caught(e).message}).\n`,
-			);
+			said.push(`could not update the child's record (${caught(e).message}).`);
 		}
 		return tabs;
 	};
@@ -303,6 +310,7 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 			return keep();
 		},
 		sessionId,
+		said,
 		print,
 	);
 
@@ -315,9 +323,11 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 	result = first.result;
 	if (!result) {
 		const end = await stopOrWait(run);
-		/* A stop may cut a tab-opening call off before its result. */
+		/* A stop or kill may cut a tab-opening call off before its result,
+		 * and a kill keeps the group for a resume (#5352). */
 		const left = keep();
-		if (left.length === 0 && !end.stopped) deleteRecord(sessionId);
+		if (left.length === 0 && !end.stopped && !end.signal)
+			deleteRecord(sessionId);
 		return print({ ...end, left, limitMs: limited });
 	}
 
@@ -340,7 +350,7 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
 	}
 	const heldTab = left.at(-1);
 	keep({
-		heldSince: new Date().toISOString(),
+		heldSince: new Date(now()).toISOString(),
 		...(heldTab ? { heldTab } : {}),
 	});
 	return print({ ...end, held: left, limitMs: limited });
@@ -351,9 +361,10 @@ async function runChrome({ bin, args, env, seat, prompt, limitMs, handOver }) {
  * closer outliving this launcher, print the one line and exit 1.
  * @param {() => import("./lib/chrome-child.js").OpenTab[]} stop
  * @param {string} sessionId
+ * @param {string[]} said the launcher's notes, a failed closer start added
  * @param {(over: {left: import("./lib/chrome-child.js").OpenTab[], killedBy: NodeJS.Signals}) => void} print
  */
-function trapSignals(stop, sessionId, print) {
+function trapSignals(stop, sessionId, said, print) {
 	for (const signal of /** @type {const} */ (["SIGTERM", "SIGINT", "SIGHUP"]))
 		process.on(signal, () => {
 			const left = stop();
@@ -361,9 +372,8 @@ function trapSignals(stop, sessionId, print) {
 				startTrapCloser(sessionId);
 			} catch (e) {
 				/* The session-start sweep is the backstop (#5386). */
-				writeFd(
-					2,
-					`claude-child: no closer started (${caught(e).message}); the next session-start sweep closes the tabs.\n`,
+				said.push(
+					`no closer started (${caught(e).message}); the next session-start sweep closes the tabs.`,
 				);
 			}
 			print({ left, killedBy: signal });
@@ -383,6 +393,18 @@ async function stopOrWait(run) {
 }
 
 /**
+ * What a child on `seat` runs from `cwd` with, or why its auth refuses it.
+ * @param {string} seat
+ * @param {string} cwd
+ * @returns {import("./lib/chrome-close.js").Launch | string}
+ */
+function seatLaunch(seat, cwd) {
+	const env = buildSeatEnv(process.env, seat);
+	const bin = claudeBin(env);
+	return launchAuthRefusal({ bin, env, cwd }) ?? { bin, env, cwd };
+}
+
+/**
  * What a closer's resume runs on `seat` with, or why it may not run.
  * @param {string} seat
  * @returns {import("./lib/chrome-close.js").Launch | string}
@@ -390,15 +412,11 @@ async function stopOrWait(run) {
 function launchFor(seat) {
 	if (!isSeat(seat))
 		return `the record's seat ${seat} is not one of this machine's seats`;
-	const env = buildSeatEnv(process.env, seat);
-	const bin = claudeBin(env);
-	let cwd;
 	try {
-		cwd = emptyDir("chrome-close");
+		return seatLaunch(seat, emptyDir("chrome-close"));
 	} catch (e) {
 		return caught(e).message;
 	}
-	return launchAuthRefusal({ bin, env, cwd }) ?? { bin, env, cwd };
 }
 
 /** @param {Record<string, string | true>} flags */
@@ -437,10 +455,9 @@ function launchChrome(seat, flags) {
 	const pages = pagesOrFail(flags["--pages"]);
 	const handOver = flags["--hand-over"] === true;
 	const prompt = promptOrFail(flags["--prompt-file"]);
-	const env = buildSeatEnv(process.env, seat);
-	const bin = claudeBin(env);
-	const refusal = launchAuthRefusal({ bin, env, cwd: process.cwd() });
-	if (refusal) fail(refusal, 2);
+	const launch = seatLaunch(seat, process.cwd());
+	if (typeof launch === "string") return fail(launch, 2);
+	const { bin, env } = launch;
 	return runChrome({
 		bin,
 		args: [
@@ -522,18 +539,16 @@ async function main() {
 		};
 	} else return launchChrome(seat, flags);
 
-	const env = buildSeatEnv(process.env, seat);
-	const bin = claudeBin(env);
 	const cached =
 		command === "usage"
 			? ` Read the cached bars instead: node ${scriptPath("allowance.js")} --config-dir ${seat}`
 			: "";
-	const refusal = launchAuthRefusal({
-		bin,
-		env,
-		cwd: typeof opts.cwd === "string" ? opts.cwd : process.cwd(),
-	});
-	if (refusal) fail(`${refusal}${cached}`, 2);
+	const launch = seatLaunch(
+		seat,
+		typeof opts.cwd === "string" ? opts.cwd : process.cwd(),
+	);
+	if (typeof launch === "string") return fail(`${launch}${cached}`, 2);
+	const { bin, env } = launch;
 	if (boundMs !== undefined)
 		opts.timeout = Math.max(1, boundMs - (Date.now() - startedAt));
 	const r = spawnSync(bin, args, { ...opts, env });

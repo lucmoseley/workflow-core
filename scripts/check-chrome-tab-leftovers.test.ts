@@ -191,15 +191,18 @@ describe("classing each Chrome child", () => {
 		expect(r.findings).toHaveLength(1);
 		expect(r.findings[0].severity).toBe("WARN");
 		expect(r.findings[0].key).toBe(
-			`UNEXPLAINED-TAB\t${id}\t${seatB}\tPage A (https://a.example/)`,
+			`UNEXPLAINED-TAB\t${id}\t${seatB}\t"Page A" (https://a.example/)`,
 		);
 	});
 
 	it("reports a session that used the Chrome tools without the launcher", async () => {
 		const id = child([[3, "https://b.example/", "B"]]);
-		expect(await keys()).toEqual([
-			`UNEXPLAINED-TAB\t${id}\t${seatA}\tB (https://b.example/)`,
+		const r = await report();
+		expect(r.findings.map((f: { key: string }) => f.key)).toEqual([
+			`UNEXPLAINED-TAB\t${id}\t${seatA}\t"B" (https://b.example/)`,
 		]);
+		expect(r.findings[0].message).toContain("close it in Chrome by hand");
+		expect(r.findings[0].message).not.toContain("chrome-close");
 	});
 
 	it("does not count a session that never called a Chrome tool", async () => {
@@ -230,8 +233,9 @@ describe("classing each Chrome child", () => {
 		sweptAt("2026-11-25T10:30:00Z");
 		const r = await report();
 		expect(r.findings.map((f: { key: string }) => f.key)).toEqual([
-			`UNEXPLAINED-TAB\t${id}\t${seatA}\tHeld (https://held.example/)`,
+			`UNEXPLAINED-TAB\t${id}\t${seatA}\t"Held" (https://held.example/)`,
 		]);
+		expect(r.findings[0].message).toContain(`chrome-close --session ${id}`);
 		expect(r.text).toContain("held: 0 child(ren)");
 	});
 
@@ -283,7 +287,7 @@ describe("the window", () => {
 			at: new Date(Date.parse(NOW) - 12 * HOUR).toISOString(),
 		});
 		expect(await keys(["--since", "2"])).toEqual([
-			`UNEXPLAINED-TAB\t${recent}\t${seatA}\tNew (https://new.example/)`,
+			`UNEXPLAINED-TAB\t${recent}\t${seatA}\t"New" (https://new.example/)`,
 		]);
 		expect(await keys(["--since", "7"])).toHaveLength(2);
 	});
