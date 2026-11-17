@@ -10,9 +10,8 @@
  * stops at its decision.
  *
  * A TICK: read founder presence, untick each repo its owner opted out under the
- * control lock (#4188), reap, take the quiet bench route's step
- * (lib/quiet-bench-tick.js, #3852), settle what a kill before the last tick's write left out of the state (#4180), stop
- * each job that never started, tend the served checkouts (their landing queue,
+ * control lock (#4188), reap, settle what a kill before the last tick's write
+ * left out of the state (#4180), stop each job that never started, tend the served checkouts (their landing queue,
  * the machine's children, the repo holds and the `.git` probe), read the
  * listing, stop each overflow session past its allowance (#3698), send each repo
  * hold's notice, queue the launches a boot killed (#3880), judge the finished
@@ -259,8 +258,6 @@ function stopNeverStarted(registry, jobs, stop) {
  *   changeControl: (change: (c: Control) => Control|null) =>
  *     ControlWrite|{busy: string},
  *   reap: () => void,
- *   tendQuietBench: (control: Control,
- *     tick: {lastTypedAt: number|null, now: number}) => Control,
  *   adoptKilledLaunches: (state: LoopState, served: string[]) => LoopState,
  *   stopNeverStarted: (registry: RegistryListing, spared: Set<string>) => string[],
  *   superviseLanding: (root: string) => void,
@@ -515,18 +512,6 @@ function actOnListing(
 	);
 	io.sendPauseNotices(repoPaused ?? {}, now);
 }
-
-/**
- * The control the tick goes on: the quiet bench route's step taken on a
- * tick's sound, running control (#3852).
- * @param {TickIo} io
- * @param {{parsed: Control|null, unsettled: Control, typedAt: number|null,
- *   now: number}} tick
- */
-const stepQuietBench = (io, { parsed, unsettled, typedAt, now }) =>
-	parsed === null || unsettled.stopRequested
-		? unsettled
-		: io.tendQuietBench(unsettled, { lastTypedAt: typedAt, now });
 
 /**
  * `read` with what a kill before the last tick's own write left out of it
@@ -857,7 +842,6 @@ const buildDryActs = (io) => ({
 	 * control, which a fresh read would not carry. */
 	changeControl: () => ({ busy: "a dry run takes no lock" }),
 	reap: io.previewReap,
-	tendQuietBench: (control) => control,
 	adoptKilledLaunches: (state) => state,
 	stopNeverStarted: () => [],
 	superviseLanding: doNothing,
@@ -1002,7 +986,7 @@ const buildStandInControl = (io, dryRun, now) => ({
  * @param {TickIo} adapter
  * @param {{dryRun: boolean, now: number, opening: {control: ControlRead,
  *   declared: DeclaredSeats,
- *   typed: {at: number|null, seat: string|null}}}} tick
+ *   typedSeat: string|null}}} tick
  * @returns {Promise<{decision: import("./refill-decide.js").Decision,
  *   read?: FrontierRead|null, noProgressFrom: number,
  *   agents: AgentRecord[]|null}>}
@@ -1012,16 +996,10 @@ async function runTick(adapter, { dryRun, now, opening }) {
 	const io = dryRun ? buildDryIo(adapter) : adapter;
 	const acts = dryRun ? SKIPPED_LAUNCH_ACTS : LIVE_LAUNCH_ACTS;
 	const { control: stored, damaged } = opening.control;
-	const { declared, typed } = opening;
+	const { declared, typedSeat } = opening;
 	const parsed = settleOptedOut(io, dryRun, stored);
-	const unsettled = parsed ?? buildStandInControl(io, dryRun, now);
+	const control = parsed ?? buildStandInControl(io, dryRun, now);
 	io.reap();
-	const control = stepQuietBench(io, {
-		parsed,
-		unsettled,
-		typedAt: typed.at,
-		now,
-	});
 	/* A dry run previews the state on disk: the marker is the live tick's to apply
 	 * and drop. */
 	const managerRestart = dryRun ? null : io.readManagerRestart();
@@ -1106,7 +1084,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		seen,
 		served,
 		declared,
-		typedSeat: typed.seat,
+		typedSeat,
 		seatTriedAt: state.seatTriedAt,
 		lastActAt,
 		breakerRoom,
@@ -1130,7 +1108,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 		running: runningOf(launches),
 		freeSlots: slots,
 		limitHeldLines: launches.filter(isLimitHeld).map(limits.buildHeldStopText),
-		typedSeat: typed.seat,
+		typedSeat,
 		seats: sizeResumeSeats(seats, resumable, slots, io.capSizer(served[0])),
 		overflow,
 		history: launches,

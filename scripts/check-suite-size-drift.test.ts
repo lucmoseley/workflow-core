@@ -253,7 +253,7 @@ describe("the real repo", () => {
 		expect(r.json().outcome).toBe("OK");
 		const plain = runIn(REPO);
 		expect(plain.out).toContain("is a lower bound");
-		expect(plain.out).not.toMatch(/#4607|bench_suite_concurrency/);
+		expect(plain.out).not.toContain("bench_suite_concurrency");
 		const drifted = runIn(REPO, "--json", "--baseline", "10");
 		expect(drifted.json().outcome).toBe("WARN");
 		expect(drifted.out).not.toContain("is a lower bound");

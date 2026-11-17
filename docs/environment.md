@@ -155,12 +155,6 @@ The unit runs through a login shell for `~/.bashrc`'s heap bound, and fixes the 
 
 `OnUnitInactiveSec=` alone never fires on a unit that has not run, so the timer also sets `OnActiveSec=`. Its `AccuracySec=30s` replaces the default of 1 minute, which would break the bound. The 1-minute period and the 2-minute bound are untraced.
 
-### The refill loop's quiet bench route
-
-The loop runs a due quiet-gated bench by itself (#3852, `scripts/lib/quiet-bench.js`): #4607's whole-suite ladder re-measure. The bench is due while `check-suite-size-drift` WARNs, no kept run of the current ladder answers it and the latest lone whole suite in the pass markers (unsharded, at its own worker count, as `latestLoneSuite` in `scripts/lib/whole-suite-runs.js` reads it) finished green in at most `loneSuiteFitMs`: 448 s on 8 cores, the lone time at which the bench's 3-suite row at 3 workers each should finish inside the 840 s ceiling (#4931; a CPU-bound estimate, untraced, which a measured 3-suite row overrules). A run answers with two usable rows per suite count, or once any row was ceiling-killed; a ceiling-killed row whose lowest sample came in the first half of its wall is a lower-bound row, which may raise a rung and never lower one (#4606). While the founder reads absent, at most once in 24 h, the loop pauses launches under a pause of the route's own, named in `status` and the panel. It starts `scripts/quiet-bench-run.js` outside every session, the lander's way, on two readings five minutes apart of 3 or fewer sessions and the bench's starting rung of `MemAvailable`. Finished, refused, runner dead, the founder back, the route off, the 4 h drain limit or the 4 h run limit each lift the pause; a founder's return or `set --resume` leaves a running bench to refuse its later rows. A pause the founder set is neither overwritten nor lifted.
-
-Runs are kept in `~/.claude/quiet-bench-runs/`. Each run's rows, `free -m` and load1 are posted to #4607, and `node scripts/quiet-bench-run.js rows` prints what is kept. `node scripts/refill-loop.js set --no-quiet-bench` turns the route off.
-
 ---
 
 ## 5. Daily use
@@ -350,7 +344,7 @@ A count is admitted by what it needs *resting* in `MemAvailable` immediately bef
 | 2 | **2,549.7** / 2,423.7 | 3,650 MB | 100 / 100 | 309.2 / 309.6% | 0.84 / 0.77 | 0 / 0 MB |
 | 3 | 3,320.8 / **3,576.4** | 4,700 MB | 77–79 / 81–82 | 493.3 / 494.6% | 0.73 / 0.80 | 0 / 0 MB |
 
-All six `baseline_stationary: true` (shifts 0–65.7 MB), `cpu_valid: true`, none aborted, none a `dip_is_lower_bound`, `sessions_live` 1 throughout, walls 842.3–842.9 s. Resting 7,989–8,114 MB. **Each row plateaued**: its lowest `MemAvailable` sample came at 292–368 s and held to the kill (#4606), which is what lets a cut row stand as a lower bound (`isLowerBoundRow`, `scripts/lib/quiet-bench.js`). Raw JSON and per-suite vitest logs under `~/.claude/quiet-bench-runs/2026-11-03T19-53-27.124Z/`; `free -m` and load1 beside each row on #2862.
+All six `baseline_stationary: true` (shifts 0–65.7 MB), `cpu_valid: true`, none aborted, none a `dip_is_lower_bound`, `sessions_live` 1 throughout, walls 842.3–842.9 s. Resting 7,989–8,114 MB. **Each row plateaued**: its lowest `MemAvailable` sample came at 292–368 s and held to the kill (#4606), which is what lets a cut row stand as a lower bound. Raw JSON and per-suite vitest logs under `~/.claude/quiet-bench-runs/2026-11-03T19-53-27.124Z/`; `free -m` and load1 beside each row on #2862.
 
 **#1603's six rows** (16 October 2026, a 485-file suite that ran to its end) set the rungs this run raised: raw dips 943.1 / **1,046.4**, **2,124.4** / 2,112.2 and **2,546.0** / 2,390.5 MB. Their record is on #1603.
 

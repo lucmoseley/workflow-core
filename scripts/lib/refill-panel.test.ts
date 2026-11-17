@@ -4,7 +4,6 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { QUIET_BENCH_PAUSE } from "./refill-decide.js";
 
 const {
 	ESC,
@@ -547,13 +546,6 @@ describe("the panel's rows", () => {
 		expect(rowsOf({ status: { ...STALLED, repoPaused } })[3].text).toBe(
 			"No progress: wc#2518, manta#2519",
 		);
-	});
-
-	it("names the quiet bench's hold and why (#3852)", () => {
-		const paused = { by: QUIET_BENCH_PAUSE, at: AT, why: "the bench is due" };
-		const rows = summary(rowsOf({ status: { ...RUNNING, paused } }));
-		expect(rows[2]).toEqual(["Held for a bench since 14:05", "value"]);
-		expect(rows[3]).toEqual(["the bench is due", "secondary"]);
 	});
 
 	it("calls an unreadable pause neither the founder's nor no progress", () => {

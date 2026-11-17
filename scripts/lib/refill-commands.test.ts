@@ -19,7 +19,6 @@ import {
 	planSet,
 	planStart,
 } from "./refill-commands.js";
-import { buildPausedWaitText, QUIET_BENCH_PAUSE } from "./refill-decide.js";
 import {
 	away,
 	DV,
@@ -1066,49 +1065,6 @@ describe("a set unticks a repo its owner opted out (#4188)", () => {
 			write: { scope: { repos: ["/h/core"] }, paused: { by: "founder" } },
 			lines: expect.arrayContaining(["unticked:  books (opted out)"]),
 		});
-	});
-});
-
-describe("the quiet bench route's setting and hold (#3852)", () => {
-	const control = {
-		noProgressFrom: 5,
-		stopRequested: false,
-		seats: ["/s"],
-		scope: normal([WFC]),
-	};
-	const held = {
-		...control,
-		paused: { by: QUIET_BENCH_PAUSE, at: 6, why: "the bench is due" },
-	};
-	const set = (from: Parameters<typeof planSet>[0]["control"], ask: object) =>
-		planSet({ control: from, damaged: null }, ask, {
-			running: true,
-			now: 7,
-			readExclusionWhy: () => null,
-			isOptedOut: () => false,
-		}) as { write: Record<string, unknown> | null; lines: string[] };
-
-	it("turns the route off and on", () => {
-		const off = set(control, { quietBench: false });
-		expect(off.write).toMatchObject({ quietBenchOff: true });
-		const on = set({ ...control, quietBenchOff: true }, { quietBench: true });
-		expect(on.write).not.toHaveProperty("quietBenchOff");
-	});
-
-	it("a founder's pause over the hold makes it his", () => {
-		expect(set(held, { pause: true }).write?.paused).toEqual({
-			by: "founder",
-			at: 7,
-		});
-	});
-
-	it("his resume ends the hold at once", () => {
-		expect(set(held, { pause: false }).write).not.toHaveProperty("paused");
-	});
-
-	it("the pause text says why, and that the bench's end lifts it", () => {
-		expect(buildPausedWaitText(held.paused)).toContain("the bench is due");
-		expect(buildPausedWaitText(held.paused)).toContain("the bench ends");
 	});
 });
 
