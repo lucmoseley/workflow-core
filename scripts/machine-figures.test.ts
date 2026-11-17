@@ -2,33 +2,35 @@
 /*
  * The machine-figures SessionStart hook prints the machine's live figures in
  * one line, and names a read that fails rather than printing it as 0 (#5340).
+ * The machine rules carry no figures, so this line is the only place a
+ * session learns them: a 0 printed for a failed read would pass for a real
+ * figure. Each read is fed through its own seam, so each failure is tried
+ * alone.
  */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { buildMeminfo } from "./lib/meminfo-fake";
 
 const HOOK = path.resolve(__dirname, "machine-figures.sh");
 
-const MEMINFO = [
-	"MemTotal:       10168320 kB",
-	"MemFree:         1234567 kB",
-	"MemAvailable:    5555555 kB",
-	"SwapTotal:       2097152 kB",
-	"SwapFree:        2097152 kB",
-	"",
-].join("\n");
+/** A 10,240 MiB machine with 2,048 MiB of swap. */
+const MEMINFO = buildMeminfo({
+	availableMb: 5000,
+	swapTotalMb: 2048,
+	swapFreeMb: 2048,
+});
 
 let dir: string;
-let fixtures = 0;
 
-beforeAll(() => {
+beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "machine-figures-"));
 });
 
-afterAll(() => {
+afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
@@ -47,23 +49,22 @@ const figures = ({
 	nproc = "8",
 	meminfo = MEMINFO,
 }: Stubs = {}) => {
-	const root = path.join(dir, `f${fixtures++}`);
-	const bin = path.join(root, "bin");
-	fs.mkdirSync(bin, { recursive: true });
-	const stub = (name: string, out: string | null) =>
+	const stub = (name: string, out: string | null) => {
+		const file = path.join(dir, name);
 		fs.writeFileSync(
-			path.join(bin, name),
+			file,
 			out === null ? "#!/bin/sh\nexit 1\n" : `#!/bin/sh\necho '${out}'\n`,
 			{ mode: 0o755 },
 		);
-	stub("uname", uname);
-	stub("nproc", nproc);
-	const meminfoPath = path.join(root, "meminfo");
+		return file;
+	};
+	const meminfoPath = path.join(dir, "meminfo");
 	if (meminfo !== null) fs.writeFileSync(meminfoPath, meminfo);
 	const r = spawnSync("bash", [HOOK], {
 		env: {
 			...process.env,
-			PATH: `${bin}:${process.env.PATH}`,
+			WFC_UNAME: stub("uname", uname),
+			WFC_NPROC: stub("nproc", nproc),
 			WFC_MEMINFO: meminfoPath,
 		},
 		encoding: "utf8",
@@ -76,7 +77,7 @@ const figures = ({
 describe("the machine-figures line", () => {
 	it("gives architecture, cores, MemTotal and SwapTotal in MiB, in one line", () => {
 		expect(figures()).toBe(
-			"Machine (read live): aarch64; 8 cores; MemTotal 9930 MiB; SwapTotal 2048 MiB.\n",
+			"Machine (read live): aarch64; 8 cores; MemTotal 10240 MiB; SwapTotal 2048 MiB.\n",
 		);
 	});
 
@@ -113,12 +114,12 @@ describe("a read that fails is named, never zeroed", () => {
 		[
 			"a failing uname",
 			{ uname: null },
-			"Machine (read live): 8 cores; MemTotal 9930 MiB; SwapTotal 2048 MiB; unreadable: architecture.\n",
+			"Machine (read live): 8 cores; MemTotal 10240 MiB; SwapTotal 2048 MiB; unreadable: architecture.\n",
 		],
 		[
 			"a failing nproc",
 			{ nproc: null },
-			"Machine (read live): aarch64; MemTotal 9930 MiB; SwapTotal 2048 MiB; unreadable: cores.\n",
+			"Machine (read live): aarch64; MemTotal 10240 MiB; SwapTotal 2048 MiB; unreadable: cores.\n",
 		],
 		[
 			"every read failing",

@@ -250,7 +250,7 @@ const timeOf = (at) => (at ? Date.parse(at) || 0 : 0);
  *
  * @returns {{held: boolean, detail: string}}
  */
-function sweepStillRed() {
+function ciStillRed() {
 	const judged = readWindows().flatMap(({ rows }) => {
 		const run = rows.find((r) => r.verdict);
 		return run ? [run] : [];
@@ -259,16 +259,25 @@ function sweepStillRed() {
 		throw new Error(
 			`no run of ${namesOf(trackedWorkflows())} in the last ${RUN_WINDOW} carries a verdict`,
 		);
-	return {
-		held: judged.some((r) => !GOOD.has(String(r.verdict))),
-		detail: judged
-			.map(
-				(r) =>
-					`newest judged ${r.workflow.file} job is ${r.verdict} (${r.createdAt || "date unknown"}) — ${r.url || "no url"}`,
-			)
-			.join("; "),
-	};
+	return heldBy(judged, "newest judged", "job");
 }
+
+/**
+ * Held where any judged run is red, with one detail clause a run.
+ * @param {Array<Run & {verdict: string|null}>} judged
+ * @param {string} which
+ * @param {string} what
+ * @returns {{held: boolean, detail: string}}
+ */
+const heldBy = (judged, which, what) => ({
+	held: judged.some((r) => !GOOD.has(String(r.verdict))),
+	detail: judged
+		.map(
+			(r) =>
+				`${which} ${r.workflow.file} ${what} is ${r.verdict} (${r.createdAt || "date unknown"}) — ${r.url || "no url"}`,
+		)
+		.join("; "),
+});
 
 /** @param {Workflow[]} workflows */
 const namesOf = (workflows) =>
@@ -278,7 +287,7 @@ const namesOf = (workflows) =>
 
 /**
  * Whether the single newest run of a tracked workflow is red — cheap, unlike
- * sweepStillRed() above. That one is priced for a caller with an open issue to amortise the
+ * ciStillRed() above. That one is priced for a caller with an open issue to amortise the
  * ~31-call RUN_WINDOW walk against; this one is for the OPPOSITE caller,
  * `scripts/check-cleared-trackers.js`'s `unfiledCondition` probe, paid on every
  * session start with NO issue open (mantahostels#2297). One `gh run list --limit 1` plus
@@ -290,22 +299,14 @@ const namesOf = (workflows) =>
  * @returns {{held: boolean, detail: string} | null} null where no tracked
  *   workflow's newest run carries a verdict to read.
  */
-function newestSweepRed() {
+function newestCiRed() {
 	const workflows = trackedWorkflows();
 	const newest = workflows.flatMap((w) => readRuns(w, 1));
 	if (newest.length === 0)
 		throw new Error(`no run of ${namesOf(workflows)} exists on this branch`);
 	const judged = newest.filter((r) => r.verdict);
 	if (judged.length === 0) return null;
-	return {
-		held: judged.some((r) => !GOOD.has(String(r.verdict))),
-		detail: judged
-			.map(
-				(r) =>
-					`newest ${r.workflow.file} run is ${r.verdict} (${r.createdAt || "date unknown"}) — ${r.url || "no url"}`,
-			)
-			.join("; "),
-	};
+	return heldBy(judged, "newest", "run");
 }
 
 /**
@@ -468,7 +469,8 @@ function main() {
 		return;
 	}
 	const { rows, at } = redWindow;
-	const red = /** @type {Run & {verdict: string|null}} */ (rows[at]);
+	const red = rows[at];
+	if (red === undefined) return;
 	const url = red.url || "";
 	const green =
 		rows.slice(at + 1).find((r) => r.verdict && GOOD.has(r.verdict)) || null;
@@ -517,10 +519,10 @@ function main() {
 
 if (require.main === module) main();
 
-/* TITLE, LABEL and sweepStillRed are what check-cleared-trackers.js consumes:
+/* TITLE, LABEL and ciStillRed are what check-cleared-trackers.js consumes:
  * it must look for the issue THIS script files, and ask THIS function whether
  * the condition still holds, rather than keeping a second spelling of either.
- * newestSweepRed is the same checker's unfiledCondition probe (mantahostels#2297).
+ * newestCiRed is the same checker's unfiledCondition probe (mantahostels#2297).
  * SWEEP_NAME, SUITE_JOB and filesFor tell check-ci-status.js which red this
  * script files for (#532). */
 module.exports = {
@@ -529,6 +531,6 @@ module.exports = {
 	SWEEP_NAME,
 	SUITE_JOB,
 	filesFor,
-	sweepStillRed,
-	newestSweepRed,
+	ciStillRed,
+	newestCiRed,
 };

@@ -87,6 +87,8 @@ function buildHostPorts(root, log) {
 		testProven: (tree) => {
 			try {
 				const { commands, testCanary } = readConfig({ root, quiet: true });
+				/* Required at the call: only a whole-suite launch asks, so every
+				 * other launch skips loading the proof reader and its git calls. */
 				const { proofState } = require("./verdict-probe.js");
 				const { markersDir } = require("./marker-root.js");
 				return (

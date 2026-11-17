@@ -12,7 +12,7 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 const HOOK = path.resolve(__dirname, "browser-profile-guard.sh");
 
@@ -31,11 +31,11 @@ const LOCAL_STATE = "AppData/Local/Google/Chrome/User Data/Local State";
 let dir: string;
 let fixtures = 0;
 
-beforeAll(() => {
+beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "browser-profile-guard-"));
 });
 
-afterAll(() => {
+afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 

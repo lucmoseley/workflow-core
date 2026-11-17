@@ -45,6 +45,7 @@ const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { hostRoot } = require("./lib/host-root");
 const { coreRoot } = require("./lib/script-path");
+const { readText } = require("./lib/file-read.js");
 const { requiredGroup } = require("./lib/regex-group");
 const {
 	userSettingsSnapshotPath,
@@ -65,12 +66,22 @@ const JSON_BLOCK = /```json\n([\s\S]*?)\n```/;
 // block its every commit. The Markdown fences are four backticks, so a ``` fence
 // inside the file cannot close them (#2174).
 const COPIES = [
-	{ live: ["statusline.sh"], fence: "```bash", missingIsDrift: false },
-	{ live: ["CLAUDE.md"], fence: "````markdown", missingIsDrift: true },
+	{
+		live: ["statusline.sh"],
+		fence: "```bash",
+		missingIsDrift: false,
+		ruleSectionsCut: false,
+	},
+	{
+		live: ["CLAUDE.md"],
+		fence: "````markdown",
+		missingIsDrift: true,
+		ruleSectionsCut: true,
+	},
 ];
 
 /** The plugin root, where each SOURCED file's source lives. */
-const REPO = coreRoot();
+const PLUGIN_ROOT = coreRoot();
 const CONTRACT = path.join("docs", "working-contract.md");
 /* The working rules the founder's ~/.claude/CLAUDE.md carries as sections of
  * the same name, each held to the contract's section; the rest of that file
@@ -108,8 +119,9 @@ const headingOf = (/** @type {string} */ chunk) =>
 	chunk.startsWith("## ") ? chunk.slice(3).split("\n")[0] : null;
 
 /**
- * The named section's body, its heading left out and its edges trimmed; null
- * where the text has no such section.
+ * The named section's body, its heading and any guard-registry marker left
+ * out and its edges trimmed; null where the text has no such section. The
+ * markers are this repo's own, which no machine copy carries.
  * @param {string} text
  * @param {string} heading
  */
@@ -117,7 +129,12 @@ function sectionBody(text, heading) {
 	const chunk = chunks(text).find((c) => headingOf(c) === heading);
 	return chunk === undefined
 		? null
-		: chunk.split("\n").slice(1).join("\n").trim();
+		: chunk
+				.split("\n")
+				.slice(1)
+				.filter((l) => !l.startsWith("<!-- guard-registry"))
+				.join("\n")
+				.trim();
 }
 
 /** The text with RULE_SECTIONS' sections cut out. */
@@ -332,10 +349,14 @@ function readLive(ctx, settingsPath) {
  * whitespace is not free.
  * @param {Ctx} ctx
  * @param {{ doc: string, docPath: string }} snapshot
- * @param {{ live: string[], fence: string, missingIsDrift: boolean }} copy
+ * @param {{ live: string[], fence: string, missingIsDrift: boolean, ruleSectionsCut: boolean }} copy
  * @returns {{ note: string, difference: string|null }}
  */
-function compareCopy(ctx, { doc, docPath }, { live, fence, missingIsDrift }) {
+function compareCopy(
+	ctx,
+	{ doc, docPath },
+	{ live, fence, missingIsDrift, ruleSectionsCut },
+) {
 	const livePath = path.join(os.homedir(), ".claude", ...live);
 	const name = path.basename(livePath);
 	const pattern = copyBlockPattern(name, fence);
@@ -357,8 +378,9 @@ function compareCopy(ctx, { doc, docPath }, { live, fence, missingIsDrift }) {
 		};
 
 	const read = trimEndRun(fs.readFileSync(livePath, "utf8"), "\n");
-	const liveText =
-		name === "CLAUDE.md" ? trimEndRun(withoutRuleSections(read), "\n") : read;
+	const liveText = ruleSectionsCut
+		? trimEndRun(withoutRuleSections(read), "\n")
+		: read;
 	const docText = requiredGroup(found, 1, pattern);
 	if (docText === liveText)
 		return {
@@ -408,14 +430,15 @@ function compareSourcedFiles() {
 	const differences = [];
 	for (const { live, source } of SOURCED) {
 		const livePath = path.join(os.homedir(), ".claude", ...live);
-		const sourcePath = path.join(REPO, source);
 		const name = path.basename(livePath);
-		if (!fs.existsSync(livePath) || !fs.existsSync(sourcePath)) {
+		const sourceRead = readText(path.join(PLUGIN_ROOT, source));
+		const liveRead = readText(livePath);
+		if (sourceRead.state !== "read" || liveRead.state !== "read") {
 			notes.push(`, ${name} not compared`);
 			continue;
 		}
-		const want = fs.readFileSync(sourcePath, "utf8");
-		const got = fs.readFileSync(livePath, "utf8");
+		const want = sourceRead.data;
+		const got = liveRead.data;
 		if (want === got) notes.push(`, ${name} equal to ${source}`);
 		else
 			differences.push(
@@ -433,11 +456,12 @@ function compareSourcedFiles() {
  */
 function compareRuleSections() {
 	const claudeMd = path.join(os.homedir(), ".claude", "CLAUDE.md");
-	const contractPath = path.join(REPO, CONTRACT);
-	if (!fs.existsSync(claudeMd) || !fs.existsSync(contractPath))
+	const liveRead = readText(claudeMd);
+	const contractRead = readText(path.join(PLUGIN_ROOT, CONTRACT));
+	if (liveRead.state !== "read" || contractRead.state !== "read")
 		return { note: ", working rules not compared", differences: [] };
-	const liveText = fs.readFileSync(claudeMd, "utf8");
-	const contract = fs.readFileSync(contractPath, "utf8");
+	const liveText = liveRead.data;
+	const contract = contractRead.data;
 	const differences = [];
 	for (const heading of RULE_SECTIONS) {
 		const want = sectionBody(contract, heading);

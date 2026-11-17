@@ -210,9 +210,9 @@ const TRACKERS = [
 		// -issue lookup, and this is the first condition to call gh after it. The
 		// verdict is still never "cleared", which is what the degrade rule
 		// protects.
-		condition: () => redSuite.sweepStillRed(),
-		// Never sweepStillRed() here — see the loop's own comment on why (mantahostels#2297).
-		unfiledCondition: () => redSuite.newestSweepRed(),
+		condition: () => redSuite.ciStillRed(),
+		// Never ciStillRed() here — see the loop's own comment on why (mantahostels#2297).
+		unfiledCondition: () => redSuite.newestCiRed(),
 	},
 	{
 		script: "scripts/check-band-drift.js",

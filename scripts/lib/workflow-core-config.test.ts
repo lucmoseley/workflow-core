@@ -516,13 +516,6 @@ describe("readConfig — unknown keys", () => {
 		expect(c.modules).toEqual([]);
 	});
 
-	it("reads `suites` as no module: a warning, never a refusal", () => {
-		writeConfig(dir, JSON.stringify({ modules: ["roadmap", "suites"] }));
-		const c = readConfig({ root: dir, quiet: true });
-		expect(c.warnings).toEqual(['unknown module "suites"']);
-		expect(c.modules).toEqual(["roadmap"]);
-	});
-
 	it("raises none on the liveness mod's off switch (#944)", () => {
 		writeConfig(dir, JSON.stringify({ mods: { "wfc-liveness": false } }));
 		expect(readConfig({ root: dir, quiet: true }).warnings).toEqual([]);

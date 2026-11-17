@@ -100,7 +100,7 @@ interface OpenIssue {
  * The gh call log — every invocation, one per line. The stub serves `issue
  * list` always, and `run list`/`run view` only where a `sweep` fixture is
  * given — the shape report-red-suite.js's readSweeps() reads, shared by both
- * sweepStillRed() and newestSweepRed() (mantahostels#2297).
+ * ciStillRed() and newestCiRed() (mantahostels#2297).
  */
 const GH_LOG = () => path.join(dir, "gh-calls.log");
 
@@ -535,7 +535,7 @@ describe("check-cleared-trackers", () => {
 		);
 		expect(r.status).not.toBe(0); // FAIL, not WARN — nobody was told
 		// Pins the fix's own point (mantahostels#2297): this probe reads the SINGLE newest
-		// sweep, never sweepStillRed()'s ~31-call RUN_WINDOW walk — one "issue
+		// sweep, never ciStillRed()'s ~31-call RUN_WINDOW walk — one "issue
 		// list" per tracker (8) plus one "run list" and one "run view".
 		expect(ghCalls().length).toBe(10);
 	});
@@ -548,8 +548,8 @@ describe("check-cleared-trackers", () => {
 
 	it("uses the expensive condition, never the cheap unfiled probe, once the issue is open (mantahostels#2297)", () => {
 		fixture();
-		// No sweep fixture: newestSweepRed() would throw if called at all, and
-		// sweepStillRed() (the expensive `condition`) throws the same way here —
+		// No sweep fixture: newestCiRed() would throw if called at all, and
+		// ciStillRed() (the expensive `condition`) throws the same way here —
 		// the assertion is that ONLY the latter runs when the issue is open.
 		const r = run([REDSUITE_ISSUE]);
 		expect(r.out).not.toContain("CONDITION UNFILED (");

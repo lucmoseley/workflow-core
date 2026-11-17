@@ -70,6 +70,9 @@
 # ~/.claude/practice-crafts.md and a note resolves at the work tree root alone.
 # `npm run check:settings` holds both machine files to this repo's.
 #
+# Named for what it guards, not `guard-*`: the founder's machine copy under
+# ~/.claude/hooks/ carries this name, and check:settings pairs the two by it.
+#
 # IMPLICIT:  on a session's first touch of docs/practice/ hands over the craft list, refuses a Write of an off-list note, and at Stop refuses once a session that wrote a tracked file with no **Practice:** line that holds up.
 # JUSTIFIED: fail-safe — refusing once is the only Stop channel that reaches the model (#829).
 # DEFEAT:    none — each refusal fires once a session, and is cleared by declaring a line that holds up.

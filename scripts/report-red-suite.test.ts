@@ -215,14 +215,14 @@ const run = (f: Fixture) => {
 	return r.stdout;
 };
 
-/** `sweepStillRed()`'s result, called out of process against a fixture. */
+/** `ciStillRed()`'s result, called out of process against a fixture. */
 const sweepStillRedOf = (f: Fixture) =>
 	JSON.parse(
 		execFileSync(
 			"node",
 			[
 				"-e",
-				`const s=require(${JSON.stringify(SCRIPT)});console.log(JSON.stringify(s.sweepStillRed()))`,
+				`const s=require(${JSON.stringify(SCRIPT)});console.log(JSON.stringify(s.ciStillRed()))`,
 			],
 			{ cwd: f.root, encoding: "utf8", env: f.env },
 		),
@@ -659,14 +659,14 @@ describe("de-duplication", () => {
 	});
 });
 
-describe("sweepStillRed", () => {
+describe("ciStillRed", () => {
 	const stillRed = (sweeps: Sweep[]) => {
 		const f = fixture({ commits: 1, sweeps });
 		const out = execFileSync(
 			"node",
 			[
 				"-e",
-				`const s=require(${JSON.stringify(SCRIPT)});console.log(JSON.stringify(s.sweepStillRed()))`,
+				`const s=require(${JSON.stringify(SCRIPT)});console.log(JSON.stringify(s.ciStillRed()))`,
 			],
 			{ cwd: f.root, encoding: "utf8", env: f.env },
 		);
@@ -702,7 +702,7 @@ describe("sweepStillRed", () => {
 			"node",
 			[
 				"-e",
-				`const s=require(${JSON.stringify(SCRIPT)});console.log(JSON.stringify(s.sweepStillRed()))`,
+				`const s=require(${JSON.stringify(SCRIPT)});console.log(JSON.stringify(s.ciStillRed()))`,
 			],
 			{ cwd: f.root, encoding: "utf8", env: f.env },
 		);

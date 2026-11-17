@@ -14,6 +14,9 @@
 # Self-contained: it runs as a plugin hook and as the founder's machine copy at
 # ~/.claude/hooks/, so it sources nothing from workflow-core and writes its own
 # deny envelope. `npm run check:settings` holds the machine copy to this file.
+#
+# Named for what it guards, not `guard-*`: the founder's machine copy under
+# ~/.claude/hooks/ carries this name, and check:settings pairs the two by it.
 set -uo pipefail
 
 cmd=$(jq -r '.tool_input.command // empty')
