@@ -23,12 +23,13 @@
  *   - TEST-SKIP    more skip lines in a test file than HEAD held, the file
  *                  existing at HEAD under this name or the one a rename left.
  *                  A test file new at this commit is never one.
- *   - GUARD-GONE   a guard removed outright: a row's name dropped from
- *                  `scripts/lib/guard-cores.json`, or a `scripts/guard-*.js`
- *                  deleted, named by the guard's id (the row's name, the
- *                  script's basename less `.js`). A row renamed onto the same
- *                  core module, a core module renamed under the same row, or a
- *                  script git pairs as a rename is none.
+ *   - GUARD-GONE   a guard removed outright (#5378): a row dropped from an
+ *                  event of `scripts/lib/guard-cores.json`, or a
+ *                  `scripts/guard-*.js` deleted, named by the guard's id (the
+ *                  row's name, the script's basename less `.js`). A row
+ *                  renamed onto the same core module on the same event, a core
+ *                  module renamed under the same row, or a script git pairs as
+ *                  a rename is none.
  * And one the environment carries, not the diff:
  *   - STAND-DOWN   a `WFC_<NAME>_OFF` variable set non-empty in the commit's
  *                  environment, the shape a gate's one-commit stand-down takes
@@ -44,8 +45,12 @@
  * edit); a skip removed and another added in one file, which nets to none; a
  * weakening made while resolving a merge conflict, the hook standing a merge
  * down; a gate command reached through a variable or a script that is not a
- * gate's; a skip spelled on the line after its call, or as `ctx.skip()`; and
- * an amend, whose diff against HEAD leaves out what the amended commit
+ * gate's; a skip spelled on the line after its call, or as `ctx.skip()`; a
+ * guard core emptied in place, its row and module kept; a dropped row whose
+ * core module a new row on its event runs, though that row is another guard;
+ * a guard wired from a hooks file that is neither a guard-cores.json row nor a
+ * `scripts/guard-*.js`;
+ * and an amend, whose diff against HEAD leaves out what the amended commit
  * weakened.
  *
  * IMPLICIT:  on every commit, refuses one whose staged diff turns a module off, drops a CI gate command, adds a skip to an existing test file, removes a guard or runs under a WFC_*_OFF stand-down, until its message names each on a `Weakens:` line; the refusal prints rule:weakens-line.
@@ -182,19 +187,30 @@ function readSides(ctx, change) {
 }
 
 /**
+ * One side's JSON file, parsed; null where that side has none.
+ * @param {Ctx} ctx
+ * @param {string | null} text
+ * @param {string} side
+ * @param {string} file
+ * @returns {any}
+ */
+function parseSide(ctx, text, side, file) {
+	if (text === null) return null;
+	try {
+		return JSON.parse(text);
+	} catch (e) {
+		ctx.broken(`${side} ${file} is not JSON — ${caught(e).message}`);
+	}
+}
+
+/**
  * @param {Ctx} ctx
  * @param {string | null} text
  * @param {string} side
  * @returns {{ disabled: string[], modules: string[] }}
  */
 function configLists(ctx, text, side) {
-	if (text === null) return { disabled: [], modules: [] };
-	let value;
-	try {
-		value = JSON.parse(text);
-	} catch (e) {
-		ctx.broken(`${side} ${CONFIG_PATH} is not JSON — ${caught(e).message}`);
-	}
+	const value = parseSide(ctx, text, side, CONFIG_PATH);
 	const list = (/** @type {unknown} */ v) =>
 		Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
 	return { disabled: list(value?.disabled), modules: list(value?.modules) };
@@ -227,29 +243,24 @@ function modulesOff(ctx, { before, after }) {
 }
 
 /**
- * The guard-cores manifest's rows, as name and core module.
  * @param {Ctx} ctx
  * @param {string | null} text
  * @param {string} side
- * @returns {{ name: string, core: string }[]}
+ * @returns {{ event: string, name: string, core: string }[]}
  */
 function manifestRows(ctx, text, side) {
-	if (text === null) return [];
-	let value;
-	try {
-		value = JSON.parse(text);
-	} catch (e) {
-		ctx.broken(`${side} ${MANIFEST_REL} is not JSON — ${caught(e).message}`);
-	}
-	return Object.values(value ?? {})
-		.flatMap((rows) => (Array.isArray(rows) ? rows : []))
-		.filter((r) => typeof r?.name === "string")
-		.map((r) => ({ name: r.name, core: String(r.core ?? "") }));
+	const value = parseSide(ctx, text, side, MANIFEST_REL);
+	return Object.entries(value ?? {}).flatMap(([event, rows]) =>
+		(Array.isArray(rows) ? rows : [])
+			.filter((r) => typeof r?.name === "string")
+			.map((r) => ({ event, name: r.name, core: String(r.core ?? "") })),
+	);
 }
 
 /**
- * Each row name HEAD's manifest dispatches that the staged one does not, less
- * one whose core module a row new at this commit still runs: a rename.
+ * Each row HEAD's manifest runs on an event that the staged one no longer
+ * does, less one whose core module a row new to that event still runs: a
+ * rename.
  * @param {Ctx} ctx
  * @param {Sides} sides
  * @returns {Weakening[]}
@@ -257,22 +268,22 @@ function manifestRows(ctx, text, side) {
 function coresDropped(ctx, { before, after }) {
 	const was = manifestRows(ctx, before, "HEAD's");
 	const now = manifestRows(ctx, after, "the staged");
-	const wasNames = new Set(was.map((r) => r.name));
-	const nowNames = new Set(now.map((r) => r.name));
-	const renamedCores = new Set(
-		now.filter((r) => !wasNames.has(r.name)).map((r) => r.core),
+	/** @param {{ event: string, name: string }} r */
+	const key = (r) => `${r.event}\0${r.name}`;
+	const wasKeys = new Set(was.map(key));
+	const nowKeys = new Set(now.map(key));
+	const renamed = new Set(
+		now.filter((r) => !wasKeys.has(key(r))).map((r) => `${r.event}\0${r.core}`),
 	);
-	return [
-		...new Set(
-			was
-				.filter((r) => !nowNames.has(r.name) && !renamedCores.has(r.core))
-				.map((r) => r.name),
-		),
-	].map((name) => ({
-		kind: "GUARD-GONE",
-		name,
-		what: `${name} dropped from ${MANIFEST_REL}`,
-	}));
+	return was
+		.filter(
+			(r) => !nowKeys.has(key(r)) && !renamed.has(`${r.event}\0${r.core}`),
+		)
+		.map((r) => ({
+			kind: "GUARD-GONE",
+			name: r.name,
+			what: `${r.name} dropped from ${MANIFEST_REL}'s ${r.event}`,
+		}));
 }
 
 /**
@@ -387,8 +398,7 @@ function weakenings(ctx, changes) {
 		return [];
 	});
 	return found.filter(
-		(w, i) =>
-			found.findIndex((o) => o.kind === w.kind && o.name === w.name) === i,
+		(w, i) => found.findIndex((o) => o.what === w.what) === i,
 	);
 }
 

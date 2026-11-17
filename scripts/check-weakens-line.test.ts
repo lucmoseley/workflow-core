@@ -164,6 +164,16 @@ describe("check-weakens-line (#2235)", () => {
 			).toBe(0);
 		});
 
+		it("refuses a row dropped from one event while its name stays on another", () => {
+			const x = row("guard-x", "x.js");
+			write(manifest, config({ PreToolUse: [kept, x], PostToolUse: [x] }));
+			seed();
+			write(manifest, config({ PreToolUse: [kept], PostToolUse: [x] }));
+			const r = commit("narrow it");
+			expectRefused(r, "guard-x");
+			expect(r.out).toContain(`guard-x dropped from ${manifest}'s PreToolUse`);
+		});
+
 		it.each([
 			[
 				"its name, on the same core module",
