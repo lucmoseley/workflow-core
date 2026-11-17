@@ -3423,7 +3423,7 @@ describe("a serial step", () => {
 		["the step before its own", "merge(m0;a1)", []],
 		["its own step", "merge(merge(m0;a1);b1)", ["merge(merge(m0;a1);b1)"]],
 	])(
-		"skips a member withdrawn while %s is under test, cancelling only its own step's run, landing the rest without it (#5318)",
+		"skips a member withdrawn while %s is under test, cancelling only its own step's run, landing the rest (#5318)",
 		async (_, at, cancelled) => {
 			const r = remoteOf("m0", {
 				a: { sha: "a1", pushedAt: 1 },

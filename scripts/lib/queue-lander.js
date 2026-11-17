@@ -1282,7 +1282,6 @@ function detachAction(s, { line, search }, red) {
 const isWithdrawn = (s, m) => !s.queue.some((r) => r.name === m.name);
 
 /**
- * The leave of the first withdrawn of `members`, else null.
  * @param {QueueState} s
  * @param {readonly Member[]} members
  * @returns {QueueAction|null}
@@ -2714,8 +2713,7 @@ async function act(deps, action, run) {
 			return { ...run, alone: { name: member.name, onto, result } };
 		}
 		case "leave-withdrawn": {
-			/* Listed with the deferred, the members left out; a withdrawn one
-			 * owes no drop and no fix ticket. */
+			/* A withdrawn member owes no drop and no fix ticket. */
 			const b = batchOf(run);
 			const sha = carrying(b, action.name);
 			if (sha !== null) dropRunsAt(deps, run, { sha, slot: b.slot });
