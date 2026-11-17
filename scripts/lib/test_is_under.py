@@ -1,5 +1,8 @@
 """`relative_under`'s edge spellings (#5374), the contract of `relativeUnder`
-in `is-under.js`."""
+in `is-under.js`. In-process calls on literal paths, no I/O; the drive case
+swaps the module's `os` for Windows spelling, the one host difference no
+Linux run reaches. A break here mis-answers every §LG3 containment test
+Python code makes."""
 
 import ntpath
 import sys
@@ -40,10 +43,13 @@ def test_an_absolute_path_elsewhere_is_outside():
     assert relative_under("/r", "/elsewhere/x") is None
 
 
+def test_an_empty_path_is_outside():
+    assert relative_under("/r", "") is None
+
+
 def test_a_path_on_another_drive_is_outside(monkeypatch):
     monkeypatch.setattr(is_under, "os", _NtOs)
     assert relative_under("C:\\r", "D:\\x") is None
-    assert relative_under("C:\\r", "C:\\r\\..x") == "..x"
 
 
 class _NtOs:

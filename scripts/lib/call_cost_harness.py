@@ -80,7 +80,7 @@ def _scripts_root_of(script: str) -> str:
 
 def _under(file: str, root: str) -> bool:
     return (
-        relative_under(root, file)
+        bool(relative_under(root, file))
         and file != _SELF
         and not any(part in _VENDORED for part in Path(file).parts)
     )
