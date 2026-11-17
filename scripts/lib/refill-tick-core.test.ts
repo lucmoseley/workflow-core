@@ -1912,6 +1912,47 @@ describe("a launch the harness ended on a synthetic reply, through the tick (#53
 		);
 	});
 
+	it("resumes a session it did not launch that the reaper stopped before the loop read its stop, off the reaper's journal (#5331)", async () => {
+		const stopped = doneJob({ state: "stopped" });
+		const { io, calls, lines } = fakeIo(
+			stateOf({ launches: [] }),
+			{
+				readListing: () => ({ agents: [], why: null }),
+				readRegistry: () =>
+					({ seats: [SEAT], faults: [], agents: [] }) as never,
+				actOnOutside: (launches, registry, seen) =>
+					actOnOutside(launches, registry, () => null as never, seen),
+			},
+			{
+				frontier: [],
+				block: {
+					readReaped: () => ({
+						jobs: [
+							{
+								at: NOW - MIN,
+								seat: SEAT,
+								jobId: "out1",
+								sessionId: "s-out",
+								name: "founder-session",
+								cwd: "/home/u/work",
+							},
+						],
+						read: [],
+					}),
+					syntheticStopOf: () =>
+						syntheticStopAt({ job: stopped, rows: stoppedRows(stopAt(20)) }),
+					jobStateOf: () => stopped as never,
+				},
+			},
+		);
+		await tickOf(io);
+		expect(calls).toContain("blockIo.resumeStopped");
+		expect(calls).not.toContain("blockIo.stop");
+		expect(lines.join("\n")).toMatch(
+			/resumed founder-session .*synthetic reply.* by --bg --resume, the reaper having stopped it.* try 1 of 2/,
+		);
+	});
+
 	it("names the cause on the finished-launch line", () => {
 		const line = buildFinishLine({
 			...Syn,

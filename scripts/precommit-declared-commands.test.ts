@@ -300,7 +300,7 @@ it("stands the test gate down once the command's verdict probe passes, running n
 	expect(ran("test")).toBe(false);
 	expect(out).toContain("verdict probe: running");
 	expect(out).toContain(
-		"SKIP: commands.test is gated at push, where the lander runs the full suite — its verdict probe passed for this command and canary\n",
+		"SKIP: commands.test is gated at push, where the lander runs the full suite — its verdict probe passed for this command, runner and canary\n",
 	);
 });
 

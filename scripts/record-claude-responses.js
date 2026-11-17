@@ -30,7 +30,8 @@
  *     prints and the seat cache it rewrites, which lib/usage-probe.js,
  *     lib/allowance.js and lib/seat-utilisation.js read (#3266, #3282), off one
  *     probe of this session's seat run as lib/usage-probe.js runs it, to its
- *     end.
+ *     end; a seat listing no session bar keeps the previous recording's
+ *     (lib/session-bar-carry.js).
  *
  * Run it by hand after a harness upgrade, from a session worktree with its
  * edits committed, then `npm
@@ -64,6 +65,7 @@ const {
 const { claudeBin } = require("./lib/claude-bin.js");
 const { NO_JOB_ANSWER } = require("./lib/claude-stop.js");
 const { configDir } = require("./lib/config-dir.js");
+const { readText } = require("./lib/file-read.js");
 const { sessionTree } = require("./lib/host-root.js");
 const { jobDirPath, readJobRecord } = require("./lib/job-paths.js");
 const { launchAuthRefusal } = require("./lib/launch-auth.js");
@@ -74,6 +76,7 @@ const {
 	PROMPT,
 	SCRIPTED_PROMPT,
 } = require("./lib/recorder-prompts.js");
+const { carrySessionBar } = require("./lib/session-bar-carry.js");
 const {
 	PROBE_ARGV,
 	PROBE_CWD,
@@ -464,6 +467,14 @@ async function recordUsage() {
 	};
 }
 
+/** The usage-probe fixture this run replaces; null where none is tracked. */
+function previousRecording() {
+	const read = readText(USAGE_FIXTURE);
+	if (read.state === "absent") return null;
+	if (read.state === "unreadable") throw read.error;
+	return JSON.parse(read.data);
+}
+
 /**
  * @param {string} file
  * @param {object} recorded
@@ -492,6 +503,7 @@ async function main() {
 	});
 	if (refusal) throw new Error(refusal);
 	const harness = claude(["--version"]).stdout.split(" ")[0];
+	if (!harness) throw new Error("claude --version printed no version");
 	const launched = launch(PROMPT);
 	const original = launched.id;
 	const started = [original];
@@ -655,11 +667,16 @@ async function main() {
 	}
 	/* Last, once every job is stopped, so its wait or a failure costs no
 	 * other fixture. */
-	writeFixture(USAGE_FIXTURE, {
-		recordedBy: RECORDED_BY,
-		harness,
-		...(await recordUsage()),
-	});
+	const usage = carrySessionBar(
+		{ recordedBy: RECORDED_BY, harness, ...(await recordUsage()) },
+		previousRecording(),
+	);
+	if (usage.sessionBar)
+		writeFd(
+			2,
+			`the seat listed no session bar: kept ${usage.sessionBar.harness}'s, which this harness's shape goes unchecked against\n`,
+		);
+	writeFixture(USAGE_FIXTURE, usage);
 }
 
 main().catch((e) => {

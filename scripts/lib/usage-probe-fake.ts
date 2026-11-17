@@ -8,6 +8,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { SESSION_PREFIX, type SessionBar } from "./session-bar-carry.js";
 import { shellQuote } from "./sh-quote.js";
 
 interface Limit {
@@ -27,12 +28,26 @@ export const recorded: {
 		accountUuid: string;
 		utilization: { limits: Limit[] };
 	};
+	/** The session bar an earlier harness recorded, kept when this probe's
+	 * seat listed none (lib/session-bar-carry.js). */
+	sessionBar?: SessionBar & { limit: Limit };
 } = JSON.parse(
 	fs.readFileSync(
 		path.join(__dirname, "..", "fixtures", "usage-probe.json"),
 		"utf8",
 	),
 );
+
+/** The printed lines and cached limits the fake builds from, a carried
+ * session bar among them. */
+export const printedLines = [
+	...recorded.printed,
+	...(recorded.sessionBar ? [recorded.sessionBar.printed] : []),
+];
+export const recordedLimits = [
+	...recorded.cache.utilization.limits,
+	...(recorded.sessionBar ? [recorded.sessionBar.limit] : []),
+];
 
 /** A bar's percent; a string lets a case print one no parse reads. */
 type Percent = number | string;
@@ -47,7 +62,7 @@ export interface Bars {
 type Kind = "session" | "weekly_all";
 
 const PREFIX: Record<Kind, string> = {
-	session: "Current session:",
+	session: SESSION_PREFIX,
 	weekly_all: "Current week (all models):",
 };
 
@@ -55,7 +70,7 @@ const USED = /(?<![0-9])[0-9]+% used/;
 
 /** The recorded line of `kind`'s bar, reading `percent`. */
 function printedLine(kind: Kind, percent: Percent): string {
-	const line = recorded.printed.find((l) => l.startsWith(PREFIX[kind]));
+	const line = printedLines.find((l) => l.startsWith(PREFIX[kind]));
 	if (!line)
 		throw new Error(`${recorded.harness} printed no "${PREFIX[kind]}" line`);
 	return line.replace(USED, `${percent}% used`);
@@ -96,7 +111,7 @@ const WINDOW_MS: Record<Kind, number> = {
 
 /** The recording's cached bar of `kind`. */
 export function recordedLimit(kind: string): Limit {
-	const limit = recorded.cache.utilization.limits.find((l) => l.kind === kind);
+	const limit = recordedLimits.find((l) => l.kind === kind);
 	if (!limit) throw new Error(`${recorded.harness} cached no "${kind}" bar`);
 	return limit;
 }

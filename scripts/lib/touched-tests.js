@@ -83,7 +83,7 @@ const { EDGES_FILE, shortSha } = require("./test-pass-marker.js");
 
 /** @typedef {import("./dirty-tree.js").ExecFn} ExecFn */
 /** @typedef {import("./own-selection.js").OwnSet} OwnSet */
-/** @typedef {"merge-base"|"head"} TouchedBase */
+/** @typedef {import("./test-pass-marker.js").TouchedBase} TouchedBase */
 
 /**
  * The checker-only files, each with its checker tests: a path, or a pattern
@@ -440,7 +440,7 @@ function resolveTouched(
  *
  * @returns {TouchedBase}
  */
-const touchedBaseHere = () =>
+const readTouchedBase = () =>
 	readGateSeats().under(process.pid) ? "head" : "merge-base";
 
 /**
@@ -453,7 +453,7 @@ const touchedBaseHere = () =>
  * merge its own content, `merged` naming the merge parents read from `env`.
  *
  * @param {string} at
- * @param {{ from?: TouchedBase, sessionId?: string|null, execFn?: ExecFn,
+ * @param {{ from: TouchedBase, sessionId?: string|null, execFn?: ExecFn,
  *   ledger?: import("./own-work.js").CommitLedger,
  *   ownWork?: OwnSet|null, env?: NodeJS.ProcessEnv }} options
  * @returns {{ base: string, changed: string[], merged: string[],
@@ -462,7 +462,7 @@ const touchedBaseHere = () =>
  */
 function readTouchedPaths(
 	at,
-	{ from = "merge-base", execFn = execFileSync, env, ...options },
+	{ from, execFn = execFileSync, env, ...options },
 ) {
 	if (from === "head") {
 		const head = gitRead(["rev-parse", "HEAD"], at, execFn)?.trim();
@@ -532,12 +532,16 @@ function readChanged(at, base, own, execFn) {
  * banner the run prints.
  *
  * @param {string} at
- * @param {Parameters<typeof readTouchedPaths>[1] &
+ * @param {Partial<Parameters<typeof readTouchedPaths>[1]> &
  *   Parameters<typeof resolveTouched>[2]} [options]
  */
-function selectTouched(at, { suite, loadEdges, renderEdges, ...options } = {}) {
+function selectTouched(
+	at,
+	{ suite, loadEdges, renderEdges, from = "merge-base", ...options } = {},
+) {
 	const { base, changed, merged, mergeUnread } = readTouchedPaths(at, {
 		...options,
+		from,
 		/* `||`, not `??`: the suite stubs the id to "", which is no session. */
 		sessionId: options.sessionId || idSeam.fromEnv(),
 	});
@@ -554,7 +558,7 @@ function selectTouched(at, { suite, loadEdges, renderEdges, ...options } = {}) {
 		leftOut: resolved.leftOut,
 		banner: touchedBanner(
 			resolved,
-			scopeWording(base, options.from ?? "merge-base", merged, mergeUnread),
+			scopeWording(base, from, merged, mergeUnread),
 		),
 	};
 }
@@ -661,4 +665,4 @@ function touchedBanner(
 /** @param {string[][]} lists */
 const sortedUnion = (...lists) => [...new Set(lists.flat())].sort();
 
-module.exports = { selectTouched, touchedBaseHere };
+module.exports = { readTouchedBase, selectTouched };

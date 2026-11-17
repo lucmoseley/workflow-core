@@ -41,8 +41,8 @@
  * it would never disagree with them.
  *
  * FAILS OPEN. Neither reader present, permitted or answering inside
- * READ_TIMEOUT_MS, with no clock read showing a freeze, is SKIP, which --notify
- * prints nothing for. A clock it cannot read is WARN on a plain run, not the SKIP
+ * lib/journalctl.js's READ_TIMEOUT_MS, with no clock read showing a freeze, is
+ * SKIP, which --notify prints nothing for. A clock it cannot read is WARN on a plain run, not the SKIP
  * an unavailable subject otherwise is, since `npm run status` hides a SKIP's body;
  * --notify raises nothing for it, as no session can act on the line (#4092). Never
  * FAIL, whose exit would refuse every launch on a kernel lacking the source. The
@@ -83,22 +83,16 @@ const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const zlib = require("node:zlib");
 const { runCheck } = require("./lib/check");
-const { readBoots } = require("./lib/journalctl.js");
+const {
+	readBoots,
+	runBoundedRead,
+	runJournalctl,
+} = require("./lib/journalctl.js");
 const { REAL_PROC } = require("./lib/proc-root.js");
 const { docPath } = require("./lib/script-path.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
 
 /** @typedef {{ runtime: number, busy: number }} Clock */
-
-/** Per reader. Measured at 0.05s for a 15-hour boot's 542 lines; the rest is margin. */
-const READ_TIMEOUT_MS = 5000;
-
-/**
- * Per reader. The largest boot journalctl held on 8 Oct 2026 was 1.93 MB
- * (19,526 lines over five days); this is ~30x that, so only a boot of months
- * would overflow it — and an overflow is a read error, so SKIP, never "clean".
- */
-const MAX_BUFFER = 64 * 1024 * 1024;
 
 /** Long enough that a healthy machine's ratio stays far above FROZEN_RATIO (#4092). */
 const CLOCK_WAIT_MS = 1000;
@@ -166,14 +160,15 @@ const BOOT_BANNER = /\b(?:Booting Linux|Linux version)\b/;
 /** @param {string} boot */
 const readers = (boot) => ({
 	journal: {
-		cmd: process.env.WFC_JOURNALCTL || "journalctl",
-		args: ["-k", "-b", boot, "--no-pager", "-o", "short-iso"],
+		name: "journalctl",
+		read: () =>
+			runJournalctl(["-k", "-b", boot, "--no-pager", "-o", "short-iso"]).stdout,
 		// `2026-10-07T22:43:24+08:00 host kernel: …`
 		time: (/** @type {string} */ line) => line.split(/\s+/)[0],
 	},
 	dmesg: {
-		cmd: process.env.WFC_DMESG || "dmesg",
-		args: ["-T"],
+		name: "dmesg",
+		read: () => runBoundedRead(process.env.WFC_DMESG || "dmesg", ["-T"]).stdout,
 		// `[Wed Oct  7 22:43:24 2026] …`
 		time: (/** @type {string} */ line) =>
 			(line.match(/^\[([^\]]+)\]/)?.[1] ?? "").replace(/\s+/g, " "),
@@ -201,14 +196,7 @@ function readKernelLog(boot) {
 	}
 	const logs = [];
 	for (const reader of boot === "0" ? [journal, dmesg] : [journal]) {
-		const res = spawnSync(reader.cmd, reader.args, {
-			encoding: "utf8",
-			timeout: READ_TIMEOUT_MS,
-			stdio: ["ignore", "pipe", "ignore"],
-			maxBuffer: MAX_BUFFER,
-		});
-		if (res.error || res.status !== 0) continue;
-		const lines = parseRealLines(res.stdout);
+		const lines = parseRealLines(reader.read());
 		if (lines.length > 0) logs.push({ reader, lines });
 	}
 	return logs;
@@ -547,7 +535,7 @@ function buildResult(boot, logs, stall, clock) {
 		count: stall?.count ?? Number(frozen),
 		data: {
 			boot,
-			readers: logs.map((l) => l.reader.cmd),
+			readers: logs.map((l) => l.reader.name),
 			lines: read,
 			stalls: stall ? stall.count : 0,
 			stallFigures: stall ? stall.figures : [],
@@ -565,7 +553,7 @@ function reportStall(ctx, boot, stall) {
 	ctx.fail(
 		"KERNEL-STALL",
 		`the kernel reported ${stall.count} RCU stall(s) on boot ${boot}, the first at ${stall.first}`,
-		{ first: stall.first, count: stall.count, reader: stall.reader.cmd },
+		{ first: stall.first, count: stall.count, reader: stall.reader.name },
 	);
 	const warning = stallWarning(boot, stall);
 	for (const f of stall.figures) {
