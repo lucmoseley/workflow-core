@@ -24,7 +24,8 @@
  */
 
 const { refillPath } = require("./refill-dir.js");
-const { QUEUE_EXIT_RETAIN_MS, appendRetained } = require("./retained-jsonl.js");
+const { QUEUE_EXIT_RETAIN_MS } = require("./queue-exit-log.js");
+const { appendRetained } = require("./retained-jsonl.js");
 
 const MIN_MS = 60 * 1000;
 const HOUR_MS = 60 * MIN_MS;

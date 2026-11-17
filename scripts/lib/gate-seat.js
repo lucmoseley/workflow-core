@@ -21,7 +21,7 @@
  *
  * THE GATE-RUN RECORD is `.gate-runs.jsonl` under the canonical checkout's
  * markers directory, one line per gate run, kept as long as the queue-exit
- * log (lib/retained-jsonl.js `QUEUE_EXIT_RETAIN_MS`). It is the
+ * log (lib/queue-exit-log.js `QUEUE_EXIT_RETAIN_MS`). It is the
  * one source of gate-run counts.
  *
  * THE PID RECORD names the processes of a running seat's tree for the
@@ -54,7 +54,8 @@ const { readAncestorsOf, readParentOf } = require("./proc-stat.js");
 const { procRoot } = require("./proc-root.js");
 const { isOtherRunner } = require("./suite-launch.js");
 const { markersDir } = require("./marker-root.js");
-const { QUEUE_EXIT_RETAIN_MS, appendRetained } = require("./retained-jsonl.js");
+const { QUEUE_EXIT_RETAIN_MS } = require("./queue-exit-log.js");
+const { appendRetained } = require("./retained-jsonl.js");
 const { repoRoot } = require("./test-pass-marker.js");
 const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js");
 const { isVitestRunnerLine, suiteRungMb } = require("./suite-ladder.js");

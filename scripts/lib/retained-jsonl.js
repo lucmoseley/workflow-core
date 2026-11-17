@@ -22,10 +22,6 @@ const { withDirLock } = require("./dir-lock.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-/* The queue-exit log's retention, which records read beside it share: above
- * the 14-day series #1157's filed issue carries, twice over. Chosen, not
- * measured. */
-const QUEUE_EXIT_RETAIN_MS = 30 * DAY_MS;
 
 /** @param {string} file */
 const lockOf = (file) => `${file}.lock`;
@@ -174,7 +170,6 @@ function removeUntouched(file, beforeMs, now) {
 
 module.exports = {
 	DAY_MS,
-	QUEUE_EXIT_RETAIN_MS,
 	appendRetained,
 	sweepRetained,
 };
