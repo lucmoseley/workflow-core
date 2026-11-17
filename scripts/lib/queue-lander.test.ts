@@ -167,6 +167,8 @@ interface Options {
 	fault?: (call: string) => Error | undefined;
 	/** Runs before a compare-and-delete reads the ref. */
 	beforeDelete?: (branch: string, remote: Remote) => void;
+	/** Runs as a push to `main` reaches the remote, after the step's read. */
+	beforePush?: (sha: string, remote: Remote) => void;
 	/** The remote's refusal of a push of `sha` to `main`, none where absent. */
 	refuse?: (sha: string) => string | undefined;
 	/** Throws in place of filing a fix ticket while it returns an error. */
@@ -275,14 +277,19 @@ async function land(remote: Remote, disk: Disk, o: Options = {}) {
 					fakeMerge(remote, onto, members, fresh)
 				);
 			},
-			pushMain: (sha) => {
+			pushMain: (sha, leases) => {
 				call("pushMain");
+				o.beforePush?.(sha, remote);
+				const names = leases.flatMap((l) =>
+					remote.refs.get(l.name)?.sha === l.sha ? [] : [l.name],
+				);
+				if (names.length > 0) return { kind: "lease-lost", names };
 				pushed.push(sha);
 				events.push(`main ${sha}`);
-				const refused = o.refuse?.(sha);
-				if (refused) return refused;
+				const line = o.refuse?.(sha);
+				if (line) return { kind: "refused", line };
 				remote.main = sha;
-				return null;
+				return { kind: "pushed" };
 			},
 			deleteRef: (branch, sha) => {
 				call("deleteRef");
@@ -3467,6 +3474,74 @@ describe("a serial step", () => {
 			expect(r.main).toBe("merge(merge(m0;a1);c1)");
 		},
 	);
+
+	/* Positive pair: "lands a lone ref as the integration commit its merge
+	 * names". */
+	it.each([
+		["a batch's fast-forward", "merge(m0;a1,b1)", false, "merge(m0;a1)"],
+		["a serial step", "merge(merge(m0;a1);b1)", true, "merge(merge(m0;a1);c1)"],
+	])(
+		"keeps main where it is when a member is withdrawn between the step's ref read and %s's push, then lands the rest (#5326)",
+		async (_, at, serial, landed) => {
+			const r = remoteOf("m0", {
+				a: { sha: "a1", pushedAt: 1 },
+				b: { sha: "b1", pushedAt: 2 },
+				...(serial ? { c: { sha: "c1", pushedAt: 3 } } : {}),
+			});
+
+			const { end, actions, pushed, said } = await land(r, freshDisk(), {
+				...(serial
+					? {
+							verdict: (sha: string) =>
+								sha === "merge(m0;a1,b1,c1)"
+									? { kind: "red" as const, files: [Y] }
+									: { kind: "green" as const, run: 1 },
+						}
+					: {}),
+				beforePush: (sha, rem) => {
+					if (sha === at) rem.refs.delete("b");
+				},
+			});
+
+			expect(end).toEqual(NO_QUEUE);
+			expect(
+				actions.some(
+					(a) =>
+						(a.kind === "fast-forward-main" || a.kind === "land-step") &&
+						a.sha === at,
+				),
+			).toBe(true);
+			expect(said.filter((l) => l.startsWith("main not moved"))).toEqual([
+				`main not moved to ${at.slice(0, 9)}: queue/b moved or went since this step read the refs`,
+			]);
+			expect(
+				actions.flatMap((a) =>
+					a.kind === "leave-withdrawn" ? [buildQueueActionLine(a)] : [],
+				),
+			).toEqual([
+				"leave-withdrawn queue/b@b1: its queue ref is gone from the remote",
+			]);
+			expect(pushed.filter((sha) => sha.includes("b1"))).toEqual([]);
+			expect(r.main).toBe(landed);
+		},
+	);
+
+	it("leases each queue ref at the sha the step read, so a member pushed again before the push lands on the step after (#5326)", async () => {
+		const r = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		let pushes = 0;
+
+		const { pushed, said } = await land(r, freshDisk(), {
+			beforePush: (_, rem) => {
+				if (++pushes === 1) rem.refs.set("b", { sha: "b2", pushedAt: 3 });
+			},
+		});
+
+		expect(said.filter((l) => l.startsWith("main not moved"))).toHaveLength(1);
+		expect(pushed[0]).toBe("merge(m0;a1,b1)");
+	});
 });
 
 describe("paths this machine does not take", () => {
