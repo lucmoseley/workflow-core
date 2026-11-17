@@ -567,6 +567,7 @@ describe("the gate-seat reserve (#5274, spec #5273 §2)", () => {
 		expect(run({ ...big, gates: [{ pid: 2 ** 22 + 1 }] }).json.gateMb).toBe(0);
 	});
 
+	/* Positive pair: "holds the gateSeatMb charge the seat's marker carries" and "admits one fewer session while a lander's marker is live". */
 	it("holds both reserves' default charges, and says why, where the suite queue will not read (#5301)", () => {
 		const without = run(big).json;
 		const { json } = run({

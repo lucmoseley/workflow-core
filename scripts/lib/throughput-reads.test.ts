@@ -315,6 +315,7 @@ describe("a checkout's loop sessions (#5289)", () => {
 		expect(hoursOf([launchOf(seat, "gone")])).toBe(0);
 	});
 
+	/* Positive pair: "counts a launch's current job to its finish, dropping a malformed row". */
 	it("counts no hours for a job whose timeline will not stat or read, and names it (#5301)", () => {
 		const seat = path.join(tmp, "seat");
 		writeJob(seat, "j1", HI - 2 * HOUR);

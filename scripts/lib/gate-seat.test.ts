@@ -73,6 +73,7 @@ describe("readLiveGateSeats", () => {
 		});
 	});
 
+	/* Positive pair: "reads every live gate marker, queued or running, with its charge". */
 	it("holds the default charge, and says why, where the queue will not read (#5301)", () => {
 		const q = queue();
 		q.marker({ pid: process.pid, role: "gate", chargeMb: 2100 });
@@ -112,6 +113,7 @@ describe("readGateSeats, the count's reading of the seats", () => {
 		expect(seats.under(null)).toBe(false);
 	});
 
+	/* Positive pair: "places a runner among a spawned seat's holder's descendants under it". */
 	it("counts no seat, and says why, where the queue will not read (#5301)", () => {
 		const q = queue();
 		q.marker({ pid: process.pid, role: "gate", spawned: true });

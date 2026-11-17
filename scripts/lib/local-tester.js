@@ -32,7 +32,7 @@ const {
 	parsePlainLines,
 } = require("./suite-output.js");
 const { chargeMb: launchChargeMb } = require("./launch-charge.js");
-const { readLiveRoleMarkers } = require("./suite-queue.js");
+const { readLiveCharged } = require("./suite-queue.js");
 const { LANDER_ROLE, suiteSlot } = require("./suite-slot.js");
 const { LANDER_WORKTREE } = require("./worktree-dirs.js");
 const { readConfig } = require("./workflow-core-config.js");
@@ -117,23 +117,20 @@ function parseCeilingKillReason(out) {
 /**
  * The landers holding or waiting for a suite slot, each with the charge its
  * marker carries, for session admission to hold back (#2416, #3323). A marker
- * whose charge is not a number is held a whole run's, as is a queue that will
- * not read, failing closed (#5301).
- * @param {{queueDir?: string, queueFs?: typeof import("node:fs")}} [options]
+ * whose charge is not a number, or a queue that will not read, is held a
+ * whole run's.
+ * @param {{queueDir?: string}} [options]
  * @returns {import("./admission.js").Landers}
  */
-function readLiveLanders({ queueDir, queueFs } = {}) {
-	const whole = launchChargeMb({ kind: "lander", files: [] });
-	const { records, unread } = readLiveRoleMarkers(LANDER_ROLE, {
+function readLiveLanders({ queueDir } = {}) {
+	const { records, unread } = readLiveCharged(
+		LANDER_ROLE,
+		launchChargeMb({ kind: "lander", files: [] }),
 		queueDir,
-		queueFs,
-	});
+	);
 	return {
-		live: records.map((r) => ({
-			pid: r.pid,
-			chargeMb: Number.isFinite(r.chargeMb) ? Number(r.chargeMb) : whole,
-		})),
-		unread: unread === null ? null : { why: unread, chargeMb: whole },
+		live: records.map(({ pid, chargeMb }) => ({ pid, chargeMb })),
+		unread,
 	};
 }
 

@@ -9,10 +9,10 @@
  * release, so it is never judged older.
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { compareVersions } = require("./compare-versions.js");
+const { readText } = require("./file-read.js");
 const { readPin } = require("./plugin-state.js");
 
 const ALWAYS_ON = "v3.0.0";
@@ -34,18 +34,22 @@ const ALWAYS_ON_PARTS = (() => {
 })();
 
 /**
- * Whether the config at `root` names `"landing"` in its `modules`, or why it
- * would not read (#5301).
+ * Whether the config at `root` names `"landing"` in its `modules`, none
+ * where it is absent, or why it would not read (#5301).
  * @param {string} root
  * @returns {boolean|{unread: string}}
  */
 function declaresLanding(root) {
 	const file = path.join(root, ".claude", "workflow-core.json");
+	const read = readText(file);
+	if (read.state === "absent") return false;
+	if (read.state === "unreadable")
+		return { unread: `${file} would not read (${read.message})` };
 	try {
-		const raw = JSON.parse(fs.readFileSync(file, "utf8"));
+		const raw = JSON.parse(read.data);
 		return Array.isArray(raw?.modules) && raw.modules.includes("landing");
 	} catch (err) {
-		return { unread: `${file} would not read (${caught(err).message})` };
+		return { unread: `${file} would not parse (${caught(err).message})` };
 	}
 }
 

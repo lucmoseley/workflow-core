@@ -2432,6 +2432,7 @@ describe("counts and judges a suite vitest does not run (#330)", () => {
 		).toBeDefined();
 	});
 
+	/* Positive pair: "reads a running gate seat as one whole suite, its own runners not counted again (#5274)". */
 	it("counts every runner as itself, and logs why, where the gate seats will not read (#5301)", () => {
 		const lanes = psListing(["node --test lanes/a", "node --test lanes/b"]);
 		const why = "the suite queue /q would not read (EACCES: permission denied)";

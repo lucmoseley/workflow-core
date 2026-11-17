@@ -196,8 +196,8 @@ const launchJobsOf = (launches, now) => [
  * @param {{roots: string[], launches: SeatedLaunch[],
  *   lookbackOf: (root: string) => number, now: number}} window
  * @returns {{byRoot: Record<string, {sessions: SessionTimeline[],
- *   unread: string[]}>, recordRead: boolean}}  `unread`, each job timeline
- *   that would not read
+ *   timelinesUnread: string[]}>, recordRead: boolean}}  `timelinesUnread`,
+ *   each job timeline that would not read
  */
 function readLoopSessions({ roots, launches, lookbackOf, now }) {
 	const record = readRows(loopJobsPath());
@@ -226,7 +226,7 @@ function readLoopSessions({ roots, launches, lookbackOf, now }) {
 			);
 		return {
 			sessions: reads.flatMap((r) => ("unread" in r ? [] : [r])),
-			unread: reads.flatMap((r) => ("unread" in r ? [r.unread] : [])),
+			timelinesUnread: reads.flatMap((r) => ("unread" in r ? [r.unread] : [])),
 		};
 	};
 	return {
@@ -326,7 +326,7 @@ function readThroughput({ roots, launches, lookbackOf, now }) {
 					commits: readMainCommits(root, lookback(root)),
 					gateRuns: readGateRuns(root),
 					sessions: sessions.byRoot[root]?.sessions ?? [],
-					timelinesUnread: sessions.byRoot[root]?.unread ?? [],
+					timelinesUnread: sessions.byRoot[root]?.timelinesUnread ?? [],
 				},
 			]),
 		),
@@ -363,7 +363,7 @@ function readThroughputWindow({ roots, launches, lo, hi }) {
 			workingHours:
 				workingMsOf(sessions.byRoot[root]?.sessions ?? [], lo, hi) / 3_600_000,
 			jobsRead: sessions.recordRead,
-			timelinesUnread: sessions.byRoot[root]?.unread ?? [],
+			timelinesUnread: sessions.byRoot[root]?.timelinesUnread ?? [],
 			gateRuns:
 				gateRuns === null
 					? null

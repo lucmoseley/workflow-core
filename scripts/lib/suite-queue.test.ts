@@ -347,6 +347,7 @@ describe("readLiveRoleMarkers (#2416)", () => {
 		expect(fs.readdirSync(queueDir)).toHaveLength(3);
 	});
 
+	/* Positive pair: "names the live markers of one role with their charge, sweeping none". */
 	it("says the queue would not read rather than reading it empty (#5301)", () => {
 		const queueDir = qdir();
 		joined(queueDir, 11, 11, { role: "lander" });

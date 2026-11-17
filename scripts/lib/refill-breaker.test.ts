@@ -292,6 +292,7 @@ describe("the breaker's steps", () => {
 		expect(step(busy(2), readOf({ commits })).events).toEqual([]);
 	});
 
+	/* Positive pair: "opens at 12 working hours under 0.3, barring the checkout while its sessions run". */
 	it("opens nothing, and says why, where a session's timeline would not read (#5301)", () => {
 		const why =
 			"job j9's timeline (EACCES: permission denied, stat '/s/jobs/j9/timeline.jsonl')";

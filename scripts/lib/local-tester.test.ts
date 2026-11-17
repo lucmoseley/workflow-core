@@ -653,6 +653,7 @@ it("holds a lander marker whose charge is not a number a whole run's (#3323)", (
 	seat.leave();
 });
 
+/* Positive pair: "shows session admission the held slot as a lander (#2416)". */
 it("holds a whole run's charge, and says why, where the queue will not read (#5301)", () => {
 	fs.chmodSync(tmp, 0o000);
 	try {
