@@ -222,8 +222,7 @@ const REPO_CHECKS = [
 		kind: "check",
 		gate: TRACKER,
 	},
-	/* Moved from the sweep for the reason red-suite was (#1963). Its own
-	 * gate SKIPs outside the core. */
+	/* Its own gate SKIPs outside the core (#1963). */
 	{
 		id: "citation-ceiling",
 		script: "check-citation-ceiling.js",
@@ -259,7 +258,7 @@ function entryOf(id) {
 /**
  * The repo at `root` as the gates read it. The tracker is resolved on first
  * ask, through `resolveTracker`; a run holding no token passes one that
- * answers null, so every tracker entry is SKIP.
+ * answers null.
  *
  * @param {string} root
  * @param {(root: string) => unknown} [resolveTracker]
@@ -298,7 +297,6 @@ function readHost(
 function gateFault({ gate }, host) {
 	for (const m of gate.modules ?? [])
 		if (!host.modules.has(m)) return `module "${m}" is off in ${host.file}`;
-	// The core runs a check with its input missing, so it reports BROKEN (#1722).
 	if (
 		gate.input &&
 		!host.core &&

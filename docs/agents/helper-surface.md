@@ -6,7 +6,7 @@ The helper surface is the set of core files an adopter's checks and tests may im
 
 ## CI: checking the core out at the pin
 
-CI takes the core-owned workflow, `.github/workflows/workflow-core-ci.yml`: the upgrade writes it where `.claude/workflow-core.json` carries a `ci` key, and rewrites it on every bump (`scripts/lib/adopter-ci.js`, #5347). Its job checks the core out at the tag `.claude/settings.json` pins, into `.workflow-core`, and sets `WORKFLOW_CORE_CHECKOUT` there, so `resolveCore()` finds it. workflow-core is public, so the checkout needs no key. Write no checkout steps of your own: a pin that is a branch or a SHA fails the job's first step, naming the fix.
+CI takes the core-owned workflow, `.github/workflows/workflow-core-ci.yml`: the upgrade writes it where `.claude/workflow-core.json` carries a `ci` key, and rewrites it on every bump (`scripts/lib/adopter-ci.js`, #5347). Its job checks the core out at the tag `.claude/settings.json` pins, into `.workflow-core`, and sets `WORKFLOW_CORE_CHECKOUT` there, so `resolveCore()` finds it. Write no checkout steps of your own: a pin that is a branch or a SHA fails the job's first step, naming the fix.
 
 ## Running a core command
 

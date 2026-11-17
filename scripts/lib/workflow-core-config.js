@@ -103,10 +103,10 @@ const OWN_MISSING_LINE = `WARN ${CONFIG_PATH}: no own tracker resolves, so "corp
 const DEPLOYS = /** @type {const} */ (["vercel"]);
 const LANDING_TESTERS = /** @type {const} */ (["local", "actions"]);
 /* The runners the core-owned CI workflow may name (lib/adopter-ci.js, #5347):
- * the 1-core x64 at a third of the standard rate, else the 2-core ARM64. */
+ * the 1-core x64, else the 2-core ARM64. */
 const CI_RUNNERS = /** @type {const} */ (["ubuntu-slim", "ubuntu-24.04-arm"]);
 /* GitHub ends a single-CPU runner's job at 15 minutes (its Actions limits
- * reference), so a longer ceiling there could never be reached. */
+ * reference). */
 const SLIM_MAX_MINUTES = 15;
 
 const MODULES = /** @type {const} */ ([
@@ -186,8 +186,7 @@ const KNOWN_KEYS = [
 	 * this reader (#944), which only warns on its shape. */
 	"mods",
 	/* Read and written through scripts/lib/steps-owed.js alone, never through
-	 * this reader (#248). Listed here only so an unknown-key warning does not
-	 * fire on it. */
+	 * this reader (#248). */
 	"stepsOwed",
 ];
 
@@ -248,7 +247,7 @@ const unsetCommands = () =>
  * @property {LandingTester} [landingTester] which tester the lander runs: `local`, the suite in its own worktree (lib/local-tester.js), or `actions`, the suite workflow's run on the `lander/batch-<k>` or the `lander/iso-suite-<k>` ref holding the sha (lib/actions-tester.js); absent is `local` (#2413)
  * @property {number} [fullTestShards] how many `--shard=k/n` runs the lander's local tester splits `full_test` into, each in its own suite slot; absent runs it whole (#2996)
  * @property {Ci} [ci] the core-owned CI workflow's runner and job ceiling (lib/adopter-ci.js, #5347); absent, no workflow is written
- * @property {FounderNotice} [founderNotice] where a repo hold's phone notice goes (lib/repo-holds.js, #3871); absent, the loop sends none, so the plugin never pages a stranger
+ * @property {FounderNotice} [founderNotice] where a repo hold's phone notice goes (lib/repo-holds.js, #3871); absent, the loop sends none
  * @property {string[]} [suiteRunners] scripts the suite guard counts and judges as suites (#330)
  * @property {string[]} [worktreeLinks] gitignored paths the suite reads, linked into each throwaway worktree a suite runs in (#1767)
  * @property {string[]} [alwaysLoaded] declared only; lib/always-loaded-pool.js defaults it

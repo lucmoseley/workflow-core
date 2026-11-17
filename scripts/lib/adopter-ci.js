@@ -1,6 +1,6 @@
 /*
- * adopter-ci.js — renders the core-owned CI workflow a private adopter runs
- * on its pushes to `main` (#5347, ruled on #5343). core-owned-files.js writes
+ * adopter-ci.js — renders the core-owned CI workflow of a private adopter
+ * (#5347, ruled on #5343). core-owned-files.js writes
  * it where `.claude/workflow-core.json` carries a `ci` key, and removes the
  * core's copy where the key is gone.
  *
@@ -19,7 +19,7 @@
  *   - A JOB CEILING, `timeoutMinutes`, default 15: a hung job bills until it
  *     is killed. GitHub ends a slim job at 15 whatever is set.
  *
- * NOTHING OF THE CORE'S OWN SUITE: no CodeQL, no hourly alarm crons, no
+ * NOTHING OF THE CORE'S OWN SUITE: no hourly alarm crons, no
  * bisect or named rerun. A stalled adopter queue is the refill loop's to
  * notice (#5343 Q1).
  *
@@ -28,8 +28,7 @@
  *
  * THE PLUGIN IS CHECKED OUT AT THE TAG `.claude/settings.json` PINS, read at
  * run time so a bump needs no rewrite of this file. workflow-core is public,
- * so the checkout needs no key. A `requirements-dev.txt` installs hash-pinned
- * wheels only, as the core's own CI does.
+ * so the checkout needs no key.
  */
 
 /** The workflow's path in the adopter. */
@@ -39,8 +38,7 @@ const CI_WORKFLOW = ".github/workflows/workflow-core-ci.yml";
  * adopter's own and never touched. */
 const CI_MARKER = "# CORE-OWNED.";
 
-/* A guess, unmeasured: mantahostels' merged job billed ~2.9 min a run
- * (its ci.yml), so 15 leaves five times that before a hang is killed. */
+/* A guess, unmeasured. */
 const DEFAULT_TIMEOUT_MINUTES = 15;
 
 /* actions/checkout v4, pinned to a full commit sha as GitHub's secure-use

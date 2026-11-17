@@ -12,12 +12,10 @@
  * selects nothing here, so such a repo declares `full_test`.
  *
  * THE CHECKS are the registry's `check` entries whose gate holds here
- * (lib/repo-checks-registry.js): the daily repo-checks run's tree half. The
- * job holds no token, so the tracker half is SKIP. A check exits 1 on FAIL and 2 when BROKEN
- * (lib/check.js); WARN and SKIP exit 0 and fail nothing.
+ * (lib/repo-checks-registry.js): the daily repo-checks run's tree half.
  *
  * EVERY STEP RUNS, whatever the one before it returned, so no failure masks
- * another; the run exits 1 where any failed, naming each.
+ * another.
  *
  * IN NO SCRIPT FAMILY (§N3): it launches commands and checkers and judges
  * them by exit code alone.
@@ -47,8 +45,7 @@ const CI_COMMANDS = ["check", "lint", "typecheck"];
  * @param {string} title
  * @param {string} file
  * @param {string[]} args
- * @param {{cwd: string, env?: Record<string, string>}} at its directory,
- *   and what it adds to the environment
+ * @param {{cwd: string, env?: Record<string, string>}} at
  * @returns {number} its exit code, 1 where it ran to none
  */
 function step(title, file, args, { cwd, env = {} }) {

@@ -161,7 +161,7 @@ function readIfPresent(at) {
 }
 
 /**
- * The seven husky hook shims, executable. A hook written before #1839, which
+ * The husky hook shims, executable. A hook written before #1839, which
  * names the plugin on a `WFC_PLUGIN_ROOT` line, becomes its shim here. An
  * adopter's own hook under a shipped name, neither shim nor root-line hook, is
  * left alone, with a line saying the core's gate does not run there and,
@@ -215,7 +215,7 @@ function bringHelpers(ctx) {
 
 /**
  * The core's glossary and doc-map method, copied from the plugin root and
- * rewritten wherever they differ (lib/core-docs.js, #5294). The adopter's own
+ * rewritten wherever they differ (#5294). The adopter's own
  * GLOSSARY.md and docs/doc-map.md sit at other paths, never touched.
  * @param {Context} ctx
  */
@@ -235,7 +235,7 @@ function bringCoreDocs(ctx) {
 }
 
 /**
- * The CI workflow (lib/adopter-ci.js, #5347), rendered from the `ci` key of
+ * The CI workflow (#5347), rendered from the `ci` key of
  * the config on disk: init's own config carries no `ci`, so reading it there
  * would remove a workflow on a re-run. Where the key is absent the core's copy
  * is deleted; a file at that path not opening on its marker is the adopter's
