@@ -1,6 +1,6 @@
 # Claude Code user settings — reference copy
 
-Snapshot of `~/.claude/settings.json` as of **15 November 2026**.
+Snapshot of `~/.claude/settings.json` as of **17 November 2026**.
 
 That file is not under version control and exists on one laptop, so this copy is
 its only backup.
@@ -126,12 +126,6 @@ tool if a deny ever matters.
     "impeccable@impeccable": false
   },
   "extraKnownMarketplaces": {
-    "last30days-skill": {
-      "source": {
-        "source": "github",
-        "repo": "mvanhorn/last30days-skill"
-      }
-    },
     "impeccable": {
       "source": {
         "source": "github",
