@@ -485,7 +485,7 @@ function readTouchedPaths(
  * Of `changed`, the tree's changes over HEAD, those that also differ from
  * every merge parent, untracked files kept: `changed` whole where the commit
  * is no merge, and `unread` why where its parents or a diff against one will
- * not read.
+ * not read (#5334).
  *
  * @param {string} at
  * @param {string[]} changed
@@ -501,7 +501,7 @@ function mergeOwnContent(at, changed, env, execFn) {
 		if (parents.length === 0) return { changed, parents };
 		ownContent = parents.map((p) => new Set(readChangedPaths(at, p, execFn)));
 	} catch (error) {
-		return { unread: String(caught(error).message).trim() };
+		return { unread: caught(error).message.trim() };
 	}
 	const untracked = new Set(readUntrackedFiles(at, execFn) ?? []);
 	return {

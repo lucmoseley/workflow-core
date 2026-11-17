@@ -28,7 +28,8 @@ import { mkScratchDir } from "./git-fixture";
 
 const require = createRequire(import.meta.url);
 const { selectTouched } = require("./touched-tests.js");
-const { MERGE_PARENTS_ENV } = require("./merge-heads.js");
+/* lib/merge-heads.js's hand-off variable (#5334). */
+const MERGE_PARENTS_ENV = "WFC_MERGE_PARENTS";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -738,7 +739,8 @@ describe("a merge's own content under `head` (#5334)", () => {
 	};
 	const branchA = { "lib/a.js": "ONE\ntwo\nthree\nfour\nfive\n" };
 	const mainA = { "lib/a.js": "one\ntwo\nthree\nfour\nFIVE\n" };
-	/** MERGE_HEAD as git leaves it. */
+	/** MERGE_HEAD as git leaves it, a conflict resolved to "resolved".
+	 * Popped, so `afterEach` leaves it; a case writing to one pushes it. */
 	function merging(
 		branchEdits: Record<string, string>,
 		mainEdits: Record<string, string>,
@@ -832,21 +834,20 @@ describe("a merge's own content under `head` (#5334)", () => {
 	});
 
 	it("takes the same merge content on pytest's route", () => {
-		const { dir } = conflicted;
-		write(dir, "scripts/m/scan.py", "X = 3\n");
-		try {
-			const { changed, banner } = selectTouched(dir, {
-				from: "head",
-				env: {},
-				suite: "pytest",
-				loadEdges: () => EDGES,
-				renderEdges: () => EDGES,
-			});
-			expect(changed).toEqual(["lib/setup.js", "scripts/m/scan.py"]);
-			expect(banner).toContain("this merge's own content over HEAD");
-		} finally {
-			git(dir, "checkout", "--", "scripts/m/scan.py");
-		}
+		const { dir } = merging(
+			{ ...branchA, "scripts/m/scan.py": "X = 2\n" },
+			{ "scripts/m/scan.py": "X = 3\n" },
+		);
+		dirs.push(dir);
+		const { changed, banner } = selectTouched(dir, {
+			from: "head",
+			env: {},
+			suite: "pytest",
+			loadEdges: () => EDGES,
+			renderEdges: () => EDGES,
+		});
+		expect(changed).toEqual(["scripts/m/scan.py"]);
+		expect(banner).toContain("this merge's own content over HEAD");
 	});
 
 	it("falls back to the tree's changes over HEAD where no merge parent will read, with no crash", () => {
@@ -861,6 +862,11 @@ describe("a merge's own content under `head` (#5334)", () => {
 		const gone = { [MERGE_PARENTS_ENV]: "f".repeat(40) };
 		expect(at(both.dir, gone).files).toEqual(overHead);
 		expect(at(both.dir, gone).banner).toContain("MERGE PARENTS UNREAD");
+		const handedUnread = at(both.dir, { [MERGE_PARENTS_ENV]: "unread: boom" });
+		expect(handedUnread.files).toEqual(overHead);
+		expect(handedUnread.banner).toContain(
+			"MERGE PARENTS UNREAD — the committing checkout's merge parents would not read: boom",
+		);
 	});
 
 	it("leaves a `merge-base` run selecting every path since the merge base, main's included", () => {
