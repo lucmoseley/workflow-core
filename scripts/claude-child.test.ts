@@ -900,6 +900,15 @@ describe("chrome-close", () => {
 				}),
 				"not connected",
 			],
+			[
+				"a record whose resume failed with no text within 6 h",
+				() => ({
+					attempts: 1,
+					lastReason: "",
+					lastAttemptAt: NOW,
+				}),
+				"failed within 6 h",
+			],
 		])("skips %s", (_, over, why) => {
 			writeRecordFile(over());
 			resumeWith([CLOSED_ROW, buildResultRow()]);
@@ -909,6 +918,52 @@ describe("chrome-close", () => {
 			]);
 			expect(launched()).toBe(false);
 			expect(fs.existsSync(recordAt())).toBe(true);
+		});
+
+		it("leaves a failed record 6 h, then resumes it", () => {
+			const failed = (since: number) => ({
+				attempts: 1,
+				lastReason: "out of allowance",
+				lastAttemptAt: ago(since),
+			});
+			writeRecordFile(failed(Hour));
+			resumeWith([CLOSED_ROW, buildResultRow()]);
+			expect(line(close(["--sweep"])).skipped).toEqual([
+				{ sessionId: Id, why: expect.stringContaining("failed within 6 h") },
+			]);
+			expect(launched()).toBe(false);
+			writeRecordFile(failed(6 * Hour + 1));
+			expect(line(close(["--sweep"])).swept).toEqual([
+				expect.objectContaining({ sessionId: Id, outcome: "closed" }),
+			]);
+		});
+
+		it("gives a failing record up only once 12 h have passed since its first failure", () => {
+			writeRecordFile();
+			resumeWith([buildResultRow({ result: "out of allowance" })]);
+			const age = () => {
+				const r = storedRecord();
+				for (const k of ["startedAt", "lastAttemptAt"])
+					r[k] = new Date(Date.parse(r[k]) - 6 * Hour - 1).toISOString();
+				fs.writeFileSync(recordAt(), JSON.stringify(r));
+			};
+			const outcomes = () =>
+				line(close(["--sweep"])).swept.map(
+					(s: { outcome: string }) => s.outcome,
+				);
+			expect(outcomes()).toEqual(["failed"]);
+			expect(outcomes()).toEqual([]);
+			age();
+			expect(outcomes()).toEqual(["failed"]);
+			expect(outcomes()).toEqual([]);
+			expect(fs.existsSync(recordAt())).toBe(true);
+			age();
+			expect(outcomes()).toEqual(["given-up"]);
+			expect(
+				JSON.parse(
+					fs.readFileSync(path.join(store(), "given-up", `${Id}.json`), "utf8"),
+				),
+			).toMatchObject({ attempts: 3 });
 		});
 
 		it("sweeps a held record past its 2 h", () => {

@@ -84,6 +84,12 @@ afterAll(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
+const spawnOptions = (homeDir = home, env: Record<string, string> = {}) => ({
+	project: repo,
+	config: path.join(homeDir, ".claude"),
+	env: { HOME: homeDir, XDG_RUNTIME_DIR: tmp, ...env },
+});
+
 /** What the guard hands the session on one call: hookSpecificOutput, or null. */
 const run = (
 	toolName: string,
@@ -110,12 +116,7 @@ const run = (
 			tool_name: toolName,
 			tool_input: toolInput,
 		},
-		{
-			project: repo,
-			config: path.join(homeDir, ".claude"),
-			env: { HOME: homeDir, XDG_RUNTIME_DIR: tmp },
-			stderr,
-		},
+		{ ...spawnOptions(homeDir), stderr },
 	);
 
 const note = (slug: string) =>
@@ -232,6 +233,47 @@ describe("silence", () => {
 		expect(
 			run("Write", write, { homeDir: bare, stderr: NO_LIST, script }),
 		).toBeNull();
+	});
+});
+
+// The positive pair, an object payload with jq present judged, is "the craft
+// list on a session's first docs/practice/ touch" above.
+describe("a payload the guard cannot judge", () => {
+	const spawn = (stdin: string, env: Record<string, string> = {}) =>
+		spawnGuard(hook, null, { ...spawnOptions(home, env), stdin });
+
+	it.each([
+		["a JSON array", '["docs/practice"]'],
+		["text that is not JSON", "not json docs/practice"],
+	])("passes %s, naming it on stderr (#5391)", (_, stdin) => {
+		const r = spawn(stdin);
+		expect([r.status, r.stdout, r.stderr]).toEqual([
+			0,
+			"",
+			"practice-guard: the hook payload is not a JSON object, so nothing is judged\n",
+		]);
+	});
+
+	it("passes where jq is not installed, naming that on stderr (#5391)", () => {
+		const bin = fs.mkdtempSync(path.join(dir, "bin-"));
+		for (const tool of ["bash", "cat", "dirname"]) {
+			const at = execFileSync("bash", ["-c", `command -v ${tool}`], {
+				encoding: "utf8",
+			}).trim();
+			fs.symlinkSync(at, path.join(bin, tool));
+		}
+		const r = spawn(
+			JSON.stringify({
+				tool_name: "Read",
+				tool_input: { file_path: note("x") },
+			}),
+			{ PATH: bin },
+		);
+		expect([r.status, r.stdout, r.stderr]).toEqual([
+			0,
+			"",
+			"practice-guard: jq is not installed, so nothing is judged\n",
+		]);
 	});
 });
 

@@ -286,7 +286,7 @@ async function closeSession(sessionId, { trap, launchFor }) {
 /**
  * `--sweep`: resume, one after another, every record whose launcher is dead,
  * that no closer holds, that is not held or is past its hold, and outside its
- * not-connected back-off.
+ * back-off: an hour after a not-connected resume, 6 h after a failed one.
  * @param {{launchFor: LaunchFor}} opts
  */
 async function sweep({ launchFor }) {
