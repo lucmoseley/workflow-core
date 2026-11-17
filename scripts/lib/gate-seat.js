@@ -168,13 +168,13 @@ function readArgsOf(pid) {
 function readRunnersOf(pid) {
 	try {
 		const cwd = fs.readlinkSync(path.join(procRoot(), String(pid), "cwd"));
-		/* The gate runs under the pre-commit hook, so a wedged git is held to
-		 * the hooks' ceiling. */
+		/* A guess, borrowed: the hooks' git ceiling, where `rev-parse` answers
+		 * in milliseconds and a wedged one would hold the commit. */
 		const root = gitTopLevel(cwd, HOOK_GIT_TIMEOUT_MS);
 		return readConfig({ root, quiet: true }).suiteRunners ?? [];
 	} catch {
-		/* A runner whose checkout or config will not read is the module
-		 * header's residual: its gate takes a seat, as before #5303. */
+		/* Residual: a runner whose checkout or config will not read declares
+		 * none, and its gate takes a seat (#5303). */
 		return [];
 	}
 }
