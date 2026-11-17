@@ -444,6 +444,18 @@ describe("a wait loop gated on machine load is refused (#5325)", () => {
 			"bash <<'EOF'\nuntil [ $(cut -d. -f1 /proc/loadavg) -lt 6 ]; do sleep 30; done\nEOF",
 			"inside a heredoc fed to bash",
 		],
+		[
+			'bash -c "until [ \\"\\$(cut -d. -f1 /proc/loadavg)\\" -lt 6 ]; do sleep 30; done"',
+			"inside a double-quoted bash -c, its inner quotes escaped",
+		],
+		[
+			"while :; do l=$(cut -d. -f1 /proc/loadavg); if [ $l -lt 6 ]; then echo go; break; fi; sleep 15; done",
+			"an if on a load variable around the break",
+		],
+		[
+			"while :; do read -r l _ < /proc/loadavg; [ $l -lt 6 ] && break; sleep 15; done",
+			"a load read by read, tested beside the break",
+		],
 	])("%s — %s", (command) => {
 		const v = run(command);
 		expect(v.denied).toBe(true);
@@ -536,6 +548,27 @@ describe("what a load read leaves alone", () => {
 			denied: false,
 			reason: null,
 		});
+	});
+
+	it.each([
+		[
+			"n=0; until npm test; do cat /proc/loadavg; [ $n -ge 3 ] && exit 1; n=$((n+1)); sleep 30; done",
+			"a retry that logs load and exits on its own count",
+		],
+		[
+			"for i in $(seq 1 60); do cat /proc/loadavg >> /tmp/l.log; [ -f /tmp/stop ] && break; sleep 5; done",
+			"a sampler with a stop file",
+		],
+		[
+			"for i in $(seq 1 10); do grep -q x /tmp/loadavg.log && break; sleep 5; done",
+			"a file named for load, never read from the kernel",
+		],
+		[
+			`while true; do gh run view 1 | grep -q completed && break; echo "load $(cut -d' ' -f1 /proc/loadavg)"; sleep 30; done`,
+			"a CI poll that logs load beside a break on its run",
+		],
+	])("%s — %s: a break something else decides is no load gate", (command) => {
+		expect(run(command).denied).toBe(false);
 	});
 
 	it("leaves an unbounded sampler to the no-ceiling warning alone", () => {

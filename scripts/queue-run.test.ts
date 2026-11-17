@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readText } from "./lib/file-read.js";
 import { mkScratchDir } from "./lib/git-fixture";
 import { chargeMb as launchChargeMb } from "./lib/launch-charge";
+import { writeCwd } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 import { WHOLE_SUITE_WORKERS, weighCarried } from "./lib/suite-bounded";
@@ -458,6 +459,7 @@ describe("queue-run.js", () => {
 	});
 
 	describe("--gate, a commit gate's seat in the whole-suite slot (#5274)", () => {
+		const parentOf = (pid: number) => (pid > 10 ? pid - 10 : 0);
 		const gateRun = ["--gate", "--", "bash test/all.sh"];
 		const gateOptions = (f: ReturnType<typeof fixture>, extra: object = {}) => {
 			const gateLog = path.join(f.dir, "gate-runs.jsonl");
@@ -775,13 +777,112 @@ describe("queue-run.js", () => {
 				20: "node /x/node_modules/.bin/vitest run",
 				10: "bash",
 			};
-			const parentOf = (pid: number) => (pid > 10 ? pid - 10 : 0);
 			const argsOf = (pid: number) => args[pid] ?? "";
 			expect(isInSuite({ pid: 40, parentOf, argsOf })).toBe(true);
 			args[20] = "node scripts/commit-paths.js -m x -- a";
 			expect(isInSuite({ pid: 40, parentOf, argsOf })).toBe(false);
 			args[20] = "python3 -m pytest scripts";
 			expect(isInSuite({ pid: 40, parentOf, argsOf })).toBe(true);
+		});
+
+		it("reads each runner ancestor's declared suiteRunners off that ancestor, not the host (#5303)", () => {
+			const { isInSuite } = require("./lib/gate-seat.js");
+			const args: Record<number, string> = {
+				30: "sh -c bash test/all.sh",
+				20: "node scripts/run-all.js",
+			};
+			const asked: number[] = [];
+			const runnersOf = (pid: number) => {
+				asked.push(pid);
+				return pid === 20 ? ["scripts/run-all.js"] : [];
+			};
+			const argsOf = (pid: number) => args[pid] ?? "";
+			expect(isInSuite({ pid: 40, parentOf, argsOf, runnersOf })).toBe(true);
+			expect(asked).toEqual([20]);
+			expect(
+				isInSuite({ pid: 40, parentOf, argsOf, runnersOf: () => [] }),
+			).toBe(false);
+		});
+
+		describe("off the real /proc and config reads (#5303)", () => {
+			/* The suite's own checkout declares its runner; the commit happens in
+			 * a fixture repo the pre-commit hook points CLAUDE_PROJECT_DIR at,
+			 * which declares none. */
+			const world = () => {
+				const base = mkScratchDir("gate-ancestor-");
+				dirs.push(base);
+				const repo = (name: string, config: object) => {
+					const root = path.join(base, name);
+					fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+					fs.writeFileSync(
+						path.join(root, ".claude", "workflow-core.json"),
+						JSON.stringify({ contract: 1, ...config }),
+					);
+					expect(spawnSync("git", ["init", "-q"], { cwd: root }).status).toBe(
+						0,
+					);
+					return root;
+				};
+				const host = repo("host", { suiteRunners: ["scripts/run-all.js"] });
+				const fixtureRepo = repo("fixture", {});
+				const proc = path.join(base, "proc");
+				const processAt = (pid: number, argv: string[], cwd: string) => {
+					fs.mkdirSync(path.join(proc, String(pid)), { recursive: true });
+					fs.writeFileSync(
+						path.join(proc, String(pid), "cmdline"),
+						`${argv.join("\0")}\0`,
+					);
+					writeCwd(proc, String(pid), cwd);
+				};
+				processAt(30, ["sh", "-c", "bash test/all.sh"], fixtureRepo);
+				processAt(10, ["bash"], host);
+				vi.stubEnv("WFC_PROC", proc);
+				vi.stubEnv("CLAUDE_PROJECT_DIR", fixtureRepo);
+				return { host, fixtureRepo, processAt };
+			};
+
+			it("takes no seat under the host's declared runner, the commit in another repo", async () => {
+				const w = world();
+				w.processAt(20, ["node", "scripts/run-all.js"], w.host);
+				const f = fixture();
+				const g = gateOptions(f, {
+					inSuite: undefined,
+					pid: 40,
+					parentOf,
+					gate: () => ({ limb: "count" }),
+				});
+				const done = main(gateRun, g.options);
+				await tick();
+				expect(f.readMarkers()).toEqual([]);
+				expect(f.spawned).toHaveLength(1);
+				f.spawned[0].child.emit("spawn");
+				f.spawned[0].child.emit("exit", 0, null);
+				expect(await done).toBe(0);
+			});
+
+			it("takes a seat with the gate variable set but no runner above it", async () => {
+				const w = world();
+				w.processAt(20, ["node", "scripts/commit-paths.js"], w.host);
+				w.processAt(99, ["node", "scripts/run-all.js"], w.host);
+				const f = fixture();
+				const outer = path.join(f.dir, "wfc-suite-queue-99.json");
+				fs.writeFileSync(
+					outer,
+					JSON.stringify({ pid: 99, at: 0, role: "gate", spawned: true }),
+				);
+				const g = gateOptions(f, {
+					inSuite: undefined,
+					env: { WFC_GATE_SEAT: outer },
+					pid: 40,
+					parentOf,
+					alive: () => true,
+					gate: () => ({ limb: "count" }),
+				});
+				main(gateRun, g.options);
+				await tick();
+				expect(f.spawned).toHaveLength(0);
+				expect(f.readMarkers()).toContain("wfc-suite-queue-40.json");
+			});
 		});
 
 		it("refuses --gate beside another slot flag", async () => {
