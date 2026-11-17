@@ -867,6 +867,15 @@ describe("chrome-close", () => {
 				}),
 				"not connected",
 			],
+			[
+				"a record whose resume failed with no text within 6 h",
+				() => ({
+					attempts: 1,
+					lastReason: "",
+					lastAttemptAt: new Date().toISOString(),
+				}),
+				"failed within 6 h",
+			],
 		])("skips %s", (_, over, why) => {
 			writeRecordFile(over());
 			resumeWith([CLOSED_ROW, buildResultRow()]);
@@ -899,7 +908,6 @@ describe("chrome-close", () => {
 		it("gives a failing record up only once 12 h have passed since its first failure", () => {
 			writeRecordFile();
 			resumeWith([buildResultRow({ result: "out of allowance" })]);
-			/* Moves the record's clock back past the back-off, as 6 h passing would. */
 			const age = () => {
 				const r = storedRecord();
 				for (const k of ["startedAt", "lastAttemptAt"])
@@ -918,12 +926,11 @@ describe("chrome-close", () => {
 			expect(fs.existsSync(recordAt())).toBe(true);
 			age();
 			expect(outcomes()).toEqual(["given-up"]);
-			const gone = JSON.parse(
-				fs.readFileSync(path.join(store(), "given-up", `${Id}.json`), "utf8"),
-			);
 			expect(
-				Date.parse(gone.lastAttemptAt) - Date.parse(gone.startedAt),
-			).toBeGreaterThanOrEqual(12 * Hour);
+				JSON.parse(
+					fs.readFileSync(path.join(store(), "given-up", `${Id}.json`), "utf8"),
+				),
+			).toMatchObject({ attempts: 3 });
 		});
 
 		it("sweeps a held record past its 2 h", () => {

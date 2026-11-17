@@ -43,7 +43,7 @@ const GIVE_UP_MS = 7 * 24 * 60 * 60 * 1000;
 const NOT_CONNECTED_BACKOFF_MS = 60 * 60 * 1000;
 /* Delegated in #5392, untraced: how long a sweep leaves a record whose last
  * resume failed, so its 3 attempts span at least 12 h and outlast a 5-hour
- * seat window. */
+ * seat window. Residual: a passing failure leaves its tab open 6 h too. */
 const FAILED_BACKOFF_MS = 6 * 60 * 60 * 1000;
 
 /**
@@ -265,8 +265,8 @@ function sweepSkip(record, now, { launcherLive, locked }) {
 	if (record.lastReason === "not-connected") {
 		if (now < last + NOT_CONNECTED_BACKOFF_MS)
 			return "its bridge was not connected within the hour";
-	} else if (record.lastReason && now < last + FAILED_BACKOFF_MS)
-		return "its last resume failed within 6 h";
+	} else if (now < last + FAILED_BACKOFF_MS)
+		return `its last resume failed within ${FAILED_BACKOFF_MS / 3_600_000} h`;
 	return null;
 }
 
