@@ -1,11 +1,10 @@
 {
 	"recordedBy": "node scripts/record-claude-responses.js",
-	"harness": "2.1.311",
-	"refreshedAfterMs": 2548,
+	"harness": "2.1.326",
+	"refreshedAfterMs": 934,
 	"printed": [
-		"Current session: 37% used · resets Oct 28, 12:20am (Asia/Singapore)",
-		"Current week (all models): 96% used · resets Nov 1, 8pm (Asia/Singapore)",
-		"Current week (Fable): 0% used · resets Nov 1, 8pm (Asia/Singapore)"
+		"Current week (all models): 75% used · resets Nov 22, 4:59am (Asia/Singapore)",
+		"Current week (Fable): 0% used · resets Nov 22, 5am (Asia/Singapore)"
 	],
 	"cache": {
 		"fetchedAtMs": 1700000000000,
@@ -13,20 +12,11 @@
 		"utilization": {
 			"limits": [
 				{
-					"kind": "session",
-					"group": "session",
-					"percent": 37,
-					"severity": "normal",
-					"resets_at": "2026-10-27T16:20:00.282120+00:00",
-					"scope": null,
-					"is_active": false
-				},
-				{
 					"kind": "weekly_all",
 					"group": "weekly",
-					"percent": 96,
-					"severity": "critical",
-					"resets_at": "2026-11-01T12:00:00.282142+00:00",
+					"percent": 75,
+					"severity": "warning",
+					"resets_at": "2026-11-21T20:59:59.872865+00:00",
 					"scope": null,
 					"is_active": true
 				},
@@ -35,7 +25,7 @@
 					"group": "weekly",
 					"percent": 0,
 					"severity": "normal",
-					"resets_at": "2026-11-01T12:00:00+00:00",
+					"resets_at": "2026-11-21T21:00:00+00:00",
 					"scope": {
 						"model": {
 							"id": null,
@@ -46,6 +36,19 @@
 					"is_active": false
 				}
 			]
+		}
+	},
+	"sessionBar": {
+		"harness": "2.1.311",
+		"printed": "Current session: 37% used · resets Oct 28, 12:20am (Asia/Singapore)",
+		"limit": {
+			"kind": "session",
+			"group": "session",
+			"percent": 37,
+			"severity": "normal",
+			"resets_at": "2026-10-27T16:20:00.282120+00:00",
+			"scope": null,
+			"is_active": false
 		}
 	}
 }
