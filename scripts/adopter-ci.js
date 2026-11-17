@@ -4,13 +4,16 @@
  * (lib/adopter-ci.js renders it, #5347): the repo's own declared commands,
  * then every shipped tree check whose gate holds here.
  *
- * THE COMMANDS run in the order `check`, `lint`, `typecheck`, `test`, each
- * declared one under `sh -c`, as the lander's local tester runs `test`.
+ * THE COMMANDS: `check`, `lint` and `typecheck`, each declared one under
+ * `sh -c`; then the whole suite exactly as the lander's local tester runs
+ * it on a clean checkout (lib/local-tester.js `readRunsAt`): `full_test`,
+ * else `test`, its shards in turn, and the plugin's pytest runner where the
+ * config routes a Python test path. A `test` that narrows to unpushed work
+ * selects nothing here, so such a repo declares `full_test`.
  *
- * THE CHECKS are the registry's `check` entries that need no tracker and are
- * not core-only (lib/repo-checks-registry.js): the daily repo-checks run's
- * tree half, which reads the checkout alone. Its tracker half needs a token
- * the job does not hold. A check exits 1 on FAIL and 2 when BROKEN
+ * THE CHECKS are the registry's `check` entries whose gate holds here
+ * (lib/repo-checks-registry.js): the daily repo-checks run's tree half. The
+ * job holds no token, so the tracker half is SKIP. A check exits 1 on FAIL and 2 when BROKEN
  * (lib/check.js); WARN and SKIP exit 0 and fail nothing.
  *
  * EVERY STEP RUNS, whatever the one before it returned, so no failure masks
@@ -26,26 +29,35 @@
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
-const { isCoreHost } = require("./lib/plugin-state.js");
-const { REPO_CHECKS, gateFault } = require("./lib/repo-checks-registry.js");
+const { readRunsAt } = require("./lib/local-tester.js");
+const {
+	REPO_CHECKS,
+	gateFault,
+	readHost,
+} = require("./lib/repo-checks-registry.js");
 const { coreRoot } = require("./lib/script-path.js");
 const { readConfig } = require("./lib/workflow-core-config.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 /** @type {readonly import("./lib/workflow-core-config.js").Command[]} */
-const CI_COMMANDS = ["check", "lint", "typecheck", "test"];
+const CI_COMMANDS = ["check", "lint", "typecheck"];
 
 /**
  * Runs one step inside an Actions log group.
  * @param {string} title
  * @param {string} file
  * @param {string[]} args
- * @param {string} cwd
+ * @param {{cwd: string, env?: Record<string, string>}} at its directory,
+ *   and what it adds to the environment
  * @returns {number} its exit code, 1 where it ran to none
  */
-function step(title, file, args, cwd) {
+function step(title, file, args, { cwd, env = {} }) {
 	writeFd(1, `::group::${title}\n`);
-	const r = spawnSync(file, args, { cwd, stdio: "inherit" });
+	const r = spawnSync(file, args, {
+		cwd,
+		stdio: "inherit",
+		env: { ...process.env, ...env },
+	});
 	writeFd(1, "::endgroup::\n");
 	if (r.error) writeFd(2, `${title}: ${r.error.message}\n`);
 	return r.status ?? 1;
@@ -54,40 +66,49 @@ function step(title, file, args, cwd) {
 /**
  * @param {string} root
  * @param {import("./lib/workflow-core-config.js").Config} cfg
- * @returns {string[]} the title of each command that failed
+ * @returns {string[]} the title of each command or suite run that failed
  */
 function runCommands(root, cfg) {
-	/** @type {string[]} */
-	const failed = [];
+	/** @type {{title: string, command: string, args: string[],
+	 *   env?: Record<string, string>}[]} */
+	const runs = [];
 	for (const name of CI_COMMANDS) {
 		const line = cfg.commands[name];
-		if (!line) continue;
-		const title = `commands.${name}: ${line}`;
-		if (step(title, "sh", ["-c", line], root) !== 0) failed.push(title);
+		if (line)
+			runs.push({
+				title: `commands.${name}: ${line}`,
+				command: line,
+				args: [],
+			});
+	}
+	const pytest = path.join(coreRoot(), "scripts", "run-pytest.js");
+	const suite = readRunsAt(root, pytest, [], () => null);
+	if (typeof suite === "string") return [`the test suite: ${suite}`];
+	for (const run of suite.flat())
+		runs.push({
+			...run,
+			title: `suite: ${run.label ?? run.command}`,
+		});
+	/** @type {string[]} */
+	const failed = [];
+	for (const { title, command, args, env } of runs) {
+		const argv = ["-c", `${command} "$@"`, "adopter-ci", ...args];
+		if (step(title, "sh", argv, { cwd: root, env }) !== 0) failed.push(title);
 	}
 	return failed;
 }
 
 /**
  * @param {string} root
- * @param {import("./lib/workflow-core-config.js").Config} cfg
  * @returns {string[]} the title of each check that failed
  */
-function runChecks(root, cfg) {
-	/** @type {import("./lib/repo-checks-registry.js").Host} */
-	const host = {
-		root,
-		file: path.relative(root, cfg.file),
-		core: isCoreHost(root),
-		modules: new Set(cfg.modules),
-		config: /** @type {Record<string, unknown>} */ (cfg),
-		tracker: () => null,
-	};
+function runChecks(root) {
+	/* No token on the job: every tracker entry is SKIP. */
+	const host = readHost(root, () => null);
 	/** @type {string[]} */
 	const failed = [];
 	for (const entry of REPO_CHECKS) {
-		if (entry.kind !== "check" || entry.gate.tracker || entry.gate.core)
-			continue;
+		if (entry.kind !== "check") continue;
 		const fault = gateFault(entry, host);
 		if (fault) {
 			writeFd(1, `skipped ${entry.id}: ${fault}\n`);
@@ -96,7 +117,8 @@ function runChecks(root, cfg) {
 		const script = path.join(coreRoot(), "scripts", entry.script);
 		const title = `check ${entry.id}`;
 		const args = [script, ...(entry.args ?? [])];
-		if (step(title, process.execPath, args, root) !== 0) failed.push(title);
+		if (step(title, process.execPath, args, { cwd: root }) !== 0)
+			failed.push(title);
 	}
 	return failed;
 }
@@ -104,7 +126,7 @@ function runChecks(root, cfg) {
 function main() {
 	const root = hostRoot();
 	const cfg = readConfig({ root, quiet: true });
-	const failed = [...runCommands(root, cfg), ...runChecks(root, cfg)];
+	const failed = [...runCommands(root, cfg), ...runChecks(root)];
 	if (failed.length === 0) {
 		writeFd(1, "adopter-ci: every step passed\n");
 		return 0;

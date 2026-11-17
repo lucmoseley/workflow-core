@@ -101,7 +101,6 @@ const {
 	keysOf,
 } = require("./lib/key-delta");
 const notify = require("./lib/notify-report");
-const { isCoreHost } = require("./lib/plugin-state");
 const { periodicReading, buildSkipLine } = require("./lib/periodic-reading");
 const { projectSlug } = require("./lib/project-slug");
 const {
@@ -113,6 +112,7 @@ const {
 	REPO_CHECKS,
 	entryOf,
 	gateFault,
+	readHost,
 } = require("./lib/repo-checks-registry");
 const { coreRoot, scriptPath } = require("./lib/script-path");
 const { reportOwner } = require("./lib/session-id");
@@ -121,7 +121,6 @@ const {
 	openTrackingIssue,
 	refresh,
 } = require("./lib/tracking-issue");
-const { readConfig, resolveKey } = require("./lib/workflow-core-config");
 const {
 	WHERE,
 	buildHandCommand,
@@ -324,27 +323,6 @@ function launch(entry, root, limit, extra) {
 		}),
 		r.stderr,
 	);
-}
-
-/** @param {string} root @returns {Host} */
-function readHost(root) {
-	const c = readConfig({ root, quiet: true });
-	/** @type {string | null | undefined} */
-	let tracker;
-	return {
-		root,
-		file: path.relative(root, c.file),
-		core: isCoreHost(root),
-		modules: new Set(c.modules),
-		config: /** @type {Record<string, unknown>} */ (c),
-		tracker: () => {
-			if (tracker === undefined) {
-				const t = resolveKey("tracker", { root });
-				tracker = typeof t === "string" ? t : null;
-			}
-			return tracker;
-		},
-	};
 }
 
 /**

@@ -61,7 +61,7 @@ To switch one on, ask a session in that repo to. It adds the module to the repo'
 
 ## Turning on CI
 
-A new repo runs no GitHub CI. Once its test command is declared, ask a session in it to turn CI on, naming the runner: the cheap one-core runner, or the two-core ARM runner where the job needs more. The next upgrade writes one workflow: one job on each push to the main branch that runs the repo's declared commands, the core's checks on its documents and workflows, and a Semgrep scan. A job is stopped at 15 minutes unless the session sets a longer limit.
+A new repo runs no GitHub CI. Once its test command is declared, ask a session in it to turn CI on, naming the runner: the cheap one-core runner, or the two-core ARM runner where the job needs more. The next upgrade writes one workflow: one job on each push to the main branch that runs the repo's declared commands, the core's checks on its documents and workflows, and a Semgrep scan. A job is stopped at 15 minutes; on the two-core runner the session may set a longer limit.
 
 Every private repo on your account draws on one pool of 3,000 Actions minutes a month. Once, for the whole account, make a spent pool block jobs rather than bill: open https://github.com/settings/billing, click **Budgets and alerts**, then **New budget**; choose **Product-level budget** and Actions, set the amount to $0, and tick **Stop usage when budget limit is reached** where it is offered. Jobs then wait for the month to turn. GitHub warns that the first month after the budget is made may still overrun.
 

@@ -6,72 +6,7 @@ The helper surface is the set of core files an adopter's checks and tests may im
 
 ## CI: checking the core out at the pin
 
-### Founder setup, once per adopter
-
-Outside Claude Code, and never scripted around (#458, the deploy-key checkout spike).
-
-1. Make a key pair with no passphrase: `ssh-keygen -t ed25519 -N '' -C <adopter>-core-checkout -f <file>`.
-2. Register the public half on `lucmoseley/workflow-core` as a **read-only** deploy key — Settings → Deploy keys, "Allow write access" left unticked, or `gh repo deploy-key add <file>.pub -R lucmoseley/workflow-core -t <adopter>-core-checkout`, which is read-only unless given `--allow-write`. Confirm `read_only: true` in `gh api repos/lucmoseley/workflow-core/keys`.
-3. Store the private half as an Actions secret on the adopter — Settings → Secrets and variables → Actions — named `WORKFLOW_CORE_DEPLOY_KEY`.
-4. Delete both key files.
-
-One key per adopter: GitHub's documentation refuses a deploy key already registered on another repository, and a per-adopter key revokes alone.
-
-### The workflow steps
-
-Set the resolver's variable on the job and add these steps after the adopter's own checkout and before anything that imports through `resolveCore()`:
-
-```yaml
-    env:
-      WORKFLOW_CORE_CHECKOUT: ${{ github.workspace }}/.workflow-core
-    steps:
-      - uses: actions/checkout@v7
-      - id: core-pin
-        name: Read the workflow-core pin
-        run: |
-          node - >> "$GITHUB_OUTPUT" <<'EOF'
-          const fs = require("node:fs");
-          let settings = null;
-          try {
-            settings = JSON.parse(fs.readFileSync(".claude/settings.json", "utf8"));
-          } catch {}
-          const known = settings?.extraKnownMarketplaces ?? {};
-          const key = Object.keys(settings?.enabledPlugins ?? {}).find((k) => {
-            const [name, marketplace] = k.split("@");
-            return name === "workflow-core" && marketplace in known;
-          });
-          const ref = key ? known[key.split("@")[1]]?.source?.ref : undefined;
-          if (!/^v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(ref ?? "")) {
-            console.error(`.claude/settings.json pins no workflow-core tag (found: ${ref ?? "none"}) — pin a release tag in extraKnownMarketplaces.<marketplace>.source.ref`);
-            process.exit(1);
-          }
-          console.log(`ref=v${ref.replace(/^v/, "")}`);
-          EOF
-      - name: Require the core deploy key
-        env:
-          DEPLOY_KEY: ${{ secrets.WORKFLOW_CORE_DEPLOY_KEY }}
-          PIN: ${{ steps.core-pin.outputs.ref }}
-        run: |
-          if [ -z "$DEPLOY_KEY" ]; then
-            echo "secret WORKFLOW_CORE_DEPLOY_KEY is unset or empty, so workflow-core $PIN cannot be checked out — founder setup: workflow-core's docs/agents/helper-surface.md" >&2
-            exit 1
-          fi
-      - uses: actions/checkout@v7
-        with:
-          repository: lucmoseley/workflow-core
-          ref: ${{ steps.core-pin.outputs.ref }}
-          ssh-key: ${{ secrets.WORKFLOW_CORE_DEPLOY_KEY }}
-          persist-credentials: false
-          path: .workflow-core
-```
-
-- **The tag comes from the pin**, `.claude/settings.json` → `extraKnownMarketplaces[<marketplace>].source.ref`, found the way `resolveCore()` finds it. A branch or a SHA pin fails the step: it names no release (`docs/agents/adopter-upgrade.md` §The four records). The core's tags carry the `v`, so the step outputs that spelling whichever the pin uses.
-- **The key check comes before the checkout**: `actions/checkout` without a key fails naming neither the pin nor the secret (#458). It catches only an absent key: a wrong or revoked key, or a pin naming a tag the core never cut, still fails inside `actions/checkout` — neither was run at #458.
-- **A run with no Actions secrets stops at the key check**, per GitHub's documentation: a pull request from a fork, and a run Dependabot triggers, which reads Dependabot secrets instead — store the key there too if Dependabot's pull requests run this job.
-- **The default shallow fetch is enough.** A tag ref checks out detached at depth 1; no `fetch-depth` or `fetch-tags` is needed.
-- **`persist-credentials: false`** — the default leaves the key configured in the core checkout for every later step, which needs only the files.
-- **No `ssh-keyscan`**: `actions/checkout` pins GitHub's host keys itself.
-- **The core lands inside the adopter's tree**: `actions/checkout`'s `path` is relative to the workspace, per its documentation. A tool the job runs over the whole tree — a linter, a formatter check — sees `.workflow-core/` too; exclude it there. The adopter's own checkout goes first: a checkout into the workspace root can clear what is already there.
+CI takes the core-owned workflow, `.github/workflows/workflow-core-ci.yml`: the upgrade writes it where `.claude/workflow-core.json` carries a `ci` key, and rewrites it on every bump (`scripts/lib/adopter-ci.js`, #5347). Its job checks the core out at the tag `.claude/settings.json` pins, into `.workflow-core`, and sets `WORKFLOW_CORE_CHECKOUT` there, so `resolveCore()` finds it. workflow-core is public, so the checkout needs no key. Write no checkout steps of your own: a pin that is a branch or a SHA fails the job's first step, naming the fix.
 
 ## Running a core command
 

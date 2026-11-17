@@ -10,14 +10,14 @@
  *     plugin's adopter-ci.js: the repo's own declared commands, then every
  *     shipped tree check whose gate holds. Semgrep CE follows in the same
  *     job, in place of CodeQL, which a Pro account cannot run on private code.
- *   - ON PUSH TO `main` ONLY, never a `lander/*` ref: the lander's local
+ *   - ON PUSH TO `main` ONLY, no manual trigger and never a `lander/*` ref: the lander's local
  *     tester gates before landing (lib/local-tester.js).
  *   - THE RUNNER the key names: `ubuntu-slim` (1 core, a third of the
  *     standard rate) where the job fits, else `ubuntu-24.04-arm`. Node is
  *     set to 24, as on the founder's machine, since the two images carry
  *     different versions; both carry Python 3.12.
  *   - A JOB CEILING, `timeoutMinutes`, default 15: a hung job bills until it
- *     is killed.
+ *     is killed. GitHub ends a slim job at 15 whatever is set.
  *
  * NOTHING OF THE CORE'S OWN SUITE: no CodeQL, no hourly alarm crons, no
  * bisect or named rerun. A stalled adopter queue is the refill loop's to
@@ -28,7 +28,8 @@
  *
  * THE PLUGIN IS CHECKED OUT AT THE TAG `.claude/settings.json` PINS, read at
  * run time so a bump needs no rewrite of this file. workflow-core is public,
- * so the checkout needs no key.
+ * so the checkout needs no key. A `requirements-dev.txt` installs hash-pinned
+ * wheels only, as the core's own CI does.
  */
 
 /** The workflow's path in the adopter. */
@@ -66,7 +67,6 @@ name: workflow-core CI
 on:
   push:
     branches: [main]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -91,26 +91,33 @@ jobs:
         with:
           node-version: 24
 
+      # Inline, not the plugin's own pin reader (lib/plugin-state.js): the
+      # plugin is checked out only once this step has read where it is.
       - id: core-pin
         name: Read the workflow-core pin
         run: |
           node - >> "$GITHUB_OUTPUT" <<'EOF'
           const fs = require("node:fs");
-          const settings = JSON.parse(fs.readFileSync(".claude/settings.json", "utf8"));
-          const known = settings.extraKnownMarketplaces ?? {};
-          const key = Object.keys(settings.enabledPlugins ?? {}).find(
-            (k) => k.split("@")[0] === "workflow-core" && k.split("@")[1] in known,
-          );
-          const source = key ? known[key.split("@")[1]].source : {};
+          let settings = null;
+          try {
+            settings = JSON.parse(fs.readFileSync(".claude/settings.json", "utf8"));
+          } catch {}
+          const known = settings?.extraKnownMarketplaces ?? {};
+          const key = Object.keys(settings?.enabledPlugins ?? {}).find((k) => {
+            const [name, marketplace] = k.split("@");
+            return name === "workflow-core" && Object.hasOwn(known, marketplace);
+          });
+          const source = key ? (known[key.split("@")[1]]?.source ?? {}) : {};
+          const ref = source.ref;
           const repo =
             source.repo ??
-            /github\\.com[/:]([^/]+\\/[^/.]+)/.exec(source.url ?? "")?.[1];
-          if (!repo || !/^v?\\d+\\.\\d+\\.\\d+/.test(source.ref ?? "")) {
-            console.error(".claude/settings.json pins no workflow-core release on GitHub: its marketplace source needs a github repo or url and a release tag ref");
+            /github\\.com[/:]([^/]+\\/[^/]+?)(?:\\.git)?\\/?$/.exec(source.url ?? "")?.[1];
+          if (!repo || !/^v?\\d+\\.\\d+\\.\\d+(?:[-+][0-9A-Za-z.-]+)?$/.test(ref ?? "")) {
+            console.error(\`.claude/settings.json pins no workflow-core release tag on GitHub (found: \${ref ?? "none"}\${repo ? \` on \${repo}\` : ""}) — pin a release tag in extraKnownMarketplaces.<marketplace>.source.ref, its source a GitHub repo or url\`);
             process.exit(1);
           }
           console.log(\`repo=\${repo}\`);
-          console.log(\`ref=v\${source.ref.replace(/^v/, "")}\`);
+          console.log(\`ref=v\${ref.replace(/^v/, "")}\`);
           EOF
 
       - uses: ${CHECKOUT} # v4
@@ -125,7 +132,7 @@ jobs:
       - name: Install dependencies
         run: |
           if [ -f package-lock.json ]; then npm ci; fi
-          if [ -f requirements-dev.txt ]; then python3 -m pip install -r requirements-dev.txt; fi
+          if [ -f requirements-dev.txt ]; then python3 -m pip install --require-hashes --only-binary ":all:" -r requirements-dev.txt; fi
 
       - name: Commands and shipped checks
         run: node .workflow-core/scripts/adopter-ci.js

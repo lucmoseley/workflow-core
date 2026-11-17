@@ -105,6 +105,9 @@ const LANDING_TESTERS = /** @type {const} */ (["local", "actions"]);
 /* The runners the core-owned CI workflow may name (lib/adopter-ci.js, #5347):
  * the 1-core x64 at a third of the standard rate, else the 2-core ARM64. */
 const CI_RUNNERS = /** @type {const} */ (["ubuntu-slim", "ubuntu-24.04-arm"]);
+/* GitHub ends a single-CPU runner's job at 15 minutes (its Actions limits
+ * reference), so a longer ceiling there could never be reached. */
+const SLIM_MAX_MINUTES = 15;
 
 const MODULES = /** @type {const} */ ([
 	"roadmap",
@@ -353,7 +356,10 @@ function isCi(v) {
 	return (
 		Object.keys(o).every((k) => k === "runner" || k === "timeoutMinutes") &&
 		CI_RUNNERS.includes(/** @type {CiRunner} */ (o.runner)) &&
-		(o.timeoutMinutes === undefined || isPositiveInt(o.timeoutMinutes))
+		(o.timeoutMinutes === undefined ||
+			(isPositiveInt(o.timeoutMinutes) &&
+				(o.runner !== "ubuntu-slim" ||
+					Number(o.timeoutMinutes) <= SLIM_MAX_MINUTES)))
 	);
 }
 
@@ -946,7 +952,7 @@ function readConfig({ root = hostRoot(), rev, quiet = false } = {}) {
 		cfg,
 		"ci",
 		isCi,
-		`an object of "runner" (one of ${CI_RUNNERS.join(", ")}) and an optional "timeoutMinutes" (a positive integer)`,
+		`an object of "runner" (one of ${CI_RUNNERS.join(", ")}) and an optional "timeoutMinutes" (a positive integer, at most ${SLIM_MAX_MINUTES} on ubuntu-slim)`,
 	);
 	const founderNotice = readKey(
 		cfg,
@@ -1658,7 +1664,6 @@ module.exports = {
 	MODULES,
 	COMMANDS,
 	DEPLOYS,
-	CI_RUNNERS,
 	unsetCommands,
 	UPSTREAM_TRACKER,
 	UPSTREAM_CODE_REPO,

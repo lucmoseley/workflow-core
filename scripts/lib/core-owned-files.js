@@ -244,13 +244,22 @@ function bringCoreDocs(ctx) {
  */
 function bringCi(ctx) {
 	const { root, dryRun, out } = ctx;
-	let ci;
+	/* A config that will not read, or a malformed `ci`, skips rather than
+	 * fails or removes: either read as no key would delete a working CI over
+	 * a typo (#5347), and the other entries still have their work to do. */
+	let cfg;
 	try {
-		ci = readConfig({ root, quiet: true }).ci;
+		cfg = readConfig({ root, quiet: true });
 	} catch (err) {
 		out(`skipped ${CI_WORKFLOW}: ${caught(err).message}`);
 		return [];
 	}
+	const fault = cfg.faults.find((f) => f.key === "ci");
+	if (fault) {
+		out(`skipped ${CI_WORKFLOW}: ${fault.text}`);
+		return [];
+	}
+	const { ci } = cfg;
 	const existing = readIfPresent(path.join(root, CI_WORKFLOW));
 	if (existing !== null && !isCoreCi(existing)) {
 		out(

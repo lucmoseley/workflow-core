@@ -2,7 +2,9 @@
  * repo-checks-registry.js — every state check and reporter the daily
  * repo-checks run launches, and the gate each passes first (#1548, spec #1510
  * §The list and its gates), and `entryOf`, the one lookup by id, which
- * throws on an id it lacks. Adding a check is one entry.
+ * throws on an id it lacks. Adding a check is one entry. `readHost` and
+ * `gateFault` judge an entry's gate against a repo's tree and config, for the
+ * daily run and for an adopter's CI job (scripts/adopter-ci.js, #5347).
  *
  * LISTED IN RUN ORDER: the tree checks first, then the reporters, then the
  * tracker checks, with clobbered bodies last.
@@ -48,6 +50,8 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { isCoreHost } = require("./plugin-state.js");
+const { readConfig, resolveKey } = require("./workflow-core-config.js");
 
 const ROADMAP = { modules: ["roadmap"] };
 const GOVERNANCE = { modules: ["governance"] };
@@ -253,6 +257,38 @@ function entryOf(id) {
 }
 
 /**
+ * The repo at `root` as the gates read it. The tracker is resolved on first
+ * ask, through `resolveTracker`; a run holding no token passes one that
+ * answers null, so every tracker entry is SKIP.
+ *
+ * @param {string} root
+ * @param {(root: string) => unknown} [resolveTracker]
+ * @returns {Host}
+ */
+function readHost(
+	root,
+	resolveTracker = (r) => resolveKey("tracker", { root: r }),
+) {
+	const c = readConfig({ root, quiet: true });
+	/** @type {string | null | undefined} */
+	let tracker;
+	return {
+		root,
+		file: path.relative(root, c.file),
+		core: isCoreHost(root),
+		modules: new Set(c.modules),
+		config: /** @type {Record<string, unknown>} */ (c),
+		tracker: () => {
+			if (tracker === undefined) {
+				const t = resolveTracker(root);
+				tracker = typeof t === "string" ? t : null;
+			}
+			return tracker;
+		},
+	};
+}
+
+/**
  * Why `entry` may not run here, or null where every limb of its gate holds.
  *
  * @param {RepoCheck} entry
@@ -277,4 +313,4 @@ function gateFault({ gate }, host) {
 	return null;
 }
 
-module.exports = { REPO_CHECKS, entryOf, gateFault };
+module.exports = { REPO_CHECKS, entryOf, gateFault, readHost };
