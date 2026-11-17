@@ -32,6 +32,7 @@ import { SHORT_SHA } from "./git.js";
 import { redPathAtRest } from "./lander-records.js";
 import {
 	type Batch,
+	buildQueueActionLine,
 	type Drop,
 	type DroppedRef,
 	type LanderEvent,
@@ -988,7 +989,7 @@ describe("faults", () => {
 		});
 		let shut = 2;
 
-		const { end, actions, asked } = await land(remote, freshDisk(), {
+		const { end, actions, asked, said } = await land(remote, freshDisk(), {
 			verdict: () =>
 				shut-- > 0
 					? {
@@ -1003,6 +1004,12 @@ describe("faults", () => {
 		expect(asked).toEqual(["a1", "a1", "a1"]);
 		expect(kinds(actions).filter((k) => k === "take-batch")).toHaveLength(1);
 		expect(remote.main).toBe("a1");
+		expect(said.filter((l) => / retry \d of \d, /.test(l))).toEqual(
+			[1, 2].map(
+				(n) =>
+					`${new Date(NOW).toISOString()} retry ${n} of 4, the verdict at a1, after: no verdict at a1: no suite slot by the ceiling`,
+			),
+		);
 	});
 
 	it("exits naming a transient no verdict that outlasts the tries, ledgering none", async () => {
@@ -1035,7 +1042,7 @@ describe("faults", () => {
 		});
 		const disk = freshDisk();
 
-		const { end } = await land(remote, disk, {
+		const { end, said } = await land(remote, disk, {
 			fault: (c) =>
 				c === "mergeMembers"
 					? Object.assign(new Error("spawnSync git EAGAIN"), { code: "EAGAIN" })
@@ -1048,6 +1055,65 @@ describe("faults", () => {
 		});
 		expect(remote.main).toBe("m0");
 		expect(batchIn(disk)?.phase).toBe("merging");
+		expect(said.filter((l) => / retry \d of \d, /.test(l))).toEqual(
+			[1, 2, 3, 4].map(
+				(n) =>
+					`${new Date(NOW).toISOString()} retry ${n} of 4, merge-members onto m0: queue/a, queue/b, after: spawnSync git EAGAIN`,
+			),
+		);
+	});
+
+	it("drops the member whose gates ran past their limit and lands the rest, retrying nothing (#5308)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		const reason = "its gates ran past their 600 s limit and were ended";
+
+		const { end, actions, said } = await land(remote, freshDisk(), {
+			merge: (onto, members, fresh) =>
+				members.some((m) => m.name === "a")
+					? { kind: "refused", name: "a", reason }
+					: fakeMerge(remote, onto, members, fresh),
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(dropsOf(actions)).toMatchObject([
+			{ name: "a", cause: { kind: "refused", reason } },
+		]);
+		expect(remote.main).toBe("merge(m0;b1)");
+		expect(said.filter((l) => / retry /.test(l))).toEqual([]);
+	});
+
+	it("leaves out a member whose queue ref is withdrawn before a retry merges again, merging the rest (#5308)", async () => {
+		const remote = remoteOf("m0", {
+			a: { sha: "a1", pushedAt: 1 },
+			b: { sha: "b1", pushedAt: 2 },
+		});
+		let merges = 0;
+
+		const { end, actions } = await land(remote, freshDisk(), {
+			fault: (c) => {
+				if (c !== "mergeMembers" || ++merges > 1) return;
+				remote.refs.delete("b");
+				return Object.assign(new Error("spawnSync git EAGAIN"), {
+					code: "EAGAIN",
+				});
+			},
+		});
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(
+			actions.flatMap((a) =>
+				a.kind === "merge-members" || a.kind === "leave-withdrawn"
+					? [buildQueueActionLine(a)]
+					: [],
+			),
+		).toEqual([
+			"merge-members onto m0: queue/a, queue/b",
+			"leave-withdrawn queue/b@b1: its queue ref is gone from the remote",
+			"merge-members onto m0: queue/a",
+		]);
 	});
 
 	it("retries a push GitHub refused on its own internal fault, landing on the try that follows (#4497)", async () => {

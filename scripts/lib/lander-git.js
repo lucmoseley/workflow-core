@@ -139,19 +139,26 @@ const short = (sha) => sha.slice(0, SHORT_SHA);
 
 /**
  * `call`'s result, retried with backoff while it fails on a fault `isFault`
- * names, a network fault where none is given.
+ * names, a network fault where none is given; `retried` is told of each
+ * retry before its backoff, its number counting from 1.
  * @template T
- * @param {{wait?: (ms: number) => Promise<void>}} deps
+ * @param {{wait?: (ms: number) => Promise<void>,
+ *   retried?: (retry: number, err: unknown) => void}} deps
  * @param {() => T | Promise<T>} call
  * @param {(err: unknown) => boolean} [isFault]
  * @returns {Promise<T>}
  */
-async function remote({ wait = pause }, call, isFault = isNetworkFault) {
+async function remote(
+	{ wait = pause, retried },
+	call,
+	isFault = isNetworkFault,
+) {
 	for (let attempt = 1; ; attempt++) {
 		try {
 			return await call();
 		} catch (err) {
 			if (attempt >= REMOTE_TRIES || !isFault(err)) throw err;
+			retried?.(attempt, err);
 			await wait(remoteBackoffMs(attempt));
 		}
 	}

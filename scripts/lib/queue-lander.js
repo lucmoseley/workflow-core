@@ -145,10 +145,13 @@
  *   dropped, its evidence saying so. A no-run red stands NO_RUN_RETAKE_MS
  *   from when it was ledgered, then is asked again (#4572).
  * - **Faults.** A step that throws a transient fault (a network blip, a spawn
- *   fault, a broken git object, a merge timing out, a tester's `transient` no
- *   verdict, as its suite slot staying shut) is retried with backoff and the
- *   run's state kept; any other throw, or one outlasting the tries, exits
- *   naming it.
+ *   fault, a broken git object, a git step of a merge timing out, a tester's
+ *   `transient` no verdict, as its suite slot staying shut) is retried with
+ *   backoff and the run's state kept, each retry a stamped `retry` line in
+ *   the log naming the step and the fault; any other throw, or one
+ *   outlasting the tries, exits naming it. A merge's gates running past
+ *   their limit are no fault but a refusal, as the same gates on the same
+ *   tree run past it again (#5308).
  */
 
 const { caught, parseErrorText } = require("./caught.js");
@@ -163,7 +166,7 @@ const {
 	droppedRefsOf,
 } = require("./landing-refs.js");
 const { QUEUE_LOG_RETAIN_MS } = require("./queue-log.js");
-const { isNetworkFault } = require("./network-fault.js");
+const { isNetworkFault, REMOTE_TRIES } = require("./network-fault.js");
 
 /* Untraced, a first guess and stated as one: the codes a fork returns while
  * the machine is short of processes or memory for a moment. */
@@ -198,7 +201,7 @@ class TransientFault extends Error {}
  *   alone, `k` its member's index in the isolation or `base` for `main`
  * @typedef {{verdict: (place: Placement, sha: string, files?: string[],
  *   again?: boolean) => Promise<Verdict>, requiresRun?: boolean,
- *   parallel?: boolean, repeatsGates?: boolean,
+ *   parallel?: boolean, repeatsGates?: boolean, repeatsSuite?: boolean,
  *   start?: (place: Placement, sha: string) => void,
  *   cancel?: (place: Placement, keep: string|null) => string[]}} QueueTester
  *   the whole suite at `sha`, judged at `place`, where `files` is absent or
@@ -207,7 +210,8 @@ class TransientFault extends Error {}
  *   only a sha a CI run passed, so only a green naming its `run` lands;
  *   `parallel` where it can be asked several verdicts at once;
  *   `repeatsGates` where its run repeats the gates a batch's own gate pass
- *   leaves out; `start` starts the whole suite's run at `sha` at `place`
+ *   leaves out; `repeatsSuite` where its whole run is the declared suite
+ *   the hook's test gate runs (#5308); `start` starts the whole suite's run at `sha` at `place`
  *   before its verdict is asked, throwing where it could not; `cancel` stops
  *   every unfinished run at `place` not at `keep`, returning every sha it
  *   lists a run at there, finished or not
@@ -266,6 +270,8 @@ class TransientFault extends Error {}
  *   | {readonly kind: "merge-alone", readonly onto: string,
  *     readonly member: Member}
  *   | ({readonly kind: "defer-member"} & Deferral)
+ *   | {readonly kind: "leave-withdrawn", readonly name: string,
+ *     readonly sha: string}
  *   | {readonly kind: "drop-member", readonly drop: Drop}
  *   | {readonly kind: "file-fix-ticket", readonly drop: Drop,
  *     readonly held: readonly DroppedRef[]}
@@ -1265,7 +1271,8 @@ function detachAction(s, { line, search }, red) {
 /**
  * The merge of `b` onto `base`, where it is not merged there yet: a batch
  * merged onto a base that has since moved is merged again onto the new one,
- * so `main` only ever fast-forwards; else null.
+ * so `main` only ever fast-forwards; else null. A member whose queue ref is
+ * gone from the remote, withdrawn, is left out of it first (#5308).
  * @param {Batch} b
  * @param {QueueState} s
  * @param {string} base
@@ -1275,6 +1282,8 @@ function mergeStep(b, s, base) {
 	if (b.phase !== "merging" && b.onto === base && b.integration !== null)
 		return null;
 	const members = included(b);
+	const gone = members.find((m) => !s.queue.some((r) => r.name === m.name));
+	if (gone) return { kind: "leave-withdrawn", name: gone.name, sha: gone.sha };
 	return {
 		kind: "merge-members",
 		onto: base,
@@ -1922,6 +1931,20 @@ function isTransientFault(err) {
 }
 
 /**
+ * The deps a retried call runs on: each retry said in the lander's log,
+ * stamped, naming the step `what` reads at the retry and the fault (#5308).
+ * @param {Pick<QueueLanderDeps, "wait" | "say" | "now">} deps
+ * @param {() => string} what
+ */
+const retrying = (deps, what) => ({
+	wait: deps.wait,
+	retried: (/** @type {number} */ retry, /** @type {unknown} */ err) =>
+		deps.say?.(
+			`${new Date(deps.now()).toISOString()} retry ${retry} of ${REMOTE_TRIES - 1}, ${what()}, after: ${parseRefusal(parseErrorText(err))}`,
+		),
+});
+
+/**
  * The batch with `name` left out as `as`, to be merged again without it.
  * @param {Batch} b
  * @param {string} name
@@ -2208,7 +2231,7 @@ function writeVerdict(deps, { sha, files, pass, v }, run, keep) {
  * transient fault or no verdict is asked again with backoff, in the ask, as
  * the run goes on between; one that outlasts the tries throws as final, so
  * no retry of a step asks it afresh.
- * @param {Pick<QueueLanderDeps, "tester" | "beat" | "wait">} deps
+ * @param {Pick<QueueLanderDeps, "tester" | "beat" | "wait" | "say" | "now">} deps
  * @param {Placement} place
  * @param {string} sha
  * @param {{files?: string[], again?: boolean}} [ask] as QueueTester's
@@ -2220,7 +2243,11 @@ async function verdictAt(deps, place, sha, { files, again } = {}) {
 	const timer = setInterval(() => beat(sha), HEARTBEAT_MS);
 	try {
 		return await remote(
-			deps,
+			retrying(
+				deps,
+				() =>
+					`the verdict at ${short(sha)}${files && files.length > 0 ? ` on ${files.join(", ")}` : ""}`,
+			),
 			async () => {
 				const v = await tester.verdict(place, sha, files, again);
 				if (v.kind === "unknown" && v.transient)
@@ -2606,6 +2633,13 @@ async function act(deps, action, run) {
 			const { member, onto } = action;
 			const result = git.mergeMembers(onto, [member]);
 			return { ...run, alone: { name: member.name, onto, result } };
+		}
+		case "leave-withdrawn": {
+			/* Listed with the deferred, the members left out; a withdrawn one
+			 * owes no drop and no fix ticket. */
+			const batch = leaveOut(batchOf(run), action.name, "deferred");
+			record.write(batch);
+			return { ...run, acting: batch, unmerged: null, alone: null };
 		}
 		case "defer-member": {
 			const { name, sha, onto, main } = action;
@@ -3038,12 +3072,31 @@ async function runQueueLander(deps) {
 			baseFiled: [],
 			baseTicket: null,
 		};
+		/* The step a retry repeats: the action it last logged, else its
+		 * choice of one. */
+		const stepping = { acting: "" };
+		/** @param {QueueAction} action */
+		const logActing = (action) => {
+			stepping.acting = buildQueueActionLine(action);
+			log(action);
+		};
+		const retried = retrying(
+			deps,
+			() =>
+				stepping.acting ||
+				"the step before its action: reading the remote's refs and choosing one",
+		);
+		/** @param {QueueRun} from */
+		const stepFrom = (from) => {
+			stepping.acting = "";
+			return step(deps, from, logActing);
+		};
 		try {
 			for (;;) {
 				const from = run;
 				const next = await remote(
-					deps,
-					() => step(deps, from, log),
+					retried,
+					() => stepFrom(from),
 					isTransientFault,
 				);
 				if ("kind" in next) return next;
@@ -3104,6 +3157,8 @@ function buildQueueActionLine(a) {
 			return `merge-alone onto ${short(a.onto)}: ${queueBranch(a.member.name)}`;
 		case "defer-member":
 			return `defer-member ${queueBranch(a.name)}`;
+		case "leave-withdrawn":
+			return `leave-withdrawn ${queueBranch(a.name)}@${short(a.sha)}: its queue ref is gone from the remote`;
 		case "drop-member":
 			return `drop-member ${queueBranch(a.drop.name)}@${short(a.drop.sha)} as ${a.drop.ref}`;
 		case "file-fix-ticket":

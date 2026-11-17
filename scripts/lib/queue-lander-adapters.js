@@ -23,6 +23,13 @@ const { readJsonl } = require("./jsonl.js");
 const { writeFd } = require("./write-fd.js");
 const { PushRefused } = require("./network-fault.js");
 const {
+	HOOK_GRACE_MS,
+	KILLED_EXIT,
+	RUN_BUDGETED,
+	TIMEOUT_EXIT,
+	isRunnerFailure,
+} = require("./run-budgeted.js");
+const {
 	GATED_COMMIT_TIMEOUT_MS,
 	createRemoteRef,
 	deleteRemoteRef,
@@ -78,6 +85,21 @@ const REMOTE_REJECTED = /^ ! \[remote rejected\].*/m;
  * by its fan-out directory and name. */
 const BROKEN_OBJECT =
 	/(?:object file|stored in) \S*?([0-9a-f]{2})\/([0-9a-f]{38,62})\)? is (?:empty|corrupt)/;
+
+/**
+ * @typedef {"merge" | "batch" | "tested" | "all"} GateSet a pre-commit
+ *   gate set: the hook's `--gates=<set>`, every gate on `all`
+ */
+
+/* Untraced, a first guess: room past the KILL for run-budgeted.js to see its
+ * group go and exit. */
+const PIPE_CLOSE_MARGIN_MS = 10_000;
+
+/**
+ * A gate set run past its limit, its process group ended: no fault a retry
+ * outlasts, as the same gates on the same tree run past it again (#5308).
+ */
+class GateTimeout extends Error {}
 
 /**
  * @typedef {import("./queue-lander.js").Verdict} Verdict
@@ -159,6 +181,11 @@ function readEnvelope(r, sha, timeoutMs) {
  * @param {boolean} [options.ciRepeats] where the tester's run repeats the
  *   gates the batch's set leaves out, its `repeatsGates`; else the batch
  *   runs every gate
+ * @param {number} [options.gateGraceMs] how long gates past their limit
+ *   have after its TERM before the KILL
+ * @param {boolean} [options.suiteRepeats] where the tester's whole run is
+ *   the declared test command the hook's test gate runs, its
+ *   `repeatsSuite`: the batch runs every gate but that one (#5308)
  * @returns {QueueGit}
  */
 function queueGit(
@@ -167,8 +194,11 @@ function queueGit(
 		mergeTimeoutMs = GATED_COMMIT_TIMEOUT_MS,
 		regenerated = REGENERATED_FILES,
 		ciRepeats = false,
+		suiteRepeats = false,
+		gateGraceMs = HOOK_GRACE_MS,
 	} = {},
 ) {
+	const batchSet = batchGateSet(ciRepeats, suiteRepeats);
 	const fetchSpecs = [
 		trackingRefspec(VERIFIED_BRANCH),
 		QUEUE_REFSPEC,
@@ -400,14 +430,12 @@ function queueGit(
 	 * `last`.
 	 * @param {{onto: string, sha: string, last: Member}} batch
 	 * @param {(args: string[], timeout?: number) => string} inTree
-	 * @param {(set: "batch" | "all") => void} gates
+	 * @param {(set: Exclude<GateSet, "merge">) => void} gates
 	 * @returns {MergeResult}
 	 */
 	function batchPass({ onto, sha, last }, inTree, gates) {
 		inTree(["reset", "--quiet", "--soft", onto]);
-		const failed = mergeFailure(last, inTree, () =>
-			gates(ciRepeats ? "batch" : "all"),
-		);
+		const failed = mergeFailure(last, inTree, () => gates(batchSet));
 		if (failed) return failed;
 		inTree(["reset", "--quiet", "--soft", sha]);
 		if (inTree(["diff", "--cached", "--name-only"]).trim() === "")
@@ -428,10 +456,11 @@ function queueGit(
 
 	/**
 	 * The pre-commit hook git would run in `dir`, on a gate set: `merge`,
-	 * `batch`, or every gate on `all`; none where git would run none.
+	 * `batch`, `tested`, or every gate on `all`; none where git would run
+	 * none.
 	 * @param {string} dir
 	 * @param {(args: string[]) => string} inTree
-	 * @returns {(set: "merge" | "batch" | "all") => void}
+	 * @returns {(set: GateSet) => void}
 	 */
 	function hookGates(dir, inTree) {
 		const hook = path.resolve(
@@ -449,11 +478,10 @@ function queueGit(
 				);
 				return;
 			}
-			execFileSync(hook, set === "all" ? [] : [`--gates=${set}`], {
-				cwd: dir,
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "pipe"],
-				timeout: mergeTimeoutMs,
+			runHook(hook, set, {
+				dir,
+				limitMs: mergeTimeoutMs,
+				graceMs: gateGraceMs,
 			});
 		};
 	}
@@ -523,8 +551,10 @@ function queueGit(
 	}
 
 	/**
-	 * Why `m` did not merge, else null. A fault that is no git refusal, a
-	 * spawn failure or a timeout among them, throws for the run to retry.
+	 * Why `m` did not merge, else null. Gates run past their limit are a
+	 * refusal, said on stderr; any other fault that is no git refusal, a spawn
+	 * failure or a git step timing out among them, throws for the run to
+	 * retry.
 	 * @param {Member} m
 	 * @param {(args: string[]) => string} inTree
 	 * @param {() => unknown} merge
@@ -535,23 +565,111 @@ function queueGit(
 			merge();
 			return null;
 		} catch (err) {
-			const e = caught(err);
-			if (e.code === "ETIMEDOUT")
-				throw new TransientFault(
-					`${queueBranch(m.name)}'s merge timed out after ${mergeTimeoutMs / 1000} s`,
-					{ cause: err },
-				);
-			if (e.status === undefined || BROKEN_OBJECT.test(String(e.stderr ?? "")))
-				throw err;
-			const files = readConflictedFiles(inTree);
-			return files.length > 0
-				? { kind: "conflict", name: m.name, files }
-				: {
-						kind: "refused",
-						name: m.name,
-						reason: parseGateRefusal(parseErrorText(err)),
-					};
+			if (!(err instanceof GateTimeout)) return judgeFault(m, inTree, err);
+			writeFd(
+				2,
+				`queue-lander: ${queueBranch(m.name)}'s merge refused: ${parseRefusal(err.message)}\n`,
+			);
+			return { kind: "refused", name: m.name, reason: err.message };
 		}
+	}
+
+	/**
+	 * Why `m` did not merge, where its merge threw `err`: a conflict or a
+	 * refusal, else it throws.
+	 * @param {Member} m
+	 * @param {(args: string[]) => string} inTree
+	 * @param {unknown} err
+	 * @returns {MergeResult}
+	 */
+	function judgeFault(m, inTree, err) {
+		const e = caught(err);
+		if (e.code === "ETIMEDOUT")
+			throw new TransientFault(
+				`${queueBranch(m.name)}'s merge timed out after ${mergeTimeoutMs / 1000} s`,
+				{ cause: err },
+			);
+		if (e.status === undefined || BROKEN_OBJECT.test(String(e.stderr ?? "")))
+			throw err;
+		const files = readConflictedFiles(inTree);
+		return files.length > 0
+			? { kind: "conflict", name: m.name, files }
+			: {
+					kind: "refused",
+					name: m.name,
+					reason: parseGateRefusal(parseErrorText(err)),
+				};
+	}
+}
+
+/**
+ * @param {boolean} ciRepeats
+ * @param {boolean} suiteRepeats
+ * @returns {Exclude<GateSet, "merge">}
+ */
+function batchGateSet(ciRepeats, suiteRepeats) {
+	if (ciRepeats) return "batch";
+	return suiteRepeats ? "tested" : "all";
+}
+
+/**
+ * The pre-commit `hook` on gate set `set` in `dir`, through
+ * lib/run-budgeted.js, in a process group of its own: past `limitMs` the
+ * group gets a TERM, then a KILL `graceMs` later, so a hook holding its TERM
+ * till its child ends cannot outlast the limit (#5308). Run past it, it
+ * throws a GateTimeout, and where the hook would not start, an Error
+ * carrying the spawn's code; any other failure throws as execFileSync's.
+ * @param {string} hook
+ * @param {GateSet} set
+ * @param {{dir: string, limitMs: number, graceMs: number}} limits
+ */
+function runHook(hook, set, { dir, limitMs, graceMs }) {
+	const gates = set === "all" ? "" : `${set} `;
+	const began = performance.now();
+	try {
+		execFileSync(
+			process.execPath,
+			[
+				RUN_BUDGETED,
+				String(limitMs),
+				String(graceMs),
+				hook,
+				...(gates === "" ? [] : [`--gates=${set}`]),
+			],
+			{
+				cwd: dir,
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "pipe"],
+				maxBuffer: CHILD_MAX_BUFFER,
+				/* A process that left the group outlives its KILL holding the
+				 * pipes open; this timeout closes them. */
+				timeout: limitMs + graceMs + PIPE_CLOSE_MARGIN_MS,
+			},
+		);
+	} catch (err) {
+		const e = caught(err);
+		const r = { status: e.status ?? null, stderr: String(e.stderr ?? "") };
+		if (isRunnerFailure(r))
+			/* The spawn's own code, as EAGAIN, so a fault a retry outlasts is
+			 * retried. */
+			throw Object.assign(
+				new Error(`${hook} did not run: ${parseRefusal(r.stderr)}`, {
+					cause: err,
+				}),
+				{ code: /\bE[A-Z]+\b/.exec(r.stderr)?.[0] },
+			);
+		/* The hook may exit 124 or 137 itself: only one that ran its whole
+		 * limit was run-budgeted.js's kill. */
+		const overran =
+			e.code === "ETIMEDOUT" ||
+			((r.status === TIMEOUT_EXIT || r.status === KILLED_EXIT) &&
+				performance.now() - began >= limitMs);
+		if (!overran) throw err;
+		const output = parseGateRefusal(`${e.stdout ?? ""}\n${r.stderr}`);
+		throw new GateTimeout(
+			`its ${gates}gates ran past their ${limitMs / 1000} s limit and were ended, every process they started with them; the same gates on this tree run past it again${output === "" ? "" : `:\n${output}`}`,
+			{ cause: err },
+		);
 	}
 }
 

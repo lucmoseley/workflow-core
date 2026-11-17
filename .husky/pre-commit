@@ -74,9 +74,12 @@ fi
 # merge can make (#4514). `--gates=batch` runs once over the whole
 # batch staged against `main`: every other gate, bar those the lander's Actions
 # run repeats before `main` moves, each marked `lander_batch` below.
+# `--gates=tested` is that pass where the lander's local tester runs the
+# declared test command itself before `main` moves: every gate but that one
+# (#5308).
 wfc_gates=all
 case "${1-}" in
-  --gates=merge | --gates=batch) wfc_gates="${1#--gates=}" ;;
+  --gates=merge | --gates=batch | --gates=tested) wfc_gates="${1#--gates=}" ;;
 esac
 
 # The Node gates, every row of scripts/lib/precommit-gates.js, in its order,
@@ -509,7 +512,7 @@ fi
 # directory holding the key of exactly the changes git handed this hook
 # (scripts/lib/commit-key.js, gate `test`) — a pre-lock run's green on them (#1650). The
 # stamp is never consumed: commit-paths removes it as it exits.
-if ! lander_batch && declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/test-gate.js commit; then
+if ! lander_batch && ! lander_tested && declared_cmd node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/test-gate.js commit; then
   tg_cmd="$declared_command"
   if ! tg_why="$(node "${WFC_PLUGIN_ROOT:-.}"/scripts/lib/commit-key.js stand-down test "$tg_stamp" 2>&1)"; then
     echo "pre-commit: running '$tg_cmd' in the lock — no pre-lock green stands it down: $tg_why." >&2

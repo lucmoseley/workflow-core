@@ -327,6 +327,7 @@ if (require.main === module)
 	);
 
 module.exports = {
+	HOOK_GRACE_MS,
 	main,
 	RUN_BUDGETED: __filename,
 	TIMEOUT_EXIT,

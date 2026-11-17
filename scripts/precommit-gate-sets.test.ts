@@ -1,8 +1,10 @@
 // @vitest-environment node
 /*
- * Pins the queue lander's two pre-commit gate sets (#4545): `--gates=merge`
+ * Pins the queue lander's pre-commit gate sets (#4545): `--gates=merge`
  * runs only the merge set, `--gates=batch` every gate bar one the lander's
- * Actions run repeats or a lander merge renders, and no argument every gate.
+ * Actions run repeats or a lander merge renders, `--gates=tested` every gate
+ * bar the declared test gate its local tester runs (#5308), and no argument
+ * every gate.
  * The parse, the dispatcher line, the merge set's exit and two later gates —
  * swallowed-errors, which Actions repeats, and upstream-record, which it does
  * not — are cut from the real hook and run over stub scripts; the dispatcher's own lander sets are
@@ -96,6 +98,19 @@ describe("the pre-commit gate sets", () => {
 				"scripts/check-vendored-skills.js --covered <dir>",
 			],
 		});
+	});
+
+	it("runs every gate bar the declared test gate on the tested set, whose test gate the lander's local tester runs (#5308)", () => {
+		expect(run("--gates=tested")).toEqual({
+			code: 0,
+			ran: [`${DISPATCH} --gates=tested`, ...CHECKERS.slice(1)],
+		});
+		const guarded = fs
+			.readFileSync(".husky/pre-commit", "utf8")
+			.split("\n")
+			.filter((l) => /^if .*\blander_tested\b/.test(l));
+		expect(guarded).toHaveLength(1);
+		expect(guarded[0]).toContain("scripts/lib/test-gate.js commit");
 	});
 
 	it("runs every gate on an argument it does not know", () => {
