@@ -224,9 +224,7 @@ class TransientFault extends Error {}
  *   `sha`, the sha the step deciding the push read there
  * @typedef {{readonly kind: "pushed"} | {readonly kind: "refused",
  *   readonly line: string} | {readonly kind: "lease-lost",
- *   readonly names: readonly string[]}} PushResult a push to `main`: made,
- *   refused for good by the remote, or not made as the queue refs of
- *   `names` no longer hold their leased shas
+ *   readonly names: readonly string[]}} PushResult
  * @typedef {import("./lander-records.js").Member} Member
  * @typedef {import("./lander-records.js").Hold} Hold
  * @typedef {import("./lander-records.js").Blame} Blame
@@ -326,7 +324,7 @@ class TransientFault extends Error {}
  *   whether its ticket closes; `wait`,
  *   which no run takes, a batch whose next step waits on another's;
  *   `withdrawn`, the members `rebatch-passers` leaves out as gone from the
- *   remote; `leases`, the queue refs of the members a push to `main` lands; `relaunch`, the `main` a fresh run on the new code takes the queue on from
+ *   remote; `relaunch`, the `main` a fresh run on the new code takes the queue on from
  * @typedef {Extract<QueueAction, {kind: "exit"}>} QueueEnd
  * @typedef {{readonly sha: string, readonly files: readonly string[],
  *   readonly pass: number}} TestRun a run at `sha` on `files`, the whole
@@ -1342,7 +1340,6 @@ function leased(s, members, land) {
 }
 
 /**
- * The fast-forward of `main` to `b`'s integration commit `sha`.
  * @param {Batch} b
  * @param {QueueState} s
  * @param {string} sha
@@ -2661,8 +2658,7 @@ function recorded(deps, batch, run) {
  * Moves `main` to `sha`, the integration commit or a serial step, then
  * records what landed; a push the remote refuses is written to the refused
  * record instead, for the machine to hold the batch on. A push a lost lease
- * stops records nothing, and the next step reads the refs again: a member
- * withdrawn is left out, a member pushed again leased afresh (#5326).
+ * stops lands nothing, for the next step to decide again on a fresh read.
  * @param {BatchDeps} deps
  * @param {Extract<QueueAction, {kind: "fast-forward-main" | "land-step"}>}
  *   action
