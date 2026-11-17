@@ -1,8 +1,9 @@
 /*
- * journalctl.js — journalctl runs: a journal read, and the boot list, which
- * places an earlyoom kill's time (#4143) and bounds check-kernel-stall.js's
- * --boot offsets (#5299). WFC_JOURNALCTL
- * injects the binary (§N7).
+ * journalctl.js — journalctl runs: a journal read, which check-kernel-stall.js
+ * takes its kernel log by (#5304), and the boot list, which places an earlyoom
+ * kill's time (#4143) and bounds check-kernel-stall.js's --boot offsets
+ * (#5299). WFC_JOURNALCTL injects the binary (§N7). The bounded read under it
+ * also serves check-kernel-stall.js's dmesg reader, the same kernel log.
  */
 
 const { spawnSync } = require("node:child_process");
@@ -20,12 +21,13 @@ const READ_TIMEOUT_MS = 5000;
 const MAX_BUFFER = 64 * 1024 * 1024;
 
 /**
- * journalctl's stdout for `args`, or why it failed.
+ * `cmd`'s stdout for `args` under the bounds above, or why it failed.
+ * @param {string} cmd
  * @param {string[]} args
  * @returns {{stdout: string, why: string|null}}
  */
-function runJournalctl(args) {
-	const r = spawnSync(process.env.WFC_JOURNALCTL || "journalctl", args, {
+function runBoundedRead(cmd, args) {
+	const r = spawnSync(cmd, args, {
 		encoding: "utf8",
 		timeout: READ_TIMEOUT_MS,
 		stdio: ["ignore", "pipe", "pipe"],
@@ -38,6 +40,13 @@ function runJournalctl(args) {
 		};
 	return { stdout: r.stdout, why: null };
 }
+
+/**
+ * journalctl's stdout for `args`, or why it failed.
+ * @param {string[]} args
+ */
+const runJournalctl = (args) =>
+	runBoundedRead(process.env.WFC_JOURNALCTL || "journalctl", args);
 
 /** @param {number} ms floored to the second */
 const toSecond = (ms) => Math.floor(ms / 1000) * 1000;
@@ -90,10 +99,10 @@ function readBoots() {
 const bootKey = (/** @type {string} */ id) => id.replace(/-/g, "");
 
 module.exports = {
-	MAX_BUFFER,
 	READ_TIMEOUT_MS,
 	bootKey,
 	readBoots,
+	runBoundedRead,
 	runJournalctl,
 	toSecond,
 };

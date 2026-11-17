@@ -84,9 +84,8 @@ const fs = require("node:fs");
 const zlib = require("node:zlib");
 const { runCheck } = require("./lib/check");
 const {
-	MAX_BUFFER,
-	READ_TIMEOUT_MS,
 	readBoots,
+	runBoundedRead,
 	runJournalctl,
 } = require("./lib/journalctl.js");
 const { REAL_PROC } = require("./lib/proc-root.js");
@@ -169,16 +168,7 @@ const readers = (boot) => ({
 	},
 	dmesg: {
 		name: "dmesg",
-		// The same kernel log as `journalctl -k`, so journalctl's bounds.
-		read: () => {
-			const res = spawnSync(process.env.WFC_DMESG || "dmesg", ["-T"], {
-				encoding: "utf8",
-				timeout: READ_TIMEOUT_MS,
-				stdio: ["ignore", "pipe", "ignore"],
-				maxBuffer: MAX_BUFFER,
-			});
-			return res.error || res.status !== 0 ? "" : res.stdout;
-		},
+		read: () => runBoundedRead(process.env.WFC_DMESG || "dmesg", ["-T"]).stdout,
 		// `[Wed Oct  7 22:43:24 2026] …`
 		time: (/** @type {string} */ line) =>
 			(line.match(/^\[([^\]]+)\]/)?.[1] ?? "").replace(/\s+/g, " "),
