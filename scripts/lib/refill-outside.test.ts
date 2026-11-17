@@ -722,7 +722,7 @@ it("resumes by --bg --resume alone an outside session the reaper stopped before 
 	]);
 });
 
-it("reads each journal entry once, past its cursor, and takes up none that is no synthetic stop", () => {
+it("reads each journal entry once, by its key, and takes up none that is no synthetic stop", () => {
 	const l = reapedLoop({
 		job: doneJob({ state: "stopped" }),
 		rows: [...stoppedRows(minutesAgo(20)), founderRow("go on", minutesAgo(1))],
@@ -734,6 +734,48 @@ it("reads each journal entry once, past its cursor, and takes up none that is no
 	expect(l.calls).not.toContain("resume f1");
 	expect(l.io.readOutside()).toEqual([]);
 	expect(l.io.readReaped().read).toHaveLength(1);
+});
+
+/* Regression (#5322): every reap used to grant a spent session two more
+ * resumes. Its pair: "resumes by --bg --resume alone an outside session the
+ * reaper stopped…" above. */
+it("starts no fresh count off the journal for a session whose resumes of that stop are spent, and drops the record once the journal would", () => {
+	const l = reapedLoop({
+		job: doneJob({ state: "stopped" }),
+		rows: stoppedRows(minutesAgo(20)),
+	});
+	const { sessionId, id, name, cwd } = row("stopped");
+	const stopAt = Date.parse(minutesAgo(20));
+	l.io.writeOutside([
+		{
+			seat: SEAT,
+			jobId: id,
+			name,
+			cwd,
+			sessionId,
+			tries: 0,
+			synthetic: {
+				at: stopAt,
+				tries: 2,
+				resumed: 2,
+				triedAt: stopAt,
+				spent: true,
+			},
+		},
+	]);
+	l.entry(NOW - MIN);
+	l.tick(NOW);
+	l.tick(NOW + MIN);
+	expect(l.calls).not.toContain("resume f1");
+	expect(typed(l.calls)).toBe(0);
+	expect(l.io.readOutside()).toEqual([
+		expect.objectContaining({
+			synthetic: expect.objectContaining({ spent: true }),
+		}),
+	]);
+	expect(l.readings()).toBe(0);
+	l.tick(stopAt + 25 * 60 * MIN);
+	expect(l.io.readOutside()).toEqual([]);
 });
 
 it("takes up no loop launch the reaper stopped", () => {

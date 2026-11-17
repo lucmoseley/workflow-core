@@ -661,6 +661,8 @@ function syntheticStopAt({ job, rows: read }) {
 }
 
 module.exports = {
+	NO_RESPONSE_TEXT,
+	SYNTHETIC_MODEL,
 	syntheticStopAt,
 	blockCause,
 	hasEndedUnblocked,

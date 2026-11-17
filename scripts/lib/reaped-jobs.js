@@ -10,9 +10,11 @@
 
 const { refillPath } = require("./refill-dir.js");
 const { caught } = require("./caught.js");
-const { readJsonOutcome, writeJson } = require("./refill-json.js");
+const { readJson, readJsonOutcome, writeJson } = require("./refill-json.js");
 
 const REAPED_FILE = ".reaped-jobs.json";
+/* The keys of the entries the refill loop has read. */
+const REAPED_READ_FILE = ".refill-reaped-read.json";
 
 /* How long an entry is kept: longer than the loop is ever off between ticks
  * in ordinary use, so a restart still finds what was reaped meanwhile.
@@ -71,14 +73,15 @@ function readReapedJobs() {
  * A journal that will not write costs the loop those resumes, never the
  * reaper its run (#5331): why it failed, else null.
  * @param {import("./agent-liveness.js").AgentRecord[]} stopped
+ * @param {number} at  the run's clock, ms
  * @returns {string|null}
  */
-function journalReapedJobs(stopped) {
+function journalReapedJobs(stopped, at) {
 	if (stopped.length === 0) return null;
 	try {
 		writeJson(
 			refillPath(REAPED_FILE),
-			withReaped(readReapedJobs(), stopped, Date.now()),
+			withReaped(readReapedJobs(), stopped, at),
 		);
 		return null;
 	} catch (err) {
@@ -86,4 +89,32 @@ function journalReapedJobs(stopped) {
 	}
 }
 
-module.exports = { journalReapedJobs, readReapedJobs };
+/**
+ * An entry's identity, by which the loop remembers having read it.
+ * @param {ReapedJob} j
+ */
+const reapedKey = (j) => `${j.seat}\0${j.jobId}\0${j.at}`;
+
+/**
+ * The journal and the keys of the entries the loop has read (BlockReads'
+ * readReaped).
+ * @param {(line: string) => void} log
+ */
+function readReaped(log) {
+	const raw = readJson(refillPath(REAPED_READ_FILE), log);
+	const read = Array.isArray(raw)
+		? raw.filter((k) => typeof k === "string")
+		: [];
+	return { jobs: readReapedJobs(), read };
+}
+
+/** @param {string[]} keys */
+const writeReapedRead = (keys) => writeJson(refillPath(REAPED_READ_FILE), keys);
+
+module.exports = {
+	REAPED_KEEP_MS,
+	journalReapedJobs,
+	readReaped,
+	reapedKey,
+	writeReapedRead,
+};
