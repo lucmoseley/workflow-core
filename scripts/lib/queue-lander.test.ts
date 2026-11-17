@@ -23,7 +23,8 @@
  * any batch or stays green-ledgered, a base check takes `main`'s old verdict
  * or an earlier batch's base verdict, a red
  * naming no file skips its rerun, base check or isolation, or a serial step
- * drops its member on one red or on a red the collision did not fail.
+ * drops its member on one red or on a red the collision did not fail; or a
+ * member withdrawn from the remote lands on `main` with its batch.
  */
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
@@ -1116,6 +1117,8 @@ describe("faults", () => {
 		]);
 	});
 
+	/* Positive pair: "lands a lone ref as the integration commit its merge
+	 * names", whose batch keeps its ref and lands at its first merge. */
 	it("merges a batch under test again without a member withdrawn meanwhile, so main never takes it (#5316)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },
@@ -1145,6 +1148,8 @@ describe("faults", () => {
 		expect(remote.main).toBe("merge(m0;a1)");
 	});
 
+	/* Positive pair: "lands a batch whose failing files pass on their
+	 * rerun, isolating nothing", whose search keeps every ref and lands. */
 	it("batches a search's members again without one withdrawn during its rerun, so main never takes it (#5316)", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },
