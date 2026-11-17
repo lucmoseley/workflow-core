@@ -25,7 +25,7 @@ import {
 
 export const WIRING = `  ${coreCall("command node", "scripts/mutation-hold-gate.js")} || exit "$?"`;
 export const HOLD_BLOCK = cutHookBlock('mh_why=""', "fi");
-export const TEST_GATE_OPEN = `if ! lander_batch && declared_cmd ${coreCall("node", "scripts/lib/test-gate.js")} commit`;
+export const TEST_GATE_OPEN = `if ! lander_batch && ! lander_tested && declared_cmd ${coreCall("node", "scripts/lib/test-gate.js")} commit`;
 export const GATES_END = HOOK.split("\n").find((l) =>
 	l.startsWith("# ---- end of the gates"),
 );
