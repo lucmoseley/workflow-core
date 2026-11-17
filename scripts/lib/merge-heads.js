@@ -103,13 +103,15 @@ const SHA = new RegExp(`^(?:${SHA_HEX})$`);
 /**
  * `env` with the merge parents of the checkout at `cwd` handed off, or why
  * they would not read, so the child reports that rather than reading its
- * own worktree's lack of a merge as none (#5334).
+ * own worktree's lack of a merge as none (#5334). One already handed in
+ * `env` is kept: `cwd` is then a worktree the gate built, which has none.
  * @param {string} cwd
  * @param {NodeJS.ProcessEnv} env
  * @returns {NodeJS.ProcessEnv}
  */
 function withMergeParents(cwd, env) {
 	const out = { ...env };
+	if (out[MERGE_PARENTS_ENV] !== undefined) return out;
 	try {
 		out[MERGE_PARENTS_ENV] = readMergingHeads(cwd, env).join(" ");
 	} catch (error) {

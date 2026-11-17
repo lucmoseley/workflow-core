@@ -110,7 +110,7 @@ const {
 	isInSuite,
 	startGatePids,
 } = require("./lib/gate-seat.js");
-const { MERGE_PARENTS_ENV, withMergeParents } = require("./lib/merge-heads.js");
+const { withMergeParents } = require("./lib/merge-heads.js");
 const {
 	CEILING_CLOSE,
 	armCeiling,
@@ -837,9 +837,7 @@ function spawnGate({ seat, options, err, finish, holder, waitMs }) {
 		stdio: ["inherit", "inherit", 1],
 		detached: true,
 		env: {
-			...(process.env[MERGE_PARENTS_ENV] === undefined
-				? withMergeParents(process.cwd(), process.env)
-				: process.env),
+			...withMergeParents(process.cwd(), process.env),
 			[GATE_ENV]: seat.ticket,
 		},
 	});

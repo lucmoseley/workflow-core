@@ -791,6 +791,13 @@ describe("a merge's own content under `head` (#5334)", () => {
 	const githead = ({ main }: { main: string }) => ({
 		[`GITHEAD_${main}`]: "main",
 	});
+	/** This process's environment with no merge parents of its own to hand. */
+	const unmerged = () => {
+		const env = { ...process.env };
+		for (const k of Object.keys(env))
+			if (k.startsWith("GITHEAD_") || k === MERGE_PARENTS_ENV) delete env[k];
+		return env;
+	};
 
 	it("selects no test that only main's incoming paths reach, and says so worded for the merge", () => {
 		const { dir, main } = copy("disjoint");
@@ -891,11 +898,8 @@ process.stdout.write(JSON.stringify({ cwd: process.cwd(), changed: r.changed }))
 		afterAll(() => fs.rmSync(probeDir, { recursive: true, force: true }));
 		const { runInTree } = require("./isolated-worktree.js");
 		const gateRun = (dir: string, extra: NodeJS.ProcessEnv = {}) => {
-			const env = { ...process.env };
-			for (const k of Object.keys(env))
-				if (k.startsWith("GITHEAD_") || k === MERGE_PARENTS_ENV) delete env[k];
 			const r = runInTree(dir, git(dir, "write-tree"), `node ${probe}`, {
-				env: { ...env, ...extra },
+				env: { ...unmerged(), ...extra },
 			});
 			expect(r.error).toBeNull();
 			expect(r.status).toBe(0);
@@ -913,6 +917,13 @@ process.stdout.write(JSON.stringify({ cwd: process.cwd(), changed: r.changed }))
 			expect(gateRun(premerge.dir, githead(premerge))).toEqual(["lib/a.js"]);
 		});
 
+		it("keeps merge parents already handed to it over its checkout's own", () => {
+			const premerge = copy("premerge");
+			expect(
+				gateRun(premerge.dir, { [MERGE_PARENTS_ENV]: premerge.main }),
+			).toEqual(["lib/a.js"]);
+		});
+
 		it("selects the changes over HEAD on an ordinary commit", () => {
 			const dir = repo();
 			write(dir, "doc.md", "# staged\n");
@@ -923,7 +934,10 @@ process.stdout.write(JSON.stringify({ cwd: process.cwd(), changed: r.changed }))
 
 	/* The hook's in-place fallback: queue-run's gate in the committing
 	 * checkout, a touched run then moving into an overlay worktree that has no
-	 * MERGE_HEAD of its own (run-vitest.js `runChangedOverlaid`). */
+	 * MERGE_HEAD of its own (run-vitest.js `runChangedOverlaid`). The probe
+	 * stands in for that overlay with a worktree carrying every change over
+	 * HEAD: it shows the hand-off reaching a second worktree, not which files
+	 * run-vitest's overlay carries. */
 	it("hands the checkout's merge parents to an overlay a gate run in place moves into", () => {
 		const probeDir = mkScratchDir("touched-probe-");
 		dirs.push(probeDir);
@@ -935,10 +949,16 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { selectTouched } = require(${JSON.stringify(require.resolve("./touched-tests.js"))});
 const overlay = process.argv[2];
-const git = (...args) => execFileSync("git", args, { encoding: "utf8" });
+const git = (...args) => execFileSync("git", args, { encoding: "utf8" }).split("\\n").filter(Boolean);
 git("worktree", "add", "-q", "--detach", overlay, "HEAD");
-for (const f of git("diff", "--name-only", "HEAD").split("\\n").filter(Boolean))
+for (const f of git("diff", "--name-only", "--diff-filter=d", "HEAD"))
 	fs.copyFileSync(f, path.join(overlay, f));
+for (const f of git("diff", "--name-only", "--diff-filter=D", "HEAD"))
+	fs.rmSync(path.join(overlay, f));
+for (const f of git("ls-files", "--others", "--exclude-standard")) {
+	fs.mkdirSync(path.dirname(path.join(overlay, f)), { recursive: true });
+	fs.copyFileSync(f, path.join(overlay, f));
+}
 const r = selectTouched(overlay, { from: "head", loadEdges: () => ({}), renderEdges: () => ({}) });
 process.stdout.write(JSON.stringify(r.changed));
 `,
@@ -946,9 +966,11 @@ process.stdout.write(JSON.stringify(r.changed));
 		const { dir } = copy("conflicted");
 		const overlay = mkScratchDir("touched-overlay-");
 		dirs.push(overlay);
-		const env = { ...process.env };
-		for (const k of Object.keys(env))
-			if (k.startsWith("GITHEAD_") || k === MERGE_PARENTS_ENV) delete env[k];
+		const tmp = mkScratchDir("touched-tmp-");
+		dirs.push(tmp);
+		/* The gate's records land under the fixture, never the live checkout
+		 * a commit gate's CLAUDE_PROJECT_DIR names (#160). */
+		const env = { ...unmerged(), CLAUDE_PROJECT_DIR: dir, TMPDIR: tmp };
 		/* spawn-kept: a real fd — the gate's command inherits queue-run's stdout,
 		 * which an in-process run cannot capture apart from vitest's own. */
 		const r = spawnSync(

@@ -570,8 +570,7 @@ function selectTouched(
  * How the banner names the work a selection answers for: a merge's own
  * content, a commit's changes over HEAD, or the session's own work since the
  * merge base; `selected` its TOUCHED TESTS ONLY line's tail, `coda` a last
- * line or none. A merge's coda names the nets left on `suite`'s route: the
- * push-coverage warning reads vitest's alone.
+ * line or none. A merge's coda names the nets left on `suite`'s route.
  *
  * @param {string} base
  * @param {TouchedBase} from
