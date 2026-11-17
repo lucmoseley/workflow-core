@@ -105,8 +105,12 @@ fi
 
 readonly RANKING="Each note entry names its sources and the tier each earns, its tag spelt exactly as one of: [standard or field body], [named expert], [survey or curated list] or [unverified]. The top tier is a standard or field body's free guidance, such as an IETF RFC or a W3C, NIST or OWASP publication. A format or convention spec written for others to adopt, such as SemVer, is a standard. A project's docs, open-source or company-run, earn the top tier only for how that project's own product behaves or is configured, its rules for its own contributors included; their reasoned guidance on a general practice is [named expert], and their docs cited as one adopter of a general practice are [unverified]. A tool's own docs earn the top tier for what the tool does, but a default to use it needs another source. A paper, peer-reviewed or not, is [named expert], its authors' verdict with reasons, or [survey or curated list] where it reports a questionnaire or interviews; a systematic review or meta-analysis outranks a single paper, so name it as one. An entry whose default rests on [unverified] sources alone says it sets no default."
 
+if ! command -v jq >/dev/null; then
+  echo "practice-guard: jq is not installed, so nothing is judged" >&2
+  exit 0
+fi
 if ! jq -e 'type == "object"' <<<"$input" >/dev/null 2>&1; then
-  echo "practice-guard: the hook payload is not JSON, so nothing is judged" >&2
+  echo "practice-guard: the hook payload is not a JSON object, so nothing is judged" >&2
   exit 0
 fi
 

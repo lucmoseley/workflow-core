@@ -235,6 +235,50 @@ describe("silence", () => {
 	});
 });
 
+describe("a payload the guard cannot judge", () => {
+	const spawn = (stdin: string, env: Record<string, string> = {}) =>
+		spawnGuard(hook, null, {
+			project: repo,
+			config: path.join(home, ".claude"),
+			env: { HOME: home, XDG_RUNTIME_DIR: tmp, ...env },
+			stdin,
+		});
+
+	it.each([
+		["a JSON array", '["docs/practice"]'],
+		["text that is not JSON", "not json docs/practice"],
+	])("passes %s, naming it on stderr (#5391)", (_, stdin) => {
+		const r = spawn(stdin);
+		expect([r.status, r.stdout, r.stderr]).toEqual([
+			0,
+			"",
+			"practice-guard: the hook payload is not a JSON object, so nothing is judged\n",
+		]);
+	});
+
+	it("passes where jq is not installed, naming that on stderr (#5391)", () => {
+		const bin = fs.mkdtempSync(path.join(dir, "bin-"));
+		for (const tool of ["bash", "cat", "dirname"]) {
+			const at = execFileSync("bash", ["-c", `command -v ${tool}`], {
+				encoding: "utf8",
+			}).trim();
+			fs.symlinkSync(at, path.join(bin, tool));
+		}
+		const r = spawn(
+			JSON.stringify({
+				tool_name: "Read",
+				tool_input: { file_path: note("x") },
+			}),
+			{ PATH: bin },
+		);
+		expect([r.status, r.stdout, r.stderr]).toEqual([
+			0,
+			"",
+			"practice-guard: jq is not installed, so nothing is judged\n",
+		]);
+	});
+});
+
 describe("the craft list each copy reads (#5344)", () => {
 	it("the plugin's copy hands over the list beside its plugin root, not the machine list", () => {
 		const out = run("Read", { file_path: note("llm-agent-design") });
