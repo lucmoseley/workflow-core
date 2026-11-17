@@ -1132,6 +1132,16 @@ describe("init in a fresh repository", () => {
 		expect(fs.existsSync(path.join(dir, "docs/doc-map.md"))).toBe(true);
 	});
 
+	/* The core method and the retro-sweep brief send a reader to this ledger
+	 * (#5296). */
+	it("writes a doc map holding the shed ledger under the heading the doc-map gate reads", () => {
+		const { dir } = repo();
+		init(dir, "--founder", "A Founder", "--no-tracker");
+		expect(fs.readFileSync(path.join(dir, "docs/doc-map.md"), "utf8")).toMatch(
+			/^## Capture and placement — where a settled fact goes\n[\s\S]*^### 5\. Sheds paid — the ledger$/m,
+		);
+	});
+
 	it("writes the roadmap, its digest and its register when the module is on", () => {
 		const { dir } = repo();
 		const r = init(

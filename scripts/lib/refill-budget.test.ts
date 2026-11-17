@@ -40,7 +40,9 @@ const readOf = (
 	gateRuns: GateRun[] | null,
 	over: Partial<ThroughputRead> = {},
 ): ThroughputRead => ({
-	byRoot: { [DV]: { commits: [], gateRuns, sessions: [] } },
+	byRoot: {
+		[DV]: { commits: [], gateRuns, sessions: [], timelinesUnread: [] },
+	},
 	commitsOf: () => [],
 	queueOf: () => ({ state: "gone" }),
 	record: [],
@@ -97,6 +99,7 @@ describe("the gate-run budget (#5275)", () => {
 				[DV]: {
 					commits: [{ sha: "landed", at: NOW - 13.5 * MIN }],
 					gateRuns: runsAgo(8),
+					timelinesUnread: [],
 					sessions: [],
 				},
 			},
@@ -129,7 +132,14 @@ describe("the gate-run budget (#5275)", () => {
 	it("parks at its 6th run where its landing reads, and where it will not parks nothing and logs why (#5273)", () => {
 		expect(tick([live()], readOf(runsAgo(8))).events).toHaveLength(1);
 		const unreadMain = readOf(runsAgo(8), {
-			byRoot: { [DV]: { commits: null, gateRuns: runsAgo(8), sessions: [] } },
+			byRoot: {
+				[DV]: {
+					commits: null,
+					gateRuns: runsAgo(8),
+					sessions: [],
+					timelinesUnread: [],
+				},
+			},
 		});
 		const unreadLedger = readOf(runsAgo(8), { commitsOf: () => null });
 		for (const [read, why] of [

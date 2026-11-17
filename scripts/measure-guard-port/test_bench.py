@@ -100,11 +100,11 @@ def test_every_dispatched_tools_payload_carries_the_subject_its_cores_read(tmp_p
         for row in rows
         for tool in row["tools"].split("|")
     ]
-    assert any(t[:3] == ["PreToolUse", "Skill", "last30days.js"] for t in triples)
+    assert any(t[:3] == ["PreToolUse", "Skill", "review-rules.js"] for t in triples)
     planted = [
         "PreToolUse",
         "Skill",
-        "last30days.js",
+        "review-rules.js",
         {"tool_input": {"file_path": "bench"}},
     ]
     done = subprocess.run(
@@ -115,7 +115,7 @@ def test_every_dispatched_tools_payload_carries_the_subject_its_cores_read(tmp_p
         cwd=REPO,
     )
     assert done.returncode == 0, done.stderr
-    assert json.loads(done.stdout) == ["PreToolUse Skill last30days.js"]
+    assert json.loads(done.stdout) == ["PreToolUse Skill review-rules.js"]
 
 
 def test_dispatch_edit_and_fetch_payloads_carry_what_their_cores_read_beyond_the_subject(
@@ -132,11 +132,11 @@ def test_dispatch_edit_and_fetch_payloads_carry_what_their_cores_read_beyond_the
     assert given("PostToolUse", "WebSearch")["tool_response"]["results"]
 
 
-def test_a_skill_call_is_denied_by_the_last30days_core_naming_the_subagent_route(
+def test_a_bare_code_review_is_denied_by_the_review_rules_core_naming_the_builtin_reviewer(
     tmp_path,
 ):
     body = payload(
-        str(tmp_path), "t", event="PreToolUse", tool="Skill", cmd="last30days"
+        str(tmp_path), "t", event="PreToolUse", tool="Skill", cmd="code-review"
     )
     done = subprocess.run(
         ["node", str(REPO / "scripts/guard-dispatch.js")],
@@ -151,7 +151,7 @@ def test_a_skill_call_is_denied_by_the_last30days_core_naming_the_subagent_route
     assert done.stdout, "allowed with no decision: the cores found no skill (#3176)"
     out = json.loads(done.stdout)["hookSpecificOutput"]
     assert out["permissionDecision"] == "deny"
-    assert "last30days must run in a subagent" in out["permissionDecisionReason"]
+    assert "the harness's built-in reviewer" in out["permissionDecisionReason"]
 
 
 def test_a_detached_child_is_counted_once_it_exits_and_refused_while_it_runs(tmp_path):

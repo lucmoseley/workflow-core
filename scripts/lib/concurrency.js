@@ -14,7 +14,7 @@
  * TIME-WEIGHTED. A minute line counts until the next one, and a tick's
  * verdict stands until the next tick; a gap past STALE_MS ends either, the
  * recorder or the loop being off. Sustained concurrency averages only the
- * minutes some session works (GLOSSARY.md, Sustained concurrency).
+ * minutes some session works (.claude/workflow-core.glossary.md, Sustained concurrency).
  *
  * THE VERDICT is the first failing limit in a fixed order, the order the
  * checks below run in: loop not running, empty frontier or probe hold, allowance,

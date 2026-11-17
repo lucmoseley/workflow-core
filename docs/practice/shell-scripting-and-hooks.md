@@ -71,7 +71,7 @@ Researched: 2026-10-21
 - XDG Base Directory spec: `XDG_RUNTIME_DIR` "MUST be owned by the user", its mode "MUST be 0700", its lifetime "MUST be bound to the user being logged in", and it "MUST be removed" when the user fully logs out. If it is not set, use a replacement with similar capabilities and print a warning. specifications.freedesktop.org/basedir/latest §Environment variables [standard or field body]
 - XDG: `XDG_STATE_HOME` (default `$HOME/.local/state`) is for user state that must persist between application restarts. A relative path in any `XDG_*` variable is invalid and must be ignored. specifications.freedesktop.org/basedir/latest [standard or field body]
 - Thus a per-session latch fits `XDG_RUNTIME_DIR` (private, removed at logout) or a directory that the tool owns, not a shared `/tmp` name. Derived from the XDG rows, so it sets no default [unverified]
-- A latch that only `session_id` keys is shared by the main session and its subagents. Claude Code gives `agent_id` only when the hook fires in a subagent, so key on both if each agent must get the context. The docs do not say if a subagent has the parent's `session_id`. code.claude.com/docs/en/hooks §Common input fields (`agent_id`, `agent_type`); repo `agentKey` in `scripts/lib/guard-entry.js` [standard or field body]
+- A latch that only `session_id` keys is shared by the main session and its subagents. Claude Code gives `agent_id` only when the hook fires in a subagent, so key on both if each agent must get the context. The docs do not say if a subagent has the parent's `session_id`. code.claude.com/docs/en/hooks §Common input fields (`agent_id`, `agent_type`) [standard or field body]
 
 ## State files: race-free create for a once-only latch
 
@@ -92,7 +92,7 @@ Researched: 2026-10-21
 - MITRE CWE-22: "When validating filenames, use stringent allowlists that limit the character set"; exclude directory separators such as "/"; allow a single "." at most; do not rely only on a filter that removes dangerous characters (one pass over ".../...//" that removes "../" leaves "../"). cwe.mitre.org/data/definitions/22.html §Potential Mitigations [standard or field body]
 - OWASP: "Define what the application accepts and reject values outside those rules"; "Do not try to recognize every malicious string"; a regex must "Require a match of the entire value". cheatsheetseries.owasp.org Input_Validation_Cheat_Sheet [standard or field body]
 - Claude Code: "Validate and sanitize inputs"; "Block path traversal: check for `..` in file paths". code.claude.com/docs/en/hooks §Security best practices [standard or field body]
-- Thus, for `session_id`: accept it only if it matches the whole of an allowlist such as `[[ $sid =~ ^[A-Za-z0-9_-]{1,128}$ ]]`, else do not write a latch. The repo's `gp_agent_key` replaces each other character with `_` (`${sid//[^A-Za-z0-9_-]/_}`). That also removes `/` and `.`, but two different ids can then map to one name. Derived from the three rows above, so it sets no default [unverified]
+- Thus, for `session_id`: accept it only if it matches the whole of an allowlist such as `[[ $sid =~ ^[A-Za-z0-9_-]{1,128}$ ]]`, else do not write a latch. Derived from the three rows above, so it sets no default [unverified]
 
 ## Elapsed time: which clock
 
@@ -112,7 +112,7 @@ Researched: 2026-10-21
 - lefthook v2.2.2 gives a command, job or script a `timeout` (schema example `"15s"`); past it the hook fails, git refuses the commit, and stderr names `timeout (100ms)`. github.com/evilmartians/lefthook `schema.json` and `tests/integration/timeout.txt`, master, read 4 Nov 2026 [standard or field body]
 - The pre-commit framework's docs (pre-commit.com, read 4 Nov 2026) name no timeout at all, and husky v9 runs the hook file as written. [standard or field body]
 - GNU `timeout`: exit 124 where the command timed out, 125 where `timeout` itself failed, 137 where the KILL was sent; `--kill-after` sends KILL that long after the first signal; under `--foreground`, "children of COMMAND will not be timed out". timeout(1), man.archlinux.org, read 4 Nov 2026 [standard or field body]
-- So the leading practice is a per-command limit that fails the hook naming the command, with a TERM then a KILL to everything the command started. This repo's hooks get it from scripts/lib/hook-bound.sh through run-budgeted.js rather than `timeout`, which macOS lacks and whose uutils build signals only its direct child (#2855, #4187). A derivation from the three sources above [unverified]
+- So the leading practice is a per-command limit that fails the hook naming the command, with a TERM then a KILL to everything the command started. A derivation from the three sources above [unverified]
 
 
 ## Child processes: containing a descendant tree
@@ -124,3 +124,9 @@ Researched: 2026-10-21
 - Node's `spawnSync` `timeout` sends `killSignal` to the child it spawned, not that child's descendants. nodejs.org v24 `child_process` §spawnSync [standard or field body]
 - Container practice puts the kill boundary on the group, not a PID: Kubernetes ends a pod by signalling its containers' processes, each container its own cgroup; tini and dumb-init run as PID 1 to reap and forward signals. kubernetes.io Pod Lifecycle §Termination of Pods; github.com/krallin/tini, github.com/Yelp/dumb-init READMEs [named expert]
 - So the leading practice is to contain a supervised tree in a kernel group (cgroup or PID namespace) and kill the group; a kill aimed at a PID leaves its descendants. Measured on this machine in #4334. A derivation from the sources above [unverified]
+
+## In workflow-core
+
+- **State files: where to put them:** repo `agentKey` in `scripts/lib/guard-entry.js`
+- **State files: untrusted ids in a path:** The repo's `gp_agent_key` replaces each other character with `_` (`${sid//[^A-Za-z0-9_-]/_}`). That also removes `/` and `.`, but two different ids can then map to one name.
+- **Git hooks: a wall-clock bound on each checker:** This repo's hooks get it from scripts/lib/hook-bound.sh through run-budgeted.js rather than `timeout`, which macOS lacks and whose uutils build signals only its direct child (#2855, #4187).

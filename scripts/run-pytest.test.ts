@@ -12,12 +12,13 @@
  * a red or dead run leaves one counted as attesting.
  */
 
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
+import { tmpRootWithMarkers } from "./lib/admission-testkit";
 import { freshSandbox, ledger } from "./lib/arbiter-testkit";
 import { runInProcessAsync } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -287,7 +288,12 @@ describe("a bare run", () => {
 		expect(r.stdout).toContain("The lander runs the full suite");
 		expect(readMarkers({ root })).toEqual([]);
 		expect(readLedger(root)).toMatchObject([
-			{ kind: "touched", suite: "pytest", resolvedFiles: 0 },
+			{
+				kind: "touched",
+				suite: "pytest",
+				resolvedFiles: 0,
+				touchedBase: "merge-base",
+			},
 		]);
 	});
 
@@ -300,6 +306,76 @@ describe("a bare run", () => {
 		expect(readLedger(root)).toMatchObject([
 			{ kind: "touched", suite: "pytest", resolvedFiles: 1 },
 		]);
+	});
+
+	describe("selects from HEAD only inside a live commit-gate seat (#5320, #5273)", () => {
+		/** `pyRepo()` with verified main at its tip, then `scripts/scan.py`
+		 * committed as own work and `scripts/test_other.py` edited. */
+		function branch() {
+			const root = pyRepo();
+			spawnSync("git", ["update-ref", "refs/remotes/origin/main", "HEAD"], {
+				cwd: root,
+			});
+			fs.appendFileSync(path.join(root, "scripts/scan.py"), "Y = 2\n");
+			spawnSync("git", ["commit", "-qam", "own"], { cwd: root });
+			fs.appendFileSync(path.join(root, "scripts/test_other.py"), "# edit\n");
+			return root;
+		}
+		/** A temp root whose suite queue holds one spawned gate seat,
+		 * `holder`'s. */
+		function tempRoot(holder: number) {
+			const dir = fs.realpathSync(
+				fs.mkdtempSync(path.join(os.tmpdir(), "runpy-tmp-")),
+			);
+			dirs.push(dir);
+			return tmpRootWithMarkers(dir, [], [{ pid: holder, spawned: true }]);
+		}
+
+		it("takes `head` inside a fixture gate seat, and its certificate's scope names it", async () => {
+			const root = branch();
+			const [python, readCalls] = fakePytest(
+				{ passed: true, scope: scope() },
+				0,
+			);
+			const r = await wrap(python, root, [], {
+				...Bare,
+				TMPDIR: tempRoot(process.pid),
+			});
+			expect(readCalls()[0]?.args.slice(-1)).toEqual(["scripts/test_other.py"]);
+			expect(r.stdout).toContain("this commit's changes over HEAD");
+			expect(readMarkers({ root })[0].scope).toMatchObject({
+				touched: true,
+				touchedBase: "head",
+			});
+		});
+
+		it("takes `merge-base` with only the seat's variable set and a live seat outside its ancestry", async () => {
+			const root = branch();
+			/* A live seat this process is not under: its holder is a child. */
+			const stranger = spawn("sleep", ["30"], { stdio: "ignore" });
+			onTestFinished(() => {
+				stranger.kill();
+			});
+			const tmp = tempRoot(stranger.pid as number);
+			const [python, readCalls] = fakePytest(
+				{ passed: true, scope: scope() },
+				0,
+			);
+			const r = await wrap(python, root, [], {
+				...Bare,
+				TMPDIR: tmp,
+				WFC_GATE_SEAT: path.join(tmp, "inherited.json"),
+			});
+			expect(readCalls()[0]?.args.slice(-2)).toEqual([
+				"scripts/test_other.py",
+				"scripts/test_scan.py",
+			]);
+			expect(r.stdout).toContain("your own work since");
+			expect(readMarkers({ root })[0].scope).toMatchObject({
+				touched: true,
+				touchedBase: "merge-base",
+			});
+		});
 	});
 
 	describe("with a checker-only file in the session's diff (#4967)", () => {

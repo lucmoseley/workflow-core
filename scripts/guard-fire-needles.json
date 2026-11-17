@@ -316,12 +316,6 @@
 					"text": "THIS FILE IS WRITTEN FOR AGENTS"
 				},
 				{
-					"id": "main-session",
-					"core": "guard-last30days",
-					"kind": "deny",
-					"text": "last30days must run in a subagent, not the main session"
-				},
-				{
 					"id": "bare-code-review",
 					"core": "guard-review-rules",
 					"kind": "deny",

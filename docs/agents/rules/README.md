@@ -152,7 +152,7 @@ Nothing asserts that a fragment also keeps a trigger line (mantahostels#2006).
    the whole ration. A raise is TWO edits: the constant that gates
    (`SESSION_CAP_BYTES` or `RATCHET_CAP_BYTES` in
    `scripts/check-context-budget.js`) and the figure that derives it
-   (`docs/doc-map.md` §Capture and placement §3, which states both in prose).
+   (`.claude/workflow-core.doc-map.md` §Capture and placement §3, which states both in prose).
    Nothing pins the two together, so an edit to one alone leaves the other
    stale.
 

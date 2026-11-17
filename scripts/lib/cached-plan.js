@@ -154,6 +154,7 @@ function recordAllCached(
 			...(launch.viaChanged ? { viaChanged: true } : {}),
 			...(launch.touched ? { touched: true } : {}),
 			...(launch.leftOut ? { leftOut: launch.leftOut } : {}),
+			...(launch.touchedBase ? { touchedBase: launch.touchedBase } : {}),
 			resolvedFiles: 0,
 		},
 		startedAtMs,

@@ -74,10 +74,10 @@ const WORKING_STATES = new Set(["working", "running"]);
  *   gate-run budget
  * @property {Record<string, {commits: {sha: string, at: number}[]|null,
  *   gateRuns: import("./gate-seat.js").GateRun[]|null,
- *   sessions: SessionTimeline[]}>} byRoot each served checkout's non-merge
- *   `origin/main` commits and its loop sessions' job timelines since its
- *   lookback, and its gate-run record; commits or runs null where they will
- *   not read
+ *   sessions: SessionTimeline[], timelinesUnread: string[]}>} byRoot each
+ *   served checkout's non-merge `origin/main` commits and its loop sessions'
+ *   job timelines since its lookback, each timeline that would not read, and
+ *   its gate-run record; commits or runs null where they will not read
  * @property {(l: BreakerLaunch) => string[]|null} commitsOf the shas `l`'s
  *   sessions committed in its checkout, null where a ledger will not read
  * @property {(l: BreakerLaunch) => TrialQueue} queueOf where `l`'s queue ref
@@ -185,7 +185,7 @@ const idsOf = (l) => [...(l.jobId ? [l.jobId] : []), ...sessionIdsOf(l)];
 
 /**
  * The earliest time `root`'s reads must reach back to: the window's start, or
- * the start of a live launch or of the trial `record` holds open, so its
+ * the start of a running launch or of the trial `record` holds open, so its
  * landing reads whenever it came (#5275, #5300).
  * @param {BreakerLaunch[]} launches
  * @param {string} root
@@ -201,8 +201,7 @@ function buildLookbackOf(launches, root, now, record) {
 			.filter(
 				(l) =>
 					l.root === root &&
-					(l.finishedAt === null ||
-						(trial !== null && idsOf(l).includes(trial))),
+					(isRunning(l) || (trial !== null && idsOf(l).includes(trial))),
 			)
 			.map((l) => l.launchedAt),
 	);
@@ -270,10 +269,7 @@ function stepBreaker({ root, state, launches, reading, read, now }) {
 			: { event: null, room: null };
 	if (state.state === "open") {
 		/* Only a launch with an id can be a trial: a line naming none would
-		 * match no launch, and the next tick would reopen. Residual (#5301): a
-		 * launch with no job id never finishes (lib/refill-block-core.js
-		 * isLive), so it holds the room at 0, as any running launch does,
-		 * until it leaves `launches`. */
+		 * match no launch, and the next tick would reopen. */
 		const trial = mine
 			.filter((l) => l.launchedAt > state.since && idsOf(l).length > 0)
 			.toSorted((a, b) => a.launchedAt - b.launchedAt)[0];
@@ -282,7 +278,11 @@ function stepBreaker({ root, state, launches, reading, read, now }) {
 				event: buildEvent(root, "trial-start", { reading: r, now }, trial),
 				room: 0,
 			};
-		return { event: null, room: mine.some(isRunning) ? 0 : 1 };
+		return {
+			event: null,
+			room: mine.some(isRunning) ? 0 : 1,
+			...idlessNote(root, mine),
+		};
 	}
 	return stepTrial({ root, state, mine, reading: r, read, now });
 }
@@ -341,8 +341,62 @@ function trialOutcomeOf(trial, read) {
 	return queue.state === "waiting" ? "queued" : "reopen";
 }
 
-/** @param {BreakerLaunch} l */
-const isRunning = (l) => l.finishedAt === null;
+/**
+ * Whether `l` runs: unfinished and tied to a job. A launch with no job id is
+ * never judged, so never finishes (lib/refill-block-core.js isLive), and an
+ * open breaker waiting on it would hold its checkout until it left
+ * `launches` (#5301).
+ * @param {BreakerLaunch} l
+ */
+const isRunning = (l) => l.finishedAt === null && l.jobId !== null;
+
+/**
+ * The loop's log line for `mine`'s unfinished launches with no job id.
+ * @param {string} root
+ * @param {BreakerLaunch[]} mine
+ * @returns {{note?: string}}
+ */
+function idlessNote(root, mine) {
+	const idless = mine.filter((l) => l.finishedAt === null && l.jobId === null);
+	if (idless.length === 0) return {};
+	const at = idless.map((l) => new Date(l.launchedAt).toISOString());
+	return {
+		note: `open breaker in ${root} waits on no launch without a job id: ${idless.length} launched at ${at.join(", ")}, never judged finished`,
+	};
+}
+
+/**
+ * `root`'s reading over the window, null where its commits will not read. A
+ * timeline that would not read understates the hours, so it leaves a closed
+ * breaker no reading, and is named in `note` (#5301).
+ * @param {string} root
+ * @param {BreakerState} state
+ * @param {ThroughputRead} read
+ * @param {number} now
+ * @returns {{reading: Reading|null, note?: string}}
+ */
+function rootReading(root, state, read, now) {
+	const commits = read.byRoot[root]?.commits ?? null;
+	const unread = read.byRoot[root]?.timelinesUnread ?? [];
+	const closed = state.state === "closed";
+	const note =
+		unread.length === 0
+			? {}
+			: {
+					note: `breaker reading in ${root} leaves out ${unread.join(", ")}${closed ? ", so it opens nothing" : ""}`,
+				};
+	if (commits === null || (closed && unread.length > 0))
+		return { reading: null, ...note };
+	return {
+		reading: readingOf({
+			commitTimes: commits.map((c) => c.at),
+			sessions: read.byRoot[root]?.sessions ?? [],
+			from: Math.max(now - BREAKER_WINDOW_MS, closed ? (state.since ?? 0) : 0),
+			to: now,
+		}),
+		...note,
+	};
+}
 
 /**
  * Every served checkout's breaker step: the events to record, and the launch
@@ -369,20 +423,8 @@ function stepBreakers({ roots, launches, read, now }) {
 		};
 	for (const root of roots) {
 		const state = foldBreaker(record, root);
-		const commits = read.byRoot[root]?.commits ?? null;
-		const sessions = read.byRoot[root]?.sessions ?? [];
-		const from = Math.max(
-			now - BREAKER_WINDOW_MS,
-			state.state === "closed" ? (state.since ?? 0) : 0,
-		);
-		const reading = commits
-			? readingOf({
-					commitTimes: commits.map((c) => c.at),
-					sessions,
-					from,
-					to: now,
-				})
-			: null;
+		const { reading, note } = rootReading(root, state, read, now);
+		if (note) notes.push(note);
 		const step = stepBreaker({ root, state, launches, reading, read, now });
 		if (step.event) events.push(step.event);
 		if (step.note) notes.push(step.note);

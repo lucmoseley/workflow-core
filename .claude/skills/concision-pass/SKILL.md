@@ -21,7 +21,8 @@ roughly **\$17 per 100 words per month, recurring** (mantahostels#1085). The poo
 members, an undelivered description costing 0 B (mantahostels#1757) — and nothing else it
 caps. **`docs/doc-map.md` is judged block by
 block** (mantahostels#2548): **payback** for the prose read whole — §C, Capture and
-placement, the propagation pass, the §B preamble, the authority-classes legend —
+placement, the propagation pass, the §B preamble, the authority-classes legend,
+which an adopter holds in `.claude/workflow-core.doc-map.md` —
 **readability**, as below, for §B's entry bodies and §A's rows, and **\$0.0129
 per 100 words per read/month** for a block in neither list. The ban on
 pre-trimming a draft to avoid a pass carries no carve-out — write the reasoning

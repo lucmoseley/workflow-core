@@ -4,7 +4,7 @@
  *
  * WHAT SHIPS: the plugin manifest, the marketplace manifest (#117),
  * hooks/hooks.json rendered fresh from the self-plugin's hooks file (#2441),
- * the entry module it names (#946), the output styles, scripts/, .claude/skills/, .claude/agents/ (#741),
+ * the entry module it names (#946), the output styles, the core glossary and doc-map method renders (#5294), scripts/, .claude/skills/, .claude/agents/ (#741),
  * docs/agents (#5), ruff.toml (#106) and migrations/ (#6), with symlinks
  * dereferenced, bar one that loops back into the walk (#3150), and every
  * test, fixture and TypeScript file left out — but
@@ -51,7 +51,8 @@
  * AN OUTPUT STYLE'S BODY IS NEVER REWRITTEN, kept plain-`scripts/x` (#50's
  * rewrite reversed). The harness substitutes the variable in skill and
  * command bodies (#4) but not inside an output-style body (#64). The shipped
- * style still names `scripts/x`, which resolves nowhere in a plugin.
+ * style names `scripts/x` and says it is relative to the workflow-core root,
+ * which an adopter's `.claude/workflow-core.md` spells absolute (#5294).
  *
  * THE HELPER SURFACE SHIPS WHOLE (#464): every entry point
  * scripts/lib/helper-surface.json lists, and every file it reaches, or the
@@ -112,6 +113,11 @@ const { MIGRATIONS_DIR } = require("./workflow-core-config.js");
 const { isCollectedTestOrConftest } = require("./test-kind.js");
 const { noticeFaults } = require("./vendored-notices.js");
 const { trimStartRun } = require("./trim-run.js");
+const { CORE_DOCS } = require("./core-docs.js");
+
+const PRACTICE_DIR = "docs/practice";
+/* A practice note's closing section of lines holding for this repo alone. */
+const CORE_ONLY_PRACTICE = "\n## In workflow-core\n";
 
 const COPIED = [
 	".claude-plugin/plugin.json",
@@ -120,6 +126,9 @@ const COPIED = [
 	 * even though `main`'s own copy names the tag as the ref (#117). */
 	".claude-plugin/marketplace.json",
 	".claude/output-styles",
+	/* The core's glossary and doc-map method, which core-owned-files.js copies
+	 * into an adopter from here (#5294). */
+	...CORE_DOCS,
 	/* The review axes' agent type (#741). plugin.json's `agents` must list each
 	 * file: a directory string fails the manifest's validation. */
 	".claude/agents",
@@ -130,6 +139,10 @@ const COPIED = [
 	 * text, and the tracker rules reach nobody (#5). */
 	"docs/agents",
 	"docs/effort-guide.md",
+	/* The practice notes, which an adopter's Leading-practice gate falls back
+	 * to where its own note is missing or stale, each less its closing
+	 * `## In workflow-core` section (#5294). */
+	PRACTICE_DIR,
 	/* The machine's measured limits: the figures the shipped suite, admission
 	 * and scratch guards enforce, which their text sends a session to (#1452). */
 	"docs/environment.md",
@@ -208,6 +221,8 @@ const DOC_NAMES_AS_DATA = new Set([
 	"scripts/lib/implement-carveout.js",
 	// SHED_REGISTERS, which a cap refusal names only where the host keeps them
 	"scripts/lib/context-budget-pathspecs.js",
+	// its subject, read only in the core; it SKIPs where the page is absent
+	"scripts/check-adopter-boundary.js",
 ]);
 /* `<shipped file> <doc>` pairs where the file names an unshipped research
  * artefact or ADR that no adopter session must open: cited as evidence, the
@@ -221,8 +236,14 @@ const CITED_NOT_READ = new Set([
 	".claude/skills/card-close/SKILL.md docs/adr/0006-disposal-writes-back-to-source.md",
 	// provenance of a figure or list the tool prints from its own data
 	"scripts/count-guard-fires.js docs/research/always-loaded-shed-candidates.md",
+	// the core's own pool and evidence, given as the example the method rests on
+	".claude/workflow-core.doc-map.md docs/working-contract.md",
+	".claude/workflow-core.doc-map.md docs/research/always-loaded-shed-candidates.md",
+	".claude/workflow-core.doc-map.md docs/research/injected-tracker-docs-shed-candidates.md",
 	// step 4 binds only where the host keeps the register
 	"docs/agents/rules/README.md docs/research/always-loaded-shed-candidates.md",
+	// the provenance of a practice note's tier, stated in the line that cites it
+	"docs/practice/code-refactoring-and-architecture.md docs/research/hexagonal-testing.md",
 ]);
 /* A file read whole as prose, every line of it a pointer a session may follow. */
 const PROSE_FILE = /\.(md|txt)$/;
@@ -718,6 +739,16 @@ function baseFaults(root) {
 }
 
 /**
+ * A practice note as it ships: its closing `## In workflow-core` section
+ * dropped (#5294).
+ * @param {string} body
+ */
+function dropCoreOnlyPractice(body) {
+	const at = body.indexOf(CORE_ONLY_PRACTICE);
+	return at === -1 ? body : `${body.slice(0, at).trimEnd()}\n`;
+}
+
+/**
  * A citable file's text as the release writes it, before its citations are
  * qualified.
  * @param {string} root
@@ -726,6 +757,8 @@ function baseFaults(root) {
  * @returns {{ text: string, faults: string[] }}
  */
 function buildShippedText(root, rel, body) {
+	if (rel.startsWith(`${PRACTICE_DIR}/`))
+		return { text: dropCoreOnlyPractice(body), faults: [] };
 	if (REWRITTEN.test(rel)) {
 		const skill = rel.match(/^\.claude\/skills\/[^/]+/);
 		const text = rewriteBody(body, {
@@ -940,4 +973,9 @@ module.exports = {
 	REWRITTEN,
 	// for check-code-standards.js's UNSHIPPED warning (#963)
 	isShipped,
+	// for check-adopter-boundary.js's coverage (#5294)
+	COPIED,
+	HOST_OWNED_DOCS,
+	KEPT,
+	LEFT_BEHIND,
 };

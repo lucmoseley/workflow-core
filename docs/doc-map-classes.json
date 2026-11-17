@@ -131,8 +131,8 @@
 				"gloss": "the auto-mode refusal rule and the acts the founder does by hand"
 			},
 			{
-				"kind": "path",
-				"ref": "docs/working-contract.md",
+				"kind": "external",
+				"ref": "~/.claude/CLAUDE.md",
 				"gloss": "the ban on paid research and data services"
 			},
 			{
@@ -938,6 +938,24 @@
 		"route": "Vendored",
 		"consumes": null
 	},
+	".claude/workflow-core.doc-map.md": {
+		"section": "Skills & settings",
+		"class": "derived",
+		"classQualifier": null,
+		"role": "The doc-map method every adopter receives as a core-owned file: this repo's authority classes, §A and §B preambles, propagation pass and capture-and-placement §1–4 (#5294)",
+		"route": "`node scripts/generate-core-docs.js`, re-rendered from `docs/doc-map.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null,
+		"reader": "agent"
+	},
+	".claude/workflow-core.glossary.md": {
+		"section": "Skills & settings",
+		"class": "derived",
+		"classQualifier": null,
+		"role": "The core glossary every adopter receives as a core-owned file: this repo's GLOSSARY.md under a CORE-OWNED header, cited by the shipped rules for a core term (#5294)",
+		"route": "`node scripts/generate-core-docs.js`, re-rendered from `GLOSSARY.md`. `--check` gates it in .husky/pre-commit.",
+		"consumes": null,
+		"reader": "agent"
+	},
 	".claude/workflow-core.json": {
 		"section": "Skills & settings",
 		"class": "source-of-truth",
@@ -963,6 +981,15 @@
 		"route": "Direct, or through the `domain-modeling` skill",
 		"consumes": null,
 		"reader": "agent"
+	},
+	"docs/adopter-boundary.md": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The founder's page of what an adopter gets: what ships in the plugin, what is written into the adopter, what reaches it only through this machine, and what stays core-only, each item naming its path (#5294). Core-only.",
+		"route": "Direct, in the commit that moves a path across the boundary; `scripts/check-adopter-boundary.js` refuses a drift",
+		"consumes": null,
+		"reader": "human"
 	},
 	"docs/adr/*": {
 		"section": "Domain decisions",
@@ -1133,15 +1160,6 @@
 				"ref": "check-clobbered-bodies.js"
 			}
 		],
-		"reader": "agent"
-	},
-	"docs/agents/last30days.md": {
-		"section": "Agent-skill configuration",
-		"class": "source-of-truth",
-		"classQualifier": null,
-		"role": null,
-		"route": null,
-		"consumes": null,
 		"reader": "agent"
 	},
 	"docs/agents/mutation-testing.md": {

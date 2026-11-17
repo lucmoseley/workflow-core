@@ -15,7 +15,7 @@ Read `{{WFC}}/.agents/skills/retro/SKILL.md` and follow it as written, with thes
 - `CODING_STANDARDS.md` → `docs/code-standards.md` in the session repo, if present, and workflow-core's standards base, `{{WFC}}/docs/code-standards-base.md`.
 - the "reviewer agent" → the `code-reviewer` agent, run through the `/code-review` skill.
 
-**The session repo's always-loaded pool:** {{POOL}}. Its shed ledger — every shed already proposed, paid or ruled out — is §Capture and placement §5 of the session repo's `docs/doc-map.md`, if present. Read it before any candidate that adds to or sheds from `CLAUDE.md`, and say which entry, if any, already covers it.
+**The session repo's always-loaded pool:** {{POOL}}. Its shed ledger — every shed already proposed, paid or ruled out — is §Capture and placement §5 of the session repo's `docs/doc-map.md`, if present. The rules a shed answers to are §Capture and placement §1–4 of `.claude/workflow-core.doc-map.md`. Read the ledger before any candidate that adds to or sheds from `CLAUDE.md`, and say which entry, if any, already covers it.
 
 ## 2. The session
 

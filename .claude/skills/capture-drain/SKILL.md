@@ -13,7 +13,7 @@ surface, now closed) and any capture that escaped the rule. A queue that keeps
 growing is a finding about the rule, not a backlog to clear quietly — say so in
 the resolution.
 
-The rule this loop applies is `docs/doc-map.md` §Capture and placement. **Read
+The rule this loop applies is `.claude/workflow-core.doc-map.md` §Capture and placement. **Read
 that section in full before step 3.**
 
 ## 1. Take the queue

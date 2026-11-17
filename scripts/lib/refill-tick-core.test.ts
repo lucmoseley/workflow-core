@@ -1647,7 +1647,9 @@ describe("the throughput acts through the tick (#5275)", () => {
 	};
 	const throughputOf = (events: BreakerEvent[]) => ({
 		...NO_THROUGHPUT,
-		byRoot: { [WFC]: { commits: [], gateRuns: [], sessions: [] } },
+		byRoot: {
+			[WFC]: { commits: [], gateRuns: [], sessions: [], timelinesUnread: [] },
+		},
 		record: events,
 	});
 	/* Inside the listing's grace, so an empty listing ends none of them. */

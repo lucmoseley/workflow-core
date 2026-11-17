@@ -876,15 +876,39 @@ describe("the adapters", () => {
 		);
 		const g = queueGit(work);
 
-		expect(g.pushMain(a)).toMatch(/^! \[remote rejected\] .*main/);
+		expect(g.pushMain(a, [])).toEqual({
+			kind: "refused",
+			line: expect.stringMatching(/^! \[remote rejected\] .*main/),
+		});
 		expect(git(remote, "rev-parse", "main")).toBe(seed);
 		fs.rmSync(hook);
 		const b = commit("b");
-		expect(g.pushMain(b)).toBeNull();
+		expect(g.pushMain(b, [])).toEqual({ kind: "pushed" });
 		git(work, "checkout", "-q", "--detach", seed);
 		const c = commit("c");
-		expect(() => g.pushMain(c)).toThrow();
+		expect(() => g.pushMain(c, [])).toThrow();
 		expect(git(remote, "rev-parse", "main")).toBe(b);
+	});
+
+	it("pushes main only while each leased queue ref holds its leased sha, leaving the refs as they are (#5326)", () => {
+		const seed = git(work, "rev-parse", "HEAD");
+		const a = pushQueue("a", seed);
+		const b = pushQueue("b", seed);
+		const g = queueGit(work);
+		const leases = [
+			{ name: "a", sha: a },
+			{ name: "b", sha: b },
+		];
+
+		expect(g.pushMain(a, leases)).toEqual({ kind: "pushed" });
+		expect(git(remote, "rev-parse", "main")).toBe(a);
+		expect(git(remote, "rev-parse", "queue/a")).toBe(a);
+		git(work, "push", "-q", "origin", ":refs/heads/queue/b");
+		git(work, "checkout", "-q", "--detach", a);
+		const c = commit("c");
+		expect(g.pushMain(c, leases)).toEqual({ kind: "lease-lost", names: ["b"] });
+		expect(git(remote, "rev-parse", "main")).toBe(a);
+		expect(remoteHeads()).not.toContain("queue/b");
 	});
 
 	it("throws on a push to main GitHub refused on its own internal fault, for the run to retry, rather than returning it as a refusal (#4497)", () => {
@@ -896,7 +920,7 @@ describe("the adapters", () => {
 			{ mode: 0o755 },
 		);
 
-		expect(() => queueGit(work).pushMain(a)).toThrow(
+		expect(() => queueGit(work).pushMain(a, [])).toThrow(
 			/fatal error in commit_refs_rules/,
 		);
 	});
@@ -914,7 +938,10 @@ describe("the adapters", () => {
 			{ mode: 0o755 },
 		);
 
-		expect(queueGit(work).pushMain(a)).toMatch(/^! \[remote rejected\] .*main/);
+		expect(queueGit(work).pushMain(a, [])).toEqual({
+			kind: "refused",
+			line: expect.stringMatching(/^! \[remote rejected\] .*main/),
+		});
 	});
 
 	it("throws a push whose hook quoted a network fault as a refusal, never a fault to retry (#4513)", () => {
@@ -927,7 +954,7 @@ describe("the adapters", () => {
 
 		let thrown: unknown;
 		try {
-			queueGit(work).pushMain(a);
+			queueGit(work).pushMain(a, []);
 		} catch (err) {
 			thrown = err;
 		}

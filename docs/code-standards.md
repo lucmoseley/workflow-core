@@ -102,7 +102,7 @@ Excluded from everything: `docs/`, `public/`, `skills-lock.json`, `hooks/hooks.j
 
 ### Which gate runs it in CI
 
-At commit, the core's `commands.check_staged` is Biome over the staged paths (mantahostels#179) and `commands.test` writes a test-pass marker, so no commit runs the suite.
+At commit, the core's `commands.check_staged` is Biome over the staged paths (mantahostels#179) and `commands.test` has passed its verdict probe on `scripts/verdict-canary.test.ts` (#5294), so no commit runs the suite.
 
 | Checker | CI `Lint and tests` |
 |---|---|
