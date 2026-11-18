@@ -92,11 +92,7 @@ beforeAll(() => {
 		.readdirSync(path.join(ROOT, "scripts", "lib"))
 		.filter((f) => f.endsWith(".sh"))
 		.map((f) => path.join("scripts", "lib", f));
-	copyRequireClosure(main, ROOT, COPIED);
-	for (const rel of libs) {
-		fs.mkdirSync(path.dirname(path.join(main, rel)), { recursive: true });
-		fs.copyFileSync(path.join(ROOT, rel), path.join(main, rel));
-	}
+	copyRequireClosure(main, ROOT, [...COPIED, ...libs]);
 	spawnSync("git", ["-C", main, "add", "scripts"]);
 	spawnSync("git", ["-C", main, "commit", "-qm", "hooks"]);
 });

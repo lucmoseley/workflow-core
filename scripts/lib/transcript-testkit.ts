@@ -108,10 +108,10 @@ export const buildBashCall = (
 ) => buildToolCall("Bash", { command, ...input }, id, extra);
 
 /*
- * An async subagent's records, as objects, in the shapes transcript 37f1289c
- * writes (#5420): its launch result (L3145), the interim notification sent
- * while it waits on its own background work (L3481), its final notification,
- * naming its task-id and no tool-use id (L3571), and its hand-back (L3576).
+ * An async subagent's records, as objects, in the shapes a real session
+ * writes (#5420): its launch result, the interim notification sent while it
+ * waits on its own background work, its final notification, naming its
+ * task-id and no tool-use id, and its hand-back.
  */
 export const SUBAGENT_HANDLE = "a2948f95aab9e1692";
 
