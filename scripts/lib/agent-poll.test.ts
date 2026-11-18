@@ -149,7 +149,7 @@ describe("the allowance", () => {
 		const reason = expectDeny(run());
 		expect(parseFirstLine(reason)).toMatch(/^Instead: /);
 		expect(parseFirstLine(reason)).toContain(
-			"node scripts/watch-artefact.js <artefact> 120",
+			"node scripts/watch-artefact.js <artefact> 120 --log <output_file>",
 		);
 		expect(parseFirstLine(reason)).toContain("end the turn");
 		expect(reason).toContain("notification");
@@ -248,7 +248,9 @@ describe("re-reading a background job's output file (mantahostels#659)", () => {
 		const reason = expectDeny(readOf(OUT));
 		const first = parseFirstLine(reason);
 		expect(first).toMatch(/^Instead: /);
-		expect(first).toContain("node scripts/watch-artefact.js <artefact> 120");
+		expect(first).toContain(
+			"node scripts/watch-artefact.js <artefact> 120 --log <output_file>",
+		);
 		expect(first).toContain("foreground with `timeout: 600000`");
 		expect(first).toContain("scripts/bg-run.sh wait <name>");
 		expect(first).toContain("end the turn");
@@ -383,8 +385,10 @@ describe("the timed artefact check is warned, never refused (#482)", () => {
 	it("says what to do with the reading", () => {
 		for (let i = 0; i < 3; i++) bash(check);
 		const warning = expectWarn(bash(check));
-		expect(warning).toContain("no growth");
-		expect(warning).toContain("node scripts/watch-artefact.js <artefact> 120");
+		expect(warning).toContain("`STALLED` or `MISSING` means abandon");
+		expect(warning).toContain(
+			"node scripts/watch-artefact.js <artefact> 120 --log <output_file>",
+		);
 		expect(warning).toMatch(/end the turn/i);
 	});
 
@@ -649,12 +653,12 @@ describe("a subagent is counted, and told, as itself (#1169)", () => {
 		expect({ parent: texts(), subagent: texts("a1") }).toEqual({
 			parent: {
 				check:
-					"Timed checks under two minutes apart: more than 3 inside five minutes. This one runs; replace the next with one backgrounded `node scripts/watch-artefact.js <artefact> 120`. Act on what it says: two consecutive checks with no growth means abandon that agent and proceed without it. Meanwhile end the turn — the backgrounded watch is what wakes this session, and it cannot while a tool call of yours is in flight.",
+					"Timed checks under two minutes apart: more than 3 inside five minutes. This one runs; replace the next with one backgrounded `node scripts/watch-artefact.js <artefact> 120 --log <output_file>`. Act on what it says: its `STALLED` or `MISSING` means abandon that agent. Meanwhile end the turn — the backgrounded watch is what wakes this session, and it cannot while a tool call of yours is in flight.",
 				beat: "Timed job beats under two minutes apart: more than 3 inside five minutes. This one runs; space the next to `sleep 120` or more. Act on what it says: STOP WAITING ONLY ON A BEAT NO NEWER THAN THE LAST LANDING'S, or on KILLED or UNKNOWN twice — then say the job is lost and proceed without it. Meanwhile end the turn — the backgrounded watch is what wakes this session, and it cannot while a tool call of yours is in flight.",
 				noop: "Ending a turn is not a tool call. A no-op command like `true` re-invokes this session — which is why the loop it is meant to break keeps going. End the turn by emitting your final text with NO tool call at all, and stop: the completion notification wakes the session or, arriving mid-call, is folded into the next tool result (97%, #845), so each no-op is a full-context turn spent learning nothing.",
-				read: "Instead: a subagent, one backgrounded `node scripts/watch-artefact.js <artefact> 120`; your next suite, in the foreground with `timeout: 600000`; a bg-run.sh job, `scripts/bg-run.sh wait <name>`. Then end the turn (a job: `rule:job-holds-turn`).\nRe-reading a background job's output file is a wait loop: the completion notification wakes the session or, arriving mid-call, is folded into the next tool result (97%, #845), so each re-read is a full-context turn spent for nothing.",
+				read: "Instead: a subagent, one backgrounded `node scripts/watch-artefact.js <artefact> 120 --log <output_file>`; your next suite, in the foreground with `timeout: 600000`; a bg-run.sh job, `scripts/bg-run.sh wait <name>`. Then end the turn (a job: `rule:job-holds-turn`).\nRe-reading a background job's output file is a wait loop: the completion notification wakes the session or, arriving mid-call, is folded into the next tool result (97%, #845), so each re-read is a full-context turn spent for nothing.",
 				agents:
-					'Instead: one backgrounded `node scripts/watch-artefact.js <artefact> 120` on the subagent artefact, then end the turn (a job: `rule:job-holds-turn`).\nPolling ListAgents. Two calls already in the last five minutes is the shape of a wait loop: the completion notification wakes the session or, arriving mid-call, is folded into the next tool result (97%, #845), so each poll is a full-context turn spent for nothing. Never narrate "waiting". The elapsed-time column is stale, so the poll does not read true either.',
+					'Instead: one backgrounded `node scripts/watch-artefact.js <artefact> 120 --log <output_file>`, then end the turn (a job: `rule:job-holds-turn`).\nPolling ListAgents. Two calls already in the last five minutes is the shape of a wait loop: the completion notification wakes the session or, arriving mid-call, is folded into the next tool result (97%, #845), so each poll is a full-context turn spent for nothing. Never narrate "waiting". The elapsed-time column is stale, so the poll does not read true either.',
 			},
 			subagent: {
 				check:

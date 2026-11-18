@@ -23,8 +23,9 @@
  * A reader that streams a log line by line, never holding it whole, takes
  * each line's answer from parseJsonlRow.
  *
- * A reader that wants only the newest row of a log takes it from
- * readLastJsonlRow, which reads the file's end and never the whole.
+ * A reader that wants only the newest row of a log, or the newest that
+ * passes a test, takes it from readLastJsonlRow, which reads the file's end
+ * and never the whole unless no row nearer it passes.
  */
 
 const fs = require("node:fs");
@@ -120,33 +121,43 @@ function readJsonl(file, keep) {
 const TAIL_BYTES = 64 * 1024;
 
 /**
- * The last row among `text`'s lines, undefined where none holds one. Its
- * first line is left out where `partial`, the text starting mid-file.
+ * @typedef {(row: Record<string, unknown>) => boolean} Match
+ */
+
+/**
+ * The last row among `text`'s lines that `match` passes, undefined where none
+ * does. Its first line is left out where `partial`, the text starting
+ * mid-file.
  * @param {string} text
  * @param {boolean} partial
+ * @param {Match} match
  */
-function lastRowOf(text, partial) {
+function lastRowOf(text, partial, match) {
 	const lines = text.split("\n");
 	/** @type {Record<string, unknown> | undefined} */
-	let row;
-	for (let i = lines.length - 1; !row && i >= (partial ? 1 : 0); i--)
-		row = parseJsonlRow(lines[i] ?? "") || undefined;
-	return row;
+	let found;
+	for (let i = lines.length - 1; !found && i >= (partial ? 1 : 0); i--) {
+		const row = parseJsonlRow(lines[i] ?? "");
+		if (row && match(row)) found = row;
+	}
+	return found;
 }
 
 /**
- * The file's last row, as `readJsonl(file).rows.at(-1)` gives it: null where
- * the file is missing, undefined where it holds no row.
+ * The file's last row that `match` passes, any row by default, as
+ * `readJsonl(file).rows.filter(match).at(-1)` gives it: null where the file is
+ * missing, undefined where no row passes.
  * @param {string} file
+ * @param {Match} [match]
  * @returns {Record<string, unknown> | null | undefined}
  */
-function readLastJsonlRow(file) {
+function readLastJsonlRow(file, match = () => true) {
 	for (let want = TAIL_BYTES; ; want *= 2) {
 		const tail = readTail(file, want);
 		if (tail.state === "absent") return null;
 		if (tail.state === "unreadable") throw tail.error;
 		const { text, partial } = tail.data;
-		const row = lastRowOf(text, partial);
+		const row = lastRowOf(text, partial, match);
 		if (row || !partial) return row;
 	}
 }

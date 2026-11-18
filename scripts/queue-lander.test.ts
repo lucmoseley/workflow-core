@@ -535,6 +535,13 @@ describe("a run", () => {
 			(w) => w.guard === guard,
 		);
 		expect(stale).toEqual([]);
+		/* The adoption after the move refused the fixture into the worker's
+		 * code dir, never the machine's (#5427). */
+		const refused = fs.readFileSync(
+			`${process.env.WFC_GUARD_CODE_DIR}.refused`,
+			"utf8",
+		);
+		expect(refused.split("\n")).toContain(main);
 	});
 
 	describe("a batch tree judged whole on its guard-registry faults (#4807)", () => {

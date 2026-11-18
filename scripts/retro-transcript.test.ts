@@ -923,7 +923,7 @@ describe("output path from a linked worktree (#5424)", () => {
 
 	/* Per case, not a template (#5424): the outer beforeEach already inits a
 	 * fresh repo per case, and RUN COST reads the file under its 10 s budget.
-	 * Residual: each of the block's 9 cases pays a commit and a worktree add. */
+	 * Residual: each case pays a commit and a worktree add. */
 	beforeEach(() => {
 		const git = (...args: string[]) =>
 			execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" });
@@ -1002,7 +1002,7 @@ describe("output path from a linked worktree (#5424)", () => {
 		expect(fs.readFileSync(out, "utf8")).toBe("tracked\n");
 	});
 
-	/* Refused under either root: a guard on the symlink check, not a pin of #5424. */
+	/* Passes under hostRoot() too: it guards the symlink check, not #5424. */
 	it("refuses a symlink out of the worktree's .claude/tmp/", () => {
 		fs.mkdirSync(path.join(tree, ".claude/tmp"), { recursive: true });
 		fs.mkdirSync(path.join(tree, "docs"));
