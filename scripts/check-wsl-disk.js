@@ -6,8 +6,9 @@
  * WARNS where the last success in %LOCALAPPDATA%\wsl-compact.log is over 35
  * days old, the newest run failed, the last one ran untrimmed, the last sparse
  * watch failed, no log exists (the task is not registered), C: has under 40 GB
- * free, fstrim.timer has not fired in 14 days, or the log, C: or the timer
- * will not read (lib/wsl-disk.js's verdict).
+ * free, the guest's `/` fills over 85% of its virtual disk, fstrim.timer has
+ * not fired in 14 days, or the log, C:, the guest disk or the timer will not
+ * read (lib/wsl-disk.js's verdict).
  *
  * READS NO INTEROP (lib/wsl-disk-host.js).
  *
@@ -15,7 +16,7 @@
  * release that will not read is WARN, never SKIP, which `npm run status` files
  * with the clean ones.
  *
- * WFC_PROC, WFC_WSL_COMPACT_LOG, WFC_WIN_C, WFC_SYSTEMCTL, WFC_FSTRIM_DROPIN and WFC_NOW inject
+ * WFC_PROC, WFC_WSL_COMPACT_LOG, WFC_WIN_C, WFC_GUEST_ROOT, WFC_SYSTEMCTL, WFC_FSTRIM_DROPIN and WFC_NOW inject
  * each read (§N7).
  */
 
@@ -44,6 +45,7 @@ runCheck({
 			log: host.readCompactLog(),
 			now: now(),
 			freeGB: host.readFreeGB(),
+			guest: host.readGuestDisk(),
 			trim: { last: host.readLastTrim(), fixedAt: host.readTrimFixedAt() },
 		});
 		const warnings = [...unread, ...verdict.warnings];

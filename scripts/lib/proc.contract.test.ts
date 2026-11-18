@@ -11,7 +11,9 @@
  * exactly as it reads from /proc — and those fields are checked against what
  * Node knows of this process, so a field the parser and the fake both
  * misplace still fails. For the rescue probe (#5157), user CPU ticks land in
- * the field this process's own CPU time fills.
+ * the field this process's own CPU time fills. For the guest-disk reader
+ * (#5430), a fake naming the real root's disk and its size from sysfs reads
+ * back as the real /proc does.
  */
 
 import { type ChildProcess, spawn } from "node:child_process";
@@ -27,6 +29,7 @@ import {
 	makeProcRoot,
 	writeCwd,
 	writeEnviron,
+	writeGuestDisk,
 } from "./proc-fake";
 import { FIELD, parseStatFields } from "./proc-stat.js";
 import {
@@ -53,6 +56,12 @@ const { readTreePssKb } = require("./admission.js") as {
 
 const { sample } = require("./cpu-sample.js") as {
 	sample: () => { load1: number | null } | null;
+};
+
+const { readGuestDisk } = require("./wsl-disk-host.js") as {
+	readGuestDisk: () =>
+		| { usedBytes: number; sizeBytes: number }
+		| { why: string };
 };
 
 const PATH = `PATH=${process.env.PATH ?? "/bin"}`;
@@ -244,3 +253,36 @@ describe.skipIf(!hasProc)("a fake loadavg line (needs Linux /proc)", () => {
 		}
 	});
 });
+
+/*
+ * Only where / sits on a disk /proc/partitions names: WSL does, while a
+ * GitHub runner's /dev/root and a container's overlay do not.
+ */
+const realGuest = hasProc ? readGuestDisk() : { why: "no /proc" };
+describe.skipIf("why" in realGuest)(
+	"a fake guest disk (needs / on a named disk)",
+	() => {
+		it("reads back as the real one does, its size matching sysfs's", () => {
+			const source = fs
+				.readFileSync("/proc/self/mountinfo", "utf8")
+				.split("\n")
+				.filter((l) => l.split(" ")[4] === "/")
+				.map((l) => l.split(" - ")[1]?.split(" ")[1] ?? "")
+				.at(-1) as string;
+			const device = source.replace("/dev/", "");
+			const sectors = Number(
+				fs.readFileSync(`/sys/class/block/${device}/size`, "utf8"),
+			);
+			expect(realGuest).toMatchObject({ sizeBytes: sectors * 512 });
+
+			const fake = mkScratchDir("proc-guest-");
+			try {
+				writeGuestDisk(fake, sectors * 512, device);
+				vi.stubEnv("WFC_PROC", fake);
+				expect(readGuestDisk()).toMatchObject({ sizeBytes: sectors * 512 });
+			} finally {
+				fs.rmSync(fake, { recursive: true, force: true });
+			}
+		});
+	},
+);

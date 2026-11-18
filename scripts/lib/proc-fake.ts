@@ -4,7 +4,8 @@
  * NUL-separated as the kernel's is (#2948); the orphan sweeps' stat and
  * cmdline and the machine's uptime (#3057); the spare-pair test's `cwd` link
  * (#2502); and admission's `smaps_rollup`, with WFC_LOADAVG the machine's
- * load (#3342). proc.contract.test.ts holds them all
+ * load (#3342); and the guest-disk reader's `self/mountinfo` and
+ * `partitions` (#5430). proc.contract.test.ts holds them all
  * to the kernel's.
  *
  * FOR TESTS ONLY.
@@ -156,6 +157,30 @@ export const buildLoadavgLine = (load1: number) =>
 /** `seconds` as the kernel writes /proc/uptime: uptime, then idle time. */
 export const buildUptimeLine = (seconds: number) =>
 	`${seconds.toFixed(2)} ${seconds.toFixed(2)}\n`;
+
+/**
+ * `self/mountinfo` and `partitions` under `proc`, putting / on /dev/`device`
+ * of `sizeBytes`, for lib/wsl-disk-host.js's readGuestDisk.
+ */
+export function writeGuestDisk(
+	proc: string,
+	sizeBytes: number,
+	device = "sdd",
+): void {
+	fs.mkdirSync(path.join(proc, "self"), { recursive: true });
+	fs.writeFileSync(
+		path.join(proc, "self/mountinfo"),
+		[
+			"72 1 0:30 / /usr/lib/modules rw - overlay none rw",
+			`88 72 8:48 / / rw,relatime - ext4 /dev/${device} rw,discard`,
+			"",
+		].join("\n"),
+	);
+	fs.writeFileSync(
+		path.join(proc, "partitions"),
+		`major minor  #blocks  name\n\n   8       32    2097156 sdc\n   8       48 ${sizeBytes / 1024} ${device}\n`,
+	);
+}
 
 /** A fresh /proc root on a machine `uptime` seconds up, and its writer. */
 export function makeProcRoot(uptime = UPTIME) {

@@ -136,7 +136,7 @@ function locateCode(scriptsDir) {
  * first and shown to load, where `scriptsDir` is in a checkout; else
  * `scriptsDir`'s own.
  * @param {{scriptsDir: string, codeDir: string, log?: (line: string) => void}} where
- *   `log` takes why a tip was checked out fresh, stderr by default
+ *   `log` takes why a tip was checked out fresh
  * @returns {{program: string, fetchError?: string|null}|{error: string}}
  */
 function launchProgram({ scriptsDir, codeDir, log = toStderr }) {
@@ -221,7 +221,7 @@ function readRunningCode(pid, codeDir) {
 		if (checkoutOf(root) === null) return "a plugin install";
 		return `${short(git(root, ["rev-parse", "HEAD"]))} in ${root}`;
 	} catch {
-		// A process unreadable or a git read failed mid-status: nothing to name.
+		// A process unreadable or a git read failed mid-status.
 		return null;
 	}
 }
@@ -274,7 +274,7 @@ function readKeptWorktrees(codeDir, own = null) {
 	try {
 		names = fs.readdirSync(realCodeDir);
 	} catch {
-		// No code directory yet: nothing in it to keep.
+		// No code directory yet.
 		return keep;
 	}
 	const held = readHeldDirs(

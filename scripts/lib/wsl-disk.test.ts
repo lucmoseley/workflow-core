@@ -22,6 +22,18 @@ const LOG = [
 	"2026-12-12T02:30:00 ok before_gb=120.1 after_gb=110.4 c_free_gb=210.0",
 ].join("\r\n");
 const read = (text: string) => ({ state: "read", path: "/log", text }) as const;
+const GIB = 2 ** 30;
+const ROOMY = { usedBytes: 110 * GIB, sizeBytes: 224 * GIB };
+/** judgeDisk on a clean input, `over` replacing its parts. */
+const judgeWith = (over: Partial<Parameters<typeof judgeDisk>[0]>) =>
+	judgeDisk({
+		log: read(LOG),
+		now: NOW,
+		freeGB: 210,
+		guest: ROOMY,
+		trim: { last: NOW, fixedAt: null },
+		...over,
+	});
 
 describe("parseLog", () => {
 	it("reads each line's time, result and fields, skipping junk and a BOM", () => {
@@ -42,7 +54,7 @@ describe("judgeDisk", () => {
 		now = NOW,
 		freeGB: number | { why: string } = 210,
 	) =>
-		judgeDisk({
+		judgeWith({
 			log: read(text),
 			now,
 			freeGB,
@@ -55,7 +67,7 @@ describe("judgeDisk", () => {
 		const v = judge(LOG);
 		expect(v.warnings).toEqual([]);
 		expect(v.okLine).toBe(
-			"last compaction 2026-12-12 (120.1 to 110.4 GB), C: free 210.0 GB",
+			"last compaction 2026-12-12 (120.1 to 110.4 GB), C: free 210.0 GB, guest / 110.0 of 224.0 GiB virtual (49%)",
 		);
 	});
 	it("warns over 35 days since the last success, naming the remedy", () => {
@@ -102,13 +114,7 @@ describe("judgeDisk", () => {
 		const trim = (
 			last: number | null | { why: string },
 			fixedAt: number | null = NOW - 30 * DAY,
-		) =>
-			judgeDisk({
-				log: read(LOG),
-				now: NOW,
-				freeGB: 210,
-				trim: { last, fixedAt },
-			});
+		) => judgeWith({ trim: { last, fixedAt } });
 		const line = (v: ReturnType<typeof judgeDisk>) => v.warnings[0]?.line;
 		it("is quiet within 14 days of its last firing", () => {
 			expect(tags(trim(NOW - 14 * DAY))).toEqual([]);
@@ -134,24 +140,36 @@ describe("judgeDisk", () => {
 			expect(tags(trim({ why: "no bus" }))).toEqual(["TRIM-TIMER-UNREAD"]);
 		});
 	});
+	describe("the guest's virtual disk", () => {
+		const guest = (
+			g: { usedBytes: number; sizeBytes: number } | { why: string },
+		) => judgeWith({ guest: g });
+		it("is quiet at 85% full and warns past it, naming the resize above the current size", () => {
+			expect(
+				tags(guest({ usedBytes: 0.85 * 224 * GIB, sizeBytes: 224 * GIB })),
+			).toEqual([]);
+			const full = guest({ usedBytes: 0.86 * 224 * GIB, sizeBytes: 224 * GIB });
+			expect(tags(full)).toEqual(["GUEST-FULL"]);
+			expect(full.warnings[0]?.line).toContain(
+				"192.6 of 224.0 GiB virtual (86%)",
+			);
+			expect(full.warnings[0]?.line).toContain(
+				"`wsl --shutdown`, then `wsl --manage Ubuntu --resize <N>GB` with N above 224",
+			);
+		});
+		it("warns where the guest disk will not read", () => {
+			expect(tags(guest({ why: "no partitions" }))).toEqual(["GUEST-UNREAD"]);
+		});
+	});
 	it("warns with no log, an unreadable one, C: under 40 GB, and C: unread", () => {
+		expect(tags(judgeWith({ log: { state: "absent" }, freeGB: 39.9 }))).toEqual(
+			["C-LOW", "COMPACT-UNINSTALLED"],
+		);
 		expect(
 			tags(
-				judgeDisk({
-					log: { state: "absent" },
-					now: NOW,
-					freeGB: 39.9,
-					trim: { last: NOW, fixedAt: null },
-				}),
-			),
-		).toEqual(["C-LOW", "COMPACT-UNINSTALLED"]);
-		expect(
-			tags(
-				judgeDisk({
+				judgeWith({
 					log: { state: "unreadable", why: "EIO" },
-					now: NOW,
 					freeGB: { why: "ENOENT" },
-					trim: { last: NOW, fixedAt: null },
 				}),
 			),
 		).toEqual(["C-UNREAD", "COMPACT-UNREAD"]);

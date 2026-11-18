@@ -150,7 +150,7 @@ const keptNames = (keep) =>
  * The spare in `codeDir`: a whole worktree other than any `keep` names, or
  * null. `keep` null keeps every one, as where /proc would not say which a
  * live process runs from. Of several, the first by name (#5426): any is a
- * whole tree, and the prunes leave one.
+ * whole tree.
  * @param {{codeDir: string, program: string}} instance
  * @param {Array<string|null>|null} keep
  */
@@ -175,8 +175,7 @@ function readSpare({ codeDir, program }, keep) {
 
 /**
  * Check `sha` out in `spare`, renamed to `dir` once done: out of its own
- * name first, so a kill midway leaves no name over a mixed tree. Where a step
- * fails, the spare is removed.
+ * name first, so a kill midway leaves no name over a mixed tree.
  * @param {string} repo
  * @param {string} spare
  * @param {string} dir
@@ -188,8 +187,7 @@ function checkoutInPlace(repo, spare, dir, sha) {
 	try {
 		git(repo, ["worktree", "move", spare, staging]);
 	} catch (err) {
-		/* Another adopter moved it first, or git will not read it: the caller
-		 * makes a fresh tree, as before #5426. */
+		/* Another adopter moved it first, or git will not read it (#5426). */
 		return `the spare would not move: ${whyOf(err)}`;
 	}
 	try {
@@ -198,8 +196,7 @@ function checkoutInPlace(repo, spare, dir, sha) {
 		git(repo, ["worktree", "move", staging, dir]);
 		return null;
 	} catch (err) {
-		/* A lock a killed checkout left, or a move a racing adopter beat: the
-		 * half-made tree goes and the caller makes a fresh one (#5426). */
+		/* A lock a killed checkout left, or a move a racing adopter beat (#5426). */
 		removeWorktree(repo, staging);
 		return `checking out in the spare failed: ${whyOf(err)}`;
 	}
