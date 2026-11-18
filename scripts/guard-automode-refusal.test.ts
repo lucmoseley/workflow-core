@@ -163,7 +163,7 @@ describe("a turn carrying a refusal", () => {
 			buildBashCall("ls", "toolu_A"),
 			{
 				...result("toolu_A", "Blocked.", { is_error: true }),
-				toolDenialKind: "automode-unavailable",
+				toolDenialKind: "automode-blocked",
 			},
 		]);
 
@@ -213,6 +213,23 @@ describe("a turn it passes", () => {
 		]);
 
 		expect(run().blocked).toBe(true);
+	});
+
+	it("passes the classifier giving no verdict, which is no refusal (#5422)", () => {
+		transcript([
+			prompt(),
+			buildBashCall("ls", "toolu_A"),
+			{
+				...result(
+					"toolu_A",
+					"The server-side auto mode classifier gave no verdict (error). This is a transient failure of the check, not a judgment about the action.",
+					{ is_error: true },
+				),
+				toolDenialKind: "automode-unavailable",
+			},
+		]);
+
+		expect(run().blocked).toBe(false);
 	});
 
 	it("passes a result that merely quotes the denial sentence", () => {
