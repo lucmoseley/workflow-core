@@ -22700,6 +22700,7 @@
 			"scripts/check-clobbered-bodies.test.ts",
 			"scripts/check-compaction-backstop.test.ts",
 			"scripts/check-context-budget-admission.test.ts",
+			"scripts/check-contract-live.test.ts",
 			"scripts/check-duplicate-dispatch.test.ts",
 			"scripts/check-file-ci-time.test.ts",
 			"scripts/check-gates.test.ts",

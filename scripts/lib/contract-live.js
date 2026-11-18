@@ -15,12 +15,18 @@
  * LIVE is a case that passed or failed: either way it reached what it asks
  * about. A case that never ran live in any sweep folded — one that skips on
  * the runner by design, as a Windows tool or the installed `claude` — is
- * counted, never reported: nothing says it could run there.
+ * never a finding: nothing says it could run there. One first seen after the
+ * ledger began is named for a window, so a new case whose service was silent
+ * from the start is seen.
+ *
+ * A GAP — sweeps that dropped off the listing unread — may hold a case's live
+ * run, so a case is judged from the first sweep after it at the earliest.
  */
 
-const fs = require("node:fs");
 const path = require("node:path");
+const fs = require("node:fs");
 const { writeFileAtomic } = require("./atomic-write.js");
+const { readText } = require("./file-read.js");
 const { reportRoot } = require("./suite-timings.js");
 
 const DAY_MS = 86_400_000;
@@ -31,35 +37,58 @@ const DAY_MS = 86_400_000;
  * quarantined by the service rather than by a person. */
 const WINDOW_MS = 7 * DAY_MS;
 
-/* A case unseen this long is renamed or gone, and leaves the ledger. */
-const FORGET_MS = 2 * WINDOW_MS;
+/* scheduled-checks.yml keeps a sweep's reports 14 days: a case unseen that
+ * long is renamed or gone, and leaves the ledger. */
+const FORGET_MS = 14 * DAY_MS;
 
 const CONTRACT = /\.contract\.test\.ts$/;
 
-/** @typedef {{ lastLive: number|null, lastSkipped: number|null, lastSeen: number }} Case */
-/** @typedef {{ newestRun: number, newestAt: number, cases: Record<string, Case> }} Ledger */
+/** @typedef {{ firstSeen: number, lastLive: number|null, lastSkipped: number|null, lastSeen: number }} Case */
+/** @typedef {{ firstAt: number, newestRun: number, newestAt: number, gapAt: number, cases: Record<string, Case> }} Ledger */
 /** @typedef {{ key: string, live: boolean }} Seen */
 /** @typedef {{ at: number, seen: Seen[] }} Sweep */
 
 /** @returns {Ledger} */
-const emptyLedger = () => ({ newestRun: 0, newestAt: 0, cases: {} });
+const emptyLedger = () => ({
+	firstAt: 0,
+	newestRun: 0,
+	newestAt: 0,
+	gapAt: 0,
+	cases: {},
+});
+
+/** @param {unknown} v */
+const isLedger = (v) => {
+	const l = /** @type {Record<string, unknown>} */ (v);
+	return (
+		typeof l === "object" &&
+		l !== null &&
+		["firstAt", "newestRun", "newestAt", "gapAt"].every(
+			(k) => typeof l[k] === "number",
+		) &&
+		typeof l.cases === "object" &&
+		l.cases !== null
+	);
+};
 
 /**
- * The ledger at `file`; an empty one where it is absent. Any other read or
- * parse fault throws.
+ * The ledger at `file`: an empty one where it is absent, and an empty one
+ * with the fault where it will not read or is not a ledger.
  * @param {string} file
- * @returns {Ledger}
+ * @returns {{ ledger: Ledger, fault: string|null }}
  */
 function readLedger(file) {
-	let text;
+	const read = readText(file);
+	if (read.state === "absent") return { ledger: emptyLedger(), fault: null };
+	if (read.state === "unreadable")
+		return { ledger: emptyLedger(), fault: read.message };
 	try {
-		text = fs.readFileSync(file, "utf8");
-	} catch (e) {
-		if (/** @type {NodeJS.ErrnoException} */ (e).code === "ENOENT")
-			return emptyLedger();
-		throw e;
+		const parsed = JSON.parse(read.data);
+		if (isLedger(parsed)) return { ledger: parsed, fault: null };
+	} catch {
+		/* not JSON: the fault below */
 	}
-	return JSON.parse(text);
+	return { ledger: emptyLedger(), fault: "not a ledger" };
 }
 
 /**
@@ -77,12 +106,11 @@ function writeLedger(file, ledger) {
  * @param {string} root this checkout, which the report's file names are made relative to
  * @returns {Sweep|null}
  */
-function sweepAt(dir, root) {
+function readSweep(dir, root) {
 	if (!fs.existsSync(dir)) return null;
 	const files = fs
 		.readdirSync(dir, { recursive: true, encoding: "utf8" })
 		.filter((f) => f.endsWith(".json"));
-	if (files.length === 0) return null;
 	let at = 0;
 	/** @type {Seen[]} */
 	const seen = [];
@@ -117,18 +145,25 @@ function casesOf(report, root) {
 
 /**
  * `ledger` with sweep `run` folded in, and the cases unseen for FORGET_MS
- * dropped.
+ * dropped. `afterGap` where sweeps before this one went unread.
  * @param {Ledger} ledger
  * @param {number} run
  * @param {Sweep} sweep
+ * @param {boolean} afterGap
  * @returns {Ledger}
  */
-function fold(ledger, run, sweep) {
+function fold(ledger, run, sweep, afterGap) {
 	const cases = { ...ledger.cases };
+	const latest = (/** @type {number|null} */ t) => Math.max(t ?? 0, sweep.at);
 	for (const { key, live } of sweep.seen) {
-		const c = cases[key] ?? { lastLive: null, lastSkipped: null, lastSeen: 0 };
-		const latest = (/** @type {number|null} */ t) => Math.max(t ?? 0, sweep.at);
+		const c = cases[key] ?? {
+			firstSeen: sweep.at,
+			lastLive: null,
+			lastSkipped: null,
+			lastSeen: 0,
+		};
 		cases[key] = {
+			firstSeen: c.firstSeen,
 			lastLive: live ? latest(c.lastLive) : c.lastLive,
 			lastSkipped: live ? c.lastSkipped : latest(c.lastSkipped),
 			lastSeen: latest(c.lastSeen),
@@ -137,40 +172,54 @@ function fold(ledger, run, sweep) {
 	const newestAt = Math.max(ledger.newestAt, sweep.at);
 	for (const [key, c] of Object.entries(cases))
 		if (newestAt - c.lastSeen > FORGET_MS) delete cases[key];
-	return { newestRun: Math.max(ledger.newestRun, run), newestAt, cases };
+	return {
+		firstAt: ledger.firstAt || sweep.at,
+		newestRun: Math.max(ledger.newestRun, run),
+		newestAt,
+		gapAt: afterGap ? sweep.at : ledger.gapAt,
+		cases,
+	};
 }
 
 /**
  * The cases skipped in the newest sweep and in every sweep since their last
- * live run, that run more than `windowMs` before it, oldest first; and how
- * many have never run live in a sweep folded.
+ * live run (or the last gap), that more than WINDOW_MS before it, oldest
+ * first; the never-live cases first seen since the ledger began and within
+ * the window; and how many never ran live in all.
  * @param {Ledger} ledger
- * @param {number} [windowMs]
  */
-function judge(ledger, windowMs = WINDOW_MS) {
+function judge(ledger) {
 	const silent = [];
+	const fresh = [];
 	let neverLive = 0;
 	for (const [key, c] of Object.entries(ledger.cases)) {
-		if (c.lastLive === null) {
-			neverLive++;
-			continue;
-		}
 		const skippedNewest =
 			c.lastSeen === ledger.newestAt && c.lastSkipped === c.lastSeen;
-		if (skippedNewest && ledger.newestAt - c.lastLive > windowMs)
+		if (c.lastLive === null) {
+			neverLive++;
+			const since = Math.max(ledger.firstAt, ledger.gapAt);
+			if (
+				skippedNewest &&
+				c.firstSeen > since &&
+				ledger.newestAt - c.firstSeen <= WINDOW_MS
+			)
+				fresh.push({ key, firstSeen: c.firstSeen });
+			continue;
+		}
+		const from = Math.max(c.lastLive, ledger.gapAt);
+		if (skippedNewest && ledger.newestAt - from > WINDOW_MS)
 			silent.push({ key, lastLive: c.lastLive });
 	}
 	silent.sort((a, b) => a.lastLive - b.lastLive);
-	return { silent, neverLive };
+	return { silent, fresh, neverLive };
 }
 
 module.exports = {
 	DAY_MS,
 	WINDOW_MS,
-	emptyLedger,
 	fold,
 	judge,
 	readLedger,
-	sweepAt,
+	readSweep,
 	writeLedger,
 };
