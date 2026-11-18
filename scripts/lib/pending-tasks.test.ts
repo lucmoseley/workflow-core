@@ -17,7 +17,14 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { buildBashCall } from "./transcript-testkit";
+import {
+	buildAsyncAgentResult,
+	buildBashCall,
+	buildFinalNotification,
+	buildHandBack,
+	buildInterimNotification,
+	SUBAGENT_HANDLE,
+} from "./transcript-testkit";
 
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
 const { readPendingTasks }: any =
@@ -507,38 +514,13 @@ describe("readPendingTasks settles a launch a TaskStop stopped (#2754)", () => {
 });
 
 describe("readPendingTasks keeps a subagent out past an interim notification (#5420)", () => {
-	/* Shapes copied from transcript 37f1289c: the launch at L3145, the interim
-	 * notification at L3481, the final one at L3571 (a task-id and no
-	 * tool-use id) and the hand-back at L3576. */
-	const handle = "a2948f95aab9e1692";
 	const launch = [
 		toolUse("t1", "Agent", { description: "Fix #5274 review findings" }),
-		toolResult(
-			"t1",
-			`Async agent launched successfully.\nagentId: ${handle} (internal ID - do not mention to user.)\nThe agent is working in the background.`,
-			{ toolUseResult: { status: "async_launched", agentId: handle } },
-		),
+		JSON.stringify(buildAsyncAgentResult()),
 	];
-	const interim = JSON.stringify({
-		type: "user",
-		message: {
-			role: "user",
-			content: `<task-notification>\n<task-id>${handle}</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent "Fix #5274 review findings" is waiting on its own background work</summary>\n<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>\n<result>This agent has not reported yet: it is waiting on its own background work and will deliver its report through SubagentHandback when that finishes.\n</result>\n</task-notification>`,
-		},
-	});
-	const final = JSON.stringify({
-		type: "queue-operation",
-		operation: "enqueue",
-		content: `<task-notification>\n<task-id>${handle}</task-id>\n<status>completed</status>\n<summary>Agent "Fix #5274 review findings" finished</summary>\n<result>This agent's report was delivered to you as a message from "${handle}" (its SubagentHandback call).\n</result>\n</task-notification>`,
-	});
-	const handBack = (from: string) =>
-		JSON.stringify({
-			type: "attachment",
-			attachment: {
-				type: "queued_command",
-				prompt: `<agent-message from="${from}">\n[Subagent hand-back] The report follows:\n  All done.\n</agent-message>`,
-			},
-		});
+	const interim = JSON.stringify(buildInterimNotification());
+	const final = JSON.stringify(buildFinalNotification());
+	const handBack = (from: string) => JSON.stringify(buildHandBack(from));
 
 	it("keeps the launch out while its only notification is interim", () => {
 		write(...launch, interim);
@@ -548,10 +530,10 @@ describe("readPendingTasks keeps a subagent out past an interim notification (#5
 	});
 
 	it("keeps it out on the interim note alone, and on the interim result alone", () => {
-		const only = (cut: RegExp) => interim.replace(cut, "");
-		write(...launch, only(/<result>[\s\S]*?<\/result>/));
+		const without = (cut: RegExp) => interim.replace(cut, "");
+		write(...launch, without(/<result>[\s\S]*?<\/result>/));
 		expect(readPendingTasks(file).pending).toHaveLength(1);
-		write(...launch, only(/<note>[\s\S]*?<\/note>/));
+		write(...launch, without(/<note>[\s\S]*?<\/note>/));
 		expect(readPendingTasks(file).pending).toHaveLength(1);
 	});
 
@@ -561,7 +543,7 @@ describe("readPendingTasks keeps a subagent out past an interim notification (#5
 	});
 
 	it("settles it on its hand-back, with no final notification", () => {
-		write(...launch, interim, handBack(handle));
+		write(...launch, interim, handBack(SUBAGENT_HANDLE));
 		expect(readPendingTasks(file).pending).toEqual([]);
 	});
 
@@ -570,15 +552,37 @@ describe("readPendingTasks keeps a subagent out past an interim notification (#5
 		expect(readPendingTasks(file).pending).toHaveLength(1);
 	});
 
-	it("does not settle a background command by its task-id", () => {
-		/* A Bash job's notification names its tool-use id; its handle alone
-		 * settles nothing (#5420 leaves Bash settling as it was). */
+	it("keeps it out on a hand-back tag only quoted in a tool result", () => {
+		write(
+			...launch,
+			interim,
+			toolResult("r1", `<agent-message from="${SUBAGENT_HANDLE}">`),
+		);
+		expect(readPendingTasks(file).pending).toHaveLength(1);
+	});
+
+	it("never lets an unclosed opening tag join a notification to an interim one", () => {
+		/* A quoted `<task-notification>` with no close, then a Bash job's
+		 * real notification: the block match starts at the last opening tag,
+		 * so the interim words quoted before it do not reach the real one. */
+		write(
+			bash("sleep 5", "t2", { run_in_background: true }),
+			toolResult(
+				"r1",
+				"<task-notification> quoted: the result below may be interim",
+			),
+			settlement("t2"),
+		);
+		expect(readPendingTasks(file).pending).toEqual([]);
+	});
+
+	it("does not settle a background command on its handle alone", () => {
 		write(
 			bash("node watch.js", "t2", { run_in_background: true }),
 			toolResult("t2", "Command running in background with ID: bku29b47g.", {
 				toolUseResult: { backgroundTaskId: "bku29b47g" },
 			}),
-			final.replaceAll(handle, "bku29b47g"),
+			JSON.stringify(buildFinalNotification("bku29b47g")),
 		);
 		expect(readPendingTasks(file).pending).toHaveLength(1);
 	});

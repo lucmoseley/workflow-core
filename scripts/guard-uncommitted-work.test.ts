@@ -31,7 +31,13 @@ import { cutWorktree } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import { readStopGuardBlock, type StopBlock } from "./lib/stop-guard-testkit";
-import { buildBashCall } from "./lib/transcript-testkit";
+import {
+	buildAsyncAgentResult,
+	buildBashCall,
+	buildFinalNotification,
+	buildInterimNotification,
+	buildToolCall,
+} from "./lib/transcript-testkit";
 
 const require_ = createRequire(__filename);
 const { REFUSAL_NAMED_MAX } = require_("./lib/dirty-tree.js");
@@ -867,53 +873,37 @@ describe("the `waiting:` stand-down (mantahostels#2567)", () => {
 		).toBe(false);
 	});
 
+	/* The pair (#5420): an interim notification leaves the subagent out, and
+	 * its final notification settles it, so the block comes back. */
+	const agentLaunch = [
+		buildToolCall("Agent", { description: "Fix review findings" }, launchId),
+		buildAsyncAgentResult(launchId),
+		buildInterimNotification(launchId),
+	];
+
 	it("stands down for a subagent whose only notification is interim (#5420)", () => {
 		ledger(["tracked.md"]);
 		dirty("tracked.md");
-		const agentLaunch = {
-			type: "assistant",
-			message: {
-				content: [
-					{
-						type: "tool_use",
-						id: launchId,
-						name: "Agent",
-						input: { description: "Fix review findings" },
-					},
-				],
-			},
-		};
-		const launched = {
-			type: "user",
-			message: {
-				content: [
-					{
-						type: "tool_result",
-						tool_use_id: launchId,
-						content:
-							"Async agent launched successfully.\nagentId: a2948f95aab9e1692\nThe agent is working in the background.",
-					},
-				],
-			},
-			toolUseResult: { status: "async_launched", agentId: "a2948f95aab9e1692" },
-		};
-		const interim = {
-			type: "user",
-			message: {
-				content: `<task-notification>\n<task-id>a2948f95aab9e1692</task-id>\n<tool-use-id>${launchId}</tool-use-id>\n<status>completed</status>\n<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>\n<result>This agent has not reported yet: it is waiting on its own background work.\n</result>\n</task-notification>`,
-			},
-		};
+		const file = transcript([userTurn, ...agentLaunch, say(handoff)]);
+		expect(
+			run(root, {}, { last_assistant_message: handoff, transcript_path: file })
+				.blocked,
+		).toBe(false);
+	});
+
+	it("blocks again once that subagent's final notification arrives (#5420)", () => {
+		ledger(["tracked.md"]);
+		dirty("tracked.md");
 		const file = transcript([
 			userTurn,
-			agentLaunch,
-			launched,
-			interim,
+			...agentLaunch,
+			buildFinalNotification(),
 			say(handoff),
 		]);
 		expect(
 			run(root, {}, { last_assistant_message: handoff, transcript_path: file })
 				.blocked,
-		).toBe(false);
+		).toBe(true);
 	});
 
 	it("still blocks when the launch has already been settled, naming the file", () => {

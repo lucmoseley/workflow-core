@@ -57,6 +57,8 @@
  * looking BUSY — the first because the launch count then rests on some other
  * launch, the second because an unsettled launch reads as live. The only
  * verdict it returns confidently is `pending: []` over a transcript it parsed.
+ * The one exception: an interim notification whose wording the harness changed
+ * reads as final, settling a subagent still at work (#5420).
  *
  * THREE THINGS IT CANNOT SEE, each read as "nothing pending":
  * a job backgrounded with `&` or `nohup` inside a foreground Bash call, one
@@ -79,18 +81,22 @@ const { requiredGroup } = require("./regex-group.js");
  * record's own `"id":"toolu_…"` field is never read as its own settlement.
  * Anywhere in the line: the block arrives inside a `queue-operation` record on
  * some turns and inside a user message on others, and both spell the tag. */
-const NOTIFICATION = /<task-notification>([\s\S]*?)<\/task-notification>/g;
+const NOTIFICATION =
+	/<task-notification>((?:(?!<task-notification>)[\s\S])*?)<\/task-notification>/g;
 const TOOL_USE_ID = /<tool-use-id>([^<]+)<\/tool-use-id>/;
 const TASK_ID = /<task-id>([^<]+)<\/task-id>/;
 
 /* A notification sent while the subagent waits on its own background work
- * (#5420): the note, or the result's opening words, either one enough. */
+ * (#5420): the note, or the result's opening words, either one enough.
+ * Residual: a harness rewording both reads an interim notification as final,
+ * settling a live agent — the one settlement this file misreads toward idle. */
 const INTERIM =
 	/the result below may be interim|<result>This agent has not reported yet/;
 
-/* A subagent's hand-back, by the handle it reports as. The quotes arrive
- * JSON-escaped in the raw text. */
-const HANDED_BACK = /<agent-message from=\\?"(\w+)\\?"/g;
+/* A subagent's hand-back, by the handle it reports as: the opening of a
+ * queued command's `prompt`, so a tool result quoting the tag settles nothing.
+ * The quotes arrive JSON-escaped in the raw text. */
+const HANDED_BACK = /"prompt":"<agent-message from=\\"(\w+)\\"/g;
 
 /* What a `tool_result` says when the launch really did go to the background and
  * a notification is therefore still coming. Three spellings because the harness
