@@ -13,7 +13,7 @@ import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const CODE_LIB = path.resolve(__dirname, "guard-code.js");
 const { CORE_FAULT_TEXT } = require("./core-fault.js") as {
@@ -190,15 +190,17 @@ describe("adoption", () => {
 	it("never lets a second adopter take the tree the first is probing, so `.current` never names a missing one (#5431)", async () => {
 		const probing = path.join(dir, "x-probing");
 		/* X's tip is probed slowly, so Y starts while X holds a checked-out,
-		 * unflipped tree. */
+		 * unflipped tree: 1.5 s, a guess at room for Y's node start to reach the
+		 * lock while X holds it. */
 		const first = land(
 			`require("fs").writeFileSync(${JSON.stringify(probing)}, ""); process.stdin.resume(); setTimeout(() => {}, 1500);\n`,
 		);
 		/* The slow probe crosses the real clock to hold X mid-adoption. */
 		const run = () =>
-			new Promise<number | null>((resolve) =>
+			new Promise<{ code: number | null; out: string }>((resolve) => {
+				let out = "";
 				// spawn-kept: two processes at once, the lock a pidfile naming each adopter's script
-				spawn(
+				const child = spawn(
 					process.execPath,
 					[path.resolve(__dirname, "../adopt-guard-code.js")],
 					{
@@ -207,19 +209,27 @@ describe("adoption", () => {
 							CLAUDE_PROJECT_DIR: repo,
 							WFC_GUARD_CODE_DIR: codeDir,
 						},
-						stdio: "ignore",
+						stdio: ["ignore", "pipe", "ignore"],
 					},
-				).on("exit", resolve),
-			);
-		const xExit = run();
-		const deadline = Date.now() + 30_000;
-		while (!fs.existsSync(probing) && Date.now() < deadline)
-			await new Promise((r) => setTimeout(r, 20));
-		expect(fs.existsSync(probing)).toBe(true);
+				);
+				child.stdout.on("data", (d) => {
+					out += d;
+				});
+				child.on("close", (code) => resolve({ code, out }));
+			});
+		const x = run();
+		/* Guessed ceilings: a cold node start and git under load. */
+		await vi.waitFor(() => expect(fs.existsSync(probing)).toBe(true), {
+			timeout: 30_000,
+			interval: 20,
+		});
 		const second = land(`${OK}// two\n`);
-		const yExit = await run();
-		expect(await xExit).toBe(0);
-		expect(yExit).toBe(0);
+		const y = await run();
+		expect((await x).code).toBe(0);
+		expect(y).toEqual({
+			code: 0,
+			out: `guard code: adopted ${second.slice(0, 9)}\n`,
+		});
 		expect(live()).toBe(path.join(codeDir, second));
 		expect(fs.existsSync(path.join(live(), "scripts/guard-dispatch.js"))).toBe(
 			true,

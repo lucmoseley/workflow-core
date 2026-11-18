@@ -4,7 +4,8 @@
  * lander (#2402); for one run of a program that takes a live holder's lock
  * from no one however long it runs (#4016); and for a short read-to-rename
  * write, write-secret.js's (#3539) and the refill control's (#3856), which
- * waitForLock takes.
+ * waitForLock takes, as it does the guard code's adoption, held through a
+ * checkout and its probe (#5431).
  *
  * The pidfile is linked into place from a file already holding the record, so
  * no reader ever sees it empty. It records the holder's pid, start time and
@@ -233,8 +234,8 @@ function pidLock(file, marker) {
 }
 
 /**
- * Takes `lock`, one held only around a short write, waiting up to LOCK_WAIT_MS
- * for a live holder.
+ * Takes `lock`, one held only around a bounded piece of work, waiting up to
+ * `waitMs` for a live holder.
  * @param {ReturnType<typeof pidLock>} lock
  * @param {number} [waitMs]
  * @returns {boolean} whether it is held

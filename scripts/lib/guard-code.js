@@ -61,8 +61,9 @@ const PROGRAM = path.join("scripts", "guard-dispatch.js");
 const CODE_DIR_ENV = "WFC_GUARD_CODE_DIR";
 /* The scripts whose processes adopt: the hand route and the lander. */
 const ADOPTERS = ["adopt-guard-code.js", "queue-lander.js"];
-/* Untraced: a holder's probe at its timeout and six git calls at theirs,
- * a checkout in the spare and a prune of two trees. */
+/* Untraced, a ceiling: a holder's probe at its timeout and six git calls at
+ * theirs (the spare's four-call checkout, its fallback add and one prune);
+ * the rest of its calls take milliseconds. */
 const ADOPT_WAIT_MS = LOAD_TIMEOUT_MS + 6 * GIT_TIMEOUT_MS;
 
 /* A call every guard lets through on an empty host: any deny is a fault. A
@@ -204,7 +205,7 @@ function adoptGuardCode({ repo, codeDir, fetch = true }) {
 	if (!waitForLock(lock, ADOPT_WAIT_MS))
 		return {
 			kind: "error",
-			why: `another adoption (pid ${lock.holder()}) held ${files.lock} past ${ADOPT_WAIT_MS / 1000} s; tried again next time`,
+			why: `another adoption held ${files.lock} past ${ADOPT_WAIT_MS / 1000} s; tried again next time`,
 		};
 	try {
 		return adoptLocked({ repo, codeDir, files, log }, fetchError);
