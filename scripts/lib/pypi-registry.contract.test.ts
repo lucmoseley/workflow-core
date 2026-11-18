@@ -167,7 +167,10 @@ const fakeAnswer = (port: Port, c: (typeof CASES)[number]) =>
 	port === "pypi" ? pypiAnswer(c.reg) : statsAnswer(c.reg);
 
 // Residual: where the public services do not answer, the live cases skip and
-// the fake's success and 404 answers go unchecked.
+// the fake's success and 404 answers go unchecked. The probe reads PyPI's
+// cached paths; a made-up name's 404 comes from its origin, which can stall
+// past curl's 8 s while the probe answers (#5402), so a live case whose own
+// call goes unanswered skips too.
 let liveSkip: { reason: string | undefined } | undefined;
 function liveSkipReason(): string | undefined {
 	for (const url of [
@@ -181,6 +184,15 @@ function liveSkipReason(): string | undefined {
 		);
 		if (status !== 0) return `PyPI or pypistats is unreachable: ${url}`;
 	}
+	return undefined;
+}
+
+/** Why a live answer says nothing of the contract: the service gave none. */
+function unanswered(answer: Get): string | undefined {
+	if ("missing" in answer) return undefined;
+	if (answer.code === null) return "curl got no answer";
+	if (answer.code === 429 || answer.code >= 500)
+		return `the service answered ${answer.code}`;
 	return undefined;
 }
 
@@ -198,7 +210,10 @@ describe.each(CASES)("$what", (c) => {
 			expect(verdictOf(port, c.pkg, fake)).toEqual(
 				c.verdict === null ? null : expect.stringMatching(c.verdict),
 			);
-			for (const answer of [realAnswer(port, c), stubAnswer(port, c)]) {
+			const real = realAnswer(port, c);
+			const silent = c.real === "live" ? unanswered(real) : undefined;
+			if (silent) return ctx.skip(`${port} for ${c.pkg}: ${silent}`);
+			for (const answer of [real, stubAnswer(port, c)]) {
 				expect(shapeOf(answer)).toEqual(shapeOf(fake));
 				expect(verdictOf(port, c.pkg, answer)).toEqual(
 					verdictOf(port, c.pkg, fake),
