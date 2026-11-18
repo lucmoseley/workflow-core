@@ -208,6 +208,42 @@ describe("launchProgram", () => {
 		).toContain("pushed");
 	});
 
+	it("checks a new tip out in place in a worktree nothing runs from, never in one a live process does (#5426)", () => {
+		const scriptsDir = path.join(checkout, "scripts");
+		const treeOf = () => {
+			const launch = launchProgram({ scriptsDir, codeDir });
+			if ("error" in launch) throw new Error(launch.error);
+			return path.dirname(path.dirname(launch.program));
+		};
+		const ino = (tree: string) =>
+			fs.statSync(path.join(tree, "scripts/refill-loop.js")).ino;
+		const first = treeOf();
+		const firstIno = ino(first);
+		push({ "scripts/lib/marker.js": 'module.exports = "two";\n' });
+		const second = treeOf();
+		expect(fs.existsSync(first)).toBe(false);
+		expect(ino(second)).toBe(firstIno);
+		expect(git(second, "status", "--porcelain", "--ignored")).toBe("");
+		// spawn-kept: a lander an older image started, running from its tree
+		const holder = spawn(
+			process.execPath,
+			["-e", "setInterval(() => {}, 1000)"],
+			{
+				cwd: second,
+				stdio: "ignore",
+			},
+		);
+		try {
+			const secondIno = ino(second);
+			push({ "scripts/lib/marker.js": 'module.exports = "three";\n' });
+			const third = treeOf();
+			expect(ino(second)).toBe(secondIno);
+			expect(ino(third)).not.toBe(secondIno);
+		} finally {
+			holder.kill("SIGKILL");
+		}
+	});
+
 	it("launches a plugin install's own program, its code having no checkout", () => {
 		const plugin = path.join(dir, "plugin", "scripts");
 		fs.mkdirSync(plugin, { recursive: true });
@@ -512,7 +548,9 @@ describe("the boot link (#3891)", () => {
 		await until(() => readTicks().some((l) => l.includes(" two ")), "two");
 		await moreTicks(2);
 		expect(fs.readlinkSync(link())).toBe(path.join(codeDir, tip));
-		expect(fs.readdirSync(codeDir)).toEqual([tip]);
+		expect(fs.readdirSync(codeDir).sort()).toEqual(
+			[path.basename(path.dirname(path.dirname(first))), tip].sort(),
+		);
 	});
 
 	it("keeps a worktree a live process runs from until it exits, pruning the rest (#4548)", async () => {
@@ -696,7 +734,9 @@ describe("adoption", () => {
 		expect(kept.map((f) => fs.readFileSync(path.join(dir, f)))).toEqual(before);
 		expect(readRunningCode(Number(pid), codeDir)).toBe(short(tip));
 		await moreTicks(2);
-		expect(fs.readdirSync(codeDir)).toEqual([tip]);
+		expect(fs.readdirSync(codeDir).sort()).toEqual(
+			[path.basename(path.dirname(path.dirname(first))), tip].sort(),
+		);
 	});
 
 	it("leaves the process alone on a tip changing only docs and tests", async () => {
