@@ -9,7 +9,7 @@
  * call in every session, or a working copy's edit reaches the hooks again.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -186,6 +186,47 @@ describe("adoption", () => {
 		expect(gitIn(path.join(codeDir, fourth))("rev-parse", "HEAD")).toBe(fourth);
 		expect(fs.readdirSync(codeDir).filter((n) => n.includes("."))).toEqual([]);
 	});
+
+	it("never lets a second adopter take the tree the first is probing, so `.current` never names a missing one (#5431)", async () => {
+		const probing = path.join(dir, "x-probing");
+		/* X's tip is probed slowly, so Y starts while X holds a checked-out,
+		 * unflipped tree. */
+		const first = land(
+			`require("fs").writeFileSync(${JSON.stringify(probing)}, ""); process.stdin.resume(); setTimeout(() => {}, 1500);\n`,
+		);
+		/* The slow probe crosses the real clock to hold X mid-adoption. */
+		const run = () =>
+			new Promise<number | null>((resolve) =>
+				// spawn-kept: two processes at once, the lock a pidfile naming each adopter's script
+				spawn(
+					process.execPath,
+					[path.resolve(__dirname, "../adopt-guard-code.js")],
+					{
+						env: {
+							...process.env,
+							CLAUDE_PROJECT_DIR: repo,
+							WFC_GUARD_CODE_DIR: codeDir,
+						},
+						stdio: "ignore",
+					},
+				).on("exit", resolve),
+			);
+		const xExit = run();
+		const deadline = Date.now() + 30_000;
+		while (!fs.existsSync(probing) && Date.now() < deadline)
+			await new Promise((r) => setTimeout(r, 20));
+		expect(fs.existsSync(probing)).toBe(true);
+		const second = land(`${OK}// two\n`);
+		const yExit = await run();
+		expect(await xExit).toBe(0);
+		expect(yExit).toBe(0);
+		expect(live()).toBe(path.join(codeDir, second));
+		expect(fs.existsSync(path.join(live(), "scripts/guard-dispatch.js"))).toBe(
+			true,
+		);
+		expect(fs.readlinkSync(files().previous)).toBe(path.join(codeDir, first));
+		expect(fs.existsSync(files().previous)).toBe(true);
+	}, 60_000);
 
 	it("adopts nothing in a checkout whose hooks do not run from it", () => {
 		land(OK);
