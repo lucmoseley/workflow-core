@@ -94,8 +94,10 @@ describe("the machine-figures line", () => {
 	});
 });
 
-/* The seams' second adapter (base §G7): the real `uname`, `nproc` and
- * /proc/meminfo, which cost nothing to call. */
+/* The production adapter behind the seams (base §G7): the real `uname`,
+ * `nproc` and /proc/meminfo, which cost nothing to call. Skipped where there
+ * is no /proc/meminfo, as off Linux the hook names it unreadable, which the
+ * stub cases already cover. */
 describe.runIf(fs.existsSync("/proc/meminfo"))(
 	"the real binaries and meminfo",
 	() => {

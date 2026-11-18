@@ -77,7 +77,8 @@
 # (#5394). Elsewhere it judges as the only copy, keeping the rule's reach
 # outside adopters (#2258 user story 6). Residual: managed settings and a
 # --plugin-dir load are not read, so there the machine copy still judges and
-# can refuse a plugin-only note.
+# can refuse a plugin-only note; and a project enabling a plugin release that
+# predates this guard (v2.3.0 or older) has neither copy judge its stop.
 # `npm run check:settings` holds both machine files to this repo's.
 #
 # Named for what it guards, not `guard-*`: the founder's machine copy under
@@ -85,7 +86,7 @@
 #
 # IMPLICIT:  on a session's first touch of docs/practice/ hands over the craft list, refuses a Write of an off-list note, and at Stop refuses once a session that wrote a tracked file with no **Practice:** line that holds up, the machine copy standing down at Stop where the session's project enables the plugin.
 # JUSTIFIED: fail-safe — refusing once is the only Stop channel that reaches the model (#829).
-# DEFEAT:    none — each refusal fires once a session, and is cleared by declaring a line that holds up.
+# DEFEAT:    a project enabling a plugin release without this guard — the machine copy stands down and no copy judges. Otherwise none: each refusal fires once a session, and is cleared by declaring a line that holds up.
 # TREE:      session — the work tree roots of the files the session wrote, the plugin root beside this script, and, for the machine copy, the user's and the session project's Claude Code settings.
 #
 # Self-contained: it also runs outside any adopter, so it sources nothing from
@@ -378,13 +379,14 @@ fault_in() {
 # workflow-core plugin: enabledPlugins merged user, then project, then local,
 # each key taking its highest file's value, and any workflow-core@<marketplace>
 # key left true. A file missing, not one JSON object, or whose enabledPlugins is
-# no object enables nothing; one there but unreadable says so on stderr.
+# no object enables nothing; one there but unreadable or not JSON says so on
+# stderr.
 plugin_enabled_at() {
   local file merged='{}' layer
   for file in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" "$1/.claude/settings.json" "$1/.claude/settings.local.json"; do
     [[ -e "$file" ]] || continue
     if ! layer=$(jq -cs 'if length == 1 and (.[0] | type) == "object" and (.[0].enabledPlugins | type) == "object" then .[0].enabledPlugins else {} end' "$file" 2>/dev/null); then
-      echo "practice-guard: $file is not JSON, so it enables no plugin" >&2
+      echo "practice-guard: $file is unreadable or not JSON, so it enables no plugin" >&2
       continue
     fi
     merged=$(jq -c --argjson l "$layer" '. + $l' <<<"$merged")
@@ -448,11 +450,12 @@ if [[ "$event" = stop ]]; then
     esac
   done <<<"$scan"
   [[ -n "$written" ]] || exit 0
-  roots+=$(git -C "$(jq -r '.cwd // "."' <<<"$input")" rev-parse --show-toplevel 2>/dev/null)
+  cwd_top=$(git -C "$(jq -r '.cwd // "."' <<<"$input")" rev-parse --show-toplevel 2>/dev/null)
+  roots+=$cwd_top
 
   # The session's project decides whether the plugin loaded, not the trees it
   # wrote into.
-  [[ -z $plugin_root ]] && plugin_enabled_at "${CLAUDE_PROJECT_DIR:-$(jq -r '.cwd // "."' <<<"$input")}" && exit 0
+  [[ -z $plugin_root ]] && plugin_enabled_at "${CLAUDE_PROJECT_DIR:-${cwd_top:-.}}" && exit 0
 
   fault=$(fault_in "$decl")
   [[ -n "$fault" ]] || exit 0
