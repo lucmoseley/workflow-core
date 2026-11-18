@@ -26,7 +26,14 @@
  * call's own id (#1166).
  *
  * A LAUNCH IS SETTLED FOUR WAYS, and the notification is only the first. A
- * `<task-notification>` block naming its `<tool-use-id>` is the ordinary one.
+ * `<task-notification>` block naming its `<tool-use-id>` is the ordinary one,
+ * unless it is INTERIM: a subagent that stopped with background work of its
+ * own still running is notified as `completed`, its note saying "the result
+ * below may be interim" and its result "This agent has not reported yet", and
+ * it is still working (#5420; transcript 37f1289c, L3481). Its final
+ * notification names only its `<task-id>`, the handle its launch announced,
+ * and its report arrives as an `<agent-message from="<handle>">` (L3571,
+ * L3576); a subagent settles on either.
  * The next two are what a first cut missed, and they are the MAJORITY: a
  * launch a PreToolUse hook refused, whose `tool_result` carries `is_error`, and
  * a FOREGROUND `Agent` call, whose `tool_result` is the agent's own report and
@@ -50,6 +57,8 @@
  * looking BUSY — the first because the launch count then rests on some other
  * launch, the second because an unsettled launch reads as live. The only
  * verdict it returns confidently is `pending: []` over a transcript it parsed.
+ * The one exception: an interim notification whose wording the harness changed
+ * reads as final, settling a subagent still at work (#5420).
  *
  * THREE THINGS IT CANNOT SEE, each read as "nothing pending":
  * a job backgrounded with `&` or `nohup` inside a foreground Bash call, one
@@ -67,12 +76,27 @@ const fs = require("node:fs");
 const { parseJsonl } = require("./jsonl.js");
 const { requiredGroup } = require("./regex-group.js");
 
-/* The tool-use id inside a `<task-notification>` block — the harness's own
+/* A `<task-notification>` block and the ids inside it — the harness's own
  * settlement record. Matched on the tag rather than on the bare id so a launch
  * record's own `"id":"toolu_…"` field is never read as its own settlement.
  * Anywhere in the line: the block arrives inside a `queue-operation` record on
  * some turns and inside a user message on others, and both spell the tag. */
-const SETTLED_ID = /<tool-use-id>([^<]+)<\/tool-use-id>/g;
+const NOTIFICATION =
+	/<task-notification>((?:(?!<task-notification>)[\s\S])*?)<\/task-notification>/g;
+const TOOL_USE_ID = /<tool-use-id>([^<]+)<\/tool-use-id>/;
+const TASK_ID = /<task-id>([^<]+)<\/task-id>/;
+
+/* A notification sent while the subagent waits on its own background work
+ * (#5420): the note, or the result's opening words, either one enough.
+ * Residual: a harness rewording both reads an interim notification as final,
+ * settling a live agent — the one settlement this file misreads toward idle. */
+const INTERIM =
+	/the result below may be interim|<result>This agent has not reported yet/;
+
+/* A subagent's hand-back, by the handle it reports as: the opening of a
+ * queued command's `prompt`, so a tool result quoting the tag settles nothing.
+ * The quotes arrive JSON-escaped in the raw text. */
+const HANDED_BACK = /"prompt":"<agent-message from=\\"(\w+)\\"/g;
 
 /* What a `tool_result` says when the launch really did go to the background and
  * a notification is therefore still coming. Three spellings because the harness
@@ -132,6 +156,7 @@ function callName(part) {
  * @typedef {{
  *   launches: Map<string, Launch>,
  *   settled: Set<string>,
+ *   settledHandles: Set<string>,
  *   results: Map<string, {error: boolean, announced: boolean}>,
  *   handles: Map<string, string>,
  *   stopped: Set<string>,
@@ -155,6 +180,8 @@ function readPendingTasks(file) {
 	const census = {
 		launches: new Map(),
 		settled: new Set(),
+		/* The handles a final notification or a hand-back named (#5420). */
+		settledHandles: new Set(),
 		results: new Map(),
 		/* The background handle each result announced, by tool-use id, and the
 		 * handles a `TaskStop` stopped. */
@@ -170,9 +197,7 @@ function readPendingTasks(file) {
 	/* The settlement scan runs over the raw text, before the parse: the
 	 * notification is a string field wherever it lands, so the tag survives
 	 * JSON escaping intact and the record's own shape does not matter. */
-	SETTLED_ID.lastIndex = 0;
-	for (let m = SETTLED_ID.exec(text); m; m = SETTLED_ID.exec(text))
-		census.settled.add(requiredGroup(m, 1, SETTLED_ID));
+	readSettlements(census, text);
 
 	const { rows } = parseJsonl(text);
 	for (const rec of /** @type {TranscriptRecord[]} */ (rows))
@@ -185,6 +210,25 @@ function readPendingTasks(file) {
 		launches: all,
 		pending: all.filter((l) => isStillOut(census, l)),
 	};
+}
+
+/**
+ * Records each final notification's tool-use id and task-id, and each
+ * hand-back's handle. An interim notification records nothing.
+ * @param {Census} census accumulator: the settlements are recorded in it
+ * @param {string} text the transcript's raw text
+ */
+function readSettlements(census, text) {
+	for (const m of text.matchAll(NOTIFICATION)) {
+		const block = requiredGroup(m, 1, NOTIFICATION);
+		if (INTERIM.test(block)) continue;
+		const id = TOOL_USE_ID.exec(block)?.[1];
+		if (id !== undefined) census.settled.add(id);
+		const handle = TASK_ID.exec(block)?.[1];
+		if (handle !== undefined) census.settledHandles.add(handle);
+	}
+	for (const m of text.matchAll(HANDED_BACK))
+		census.settledHandles.add(requiredGroup(m, 1, HANDED_BACK));
 }
 
 /**
@@ -304,10 +348,11 @@ function readCall(census, part) {
 }
 
 /**
- * Is this launch still out? Settled by its notification, by a `TaskStop` that
- * stopped its handle, by a `tool_result` saying the launch was refused, or —
- * for a subagent only — by a result that announces no background handle,
- * which is a foreground agent's own report.
+ * Is this launch still out? Settled by its final notification, by a
+ * `TaskStop` that stopped its handle, by a `tool_result` saying the launch was
+ * refused, or — for a subagent only — by a final notification or hand-back
+ * naming its handle, or a result that announces no background handle, which
+ * is a foreground agent's own report.
  * @param {Census} census
  * @param {Launch} l
  * @returns {boolean}
@@ -316,6 +361,12 @@ function isStillOut(census, l) {
 	if (census.settled.has(l.id)) return false;
 	const handle = census.handles.get(l.id);
 	if (handle !== undefined && census.stopped.has(handle)) return false;
+	if (
+		l.kind === "subagent" &&
+		handle !== undefined &&
+		census.settledHandles.has(handle)
+	)
+		return false;
 	const res = census.results.get(l.id);
 	/* No result at all is unmeasured, so it keeps the busy reading rather than
 	 * earning a refusal. */
