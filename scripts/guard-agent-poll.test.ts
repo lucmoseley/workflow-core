@@ -85,7 +85,7 @@ describe("the guard, end to end", () => {
 		const out = emission(bashCall("sleep 1; ls"), env);
 		expect(out?.permissionDecision).toBeUndefined();
 		expect(out?.additionalContext).toContain(
-			`node ${install}/scripts/watch-artefact.js <artefact> 120`,
+			`node ${install}/scripts/watch-artefact.js <artefact> 120 --log <output_file>`,
 		);
 	});
 
