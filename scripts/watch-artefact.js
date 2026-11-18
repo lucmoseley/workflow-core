@@ -7,7 +7,7 @@
  *
  * Usage:
  *   node scripts/watch-artefact.js <path> <interval-seconds> [ceiling-seconds]
- *     [--first-write <seconds>]
+ *     [--first-write <seconds>] [--log <agent-log>]
  *
  * The interval, ceiling and first-write deadline accept fractions. The first check is the baseline;
  * each later one compares the size with the check before it. Prints one start
@@ -43,7 +43,13 @@
  * interval would compare unequal windows, so reaching it reports CEILING
  * unjudged.
  *
- * IT CANNOT TELL A STALLED AGENT FROM A FINISHED ONE.
+ * GIVEN THE AGENT'S OWN LOG (`--log`, the launch result's `output_file`), A
+ * CHECK THAT SEES NO GROWTH READS IT FIRST (#5421): a call in flight
+ * (lib/subagent-log-state.js) counts as growth, so an agent waiting on a long
+ * tool call or model turn never draws STALLED or MISSING, and a hung one
+ * draws CEILING. A log that will not read is judged on growth alone, said
+ * once on stderr. Without a log, it cannot tell a stalled agent from a
+ * finished one.
  *
  * Joins no §N3 family: it is a tool an agent runs, not a check, guard,
  * generator or reporter, and its exit codes are its verdicts.
@@ -53,6 +59,7 @@ const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const { caught } = require("./lib/caught.js");
 const { parseOrExit } = require("./lib/cli-args.js");
+const { subagentLogState } = require("./lib/subagent-log-state.js");
 
 const DEFAULT_CEILING_S = 3600;
 const DEFAULT_FIRST_WRITE_S = 600;
@@ -69,7 +76,7 @@ const ADVICE = {
 };
 
 // This file's own path, which in an adopter is the plugin's, not `scripts/`.
-const USAGE = `usage: node ${__filename} <path> <interval-seconds> [ceiling-seconds] [--first-write <seconds>]`;
+const USAGE = `usage: node ${__filename} <path> <interval-seconds> [ceiling-seconds] [--first-write <seconds>] [--log <agent-log>]`;
 
 /**
  * @param {string} message
@@ -131,13 +138,21 @@ class SizeTrack {
 	/**
 	 * @param {number | null} now the size at this check
 	 * @param {number} elapsedMs since the start
+	 * @param {() => boolean} inFlight whether the agent has a call in flight,
+	 *   asked only of a check that saw no growth
 	 * @returns {"MISSING" | "STALLED" | null}
 	 */
-	observe(now, elapsedMs) {
+	observe(now, elapsedMs, inFlight) {
+		const grew = now !== null && now !== this.size;
+		if (!grew && inFlight()) {
+			this.idle = 0;
+			this.absent = 0;
+			this.size = now;
+			return null;
+		}
 		if (!this.seen && now === null)
 			return elapsedMs >= this.firstWriteMs ? "MISSING" : null;
 		this.seen = true;
-		const grew = now !== null && now !== this.size;
 		this.idle = grew ? 0 : this.idle + 1;
 		if (grew) this.lastGrowth = Date.now();
 		this.absent = now === null ? this.absent + 1 : 0;
@@ -160,13 +175,16 @@ function readArgs() {
 	const { positionals, flags } = parseOrExit(process.argv.slice(2), {
 		usage: USAGE,
 		max: 3,
-		flags: { "--first-write": "value" },
+		flags: { "--first-write": "value", "--log": "value" },
 	});
 	const [file, rawInterval, rawCeiling] = positionals;
 	if (!file) refuse("no artefact path");
 	const intervalMs = parseSeconds(rawInterval, "interval") * 1000;
+	const log = flags["--log"];
+	if (log === true || log === "") refuse("--log names no agent log");
 	return {
 		file,
+		log,
 		intervalMs,
 		ceilingMs: parseOptionalMs(rawCeiling, "ceiling", DEFAULT_CEILING_S),
 		firstWriteMs: Math.max(
@@ -181,14 +199,27 @@ function readArgs() {
 }
 
 async function main() {
-	const { file, intervalMs, ceilingMs, firstWriteMs } = readArgs();
+	const { file, log, intervalMs, ceilingMs, firstWriteMs } = readArgs();
 
 	const start = Date.now();
 	const tracker = new SizeTrack(readSizeOf(file), firstWriteMs);
 	writeFd(
 		2,
-		`watch-artefact: watching ${file} every ${intervalMs / 1000}s, first write by ${firstWriteMs / 1000}s, ceiling ${ceilingMs / 1000}s\n`,
+		`watch-artefact: watching ${file} every ${intervalMs / 1000}s, first write by ${firstWriteMs / 1000}s, ceiling ${ceilingMs / 1000}s, ${log ? `reading the agent log ${log} before a stall` : "on growth alone, no agent log"}\n`,
 	);
+
+	let unreadSaid = false;
+	const inFlight = () => {
+		if (!log) return false;
+		const read = subagentLogState(log);
+		if (read.state === "unread") {
+			if (!unreadSaid)
+				writeFd(2, `watch-artefact: ${read.why}; judging on growth alone\n`);
+			unreadSaid = true;
+			return false;
+		}
+		return read.state === "in-flight";
+	};
 
 	/** @param {keyof typeof ADVICE} verdict */
 	const finish = (verdict) => {
@@ -209,7 +240,11 @@ async function main() {
 			finish("CEILING");
 		}
 		await sleep(due - Date.now());
-		const verdict = tracker.observe(readSizeOf(file), check * intervalMs);
+		const verdict = tracker.observe(
+			readSizeOf(file),
+			check * intervalMs,
+			inFlight,
+		);
 		if (verdict) finish(verdict);
 	}
 }
