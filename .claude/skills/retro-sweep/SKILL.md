@@ -95,7 +95,7 @@ where `A=$(echo "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$CLAUDE_CODE_S
 — check `[ -d "$A" ]`: an unmatched glob or two matches leaves no one
 directory, and every log read below then fails.
 Then, per artefact, one backgrounded `node scripts/watch-artefact.js "$R/<sessionId>.md" 120`,
-and end the turn.
+and end the turn — in a background job, hold it instead (`rule:job-holds-turn`).
 
 ## 5. Stalls, cost and model
 

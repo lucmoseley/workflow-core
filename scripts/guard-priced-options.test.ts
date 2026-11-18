@@ -1534,7 +1534,7 @@ describe("a result: the message then buries (mantahostels#1210)", () => {
 			"Dispatched the reviewer.\n\nwaiting: its completion notification.";
 		expect(
 			runInJob(transcriptWith(text, [PENDING_LAUNCH]))?.reason ?? "",
-		).not.toContain("still running");
+		).not.toContain("writes `result:` and then keeps going");
 	});
 
 	it("measures the last result:, not one quoted earlier", () => {

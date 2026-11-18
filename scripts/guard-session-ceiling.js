@@ -147,6 +147,19 @@ const TURN_BAND = 100;
 const INVENTORY_STEP = `Before you end, take the inventory. Look over everything this session produced or named, and find each founder-facing item: (1) a deliverable the founder must still act on, such as a draft to send or a file to upload; (2) an act only he can do that is written only in chat or inside a comment, such as a check by eye; (3) a decision he has not answered, whose round you post on the issue that carries it. Each one must sit in an open issue: name the issue that carries it, or file one now. Chat, the status line and a closed issue's comment never count. Then end with the inventory ${INVENTORY.placement}: \`waits on you:\`, then ${INVENTORY.itemLines}, or ${INVENTORY.nothingLine}. In a background job, also end the status line with ${INVENTORY.statusTail}.`;
 
 /**
+ * `rule:job-holds-turn` (#5395): how a background job waits without ending its
+ * turn. A missing fragment costs the long form, never the block.
+ * @returns {string}
+ */
+function jobHoldsTurn() {
+	return require("./lib/rule-text").readRuleTextOr(
+		"job-holds-turn",
+		"In a background job, hold the turn on a foreground wait until it reports.",
+		"guard-session-ceiling waiting",
+	);
+}
+
+/**
  * The inventory step, led by the wait-for-your-own-work step and each launch
  * still out (#1179).
  * @param {import("./lib/pending-tasks").Launch[]} pending
@@ -159,7 +172,8 @@ function closingSteps(pending) {
 			(l) =>
 				`- ${l.name ? `${l.name} (${l.kind}, ${l.id})` : `${l.kind} ${l.id}`}`,
 		),
-		"Wait for it: in a background job hold this turn on a foreground wait (`scripts/bg-run.sh wait <name> 540`, `node scripts/landing-status.js --wait`) until it reports, since a job whose turn ends is listed completed (#5395); elsewhere end this turn on `waiting:`. Read each result as it lands and act on it. End on `result:` only when nothing is still out. Stop a watcher whose subject has already reported.",
+		"Wait for it: outside a background job end this turn on `waiting:`; in one, hold the turn as below. Read each result as it lands and act on it. End on `result:` only when nothing is still out. Stop a watcher whose subject has already reported.",
+		jobHoldsTurn(),
 		"",
 		INVENTORY_STEP,
 	].join("\n");

@@ -1876,21 +1876,17 @@ function needsInputWithoutRound(message, status, transcript) {
  */
 function waitingInJob(status) {
 	if (status.governing?.name !== "waiting:") return "";
+	/* A missing fragment costs the long form, never the refusal (#597). */
 	return (
-		"This turn ends a background job on `waiting:`. Claude Code lists a " +
-		"background job whose turn has ended as completed, whatever its last " +
-		"line says, so the founder reads a job still waiting as finished (#5395). " +
-		"Hold the turn instead, until what you launched reports:\n\n" +
-		"- a subagent: dispatch it in the foreground — several `Agent` calls in " +
-		"one message run in parallel, and the turn holds until each returns;\n" +
-		"- a long Bash job: `scripts/bg-run.sh run <name> <command>` in the " +
-		"background, then `scripts/bg-run.sh wait <name> 540` in the foreground, " +
-		"re-run until it reports;\n" +
-		"- a landing: `node scripts/landing-status.js --wait` in the foreground, " +
-		"re-run until it reads landed;\n" +
-		"- a launch already out: any of those foreground waits holds the turn, " +
-		"and its notification arrives inside it.\n\n" +
-		"Then end on what is true:\n\n" +
+		"This turn ends a background job on `waiting:`.\n\n" +
+		require("./lib/rule-text").readRuleTextOr(
+			"job-holds-turn",
+			"Claude Code lists a background job whose turn has ended as " +
+				"completed, so hold the turn on a foreground wait until what you " +
+				"launched reports",
+			"guard-priced-options waiting",
+		) +
+		"\n\nThen end on what is true:\n\n" +
 		INVENTORY.resultLine +
 		"\n" +
 		INVENTORY.needsInputLine

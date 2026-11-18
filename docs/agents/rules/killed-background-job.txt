@@ -32,9 +32,7 @@ A JOB THAT HAS ALREADY REPORTED OWES NO `waiting:`. A short backgrounded call
 often reports before your turn ends: read the output and carry on in the same
 turn (mantahostels#3432).
 
-IN A BACKGROUND JOB, NEVER END THE TURN ON `waiting:` (#5395): a job whose
-turn ends is listed completed. Hold the turn with
-`scripts/bg-run.sh wait <name> 540`, re-run until it reports.
+{rule:job-holds-turn}
 
 A WAKE MAY NEVER ARRIVE: a job that hangs, or runs detached, never
 notifies, so an interactive `waiting:` turn can be your last.

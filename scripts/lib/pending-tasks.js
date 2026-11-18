@@ -4,7 +4,8 @@
  * ITS CONSUMERS: `guard-session-ceiling.js` NAMES what is still out at a
  * context notice, so a session there waits for it before ending (#1179);
  * `guard-uncommitted-work.js` stands its own block down for a `waiting:` that
- * IS backed by a launch, and only for that one (mantahostels#2567); the reaper keeps a
+ * IS backed by a launch, and only for that one (mantahostels#2567), and
+ * `guard-unpushed-commits.js` passes over such a turn; the reaper keeps a
  * session whose launch is still out (#5387). `waiting:` claims "something
  * running will wake this session"; a false one stalls the session with
  * nothing coming to wake it.
@@ -30,8 +31,8 @@
  * launch a PreToolUse hook refused, whose `tool_result` carries `is_error`, and
  * a FOREGROUND `Agent` call, whose `tool_result` is the agent's own report and
  * which no notification ever follows. Either left counted as live would keep
- * this function permanently busy for the rest of the session, and the consumer
- * would never refuse again. The fourth is a successful `TaskStop` naming the
+ * this function permanently busy for the rest of the session, and the
+ * uncommitted-work guard would stand down for good. The fourth is a successful `TaskStop` naming the
  * launch's background handle, after which the harness writes no notification
  * (#2754; shape from transcript 03a6b5a2, L1967-1968): left live, the ceiling hook kept naming watchers already stopped.
  *
@@ -50,13 +51,12 @@
  * launch, the second because an unsettled launch reads as live. The only
  * verdict it returns confidently is `pending: []` over a transcript it parsed.
  *
- * THREE THINGS IT CANNOT SEE, all of them stalls the consumer therefore misses
- * nothing on — each reads as "nothing pending", which is the refusing verdict:
+ * THREE THINGS IT CANNOT SEE, each read as "nothing pending":
  * a job backgrounded with `&` or `nohup` inside a foreground Bash call, one
  * launched from inside a script, and a `waiting:` written with nothing launched.
  * The one it reads WRONG is a Bash launch or forked Skill whose notification
- * the harness never wrote and no `TaskStop` settled: it stays pending for the rest of the session, and
- * every later `waiting:` passes.
+ * the harness never wrote and no `TaskStop` settled: it stays pending for the
+ * rest of the session.
  *
  * A `killed` notification settles the launch like any other: nothing further
  * will wake the session. It does NOT mean the work never happened — the harness

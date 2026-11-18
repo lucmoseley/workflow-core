@@ -58,12 +58,13 @@ describe("a background job ending on `waiting:`", () => {
 		launchOut();
 		const reason = stop(WAITING);
 		expect(reason).toContain("This turn ends a background job on `waiting:`");
-		expect(reason).toContain(
-			"lists a background job whose turn has ended as completed",
-		);
-		expect(reason).toContain("`Agent` calls");
+		expect(reason).toContain("lists\na job whose turn has ended as completed");
+		expect(reason).toContain("`Agent` calls in one");
 		expect(reason).toContain("scripts/bg-run.sh wait <name> 540");
-		expect(reason).toContain("node scripts/landing-status.js --wait");
+		expect(reason).toContain(
+			"timeout 540 node scripts/landing-status.js --wait",
+		);
+		expect(reason).toContain("`timeout: 600000`");
 		expect(reason).toContain("result:");
 		expect(reason).toContain("needs input:");
 	});
@@ -78,9 +79,7 @@ describe("a background job ending on `waiting:`", () => {
 
 	it("judges only the marker latest in the message", () => {
 		launchOut();
-		expect(
-			stop(`${WAITING}\n\nresult: the review came back clean.`),
-		).not.toContain("background job on `waiting:`");
+		expect(stop(`${WAITING}\n\nresult: the review came back clean.`)).toBe("");
 	});
 
 	it("reads a quoted waiting: above a real one as the earlier", () => {
