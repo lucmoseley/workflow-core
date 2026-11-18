@@ -30,7 +30,8 @@ import {
 const { decide } = require("./pip-install.js") as {
 	decide: (command: string, ctx: object) => { deny: string } | null;
 };
-const { buildHostPorts } = require("./pip-install-host.js") as {
+const { URLS, buildHostPorts } = require("./pip-install-host.js") as {
+	URLS: Record<Port, (name: string) => string>;
 	buildHostPorts: () => Record<Port, (name: string) => Get>;
 };
 
@@ -169,50 +170,49 @@ const fakeAnswer = (port: Port, c: (typeof CASES)[number]) =>
 // Residual: where the public services do not answer, the live cases skip and
 // the fake's success and 404 answers go unchecked. The probe reads PyPI's
 // cached paths; a made-up name's 404 comes from its origin, which can stall
-// past curl's 8 s while the probe answers (#5402). So a live case whose
-// adapter call gets nothing skips where curl, asked the same URL outside the
-// adapter, gets nothing too; that origin staying silent leaves the case
-// skipped on every run.
+// past curl's 8 s while the probe answers (#5402); silenceReason then skips
+// the case on every run while that origin stays silent.
 let liveSkip: { reason: string | undefined } | undefined;
 function liveSkipReason(): string | undefined {
-	for (const url of [urlOf("pypi", "playwright"), urlOf("stats", "playwright")])
-		if (!answers(url, "-f")) return `PyPI or pypistats is unreachable: ${url}`;
+	for (const url of [URLS.pypi("playwright"), URLS.stats("playwright")])
+		if (!isAnswered(url, { okOnly: true }))
+			return `PyPI or pypistats is unreachable: ${url}`;
 	return undefined;
 }
 
-/** The URL lib/pip-install-host.js asks `port` for `pkg`. */
-function urlOf(port: Port, pkg: string): string {
-	const name = encodeURIComponent(pkg);
-	return port === "pypi"
-		? `https://pypi.org/pypi/${name}/json`
-		: `https://pypistats.org/api/packages/${name}/recent`;
-}
-
 /** Whether curl, outside the adapter, gets an HTTP answer from `url`: any
- * answer, or with `-f` a 2xx or 3xx. */
-function answers(url: string, ...flags: "-f"[]): boolean {
+ * answer, or with `okOnly` a 2xx or 3xx. */
+function isAnswered(url: string, { okOnly = false } = {}): boolean {
 	const { status } = spawnSync(
 		"curl",
-		[...flags, "-sS", "-o", "/dev/null", "--max-time", "8", url],
+		[
+			...(okOnly ? ["-f"] : []),
+			"-sS",
+			"-o",
+			"/dev/null",
+			"--max-time",
+			"8",
+			url,
+		],
 		{ stdio: "ignore" },
 	);
 	return status === 0;
 }
 
 /** Why a live adapter answer says nothing of the contract, if it does not:
- * it got nothing, and neither does curl asked the same URL directly. A
- * nothing curl alone can get is the adapter's fault, and fails. */
+ * it got nothing, and neither does curl asked the same URL directly. */
 function silenceReason(port: Port, pkg: string, real: Get): string | undefined {
 	if ("missing" in real || real.code !== null) return undefined;
-	const url = urlOf(port, pkg);
-	return answers(url) ? undefined : `no answer from ${url}`;
+	const url = URLS[port](pkg);
+	return isAnswered(url) ? undefined : `no answer from ${url}`;
 }
 
 describe.each(CASES)("$what", (c) => {
 	it.for(c.ports)(
 		"%s answers alike from the real adapter, the stub and the in-process fake",
-		// At worst the two 8 s probes on the first live case, then curl's 8 s
-		// and the 8 s re-ask of a silent URL.
+		// At worst 36 s: the two 8 s probes on the first live case, curl's 8 s,
+		// the stats port's 429 retry (1 s wait, 3 s ask) and the 8 s re-ask of
+		// a silent URL. The 4 s over that is a guess.
 		{ timeout: 40_000 },
 		(port, ctx) => {
 			if (c.real === "live") {
