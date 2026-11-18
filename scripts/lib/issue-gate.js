@@ -138,13 +138,20 @@ function firstLiveMatch(re, body) {
 }
 
 /**
- * The body's first live `**Gated on:**` line as written, for a writer that
- * replaces a body to carry over (#3636), or null.
+ * The body's first live `**Gated on:**` line as written, and the first live
+ * `**Gate basis:**` below it, for a writer that replaces a body to carry
+ * over (#3636, #5419), or null where no gate is.
  * @param {string} body
  * @returns {string|null}
  */
-function gateOnLineOf(body) {
-	return firstLiveMatch(GATE_ON_RE, body)?.[0].trim() ?? null;
+function gateLinesOf(body) {
+	const m = firstLiveMatch(GATE_ON_RE, body);
+	if (m === null) return null;
+	const gate = m[0].trim();
+	/* The gate line is live, so the text after it opens outside a fence. */
+	const below = body.slice(m.index + m[0].length);
+	const basis = firstLiveMatch(BASIS_RE, below)?.[0].trim();
+	return basis === undefined ? gate : `${gate}\n${basis}`;
 }
 
 /**
@@ -1355,7 +1362,7 @@ function secondMapVerdict(labels, readMaps) {
 module.exports = {
 	gateOf,
 	gateOnOf,
-	gateOnLineOf,
+	gateLinesOf,
 	resolveGate,
 	isGateHolding,
 	basisFaults,
