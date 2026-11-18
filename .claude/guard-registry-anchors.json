@@ -32,7 +32,7 @@
 	"scripts/check-release-lag.js": "0585c8b09615b7a2",
 	"scripts/check-research-added.js": "2bc04c392971ed79",
 	"scripts/check-roadmap-pair.js": "f2dc4a461354a7fc",
-	"scripts/check-roadmap-valid.js": "72724f6a927d43c5",
+	"scripts/check-roadmap-valid.js": "ae0a8237d31283d6",
 	"scripts/check-seat-utilisation.js": "136bd6f1a72759fd",
 	"scripts/check-stray-scratch.js": "9c8a5e9523ca5d74",
 	"scripts/check-superseded-values.js": "77d262990b441f20",

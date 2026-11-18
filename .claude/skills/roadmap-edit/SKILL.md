@@ -288,7 +288,7 @@ never skip them.
    ladder, and the warning names what to read. Relay it. A host that does not
    declare `"capacityLadder": true` gets a skip line instead (#748). It reads the
    **staged blob** against `HEAD`'s, never the working tree.
-   The scheduled `Document guards` job re-runs the same checker in `--tree`
+   The daily repo-checks run re-runs the same checker in `--tree`
    mode (mantahostels#974), judging the roadmap as it stands. That is what catches a break
    arriving by a route no commit gate sees — a `--no-verify` commit typed in the
    founder's own terminal, and `git cherry-pick`, `git revert`, `git rebase` or

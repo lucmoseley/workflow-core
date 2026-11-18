@@ -26,8 +26,8 @@ terminal — `scripts/guard-dispatch.js` (its `guard-commit-form` core) denies t
 session, on `git commit` alone (mantahostels#975). And `git cherry-pick`, `git revert`, `git rebase`
 and `git am`, which run no commit gate at all (measured at mantahostels#1679). An
 auto-resolving merge is not among them: `.husky/pre-merge-commit` gates it (mantahostels#1679).
-All are caught instead by the scheduled `Document guards` job, which re-runs the
-same checker in `--tree` mode (mantahostels#974). It never substitutes for
+All are caught instead by the daily repo-checks run, which re-runs the same
+checker in `--tree` mode (mantahostels#974). It never substitutes for
 the commit gate.
 
 **One finding neither this file's step 5 nor tree mode ever shows you:

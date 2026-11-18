@@ -642,8 +642,8 @@ describe("check-roadmap-valid --tree · unrecorded phase boundaries", () => {
 		expect(r.stderr).toContain("validate-p0 reads done");
 	});
 
-	/* The scheduled Document guards job is the only venue this finding has, and
-	 * it stays green — so the Actions annotation is what reports it (mantahostels#1377). */
+	/* Tree mode stays green on this finding, so under Actions an annotation is
+	 * what reports it (mantahostels#1377); repo-checks reads it as a WARN. */
 	it("annotates the unrecorded boundary for Actions, on stdout", () => {
 		put(ladderPath, ladder("None yet."));
 		put(HTML, gate("done"));

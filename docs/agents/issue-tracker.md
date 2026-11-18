@@ -16,13 +16,31 @@ Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all op
 
 ## The roadmap module
 
-**This section's card rules bind where the `roadmap` module is on** (`modules` in `.claude/workflow-core.json`). Where it is off, the tracker is the only backlog: the gating table below still applies, its card branch aside, and the title and close rules after it do not.
+**This section's card rules bind where the `roadmap` module is on** (`modules` in `.claude/workflow-core.json`). Where it is off, the tracker is the only backlog, and the card-title rule and the card-close route below do not apply; §Gating an issue keeps its own module-off branch.
 
 With the module on, `docs/reference-roadmap.html` is the sole authority for card state, phase, content and logs. GitHub Issues is the **working surface** — where a card's work is actually carried out.
 
 **Workflow:** roadmap card → opened as a GitHub issue → `/wayfinder` → completion → roadmap updated.
 
 **The roadmap lags the tracker by design, so absence from `reference-roadmap.html` means "not yet applied", never "not owned".** mantahostels#51 (the standing pass that applies settled decisions back onto the roadmap) holds decided-but-unapplied work in its open sub-issues, so skim those before opening any issue — and search the tracker in both states first, per §Where decisions get written below.
+
+### Issue titles: `<card-id> — <title>`
+
+<!-- rule:issue-title-card-id:begin -->
+Where the `roadmap` module is on, an issue that carries a roadmap card **must** be titled with the card id, an em dash, then the title — e.g. `id-match — Build the hostel ID-matching layer`. `/card-close` parses the prefix to find which card to mark `done`, and refuses to guess if it doesn't resolve to exactly one card — so an issue opened without the prefix cannot be closed by that command.
+<!-- rule:issue-title-card-id:end -->
+
+### Closing an issue
+
+<!-- rule:card-close-route:begin -->
+Where the `roadmap` module is on, close a card's issue via **`/card-close <issue-number>`**, which closes the issue and runs the `roadmap-edit` pipeline in one invocation. Closing one by any other route — `gh issue close`, the GitHub UI, a merge keyword — **leaves the roadmap stale**, and must be followed immediately by a roadmap update through the `roadmap-edit` skill.
+<!-- rule:card-close-route:end -->
+
+A hand `gh issue close` on a card's own issue is **denied** by the `guard-issue-close` core (mantahostels#220), at `PreToolUse`.
+
+`scripts/check-issue-card-drift.js` remains the backstop, reporting closed-issue/card-state disagreement in both directions after the fact; its scoping rules are in that script's header. **It only ever reports.** A drift entry is a prompt to decide the real state and record it through `roadmap-edit`, never a batch to auto-apply.
+
+## Working an issue
 
 ### Gating an issue: a date, a condition, or a close onto the card
 
@@ -61,22 +79,6 @@ Fourteen days governs dated gates alone — a judgement, not a measurement. A da
 `scripts/check-issue-labels.js` reports an open issue whose latest comment opens `**Blocked` or `**Refused attempt` and that has no open blocker and no gate line as PROSE-BLOCKED (#2309, ruled at #2212; #3111).
 
 **Never write a closed issue's trigger onto its card as prose** — the card stays the bare action guide (mantahostels#3291, mantahostels#3320).
-
-### Issue titles: `<card-id> — <title>`
-
-<!-- rule:issue-title-card-id:begin -->
-Where the `roadmap` module is on, an issue that carries a roadmap card **must** be titled with the card id, an em dash, then the title — e.g. `id-match — Build the hostel ID-matching layer`. `/card-close` parses the prefix to find which card to mark `done`, and refuses to guess if it doesn't resolve to exactly one card — so an issue opened without the prefix cannot be closed by that command.
-<!-- rule:issue-title-card-id:end -->
-
-### Closing an issue
-
-<!-- rule:card-close-route:begin -->
-Where the `roadmap` module is on, close a card's issue via **`/card-close <issue-number>`**, which closes the issue and runs the `roadmap-edit` pipeline in one invocation. Closing one by any other route — `gh issue close`, the GitHub UI, a merge keyword — **leaves the roadmap stale**, and must be followed immediately by a roadmap update through the `roadmap-edit` skill.
-<!-- rule:card-close-route:end -->
-
-A hand `gh issue close` on a card's own issue is **denied** by the `guard-issue-close` core (mantahostels#220), at `PreToolUse`.
-
-`scripts/check-issue-card-drift.js` remains the backstop, reporting closed-issue/card-state disagreement in both directions after the fact; its scoping rules are in that script's header. **It only ever reports.** A drift entry is a prompt to decide the real state and record it through `roadmap-edit`, never a batch to auto-apply.
 
 ### Every close says what is still outstanding
 
