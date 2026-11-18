@@ -2,7 +2,7 @@
 /*
  * The landing queue's one open issue per condition: filed urgent and bug, a
  * label taken off put back on refresh (#2694, ruled at #2672), and a gate a
- * session wrote kept through the refresh (#3636).
+ * session wrote kept through the refresh, its basis with it (#3636, #5419).
  *
  * Loosen it and a stalled or base-red queue's issue ranks with ordinary work, or
  * loses the gate that would close it.
@@ -80,9 +80,9 @@ it("reports a failed re-add on the refresh line rather than throwing, naming gh'
 	);
 });
 
-it("keeps a gate a session wrote on the body through a refresh (#3636)", () => {
+it("keeps a gate a session wrote on the body, and its basis, through a refresh (#3636, #5419)", () => {
 	const gate =
-		"**Gated on:** b9f96e964 is on main — check: git merge-base --is-ancestor b9f96e964 origin/main && echo on — abandon if: it is reverted";
+		"**Gated on:** b9f96e964 is on main — check: git merge-base --is-ancestor b9f96e964 origin/main && echo on — abandon if: it is reverted\n**Gate basis:** the lander moves main 25–60 min after a push (#2217)";
 	const refreshed: string[] = [];
 	const file = queueIssueFiler({
 		openIssue: () => ({
