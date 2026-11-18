@@ -377,6 +377,76 @@ describe("the escape", () => {
 	});
 });
 
+/* The escape reaches only the commit typed with it, never the lander's merge
+ * or a session's merge of main carrying that commit, which stage the same
+ * deletion. A commit dropping the module the documents belong to is its
+ * retirement (#5405, founder ruling Q1 (A)). */
+describe("a commit retiring the roadmap module", () => {
+	const config = ".claude/workflow-core.json";
+	const on = '{ "modules": ["roadmap"] }\n';
+	const off = '{ "modules": [] }\n';
+
+	it("stands the digest-version gate down, saying so, when the staged config drops the module", () => {
+		const { root } = fixture({
+			checkers: VERSION_CHECKERS,
+			committed: { ...PAIR, [config]: on },
+			staged: { [config]: off },
+			deleted: [ROADMAP, DIGEST],
+		});
+
+		const { code, output } = runGate(root, versionGate());
+		expect(code).toBe(0);
+		expect(output).toContain(
+			"drops the roadmap module from .claude/workflow-core.json — the digest-version check stands down",
+		);
+		expect(output).not.toContain("DELETES");
+		expect(output).not.toContain(STUB_MARKER);
+	});
+
+	it("stands the digest-render gate down too", () => {
+		const { root } = fixture({
+			checkers: ["scripts/check-digest-render.js"],
+			committed: { ...PAIR, [config]: on },
+			staged: { [config]: off },
+			deleted: [ROADMAP, DIGEST],
+		});
+
+		const { code, output } = runGate(
+			root,
+			cutGateScript("scripts/check-digest-render.js"),
+		);
+		expect(code).toBe(0);
+		expect(output).toContain("the digest-render check stands down");
+		expect(output).not.toContain("DELETES");
+	});
+
+	it("still refuses where the staged config keeps the module", () => {
+		const { root } = fixture({
+			checkers: VERSION_CHECKERS,
+			committed: { ...PAIR, [config]: on },
+			staged: { [config]: '{ "modules": ["roadmap", "landing"] }\n' },
+			deleted: [ROADMAP, DIGEST],
+		});
+
+		const { code, output } = runGate(root, versionGate());
+		expect(code).toBe(1);
+		expect(output).toContain("DELETES");
+	});
+
+	it("still refuses where HEAD's config never listed the module", () => {
+		const { root } = fixture({
+			checkers: VERSION_CHECKERS,
+			committed: { ...PAIR, [config]: off },
+			staged: { [config]: '{ "modules": [], "x": 1 }\n' },
+			deleted: [ROADMAP, DIGEST],
+		});
+
+		const { code, output } = runGate(root, versionGate());
+		expect(code).toBe(1);
+		expect(output).toContain("DELETES");
+	});
+});
+
 describe("apparatus genuinely missing is unchanged", () => {
 	// The second acceptance criterion of mantahostels#2894: a checkout that never held the
 	// file still skips and passes.

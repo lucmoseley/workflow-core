@@ -478,6 +478,7 @@
 			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/precommit-declared-commands.test.ts",
 			"scripts/precommit-eslint-gate.test.ts",
+			"scripts/precommit-gate-input-deletion.test.ts",
 			"scripts/precommit-staged-gate.test.ts",
 			"scripts/precommit-test-stamp.test.ts",
 			"scripts/release-plugin.test.ts",
@@ -4676,6 +4677,7 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/precommit-gate-input-deletion.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-digest-render.test.ts": [

@@ -134,7 +134,8 @@ hook_bound "${WFC_GITLEAKS:-gitleaks}" git --staged --redact || exit 1
 #
 # Fed from the INDEX, not the worktree: reading the files in place would judge
 # a half-written digest the commit does not carry.
-if armed '^(docs/reference-roadmap\.html|docs/roadmap-digest\.md)$'; then
+if armed '^(docs/reference-roadmap\.html|docs/roadmap-digest\.md)$' &&
+  ! drops_module roadmap digest-version; then
   staged_gate digest-version live status \
     'docs/reference-roadmap.html docs/roadmap-digest.md' \
     'node "${WFC_PLUGIN_ROOT:-.}"/scripts/check-digest-version.js "$sg_dir/reference-roadmap.html" "$sg_dir/roadmap-digest.md"' \
@@ -167,7 +168,8 @@ fi
 # scripts/lib/commit-form.js's LIMITS, #800). A commit landing by either route
 # is unchecked until the daily repo-checks run's digest-render check reaches it
 # (mantahostels#2895); `npm run check:digest-render` answers sooner.
-if armed '^(docs/reference-roadmap\.html|docs/roadmap-digest\.md|\.claude/skills/roadmap-edit/scripts/gen-roadmap-digest\.js)$'; then
+if armed '^(docs/reference-roadmap\.html|docs/roadmap-digest\.md|\.claude/skills/roadmap-edit/scripts/gen-roadmap-digest\.js)$' &&
+  ! drops_module roadmap digest-render; then
   # IN AN ADOPTER THE GENERATOR IS THE PLUGIN'S (#551): $WFC_PLUGIN_ROOT set
   # and naming neither this worktree's top nor the canonical checkout, which a
   # core worktree's plugin root may name. The host holds no copy, or one a
