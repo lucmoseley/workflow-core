@@ -118,7 +118,6 @@ const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { caught } = require("./lib/caught.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
-const { withoutLateEpipe } = require("./lib/child-failure.js");
 const { commitRoute, isReplayRoute } = require("./lib/commit-route.js");
 const { readText } = require("./lib/file-read.js");
 const { compareVersions } = require("./lib/compare-versions.js");
@@ -527,16 +526,14 @@ function scriptsOf(file, source) {
 function readCommentsInChild(root, strykerConfig, entries) {
 	const timeout =
 		Number(process.env.WFC_MUTATION_COMMENTS_TIMEOUT_MS) || COMMENTS_TIMEOUT_MS;
-	const r = withoutLateEpipe(
-		spawnSync(process.execPath, [STRYKER_COMMENTS], {
-			input: JSON.stringify({ root, strykerConfig, entries }),
-			encoding: "utf8",
-			// The result's own fd: a host config may print on stdout (#2727).
-			stdio: ["pipe", "ignore", "pipe", "pipe"],
-			maxBuffer: CHILD_MAX_BUFFER,
-			timeout,
-		}),
-	);
+	const r = spawnSync(process.execPath, [STRYKER_COMMENTS], {
+		input: JSON.stringify({ root, strykerConfig, entries }),
+		encoding: "utf8",
+		// The result's own fd: a host config may print on stdout (#2727).
+		stdio: ["pipe", "ignore", "pipe", "pipe"],
+		maxBuffer: CHILD_MAX_BUFFER,
+		timeout,
+	});
 	if (caught(r.error).code === "ETIMEDOUT")
 		return { error: `timed out after ${timeout} ms` };
 	try {
