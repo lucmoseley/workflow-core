@@ -9,18 +9,6 @@
 		},
 		{
 			"file": "CLAUDE.md",
-			"headline": "`docs/reference-roadmap.html` is the sole authority for card status, phase and card content.",
-			"claim": "A session answers card status from the digest or a summary",
-			"route": "no-trigger"
-		},
-		{
-			"file": "CLAUDE.md",
-			"headline": "Before answering any question about card status, phase or content, read `docs/roadmap-digest.md`.",
-			"claim": "A session answers a card question without the dependency map",
-			"route": "no-trigger"
-		},
-		{
-			"file": "CLAUDE.md",
 			"headline": "Closed GitHub issues are corpus, not history",
 			"claim": "A session calls a figure undefined after a file search alone",
 			"route": "no-trigger"

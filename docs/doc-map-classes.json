@@ -673,11 +673,6 @@
 				"kind": "path",
 				"ref": "roadmap-edit/SKILL.md",
 				"gloss": "the loop it defers to"
-			},
-			{
-				"kind": "path",
-				"ref": "docs/called-cards.md",
-				"gloss": "which cards are open for work"
 			}
 		],
 		"reader": "agent"
@@ -744,7 +739,7 @@
 		"consumes": [
 			{
 				"kind": "path",
-				"ref": "reference-roadmap.html",
+				"ref": "scripts/templates/adopter/reference-roadmap.html",
 				"gloss": "the shape it describes"
 			}
 		],
@@ -786,12 +781,8 @@
 			},
 			{
 				"kind": "path",
-				"ref": "docs/reference-roadmap.html"
-			},
-			{
-				"kind": "path",
-				"ref": "docs/roadmap-digest.md",
-				"gloss": "the smoke case"
+				"ref": ".claude/skills/roadmap-edit/scripts/roadmap-fixture.ts",
+				"gloss": "the fake roadmaps it runs against"
 			}
 		]
 	},
@@ -824,8 +815,8 @@
 			},
 			{
 				"kind": "path",
-				"ref": "reference-roadmap.html",
-				"gloss": "smoke case"
+				"ref": ".claude/skills/roadmap-edit/scripts/roadmap-fixture.ts",
+				"gloss": "the fake roadmaps it runs against"
 			}
 		]
 	},
@@ -1122,11 +1113,6 @@
 		"role": null,
 		"route": null,
 		"consumes": [
-			{
-				"kind": "path",
-				"ref": "reference-roadmap.html",
-				"gloss": "card state"
-			},
 			{
 				"kind": "note",
 				"ref": "its close, placement, claiming and labelling rules are backstopped by seven report-only checks, none of which may write to a tracked file"
@@ -1624,26 +1610,6 @@
 			}
 		]
 	},
-	"docs/called-cards.md": {
-		"section": "Governance & process docs",
-		"class": "source-of-truth",
-		"classQualifier": null,
-		"role": null,
-		"route": "Direct, by any session. A row is added only for a card the founder has called, never to unblock a session; removed once its card is done or set down (mantahostels#3483)",
-		"consumes": [
-			{
-				"kind": "path",
-				"ref": "scripts/lib/issue-phase-scope.js",
-				"gloss": "the guard-issue-phase-scope core, which reads it"
-			},
-			{
-				"kind": "path",
-				"ref": "docs/reference-roadmap.html",
-				"gloss": "which supplies each card's phase"
-			}
-		],
-		"reader": "both"
-	},
 	"docs/claude-user-settings.md": {
 		"section": "Skills & settings",
 		"class": "derived",
@@ -1898,7 +1864,7 @@
 		"section": "Governance & process docs",
 		"class": "source-of-truth",
 		"classQualifier": null,
-		"role": "This file, not the entry, is where a reader finds which part of each file holds the copy (mantahostels#1474); a `reference-roadmap.html` path's `locator` is the bare card id, ruled at mantahostels#1573 and set out in §B's preamble.",
+		"role": "This file, not the entry, is where a reader finds which part of each file holds the copy (mantahostels#1474).",
 		"route": "Direct, alongside the §B entry it serves",
 		"consumes": null
 	},
@@ -2020,15 +1986,6 @@
 		"role": "Every file under `docs/practice/` — one practice note per craft, `docs/practice/<craft>.md`, holding what leading professionals of that craft do and use, under one `Researched:` date (#2258)",
 		"route": "Direct. A refresh rewrites the note in place, git history the record",
 		"consumes": null
-	},
-	"docs/reference-roadmap.html": {
-		"section": "The roadmap triple",
-		"class": "source-of-truth",
-		"classQualifier": null,
-		"role": null,
-		"route": "**`roadmap-edit` skill only.** Never hand-edit",
-		"consumes": null,
-		"reader": "both"
 	},
 	"docs/research/adopter-suite-cost.md": {
 		"section": "Research runs",
@@ -2186,20 +2143,6 @@
 		"role": "Where test wait falls in workflow-core and mantahostels, and how much is boundary cost (#2194): push-selected runs and queue wait dominate locally, CI Vitest is 82% of the job and bounded by total file-seconds, bash-guard tests 26% of CI file-seconds.",
 		"route": null,
 		"consumes": null,
-		"reader": "agent"
-	},
-	"docs/roadmap-digest.md": {
-		"section": "The roadmap triple",
-		"class": "derived",
-		"classQualifier": null,
-		"role": null,
-		"route": "`gen-roadmap-digest.js`, committed with the HTML. `check-digest-version.js` fails on a drifted version line, `check-digest-render.js` on bytes differing from a fresh render — of the HTML, the digest and the generator as the index holds them, never the worktree. A generator that will not run refuses too, and so does a staged deletion of any of the three (mantahostels#2894); only a path that was never in the index makes the gate skip. `roadmap-digest.yml` runs it on the sweeps as well (mantahostels#2895)",
-		"consumes": [
-			{
-				"kind": "path",
-				"ref": "reference-roadmap.html"
-			}
-		],
 		"reader": "agent"
 	},
 	"docs/test-read-edges.json": {
