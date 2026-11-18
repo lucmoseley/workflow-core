@@ -1,0 +1,70 @@
+#!/usr/bin/env sh
+# prepare-commit-msg — runs the gate stack on a commit or merge `pre-commit` did
+# not gate, `--no-verify` among them, and gitleaks alone on a replay
+# (mantahostels#1705, mantahostels#1706); refuses a message that would close an
+# issue (workflow-core#138).
+#
+# `--no-verify` skips `pre-commit`, `commit-msg` and `pre-merge-commit`, and
+# skips THIS hook on none of them — measured on git 2.43.0 at mantahostels#1705 and pinned
+# by scripts/prepare-commit-msg-gate.test.ts. So this is where the two
+# spellings `git merge --no-verify` and `git commit --no-verify` meet the
+# gates.
+#
+# IMPLICIT:  runs the whole of .husky/pre-commit over the staged (or merge)
+#            content, on every commit that reaches this hook — EXCEPT on the
+#            replay path below (cherry-pick, rebase, `rebase --continue`),
+#            where it runs gitleaks alone and, on a cherry-pick, the review hold
+#            (mantahostels#1706, workflow-core#3905).
+#            It also refuses a message carrying a GitHub closing keyword before
+#            an issue reference, on every route but a replay and a message
+#            still to be typed into $EDITOR (workflow-core#138). On a commit that passes,
+#            writes the review hold's `Review-Tier:` trailer through
+#            scripts/review-tier-trailer.js (workflow-core#3664), which refuses a tree that
+#            moved after the hold passed and fails the hold on re-reading it
+#            (workflow-core#3905). Every step is a row of
+#            scripts/lib/prepare-commit-msg-rows.js, run in one Node process
+#            by scripts/prepare-commit-msg-dispatch.js (workflow-core#5207), which reads
+#            the route through scripts/lib/commit-route.js; a missing
+#            dispatcher refuses every commit. Every step but the inline
+#            pre-commit runs under scripts/lib/hook-bound.sh's wall-clock
+#            limit, and one that hangs refuses the commit (workflow-core#5213).
+# JUSTIFIED: fail-safe — this is the one hook that can refuse a commit and
+#            that `--no-verify` leaves running, and a gate skipped here runs next
+#            only in CI, after the push.
+# DEFEAT:    `HUSKY=0`, and `core.hooksPath` pointed off `.husky/_`, which
+#            turn off every hook in the repo at once; WFC_HOOK_LIMIT_S moves
+#            the limit.
+#            `scripts/guard-dispatch.js` (its `guard-commit-form` core) denies `--no-verify`
+#            on `git commit`, `git merge`, `git rebase`, `git cherry-pick` and
+#            `git revert` in an agent session unless wrapped;
+#            `scripts/lib/commit-form.js`'s LIMITS holds the whole defeat list (workflow-core#800). Which
+#            binary the replay path's scan runs is named by WFC_GITLEAKS (§N7,
+#            workflow-core#224).
+#
+# A refusal aborts the operation: git exits 1 and writes no commit. On a merge
+# it leaves the merge IN PROGRESS with MERGE_HEAD set, exactly as a
+# `pre-merge-commit` refusal does — `.husky/pre-merge-commit`'s header has what
+# that strands and how to clear it.
+
+set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (workflow-core#745)
+# The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (workflow-core#3307); skipped where the lib is missing.
+# shellcheck source=scripts/lib/hook-root.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
+
+here="$(dirname "$0")"
+dispatcher="${WFC_PLUGIN_ROOT:-$here/..}/scripts/prepare-commit-msg-dispatch.js"
+
+# The route decides between the whole stack and gitleaks alone, so a
+# dispatcher that cannot read it refuses rather than guessing either (workflow-core#1503).
+if [ ! -r "$dispatcher" ]; then
+  echo "prepare-commit-msg: $dispatcher is missing, so this commit's route cannot be read." >&2
+  echo "  Refusing rather than gating it as an ordinary commit (workflow-core#1503)." >&2
+  exit 1
+fi
+
+# Every step under the one wall-clock limit (workflow-core#4187) but the inline
+# .husky/pre-commit, which the dispatcher runs with the clock paused (workflow-core#5213).
+hb_pausable=1
+# shellcheck source=scripts/lib/hook-bound.sh
+[ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"
+node "$dispatcher" --husky "$here" "$@"

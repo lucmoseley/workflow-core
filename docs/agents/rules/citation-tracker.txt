@@ -1,0 +1,22 @@
+A CITATION OF THIS REPO'S TRACKER IS BARE — `#N`. `mantahostels#N` NAMES THE
+INHERITED TRACKER, A DIFFERENT SET OF ISSUES UNDER THE SAME LOW NUMBERS.
+
+DO NOT COPY THE SURROUNDING LINES. Most of the citations in any file carry the
+prefix, because a mass rewrite put it there — so matching the file's local
+style is the likelier mistake.
+
+WHAT IS CAUGHT is the decidable half — named on the `Write` or `Edit`, refused
+at the commit: a `mantahostels#N` for a number the inherited tracker never used
+anywhere at `ec8654cd`, which cannot be a genuine reference to it. The other
+half — a number BOTH trackers used — needs both issues read, and the inherited
+tracker is unreachable from here. Nothing catches it: check by hand.
+
+A `"kind": "external"` entry in `docs/doc-map-classes.json` names the other
+tracker deliberately; the prefix is that entry's content and is left alone.
+So is an owner-qualified `lucmoseley/mantahostels#N`, a deliberate cross-repo
+reference.
+
+Genuinely citing an inherited issue the corpus never cited? Put
+`citation-exempt: <why>` on the line — nothing validates the reason.
+`WFC_CITATION_TRACKER_OFF=1` stands the commit gate down for one commit,
+named on that commit's `Weakens:` line.

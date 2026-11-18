@@ -1,0 +1,52 @@
+# measurement-and-experiment-design
+
+Researched: 2026-11-10
+
+## Window size
+
+- Size the window by a count of independent events, not by the clock: "The higher the processing rate, the less time is required to get a representative sample", and a canary ended "after receiving just a handful of queries doesn't provide a useful signal". SRE Workbook, "Canarying Releases"; "Alerting on SLOs" §Low-traffic services [named expert]; Spinnaker canary best practices (at least 50 data points per metric) [named expert]
+- Add a time floor only where the rate depends on time, and name the cycle: one work unit (SRE Workbook), a full week for day-of-week effects, longer for novelty or learning effects. Li and Yu, "Setting the duration of online A/B experiments", arXiv 2408.02830 (2024); Deng, "Causal Inference and Its Applications in Online Industry" ch. 7 [named expert]. Kohavi, Tang and Xu (2020) is paywalled, unread.
+- Tools set the window in time and do not check the count in it: Flagger minimum time `interval * (maxWeight / stepWeight)`; Argo Rollouts `count` x `interval`; Spinnaker lifetime and interval (start 3 h by 1 h); Kayenta judges each metric by Mann-Whitney U at `confLevel = 0.98`. Each for its own product [standard or field body]
+
+## Zero-event bounds
+
+- For a zero-event check, size n from the exact binomial bound: 0 events in n trials bounds the rate below p at confidence C when n >= ln(1 - C) / ln(1 - p), about 3/p at 95% (the rule of three) and 2.3/p at 90%. Eypasch et al., BMJ 1995;311:619 [named expert]; NIST/SEMATECH e-Handbook §7.2.4.1 (exact interval for few failures) and §8.3.1.1 (zero-failure factor 3.00 at 95%) [standard or field body]. Hanley and Lippman-Hand, JAMA 1983, is paywalled, unread.
+- The bound holds only for independent trials at one rate. Attempts in bursts from one cause count as fewer trials. NIST e-Handbook §8.3.1.1 ("constant failure rate") [standard or field body]
+- A plan that fails at the first event can fail a good fix: at n = 3/p a fix whose true rate is p passes only 5% of the time. Where a good fix must pass, allow r failures and take the longer n. NIST e-Handbook §8.3.1.1 ("iterate on r") [standard or field body]
+
+## Before and after samples
+
+- For "did the rate drop", test the after sample against the before sample with a two-sample exact test: the conditional Poisson test or Fisher's exact test, below. Krishnamoorthy and Thomson, "A more powerful test for comparing two Poisson means", JSPI 2004, free author copy [named expert]; NIST/SEMATECH e-Handbook §7.3.3 [standard or field body]
+- Do not use the lower-bound target: setting the target at the baseline's 95% lower bound and sizing n by the zero-event bound treats that bound as exact and asks 95% again on top, so a small baseline's window grows several-fold (table below). No free source read states this; it rests on the arithmetic, rechecked numerically (workflow-core#5401, workflow-core#5407).
+- Events over time (k1 in T1, k2 in T2): use the conditional test of Przyborowski and Wilenski (Biometrika 1940). Given k1 + k2, k2 is binomial with p = T2/(T1 + T2); the one-sided binomial test gives the p-value. Krishnamoorthy and Thomson 2004 [named expert]. R `poisson.test` (two-sample form) and `exactci::poisson.exact` run it; in SciPy run `binomtest(k2, k1 + k2, T2/(T1 + T2), alternative='less')`, since `poisson_means_test` is the E-test; statsmodels `test_poisson_2indep` defaults to an asymptotic score test, so pass `method='exact-cond'`. Each tool's own docs [standard or field body]. Przyborowski and Wilenski 1940 is paywalled, unread.
+- Events per trial (k1 of n1, k2 of n2): use one-sided Fisher's exact test where the samples are small, a z-test where they are large. NIST/SEMATECH e-Handbook §7.3.3 [standard or field body]
+- The E-test is more powerful than the conditional test, which is conservative, but its size is only approximate ("seldom exceeds the nominal level"). Krishnamoorthy and Thomson 2004 [named expert]. Gu, Ng, Tang and Schucany, Biometrical Journal 2008, recommend a likelihood-ratio test from simulation [named expert]; abstract read only, its free SMU tech report (TR356) unread.
+- With k events in T1 and none after, the conditional test passes at confidence C once (T1/(T1 + T2))^k <= 1 - C, so T2 = T1 x ((1 - C)^(-1/k) - 1), from the test's binomial form (Krishnamoorthy and Thomson 2004) [named expert]. At 95% one-sided, against the lower-bound target's 3T1/L(k), where L(k) is the exact Poisson 95% lower bound on k:
+
+  | k before | two-sample T2/T1 | lower-bound T2/T1 |
+  |---|---|---|
+  | 1 | 19 | 58 |
+  | 2 | 3.5 | 8.4 |
+  | 3 | 1.7 | 3.7 |
+  | 4 | 1.1 | 2.2 |
+  | 5 | 0.82 | 1.5 |
+  | 10 | 0.35 | 0.55 |
+  | 30 | 0.11 | 0.14 |
+
+  The gap closes only as the baseline grows. Per trial, the Fisher form is C(n1, k)/C(n1 + n2, k) <= 1 - C: 3 events in 30 trials needs 50 clean trials, against 107 by the lower-bound target.
+- Size by the zero-event bounds above only for a question against a stated SLO or target rate. NIST e-Handbook §8.3.1.1 (testing against a stated failure rate) [standard or field body]
+
+## Stopping rules
+
+- Fix the sample size and the stopping rule before the window starts. A look that is not planned inflates false positives ("peek ... ten times" turns 1% into 5%). Miller, "How Not To Run an A/B Test" [named expert]
+- To stop early with a pass, use a sequential test fixed in advance: a group sequential test where the maximum n is known, an always-valid test (mSPRT) where it is not. Johari, Pekelis and Walsh, "Always Valid Inference", arXiv 1512.04922; Spotify Engineering, "Choosing a Sequential Testing Framework" (2023); Miller, "Simple Sequential A/B Testing" (2015) [named expert]
+- Stop early with a fail at the first failure the plan does not allow: a plan that passes at r or fewer failures can no longer pass after failure r + 1. NIST e-Handbook §8.3.1.1 (passes with "no more than a pre-specified number of failures") [standard or field body]; Argo `failureLimit`, Flagger `threshold`, a Spinnaker critical metric, each one adopter [unverified]
+- Extend only by a planned maximum: truncate a sequential plan at about three times the fixed-plan n. NIST e-Handbook §6.2.6 [standard or field body]
+- Extending by a human decision on an inconclusive result gives up the stated confidence. Argo Rollouts (Inconclusive pauses for a human), one adopter [unverified]; sets no default
+
+## Controls and the stated plan
+
+- Compare against a control in the same period where one exists; a before/after window is weaker, because "time is one of the biggest sources of change in observed metrics". SRE Workbook, "Canarying Releases"; Spinnaker (baseline deployed at the same time) [named expert]
+- On a shared, loaded host, time the two versions at the same moment rather than one after the other, and judge them by the paired ratio: both runs meet the same interference, which the pairing filters out. It gives a relative figure only, never an absolute time. Bulej, Horký and Tůma, "Initial Experiments with Duet Benchmarking" (ICPE 2019 companion) and "Duet Benchmarking: Improving Measurement Accuracy in the Cloud", arXiv 2001.05811 (ICPE 2020) [named expert]
+- The two concurrent runs contend with each other, CPU scheduling included, so alternate which starts first and keep each to the smallest unit compared. "Investigating the Impact of Isolation on Synchronized Benchmarks", arXiv 2511.03533 (2025) [named expert]
+- A defended window states the question, the baseline as k/N with its source, the target bound, the confidence, the method, the resulting n with its expected time at the observed rate, and the stopping rule. Full survey: workflow-core#4926.

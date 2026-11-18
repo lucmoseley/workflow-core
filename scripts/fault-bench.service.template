@@ -1,0 +1,6 @@
+[Unit]
+Description=Run #3246's page-fault bench at 28 h uptime (#4768)
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I "@SCRIPT@" run --log "@LOG@" --minute-log "@MINUTE_LOG@"

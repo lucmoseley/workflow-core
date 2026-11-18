@@ -1,0 +1,19 @@
+PUSH YOUR QUEUE REF ONCE THE TESTS YOU TOUCHED PASS — run them by name or with
+the bare test command; the queue lander runs the full suite. The push is your
+own act; never ask the founder for it. Push before the turn's last message, or
+say in that message why the push is held.
+
+  {command:test}
+  {command:typecheck}
+  {command:check}
+  <the edited file's own checker>
+  node scripts/session-checkout.js land
+
+A push costs nothing; holding one back buys nothing. `.husky/post-commit`'s
+unpushed count is a reminder, not a prompt.
+
+A REJECTED PUSH means your queue ref holds a commit HEAD lacks: merge it as the
+land step says, then land again.
+
+`result:` never rests on a queue push alone: write it only once `node
+scripts/landing-status.js` reads the commit landed.

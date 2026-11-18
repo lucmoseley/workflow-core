@@ -1,0 +1,8 @@
+A GUARD'S NEW `source` LINE NEEDS A DIRECTIVE ABOVE IT:
+
+  # shellcheck source=scripts/lib/<lib>.sh
+  source "$here/lib/<lib>.sh"
+
+shellcheck's `-x` cannot resolve `"$here/lib/..."` statically, so without the
+directive that lib's globals come back as unassigned-variable noise — findings
+that are about the path, not the script.
