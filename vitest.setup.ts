@@ -187,6 +187,22 @@ process.env.WFC_REFILL_DIR = testRefillDir;
 afterAll(() => fs.rmSync(testRefillDir, { recursive: true, force: true }));
 
 /*
+ * NO TEST ADOPTS GUARD CODE INTO THE MACHINE'S CODE DIR (#5427): the real
+ * lander a case drives adopts from its fixture repo after moving `main`, and
+ * a fixture that passed the probe would flip `.guard-code.current` for every
+ * guard on the machine. An override, as above; a case that names its own wins.
+ * Named one level inside the temp dir, as the adopter writes its `.current`,
+ * `.refused`, log and probe host beside the code dir, not in it.
+ *
+ * WHAT IT DOES NOT COVER: a spawn that builds its `env` from scratch.
+ */
+const testGuardCodeDir = fs.mkdtempSync(
+	path.join(os.tmpdir(), "wfc-test-guard-code-"),
+);
+process.env.WFC_GUARD_CODE_DIR = path.join(testGuardCodeDir, ".guard-code");
+afterAll(() => fs.rmSync(testGuardCodeDir, { recursive: true, force: true }));
+
+/*
  * NO TEST READS OR WRITES THE MACHINE'S SECRETS FILE (#3202): a guard reaching
  * for its key would find the real one, and a pasted write-secret.js line would
  * add to it. An override, as above. WFC_SECRETS_FILE rather than
