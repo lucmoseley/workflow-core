@@ -4,9 +4,15 @@
  * session can edit (#2361, #4203). Two instances: the refill loop's
  * (lib/refill-code.js) and the guard hooks' (lib/guard-code.js).
  *
- * AN INSTANCE is a code directory holding one worktree per sha, and links
- * beside it — `<codeDir>.current`, and the guards' `<codeDir>.previous` — each
- * moved in one rename.
+ * AN INSTANCE is a code directory holding one worktree per sha, each named for
+ * the sha it is detached at, and links beside it — `<codeDir>.current`, and the
+ * guards' `<codeDir>.previous` — each moved in one rename.
+ *
+ * A NEW SHA IS CHECKED OUT IN PLACE (#5426): in the spare, one worktree kept
+ * beside those the instance holds, so an adoption writes only the files that
+ * changed, not a fresh tree. The spare is renamed out of its sha's name first
+ * and into the new one only once the checkout finishes, so a name always
+ * means a whole tree; a worktree any caller keeps is never rewritten.
  *
  * Every git call runs from `repo`, any worktree of the checkout: they share
  * refs, so a fetch from one is read from all.
@@ -111,8 +117,9 @@ function fetchVerified(repo) {
 const readVerifiedSha = (repo) => commitSha(repo, VERIFIED_REF);
 
 /**
- * Whether `git worktree add` finished at `dir`: it writes the index only after
- * every file, so a kill mid-checkout leaves none.
+ * Whether the worktree at `dir` is whole: `git worktree add` writes the index
+ * only after every file, so a kill mid-checkout leaves none, and an in-place
+ * checkout is named for its sha only once done.
  * @param {string} dir
  * @param {string} program the instance's program, relative to a worktree
  */
@@ -128,16 +135,83 @@ function isWholeWorktree(dir, program) {
 	}
 }
 
+/* A worktree's name: the full sha it is detached at, sha-1 or sha-256. */
+const SHA_NAME = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
+
 /**
- * The worktree at `sha` in `codeDir`, checked out where it is not yet.
+ * The spare in `codeDir`: a whole worktree other than any `keep` names, or
+ * null. `keep` null keeps every one, as where /proc would not say which a
+ * live process runs from.
+ * @param {{codeDir: string, program: string}} instance
+ * @param {Array<string|null>|null} keep worktrees, by any spelling of the
+ *   code directory: compared by name
+ */
+function spareOf({ codeDir, program }, keep) {
+	if (keep === null) return null;
+	const kept = new Set(
+		keep.filter((k) => k !== null).map((k) => path.basename(k)),
+	);
+	let names;
+	try {
+		names = fs.readdirSync(codeDir).sort();
+	} catch {
+		// No code directory yet: no spare.
+		return null;
+	}
+	const name = names.find(
+		(n) =>
+			SHA_NAME.test(n) &&
+			!kept.has(n) &&
+			isWholeWorktree(path.join(codeDir, n), program),
+	);
+	return name === undefined ? null : path.join(codeDir, name);
+}
+
+/**
+ * Check `sha` out in `spare`, renamed to `dir` once done: out of its own
+ * name first, so a kill midway leaves no name over a mixed tree. Where a step
+ * fails, the spare is removed.
+ * @param {string} repo
+ * @param {string} spare
+ * @param {string} dir
+ * @param {string} sha
+ * @returns {boolean} whether `dir` holds it
+ */
+function checkoutInPlace(repo, spare, dir, sha) {
+	const staging = `${dir}.${process.pid}`;
+	try {
+		git(repo, ["worktree", "move", spare, staging]);
+	} catch {
+		/* Another adopter moved it first, or git will not read it. */
+		return false;
+	}
+	try {
+		git(staging, ["checkout", "--quiet", "--force", "--detach", sha]);
+		git(staging, ["clean", "--quiet", "-ffdx"]);
+		git(repo, ["worktree", "move", staging, dir]);
+		return true;
+	} catch {
+		removeWorktree(repo, staging);
+		return false;
+	}
+}
+
+/**
+ * The worktree at `sha` in `codeDir`, checked out where it is not yet: in
+ * place in the spare where there is one, else a fresh tree.
  * @param {{repo: string, codeDir: string, program: string}} instance
  * @param {string} sha
+ * @param {Array<string|null>|null} keep the worktrees a running process may
+ *   load from, never rewritten; null keeps every one
  */
-function worktreeAt({ repo, codeDir, program }, sha) {
+function worktreeAt(instance, sha, keep) {
+	const { repo, codeDir, program } = instance;
 	const dir = path.join(codeDir, sha);
 	if (isWholeWorktree(dir, program)) return dir;
 	/* A checkout a kill cut short: --force takes over its registration. */
 	fs.rmSync(dir, { recursive: true, force: true });
+	const spare = spareOf(instance, keep);
+	if (spare !== null && checkoutInPlace(repo, spare, dir, sha)) return dir;
 	fs.mkdirSync(codeDir, { recursive: true });
 	git(repo, ["worktree", "add", "--force", "--detach", dir, sha]);
 	return dir;
@@ -232,6 +306,7 @@ module.exports = {
 	readVerifiedSha,
 	removeWorktree,
 	reregister,
+	spareOf,
 	short,
 	whyOf,
 	worktreeAt,

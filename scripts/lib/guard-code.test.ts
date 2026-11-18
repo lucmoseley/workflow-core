@@ -96,13 +96,11 @@ describe("adoption", () => {
 		expect(r?.kind).toBe("refused");
 		expect(r?.why).toMatch(/Unexpected token/);
 		expect(live()).toBe(path.join(codeDir, good));
-		expect(fs.existsSync(path.join(codeDir, bad))).toBe(false);
 		expect(fs.readFileSync(files().refused, "utf8")).toBe(`${bad}\n`);
 		expect(fs.readFileSync(files().log, "utf8")).toMatch(
 			new RegExp(`refused ${bad.slice(0, 9)}: .*Unexpected token`),
 		);
 		expect(adopt()).toEqual({ kind: "known-refused", sha: bad });
-		expect(fs.existsSync(path.join(codeDir, bad))).toBe(false);
 	});
 
 	it("refuses a tip whose probe call is denied, as a core whose module fails to load answers", () => {
@@ -132,17 +130,61 @@ describe("adoption", () => {
 		expect(adopt()).toEqual({ kind: "adopted", sha });
 	});
 
-	it("keeps the code it replaces as the previous, and removes every other worktree", () => {
+	it("keeps the code it replaces as the previous, and one spare beside, removing every other worktree", () => {
 		const first = land(OK);
 		adopt();
 		const second = land(`${OK}// two\n`);
 		adopt();
+		fs.mkdirSync(path.join(codeDir, "stray"));
 		const third = land(`${OK}// three\n`);
 		adopt();
 		expect(live()).toBe(path.join(codeDir, third));
 		expect(fs.readlinkSync(files().previous)).toBe(path.join(codeDir, second));
-		expect(fs.readdirSync(codeDir).sort()).toEqual([second, third].sort());
+		expect(fs.readdirSync(codeDir).sort()).toEqual(
+			[first, second, third].sort(),
+		);
+	});
+
+	it("checks a new tip out in place in the spare, never in the live or previous code (#5426)", () => {
+		const first = land(OK);
+		adopt();
+		land(`${OK}// two\n`);
+		adopt();
+		const third = land(`${OK}// three\n`);
+		adopt();
+		const inode = (sha: string) =>
+			fs.statSync(path.join(codeDir, sha, HOOKS)).ino;
+		const spareInode = inode(first);
+		const fourth = land(`${OK}// four\n`);
+		expect(adopt()).toEqual({ kind: "adopted", sha: fourth });
 		expect(fs.existsSync(path.join(codeDir, first))).toBe(false);
+		expect(inode(fourth)).toBe(spareInode);
+		const tree = path.join(codeDir, fourth);
+		expect(gitIn(tree)("rev-parse", "HEAD")).toBe(fourth);
+		expect(gitIn(tree)("status", "--porcelain", "--ignored")).toBe("");
+		expect(
+			fs.readFileSync(path.join(tree, "scripts/guard-dispatch.js"), "utf8"),
+		).toBe(`${OK}// four\n`);
+		expect(fs.readlinkSync(files().previous)).toBe(path.join(codeDir, third));
+	});
+
+	it("makes a fresh tree where the spare will not check out, leaving no half-made one", () => {
+		const first = land(OK);
+		adopt();
+		land(`${OK}// two\n`);
+		adopt();
+		land(`${OK}// three\n`);
+		adopt();
+		/* A kill mid-checkout leaves the lock behind. */
+		const gitDir = gitIn(path.join(codeDir, first))(
+			"rev-parse",
+			"--absolute-git-dir",
+		);
+		fs.writeFileSync(path.join(gitDir, "index.lock"), "");
+		const fourth = land(`${OK}// four\n`);
+		expect(adopt()).toEqual({ kind: "adopted", sha: fourth });
+		expect(gitIn(path.join(codeDir, fourth))("rev-parse", "HEAD")).toBe(fourth);
+		expect(fs.readdirSync(codeDir).filter((n) => n.includes("."))).toEqual([]);
 	});
 
 	it("adopts nothing in a checkout whose hooks do not run from it", () => {
