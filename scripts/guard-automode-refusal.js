@@ -10,9 +10,11 @@
  *
  * WHAT COUNTS AS A REFUSAL. A tool result since the last human prompt that is
  * an error and opens with the classifier's denial sentence, or a record the
- * harness tags `toolDenialKind: "automode-blocked"`. `automode-unavailable` is
- * the classifier giving no verdict, which the harness calls a transient
- * failure of the check and not a judgment (#5422). The sentence is anchored
+ * harness tags `toolDenialKind: "automode-blocked"`. A record tagged
+ * `automode-unavailable` never counts, whatever its text: it is the classifier
+ * giving no verdict, which the harness calls a transient failure of the check
+ * and not a judgment (#5422). Residual: a turn ending on one is not sent back,
+ * though the call did not run. The sentence is anchored
  * at the start because a tool result merely QUOTING it — a grep over
  * transcripts, a read of this file — is not a refusal. Reading the transcript
  * is safe here, unlike for the outgoing text (docs/agents/guard-authoring.md
@@ -126,6 +128,7 @@ function refusalsThisTurn(text, tier) {
 function refusalOf(record, block, uses) {
 	if (block?.type !== "tool_result") return null;
 	if (typeof block.tool_use_id !== "string") return null;
+	if (record.toolDenialKind === "automode-unavailable") return null;
 	const tagged = record.toolDenialKind === "automode-blocked";
 	const denial =
 		block.is_error === true

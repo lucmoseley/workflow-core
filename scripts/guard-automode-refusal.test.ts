@@ -215,6 +215,8 @@ describe("a turn it passes", () => {
 		expect(run().blocked).toBe(true);
 	});
 
+	// Paired with "knows it by the harness's tag alone, whatever the wording",
+	// which proves the tagged branch still fires (#5422).
 	it("passes the classifier giving no verdict, which is no refusal (#5422)", () => {
 		transcript([
 			prompt(),
@@ -230,6 +232,34 @@ describe("a turn it passes", () => {
 		]);
 
 		expect(run().blocked).toBe(false);
+	});
+
+	it("passes a no-verdict record even where its text is the denial sentence", () => {
+		transcript([
+			prompt(),
+			buildBashCall("ls", "toolu_A"),
+			{ ...refused("toolu_A"), toolDenialKind: "automode-unavailable" },
+		]);
+
+		expect(run().blocked).toBe(false);
+	});
+
+	it("lists only the refused call where a no-verdict one shares its turn", () => {
+		transcript([
+			prompt(),
+			buildBashCall("ls", "toolu_A"),
+			{
+				...result("toolu_A", "No verdict.", { is_error: true }),
+				toolDenialKind: "automode-unavailable",
+			},
+			buildBashCall("vercel deploy --prod", "toolu_B"),
+			refused("toolu_B"),
+		]);
+
+		const { reason } = run();
+		expect(reason).toContain("REFUSED A CALL THIS TURN");
+		expect(reason).toContain("vercel deploy --prod");
+		expect(reason).not.toContain("Bash: ls");
 	});
 
 	it("passes a result that merely quotes the denial sentence", () => {
