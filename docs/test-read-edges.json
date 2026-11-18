@@ -61718,6 +61718,7 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/templates/adopter/reference-roadmap.html": [
+			"scripts/check-roadmap-pair.test.ts",
 			"scripts/init-adopter-subjects.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/residue-patterns.test.ts",

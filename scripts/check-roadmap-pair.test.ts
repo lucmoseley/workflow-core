@@ -82,7 +82,10 @@ describe("check-roadmap-pair", () => {
 				if (checkout) fs.writeFileSync(path.join(root, "package.json"), "{}");
 				stage(
 					HTML,
-					fs.readFileSync(path.resolve(__dirname, "..", HTML), "utf8"),
+					fs.readFileSync(
+						path.resolve(__dirname, "templates/adopter/reference-roadmap.html"),
+						"utf8",
+					),
 				);
 				const r = check({ ...process.env, WFC_SCRIPT_ROOT: root });
 				const printed = r.stderr.match(/^ {2}node .*\\\n.*$/m)?.[0];
