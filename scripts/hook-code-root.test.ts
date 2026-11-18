@@ -26,6 +26,7 @@ import {
 } from "./lib/core-hooks.js";
 import { CANARY_MAIN_SCRIPTS, MAIN_SCRIPTS } from "./lib/core-hooks-testkit";
 import { initGitRepo } from "./lib/git-fixture";
+import { copyRequireClosure } from "./lib/require-closure";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const ROOT = path.resolve(__dirname, "..");
@@ -91,10 +92,7 @@ beforeAll(() => {
 		.readdirSync(path.join(ROOT, "scripts", "lib"))
 		.filter((f) => f.endsWith(".sh"))
 		.map((f) => path.join("scripts", "lib", f));
-	for (const rel of [...COPIED, ...libs]) {
-		fs.mkdirSync(path.dirname(path.join(main, rel)), { recursive: true });
-		fs.copyFileSync(path.join(ROOT, rel), path.join(main, rel));
-	}
+	copyRequireClosure(main, ROOT, [...COPIED, ...libs]);
 	spawnSync("git", ["-C", main, "add", "scripts"]);
 	spawnSync("git", ["-C", main, "commit", "-qm", "hooks"]);
 });

@@ -27887,6 +27887,7 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-test-stamp.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",

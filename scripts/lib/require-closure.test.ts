@@ -5,13 +5,16 @@
  * cache cannot fall back on a file already loaded from the real tree. Loosen
  * it and a fixture copying the config reader can again go missing a helper
  * the reader gains, failing the pre-commit gate suites on an unrelated commit.
+ * A shell file's edges are the scripts it names by path (#5423): loosen those
+ * cases and a fixture's hook launches a script its copy lacks, failing with
+ * ERR_MODULE_NOT_FOUND only after a queued run.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it } from "vitest";
-import { copyRequireClosure } from "./require-closure";
+import { copyRequireClosure, launchedScripts } from "./require-closure";
 
 let tmp: string;
 beforeEach(() => {
@@ -54,4 +57,48 @@ it("follows a require added later, transitively and extensionless (#1657)", () =
 		"b.js",
 	]);
 	expect(fs.existsSync(path.join(out, "util/c.js"))).toBe(true);
+});
+
+it("names the scripts a hook runs or sources by path, off its comments (#5423)", () => {
+	const hook = [
+		"# see scripts/lib/commented.js",
+		'. "$R"/scripts/lib/gate.sh',
+		'out="$(node "$R"/scripts/run.js --gate)"',
+		'd="$here/../scripts/dispatch.js"; node "$d" scripts/run.js',
+		"cat myscripts/x.js",
+	].join("\n");
+	expect(launchedScripts(hook)).toEqual([
+		"scripts/lib/gate.sh",
+		"scripts/run.js",
+		"scripts/dispatch.js",
+	]);
+});
+
+it("follows a shell file's launches and their requires, skipping a path it lacks (#5423)", () => {
+	const src = path.join(tmp, "src");
+	const out = path.join(tmp, "out");
+	const write = (rel: string, body: string) => {
+		fs.mkdirSync(path.dirname(path.join(src, rel)), { recursive: true });
+		fs.writeFileSync(path.join(src, rel), body);
+	};
+	write(
+		"scripts/lib/gate.sh",
+		'node "$R"/scripts/run.js\nnode "$R"/scripts/absent.js\n# scripts/lib/note.js\n',
+	);
+	write("scripts/run.js", 'require("./lib/dep.js");\n');
+	write("scripts/lib/dep.js", "");
+	write("scripts/lib/note.js", "");
+	write("scripts/plain.js", "// scripts/run.js\n");
+
+	copyRequireClosure(out, src, ["scripts/lib/gate.sh", "scripts/plain.js"]);
+
+	expect(fs.readdirSync(path.join(out, "scripts")).sort()).toEqual([
+		"lib",
+		"plain.js",
+		"run.js",
+	]);
+	expect(fs.readdirSync(path.join(out, "scripts/lib")).sort()).toEqual([
+		"dep.js",
+		"gate.sh",
+	]);
 });

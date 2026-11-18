@@ -4,7 +4,8 @@
  *
  * A fixture copying a fixed list of the config reader's files broke two
  * suites when the reader gained a sibling require (#1657); walking the
- * requires copies the next one too. Its own module, not
+ * requires copies the next one too. A shell file's edges are the scripts it
+ * names by path, as a hook launches `queue-run.js` (#5423). Its own module, not
  * precommit-gate-testkit.ts: the read-edges pass credits a helper's path
  * literals to each test that imports it, and this file names none.
  */
@@ -17,9 +18,25 @@ const require = createRequire(import.meta.url);
 const { requiredGroup } = require("./regex-group.js");
 
 const LOCAL_REQUIRE = /\brequire\(\s*["'](\.\.?\/[^"']+)["']\s*\)/g;
+const NAMED_SCRIPT = /(?<![\w.-])scripts\/[\w./-]+\.(?:js|sh)\b/g;
 
 /**
- * Every file `rels` reaches by a relative `require`, `rels` included, as paths
+ * Each repo-relative `scripts/…` path that shell `text` names on a line not
+ * opening as a comment, once each: the scripts a hook runs or sources by
+ * path, and any its messages name. Only shell text: a script's strings name
+ * scripts it never runs, and walking them reached 606 files from `check.js`.
+ */
+export function launchedScripts(text: string): string[] {
+	const code = text
+		.split("\n")
+		.filter((line) => !line.trimStart().startsWith("#"))
+		.join("\n");
+	return [...new Set(code.match(NAMED_SCRIPT))];
+}
+
+/**
+ * Every file `rels` reaches by a relative `require`, or from a `.sh` file by a
+ * `launchedScripts` path that exists under `source`, `rels` included, as paths
  * relative to `source`, in the order the walk meets them.
  */
 export function requireClosure(source: string, rels: string[]): string[] {
@@ -36,13 +53,19 @@ export function requireClosure(source: string, rels: string[]): string[] {
 			);
 			queue.push(fs.existsSync(path.join(source, dep)) ? dep : `${dep}.js`);
 		}
+		if (rel.endsWith(".sh"))
+			queue.push(
+				...launchedScripts(text).filter((dep) =>
+					fs.existsSync(path.join(source, dep)),
+				),
+			);
 	}
 	return [...seen];
 }
 
 /**
  * Copy each `rels` file from `source` into `root` at the same path, with every
- * file it reaches by a relative `require`. Pass the repo root through an
+ * file `requireClosure` reaches from it. Pass the repo root through an
  * anchor the test read-edges extractor knows, and list in full each file
  * whose edit should select the suite: the walk copies the rest but gives the
  * suite no read edge to it.

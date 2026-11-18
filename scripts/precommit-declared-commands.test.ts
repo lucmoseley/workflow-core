@@ -24,7 +24,7 @@ import { describe, expect, it } from "vitest";
 import { BIOME_STAGED_COMMAND } from "./lib/biome-allowlist.js";
 import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
 import { HOOK, LIB, ROOT } from "./lib/precommit-gate-testkit";
-import { copyRequireClosure } from "./lib/require-closure";
+import { copyRequireClosure, launchedScripts } from "./lib/require-closure";
 import { runInProcess } from "./lib/run-in-process";
 import { takeRed } from "./lib/typecheck-red-host.js";
 
@@ -63,6 +63,7 @@ function fixture(config: object | null, staged = "app/x.ts"): string {
 		"scripts/lib/isolated-worktree.js",
 		"scripts/queue-run.js",
 		"scripts/lib/infer-commands.js",
+		...launchedScripts(`${LIB}\n${Object.values(GATES).join("\n")}`),
 	]);
 	if (config) {
 		fs.mkdirSync(path.join(root, ".claude"));

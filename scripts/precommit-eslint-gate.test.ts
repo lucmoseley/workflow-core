@@ -31,7 +31,7 @@ import {
 	type TempRepo,
 } from "./lib/precommit-gate-harness";
 import { LIB, ROOT } from "./lib/precommit-gate-testkit";
-import { copyRequireClosure } from "./lib/require-closure";
+import { copyRequireClosure, launchedScripts } from "./lib/require-closure";
 import { shellQuote } from "./lib/sh-quote.js";
 
 const temps = registerTempCleanup();
@@ -71,6 +71,7 @@ function fixture(opts: {
 		"scripts/lib/workflow-core-config.js",
 		"scripts/lib/host-root.js",
 		"scripts/lib/caught.js",
+		...launchedScripts(`${LIB}\n${gateFragment()}`),
 	]);
 	fs.mkdirSync(path.join(root, ".claude"));
 	fs.writeFileSync(
