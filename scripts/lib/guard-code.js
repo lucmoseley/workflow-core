@@ -60,7 +60,6 @@ const {
 
 const PROGRAM = path.join("scripts", "guard-dispatch.js");
 const CODE_DIR_ENV = "WFC_GUARD_CODE_DIR";
-/* The scripts whose processes adopt: the hand route and the lander. */
 const ADOPTERS = ["adopt-guard-code.js", "queue-lander.js"];
 /* Untraced, the usual worst case: a holder's probe at its timeout and six
  * git calls at theirs (the spare's four-call checkout, its fallback add and

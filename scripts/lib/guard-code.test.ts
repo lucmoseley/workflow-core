@@ -204,7 +204,6 @@ describe("adoption", () => {
 		const first = land(
 			`require("fs").writeFileSync(${JSON.stringify(probing)}, ""); process.stdin.resume(); setTimeout(() => {}, 1500);\n`,
 		);
-		/* The slow probe crosses the real clock to hold X mid-adoption. */
 		const run = () =>
 			new Promise<{ code: number | null; out: string }>((resolve) => {
 				let out = "";
@@ -245,7 +244,7 @@ describe("adoption", () => {
 		);
 		expect(fs.readlinkSync(files().previous)).toBe(path.join(codeDir, first));
 		expect(fs.existsSync(files().previous)).toBe(true);
-	}, 60_000 /* a guess: both adopters' waits above, with room */);
+	}, 60_000 /* a guess: the 30 s wait above and both adoptions, with room */);
 
 	it("adopts nothing in a checkout whose hooks do not run from it", () => {
 		land(OK);
