@@ -257,7 +257,9 @@ describe("a routed-away session with burn mode off (#4992)", () => {
 describe("the watch command", () => {
 	it("names the watcher that ships beside this file", () => {
 		const watcher = String(
-			/^node '?(.*?)'? \S+ 120$/.exec(watchCommand(FILE))?.[1],
+			/^node '?(.*?)'? \S+ 120 --log <output_file>$/.exec(
+				watchCommand(FILE),
+			)?.[1],
 		);
 		expect(path.basename(watcher)).toBe("watch-artefact.js");
 		expect(fs.existsSync(watcher)).toBe(true);
@@ -266,12 +268,16 @@ describe("the watch command", () => {
 	// The watcher's own path is the checkout's, quoted or not, so only the
 	// artefact's half is pinned.
 	it("leaves a plain path bare", () => {
-		expect(watchCommand(FILE).endsWith(` ${FILE} 120`)).toBe(true);
+		expect(
+			watchCommand(FILE).endsWith(` ${FILE} 120 --log <output_file>`),
+		).toBe(true);
 	});
 
 	it("quotes a path a shell would split, apostrophe included", () => {
 		expect(
-			watchCommand("/my repo/it's.md").endsWith(` '/my repo/it'\\''s.md' 120`),
+			watchCommand("/my repo/it's.md").endsWith(
+				` '/my repo/it'\\''s.md' 120 --log <output_file>`,
+			),
 		).toBe(true);
 	});
 });
@@ -356,7 +362,7 @@ describe("the artefact line", () => {
 		expect(v.updatedInput.prompt).toContain("as each one lands");
 		expect(v.additionalContext).toContain(file);
 		expect(v.additionalContext).toContain("watch-artefact.js");
-		expect(v.additionalContext).toContain(` ${file} 120\``);
+		expect(v.additionalContext).toContain(` ${file} 120 --log <output_file>\``);
 		expect(fs.existsSync(path.dirname(file))).toBe(true);
 	});
 
@@ -369,7 +375,9 @@ describe("the artefact line", () => {
 		expect(v.additionalContext).toContain(
 			"This dispatch names its artefact: .claude/tmp/x.md.",
 		);
-		expect(v.additionalContext).toContain(" .claude/tmp/x.md 120`");
+		expect(v.additionalContext).toContain(
+			" .claude/tmp/x.md 120 --log <output_file>`",
+		);
 		expect(v.additionalContext).toContain(
 			"When the agent's completion notification arrives, `TaskStop` the watcher first.",
 		);

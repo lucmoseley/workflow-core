@@ -246,7 +246,7 @@ function agentTypeOf(call) {
  * @returns {string}
  */
 function buildWatchSentence(file, watch) {
-	return `Watch it with one backgrounded \`${watch(file)}\`, then end the turn. When the agent's completion notification arrives, \`TaskStop\` the watcher first. A \`STALLED\` or \`MISSING\` before it means abandon the agent.`;
+	return `Watch it with one backgrounded \`${watch(file)}\`, its \`<output_file>\` the one the launch result names, then end the turn. When the agent's completion notification arrives, \`TaskStop\` the watcher first. A \`STALLED\` or \`MISSING\` before it means abandon the agent.`;
 }
 
 /**

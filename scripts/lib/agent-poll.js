@@ -141,7 +141,8 @@ const NOOP =
 const SLEEP = /^[ \t\n\v\f\r]*sleep[ \t\n\v\f\r]+[0-9]/;
 const JOB_BEAT = /bg-run\.sh[ \t\n\v\f\r]+check([ \t\n\v\f\r]|$)/;
 
-const WATCH = "node scripts/watch-artefact.js <artefact> 120";
+const WATCH =
+	"node scripts/watch-artefact.js <artefact> 120 --log <output_file>";
 
 /** The parent's refusals, WAIT_SLOT holding PARENT_WAIT's place (#1779). */
 const NOOP_REASON = `Ending a turn is not a tool call. A no-op command like \`true\` re-invokes this session — which is why the loop it is meant to break keeps going. End the turn by emitting your final text with NO tool call at all, and stop: ${WAIT_SLOT}, so each no-op is a full-context turn spent learning nothing.`;
