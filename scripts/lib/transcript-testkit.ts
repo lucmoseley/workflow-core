@@ -107,6 +107,53 @@ export const buildBashCall = (
 	{ input = {}, ...extra }: BashCallOptions = {},
 ) => buildToolCall("Bash", { command, ...input }, id, extra);
 
+/*
+ * An async subagent's records, as objects, in the shapes transcript 37f1289c
+ * writes (#5420): its launch result (L3145), the interim notification sent
+ * while it waits on its own background work (L3481), its final notification,
+ * naming its task-id and no tool-use id (L3571), and its hand-back (L3576).
+ */
+export const SUBAGENT_HANDLE = "a2948f95aab9e1692";
+
+export const buildAsyncAgentResult = (id = "t1", handle = SUBAGENT_HANDLE) => ({
+	type: "user",
+	message: {
+		content: [
+			{
+				type: "tool_result",
+				tool_use_id: id,
+				content: `Async agent launched successfully.\nagentId: ${handle} (internal ID - do not mention to user.)\nThe agent is working in the background.`,
+			},
+		],
+	},
+	toolUseResult: { status: "async_launched", agentId: handle },
+});
+
+export const buildInterimNotification = (
+	id = "t1",
+	handle = SUBAGENT_HANDLE,
+) => ({
+	type: "user",
+	message: {
+		role: "user",
+		content: `<task-notification>\n<task-id>${handle}</task-id>\n<tool-use-id>${id}</tool-use-id>\n<status>completed</status>\n<summary>Agent "Fix #5274 review findings" is waiting on its own background work</summary>\n<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>\n<result>This agent has not reported yet: it is waiting on its own background work and will deliver its report through SubagentHandback when that finishes.\n</result>\n</task-notification>`,
+	},
+});
+
+export const buildFinalNotification = (handle = SUBAGENT_HANDLE) => ({
+	type: "queue-operation",
+	operation: "enqueue",
+	content: `<task-notification>\n<task-id>${handle}</task-id>\n<status>completed</status>\n<summary>Agent "Fix #5274 review findings" finished</summary>\n<result>This agent's report was delivered to you as a message from "${handle}" (its SubagentHandback call).\n</result>\n</task-notification>`,
+});
+
+export const buildHandBack = (handle = SUBAGENT_HANDLE) => ({
+	type: "attachment",
+	attachment: {
+		type: "queued_command",
+		prompt: `<agent-message from="${handle}">\n[Subagent hand-back] The report follows:\n  All done.\n</agent-message>`,
+	},
+});
+
 /**
  * `n` Bash calls, as objects. The default is the research the
  * under-researched-round limb asks for before a round (#1710), for a fixture
