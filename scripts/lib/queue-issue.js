@@ -8,7 +8,7 @@
  * body carries its own `Standalone:` line, so file-issue.js adds none and a
  * refresh of an unchanged condition finds it current. A refresh replaces the
  * whole body, carrying over a `**Gated on:**` line a session wrote there
- * (#3636).
+ * and its `**Gate basis:**` (#3636, #5419).
  *
  * Residual: a retitled open issue is not found, and the next filing files a
  * second.
@@ -21,7 +21,7 @@ const { parseFiledLine } = require("./filed-line.js");
 const { buildScriptFilerArgv } = require("./script-filer-argv.js");
 const { parseFirstLine } = require("./first-line.js");
 const { gh, ghIssueListAll } = require("./gh.js");
-const { gateOnLineOf } = require("./issue-gate.js");
+const { gateLinesOf } = require("./issue-gate.js");
 const { buildStandaloneLine } = require("./standalone-line.js");
 const { similarTitles } = require("./tracker-ops.js");
 const { refresh: refreshBody } = require("./tracking-issue.js");
@@ -68,8 +68,8 @@ function queueIssueFiler({
 		const body = `${text.trimEnd()}\n\n${buildStandaloneLine(standalone)}\n`;
 		const found = openIssue(title);
 		if (found !== null) {
-			const gate = gateOnLineOf(found.body);
-			const kept = gate === null ? body : `${body}\n${gate}\n`;
+			const gateLines = gateLinesOf(found.body);
+			const kept = gateLines === null ? body : `${body}\n${gateLines}\n`;
 			return `${noun}: ${refresh(found.number, kept)}${relabel(found, addLabels)}`;
 		}
 		const listed = similar(title);
