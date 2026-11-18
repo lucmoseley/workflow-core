@@ -9,7 +9,7 @@
  * file is the whole fixture. Fixture text names `process.env` through `ENV`,
  * so this file's own lines never read as the assignment they quote.
  *
- * It is a hard gate in .husky/pre-commit and a step in roadmap-digest.yml:
+ * It is a hard gate in .husky/pre-commit and a step in document-guards.yml:
  * loosen a case and a write that outlives its case lands green.
  */
 

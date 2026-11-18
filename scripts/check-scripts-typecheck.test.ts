@@ -7,7 +7,7 @@
  *
  * WHAT BREAKING A TEST HERE COSTS. `checkJs` is repo-wide since
  * mantahostels#1464, so silencing a whole file is a one-line edit and this
- * script, run in `npm run status` and roadmap-digest.yml, is the only thing
+ * script, run in `npm run status` and document-guards.yml, is the only thing
  * that reports one. Loosening the census block makes that edit invisible.
  */
 

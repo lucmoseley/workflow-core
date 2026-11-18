@@ -14,7 +14,7 @@
  * Messages are asserted alongside tags because a tag alone would survive the
  * message being rewritten into nonsense.
  *
- * It is a gate step in the scheduled `.github/workflows/roadmap-digest.yml`
+ * It is a gate step in the scheduled `.github/workflows/document-guards.yml`
  * sweep: a false pass lets a timed job gain the power to push to `main`, past
  * the R1 ceiling.
  */

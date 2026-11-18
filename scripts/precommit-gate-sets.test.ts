@@ -127,9 +127,6 @@ describe("the pre-commit gate sets", () => {
 const REPEATED_BY: Record<string, string | null> = {
 	"scripts/check-guard-registry.js": null,
 	"scripts/biome-staged.js": "biome ci .",
-	"scripts/check-roadmap-valid.js": "check-roadmap-valid.js",
-	"scripts/check-digest-version.js": "check-digest-version.js",
-	"scripts/gen-roadmap-digest.js": "gen-roadmap-digest.js",
 	"scripts/check-guard-test-isolation.js": "check-guard-test-isolation.js",
 	"scripts/check-git-fixture-identity.js": "check-git-fixture-identity.js",
 	"scripts/check-test-env-writes.js": "check-test-env-writes.js",
@@ -150,7 +147,7 @@ it("skips on the batch only gates a workflow on a lander push repeats, or the me
 	const hook = fs.readFileSync(".husky/pre-commit", "utf8");
 	const workflows = [
 		fs.readFileSync(".github/workflows/ci.yml", "utf8"),
-		fs.readFileSync(".github/workflows/roadmap-digest.yml", "utf8"),
+		fs.readFileSync(".github/workflows/document-guards.yml", "utf8"),
 	].join("\n");
 	const skipped = (guard: string) =>
 		hook

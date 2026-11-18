@@ -8,8 +8,8 @@
  * a throwaway directory holding a fake roadmap and a fake digest is the whole
  * fixture.
  *
- * It is a hard gate in .github/workflows/roadmap-digest.yml, and in
- * .husky/pre-commit on a commit staging either file: a false pass ships
+ * It is a hard gate in .husky/pre-commit on a commit staging either file, and
+ * a check in the daily repo-checks run with the `roadmap` module on: a false pass ships
  * a digest describing a roadmap that has moved on, and a false fail blocks
  * every roadmap edit.
  *

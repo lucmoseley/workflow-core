@@ -2,17 +2,18 @@
 /*
  * Pins that `.husky/pre-commit` runs and enforces the two gates that moved out
  * of CI at mantahostels#910, when the push trigger came off
- * `.github/workflows/roadmap-digest.yml`: each fires only on its own staged
+ * `.github/workflows/document-guards.yml`: each fires only on its own staged
  * paths and refuses the commit on a finding.
  *
- * `check-digest-version.js` and `check-guard-registry.js` are now the local half
- * of a claim CLAUDE.md makes — the roadmap/digest pair cannot drift, and no
- * parallel-safety rule can claim an enforcement it does not have. Delete these
- * hook blocks and the next thing to run either check is CI, after the push: the
- * `landing` push run or the scheduled sweep (#2413).
+ * `check-digest-version.js` keeps a module-on adopter's roadmap/digest pair from
+ * drifting, and `check-guard-registry.js` keeps any parallel-safety rule from
+ * claiming an enforcement it does not have. Delete these hook blocks and the
+ * next thing to run either check is after the push: the daily repo-checks run
+ * for the digest, the `landing` push run or the scheduled sweep for the
+ * registry (#2413).
  *
- * UNVERIFIED, and deliberately: the CI half — the steps still in
- * roadmap-digest.yml, and scheduled-checks.yml that calls it. Testing those means running a workflow.
+ * UNVERIFIED, and deliberately: the CI half — the guard-registry step in
+ * document-guards.yml, and scheduled-checks.yml that calls it. Testing those means running a workflow.
  *
  * The digest checker is stubbed in each fixture so its exit code is ours to
  * drive; the guard-registry gate is a dispatcher row, so its arm alone is

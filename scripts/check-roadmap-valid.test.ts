@@ -13,7 +13,7 @@
  * Every assertion is on the process's exit code and its output, never on the
  * checker's internals.
  *
- * It is a hard gate in .husky/pre-commit and a roadmap-digest.yml step: loosen
+ * It is a hard gate in .husky/pre-commit and a daily repo-checks check: loosen
  * a case and a duplicate id, missing prerequisite or undrawable card state
  * reaches `main`.
  */

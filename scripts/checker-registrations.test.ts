@@ -16,7 +16,7 @@
  *
  * WHY COMMENT LINES ARE STRIPPED. This repo's hooks and workflows name their
  * local backstops in prose constantly — `.husky/pre-commit` mentions `check:sh`,
- * roadmap-digest.yml's steps name their `npm run` equivalents — so a bare
+ * document-guards.yml's steps name their `npm run` equivalents — so a bare
  * substring search over these files passes on the mention rather than the call.
  * The strip is deliberately crude: it drops whole-line comments only, so an
  * invocation trailing a comment on the same line still counts.

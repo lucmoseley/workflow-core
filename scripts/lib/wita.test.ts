@@ -9,7 +9,7 @@
  * midnight UTC (mantahostels#919).
  *
  * Breaking it lets `check-doc-map-markers.js`, a step of the scheduled sweep in
- * `.github/workflows/roadmap-digest.yml`, read a marker written in the WITA
+ * `.github/workflows/document-guards.yml`, read a marker written in the WITA
  * evening as dated tomorrow and fail CI.
  */
 

@@ -574,6 +574,13 @@
 			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
+		".github/workflows/document-guards.yml": [
+			"scripts/check-release-pin.test.ts",
+			"scripts/check-workflow-permissions.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/warm-caches-workflow.test.ts",
+			"scripts/windows-script-tooling-declined.test.ts"
+		],
 		".github/workflows/landing-quiet.yml": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/landing-quiet-workflow.test.ts",
@@ -592,14 +599,6 @@
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/ci-verdict.test.ts",
 			"scripts/queue-wait-alarm.test.ts",
-			"scripts/warm-caches-workflow.test.ts",
-			"scripts/windows-script-tooling-declined.test.ts"
-		],
-		".github/workflows/roadmap-digest.yml": [
-			"scripts/check-release-pin.test.ts",
-			"scripts/check-workflow-permissions.test.ts",
-			"scripts/checker-registrations.test.ts",
-			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -3973,7 +3972,6 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/npx-bare-name.test.ts",
 			"scripts/pipefail-grep-quiet.test.ts",
-			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
@@ -59493,7 +59491,6 @@
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/precommit-roadmap-valid-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/precommit-context-budget-gate.test.ts": [

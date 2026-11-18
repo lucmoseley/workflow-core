@@ -401,7 +401,7 @@ describe("summarise — per-job billed split", () => {
 	it("splits billed minutes by job name across workflows", () => {
 		const runs = [
 			run({ id: 1, name: "CI" }),
-			run({ id: 2, name: "roadmap-digest", head_sha: "bbb" }),
+			run({ id: 2, name: "document-guards", head_sha: "bbb" }),
 		];
 		const s = summarise(
 			runs,
@@ -420,7 +420,7 @@ describe("summarise — per-job billed split", () => {
 			},
 			{
 				job: "Document guards",
-				workflow: "roadmap-digest",
+				workflow: "document-guards",
 				jobs: 1,
 				billed: 1,
 				pct: 25,
