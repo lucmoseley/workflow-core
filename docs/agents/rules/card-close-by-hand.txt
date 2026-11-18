@@ -1,4 +1,5 @@
-A ROADMAP CARD'S OWN ISSUE IS CLOSED BY /card-close, NEVER BY HAND.
+WHERE THE `roadmap` MODULE IS ON, A ROADMAP CARD'S OWN ISSUE IS CLOSED BY
+/card-close, NEVER BY HAND.
 
 /card-close does the whole thing in one pass: it marks the card done,
 regenerates the digest, commits both files, and closes the issue itself as its

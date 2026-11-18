@@ -14,9 +14,11 @@ Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all op
 
 **`docs/agents/guard-registry.md` §Conventions' push rule prescribes `gh run list --branch main --json …,headSha` and filtering `headSha` yourself; two traps make that spelling non-optional:** the empty `--commit` list above, and a run's own `status`, which can read `in_progress` with an empty `conclusion` for ~20 minutes after every one of its jobs finished. **Never write a wait-loop whose exit test is the run-level `status`;** poll `gh run view <id> --json jobs --jq '.jobs[] | "\(.name): \(.status) \(.conclusion)"'` and exit when every job is `completed`. `jobs` exists only on `gh run view` — `gh run list --json jobs` exits 1 with `Unknown JSON field`.
 
-## Relationship to the roadmap
+## The roadmap module
 
-`docs/reference-roadmap.html` is the sole authority for card state, phase, content and logs. GitHub Issues is the **working surface** — where a card's work is actually carried out.
+**This section's card rules bind where the `roadmap` module is on** (`modules` in `.claude/workflow-core.json`). Where it is off, the tracker is the only backlog: the gating table below still applies, its card branch aside, and the title and close rules after it do not.
+
+With the module on, `docs/reference-roadmap.html` is the sole authority for card state, phase, content and logs. GitHub Issues is the **working surface** — where a card's work is actually carried out.
 
 **Workflow:** roadmap card → opened as a GitHub issue → `/wayfinder` → completion → roadmap updated.
 
@@ -25,13 +27,13 @@ Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all op
 ### Gating an issue: a date, a condition, or a close onto the card
 
 <!-- rule:roadmap-gating:begin -->
-GitHub Issues holds what is being worked on **now**; the roadmap is the backlog, taken when it makes sense. An issue gated on a distant *date* therefore **closes, with a `card:<card-id>` label applied naming the card that will fire it, and is re-filed when that card is taken** by querying `gh issue list --state closed --label card:<id>` (mantahostels#1048, mantahostels#3291, mantahostels#3320).
+**Where the `roadmap` module is on**, GitHub Issues holds what is being worked on **now**; the roadmap is the backlog, taken when it makes sense. An issue gated on a distant *date* there **closes, with a `card:<card-id>` label applied naming the card that will fire it, and is re-filed when that card is taken** by querying `gh issue list --state closed --label card:<id>` (mantahostels#1048, mantahostels#3291, mantahostels#3320). Where it is off, the tracker is the only backlog and a gated issue stays open.
 
 | The gate | What to do |
 |---|---|
 | A calendar date **within 14 days** | Keep the issue open, carrying `**Gated until:** YYYY-MM-DD — <why>`. `scripts/pick-next.js` holds it out of the shortlist until that date and prints it under GATED |
 | A **data condition you can state in a sentence** | Keep the issue open, carrying `**Gated on:** <condition> — abandon if: <what makes the ticket not worth doing>`, and `— check: <command>` between the two where one command tests it. The command must print what it saw: one that answers only through its exit code ends in `&& echo "<met>" || echo "<unmet>"`, and `file-issue.js` and `issue-body.js` refuse one that prints nothing, running it in the checkout of the repo whose issue it gates and refusing where there is none, where a raw `gh issue create` only warns (#3487). `scripts/pick-next.js` holds it out of the shortlist and prints the line verbatim under GATED, evaluating nothing (mantahostels#1329, mantahostels#1330). Two routes judge it (#2279): `/pick-next` runs `scripts/check-gates.js --issue <n>` on each GATED row; the refill loop sweeps every gate on its own cadence and launches `/triage <n>` on a changed reading or repair state. On met, the judge comments the evidence and strips the marker; no exit code is a verdict (mantahostels#1332). **A question about a rate gets a count gate** — `**Gated on:** N <events> — check: <cmd>` — so `check-gates` releases it when the count is met, never on a calendar date (#4946) |
-| A date **beyond 14 days**, or a gate you cannot state as a condition at all | Close it, having first applied the `card:<card-id>` label naming the card that will fire it |
+| A date **beyond 14 days**, or a gate you cannot state as a condition at all | With the `roadmap` module on, close it, having first applied the `card:<card-id>` label naming the card that will fire it. With it off, keep the issue open: a date carries `**Gated until:**` as the first row does, and a gate you cannot state is rewritten until it reads as a condition |
 
 **The founder typing a `/`-command is never a condition** — a dispatched session types it too, so the gate only stops dispatch. Relabel to that command's `takes:` value instead; `scripts/check-issue-labels.js` reports the shape as COMMAND-GATE (#411).
 
@@ -63,13 +65,13 @@ Fourteen days governs dated gates alone — a judgement, not a measurement. A da
 ### Issue titles: `<card-id> — <title>`
 
 <!-- rule:issue-title-card-id:begin -->
-An issue that carries a roadmap card **must** be titled with the card id, an em dash, then the title — e.g. `id-match — Build the hostel ID-matching layer`. `/card-close` parses the prefix to find which card to mark `done`, and refuses to guess if it doesn't resolve to exactly one card — so an issue opened without the prefix cannot be closed by that command.
+Where the `roadmap` module is on, an issue that carries a roadmap card **must** be titled with the card id, an em dash, then the title — e.g. `id-match — Build the hostel ID-matching layer`. `/card-close` parses the prefix to find which card to mark `done`, and refuses to guess if it doesn't resolve to exactly one card — so an issue opened without the prefix cannot be closed by that command.
 <!-- rule:issue-title-card-id:end -->
 
 ### Closing an issue
 
 <!-- rule:card-close-route:begin -->
-Close via **`/card-close <issue-number>`**, which closes the issue and runs the `roadmap-edit` pipeline in one invocation. Closing an issue by any other route — `gh issue close`, the GitHub UI, a merge keyword — **leaves the roadmap stale**, and must be followed immediately by a roadmap update through the `roadmap-edit` skill.
+Where the `roadmap` module is on, close a card's issue via **`/card-close <issue-number>`**, which closes the issue and runs the `roadmap-edit` pipeline in one invocation. Closing one by any other route — `gh issue close`, the GitHub UI, a merge keyword — **leaves the roadmap stale**, and must be followed immediately by a roadmap update through the `roadmap-edit` skill.
 <!-- rule:card-close-route:end -->
 
 A hand `gh issue close` on a card's own issue is **denied** by the `guard-issue-close` core (mantahostels#220), at `PreToolUse`.
@@ -211,7 +213,7 @@ Don't move this rule into the skill: `wayfinder` is vendored, so hand-edits are 
 Both surfaces, at different densities:
 
 - **The GitHub issue** carries the full reasoning — options considered, what was rejected and why, the working.
-- **The roadmap card's done-log** carries a **condensed summary only**. If a log entry needs paragraphs, it belongs on the issue with a pointer from the log.
+- **The roadmap card's done-log**, where the `roadmap` module is on, carries a **condensed summary only**. If a log entry needs paragraphs, it belongs on the issue with a pointer from the log.
 
 **So read them.** A ruling recorded only on a **closed** issue is still evidence you must weigh: re-check the reasons, impact and research it rested on rather than inheriting them (#1457, #4172). Ledger items (`C9`, `C45`…) exist nowhere else. Before writing that a figure, term or card is unsourced, undefined or undesigned, run `gh issue list --repo <tracker> --state all --search "<term>"` for every tracker the `corpus` key of `.claude/workflow-core.json` lists, and read the resolution comments on every hit.
 <!-- rule:decisions-search-first:end -->
@@ -293,7 +295,7 @@ Add the `kind:` label — `kind:spec` for a spec/PRD, `kind:ticket` for each tic
 
 Blocking edges and parent links use GitHub's **native** sub-issue and dependency endpoints, never a text `Blocked by:` line — `/to-tickets` falls back to text only where a tracker lacks them, and GitHub doesn't. Commands and the stale-field trap are under **Wayfinding operations** below; they are not wayfinder-specific.
 
-**Wire the edge as well as stating the order.** Where one ticket genuinely gates another, saying so in prose settles nothing a query can read — add the native `blocked_by` edge in the same session. The same holds on the roadmap, where the ordering lives in a card's `needs` (mantahostels#1618).
+**Wire the edge as well as stating the order.** Where one ticket genuinely gates another, saying so in prose settles nothing a query can read — add the native `blocked_by` edge in the same session. The same holds on the roadmap where the `roadmap` module is on, the ordering living in a card's `needs` (mantahostels#1618).
 
 ### Breaking a spec into build units
 
@@ -317,7 +319,7 @@ An issue with no parent sits outside every map, so `/wayfinder`'s frontier query
 
 - **Caused by A** — split out of it, or surfaced while implementing it → sub-issue of A.
 - **Peer work A's own parent owns**, not caused by A → give it that same parent.
-- **A roadmap card** (`<card-id> — …` title), **or cross-cutting work with no single originator** → standalone; `--standalone` writes that in the body.
+- **A roadmap card** (`<card-id> — …` title, where the `roadmap` module is on), **or cross-cutting work with no single originator** → standalone; `--standalone` writes that in the body.
 
 **A sub-issue holds its parent open**, so caused-by work ruled not to hold its originator is a peer or standalone, never a child — one the parent's own blockers wait on is a loop none of them can close (#495; `node scripts/check-issue-cycles.js` reports one).
 <!-- rule:issue-parent-unplaced:end -->
@@ -377,11 +379,11 @@ Run `gh issue view <number>` for the body and `gh issue view <number> --json com
 
 ## Wayfinding operations
 
-Used by `/wayfinder`. **The map is the roadmap card's own GitHub issue** — not a separate map issue. `/wayfinder` adds the `wayfinder:map` label to the existing card issue and appends the Destination / Notes / Decisions so far / Not yet specified / Out of scope sections to its body.
+Used by `/wayfinder`. **Where the `roadmap` module is on, the map is the roadmap card's own GitHub issue** — not a separate map issue. `/wayfinder` adds the `wayfinder:map` label to the existing card issue and appends the Destination / Notes / Decisions so far / Not yet specified / Out of scope sections to its body. Where it is off, the map is the issue `/wayfinder` creates.
 
 <!-- rule:wayfinder-ops-shapes:begin -->
-- **Map**: the card's existing issue, labelled `wayfinder:map`, holding the Destination / Notes / Decisions so far / Not yet specified / Out of scope body. **Fog or ticket?** The test is whether you can state the question precisely now, not whether you can answer it: a sharp question is a ticket even while blocked, and one you cannot yet phrase that sharply goes under *Not yet specified*.
-- **Child ticket**: an issue linked to the card issue as a GitHub sub-issue (`scripts/link-sub-issue.sh <map> <child>`). Where sub-issues aren't enabled, add the child to a task list in the map body and put `Part of #<map>` at the top of the child body. Labels: `wayfinder:<type>` (`research`/`prototype`/`grilling`/`task`). Once claimed, the ticket is assigned to the driving dev.
+- **Map**: the card's existing issue, or with the `roadmap` module off the one `/wayfinder` creates, labelled `wayfinder:map`, holding the Destination / Notes / Decisions so far / Not yet specified / Out of scope body. **Fog or ticket?** The test is whether you can state the question precisely now, not whether you can answer it: a sharp question is a ticket even while blocked, and one you cannot yet phrase that sharply goes under *Not yet specified*.
+- **Child ticket**: an issue linked to the map as a GitHub sub-issue (`scripts/link-sub-issue.sh <map> <child>`). Where sub-issues aren't enabled, add the child to a task list in the map body and put `Part of #<map>` at the top of the child body. Labels: `wayfinder:<type>` (`research`/`prototype`/`grilling`/`task`). Once claimed, the ticket is assigned to the driving dev.
 - **Blocking**: GitHub's **native issue dependencies** — the canonical, UI-visible representation. Add an edge with `node scripts/link-blocker.js <blocked> <blocker>`, each a bare number or `owner/name#n` (an unquoted `#n` starts a shell comment): it resolves the blocker's database id, refuses a link that would close a loop of open issues in any repo (exit 3, nothing changed), and verifies the edge in a separate read (`rule:dependency-edge-false-success` under **Two dependency graphs** below names the traps it encodes). **Enforced** (#5086): `scripts/guard-dispatch.js` (its `guard-issue-link` core) refuses a raw `gh api` blocker or sub-issue link write, REST or GraphQL, and `gh issue edit`'s or `gh issue create`'s own link flags; a link made in the web UI or by a script's child `gh` passes, and `scripts/check-issue-cycles.js` reports the loop after the fact. Where dependencies aren't available, fall back to a `Blocked by: #<n>, #<n>` line at the top of the child body. A ticket is unblocked when every blocker is closed.
 - **Frontier query**: `node scripts/wayfinder-frontier.js --map <map>` — one call, and the whole query (mantahostels#1145). It resolves the map's open children, drops any carrying no `wayfinder:` label — a `kind:spec`, a `kind:brief`, an untyped child — naming each on stderr (#579; these drop notes are not warnings), reads each remaining one's blockers from the canonical list, drops the blocked, and drops an assigned one only where a *still-running* session holds an arbiter claim on it; what is left prints as bare issue numbers in map order, and the first line wins. **A non-zero exit prints nothing and means the frontier is unknown — hand the step back, and never read it as "nothing is left to do on this map".** It refuses on every read it cannot complete: a blocker call that fails twice, a `gh` that exits 0 having printed nothing, a map with no sub-issues at all (far more often the wrong issue number than a finished map), and a claim store it cannot confirm belongs to your own tree. **The one thing it guarantees is that the frontier printed may be shorter than the truth, never longer** — so a line it prints is safe to start, and a line it omits may still be free. An unreadable liveness oracle is the case that shortens it: that one warns on stderr and answers anyway, every claim standing. **Any warning on stderr — a drop note apart — means the list is not usable as printed, so never redirect stderr away.** Known hole, neither warned nor refused: a single corrupt record inside an otherwise readable claim store is dropped silently, so the claim filter can come back short — mantahostels#1186. The command only ever reads.
   - `--numbers` is the older, narrower form: the claimed issue numbers alone, for a caller assembling the rest itself. There it is a **drop-list**, so its non-zero exit means *drop nothing*, and a claim store from another tree only warns.
@@ -421,7 +423,7 @@ Used by `/wayfinder`. **The map is the roadmap card's own GitHub issue** — not
   re-rooting takes `scripts/link-sub-issue.sh <parent> <child> --replace-parent`.
 <!-- rule:dependency-edge-false-success:end -->
 
-- **`needs:` in the roadmap** is **card → card**. It says which other cards must land before this one starts.
+- **`needs:` in the roadmap**, where the `roadmap` module is on, is **card → card**. It says which other cards must land before this one starts.
 - **GitHub issue dependencies** are **ticket → ticket**, usually ordering the decision tickets under one wayfinder map.
 
 **Edges may cross maps** (ruled 2 August 2026; the commit is the only record, no issue). A `blocked_by` between tickets sharing no parent is correct wherever one genuinely gates the other — mantahostels#76 is blocked by both mantahostels#73 (standalone) and mantahostels#68 (a sub-issue of the mantahostels#51 spec). **Do not remove one as non-conforming:** its consumer is the GitHub UI's blocked indicator, not `/wayfinder`'s frontier query.
