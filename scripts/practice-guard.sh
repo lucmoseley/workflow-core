@@ -72,7 +72,7 @@
 # So at Stop the machine copy stands down, silent and latching nothing, where
 # the session's project ($CLAUDE_PROJECT_DIR, else the work tree top of the
 # payload's cwd, else that cwd outside git) pins a workflow-core release that
-# ships this guard (plugin_guard_loaded_at): there the plugin's copy judges the
+# ships this guard (plugin_guard_pinned_at): there the plugin's copy judges the
 # stop, and the machine copy, blind to the plugin's notes, would refuse one
 # only the plugin holds, the latch they share letting it decide (#5394). The
 # release is read from the documented settings field, never the undocumented
@@ -381,16 +381,18 @@ fault_in() {
   [[ $expiry > $TODAY ]] || echo "covered names $note, researched $date, 6 months ago or more"
 }
 
-# Whether Claude Code's settings for the project at "$1" load a workflow-core
+# Whether Claude Code's settings for the project at "$1" pin a workflow-core
 # plugin release that ships this guard. enabledPlugins and
 # extraKnownMarketplaces each merge user, then project, then local, each key
 # taking its highest file's value; some workflow-core@<marketplace> key must be
 # left true, and that marketplace's source.ref an X.Y.Z tag, v optional, at or
 # above FIRST_GUARD_RELEASE, with no source.sha, which pins a commit over the
-# ref. A file missing, not one JSON object, or whose field is no
+# ref. Narrower than lib/plugin-state.js's TAG_REF: a pre-release or build
+# suffix names no shipped release here (releases are tagged vX.Y.Z alone), so
+# it keeps this copy judging. A file missing, not one JSON object, or whose field is no
 # object adds nothing to that field; one there but unreadable or not JSON says
 # so on stderr.
-plugin_guard_loaded_at() {
+plugin_guard_pinned_at() {
   local file merged='{"plugins":{},"markets":{}}' layer
   for file in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" "$1/.claude/settings.json" "$1/.claude/settings.local.json"; do
     [[ -e "$file" ]] || continue
@@ -471,7 +473,7 @@ if [[ "$event" = stop ]]; then
 
   # The session's project decides whether the plugin loaded, not the trees it
   # wrote into.
-  [[ -z $plugin_root ]] && plugin_guard_loaded_at "${CLAUDE_PROJECT_DIR:-${cwd_top:-$cwd}}" && exit 0
+  [[ -z $plugin_root ]] && plugin_guard_pinned_at "${CLAUDE_PROJECT_DIR:-${cwd_top:-$cwd}}" && exit 0
 
   fault=$(fault_in "$decl")
   [[ -n "$fault" ]] || exit 0
