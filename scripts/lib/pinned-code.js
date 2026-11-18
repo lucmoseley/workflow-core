@@ -139,18 +139,24 @@ function isWholeWorktree(dir, program) {
 const SHA_NAME = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 
 /**
+ * The names of the worktrees `keep` lists, by any spelling of the code
+ * directory; a null entry, as an absent link, names none.
+ * @param {Array<string|null>} keep
+ */
+const keptNames = (keep) =>
+	new Set(keep.filter((k) => k !== null).map((k) => path.basename(k)));
+
+/**
  * The spare in `codeDir`: a whole worktree other than any `keep` names, or
  * null. `keep` null keeps every one, as where /proc would not say which a
- * live process runs from.
+ * live process runs from. Of several, the first by name (#5426): any is a
+ * whole tree, and the prunes leave one.
  * @param {{codeDir: string, program: string}} instance
- * @param {Array<string|null>|null} keep worktrees, by any spelling of the
- *   code directory: compared by name
+ * @param {Array<string|null>|null} keep
  */
-function spareOf({ codeDir, program }, keep) {
+function readSpare({ codeDir, program }, keep) {
 	if (keep === null) return null;
-	const kept = new Set(
-		keep.filter((k) => k !== null).map((k) => path.basename(k)),
-	);
+	const kept = keptNames(keep);
 	let names;
 	try {
 		names = fs.readdirSync(codeDir).sort();
@@ -175,43 +181,51 @@ function spareOf({ codeDir, program }, keep) {
  * @param {string} spare
  * @param {string} dir
  * @param {string} sha
- * @returns {boolean} whether `dir` holds it
+ * @returns {string|null} null where `dir` holds it, else why not
  */
 function checkoutInPlace(repo, spare, dir, sha) {
 	const staging = `${dir}.${process.pid}`;
 	try {
 		git(repo, ["worktree", "move", spare, staging]);
-	} catch {
-		/* Another adopter moved it first, or git will not read it. */
-		return false;
+	} catch (err) {
+		/* Another adopter moved it first, or git will not read it: the caller
+		 * makes a fresh tree, as before #5426. */
+		return `the spare would not move: ${whyOf(err)}`;
 	}
 	try {
 		git(staging, ["checkout", "--quiet", "--force", "--detach", sha]);
 		git(staging, ["clean", "--quiet", "-ffdx"]);
 		git(repo, ["worktree", "move", staging, dir]);
-		return true;
-	} catch {
+		return null;
+	} catch (err) {
+		/* A lock a killed checkout left, or a move a racing adopter beat: the
+		 * half-made tree goes and the caller makes a fresh one (#5426). */
 		removeWorktree(repo, staging);
-		return false;
+		return `checking out in the spare failed: ${whyOf(err)}`;
 	}
 }
 
 /**
  * The worktree at `sha` in `codeDir`, checked out where it is not yet: in
- * place in the spare where there is one, else a fresh tree.
- * @param {{repo: string, codeDir: string, program: string}} instance
+ * place in the spare where there is one, else a fresh tree, logging why the
+ * spare was not used.
+ * @param {{repo: string, codeDir: string, program: string, log: (line: string) => void}} instance
  * @param {string} sha
  * @param {Array<string|null>|null} keep the worktrees a running process may
  *   load from, never rewritten; null keeps every one
  */
 function worktreeAt(instance, sha, keep) {
-	const { repo, codeDir, program } = instance;
+	const { repo, codeDir, program, log } = instance;
 	const dir = path.join(codeDir, sha);
 	if (isWholeWorktree(dir, program)) return dir;
 	/* A checkout a kill cut short: --force takes over its registration. */
 	fs.rmSync(dir, { recursive: true, force: true });
-	const spare = spareOf(instance, keep);
-	if (spare !== null && checkoutInPlace(repo, spare, dir, sha)) return dir;
+	const spare = readSpare(instance, keep);
+	if (spare !== null) {
+		const why = checkoutInPlace(repo, spare, dir, sha);
+		if (why === null) return dir;
+		log(`${short(sha)} checked out fresh, ${why}`);
+	}
 	fs.mkdirSync(codeDir, { recursive: true });
 	git(repo, ["worktree", "add", "--force", "--detach", dir, sha]);
 	return dir;
@@ -300,13 +314,14 @@ module.exports = {
 	checkoutOf,
 	fetchVerified,
 	git,
+	keptNames,
 	linkOf,
 	pointLink,
 	readLink,
 	readVerifiedSha,
 	removeWorktree,
 	reregister,
-	spareOf,
+	readSpare,
 	short,
 	whyOf,
 	worktreeAt,

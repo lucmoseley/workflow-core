@@ -53,11 +53,11 @@ const {
 	git,
 	pointLink,
 	readLink,
+	readSpare,
 	readVerifiedSha,
 	removeWorktree,
 	reregister,
 	short,
-	spareOf,
 	whyOf,
 	worktreeAt,
 } = require("./pinned-code.js");
@@ -71,8 +71,17 @@ const rootOf = (program) => path.dirname(path.dirname(program));
 /**
  * @param {string} repo
  * @param {string} codeDir
+ * @param {(line: string) => void} log
  */
-const instance = (repo, codeDir) => ({ repo, codeDir, program: PROGRAM });
+const instance = (repo, codeDir, log) => ({
+	repo,
+	codeDir,
+	program: PROGRAM,
+	log,
+});
+
+/** @param {string} line */
+const toStderr = (line) => process.stderr.write(`${line}\n`);
 
 /**
  * Null where the program at `dir` loads, else why not.
@@ -126,10 +135,11 @@ function locateCode(scriptsDir) {
  * The program `start` spawns `run` from: the verified tip's worktree, fetched
  * first and shown to load, where `scriptsDir` is in a checkout; else
  * `scriptsDir`'s own.
- * @param {{scriptsDir: string, codeDir: string}} where
+ * @param {{scriptsDir: string, codeDir: string, log?: (line: string) => void}} where
+ *   `log` takes why a tip was checked out fresh, stderr by default
  * @returns {{program: string, fetchError?: string|null}|{error: string}}
  */
-function launchProgram({ scriptsDir, codeDir }) {
+function launchProgram({ scriptsDir, codeDir, log = toStderr }) {
 	const found = locateCode(scriptsDir);
 	if (!("repo" in found)) return found;
 	const { repo } = found;
@@ -141,7 +151,11 @@ function launchProgram({ scriptsDir, codeDir }) {
 		};
 	let dir;
 	try {
-		dir = worktreeAt(instance(repo, codeDir), sha, keptWorktrees(codeDir));
+		dir = worktreeAt(
+			instance(repo, codeDir, log),
+			sha,
+			readKeptWorktrees(codeDir),
+		);
 	} catch (err) {
 		return { error: `no worktree at ${short(sha)}: ${whyOf(err)}` };
 	}
@@ -169,15 +183,15 @@ function realPathOf(dir) {
  * The program a boot unit names: its own in a plugin install; else through the
  * boot link, which outlives any tip the loop adopts. A link that resolves stays
  * as it is, a running loop's own to move.
- * @param {{scriptsDir: string, codeDir: string}} where
+ * @param {{scriptsDir: string, codeDir: string, log?: (line: string) => void}} where
  * @returns {{program: string, fetchError?: string|null}|{error: string}}
  */
-function bootProgram({ scriptsDir, codeDir }) {
+function bootProgram({ scriptsDir, codeDir, log = toStderr }) {
 	const found = locateCode(scriptsDir);
 	if (!("repo" in found)) return found;
 	const program = bootLinkProgram(codeDir);
 	if (fs.existsSync(program)) return { program };
-	const launch = launchProgram({ scriptsDir, codeDir });
+	const launch = launchProgram({ scriptsDir, codeDir, log });
 	if ("error" in launch) return launch;
 	const root = rootOf(launch.program);
 	try {
@@ -253,7 +267,7 @@ function readHeldDirs(stale, codeDir) {
  * @param {string|null} [own] the running image's worktree
  * @returns {Array<string|null>|null}
  */
-function keptWorktrees(codeDir, own = null) {
+function readKeptWorktrees(codeDir, own = null) {
 	const realCodeDir = realPathOf(codeDir);
 	const keep = [own, readLink(bootLinkOf(codeDir))];
 	let names;
@@ -291,7 +305,7 @@ function pruneCodeDir({ root, codeDir, realCodeDir, kept, log }) {
 		kept.add(realCodeDir);
 		return false;
 	}
-	const spare = spareOf({ codeDir: realCodeDir, program: PROGRAM }, [
+	const spare = readSpare({ codeDir: realCodeDir, program: PROGRAM }, [
 		root,
 		...held.keys(),
 	]);
@@ -395,9 +409,9 @@ function codeUpdater({ program, codeDir, log }) {
 		let dir = null;
 		try {
 			dir = worktreeAt(
-				instance(root, codeDir),
+				instance(root, codeDir, log),
 				tip,
-				keptWorktrees(codeDir, root),
+				readKeptWorktrees(codeDir, root),
 			);
 			const why = loadFailure(dir);
 			if (why !== null) throw new Error(`its program does not load: ${why}`);
@@ -417,6 +431,8 @@ function codeUpdater({ program, codeDir, log }) {
 			log(
 				`not adopting ${short(tip)}: ${whyOf(err)}; running ${short(running)}`,
 			);
+			/* Not kept as a spare, as the guards' refused tree is (#5426): this
+			 * image prunes no more once settled, so a second spare would stay. */
 			if (dir !== null && dir !== readLink(bootLinkOf(codeDir)))
 				removeWorktree(root, dir);
 		}
