@@ -921,8 +921,9 @@ describe("output path", () => {
 describe("output path from a linked worktree (#5424)", () => {
 	let tree: string;
 
-	/* Per case, not a template: the outer beforeEach already inits a fresh repo
-	 * per case, so templating these two git calls buys little. */
+	/* Per case, not a template (#5424): the outer beforeEach already inits a
+	 * fresh repo per case, and RUN COST reads the file under its 10 s budget.
+	 * Residual: each of the block's 9 cases pays a commit and a worktree add. */
 	beforeEach(() => {
 		const git = (...args: string[]) =>
 			execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" });
