@@ -9,13 +9,12 @@
  * sweep runs every file from cold on a clock, rowless (lib/pass-store.js).
  *
  * WHY A LEDGER. A sweep's reports are ~11 MB and kept 14 days; reading the
- * window's sweeps whole on every run would download over 300 MB. Each sweep
- * is read once and its cases folded in.
+ * window's sweeps whole on every run would download over 300 MB.
  *
  * LIVE is a case that passed or failed: either way it reached what it asks
  * about. A case that never ran live in any sweep folded — one that skips on
  * the runner by design, as a Windows tool or the installed `claude` — is
- * never a finding: nothing says it could run there. One first seen after the
+ * never a finding. One first seen after the
  * ledger began is named for a window, so a new case whose service was silent
  * from the start is seen.
  *
@@ -184,8 +183,8 @@ function fold(ledger, run, sweep, afterGap) {
 /**
  * The cases skipped in the newest sweep and in every sweep since their last
  * live run (or the last gap), that more than WINDOW_MS before it, oldest
- * first; the never-live cases first seen since the ledger began and within
- * the window; and how many never ran live in all.
+ * first; the never-live cases first seen since the ledger began or the last
+ * gap, and within the window; and how many never ran live in all.
  * @param {Ledger} ledger
  */
 function judge(ledger) {

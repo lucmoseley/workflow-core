@@ -6,8 +6,7 @@
  * Usage:
  *   node check-contract-live.js [--reports <dir>] [--ledger <file>] [--json]
  *
- * Folds each sweep not yet read into the ledger (lib/contract-live.js), then
- * judges it. `--reports <dir>` reads sweeps already downloaded, one
+ * `--reports <dir>` reads sweeps already downloaded, one
  * subdirectory per run id as `gh run download <id> -p 'vitest-report-*' -D
  * <dir>/<id>` leaves them.
  *
@@ -15,7 +14,7 @@
  * asks a person to look, not a commit to change.
  *
  * Only a finished sweep is folded, and the first unfinished one stops the
- * fold: the ledger's newest run never passes a sweep still uploading shards.
+ * fold.
  *
  * Residual: a ledger begun while a case was already silent has no live run
  * for it, and counts it among the never-live cases.
@@ -73,8 +72,7 @@ function unread(listed, newestRun) {
 
 /**
  * The ledger with every finished sweep newer than its newest folded in,
- * oldest first, and written back. A download gh refuses writes what was
- * folded, then skips.
+ * oldest first, and written back.
  * @param {import("./lib/check.js").Ctx} ctx
  * @param {string} ledgerFile
  * @param {string} reports a directory of sweeps already downloaded, or ""
