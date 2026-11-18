@@ -506,6 +506,84 @@ describe("readPendingTasks settles a launch a TaskStop stopped (#2754)", () => {
 	});
 });
 
+describe("readPendingTasks keeps a subagent out past an interim notification (#5420)", () => {
+	/* Shapes copied from transcript 37f1289c: the launch at L3145, the interim
+	 * notification at L3481, the final one at L3571 (a task-id and no
+	 * tool-use id) and the hand-back at L3576. */
+	const handle = "a2948f95aab9e1692";
+	const launch = [
+		toolUse("t1", "Agent", { description: "Fix #5274 review findings" }),
+		toolResult(
+			"t1",
+			`Async agent launched successfully.\nagentId: ${handle} (internal ID - do not mention to user.)\nThe agent is working in the background.`,
+			{ toolUseResult: { status: "async_launched", agentId: handle } },
+		),
+	];
+	const interim = JSON.stringify({
+		type: "user",
+		message: {
+			role: "user",
+			content: `<task-notification>\n<task-id>${handle}</task-id>\n<tool-use-id>t1</tool-use-id>\n<status>completed</status>\n<summary>Agent "Fix #5274 review findings" is waiting on its own background work</summary>\n<note>This agent stopped with background work of its own still running. It may resume on its own when that work completes or reports, and the same task-id notifies again if it does; the result below may be interim.</note>\n<result>This agent has not reported yet: it is waiting on its own background work and will deliver its report through SubagentHandback when that finishes.\n</result>\n</task-notification>`,
+		},
+	});
+	const final = JSON.stringify({
+		type: "queue-operation",
+		operation: "enqueue",
+		content: `<task-notification>\n<task-id>${handle}</task-id>\n<status>completed</status>\n<summary>Agent "Fix #5274 review findings" finished</summary>\n<result>This agent's report was delivered to you as a message from "${handle}" (its SubagentHandback call).\n</result>\n</task-notification>`,
+	});
+	const handBack = (from: string) =>
+		JSON.stringify({
+			type: "attachment",
+			attachment: {
+				type: "queued_command",
+				prompt: `<agent-message from="${from}">\n[Subagent hand-back] The report follows:\n  All done.\n</agent-message>`,
+			},
+		});
+
+	it("keeps the launch out while its only notification is interim", () => {
+		write(...launch, interim);
+		expect(
+			readPendingTasks(file).pending.map((l: { id: string }) => l.id),
+		).toEqual(["t1"]);
+	});
+
+	it("keeps it out on the interim note alone, and on the interim result alone", () => {
+		const only = (cut: RegExp) => interim.replace(cut, "");
+		write(...launch, only(/<result>[\s\S]*?<\/result>/));
+		expect(readPendingTasks(file).pending).toHaveLength(1);
+		write(...launch, only(/<note>[\s\S]*?<\/note>/));
+		expect(readPendingTasks(file).pending).toHaveLength(1);
+	});
+
+	it("settles it on a final notification naming only its task-id", () => {
+		write(...launch, interim, final);
+		expect(readPendingTasks(file).pending).toEqual([]);
+	});
+
+	it("settles it on its hand-back, with no final notification", () => {
+		write(...launch, interim, handBack(handle));
+		expect(readPendingTasks(file).pending).toEqual([]);
+	});
+
+	it("keeps it out on another agent's hand-back", () => {
+		write(...launch, interim, handBack("aother0000000000"));
+		expect(readPendingTasks(file).pending).toHaveLength(1);
+	});
+
+	it("does not settle a background command by its task-id", () => {
+		/* A Bash job's notification names its tool-use id; its handle alone
+		 * settles nothing (#5420 leaves Bash settling as it was). */
+		write(
+			bash("node watch.js", "t2", { run_in_background: true }),
+			toolResult("t2", "Command running in background with ID: bku29b47g.", {
+				toolUseResult: { backgroundTaskId: "bku29b47g" },
+			}),
+			final.replaceAll(handle, "bku29b47g"),
+		);
+		expect(readPendingTasks(file).pending).toHaveLength(1);
+	});
+});
+
 describe("readPendingTasks names each launch as the transcript does (#1201)", () => {
 	const readPendingNames = () =>
 		readPendingTasks(file).pending.map((l: { name: string }) => l.name);
