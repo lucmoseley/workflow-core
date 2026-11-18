@@ -16,7 +16,7 @@ Issues and PRDs for this repo live as GitHub issues. Use the `gh` CLI for all op
 
 ## The roadmap module
 
-**This section's card rules bind where the `roadmap` module is on** (`modules` in `.claude/workflow-core.json`). Where it is off, the tracker is the only backlog, and the card-title rule and the card-close route below do not apply; §Gating an issue keeps its own module-off branch.
+**This section's card rules bind where the `roadmap` module is on** (`modules` in `.claude/workflow-core.json`). Where it is off, the tracker is the only backlog, and the card-title rule and the card-close route below do not apply.
 
 With the module on, `docs/reference-roadmap.html` is the sole authority for card state, phase, content and logs. GitHub Issues is the **working surface** — where a card's work is actually carried out.
 
