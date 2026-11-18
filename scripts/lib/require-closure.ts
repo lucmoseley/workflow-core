@@ -24,7 +24,7 @@ const NAMED_SCRIPT = /(?<![\w.-])scripts\/[\w./-]+\.(?:js|sh)\b/g;
  * Each repo-relative `scripts/…` path that shell `text` names on a line not
  * opening as a comment, once each: the scripts a hook runs or sources by
  * path, and any its messages name. Only shell text: a script's strings name
- * scripts it never runs, and walking them reached 606 files from `check.js`.
+ * scripts it never runs (#5423).
  */
 export function launchedScripts(text: string): string[] {
 	const code = text
