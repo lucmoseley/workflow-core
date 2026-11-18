@@ -12,7 +12,8 @@
 # the archive is made, so nothing writes to the disk being copied.
 # -Rehearsal archives -Source from -From into a throwaway -Distro, with no
 # loop pause, shutdown, watchdog toggle, Defender change, default change, boot
-# or prompt.
+# or prompt. It still sets defaultVhdSize in .wslconfig, which is what its
+# import is there to test.
 param(
 	[string]$Distro = 'Ubuntu',
 	[string]$From = 'Ubuntu',
@@ -31,6 +32,11 @@ param(
 )
 $ErrorActionPreference = 'Continue'
 $wslconfig = "$env:USERPROFILE\.wslconfig"
+# An import into a disk too small for the data fails as "Unspecified error"
+# (E_FAIL, ENOSPC inside; microsoft/WSL#11535). 85% leaves ext4's overhead and
+# 5% root reserve room (untraced); check-wsl-disk.js's GUEST_FULL_SHARE is the
+# same figure.
+$fullShare = 0.85
 $log = "$Dir\rebuild.log"; $tar = "$Dir\$Distro.tar.zst"; $list = "$Dir\list.txt"; $errs = "$Dir\tar-errors.txt"
 $maker = "$Dir\make-archive.sh"; $status = "$tar.status"
 $task = 'WSL Interop Watchdog'
@@ -98,9 +104,11 @@ function Abort($why) {
 }
 # Sets [wsl2] defaultVhdSize, which wsl --import obeys, the service re-reading
 # .wslconfig on each import (WSL 3.0.5, LxssUserSession.cpp L1516, L1623-1630).
-# The key stays, so a later re-import gets the same cap.
+# The key stays, so a later re-import gets the same cap. A file that will not
+# read is never rewritten: it holds the memory and swap limits.
 function SetVhdSize {
-	$lines = [Collections.Generic.List[string]]@(if (Test-Path $wslconfig) { Get-Content $wslconfig })
+	try { $lines = [Collections.Generic.List[string]]@(if (Test-Path $wslconfig) { Get-Content $wslconfig -ErrorAction Stop }) }
+	catch { L "$wslconfig would not read ($($_.Exception.Message)); nothing was changed"; Finish 1 }
 	$want = "defaultVhdSize=${CapGB}GB"
 	$section = ''; $head = -1; $at = -1
 	for ($i = 0; $i -lt $lines.Count; $i++) {
@@ -111,7 +119,9 @@ function SetVhdSize {
 	if ($at -ge 0) { $lines[$at] = $want }
 	elseif ($head -ge 0) { $lines.Insert($head + 1, $want) }
 	else { $lines.Add('[wsl2]'); $lines.Add($want) }
-	[IO.File]::WriteAllLines($wslconfig, $lines, (New-Object Text.UTF8Encoding $false))
+	try { [IO.File]::WriteAllLines($wslconfig, $lines, (New-Object Text.UTF8Encoding $false)) }
+	catch { L "$wslconfig would not write ($($_.Exception.Message)); nothing else was changed"; Finish 1 }
+	if (-not (Select-String -Path $wslconfig -SimpleMatch $want -Quiet)) { L "$wslconfig lacks $want after writing it; nothing else was changed"; Finish 1 }
 	L "$wslconfig sets $want"
 }
 function Magic($p) {
@@ -124,13 +134,10 @@ New-Item -ItemType Directory -Force -Path $Dir | Out-Null
 L "start, $Distro, ext4.vhdx $(SizeGB "$Base\ext4.vhdx") GB, C: free $(FreeGB) GB, elevated $admin"
 if (Test-Path $tar) { L "an archive from an earlier run exists at $tar; check it by hand"; if (-not $Rehearsal) { Read-Host 'Press Enter' }; exit 1 }
 Remove-Item $status, "$tar.tar-err" -ErrorAction SilentlyContinue
-# An import into a disk too small for the data fails as "Unspecified error"
-# (E_FAIL, ENOSPC inside; microsoft/WSL#11535). 85% leaves ext4's overhead and
-# 5% root reserve room (untraced).
 $used = (wsl.exe -d $From -u root -- df -B1 --output=used $Source | Select-Object -Last 1).Trim()
 if ($used -notmatch '^\d+$') { L "df on $From would not read ($used); nothing was changed"; Finish 1 }
 $usedGB = [math]::Round([double]$used / 1GB, 1)
-if ([double]$used -gt 0.85 * $CapGB * 1GB) { L "$From uses $usedGB GB, over 85% of the $CapGB GB cap: free space in it, or raise -CapGB; nothing was changed"; Finish 1 }
+if ([double]$used -gt $fullShare * $CapGB * 1GB) { L "$From uses $usedGB GB, over $($fullShare * 100)% of the $CapGB GB cap: free space in it, or raise -CapGB; nothing was changed"; Finish 1 }
 L "$From uses $usedGB GB of the $CapGB GB cap"
 SetVhdSize
 # Defender scans every write to the archive and the new disk; exclude both

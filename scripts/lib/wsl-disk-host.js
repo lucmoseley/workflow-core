@@ -19,6 +19,7 @@ const LOG_NAME = "wsl-compact.log";
 const USERS_DIR = "/mnt/c/Users";
 
 /**
+ * @typedef {{usedBytes: number, sizeBytes: number}} GuestDisk
  * @typedef {{state: "absent"} | {state: "read", path: string, text: string}
  *   | {state: "unreadable", why: string}} LogRead
  */
@@ -93,7 +94,7 @@ function readFreeGB() {
  * The guest root's used bytes, counted as `df` counts them, and the virtual
  * size of the disk it is mounted from, read from /proc/partitions; or why
  * either would not read.
- * @returns {{usedBytes: number, sizeBytes: number} | {why: string}}
+ * @returns {GuestDisk | {why: string}}
  */
 function readGuestDisk() {
 	const root = process.env.WFC_GUEST_ROOT || "/";

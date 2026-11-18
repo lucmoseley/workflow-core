@@ -10,8 +10,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { writeGuestDisk } from "./lib/proc-fake";
 import { runInProcess } from "./lib/run-in-process.js";
-import { WSL_KERNEL, writeGuestDisk, writeOsrelease } from "./lib/wsl-fake";
+import { WSL_KERNEL, writeOsrelease } from "./lib/wsl-fake";
 
 const SCRIPT = path.join(__dirname, "check-wsl-disk.js");
 const NOW = "2026-12-20T12:00:00";

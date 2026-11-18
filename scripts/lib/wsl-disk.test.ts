@@ -24,6 +24,16 @@ const LOG = [
 const read = (text: string) => ({ state: "read", path: "/log", text }) as const;
 const GIB = 2 ** 30;
 const ROOMY = { usedBytes: 110 * GIB, sizeBytes: 224 * GIB };
+/** judgeDisk on a clean input, `over` replacing its parts. */
+const judgeWith = (over: Partial<Parameters<typeof judgeDisk>[0]>) =>
+	judgeDisk({
+		log: read(LOG),
+		now: NOW,
+		freeGB: 210,
+		guest: ROOMY,
+		trim: { last: NOW, fixedAt: null },
+		...over,
+	});
 
 describe("parseLog", () => {
 	it("reads each line's time, result and fields, skipping junk and a BOM", () => {
@@ -44,11 +54,10 @@ describe("judgeDisk", () => {
 		now = NOW,
 		freeGB: number | { why: string } = 210,
 	) =>
-		judgeDisk({
+		judgeWith({
 			log: read(text),
 			now,
 			freeGB,
-			guest: ROOMY,
 			trim: { last: now - DAY, fixedAt: null },
 		});
 	const tags = (v: ReturnType<typeof judgeDisk>) =>
@@ -105,14 +114,7 @@ describe("judgeDisk", () => {
 		const trim = (
 			last: number | null | { why: string },
 			fixedAt: number | null = NOW - 30 * DAY,
-		) =>
-			judgeDisk({
-				log: read(LOG),
-				now: NOW,
-				freeGB: 210,
-				guest: ROOMY,
-				trim: { last, fixedAt },
-			});
+		) => judgeWith({ trim: { last, fixedAt } });
 		const line = (v: ReturnType<typeof judgeDisk>) => v.warnings[0]?.line;
 		it("is quiet within 14 days of its last firing", () => {
 			expect(tags(trim(NOW - 14 * DAY))).toEqual([]);
@@ -141,14 +143,7 @@ describe("judgeDisk", () => {
 	describe("the guest's virtual disk", () => {
 		const guest = (
 			g: { usedBytes: number; sizeBytes: number } | { why: string },
-		) =>
-			judgeDisk({
-				log: read(LOG),
-				now: NOW,
-				freeGB: 210,
-				guest: g,
-				trim: { last: NOW, fixedAt: null },
-			});
+		) => judgeWith({ guest: g });
 		it("is quiet at 85% full and warns past it, naming the resize above the current size", () => {
 			expect(
 				tags(guest({ usedBytes: 0.85 * 224 * GIB, sizeBytes: 224 * GIB })),
@@ -167,25 +162,14 @@ describe("judgeDisk", () => {
 		});
 	});
 	it("warns with no log, an unreadable one, C: under 40 GB, and C: unread", () => {
+		expect(tags(judgeWith({ log: { state: "absent" }, freeGB: 39.9 }))).toEqual(
+			["C-LOW", "COMPACT-UNINSTALLED"],
+		);
 		expect(
 			tags(
-				judgeDisk({
-					log: { state: "absent" },
-					now: NOW,
-					freeGB: 39.9,
-					guest: ROOMY,
-					trim: { last: NOW, fixedAt: null },
-				}),
-			),
-		).toEqual(["C-LOW", "COMPACT-UNINSTALLED"]);
-		expect(
-			tags(
-				judgeDisk({
+				judgeWith({
 					log: { state: "unreadable", why: "EIO" },
-					now: NOW,
 					freeGB: { why: "ENOENT" },
-					guest: ROOMY,
-					trim: { last: NOW, fixedAt: null },
 				}),
 			),
 		).toEqual(["C-UNREAD", "COMPACT-UNREAD"]);

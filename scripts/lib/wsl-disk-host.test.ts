@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { writeGuestDisk } from "./proc-fake";
 import {
 	appendCompactLog,
 	readCompactLog,
@@ -17,7 +18,7 @@ import {
 	readLastTrim,
 	readTrimFixedAt,
 } from "./wsl-disk-host.js";
-import { WSL_KERNEL, writeGuestDisk, writeOsrelease } from "./wsl-fake";
+import { WSL_KERNEL, writeOsrelease } from "./wsl-fake";
 
 let dir: string;
 beforeEach(() => {
