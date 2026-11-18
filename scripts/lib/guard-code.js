@@ -39,13 +39,14 @@ const {
 	checkoutOf,
 	fetchVerified,
 	git,
+	keptNames,
 	linkOf,
 	pointLink,
 	readLink,
+	readSpare,
 	readVerifiedSha,
 	removeWorktree,
 	short,
-	spareOf,
 	whyOf,
 	worktreeAt,
 } = require("./pinned-code.js");
@@ -158,16 +159,16 @@ function probe(dir, host) {
 /**
  * The worktree at `sha`, made where it was not yet, and its probe; a failed
  * checkout is the probe's error.
- * @param {{repo: string, codeDir: string, files: ReturnType<typeof guardFiles>}} where
+ * @param {{repo: string, codeDir: string, files: ReturnType<typeof guardFiles>, log: (line: string) => void}} where
  * @param {string} sha
  * @param {Array<string|null>} keep the live and previous worktrees
  * @returns {{dir: string|null, probe: Probe}}
  */
-function probedWorktree({ repo, codeDir, files }, sha, keep) {
+function probedWorktree({ repo, codeDir, files, log }, sha, keep) {
 	/** @type {string|null} */
 	let dir = null;
 	try {
-		dir = worktreeAt({ repo, codeDir, program: PROGRAM }, sha, keep);
+		dir = worktreeAt({ repo, codeDir, program: PROGRAM, log }, sha, keep);
 		return { dir, probe: probe(dir, probeHost(files.probeHost)) };
 	} catch (err) {
 		return { dir, probe: { error: whyOf(err) } };
@@ -217,15 +218,17 @@ function adoptGuardCode({ repo, codeDir, fetch = true }) {
 }
 
 /**
- * Remove every worktree in `codeDir` but those `keep` names and the spare.
+ * Remove every worktree in `codeDir` but those `keep` names and the spare. A
+ * tip the probe refused leaves its tree as the spare (#5426): no process ever
+ * ran from it, and the next tip rewrites it.
  * @param {{repo: string, codeDir: string}} where
  * @param {Array<string|null>} keep
  */
 function pruneBeside({ repo, codeDir }, keep) {
-	const spare = spareOf({ codeDir, program: PROGRAM }, keep);
-	const kept = new Set(
-		[...keep, spare].filter((k) => k !== null).map((k) => path.basename(k)),
-	);
+	const kept = keptNames([
+		...keep,
+		readSpare({ codeDir, program: PROGRAM }, keep),
+	]);
 	for (const name of fs.readdirSync(codeDir))
 		if (!kept.has(name)) removeWorktree(repo, path.join(codeDir, name));
 }
