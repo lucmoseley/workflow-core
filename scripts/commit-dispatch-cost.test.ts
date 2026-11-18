@@ -81,6 +81,7 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 			"lib/check-sink.js",
 			"lib/check.js",
 			"lib/child-buffer.js",
+			"lib/child-failure.js",
 			"lib/ci-runs.js",
 			"lib/citation-tracker.js",
 			"lib/claude-bin.js",
