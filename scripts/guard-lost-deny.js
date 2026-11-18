@@ -63,6 +63,7 @@
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 
+const { withoutLateEpipe } = require("./lib/child-failure.js");
 const { guardDirs, guardPath, isDenyCapableIn } = require("./lib/deny-capable");
 const { DISPATCH_ENTRY, denyingCoresOn } = require("./lib/guard-cores.js");
 const denyRates = require("./lib/guard-deny-rates");
@@ -424,13 +425,12 @@ function replayGuard(guard, payload, dirs) {
 	const [bin, argv] = name.endsWith(".js")
 		? [process.execPath, [script, ...args]]
 		: [script, args];
-	const run = spawnSync(bin, argv, { input: payload, encoding: "utf8" });
-	/* EPIPE is the guard exiting before it read the payload, as a `DENIES-BY:
-	 * exit 2` guard may: it ran, and its status stands (#3794). */
-	if (
-		run.error &&
-		/** @type {NodeJS.ErrnoException} */ (run.error).code !== "EPIPE"
-	) {
+	/* A `DENIES-BY: exit 2` guard may exit before it reads the payload: it
+	 * ran, and its status stands (#3794). */
+	const run = withoutLateEpipe(
+		spawnSync(bin, argv, { input: payload, encoding: "utf8" }),
+	);
+	if (run.error) {
 		process.stdout.write(`could not run it: ${run.error.message}\n`);
 		return false;
 	}

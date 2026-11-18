@@ -36,6 +36,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { promisify } = require("node:util");
+const { withoutLateEpipe } = require("./child-failure.js");
 const { relativeUnder } = require("./is-under.js");
 const { splitRunArgv } = require("./run-budgeted-argv.js");
 const { runInProcess, runInProcessAsync } = require("./run-in-process.js");
@@ -372,12 +373,14 @@ function shellCallCost(scriptPath, args = [], options = {}) {
 				{ mode: 0o755 },
 			);
 		}
-		const r = childProcess.spawnSync("sh", [script, ...args], {
-			cwd,
-			env: { ...env, PATH: `${shims}${path.delimiter}${realPath}` },
-			input: options.stdin ?? "",
-			encoding: "utf8",
-		});
+		const r = withoutLateEpipe(
+			childProcess.spawnSync("sh", [script, ...args], {
+				cwd,
+				env: { ...env, PATH: `${shims}${path.delimiter}${realPath}` },
+				input: options.stdin ?? "",
+				encoding: "utf8",
+			}),
+		);
 		if (r.error) throw r.error;
 		const result = {
 			status: r.status ?? 1,

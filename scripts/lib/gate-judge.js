@@ -18,6 +18,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { caught } = require("./caught.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
+const { withoutLateEpipe } = require("./child-failure.js");
 const { configDirFrom } = require("./config-dir.js");
 const { hostRoot } = require("./host-root.js");
 const { markersDir } = require("./marker-root.js");
@@ -178,24 +179,26 @@ const lastLine = (stderr) =>
  * @type {JudgePort}
  */
 const launchJudge = (prompt, { boundMs, env }) =>
-	spawnSync(
-		process.execPath,
-		[
-			LAUNCHER,
-			"judge",
-			"--config-dir",
-			configDirFrom(env.CLAUDE_CONFIG_DIR),
-			"--timeout-ms",
-			String(boundMs),
-		],
-		{
-			input: prompt,
-			encoding: "utf8",
-			env,
-			maxBuffer: CHILD_MAX_BUFFER,
-			timeout: boundMs + LAUNCHER_GRACE_MS,
-			killSignal: "SIGKILL",
-		},
+	withoutLateEpipe(
+		spawnSync(
+			process.execPath,
+			[
+				LAUNCHER,
+				"judge",
+				"--config-dir",
+				configDirFrom(env.CLAUDE_CONFIG_DIR),
+				"--timeout-ms",
+				String(boundMs),
+			],
+			{
+				input: prompt,
+				encoding: "utf8",
+				env,
+				maxBuffer: CHILD_MAX_BUFFER,
+				timeout: boundMs + LAUNCHER_GRACE_MS,
+				killSignal: "SIGKILL",
+			},
+		),
 	);
 
 /**

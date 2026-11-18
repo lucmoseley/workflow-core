@@ -17,6 +17,7 @@
 const { spawn, spawnSync } = require("node:child_process");
 const os = require("node:os");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
+const { withoutLateEpipe } = require("./child-failure.js");
 const { readFdAll } = require("./read-fd.js");
 const { writeFd } = require("./write-fd.js");
 const { caught } = require("./caught.js");
@@ -41,11 +42,13 @@ const SPAWN_ALL_CONCURRENCY = Math.max(
  */
 function spawnAllSync(jobs) {
 	if (jobs.length === 0) return [];
-	const r = spawnSync(process.execPath, [__filename], {
-		input: JSON.stringify(jobs),
-		encoding: "utf8",
-		maxBuffer: CHILD_MAX_BUFFER,
-	});
+	const r = withoutLateEpipe(
+		spawnSync(process.execPath, [__filename], {
+			input: JSON.stringify(jobs),
+			encoding: "utf8",
+			maxBuffer: CHILD_MAX_BUFFER,
+		}),
+	);
 	if (r.error) throw r.error;
 	if (r.status !== 0)
 		throw new Error(
