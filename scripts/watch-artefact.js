@@ -59,7 +59,7 @@ const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const { caught } = require("./lib/caught.js");
 const { parseOrExit } = require("./lib/cli-args.js");
-const { subagentLogState } = require("./lib/subagent-log-state.js");
+const { readSubagentLogState } = require("./lib/subagent-log-state.js");
 
 const DEFAULT_CEILING_S = 3600;
 const DEFAULT_FIRST_WRITE_S = 600;
@@ -211,7 +211,7 @@ async function main() {
 	let unreadSaid = false;
 	const inFlight = () => {
 		if (!log) return false;
-		const read = subagentLogState(log);
+		const read = readSubagentLogState(log);
 		if (read.state === "unread") {
 			if (!unreadSaid)
 				writeFd(2, `watch-artefact: ${read.why}; judging on growth alone\n`);

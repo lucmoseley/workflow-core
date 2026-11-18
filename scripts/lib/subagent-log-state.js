@@ -7,8 +7,8 @@
  * `Agent` launch result's `output_file` is a symlink to it. Beside it the
  * harness keeps `agent-<agentId>.meta.json`.
  *
- * STOPPED, MEASURED over 300 subagent logs on this machine (2026-11-18, #5421):
- * 294 finished agents each carry `"finished": true` in their meta file and
+ * STOPPED, MEASURED over the newest 300 subagent logs on this machine
+ * (2026-11-18, #5421): 294 finished agents each carry `"finished": true` in their meta file and
  * end on the `tool_result` of their `SubagentHandback` call; the 2 killed
  * ones end on a user record reading `[Request interrupted by user]`; the 4
  * running ones ended on an `api-request`. So a log's last turn record alone
@@ -16,10 +16,15 @@
  * An assistant record with no tool call is an agent that stopped too — the
  * end of a turn on a harness that hands back without a tool.
  *
- * RESIDUAL: the harness wrote no `finished` flag before November 2026 (all
- * 1,486 logs read in flight on this machine date from October), so there a
+ * RESIDUAL: the harness wrote no `finished` flag before November 2026. Of
+ * all 12,856 logs on this machine, the 1,487 read in flight date from October
+ * bar one agent then running, so on such a harness a
  * finished agent reads in flight. The completion notification stops the
  * watcher first; only a dead, unreported agent costs the wait to the ceiling.
+ *
+ * A TORN LAST LINE, a record mid-append, is skipped for the turn record
+ * before it: the writer is mid-write, so the reading stays on the agent's
+ * newest whole record rather than calling the log unread.
  *
  * IN FLIGHT is everything else: an assistant record calling a tool, whose
  * result is not yet written; a user record (a tool result, or the prompt)
@@ -60,10 +65,10 @@ const isBlock = (block, type) =>
 
 /**
  * Whether one turn record leaves a call in flight.
- * @param {Record<string, any>} row
+ * @param {import("./transcript.js").TranscriptRecord} row
  * @returns {boolean}
  */
-function leavesCallOpen(row) {
+function isCallOpen(row) {
 	if (row.type === "api-request") return true;
 	const blocks = blocksOf(row.message?.content);
 	if (row.type === "assistant")
@@ -85,11 +90,14 @@ function leavesCallOpen(row) {
  * beside the log's real path so a launch result's symlink finds it.
  * @param {string} log
  */
-function markedFinished(log) {
+function isMarkedFinished(log) {
 	try {
 		const meta = fs.realpathSync(log).replace(/\.jsonl$/, ".meta.json");
 		return JSON.parse(fs.readFileSync(meta, "utf8"))?.finished === true;
 	} catch {
+		/* Fail-open to in flight (#5421): no meta file, or none that reads,
+		 * leaves the log's own record to judge, and a finished agent read live
+		 * costs only a watch its completion notification stops. */
 		return false;
 	}
 }
@@ -98,7 +106,7 @@ function markedFinished(log) {
  * @param {string} log the subagent's own log
  * @returns {LogState}
  */
-function subagentLogState(log) {
+function readSubagentLogState(log) {
 	let row;
 	try {
 		row = readLastJsonlRow(log, isTurnRecord);
@@ -109,8 +117,8 @@ function subagentLogState(log) {
 	if (row === null) return { state: "unread", why: `${log} does not exist` };
 	if (row === undefined)
 		return { state: "unread", why: `${log} holds no turn record` };
-	if (markedFinished(log)) return { state: "stopped" };
-	return { state: leavesCallOpen(row) ? "in-flight" : "stopped" };
+	if (isMarkedFinished(log)) return { state: "stopped" };
+	return { state: isCallOpen(row) ? "in-flight" : "stopped" };
 }
 
-module.exports = { subagentLogState };
+module.exports = { readSubagentLogState };

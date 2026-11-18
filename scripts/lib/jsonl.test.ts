@@ -191,6 +191,7 @@ describe("readLastJsonlRow", () => {
 	);
 
 	it("reads past one read of the file's end for a row the test passes", () => {
+		// 20,000 eight-byte rows, 160 KB: past two doublings of the 64 KiB first read.
 		const file = write(`{"a":1}\n${'{"a":2}\n'.repeat(20_000)}`);
 		expect(
 			readLastJsonlRow(file, (row: Record<string, unknown>) => row.a === 1),

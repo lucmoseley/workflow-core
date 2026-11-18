@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const { subagentLogState } = createRequire(__filename)(
+const { readSubagentLogState } = createRequire(__filename)(
 	"./subagent-log-state.js",
 );
 
@@ -47,7 +47,12 @@ const toolResult = { type: "tool_result", tool_use_id: "t1", content: "ok" };
 const attachment = { type: "attachment", attachment: { type: "x" } };
 
 const writeLog = (...rows: unknown[]) =>
-	writeFileSync(log, rows.map((r) => `${JSON.stringify(r)}\n`).join(""));
+	writeFileSync(
+		log,
+		rows
+			.map((r) => (typeof r === "string" ? r : `${JSON.stringify(r)}\n`))
+			.join(""),
+	);
 
 describe("a call in flight", () => {
 	it.each([
@@ -62,6 +67,10 @@ describe("a call in flight", () => {
 		],
 		["the prompt, before any reply", [user("do the work")]],
 		[
+			"a tool call followed by a torn line mid-append",
+			[assistant([toolUse], "tool_use"), '{"type":"user","mess'],
+		],
+		[
 			"an API request with no reply",
 			[user([toolResult]), { type: "api-request" }],
 		],
@@ -71,7 +80,7 @@ describe("a call in flight", () => {
 		],
 	])("reads %s as in flight", (_name, rows) => {
 		writeLog(...rows);
-		expect(subagentLogState(log)).toEqual({ state: "in-flight" });
+		expect(readSubagentLogState(log)).toEqual({ state: "in-flight" });
 	});
 });
 
@@ -81,7 +90,7 @@ describe("an agent that stopped", () => {
 			user([toolResult]),
 			assistant([{ type: "text", text: "done" }], "end_turn"),
 		);
-		expect(subagentLogState(log)).toEqual({ state: "stopped" });
+		expect(readSubagentLogState(log)).toEqual({ state: "stopped" });
 	});
 
 	it("reads an interrupted agent as stopped", () => {
@@ -89,13 +98,13 @@ describe("an agent that stopped", () => {
 			assistant([{ type: "thinking", thinking: "" }], "tool_use"),
 			user([{ type: "text", text: "[Request interrupted by user]" }]),
 		);
-		expect(subagentLogState(log)).toEqual({ state: "stopped" });
+		expect(readSubagentLogState(log)).toEqual({ state: "stopped" });
 	});
 
 	it("reads an agent its meta file marks finished as stopped, though its log ends on a tool result", () => {
 		writeLog(assistant([toolUse], "tool_use"), user([toolResult]));
 		writeFileSync(join(dir, "agent-a1.meta.json"), '{"finished":true}');
-		expect(subagentLogState(log)).toEqual({ state: "stopped" });
+		expect(readSubagentLogState(log)).toEqual({ state: "stopped" });
 	});
 
 	it("finds the meta file beside the log a launch result's symlink names", () => {
@@ -104,22 +113,22 @@ describe("an agent that stopped", () => {
 		mkdirSync(join(dir, "tasks"));
 		const link = join(dir, "tasks", "a1.output");
 		symlinkSync(log, link);
-		expect(subagentLogState(link)).toEqual({ state: "stopped" });
+		expect(readSubagentLogState(link)).toEqual({ state: "stopped" });
 	});
 
 	it("ignores a meta file that is unfinished or malformed", () => {
 		writeLog(user([toolResult]));
 		const meta = join(dir, "agent-a1.meta.json");
 		writeFileSync(meta, '{"agentType":"x"}');
-		expect(subagentLogState(log).state).toBe("in-flight");
+		expect(readSubagentLogState(log).state).toBe("in-flight");
 		writeFileSync(meta, "{not json");
-		expect(subagentLogState(log).state).toBe("in-flight");
+		expect(readSubagentLogState(log).state).toBe("in-flight");
 	});
 });
 
 describe("a log that will not read", () => {
 	it("is unread where missing, saying so", () => {
-		expect(subagentLogState(log)).toEqual({
+		expect(readSubagentLogState(log)).toEqual({
 			state: "unread",
 			why: `${log} does not exist`,
 		});
@@ -127,14 +136,14 @@ describe("a log that will not read", () => {
 
 	it("is unread where it holds no turn record", () => {
 		writeFileSync(log, `not json\n${JSON.stringify(attachment)}\n`);
-		expect(subagentLogState(log)).toEqual({
+		expect(readSubagentLogState(log)).toEqual({
 			state: "unread",
 			why: `${log} holds no turn record`,
 		});
 	});
 
 	it("is unread, never a throw, where the path is a directory", () => {
-		expect(subagentLogState(dir)).toMatchObject({
+		expect(readSubagentLogState(dir)).toMatchObject({
 			state: "unread",
 			why: expect.stringContaining(`cannot read ${dir}`),
 		});
