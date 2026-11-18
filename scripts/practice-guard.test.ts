@@ -348,6 +348,7 @@ const stop = (
 		stderr = /^$/,
 		script = hook,
 		homeDir = home,
+		cwd = repo,
 	}: {
 		session?: string;
 		env?: NodeJS.ProcessEnv;
@@ -355,6 +356,7 @@ const stop = (
 		stderr?: RegExp;
 		script?: string;
 		homeDir?: string;
+		cwd?: string;
 	} = {},
 ) => {
 	const transcript = path.join(tmp, "transcript.jsonl");
@@ -378,7 +380,7 @@ const stop = (
 		{
 			session_id: session,
 			transcript_path: transcript,
-			cwd: repo,
+			cwd,
 			hook_event_name: "Stop",
 			stop_hook_active: active,
 		},
@@ -1099,7 +1101,7 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 		"covered — docs/practice/prose-editing-and-style.md, 2026-01-01";
 	const settings = (file: string) => path.join(repo, ".claude", file);
 	const userSettings = () => path.join(adopterHome, ".claude", "settings.json");
-	const enable = (file: string, value: unknown) => {
+	const enable = (file: string, value: unknown): undefined => {
 		fs.mkdirSync(path.dirname(file), { recursive: true });
 		fs.writeFileSync(
 			file,
@@ -1110,15 +1112,16 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 	};
 	const pluginOn = { "workflow-core@workflow-core": true };
 	const pluginOff = { "workflow-core@workflow-core": false };
+	type Arranged = { env?: NodeJS.ProcessEnv; cwd?: string } | undefined;
 	const machineAlone = (
 		line: string,
-		{ env = {}, stderr }: { env?: NodeJS.ProcessEnv; stderr?: RegExp } = {},
+		{ stderr, ...arranged }: Arranged & { stderr?: RegExp } = {},
 	) =>
 		stop([wrote(code()), declared(line)], {
 			script: machine,
 			homeDir: adopterHome,
-			env,
 			stderr,
+			...arranged,
 		});
 	/** Each copy's verdict on one Stop, the plugin's first, sharing one latch. */
 	const both = (line: string) => [
@@ -1172,16 +1175,19 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 		);
 	});
 
-	it.each([
+	it.each<[string, () => Arranged]>([
 		[
 			"the user settings enable it",
-			() => enable(userSettings(), { "workflow-core@other-marketplace": true }),
-			{},
+			() => {
+				enable(userSettings(), { "workflow-core@other-marketplace": true });
+			},
 		],
 		[
 			"the user settings under ~/.claude enable it, CLAUDE_CONFIG_DIR unset",
-			() => enable(userSettings(), pluginOn),
-			{ CLAUDE_CONFIG_DIR: "" },
+			() => {
+				enable(userSettings(), pluginOn);
+				return { env: { CLAUDE_CONFIG_DIR: "" } };
+			},
 		],
 		[
 			"the local settings enable it over a project false",
@@ -1189,27 +1195,43 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 				enable(settings("settings.json"), pluginOff);
 				enable(settings("settings.local.json"), pluginOn);
 			},
-			{},
 		],
 		[
 			"CLAUDE_PROJECT_DIR is unset and the payload's cwd enables it",
-			() => enable(settings("settings.json"), pluginOn),
-			{ CLAUDE_PROJECT_DIR: "" },
+			() => {
+				enable(settings("settings.json"), pluginOn);
+				return { env: { CLAUDE_PROJECT_DIR: "" } };
+			},
 		],
-	])("stands down where %s", (_, arrange, env) => {
-		arrange();
-		expect(machineAlone(nowhere, { env })).toBeNull();
+		[
+			"CLAUDE_PROJECT_DIR is unset and the payload's cwd is a subdirectory of a project enabling it",
+			() => {
+				enable(settings("settings.json"), pluginOn);
+				const sub = path.join(repo, ".claude", "sub");
+				fs.mkdirSync(sub, { recursive: true });
+				return { env: { CLAUDE_PROJECT_DIR: "" }, cwd: sub };
+			},
+		],
+		[
+			"CLAUDE_PROJECT_DIR is unset and the payload's cwd, outside git, enables it",
+			() => {
+				const loose = path.join(dir, "loose-enabled");
+				enable(path.join(loose, ".claude", "settings.json"), pluginOn);
+				return { env: { CLAUDE_PROJECT_DIR: "" }, cwd: loose };
+			},
+		],
+	])("stands down where %s", (_, arrange) => {
+		expect(machineAlone(nowhere, arrange())).toBeNull();
 	});
 
-	it.each([
-		["no settings enable it", () => undefined, {}, undefined],
+	it.each<[string, () => Arranged, RegExp | undefined]>([
+		["no settings enable it", () => undefined, undefined],
 		[
 			"the local settings set it false over a project true",
 			() => {
 				enable(settings("settings.json"), pluginOn);
 				enable(settings("settings.local.json"), pluginOff);
 			},
-			{},
 			undefined,
 		],
 		[
@@ -1218,13 +1240,11 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 				enable(userSettings(), pluginOn);
 				enable(settings("settings.json"), pluginOff);
 			},
-			{},
 			undefined,
 		],
 		[
 			"only another plugin is enabled",
 			() => enable(settings("settings.json"), { "other@workflow-core": true }),
-			{},
 			undefined,
 		],
 		[
@@ -1233,14 +1253,12 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 				enable(settings("settings.json"), {
 					"workflow-core@workflow-core": "yes",
 				}),
-			{},
 			undefined,
 		],
 		[
 			"the settings file is not JSON",
 			() => enable(settings("settings.json"), '{"enabledPlugins": {'),
-			{},
-			/^practice-guard: .*\/\.claude\/settings\.json is not JSON, so it enables no plugin\n$/,
+			/^practice-guard: .*\/\.claude\/settings\.json is unreadable or not JSON, so it enables no plugin\n$/,
 		],
 		[
 			"the settings file holds two JSON values",
@@ -1249,26 +1267,20 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 					settings("settings.json"),
 					`${JSON.stringify({ enabledPlugins: pluginOn })}\n{}`,
 				),
-			{},
 			undefined,
 		],
 		[
 			"the tree written enables it but the session's project does not",
 			() => {
 				enable(settings("settings.json"), pluginOn);
-				return { CLAUDE_PROJECT_DIR: path.join(dir, "loose") };
+				return { env: { CLAUDE_PROJECT_DIR: path.join(dir, "loose") } };
 			},
-			{},
 			undefined,
 		],
 	])(
 		"judges where %s, refusing the plugin-only note it cannot see",
-		(_, arrange, env, stderr) => {
-			const project = arrange() as NodeJS.ProcessEnv | undefined;
-			const reason = machineAlone(pluginOnly, {
-				env: { ...env, ...project },
-				stderr,
-			});
+		(_, arrange, stderr) => {
+			const reason = machineAlone(pluginOnly, { ...arrange(), stderr });
 			expect(reason).toContain(
 				"covered names docs/practice/llm-evaluation.md, which does not exist",
 			);
