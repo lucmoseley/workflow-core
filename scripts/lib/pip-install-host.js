@@ -55,6 +55,15 @@ function getOnce(curl, url, maxTimeS) {
 	};
 }
 
+/** The URL each port asks for a package. */
+const URLS = {
+	/** @param {string} name */
+	pypi: (name) => `https://pypi.org/pypi/${encodeURIComponent(name)}/json`,
+	/** @param {string} name */
+	stats: (name) =>
+		`https://pypistats.org/api/packages/${encodeURIComponent(name)}/recent`,
+};
+
 /**
  * @returns {import("./pip-install.js").PipInstallPorts
  *   & import("./package-vetting.js").VettingPorts}
@@ -62,21 +71,12 @@ function getOnce(curl, url, maxTimeS) {
 function buildHostPorts() {
 	const curl = curlBin();
 	return {
-		pypi: (name) =>
-			getOnce(
-				curl,
-				`https://pypi.org/pypi/${encodeURIComponent(name)}/json`,
-				CURL_MAX_TIME_S,
-			),
-		stats: (name) =>
-			getRetrying(
-				curl,
-				`https://pypistats.org/api/packages/${encodeURIComponent(name)}/recent`,
-			),
+		pypi: (name) => getOnce(curl, URLS.pypi(name), CURL_MAX_TIME_S),
+		stats: (name) => getRetrying(curl, URLS.stats(name)),
 		now: () => Date.now(),
 		startedAt: () => entryStartedAt() ?? Date.now(),
 		allowNewPackage: Boolean(process.env.WFC_ALLOW_NEW_PACKAGE),
 	};
 }
 
-module.exports = { buildHostPorts };
+module.exports = { URLS, buildHostPorts };

@@ -30,7 +30,8 @@ import {
 const { decide } = require("./pip-install.js") as {
 	decide: (command: string, ctx: object) => { deny: string } | null;
 };
-const { buildHostPorts } = require("./pip-install-host.js") as {
+const { URLS, buildHostPorts } = require("./pip-install-host.js") as {
+	URLS: Record<Port, (name: string) => string>;
 	buildHostPorts: () => Record<Port, (name: string) => Get>;
 };
 
@@ -167,28 +168,52 @@ const fakeAnswer = (port: Port, c: (typeof CASES)[number]) =>
 	port === "pypi" ? pypiAnswer(c.reg) : statsAnswer(c.reg);
 
 // Residual: where the public services do not answer, the live cases skip and
-// the fake's success and 404 answers go unchecked.
+// the fake's success and 404 answers go unchecked. The probe reads PyPI's
+// cached paths; a made-up name's 404 comes from its origin, which can stall
+// past curl's 8 s while the probe answers (#5402); silenceReason then skips
+// the case on every run while that origin stays silent.
 let liveSkip: { reason: string | undefined } | undefined;
 function liveSkipReason(): string | undefined {
-	for (const url of [
-		"https://pypi.org/pypi/playwright/json",
-		"https://pypistats.org/api/packages/playwright/recent",
-	]) {
-		const { status } = spawnSync(
-			"curl",
-			["-fsS", "-o", "/dev/null", "--max-time", "8", url],
-			{ stdio: "ignore" },
-		);
-		if (status !== 0) return `PyPI or pypistats is unreachable: ${url}`;
-	}
+	for (const url of [URLS.pypi("playwright"), URLS.stats("playwright")])
+		if (!isAnswered(url, { okOnly: true }))
+			return `PyPI or pypistats is unreachable: ${url}`;
 	return undefined;
+}
+
+/** Whether curl, outside the adapter, gets an HTTP answer from `url`: any
+ * answer, or with `okOnly` a 2xx or 3xx. */
+function isAnswered(url: string, { okOnly = false } = {}): boolean {
+	const { status } = spawnSync(
+		"curl",
+		[
+			...(okOnly ? ["-f"] : []),
+			"-sS",
+			"-o",
+			"/dev/null",
+			"--max-time",
+			"8",
+			url,
+		],
+		{ stdio: "ignore" },
+	);
+	return status === 0;
+}
+
+/** Why a live adapter answer says nothing of the contract, if it does not:
+ * it got nothing, and neither does curl asked the same URL directly. */
+function silenceReason(port: Port, pkg: string, real: Get): string | undefined {
+	if ("missing" in real || real.code !== null) return undefined;
+	const url = URLS[port](pkg);
+	return isAnswered(url) ? undefined : `no answer from ${url}`;
 }
 
 describe.each(CASES)("$what", (c) => {
 	it.for(c.ports)(
 		"%s answers alike from the real adapter, the stub and the in-process fake",
-		// At worst the two 8 s probes on the first live case, then curl's 8 s.
-		{ timeout: 30_000 },
+		// At worst 36 s: the two 8 s probes on the first live case, curl's 8 s,
+		// the stats port's 429 retry (1 s wait, 3 s ask) and the 8 s re-ask of
+		// a silent URL. The 4 s over that is a guess.
+		{ timeout: 40_000 },
 		(port, ctx) => {
 			if (c.real === "live") {
 				liveSkip ??= { reason: liveSkipReason() };
@@ -198,12 +223,19 @@ describe.each(CASES)("$what", (c) => {
 			expect(verdictOf(port, c.pkg, fake)).toEqual(
 				c.verdict === null ? null : expect.stringMatching(c.verdict),
 			);
-			for (const answer of [realAnswer(port, c), stubAnswer(port, c)]) {
+			const alike = (answer: Get) => {
 				expect(shapeOf(answer)).toEqual(shapeOf(fake));
 				expect(verdictOf(port, c.pkg, answer)).toEqual(
 					verdictOf(port, c.pkg, fake),
 				);
-			}
+			};
+			// The real answer first: the stub's environment holds to the test's end.
+			const real = realAnswer(port, c);
+			alike(stubAnswer(port, c));
+			const silence =
+				c.real === "live" ? silenceReason(port, c.pkg, real) : undefined;
+			if (silence) return ctx.skip(silence);
+			alike(real);
 		},
 	);
 });

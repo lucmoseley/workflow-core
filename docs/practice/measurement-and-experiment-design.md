@@ -14,11 +14,33 @@ Researched: 2026-11-10
 - The bound holds only for independent trials at one rate. Attempts in bursts from one cause count as fewer trials. NIST e-Handbook §8.3.1.1 ("constant failure rate") [standard or field body]
 - A plan that fails at the first event can fail a good fix: at n = 3/p a fix whose true rate is p passes only 5% of the time. Where a good fix must pass, allow r failures and take the longer n. NIST e-Handbook §8.3.1.1 ("iterate on r") [standard or field body]
 
+## Before and after samples
+
+- For "did the rate drop", test the after sample against the before sample with a two-sample exact test: the conditional Poisson test or Fisher's exact test, below. Krishnamoorthy and Thomson, "A more powerful test for comparing two Poisson means", JSPI 2004, free author copy [named expert]; NIST/SEMATECH e-Handbook §7.3.3 [standard or field body]
+- Do not use the lower-bound target: setting the target at the baseline's 95% lower bound and sizing n by the zero-event bound treats that bound as exact and asks 95% again on top, so a small baseline's window grows several-fold (table below). No free source read states this; it rests on the arithmetic, rechecked numerically (#5401, #5407).
+- Events over time (k1 in T1, k2 in T2): use the conditional test of Przyborowski and Wilenski (Biometrika 1940). Given k1 + k2, k2 is binomial with p = T2/(T1 + T2); the one-sided binomial test gives the p-value. Krishnamoorthy and Thomson 2004 [named expert]. R `poisson.test` (two-sample form) and `exactci::poisson.exact` run it; in SciPy run `binomtest(k2, k1 + k2, T2/(T1 + T2), alternative='less')`, since `poisson_means_test` is the E-test; statsmodels `test_poisson_2indep` defaults to an asymptotic score test, so pass `method='exact-cond'`. Each tool's own docs [standard or field body]. Przyborowski and Wilenski 1940 is paywalled, unread.
+- Events per trial (k1 of n1, k2 of n2): use one-sided Fisher's exact test where the samples are small, a z-test where they are large. NIST/SEMATECH e-Handbook §7.3.3 [standard or field body]
+- The E-test is more powerful than the conditional test, which is conservative, but its size is only approximate ("seldom exceeds the nominal level"). Krishnamoorthy and Thomson 2004 [named expert]. Gu, Ng, Tang and Schucany, Biometrical Journal 2008, recommend a likelihood-ratio test from simulation [named expert]; abstract read only, its free SMU tech report (TR356) unread.
+- With k events in T1 and none after, the conditional test passes at confidence C once (T1/(T1 + T2))^k <= 1 - C, so T2 = T1 x ((1 - C)^(-1/k) - 1), from the test's binomial form (Krishnamoorthy and Thomson 2004) [named expert]. At 95% one-sided, against the lower-bound target's 3T1/L(k), where L(k) is the exact Poisson 95% lower bound on k:
+
+  | k before | two-sample T2/T1 | lower-bound T2/T1 |
+  |---|---|---|
+  | 1 | 19 | 58 |
+  | 2 | 3.5 | 8.4 |
+  | 3 | 1.7 | 3.7 |
+  | 4 | 1.1 | 2.2 |
+  | 5 | 0.82 | 1.5 |
+  | 10 | 0.35 | 0.55 |
+  | 30 | 0.11 | 0.14 |
+
+  The gap closes only as the baseline grows. Per trial, the Fisher form is C(n1, k)/C(n1 + n2, k) <= 1 - C: 3 events in 30 trials needs 50 clean trials, against 107 by the lower-bound target.
+- Size by the zero-event bounds above only for a question against a stated SLO or target rate. NIST e-Handbook §8.3.1.1 (testing against a stated failure rate) [standard or field body]
+
 ## Stopping rules
 
 - Fix the sample size and the stopping rule before the window starts. A look that is not planned inflates false positives ("peek ... ten times" turns 1% into 5%). Miller, "How Not To Run an A/B Test" [named expert]
 - To stop early with a pass, use a sequential test fixed in advance: a group sequential test where the maximum n is known, an always-valid test (mSPRT) where it is not. Johari, Pekelis and Walsh, "Always Valid Inference", arXiv 1512.04922; Spotify Engineering, "Choosing a Sequential Testing Framework" (2023); Miller, "Simple Sequential A/B Testing" (2015) [named expert]
-- Stop early with a fail at the first failure the plan does not allow: a plan that passes at r or fewer failures can no longer pass after failure r + 1, whatever the rest of the window shows. NIST e-Handbook §8.3.1.1 (passes with "no more than a pre-specified number of failures") [standard or field body]; Argo `failureLimit`, Flagger `threshold`, a Spinnaker critical metric, each one adopter [unverified]
+- Stop early with a fail at the first failure the plan does not allow: a plan that passes at r or fewer failures can no longer pass after failure r + 1. NIST e-Handbook §8.3.1.1 (passes with "no more than a pre-specified number of failures") [standard or field body]; Argo `failureLimit`, Flagger `threshold`, a Spinnaker critical metric, each one adopter [unverified]
 - Extend only by a planned maximum: truncate a sequential plan at about three times the fixed-plan n. NIST e-Handbook §6.2.6 [standard or field body]
 - Extending by a human decision on an inconclusive result gives up the stated confidence. Argo Rollouts (Inconclusive pauses for a human), one adopter [unverified]; sets no default
 

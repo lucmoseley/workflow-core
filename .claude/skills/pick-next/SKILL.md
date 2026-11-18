@@ -383,10 +383,9 @@ store: abandoning a band costs its sizes and gists, not its write-sets (mantahos
 session whose subagent died, so write the closing sum over what the store
 already holds rather than leaving wave 1 standing as the whole set.
 
-**While that watch runs, dispatch a first wave** (mantahostels#1486). The turn that dispatches the
-subagents ends anyway — `docs/agents/guard-registry.md` §Conventions: end the turn while
-something runs — so the work below costs a turn that was going to be spent
-waiting.
+**While that watch runs, dispatch a first wave** (mantahostels#1486). The dispatching turn would
+otherwise sit waiting — ended outside a background job, held on a foreground
+wait inside one (`rule:job-holds-turn`) — so the work below costs nothing extra.
 
 **Wave 1 is the candidates whose dispatch no size can change.** A candidate goes
 in wave 1 when all three hold:
