@@ -1,9 +1,7 @@
 // @vitest-environment node
 /*
- * Pins check-contract-live.js (#5408) end to end: over `--reports` and
- * `--ledger`, and once through gh's run listing and download behind the
- * WFC_GH stub. Loosened, a live contract case can skip on every sweep for
- * weeks and `npm run status` still reads OK, which is the silence #5402 left.
+ * Pins check-contract-live.js (#5408). Loosened, a live contract case can
+ * skip on every sweep for weeks and `npm run status` still reads OK.
  *
  * A PLAIN TEMP DIR, NOT A TEMP GIT REPO: the script reads JSON files and asks
  * git nothing of the temp dir.
@@ -37,7 +35,7 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** One sweep's shard report, started `day` days after T0, each test's status as given. */
+/** One sweep's shard report, started `day` days after T0. */
 function writeSweep(
 	runId: number,
 	day: number,
