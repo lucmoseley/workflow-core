@@ -148,7 +148,7 @@ const WATCH =
 const NOOP_REASON = `Ending a turn is not a tool call. A no-op command like \`true\` re-invokes this session — which is why the loop it is meant to break keeps going. End the turn by emitting your final text with NO tool call at all, and stop: ${WAIT_SLOT}, so each no-op is a full-context turn spent learning nothing.`;
 const READ_REASON = `Instead: a subagent, one backgrounded \`${WATCH}\`; your next suite, in the foreground with \`timeout: 600000\`; a bg-run.sh job, \`scripts/bg-run.sh wait <name>\`. Then end the turn (a job: \`rule:job-holds-turn\`).
 Re-reading a background job's output file is a wait loop: ${WAIT_SLOT}, so each re-read is a full-context turn spent for nothing.`;
-const AGENTS_REASON = `Instead: one backgrounded \`${WATCH}\` on the subagent artefact, then end the turn (a job: \`rule:job-holds-turn\`).
+const AGENTS_REASON = `Instead: one backgrounded \`${WATCH}\`, then end the turn (a job: \`rule:job-holds-turn\`).
 Polling ListAgents. ${capital(spelt(ALLOWANCE.agents))} calls already in the last ${WINDOW_TEXT} is the shape of a wait loop: ${WAIT_SLOT}, so each poll is a full-context turn spent for nothing. Never narrate "waiting". The elapsed-time column is stale, so the poll does not read true either.`;
 
 const PARENT_REASON = {
@@ -170,8 +170,7 @@ const WATCHES = {
 	check: {
 		lead: "Timed checks under two minutes apart",
 		next: `replace the next with one backgrounded \`${WATCH}\``,
-		ceiling: () =>
-			"two consecutive checks with no growth means abandon that agent and proceed without it.",
+		ceiling: () => "its `STALLED` or `MISSING` means abandon that agent.",
 	},
 	"check:job": {
 		lead: "Timed job beats under two minutes apart",
