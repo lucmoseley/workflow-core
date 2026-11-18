@@ -450,12 +450,13 @@ if [[ "$event" = stop ]]; then
     esac
   done <<<"$scan"
   [[ -n "$written" ]] || exit 0
-  cwd_top=$(git -C "$(jq -r '.cwd // "."' <<<"$input")" rev-parse --show-toplevel 2>/dev/null)
+  cwd=$(jq -r '.cwd // "."' <<<"$input")
+  cwd_top=$(git -C "$cwd" rev-parse --show-toplevel 2>/dev/null)
   roots+=$cwd_top
 
   # The session's project decides whether the plugin loaded, not the trees it
   # wrote into.
-  [[ -z $plugin_root ]] && plugin_enabled_at "${CLAUDE_PROJECT_DIR:-${cwd_top:-.}}" && exit 0
+  [[ -z $plugin_root ]] && plugin_enabled_at "${CLAUDE_PROJECT_DIR:-${cwd_top:-$cwd}}" && exit 0
 
   fault=$(fault_in "$decl")
   [[ -n "$fault" ]] || exit 0
