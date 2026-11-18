@@ -96,8 +96,8 @@ const PRECOMMIT = [
 
 /**
  * The files whose edit selects this suite, as path literals. The fixture also
- * copies each script its hooks name by path, so a launch the hook gains needs
- * no row here (#5423).
+ * copies each script its hooks name by path, so a launch the hook gains runs
+ * without a row here; its row is only for its edits to select the suite (#5423).
  */
 const LISTED = [
 	"scripts/lib/precommit-gate.sh",
@@ -111,6 +111,8 @@ const LISTED = [
 	"scripts/queue-run.js",
 	// prepare-commit-msg fails closed without its dispatcher and scanner.
 	"scripts/prepare-commit-msg-dispatch.js",
+	"scripts/lib/hook-root.sh",
+	"scripts/lib/hook-bound.sh",
 	"scripts/check-commit-message-closes.js",
 	"scripts/lib/rule-text.sh",
 	"docs/agents/rules/commit-closes-keyword.txt",
