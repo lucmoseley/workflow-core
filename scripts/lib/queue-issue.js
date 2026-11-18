@@ -68,8 +68,8 @@ function queueIssueFiler({
 		const body = `${text.trimEnd()}\n\n${buildStandaloneLine(standalone)}\n`;
 		const found = openIssue(title);
 		if (found !== null) {
-			const gate = gateLinesOf(found.body);
-			const kept = gate === null ? body : `${body}\n${gate}\n`;
+			const gateLines = gateLinesOf(found.body);
+			const kept = gateLines === null ? body : `${body}\n${gateLines}\n`;
 			return `${noun}: ${refresh(found.number, kept)}${relabel(found, addLabels)}`;
 		}
 		const listed = similar(title);

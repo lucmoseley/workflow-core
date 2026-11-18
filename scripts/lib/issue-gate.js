@@ -138,16 +138,19 @@ function firstLiveMatch(re, body) {
 }
 
 /**
- * The body's first live `**Gated on:**` line as written, and its first live
- * `**Gate basis:**` beneath it, for a writer that replaces a body to carry
+ * The body's first live `**Gated on:**` line as written, and the first live
+ * `**Gate basis:**` below it, for a writer that replaces a body to carry
  * over (#3636, #5419), or null where no gate is.
  * @param {string} body
  * @returns {string|null}
  */
 function gateLinesOf(body) {
-	const gate = firstLiveMatch(GATE_ON_RE, body)?.[0].trim();
-	if (gate === undefined) return null;
-	const basis = firstLiveMatch(BASIS_RE, body)?.[0].trim();
+	const m = firstLiveMatch(GATE_ON_RE, body);
+	if (m === null) return null;
+	const gate = m[0].trim();
+	/* The gate line is live, so the text after it opens outside a fence. */
+	const below = body.slice(m.index + m[0].length);
+	const basis = firstLiveMatch(BASIS_RE, below)?.[0].trim();
 	return basis === undefined ? gate : `${gate}\n${basis}`;
 }
 

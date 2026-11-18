@@ -107,6 +107,34 @@ it("keeps a gate a session wrote on the body, and its basis, through a refresh (
 	expect(refreshed[0]).toContain(gate);
 });
 
+it("keeps a gate with no basis beneath it alone, leaving a basis above it behind (#3636, #5419)", () => {
+	const gate =
+		"**Gated on:** b9f96e964 is on main — check: git merge-base --is-ancestor b9f96e964 origin/main && echo on — abandon if: it is reverted";
+	const refreshed: string[] = [];
+	const file = queueIssueFiler({
+		openIssue: () => ({
+			number: 7,
+			labels: LABELS,
+			body: `**Gate basis:** a stray basis above the gate\n\nold body\n\n${gate}\n`,
+		}),
+		similar: () => [],
+		fileIssue: () => ({ status: 0, stdout: "", stderr: "" }),
+		refresh: (_, body) => {
+			refreshed.push(body);
+			return "Refreshed #7.";
+		},
+		addLabels: () => undefined,
+		close: () => undefined,
+	});
+
+	file(ISSUE, "new body");
+
+	expect(refreshed[0]).toContain("new body");
+	expect(refreshed[0]).not.toContain("old body");
+	expect(refreshed[0]).toContain(gate);
+	expect(refreshed[0]).not.toContain("stray basis");
+});
+
 it("closes the open issue with the comment its body earns, and none where the body earns none (#3636)", () => {
 	const closed: [number, string][] = [];
 	const refreshed: number[] = [];
