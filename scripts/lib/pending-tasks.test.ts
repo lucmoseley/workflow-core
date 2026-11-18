@@ -562,9 +562,6 @@ describe("readPendingTasks keeps a subagent out past an interim notification (#5
 	});
 
 	it("never lets an unclosed opening tag join a notification to an interim one", () => {
-		/* A quoted `<task-notification>` with no close, then a Bash job's
-		 * real notification: the block match starts at the last opening tag,
-		 * so the interim words quoted before it do not reach the real one. */
 		write(
 			bash("sleep 5", "t2", { run_in_background: true }),
 			toolResult(
