@@ -346,6 +346,30 @@ gate_check_deleted() {
   echo "pre-commit: WFC_ALLOW_GATE_INPUT_DELETE is set — allowing this commit to delete ${GATE_DELETED#, }." >&2
 }
 
+# drops_module <module> <label> — true, saying the <label> check stands down,
+# where this commit's staged .claude/workflow-core.json drops <module> from the
+# `modules` HEAD's config lists: deleting that module's documents is then its
+# retirement, not a gate input lost. A merge carrying such a commit stages the
+# same pair, and the escape cannot reach a merge (#5405, founder ruling Q1 (A)).
+# An unreadable or unparseable side reads as false, leaving the gate armed.
+drops_module() {
+  dm_head="$(git show "HEAD:.claude/workflow-core.json" 2>/dev/null)" || return 1
+  dm_staged="$(git show ":.claude/workflow-core.json" 2>/dev/null)" || return 1
+  node -e '
+    const [name, head, staged] = process.argv.slice(1);
+    const lists = (text) => {
+      try {
+        const m = JSON.parse(text).modules;
+        return Array.isArray(m) ? m.includes(name) : null;
+      } catch {
+        return null;
+      }
+    };
+    process.exit(lists(head) === true && lists(staged) === false ? 0 : 1);
+  ' "$1" "$dm_head" "$dm_staged" || return 1
+  echo "pre-commit: this commit drops the $1 module from .claude/workflow-core.json — the $2 check stands down." >&2
+}
+
 # --- the whole staged gate ---------------------------------------------------
 
 # staged_gate <label> <mode> <exit> <paths> <command> <advice>

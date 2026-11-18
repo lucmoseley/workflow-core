@@ -463,6 +463,23 @@ function warnNewlyDoneGates(ctx, { html, baseline }) {
 	return { crossed, lines: extra };
 }
 
+/**
+ * A commit deleting the roadmap is BROKEN below (#1483) unless the same
+ * commit's staged config drops the module, which makes the deletion the
+ * module's retirement. The module gate reads the host's config, which in the
+ * lander's merge is still the pre-merge one, so only the index can tell
+ * (#5405).
+ */
+function retiresModule() {
+	if (git("ls-files", "--", HTML).trim() !== "") return false;
+	try {
+		const modules = JSON.parse(git("show", `:${CONFIG_PATH}`)).modules;
+		return Array.isArray(modules) && !modules.includes("roadmap");
+	} catch {
+		return false;
+	}
+}
+
 /** @param {Ctx} ctx */
 function runIndex(ctx) {
 	let staged;
@@ -476,6 +493,11 @@ function runIndex(ctx) {
 
 	if (!staged.includes(HTML))
 		ctx.skip(`${HTML} is not staged — nothing to validate.`);
+
+	if (retiresModule())
+		ctx.skip(
+			`this commit deletes ${HTML} and drops the roadmap module from its staged ${CONFIG_PATH} — nothing to validate.`,
+		);
 
 	let html;
 	try {

@@ -362,6 +362,32 @@ describe("check-roadmap-valid", () => {
 		expect(r.stderr).not.toContain("WARN");
 	});
 
+	/* The module gate reads the host's config, still the pre-merge one in the
+	 * lander's merge, so a commit retiring the module was BROKEN there (#5405). */
+	describe("a commit deleting the roadmap", () => {
+		beforeEach(() => {
+			stage(HTML, roadmap(v(2), [card()]));
+			git("commit", "-q", "-m", "roadmap");
+			git("rm", "-q", HTML);
+		});
+
+		it("SKIPs where the same commit's staged config drops the module", () => {
+			stage(".claude/workflow-core.json", '{ "modules": [] }\n');
+			const r = check();
+			expect(r.status).toBe(0);
+			expect(r.stderr).toContain(`SKIP: this commit deletes ${HTML}`);
+		});
+
+		it("stays BROKEN where the staged config keeps the module", () => {
+			stage(".claude/workflow-core.json", '{ "modules": ["roadmap"] }\n');
+			expect(check().status).toBe(2);
+		});
+
+		it("stays BROKEN where no config is staged at all", () => {
+			expect(check().status).toBe(2);
+		});
+	});
+
 	/* mantahostels#179 (the pre-commit gate reading staged paths only) and mantahostels#298, the pair
 	 * that ruled index mode must never judge a neighbour's half-saved tree. */
 	it("judges the staged blob, not the working tree", () => {
