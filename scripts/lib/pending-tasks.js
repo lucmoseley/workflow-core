@@ -30,18 +30,16 @@
  * unless it is INTERIM: a subagent that stopped with background work of its
  * own still running is notified as `completed`, its note saying "the result
  * below may be interim" and its result "This agent has not reported yet", and
- * it is still working (#5420; transcript 37f1289c, L3481). Its final
- * notification names only its `<task-id>`, the handle its launch announced,
- * and its report arrives as an `<agent-message from="<handle>">` (L3571,
- * L3576); a subagent settles on either.
+ * it is still working (#5420). Its final notification names only its
+ * `<task-id>`, the handle its launch announced, and its report arrives as an
+ * `<agent-message from="<handle>">`; a subagent settles on either.
  * The next two are what a first cut missed, and they are the MAJORITY: a
  * launch a PreToolUse hook refused, whose `tool_result` carries `is_error`, and
  * a FOREGROUND `Agent` call, whose `tool_result` is the agent's own report and
  * which no notification ever follows. Either left counted as live would keep
- * this function permanently busy for the rest of the session, and the
- * uncommitted-work guard would stand down for good. The fourth is a successful `TaskStop` naming the
+ * this function permanently busy for the rest of the session. The fourth is a successful `TaskStop` naming the
  * launch's background handle, after which the harness writes no notification
- * (#2754; shape from transcript 03a6b5a2, L1967-1968): left live, the ceiling hook kept naming watchers already stopped.
+ * (#2754): left live, the ceiling hook kept naming watchers already stopped.
  *
  * THE ASYMMETRY IS NOT UNIFORM, deliberately. A Bash launch is settled by a
  * notification, an error or a `TaskStop`; only the last reads its result, so a
@@ -87,9 +85,7 @@ const TOOL_USE_ID = /<tool-use-id>([^<]+)<\/tool-use-id>/;
 const TASK_ID = /<task-id>([^<]+)<\/task-id>/;
 
 /* A notification sent while the subagent waits on its own background work
- * (#5420): the note, or the result's opening words, either one enough.
- * Residual: a harness rewording both reads an interim notification as final,
- * settling a live agent — the one settlement this file misreads toward idle. */
+ * (#5420): the note, or the result's opening words, either one enough. */
 const INTERIM =
 	/the result below may be interim|<result>This agent has not reported yet/;
 
@@ -214,7 +210,7 @@ function readPendingTasks(file) {
 
 /**
  * Records each final notification's tool-use id and task-id, and each
- * hand-back's handle. An interim notification records nothing.
+ * hand-back's handle.
  * @param {Census} census accumulator: the settlements are recorded in it
  * @param {string} text the transcript's raw text
  */

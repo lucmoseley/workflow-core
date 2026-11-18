@@ -25,7 +25,9 @@
  * is parsed.
  *
  * WRITES UNDER `.claude/tmp/` ONLY, by default to
- * `.claude/tmp/retro-transcripts/<log name>.txt` in the host repo. Any other
+ * `.claude/tmp/retro-transcripts/<log name>.txt`, in the session's own tree
+ * (`worktreeRoot()`): a linked worktree's scratch where the session runs in one
+ * (#5424). Any other
  * path, or a tracked one, is refused before the log is opened.
  *
  * Each streamed line is read by lib/jsonl.js's `parseJsonlRow`; one that is no
@@ -53,7 +55,7 @@ const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { StringDecoder } = require("node:string_decoder");
 const { flagValue, parseOrExit } = require("./lib/cli-args");
-const { hostRoot } = require("./lib/host-root");
+const { worktreeRoot } = require("./lib/host-root");
 const { requiredGroup } = require("./lib/regex-group");
 const { isLoopPrompt, isScriptPrompt } = require("./lib/loop-prompts");
 const { buildMasker } = require("./lib/token-shapes");
@@ -571,7 +573,7 @@ function main() {
 		throw new Error("parseOrExit passed no log path despite min: 1");
 	const log = path.resolve(logArg);
 	const requested = flagValue(flags, "--out");
-	const root = hostRoot();
+	const root = worktreeRoot();
 
 	const target = outputPath(root, log, requested);
 	if ("refused" in target) {
