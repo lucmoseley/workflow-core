@@ -11,7 +11,7 @@
  * Findings never gate, so a test asserting a hit also asserts exit 0. The
  * --broken-only block at the end is the exception: its subject is the exit code.
  *
- * The scan reports in the scheduled sweep (`.github/workflows/roadmap-digest.yml`),
+ * The scan reports in the daily repo-checks run with the `governance` module on,
  * and `--broken-only` is a hard gate in `.husky/pre-commit`: loosen a case and a
  * corrected figure keeps circulating unreported, or a `Supersedes` bullet with
  * no needle lands unscanned.

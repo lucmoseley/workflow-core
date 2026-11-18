@@ -177,7 +177,7 @@ const MANTA = {
 	deleteAlso: [
 		".github/workflows/bisect.yml",
 		".github/workflows/issue-card-drift.yml",
-		".github/workflows/roadmap-digest.yml",
+		".github/workflows/document-guards.yml",
 		".github/workflows/scheduled-checks.yml",
 	],
 	edits: [

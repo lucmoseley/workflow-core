@@ -202,7 +202,7 @@ const GATES = [
 	{
 		id: "roadmap-valid",
 		script: "scripts/check-roadmap-valid.js",
-		lander: "none",
+		lander: "batch",
 		args: [],
 		arm: { pattern: /^docs\/reference-roadmap\.html$/ },
 		policy: "gate",
@@ -959,7 +959,7 @@ const GATES = [
 	},
 	/*
 	 * The doc map's own coverage, checked at commit as well as in
-	 * roadmap-digest.yml (mantahostels#390); lib/doc-map-gate.js's header holds
+	 * document-guards.yml (mantahostels#390); lib/doc-map-gate.js's header holds
 	 * its rules. The pattern spells SCOPE in lib/doc-map.js, and
 	 * lib/doc-map-gate-program.test.ts asserts the parity.
 	 */

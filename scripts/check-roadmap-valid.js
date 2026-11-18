@@ -11,8 +11,8 @@
  * commit it SKIPs, having nothing to look at.
  *
  * TREE MODE (--tree) judges the roadmap as it stands in the WORKING TREE, with
- * no parent to compare against. It is for the scheduled `Document guards` job,
- * which has no commit in flight and so nothing for index mode to look at
+ * no parent to compare against. It is for the daily repo-checks run, which
+ * has no commit in flight and so nothing for index mode to look at
  * (mantahostels#974).
  *
  * It calls validateRoadmap() in-process rather than shelling out to that

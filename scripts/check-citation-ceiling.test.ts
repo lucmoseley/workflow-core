@@ -8,7 +8,7 @@
  * input telling the core from an adopter.
  *
  * A FAIL reds the scheduled sweep's `Document guards` job in
- * .github/workflows/roadmap-digest.yml: loosen a case and the tracker can pass
+ * .github/workflows/document-guards.yml: loosen a case and the tracker can pass
  * the ceiling unwarned, after which the release build ships new citations
  * bare to adopters and check-citation-tracker.js stops refusing a mis-prefixed
  * one.

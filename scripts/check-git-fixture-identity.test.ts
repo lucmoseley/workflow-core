@@ -17,7 +17,7 @@
  * spec review, F2). Genuinely committing here is via the real beforeEach/`git`
  * helper above, which sets identity.
  *
- * It is a hard gate in .husky/pre-commit and a step in roadmap-digest.yml:
+ * It is a hard gate in .husky/pre-commit and a step in document-guards.yml:
  * loosen a case and an identity-less fixture lands green on a developer
  * machine, to go red on the first CI runner with no global identity.
  */

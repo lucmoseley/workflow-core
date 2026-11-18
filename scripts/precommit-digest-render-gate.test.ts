@@ -5,7 +5,8 @@
  * docs/roadmap-digest.md is `derived` in docs/doc-map.md §A. This gate renders
  * fresh and refuses bytes that differ.
  *
- * UNVERIFIED here: that roadmap-digest.yml runs this checker (mantahostels#2895).
+ * UNVERIFIED here: that the daily repo-checks run runs this checker, with the
+ * `roadmap` module on (mantahostels#2895).
  *
  * The checker is stubbed in each fixture so its exit code is ours to drive;
  * the adopter and core blocks pin which generator copy the render goes through.

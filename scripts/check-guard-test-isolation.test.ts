@@ -11,7 +11,7 @@
  * is the whole fixture;
  * one last case runs it against this repo to prove it finds tests to judge.
  *
- * It is a hard gate in .husky/pre-commit and roadmap-digest.yml: loosen a case
+ * It is a hard gate in .husky/pre-commit and document-guards.yml: loosen a case
  * and a guard's test fills the live fail-open log with deliberate faults,
  * burying a real one.
  */

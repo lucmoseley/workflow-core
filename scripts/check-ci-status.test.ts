@@ -223,7 +223,7 @@ describe("a red run on the branch is reported (mantahostels#143)", () => {
 	it("says nothing at all when every run on the newest sha passed", () => {
 		setRuns([
 			run_({ databaseId: 200, workflowName: "CI" }),
-			run_({ databaseId: 201, workflowName: "roadmap-digest" }),
+			run_({ databaseId: 201, workflowName: "document-guards" }),
 		]);
 
 		const r = check(["--notify"]);
@@ -281,7 +281,7 @@ describe("a cancelled run superseded by a newer one carries no verdict", () => {
 		setRuns([
 			run_({
 				databaseId: 201,
-				workflowName: "roadmap-digest",
+				workflowName: "document-guards",
 				createdAt: "2026-08-04T13:00:00Z",
 			}),
 			run_({
@@ -355,7 +355,7 @@ describe("a cancelled run superseded by a newer one carries no verdict", () => {
 			run_({ databaseId: 201, workflowName: "CI", conclusion: "failure" }),
 			run_({
 				databaseId: 200,
-				workflowName: "roadmap-digest",
+				workflowName: "document-guards",
 				conclusion: "cancelled",
 			}),
 		]);

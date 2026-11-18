@@ -2,7 +2,7 @@
 /*
  * Tests for scripts/check-guard-registry.js: the second assertion, implicit behaviours (mantahostels#1261).
  *
- * The checker is a hard gate in .husky/pre-commit and roadmap-digest.yml:
+ * The checker is a hard gate in .husky/pre-commit and document-guards.yml:
  * loosen a case and a rule can claim **Enforced** while its guard is missing
  * or unwired.
  */

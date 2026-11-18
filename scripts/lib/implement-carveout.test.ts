@@ -71,7 +71,7 @@ describe("isHardCarveOut — mantahostels#2462's widened rules", () => {
 		["docs/*.json", "docs/doc-map-restatements.json"],
 		["docs/environment.md", "docs/environment.md"],
 		[".claude/skills/*", ".claude/skills/pick-next/SKILL.md"],
-		[".github/workflows/*", ".github/workflows/roadmap-digest.yml"],
+		[".github/workflows/*", ".github/workflows/document-guards.yml"],
 	];
 
 	for (const [rule, samplePath] of cases) {

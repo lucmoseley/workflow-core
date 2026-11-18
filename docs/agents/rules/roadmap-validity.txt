@@ -10,5 +10,5 @@ a commit it SKIPs, having nothing to look at; check the working copy with
 `node scripts/check-roadmap-valid.js --tree` instead.
 
 An invalid roadmap that reached `main` by a route running no hook is still
-caught: the scheduled `Document guards` job re-runs this checker over the
-working tree (`--tree`) as a backstop (mantahostels#974).
+caught: the daily repo-checks run re-runs this checker over the working tree
+(`--tree`) as a backstop (mantahostels#974).

@@ -10,7 +10,7 @@
  * markers and wiring. Its other subjects have a file each beside this one,
  * `check-guard-registry-*.test.ts` (#4294).
  *
- * It is a hard gate in .husky/pre-commit and roadmap-digest.yml: loosen a case
+ * It is a hard gate in .husky/pre-commit and document-guards.yml: loosen a case
  * and a rule can claim **Enforced** while its guard is missing or unwired.
  */
 

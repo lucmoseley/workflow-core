@@ -52,7 +52,7 @@ permissions:
 # runs automatically; `npm run check` is the same scan by hand, before a push.
 #
 # Unfiltered: every scheduled run does the whole job. The document guards live in
-# the roadmap-digest workflow, which the same schedule calls and which is not
+# the document-guards workflow, which the same schedule calls and which is not
 # path-filtered either; nor are the tests, because they cover code that a change
 # anywhere can break.
 jobs:

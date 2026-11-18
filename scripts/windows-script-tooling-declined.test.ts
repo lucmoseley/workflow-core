@@ -116,7 +116,7 @@ describe("Windows-side script tooling is declined (mantahostels#1131)", () => {
 		/*
 		 * Every gate a step could join, not just the two §W names: all four
 		 * husky hooks, and every workflow — `Document guards` in
-		 * roadmap-digest.yml already runs bespoke checkers, so it is as likely a
+		 * document-guards.yml already runs bespoke checkers, so it is as likely a
 		 * home as ci.yml.
 		 */
 		const workflowDir = path.join(ROOT, ".github", "workflows");

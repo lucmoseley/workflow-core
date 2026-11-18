@@ -126,9 +126,9 @@ is non-empty.
    nothing syncs the manual while the founder is away from the machine; the
    consequence for the commit rules is that this repo has **no** route that
    opens a PR on `main`, and the no-PR rule has no exception. Staleness reaches a human two ways,
-   neither of which syncs anything by itself — the `roadmap-digest`
-   staleness step, which runs on each of the four daily sweeps and files one
-   *Operating manual is stale against the roadmap* issue on FAIL, and the
+   neither of which syncs anything by itself — the daily repo-checks run's
+   manual-staleness check, which files one *Operating manual is stale against
+   the roadmap* issue on FAIL, and the
    `npm run status` line from `check-manual-freshness.js`.
 
    **Archive paths are fixed, not configured.** A run writes no report, but one

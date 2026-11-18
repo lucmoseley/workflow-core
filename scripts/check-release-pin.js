@@ -34,7 +34,7 @@
  * the ordering leaves open.
  *
  * IT DOES FIRE UNATTENDED (#260): a step in the `Document guards` job of
- * .github/workflows/roadmap-digest.yml, which every scheduled sweep runs and a
+ * .github/workflows/document-guards.yml, which every scheduled sweep runs and a
  * `lander/batch-<k>` push run runs with --pin-only (#4002). A pin no adopter can fetch
  * waits for a sweep, so the detection lag is the DELIVERED sweep interval,
  * ~12 hours — the cron asks for four a day and GitHub delivers late
