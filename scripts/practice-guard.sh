@@ -71,20 +71,16 @@
 # ~/.claude/practice-crafts.md and a note resolves at the work tree root alone.
 # So at Stop the machine copy stands down, silent and latching nothing, where
 # the session's project ($CLAUDE_PROJECT_DIR, else the work tree top of the
-# payload's cwd, else that cwd outside git) enables workflow-core@<marketplace>
-# in enabledPlugins and that marketplace's extraKnownMarketplaces source.ref is
-# a release tag, v optional, at or above FIRST_GUARD_RELEASE, the first to ship
-# this guard, with no source.sha overriding it: there the plugin's copy judges
-# the stop, and the machine copy, blind to the plugin's notes, would refuse one
+# payload's cwd, else that cwd outside git) pins a workflow-core release that
+# ships this guard (plugin_guard_loaded_at): there the plugin's copy judges the
+# stop, and the machine copy, blind to the plugin's notes, would refuse one
 # only the plugin holds, the latch they share letting it decide (#5394). The
-# release is read from that documented settings field, never the undocumented
-# plugin cache (#5410). Elsewhere, a branch, sha, older tag or no ref included,
-# it judges as the only copy, keeping the rule's reach outside adopters (#2258
-# user story 6). Residual: managed settings, a --plugin-dir load and a
-# marketplace added by `claude plugin marketplace add` alone are not read, so
-# there the machine copy still judges and can refuse a plugin-only note; a pin
-# raised to a shipping release before `claude plugin update` runs leaves the
-# older install loaded with the machine copy standing down; and with
+# release is read from the documented settings field, never the undocumented
+# plugin cache (#5410). Elsewhere it judges as the only copy, keeping the
+# rule's reach outside adopters (#2258 user story 6). Residual: managed
+# settings, a --plugin-dir load and a marketplace added by `claude plugin
+# marketplace add` alone are not read, so there the machine copy still judges
+# and can refuse a plugin-only note; and with
 # $CLAUDE_PROJECT_DIR unset, a project nested in a larger work tree is read at
 # that tree's top.
 # `npm run check:settings` holds both machine files to this repo's.
@@ -300,7 +296,7 @@ skipped_fault() {
   fi
 }
 
-# The first workflow-core release to ship this guard as a plugin hook.
+# The first workflow-core release to ship this guard.
 readonly FIRST_GUARD_RELEASE=v3.0.0
 # PRACTICE_GUARD_TODAY is the seam scripts/practice-guard.test.ts fills.
 readonly TODAY=${PRACTICE_GUARD_TODAY:-$(date +%F)}
@@ -389,9 +385,9 @@ fault_in() {
 # plugin release that ships this guard. enabledPlugins and
 # extraKnownMarketplaces each merge user, then project, then local, each key
 # taking its highest file's value; some workflow-core@<marketplace> key must be
-# left true, and that marketplace's source.ref an X.Y.Z tag, v optional as in
-# every pin this repo reads, at or above FIRST_GUARD_RELEASE, with no
-# source.sha, which pins a commit over the ref. A file missing, not one JSON object, or whose field is no
+# left true, and that marketplace's source.ref an X.Y.Z tag, v optional, at or
+# above FIRST_GUARD_RELEASE, with no source.sha, which pins a commit over the
+# ref. A file missing, not one JSON object, or whose field is no
 # object adds nothing to that field; one there but unreadable or not JSON says
 # so on stderr.
 plugin_guard_loaded_at() {
