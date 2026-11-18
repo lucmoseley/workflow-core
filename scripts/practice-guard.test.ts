@@ -1221,6 +1221,10 @@ describe("the machine copy in an adopter that enables the plugin (#5394, #5410)"
 			() => enable(settings("settings.json"), pluginOn, pinned("v3.10.0")),
 		],
 		[
+			"the first release is pinned without its v",
+			() => enable(settings("settings.json"), pluginOn, pinned("3.0.0")),
+		],
+		[
 			"the project pins the marketplace the user settings enable it from",
 			() => {
 				enable(userSettings(), pluginOn);
@@ -1269,6 +1273,19 @@ describe("the machine copy in an adopter that enables the plugin (#5394, #5410)"
 			() => enable(settings("settings.json"), pluginOn, pinned(ref)),
 			undefined,
 		]),
+		[
+			"a sha pins the commit over a v3.0.0 ref",
+			() =>
+				enable(settings("settings.json"), pluginOn, {
+					"workflow-core": {
+						source: {
+							...shipped["workflow-core"].source,
+							sha: "e725a8ffa0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5",
+						},
+					},
+				}),
+			undefined,
+		],
 		[
 			"no settings file declares the enabled plugin's marketplace",
 			() =>
@@ -1326,7 +1343,7 @@ describe("the machine copy in an adopter that enables the plugin (#5394, #5410)"
 		[
 			"the settings file is not JSON",
 			() => enable(settings("settings.json"), '{"enabledPlugins": {'),
-			/^practice-guard: .*\/\.claude\/settings\.json is unreadable or not JSON, so it enables no plugin\n$/,
+			/^practice-guard: .*\/\.claude\/settings\.json is unreadable or not JSON, so it enables no plugin and pins no marketplace\n$/,
 		],
 		[
 			"the settings file holds two JSON values",
@@ -1355,4 +1372,10 @@ describe("the machine copy in an adopter that enables the plugin (#5394, #5410)"
 			expect(reason).not.toContain("plugin's copy");
 		},
 	);
+
+	it("refuses once a session where the pin predates the guard", () => {
+		enable(settings("settings.json"), pluginOn, pinned("v2.3.0"));
+		expect(machineAlone(nowhere)).toContain("which does not exist");
+		expect(machineAlone(nowhere)).toBeNull();
+	});
 });

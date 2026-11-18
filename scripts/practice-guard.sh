@@ -72,16 +72,19 @@
 # So at Stop the machine copy stands down, silent and latching nothing, where
 # the session's project ($CLAUDE_PROJECT_DIR, else the payload's cwd) enables
 # workflow-core@<marketplace> in enabledPlugins and that marketplace's
-# extraKnownMarketplaces source.ref is a release tag at or above
-# FIRST_GUARD_RELEASE, the first to ship this guard: there the plugin's copy
+# extraKnownMarketplaces source.ref is a release tag, v optional, at or above
+# FIRST_GUARD_RELEASE, the first to ship this guard, with no source.sha
+# overriding it: there the plugin's copy
 # judges the stop, and the machine copy, blind to the plugin's notes, would
 # refuse one only the plugin holds, the latch they share letting it decide
 # (#5394). The release is read from that documented settings field, never the
 # undocumented plugin cache (#5410). Elsewhere, a branch, sha, older tag or no
 # ref included, it judges as the only copy, keeping the rule's reach outside
-# adopters (#2258 user story 6). Residual: managed settings and a --plugin-dir
-# load are not read, so there the machine copy still judges and can refuse a
-# plugin-only note.
+# adopters (#2258 user story 6). Residual: managed settings, a --plugin-dir
+# load and a marketplace added by `claude plugin marketplace add` alone are not
+# read, so there the machine copy still judges and can refuse a plugin-only
+# note; and a pin raised to a shipping release before `claude plugin update`
+# runs leaves the older install loaded with the machine copy standing down.
 # `npm run check:settings` holds both machine files to this repo's.
 #
 # Named for what it guards, not `guard-*`: the founder's machine copy under
@@ -89,7 +92,7 @@
 #
 # IMPLICIT:  on a session's first touch of docs/practice/ hands over the craft list, refuses a Write of an off-list note, and at Stop refuses once a session that wrote a tracked file with no **Practice:** line that holds up, the machine copy standing down at Stop where the session's project enables a plugin release pinned at or above the first to ship this guard.
 # JUSTIFIED: fail-safe — refusing once is the only Stop channel that reaches the model (#829).
-# DEFEAT:    none — each refusal fires once a session, and is cleared by declaring a line that holds up.
+# DEFEAT:    a pin raised to a release that ships this guard before the install is updated — the machine copy stands down while the older plugin, without it, loads. Otherwise none: each refusal fires once a session, and is cleared by declaring a line that holds up.
 # TREE:      session — the work tree roots of the files the session wrote, the plugin root beside this script, and, for the machine copy, the user's and the session project's Claude Code settings.
 #
 # Self-contained: it also runs outside any adopter, so it sources nothing from
@@ -295,9 +298,9 @@ skipped_fault() {
   fi
 }
 
-# PRACTICE_GUARD_TODAY is the seam scripts/practice-guard.test.ts fills.
 # The first workflow-core release to ship this guard as a plugin hook.
 readonly FIRST_GUARD_RELEASE=v3.0.0
+# PRACTICE_GUARD_TODAY is the seam scripts/practice-guard.test.ts fills.
 readonly TODAY=${PRACTICE_GUARD_TODAY:-$(date +%F)}
 
 # A declaration's marker opens its line past any list or quote marks, a
@@ -384,8 +387,9 @@ fault_in() {
 # plugin release that ships this guard. enabledPlugins and
 # extraKnownMarketplaces each merge user, then project, then local, each key
 # taking its highest file's value; some workflow-core@<marketplace> key must be
-# left true, and that marketplace's source.ref a vX.Y.Z tag at or above
-# FIRST_GUARD_RELEASE. A file missing, not one JSON object, or whose field is no
+# left true, and that marketplace's source.ref an X.Y.Z tag, v optional as in
+# every pin this repo reads, at or above FIRST_GUARD_RELEASE, with no
+# source.sha, which pins a commit over the ref. A file missing, not one JSON object, or whose field is no
 # object adds nothing to that field; one there but unreadable or not JSON says
 # so on stderr.
 plugin_guard_loaded_at() {
@@ -395,16 +399,16 @@ plugin_guard_loaded_at() {
     if ! layer=$(jq -cs 'def field($k): if (.[$k] | type) == "object" then .[$k] else {} end;
       if length == 1 and (.[0] | type) == "object" then .[0] else {} end
       | {plugins: field("enabledPlugins"), markets: field("extraKnownMarketplaces")}' "$file" 2>/dev/null); then
-      echo "practice-guard: $file is unreadable or not JSON, so it enables no plugin" >&2
+      echo "practice-guard: $file is unreadable or not JSON, so it enables no plugin and pins no marketplace" >&2
       continue
     fi
     merged=$(jq -c --argjson l "$layer" '{plugins: (.plugins + $l.plugins), markets: (.markets + $l.markets)}' <<<"$merged")
   done
   jq -e --arg first "$FIRST_GUARD_RELEASE" '
-    def release: capture("^v(?<x>0|[1-9][0-9]*)\\.(?<y>0|[1-9][0-9]*)\\.(?<z>0|[1-9][0-9]*)$") | [.x, .y, .z | tonumber];
+    def release: capture("^v?(?<x>0|[1-9][0-9]*)\\.(?<y>0|[1-9][0-9]*)\\.(?<z>0|[1-9][0-9]*)$") | [.x, .y, .z | tonumber];
     ($first | release) as $floor | .markets as $markets
     | any(.plugins | to_entries[]; (.key | startswith("workflow-core@")) and .value == true
-        and ([$markets[.key | ltrimstr("workflow-core@")] | objects | .source | objects | .ref | strings | release] | any(. >= $floor)))' <<<"$merged" >/dev/null 2>&1
+        and ([$markets[.key | ltrimstr("workflow-core@")] | objects | .source | objects | select(has("sha") | not) | .ref | strings | release] | any(. >= $floor)))' <<<"$merged" >/dev/null 2>&1
 }
 
 if [[ "$event" = stop ]]; then
