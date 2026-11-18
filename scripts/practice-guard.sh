@@ -71,15 +71,20 @@
 # ~/.claude/practice-crafts.md and a note resolves at the work tree root alone.
 # So at Stop the machine copy stands down, silent and latching nothing, where
 # the session's project ($CLAUDE_PROJECT_DIR, else the work tree top of the
-# payload's cwd, else that cwd outside git) enables
-# workflow-core@<any marketplace> in enabledPlugins: there the plugin's copy
-# judges the stop, and the machine copy, blind to the plugin's notes, would
-# refuse one only the plugin holds, the latch they share letting it decide
-# (#5394). Elsewhere it judges as the only copy, keeping the rule's reach
-# outside adopters (#2258 user story 6). Residual: managed settings and a
-# --plugin-dir load are not read, so there the machine copy still judges and
-# can refuse a plugin-only note; and a project enabling a plugin release that
-# predates this guard (v2.3.0 or older) has neither copy judge its stop. With
+# payload's cwd, else that cwd outside git) enables workflow-core@<marketplace>
+# in enabledPlugins and that marketplace's extraKnownMarketplaces source.ref is
+# a release tag, v optional, at or above FIRST_GUARD_RELEASE, the first to ship
+# this guard, with no source.sha overriding it: there the plugin's copy judges
+# the stop, and the machine copy, blind to the plugin's notes, would refuse one
+# only the plugin holds, the latch they share letting it decide (#5394). The
+# release is read from that documented settings field, never the undocumented
+# plugin cache (#5410). Elsewhere, a branch, sha, older tag or no ref included,
+# it judges as the only copy, keeping the rule's reach outside adopters (#2258
+# user story 6). Residual: managed settings, a --plugin-dir load and a
+# marketplace added by `claude plugin marketplace add` alone are not read, so
+# there the machine copy still judges and can refuse a plugin-only note; a pin
+# raised to a shipping release before `claude plugin update` runs leaves the
+# older install loaded with the machine copy standing down; and with
 # $CLAUDE_PROJECT_DIR unset, a project nested in a larger work tree is read at
 # that tree's top.
 # `npm run check:settings` holds both machine files to this repo's.
@@ -87,9 +92,9 @@
 # Named for what it guards, not `guard-*`: the founder's machine copy under
 # ~/.claude/hooks/ carries this name, and check:settings pairs the two by it.
 #
-# IMPLICIT:  on a session's first touch of docs/practice/ hands over the craft list, refuses a Write of an off-list note, and at Stop refuses once a session that wrote a tracked file with no **Practice:** line that holds up, the machine copy standing down at Stop where the session's project enables the plugin.
+# IMPLICIT:  on a session's first touch of docs/practice/ hands over the craft list, refuses a Write of an off-list note, and at Stop refuses once a session that wrote a tracked file with no **Practice:** line that holds up, the machine copy standing down at Stop where the session's project enables a plugin release pinned at or above the first to ship this guard.
 # JUSTIFIED: fail-safe — refusing once is the only Stop channel that reaches the model (#829).
-# DEFEAT:    a project enabling a plugin release without this guard — the machine copy stands down and no copy judges. Otherwise none: each refusal fires once a session, and is cleared by declaring a line that holds up.
+# DEFEAT:    a pin raised to a release that ships this guard before the install is updated — the machine copy stands down while the older plugin, without it, loads. Otherwise none: each refusal fires once a session, and is cleared by declaring a line that holds up.
 # TREE:      session — the work tree roots of the files the session wrote, the plugin root beside this script, and, for the machine copy, the user's and the session project's Claude Code settings.
 #
 # Self-contained: it also runs outside any adopter, so it sources nothing from
@@ -295,6 +300,8 @@ skipped_fault() {
   fi
 }
 
+# The first workflow-core release to ship this guard as a plugin hook.
+readonly FIRST_GUARD_RELEASE=v3.0.0
 # PRACTICE_GUARD_TODAY is the seam scripts/practice-guard.test.ts fills.
 readonly TODAY=${PRACTICE_GUARD_TODAY:-$(date +%F)}
 
@@ -378,23 +385,32 @@ fault_in() {
   [[ $expiry > $TODAY ]] || echo "covered names $note, researched $date, 6 months ago or more"
 }
 
-# Whether Claude Code's settings for the project at "$1" enable the
-# workflow-core plugin: enabledPlugins merged user, then project, then local,
-# each key taking its highest file's value, and any workflow-core@<marketplace>
-# key left true. A file missing, not one JSON object, or whose enabledPlugins is
-# no object enables nothing; one there but unreadable or not JSON says so on
-# stderr.
-plugin_enabled_at() {
-  local file merged='{}' layer
+# Whether Claude Code's settings for the project at "$1" load a workflow-core
+# plugin release that ships this guard. enabledPlugins and
+# extraKnownMarketplaces each merge user, then project, then local, each key
+# taking its highest file's value; some workflow-core@<marketplace> key must be
+# left true, and that marketplace's source.ref an X.Y.Z tag, v optional as in
+# every pin this repo reads, at or above FIRST_GUARD_RELEASE, with no
+# source.sha, which pins a commit over the ref. A file missing, not one JSON object, or whose field is no
+# object adds nothing to that field; one there but unreadable or not JSON says
+# so on stderr.
+plugin_guard_loaded_at() {
+  local file merged='{"plugins":{},"markets":{}}' layer
   for file in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" "$1/.claude/settings.json" "$1/.claude/settings.local.json"; do
     [[ -e "$file" ]] || continue
-    if ! layer=$(jq -cs 'if length == 1 and (.[0] | type) == "object" and (.[0].enabledPlugins | type) == "object" then .[0].enabledPlugins else {} end' "$file" 2>/dev/null); then
-      echo "practice-guard: $file is unreadable or not JSON, so it enables no plugin" >&2
+    if ! layer=$(jq -cs 'def field($k): if (.[$k] | type) == "object" then .[$k] else {} end;
+      if length == 1 and (.[0] | type) == "object" then .[0] else {} end
+      | {plugins: field("enabledPlugins"), markets: field("extraKnownMarketplaces")}' "$file" 2>/dev/null); then
+      echo "practice-guard: $file is unreadable or not JSON, so it enables no plugin and pins no marketplace" >&2
       continue
     fi
-    merged=$(jq -c --argjson l "$layer" '. + $l' <<<"$merged")
+    merged=$(jq -c --argjson l "$layer" '{plugins: (.plugins + $l.plugins), markets: (.markets + $l.markets)}' <<<"$merged")
   done
-  jq -e 'any(to_entries[]; (.key | startswith("workflow-core@")) and .value == true)' <<<"$merged" >/dev/null 2>&1
+  jq -e --arg first "$FIRST_GUARD_RELEASE" '
+    def release: capture("^v?(?<x>0|[1-9][0-9]*)\\.(?<y>0|[1-9][0-9]*)\\.(?<z>0|[1-9][0-9]*)$") | [.x, .y, .z | tonumber];
+    ($first | release) as $floor | .markets as $markets
+    | any(.plugins | to_entries[]; (.key | startswith("workflow-core@")) and .value == true
+        and ([$markets[.key | ltrimstr("workflow-core@")] | objects | .source | objects | select(has("sha") | not) | .ref | strings | release] | any(. >= $floor)))' <<<"$merged" >/dev/null 2>&1
 }
 
 if [[ "$event" = stop ]]; then
@@ -459,7 +475,7 @@ if [[ "$event" = stop ]]; then
 
   # The session's project decides whether the plugin loaded, not the trees it
   # wrote into.
-  [[ -z $plugin_root ]] && plugin_enabled_at "${CLAUDE_PROJECT_DIR:-${cwd_top:-$cwd}}" && exit 0
+  [[ -z $plugin_root ]] && plugin_guard_loaded_at "${CLAUDE_PROJECT_DIR:-${cwd_top:-$cwd}}" && exit 0
 
   fault=$(fault_in "$decl")
   [[ -n "$fault" ]] || exit 0
