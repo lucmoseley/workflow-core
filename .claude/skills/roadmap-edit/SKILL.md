@@ -4,8 +4,8 @@ name: roadmap-edit
 
 # roadmap-edit
 
-`reference-roadmap.html` is the adopter's canonical action guide: a
-single HTML file whose content lives in one JavaScript array, `const ITEMS =
+In an adopter with the `roadmap` module on, `docs/reference-roadmap.html` is
+its canonical action guide: a single HTML file whose content lives in one JavaScript array, `const ITEMS =
 [...]`, plus `const AREAS` and `const PHASES`. The rest of the file is render
 code. Editing it wrong causes silent damage — a broken `needs` link, a card
 inserted out of execution order, a missed version bump, a `done` card with no

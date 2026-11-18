@@ -6,7 +6,7 @@ allowed-tools: Bash(gh:*), Bash(git:*), Bash(node:*), Read, Edit, Skill
 
 Close GitHub issue **#$ARGUMENTS** and record its roadmap card as `done`, as one operation.
 
-The roadmap is the sole authority for card state; the issue is the working surface.
+It runs where the `roadmap` module is on. The roadmap is the sole authority for card state; the issue is the working surface.
 
 **Do not restate or re-derive the roadmap edit loop.** Step 4 hands off to the `roadmap-edit` skill, which owns it.
 
