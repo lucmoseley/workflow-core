@@ -32,6 +32,12 @@
  * @typedef {CoreRow & { loadFault: string }} UnloadedCore a row whose module
  *   threw on require, carrying what to say when the row comes to run
  * @typedef {LoadedCore | UnloadedCore} Core
+ * @typedef {{ root: string, log: (what: string, detail?: string) => void }} HostEnv
+ *   what lib/guard-judge.js hands a row's `host` module: the host root and
+ *   the core's log. One object, not two strings, so a builder whose first
+ *   parameter means something else fails the typecheck (#5429).
+ * @typedef {(env: HostEnv) => object} HostBuilder a host module's
+ *   `buildHostPorts`; lib/guard-hosts.test.ts holds every row's to it
  */
 
 module.exports = {};

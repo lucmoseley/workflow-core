@@ -157,7 +157,7 @@ describe("the host port", () => {
 		/* guard-judge.js passes the host's root, which need hold no scripts/ (#5425). */
 		const hosted = {
 			...(ctx as object),
-			...buildHostPorts(home, () => undefined),
+			...buildHostPorts({ root: home, log: () => undefined }),
 		} as never;
 		expect(browser.decide(TRIGGERED, hosted)).toEqual({
 			deny: expect.stringContaining(
@@ -180,10 +180,7 @@ describe("the host port", () => {
 	it("returns a script's answer where it exits 0 unread", () => {
 		fs.writeFileSync(path.join(home, "unread.sh"), "echo said\n");
 		expect(
-			buildHostPorts(undefined, undefined, home).runShellGuard(
-				"unread.sh",
-				big,
-			),
+			buildHostPorts(undefined, home).runShellGuard("unread.sh", big),
 		).toBe("said\n");
 	});
 });

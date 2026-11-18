@@ -13,11 +13,10 @@ const {
 } = require("./suite-concurrency-host.js");
 
 /**
- * @param {string} root
- * @param {(what: string, detail?: string) => void} log
+ * @param {import("./core-contract.js").HostEnv} env
  * @returns {import("./suite-concurrency.js").SuitePorts}
  */
-function buildHostPorts(root, log) {
+function buildHostPorts({ root, log }) {
 	return {
 		...buildSharedPorts(root, log),
 		gateSeats: () => require("./suite-queue.js").readGateSeats(),

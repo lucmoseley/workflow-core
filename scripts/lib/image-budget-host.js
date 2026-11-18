@@ -22,10 +22,9 @@ function readTold(text) {
 }
 
 /**
- * @param {string} _root
- * @param {(what: string) => void} log
+ * @param {{ log: (what: string) => void }} env
  */
-function buildHostPorts(_root, log) {
+function buildHostPorts({ log }) {
 	/** @type {import("./image-budget.js").ImageStore} */
 	const imageStore = (name, entry, update) => {
 		const dir = path.join(process.env.TMPDIR || "/tmp", "wfc-image-budget");

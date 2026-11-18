@@ -39,12 +39,11 @@ function fromRoot(root, fn) {
 const biomeIn = (root) => path.join(root, "node_modules", ".bin", "biome");
 
 /**
- * @param {string} _root the host's, which only the record reads, through the
- *   arbiter's own
- * @param {(what: string, detail?: string) => void} log
+ * @param {{ log: (what: string, detail?: string) => void }} env the host
+ *   root goes unread: only the record reads it, through the arbiter's own
  * @returns {import("./post-write.js").WritePorts}
  */
-function buildHostPorts(_root, log) {
+function buildHostPorts({ log }) {
 	/** @param {string} root @param {string} file */
 	const abs = (root, file) => path.resolve(root, file);
 	return {

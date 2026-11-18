@@ -11,10 +11,10 @@ const { readText } = require("./file-read.js");
 const { markersDir } = require("./marker-root.js");
 
 /**
- * @param {string} root
+ * @param {{ root: string }} env
  * @returns {{ scratchRecord: (sid: string) => import("./scratch-overwrite.js").ScratchRecord | null }}
  */
-function buildHostPorts(root) {
+function buildHostPorts({ root }) {
 	return {
 		scratchRecord: (sid) => {
 			let dir;

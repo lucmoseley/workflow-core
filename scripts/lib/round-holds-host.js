@@ -9,10 +9,10 @@ const os = require("node:os");
 const { isMarkersWritable } = require("./refuse-once.js");
 
 /**
- * @param {string} root
+ * @param {{ root: string }} env
  * @returns {import("./round-holds.js").RoundHoldPorts}
  */
-function buildHostPorts(root) {
+function buildHostPorts({ root }) {
 	return {
 		home: os.homedir(),
 		readFile: readBodyFile,

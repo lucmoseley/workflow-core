@@ -39,7 +39,7 @@ const { decidePrompt } = require("./founder-wording.js") as {
 	) => { context: string } | null;
 };
 const { buildHostPorts } = require("./founder-wording-host.js") as {
-	buildHostPorts: (root: string) => {
+	buildHostPorts: (env: { root: string }) => {
 		corpus: () => { trackers: string[]; ownMissing: boolean };
 		skillFile: (name: string) => string | null;
 	};
@@ -95,7 +95,7 @@ function injected(
 	const d = decidePrompt(
 		prompt,
 		kitContextFake({
-			...buildHostPorts(host),
+			...buildHostPorts({ root: host }),
 			log: (what: string) => {
 				logs.push(what);
 			},
@@ -343,10 +343,12 @@ describe("the re-pitch pattern", () => {
 	});
 
 	it("reads the skill beside the plugin's own scripts, not the host's tree", () => {
-		expect(buildHostPorts(host).skillFile("wait-what")).toBe(
+		expect(buildHostPorts({ root: host }).skillFile("wait-what")).toBe(
 			fs.readFileSync(SKILL_FILE, "utf8"),
 		);
-		expect(buildHostPorts(host).skillFile("no-such-skill")).toBeNull();
+		expect(
+			buildHostPorts({ root: host }).skillFile("no-such-skill"),
+		).toBeNull();
 	});
 
 	it("joins both texts in one envelope, recurrence first", () => {

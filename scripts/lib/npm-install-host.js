@@ -26,11 +26,11 @@ const CURL_MAX_TIME_S = 8;
 /**
  * The dependency stores are the host root's; the session tree's package.json
  * and manifests the core reads through its tree ports (#4242).
- * @param {string} root the host root
+ * @param {{ root: string }} env `root` is the host root
  * @returns {import("./npm-install.js").NpmInstallPorts
  *   & import("./package-vetting.js").VettingPorts}
  */
-function buildHostPorts(root) {
+function buildHostPorts({ root }) {
 	const npm = npmBin();
 	const curl = curlBin();
 	return {

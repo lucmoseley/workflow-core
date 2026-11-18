@@ -11,10 +11,9 @@ const { caught } = require("./caught.js");
 const { readLastModel, resolve } = require("./session-transcript.js");
 
 /**
- * @param {string} root
- * @param {(what: string) => void} [log]
+ * @param {{ root: string, log?: (what: string) => void }} env
  */
-function buildHostPorts(root, log = () => undefined) {
+function buildHostPorts({ root, log = () => undefined }) {
 	return {
 		/** @param {unknown} description */
 		artefactFile: (description) => artefactFile(root, description),

@@ -9,13 +9,12 @@
 const recorder = require("./echo-record-host.js");
 
 /**
- * @param {string} root
- * @param {(what: string) => void} log
+ * @param {{ root: string, log: (what: string) => void }} env
  */
-function buildHostPorts(root, log) {
+function buildHostPorts(env) {
 	return {
 		now: () => Math.floor(Date.now() / 1000),
-		...recorder.buildHostPorts(root, log),
+		...recorder.buildHostPorts(env),
 	};
 }
 

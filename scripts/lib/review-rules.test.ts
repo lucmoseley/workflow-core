@@ -40,7 +40,7 @@ const { decide } = require("./review-rules.js") as {
 	decide: (skill: string, ctx: Record<string, unknown>) => unknown;
 };
 const { buildHostPorts } = require("./review-rules-host.js") as {
-	buildHostPorts: (root: string) => { installRoot: string };
+	buildHostPorts: (env: { root: string }) => { installRoot: string };
 };
 
 /** This checkout's root, where the installed core sits. */
@@ -156,7 +156,7 @@ const decidedLogs = () => {
 	decide(
 		"code-review",
 		kitContextFake({
-			...buildHostPorts(dir),
+			...buildHostPorts({ root: dir }),
 			root: dir,
 			session: "abcdef12-3456",
 			env: { WFC_SCRIPT_ROOT: core },
@@ -306,10 +306,10 @@ describe("the standards base and local file (#965)", () => {
 		const link = path.join(core, "link");
 		fs.symlinkSync(path.join(ROOT, "scripts"), link);
 		const viaLink = require(path.join(link, "lib", "review-rules-host.js")) as {
-			buildHostPorts: (root: string) => { installRoot: string };
+			buildHostPorts: (env: { root: string }) => { installRoot: string };
 		};
 		const physical = fs.realpathSync(ROOT);
-		expect(viaLink.buildHostPorts(dir).installRoot).toBe(physical);
+		expect(viaLink.buildHostPorts({ root: dir }).installRoot).toBe(physical);
 		const ctx = context("code-review", undefined, { env: {} });
 		expect(ctx).toContain(
 			`Its standards base: \`${physical}/docs/code-standards-base.md\`.`,
@@ -587,7 +587,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		decide(
 			"code-review",
 			kitContextFake({
-				...buildHostPorts(dir),
+				...buildHostPorts({ root: dir }),
 				root: dir,
 				session: "abcdef12-3456",
 				env: { WFC_SCRIPT_ROOT: core },

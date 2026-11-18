@@ -12,10 +12,10 @@ const path = require("node:path");
 const { coreRoot } = require("./script-path.js");
 
 /**
- * @param {string} root the host root
+ * @param {{ root: string }} env `root` is the host root
  * @returns {Pick<import("./founder-wording.js").WordingPorts, "corpus" | "skillFile">}
  */
-function buildHostPorts(root) {
+function buildHostPorts({ root }) {
 	return {
 		/* Quiet: a rejected value reads as the default, unsaid on a hook's stderr. */
 		corpus: () =>

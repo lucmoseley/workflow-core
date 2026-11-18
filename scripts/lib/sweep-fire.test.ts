@@ -44,8 +44,7 @@ const budget = req("./sweep-budget.js");
 const { readRuleText } = req("./rule-text.js");
 const { buildHostPorts } = req("./sweep-fire-host.js") as {
 	buildHostPorts: (
-		root: string,
-		log: unknown,
+		env: { root: string },
 		load?: () => unknown,
 	) => { spendSweep: (env: Record<string, string>) => Record<string, unknown> };
 };
@@ -434,7 +433,7 @@ describe("a budget it cannot count refuses nothing", () => {
 	 * process it is a throw the port turns into a fault.
 	 */
 	it("allows when the budget module will not load, rather than refusing", () => {
-		const port = buildHostPorts(shared, null, () => {
+		const port = buildHostPorts({ root: shared }, () => {
 			throw new SyntaxError("Unexpected token '{'");
 		});
 		expect(port.spendSweep({ WFC_NOW: NOON })).toEqual({
@@ -443,7 +442,9 @@ describe("a budget it cannot count refuses nothing", () => {
 	});
 
 	it("spends through the real module where it loads", () => {
-		expect(buildHostPorts(shared, null).spendSweep({ WFC_NOW: NOON })).toEqual({
+		expect(
+			buildHostPorts({ root: shared }).spendSweep({ WFC_NOW: NOON }),
+		).toEqual({
 			out: false,
 			spent: 1,
 			cap: budget.AUTOFIRE_DAILY_CAP,

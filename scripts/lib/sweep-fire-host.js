@@ -20,12 +20,11 @@ const { caught } = require("./caught.js");
  */
 
 /**
- * @param {string} root
- * @param {unknown} _log
+ * @param {{ root: string }} env
  * @param {() => typeof import("./sweep-budget.js")} [load] the budget
  *   module; a case hands in one that will not load
  */
-function buildHostPorts(root, _log, load = () => require("./sweep-budget.js")) {
+function buildHostPorts({ root }, load = () => require("./sweep-budget.js")) {
 	return {
 		/**
 		 * @param {Record<string, string | undefined>} env the core's, whose

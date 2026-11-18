@@ -264,7 +264,7 @@ function runCore(core, { payload, root, adapters, logFor }, tree) {
 	let watched;
 	try {
 		const own = core.host
-			? require(corePath(core.host)).buildHostPorts(root, log)
+			? require(corePath(core.host)).buildHostPorts({ root, log })
 			: {};
 		const session =
 			typeof payload.session_id === "string" ? payload.session_id : "";
