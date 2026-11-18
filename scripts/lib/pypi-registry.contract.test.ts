@@ -170,10 +170,8 @@ const fakeAnswer = (port: Port, c: (typeof CASES)[number]) =>
 // Residual: where the public services do not answer, the live cases skip and
 // the fake's success and 404 answers go unchecked. The probe reads PyPI's
 // cached paths; a made-up name's 404 comes from its origin, which can stall
-// past curl's 8 s while the probe answers (#5402). So a live case whose
-// adapter call gets nothing skips where curl, asked the same URL outside the
-// adapter, gets nothing too; that origin staying silent leaves the case
-// skipped on every run.
+// past curl's 8 s while the probe answers (#5402); silenceReason then skips
+// the case on every run while that origin stays silent.
 let liveSkip: { reason: string | undefined } | undefined;
 function liveSkipReason(): string | undefined {
 	for (const url of [URLS.pypi("playwright"), URLS.stats("playwright")])
@@ -202,8 +200,7 @@ function isAnswered(url: string, { okOnly = false } = {}): boolean {
 }
 
 /** Why a live adapter answer says nothing of the contract, if it does not:
- * it got nothing, and neither does curl asked the same URL directly. A
- * nothing curl alone can get is the adapter's fault, and fails. */
+ * it got nothing, and neither does curl asked the same URL directly. */
 function silenceReason(port: Port, pkg: string, real: Get): string | undefined {
 	if ("missing" in real || real.code !== null) return undefined;
 	const url = URLS[port](pkg);
