@@ -46,23 +46,53 @@ function sweepAt(run, dir) {
  * @param {string} dir
  */
 function localSweeps(dir) {
-	const runs = fs
+	return collect(localRuns(dir), (run) => sweepAt(run, path.join(dir, run)));
+}
+
+/**
+ * The run ids under a directory of downloaded runs, newest first.
+ * @param {string} dir
+ * @returns {string[]}
+ */
+function localRuns(dir) {
+	return fs
 		.readdirSync(dir, { withFileTypes: true })
 		.filter((e) => e.isDirectory())
 		.map((e) => e.name)
 		.sort((a, b) => b.localeCompare(a, "en", { numeric: true }));
-	return collect(runs, (run) => sweepAt(run, path.join(dir, run)));
 }
 
 /**
+ * Run `run`'s vitest reports into `dir`: true, or false where it holds none.
+ * A gh failure skips through `skip`.
+ * @param {string} run
+ * @param {string} dir
  * @param {(why: string) => never} skip
+ * @returns {boolean}
  */
-function remoteSweeps(skip) {
+function downloadRun(run, dir, skip) {
+	try {
+		return downloadReports(run, dir);
+	} catch (e) {
+		const err = caught(e);
+		return skip(
+			`GitHub unreachable downloading run ${run}'s vitest reports: ${(String(err.stderr ?? "") || err.message).trim()}`,
+		);
+	}
+}
+
+/**
+ * The sweep runs on the verified branch, newest first: the latest
+ * RUNS_LISTED, ids as strings, each with whether it has finished.
+ * @param {(why: string) => never} skip
+ * @returns {{ id: string, completed: boolean }[]}
+ */
+function listSweepRuns(skip) {
 	/* Listed by branch at the source: the lander's pushes run the same
 	 * workflow, and enough of them push every sweep out of a mixed window
 	 * (#4559); a manual run on a feature branch tests a tree `main` never
 	 * held. */
-	/** @type {{ databaseId: number }[]} */
+	/** @type {{ databaseId: number, status: string }[]} */
 	let listed;
 	try {
 		listed = ghJson([
@@ -75,29 +105,31 @@ function remoteSweeps(skip) {
 			"--limit",
 			String(RUNS_LISTED),
 			"--json",
-			"databaseId",
+			"databaseId,status",
 		]);
 	} catch (e) {
 		skip(
 			`GitHub unreachable listing ${SUITE_WORKFLOW} runs on ${VERIFIED_BRANCH}: ${String(e)}`,
 		);
 	}
-	const runs = listed
-		.map((r) => r.databaseId)
-		.sort((a, b) => b - a)
-		.map(String);
+	return listed
+		.sort((a, b) => b.databaseId - a.databaseId)
+		.map((r) => ({
+			id: String(r.databaseId),
+			completed: r.status === "completed",
+		}));
+}
+
+/**
+ * @param {(why: string) => never} skip
+ */
+function remoteSweeps(skip) {
+	const runs = listSweepRuns(skip).map((r) => r.id);
 	const work = fs.mkdtempSync(path.join(os.tmpdir(), "sweep-reports-"));
 	try {
 		return collect(runs, (run) => {
 			const dir = path.join(work, run);
-			try {
-				if (!downloadReports(run, dir)) return null;
-			} catch (e) {
-				const err = caught(e);
-				skip(
-					`GitHub unreachable downloading run ${run}'s vitest reports: ${(String(err.stderr ?? "") || err.message).trim()}`,
-				);
-			}
+			if (!downloadRun(run, dir, skip)) return null;
 			const sweep = sweepAt(run, dir);
 			fs.rmSync(dir, { recursive: true, force: true });
 			return sweep;
@@ -125,4 +157,4 @@ function readSweeps(ctx) {
 	return sweeps;
 }
 
-module.exports = { readSweeps };
+module.exports = { downloadRun, listSweepRuns, localRuns, readSweeps };

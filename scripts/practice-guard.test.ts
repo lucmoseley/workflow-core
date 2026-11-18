@@ -1254,6 +1254,14 @@ describe("the machine copy in an adopter that enables the plugin (#5394, #5410)"
 				return { env: { CLAUDE_PROJECT_DIR: "" }, cwd: sub };
 			},
 		],
+		[
+			"CLAUDE_PROJECT_DIR is unset and the payload's cwd, outside git, enables it",
+			() => {
+				const loose = path.join(dir, "loose-enabled");
+				enable(path.join(loose, ".claude", "settings.json"), pluginOn, shipped);
+				return { env: { CLAUDE_PROJECT_DIR: "" }, cwd: loose };
+			},
+		],
 	])("stands down where %s", (_, arrange) => {
 		expect(machineAlone(nowhere, arrange())).toBeNull();
 	});

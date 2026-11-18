@@ -70,21 +70,23 @@
 # ~/.claude/hooks/, whose parent holds no such file, the list is
 # ~/.claude/practice-crafts.md and a note resolves at the work tree root alone.
 # So at Stop the machine copy stands down, silent and latching nothing, where
-# the session's project ($CLAUDE_PROJECT_DIR, else the payload's cwd) enables
-# workflow-core@<marketplace> in enabledPlugins and that marketplace's
-# extraKnownMarketplaces source.ref is a release tag, v optional, at or above
-# FIRST_GUARD_RELEASE, the first to ship this guard, with no source.sha
-# overriding it: there the plugin's copy
-# judges the stop, and the machine copy, blind to the plugin's notes, would
-# refuse one only the plugin holds, the latch they share letting it decide
-# (#5394). The release is read from that documented settings field, never the
-# undocumented plugin cache (#5410). Elsewhere, a branch, sha, older tag or no
-# ref included, it judges as the only copy, keeping the rule's reach outside
-# adopters (#2258 user story 6). Residual: managed settings, a --plugin-dir
-# load and a marketplace added by `claude plugin marketplace add` alone are not
-# read, so there the machine copy still judges and can refuse a plugin-only
-# note; and a pin raised to a shipping release before `claude plugin update`
-# runs leaves the older install loaded with the machine copy standing down.
+# the session's project ($CLAUDE_PROJECT_DIR, else the work tree top of the
+# payload's cwd, else that cwd outside git) enables workflow-core@<marketplace>
+# in enabledPlugins and that marketplace's extraKnownMarketplaces source.ref is
+# a release tag, v optional, at or above FIRST_GUARD_RELEASE, the first to ship
+# this guard, with no source.sha overriding it: there the plugin's copy judges
+# the stop, and the machine copy, blind to the plugin's notes, would refuse one
+# only the plugin holds, the latch they share letting it decide (#5394). The
+# release is read from that documented settings field, never the undocumented
+# plugin cache (#5410). Elsewhere, a branch, sha, older tag or no ref included,
+# it judges as the only copy, keeping the rule's reach outside adopters (#2258
+# user story 6). Residual: managed settings, a --plugin-dir load and a
+# marketplace added by `claude plugin marketplace add` alone are not read, so
+# there the machine copy still judges and can refuse a plugin-only note; a pin
+# raised to a shipping release before `claude plugin update` runs leaves the
+# older install loaded with the machine copy standing down; and with
+# $CLAUDE_PROJECT_DIR unset, a project nested in a larger work tree is read at
+# that tree's top.
 # `npm run check:settings` holds both machine files to this repo's.
 #
 # Named for what it guards, not `guard-*`: the founder's machine copy under
