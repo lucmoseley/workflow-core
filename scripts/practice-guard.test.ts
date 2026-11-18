@@ -1089,7 +1089,7 @@ describe("the Stop limb", () => {
 	});
 });
 
-describe("the machine copy in an adopter that enables the plugin (#5394)", () => {
+describe("the machine copy in an adopter that enables the plugin (#5394, #5410)", () => {
 	/** A machine install whose list matches the plugin's, as the founder's does. */
 	let adopterHome: string;
 	let machine: string;
@@ -1101,15 +1101,31 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 		"covered — docs/practice/prose-editing-and-style.md, 2026-01-01";
 	const settings = (file: string) => path.join(repo, ".claude", file);
 	const userSettings = () => path.join(adopterHome, ".claude", "settings.json");
-	const enable = (file: string, value: unknown): undefined => {
+	/** A settings file: raw text, or enabledPlugins with any marketplaces it declares. */
+	const enable = (
+		file: string,
+		value: unknown,
+		extraKnownMarketplaces?: Record<string, unknown>,
+	): undefined => {
 		fs.mkdirSync(path.dirname(file), { recursive: true });
 		fs.writeFileSync(
 			file,
 			typeof value === "string"
 				? value
-				: JSON.stringify({ enabledPlugins: value }),
+				: JSON.stringify({ enabledPlugins: value, extraKnownMarketplaces }),
 		);
 	};
+	/** The marketplace `name` declared from the plugin's repo, pinned at `ref` where one is given. */
+	const pinned = (ref?: string, name = "workflow-core") => ({
+		[name]: {
+			source: {
+				source: "url",
+				url: "https://github.com/lucmoseley/workflow-core.git",
+				...(ref === undefined ? {} : { ref }),
+			},
+		},
+	});
+	const shipped = pinned("v3.0.0");
 	const pluginOn = { "workflow-core@workflow-core": true };
 	const pluginOff = { "workflow-core@workflow-core": false };
 	type Arranged = { env?: NodeJS.ProcessEnv; cwd?: string } | undefined;
@@ -1155,12 +1171,12 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 	});
 
 	it("neither copy refuses a note only the plugin holds", () => {
-		enable(settings("settings.json"), pluginOn);
+		enable(settings("settings.json"), pluginOn, shipped);
 		expect(both(pluginOnly)).toEqual([null, null]);
 	});
 
 	it("a note neither holds is refused once across the two copies", () => {
-		enable(settings("settings.json"), pluginOn);
+		enable(settings("settings.json"), pluginOn, shipped);
 		const [plugin, machineVerdict] = both(nowhere);
 		expect(plugin).toContain("which does not exist");
 		expect(plugin).toContain("else the plugin's copy");
@@ -1168,7 +1184,7 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 	});
 
 	it("the machine copy stands down whichever copy runs first", () => {
-		enable(settings("settings.json"), pluginOn);
+		enable(settings("settings.json"), pluginOn, shipped);
 		expect(machineAlone(nowhere)).toBeNull();
 		expect(stop([wrote(code()), declared(nowhere)])).toContain(
 			"which does not exist",
@@ -1179,34 +1195,56 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 		[
 			"the user settings enable it",
 			() => {
-				enable(userSettings(), { "workflow-core@other-marketplace": true });
+				enable(
+					userSettings(),
+					{ "workflow-core@other-marketplace": true },
+					pinned("v3.0.0", "other-marketplace"),
+				);
 			},
 		],
 		[
 			"the user settings under ~/.claude enable it, CLAUDE_CONFIG_DIR unset",
 			() => {
-				enable(userSettings(), pluginOn);
+				enable(userSettings(), pluginOn, shipped);
 				return { env: { CLAUDE_CONFIG_DIR: "" } };
 			},
 		],
 		[
 			"the local settings enable it over a project false",
 			() => {
-				enable(settings("settings.json"), pluginOff);
+				enable(settings("settings.json"), pluginOff, shipped);
 				enable(settings("settings.local.json"), pluginOn);
+			},
+		],
+		[
+			"a later release is pinned",
+			() => enable(settings("settings.json"), pluginOn, pinned("v3.10.0")),
+		],
+		[
+			"the project pins the marketplace the user settings enable it from",
+			() => {
+				enable(userSettings(), pluginOn);
+				enable(settings("settings.json"), {}, shipped);
+			},
+		],
+		[
+			"the local settings pin a shipping release over a project v2.3.0",
+			() => {
+				enable(settings("settings.json"), pluginOn, pinned("v2.3.0"));
+				enable(settings("settings.local.json"), {}, shipped);
 			},
 		],
 		[
 			"CLAUDE_PROJECT_DIR is unset and the payload's cwd enables it",
 			() => {
-				enable(settings("settings.json"), pluginOn);
+				enable(settings("settings.json"), pluginOn, shipped);
 				return { env: { CLAUDE_PROJECT_DIR: "" } };
 			},
 		],
 		[
 			"CLAUDE_PROJECT_DIR is unset and the payload's cwd is a subdirectory of a project enabling it",
 			() => {
-				enable(settings("settings.json"), pluginOn);
+				enable(settings("settings.json"), pluginOn, shipped);
 				const sub = path.join(repo, ".claude", "sub");
 				fs.mkdirSync(sub, { recursive: true });
 				return { env: { CLAUDE_PROJECT_DIR: "" }, cwd: sub };
@@ -1218,10 +1256,41 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 
 	it.each<[string, () => Arranged, RegExp | undefined]>([
 		["no settings enable it", () => undefined, undefined],
+		...(
+			[
+				["v2.3.0, a release before the guard", "v2.3.0"],
+				["a branch", "main"],
+				["a sha", "e725a8ffa0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5"],
+				["a pre-release of the first release", "v3.0.0-rc.1"],
+				["no ref", undefined],
+			] as const
+		).map(([what, ref]): [string, () => Arranged, undefined] => [
+			`the enabled plugin's marketplace pins ${what}`,
+			() => enable(settings("settings.json"), pluginOn, pinned(ref)),
+			undefined,
+		]),
+		[
+			"no settings file declares the enabled plugin's marketplace",
+			() =>
+				enable(
+					settings("settings.json"),
+					pluginOn,
+					pinned("v3.0.0", "other-marketplace"),
+				),
+			undefined,
+		],
+		[
+			"the local settings pin v2.3.0 over a project v3.0.0",
+			() => {
+				enable(settings("settings.json"), pluginOn, shipped);
+				enable(settings("settings.local.json"), {}, pinned("v2.3.0"));
+			},
+			undefined,
+		],
 		[
 			"the local settings set it false over a project true",
 			() => {
-				enable(settings("settings.json"), pluginOn);
+				enable(settings("settings.json"), pluginOn, shipped);
 				enable(settings("settings.local.json"), pluginOff);
 			},
 			undefined,
@@ -1229,22 +1298,29 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 		[
 			"the project settings set it false over a user true",
 			() => {
-				enable(userSettings(), pluginOn);
+				enable(userSettings(), pluginOn, shipped);
 				enable(settings("settings.json"), pluginOff);
 			},
 			undefined,
 		],
 		[
 			"only another plugin is enabled",
-			() => enable(settings("settings.json"), { "other@workflow-core": true }),
+			() =>
+				enable(
+					settings("settings.json"),
+					{ "other@workflow-core": true },
+					shipped,
+				),
 			undefined,
 		],
 		[
 			"the value is truthy but not true",
 			() =>
-				enable(settings("settings.json"), {
-					"workflow-core@workflow-core": "yes",
-				}),
+				enable(
+					settings("settings.json"),
+					{ "workflow-core@workflow-core": "yes" },
+					shipped,
+				),
 			undefined,
 		],
 		[
@@ -1257,14 +1333,14 @@ describe("the machine copy in an adopter that enables the plugin (#5394)", () =>
 			() =>
 				enable(
 					settings("settings.json"),
-					`${JSON.stringify({ enabledPlugins: pluginOn })}\n{}`,
+					`${JSON.stringify({ enabledPlugins: pluginOn, extraKnownMarketplaces: shipped })}\n{}`,
 				),
 			undefined,
 		],
 		[
 			"the tree written enables it but the session's project does not",
 			() => {
-				enable(settings("settings.json"), pluginOn);
+				enable(settings("settings.json"), pluginOn, shipped);
 				return { env: { CLAUDE_PROJECT_DIR: path.join(dir, "loose") } };
 			},
 			undefined,

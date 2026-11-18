@@ -53,7 +53,7 @@ The release tree an adopter installs. Tests, fixtures and TypeScript are left ou
 The founder's personal copies on this laptop of what the plugin ships, kept so the repos outside the adopter channel get them too; an adopter session on this machine meets both. `npm run check:settings` holds each equal to its repo source (#5344).
 
 - `~/.claude/CLAUDE.md` — the four working rules, each section equal to `docs/working-contract.md`'s.
-- `~/.claude/hooks/practice-guard.sh` `~/.claude/practice-crafts.md` — copies of `scripts/practice-guard.sh` and `docs/practice-crafts.md`, sharing the shipped guard's per-session latch; the guard copy stands down at `Stop` where the session's project enables the plugin, which judges there (#5394).
+- `~/.claude/hooks/practice-guard.sh` `~/.claude/practice-crafts.md` — copies of `scripts/practice-guard.sh` and `docs/practice-crafts.md`, sharing the shipped guard's per-session latch; the guard copy stands down at `Stop` where the session's project enables the plugin and pins its marketplace at a release that ships the guard, which judges there (#5394, #5410).
 - `~/.claude/hooks/browser-profile-guard.sh` — a copy of `scripts/browser-profile-guard.sh`.
 
 ## Stays core-only
