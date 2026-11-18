@@ -154,7 +154,8 @@ const INVENTORY_STEP = `Before you end, take the inventory. Look over everything
 function jobHoldsTurn() {
 	return require("./lib/rule-text").readRuleTextOr(
 		"job-holds-turn",
-		"In a background job, hold the turn on a foreground wait until it reports.",
+		"A background job never ends its turn on `waiting:`: it holds the turn " +
+			"on a foreground wait until what it launched reports",
 		"guard-session-ceiling waiting",
 	);
 }

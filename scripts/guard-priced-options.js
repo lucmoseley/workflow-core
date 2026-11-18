@@ -1881,9 +1881,8 @@ function waitingInJob(status) {
 		"This turn ends a background job on `waiting:`.\n\n" +
 		require("./lib/rule-text").readRuleTextOr(
 			"job-holds-turn",
-			"Claude Code lists a background job whose turn has ended as " +
-				"completed, so hold the turn on a foreground wait until what you " +
-				"launched reports",
+			"A background job never ends its turn on `waiting:`: it holds the turn " +
+				"on a foreground wait until what it launched reports",
 			"guard-priced-options waiting",
 		) +
 		"\n\nThen end on what is true:\n\n" +
