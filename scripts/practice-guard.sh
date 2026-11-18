@@ -387,11 +387,11 @@ fault_in() {
 # taking its highest file's value; some workflow-core@<marketplace> key must be
 # left true, and that marketplace's source.ref an X.Y.Z tag, v optional, at or
 # above FIRST_GUARD_RELEASE, with no source.sha, which pins a commit over the
-# ref. Narrower than lib/plugin-state.js's TAG_REF: a pre-release or build
-# suffix names no shipped release here (releases are tagged vX.Y.Z alone), so
-# it keeps this copy judging. A file missing, not one JSON object, or whose field is no
-# object adds nothing to that field; one there but unreadable or not JSON says
-# so on stderr.
+# ref. Narrower than lib/plugin-state.js's TAG_REF (#5410): a pre-release or
+# build suffix names no shipped release here (releases are tagged vX.Y.Z
+# alone), so it keeps this copy judging. A file missing, not one JSON object,
+# or whose field is no object adds nothing to that field; one there but
+# unreadable or not JSON says so on stderr.
 plugin_guard_pinned_at() {
   local file merged='{"plugins":{},"markets":{}}' layer
   for file in "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json" "$1/.claude/settings.json" "$1/.claude/settings.local.json"; do
