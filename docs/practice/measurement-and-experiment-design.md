@@ -16,24 +16,25 @@ Researched: 2026-11-10
 
 ## Before and after samples
 
-- For "did the rate drop", test the after sample against the before sample directly. Do not set the target at the baseline's lower bound and size n by the zero-event bound: that treats the bound as exact and asks the confidence again on top, so a small baseline's window grows (multiples below). Both tests below are two-sample exact tests. Krishnamoorthy and Thomson, "A more powerful test for comparing two Poisson means", JSPI 2004, free author copy [named expert]; NIST/SEMATECH e-Handbook §7.3.3 [standard or field body]
-- Events over time (k1 in T1, k2 in T2): use the conditional test of Przyborowski and Wilenski (Biometrika 1940). Given k1 + k2, k2 is binomial with p = T2/(T1 + T2), and the one-sided binomial test gives the p-value. It is "by far the most common method" (Krishnamoorthy and Thomson 2004) [named expert]. R `poisson.test` (two-sample form) and `exactci::poisson.exact` run it; in SciPy run `binomtest(k2, k1 + k2, T2/(T1 + T2), alternative='less')`, since `poisson_means_test` is the E-test; statsmodels `test_poisson_2indep` defaults to an asymptotic score test, so pass `method='exact-cond'`. Each tool's own docs [standard or field body]. Przyborowski and Wilenski 1940 is paywalled, unread.
+- For "did the rate drop", test the after sample against the before sample with a two-sample exact test: the conditional Poisson test or Fisher's exact test, below. Krishnamoorthy and Thomson, "A more powerful test for comparing two Poisson means", JSPI 2004, free author copy [named expert]; NIST/SEMATECH e-Handbook §7.3.3 [standard or field body]
+- Do not use the lower-bound target: setting the target at the baseline's 95% lower bound and sizing n by the zero-event bound treats that bound as exact and asks 95% again on top, so a small baseline's window grows several-fold (table below). No free source read states this; it rests on the arithmetic, rechecked numerically (#5401, #5407).
+- Events over time (k1 in T1, k2 in T2): use the conditional test of Przyborowski and Wilenski (Biometrika 1940). Given k1 + k2, k2 is binomial with p = T2/(T1 + T2); the one-sided binomial test gives the p-value. It is "by far the most common method" (Krishnamoorthy and Thomson 2004) [named expert]. R `poisson.test` (two-sample form) and `exactci::poisson.exact` run it; in SciPy run `binomtest(k2, k1 + k2, T2/(T1 + T2), alternative='less')`, since `poisson_means_test` is the E-test; statsmodels `test_poisson_2indep` defaults to an asymptotic score test, so pass `method='exact-cond'`. Each tool's own docs [standard or field body]. Przyborowski and Wilenski 1940 is paywalled, unread.
 - Events per trial (k1 of n1, k2 of n2): use one-sided Fisher's exact test where the samples are small, a z-test where they are large. NIST/SEMATECH e-Handbook §7.3.3 [standard or field body]
-- The E-test of Krishnamoorthy and Thomson (2004) is more powerful and gives shorter windows, but its size is only approximate ("seldom exceeds the nominal level") and it has no closed form a reader can recheck; the conditional test is conservative. Krishnamoorthy and Thomson 2004 [named expert]. Gu, Ng, Tang and Schucany, Biometrical Journal 2008, recommend a likelihood-ratio test from simulation; paywalled, abstract read only.
-- With k events in T1 and none after, the conditional test passes at confidence C once (T1/(T1 + T2))^k <= 1 - C, so T2 = T1 x ((1 - C)^(-1/k) - 1). At 95% one-sided, against the lower-bound method's 3T1/L(k), where L(k) is the exact Poisson 95% lower bound on k:
+- The E-test is more powerful than the conditional test, which is conservative, but its size is only approximate ("seldom exceeds the nominal level"). Krishnamoorthy and Thomson 2004 [named expert]. Unlike the conditional test, it gives no closed-form window like the one below. Gu, Ng, Tang and Schucany, Biometrical Journal 2008, recommend a likelihood-ratio test from simulation [named expert]; abstract read only, its free SMU tech report (TR356) unread.
+- With k events in T1 and none after, the conditional test passes at confidence C once (T1/(T1 + T2))^k <= 1 - C, so T2 = T1 x ((1 - C)^(-1/k) - 1), from the test's binomial form (Krishnamoorthy and Thomson 2004) [named expert]. At 95% one-sided, against the lower-bound target's 3T1/L(k), where L(k) is the exact Poisson 95% lower bound on k:
 
   | k before | two-sample T2/T1 | lower-bound T2/T1 |
   |---|---|---|
-  | 1 | 19.0 | 58.5 |
-  | 2 | 3.47 | 8.4 |
-  | 3 | 1.71 | 3.7 |
-  | 4 | 1.11 | 2.2 |
+  | 1 | 19 | 58 |
+  | 2 | 3.5 | 8.4 |
+  | 3 | 1.7 | 3.7 |
+  | 4 | 1.1 | 2.2 |
   | 5 | 0.82 | 1.5 |
-  | 10 | 0.35 | 0.6 |
-  | 30 | 0.11 | 0.1 |
+  | 10 | 0.35 | 0.55 |
+  | 30 | 0.11 | 0.14 |
 
-  The two meet only for a large baseline. Per trial, the Fisher form is C(n1, k)/C(n1 + n2, k) <= 1 - C: 3 events in 30 trials needs 50 clean trials, against 107 by the lower-bound method. Derivation rechecked numerically (#5401, #5407).
-- Keep the fixed-target method, with the zero-event bound above, for a question against a stated SLO or target rate, not one against a baseline sample.
+  The gap closes only as the baseline grows. Per trial, the Fisher form is C(n1, k)/C(n1 + n2, k) <= 1 - C: 3 events in 30 trials needs 50 clean trials, against 107 by the lower-bound target.
+- Size by the zero-event bounds above only for a question against a stated SLO or target rate, not one against a baseline sample. NIST e-Handbook §8.3.1.1 (testing against a stated failure rate) [standard or field body]
 
 ## Stopping rules
 
