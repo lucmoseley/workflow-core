@@ -7,29 +7,16 @@
  * `Agent` launch result's `output_file` is a symlink to it. Beside it the
  * harness keeps `agent-<agentId>.meta.json`.
  *
- * STOPPED, MEASURED over the newest 300 subagent logs on this machine
- * (2026-11-18, #5421): 294 finished agents each carry `"finished": true` in their meta file and
- * end on the `tool_result` of their `SubagentHandback` call; the 2 killed
- * ones end on a user record reading `[Request interrupted by user]`; the 4
- * running ones ended on an `api-request`. So a log's last turn record alone
- * reads a finished agent as mid-turn: the meta flag is what says finished.
- * An assistant record with no tool call is an agent that stopped too — the
- * end of a turn on a harness that hands back without a tool.
+ * STOPPED: the meta file's `"finished": true`, since a finished agent's log
+ * ends on its `SubagentHandback` `tool_result` (#5421); a user record reading
+ * `[Request interrupted by user]`; or an assistant record with no tool call.
  *
- * RESIDUAL: the harness wrote no `finished` flag before November 2026. Of
- * all 12,856 logs on this machine, the 1,487 read in flight date from October
- * bar one agent then running, so on such a harness a
- * finished agent reads in flight. The completion notification stops the
- * watcher first; only a dead, unreported agent costs the wait to the ceiling.
- *
- * A TORN LAST LINE, a record mid-append, is skipped for the turn record
- * before it: the writer is mid-write, so the reading stays on the agent's
- * newest whole record rather than calling the log unread.
+ * RESIDUAL: the harness wrote no `finished` flag before November 2026, so on
+ * such a harness a finished agent reads in flight.
  *
  * IN FLIGHT is everything else: an assistant record calling a tool, whose
  * result is not yet written; a user record (a tool result, or the prompt)
- * the model is answering; an `api-request` with no reply. A hung call reads
- * in flight for ever, which the watcher's ceiling bounds.
+ * the model is answering; an `api-request` with no reply.
  *
  * UNREAD is a log missing, unreadable, or holding no turn record: the caller
  * judges on growth alone and says so.
@@ -64,7 +51,6 @@ const isBlock = (block, type) =>
 	/** @type {{type?: unknown}} */ (block).type === type;
 
 /**
- * Whether one turn record leaves a call in flight.
  * @param {import("./transcript.js").TranscriptRecord} row
  * @returns {boolean}
  */
@@ -86,8 +72,8 @@ function isCallOpen(row) {
 }
 
 /**
- * Whether the harness has marked the agent finished in its meta file, read
- * beside the log's real path so a launch result's symlink finds it.
+ * The meta file is read beside the log's real path, so a launch result's
+ * symlink finds it.
  * @param {string} log
  */
 function isMarkedFinished(log) {
