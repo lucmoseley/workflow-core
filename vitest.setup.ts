@@ -191,6 +191,10 @@ afterAll(() => fs.rmSync(testRefillDir, { recursive: true, force: true }));
  * lander a case drives adopts from its fixture repo after moving `main`, and
  * a fixture that passed the probe would flip `.guard-code.current` for every
  * guard on the machine. An override, as above; a case that names its own wins.
+ * Named one level inside the temp dir, as the adopter writes its `.current`,
+ * `.refused`, log and probe host beside the code dir, not in it.
+ *
+ * WHAT IT DOES NOT COVER: a spawn that builds its `env` from scratch.
  */
 const testGuardCodeDir = fs.mkdtempSync(
 	path.join(os.tmpdir(), "wfc-test-guard-code-"),
