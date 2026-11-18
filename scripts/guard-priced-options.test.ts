@@ -64,10 +64,8 @@ afterEach(() => {
 });
 
 /*
- * A background Bash call with no settling notification, for the fixtures whose
- * message ends on `waiting:`. Since mantahostels#2487 that marker is verified against the
- * transcript, so a hand-off turn needs a launch actually out in the file it is
- * judged from.
+ * A background Bash call with no settling notification: a `waiting:` ending is
+ * refused in a background job even with a launch out (#5395).
  */
 const PENDING_LAUNCH = buildBashCall("sleep 60", "toolu_pending", {
 	input: { run_in_background: true },
@@ -1407,11 +1405,13 @@ describe("a background job that ends carrying no marker at all (mantahostels#120
 		expect(runInJob(transcriptWith(withRound(text)))).toBeNull();
 	});
 
-	it("allows the hand-off turn taken while a background job runs", () => {
+	it("refuses a waiting: hand-off, even while a launch is out (#5395)", () => {
 		const text =
 			"Dispatched the standards reviewer.\n\n" +
 			"waiting: the review agent's completion notification.";
-		expect(runInJob(transcriptWith(text, [PENDING_LAUNCH]))).toBeNull();
+		expect(
+			runInJob(transcriptWith(text, [PENDING_LAUNCH]))?.reason ?? "",
+		).toContain("background job on `waiting:`");
 	});
 
 	it("does not fire in an interactive session, which has no status line", () => {
@@ -1532,7 +1532,9 @@ describe("a result: the message then buries (mantahostels#1210)", () => {
 		const text =
 			"Blocked earlier with:\n\nresult: <what was delivered>\n\n" +
 			"Dispatched the reviewer.\n\nwaiting: its completion notification.";
-		expect(runInJob(transcriptWith(text, [PENDING_LAUNCH]))).toBeNull();
+		expect(
+			runInJob(transcriptWith(text, [PENDING_LAUNCH]))?.reason ?? "",
+		).not.toContain("writes `result:` and then keeps going");
 	});
 
 	it("measures the last result:, not one quoted earlier", () => {
@@ -1917,9 +1919,7 @@ describe("the bucket-deciding checks keep their own block budget (mantahostels#2
 		expect(reason).toContain("carrying neither status marker");
 	});
 
-	it("still refuses an unmarked final turn after three waiting-on-nothing blocks", () => {
-		/* Every short `gh` call settles before the turn ends, so an owed
-		 * `waiting:` is refused. */
+	it("still refuses an unmarked final turn after three waiting: blocks", () => {
 		spendShared("Dispatched it.\n\nwaiting: the notification.");
 		const reason = runInJob(transcriptWith(noMarker))?.reason ?? "";
 		expect(reason).toContain("carrying neither status marker");
@@ -2097,11 +2097,11 @@ describe("the ceiling is reserved by stake tier (mantahostels#3430)", () => {
 		expect(runInJob(transcriptWith(noRound))).toBeNull();
 	});
 
-	it("charges a waiting: on nothing to its own counter, not the shape one", () => {
+	it("charges a waiting: to its own counter, not the shape one", () => {
 		runInJob(transcriptWith("Dispatched it.\n\nwaiting: the notification."));
 		expect(
 			fs.existsSync(
-				path.join(markersDir(dir), `.waiting-unverified-nagged-${sid}`),
+				path.join(markersDir(dir), `.waiting-in-job-nagged-${sid}`),
 			),
 		).toBe(true);
 		expect(
