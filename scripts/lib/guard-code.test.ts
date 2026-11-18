@@ -96,6 +96,8 @@ describe("adoption", () => {
 		expect(r?.kind).toBe("refused");
 		expect(r?.why).toMatch(/Unexpected token/);
 		expect(live()).toBe(path.join(codeDir, good));
+		/* The refused tree stays as the spare, for the next tip to rewrite. */
+		expect(fs.readdirSync(codeDir).sort()).toEqual([good, bad].sort());
 		expect(fs.readFileSync(files().refused, "utf8")).toBe(`${bad}\n`);
 		expect(fs.readFileSync(files().log, "utf8")).toMatch(
 			new RegExp(`refused ${bad.slice(0, 9)}: .*Unexpected token`),
@@ -171,9 +173,9 @@ describe("adoption", () => {
 	it("makes a fresh tree where the spare will not check out, leaving no half-made one", () => {
 		const first = land(OK);
 		adopt();
-		land(`${OK}// two\n`);
+		const second = land(`${OK}// two\n`);
 		adopt();
-		land(`${OK}// three\n`);
+		const third = land(`${OK}// three\n`);
 		adopt();
 		/* A kill mid-checkout leaves the lock behind. */
 		const gitDir = gitIn(path.join(codeDir, first))(
@@ -184,7 +186,14 @@ describe("adoption", () => {
 		const fourth = land(`${OK}// four\n`);
 		expect(adopt()).toEqual({ kind: "adopted", sha: fourth });
 		expect(gitIn(path.join(codeDir, fourth))("rev-parse", "HEAD")).toBe(fourth);
-		expect(fs.readdirSync(codeDir).filter((n) => n.includes("."))).toEqual([]);
+		expect(fs.readdirSync(codeDir).sort()).toEqual(
+			[second, third, fourth].sort(),
+		);
+		expect(fs.readFileSync(files().log, "utf8")).toMatch(
+			new RegExp(
+				`${fourth.slice(0, 9)} checked out fresh, checking out in the spare failed: `,
+			),
+		);
 	});
 
 	it("never lets a second adopter take the tree the first is probing, so `.current` never names a missing one (#5431)", async () => {
