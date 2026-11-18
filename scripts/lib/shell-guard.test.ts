@@ -152,9 +152,13 @@ describe("the host port", () => {
 		fs.rmSync(home, { recursive: true, force: true });
 	});
 
-	it("runs the real script, whose bare chrome.exe refusal reaches the core", () => {
+	it("runs the real script, built as the dispatcher builds it, whose bare chrome.exe refusal reaches the core", () => {
 		const { ctx } = ctxFor({ command: TRIGGERED }, "Bash");
-		const hosted = { ...(ctx as object), ...buildHostPorts() } as never;
+		/* guard-judge.js passes the host's root, which need hold no scripts/ (#5425). */
+		const hosted = {
+			...(ctx as object),
+			...buildHostPorts(home, () => undefined),
+		} as never;
 		expect(browser.decide(TRIGGERED, hosted)).toEqual({
 			deny: expect.stringContaining(
 				"chrome.exe without --profile-directory opens whichever profile",
@@ -175,6 +179,11 @@ describe("the host port", () => {
 
 	it("returns a script's answer where it exits 0 unread", () => {
 		fs.writeFileSync(path.join(home, "unread.sh"), "echo said\n");
-		expect(buildHostPorts(home).runShellGuard("unread.sh", big)).toBe("said\n");
+		expect(
+			buildHostPorts(undefined, undefined, home).runShellGuard(
+				"unread.sh",
+				big,
+			),
+		).toBe("said\n");
 	});
 });

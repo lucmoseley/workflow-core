@@ -18,10 +18,19 @@ const { coreRoot } = require("./script-path.js");
 const TIMEOUT_MS = 9000;
 
 /**
+ * The dispatcher passes the host repo's root and its log (lib/guard-judge.js);
+ * neither locates the scripts, which ship with the core, so an adopter's root
+ * holding no scripts/ still runs them (#5425).
+ * @param {string} [_root]
+ * @param {(line: string) => void} [_log]
  * @param {string} [scripts] the directory the scripts are read from
  * @returns {import("./shell-guard.js").ShellGuardPorts}
  */
-function buildHostPorts(scripts = path.join(coreRoot(), "scripts")) {
+function buildHostPorts(
+	_root,
+	_log,
+	scripts = path.join(coreRoot(), "scripts"),
+) {
 	return {
 		runShellGuard: (script, payload) => {
 			const r = withoutLateEpipe(
