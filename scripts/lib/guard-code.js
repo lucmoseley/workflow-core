@@ -62,9 +62,9 @@ const PROGRAM = path.join("scripts", "guard-dispatch.js");
 const CODE_DIR_ENV = "WFC_GUARD_CODE_DIR";
 /* The scripts whose processes adopt: the hand route and the lander. */
 const ADOPTERS = ["adopt-guard-code.js", "queue-lander.js"];
-/* Untraced, a ceiling: a holder's probe at its timeout and six git calls at
- * theirs (the spare's four-call checkout, its fallback add and one prune);
- * the rest of its calls take milliseconds. */
+/* Untraced, the usual worst case: a holder's probe at its timeout and six
+ * git calls at theirs (the spare's four-call checkout, its fallback add and
+ * one prune); the rest of its calls take milliseconds. */
 const ADOPT_WAIT_MS = LOAD_TIMEOUT_MS + 6 * GIT_TIMEOUT_MS;
 
 /* A call every guard lets through on an empty host: any deny is a fault. A

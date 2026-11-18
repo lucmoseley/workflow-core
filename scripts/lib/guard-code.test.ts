@@ -245,7 +245,7 @@ describe("adoption", () => {
 		);
 		expect(fs.readlinkSync(files().previous)).toBe(path.join(codeDir, first));
 		expect(fs.existsSync(files().previous)).toBe(true);
-	}, 60_000);
+	}, 60_000 /* a guess: both adopters' waits above, with room */);
 
 	it("adopts nothing in a checkout whose hooks do not run from it", () => {
 		land(OK);
