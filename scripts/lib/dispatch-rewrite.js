@@ -94,12 +94,13 @@ const WATCHER = path.resolve(__dirname, "..", "watch-artefact.js");
 
 /**
  * The watch docs/agents/guard-registry.md §Subagent dispatch prescribes, for one artefact. 120 s
- * is a judgement, never measured against a band's timings.
+ * is a judgement, never measured against a band's timings. The agent's log
+ * is a placeholder: its path is known only from the launch result (#5421).
  * @param {string} file
  * @returns {string}
  */
 function watchCommand(file) {
-	return `node ${shellQuote(WATCHER)} ${shellQuote(file)} 120`;
+	return `node ${shellQuote(WATCHER)} ${shellQuote(file)} 120 --log <output_file>`;
 }
 
 /**

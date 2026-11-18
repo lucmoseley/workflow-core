@@ -45,6 +45,7 @@ const {
 	readVerifiedSha,
 	removeWorktree,
 	short,
+	spareOf,
 	whyOf,
 	worktreeAt,
 } = require("./pinned-code.js");
@@ -159,13 +160,14 @@ function probe(dir, host) {
  * checkout is the probe's error.
  * @param {{repo: string, codeDir: string, files: ReturnType<typeof guardFiles>}} where
  * @param {string} sha
+ * @param {Array<string|null>} keep the live and previous worktrees
  * @returns {{dir: string|null, probe: Probe}}
  */
-function probedWorktree({ repo, codeDir, files }, sha) {
+function probedWorktree({ repo, codeDir, files }, sha, keep) {
 	/** @type {string|null} */
 	let dir = null;
 	try {
-		dir = worktreeAt({ repo, codeDir, program: PROGRAM }, sha);
+		dir = worktreeAt({ repo, codeDir, program: PROGRAM }, sha, keep);
 		return { dir, probe: probe(dir, probeHost(files.probeHost)) };
 	} catch (err) {
 		return { dir, probe: { error: whyOf(err) } };
@@ -197,13 +199,13 @@ function adoptGuardCode({ repo, codeDir, fetch = true }) {
 	if (readRefused(files.refused).has(sha))
 		return { kind: "known-refused", sha };
 	const where = { repo, codeDir, files, log };
-	const { dir, probe: result } = probedWorktree(where, sha);
+	const keep = [current, readLink(files.previous)];
+	const { dir, probe: result } = probedWorktree(where, sha, keep);
 	if (result === null && dir !== null) {
 		flip(where, current, dir);
 		return { kind: "adopted", sha };
 	}
-	const keep = [current, readLink(files.previous)];
-	if (dir !== null && !keep.includes(dir)) removeWorktree(repo, dir);
+	if (dir !== null) pruneBeside({ repo, codeDir }, keep);
 	if (result !== null && "fault" in result) {
 		fs.appendFileSync(files.refused, `${sha}\n`);
 		log(`refused ${short(sha)}: ${result.fault}`);
@@ -215,8 +217,22 @@ function adoptGuardCode({ repo, codeDir, fetch = true }) {
 }
 
 /**
+ * Remove every worktree in `codeDir` but those `keep` names and the spare.
+ * @param {{repo: string, codeDir: string}} where
+ * @param {Array<string|null>} keep
+ */
+function pruneBeside({ repo, codeDir }, keep) {
+	const spare = spareOf({ codeDir, program: PROGRAM }, keep);
+	const kept = new Set(
+		[...keep, spare].filter((k) => k !== null).map((k) => path.basename(k)),
+	);
+	for (const name of fs.readdirSync(codeDir))
+		if (!kept.has(name)) removeWorktree(repo, path.join(codeDir, name));
+}
+
+/**
  * Point `.current` at `live` and `.previous` at what it named, then remove
- * every other worktree.
+ * every other worktree but the spare.
  * @param {{repo: string, codeDir: string, files: ReturnType<typeof guardFiles>, log: (line: string) => void}} where
  * @param {string|null} current
  * @param {string} live
@@ -227,10 +243,7 @@ function flip({ repo, codeDir, files, log }, current, live) {
 	log(
 		`adopted ${short(path.basename(live))}${current ? `, previous ${short(path.basename(current))}` : ""}`,
 	);
-	for (const name of fs.readdirSync(codeDir)) {
-		const old = path.join(codeDir, name);
-		if (old !== live && old !== current) removeWorktree(repo, old);
-	}
+	pruneBeside({ repo, codeDir }, [live, current]);
 }
 
 /**

@@ -215,8 +215,7 @@ describe("a turn it passes", () => {
 		expect(run().blocked).toBe(true);
 	});
 
-	// Paired with "knows it by the harness's tag alone, whatever the wording",
-	// which proves the tagged branch still fires (#5422).
+	// Paired with "knows it by the harness's tag alone, whatever the wording".
 	it("passes the classifier giving no verdict, which is no refusal (#5422)", () => {
 		transcript([
 			prompt(),

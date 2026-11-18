@@ -198,12 +198,86 @@ describe("verdicts", () => {
 	}, 15_000);
 });
 
+describe("reading the agent's own log (#5421)", () => {
+	const record = (row: unknown) => `${JSON.stringify(row)}\n`;
+	const toolCall = record({
+		type: "assistant",
+		message: {
+			content: [{ type: "tool_use", id: "t1", name: "Bash", input: {} }],
+			stop_reason: "tool_use",
+		},
+	});
+	const toolResult = record({
+		type: "user",
+		message: { content: [{ type: "tool_result", tool_use_id: "t1" }] },
+	});
+	const turnEnd = record({
+		type: "assistant",
+		message: {
+			content: [{ type: "text", text: "done" }],
+			stop_reason: "end_turn",
+		},
+	});
+	let log: string;
+	beforeEach(() => {
+		log = join(root, "agent-a1.jsonl");
+		writeFileSync(artefact, CHUNK);
+	});
+
+	/* Four checks with no growth before the ceiling: two would stall. */
+	const watchLog = () =>
+		watch([
+			artefact,
+			String(INTERVAL_S),
+			String(4.5 * INTERVAL_S),
+			"--log",
+			log,
+		]);
+
+	it.each([
+		["an unanswered tool call", toolCall],
+		["a tool result no assistant record follows", toolCall + toolResult],
+	])(
+		"never stalls an unchanging artefact while the log ends on %s, reaching the ceiling",
+		async (_name, text) => {
+			writeFileSync(log, text);
+			const r = await watchLog();
+			expect(r.status).toBe(EXIT.CEILING);
+			expect(r.stderr).toContain(`reading the agent log ${log} before a stall`);
+		},
+		15_000,
+	);
+
+	it("stalls after two checks once the log ends on a turn with no tool call", async () => {
+		writeFileSync(log, toolCall + toolResult + turnEnd);
+		const r = await watchLog();
+		expect(r.status).toBe(EXIT.STALLED);
+		expect(r.stdout).toMatch(new RegExp(`^STALLED ${artefact} size=10 `));
+	}, 15_000);
+
+	it("falls back to growth alone on a malformed log, saying so once", async () => {
+		writeFileSync(log, "not json\n");
+		const r = await watchLog();
+		expect(r.status).toBe(EXIT.STALLED);
+		expect(r.stderr.match(/judging on growth alone/g)).toEqual([
+			"judging on growth alone",
+		]);
+		expect(r.stderr).toContain(`${log} holds no turn record`);
+	}, 15_000);
+
+	it("says on its start line when no log is read", async () => {
+		const r = await watch([artefact, String(INTERVAL_S)]);
+		expect(r.stderr).toContain("on growth alone, no agent log");
+	}, 15_000);
+});
+
 describe("a bad invocation", () => {
 	it.each([
 		["no path", []],
 		["a zero interval", ["x", "0"]],
 		["a non-numeric ceiling", ["x", "1", "soon"]],
 		["a zero first-write deadline", ["x", "1", "--first-write", "0"]],
+		["an empty agent log", ["x", "1", "--log="]],
 	])("refuses %s with exit 2, printing no verdict", async (_label, args) => {
 		const r = await runInProcessAsync(SCRIPT, args);
 		expect(r.status).toBe(EXIT.USAGE);
