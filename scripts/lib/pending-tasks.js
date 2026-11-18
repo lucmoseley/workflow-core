@@ -1,17 +1,15 @@
 /*
  * pending-tasks.js — what this session launched that has not come back yet.
  *
- * ITS CONSUMERS CHECK WHETHER A `waiting:` IS TRUE, bar one:
- * `guard-session-ceiling.js` NAMES what is still out at a context notice, so
- * a session there waits for it before ending (#1179).
- * `guard-priced-options.js` refuses a background job that ends a turn on
- * `waiting:` with nothing actually pending (mantahostels#2487); `guard-uncommitted-work.js`
- * stands its own block down for a `waiting:` that IS backed by a launch, and
- * only for that one (mantahostels#2567). `waiting:` claims "something running will wake this
- * session"; a false one stalls the session with nothing coming to wake it.
+ * ITS CONSUMERS: `guard-session-ceiling.js` NAMES what is still out at a
+ * context notice, so a session there waits for it before ending (#1179);
+ * `guard-uncommitted-work.js` stands its own block down for a `waiting:` that
+ * IS backed by a launch, and only for that one (mantahostels#2567); the reaper keeps a
+ * session whose launch is still out (#5387). `waiting:` claims "something
+ * running will wake this session"; a false one stalls the session with
+ * nothing coming to wake it.
  *
- * THE TWO READ THE ASYMMETRY BELOW IN OPPOSITE DIRECTIONS. Failing open toward
- * BUSY costs the first a missed refusal; it costs the second a standing
+ * FAILING OPEN TOWARD BUSY costs the uncommitted-work guard a standing
  * exemption, one unrecognised settlement exempting every later turn in that
  * session. mantahostels#2567 accepted that.
  *

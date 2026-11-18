@@ -33,7 +33,8 @@ GitHub Issues on this repo, via `gh`. **Run `gh` in the foreground, and re-run a
 
 ## Turns, waiting and background work
 
-- **While something runs in the background, end the turn — with text and no tool call.** Say in one line what was delegated and what happens with its result; in a background job that line begins `waiting:`. Never poll: the poll guard refuses a third `ListAgents` look or output-file re-read in five minutes. **A `killed` notification is not a finished job** — `scripts/bg-run.sh check <name>` twice, 20 s apart.
+- **A background job never ends its turn on `waiting:`: it holds the turn on a foreground wait until what it launched reports** — a foreground subagent, `scripts/bg-run.sh wait <name> 540` re-run, or `node scripts/landing-status.js --wait` — since a job whose turn ends is listed completed. **Enforced**: `guard-priced-options.js`.
+- **Outside a background job, while something runs in the background, end the turn — with text and no tool call.** Say in one line, beginning `waiting:`, what was delegated and what happens with its result. Never poll: the poll guard refuses a third `ListAgents` look or output-file re-read in five minutes. **A `killed` notification is not a finished job** — `scripts/bg-run.sh check <name>` twice, 20 s apart.
 - **A turn ends only on a real question or a notification you are waiting for — never on a progress report.** Unenforced.
 - **A question round enumerates its answers as lettered, priced options**; `result:` asserts nothing further waits on {{founder}}. **Enforced**: `guard-priced-options.js`.
 

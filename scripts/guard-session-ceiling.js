@@ -47,8 +47,9 @@
  * own is still out.
  *
  * EVERY BAND NAMES THE SESSION'S OWN BACKGROUND WORK STILL OUT (#1179): the
- * work belongs to the unit in flight, so the session ends on `waiting:` until
- * each launch reports. The list is `lib/pending-tasks.js`'s, the reader the
+ * work belongs to the unit in flight, so the session waits for each launch to
+ * report: on a foreground wait in a background job (#5395), on `waiting:`
+ * elsewhere. The list is `lib/pending-tasks.js`'s, the reader the
  * other Stop guards use; nothing out adds nothing to the text.
  *
  * EVERY BAND CARRIES ONE INVENTORY STEP (#985, on #958's spec): before ending,
@@ -158,7 +159,7 @@ function closingSteps(pending) {
 			(l) =>
 				`- ${l.name ? `${l.name} (${l.kind}, ${l.id})` : `${l.kind} ${l.id}`}`,
 		),
-		"Wait for it: end this turn on `waiting:`, read each result as it lands and act on it. End on `result:` only when nothing is still out. Stop a watcher whose subject has already reported.",
+		"Wait for it: in a background job hold this turn on a foreground wait (`scripts/bg-run.sh wait <name> 540`, `node scripts/landing-status.js --wait`) until it reports, since a job whose turn ends is listed completed (#5395); elsewhere end this turn on `waiting:`. Read each result as it lands and act on it. End on `result:` only when nothing is still out. Stop a watcher whose subject has already reported.",
 		"",
 		INVENTORY_STEP,
 	].join("\n");

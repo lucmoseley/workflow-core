@@ -75,11 +75,9 @@
  *
  * A SIXTH REFUSAL, ON A MISSING MARKER (mantahostels#1200): a background job
  * that finishes carrying neither `result:` nor `needs input:` is filed on
- * nothing and sits where it stopped, work committed and job never closed. Three
- * markers satisfy it, the third being `waiting:` — the hand-off turn CLAUDE.md
- * §Conventions requires while a subagent or background Bash job runs, which is
- * neither finished nor waiting on a human and needs no status write, something
- * running being what wakes the session. Residuals, shared with the others: the
+ * nothing and sits where it stopped, work committed and job never closed. Any
+ * of the three markers satisfies it, a `waiting:` being the eleventh refusal's
+ * to judge. Residuals, shared with the others: the
  * marker is matched anywhere in the message, so a fenced example satisfies it.
  *
  * A SEVENTH REFUSAL, ON THE MISLABEL THE SIXTH LET THROUGH (mantahostels#1210): a
@@ -118,21 +116,12 @@
  * inherited whole: the classifier is not observable from this repo, so what
  * counts as saying something is a guess at where it acts.
  *
- * AN ELEVENTH REFUSAL, ON THE ONE MARKER THAT ASSERTS A FACT (mantahostels#2487): `waiting:`
- * says something is running that will wake this session. mantahostels#2485 closes the same
- * hole at the entrance, by
- * denying a foreground suite launch; this closes it at the exit, and reaches
- * three stalls that one cannot — a job backgrounded with `&` or `nohup`, one
- * launched from inside a script, and a `waiting:` written with nothing launched
- * at all. The evidence is the session's own transcript: every
- * `run_in_background` Bash call, every Bash call its `timeout` moved to the
- * background (#1012), every `Agent` call and every `Skill` call that forked
- * into the background (#1166) is a launch the transcript records,
- * settled later by a `<task-notification>` naming its id, so a launch with no
- * settlement is still out (`lib/pending-tasks.js`). IT REFUSES ONLY ON A
- * POSITIVE READING — a transcript it parsed, holding no unsettled launch. Every
- * other outcome allows the stop, so an unrecognised launch or settlement
- * spelling costs a missed refusal and never a dead turn.
+ * AN ELEVENTH REFUSAL, ON `waiting:` IN A BACKGROUND JOB (#5395): Claude Code
+ * lists a job whose turn has ended as completed, whatever its marker says, and
+ * no hook can correct that listing (#4659). So a job holds its turn on a
+ * foreground wait while anything it launched runs, and `waiting:` ends no
+ * background job's turn. Lexical, on the governing marker alone; an
+ * interactive session's `waiting:` is never read.
  *
  * A THIRTEENTH REFUSAL, ON WHAT THE FIGURES MEAN (#38): a round whose
  * `Relation:` line declares its options rivals while their headline figures sum
@@ -351,14 +340,14 @@
  *
  * THE BLOCK BUDGETS ARE SPLIT PER DEFECT, NOT SHARED (mantahostels#2544). On one
  * shared counter, three cosmetic corrections to a round's shape — or three
- * `waiting:`-on-nothing refusals in a session's first few minutes — would
+ * `waiting:` refusals in a session's first few minutes — would
  * silence the guard for the rest of the session, and the turn that decides how
  * the job is FILED is the last one, by construction in that silent tail.
  *
  * SO EVERY CHECK THAT DECIDES THE FILING carries its own counter —
  * `completedWhileWaiting`, `needsInputUndercut`, `needsInputMisplaced`,
  * `resultMisplaced`, `unmarkedStop`, `missingNeedsInput`, `emptyStatusMarker`
- * and `waitingUnverified`. `MAX_BLOCKS` stays 3: mantahostels#844's loop-trap
+ * and `waitingInJob`. `MAX_BLOCKS` stays 3: mantahostels#844's loop-trap
  * bound is real, and the fix is separating budgets, not enlarging one.
  *
  * WHY NOT A RESERVED FINAL BLOCK, which mantahostels#2544 offered as the alternative
@@ -394,7 +383,7 @@
  * prologue and epilogue around `judge()` — payload read, breadcrumb, fail-open,
  * drain — live in `lib/stop-guard.js`, shared with all three siblings (mantahostels#1798).
  *
- * IMPLICIT:  reads the session's ending message at every Stop and blocks the turn where it sends the founder away for his steps (#4058) or a question to the founder is not in the lettered priced form, naming the fault to the founder and sending the correction on the model-only limb; where its top two rivals sit close or its top option is priced 65 or less, once per question whatever `Checked:` or `Unmeasured:` line it carries (#1061), and, re-sent still caught by either, until each research-ladder rung shows a tool call (#2006), past the session ceiling (#1067); where it is sent under 10 tool calls after the founder's last message (#1710), past the ceiling too; where an option hands the founder an act by placeholder or back-reference rather than its literal text, or has him supply a credential by any route but `write-secret.js`, in an option (#1031) or in prose (#1817); where one option has the founder perform an act and another has the agent, and no `Blocked:` line says what stops the agent; where its recommendation names an option the same message priced below another, unexplained; and, in a background job, where a status marker carries nothing after its colon, where a `waiting:` rests on nothing the transcript shows still running, or where a `needs input:` puts its decision as prose rather than as a lettered priced round, a lone founder hand-over (#926), a `Qn` pointer to a round still unanswered (#924) or a park on an open repo hold the job is attached to (#3858) excepted; and, once a turn, where a lib of its own will not load (#2645).
+ * IMPLICIT:  reads the session's ending message at every Stop and blocks the turn where it sends the founder away for his steps (#4058) or a question to the founder is not in the lettered priced form, naming the fault to the founder and sending the correction on the model-only limb; where its top two rivals sit close or its top option is priced 65 or less, once per question whatever `Checked:` or `Unmeasured:` line it carries (#1061), and, re-sent still caught by either, until each research-ladder rung shows a tool call (#2006), past the session ceiling (#1067); where it is sent under 10 tool calls after the founder's last message (#1710), past the ceiling too; where an option hands the founder an act by placeholder or back-reference rather than its literal text, or has him supply a credential by any route but `write-secret.js`, in an option (#1031) or in prose (#1817); where one option has the founder perform an act and another has the agent, and no `Blocked:` line says what stops the agent; where its recommendation names an option the same message priced below another, unexplained; and, in a background job, where a status marker carries nothing after its colon, where it ends on `waiting:` (#5395), or where a `needs input:` puts its decision as prose rather than as a lettered priced round, a lone founder hand-over (#926), a `Qn` pointer to a round still unanswered (#924) or a park on an open repo hold the job is attached to (#3858) excepted; and, once a turn, where a lib of its own will not load (#2645).
  * JUSTIFIED: fail-safe — the rule was written down and kept losing (mantahostels#802), and the turn ending is the last moment the defect can still be fixed.
  * DEFEAT:    the pointer block clears by writing the steps into the message; the format block clears by rewriting the question, never by a switch — the close-rivals block (#488) by sending the corrected question a second time (#1061) and, where the shape limb is silent, a fixed shape (#1742), or by its own cap of 3, its research-ladder block (#2006) by a qualifying tool call on each rung, a re-send no test still catches or its own cap of 3, and its re-price refusal (#489) by a tool call or the refused figures, the under-researched block (#1710) by any tool call before the re-send and, where the shape limb is silent, a fixed shape (#1730), or its own cap of 3, the founder-act block (#597) by the literal text, a secret ask's `write-secret.js` line (#1031), or its own cap of 3, the actor-only block (#598) by acting instead, a `Blocked:` line or its own cap of 3 — or, past `SESSION_MAX` blocks in one session, by the ceiling going quiet on every shape and filing limb at once, the close-rivals, research-ladder and under-researched limbs excepted (mantahostels#2786, #1067), shape limbs one block sooner (mantahostels#3430). The load-failure block (#2645) clears by stopping again.
  * TREE:      host — holds, markers and config are the host root's
@@ -476,7 +465,7 @@ const {
 	UNMARKED_STOP_PREFIX,
 	MISSING_NEEDS_INPUT_PREFIX,
 	EMPTY_MARKER_PREFIX,
-	WAITING_UNVERIFIED_PREFIX,
+	WAITING_IN_JOB_PREFIX,
 	CLOSE_RIVALS_PREFIX,
 	ROUND_CHECK_PREFIX,
 	RESEARCH_LADDER_PREFIX,
@@ -1406,7 +1395,7 @@ function needsInputMisplaced(status) {
 	/* A `result:` or `waiting:` below it means this marker is not the governing
 	 * one — an earlier quotation, or a block reason pasted back. The later
 	 * marker's placement belongs to `resultMisplaced` (mantahostels#1210) and
-	 * `waitingUnverified`, not here. */
+	 * `waitingInJob`, not here. */
 	if (status.hasLaterMarker("needs input:")) return "";
 
 	const below = m.below;
@@ -1495,12 +1484,11 @@ function unmarkedStop(status) {
 		"job-status classifier reads this message text alone and files the job on " +
 		"the marker it finds, so a turn with none leaves the job sitting where it " +
 		"stopped — its work committed and nobody told it finished. End on " +
-		"whichever of these three is true, as the last line:\n\n" +
+		"whichever of these two is true, as the last line, holding the turn on a " +
+		"foreground wait while anything you launched still runs:\n\n" +
 		INVENTORY.resultLine +
 		"\n" +
-		INVENTORY.needsInputLine +
-		"\n" +
-		"waiting: <what will wake this session — a subagent or background job>"
+		INVENTORY.needsInputLine
 	);
 }
 
@@ -1872,100 +1860,40 @@ function needsInputWithoutRound(message, status, transcript) {
 		"Third, a job attached to an open repo hold (`repo-hold.js attach`): " +
 		"its line names `hold <id>` and that hold's `#<issue>`.\n\n" +
 		"If you are not blocked on a decision at all, the marker is the wrong one: " +
-		"`result:` where nothing waits on the founder, `waiting:` where something " +
-		"you launched will wake this session."
+		"`result:` where nothing waits on the founder; while something you " +
+		"launched runs, hold the turn on a foreground wait until it reports."
 	);
 }
 
-/* The fail-open log's second field for the waiting-verification limb, which
- * check-guard-errors.js groups on. */
-const FAIL_OPEN_WAITING = "guard-priced-options waiting";
-
 /**
- * The refusal that reads an artefact rather than the wording (mantahostels#2487): a
- * background job ending on `waiting:` with nothing running to wake it.
- *
- * An unreadable transcript, one that parsed to nothing, and any failure of the
- * apparatus all allow the stop and write the reason to the fail-open log. The
- * asymmetry is `lib/pending-tasks.js`'s and is explained there.
- *
+ * A background job ending on `waiting:` (#5395). Claude Code lists a job whose
+ * turn has ended as completed, whatever its marker says (#4659, measured on
+ * #5395), and no hook can correct that listing. So a job holds its turn on a
+ * foreground wait while something it launched runs, and ends only on
+ * `result:` or `needs input:`. Lexical, on the governing marker alone.
  * @param {StatusReading} status the message's status reading
- * @param {string} [transcript] the session's transcript path; with none the
- *   limb has no evidence and so says nothing.
  * @returns {string} the block reason, or '' if nothing is owed
  */
-function waitingUnverified(status, transcript) {
-	if (!transcript) return "";
-
+function waitingInJob(status) {
 	if (status.governing?.name !== "waiting:") return "";
-
-	/* Required here rather than at the top: a library that will not load
-	 * costs a missed check, never a dead turn.
-	 *
-	 * THE STORE LOADS FIRST, and in its own `try`, so that a `pending-tasks`
-	 * that will not load is REPORTED rather than silent. */
-	const log = failOpenLogger(FAIL_OPEN_WAITING);
-	if (!log) return "";
-
-	let readPendingTasks;
-	try {
-		({ readPendingTasks } = require("./lib/pending-tasks"));
-	} catch (e) {
-		log(`lib/pending-tasks would not load: ${e}`);
-		return "";
-	}
-
-	let seen;
-	try {
-		seen = readPendingTasks(transcript);
-	} catch (e) {
-		log(`transcript would not be read at ${transcript}: ${e}`);
-		return "";
-	}
-	/* A transcript that parsed to nothing is an apparatus failure, not a session
-	 * with nothing running: the turn being stopped is itself in that file. */
-	if (!seen.records) {
-		log(`transcript parsed to no records at ${transcript}`);
-		return "";
-	}
-	if (seen.pending.length > 0) return "";
-
-	/* THE FINISHED-JOB CASE LEADS (mantahostels#3432): nearly every refusal here holds a
-	 * settled launch — a backgrounded `gh` call whose notification landed while
-	 * the turn was being written — and the way out there is to keep working. */
-	const finishedLead =
-		seen.launches.length > 0
-			? "Every one of the " +
-				seen.launches.length +
-				" launch(es) in this session's transcript has already reported, so no " +
-				"`waiting:` hand-off is owed: the job has finished. Read its output " +
-				"file or the subagent's report, and carry on with the work in this " +
-				"same turn. End on a status marker only once the work is done or " +
-				"blocked on the founder.\n\n"
-			: "";
-
 	return (
-		"This turn ends a background job on `waiting:`, and nothing this session " +
-		"launched is still running. " +
-		finishedLead +
-		"That marker means a subagent or a background " +
-		"Bash job will wake the session with its own notification; with none out, " +
-		"no notification is coming, so the session sits there for ever and the " +
-		"founder is never told. The job listing is no guide: it may read a " +
-		"`waiting:` job as completed, and the reaper keeps one only while its " +
-		"transcript shows a launch still out.\n\n" +
-		"Three launches this cannot see, and each is a real stall rather than a " +
-		"miscount: a job backgrounded with `&` or `nohup` inside an ordinary " +
-		"Bash call, one started from inside a script, and a wait loop the founder " +
-		"is running elsewhere. None of them wakes this session either — a " +
-		"`run_in_background: true` Bash call, a Bash call its `timeout` moved to " +
-		"the background, or an `Agent` call is what does.\n\n" +
-		"So end on what is true instead:\n\n" +
+		"This turn ends a background job on `waiting:`. Claude Code lists a " +
+		"background job whose turn has ended as completed, whatever its last " +
+		"line says, so the founder reads a job still waiting as finished (#5395). " +
+		"Hold the turn instead, until what you launched reports:\n\n" +
+		"- a subagent: dispatch it in the foreground — several `Agent` calls in " +
+		"one message run in parallel, and the turn holds until each returns;\n" +
+		"- a long Bash job: `scripts/bg-run.sh run <name> <command>` in the " +
+		"background, then `scripts/bg-run.sh wait <name> 540` in the foreground, " +
+		"re-run until it reports;\n" +
+		"- a landing: `node scripts/landing-status.js --wait` in the foreground, " +
+		"re-run until it reads landed;\n" +
+		"- a launch already out: any of those foreground waits holds the turn, " +
+		"and its notification arrives inside it.\n\n" +
+		"Then end on what is true:\n\n" +
 		INVENTORY.resultLine +
 		"\n" +
-		INVENTORY.needsInputLine +
-		"\n\n" +
-		"Or relaunch the work through the background route and keep `waiting:`."
+		INVENTORY.needsInputLine
 	);
 }
 
@@ -2081,10 +2009,7 @@ function reviewParts(message, evidence = {}, status = jobStatus(message)) {
 			completedWhileWaiting(message, status),
 		);
 		push(EMPTY_MARKER_PREFIX, emptyStatusMarker(status));
-		push(
-			WAITING_UNVERIFIED_PREFIX,
-			waitingUnverified(status, evidence.transcript),
-		);
+		push(WAITING_IN_JOB_PREFIX, waitingInJob(status));
 		push(NEEDS_INPUT_UNDERCUT_PREFIX, needsInputUndercut(status));
 		push(NEEDS_INPUT_MISPLACED_PREFIX, needsInputMisplaced(status));
 		push(RESULT_MISPLACED_PREFIX, resultMisplaced(status));

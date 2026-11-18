@@ -622,7 +622,8 @@ describe("waiting for the session's own background work (#1179)", () => {
 			"- Watch the artefact (background command, toolu_b)",
 		);
 		expect(reason).not.toContain("Already back");
-		expect(reason).toContain("end this turn on `waiting:`");
+		expect(reason).toContain("hold this turn on a foreground wait");
+		expect(reason).toContain("elsewhere end this turn on `waiting:`");
 		expect(reason).toContain("End on `result:` only when nothing is still out");
 	});
 
