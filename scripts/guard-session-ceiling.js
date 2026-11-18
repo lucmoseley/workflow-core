@@ -47,8 +47,9 @@
  * own is still out.
  *
  * EVERY BAND NAMES THE SESSION'S OWN BACKGROUND WORK STILL OUT (#1179): the
- * work belongs to the unit in flight, so the session ends on `waiting:` until
- * each launch reports. The list is `lib/pending-tasks.js`'s, the reader the
+ * work belongs to the unit in flight, so the session waits for each launch to
+ * report: on a foreground wait in a background job (#5395), on `waiting:`
+ * elsewhere. The list is `lib/pending-tasks.js`'s, the reader the
  * other Stop guards use; nothing out adds nothing to the text.
  *
  * EVERY BAND CARRIES ONE INVENTORY STEP (#985, on #958's spec): before ending,
@@ -146,6 +147,20 @@ const TURN_BAND = 100;
 const INVENTORY_STEP = `Before you end, take the inventory. Look over everything this session produced or named, and find each founder-facing item: (1) a deliverable the founder must still act on, such as a draft to send or a file to upload; (2) an act only he can do that is written only in chat or inside a comment, such as a check by eye; (3) a decision he has not answered, whose round you post on the issue that carries it. Each one must sit in an open issue: name the issue that carries it, or file one now. Chat, the status line and a closed issue's comment never count. Then end with the inventory ${INVENTORY.placement}: \`waits on you:\`, then ${INVENTORY.itemLines}, or ${INVENTORY.nothingLine}. In a background job, also end the status line with ${INVENTORY.statusTail}.`;
 
 /**
+ * `rule:job-holds-turn` (#5395): how a background job waits without ending its
+ * turn. A missing fragment costs the long form, never the block.
+ * @returns {string}
+ */
+function jobHoldsTurn() {
+	return require("./lib/rule-text").readRuleTextOr(
+		"job-holds-turn",
+		"A background job never ends its turn on `waiting:`: it holds the turn " +
+			"on a foreground wait until what it launched reports",
+		"guard-session-ceiling waiting",
+	);
+}
+
+/**
  * The inventory step, led by the wait-for-your-own-work step and each launch
  * still out (#1179).
  * @param {import("./lib/pending-tasks").Launch[]} pending
@@ -158,7 +173,8 @@ function closingSteps(pending) {
 			(l) =>
 				`- ${l.name ? `${l.name} (${l.kind}, ${l.id})` : `${l.kind} ${l.id}`}`,
 		),
-		"Wait for it: end this turn on `waiting:`, read each result as it lands and act on it. End on `result:` only when nothing is still out. Stop a watcher whose subject has already reported.",
+		"Wait for it: outside a background job end this turn on `waiting:`; in one, hold the turn as below. Read each result as it lands and act on it. End on `result:` only when nothing is still out. Stop a watcher whose subject has already reported.",
+		jobHoldsTurn(),
 		"",
 		INVENTORY_STEP,
 	].join("\n");

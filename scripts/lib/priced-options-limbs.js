@@ -36,7 +36,7 @@ const RESULT_MISPLACED_PREFIX = ".result-misplaced-nagged-";
 const UNMARKED_STOP_PREFIX = ".unmarked-stop-nagged-";
 const MISSING_NEEDS_INPUT_PREFIX = ".missing-needs-input-nagged-";
 const EMPTY_MARKER_PREFIX = ".empty-marker-nagged-";
-const WAITING_UNVERIFIED_PREFIX = ".waiting-unverified-nagged-";
+const WAITING_IN_JOB_PREFIX = ".waiting-in-job-nagged-";
 
 const CLOSE_RIVALS_PREFIX = ".close-rivals-nagged-";
 const ROUND_CHECK_PREFIX = ".round-check-nagged-";
@@ -70,7 +70,7 @@ const LIMBS = [
 	{ prefix: UNMARKED_STOP_PREFIX, tier: "filing", cap: CAP },
 	{ prefix: MISSING_NEEDS_INPUT_PREFIX, tier: "filing", cap: CAP },
 	{ prefix: EMPTY_MARKER_PREFIX, tier: "filing", cap: CAP },
-	{ prefix: WAITING_UNVERIFIED_PREFIX, tier: "filing", cap: CAP },
+	{ prefix: WAITING_IN_JOB_PREFIX, tier: "filing", cap: CAP },
 	{
 		prefix: CLOSE_RIVALS_PREFIX,
 		tier: "outside-ceiling",
@@ -156,7 +156,7 @@ module.exports = {
 	UNMARKED_STOP_PREFIX,
 	MISSING_NEEDS_INPUT_PREFIX,
 	EMPTY_MARKER_PREFIX,
-	WAITING_UNVERIFIED_PREFIX,
+	WAITING_IN_JOB_PREFIX,
 	CLOSE_RIVALS_PREFIX,
 	ROUND_CHECK_PREFIX,
 	RESEARCH_LADDER_PREFIX,

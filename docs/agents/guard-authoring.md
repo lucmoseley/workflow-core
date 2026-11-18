@@ -345,8 +345,8 @@ upper bound.
 **A budget is reserved by stake tier, never spent first-come** (mantahostels#3420). Two
 tiers: **shape** — reply format a founder can read past (round shape,
 recommendation order, a term's position) — and **consequential**, everything
-whose miss files a job wrongly or lets a false claim stand, a `waiting:` resting
-on nothing included. No counter holds limbs of both tiers. A ceiling spanning
+whose miss files a job wrongly or lets a false claim stand, a background job's
+`waiting:` included. No counter holds limbs of both tiers. A ceiling spanning
 both is allowed only as a loop bound, and shape stops one block short of it: the
 last block is the consequential tier's. The principle binds any budget whose
 exhaustion silences a check for the rest of a window — `Stop` counters,
