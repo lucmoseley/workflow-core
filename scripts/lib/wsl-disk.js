@@ -24,8 +24,7 @@ const LOW_FREE_GB = 40;
 
 /*
  * Untraced (#5430): past this share of the virtual disk, the guest is near
- * ENOSPC. rebuild-disk.ps1's $fullShare is the same figure, refusing an
- * import into a disk that size.
+ * ENOSPC. rebuild-disk.ps1's $fullShare is the same figure.
  */
 const GUEST_FULL_SHARE = 0.85;
 
@@ -207,7 +206,7 @@ function trimWarnings({ last, fixedAt }, now) {
 }
 
 /**
- * The guest root's fill against its virtual disk (#5430), shown and warned.
+ * The guest root's fill against its virtual disk (#5430).
  * @param {GuestDisk | Failed} guest
  * @returns {{shown: string, warnings: {tag: string, line: string}[]}}
  */

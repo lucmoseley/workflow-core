@@ -92,8 +92,7 @@ function readFreeGB() {
 
 /**
  * The guest root's used bytes, counted as `df` counts them, and the virtual
- * size of the disk it is mounted from, read from /proc/partitions; or why
- * either would not read.
+ * size of the disk it is mounted from, read from /proc/partitions.
  * @returns {GuestDisk | {why: string}}
  */
 function readGuestDisk() {

@@ -12,8 +12,7 @@
 # the archive is made, so nothing writes to the disk being copied.
 # -Rehearsal archives -Source from -From into a throwaway -Distro, with no
 # loop pause, shutdown, watchdog toggle, Defender change, default change, boot
-# or prompt. It still sets defaultVhdSize in .wslconfig, which is what its
-# import is there to test.
+# or prompt. It still sets defaultVhdSize in .wslconfig.
 param(
 	[string]$Distro = 'Ubuntu',
 	[string]$From = 'Ubuntu',
@@ -25,8 +24,7 @@ param(
 	# truncated archive.
 	[int]$MinEntries = 2500000,
 	[string]$MustHold = 'home/lucmo/workflow-core/.git/HEAD',
-	# #5428's ruling. A GB figure, which WSL 2.1.5 read where TB failed
-	# (microsoft/WSL#11535).
+	# #5428's ruling. A GB figure, not TB (microsoft/WSL#11535).
 	[int]$CapGB = 224,
 	[switch]$Rehearsal
 )
@@ -236,7 +234,7 @@ wsl.exe --import $Distro $Base $tar --version 2
 if ($LASTEXITCODE -ne 0) { L "IMPORT FAILED (exit $LASTEXITCODE). The archive is kept at $tar. Re-run: wsl --import $Distro $Base $tar --version 2"; Finish 2 }
 if (-not $Rehearsal) { wsl.exe --set-default $Distro }
 L "imported, ext4.vhdx $(SizeGB "$Base\ext4.vhdx") GB; archive kept at $tar until checked from inside WSL"
-# Get-VHD needs Hyper-V; the guest's own view of its disk needs nothing.
+# Get-VHD needs Hyper-V.
 $virt = (wsl.exe -d $Distro -u root -- sh -c 'lsblk -bdno SIZE "$(findmnt -no SOURCE /)"' | Select-Object -Last 1)
 if ($virt -match '^\s*(\d+)\s*$') {
 	$virtGB = [math]::Round([double]$Matches[1] / 1GB, 1)
