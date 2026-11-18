@@ -13,7 +13,12 @@
  *     one the repair rolled back from;
  *   - `.log`, a line per adoption and refusal;
  *   - `.probe-host`, an empty git repo the probe runs as the host, so no
- *     probe writes into a real one.
+ *     probe writes into a real one;
+ *   - `.lock`, the adopting process's pidfile (lib/pid-lock.js), held from
+ *     reading the tip to the flip, so no second adopter takes the tree the
+ *     first has checked out but not yet flipped to as its spare (#5431). A
+ *     holder running neither ADOPTERS script is stale, so a new caller of
+ *     adoptGuardCodeAt in a process of its own is added there.
  *
  * ADOPTION checks the verified tip out, then a child node runs its
  * guard-dispatch.js on PROBE_PAYLOAD; only an exit 0 with no deny marking a
@@ -33,7 +38,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { CORE_FAULT_TEXT } = require("./core-fault.js");
 const { SELF_PLUGIN_HOOKS } = require("./core-hooks.js");
+const { GIT_TIMEOUT_MS } = require("./git.js");
 const { machineMarkerPath } = require("./machine-marker.js");
+const { pidLock, waitForLock } = require("./pid-lock.js");
 const {
 	LOAD_TIMEOUT_MS,
 	checkoutOf,
@@ -53,6 +60,11 @@ const {
 
 const PROGRAM = path.join("scripts", "guard-dispatch.js");
 const CODE_DIR_ENV = "WFC_GUARD_CODE_DIR";
+const ADOPTERS = ["adopt-guard-code.js", "queue-lander.js"];
+/* Untraced, the usual worst case: a holder's probe at its timeout and six
+ * git calls at theirs (the spare's four-call checkout, its fallback add and
+ * one prune); the rest of its calls take milliseconds. */
+const ADOPT_WAIT_MS = LOAD_TIMEOUT_MS + 6 * GIT_TIMEOUT_MS;
 
 /* A call every guard lets through on an empty host: any deny is a fault. A
  * session id of its own each run, as a core counting a session's calls
@@ -80,6 +92,7 @@ function guardFiles(codeDir) {
 		refused: linkOf(codeDir, "refused"),
 		log: linkOf(codeDir, "log"),
 		probeHost: linkOf(codeDir, "probe-host"),
+		lock: linkOf(codeDir, "lock"),
 	};
 }
 
@@ -188,6 +201,28 @@ function adoptGuardCode({ repo, codeDir, fetch = true }) {
 	const log = (line) =>
 		fs.appendFileSync(files.log, `${new Date().toISOString()} ${line}\n`);
 	const fetchError = fetch ? fetchVerified(repo) : null;
+	const lock = pidLock(files.lock, ADOPTERS);
+	if (!waitForLock(lock, ADOPT_WAIT_MS))
+		return {
+			kind: "error",
+			why: `another adoption held ${files.lock} past ${ADOPT_WAIT_MS / 1000} s; tried again next time`,
+		};
+	try {
+		return adoptLocked({ repo, codeDir, files, log }, fetchError);
+	} finally {
+		lock.release();
+	}
+}
+
+/**
+ * adoptGuardCode's work once it holds the lock: the tip is read here, so a
+ * waiter adopts what the holder left newest.
+ * @param {{repo: string, codeDir: string, files: ReturnType<typeof guardFiles>, log: (line: string) => void}} where
+ * @param {string|null} fetchError
+ * @returns {Adoption}
+ */
+function adoptLocked(where, fetchError) {
+	const { repo, files, log } = where;
 	const sha = readVerifiedSha(repo);
 	if (sha === null)
 		return {
@@ -199,14 +234,13 @@ function adoptGuardCode({ repo, codeDir, fetch = true }) {
 		return { kind: "current", sha };
 	if (readRefused(files.refused).has(sha))
 		return { kind: "known-refused", sha };
-	const where = { repo, codeDir, files, log };
 	const keep = [current, readLink(files.previous)];
 	const { dir, probe: result } = probedWorktree(where, sha, keep);
 	if (result === null && dir !== null) {
 		flip(where, current, dir);
 		return { kind: "adopted", sha };
 	}
-	if (dir !== null) pruneBeside({ repo, codeDir }, keep);
+	if (dir !== null) pruneBeside(where, keep);
 	if (result !== null && "fault" in result) {
 		fs.appendFileSync(files.refused, `${sha}\n`);
 		log(`refused ${short(sha)}: ${result.fault}`);
