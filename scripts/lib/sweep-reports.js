@@ -55,9 +55,12 @@ function localSweeps(dir) {
 }
 
 /**
+ * The sweep runs on the verified branch, newest first: the latest
+ * RUNS_LISTED, ids as strings.
  * @param {(why: string) => never} skip
+ * @returns {string[]}
  */
-function remoteSweeps(skip) {
+function listSweepRuns(skip) {
 	/* Listed by branch at the source: the lander's pushes run the same
 	 * workflow, and enough of them push every sweep out of a mixed window
 	 * (#4559); a manual run on a feature branch tests a tree `main` never
@@ -82,10 +85,17 @@ function remoteSweeps(skip) {
 			`GitHub unreachable listing ${SUITE_WORKFLOW} runs on ${VERIFIED_BRANCH}: ${String(e)}`,
 		);
 	}
-	const runs = listed
+	return listed
 		.map((r) => r.databaseId)
 		.sort((a, b) => b - a)
 		.map(String);
+}
+
+/**
+ * @param {(why: string) => never} skip
+ */
+function remoteSweeps(skip) {
+	const runs = listSweepRuns(skip);
 	const work = fs.mkdtempSync(path.join(os.tmpdir(), "sweep-reports-"));
 	try {
 		return collect(runs, (run) => {
@@ -125,4 +135,4 @@ function readSweeps(ctx) {
 	return sweeps;
 }
 
-module.exports = { readSweeps };
+module.exports = { listSweepRuns, readSweeps };

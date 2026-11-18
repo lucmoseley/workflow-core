@@ -75,7 +75,9 @@ const POOL_WIDTH = 4;
  * degraded bridge: here a healthy one prints its latency. `kernel-stall` (#4092)
  * also runs at SessionStart, silent on a clock it cannot read: here that is a WARN.
  * `file-ci-time` (#4292) also runs in the scheduled sweep, and downloads the
- * last few sweeps' vitest reports, ~11 MB each. `compaction-backstop` (#4410)
+ * last few sweeps' vitest reports, ~11 MB each; `contract-live` (#5408) each
+ * sweep's not yet read, the 30 listed on its first run (5.5 min measured).
+ * `compaction-backstop` (#4410)
  * reads one comment page per ticket closed in its window, so it is among the
  * slowest. `release-lag` (#4448) also runs at SessionStart, which prints only a
  * lag past its threshold or an install not at its pin: here every reading is a standing.
@@ -116,6 +118,7 @@ const CHECKS = [
 	["suite-margin", "check-suite-margin.js"],
 	["time-to-land", "check-time-to-land.js"],
 	["file-ci-time", "check-file-ci-time.js"],
+	["contract-live", "check-contract-live.js"],
 	["pass-store", "check-pass-store.js"],
 	["pick-next-model", "check-pick-next-model.js"],
 	["history-trim", "check-history-trim.js"],
