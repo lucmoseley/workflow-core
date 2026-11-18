@@ -7,9 +7,10 @@
  * shape — the `\n];` array terminator especially, which is what the slicer looks
  * for — but nothing else about the page.
  *
- * Tests use these hermetic fixtures for behaviour, and the real
- * docs/reference-roadmap.html for a single smoke case each, so a change to the
- * live file's structure still trips something.
+ * Tests use these hermetic fixtures for behaviour. The shape a real roadmap
+ * starts from is the adopter template's, which scripts/check-roadmap-pair.test.ts
+ * and scripts/init-adopter-subjects.test.ts render through gen-roadmap-digest.js,
+ * so a change to that structure still trips something.
  */
 
 import path from "node:path";
