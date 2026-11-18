@@ -6,6 +6,7 @@
 
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
+const { withoutLateEpipe } = require("./child-failure.js");
 const { coreRoot } = require("./script-path.js");
 
 /* The PreToolUse dispatcher entry gives all its cores 60 s together
@@ -16,15 +17,20 @@ const { coreRoot } = require("./script-path.js");
  * those times and the 60 s, not a measurement. */
 const TIMEOUT_MS = 9000;
 
-/** @returns {import("./shell-guard.js").ShellGuardPorts} */
-function buildHostPorts() {
+/**
+ * @param {string} [scripts] the directory the scripts are read from
+ * @returns {import("./shell-guard.js").ShellGuardPorts}
+ */
+function buildHostPorts(scripts = path.join(coreRoot(), "scripts")) {
 	return {
 		runShellGuard: (script, payload) => {
-			const r = spawnSync("bash", [path.join(coreRoot(), "scripts", script)], {
-				input: JSON.stringify(payload),
-				encoding: "utf8",
-				timeout: TIMEOUT_MS,
-			});
+			const r = withoutLateEpipe(
+				spawnSync("bash", [path.join(scripts, script)], {
+					input: JSON.stringify(payload),
+					encoding: "utf8",
+					timeout: TIMEOUT_MS,
+				}),
+			);
 			if (r.error || r.status !== 0)
 				throw new Error(
 					`${script}: ${r.error?.message ?? `exit ${r.status}`} ${r.stderr ?? ""}`.trim(),

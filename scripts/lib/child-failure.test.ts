@@ -5,7 +5,11 @@
  * Breaking it misreports why a launch, stop or typed resume failed.
  */
 import { describe, expect, it } from "vitest";
-import { childFailure, childVerdict } from "./child-failure.js";
+import {
+	childFailure,
+	childVerdict,
+	withoutLateEpipe,
+} from "./child-failure.js";
 
 const timedOut = new Error("spawnSync python3 ETIMEDOUT");
 
@@ -33,4 +37,25 @@ describe.each([
 		expect(childVerdict(r).failed).toBe(failed));
 	it("adds the last line printed to the failure, where there is one", () =>
 		expect(childFailure(childVerdict(r))).toBe(failure));
+});
+
+const epipe = Object.assign(new Error("spawnSync bash EPIPE"), {
+	code: "EPIPE",
+});
+
+describe("an EPIPE beside an exit (#5416)", () => {
+	it("is dropped, so the exit is the answer", () =>
+		expect(
+			withoutLateEpipe({ status: 0, error: epipe }).error,
+		).toBeUndefined());
+	it("is dropped beside a signal, which is the answer", () =>
+		expect(
+			withoutLateEpipe({ status: null, signal: "SIGKILL", error: epipe }).error,
+		).toBeUndefined());
+	it("stands where the child never ended", () =>
+		expect(withoutLateEpipe({ status: null, error: epipe }).error).toBe(epipe));
+	it("leaves any other error standing", () =>
+		expect(withoutLateEpipe({ status: 0, error: timedOut }).error).toBe(
+			timedOut,
+		));
 });

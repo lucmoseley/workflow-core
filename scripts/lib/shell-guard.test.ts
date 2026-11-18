@@ -162,9 +162,19 @@ describe("the host port", () => {
 		});
 	});
 
-	it("throws where the script cannot run", () => {
-		expect(() => buildHostPorts().runShellGuard("no-such.sh", {})).toThrow(
-			/no-such\.sh: exit/,
+	/* Four times Linux's 64 KiB default pipe buffer, so the child always
+	 * exits before Node has written it all: the EPIPE spawnSync then reports
+	 * beside the exit (#5416). */
+	const big = { padding: "x".repeat(256 * 1024) };
+
+	it("throws the exit where the script cannot run", () => {
+		expect(() => buildHostPorts().runShellGuard("no-such.sh", big)).toThrow(
+			/no-such\.sh: exit 127/,
 		);
+	});
+
+	it("returns a script's answer where it exits 0 unread", () => {
+		fs.writeFileSync(path.join(home, "unread.sh"), "echo said\n");
+		expect(buildHostPorts(home).runShellGuard("unread.sh", big)).toBe("said\n");
 	});
 });
