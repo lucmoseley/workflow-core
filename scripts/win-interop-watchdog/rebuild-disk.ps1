@@ -1,6 +1,8 @@
 # Rebuilds the WSL disk to drop its fragmented dead space (#5041): archive the
 # distro to C: with GNU tar and multi-threaded zstd, verify the archive reads
-# back whole, then unregister and re-import at the same path. The old disk is
+# back whole, then unregister and re-import at the same path, into a virtual
+# disk capped at -CapGB (#5430): a dynamic VHDX never grows past its virtual
+# size, however fragmented ext4 gets. The old disk is
 # removed only after the archive has passed every check. A finished archive is
 # never deleted by this script: a failed check or import stops and keeps it.
 # Run from an administrator Windows PowerShell window, never from inside WSL,
@@ -22,9 +24,13 @@ param(
 	# truncated archive.
 	[int]$MinEntries = 2500000,
 	[string]$MustHold = 'home/lucmo/workflow-core/.git/HEAD',
+	# #5428's ruling. A GB figure, which WSL 2.1.5 read where TB failed
+	# (microsoft/WSL#11535).
+	[int]$CapGB = 224,
 	[switch]$Rehearsal
 )
 $ErrorActionPreference = 'Continue'
+$wslconfig = "$env:USERPROFILE\.wslconfig"
 $log = "$Dir\rebuild.log"; $tar = "$Dir\$Distro.tar.zst"; $list = "$Dir\list.txt"; $errs = "$Dir\tar-errors.txt"
 $maker = "$Dir\make-archive.sh"; $status = "$tar.status"
 $task = 'WSL Interop Watchdog'
@@ -90,6 +96,24 @@ function Abort($why) {
 	if (Test-Path $tar) { Remove-Item $tar -Force }
 	Finish 1
 }
+# Sets [wsl2] defaultVhdSize, which wsl --import obeys, the service re-reading
+# .wslconfig on each import (WSL 3.0.5, LxssUserSession.cpp L1516, L1623-1630).
+# The key stays, so a later re-import gets the same cap.
+function SetVhdSize {
+	$lines = [Collections.Generic.List[string]]@(if (Test-Path $wslconfig) { Get-Content $wslconfig })
+	$want = "defaultVhdSize=${CapGB}GB"
+	$section = ''; $head = -1; $at = -1
+	for ($i = 0; $i -lt $lines.Count; $i++) {
+		$t = $lines[$i].Trim()
+		if ($t -match '^\[(.+)\]$') { $section = $Matches[1].ToLower(); if ($section -eq 'wsl2') { $head = $i } }
+		elseif ($section -eq 'wsl2' -and $t -match '^defaultVhdSize\s*=') { $at = $i }
+	}
+	if ($at -ge 0) { $lines[$at] = $want }
+	elseif ($head -ge 0) { $lines.Insert($head + 1, $want) }
+	else { $lines.Add('[wsl2]'); $lines.Add($want) }
+	[IO.File]::WriteAllLines($wslconfig, $lines, (New-Object Text.UTF8Encoding $false))
+	L "$wslconfig sets $want"
+}
 function Magic($p) {
 	$fs = [IO.File]::Open($p, 'Open', 'Read', 'ReadWrite'); $b = New-Object byte[] 4
 	$null = $fs.Read($b, 0, 4); $fs.Close()
@@ -100,6 +124,15 @@ New-Item -ItemType Directory -Force -Path $Dir | Out-Null
 L "start, $Distro, ext4.vhdx $(SizeGB "$Base\ext4.vhdx") GB, C: free $(FreeGB) GB, elevated $admin"
 if (Test-Path $tar) { L "an archive from an earlier run exists at $tar; check it by hand"; if (-not $Rehearsal) { Read-Host 'Press Enter' }; exit 1 }
 Remove-Item $status, "$tar.tar-err" -ErrorAction SilentlyContinue
+# An import into a disk too small for the data fails as "Unspecified error"
+# (E_FAIL, ENOSPC inside; microsoft/WSL#11535). 85% leaves ext4's overhead and
+# 5% root reserve room (untraced).
+$used = (wsl.exe -d $From -u root -- df -B1 --output=used $Source | Select-Object -Last 1).Trim()
+if ($used -notmatch '^\d+$') { L "df on $From would not read ($used); nothing was changed"; Finish 1 }
+$usedGB = [math]::Round([double]$used / 1GB, 1)
+if ([double]$used -gt 0.85 * $CapGB * 1GB) { L "$From uses $usedGB GB, over 85% of the $CapGB GB cap: free space in it, or raise -CapGB; nothing was changed"; Finish 1 }
+L "$From uses $usedGB GB of the $CapGB GB cap"
+SetVhdSize
 # Defender scans every write to the archive and the new disk; exclude both
 # folders for the run where this window is elevated, and only those this run added.
 if ($admin -and -not $Rehearsal) {
@@ -196,4 +229,12 @@ wsl.exe --import $Distro $Base $tar --version 2
 if ($LASTEXITCODE -ne 0) { L "IMPORT FAILED (exit $LASTEXITCODE). The archive is kept at $tar. Re-run: wsl --import $Distro $Base $tar --version 2"; Finish 2 }
 if (-not $Rehearsal) { wsl.exe --set-default $Distro }
 L "imported, ext4.vhdx $(SizeGB "$Base\ext4.vhdx") GB; archive kept at $tar until checked from inside WSL"
+# Get-VHD needs Hyper-V; the guest's own view of its disk needs nothing.
+$virt = (wsl.exe -d $Distro -u root -- sh -c 'lsblk -bdno SIZE "$(findmnt -no SOURCE /)"' | Select-Object -Last 1)
+if ($virt -match '^\s*(\d+)\s*$') {
+	$virtGB = [math]::Round([double]$Matches[1] / 1GB, 1)
+	if ($virtGB -eq $CapGB) { L "virtual size $virtGB GB, the cap" }
+	else { L "VIRTUAL SIZE $virtGB GB, NOT THE $CapGB GB CAP: read $wslconfig; to fix, wsl --shutdown, then wsl --manage $Distro --resize ${CapGB}GB" }
+}
+else { L "the virtual size would not read ($virt); read it in WSL with: lsblk -b" }
 Finish 0

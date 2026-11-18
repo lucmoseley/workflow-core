@@ -3,9 +3,9 @@
  * fed by (#5044). None crosses the interop bridge, since a wedged bridge is
  * one of the faults the check must still report through.
  *
- * WFC_PROC names /proc, WFC_WSL_COMPACT_LOG the log, WFC_WIN_C the mount and
- * WFC_SYSTEMCTL the systemctl and WFC_FSTRIM_DROPIN install-fstrim-wsl.sh's
- * drop-in (§N7).
+ * WFC_PROC names /proc, WFC_WSL_COMPACT_LOG the log, WFC_WIN_C the mount,
+ * WFC_GUEST_ROOT the guest's root, WFC_SYSTEMCTL the systemctl and
+ * WFC_FSTRIM_DROPIN install-fstrim-wsl.sh's drop-in (§N7).
  */
 
 const fs = require("node:fs");
@@ -90,6 +90,54 @@ function readFreeGB() {
 }
 
 /**
+ * The guest root's used bytes, counted as `df` counts them, and the virtual
+ * size of the disk it is mounted from, read from /proc/partitions; or why
+ * either would not read.
+ * @returns {{usedBytes: number, sizeBytes: number} | {why: string}}
+ */
+function readGuestDisk() {
+	const root = process.env.WFC_GUEST_ROOT || "/";
+	let usedBytes;
+	try {
+		const s = fs.statfsSync(root);
+		usedBytes = (s.blocks - s.bfree) * s.bsize;
+	} catch (e) {
+		return { why: `${root}: ${caught(e).message}` };
+	}
+	const mountinfo = readProcLines("self/mountinfo");
+	if ("why" in mountinfo) return mountinfo;
+	// `<id> <parent> <dev> <root> <mount point> … - <fstype> <source> <opts>`;
+	// the last line mounted on / is the one in force.
+	const source = mountinfo.lines
+		.filter((l) => l.split(" ")[4] === "/")
+		.map((l) => l.split(" - ")[1]?.split(" ")[1])
+		.at(-1);
+	if (!source?.startsWith("/dev/"))
+		return { why: `/ is mounted from ${source ?? "nothing"}, not a disk` };
+	const name = path.basename(source);
+	const partitions = readProcLines("partitions");
+	if ("why" in partitions) return partitions;
+	// `major minor #blocks name`, the blocks in KiB.
+	const row = partitions.lines
+		.map((l) => l.trim().split(/\s+/))
+		.find((f) => f[3] === name);
+	if (!row) return { why: `${name} is not in /proc/partitions` };
+	return { usedBytes, sizeBytes: Number(row[2]) * 1024 };
+}
+
+/**
+ * @param {string} rel a path under /proc
+ * @returns {{lines: string[]} | {why: string}}
+ */
+function readProcLines(rel) {
+	const r = readText(path.join(procRoot(), rel));
+	if (r.state === "read") return { lines: r.data.split("\n") };
+	return {
+		why: `/proc/${rel}: ${r.state === "absent" ? "absent" : r.message}`,
+	};
+}
+
+/**
  * When fstrim.timer last fired, null where it never has, or why it would not
  * read. TZ=UTC makes systemctl print a zone Date.parse reads, where a local
  * zone may print as an abbreviation.
@@ -133,6 +181,7 @@ module.exports = {
 	appendCompactLog,
 	readCompactLog,
 	readFreeGB,
+	readGuestDisk,
 	readKernelRelease,
 	readLastTrim,
 	readTrimFixedAt,

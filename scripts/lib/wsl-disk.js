@@ -22,6 +22,12 @@ const STALE_DAYS = 35;
  */
 const LOW_FREE_GB = 40;
 
+/*
+ * Untraced (#5430): past this share of the virtual disk, the guest is near
+ * ENOSPC, and rebuild-disk.ps1 refuses an import into a disk that size.
+ */
+const GUEST_FULL_SHARE = 0.85;
+
 /** The ticket's figure (#5044): two missed weekly fstrim.timer runs. */
 const TRIM_STALE_DAYS = 14;
 
@@ -199,14 +205,47 @@ function trimWarnings({ last, fixedAt }, now) {
 }
 
 /**
+ * The guest root's fill against its virtual disk (#5430), shown and warned.
+ * @param {{usedBytes: number, sizeBytes: number} | Failed} guest
+ * @returns {{shown: string, warnings: {tag: string, line: string}[]}}
+ */
+function guestWarnings(guest) {
+	if (isFailed(guest))
+		return {
+			shown: "",
+			warnings: [
+				{
+					tag: "GUEST-UNREAD",
+					line: `the guest disk would not read: ${guest.why}.`,
+				},
+			],
+		};
+	const gib = (/** @type {number} */ b) => (b / 2 ** 30).toFixed(1);
+	const share = guest.usedBytes / guest.sizeBytes;
+	const shown = `guest / ${gib(guest.usedBytes)} of ${gib(guest.sizeBytes)} GiB virtual (${Math.round(share * 100)}%)`;
+	if (share <= GUEST_FULL_SHARE) return { shown: `, ${shown}`, warnings: [] };
+	return {
+		shown: `, ${shown}`,
+		warnings: [
+			{
+				tag: "GUEST-FULL",
+				line: `${shown}, past ${GUEST_FULL_SHARE * 100}%. Free space in the guest, or grow the disk: from Windows, \`wsl --shutdown\`, then \`wsl --manage Ubuntu --resize <N>GB\` with N above ${Math.ceil(guest.sizeBytes / 2 ** 30)}, leaving C: room (${docPath("environment.md")} §1).`,
+			},
+		],
+	};
+}
+
+/**
  * The status check's verdict.
  * @param {{log: LogRead, now: number, freeGB: number | Failed,
+ *   guest: {usedBytes: number, sizeBytes: number} | Failed,
  *   trim: {last: number | null | Failed, fixedAt: number | null}}} input
  *   trim: fstrim.timer's, as trimWarnings takes it
  * @returns {{warnings: {tag: string, line: string}[], okLine: string}}
  */
-function judgeDisk({ log, now, freeGB, trim }) {
-	const warnings = [...trimWarnings(trim, now)];
+function judgeDisk({ log, now, freeGB, guest, trim }) {
+	const disk = guestWarnings(guest);
+	const warnings = [...trimWarnings(trim, now), ...disk.warnings];
 	const free = isFailed(freeGB)
 		? `C: free unread (${freeGB.why})`
 		: `C: free ${freeGB.toFixed(1)} GB`;
@@ -238,7 +277,7 @@ function judgeDisk({ log, now, freeGB, trim }) {
 		last === null
 			? ""
 			: `last compaction ${last.line.slice(0, 10)}${last.fields.after_gb ? ` (${last.fields.before_gb} to ${last.fields.after_gb} GB)` : ` (${last.result})`}, `;
-	return { warnings, okLine: `${shown}${free}` };
+	return { warnings, okLine: `${shown}${free}${disk.shown}` };
 }
 
 /**

@@ -11,7 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runInProcess } from "./lib/run-in-process.js";
-import { WSL_KERNEL, writeOsrelease } from "./lib/wsl-fake";
+import { WSL_KERNEL, writeGuestDisk, writeOsrelease } from "./lib/wsl-fake";
 
 const SCRIPT = path.join(__dirname, "check-wsl-disk.js");
 const NOW = "2026-12-20T12:00:00";
@@ -34,19 +34,26 @@ function run({
 	kernel = WSL_KERNEL,
 	log,
 	trim = RECENT_TRIM,
+	diskBytes = 2 ** 50,
 }: {
 	kernel?: string;
 	log?: string;
 	trim?: string;
+	diskBytes?: number;
 }) {
 	const logPath = path.join(dir, "wsl-compact.log");
 	if (log !== undefined) fs.writeFileSync(logPath, log);
+	const proc = writeOsrelease(dir, kernel);
+	writeGuestDisk(proc, diskBytes);
 	return runInProcess(SCRIPT, ["--json"], {
 		env: {
 			...process.env,
 			GITHUB_ACTIONS: "",
 			WFC_NOW: NOW,
-			WFC_PROC: writeOsrelease(dir, kernel),
+			WFC_PROC: proc,
+			// The temp dir's own filesystem stands for the guest's /: a 1 PiB
+			// disk holds it under 85%, a 1 MiB one over.
+			WFC_GUEST_ROOT: dir,
 			WFC_WSL_COMPACT_LOG:
 				log === undefined ? path.join(dir, "absent.log") : logPath,
 			// A temp dir has room: C: free never warns here.
@@ -93,5 +100,14 @@ describe("check-wsl-disk", () => {
 		expect(envelope(r).outcome).toBe("WARN");
 		expect(r.stdout).toContain("its WSL fix is not installed");
 		expect(r.stdout).toContain("sudo bash scripts/install-fstrim-wsl.sh");
+	});
+
+	it("names the guest's fill on OK, and WARNs past 85% of its virtual disk, naming the resize", () => {
+		expect(run({ log: OK }).stdout).toMatch(
+			/guest \/ [\d.]+ of 1048576\.0 GiB virtual/,
+		);
+		const r = run({ log: OK, diskBytes: 2 ** 20 });
+		expect(envelope(r).outcome).toBe("WARN");
+		expect(r.stdout).toContain("wsl --manage Ubuntu --resize <N>GB");
 	});
 });

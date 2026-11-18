@@ -79,6 +79,26 @@ export function writeOsrelease(dir: string, release: string): string {
 	return root;
 }
 
+/**
+ * A /proc tree's mountinfo and partitions, putting / on /dev/sdd of
+ * `sizeBytes`, as lib/wsl-disk-host.js's readGuestDisk reads them.
+ */
+export function writeGuestDisk(root: string, sizeBytes: number): void {
+	fs.mkdirSync(path.join(root, "self"), { recursive: true });
+	fs.writeFileSync(
+		path.join(root, "self/mountinfo"),
+		[
+			"72 1 0:30 / /usr/lib/modules rw - overlay none rw",
+			"88 72 8:48 / / rw,relatime - ext4 /dev/sdd rw,discard",
+			"",
+		].join("\n"),
+	);
+	fs.writeFileSync(
+		path.join(root, "partitions"),
+		`major minor  #blocks  name\n\n   8       32    2097156 sdc\n   8       48 ${sizeBytes / 1024} sdd\n`,
+	);
+}
+
 export const WSL_KERNEL = "6.18.33.2-microsoft-standard-WSL2";
 
 export const buildLatestAnswer = (tag: string): GhAnswer => ({
