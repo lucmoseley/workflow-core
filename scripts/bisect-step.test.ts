@@ -74,10 +74,8 @@ interface Exits {
 	node?: Record<string, number>;
 }
 
-/* The document guards' gates, in the order roadmap-digest.yml's job runs them. */
+/* The document guards' gates, in the order document-guards.yml's job runs them. */
 const DOC_CALLS = [
-	"node scripts/check-digest-version.js",
-	"node scripts/check-roadmap-valid.js --tree",
 	"node scripts/check-doc-map.js",
 	"node scripts/check-doc-map-markers.js",
 	"node scripts/check-guard-registry.js",

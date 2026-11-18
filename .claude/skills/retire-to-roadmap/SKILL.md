@@ -10,6 +10,9 @@ Closes a set of open issues by writing what each one asks onto the roadmap card
 that will fire it, so the question survives the close and is re-filed when the
 founder takes that card.
 
+**Only where the `roadmap` module is on**: without it there is no card to write
+onto, and a gated issue stays open (`rule:roadmap-gating`).
+
 **Founder-invoked only.** A session never decides on its own authority that a
 ticket should stop existing — that is the founder's call about his own backlog.
 

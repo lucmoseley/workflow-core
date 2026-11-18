@@ -22,7 +22,7 @@
  * three members are host root files or spell `manta`.
  *
  * Breaking it costs the core's portability: check-doc-map.js is the doc-map
- * gate in every adopter's .husky/pre-commit and roadmap-digest.yml, and a
+ * gate in every adopter's .husky/pre-commit and document-guards.yml, and a
  * loosened case lets a host assumption back into the engine unseen, to fail
  * first in an adopter's repo.
  */

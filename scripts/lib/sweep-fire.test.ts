@@ -106,8 +106,8 @@ describe("what it does not judge", () => {
 	it.each([
 		// Another workflow entirely: its dispatches are not sweeps and cost the
 		// sweep budget nothing.
-		"gh workflow run roadmap-digest.yml",
 		"gh workflow run document-guards.yml",
+		"gh workflow run landing-quiet.yml",
 		"gh workflow run bisect.yml",
 		"gh workflow run ci.yml --help",
 		// Reading, not firing.

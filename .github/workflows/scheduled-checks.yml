@@ -28,7 +28,7 @@ run-name: ${{ inputs.slot && format('sweep slot {0}', inputs.slot) || ' ' }}
 # WHY THE JOBS ARE `uses:` AND NOT COPIED HERE. GitHub's idle auto-disable takes
 # down a whole workflow FILE, `workflow_dispatch` included (mantahostels#909) — so the
 # schedule must not share a file with the manual escape hatch it would take with
-# it. Calling ci.yml and roadmap-digest.yml keeps one copy of each job, and both
+# it. Calling ci.yml and document-guards.yml keeps one copy of each job, and both
 # stay runnable by hand (`gh workflow run ci.yml`) even if this file is disabled.
 # BY ANY SESSION, agent included: this repo's PAT carries `Actions: Read and
 # write` (mantahostels#948, mantahostels#1069).
@@ -118,14 +118,14 @@ jobs:
   # `needs:` here would only lengthen the sweep.
   #
   # The permissions are restated here because a called workflow cannot hold MORE
-  # than its caller grants, so naming nothing would hand roadmap-digest.yml
+  # than its caller grants, so naming nothing would hand document-guards.yml
   # whatever the repository's default token carries (mantahostels#1209).
   documents:
     name: Document guards
     if: ${{ github.repository == 'lucmoseley/workflow-core' }}
     permissions:
       contents: read
-    uses: ./.github/workflows/roadmap-digest.yml
+    uses: ./.github/workflows/document-guards.yml
 
   # After the suite, a red one included, so this sweep's own shard reports are
   # among the three it judges. A file whose median is over the limit fails it,

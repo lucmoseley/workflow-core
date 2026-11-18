@@ -472,8 +472,8 @@ The stamp-queue rules mantahostels#422 set, and its open trigger:
 never because many candidates name it.** Two paths are ruled: `docs/doc-map.md`
 (mantahostels#422) and `CLAUDE.md` (mantahostels#1281).
 
-**`docs/reference-roadmap.html` is neither, as a property of the path — it is
-classified per ticket, by a reader test** (mantahostels#1074). It is **not** in the stamp
+**`docs/reference-roadmap.html`, where the `roadmap` module is on, is neither, as
+a property of the path — it is classified per ticket, by a reader test** (mantahostels#1074). It is **not** in the stamp
 list and must not be added.
 
 > **Ask what the ticket produces.** If the card text is the deliverable, the

@@ -205,7 +205,7 @@ const KEPT = new Set([
  */
 const isLeftBehind = (rel) =>
 	LEFT_BEHIND.has(rel) || (LEFT_BEHIND_CLASS.test(rel) && !KEPT.has(rel));
-/* Core docs a host holds its own copy of — init or a module writes it, or a
+/* Docs a host holds its own copy of — init or a module writes it, or a
  * path key in the host's config falls back to it — so a shipped pointer to
  * one resolves in the host's tree (#1452). */
 const HOST_OWNED_DOCS = new Set([

@@ -12,7 +12,7 @@
  * fixed one, so no test seam has to exist in the script for a test to move the
  * clock.
  *
- * It runs as a step of .github/workflows/roadmap-digest.yml on every scheduled
+ * It runs as a step of .github/workflows/document-guards.yml on every scheduled
  * sweep: loosen a case and an unapplied propagation flag can sit past its
  * month with the sweep still green.
  */

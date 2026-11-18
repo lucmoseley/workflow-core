@@ -22,7 +22,7 @@
 #   lint-and-tests  ci.yml's `Lint and tests` job — the default, and what this
 #                   script did before the set existed.
 #   python          ci.yml's `Python` job.
-#   documents       roadmap-digest.yml's `Document guards` job.
+#   documents       document-guards.yml's `Document guards` job.
 #   all             the three in that order.
 #
 # Unset or empty reads as lint-and-tests, so a direct local run behaves exactly
@@ -123,14 +123,12 @@ python_job() {
   return "$st"
 }
 
-# Gates of roadmap-digest.yml's `Document guards` job, in its order. The
+# Gates of document-guards.yml's `Document guards` job, in its order. The
 # report-only steps it carried until #1557 are gone from the job, so none of
 # them can be the red being bisected.
 documents() {
   local st=0
-  run_check "$node_bin" scripts/check-digest-version.js || st=$?
-  [[ "$st" -eq 0 ]] && { run_check "$node_bin" scripts/check-roadmap-valid.js --tree || st=$?; }
-  [[ "$st" -eq 0 ]] && { run_check "$node_bin" scripts/check-doc-map.js || st=$?; }
+  run_check "$node_bin" scripts/check-doc-map.js || st=$?
   [[ "$st" -eq 0 ]] && { run_check "$node_bin" scripts/check-doc-map-markers.js || st=$?; }
   [[ "$st" -eq 0 ]] && { run_check "$node_bin" scripts/check-guard-registry.js || st=$?; }
   return "$st"

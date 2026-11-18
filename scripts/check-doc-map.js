@@ -287,7 +287,7 @@
  *      mapped scope, so a dangling reference added under `scripts/` alone
  *      waits for the sweeps.
  *
- * WHERE IT RUNS — two places (mantahostels#390): .github/workflows/roadmap-digest.yml,
+ * WHERE IT RUNS — two places (mantahostels#390): .github/workflows/document-guards.yml,
  * on the four daily sweeps and on no push at all (mantahostels#910); and .husky/pre-commit
  * for a commit touching the mapped scope, silent on success and replaying the
  * whole report on failure.

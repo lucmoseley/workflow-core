@@ -11,7 +11,7 @@
  * pinned to this repo's own docs/ tree would go red on every doc added.
  *
  * It is a hard gate in .husky/pre-commit, which refuses a commit adding a
- * fault, and in .github/workflows/roadmap-digest.yml, so loosening a test
+ * fault, and in .github/workflows/document-guards.yml, so loosening a test
  * here loosens both: an unregistered document lands, one the update routine
  * will never consider.
  */

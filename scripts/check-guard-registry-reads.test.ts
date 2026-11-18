@@ -2,7 +2,7 @@
 /*
  * Tests for scripts/check-guard-registry.js: what a guard's digest covers, and the scan's gitignore scope.
  *
- * The checker is a hard gate in .husky/pre-commit and roadmap-digest.yml:
+ * The checker is a hard gate in .husky/pre-commit and document-guards.yml:
  * loosen a case and a rule can claim **Enforced** while its guard is missing
  * or unwired.
  *

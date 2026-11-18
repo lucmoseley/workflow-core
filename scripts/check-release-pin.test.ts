@@ -10,7 +10,7 @@
  * unpushed/uncut distinction the checker turns on is exactly what pushing a tag
  * to it does or does not create.
  *
- * It runs in `npm run status` and, with --require-remote, in roadmap-digest.yml:
+ * It runs in `npm run status` and, with --require-remote, in document-guards.yml:
  * loosen a case and adopters silently stay on an old release because the pin
  * names a tag they cannot fetch.
  */
@@ -597,7 +597,7 @@ describe("--pin-only (#4002)", () => {
 	it("adds --pin-only on a push run alone", () => {
 		const step = fs
 			.readFileSync(
-				path.resolve(__dirname, "../.github/workflows/roadmap-digest.yml"),
+				path.resolve(__dirname, "../.github/workflows/document-guards.yml"),
 				"utf8",
 			)
 			.split("\n")
@@ -657,7 +657,7 @@ describe("the sweep step's --require-remote flag", () => {
 	const read = (at: string) => fs.readFileSync(path.join(root, at), "utf8");
 
 	it("is spelled on the step that runs this checker", () => {
-		const step = read(".github/workflows/roadmap-digest.yml")
+		const step = read(".github/workflows/document-guards.yml")
 			.split("\n")
 			.filter((l) => !l.trimStart().startsWith("#"))
 			.find((l) => l.includes("check-release-pin.js"));

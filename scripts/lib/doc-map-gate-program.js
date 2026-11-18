@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * doc-map-gate-program.js — the doc map's own coverage, checked at commit as
- * well as in roadmap-digest.yml (mantahostels#390): the pre-commit dispatcher's
+ * well as in document-guards.yml (mantahostels#390): the pre-commit dispatcher's
  * doc-map row (#5172). PROGRAM wires lib/doc-map-gate-ports.js's production
  * adapters to lib/doc-map-gate.js's core (#5155).
  *
