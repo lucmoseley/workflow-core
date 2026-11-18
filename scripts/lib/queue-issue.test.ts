@@ -2,7 +2,7 @@
 /*
  * The landing queue's one open issue per condition: filed urgent and bug, a
  * label taken off put back on refresh (#2694, ruled at #2672), and a gate a
- * session wrote kept through the refresh (#3636).
+ * session wrote kept through the refresh, its basis with it (#3636, #5419).
  *
  * Loosen it and a stalled or base-red queue's issue ranks with ordinary work, or
  * loses the gate that would close it.
@@ -80,9 +80,9 @@ it("reports a failed re-add on the refresh line rather than throwing, naming gh'
 	);
 });
 
-it("keeps a gate a session wrote on the body through a refresh (#3636)", () => {
+it("keeps a gate a session wrote on the body, and its basis, through a refresh (#3636, #5419)", () => {
 	const gate =
-		"**Gated on:** b9f96e964 is on main — check: git merge-base --is-ancestor b9f96e964 origin/main && echo on — abandon if: it is reverted";
+		"**Gated on:** b9f96e964 is on main — check: git merge-base --is-ancestor b9f96e964 origin/main && echo on — abandon if: it is reverted\n**Gate basis:** the lander moves main 25–60 min after a push (#2217)";
 	const refreshed: string[] = [];
 	const file = queueIssueFiler({
 		openIssue: () => ({
@@ -105,6 +105,34 @@ it("keeps a gate a session wrote on the body through a refresh (#3636)", () => {
 	expect(refreshed[0]).toContain("new body");
 	expect(refreshed[0]).not.toContain("old body");
 	expect(refreshed[0]).toContain(gate);
+});
+
+it("keeps a gate with no basis beneath it alone, leaving a basis above it behind (#3636, #5419)", () => {
+	const gate =
+		"**Gated on:** b9f96e964 is on main — check: git merge-base --is-ancestor b9f96e964 origin/main && echo on — abandon if: it is reverted";
+	const refreshed: string[] = [];
+	const file = queueIssueFiler({
+		openIssue: () => ({
+			number: 7,
+			labels: LABELS,
+			body: `**Gate basis:** a stray basis above the gate\n\nold body\n\n${gate}\n`,
+		}),
+		similar: () => [],
+		fileIssue: () => ({ status: 0, stdout: "", stderr: "" }),
+		refresh: (_, body) => {
+			refreshed.push(body);
+			return "Refreshed #7.";
+		},
+		addLabels: () => undefined,
+		close: () => undefined,
+	});
+
+	file(ISSUE, "new body");
+
+	expect(refreshed[0]).toContain("new body");
+	expect(refreshed[0]).not.toContain("old body");
+	expect(refreshed[0]).toContain(gate);
+	expect(refreshed[0]).not.toContain("stray basis");
 });
 
 it("closes the open issue with the comment its body earns, and none where the body earns none (#3636)", () => {

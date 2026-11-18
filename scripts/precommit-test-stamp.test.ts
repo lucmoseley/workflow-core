@@ -56,7 +56,7 @@ import {
 	HOOK,
 	ROOT,
 } from "./lib/precommit-gate-testkit";
-import { copyRequireClosure } from "./lib/require-closure";
+import { copyRequireClosure, launchedScripts } from "./lib/require-closure";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -94,7 +94,12 @@ const PRECOMMIT = [
 	"",
 ].join("\n");
 
-const COPIED = [
+/**
+ * The files whose edit selects this suite, as path literals. The fixture also
+ * copies each script its hooks name by path, so a launch the hook gains runs
+ * without a row here; its row is only for its edits to select the suite (#5423).
+ */
+const LISTED = [
 	"scripts/lib/precommit-gate.sh",
 	"scripts/lib/workflow-core-config.js",
 	"scripts/lib/host-root.js",
@@ -103,13 +108,24 @@ const COPIED = [
 	"scripts/lib/test-gate.js",
 	"scripts/lib/commit-key.js",
 	"scripts/lib/isolated-worktree.js",
-	// The gate mode the hook runs the declared test in (#5274).
 	"scripts/queue-run.js",
 	// prepare-commit-msg fails closed without its dispatcher and scanner.
 	"scripts/prepare-commit-msg-dispatch.js",
+	"scripts/lib/hook-root.sh",
+	"scripts/lib/hook-bound.sh",
 	"scripts/check-commit-message-closes.js",
 	"scripts/lib/rule-text.sh",
 	"docs/agents/rules/commit-closes-keyword.txt",
+];
+
+const PREPARE_COMMIT_MSG = fs.readFileSync(
+	path.join(ROOT, ".husky/prepare-commit-msg"),
+	"utf8",
+);
+const COPIED = [
+	...LISTED,
+	...launchedScripts(PRECOMMIT),
+	...launchedScripts(PREPARE_COMMIT_MSG),
 ];
 
 const COMMIT_PATHS = path.join(ROOT, "scripts/commit-paths.js");
