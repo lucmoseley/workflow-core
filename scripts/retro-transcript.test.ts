@@ -921,6 +921,8 @@ describe("output path", () => {
 describe("output path from a linked worktree (#5424)", () => {
 	let tree: string;
 
+	/* Per case, not a template: the outer beforeEach already inits a fresh repo
+	 * per case, so templating these two git calls buys little. */
 	beforeEach(() => {
 		const git = (...args: string[]) =>
 			execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" });
@@ -939,11 +941,13 @@ describe("output path from a linked worktree (#5424)", () => {
 		git("worktree", "add", "-q", "--detach", tree);
 	});
 
-	const log = () => {
-		const file = path.join(logs, `${SID}.jsonl`);
-		writeLog(file, [KEPT[0]]);
-		return file;
-	};
+	const log = () => sessionLog([KEPT[0]]);
+	const scratch = () => `${path.join(tree, ".claude/tmp")}${path.sep}`;
+	const envs = [
+		["no CLAUDE_PROJECT_DIR", () => undefined],
+		["CLAUDE_PROJECT_DIR naming the worktree", () => tree],
+		["CLAUDE_PROJECT_DIR naming the main checkout", () => repo],
+	] as const;
 
 	/* The Bash tool sets no CLAUDE_PROJECT_DIR; a hook names the worktree. */
 	const fromTree = (args: string[], projectDir?: string) => {
@@ -956,16 +960,15 @@ describe("output path from a linked worktree (#5424)", () => {
 		return runInProcess(SCRIPT, args, { cwd: tree, env });
 	};
 
-	it.each([
-		["no CLAUDE_PROJECT_DIR", () => undefined],
-		["CLAUDE_PROJECT_DIR naming the worktree", () => tree],
-		["CLAUDE_PROJECT_DIR naming the main checkout", () => repo],
-	])("takes an --out under the worktree's .claude/tmp/ with %s", (_, dir) => {
-		const out = path.join(tree, ".claude/tmp/retro-sweep/x.txt");
-		const r = fromTree([log(), "--out", out], dir());
-		expect(r.status).toBe(0);
-		expect(fs.readFileSync(out, "utf8")).toMatch(/^L1 /);
-	});
+	it.each(envs)(
+		"takes an --out under the worktree's .claude/tmp/ with %s",
+		(_, dir) => {
+			const out = path.join(tree, ".claude/tmp/retro-sweep/x.txt");
+			const r = fromTree([log(), "--out", out], dir());
+			expect(r.status).toBe(0);
+			expect(fs.readFileSync(out, "utf8")).toMatch(/^L1 /);
+		},
+	);
 
 	it("writes its default output under the worktree's .claude/tmp/", () => {
 		const r = fromTree([log()]);
@@ -974,18 +977,17 @@ describe("output path from a linked worktree (#5424)", () => {
 		expect(r.stdout).toBe(`${out}\n1 lines\n`);
 	});
 
-	it("refuses an --out under the main checkout's .claude/tmp/, naming the worktree's", () => {
-		const out = path.join(repo, ".claude/tmp/x.txt");
-		const r = fromTree([log(), "--out", out]);
-		expect(r.status).toBe(2);
-		expect(r.stderr).toContain(
-			`refused: ${out} is outside ${path.join(tree, ".claude/tmp")}${path.sep}`,
-		);
-		expect(r.stderr).toContain(
-			`Write under ${path.join(tree, ".claude/tmp")}${path.sep}, or omit --out.`,
-		);
-		expect(fs.existsSync(out)).toBe(false);
-	});
+	it.each(envs)(
+		"refuses an --out under the main checkout's .claude/tmp/, naming the worktree's, with %s",
+		(_, dir) => {
+			const out = path.join(repo, ".claude/tmp/x.txt");
+			const r = fromTree([log(), "--out", out], dir());
+			expect(r.status).toBe(2);
+			expect(r.stderr).toContain(`refused: ${out} is outside ${scratch()}`);
+			expect(r.stderr).toContain(`Write under ${scratch()}, or omit --out.`);
+			expect(fs.existsSync(out)).toBe(false);
+		},
+	);
 
 	it("refuses a tracked file under the worktree's .claude/tmp/", () => {
 		const out = path.join(tree, ".claude/tmp/kept.txt");
@@ -995,20 +997,20 @@ describe("output path from a linked worktree (#5424)", () => {
 		const r = fromTree([log(), "--out", out]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain(`refused: ${out} is a tracked file`);
+		expect(r.stderr).toContain(`Write under ${scratch()}, or omit --out.`);
 		expect(fs.readFileSync(out, "utf8")).toBe("tracked\n");
 	});
 
+	/* Refused under either root: a guard on the symlink check, not a pin of #5424. */
 	it("refuses a symlink out of the worktree's .claude/tmp/", () => {
 		fs.mkdirSync(path.join(tree, ".claude/tmp"), { recursive: true });
 		fs.mkdirSync(path.join(tree, "docs"));
 		fs.symlinkSync(path.join(tree, "docs"), path.join(tree, ".claude/tmp/out"));
-		const r = fromTree([
-			log(),
-			"--out",
-			path.join(tree, ".claude/tmp/out/t.txt"),
-		]);
+		const out = path.join(tree, ".claude/tmp/out/t.txt");
+		const r = fromTree([log(), "--out", out]);
 		expect(r.status).toBe(2);
-		expect(r.stderr).toMatch(/is outside/);
+		expect(r.stderr).toContain(`refused: ${out} is outside ${scratch()}`);
+		expect(r.stderr).toContain(`Write under ${scratch()}, or omit --out.`);
 		expect(fs.existsSync(path.join(tree, "docs/t.txt"))).toBe(false);
 	});
 });
