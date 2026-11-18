@@ -370,9 +370,10 @@ and `put` reports success either way.
 **Then watch the scratch files until the notification lands** — this is one of
 `docs/agents/guard-registry.md` §Subagent dispatch's mandatory sites. No `ListAgents` poll, no
 foreground `sleep`, no keep-alive. Watch each file with one backgrounded
-`node scripts/watch-artefact.js <file> 120` — the 120 s a judgement, not a
-measurement. Its `STALLED` or `MISSING` is the stall
-test — a file that has not grown between two consecutive checks is presumed
+`node scripts/watch-artefact.js <file> 120 --log <output_file>`, the launch
+result's `output_file` — the 120 s a judgement, not a measurement. Its
+`STALLED` or `MISSING` is the stall test — a file that has not grown between
+two consecutive checks, its band's log showing no call in flight, is presumed
 dead (mantahostels#560): abandon it, never wait out the 600 s stream watchdog
 (mantahostels#564, the ticket that measured half a band read dying silently).
 When a band's completion notification arrives, `TaskStop` its watcher first.

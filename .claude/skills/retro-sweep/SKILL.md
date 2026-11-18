@@ -94,21 +94,18 @@ Note each dispatch's `agentId`: the agent's own log is `$A/agent-<agentId>.jsonl
 where `A=$(echo "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/projects/*/"$CLAUDE_CODE_SESSION_ID"/subagents)`
 — check `[ -d "$A" ]`: an unmatched glob or two matches leaves no one
 directory, and every log read below then fails.
-Then, per artefact, one backgrounded `node scripts/watch-artefact.js "$R/<sessionId>.md" 120`,
+Then, per artefact, one backgrounded `node scripts/watch-artefact.js "$R/<sessionId>.md" 120 --log "$A/agent-<agentId>.jsonl"`,
 and end the turn — in a background job, hold it instead (`rule:job-holds-turn`).
 
 ## 5. Stalls, cost and model
 
-A watcher's `STALLED` for an agent that has **not** reported is confirmed
-against its log first. Where the log's age in seconds,
-`$(( $(date +%s) - $(stat -c %Y "$A/agent-<agentId>.jsonl") ))`, is under
-the watcher's interval, the agent is working without appending: re-arm the
-watcher once, on the log in place of the artefact. That log watcher's
-`STALLED` is confirmed. An unconfirmable `STALLED` — an older log, or none —
-is too.
+The watcher reads the agent's log before a stall, and a call in flight there
+counts as growth (#5421): its `STALLED` is an agent that stopped. Where its
+stderr says `judging on growth alone`, the log did not read and the
+`STALLED` is growth alone: fix the `--log` path and re-arm once.
 
-A confirmed `STALLED`, or a `MISSING`: abandon that agent (`TaskStop`) and
-finish its work yourself from its artefact — every candidate it lists
+A `STALLED` for an agent that has **not** reported, or a `MISSING`: abandon
+that agent (`TaskStop`) and finish its work yourself from its artefact — every candidate it lists
 without a class gets one, by the same checks and class rules as `brief.md`
 §3; a `MISSING` artefact means the session's retro is redone here or
 dropped, said in step 7. `CEILING` is a working agent: re-arm the watcher

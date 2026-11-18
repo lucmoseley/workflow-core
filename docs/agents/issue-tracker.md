@@ -146,7 +146,7 @@ Two refusals to know: `tick` refuses a match that hits no checkbox, and an `anno
 A mandatory site of `docs/agents/guard-registry.md` §Subagent dispatch: watch the
 `.claude/tmp/research-<name>.md` the agent is already writing (§Research
 artefacts below) with a backgrounded `node scripts/watch-artefact.js <path>
-120`. Name it on an `Artefact:` line of its own and tell it to append
+120 --log <output_file>`, the `output_file` the launch result names. Name it on an `Artefact:` line of its own and tell it to append
 findings as they land. Without that line `scripts/lib/dispatch-rewrite.js`
 supplies one under `.claude/tmp/agents/`, not the scratch path the fallback
 below carries forward (#515). When the agent's completion notification
