@@ -109,6 +109,8 @@ A spec whose tickets are all *closed* is not a container either — nothing open
 
 **`scripts/report-heresy-sweep-due.js` files one `takes:implement` issue, *Heresy sweep due*, from session start in every repo**, 30 days after the last one's close, and refreshes it while it is open and due, finding it by title alone and never reconciling the label (#3464).
 
+**`scripts/report-release-due.js` files one `takes:implement` issue, *Release cut due*, from the daily repo-checks run in workflow-core alone**, once 7 days have passed since the last tag and `origin/main` holds a commit no release carries, and refreshes it while it is open, finding it by title alone and never reconciling the label (#5435).
+
 **The rest file with one fixed value each:**
 
 - `scripts/report-retro-due.js` — `takes:implement`, *Weekly retro due* (#969).

@@ -30,7 +30,6 @@ const path = require("node:path");
 const { runCheck } = require("./lib/check");
 const { caught } = require("./lib/caught.js");
 const { readCommitOrBroken } = require("./lib/commit-sha.js");
-const { execGit } = require("./lib/git.js");
 const { hostRoot } = require("./lib/host-root.js");
 const {
 	findInstallRecord,
@@ -52,28 +51,6 @@ const {
 } = require("./lib/release-lag.js");
 
 const PLUGIN = "workflow-core";
-
-/** @param {string} root @param {string[]} args */
-const git = (root, args) =>
-	execGit(args, {
-		cwd: root,
-		encoding: "utf8",
-		stdio: ["ignore", "pipe", "pipe"],
-	}).trim();
-
-/**
- * @param {string} root
- * @param {RegExp} renderedFrom
- * @returns {import("./lib/release-lag").GitPort}
- */
-const gitPort = (root, renderedFrom) => ({
-	sourceOf: (tag) =>
-		renderedFrom.exec(git(root, ["log", "-1", "--format=%B", tag]))?.[1] ??
-		null,
-	hasCommit: (sha) => readCommitOrBroken(sha, root) !== null,
-	count: (range) => Number(git(root, ["rev-list", "--count", range])),
-	time: (rev) => Number(git(root, ["log", "-1", "--format=%ct", rev])),
-});
 
 /**
  * The row's recorded version, else the manifest its `installPath` holds.
@@ -115,7 +92,10 @@ runCheck({
 		if (!isCoreHost(root))
 			ctx.skip("not workflow-core itself; an adopter cuts no release.");
 		/* Required past the check above: the release never ships it. */
-		const { RENDERED_FROM, readReleaseTags } = require("./lib/release-tags.js");
+		const {
+			readReleaseTags,
+			releaseLagPort,
+		} = require("./lib/release-tags.js");
 		const tag = readReleaseTags(root).at(-1);
 		if (!tag) ctx.skip("no release tag in this clone.");
 		const tip = readCommitOrBroken(MAIN, root);
@@ -124,7 +104,7 @@ runCheck({
 		/** @type {import("./lib/release-lag").Reading} */
 		let reading;
 		try {
-			reading = readLag(gitPort(root, RENDERED_FROM), tag, tip);
+			reading = readLag(releaseLagPort(root), tag, tip);
 		} catch (e) {
 			ctx.broken(`git could not measure ${tag}: ${caught(e).message}`);
 		}

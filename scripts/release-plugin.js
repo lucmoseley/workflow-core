@@ -93,8 +93,10 @@ const {
 	isMajorBump,
 	newestTag,
 	readLatestTag,
+	readCutTime,
 	buildReleaseMessage,
 } = require("./lib/release-tags.js");
+const { CADENCE_DAYS } = require("./lib/release-due.js");
 const { now } = require("./lib/clock.js");
 const { runVerify } = require("./lib/verify-run.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
@@ -137,7 +139,6 @@ const CLI = {
 	},
 };
 
-const CADENCE_DAYS = 7;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
@@ -440,14 +441,7 @@ function refuseIfHeld(root) {
 function cadenceOrThrow(root, reason) {
 	const last = readLatestTag(root);
 	if (last === null) return { line: "last release: none\n", early: false };
-	const cutSec = Number(
-		git(root, [
-			"for-each-ref",
-			"--format=%(creatordate:unix)",
-			`refs/tags/${last}`,
-		]),
-	);
-	const days = (now() - cutSec * 1000) / DAY_MS;
+	const days = (now() - readCutTime(root, last) * 1000) / DAY_MS;
 	const line = `last release: ${last}, ${days.toFixed(1)} days ago\n`;
 	if (days >= CADENCE_DAYS) return { line, early: false };
 	if (!reason) {

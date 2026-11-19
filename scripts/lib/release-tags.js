@@ -3,11 +3,13 @@
  * check-surface-contract.js must both read it: a major bump and a broken
  * helper surface are judged against the same prior release (#463) — and the
  * release commit's message, which release-plugin.js writes and
- * release-contains.js reads back (#797).
+ * release-contains.js reads back (#797) — and the git port
+ * lib/release-lag.js measures a release's lag through, for check-release-lag.js
+ * and report-release-due.js.
  */
 
 const { cutAt } = require("./cut-at.js");
-const { commitSha } = require("./commit-sha.js");
+const { commitSha, readCommitOrBroken } = require("./commit-sha.js");
 const { execGit, spawnGitSync } = require("./git.js");
 
 /** A release tag as release-plugin.js cuts one. */
@@ -108,6 +110,44 @@ function readTagCarry(root, tag, sha) {
 	throw new Error(`git merge-base failed on ${tag}'s source ${source}`);
 }
 
+/** @param {string} root @param {string[]} args */
+const gitOut = (root, args) =>
+	String(
+		execGit(args, {
+			cwd: root,
+			encoding: "utf8",
+			stdio: ["ignore", "pipe", "pipe"],
+		}),
+	).trim();
+
+/**
+ * When `tag` was cut: its tagger date, in epoch seconds.
+ * @param {string} root
+ * @param {string} tag
+ * @returns {number}
+ */
+const readCutTime = (root, tag) =>
+	Number(
+		gitOut(root, [
+			"for-each-ref",
+			"--format=%(creatordate:unix)",
+			`refs/tags/${tag}`,
+		]),
+	);
+
+/**
+ * @param {string} root
+ * @returns {import("./release-lag").GitPort}
+ */
+const releaseLagPort = (root) => ({
+	sourceOf: (tag) =>
+		RENDERED_FROM.exec(gitOut(root, ["log", "-1", "--format=%B", tag]))?.[1] ??
+		null,
+	hasCommit: (sha) => readCommitOrBroken(sha, root) !== null,
+	count: (range) => Number(gitOut(root, ["rev-list", "--count", range])),
+	time: (rev) => Number(gitOut(root, ["log", "-1", "--format=%ct", rev])),
+});
+
 module.exports = {
 	RENDERED_FROM,
 	readTagCarry,
@@ -117,4 +157,6 @@ module.exports = {
 	newestTag,
 	buildReleaseMessage,
 	readReleaseTags,
+	readCutTime,
+	releaseLagPort,
 };

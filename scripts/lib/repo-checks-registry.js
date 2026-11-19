@@ -182,6 +182,13 @@ const REPO_CHECKS = [
 		kind: "reporter",
 		gate: { core: true },
 	},
+	/* Core-only: workflow-core alone cuts a release (#5435). */
+	{
+		id: "release-due",
+		script: "report-release-due.js",
+		kind: "reporter",
+		gate: { core: true },
+	},
 	/* Here rather than in the sweep: the sweep runs on the public code repo,
 	 * whose token cannot reach the private tracker (#1963). Where the shipped
 	 * CI workflow is tracked, the reporter reads its runs (#5383). */
