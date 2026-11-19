@@ -26,6 +26,9 @@ param(
 	[string]$MustHold = 'home/lucmo/workflow-core/.git/HEAD',
 	# #5428's ruling. A GB figure, not TB (microsoft/WSL#11535).
 	[int]$CapGB = 224,
+	# Untraced: a healthy archive grows every few seconds; one on a frozen VM
+	# never resumed (#5430).
+	[int]$StallMinutes = 3,
 	[switch]$Rehearsal
 )
 $ErrorActionPreference = 'Continue'
@@ -92,10 +95,19 @@ function Finish($code) {
 	exit $code
 }
 function Keep($why) { L "STOPPED, archive and old disk kept: $why. Before a re-run, look at $tar and delete it."; Finish 3 }
+# wsl --shutdown, waited on for at most 2 minutes: a frozen VM can hold it
+# for ever. True where it finished and exited 0.
+function Shutdown {
+	$s = Start-Process wsl.exe -ArgumentList '--shutdown' -PassThru -WindowStyle Hidden
+	$null = $s.Handle
+	if (-not $s.WaitForExit(120000)) { L 'wsl --shutdown did not finish in 2 minutes; restart Windows before a re-run'; return $false }
+	if ($s.ExitCode -ne 0) { L "wsl --shutdown exited $($s.ExitCode)"; return $false }
+	return $true
+}
 function Abort($why) {
 	L "ABORT: $why"
 	# Killing cmd.exe leaves wsl.exe, tar and zstd running.
-	if ($Rehearsal) { wsl.exe --terminate $From } else { wsl.exe --shutdown }
+	if ($Rehearsal) { wsl.exe --terminate $From } else { $null = Shutdown }
 	Start-Sleep 5
 	if (Test-Path $tar) { Remove-Item $tar -Force }
 	Finish 1
@@ -176,17 +188,23 @@ if (-not $Rehearsal) {
 		if ((Get-ScheduledTask -TaskName $task).State -ne 'Disabled') { L 'the watchdog task would not disable; nothing was changed'; Finish 1 }
 		$weDisabled = $true
 	}
-	wsl.exe --shutdown; Start-Sleep 10
-	# Boot again with launches paused: no session runs while the archive is made.
+	if (-not (Shutdown)) { Abort 'wsl --shutdown failed before the archive' }
+	Start-Sleep 10
+	# Boot again with launches paused. A boot that fails, as one did with
+	# ERROR_TIMEOUT on a VM that then froze (#5430), stops the run.
 	wsl.exe -d $From --exec /bin/true
+	if ($LASTEXITCODE -ne 0) { Abort "booting $From exited $LASTEXITCODE" }
 }
 
 L "archiving $Source from $From"
 $p = Start-Process cmd.exe -ArgumentList '/c', "wsl.exe -d $From -u $User -- bash $(& $guest $maker) $Source $(& $guest $tar) > `"$tar`"" -WorkingDirectory $Dir -PassThru -WindowStyle Hidden
 $null = $p.Handle
-$checked = $false; $tick = 0
+$checked = $false; $tick = 0; $grewAt = Get-Date; $last = -1
 while (-not $p.HasExited) {
 	Start-Sleep 15; $tick++
+	$len = if (Test-Path $tar) { (Get-Item $tar).Length } else { 0 }
+	if ($len -gt $last) { $last = $len; $grewAt = Get-Date }
+	elseif (((Get-Date) - $grewAt).TotalMinutes -ge $StallMinutes) { $p.Kill(); Abort "the archive has not grown in $StallMinutes minutes, at $([math]::Round($last / 1GB, 1)) GB" }
 	if (-not $checked -and (Test-Path $tar) -and (Get-Item $tar).Length -gt 1MB) {
 		if (-not (Magic $tar)) { $p.Kill(); Abort 'the archive is not zstd' }
 		$checked = $true; L 'archive is zstd'
@@ -201,7 +219,10 @@ if (-not (Test-Path $tar)) { Abort 'archiving wrote no archive' }
 if (-not (Magic $tar)) { Keep 'the archive is not zstd' }
 L "archived, $(SizeGB $tar) GB ($st)"
 
-if (-not $Rehearsal) { wsl.exe --shutdown; Start-Sleep 5 }
+if (-not $Rehearsal) {
+	if (-not (Shutdown)) { Keep 'wsl --shutdown failed after the archive was made' }
+	Start-Sleep 5
+}
 L 'verifying: reading the whole archive back'
 # Windows tar cannot name a file holding a tab or newline, which some test
 # scratch does: it skips that name, exits 1, and has still read the stream to
@@ -221,7 +242,7 @@ Remove-Item $list, $errs
 # VS Code or Explorer can boot the distro during the verify; its writes would
 # be missing from the archive.
 if (-not $Rehearsal -and ((wsl.exe -l --running -q) -replace "`0", '' | Where-Object { $_.Trim() -eq $Distro })) {
-	wsl.exe --shutdown; Keep "something started $Distro after the archive was made"
+	$null = Shutdown; Keep "something started $Distro after the archive was made"
 }
 L "unregistering $Distro"
 wsl.exe --unregister $Distro
