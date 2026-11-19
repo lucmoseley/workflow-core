@@ -2913,7 +2913,7 @@ describe("the Goal section", () => {
 			});
 		});
 
-		it("closes on a blank Enter, setting nothing", async () => {
+		it("closes on a blank Enter with no goal, setting nothing", async () => {
 			const { panel, presses } = await goalPanel(RUNNING);
 			await panel.click(fieldRow(panel));
 			await panel.pressKey({ text: "   " });
@@ -2921,6 +2921,17 @@ describe("the Goal section", () => {
 			expect(panel.view.goalEdit).toBeNull();
 			expect(panel.view.presses.goal.pending).toBeNull();
 			expect(presses()).toEqual([]);
+		});
+
+		it("clears the goal on a blank Enter", async () => {
+			const { panel, presses } = await goalPanel(WithGoal);
+			await panel.click(fieldRow(panel));
+			for (const _ of panel.view.goalEdit?.text ?? "")
+				await panel.pressKey({ name: "backspace" });
+			expect(panel.view.goalEdit?.text).toBe("");
+			await panel.pressKey(Enter);
+			expect(panel.view.goalEdit).toBeNull();
+			expect(presses()).toEqual([["set", "--clear-goal", "--json"]]);
 		});
 
 		it("shows the new goal once a read shows it", async () => {
