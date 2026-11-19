@@ -1501,29 +1501,28 @@ function createPanel({
 	async function pressGoalSwitch(closedEdit) {
 		if (view.presses.goal.pending) return;
 		if (view.goalResolve) cancelResolve();
-		else if (view.status?.goal)
-			await runLoopPress(
-				{ argv: ["set", "--clear-goal"], on: false },
-				view.presses.goal,
-			);
+		else if (view.status?.goal) await clearGoal();
 		else if (!closedEdit) beginGoalEdit();
+	}
+
+	async function clearGoal() {
+		await runLoopPress(
+			{ argv: ["set", "--clear-goal"], on: false },
+			view.presses.goal,
+		);
 	}
 
 	/**
 	 * A fixed form goes to `--goal` as one argument, however it is typed; anything
 	 * else is a topic, stored only on the confirm press (#3596 stories 62, 65). A
-	 * blank field clears the goal, as the switch does.
+	 * blank field clears the goal, as the switch does (story 53).
 	 * @param {GoalEdit} edit
 	 */
 	async function saveGoal({ text }) {
 		view.goalEdit = null;
 		const typed = text.trim();
 		if (typed === "") {
-			if (view.status?.goal)
-				await runLoopPress(
-					{ argv: ["set", "--clear-goal"], on: false },
-					view.presses.goal,
-				);
+			if (view.status?.goal) await clearGoal();
 			else onChange();
 			return;
 		}
