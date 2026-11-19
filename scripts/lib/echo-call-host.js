@@ -9,7 +9,7 @@
 const recorder = require("./echo-record-host.js");
 
 /**
- * @param {{ root: string, log: (what: string) => void }} env
+ * @param {import("./core-contract.js").HostEnv} env
  */
 function buildHostPorts(env) {
 	return {

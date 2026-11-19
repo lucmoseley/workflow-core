@@ -3,12 +3,11 @@
  * lib/guard-judge.js builds every lib/guard-cores.json row's host as
  * `buildHostPorts({ root, log })`. The table below holds each row's builder
  * to core-contract.js's HostBuilder, so `npm run typecheck` refuses one whose
- * first parameter drifts from that env: #5425's host took the root as its
- * scripts directory, and both shell-guard cores failed closed (#5429). The
- * table is type-only, loading no host; the case below keeps it to the rows.
+ * first parameter drifts from that env (#5429). The table is type-only,
+ * loading no host.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it } from "vitest";
 
 import type { HostBuilder } from "./core-contract.js";
 import { readManifestRows } from "./guard-cores.js";
@@ -108,5 +107,11 @@ describe("the typed host table", () => {
 	it("names every host a guard-cores.json row builds, and no other", () => {
 		const hosts = readManifestRows().flatMap((row) => row.host ?? []);
 		expect(Object.keys(HOSTS).sort()).toEqual([...new Set(hosts)].sort());
+	});
+
+	/* #5425's drift: a builder reading its first parameter as a path. Were
+	 * HostBuilder loosened until this fits, the table would hold nothing. */
+	it("refuses a builder whose first parameter is a string", () => {
+		expectTypeOf<(scripts?: string) => object>().not.toExtend<HostBuilder>();
 	});
 });

@@ -263,9 +263,9 @@ function runCore(core, { payload, root, adapters, logFor }, tree) {
 	/** @type {{ ctx: CoreContext, isRepoFault: (e: unknown) => boolean } | undefined} */
 	let watched;
 	try {
-		const own = core.host
-			? require(corePath(core.host)).buildHostPorts({ root, log })
-			: {};
+		/** @type {import("./core-contract.js").HostBuilder | undefined} */
+		const build = core.host && require(corePath(core.host)).buildHostPorts;
+		const own = build ? build({ root, log }) : {};
 		const session =
 			typeof payload.session_id === "string" ? payload.session_id : "";
 		/** @type {CoreContext} */
