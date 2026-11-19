@@ -12,7 +12,7 @@
  * module under scripts/lib that holds its `field`, `noun`, `decide` and any
  * `top` (the shape lib/guard-entry.js's `run` takes), the tools it judges as a matcher
  * regex, its failure policy, the module that gates it, if any, the module
- * whose `buildHostPorts(root, log)` builds the ports of its own, if any, built only
+ * whose `buildHostPorts({ root, log })` builds the ports of its own, if any, built only
  * where the core runs, and any `if` clauses narrowing the Bash commands it
  * judges, so a call none admits never loads its module (#3224).
  *

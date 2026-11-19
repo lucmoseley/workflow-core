@@ -55,10 +55,10 @@ const gitInTime = (dir, command, args) => {
 };
 
 /**
- * @param {string} root
+ * @param {{ root: string }} env
  * @returns {import("./review-tier.js").TierPorts}
  */
-function buildHostPorts(root) {
+function buildHostPorts({ root }) {
 	return {
 		commonDir: (dir) => gitCommonDir(dir, { timeout: HOOK_GIT_TIMEOUT_MS }),
 		staged: (tree) => lines(tree, ["diff", "--cached", "--name-only"]),

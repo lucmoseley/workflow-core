@@ -11,10 +11,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkScratchDir } from "./git-fixture";
 
 const { buildHostPorts } = require("./push-rules-host.js") as {
-	buildHostPorts: (
-		root: string,
-		log: (what: string, detail?: string) => void,
-	) => {
+	buildHostPorts: (env: {
+		root: string;
+		log: (what: string, detail?: string) => void;
+	}) => {
 		markerSum: (session: string) => string;
 		deploysVercel: () => boolean;
 	};
@@ -32,7 +32,7 @@ afterEach(() => {
 	fs.rmSync(root, { recursive: true, force: true });
 });
 
-const ports = () => buildHostPorts(root, () => undefined);
+const ports = () => buildHostPorts({ root, log: () => undefined });
 
 const write = (rel: string, body: string) => {
 	fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });

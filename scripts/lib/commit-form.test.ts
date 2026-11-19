@@ -67,7 +67,7 @@ const { decide } = req("./commit-form.js") as {
 	decide: (command: string, ctx: object) => Decision;
 };
 const { buildHostPorts } = req("./commit-form-host.js") as {
-	buildHostPorts: (root: string) => object;
+	buildHostPorts: (env: { root: string }) => object;
 };
 const { kitContext, sharedReaders } = req("./kit-context.js") as {
 	kitContext: (
@@ -135,7 +135,7 @@ const judge = (
 			...kitContext({ root, payload, log }, sharedReaders(root, log)),
 			/* The hook's own directory, which kitContext reads off the process. */
 			fallbackCwd: cwd,
-			...buildHostPorts(root),
+			...buildHostPorts({ root }),
 		});
 	} finally {
 		for (const [k, v] of saved) vi.stubEnv(k, v);
@@ -1518,7 +1518,7 @@ describe("the §Gotchas rules are scoped by what the commit names (mantahostels#
 		vi.stubEnv("CLAUDE_PROJECT_DIR", declared);
 		vi.stubEnv("WFC_RULES_DIR", undefined);
 		try {
-			const ports = buildHostPorts(root) as {
+			const ports = buildHostPorts({ root }) as {
 				closingRefusal: (match: string) => string;
 			};
 			expect(ports.closingRefusal("Closes #1")).toContain("own rule");

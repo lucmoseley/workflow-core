@@ -889,7 +889,9 @@ describe("the cases a mutant must not survive (#2792)", () => {
 				"PostToolUse",
 				Date.now() - process.uptime() * 1000 - 7500,
 			);
-			const ports = require("./review-tier-host.js").buildHostPorts(sb.repo);
+			const ports = require("./review-tier-host.js").buildHostPorts({
+				root: sb.repo,
+			});
 			expect(() => ports.sessionBase(ME, sb.repo)).toThrow(
 				"git merge-base overran its timeout",
 			);
@@ -926,7 +928,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		};
 		const portAt = (tree: string) =>
 			require("./review-tier-host.js")
-				.buildHostPorts(tree)
+				.buildHostPorts({ root: tree })
 				.declaredAt(tree, "HEAD");
 
 		it("reads an unborn HEAD as declaring nothing", () => {
@@ -1212,7 +1214,7 @@ rm -f "$mine"`,
 	const nodeTwin = (paths: string[]) => {
 		declare(paths.map((p) => ({ name: p, description: "d", globs: [p] })));
 		const { buildHostPorts } = require("./review-tier-host.js") as {
-			buildHostPorts: (root: string) => {
+			buildHostPorts: (env: { root: string }) => {
 				sessionBase: (sid: string, tree: string) => string;
 			};
 		};
@@ -1220,7 +1222,10 @@ rm -f "$mine"`,
 		const billed = [...text.matchAll(/^- `([^`]+)` \(/gm)]
 			.map((m) => m[1] as string)
 			.sort();
-		return { base: buildHostPorts(sb.repo).sessionBase(ME, sb.repo), billed };
+		return {
+			base: buildHostPorts({ root: sb.repo }).sessionBase(ME, sb.repo),
+			billed,
+		};
 	};
 
 	/*

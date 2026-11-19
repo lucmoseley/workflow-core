@@ -59,7 +59,7 @@ const judge = (payload: Payload, over: Partial<EchoContext> = {}) =>
 				{ moduleOn: () => false, treeClass: fakeTreeClassifier({}) },
 			),
 			corePaths: resolveScriptPaths,
-			...buildHostPorts(dir, (what) => logs.push(what)),
+			...buildHostPorts({ root: dir, log: (what) => logs.push(what) }),
 			...over,
 		}),
 	);

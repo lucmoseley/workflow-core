@@ -38,12 +38,11 @@ function fileStateOf(st) {
 }
 
 /**
- * @param {string} _root
- * @param {(what: string) => void} log
+ * @param {{ log: (what: string) => void }} env
  * @returns {import("./echo-record.js").EchoPorts & {
  *   readChain: (name: string) => string | null }}
  */
-function buildHostPorts(_root, log) {
+function buildHostPorts({ log }) {
 	const dir = scratchDir(process.env, "echo-chain");
 	return {
 		fileState: (file) => {

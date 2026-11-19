@@ -29,10 +29,10 @@ const read = (dir, args) =>
 	);
 
 /**
- * @param {string} root
+ * @param {{ root: string }} env
  * @returns {import("./pull-form.js").PullFormPorts}
  */
-const buildHostPorts = (root) => ({
+const buildHostPorts = ({ root }) => ({
 	pullFf: (dir) => read(dir, ["config", "--get", "pull.ff"]),
 	currentBranch: (dir) =>
 		read(dir, ["symbolic-ref", "--quiet", "--short", "HEAD"]),

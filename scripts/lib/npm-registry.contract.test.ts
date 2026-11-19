@@ -39,7 +39,7 @@ const { decide } = require("./npm-install.js") as {
 	decide: (command: string, ctx: object) => { deny: string } | null;
 };
 const { buildHostPorts } = require("./npm-install-host.js") as {
-	buildHostPorts: (root: string) => {
+	buildHostPorts: (env: { root: string }) => {
 		npmView: (pkg: string) => Call;
 		downloads: (pkg: string) => Call;
 	};
@@ -167,14 +167,14 @@ const realAnswer = (port: Port, c: (typeof CASES)[number]) => {
 		vi.stubEnv("WFC_NPM", path.join(dir, "no-such-npm"));
 		vi.stubEnv("WFC_CURL", path.join(dir, "no-such-curl"));
 	}
-	return buildHostPorts(dir)[port](c.pkg);
+	return buildHostPorts({ root: dir })[port](c.pkg);
 };
 
 const stubAnswer = (port: Port, c: (typeof CASES)[number]) => {
 	for (const [k, v] of Object.entries(writeRegistryStubs(dir)(c.reg)))
 		vi.stubEnv(k, v);
 	vi.stubEnv("STUB_CALLS", path.join(dir, "calls.log"));
-	return buildHostPorts(dir)[port](c.pkg);
+	return buildHostPorts({ root: dir })[port](c.pkg);
 };
 
 const fakeAnswer = (port: Port, c: (typeof CASES)[number]) =>

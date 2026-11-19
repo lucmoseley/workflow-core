@@ -5,11 +5,10 @@
  */
 
 /**
- * @param {string} root
- * @param {(what: string, detail?: string) => void} log
+ * @param {import("./core-contract.js").HostEnv} env
  * @returns {import("./suite-background.js").BackgroundPorts}
  */
-function buildHostPorts(root, log) {
+function buildHostPorts({ root, log }) {
 	/** @type {string[] | undefined} */
 	let runners;
 	return {

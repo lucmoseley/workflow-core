@@ -74,10 +74,9 @@ function takeRed(root, sid, log) {
 }
 
 /**
- * @param {string} root
- * @param {(what: string) => void} log
+ * @param {import("./core-contract.js").HostEnv} env
  */
-function buildHostPorts(root, log) {
+function buildHostPorts({ root, log }) {
 	return { takeRed: (/** @type {string} */ sid) => takeRed(root, sid, log) };
 }
 

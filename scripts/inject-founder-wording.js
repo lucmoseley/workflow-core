@@ -26,5 +26,5 @@ run({
 	top: true,
 	name: "inject-founder-wording",
 	decide: decidePrompt,
-	ports: ({ root }) => buildHostPorts(root),
+	ports: ({ root }) => buildHostPorts({ root }),
 });

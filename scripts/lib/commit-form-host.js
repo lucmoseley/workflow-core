@@ -39,10 +39,10 @@ const LS_MODE = {
 };
 
 /**
- * @param {string} root
+ * @param {{ root: string }} env
  * @returns {import("./commit-form.js").CommitFormPorts}
  */
-function buildHostPorts(root) {
+function buildHostPorts({ root }) {
 	return {
 		root,
 		midSequence: (dir) => {

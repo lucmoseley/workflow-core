@@ -515,12 +515,8 @@ describe("the host runs the arbiter as its own process, bounded", () => {
 		return at;
 	};
 	const hostRun = (payload: Record<string, unknown>, arbiter?: string) => {
-		const logs: string[] = [];
 		const { arbiterCheck } = buildHostPorts(
-			sb.repo,
-			(w) => {
-				logs.push(w);
-			},
+			{ root: sb.repo },
 			arbiter ? { arbiter } : {},
 		);
 		return run(payload, { arbiterCheck });
