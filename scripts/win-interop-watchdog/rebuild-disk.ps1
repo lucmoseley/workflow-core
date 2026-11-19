@@ -109,7 +109,7 @@ function Finish($code) {
 }
 function Keep($why) { L "STOPPED, archive and old disk kept: $why. Before a re-run, look at $tar and delete it."; Finish 3 }
 # Untraced: a healthy wsl --shutdown takes seconds; a frozen VM can hold it
-# for ever. StopWsl is true where it finished and exited 0.
+# for ever.
 $shutdownWaitSec = 120
 function StopWsl {
 	$s = Start-Process wsl.exe -ArgumentList '--shutdown' -PassThru -WindowStyle Hidden
@@ -119,7 +119,7 @@ function StopWsl {
 	return $true
 }
 # The distro's state from wsl -l -v (Running, Stopped, ...), or $null where
-# it would not read.
+# that would not read or does not list it.
 function DistroState($name) {
 	$rows = wsl.exe -l -v
 	if ($LASTEXITCODE -ne 0) { return $null }
@@ -218,8 +218,7 @@ if (-not $Rehearsal) {
 	}
 	if (-not (StopWsl)) { Abort 'wsl --shutdown failed before the archive' }
 	Start-Sleep 10
-	# Boot again with launches paused. A boot that fails, as one did with
-	# ERROR_TIMEOUT on a VM that then froze (#5430), stops the run.
+	# Boot again with launches paused: no session runs while the archive is made.
 	wsl.exe -d $From --exec /bin/true
 	if ($LASTEXITCODE -ne 0) { Abort "booting $From exited $LASTEXITCODE" }
 }
@@ -271,7 +270,7 @@ Remove-Item $list, $errs
 # be missing from the archive.
 if (-not $Rehearsal) {
 	$state = DistroState $Distro
-	if ($null -eq $state) { Keep "wsl -l -v would not read $Distro's state" }
+	if ($null -eq $state) { Keep "wsl -l -v gave no state for $Distro" }
 	if ($state -ne 'Stopped') { $null = StopWsl; Keep "something started $Distro after the archive was made" }
 }
 L "unregistering $Distro"
