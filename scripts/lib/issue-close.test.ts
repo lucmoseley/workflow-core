@@ -55,7 +55,7 @@ const { decide } = require("./issue-close.js") as {
 	decide: (command: string, ctx: object) => Decision;
 };
 const { buildHostPorts } = require("./issue-close-host.js") as {
-	buildHostPorts: (root: string) => Record<string, unknown> & {
+	buildHostPorts: (env: { root: string }) => Record<string, unknown> & {
 		census: (n: number, ms: number, tree: string) => unknown;
 		landing: (
 			n: number,
@@ -164,7 +164,7 @@ const ghPort = (setup: Gh) => (args: string[]) => {
 	return ghFake(answering(JSON.stringify(payload)))(args);
 };
 
-const host = () => buildHostPorts(shared);
+const host = () => buildHostPorts({ root: shared });
 
 const run = (
 	command: string,

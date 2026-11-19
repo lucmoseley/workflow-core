@@ -86,7 +86,7 @@ describe("the signature", () => {
 
 describe("the file state", () => {
 	const fileState = (p: string, logs: string[] = []) =>
-		host.buildHostPorts(dir, (w) => logs.push(w)).fileState(p);
+		host.buildHostPorts({ log: (w) => logs.push(w) }).fileState(p);
 
 	it("states a file through a symlink, alike", () => {
 		const file = path.join(dir, "f.txt");
@@ -257,7 +257,7 @@ describe("the recorder core, read back by the reader", () => {
 		const sig = chain.callSignature(
 			tool,
 			input,
-			host.buildHostPorts(dir, (w) => logs.push(w)).fileState,
+			host.buildHostPorts({ log: (w) => logs.push(w) }).fileState,
 		);
 		return chain.lookup(text, sig, Math.floor(Date.now() / 1000));
 	};

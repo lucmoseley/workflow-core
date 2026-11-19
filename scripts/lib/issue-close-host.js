@@ -11,10 +11,10 @@ const { budgetMs } = require("./hook-deadline.js");
 const { resolveKey } = require("./workflow-core-config.js");
 
 /**
- * @param {string} root
+ * @param {{ root: string }} env
  * @returns {import("./issue-close.js").ClosePorts}
  */
-const buildHostPorts = (root) => ({
+const buildHostPorts = ({ root }) => ({
 	gh: (args, timeoutMs) => require("./gh.js").gh(args, { timeout: timeoutMs }),
 	now: Date.now,
 	tracker: () => {

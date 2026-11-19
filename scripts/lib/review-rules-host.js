@@ -15,8 +15,8 @@ const scriptPath = require("./script-path.js");
  *   missingBase: { what: string, detail: string } | null }} ReviewStandards
  */
 
-/** @param {string} root the host root */
-function buildHostPorts(root) {
+/** @param {{ root: string }} env `root` is the host root */
+function buildHostPorts({ root }) {
 	return {
 		/* coreRoot() names this install wherever WFC_SCRIPT_ROOT is unset, the
 		 * one case the core reads this port in. */

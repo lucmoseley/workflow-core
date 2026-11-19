@@ -11,11 +11,10 @@ const { reviewOwed } = require("./push-review.js");
 const { readConfig } = require("./workflow-core-config.js");
 
 /**
- * @param {string} root
- * @param {(what: string, detail?: string) => void} log
+ * @param {import("./core-contract.js").HostEnv} env
  * @returns {import("./push-rules.js").PushPorts}
  */
-function buildHostPorts(root, log) {
+function buildHostPorts({ root, log }) {
 	return {
 		reviewOwed: (tree, sessionId) => reviewOwed({ sessionId, tree, log }),
 		markerSum: (sessionId) => {

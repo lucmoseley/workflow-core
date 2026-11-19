@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { initGitRepo, mkScratchDir } from "./git-fixture";
 
 const { buildHostPorts } = require("./pull-form-host.js") as {
-	buildHostPorts: (root: string) => {
+	buildHostPorts: (env: { root: string }) => {
 		pullFf: (dir: string) => string;
 		currentBranch: (dir: string) => string;
 		isCommit: (dir: string, word: string) => boolean;
@@ -39,7 +39,7 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-const ports = () => buildHostPorts(repo);
+const ports = () => buildHostPorts({ root: repo });
 
 describe("the git reads", () => {
 	it("reads pull.ff, and answers empty where it is unset or git cannot answer", () => {

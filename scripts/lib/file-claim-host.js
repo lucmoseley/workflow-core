@@ -23,13 +23,12 @@ const ARBITER = path.join(__dirname, "..", "session-arbiter.js");
 const ARBITER_TIMEOUT_MS = 5000;
 
 /**
- * @param {string} _root
- * @param {(what: string) => void} _log
+ * @param {unknown} _env
  * @param {{ arbiter?: string }} [opts] `arbiter` stands a script in for the
  *   real one, so a case can make it hang or exit non-zero
  * @returns {{ arbiterCheck: (args: string[], cwd: string) => import("./file-claim.js").ArbiterAnswer }}
  */
-function buildHostPorts(_root, _log, { arbiter = ARBITER } = {}) {
+function buildHostPorts(_env, { arbiter = ARBITER } = {}) {
 	return {
 		arbiterCheck: (args, cwd) => {
 			let r;
