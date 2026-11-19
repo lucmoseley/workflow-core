@@ -6,8 +6,8 @@
  * the non-npm tool probe (#5).
  *
  * Rendering only — every function takes its inputs and returns text or
- * data; the one filesystem read is the plugin root's real path, which the
- * rules files spell (#5433). scripts/lib/core-owned-files.js and
+ * data, reading nothing but its templates and the plugin root's real path
+ * (#5433). scripts/lib/core-owned-files.js and
  * scripts/init-adopter.js do the writing, the `gh` calls and the probing, so
  * each piece here is testable without a repository.
  *

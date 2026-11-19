@@ -1,7 +1,4 @@
-/*
- * real-path.js — a path with its symlinks resolved, or null where it is not
- * there to resolve.
- */
+/* real-path.js — a path with its symlinks resolved (#5433). */
 
 const fs = require("node:fs");
 
