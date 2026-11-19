@@ -26,6 +26,9 @@ param(
 	[string]$MustHold = 'home/lucmo/workflow-core/.git/HEAD',
 	# #5428's ruling. A GB figure, not TB (microsoft/WSL#11535).
 	[int]$CapGB = 224,
+	# Untraced: a healthy archive grows every few seconds; one on a frozen VM
+	# never resumed (#5430).
+	[int]$StallMinutes = 3,
 	[switch]$Rehearsal
 )
 $ErrorActionPreference = 'Continue'
@@ -57,7 +60,14 @@ $null = [Wfc.Native]::SetThreadExecutionState([uint32]2147483649)
 
 function L($m) { $line = "$(Get-Date -Format s) $m"; Add-Content -Path $log -Value $line; Write-Host $line }
 function FreeGB { [math]::Round((Get-PSDrive C).Free / 1GB, 1) }
-function SizeGB($p) { [math]::Round((Get-Item $p).Length / 1GB, 1) }
+function GB($bytes) { [math]::Round($bytes / 1GB, 1) }
+function SizeGB($p) { GB (Get-Item $p).Length }
+# The length a writer has reached; the directory entry Get-Item reads can lag
+# an open file's.
+function LiveLength($p) {
+	try { $f = [IO.File]::Open($p, 'Open', 'Read', 'ReadWrite, Delete'); try { $f.Length } finally { $f.Close() } }
+	catch { 0 }
+}
 # node comes from nvm, which a shell Windows starts never loads on its own.
 function Loop($flag) {
 	wsl.exe -d $From -u lucmo -- bash -c ". ~/.nvm/nvm.sh && cd $repo && node scripts/refill-loop.js set $flag" | Out-Null
@@ -65,6 +75,7 @@ function Loop($flag) {
 }
 function LoopPaused {
 	$s = wsl.exe -d $From -u lucmo -- bash -c ". ~/.nvm/nvm.sh && cd $repo && node scripts/refill-loop.js status"
+	if ($LASTEXITCODE -ne 0) { L "refill loop status exited $LASTEXITCODE; nothing was changed"; Finish 1 }
 	return [bool]($s -match '^paused ')
 }
 # Only a pause this run made is lifted at the end; a founder's pause stands.
@@ -74,6 +85,8 @@ $admin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 $added = @()
 # The watchdog is re-enabled only where this run disabled it.
 $weDisabled = $false
+# Set once wsl --shutdown hangs: every later wsl.exe call would hang with it.
+$wslStuck = $false
 
 # 0 rebuilt; 1 stopped before the archive finished, old disk intact;
 # 2 import failed, archive kept; 3 a check failed, archive and old disk kept.
@@ -82,8 +95,11 @@ function Finish($code) {
 	if (-not $Rehearsal) {
 		if ($code -ne 2) {
 			if ($weDisabled) { Enable-ScheduledTask -TaskName $task | Out-Null }
-			wsl.exe -d $Distro --exec /bin/true
-			if ($wePaused) { $null = Loop '--resume' }
+			if ($wslStuck) { if ($wePaused) { L 'WSL is stuck: after restarting Windows, run node scripts/refill-loop.js set --resume' } }
+			else {
+				wsl.exe -d $Distro --exec /bin/true
+				if ($wePaused) { $null = Loop '--resume' }
+			}
 		}
 		else { L "the watchdog stays disabled until the import is done; then: Enable-ScheduledTask -TaskName '$task'" }
 	}
@@ -92,12 +108,36 @@ function Finish($code) {
 	exit $code
 }
 function Keep($why) { L "STOPPED, archive and old disk kept: $why. Before a re-run, look at $tar and delete it."; Finish 3 }
+# Untraced: a healthy wsl --shutdown takes seconds; a frozen VM can hold it
+# for ever.
+$shutdownWaitSec = 120
+function StopWsl {
+	$s = Start-Process wsl.exe -ArgumentList '--shutdown' -PassThru -WindowStyle Hidden
+	$null = $s.Handle
+	if (-not $s.WaitForExit($shutdownWaitSec * 1000)) { $script:wslStuck = $true; L "wsl --shutdown did not finish in $shutdownWaitSec s; restart Windows before a re-run"; return $false }
+	if ($s.ExitCode -ne 0) { L "wsl --shutdown exited $($s.ExitCode)"; return $false }
+	return $true
+}
+# The distro's state from wsl -l -v (Running, Stopped, ...), or $null where
+# that would not read or does not list it.
+function DistroState($name) {
+	$rows = wsl.exe -l -v
+	if ($LASTEXITCODE -ne 0) { return $null }
+	foreach ($r in ($rows -replace "`0", '')) {
+		$f = ($r -replace '^\*', '').Trim() -split '\s+'
+		if ($f[0] -eq $name) { return $f[1] }
+	}
+	return $null
+}
 function Abort($why) {
 	L "ABORT: $why"
 	# Killing cmd.exe leaves wsl.exe, tar and zstd running.
-	if ($Rehearsal) { wsl.exe --terminate $From } else { wsl.exe --shutdown }
+	if ($Rehearsal) { wsl.exe --terminate $From } else { $null = StopWsl }
 	Start-Sleep 5
-	if (Test-Path $tar) { Remove-Item $tar -Force }
+	if (Test-Path $tar) {
+		Remove-Item $tar -Force -ErrorAction SilentlyContinue
+		if (Test-Path $tar) { L "$tar would not delete; delete it before a re-run" }
+	}
 	Finish 1
 }
 # Sets [wsl2] defaultVhdSize, which wsl --import obeys, the service re-reading
@@ -176,23 +216,28 @@ if (-not $Rehearsal) {
 		if ((Get-ScheduledTask -TaskName $task).State -ne 'Disabled') { L 'the watchdog task would not disable; nothing was changed'; Finish 1 }
 		$weDisabled = $true
 	}
-	wsl.exe --shutdown; Start-Sleep 10
+	if (-not (StopWsl)) { Abort 'wsl --shutdown failed before the archive' }
+	Start-Sleep 10
 	# Boot again with launches paused: no session runs while the archive is made.
 	wsl.exe -d $From --exec /bin/true
+	if ($LASTEXITCODE -ne 0) { Abort "booting $From exited $LASTEXITCODE" }
 }
 
 L "archiving $Source from $From"
 $p = Start-Process cmd.exe -ArgumentList '/c', "wsl.exe -d $From -u $User -- bash $(& $guest $maker) $Source $(& $guest $tar) > `"$tar`"" -WorkingDirectory $Dir -PassThru -WindowStyle Hidden
 $null = $p.Handle
-$checked = $false; $tick = 0
+$checked = $false; $tick = 0; $grewAt = Get-Date; $lastLen = -1
 while (-not $p.HasExited) {
 	Start-Sleep 15; $tick++
-	if (-not $checked -and (Test-Path $tar) -and (Get-Item $tar).Length -gt 1MB) {
+	$len = LiveLength $tar
+	if ($len -gt $lastLen) { $lastLen = $len; $grewAt = Get-Date }
+	elseif (((Get-Date) - $grewAt).TotalMinutes -ge $StallMinutes) { $p.Kill(); Abort "the archive has not grown in $StallMinutes minutes, at $(GB $lastLen) GB" }
+	if (-not $checked -and $len -gt 1MB) {
 		if (-not (Magic $tar)) { $p.Kill(); Abort 'the archive is not zstd' }
 		$checked = $true; L 'archive is zstd'
 	}
 	if ((FreeGB) -lt 15) { $p.Kill(); Abort 'C: free fell under 15 GB while archiving' }
-	if ($tick % 20 -eq 0 -and (Test-Path $tar)) { L "archive $(SizeGB $tar) GB, C: free $(FreeGB) GB" }
+	if ($tick % 20 -eq 0) { L "archive $(GB $len) GB, C: free $(FreeGB) GB" }
 }
 $p.WaitForExit()
 $st = if (Test-Path $status) { (Get-Content $status) -join ' ' } else { 'no status' }
@@ -201,7 +246,10 @@ if (-not (Test-Path $tar)) { Abort 'archiving wrote no archive' }
 if (-not (Magic $tar)) { Keep 'the archive is not zstd' }
 L "archived, $(SizeGB $tar) GB ($st)"
 
-if (-not $Rehearsal) { wsl.exe --shutdown; Start-Sleep 5 }
+if (-not $Rehearsal) {
+	if (-not (StopWsl)) { Keep 'wsl --shutdown failed after the archive was made' }
+	Start-Sleep 5
+}
 L 'verifying: reading the whole archive back'
 # Windows tar cannot name a file holding a tab or newline, which some test
 # scratch does: it skips that name, exits 1, and has still read the stream to
@@ -220,8 +268,10 @@ Remove-Item $list, $errs
 
 # VS Code or Explorer can boot the distro during the verify; its writes would
 # be missing from the archive.
-if (-not $Rehearsal -and ((wsl.exe -l --running -q) -replace "`0", '' | Where-Object { $_.Trim() -eq $Distro })) {
-	wsl.exe --shutdown; Keep "something started $Distro after the archive was made"
+if (-not $Rehearsal) {
+	$state = DistroState $Distro
+	if ($null -eq $state) { Keep "wsl -l -v gave no state for $Distro" }
+	if ($state -ne 'Stopped') { $null = StopWsl; Keep "something started $Distro after the archive was made" }
 }
 L "unregistering $Distro"
 wsl.exe --unregister $Distro
