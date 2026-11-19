@@ -2,13 +2,14 @@
 /*
  * The weekly release cut's filer (#5435) over a throwaway core clone, with
  * `gh` and the issue-body writer stubbed. Break it and the cut ticket is filed
- * before a cut is allowed, with nothing to release, twice over, or never.
+ * before a cut is allowed, with nothing to release, twice over, or never, or
+ * a ticket a landed cut answered is left asking for a cut.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { fakeIssueBody } from "./lib/issue-body-testkit";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -21,14 +22,6 @@ const iso = (s: number) => new Date(s * 1000).toISOString();
 
 let dir: string;
 let repo: string;
-beforeEach(() => {
-	dir = fs.mkdtempSync(path.join(os.tmpdir(), "release-due-"));
-	repo = path.join(dir, "repo");
-	fs.mkdirSync(repo);
-});
-afterEach(() => {
-	fs.rmSync(dir, { recursive: true, force: true });
-});
 
 const git = (args: string[], at = 0): string => {
 	const date = `@${T0 + at} +0000`;
@@ -47,39 +40,51 @@ const git = (args: string[], at = 0): string => {
 	}).trim();
 };
 
-/** A core clone: v1.0.0 rendered from main's first commit and tagged at
- * day 0, then `ahead` commits on origin/main. */
-function buildCore({
-	ahead,
-	name = "workflow-core",
-}: {
-	ahead: number;
-	name?: string;
-}) {
-	git(["init", "-q", "-b", "main"]);
-	fs.mkdirSync(path.join(repo, ".claude-plugin"));
-	fs.writeFileSync(
-		path.join(repo, ".claude-plugin", "plugin.json"),
-		JSON.stringify({ name }),
-	);
-	git(["add", "."]);
-	git(["commit", "-q", "-m", "init"]);
-	const source = git(["rev-parse", "HEAD"]);
-	for (let i = 1; i <= ahead; i++)
-		git(["commit", "-q", "--allow-empty", "-m", `c${i}`], i * 60);
-	git(["update-ref", "refs/remotes/origin/main", "HEAD"]);
-	git(["checkout", "-q", "--orphan", "release"]);
-	git(
-		[
+/** A core clone under `root`: v1.0.0 rendered from main's first commit and
+ * tagged at T0, then `ahead` commits on origin/main. */
+const buildCore =
+	(ahead: number, name = "workflow-core") =>
+	(root: string) => {
+		repo = path.join(root, "repo");
+		fs.mkdirSync(path.join(repo, ".claude-plugin"), { recursive: true });
+		git(["init", "-q", "-b", "main"]);
+		fs.writeFileSync(
+			path.join(repo, ".claude-plugin", "plugin.json"),
+			JSON.stringify({ name }),
+		);
+		git(["add", "."]);
+		git(["commit", "-q", "-m", "init"]);
+		const source = git(["rev-parse", "HEAD"]);
+		for (let i = 1; i <= ahead; i++)
+			git(["commit", "-q", "--allow-empty", "-m", `c${i}`], i * 60);
+		git(["update-ref", "refs/remotes/origin/main", "HEAD"]);
+		git(["checkout", "-q", "--orphan", "release"]);
+		git([
 			"commit",
 			"-q",
 			"-m",
 			`Release workflow-core v1.0.0, rendered from ${source}`,
-		],
-		0,
-	);
-	git(["tag", "-a", "v1.0.0", "-m", "workflow-core v1.0.0"], 0);
-	git(["checkout", "-q", "main"]);
+		]);
+		git(["tag", "-a", "v1.0.0", "-m", "workflow-core v1.0.0"]);
+		git(["checkout", "-q", "main"]);
+	};
+
+const fixture = defineTemplate({
+	ahead: buildCore(3),
+	level: buildCore(0),
+	adopter: buildCore(3, "an-adopter"),
+});
+
+beforeEach(() => {
+	dir = mkScratchDir("release-due-");
+});
+afterEach(() => {
+	fs.rmSync(dir, { recursive: true, force: true });
+});
+
+function clone(variant: "ahead" | "level" | "adopter") {
+	fixture.instantiate(dir, variant);
+	repo = path.join(dir, "repo");
 }
 
 function stubs(issues: unknown[] = [], existingBody = "") {
@@ -106,7 +111,8 @@ function stubs(issues: unknown[] = [], existingBody = "") {
 	fs.chmodSync(ghStub, 0o755);
 	const calls = () =>
 		fs.existsSync(argvLog) ? fs.readFileSync(argvLog, "utf8") : "";
-	return { ghStub, issueBody, calls };
+	const body = () => fs.readFileSync(issueBody.bodyFile, "utf8");
+	return { ghStub, issueBody, calls, body };
 }
 
 function run(fx: ReturnType<typeof stubs>, atDays: number) {
@@ -123,9 +129,16 @@ function run(fx: ReturnType<typeof stubs>, atDays: number) {
 	return { code: r.status, output: `${r.stdout}${r.stderr}` };
 }
 
+const openTicket = (createdDays: number) => ({
+	number: 42,
+	title: CUT_TITLE,
+	labels: [],
+	createdAt: iso(T0 + createdDays * DAY),
+});
+
 describe("the weekly release cut's filer", () => {
 	it("files the cut ticket, labelled takes:implement, 7 days after the tag with commits to release", () => {
-		buildCore({ ahead: 3 });
+		clone("ahead");
 		const fx = stubs();
 		const { code, output } = run(fx, 7);
 		expect(code).toBe(0);
@@ -138,27 +151,28 @@ describe("the weekly release cut's filer", () => {
 		expect(output).toContain("issues/999");
 	});
 
-	it("files nothing, and asks gh nothing, under 7 days after the tag", () => {
-		buildCore({ ahead: 3 });
+	it("files nothing under 7 days after the tag", () => {
+		clone("ahead");
 		const fx = stubs();
 		const { code, output } = run(fx, 6.9);
 		expect(code).toBe(0);
 		expect(output).toContain("under the 7-day cadence");
-		expect(fx.calls()).toBe("");
+		expect(fx.calls()).not.toContain("issue create");
+		expect(fx.issueBody.calls()).toEqual([]);
 	});
 
 	it("files nothing where origin/main holds nothing the tag does not carry", () => {
-		buildCore({ ahead: 0 });
+		clone("level");
 		const fx = stubs();
 		const { code, output } = run(fx, 30);
 		expect(code).toBe(0);
 		expect(output).toContain("holds no commit it does not carry");
-		expect(fx.calls()).toBe("");
+		expect(fx.calls()).not.toContain("issue create");
 	});
 
 	it("refreshes the open cut ticket rather than filing a second", () => {
-		buildCore({ ahead: 3 });
-		const fx = stubs([{ number: 42, title: CUT_TITLE, labels: [] }], "old");
+		clone("ahead");
+		const fx = stubs([openTicket(7)], "old");
 		const { code, output } = run(fx, 8);
 		expect(code).toBe(0);
 		expect(fx.calls()).not.toContain("issue create");
@@ -169,8 +183,8 @@ describe("the weekly release cut's filer", () => {
 	});
 
 	it("leaves the open cut ticket's body alone while the tag and its due state hold", () => {
-		buildCore({ ahead: 3 });
-		const fx = stubs([{ number: 42, title: CUT_TITLE, labels: [] }], "old");
+		clone("ahead");
+		const fx = stubs([openTicket(7)], "old");
 		run(fx, 8);
 		fx.issueBody.clearCalls();
 		git(["commit", "-q", "--allow-empty", "-m", "later"], 8 * DAY);
@@ -180,8 +194,26 @@ describe("the weekly release cut's filer", () => {
 		expect(fx.issueBody.calls()).toEqual([]);
 	});
 
+	it("rewrites an open ticket filed before the last tag to say that cut landed", () => {
+		clone("ahead");
+		const fx = stubs([openTicket(-1)], "old");
+		const { code } = run(fx, 2);
+		expect(code).toBe(0);
+		expect(fx.issueBody.calls()).toEqual([
+			expect.stringContaining("replace 42"),
+		]);
+		expect(fx.body()).toContain("v1.0.0 was cut after this issue was filed");
+	});
+
+	it("leaves alone an open ticket filed after the last tag while no cut is due", () => {
+		clone("ahead");
+		const fx = stubs([openTicket(1)], "old");
+		run(fx, 2);
+		expect(fx.issueBody.calls()).toEqual([]);
+	});
+
 	it("skips by name outside workflow-core", () => {
-		buildCore({ ahead: 3, name: "an-adopter" });
+		clone("adopter");
 		const fx = stubs();
 		const { code, output } = run(fx, 30);
 		expect(code).toBe(0);
@@ -189,13 +221,14 @@ describe("the weekly release cut's filer", () => {
 		expect(fx.calls()).toBe("");
 	});
 
-	it("is BROKEN, filing nothing, where the clone has no origin/main", () => {
-		buildCore({ ahead: 3 });
+	it("is BROKEN, naming the fetch, filing nothing, where the clone has no origin/main", () => {
+		clone("ahead");
 		git(["update-ref", "-d", "refs/remotes/origin/main"]);
 		const fx = stubs();
 		const { code, output } = run(fx, 30);
 		expect(code).toBe(2);
 		expect(output).toContain("BROKEN:");
+		expect(output).toContain("origin/main");
 		expect(fx.calls()).toBe("");
 	});
 });

@@ -6,9 +6,12 @@
  * (lib/release-due.js), so the refill loop launches the cut and a ticket gated
  * on a release opens on time.
  *
- * Run by the daily repo-checks run, in workflow-core alone (its registry
- * gate); elsewhere it SKIPs. While an issue of TITLE is open, found by title
- * alone, it only rewrites that issue's body, never filing a second.
+ * Run by the refill loop's gate sweep in each served checkout
+ * (lib/gate-sweep.js), so a cut falls due whether or not a session starts,
+ * and by the daily repo-checks run; outside workflow-core it SKIPs. While an
+ * issue of CUT_TITLE is open, found by title alone, it only rewrites that
+ * issue's body, never filing a second — and one filed before the last tag
+ * it rewrites to say that cut landed, so it is closed, not cut again.
  *
  * LOCAL REFS ONLY, no fetch, as check-release-lag.js reads them: a tag cut on
  * this machine is in the clone at once, and an `origin/main` behind the remote
@@ -30,7 +33,11 @@ const { readCommitOrBroken } = require("./lib/commit-sha.js");
 const { MAIN, readLag } = require("./lib/release-lag.js");
 const { CADENCE_DAYS, CUT_TITLE, judgeCut } = require("./lib/release-due.js");
 const { takesLabel, takesRefusal } = require("./lib/takes-label");
-const { fileOrRefresh } = require("./lib/tracking-issue");
+const {
+	fileOrRefresh,
+	openTrackingIssue,
+	refresh,
+} = require("./lib/tracking-issue");
 const { buildStandaloneLine } = require("./lib/standalone-line.js");
 
 const LABEL = takesLabel("implement");
@@ -46,14 +53,14 @@ function readCut(root) {
 	const {
 		readCutTime,
 		readReleaseTags,
-		releaseLagPort,
+		buildReleaseLagPort,
 	} = require("./lib/release-tags.js");
 	const tag = readReleaseTags(root).at(-1);
 	if (!tag) throw new Error("no release tag in this clone");
 	const tip = readCommitOrBroken(MAIN, root);
 	if (!tip)
 		throw new Error(`no ${MAIN} in this clone; \`git fetch origin\` makes one`);
-	const reading = readLag(releaseLagPort(root), tag, tip);
+	const reading = readLag(buildReleaseLagPort(root), tag, tip);
 	if (reading.kind === "no-source")
 		throw new Error(`${tag}'s message names no rendered-from source`);
 	if (reading.kind === "source-absent")
@@ -71,7 +78,7 @@ function readCut(root) {
  */
 function buildBody(tag) {
 	return [
-		`Filed automatically by \`${scriptPath("report-release-due.js")}\`, from the daily repo-checks run, which rewrites this body while a cut is due. **Edit it by hand and the next run silently overwrites it** — put anything you want kept in a comment.`,
+		`Filed automatically by \`${scriptPath("report-release-due.js")}\`, from the daily repo-checks run and the refill loop's gate sweep, which rewrite this body while a cut is due. **Edit it by hand and the next run silently overwrites it** — put anything you want kept in a comment.`,
 		"",
 		"## The weekly release cut is due",
 		"",
@@ -91,6 +98,26 @@ function buildBody(tag) {
 }
 
 /**
+ * For an open ticket filed before the last tag, which that cut answered, so a
+ * session the loop launches on it closes it rather than cutting again.
+ *
+ * @param {string} tag
+ */
+function buildLandedBody(tag) {
+	return [
+		`Filed automatically by \`${scriptPath("report-release-due.js")}\`, from the daily repo-checks run and the refill loop's gate sweep. **Edit it by hand and the next run silently overwrites it** — put anything you want kept in a comment.`,
+		"",
+		"## The cut this issue asked for has landed",
+		"",
+		`${tag} was cut after this issue was filed, so no cut is owed. Close this issue with \`node ${scriptPath("resolve-ticket.js")}\`, naming ${tag}.`,
+		"",
+		buildStandaloneLine(
+			"the weekly release cadence's standing condition (#5435).",
+		),
+	].join("\n");
+}
+
+/**
  * @param {string} root
  * @param {number} nowMs
  * @returns {string} what happened, for the run to print
@@ -98,7 +125,12 @@ function buildBody(tag) {
 function fileRun(root, nowMs) {
 	const reading = readCut(root);
 	const verdict = judgeCut(reading, nowMs);
-	if (!verdict.due) return `${verdict.why}: nothing filed.`;
+	if (!verdict.due) {
+		const open = openTrackingIssue({ title: CUT_TITLE }, { cwd: root });
+		if (!open || Date.parse(open.createdAt) >= reading.cutSec * 1000)
+			return `${verdict.why}: nothing filed.`;
+		return `${verdict.why}. ${refresh(open.number, buildLandedBody(reading.tag))}`;
+	}
 	const body = buildBody(reading.tag);
 	/* No PreToolUse hook sees a script's own gh call, so the create guard's
 	 * takes: check is made here. */
@@ -125,5 +157,3 @@ function main() {
 }
 
 if (require.main === module) main();
-
-module.exports = { LABEL };

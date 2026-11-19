@@ -24,6 +24,7 @@ const {
 	gateSweeper,
 	readGateStore,
 	runCheckGates,
+	runReleaseDue,
 } = require("./gate-sweep.js");
 const { decideTick } = require("./refill-decide.js");
 const { launchBatch } = require("./refill-batch.js");
@@ -401,5 +402,35 @@ describe("a judgement refused on admission stays queued (#5125)", () => {
 			`DROPPING 1 issue(s) in this set are already dispatched or claimed:\n  dropped: ${judgement.prompt}`,
 		);
 		expect(tick(1)).toEqual([]);
+	});
+});
+
+describe("the release-due run each sweep makes (#5435)", () => {
+	const stub = (body: string) => {
+		const script = path.join(dir, "release-due.js");
+		fs.writeFileSync(script, body);
+		return script;
+	};
+
+	it("is silent where the reporter filed nothing, and passes the checkout as its root", async () => {
+		const script = stub(
+			"const fs = require('node:fs'); if (fs.realpathSync(process.env.WFC_REPO_ROOT) !== fs.realpathSync(process.cwd())) process.exit(1); process.stdout.write('under the cadence: nothing filed.\\n');",
+		);
+		expect(await runReleaseDue(dir, { env: process.env, script })).toBeNull();
+	});
+
+	it("names a filing and a failure for the loop's log", async () => {
+		const filed = stub(
+			"process.stdout.write('due. Filed https://x/issues/9\\n');",
+		);
+		expect(await runReleaseDue(dir, { env: process.env, script: filed })).toBe(
+			`release-due in ${dir}: due. Filed https://x/issues/9`,
+		);
+		const broken = stub(
+			"process.stderr.write('BROKEN: no origin/main\\n'); process.exit(2);",
+		);
+		expect(await runReleaseDue(dir, { env: process.env, script: broken })).toBe(
+			`release-due in ${dir}: BROKEN: no origin/main`,
+		);
 	});
 });

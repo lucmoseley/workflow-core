@@ -24,9 +24,14 @@
  * did not parse, died or ran over budget is stored as its state's name, so the
  * first sighting of one, and each change of state, queues a `/triage` that
  * judges the condition by hand and repairs the segment.
+ *
+ * THE SWEEP ALSO FILES THE WEEKLY RELEASE CUT (#5435): report-release-due.js
+ * runs in each served checkout after its gates, so a cut falls due within a
+ * sweep whether or not a session starts there. It SKIPs outside
+ * workflow-core.
  */
 
-const { spawn } = require("node:child_process");
+const { execFile, spawn } = require("node:child_process");
 const path = require("node:path");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { PRINTING_FIX, REPAIR_STATES } = require("./gate-check.js");
@@ -44,6 +49,9 @@ const JUDGE_EVERY_MS = 6 * 60 * 60 * 1000;
 const ROOT_SWEEP_TIMEOUT_MS = GATE_SWEEP_MS;
 
 const CHECK_GATES = path.join(__dirname, "..", "check-gates.js");
+const RELEASE_DUE = path.join(__dirname, "..", "report-release-due.js");
+/* It reads git refs and, only once a cut is due, asks gh twice. Untraced. */
+const RELEASE_DUE_TIMEOUT_MS = 2 * 60 * 1000;
 
 /** @typedef {{root: string, number: number, prompt: string}} Judgement */
 
@@ -266,6 +274,34 @@ function runCheckGates(root, { env, script = CHECK_GATES }) {
 }
 
 /**
+ * Run report-release-due.js in `root`; resolves with the line to log, or
+ * null where it filed, refreshed and broke nothing.
+ * @param {string} root
+ * @param {{env: NodeJS.ProcessEnv, script?: string}} opts
+ * @returns {Promise<string|null>}
+ */
+function runReleaseDue(root, { env, script = RELEASE_DUE }) {
+	return new Promise((resolve) => {
+		execFile(
+			process.execPath,
+			[script],
+			{
+				cwd: root,
+				env: { ...env, WFC_REPO_ROOT: root },
+				encoding: "utf8",
+				timeout: RELEASE_DUE_TIMEOUT_MS,
+			},
+			(err, stdout, stderr) => {
+				const out = `${stdout}${stderr}`.trim();
+				const said = /\b(Filed|Refreshed)\b/.test(out);
+				if (!err && !said) return resolve(null);
+				resolve(`release-due in ${root}: ${out || err?.message}`);
+			},
+		);
+	});
+}
+
+/**
  * The loop's sweeper. `startIfDue` returns at once: the sweep runs its
  * checkouts in series in children, so no tick waits on a check. One sweep at
  * a time.
@@ -332,4 +368,5 @@ module.exports = {
 	gateSweeper,
 	readGateStore,
 	runCheckGates,
+	runReleaseDue,
 };

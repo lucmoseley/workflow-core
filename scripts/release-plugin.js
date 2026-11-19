@@ -96,7 +96,7 @@ const {
 	readCutTime,
 	buildReleaseMessage,
 } = require("./lib/release-tags.js");
-const { CADENCE_DAYS } = require("./lib/release-due.js");
+const { CADENCE_DAYS, daysSinceCut } = require("./lib/release-due.js");
 const { now } = require("./lib/clock.js");
 const { runVerify } = require("./lib/verify-run.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
@@ -138,8 +138,6 @@ const CLI = {
 		"--reason": /** @type {const} */ ("value"),
 	},
 };
-
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * @param {string} cwd
@@ -441,7 +439,7 @@ function refuseIfHeld(root) {
 function cadenceOrThrow(root, reason) {
 	const last = readLatestTag(root);
 	if (last === null) return { line: "last release: none\n", early: false };
-	const days = (now() - readCutTime(root, last) * 1000) / DAY_MS;
+	const days = daysSinceCut(readCutTime(root, last), now());
 	const line = `last release: ${last}, ${days.toFixed(1)} days ago\n`;
 	if (days >= CADENCE_DAYS) return { line, early: false };
 	if (!reason) {

@@ -14,8 +14,15 @@ const CUT_TITLE = "Release cut due";
  * @typedef {{ tag: string, cutSec: number, commits: number }} CutReading
  *   `cutSec` is the tag's tagger date in epoch seconds; `commits` how many
  *   commits `origin/main` holds past the tag's source.
- * @typedef {{ due: boolean, next: string, why: string }} CutVerdict
+ * @typedef {{ due: boolean, why: string }} CutVerdict
  */
+
+/**
+ * Days from a tag's cut to `nowMs`, fractional.
+ * @param {number} cutSec
+ * @param {number} nowMs
+ */
+const daysSinceCut = (cutSec, nowMs) => (nowMs - cutSec * 1000) / DAY_MS;
 
 /**
  * Due once CADENCE_DAYS have passed since the tag and `origin/main` holds a
@@ -26,27 +33,27 @@ const CUT_TITLE = "Release cut due";
  * @returns {CutVerdict}
  */
 function judgeCut({ tag, cutSec, commits }, nowMs) {
-	const nextMs = cutSec * 1000 + CADENCE_DAYS * DAY_MS;
-	const days = (nowMs - cutSec * 1000) / DAY_MS;
-	const next = new Date(nextMs).toISOString().slice(0, 16).replace("T", " ");
+	const days = daysSinceCut(cutSec, nowMs);
 	const gap = `${tag} was cut ${days.toFixed(1)} days ago`;
-	if (nowMs < nextMs)
+	if (days < CADENCE_DAYS) {
+		const from = new Date(cutSec * 1000 + CADENCE_DAYS * DAY_MS)
+			.toISOString()
+			.slice(0, 16)
+			.replace("T", " ");
 		return {
 			due: false,
-			next,
-			why: `${gap}, under the ${CADENCE_DAYS}-day cadence; a cut is allowed from ${next} UTC`,
+			why: `${gap}, under the ${CADENCE_DAYS}-day cadence; a cut is allowed from ${from} UTC`,
 		};
+	}
 	if (commits === 0)
 		return {
 			due: false,
-			next,
 			why: `${gap}, but origin/main holds no commit it does not carry`,
 		};
 	return {
 		due: true,
-		next,
 		why: `${gap}, and origin/main holds ${commits} commit(s) it does not carry`,
 	};
 }
 
-module.exports = { CADENCE_DAYS, CUT_TITLE, judgeCut };
+module.exports = { CADENCE_DAYS, CUT_TITLE, daysSinceCut, judgeCut };

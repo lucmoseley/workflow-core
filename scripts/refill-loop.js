@@ -982,8 +982,13 @@ async function run() {
 	log(`refill loop running, pid ${process.pid}, from ${SCRIPTS}`);
 	const sweeper = gates.gateSweeper({
 		file: files.gates,
-		runRoot: (root) =>
-			gates.runCheckGates(root, { env: buildCheckoutEnv(root) }),
+		runRoot: async (root) => {
+			const env = buildCheckoutEnv(root);
+			const read = await gates.runCheckGates(root, { env });
+			const line = await gates.runReleaseDue(root, { env });
+			if (line) log(line);
+			return read;
+		},
 		log,
 		cadenceMs: gates.GATE_SWEEP_MS,
 	});

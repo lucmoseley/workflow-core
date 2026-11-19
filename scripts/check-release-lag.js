@@ -94,7 +94,7 @@ runCheck({
 		/* Required past the check above: the release never ships it. */
 		const {
 			readReleaseTags,
-			releaseLagPort,
+			buildReleaseLagPort,
 		} = require("./lib/release-tags.js");
 		const tag = readReleaseTags(root).at(-1);
 		if (!tag) ctx.skip("no release tag in this clone.");
@@ -104,7 +104,7 @@ runCheck({
 		/** @type {import("./lib/release-lag").Reading} */
 		let reading;
 		try {
-			reading = readLag(releaseLagPort(root), tag, tip);
+			reading = readLag(buildReleaseLagPort(root), tag, tip);
 		} catch (e) {
 			ctx.broken(`git could not measure ${tag}: ${caught(e).message}`);
 		}

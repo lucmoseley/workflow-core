@@ -139,7 +139,7 @@ const readCutTime = (root, tag) =>
  * @param {string} root
  * @returns {import("./release-lag").GitPort}
  */
-const releaseLagPort = (root) => ({
+const buildReleaseLagPort = (root) => ({
 	sourceOf: (tag) =>
 		RENDERED_FROM.exec(gitOut(root, ["log", "-1", "--format=%B", tag]))?.[1] ??
 		null,
@@ -158,5 +158,5 @@ module.exports = {
 	buildReleaseMessage,
 	readReleaseTags,
 	readCutTime,
-	releaseLagPort,
+	buildReleaseLagPort,
 };
