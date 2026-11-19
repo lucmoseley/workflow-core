@@ -123,6 +123,10 @@ const renderReference = (pluginRoot) =>
  * variable to define once. `core-owned-files.js`
  * re-renders the file on every upgrade, so a bump re-points it.
  *
+ * THE PATH IS THE ROOT'S REAL PATH, so every route and config dir that
+ * reaches one install through its own symlink renders the same bytes (#5433).
+ * A root not there yet keeps its `path.resolve` form.
+ *
  * A COMMAND IS a `node`/`bash`/`sh`/`python3 scripts/…` invocation, or a
  * backticked span opening on `scripts/` that carries an argument. A bare
  * backticked path is a file named in prose, and stays.
@@ -130,10 +134,19 @@ const renderReference = (pluginRoot) =>
  * @param {string} pluginRoot absolute path of the installed plugin
  */
 function rewriteRuleCommands(text, pluginRoot) {
-	const quotedRoot = shellQuote(path.resolve(pluginRoot));
+	const quotedRoot = shellQuote(realRoot(pluginRoot));
 	return text
 		.replace(RUNNER, (_, runner) => `${runner} ${quotedRoot}/scripts/`)
 		.replace(/`scripts\/(?=[^`\s]+ [^`]*`)/g, () => `\`${quotedRoot}/scripts/`);
+}
+
+/** @param {string} root */
+function realRoot(root) {
+	try {
+		return fs.realpathSync(root);
+	} catch {
+		return path.resolve(root);
+	}
 }
 
 /**

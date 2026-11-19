@@ -2060,9 +2060,6 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 			{ cwd: dir, env: { ...env, CLAUDE_PLUGIN_ROOT: link } },
 		);
 		expect(r.status, r.stderr).toBe(0);
-		expect(readRules(dir)).toContain(
-			`\`${link}/scripts/bg-run.sh check <name>\``,
-		);
 		expect(
 			JSON.parse(
 				fs.readFileSync(path.join(dir, ".claude/settings.json"), "utf8"),

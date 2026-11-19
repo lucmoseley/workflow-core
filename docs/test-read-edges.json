@@ -490,6 +490,13 @@
 			"scripts/upgrade.test.ts"
 		],
 		".git-blame-ignore-revs": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
@@ -507,6 +514,13 @@
 			"scripts/markdown-tooling-declined.test.ts"
 		],
 		".gitattributes": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-format-staged.test.ts",
 			"scripts/check-issue-labels.test.ts",
@@ -920,6 +934,13 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		".shellcheckrc": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
@@ -937,6 +958,13 @@
 			"scripts/markdown-tooling-declined.test.ts"
 		],
 		".sonarcloud.properties": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
@@ -1036,6 +1064,13 @@
 			"scripts/write-secret.test.ts"
 		],
 		"GLOSSARY.md": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-context-budget.test.ts",
@@ -1065,6 +1100,13 @@
 			"scripts/register-doc.test.ts"
 		],
 		"biome.json": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
@@ -3104,6 +3146,13 @@
 			"scripts/priced-options-copies.test.ts"
 		],
 		"eslint.config.mjs": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"eslint.config.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
@@ -3123,6 +3172,13 @@
 			"scripts/precommit-eslint-gate.test.ts"
 		],
 		"eslint.config.test.ts": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
@@ -3316,6 +3372,13 @@
 			"scripts/upgrade.test.ts"
 		],
 		"package-lock.json": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
@@ -3454,6 +3517,13 @@
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
 		"pytest.ini": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/check-verdict-proof.test.ts",
@@ -3480,6 +3550,13 @@
 			"scripts/precommit-staged-gate.test.ts"
 		],
 		"requirements-dev.in": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
@@ -3499,6 +3576,13 @@
 			"scripts/precommit-ruff-gate.test.ts"
 		],
 		"requirements-dev.txt": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
@@ -3518,6 +3602,13 @@
 			"scripts/run-pytest.test.ts"
 		],
 		"ruff.toml": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-adopter-boundary.test.ts",
 			"scripts/check-code-standards.test.ts",
@@ -62546,6 +62637,13 @@
 			"scripts/start-lander-on-push.test.ts"
 		],
 		"skills-lock.json": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/check-vendored-skills.test.ts",
@@ -62571,6 +62669,13 @@
 			"scripts/register-doc.test.ts"
 		],
 		"tsconfig.build.json": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
@@ -62588,6 +62693,13 @@
 			"scripts/markdown-tooling-declined.test.ts"
 		],
 		"tsconfig.json": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
@@ -62608,6 +62720,13 @@
 			"scripts/tooling-matrix.test.ts"
 		],
 		"tsconfig.strict.json": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
@@ -62626,6 +62745,13 @@
 			"scripts/tooling-matrix.test.ts"
 		],
 		"vitest.config.ts": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-guard-registry-implicit.test.ts",
 			"scripts/check-issue-labels.test.ts",
@@ -62657,6 +62783,13 @@
 			"scripts/vitest-tree-watch.test.ts"
 		],
 		"vitest.setup.test.ts": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
@@ -62674,6 +62807,13 @@
 			"scripts/markdown-tooling-declined.test.ts"
 		],
 		"vitest.setup.ts": [
+			".claude/skills/new-repo/scripts/new-repo-copy-mirror.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume-hook.test.ts",
+			".claude/skills/new-repo/scripts/new-repo-resume.test.ts",
+			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-context-budget.test.ts",
 			"scripts/check-issue-labels.test.ts",

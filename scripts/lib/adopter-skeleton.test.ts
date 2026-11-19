@@ -160,6 +160,29 @@ describe("the core-owned rules file", () => {
 		expect(text).toMatch(/node \/opt\/plugin-root\/scripts\/\S+\.js/);
 	});
 
+	it("spells a symlinked root at its real path, and a missing one resolved, in both files (#5433)", () => {
+		const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "skeleton-root-"));
+		try {
+			const real = path.join(tmp, "real");
+			fs.mkdirSync(real);
+			fs.symlinkSync(real, path.join(tmp, "link"));
+			const at = (pluginRoot: string) => [
+				renderSessionRules({ modules: [], founder: "A Founder", pluginRoot }),
+				renderReference(pluginRoot),
+			];
+			const realReal = fs.realpathSync(real);
+			for (const text of at(path.join(tmp, "link"))) {
+				expect(text).toContain(`${realReal}/scripts/`);
+				expect(text).not.toContain(`${tmp}/link/`);
+			}
+			const absent = path.join(tmp, "absent", "..", "gone");
+			for (const text of at(absent))
+				expect(text).toContain(`${path.resolve(absent)}/scripts/`);
+		} finally {
+			fs.rmSync(tmp, { recursive: true, force: true });
+		}
+	});
+
 	it("gives the queue-ref push line (#2409)", () => {
 		const text = renderSessionRules({
 			modules: [],

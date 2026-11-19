@@ -374,11 +374,15 @@ export function sandbox({
 	}
 	fs.writeFileSync(path.join(sb, "tags"), JSON.stringify(tags));
 	/* Each tag's cache copy, where --no-plugin-install leaves init to find the
-	 * pin installed (#736): a link to this checkout. */
+	 * pin installed (#736): a real directory linking each of this checkout's
+	 * entries, so the rules file's real-path spelling (#5433) still names the
+	 * pin rather than the checkout. */
+	const core = path.resolve(__dirname, "../../../..");
 	for (const tag of tags.filter((t) => /^v\d+\.\d+\.\d+$/.test(t))) {
 		const at = pinned(home, tag);
-		fs.mkdirSync(path.dirname(at), { recursive: true });
-		fs.symlinkSync(path.resolve(__dirname, "../../../.."), at);
+		fs.mkdirSync(at, { recursive: true });
+		for (const entry of fs.readdirSync(core))
+			fs.symlinkSync(path.join(core, entry), path.join(at, entry));
 	}
 	if (source !== null) makeSource(sb, source, sourceFiles);
 	// The scratch clone of the source repo lands here, where a test can see it gone.

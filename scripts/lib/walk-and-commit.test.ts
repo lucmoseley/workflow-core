@@ -424,6 +424,40 @@ describe("walkAndCommit", () => {
 		});
 	});
 
+	it("leaves the rules files byte-identical when the root runs through another seat's symlinked plugins dir (#5433)", () => {
+		const seat = fs.mkdtempSync(path.join(os.tmpdir(), "walk-seat-"));
+		made.push(seat);
+		fs.symlinkSync(path.dirname(pluginRoot), path.join(seat, "plugins"));
+		const viaSeat = path.join(seat, "plugins", path.basename(pluginRoot));
+		const rules = [
+			".claude/workflow-core.md",
+			".claude/workflow-core.reference.md",
+		];
+		const read = () =>
+			rules.map((rel) => fs.readFileSync(path.join(root, rel), "utf8"));
+		writeJson(root, ".claude/workflow-core.json", { founder: "A Founder" });
+		bringCoreFiles({
+			root,
+			pluginRoot,
+			dryRun: false,
+			fresh: true,
+			out: () => {
+				/* progress lines are not what this reads */
+			},
+			record: null,
+			pin: null,
+		});
+		commitAll(root, "rules at the real root");
+		expect(walkAndCommit({ root, pluginRoot }).action).toBe("committed");
+		const before = read();
+
+		expect(walkAndCommit({ root, pluginRoot: viaSeat }).action).toBe(
+			"up-to-date",
+		);
+		expect(read()).toEqual(before);
+		expect(git(["status", "--porcelain"], root)).toBe("");
+	});
+
 	it("re-run after a committed walk changes nothing further", () => {
 		writeJson(pluginRoot, ".claude-plugin/plugin.json", {
 			name: "workflow-core",
