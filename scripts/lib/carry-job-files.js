@@ -26,20 +26,7 @@ const { relativeUnder } = require("./is-under.js");
 const { trimEndRun } = require("./trim-run.js");
 const { parseJsonlRow } = require("./jsonl.js");
 const { readWholeLines } = require("./session-transcript.js");
-
-/**
- * `p` resolved; null where it, or a directory on its way, does not exist.
- * @param {string} p
- */
-function realOrNull(p) {
-	try {
-		return fs.realpathSync(p);
-	} catch (err) {
-		const { code } = /** @type {NodeJS.ErrnoException} */ (err);
-		if (code === "ENOENT" || code === "ENOTDIR") return null;
-		throw err;
-	}
-}
+const { realPathOrNull } = require("./real-path.js");
 
 /**
  * `text` with each file it names under `jobDir` copied to
@@ -49,7 +36,7 @@ function realOrNull(p) {
  * @returns {{text: string, carried: {from: string, to: string}[]}}
  */
 function carryJobFiles({ text, jobDir, jobId, checkout }) {
-	const real = realOrNull(jobDir);
+	const real = realPathOrNull(jobDir);
 	const spellings = [
 		...new Set([path.resolve(jobDir), ...(real ? [real] : [])]),
 	];
@@ -89,7 +76,7 @@ function carryOne(from, { under, real, into, checkout }) {
 	const to = path.join(into, rel);
 	if (!fs.existsSync(from))
 		return fs.existsSync(to) ? { kind: "carried", to } : { kind: "absent" };
-	const resolved = realOrNull(from);
+	const resolved = realPathOrNull(from);
 	if (!real || !resolved || !relativeUnder(real, resolved))
 		return { kind: "left" };
 	copyOut(from, to, checkout);

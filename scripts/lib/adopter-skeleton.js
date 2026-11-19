@@ -5,10 +5,11 @@
  * seven husky hook shims, the tracker's label set and
  * the non-npm tool probe (#5).
  *
- * Pure rendering only — every function takes its inputs and returns text or
- * data. scripts/lib/core-owned-files.js and scripts/init-adopter.js do the
- * writing, the `gh` calls and the probing, so each piece here is testable
- * without a repository.
+ * Rendering only — every function takes its inputs and returns text or
+ * data; the one filesystem read is the plugin root's real path, which the
+ * rules files spell (#5433). scripts/lib/core-owned-files.js and
+ * scripts/init-adopter.js do the writing, the `gh` calls and the probing, so
+ * each piece here is testable without a repository.
  *
  * TEMPLATES SHIP UNDER scripts/, which the plugin release tree carries —
  * lib/plugin-tree.js's COPIED is the shipped set.
@@ -30,6 +31,7 @@ const { withoutSelfPlugin } = require("./core-hooks.js");
 const { shellQuote } = require("./sh-quote.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
 const { RESOLVE_CORE_SCRIPT } = require("./tree-core.js");
+const { realPathOrNull } = require("./real-path.js");
 
 const TEMPLATES = path.join(__dirname, "..", "templates", "adopter");
 
@@ -134,19 +136,12 @@ const renderReference = (pluginRoot) =>
  * @param {string} pluginRoot absolute path of the installed plugin
  */
 function rewriteRuleCommands(text, pluginRoot) {
-	const quotedRoot = shellQuote(realRoot(pluginRoot));
+	const quotedRoot = shellQuote(
+		realPathOrNull(pluginRoot) ?? path.resolve(pluginRoot),
+	);
 	return text
 		.replace(RUNNER, (_, runner) => `${runner} ${quotedRoot}/scripts/`)
 		.replace(/`scripts\/(?=[^`\s]+ [^`]*`)/g, () => `\`${quotedRoot}/scripts/`);
-}
-
-/** @param {string} root */
-function realRoot(root) {
-	try {
-		return fs.realpathSync(root);
-	} catch {
-		return path.resolve(root);
-	}
 }
 
 /**

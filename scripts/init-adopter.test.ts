@@ -2047,19 +2047,26 @@ describe("where a url pin's hooks and rules file run from (#736)", () => {
 	it("runs from CLAUDE_PLUGIN_ROOT where no --plugin-root is given, as the program", () => {
 		const { dir } = repo();
 		const { env } = pinEnv();
-		/* A path of its own, not this checkout's, which is also the default. */
+		/* A path of its own, not this checkout's, which is also the default: a
+		 * real directory linking each of the checkout's entries, so its real
+		 * path (#5433) is still its own. */
 		const link = path.join(
 			fs.mkdtempSync(path.join(os.tmpdir(), "adopter-root-")),
 			"plugin",
 		);
 		made.push(path.dirname(link));
-		fs.symlinkSync(CORE, link);
+		fs.mkdirSync(link);
+		for (const entry of fs.readdirSync(CORE))
+			fs.symlinkSync(path.join(CORE, entry), path.join(link, entry));
 		const r = runInProcess(
 			SCRIPT,
 			["--root", dir, "--founder", "A", "--no-tracker", "--no-plugin-install"],
 			{ cwd: dir, env: { ...env, CLAUDE_PLUGIN_ROOT: link } },
 		);
 		expect(r.status, r.stderr).toBe(0);
+		expect(readRules(dir)).toContain(
+			`\`${fs.realpathSync(link)}/scripts/bg-run.sh check <name>\``,
+		);
 		expect(
 			JSON.parse(
 				fs.readFileSync(path.join(dir, ".claude/settings.json"), "utf8"),

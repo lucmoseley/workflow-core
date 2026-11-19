@@ -161,6 +161,7 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 			"lib/python-routes.js",
 			"lib/qualify-citations.js",
 			"lib/read-fd.js",
+			"lib/real-path.js",
 			"lib/refill-repos.js",
 			"lib/refill-seats.js",
 			"lib/regex-group.js",

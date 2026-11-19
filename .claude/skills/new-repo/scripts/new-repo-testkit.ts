@@ -377,12 +377,13 @@ export function sandbox({
 	 * pin installed (#736): a real directory linking each of this checkout's
 	 * entries, so the rules file's real-path spelling (#5433) still names the
 	 * pin rather than the checkout. */
-	const core = path.resolve(__dirname, "../../../..");
+	const checkout = path.resolve(__dirname, "../../../..");
+	const entries = fs.readdirSync(checkout);
 	for (const tag of tags.filter((t) => /^v\d+\.\d+\.\d+$/.test(t))) {
 		const at = pinned(home, tag);
 		fs.mkdirSync(at, { recursive: true });
-		for (const entry of fs.readdirSync(core))
-			fs.symlinkSync(path.join(core, entry), path.join(at, entry));
+		for (const entry of entries)
+			fs.symlinkSync(path.join(checkout, entry), path.join(at, entry));
 	}
 	if (source !== null) makeSource(sb, source, sourceFiles);
 	// The scratch clone of the source repo lands here, where a test can see it gone.
