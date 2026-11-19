@@ -3,19 +3,16 @@
  * report-release-due.js — the weekly release cut's filer (#5435): files the
  * one *Release cut due* issue once CADENCE_DAYS have passed since the last
  * tag and `origin/main` holds a commit no release carries
- * (lib/release-due.js), so the refill loop launches the cut and a ticket gated
- * on a release opens on time.
+ * (lib/release-due.js).
  *
  * Run by the refill loop's gate sweep in each served checkout
  * (lib/gate-sweep.js), so a cut falls due whether or not a session starts,
  * and by the daily repo-checks run; outside workflow-core it SKIPs. While an
  * issue of CUT_TITLE is open, found by title alone, it only rewrites that
  * issue's body, never filing a second — and one filed before the last tag
- * it rewrites to say that cut landed, so it is closed, not cut again.
+ * it rewrites to say that cut landed.
  *
- * LOCAL REFS ONLY, no fetch, as check-release-lag.js reads them: a tag cut on
- * this machine is in the clone at once, and an `origin/main` behind the remote
- * only delays a filing to a later reading.
+ * LOCAL REFS ONLY, no fetch, as check-release-lag.js reads them.
  *
  * Exit 0 whether or not a cut is due. Exit 2 where it cannot judge — no
  * release tag, no `origin/main`, a tag whose source git cannot read — or
@@ -43,7 +40,7 @@ const { buildStandaloneLine } = require("./lib/standalone-line.js");
 const LABEL = takesLabel("implement");
 
 /**
- * The last tag's reading, or why there is none to judge.
+ * The last tag's reading; throws where there is none to judge.
  *
  * @param {string} root
  * @returns {import("./lib/release-due.js").CutReading}
@@ -71,8 +68,7 @@ function readCut(root) {
 }
 
 /**
- * Carries no figure that moves between readings, so a reading that finds the
- * cut still due leaves the body as it stands.
+ * Carries no figure that moves between readings.
  *
  * @param {string} tag
  */
@@ -82,7 +78,7 @@ function buildBody(tag) {
 		"",
 		"## The weekly release cut is due",
 		"",
-		`${tag} is the last release, cut ${CADENCE_DAYS} or more days ago, and \`origin/main\` holds commits it does not carry (\`node ${scriptPath("check-release-lag.js")}\` counts them). Releases are batched about once a week (#5223 Q1 (A)).`,
+		`${tag} is the last release, cut ${CADENCE_DAYS} or more days ago, and \`origin/main\` holds commits it does not carry (\`node ${scriptPath("check-release-lag.js")}\` counts them).`,
 		"",
 		"## What to do",
 		"",
@@ -109,7 +105,7 @@ function buildLandedBody(tag) {
 		"",
 		"## The cut this issue asked for has landed",
 		"",
-		`${tag} was cut after this issue was filed, so no cut is owed. Close this issue with \`node ${scriptPath("resolve-ticket.js")}\`, naming ${tag}.`,
+		`${tag} was cut after this issue was filed. Close this issue with \`node ${scriptPath("resolve-ticket.js")}\`, naming ${tag}.`,
 		"",
 		buildStandaloneLine(
 			"the weekly release cadence's standing condition (#5435).",
@@ -120,7 +116,7 @@ function buildLandedBody(tag) {
 /**
  * @param {string} root
  * @param {number} nowMs
- * @returns {string} what happened, for the run to print
+ * @returns {string} what happened
  */
 function fileRun(root, nowMs) {
 	const reading = readCut(root);

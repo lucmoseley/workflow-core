@@ -26,9 +26,8 @@
  * judges the condition by hand and repairs the segment.
  *
  * THE SWEEP ALSO FILES THE WEEKLY RELEASE CUT (#5435): report-release-due.js
- * runs in each served checkout after its gates, so a cut falls due within a
- * sweep whether or not a session starts there. It SKIPs outside
- * workflow-core.
+ * runs in each served checkout after its gates (refill-loop.js composes the
+ * two).
  */
 
 const { execFile, spawn } = require("node:child_process");
@@ -50,7 +49,7 @@ const ROOT_SWEEP_TIMEOUT_MS = GATE_SWEEP_MS;
 
 const CHECK_GATES = path.join(__dirname, "..", "check-gates.js");
 const RELEASE_DUE = path.join(__dirname, "..", "report-release-due.js");
-/* It reads git refs and, only once a cut is due, asks gh twice. Untraced. */
+/* Untraced. */
 const RELEASE_DUE_TIMEOUT_MS = 2 * 60 * 1000;
 
 /** @typedef {{root: string, number: number, prompt: string}} Judgement */
@@ -274,8 +273,8 @@ function runCheckGates(root, { env, script = CHECK_GATES }) {
 }
 
 /**
- * Run report-release-due.js in `root`; resolves with the line to log, or
- * null where it filed, refreshed and broke nothing.
+ * Run report-release-due.js in `root`; resolves with the line to log where it
+ * filed, refreshed or failed, else null.
  * @param {string} root
  * @param {{env: NodeJS.ProcessEnv, script?: string}} opts
  * @returns {Promise<string|null>}

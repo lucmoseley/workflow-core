@@ -29,7 +29,7 @@
 	"scripts/check-orphaned-edits.js": "5357720def9cd130",
 	"scripts/check-plugin-gap.js": "d7e5f9e1889be35e",
 	"scripts/check-refill-loop-stop.js": "85d1b9052847d6c0",
-	"scripts/check-release-lag.js": "2d900d932a087b4e",
+	"scripts/check-release-lag.js": "d090285c37c48abc",
 	"scripts/check-research-added.js": "2bc04c392971ed79",
 	"scripts/check-roadmap-pair.js": "f2dc4a461354a7fc",
 	"scripts/check-roadmap-valid.js": "3b40ed45fe4b0df6",

@@ -4,8 +4,7 @@
  * helper surface are judged against the same prior release (#463) — and the
  * release commit's message, which release-plugin.js writes and
  * release-contains.js reads back (#797) — and the git port
- * lib/release-lag.js measures a release's lag through, for check-release-lag.js
- * and report-release-due.js.
+ * lib/release-lag.js measures a release's lag through.
  */
 
 const { cutAt } = require("./cut-at.js");
