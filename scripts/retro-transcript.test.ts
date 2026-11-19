@@ -918,6 +918,104 @@ describe("output path", () => {
 	});
 });
 
+describe("output path from a linked worktree (#5424)", () => {
+	let tree: string;
+
+	/* Per case, not a template (#5424): the outer beforeEach already inits a
+	 * fresh repo per case, and RUN COST reads the file under its 10 s budget.
+	 * Residual: each case pays a commit and a worktree add. */
+	beforeEach(() => {
+		const git = (...args: string[]) =>
+			execFileSync("git", ["-C", repo, ...args], { stdio: "ignore" });
+		git(
+			"-c",
+			"user.name=t",
+			"-c",
+			"user.email=t@t",
+			"commit",
+			"-q",
+			"--allow-empty",
+			"-m",
+			"base",
+		);
+		tree = path.join(repo, "wt");
+		git("worktree", "add", "-q", "--detach", tree);
+	});
+
+	const log = () => sessionLog([KEPT[0]]);
+	const scratch = () => `${path.join(tree, ".claude/tmp")}${path.sep}`;
+	const envs = [
+		["no CLAUDE_PROJECT_DIR", () => undefined],
+		["CLAUDE_PROJECT_DIR naming the worktree", () => tree],
+		["CLAUDE_PROJECT_DIR naming the main checkout", () => repo],
+	] as const;
+
+	/* The Bash tool sets no CLAUDE_PROJECT_DIR; a hook names the worktree. */
+	const fromTree = (args: string[], projectDir?: string) => {
+		const env: NodeJS.ProcessEnv = {
+			...process.env,
+			WFC_SECRETS_FILE: path.join(repo, "secrets.env"),
+		};
+		delete env.CLAUDE_PROJECT_DIR;
+		if (projectDir) env.CLAUDE_PROJECT_DIR = projectDir;
+		return runInProcess(SCRIPT, args, { cwd: tree, env });
+	};
+
+	it.each(envs)(
+		"takes an --out under the worktree's .claude/tmp/ with %s",
+		(_, dir) => {
+			const out = path.join(tree, ".claude/tmp/retro-sweep/x.txt");
+			const r = fromTree([log(), "--out", out], dir());
+			expect(r.status).toBe(0);
+			expect(fs.readFileSync(out, "utf8")).toMatch(/^L1 /);
+		},
+	);
+
+	it("writes its default output under the worktree's .claude/tmp/", () => {
+		const r = fromTree([log()]);
+		expect(r.status).toBe(0);
+		const out = path.join(tree, ".claude/tmp/retro-transcripts", `${SID}.txt`);
+		expect(r.stdout).toBe(`${out}\n1 lines\n`);
+	});
+
+	it.each(envs)(
+		"refuses an --out under the main checkout's .claude/tmp/, naming the worktree's, with %s",
+		(_, dir) => {
+			const out = path.join(repo, ".claude/tmp/x.txt");
+			const r = fromTree([log(), "--out", out], dir());
+			expect(r.status).toBe(2);
+			expect(r.stderr).toContain(`refused: ${out} is outside ${scratch()}`);
+			expect(r.stderr).toContain(`Write under ${scratch()}, or omit --out.`);
+			expect(fs.existsSync(out)).toBe(false);
+		},
+	);
+
+	it("refuses a tracked file under the worktree's .claude/tmp/", () => {
+		const out = path.join(tree, ".claude/tmp/kept.txt");
+		fs.mkdirSync(path.dirname(out), { recursive: true });
+		fs.writeFileSync(out, "tracked\n");
+		execFileSync("git", ["-C", tree, "add", "-f", out]);
+		const r = fromTree([log(), "--out", out]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(`refused: ${out} is a tracked file`);
+		expect(r.stderr).toContain(`Write under ${scratch()}, or omit --out.`);
+		expect(fs.readFileSync(out, "utf8")).toBe("tracked\n");
+	});
+
+	/* Passes under hostRoot() too: it guards the symlink check, not #5424. */
+	it("refuses a symlink out of the worktree's .claude/tmp/", () => {
+		fs.mkdirSync(path.join(tree, ".claude/tmp"), { recursive: true });
+		fs.mkdirSync(path.join(tree, "docs"));
+		fs.symlinkSync(path.join(tree, "docs"), path.join(tree, ".claude/tmp/out"));
+		const out = path.join(tree, ".claude/tmp/out/t.txt");
+		const r = fromTree([log(), "--out", out]);
+		expect(r.status).toBe(2);
+		expect(r.stderr).toContain(`refused: ${out} is outside ${scratch()}`);
+		expect(r.stderr).toContain(`Write under ${scratch()}, or omit --out.`);
+		expect(fs.existsSync(path.join(tree, "docs/t.txt"))).toBe(false);
+	});
+});
+
 describe("memory bound", () => {
 	/** Peak RSS in KB of `node <args>`, through a preload that records it.
 	 * VmHWM, not resourceUsage().maxRSS: Linux carries the spawning process's

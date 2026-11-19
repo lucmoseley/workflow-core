@@ -22,9 +22,10 @@
  * the checkout's working copy mid-edit. Nothing removes the worktree it names:
  * an image moves it first, and a refused tip's removal spares it.
  *
- * A WORKTREE A LIVE PROCESS RUNS FROM is kept until it exits (#4548): a queue
- * lander or levelling pass an older image started spawns its children from
- * its own worktree, and they fail to load where that is gone.
+ * A WORKTREE A LIVE PROCESS RUNS FROM is kept until it exits (#4548), and
+ * never checked out in place: a queue lander or levelling pass an older image
+ * started spawns its children from its own worktree, and they fail to load
+ * where that is gone or rewritten.
  *
  * THE IMAGE'S OWN REGISTRATION is checked each tick and made again where it is
  * gone (#5209): git then answers for the worktree again, so the loop still
@@ -52,6 +53,7 @@ const {
 	git,
 	pointLink,
 	readLink,
+	readSpare,
 	readVerifiedSha,
 	removeWorktree,
 	reregister,
@@ -69,8 +71,17 @@ const rootOf = (program) => path.dirname(path.dirname(program));
 /**
  * @param {string} repo
  * @param {string} codeDir
+ * @param {(line: string) => void} log
  */
-const instance = (repo, codeDir) => ({ repo, codeDir, program: PROGRAM });
+const instance = (repo, codeDir, log) => ({
+	repo,
+	codeDir,
+	program: PROGRAM,
+	log,
+});
+
+/** @param {string} line */
+const toStderr = (line) => process.stderr.write(`${line}\n`);
 
 /**
  * Null where the program at `dir` loads, else why not.
@@ -124,10 +135,11 @@ function locateCode(scriptsDir) {
  * The program `start` spawns `run` from: the verified tip's worktree, fetched
  * first and shown to load, where `scriptsDir` is in a checkout; else
  * `scriptsDir`'s own.
- * @param {{scriptsDir: string, codeDir: string}} where
+ * @param {{scriptsDir: string, codeDir: string, log?: (line: string) => void}} where
+ *   `log` takes why a tip was checked out fresh
  * @returns {{program: string, fetchError?: string|null}|{error: string}}
  */
-function launchProgram({ scriptsDir, codeDir }) {
+function launchProgram({ scriptsDir, codeDir, log = toStderr }) {
 	const found = locateCode(scriptsDir);
 	if (!("repo" in found)) return found;
 	const { repo } = found;
@@ -139,7 +151,11 @@ function launchProgram({ scriptsDir, codeDir }) {
 		};
 	let dir;
 	try {
-		dir = worktreeAt(instance(repo, codeDir), sha);
+		dir = worktreeAt(
+			instance(repo, codeDir, log),
+			sha,
+			readKeptWorktrees(codeDir),
+		);
 	} catch (err) {
 		return { error: `no worktree at ${short(sha)}: ${whyOf(err)}` };
 	}
@@ -167,15 +183,15 @@ function realPathOf(dir) {
  * The program a boot unit names: its own in a plugin install; else through the
  * boot link, which outlives any tip the loop adopts. A link that resolves stays
  * as it is, a running loop's own to move.
- * @param {{scriptsDir: string, codeDir: string}} where
+ * @param {{scriptsDir: string, codeDir: string, log?: (line: string) => void}} where
  * @returns {{program: string, fetchError?: string|null}|{error: string}}
  */
-function bootProgram({ scriptsDir, codeDir }) {
+function bootProgram({ scriptsDir, codeDir, log = toStderr }) {
 	const found = locateCode(scriptsDir);
 	if (!("repo" in found)) return found;
 	const program = bootLinkProgram(codeDir);
 	if (fs.existsSync(program)) return { program };
-	const launch = launchProgram({ scriptsDir, codeDir });
+	const launch = launchProgram({ scriptsDir, codeDir, log });
 	if ("error" in launch) return launch;
 	const root = rootOf(launch.program);
 	try {
@@ -205,7 +221,7 @@ function readRunningCode(pid, codeDir) {
 		if (checkoutOf(root) === null) return "a plugin install";
 		return `${short(git(root, ["rev-parse", "HEAD"]))} in ${root}`;
 	} catch {
-		// A process unreadable or a git read failed mid-status: nothing to name.
+		// A process unreadable or a git read failed mid-status.
 		return null;
 	}
 }
@@ -244,26 +260,56 @@ function readHeldDirs(stale, codeDir) {
 }
 
 /**
- * Remove every worktree in the code directory but `root` and those a live
- * process runs from, logging each of those once; true where none was kept.
+ * The worktrees an in-place checkout must leave alone: `own`, the boot link's,
+ * and each a live process runs from; null, every one, where /proc will not
+ * read.
+ * @param {string} codeDir
+ * @param {string|null} [own] the running image's worktree
+ * @returns {Array<string|null>|null}
+ */
+function readKeptWorktrees(codeDir, own = null) {
+	const realCodeDir = realPathOf(codeDir);
+	const keep = [own, readLink(bootLinkOf(codeDir))];
+	let names;
+	try {
+		names = fs.readdirSync(realCodeDir);
+	} catch {
+		// No code directory yet.
+		return keep;
+	}
+	const held = readHeldDirs(
+		names.map((n) => path.join(realCodeDir, n)),
+		codeDir,
+	);
+	return held === null ? null : [...keep, ...held.keys()];
+}
+
+/**
+ * Remove every worktree in the code directory but `root`, the spare and those
+ * a live process runs from, logging each of those once; true where none was
+ * kept.
  * @param {{root: string, codeDir: string, realCodeDir: string,
  *   kept: Set<string>, log: (line: string) => void}} o `kept` accumulator:
  *   the directories already logged as kept
  */
 function pruneCodeDir({ root, codeDir, realCodeDir, kept, log }) {
-	const stale = fs
+	const others = fs
 		.readdirSync(realCodeDir)
 		.map((name) => path.join(realCodeDir, name))
 		.filter((dir) => dir !== root);
-	if (stale.length === 0) return true;
-	const held = readHeldDirs(stale, codeDir);
+	if (others.length === 0) return true;
+	const held = readHeldDirs(others, codeDir);
 	if (held === null) {
 		if (!kept.has(realCodeDir))
 			log(`keeping every worktree in ${realCodeDir}: /proc will not read`);
 		kept.add(realCodeDir);
 		return false;
 	}
-	for (const dir of stale) {
+	const spare = readSpare({ codeDir: realCodeDir, program: PROGRAM }, [
+		root,
+		...held.keys(),
+	]);
+	for (const dir of others.filter((d) => d !== spare)) {
 		const pid = held.get(dir);
 		if (pid === undefined) removeWorktree(root, dir);
 		else if (!kept.has(dir)) {
@@ -362,7 +408,11 @@ function codeUpdater({ program, codeDir, log }) {
 		/** @type {string|null} */
 		let dir = null;
 		try {
-			dir = worktreeAt(instance(root, codeDir), tip);
+			dir = worktreeAt(
+				instance(root, codeDir, log),
+				tip,
+				readKeptWorktrees(codeDir, root),
+			);
 			const why = loadFailure(dir);
 			if (why !== null) throw new Error(`its program does not load: ${why}`);
 			log(`adopting ${short(running)}..${short(tip)}`);
@@ -381,6 +431,8 @@ function codeUpdater({ program, codeDir, log }) {
 			log(
 				`not adopting ${short(tip)}: ${whyOf(err)}; running ${short(running)}`,
 			);
+			/* Not kept as a spare, as the guards' refused tree is (#5426): this
+			 * image prunes no more once settled, so a second spare would stay. */
 			if (dir !== null && dir !== readLink(bootLinkOf(codeDir)))
 				removeWorktree(root, dir);
 		}
@@ -400,7 +452,8 @@ function codeUpdater({ program, codeDir, log }) {
 		/**
 		 * After the first tick of an image from the code directory, point the
 		 * boot link at it; then, each tick until none is left, remove every
-		 * worktree there but its own and those a live process runs from. A
+		 * worktree there but its own, the spare and those a live process runs
+		 * from. A
 		 * link that will not move keeps the worktree it names.
 		 */
 		afterTick() {

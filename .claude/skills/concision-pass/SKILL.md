@@ -96,7 +96,7 @@ relative one resolving inside that worktree rather than the checkout you are
 watching.
 
 Watch each file with one backgrounded `node scripts/watch-artefact.js <file>
-120` — one of `docs/agents/guard-registry.md` §Subagent dispatch's mandatory sites. **Stall
+120 --log <output_file>`, the launch result's `output_file` — one of `docs/agents/guard-registry.md` §Subagent dispatch's mandatory sites. **Stall
 fallback, on `STALLED` or `MISSING`: do that file's pass in the main session**,
 reading its additions against the criteria yourself — never a re-dispatch.
 When an agent's completion notification arrives, `TaskStop` its watcher first.

@@ -179,6 +179,25 @@ describe("readLastJsonlRow", () => {
 		},
 	);
 
+	it.each(Object.entries(texts))(
+		"gives the last row a test passes, as readJsonl's rows filtered: %s",
+		(_name, text) => {
+			const file = write(text);
+			const odd = (row: Record<string, unknown>) => row.a === 1;
+			expect(readLastJsonlRow(file, odd)).toEqual(
+				readJsonl(file).rows.filter(odd).at(-1),
+			);
+		},
+	);
+
+	it("reads past one read of the file's end for a row the test passes", () => {
+		// 20,000 eight-byte rows, 160 KB: past one doubling (128 KiB) of the 64 KiB first read, so the third read finds it.
+		const file = write(`{"a":1}\n${'{"a":2}\n'.repeat(20_000)}`);
+		expect(
+			readLastJsonlRow(file, (row: Record<string, unknown>) => row.a === 1),
+		).toEqual({ a: 1 });
+	});
+
 	it("gives undefined for a file with no row, null for a missing one", () => {
 		expect(readLastJsonlRow(write("\n"))).toBeUndefined();
 		expect(readLastJsonlRow(path.join(dir, "absent.jsonl"))).toBeNull();

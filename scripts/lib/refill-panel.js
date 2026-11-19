@@ -1512,14 +1512,19 @@ function createPanel({
 	/**
 	 * A fixed form goes to `--goal` as one argument, however it is typed; anything
 	 * else is a topic, stored only on the confirm press (#3596 stories 62, 65). A
-	 * blank field closes, the switch being what clears a goal (story 53).
+	 * blank field clears the goal, as the switch does.
 	 * @param {GoalEdit} edit
 	 */
 	async function saveGoal({ text }) {
 		view.goalEdit = null;
 		const typed = text.trim();
 		if (typed === "") {
-			onChange();
+			if (view.status?.goal)
+				await runLoopPress(
+					{ argv: ["set", "--clear-goal"], on: false },
+					view.presses.goal,
+				);
+			else onChange();
 			return;
 		}
 		if (parseGoalForm(typed) === null) await resolveGoal(typed);

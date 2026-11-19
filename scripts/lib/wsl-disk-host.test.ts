@@ -8,10 +8,12 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { writeGuestDisk } from "./proc-fake";
 import {
 	appendCompactLog,
 	readCompactLog,
 	readFreeGB,
+	readGuestDisk,
 	readKernelRelease,
 	readLastTrim,
 	readTrimFixedAt,
@@ -106,5 +108,28 @@ describe("readKernelRelease and readFreeGB", () => {
 		expect(readFreeGB()).toBeGreaterThan(0);
 		vi.stubEnv("WFC_WIN_C", path.join(dir, "gone"));
 		expect(readFreeGB()).toEqual({ why: expect.stringContaining("ENOENT") });
+	});
+});
+
+describe("readGuestDisk", () => {
+	it("reads the root's used bytes and the virtual size of the disk / is mounted from", () => {
+		const proc = writeOsrelease(dir, WSL_KERNEL);
+		writeGuestDisk(proc, 224 * 2 ** 30);
+		vi.stubEnv("WFC_PROC", proc);
+		vi.stubEnv("WFC_GUEST_ROOT", dir);
+		const s = fs.statfsSync(dir);
+		expect(readGuestDisk()).toEqual({
+			usedBytes: (s.blocks - s.bfree) * s.bsize,
+			sizeBytes: 224 * 2 ** 30,
+		});
+	});
+	it("says why where /proc lacks the files or the root will not stat", () => {
+		vi.stubEnv("WFC_PROC", writeOsrelease(dir, WSL_KERNEL));
+		vi.stubEnv("WFC_GUEST_ROOT", dir);
+		expect(readGuestDisk()).toEqual({
+			why: expect.stringContaining("mountinfo: absent"),
+		});
+		vi.stubEnv("WFC_GUEST_ROOT", path.join(dir, "gone"));
+		expect(readGuestDisk()).toEqual({ why: expect.stringContaining("ENOENT") });
 	});
 });

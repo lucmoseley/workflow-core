@@ -42,7 +42,7 @@ describe("messages a shipped script prints", () => {
 		/^\t"`node scripts\/session-arbiter\.js list`\.";$/,
 		/^\t\t\t`\\n {2}… and \$\{dropped\} more — node scripts\/session-arbiter\.js list`$/,
 		/^\t"This suite is DETACHED INSIDE THE SHELL — .*`scripts\/bg-run\.sh run <name>`/,
-		/^const WATCH = "node scripts\/watch-artefact\.js <artefact> 120";$/,
+		/^\t"node scripts\/watch-artefact\.js <artefact> 120 --log <output_file>";$/,
 		/^const READ_REASON = `Instead: a subagent, one backgrounded \\`\$\{WATCH\}\\`;/,
 		/^\t"wait inside the turn — what you wait on in the foreground with `timeout: 600000`, a bg-run\.sh job with `scripts\/bg-run\.sh wait <name>`/,
 		/^\tbyHand: "`node scripts\/claim-issue\.js <n>` to claim an issue by hand",$/,

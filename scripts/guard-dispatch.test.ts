@@ -679,7 +679,9 @@ describe("the Agent dispatch cores through the hook line (#2791)", () => {
 			true,
 		);
 		expect(fs.statSync(path.dirname(file as string)).isDirectory()).toBe(true);
-		expect(out.additionalContext).toContain(`${file} 120\``);
+		expect(out.additionalContext).toContain(
+			`${file} 120 --log <output_file>\``,
+		);
 	});
 
 	it("refuses a subagent's own Task dispatch with the store's rule", () => {

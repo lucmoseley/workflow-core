@@ -462,6 +462,7 @@ function launchHeld() {
 	const launch = refillCode.launchProgram({
 		scriptsDir: SCRIPTS,
 		codeDir: files.code,
+		log,
 	});
 	if ("error" in launch) return { error: String(launch.error) };
 	const out = fs.openSync(files.log, "a");

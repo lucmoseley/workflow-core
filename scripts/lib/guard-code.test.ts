@@ -9,11 +9,11 @@
  * call in every session, or a working copy's edit reaches the hooks again.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const CODE_LIB = path.resolve(__dirname, "guard-code.js");
 const { CORE_FAULT_TEXT } = require("./core-fault.js") as {
@@ -96,13 +96,13 @@ describe("adoption", () => {
 		expect(r?.kind).toBe("refused");
 		expect(r?.why).toMatch(/Unexpected token/);
 		expect(live()).toBe(path.join(codeDir, good));
-		expect(fs.existsSync(path.join(codeDir, bad))).toBe(false);
+		/* The refused tree stays as the spare, for the next tip to rewrite. */
+		expect(fs.readdirSync(codeDir).sort()).toEqual([good, bad].sort());
 		expect(fs.readFileSync(files().refused, "utf8")).toBe(`${bad}\n`);
 		expect(fs.readFileSync(files().log, "utf8")).toMatch(
 			new RegExp(`refused ${bad.slice(0, 9)}: .*Unexpected token`),
 		);
 		expect(adopt()).toEqual({ kind: "known-refused", sha: bad });
-		expect(fs.existsSync(path.join(codeDir, bad))).toBe(false);
 	});
 
 	it("refuses a tip whose probe call is denied, as a core whose module fails to load answers", () => {
@@ -132,18 +132,119 @@ describe("adoption", () => {
 		expect(adopt()).toEqual({ kind: "adopted", sha });
 	});
 
-	it("keeps the code it replaces as the previous, and removes every other worktree", () => {
+	it("keeps the code it replaces as the previous, and one spare beside, removing every other worktree", () => {
+		const first = land(OK);
+		adopt();
+		const second = land(`${OK}// two\n`);
+		adopt();
+		fs.mkdirSync(path.join(codeDir, "stray"));
+		const third = land(`${OK}// three\n`);
+		adopt();
+		expect(live()).toBe(path.join(codeDir, third));
+		expect(fs.readlinkSync(files().previous)).toBe(path.join(codeDir, second));
+		expect(fs.readdirSync(codeDir).sort()).toEqual(
+			[first, second, third].sort(),
+		);
+	});
+
+	it("checks a new tip out in place in the spare, never in the live or previous code (#5426)", () => {
+		const first = land(OK);
+		adopt();
+		land(`${OK}// two\n`);
+		adopt();
+		const third = land(`${OK}// three\n`);
+		adopt();
+		const inode = (sha: string) =>
+			fs.statSync(path.join(codeDir, sha, HOOKS)).ino;
+		const spareInode = inode(first);
+		const fourth = land(`${OK}// four\n`);
+		expect(adopt()).toEqual({ kind: "adopted", sha: fourth });
+		expect(fs.existsSync(path.join(codeDir, first))).toBe(false);
+		expect(inode(fourth)).toBe(spareInode);
+		const tree = path.join(codeDir, fourth);
+		expect(gitIn(tree)("rev-parse", "HEAD")).toBe(fourth);
+		expect(gitIn(tree)("status", "--porcelain", "--ignored")).toBe("");
+		expect(
+			fs.readFileSync(path.join(tree, "scripts/guard-dispatch.js"), "utf8"),
+		).toBe(`${OK}// four\n`);
+		expect(fs.readlinkSync(files().previous)).toBe(path.join(codeDir, third));
+	});
+
+	it("makes a fresh tree where the spare will not check out, leaving no half-made one", () => {
 		const first = land(OK);
 		adopt();
 		const second = land(`${OK}// two\n`);
 		adopt();
 		const third = land(`${OK}// three\n`);
 		adopt();
-		expect(live()).toBe(path.join(codeDir, third));
-		expect(fs.readlinkSync(files().previous)).toBe(path.join(codeDir, second));
-		expect(fs.readdirSync(codeDir).sort()).toEqual([second, third].sort());
-		expect(fs.existsSync(path.join(codeDir, first))).toBe(false);
+		/* A kill mid-checkout leaves the lock behind. */
+		const gitDir = gitIn(path.join(codeDir, first))(
+			"rev-parse",
+			"--absolute-git-dir",
+		);
+		fs.writeFileSync(path.join(gitDir, "index.lock"), "");
+		const fourth = land(`${OK}// four\n`);
+		expect(adopt()).toEqual({ kind: "adopted", sha: fourth });
+		expect(gitIn(path.join(codeDir, fourth))("rev-parse", "HEAD")).toBe(fourth);
+		expect(fs.readdirSync(codeDir).sort()).toEqual(
+			[second, third, fourth].sort(),
+		);
+		expect(fs.readFileSync(files().log, "utf8")).toMatch(
+			new RegExp(
+				`${fourth.slice(0, 9)} checked out fresh, checking out in the spare failed: `,
+			),
+		);
 	});
+
+	it("never lets a second adopter take the tree the first is probing, so `.current` never names a missing one (#5431)", async () => {
+		const probing = path.join(dir, "x-probing");
+		/* X's tip is probed slowly, so Y starts while X holds a checked-out,
+		 * unflipped tree: 1.5 s, a guess at room for Y's node start to reach the
+		 * lock while X holds it. */
+		const first = land(
+			`require("fs").writeFileSync(${JSON.stringify(probing)}, ""); process.stdin.resume(); setTimeout(() => {}, 1500);\n`,
+		);
+		const run = () =>
+			new Promise<{ code: number | null; out: string }>((resolve) => {
+				let out = "";
+				// spawn-kept: two processes at once, the lock a pidfile naming each adopter's script
+				const child = spawn(
+					process.execPath,
+					[path.resolve(__dirname, "../adopt-guard-code.js")],
+					{
+						env: {
+							...process.env,
+							CLAUDE_PROJECT_DIR: repo,
+							WFC_GUARD_CODE_DIR: codeDir,
+						},
+						stdio: ["ignore", "pipe", "ignore"],
+					},
+				);
+				child.stdout.on("data", (d) => {
+					out += d;
+				});
+				child.on("close", (code) => resolve({ code, out }));
+			});
+		const x = run();
+		/* Guessed ceilings: a cold node start and git under load. */
+		await vi.waitFor(() => expect(fs.existsSync(probing)).toBe(true), {
+			timeout: 30_000,
+			interval: 20,
+		});
+		const second = land(`${OK}// two\n`);
+		const y = await run();
+		expect((await x).code).toBe(0);
+		expect(y).toEqual({
+			code: 0,
+			out: `guard code: adopted ${second.slice(0, 9)}\n`,
+		});
+		expect(live()).toBe(path.join(codeDir, second));
+		expect(fs.existsSync(path.join(live(), "scripts/guard-dispatch.js"))).toBe(
+			true,
+		);
+		expect(fs.readlinkSync(files().previous)).toBe(path.join(codeDir, first));
+		expect(fs.existsSync(files().previous)).toBe(true);
+	}, 60_000 /* a guess: the 30 s wait above and both adoptions, with room */);
 
 	it("adopts nothing in a checkout whose hooks do not run from it", () => {
 		land(OK);
