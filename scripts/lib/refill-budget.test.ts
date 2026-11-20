@@ -156,32 +156,41 @@ describe("the gate-run budget (#5275)", () => {
 		}
 	});
 
-	it("holds a session whose newest run passed and whose commit waits on the lander, and logs why (#5438)", () => {
+	it("holds a session whose newest run passed and whose commit waits on the lander, or has landed there ahead of origin/main, and logs why (#5438)", () => {
 		const passed = [{ ...gateRun(5), outcome: "pass" as const }, ...runsAgo(6)];
-		const waiting = readOf(passed, {
-			queueOf: () => ({ state: "waiting" }),
-		});
-		const { launches, events, calls } = tick([live()], waiting);
-		expect(launches[0]?.finishedAt).toBeNull();
-		expect(events).toEqual([]);
-		expect(logs(calls)).toEqual([
-			expect.stringMatching(
-				/^gate-run budget of .+ held: its passed commit waits on the lander$/,
-			),
-		]);
+		for (const state of ["waiting", "landed"] as const) {
+			const { launches, events, calls } = tick(
+				[live()],
+				readOf(passed, { queueOf: () => ({ state }) }),
+			);
+			expect(launches[0]?.finishedAt).toBeNull();
+			expect(events).toEqual([]);
+			expect(logs(calls)).toEqual([
+				expect.stringMatching(
+					/^gate-run budget of .+ held: its passed commit waits on the lander$/,
+				),
+			]);
+		}
 		const unread = readOf(passed, {
 			queueOf: () => ({ state: "unread", why: "the remote is down" }),
 		});
-		expect(tick([live()], unread).events).toEqual([]);
+		const { events, calls } = tick([live()], unread);
+		expect(events).toEqual([]);
+		expect(logs(calls)).toEqual([
+			expect.stringMatching(
+				/^gate-run budget of .+ not judged: the remote is down$/,
+			),
+		]);
 	});
 
 	it("parks one whose commit waits on the lander but whose newest run is red, or whose passed commit left the queue (#5438)", () => {
 		const waiting = { queueOf: () => ({ state: "waiting" as const }) };
-		const redLast = [
+		/* Its one passed run is its oldest, so the order is judged, not the record's. */
+		const newestRed = [
 			...runsAgo(6),
 			{ ...gateRun(20), outcome: "pass" as const },
 		];
-		expect(tick([live()], readOf(redLast, waiting)).events).toHaveLength(1);
+		expect(tick([live()], readOf(newestRed, waiting)).events).toHaveLength(1);
 		const passed = [{ ...gateRun(5), outcome: "pass" as const }, ...runsAgo(6)];
 		expect(tick([live()], readOf(passed)).events).toHaveLength(1);
 	});

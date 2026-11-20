@@ -11,11 +11,15 @@
  * `.gate-runs.jsonl` records it (lib/gate-seat.js), matched by its `session`.
  * A landing is a commit of the session's on `origin/main`, dated by its commit
  * time, so the gate run that let that commit through counts before it. A
- * session whose newest gate run passed and whose queue ref has a stay queued
- * or under test is waiting on the lander, not rerunning the gate, so is never
- * parked (#5438). No park
+ * session whose newest gate run passed and whose queue ref has a stay queued,
+ * under test or landed is waiting on the lander, or on `origin/main` showing
+ * its landing, not rerunning the gate, so is never parked (#5438). No park
  * writes the session marker a normal-mode loop resumes parked sessions from
  * (lib/parked.js).
+ *
+ * Residual: a session whose stay landed and that then passes gate after gate
+ * without pushing is held while its newest run passes; and one parked between
+ * a passing run and its push, its queue ref reading no stay yet (#5438).
  */
 
 const { isActionable, launchName, stopJob } = require("./refill-block-core.js");
@@ -70,10 +74,11 @@ function budgetVerdict(l, read) {
 	if (runs.length < GATE_RUN_BUDGET) return null;
 	if (runs.at(-1)?.outcome !== "pass") return runs.length;
 	const queue = read.queueOf(l);
+	/* An unread queue ref parks nothing, as an unread landing does (#5273). */
 	if (queue.state === "unread") return { note: `not judged: ${queue.why}` };
-	return queue.state === "waiting"
-		? { note: "held: its passed commit waits on the lander" }
-		: runs.length;
+	return queue.state === "gone"
+		? runs.length
+		: { note: "held: its passed commit waits on the lander" };
 }
 
 /**
@@ -117,13 +122,13 @@ function parkOverBudget(launches, read, seen) {
 	const events = [];
 	const out = launches.map((l) => {
 		if (!isActionable(l) || l.jobId === null) return l;
-		const runs = budgetVerdict(l, read);
-		if (runs === null) return l;
-		if (typeof runs === "object") {
-			seen.io.log(`gate-run budget of ${launchName(l)} ${runs.note}`);
+		const verdict = budgetVerdict(l, read);
+		if (verdict === null) return l;
+		if (typeof verdict === "object") {
+			seen.io.log(`gate-run budget of ${launchName(l)} ${verdict.note}`);
 			return l;
 		}
-		const parked = parkOnBudget(/** @type {JobLaunch} */ (l), runs, seen);
+		const parked = parkOnBudget(/** @type {JobLaunch} */ (l), verdict, seen);
 		if (parked === null) return l;
 		events.push({
 			at: new Date(seen.now).toISOString(),
