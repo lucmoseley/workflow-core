@@ -13,7 +13,7 @@
  * time, so the gate run that let that commit through counts before it. A
  * session whose newest gate run passed and whose queue ref has a stay queued,
  * under test or landed is waiting on the lander, or on `origin/main` showing
- * its landing, not rerunning the gate, so is never parked (#5438). No park
+ * its landing, so is never parked (#5438). No park
  * writes the session marker a normal-mode loop resumes parked sessions from
  * (lib/parked.js).
  *

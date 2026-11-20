@@ -185,7 +185,6 @@ describe("the gate-run budget (#5275)", () => {
 
 	it("parks one whose commit waits on the lander but whose newest run is red, or whose passed commit left the queue (#5438)", () => {
 		const waiting = { queueOf: () => ({ state: "waiting" as const }) };
-		/* Its one passed run is its oldest, so the order is judged, not the record's. */
 		const newestRed = [
 			...runsAgo(6),
 			{ ...gateRun(20), outcome: "pass" as const },
