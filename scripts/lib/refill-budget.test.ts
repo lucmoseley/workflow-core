@@ -156,6 +156,36 @@ describe("the gate-run budget (#5275)", () => {
 		}
 	});
 
+	it("holds a session whose newest run passed and whose commit waits on the lander, and logs why (#5438)", () => {
+		const passed = [{ ...gateRun(5), outcome: "pass" as const }, ...runsAgo(6)];
+		const waiting = readOf(passed, {
+			queueOf: () => ({ state: "waiting" }),
+		});
+		const { launches, events, calls } = tick([live()], waiting);
+		expect(launches[0]?.finishedAt).toBeNull();
+		expect(events).toEqual([]);
+		expect(logs(calls)).toEqual([
+			expect.stringMatching(
+				/^gate-run budget of .+ held: its passed commit waits on the lander$/,
+			),
+		]);
+		const unread = readOf(passed, {
+			queueOf: () => ({ state: "unread", why: "the remote is down" }),
+		});
+		expect(tick([live()], unread).events).toEqual([]);
+	});
+
+	it("parks one whose commit waits on the lander but whose newest run is red, or whose passed commit left the queue (#5438)", () => {
+		const waiting = { queueOf: () => ({ state: "waiting" as const }) };
+		const redLast = [
+			...runsAgo(6),
+			{ ...gateRun(20), outcome: "pass" as const },
+		];
+		expect(tick([live()], readOf(redLast, waiting)).events).toHaveLength(1);
+		const passed = [{ ...gateRun(5), outcome: "pass" as const }, ...runsAgo(6)];
+		expect(tick([live()], readOf(passed)).events).toHaveLength(1);
+	});
+
 	it("logs a stop that fails and parks nothing, for the next tick to try again", () => {
 		const { launches, events, calls } = tick([live()], readOf(runsAgo(6)), {
 			stop: () => ({

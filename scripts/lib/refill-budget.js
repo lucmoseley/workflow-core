@@ -10,7 +10,10 @@
  * A gate run is one whole-suite start the commit gate queued, as
  * `.gate-runs.jsonl` records it (lib/gate-seat.js), matched by its `session`.
  * A landing is a commit of the session's on `origin/main`, dated by its commit
- * time, so the gate run that let that commit through counts before it. No park
+ * time, so the gate run that let that commit through counts before it. A
+ * session whose newest gate run passed and whose queue ref has a stay queued
+ * or under test is waiting on the lander, not rerunning the gate, so is never
+ * parked (#5438). No park
  * writes the session marker a normal-mode loop resumes parked sessions from
  * (lib/parked.js).
  */
@@ -31,12 +34,12 @@ const GATE_RUN_BUDGET = 6;
  */
 
 /**
- * How many gate runs `l`'s sessions ran since its last landing, else its
- * launch; null where its checkout's gate-run record will not read, and why
- * where its landing will not, so an unread landing never parks it (#5273).
+ * The gate runs `l`'s sessions ran since its last landing, else its launch,
+ * oldest first; null where its checkout's gate-run record will not read, and
+ * why where its landing will not, so an unread landing never parks it (#5273).
  * @param {LoopLaunch} l
  * @param {ThroughputRead} read
- * @returns {number|{unread: string}|null}
+ * @returns {import("./gate-seat.js").GateRun[]|{unread: string}|null}
  */
 function gateRunsSinceLanding(l, read) {
 	const runs = read.byRoot[l.root]?.gateRuns;
@@ -45,9 +48,32 @@ function gateRunsSinceLanding(l, read) {
 	if (!("at" in landing)) return landing;
 	const since = Math.max(l.launchedAt, landing.at ?? 0);
 	const ids = sessionIdsOf(l);
-	return runs.filter(
-		(r) => r.session !== null && ids.has(r.session) && Date.parse(r.at) > since,
-	).length;
+	return runs
+		.filter(
+			(r) =>
+				r.session !== null && ids.has(r.session) && Date.parse(r.at) > since,
+		)
+		.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
+}
+
+/**
+ * Whether `l` is parked this tick: its run count where it is, else null, or
+ * why it is not judged or is held.
+ * @param {LoopLaunch} l
+ * @param {ThroughputRead} read
+ * @returns {number|{note: string}|null}
+ */
+function budgetVerdict(l, read) {
+	const runs = gateRunsSinceLanding(l, read);
+	if (runs === null) return null;
+	if (!Array.isArray(runs)) return { note: `not judged: ${runs.unread}` };
+	if (runs.length < GATE_RUN_BUDGET) return null;
+	if (runs.at(-1)?.outcome !== "pass") return runs.length;
+	const queue = read.queueOf(l);
+	if (queue.state === "unread") return { note: `not judged: ${queue.why}` };
+	return queue.state === "waiting"
+		? { note: "held: its passed commit waits on the lander" }
+		: runs.length;
 }
 
 /**
@@ -91,14 +117,12 @@ function parkOverBudget(launches, read, seen) {
 	const events = [];
 	const out = launches.map((l) => {
 		if (!isActionable(l) || l.jobId === null) return l;
-		const runs = gateRunsSinceLanding(l, read);
-		if (runs !== null && typeof runs === "object") {
-			seen.io.log(
-				`gate-run budget of ${launchName(l)} not judged: ${runs.unread}`,
-			);
+		const runs = budgetVerdict(l, read);
+		if (runs === null) return l;
+		if (typeof runs === "object") {
+			seen.io.log(`gate-run budget of ${launchName(l)} ${runs.note}`);
 			return l;
 		}
-		if (runs === null || runs < GATE_RUN_BUDGET) return l;
 		const parked = parkOnBudget(/** @type {JobLaunch} */ (l), runs, seen);
 		if (parked === null) return l;
 		events.push({
