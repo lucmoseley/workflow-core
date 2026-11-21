@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 /*
  * check-swallowed-errors.js — base §N5's gate over Python: it refuses an
- * `except` a commit INTRODUCES that neither raises nor exits and cites no
- * ticket, narrow catches included, which ruff's BLE001 and E722 never see
- * (#1830). The walk is scripts/swallowed_errors.py, whose header owns what
- * counts as raising, exiting and citing.
+ * `except` a commit INTRODUCES that neither raises, exits nor hands its error
+ * to `fail_open`, narrow catches included, which ruff's BLE001 and E722 never
+ * see (#1830, #5487). The walk is scripts/swallowed_errors.py, whose header
+ * owns what counts as each.
  *
  * Usage:
  *   node scripts/check-swallowed-errors.js [--all]
@@ -41,7 +41,7 @@ const {
 const { spawnGitSync } = require("./lib/git.js");
 const { globMatches } = require("./lib/pathspec-glob.js");
 const { pythonRouteKind } = require("./lib/python-routes.js");
-const { readConfig, resolveKey } = require("./lib/workflow-core-config.js");
+const { readConfig } = require("./lib/workflow-core-config.js");
 const { caught } = require("./lib/caught.js");
 const { scriptPath } = require("./lib/script-path.js");
 
@@ -70,25 +70,12 @@ const PYTHON_INSTALL =
 	"sudo apt install python3, brew install python3, or python.org/downloads";
 
 /**
- * The repo names a citation may prefix: each corpus tracker's `name` half.
- * @returns {string[]}
- */
-const prefixes = () =>
-	/** @type {string[]} */ (resolveKey("corpus") ?? []).map(
-		(t) => t.split("/")[1] ?? t,
-	);
-
-/**
  * @param {Ctx} ctx
  * @param {Source[]} sources
  * @returns {Map<string, Result>}
  */
 function walk(ctx, sources) {
-	const r = spawn(
-		"python3",
-		[WALK],
-		JSON.stringify({ prefixes: prefixes(), sources }),
-	);
+	const r = spawn("python3", [WALK], JSON.stringify({ sources }));
 	if (r.error)
 		ctx.broken(
 			`cannot run python3: ${r.error.message}${
@@ -135,7 +122,7 @@ function charge(ctx, p, now, had) {
 		if (first === undefined || bs.length <= old) continue;
 		charged += bs.length - old;
 		const { function: fn, caught: clause } = first;
-		ctx.fail("SWALLOWED", `${p}: ${bs.length - old} uncited swallow in ${fn}`, {
+		ctx.fail("SWALLOWED", `${p}: ${bs.length - old} swallow in ${fn}`, {
 			path: p,
 			key: k,
 			introduced: bs.length - old,
@@ -143,9 +130,7 @@ function charge(ctx, p, now, had) {
 		// Which of the n is new cannot be told apart, so every one is listed.
 		const note =
 			old > 0 ? ` (${old} of these ${bs.length} were already in HEAD)` : "";
-		ctx.say(
-			`${p}: \`except ${clause}\` in ${fn} swallows and cites no ticket${note}`,
-		);
+		ctx.say(`${p}: \`except ${clause}\` in ${fn} swallows its error${note}`);
 		for (const b of bs) ctx.say(`  ${p}:${b.line}`);
 	}
 	return charged;
@@ -239,12 +224,12 @@ runCheck({
 		const scope = all ? "" : " introduced";
 		if (charged > 0) {
 			ctx.say(
-				"Each swallow says why at the site and cites the ticket that chose it, or raises or exits (base §N5, #1830).",
+				"Each `except` raises, exits, or hands its error to `fail_open` from scripts/lib/fail_open.py, which prints it, with a test pinning the fail-open (base §N5, #5487).",
 			);
-			return { noun: `uncited swallow(s)${scope}`, count: charged };
+			return { noun: `swallow(s)${scope}`, count: charged };
 		}
 		return {
-			okLine: `no uncited swallow${scope} across ${now.length} program-routed Python path(s)`,
+			okLine: `no swallow${scope} across ${now.length} program-routed Python path(s)`,
 		};
 	},
 });

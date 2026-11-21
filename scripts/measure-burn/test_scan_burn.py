@@ -23,6 +23,7 @@ import json
 import os
 import sys
 from collections import Counter
+from pathlib import Path
 
 import pytest
 
@@ -911,3 +912,52 @@ def test_an_unread_launch_record_refuses_rather_than_counting_overflow_as_plan(
         sb.main(["--all"])
     assert str(unreadable_launch_record) in str(e.value.code)
     assert "fix that read and re-run" in str(e.value.code)
+
+
+# --- fail-open sites (#5487) ---------------------------------------------------
+
+
+def test_an_unparsable_session_end_leaves_its_duration_out_and_says_so(corpus, capsys):
+    corpus("s1", [rec("r1", ts="not-a-date")])
+    tally = Counter()
+    sb.report(list(sb.requests(tally)), tally)
+    out, err = capsys.readouterr()
+    assert "(undated sessions: 1)" in out
+    assert "fail-open: session duration left out: ValueError" in err
+
+
+def test_an_unopenable_seat_history_is_left_out_of_roots_read(seats, capsys):
+    tally = Counter()
+    owner, _, read = sb.seat_map(tally)
+    assert (owner, read) == ({}, [])
+    assert "history left unread: FileNotFoundError" in capsys.readouterr().err
+
+
+def test_an_unparsable_history_line_is_counted_and_reported(seats, capsys):
+    seats(".claude", ["s1"])
+    home = Path(next(iter(sb.tc.seats())))
+    with open(home / "history.jsonl", "a") as fh:
+        fh.write("{not json\n")
+    tally = Counter()
+    owner, _, _ = sb.seat_map(tally)
+    assert owner == {"s1": sb.tc.seats()[str(home)]}
+    assert tally["unparsed history lines"] == 1
+    assert "fail-open: history line counted as unparsed" in capsys.readouterr().err
+
+
+def test_an_unreadable_account_leaves_the_seat_unnamed(seats, capsys):
+    seats(".claude", ["s1"])
+    home = Path(next(iter(sb.tc.seats())))
+    (home / ".claude.json").write_text("{not json")
+    assert sb.seat_accounts() == {}
+    err = capsys.readouterr().err
+    assert "account read as unknown: JSONDecodeError" in err
+
+
+def test_an_undated_request_is_left_out_of_its_seats_window(corpus, seats, capsys):
+    corpus("s1", [rec("r1", session="s1", ts="not-a-date")])
+    seats(".claude", ["s1"])
+    tally = Counter()
+    sb.seat_report(list(sb.requests(tally)), tally)
+    err = capsys.readouterr().err
+    assert "fail-open: request left out of its seat's peak window: ValueError" in err

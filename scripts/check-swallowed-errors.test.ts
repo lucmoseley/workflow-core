@@ -2,12 +2,12 @@
 
 /*
  * Pins check-swallowed-errors.js in an adopter-shaped repo: what it charges,
- * which citations pass, and which paths it judges (#1830).
+ * and which paths it judges (#1830, #5487).
  *
  * It is the pre-commit swallowed-error gate's judge in every repo: loosen a
- * case and an uncited swallow lands unrefused, or a commit is refused for
- * swallows it inherited or for a test file. What counts as a swallow and a
- * citation is swallowed_errors.py's, pinned by test_swallowed_errors.py.
+ * case and a swallow lands unrefused, or a commit is refused for swallows it
+ * inherited or for a test file. What counts as a swallow is
+ * swallowed_errors.py's, pinned by test_swallowed_errors.py.
  */
 
 import path from "node:path";
@@ -24,12 +24,14 @@ import { runInProcess } from "./lib/run-in-process.js";
 const temps = registerTempCleanup();
 const CHECKER = path.join(ROOT, "scripts", "check-swallowed-errors.js");
 const WAY_OUT =
-	/says why at the site and cites the ticket that chose it, or raises or exits/;
+	/raises, exits, or hands its error to `fail_open` from scripts\/lib\/fail_open\.py/;
 
 const PY = "tools/fetch.py";
 const ROUTES = { "tools/test_*.py": "test", "tools/**/*.py": "program" };
-const swallow = (comment = "", fn = "fetch") =>
-	`def ${fn}():\n    try:\n        return 1\n    except OSError:\n        return None${comment}\n`;
+const swallow = (fn = "fetch") =>
+	`def ${fn}():\n    try:\n        return 1\n    except OSError:\n        return None\n`;
+const REPORTED =
+	"from fail_open import fail_open\ndef fetch():\n    try:\n        return 1\n    except OSError as e:\n        fail_open(e, 'none')\n        return None\n";
 
 /** An adopter repo holding `committed` at HEAD and `staged` in the index. */
 function repo(
@@ -53,7 +55,7 @@ function check(r: TempRepo, args: string[] = []) {
 }
 
 describe("check-swallowed-errors in an adopter", () => {
-	it("refuses a narrow except that swallows and cites no ticket, naming it and the way out", () => {
+	it("refuses a narrow except that swallows its error, naming it and the way out", () => {
 		const { code, output } = check(repo({}, { [PY]: swallow() }));
 		expect(output).toMatch(/tools\/fetch\.py: `except OSError` in fetch/);
 		expect(output).toMatch(/tools\/fetch\.py:4/);
@@ -61,30 +63,20 @@ describe("check-swallowed-errors in an adopter", () => {
 		expect(code).toBe(1);
 	});
 
-	it("passes one citing the host's own #N, or a corpus repo's", () => {
-		for (const cite of ["  # unreachable host (#12)", "  # widgets#12"]) {
-			const { code, output } = check(repo({}, { [PY]: swallow(cite) }));
-			expect(output).toMatch(/no uncited swallow introduced across 1/);
-			expect(code).toBe(0);
-		}
-	});
-
-	it("refuses one citing a tracker outside the corpus", () => {
-		const { code, output } = check(
-			repo({}, { [PY]: swallow("  # gadgets#12") }),
-		);
-		expect(output).toMatch(WAY_OUT);
-		expect(code).toBe(1);
+	it("passes one that hands its error to fail_open", () => {
+		const { code, output } = check(repo({}, { [PY]: REPORTED }));
+		expect(output).toMatch(/no swallow introduced across 1/);
+		expect(code).toBe(0);
 	});
 
 	it("passes a swallow HEAD already had, moved down by an added line", () => {
 		const r = repo({ [PY]: swallow() }, { [PY]: `import os\n${swallow()}` });
 		const { code, output } = check(r);
-		expect(output).toMatch(/no uncited swallow introduced across 1/);
+		expect(output).toMatch(/no swallow introduced across 1/);
 		expect(code).toBe(0);
 	});
 
-	it("charges a second uncited swallow in a function that had one", () => {
+	it("charges a second swallow in a function that had one", () => {
 		const twice = swallow().replace(
 			"        return None\n",
 			"        return None\n    try:\n        pass\n    except OSError:\n        pass\n",
@@ -116,9 +108,9 @@ describe("check-swallowed-errors in an adopter", () => {
 	});
 
 	it("with --all, charges every swallow in the worktree, HEAD's included", () => {
-		const r = repo({ [PY]: swallow(), "tools/b.py": swallow("", "b") }, {});
+		const r = repo({ [PY]: swallow(), "tools/b.py": swallow("b") }, {});
 		const { code, output } = check(r, ["--all"]);
-		expect(output).toMatch(/FAIL: 2 uncited swallow/);
+		expect(output).toMatch(/FAIL: 2 swallow/);
 		expect(code).toBe(1);
 	});
 });

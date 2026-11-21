@@ -11,6 +11,11 @@ import os
 import sys
 from datetime import datetime
 
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib")
+)
+from fail_open import fail_open
+
 
 def ts(s):
     return datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
@@ -27,8 +32,8 @@ for f in glob.glob(os.path.join(d, ".test-logs", "runs-*.jsonl")):
     for line in open(f):
         try:
             rec = json.loads(line)
-        except ValueError:
-            # A torn or partial line is skipped, as #2812 read the stores.
+        except ValueError as e:
+            fail_open(e, f"torn line in {f} skipped")
             continue
         a = ts(rec["startedAt"])
         b = ts(rec["endedAt"])

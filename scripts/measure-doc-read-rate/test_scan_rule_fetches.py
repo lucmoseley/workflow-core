@@ -401,3 +401,31 @@ def test_the_default_corpus_counts_sessions_on_both_seat_roots(seat_roots):
         (r / f"{name}.jsonl").write_text(json.dumps(injection()) + "\n")
     sessions, _ = srf.scan_dir()
     assert len(sessions) == 2
+
+
+# --- fail-open sites (#5487) ---------------------------------------------------
+
+
+def test_an_unreadable_guard_reads_as_no_ids_and_says_so(tmp_path, capsys):
+    (tmp_path / srf.GUARD).unlink()
+    assert srf.guard_ids() == set()
+    assert "fail-open: guard read as no rule ids: FileNotFoundError" in (
+        capsys.readouterr().err
+    )
+
+
+def test_a_guard_rule_whose_fragment_will_not_open_gets_no_needle(tmp_path, capsys):
+    (tmp_path / "docs" / "agents" / "rules" / "close-outstanding-line.txt").unlink()
+    assert srf.needles() == {}
+    assert (
+        "fail-open: rule close-outstanding-line given no needle: FileNotFoundError"
+        in capsys.readouterr().err
+    )
+
+
+def test_a_missing_store_reads_as_empty_and_says_so(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("WFC_RULES_DIR", str(tmp_path / "no-store"))
+    assert srf.store_ids() == set()
+    assert "fail-open: rule store read as empty: FileNotFoundError" in (
+        capsys.readouterr().err
+    )

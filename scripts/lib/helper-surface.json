@@ -16,6 +16,7 @@
 			"parseCliArgs",
 			"releaseClaim"
 		],
+		"scripts/lib/fail_open.py": ["fail_open"],
 		"scripts/lib/guard-log.sh": ["gl_log"],
 		"scripts/lib/hook-envelope.js": ["envelope"],
 		"scripts/lib/kept-spawn.js": ["keptSpawn", "REASONS"],

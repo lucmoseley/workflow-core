@@ -15,6 +15,7 @@ import subprocess
 from typing import NamedTuple
 
 import transcript_corpus as tc
+from fail_open import fail_open
 from wfc_bin import bin_path
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
@@ -54,7 +55,8 @@ def parent_transcripts(tally, find):
         try:
             with open(fp, encoding="utf-8", errors="replace") as fh:
                 raw = fh.read()
-        except OSError:
+        except OSError as error:
+            fail_open(error, f"{fp} counted unreadable")
             tally[tc.UNREADABLE] += 1
             continue
         found = find(raw)

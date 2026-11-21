@@ -126,3 +126,19 @@ def test_every_patch_is_undone_after_a_throwing_call(tmp_path, monkeypatch):
         call_cost(LAZY, ["throw"], cwd=tmp_path, env={"ONLY": "1"})
     assert "RuntimeError: boom" in str(raised.value)
     assert _patched_state() == before
+
+
+def test_a_program_that_closes_its_own_stdout_still_exits_cleanly(tmp_path):
+    probe = tmp_path / "scripts" / "closer.py"
+    probe.parent.mkdir()
+    probe.write_text("import sys\nprint('kept')\nsys.stdout.close()\n")
+    r = call_cost(probe, cwd=tmp_path)
+    assert (r.code, r.stderr) == (0, "")
+
+
+def test_a_non_int_exit_is_printed_as_exit_1_as_under_python3(tmp_path):
+    probe = tmp_path / "scripts" / "quitter.py"
+    probe.parent.mkdir()
+    probe.write_text("import sys\nsys.exit('gave up')\n")
+    r = call_cost(probe, cwd=tmp_path, expect_status=1, allow_stderr=True)
+    assert r.stderr == "gave up\n"

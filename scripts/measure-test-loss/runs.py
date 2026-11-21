@@ -13,6 +13,11 @@ import os
 import sys
 from datetime import datetime
 
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib")
+)
+from fail_open import fail_open
+
 
 def pct(xs, p):
     if not xs:
@@ -52,8 +57,8 @@ if not os.path.exists(p):
 for line in open(p, errors="replace"):
     try:
         r = json.loads(line)
-    except ValueError:
-        # A torn or partial line is skipped, as #2812 read the stores.
+    except ValueError as e:
+        fail_open(e, f"torn line in {p} skipped")
         continue
     if not r.get("startedAt") or r.get("durationMs") is None:
         continue

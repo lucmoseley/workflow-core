@@ -28,6 +28,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
+from fail_open import fail_open
 from host_root import host_root
 
 SUBCOMMAND_SPLIT = re.compile(r"&&|\|\||;|\|")
@@ -75,9 +76,8 @@ def load_layers(paths: list[str]) -> list[dict]:
         try:
             with open(p) as fh:
                 layers.append(json.load(fh))
-        except FileNotFoundError:
-            # Named so an unset plugin root is not mistaken for an empty set (#2783).
-            print(f"hookset: no layer at {p}", file=sys.stderr)
+        except FileNotFoundError as e:
+            fail_open(e, f"no layer at {p}")
             continue
     return layers
 

@@ -22,6 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
+from fail_open import fail_open
 from context_cost import grossed_up, price, window_cost
 from delivery_scan import (
     REPO,
@@ -156,7 +157,7 @@ def sizes_by_date(start, end):
         try:
             out[day] = ledger_bytes_at(sha)
         except SystemExit as e:
-            print(f"  ! {day} ({sha[:8]}) dropped from the series: {e}")
+            fail_open(e, f"{day} ({sha[:8]}) dropped from the series")
     return out
 
 

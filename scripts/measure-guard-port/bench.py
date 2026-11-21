@@ -66,6 +66,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gitop
+from fail_open import fail_open
 from host_root import host_root
 from machine import machine_state
 
@@ -174,10 +175,8 @@ def one_call(cmds: list[str], body: bytes, env: dict, root: str) -> dict:
         try:
             p.stdin.write(body)
             p.stdin.close()
-        except BrokenPipeError:
-            # A hook that exits without reading its stdin is still a hook run;
-            # its exit and output are read below like any other (#2783).
-            pass
+        except BrokenPipeError as e:
+            fail_open(e, "hook run without its stdin read")
         # Closed already: communicate() would flush it again.
         p.stdin = None
     denies = 0
@@ -210,8 +209,8 @@ def reap_orphans() -> int:
     while True:
         try:
             pid, _ = os.waitpid(-1, os.WNOHANG)
-        except ChildProcessError:
-            # No child at all, so none still running (#3216).
+        except ChildProcessError as e:
+            fail_open(e, "no child left, none counted running")
             return 0
         if pid == 0:
             break
@@ -224,8 +223,8 @@ def reap_orphans() -> int:
             continue
         try:
             stat = (d / "stat").read_text()
-        except OSError:
-            # The process exited between the listing and the read (#3216).
+        except OSError as e:
+            fail_open(e, f"pid {d.name} skipped as exited")
             continue
         # The command name may hold spaces; the fields after its closing
         # parenthesis start at the state (field 3).
@@ -247,8 +246,8 @@ def reaped(pid: int) -> bool:
         try:
             if os.waitpid(pid, os.WNOHANG)[0]:
                 return True
-        except ChildProcessError:
-            # Reaped already, so not running (#3657).
+        except ChildProcessError as e:
+            fail_open(e, f"pid {pid} counted as reaped")
             return True
         if time.monotonic() > deadline:
             return False

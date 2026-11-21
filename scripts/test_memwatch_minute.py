@@ -13,13 +13,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
 import memwatch_minute as m
 
 
-def test_the_newest_whole_line_stands_over_a_torn_one(tmp_path):
+def test_the_newest_whole_line_stands_over_a_torn_one(tmp_path, capsys):
     log = tmp_path / "minute.jsonl"
     log.write_text(
         json.dumps({"ts": "2026-11-09T20:00:02+0800", "win_avail_mb": 900}) + "\n"
         '{"ts": "2026-11-09T20:0'
     )
     assert m.newest_line(log)["win_avail_mb"] == 900
+    err = capsys.readouterr().err
+    assert "fail-open: torn minute line skipped" in err
 
 
 def test_a_missing_log_raises(tmp_path):
@@ -42,7 +44,9 @@ def test_a_null_reading_is_no_sample():
 def test_an_unreadable_ts_is_no_sample_and_says_so(capsys):
     line = {"ts": "yesterday", "win_avail_mb": 900, "win_age_s": 5}
     assert m.win_sample(line) is None
-    assert "unreadable minute-line ts" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "fail-open:" in err
+    assert "minute line with ts 'yesterday' read as no sample" in err
 
 
 def test_format_ts_reads_back():

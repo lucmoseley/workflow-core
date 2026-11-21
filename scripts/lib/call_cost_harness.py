@@ -182,13 +182,23 @@ def _record_starts(children: list[str], root: str, cwd: str):
     return restore
 
 
-def _exit_code(exc: SystemExit) -> int:
-    if exc.code is None:
-        return 0
-    if isinstance(exc.code, int):
-        return exc.code
-    print(exc.code, file=sys.stderr)
-    return 1
+def _invoke(script: str) -> int:
+    """Runs `script` as `__main__` and returns its exit as python3 would: a
+    `SystemExit`'s code, a non-int one printed as exit 1, and an escaping
+    exception's traceback printed as exit 1."""
+    try:
+        runpy.run_path(script, run_name="__main__")
+    except SystemExit as exc:
+        if exc.code is None:
+            return 0
+        if isinstance(exc.code, int):
+            return exc.code
+        print(exc.code, file=sys.stderr)
+        return 1
+    except Exception:  # noqa: BLE001 - python3 prints any escaping exception
+        print(traceback.format_exc(), end="", file=sys.stderr)
+        return 1
+    return 0
 
 
 def _run(script: str, argv: list[str], *, cwd: str, env, stdin: str | bytes) -> tuple:
@@ -221,24 +231,10 @@ def _run(script: str, argv: list[str], *, cwd: str, env, stdin: str | bytes) -> 
         if env is not None:
             os.environ.clear()
             os.environ.update(env)
-        try:
-            runpy.run_path(script, run_name="__main__")
-            code = 0
-        except (
-            SystemExit
-        ) as exc:  # the program's exit is its code, as under python3 (#5338)
-            code = _exit_code(exc)
-        except Exception:  # noqa: BLE001 - an escaping exception is exit 1, as under python3 (#5338)
-            traceback.print_exc()
-            code = 1
+        code = _invoke(script)
         for stream in (sys.stdout, sys.stderr):
-            try:
+            if not stream.closed:
                 stream.flush()
-            except (
-                OSError,
-                ValueError,
-            ):  # a stream the program closed has nothing left to flush (#5338)
-                pass
     finally:
         os.environ.clear()
         os.environ.update(saved_env)

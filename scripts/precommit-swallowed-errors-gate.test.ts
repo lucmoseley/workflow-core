@@ -5,8 +5,8 @@
  *
  * How the checker judges is scripts/check-swallowed-errors.test.ts's; this
  * suite owns the shell: when it runs, that a refusal stops the commit, and
- * that a missing python3 refuses rather than skips. Loosen a case and an
- * uncited swallow lands unrefused in every repo the plugin runs in.
+ * that a missing python3 refuses rather than skips. Loosen a case and a
+ * swallow lands unrefused in every repo the plugin runs in.
  */
 
 import { execFileSync } from "node:child_process";
@@ -95,17 +95,20 @@ describe("the pre-commit swallowed-error gate", () => {
 		expect(code).toBe(0);
 	});
 
-	it("refuses a staged uncited swallow, naming the rule", () => {
+	it("refuses a staged swallow, naming the rule", () => {
 		const { code, output } = runGate(fixture({ [PY]: SWALLOW }));
 		expect(output).toMatch(/tools\/fetch\.py:5/);
 		expect(output).toMatch(/swallowed-error gate refused.*\n.*base §N5/);
 		expect(code).toBe(1);
 	});
 
-	it("passes a staged swallow that cites a ticket", () => {
-		const cited = SWALLOW.replace("None\n", "None  # host gone (#12)\n");
-		const { code, output } = runGate(fixture({ [PY]: cited }));
-		expect(output).toMatch(/OK: no uncited swallow introduced/);
+	it("passes a staged except that hands its error to fail_open", () => {
+		const reported = SWALLOW.replace(
+			"except OSError:\n",
+			"except OSError as e:\n        fail_open(e, 'none')\n",
+		).replace("def fetch", "from fail_open import fail_open\ndef fetch");
+		const { code, output } = runGate(fixture({ [PY]: reported }));
+		expect(output).toMatch(/OK: no swallow introduced/);
 		expect(code).toBe(0);
 	});
 
@@ -115,7 +118,7 @@ describe("the pre-commit swallowed-error gate", () => {
 		expect(output).toMatch(/cannot run python3/);
 		expect(output).toMatch(/install it: sudo apt install python3/);
 		expect(output).toMatch(/refused this commit, its checker unable to run/);
-		expect(output).not.toMatch(/Say why at the site/);
+		expect(output).not.toMatch(/hand it to fail_open/);
 		expect(output).not.toMatch(/own Python paths/);
 		expect(code).toBe(2);
 	});

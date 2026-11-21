@@ -17,6 +17,8 @@ import gzip
 import os
 from collections import Counter
 
+import pytest
+
 import sample_session_memory as m
 
 
@@ -124,7 +126,7 @@ def test_analyse_prices_working_samples_apart_from_finished_resident_ones():
 
 
 def test_a_torn_last_line_is_dropped_and_counted_against_its_file_not_failing_the_read(
-    tmp_path,
+    tmp_path, capsys
 ):
     path = tmp_path / "sessions.csv"
     path.write_text("ts,own_pss_kb,desc_pss_kb\n1,100,200\n2,10")
@@ -132,6 +134,7 @@ def test_a_torn_last_line_is_dropped_and_counted_against_its_file_not_failing_th
     rows = m.read_rows(str(path), ("ts", "own_pss_kb", "desc_pss_kb"), torn)
     assert [r["ts"] for r in rows] == ["1"]
     assert torn == {"sessions.csv": 1}
+    assert "fail-open: row of sessions.csv dropped" in capsys.readouterr().err
 
 
 def test_a_gzipped_csv_is_read_where_the_plain_one_is_absent(tmp_path):
@@ -148,6 +151,55 @@ def test_sessions_are_listed_by_the_binary_wfc_claude_bin_names(stub_bin, monkey
     monkeypatch.setenv("WFC_CLAUDE_BIN", path)
     assert m.list_sessions() == [{"pid": 7}]
     assert calls() == ["agents --json"]
+
+
+def test_an_unparsable_session_list_is_none_and_named(stub_bin, monkeypatch, capsys):
+    path, _ = stub_bin("claude", "not json")
+    monkeypatch.setenv("WFC_CLAUDE_BIN", path)
+    assert m.list_sessions() is None
+    assert (
+        "fail-open: session list kept from the last sample" in capsys.readouterr().err
+    )
+
+
+# Above pid_max, so no live process owns it.
+GONE = 99_999_999
+
+
+def test_a_pid_gone_before_its_stat_reads_is_left_out_of_the_table(monkeypatch, capsys):
+    # A pid exiting between /proc's listing and its stat read is a race no
+    # fixture can time.
+    monkeypatch.setattr(m.os, "listdir", lambda _: [str(GONE)])
+    assert m.read_proc_table() == {}
+    assert (
+        f"fail-open: pid {GONE} left out of the proc table" in capsys.readouterr().err
+    )
+
+
+@pytest.mark.parametrize(
+    "read, fallback, instead",
+    [
+        (lambda: m.pss_kb(GONE), None, f"pid {GONE} PSS read as gone"),
+        (lambda: m.cmdline(GONE), [], f"pid {GONE} argv read as empty"),
+        (
+            lambda: m.environ_var(GONE, "CLAUDE_CONFIG_DIR"),
+            None,
+            f"pid {GONE} CLAUDE_CONFIG_DIR read as unset",
+        ),
+    ],
+)
+def test_a_gone_pids_read_falls_back_and_is_named(read, fallback, instead, capsys):
+    assert read() == fallback
+    assert f"fail-open: {instead}" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("text", [None, "{torn"])
+def test_an_unreadable_or_torn_marker_is_none_and_named(tmp_path, capsys, text):
+    path = tmp_path / "marker.json"
+    if text is not None:
+        path.write_text(text)
+    assert m.read_marker(str(path)) is None
+    assert f"fail-open: {path} read as no marker" in capsys.readouterr().err
 
 
 def test_summarise_gives_the_mean_and_sd_the_aggregate_draw_is_declared_from():

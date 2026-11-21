@@ -56,6 +56,7 @@ sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib")
 )
 import transcript_corpus as tc
+from fail_open import fail_open
 
 # Ordered so the report reads low -> high whatever the corpus holds.
 ARM_ORDER = ["low", "medium", "high", "xhigh"]
@@ -183,8 +184,8 @@ def _minutes(t0, t1):
         a = dt.datetime.fromisoformat(t0.replace("Z", "+00:00"))
         b = dt.datetime.fromisoformat(t1.replace("Z", "+00:00"))
         return (b - a).total_seconds() / 60
-    except (AttributeError, TypeError, ValueError):
-        # `band` drops the None; `report` prints how many (#1274).
+    except (AttributeError, TypeError, ValueError) as e:
+        fail_open(e, "session minutes read as None")
         return None
 
 

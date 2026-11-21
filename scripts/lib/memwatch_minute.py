@@ -5,10 +5,11 @@
 
 import json
 import os
-import sys
 from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
+
+from fail_open import fail_open
 
 MINUTE_LOG = Path.home() / "memwatch-minute.jsonl"
 # Read from the log's end: a line is ~800 bytes, so this holds several whole
@@ -34,8 +35,8 @@ def json_lines(raw_lines):
     for raw in raw_lines:
         try:
             yield json.loads(raw)
-        except ValueError:
-            # A line still being written, or torn by a killed run; the rest stand (#4791).
+        except ValueError as error:
+            fail_open(error, "torn minute line skipped")
             continue
 
 
@@ -60,7 +61,6 @@ def win_sample(line):
         return None
     try:
         return WinSample(parse_ts(ts) - age, avail)
-    except ValueError:
-        # No reading; said, so a malformed memwatch line shows in the journal (#4791).
-        print(f"unreadable minute-line ts: {ts!r}", file=sys.stderr)
+    except ValueError as error:
+        fail_open(error, f"minute line with ts {ts!r} read as no sample")
         return None

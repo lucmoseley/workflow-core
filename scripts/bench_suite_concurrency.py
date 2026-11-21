@@ -59,6 +59,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import claude_sessions
+from fail_open import fail_open
 from wfc_bin import bin_path
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -101,8 +102,8 @@ def parse_ppid(stat_text):
     """
     try:
         return int(stat_text[stat_text.rindex(")") + 2 :].split()[1])
-    except (ValueError, IndexError):
-        # A process exiting mid-read; it has no RSS left to count (#1274).
+    except (ValueError, IndexError) as e:
+        fail_open(e, "torn stat read as an exited process")
         return None
 
 
@@ -111,9 +112,8 @@ def parse_cpu_ticks_and_rss(stat_text, statm_text):
     try:
         tail = stat_text[stat_text.rindex(")") + 2 :].split()
         return int(tail[11]) + int(tail[12]), int(statm_text.split()[1]) * PAGE
-    except (ValueError, IndexError):
-        # As parse_ppid: a torn read is an exiting process, whose CPU `seen`
-        # already holds (#1274).
+    except (ValueError, IndexError) as e:
+        fail_open(e, "torn stat/statm read as an exited process")
         return None
 
 
@@ -152,9 +152,8 @@ def children_map():
         try:
             with open(f"/proc/{pid}/stat") as f:
                 stat_text = f.read()
-        except OSError:
-            # Exited between listdir and open; nothing of it is left to map
-            # (#1274).
+        except OSError as e:
+            fail_open(e, f"pid {pid} left out of the process tree")
             continue
         ppid = parse_ppid(stat_text)
         if ppid is not None:
@@ -178,8 +177,8 @@ def proc_stats(pid):
             stat_text = f.read()
         with open(f"/proc/{pid}/statm") as f:
             statm_text = f.read()
-    except OSError:
-        # Gone since the tree was mapped — the docstring's None (#1274).
+    except OSError as e:
+        fail_open(e, f"pid {pid} read as gone")
         return None
     return parse_cpu_ticks_and_rss(stat_text, statm_text)
 
@@ -196,9 +195,8 @@ def volunteer(pid):
         with open(f"/proc/{pid}/oom_score_adj", "w") as f:
             f.write("1000")
         return True
-    except OSError:
-        # Exited before it could be volunteered; no caller reads the False
-        # (#1274).
+    except OSError as e:
+        fail_open(e, f"pid {pid} not volunteered")
         return False
 
 
@@ -406,10 +404,8 @@ class Watchdog:
     def _killpg(pgid):
         try:
             os.killpg(pgid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError):
-            # The group exited before the kill landed, or its pgid was reused
-            # by a process not ours; either way nothing of ours is left (#1274).
-            pass
+        except (ProcessLookupError, PermissionError) as e:
+            fail_open(e, f"process group {pgid} left unkilled")
 
     def arm(self, pgids):
         """Reset state over a fresh set of process groups. Starts no thread —
