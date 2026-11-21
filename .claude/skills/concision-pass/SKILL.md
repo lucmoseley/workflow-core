@@ -289,14 +289,13 @@ reaches by pointer) the test is model-relative: does it change behaviour versus
 the model's default? `writing-for-agents` §Pruning holds it, under no-ops.
 Founder-facing prose keeps the reader test above.
 
-**Comments in code**, where the repo's coding standards link
+**Comments in code**, where a coding-standards source links
 `docs/comment-kinds.md`, are judged against that keep-list first. A comment
 that fits no kind there, or has a kind's form but fails its keep-when test, is
 cut whatever a reader would lose; its tie rule binds — unsure, the comment
 dies. A comment that is its kind is still judged by the criteria below, its
 kind's form kept. Judge only comments this change added: pre-existing ones go
-to the comment sweeps (#5493–#5495), which build the test or check a comment
-stood in for before cutting it.
+to the comment sweeps (#5493–#5495).
 
 Reliably fails:
 

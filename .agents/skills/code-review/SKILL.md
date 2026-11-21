@@ -6,7 +6,7 @@ Review of the diff between `HEAD` and a fixed point the user supplies, on up to 
 
 - **Standards**: does the code conform to this repo's documented coding standards?
 - **Spec**: does the code faithfully implement the originating issue / spec?
-- **Comments**: is each comment the diff adds a kind `docs/comment-kinds.md` permits? It runs only where a standards source from step 3 links that file and the diff adds a comment or doc comment.
+- **Comments**: is each comment the diff adds a kind `docs/comment-kinds.md` permits? It runs only where a coding-standards source links that file and the diff adds a comment or doc comment.
 
 The axes run as **parallel sub-agents** so they don't pollute each other's context, then this skill aggregates their findings. Start every sub-agent with a fresh context window.
 
@@ -89,7 +89,7 @@ path — a relative one resolves inside that worktree, out of the parent's sight
 
 - The diff command and commit list.
 - `docs/comment-kinds.md` pasted in full (the sub-agent has no other access to it).
-- The brief: "Judge every comment and doc comment the diff adds against the pasted keep-list — never one the diff only moves or leaves in place. A type annotation the type-checker reads is code: skip it. Report each added comment that fits no kind, or has a kind's form but fails its keep-when test: quote it, name the kind it claims (or `none`), and say what replaces it — deletion, or the name, type, test, check or issue that carries it, leaving a bare `#N` only where K5 allows one. Apply the tie rule: unsure means it goes. On a mixed comment, report the part that goes and the part that stays. Each finding is a hard violation. Then list each kept comment in one line with its kind. Under 400 words."
+- The brief: "Judge every comment and doc comment the diff adds against the pasted keep-list — never one the diff only moves or leaves in place. Report each added comment that fits no kind, or has a kind's form but fails its keep-when test: quote it, name the kind it claims (or `none`), and say what replaces it — deletion, or the name, type, test, check or issue that carries it. Apply the tie rule: unsure means it goes. On a mixed comment, report the part that goes and the part that stays. Each finding is a hard violation. Then list each kept comment in one line with its kind. Under 400 words."
 
 If the spec is missing, skip the Spec sub-agent and note this in the final report.
 
