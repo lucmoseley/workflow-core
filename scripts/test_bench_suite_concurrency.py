@@ -72,12 +72,10 @@ class TestWatchdogNeverSignalsAReapedGroup:
         assert victims == []
 
 
-def test_a_group_gone_is_left_unkilled_and_named(bench, capsys):
+def test_a_group_gone_before_the_kill_is_passed_silently(bench, capsys):
     # Above pid_max, so no live process group has it.
-    gone = 99_999_999
-    assert bench.Watchdog._killpg(gone) is None
-    err = capsys.readouterr().err
-    assert f"fail-open: process group {gone} left unkilled: ProcessLookupError" in err
+    assert bench.Watchdog._killpg(99_999_999) is None
+    assert capsys.readouterr().err == ""
 
 
 def test_a_group_not_ours_is_left_unkilled_and_named(bench, monkeypatch, capsys):
@@ -173,14 +171,11 @@ class TestTornProcReadsAreSurvivable:
         # fixture can time.
         monkeypatch.setattr(bench.os, "listdir", lambda _: [str(self.GONE)])
         assert bench.children_map() == {}
-        assert (
-            f"fail-open: pid {self.GONE} left out of the process tree"
-            in capsys.readouterr().err
-        )
+        assert capsys.readouterr().err == ""
 
     def test_a_pid_gone_before_its_stats_read_is_none(self, bench, capsys):
         assert bench.proc_stats(self.GONE) is None
-        assert f"fail-open: pid {self.GONE} read as gone" in capsys.readouterr().err
+        assert capsys.readouterr().err == ""
 
     def test_a_pid_gone_before_it_is_volunteered_is_false(self, bench, capsys):
         assert bench.volunteer(self.GONE) is False

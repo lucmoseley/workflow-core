@@ -35,7 +35,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
-from fail_open import fail_open
+from fail_open import tallied
 
 DENY = re.compile(
     r"(?<!\S)(?=\S*docs/doc-map\.md)(\S+) (?:is held by session|cannot be claimed while it is covered)"
@@ -96,8 +96,7 @@ def scan(files, self_session, tally):
             try:
                 rec = json.loads(line)
             except ValueError as e:
-                fail_open(e, f"{path} line counted as unparsed")
-                tally[tc.UNPARSED] += 1
+                tallied(e, tally, tc.UNPARSED)
                 continue
             if rec.get("sessionId") == self_session:
                 continue

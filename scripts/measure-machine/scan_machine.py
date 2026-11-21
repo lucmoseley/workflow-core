@@ -44,7 +44,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
-from fail_open import fail_open
+from fail_open import fail_open, tallied
 
 UTC = dt.timezone.utc
 # The reset stamps and the founder's day are both Asia/Singapore. Fixed +08:00:
@@ -143,8 +143,7 @@ def read_syslogs(tally, pattern: str = DEFAULT_SYSLOGS):
             with opener(path, "rt", errors="ignore") as fh:
                 yield from fh
         except (OSError, EOFError) as e:
-            fail_open(e, f"{path} skipped")
-            tally["unreadable syslogs"] += 1
+            tallied(e, tally, "unreadable syslogs")
             continue
 
 
@@ -198,8 +197,7 @@ def transcript_spans(
                         first = m.group(1)
                     last = m.group(1)
         except OSError as e:
-            fail_open(e, f"{path} skipped")
-            tally[tc.UNREADABLE] += 1
+            tallied(e, tally, tc.UNREADABLE)
             continue
         if not first or not last:
             continue
@@ -207,8 +205,7 @@ def transcript_spans(
             a = dt.datetime.fromisoformat(first.replace("Z", "+00:00"))
             b = dt.datetime.fromisoformat(last.replace("Z", "+00:00"))
         except ValueError as e:
-            fail_open(e, f"{path} skipped as undated")
-            tally["undated files"] += 1
+            tallied(e, tally, "undated files")
             continue
         if since and b < since:
             continue
@@ -312,8 +309,7 @@ def headroom_readings(
                     rec.get("timestamp", "").replace("Z", "+00:00")
                 )
             except ValueError as e:
-                fail_open(e, f"record in {path} skipped as undated")
-                tally["undated records"] += 1
+                tallied(e, tally, "undated records")
                 continue
             if since and when < since:
                 continue
@@ -347,8 +343,7 @@ def scan_bash_commands(
                     rec.get("timestamp", "").replace("Z", "+00:00")
                 )
             except ValueError as e:
-                fail_open(e, f"record in {path} skipped as undated")
-                tally["undated records"] += 1
+                tallied(e, tally, "undated records")
                 continue
             if since and when < since:
                 continue

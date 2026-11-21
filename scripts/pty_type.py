@@ -17,6 +17,7 @@ Exit 0 once the text and Enter are written; 1 where the command drew nothing
 or exited first; 2 on a bad command line.
 """
 
+import errno
 import os
 import pty
 import select
@@ -26,7 +27,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
-from fail_open import fail_open
+from fail_open import expected
 
 # Untraced: this long with no output counts as drawn.
 SETTLE_S = 1.0
@@ -59,7 +60,8 @@ def drain(fd, quiet, limit):
         try:
             chunk = os.read(fd, 4096)
         except OSError as e:
-            fail_open(e, "command read as exited")
+            if e.errno != errno.EIO:
+                raise
             return seen, False
         if not chunk:
             return seen, False
@@ -93,7 +95,7 @@ def main(argv):
         try:
             os.kill(pid, signal.SIGTERM)
         except ProcessLookupError as e:
-            fail_open(e, f"pid {pid} read as already exited")
+            expected(e, f"pid {pid} already exited")
         os.waitpid(pid, 0)
         os.close(fd)
 

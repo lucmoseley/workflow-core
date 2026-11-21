@@ -46,7 +46,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
-from fail_open import fail_open
+from fail_open import fail_open, tallied
 
 # $ per Mtok, Opus 5 API list ratios. `cw` is the 5-minute cache write, 1.25x
 # fresh input; `cw1h` the 1-hour one, 2x (#1203).
@@ -592,8 +592,7 @@ def seat_map(tally):
                 try:
                     sid = json.loads(line).get("sessionId")
                 except (ValueError, AttributeError) as e:
-                    fail_open(e, "history line counted as unparsed")
-                    tally["unparsed history lines"] += 1
+                    tallied(e, tally, "unparsed history lines")
                     continue
                 if sid and owner.setdefault(sid, d) != d:
                     ambiguous.add(sid)

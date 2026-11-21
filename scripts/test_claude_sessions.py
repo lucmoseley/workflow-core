@@ -144,9 +144,7 @@ def test_live_cwd_reads_under_wfc_proc_and_is_none_for_a_pid_with_no_link(
     assert live_cwd(41) == SPARE
     assert capsys.readouterr().err == ""
     assert live_cwd(42) is None
-    err = capsys.readouterr().err
-    assert "fail-open:" in err
-    assert "pid 42 cwd read as claimed" in err
+    assert capsys.readouterr().err == ""
 
 
 @pytest.mark.skipif(

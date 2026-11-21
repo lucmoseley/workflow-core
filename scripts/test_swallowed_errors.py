@@ -39,6 +39,25 @@ def test_a_handler_that_raises_exits_or_reports_passes():
         assert breach_lines(imported(handler(body), line)) == [], body
 
 
+def test_tallied_passes_under_any_caught_type():
+    for line, body in (
+        ("from fail_open import tallied", "tallied(e, t, 'unparsed')"),
+        ("import fail_open as fo", "fo.tallied(e, t, 'unparsed')"),
+    ):
+        assert breach_lines(imported(handler(body), line)) == [], body
+
+
+def test_expected_passes_only_under_a_specific_caught_type():
+    line = "from fail_open import expected"
+    body = "expected(e, 'gone')"
+    for caught in ("ChildProcessError", "(FileNotFoundError, ProcessLookupError)"):
+        src = f"try:\n    x = 1\nexcept {caught} as e:\n    {body}\n"
+        assert breach_lines(imported(src, line)) == [], caught
+    for caught in ("OSError", "Exception", "(ProcessLookupError, OSError)"):
+        src = f"try:\n    x = 1\nexcept {caught} as e:\n    {body}\n"
+        assert breach_lines(imported(src, line)) == [4], caught
+
+
 def test_a_fail_open_not_imported_from_the_reporter_is_a_swallow():
     own = "def fail_open(e, s):\n    pass\n"
     assert breach_lines(own + handler("fail_open(e, 'skipped')")) == [5]

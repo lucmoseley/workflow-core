@@ -1,7 +1,8 @@
 """swallowed_errors.py — base §N5 over Python source: an `except` raises,
-exits, or hands the error it binds to `fail_open`, imported from the
-`fail_open` module (`scripts/lib/fail_open.py`), in a statement of its own
-body, so every path through the handler prints it (#1830, #5487).
+exits, or hands the error it binds to a reporter imported from the
+`fail_open` module (`scripts/lib/fail_open.py`) in a statement of its own
+body: `fail_open` or `tallied` under any caught type, `expected` only under a
+specific one, since it prints nothing (#1830, #5487, #5503).
 
 Run by scripts/check-swallowed-errors.js, which picks the program-routed paths
 from the host's config. stdin is `{"sources": [{"name": ..., "text": ...}]}`;
@@ -24,27 +25,44 @@ EXITS = {"sys.exit", "exit", "quit", "os._exit"}
 PARSERS = {"p", "ap", "parser"}
 
 
+REPORTERS = ("fail_open", "tallied", "expected")
+# The catch-alls `expected` may not take: under one, a fault reads as the
+# normal path and nothing is printed.
+BROAD = {"Exception", "BaseException", "OSError", "IOError", "EnvironmentError"}
+
+
 def reporters(tree):
-    """The spellings that reach `fail_open` from the `fail_open` module:
-    `fail_open` from a `from ... import`, `<alias>.fail_open` from an `import`."""
-    out = set()
+    """Each spelling that reaches a reporter from the `fail_open` module, to
+    the reporter's name: `<name>` from a `from ... import`, `<alias>.<name>`
+    from an `import`."""
+    out = {}
     for n in ast.walk(tree):
         if (
             isinstance(n, ast.ImportFrom)
             and (n.module or "").split(".")[-1] == "fail_open"
         ):
-            out |= {a.asname or a.name for a in n.names if a.name == "fail_open"}
+            for a in n.names:
+                if a.name in REPORTERS:
+                    out[a.asname or a.name] = a.name
         if isinstance(n, ast.Import):
-            out |= {
-                f"{a.asname or a.name}.fail_open"
-                for a in n.names
-                if a.name.split(".")[-1] == "fail_open"
-            }
+            for a in n.names:
+                if a.name.split(".")[-1] == "fail_open":
+                    for r in REPORTERS:
+                        out[f"{a.asname or a.name}.{r}"] = r
     return out
 
 
+def specific(handler):
+    """The handler names its caught types, and none is a catch-all."""
+    if handler.type is None:
+        return False
+    types = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
+    return all(ast.unparse(t).split(".")[-1] not in BROAD for t in types)
+
+
 def reports(handler, names):
-    """A statement of the handler's own body is `<reporter>(<bound>, ...)`."""
+    """A statement of the handler's own body is `<reporter>(<bound>, ...)`,
+    `expected` only where the handler is `specific`."""
     for stmt in handler.body:
         call = stmt.value if isinstance(stmt, ast.Expr) else None
         if (
@@ -54,14 +72,15 @@ def reports(handler, names):
             and call.args
             and isinstance(call.args[0], ast.Name)
             and call.args[0].id == handler.name
+            and (names[ast.unparse(call.func)] != "expected" or specific(handler))
         ):
             return True
     return False
 
 
 def fails_loudly(handler, names):
-    """Raises, exits, calls an argparse `.error`, hands its error to
-    `fail_open` in its own body, or prints and returns a non-zero exit code."""
+    """Raises, exits, calls an argparse `.error`, hands its error to a
+    reporter in its own body, or prints and returns a non-zero exit code."""
     if reports(handler, names):
         return True
     prints = any(
