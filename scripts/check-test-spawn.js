@@ -116,7 +116,7 @@ function unstatedSpawns(source) {
 		const at = m.index ?? 0;
 		if (src.isMasked(at)) continue;
 		const kept = source.slice(Math.max(0, at - 80), at).match(HELPER);
-		if (kept && REASONS.includes(kept[1] ?? "")) continue;
+		if (kept && REASONS.some((r) => r === kept[1])) continue;
 		const open = source.indexOf("(", at);
 		const close = src.closeOf(open);
 		if (

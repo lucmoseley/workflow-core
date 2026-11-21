@@ -8,6 +8,7 @@
  * called this way.
  */
 
+/** @type {readonly SpawnReason[]} */
 const REASONS = Object.freeze([
 	"timeout",
 	"signal",
