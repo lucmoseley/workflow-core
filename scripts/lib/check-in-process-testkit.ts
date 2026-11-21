@@ -7,13 +7,14 @@
  * FOR TESTS ONLY.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { checkInProcess } from "./check";
 import { type Files, ROW_FIXTURES } from "./check-in-process-row-fixtures";
 import { defineTemplate, mkScratchDir } from "./git-fixture";
+import { keptSpawn } from "./kept-spawn.js";
 import { armed } from "./precommit-arm.js";
 import { computed } from "./precommit-dispatch-ports.js";
 import type { GATES } from "./precommit-gates.js";
@@ -60,11 +61,15 @@ export const removeFixtures = () => {
 /* The fixture is also the run's host (CLAUDE_PROJECT_DIR), as the hook's
  * repo is its own: vitest.setup.ts points the host at an empty non-repo. */
 export const spawned = (script: string, args: string[], repo: string) => {
-	const r = spawnSync(process.execPath, [script, ...args], {
-		cwd: repo,
-		encoding: "utf8",
-		env: { ...process.env, CLAUDE_PROJECT_DIR: repo },
-	});
+	const r = keptSpawn("boundary").spawnSync(
+		process.execPath,
+		[script, ...args],
+		{
+			cwd: repo,
+			encoding: "utf8",
+			env: { ...process.env, CLAUDE_PROJECT_DIR: repo },
+		},
+	);
 	return { exit: r.status, stdout: r.stdout, stderr: r.stderr };
 };
 

@@ -87,6 +87,7 @@ it.each([
 		for (const [key, value] of Object.entries({ ...runEnv(), ...env() }))
 			if (value !== undefined && process.env[key] !== value)
 				vi.stubEnv(key, value);
+		// The real side is the shell's own adapter, lib/checker-run.js, which spawns the checker.
 		const real = await run();
 		const realEnvelope = parseEnvelope(real.stdout ?? "");
 		expect(realEnvelope, JSON.stringify(real)).not.toBeNull();

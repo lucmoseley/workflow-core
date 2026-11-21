@@ -1,3 +1,15 @@
+// @vitest-environment node
+/*
+ * Pins that the dispatcher still launches where the interop-probe library
+ * will not load (mantahostels#3111): a §N5 fail-open, so a program case
+ * (§X11 (4)). Loosen it and a broken library refuses every dispatch rather
+ * than failing open.
+ *
+ * Its own file because the shadow `scripts/` it builds links every file in
+ * scripts/lib through installLib, which makes this file a reader of each one
+ * in docs/test-read-edges.json: any lib change selects it rather than the
+ * whole dispatch suite (#2423).
+ */
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";

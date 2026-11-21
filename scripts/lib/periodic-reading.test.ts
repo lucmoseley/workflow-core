@@ -1,3 +1,10 @@
+// @vitest-environment node
+/*
+ * The gate a session-start reporter reads behind: its lock (#4016).
+ *
+ * Loosen it and two starts both read and both file, a live reading loses its
+ * lock to age, or a dead holder's lock stops the reporter for good.
+ */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

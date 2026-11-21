@@ -62,7 +62,7 @@ describe("check-test-spawn", () => {
 			"Fix: run it through `runInProcess` in the plugin's scripts/lib/run-in-process.js, `runInProcessAsync` for an async entry, as its header's contract states; or,",
 		);
 		expect(r.out).toContain(
-			'where §X3 keeps a spawn, call it through scripts/lib/kept-spawn.js as `keptSpawn("<reason>").spawnSync(process.execPath, …)` (or .spawn, .execFile, .execFileSync), the reason one of timeout, signal, concurrent, fd, boundary (#5483).',
+			'where §X3 keeps a spawn, call it through scripts/lib/kept-spawn.js as `keptSpawn("<reason>").spawnSync(process.execPath, …)` (or .spawn, .execFile, .execFileSync, which a fork or exec of node is rewritten as), the reason one of timeout, signal, concurrent, fd, boundary (#5483).',
 		);
 		expect(r.out).toContain("FAIL: 3 spawn(s) of node");
 	});
@@ -143,11 +143,22 @@ describe("check-test-spawn", () => {
 		test("scripts/b.test.ts", 'keptSpawn("").spawnSync("node", [SCRIPT]);\n');
 		test("scripts/c.test.ts", `// keptSpawn("fd") is why\n${SPAWN}`);
 		test("scripts/d.test.ts", `${SPAWN.trim()} // a real fd\n`);
+		test("scripts/e.test.ts", `// keptSpawn("fd").\n${SPAWN}`);
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain(
-			": scripts/a.test.ts:1, scripts/b.test.ts:1, scripts/c.test.ts:2, scripts/d.test.ts:1.",
+			": scripts/a.test.ts:1, scripts/b.test.ts:1, scripts/c.test.ts:2, scripts/d.test.ts:1, scripts/e.test.ts:2.",
 		);
+	});
+
+	it("credits keptSpawn to its own call alone, refusing the bare spawn after it", () => {
+		test(
+			"scripts/a.test.ts",
+			`const a = keptSpawn("fd").spawnSync("node", [SCRIPT], {\n\tcwd: root,\n});\n${SPAWN}`,
+		);
+		const r = run();
+		expect(r.status).toBe(1);
+		expect(r.out).toContain(": scripts/a.test.ts:4.");
 	});
 
 	it("identifies a spawn by its first line, whitespace collapsed, and its count among identical lines", () => {

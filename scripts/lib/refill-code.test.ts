@@ -27,7 +27,7 @@
  * sweep's children, or a boot starts from a working copy mid-edit or a link
  * left dangling.
  */
-import { type ChildProcess, execFileSync, spawn } from "node:child_process";
+import { type ChildProcess, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -223,7 +223,7 @@ describe("launchProgram", () => {
 		expect(fs.existsSync(first)).toBe(false);
 		expect(ino(second)).toBe(firstIno);
 		expect(git(second, "status", "--porcelain", "--ignored")).toBe("");
-		const holder = spawn(
+		const holder = keptSpawn("concurrent").spawn(
 			process.execPath,
 			["-e", "setInterval(() => {}, 1000)"],
 			{
@@ -420,7 +420,7 @@ describe("control commands from a stale checkout (#4337)", () => {
 			if ("error" in launch) throw new Error(launch.error);
 			return launch.program;
 		});
-		loopProc = spawn(
+		loopProc = keptSpawn("concurrent").spawn(
 			process.execPath,
 			["-e", "setInterval(() => {}, 1000)", pinned],
 			{ stdio: "ignore" },

@@ -13,7 +13,6 @@
  *
  * Break it and every suite fails at once, or a run outlives its case (#4140).
  */
-import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -45,6 +44,7 @@ import {
 	readHeadlessCalls,
 	writeHeadlessFake,
 } from "./headless-run-fake";
+import { keptSpawn } from "./kept-spawn.js";
 import { buildMeminfo } from "./meminfo-fake";
 import { writeNetProbeFake } from "./net-probe-fake";
 import { REAL_PROC } from "./proc-root.js";
@@ -289,7 +289,7 @@ export const run = (slots: number, over: NodeJS.ProcessEnv = {}) => {
 };
 
 export const spawnIdleHolder = (env: NodeJS.ProcessEnv) =>
-	spawn(
+	keptSpawn("concurrent").spawn(
 		process.execPath,
 		["-e", "setInterval(() => {}, 1000)", "refill-loop.js"],
 		{ env, stdio: "ignore" },
@@ -301,7 +301,9 @@ export const spawnIdleHolder = (env: NodeJS.ProcessEnv) =>
 export const SETTLE_MS = 20 * 1000;
 
 export const requestStop = () =>
-	spawnSync(process.execPath, [path.join(scripts, "request-stop.js")]);
+	keptSpawn("concurrent").spawnSync(process.execPath, [
+		path.join(scripts, "request-stop.js"),
+	]);
 
 /** Whether `promise` settles inside SETTLE_MS, with its value where it does. */
 export const within = async <T>(promise: Promise<T>) => {

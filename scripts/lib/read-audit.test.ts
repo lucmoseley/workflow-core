@@ -11,7 +11,7 @@
  * run are what is under test, which no seeded log reaches.
  */
 
-import { execFileSync, spawn as spawnAsync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -2470,7 +2470,7 @@ describe("arming", () => {
 		const root = checkout();
 		/* A run that arms the audit, names its directory and waits. */
 		const arm = () => {
-			const child = spawnAsync(
+			const child = keptSpawn("signal").spawn(
 				process.execPath,
 				[
 					"-e",

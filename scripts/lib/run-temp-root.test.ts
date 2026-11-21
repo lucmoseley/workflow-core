@@ -1,3 +1,10 @@
+// @vitest-environment node
+/*
+ * Each run's private temp root (#5083): made under the real temp dir with its
+ * owner's pid in the name, removed whole, and swept at a wrapper's start once
+ * that pid is dead. Loosen a case and a killed run's fixtures stay in `/tmp`,
+ * or a live run loses its root mid-run.
+ */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

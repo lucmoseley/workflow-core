@@ -4,12 +4,12 @@
  * an mtime long past any age test (#4016); and that live process on its own,
  * for a test that writes the pidfile itself.
  */
-import { spawn } from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
 import { expect, onTestFinished, vi } from "vitest";
 import { endedPid } from "./arbiter-testkit";
+import { keptSpawn } from "./kept-spawn.js";
 import { TEST_TIMEOUT_MS } from "./test-ceiling";
 
 const YEAR_MS = 365 * 24 * 3_600_000;
@@ -42,9 +42,13 @@ export function plantDeadLock(file: string) {
  * it is returned once `script` is there.
  */
 export async function liveScriptProcess(script: string) {
-	const proc = spawn(process.execPath, ["-e", HOLDER_CODE, script], {
-		stdio: "ignore",
-	});
+	const proc = keptSpawn("concurrent").spawn(
+		process.execPath,
+		["-e", HOLDER_CODE, script],
+		{
+			stdio: "ignore",
+		},
+	);
 	onTestFinished(() => {
 		proc.kill();
 	});

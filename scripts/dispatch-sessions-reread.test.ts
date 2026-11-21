@@ -1,3 +1,20 @@
+// @vitest-environment node
+/*
+ * Pins a /pick-next dispatch set's per-member re-read: the memory, CPU-load
+ * and CPU-session holds, the force flags, the launch stagger, the roster
+ * remedy, and the kernel-stall and scheduler-clock checks.
+ *
+ * Loosen a test here and a set launches past a memory or CPU gate, which is
+ * how the machine freezes.
+ *
+ * The stagger cases (mantahostels#2553) assert on a `sleep` stubbed onto PATH
+ * (#146): bash has no `sleep` builtin, so the script's own bare
+ * `sleep "$STAGGER_SECONDS"` resolves through PATH like any other command. Not
+ * a wall-clock ceiling: neighbour load breaches one.
+ *
+ * Over the run-cost budget (base §X8 (5)) by inheritance: its cases moved
+ * unchanged from dispatch-sessions.test.ts, whose cost was pre-existing (#2413).
+ */
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";

@@ -1,3 +1,10 @@
+// @vitest-environment node
+// Drives the away-only load (#5472) as a program against fakes of Testlimit,
+// taskkill and wevtutil at their WFC_ variables: a start on 15 idle minutes
+// holds memory and starts CPU workers, input stops both and logs the pair,
+// and after a new Kernel-Power 41 `recover` ends the runner and runs git fsck
+// in each repo. Break it and the load either never starts, or keeps loading
+// the laptop after the founder is back or after #5346 is already answered.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

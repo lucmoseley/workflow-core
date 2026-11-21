@@ -195,6 +195,7 @@ async function hookSignalled(id: string, signal: NodeJS.Signals) {
 	const { root, log, args, options } = hookCall(SCRIPT, {
 		act: `${id}:scratch`,
 	});
+	// A signal, sent to the hook's process group mid-row.
 	const sh = spawn("sh", args, {
 		...options,
 		detached: true,

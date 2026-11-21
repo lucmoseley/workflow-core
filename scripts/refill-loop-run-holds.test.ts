@@ -1,3 +1,35 @@
+// @vitest-environment node
+/*
+ * The refill loop's `run` driven end to end through a hold: the repo, probe
+ * and cleared holds with their phone notices, and the resume of a session its
+ * seat's limit held. Split from scripts/refill-loop-run-recovery.test.ts
+ * toward the 60 s per-file limit (#4602); its sandbox is
+ * lib/refill-loop-run-testkit.ts's.
+ *
+ * The testkit's `claude` stub types through lib/claude-attach-fake.ts, which
+ * answers from "scripts/fixtures/claude-attach.json": a re-recording selects
+ * this file.
+ *
+ * Over §X8 (5)'s 10 s budget: each case drives real ticks, some ten of the
+ * loop's own children apiece, none a fixture or a wait to cut (#4602).
+ *
+ * Loosen it and a fault in the program's own wiring, of its libs, children
+ * and exits, passes unseen (#2851).
+ *
+ * Why each case stays a full tick: refill-loop-run.test.ts's header keys the
+ * codes (A, E, S, F, R).
+ * - repo hold (#3857): its command run for real A. Probe hold (#3860): a
+ *   broken .git A, the other checkout A, the state's probe A, its parked
+ *   resumed A, a stored hold left out of a dry run's preview A (the hold
+ *   store read), the panel's waiting row naming it (#4736) A. Guard entry (#4226): raises and files A, attaches and
+ *   resumes A. Locked out (#4228): raises, attaches, holds and resumes A.
+ * - cleared repo hold (#3863): its raiser and attached resumed off a hand
+ *   lift A (repo-hold.js lift).
+ * - phone notice (#3871): one on raise, one on clear A (gh workflow).
+ * - limit hold (#3735): resumes under its seat A; the ledger hold A and its
+ *   swap A; moved to another plan seat A; onto a key A, its first overflow
+ *   start A.
+ */
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";

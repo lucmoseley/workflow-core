@@ -14,7 +14,6 @@
  * and the checkers' real spawns.
  */
 
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -229,7 +228,7 @@ describe("file-morning-review.js (#2011)", () => {
 		it("files nothing and exits 1 while another filing holds the lock, so the loop's next tick retries", async () => {
 			seed([]);
 			fs.mkdirSync(path.dirname(lockFile()), { recursive: true });
-			const holder = spawn(
+			const holder = keptSpawn("concurrent").spawn(
 				process.execPath,
 				["-e", "setInterval(() => {}, 1000)", path.basename(SCRIPT)],
 				{ stdio: "ignore" },

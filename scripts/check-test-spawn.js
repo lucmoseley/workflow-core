@@ -19,8 +19,8 @@
  * profile): an edit to that line reads as a new spawn, and moving it does not.
  *
  * THE STATED REASON is the call itself spelled `keptSpawn("<reason>").<fn>(`,
- * the reason one of lib/kept-spawn.js's REASONS. Any other spelling, a
- * comment included, states none.
+ * outside a comment or string, the reason one of lib/kept-spawn.js's REASONS.
+ * Any other spelling states none.
  *
  * IMPLICIT:  on every commit staging a test under scripts/ or .claude/skills/, refuses any spawn of `node` in the tree not called through `keptSpawn("<reason>")`, naming the file, line, run-in-process.js and kept-spawn.js.
  * JUSTIFIED: fail-safe — a spawn pays node's startup on every case (mantahostels#1907).
@@ -54,7 +54,7 @@ const HELPER = /\bkeptSpawn\(\s*["'`](\w*)["'`]\s*\)\s*\.\s*$/;
 
 const WHY = "spawns node on the program under test";
 const NOUN = "spawn(s) of node on the program under test";
-const FIX = `run it through \`runInProcess\` in the plugin's scripts/lib/run-in-process.js, \`runInProcessAsync\` for an async entry, as its header's contract states; or, where §X3 keeps a spawn, call it through scripts/lib/kept-spawn.js as \`keptSpawn("<reason>").spawnSync(process.execPath, …)\` (or .spawn, .execFile, .execFileSync), the reason one of ${REASONS.join(", ")} (#5483).`;
+const FIX = `run it through \`runInProcess\` in the plugin's scripts/lib/run-in-process.js, \`runInProcessAsync\` for an async entry, as its header's contract states; or, where §X3 keeps a spawn, call it through scripts/lib/kept-spawn.js as \`keptSpawn("<reason>").spawnSync(process.execPath, …)\` (or .spawn, .execFile, .execFileSync, which a fork or exec of node is rewritten as), the reason one of ${REASONS.join(", ")} (#5483).`;
 
 /**
  * @param {string} source
@@ -115,8 +115,13 @@ function unstatedSpawns(source) {
 	for (const m of source.matchAll(SPAWN)) {
 		const at = m.index ?? 0;
 		if (src.isMasked(at)) continue;
-		const kept = source.slice(Math.max(0, at - 80), at).match(HELPER);
-		if (kept && REASONS.some((r) => r === kept[1])) continue;
+		const kept = source.slice(0, at).match(HELPER);
+		if (
+			kept &&
+			!src.isMasked(kept.index ?? 0) &&
+			REASONS.some((r) => r === kept[1])
+		)
+			continue;
 		const open = source.indexOf("(", at);
 		const close = src.closeOf(open);
 		if (
