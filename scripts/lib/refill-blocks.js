@@ -448,6 +448,7 @@ function markParked(launches, agents, causeOf, now) {
 const buildBlock = (reading, since) => ({
 	cause: reading.cause,
 	...("sub" in reading ? { sub: reading.sub } : {}),
+	...("billing" in reading ? { billing: reading.billing } : {}),
 	...("bar" in reading ? { bar: reading.bar } : {}),
 	...("lockout" in reading ? { lockout: reading.lockout } : {}),
 	since,

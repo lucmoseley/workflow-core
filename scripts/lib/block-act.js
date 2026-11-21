@@ -55,6 +55,7 @@ const SYNTHETIC_TRIES = 2;
  *   `resume-in-place`, a limit-blocked one back on its own seat; `move`, one
  *   onto the other seat the move pick walks to, under its own session id
  * @typedef {{cause: Cause, sub?: import("./block-cause.js").ApiErrorKind,
+ *   billing?: true,
  *   bar?: import("./block-cause.js").LimitBar, since: number, tries?: number, nextAt?: number, triedAt?: number,
  *   held?: boolean, typing?: boolean, swapHeld?: boolean, seat?: string,
  *   movePick?: Pick<import("./refill-limits.js").MoveTarget, "seat"|"keyVar">|null,
