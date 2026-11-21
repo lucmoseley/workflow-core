@@ -7,7 +7,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { readCommitsBy } = require("./arbiter-ledger.js");
-const { parseErrorText } = require("./caught.js");
+const { orFallback, parseErrorText } = require("./caught.js");
 const { readText } = require("./file-read.js");
 const { gateRunLogPath, readGateRunsAt } = require("./gate-seat.js");
 const { gitOrNull } = require("./git.js");
@@ -18,6 +18,7 @@ const { isLoopJob, jobKeyOf, loopJobsPath } = require("./loop-jobs.js");
 const { queueGit } = require("./queue-lander-adapters.js");
 const { queueLogFile, readQueueRows } = require("./queue-log.js");
 const { readQueueStays } = require("./queue-ref-status.js");
+const { readConfig } = require("./workflow-core-config.js");
 const {
 	SILENCE_CAP_MS,
 	breakerRecordPath,
@@ -26,7 +27,7 @@ const {
 	workingMsOf,
 } = require("./refill-breaker.js");
 
-/** A guess: long enough for a fetched repo's log over the lookback, short of a stall. */
+/* #5275 guess: one git log, reflog or ancestry read on a fetched repo, short of a stall. */
 const GIT_LOG_TIMEOUT_MS = 20_000;
 
 /**
@@ -96,6 +97,16 @@ function readRows(file) {
  * @returns {GateRun[]|null}
  */
 const readGateRuns = (root) => readGateRunsAt(gateRunLogPath(root));
+
+/**
+ * @param {string} root
+ * @returns {string|null}
+ */
+const readSuiteCommand = (root) =>
+	orFallback(
+		() => readConfig({ root, quiet: true }).commands?.test ?? null,
+		null,
+	);
 
 /**
  * The breaker's record, oldest first; null where it will not read.
@@ -346,6 +357,7 @@ function readThroughput({ roots, launches, lookbackOf, now }) {
 				{
 					commits: readMainCommits(root, lookback(root)),
 					gateRuns: readGateRuns(root),
+					suiteCommand: readSuiteCommand(root),
 					sessions: sessions.byRoot[root]?.sessions ?? [],
 					timelinesUnread: sessions.byRoot[root]?.timelinesUnread ?? [],
 				},
@@ -398,4 +410,9 @@ function readThroughputWindow({ roots, launches, lo, hi }) {
 	});
 }
 
-module.exports = { readThroughput, readThroughputWindow };
+module.exports = {
+	GIT_LOG_TIMEOUT_MS,
+	readSuiteCommand,
+	readThroughput,
+	readThroughputWindow,
+};

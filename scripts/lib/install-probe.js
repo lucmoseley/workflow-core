@@ -16,10 +16,29 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { coreRoot, inCheckout } = require("./script-path.js");
+const { isCoreRoot } = require("./core-hooks.js");
+const {
+	CORE_RULES,
+	RULES_DIR,
+	withHostRootSpelling,
+	withRuleStore,
+} = require("./rule-text.js");
 
 const INSTALL_ROOT_CHARS =
 	`/home/${"u".repeat(32)}/.claude/plugins/cache/workflow-core/workflow-core/10.10.10`
 		.length;
+
+/* #5475: guess. */
+const HOST_ROOT_STANDIN = `/${"h".repeat(INSTALL_ROOT_CHARS - 1)}`;
+
+/**
+ * @param {string} root
+ * @returns {{ dir: string, fallback: string }}
+ */
+function installStore(root) {
+	const dir = path.join(root, RULES_DIR);
+	return { dir, fallback: isCoreRoot(root) ? dir : CORE_RULES };
+}
 
 /**
  * @param {string} core the core tree the probe's `scripts/` and `docs/` point at
@@ -41,24 +60,21 @@ function makeInstallProbe(core) {
 }
 
 /**
- * `read`'s result with a checkout's core read as the probe install. An
- * install already spells text as one, so there `read` runs as it stands.
- *
- * The probe root travels in process.env, restored after, as rule-text.js's
- * withRuleStore() pins its store: resolveScriptPaths() and readRuleText() read
- * the core root from the environment and take none as an argument.
- *
  * @template T
+ * @param {string} root
  * @param {() => T} read
  * @returns {T}
  */
-function asInstall(read) {
+function asInstall(root, read) {
 	if (!inCheckout()) return read();
+	const store = installStore(root);
 	const probe = makeInstallProbe(coreRoot());
 	const before = process.env.WFC_SCRIPT_ROOT;
 	process.env.WFC_SCRIPT_ROOT = probe.root;
 	try {
-		return read();
+		return withRuleStore(store.dir, store.fallback, () =>
+			withHostRootSpelling(HOST_ROOT_STANDIN, read),
+		);
 	} finally {
 		if (before === undefined) delete process.env.WFC_SCRIPT_ROOT;
 		else process.env.WFC_SCRIPT_ROOT = before;
@@ -66,4 +82,4 @@ function asInstall(read) {
 	}
 }
 
-module.exports = { asInstall };
+module.exports = { asInstall, installStore };
