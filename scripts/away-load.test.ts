@@ -1,6 +1,6 @@
 // @vitest-environment node
 // Drives the away-only load (#5472) as a program against fakes of Testlimit,
-// taskkill and wevtutil at their WFC_ variables: a start on 15 idle minutes
+// taskkill, tasklist and wevtutil at their WFC_ variables: a start on 15 idle minutes
 // holds memory and starts CPU workers, input stops both and logs the pair,
 // and after a new Kernel-Power 41 `recover` ends the runner and runs git fsck
 // in each repo. Break it and the load either never starts, or keeps loading
@@ -13,6 +13,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { pidAlive } from "./lib/arbiter-proc.js";
 import { gitBinary, gitSpawnOptions } from "./lib/git.js";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
@@ -44,6 +45,8 @@ function rig(name: string) {
 		calls: path.join(dir, "taskkill.calls"),
 		held: path.join(dir, "testlimit.args"),
 		workers: path.join(dir, "worker.pids"),
+		holders: path.join(dir, "holder.pids"),
+		onWindows: path.join(dir, "tasklist.out"),
 	};
 	const env = {
 		CLAUDE_PROJECT_DIR: tmp,
@@ -54,9 +57,10 @@ function rig(name: string) {
 		MEMWATCH_MINUTE_LOG: path.join(dir, "minute.jsonl"),
 		WFC_TESTLIMIT: fake(
 			"Testlimit64.exe",
-			`echo "$*" >> "${files.held}"; echo "Process ID: 4242"; exec sleep 600`,
+			`echo "$*" >> "${files.held}"; echo $$ >> "${files.holders}"; exec sleep 600`,
 		),
 		WFC_TASKKILL: fake("taskkill", `echo "$*" >> "${files.calls}"`),
+		WFC_TASKLIST: fake("tasklist", `cat "${files.onWindows}" 2>/dev/null; :`),
 		WFC_SYSTEMCTL: fake("systemctl", `echo "$*" >> "${files.calls}"; exit 1`),
 		WFC_AWAY_LOAD_WORKER: `echo $$ >> "${files.workers}"; exec sleep 600`,
 		WFC_AWAY_LOAD_REPOS_ROOT: path.join(dir, "home"),
@@ -71,6 +75,9 @@ const events = (log: string) =>
 		.split("\n")
 		.filter(Boolean)
 		.map((l) => JSON.parse(l));
+
+const isGone = (pid: number) => !pidAlive(pid);
+const readPids = (file: string) => read(file).trim().split("\n").map(Number);
 
 async function until(what: string, test: () => boolean) {
 	const deadline = Date.now() + WAIT_MS;
@@ -113,7 +120,9 @@ describe("run", () => {
 				`${epoch() + 1} 1100 1 2 60 100 3\n`,
 			);
 			/* The stop is logged, then the holders and workers ended. */
-			await until("the stop", () => read(files.calls).includes("/PID 4242 /F"));
+			await until("the stop", () =>
+				events(env.WFC_AWAY_LOAD_LOG).some((e) => e.event === "stop"),
+			);
 			expect(events(env.WFC_AWAY_LOAD_LOG).map((e) => e.event)).toEqual([
 				"start",
 				"hold",
@@ -125,19 +134,9 @@ describe("run", () => {
 				heldMb: 320,
 				workers: 4,
 			});
-			expect(read(files.calls)).toContain("/PID 4242 /F");
+			const pids = [...readPids(files.workers), ...readPids(files.holders)];
+			await until("the workers' and holders' end", () => pids.every(isGone));
 			expect(read(files.calls)).toContain("/IM Testlimit64.exe /F");
-			const pids = read(files.workers).trim().split("\n").map(Number);
-			await until("the workers' end", () =>
-				pids.every((pid) => {
-					try {
-						process.kill(pid, 0);
-						return false;
-					} catch {
-						return true;
-					}
-				}),
-			);
 		} finally {
 			child.kill("SIGTERM");
 			await exited;
@@ -165,32 +164,60 @@ describe("run, by its readings", () => {
 		}
 	}
 
-	it("ends every holder where one's Windows pid never read", async () => {
-		const { dir, env, files } = rig("blind");
-		const testlimit = path.join(dir, "Testlimit64.exe");
-		fs.writeFileSync(testlimit, "#!/bin/sh\nexec sleep 600\n", { mode: 0o755 });
+	it("releases only the newest holders, about the shortfall (#5472, where a release ended them all)", async () => {
+		const { env, files } = rig("release");
 		fs.writeFileSync(env.MEMWATCH_WIN_OUT, `${epoch()} 1100 1 2 60 100 900\n`);
-		let dipped = false;
-		await runUntil({ ...env, WFC_TESTLIMIT: testlimit }, "the release", () => {
-			const logged = events(env.WFC_AWAY_LOAD_LOG);
-			if (!dipped && logged.some((e) => e.event === "hold")) {
-				dipped = true;
+		let held: number[] = [];
+		let oldestKept = false;
+		await runUntil(env, "the release", () => {
+			if (held.length === 0 && readPids(files.holders).length === 3) {
+				held = readPids(files.holders);
 				fs.writeFileSync(
 					env.MEMWATCH_WIN_OUT,
-					`${epoch() + 1} 600 1 2 60 100 900\n`,
+					`${epoch() + 1} 700 1 2 60 100 900\n`,
 				);
 			}
-			return logged.some((e) => e.event === "release");
+			const released =
+				events(env.WFC_AWAY_LOAD_LOG).some((e) => e.event === "release") &&
+				isGone(held[1]) &&
+				isGone(held[2]);
+			if (released) oldestKept = !isGone(held[0]);
+			return released;
 		});
 		expect(
 			events(env.WFC_AWAY_LOAD_LOG).find((e) => e.event === "release"),
-		).toMatchObject({
-			dropMb: 320,
-			heldMb: 0,
-			all: "a holder's Windows pid never read",
-			swept: null,
+		).toMatchObject({ dropMb: 192, heldMb: 128 });
+		expect(oldestKept).toBe(true);
+	});
+
+	it("ends the whole hold where Windows runs more Testlimits than it holds", async () => {
+		const { env, files } = rig("strays");
+		fs.writeFileSync(env.MEMWATCH_WIN_OUT, `${epoch()} 1100 1 2 60 100 900\n`);
+		let held: number[] = [];
+		await runUntil(env, "the strays", () => {
+			if (held.length === 0 && readPids(files.holders).length === 3) {
+				held = readPids(files.holders);
+				fs.writeFileSync(
+					files.onWindows,
+					'"Testlimit64.exe","1","Console","1","9 K"\n'.repeat(4),
+				);
+				fs.writeFileSync(
+					env.MEMWATCH_WIN_OUT,
+					`${epoch() + 1} 800 1 2 60 100 900\n`,
+				);
+			}
+			return (
+				events(env.WFC_AWAY_LOAD_LOG).some((e) => e.event === "strays") &&
+				held.every(isGone)
+			);
 		});
-		expect(read(files.calls)).toContain("/IM Testlimit64.exe /F");
+		expect(
+			events(env.WFC_AWAY_LOAD_LOG).find((e) => e.event === "strays"),
+		).toMatchObject({ onWindows: 4, holders: 3 });
+		/* The run's opening sweep, the strays' and the SIGTERM's. */
+		expect(read(files.calls).match(/\/IM Testlimit64.exe \/F/g)).toHaveLength(
+			3,
+		);
 	});
 
 	it("logs the gate met while it waits, and writes the end", async () => {

@@ -57,9 +57,7 @@ const HAND_MINUTES = 20;
 /* Untraced: a poll costs a few small reads, and the reading it waits on
  * changes once a minute. */
 const POLL_MS = Number(process.env.WFC_AWAY_LOAD_POLL_MS) || 5000;
-/* Untraced: Testlimit prints its pid in its first lines, and an fsck's output
- * past this is the same fault repeated. */
-const PID_SCAN_CHARS = 4096;
+/* Untraced: an fsck's output past this is the same fault repeated. */
 const FSCK_OUT_CHARS = 4000;
 /* Untraced: about twice the longest the 4 Nov repos would take, guessed. */
 const FSCK_TIMEOUT_MS = 30 * 60 * 1000;
@@ -87,6 +85,7 @@ function paths(env = process.env) {
 		minutes: env.MEMWATCH_MINUTE_LOG || minuteLogPath(),
 		testlimit: env.WFC_TESTLIMIT || "/mnt/c/diag/testlimit/Testlimit64.exe",
 		taskkill: env.WFC_TASKKILL || `${WIN}/taskkill.exe`,
+		tasklist: env.WFC_TASKLIST || `${WIN}/tasklist.exe`,
 		wevtutil: env.WFC_WEVTUTIL || `${WIN}/wevtutil.exe`,
 		worker: env.WFC_AWAY_LOAD_WORKER || "while :; do :; done",
 		repos: env.WFC_AWAY_LOAD_REPOS_ROOT || os.homedir(),
@@ -140,7 +139,29 @@ function sweep(p) {
 }
 
 /**
- * @typedef {{ mb: number, child: import("node:child_process").ChildProcess, winPid: number|null }} LiveHolder
+ * How many Testlimit processes Windows runs, null where tasklist fails.
+ * @param {ReturnType<typeof paths>} p
+ */
+function windowsHolders(p) {
+	const name = path.basename(p.testlimit);
+	const r = runCommand(p.tasklist, [
+		"/FI",
+		`IMAGENAME eq ${name}`,
+		"/FO",
+		"CSV",
+		"/NH",
+	]);
+	if (r.error !== null) return null;
+	return r.out.split("\n").filter((l) => l.startsWith(`"${name}"`)).length;
+}
+
+/**
+ * A Testlimit process. Its stdout never reaches a pipe while it holds, so its
+ * Windows pid is unknown; ending its WSL interop proxy ended a piped
+ * PING.EXE (#5472). Residual: Testlimit runs x64
+ * under emulation, untested there, so each new reading counts Windows'
+ * Testlimit processes and a stray ends the whole hold.
+ * @typedef {{ mb: number, child: import("node:child_process").ChildProcess }} LiveHolder
  */
 
 /**
@@ -153,31 +174,17 @@ function startHolder(p, mb, onExit) {
 	const child = spawn(
 		p.testlimit,
 		["-accepteula", "-d", String(CHUNK_MB), "-c", String(mb / CHUNK_MB)],
-		{ stdio: ["ignore", "pipe", "ignore"] },
+		{ stdio: "ignore" },
 	);
 	/** @type {LiveHolder} */
-	const holder = { mb, child, winPid: null };
-	let output = "";
-	child.stdout?.on("data", (d) => {
-		if (holder.winPid !== null) return;
-		output = (output + d.toString()).slice(-PID_SCAN_CHARS);
-		const m = /Process ID: (\d+)/.exec(output);
-		if (m) holder.winPid = Number(m[1]);
-	});
+	const holder = { mb, child };
 	child.on("exit", (code) => onExit(holder, code));
 	child.on("error", () => onExit(holder, null));
 	return holder;
 }
 
-/**
- * @param {ReturnType<typeof paths>} p
- * @param {LiveHolder} h
- */
-function stopHolder(p, h) {
-	if (h.winPid !== null)
-		runCommand(p.taskkill, ["/PID", String(h.winPid), "/F"]);
-	h.child.kill("SIGKILL");
-}
+/** @param {LiveHolder} h */
+const stopHolder = (h) => h.child.kill("SIGKILL");
 
 class Runner {
 	/** @param {ReturnType<typeof paths>} p */
@@ -206,7 +213,7 @@ class Runner {
 				running: this.running,
 				startedAt: this.startedAt,
 				heldMb: heldMb(this.holders),
-				holders: this.holders.map((h) => ({ winPid: h.winPid, mb: h.mb })),
+				holderMb: this.holders.map((h) => h.mb),
 				workers: this.workers.length,
 				gateCount: this.tail.count,
 				gateMinutes: GATE_MINUTES,
@@ -218,9 +225,14 @@ class Runner {
 	stopAll() {
 		for (const w of this.workers) w.kill("SIGKILL");
 		this.workers = [];
+		this.dropAllHolders();
+	}
+
+	/* The sweep ends any Testlimit its proxy's end left running. */
+	dropAllHolders() {
 		const was = this.holders;
 		this.holders = [];
-		for (const h of was) stopHolder(this.p, h);
+		for (const h of was) stopHolder(h);
 		const error = sweep(this.p);
 		if (error) logEvent(this.p, "sweep-failed", { error });
 	}
@@ -234,7 +246,7 @@ class Runner {
 	onHolderExit(h, code) {
 		if (!this.holders.includes(h)) return;
 		this.holders = this.holders.filter((x) => x !== h);
-		logEvent(this.p, "holder-exited", { mb: h.mb, winPid: h.winPid, code });
+		logEvent(this.p, "holder-exited", { mb: h.mb, code });
 	}
 
 	tick() {
@@ -288,6 +300,16 @@ class Runner {
 	steerHold(reading) {
 		if (reading.at <= this.lastReadingAt) return;
 		this.lastReadingAt = reading.at;
+		const onWindows = windowsHolders(this.p);
+		if (onWindows !== null && onWindows > this.holders.length) {
+			logEvent(this.p, "strays", {
+				onWindows,
+				holders: this.holders.length,
+				...this.readout,
+			});
+			this.dropAllHolders();
+			return;
+		}
 		const step = holdStep(reading, this.holders);
 		if (!step) return;
 		if ("add" in step) {
@@ -304,17 +326,11 @@ class Runner {
 			});
 			return;
 		}
-		/* A holder whose Windows pid never read cannot be ended alone: end
-		 * every one, and the next reading builds the hold again. */
-		const blind = step.drop.some((h) => h.winPid === null);
-		const drop = blind ? this.holders : step.drop;
-		this.holders = this.holders.filter((x) => !drop.includes(x));
-		for (const h of drop) stopHolder(this.p, h);
-		const swept = blind ? sweep(this.p) : null;
+		this.holders = this.holders.filter((x) => !step.drop.includes(x));
+		for (const h of step.drop) stopHolder(h);
 		logEvent(this.p, "release", {
-			dropMb: heldMb(drop),
+			dropMb: heldMb(step.drop),
 			heldMb: heldMb(this.holders),
-			...(blind ? { all: "a holder's Windows pid never read", swept } : {}),
 			...this.readout,
 		});
 	}
