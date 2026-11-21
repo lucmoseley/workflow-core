@@ -13,7 +13,7 @@ const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { pidAlive } = require("./arbiter-proc.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { escapeRe } = require("./regex-group.js");
 const { writeFd } = require("./write-fd.js");
 
@@ -50,13 +50,12 @@ function removeRunRoot(root) {
 
 /** @param {string} dir */
 function openUp(dir) {
-	try {
+	// What is not ours to open, the retry names as what stays.
+	ignoreFailure(() => {
 		fs.chmodSync(dir, 0o700);
 		for (const entry of fs.readdirSync(dir, { withFileTypes: true }))
 			if (entry.isDirectory()) openUp(path.join(dir, entry.name));
-	} catch {
-		/* Not ours to open; the retry names what stays. */
-	}
+	});
 }
 
 /* How long a dead pid's root stands untouched before it is swept: a pid from

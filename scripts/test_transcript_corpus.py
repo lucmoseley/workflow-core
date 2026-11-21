@@ -94,7 +94,7 @@ def test_the_reader_yields_objects_and_counts_every_line_it_skips(tmp_path, caps
     assert list(tc.records(str(p), tally)) == [{"a": 1}, {"b": 2}]
     # A blank line is no record, so no skip; a JSON array is not an object.
     assert tally == {"unparsed lines": 2}
-    assert capsys.readouterr().err.count("fail-open: line counted unparsed") == 1
+    assert capsys.readouterr().err == ""
 
 
 def test_a_line_holding_no_needle_is_never_parsed_or_counted(tmp_path):
@@ -112,9 +112,7 @@ def test_a_file_that_will_not_open_is_counted_not_raised(tmp_path, capsys):
     tally = Counter()
     assert list(tc.records(str(tmp_path / "gone.jsonl"), tally)) == []
     assert tally == {"unreadable files": 1}
-    err = capsys.readouterr().err
-    assert "fail-open:" in err
-    assert f"{tmp_path / 'gone.jsonl'} counted unreadable" in err
+    assert capsys.readouterr().err == ""
 
 
 def test_the_counts_line_prints_zeros_and_named_keys_in_order():

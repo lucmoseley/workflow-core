@@ -25,6 +25,7 @@ import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
 import { proc } from "./arbiter-testkit";
+import { ignoreFailure } from "./caught.js";
 
 describe("procStart — the kernel token that makes a recycled pid detectable", () => {
 	it("returns null for a pid with no process", () => {
@@ -94,11 +95,9 @@ describe("what /proc calls alive", () => {
 			expect(proc.readProcStartOf(zpid)).toBeNull();
 		} finally {
 			parent.kill();
-			try {
+			ignoreFailure(() => {
 				if (zpid) process.kill(zpid);
-			} catch {
-				/* ESRCH: already gone, which is all this kill wants */
-			}
+			});
 		}
 	});
 });

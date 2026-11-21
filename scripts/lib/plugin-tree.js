@@ -153,6 +153,7 @@ const COPIED = [
 	/* The standards base, read at runtime: every review route hands it over
 	 * from here, beside the host's own local file, which never ships (#967). */
 	STANDARDS_DOCS.base,
+	"docs/comment-kinds.md",
 	".husky",
 	/* The Python gate's rule set, which .husky/pre-commit hands ruff by
 	 * --config in an adopter carrying none of its own (#106). */

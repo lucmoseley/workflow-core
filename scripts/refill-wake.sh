@@ -19,11 +19,6 @@
 # The loop's directory is WFC_REFILL_DIR, else ~/.claude, as
 # lib/refill-files.js's loopFiles() reads it; a relative HOME wakes nothing,
 # as machineMarkerPath refuses one.
-#
-# IMPLICIT:  appends to the refill loop's wake file when a session it launched ends
-# JUSTIFIED: convenience — the loop refills the slot without waiting out its poll
-# DEFEAT:    none
-# TREE:      none — stamps machine-wide refill-loop state
 
 set -uo pipefail
 

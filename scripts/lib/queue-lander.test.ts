@@ -3937,6 +3937,49 @@ describe("a base holding gating guard-registry faults (#4807)", () => {
 		expect(remote.main).toContain("f1");
 	});
 
+	it("retakes a held batch's member at the tip a later push of the re-anchor moved it to, and lands it (#5436)", async () => {
+		const remote = remoteOf("m0", { a: { sha: "a1", pushedAt: 1 } });
+		const disk = freshDisk();
+		const staleUntilA2 = (
+			onto: string,
+			ms: readonly Member[],
+			fresh?: boolean,
+		): MergeResult =>
+			ms.some((m) => m.sha === "a2")
+				? fakeMerge(remote, onto, ms, fresh)
+				: {
+						kind: "stale-base",
+						name: ms.at(-1)?.name ?? "",
+						sha: mergeSha(onto, ms),
+						onto,
+						rows: [Row],
+					};
+		const o: Options = {
+			merge: staleUntilA2,
+			verdict: () => ({ kind: "green", run: 1, cleared: [] }),
+		};
+
+		const held = await land(remote, disk, o);
+		expect(held.end.reason).toMatch(/^held: main is stale/);
+		expect(batchIn(disk)?.members).toEqual([
+			{ name: "a", sha: "a1", pushedAt: 1 },
+		]);
+
+		remote.refs.set("a", { sha: "a2", pushedAt: 2 });
+		const { end, actions } = await land(remote, disk, o);
+
+		expect(end).toEqual(NO_QUEUE);
+		expect(
+			actions.flatMap((a) =>
+				a.kind === "retake-member" ? [buildQueueActionLine(a)] : [],
+			),
+		).toEqual([
+			"retake-member queue/a@a2: moved past its snapshot a1 before its batch merged",
+		]);
+		expect(remote.main).toContain("a2");
+		expect(remote.refs.size).toBe(0);
+	});
+
 	it("lands the batch once a ref carrying the re-anchor waits beside the rest", async () => {
 		const remote = remoteOf("m0", {
 			a: { sha: "a1", pushedAt: 1 },

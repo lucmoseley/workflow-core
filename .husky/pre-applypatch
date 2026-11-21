@@ -7,26 +7,6 @@
 # offers that can refuse: git aborts the apply on a non-zero exit, before the
 # commit is written.
 #
-# IMPLICIT:  runs gitleaks over the applied patch's staged content, on every
-#            `git am` and every `git rebase --apply` replay, and refuses the
-#            apply on anything but a pass. Only a refusal starts node:
-#            scripts/pre-applypatch-refusal.js names the route and its abort;
-#            where it is missing, node is missing or it fails, the hook still
-#            refuses, printing one line that the route could not be named.
-# JUSTIFIED: fail-safe — a patch applied from a file is bytes no commit in this
-#            repository ever carried, which is the shape a pasted credential
-#            arrives in, and AGENTS.md §Secrets boundary makes a committed key
-#            permanent. A gate skipped here runs next only in CI, after the
-#            push, by which time the key is published.
-# DEFEAT:    `git am --no-verify`, which abbreviates down to `--no-v`, skips
-#            this hook; `git rebase --apply` accepts no such flag.
-#            `scripts/guard-dispatch.js` (its `guard-commit-form` core) denies the flag only
-#            unwrapped, so an agent can still reach it; that core's
-#            LIMITS (`scripts/lib/commit-form.js`) holds every route past this
-#            hook (#800). WFC_GITLEAKS
-#            names the scanner's binary (§N7, #224), which on this hook is the
-#            whole gate.
-#
 # gitleaks ALONE, never the whole stack — the same call and the same reasoning
 # as .husky/prepare-commit-msg's replay path (mantahostels#1706): a rebase replaying N
 # commits would otherwise run N full stacks, and an intermediate state can

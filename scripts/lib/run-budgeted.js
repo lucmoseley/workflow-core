@@ -45,6 +45,7 @@ const { killGroup } = require("./grouped-child.js");
 const { splitRunArgv } = require("./run-budgeted-argv.js");
 const { caught } = require("./caught.js");
 const { writeFd } = require("./write-fd.js");
+const { noop } = require("./noop.js");
 
 /* `docker stop`'s default on Linux, the one published figure for this wait; no
  * run here measured what a gate's cleanup needs. */
@@ -104,9 +105,6 @@ function apparatusFailed(why) {
  * (ignored) and SIGUSR1 (its inspector's). */
 function dieBy(/** @type {NodeJS.Signals} */ signal) {
 	process.removeAllListeners(signal);
-	const noop = () => {
-		/* Only its registering matters. */
-	};
 	process.on(signal, noop);
 	process.removeListener(signal, noop);
 	process.kill(process.pid, signal);
@@ -218,9 +216,8 @@ async function main(argv) {
 	/* RESIDUAL: a PAUSE is read on this loop's next turn, so a budget that
 	 * runs out between the command's write and that read still kills it. */
 	const pausePipe = child.stdio[PAUSE_FD];
-	pausePipe?.on("error", () => {
-		/* The pipe failing is the command's end, which "exit" reports (#5213). */
-	});
+	// The pipe failing is the command's end, which "exit" reports (#5213).
+	pausePipe?.on("error", noop);
 	pausePipe?.on("data", (/** @type {Buffer} */ bytes) => {
 		for (const byte of bytes.toString("latin1")) {
 			if (byte === PAUSE && budget && !sent) {

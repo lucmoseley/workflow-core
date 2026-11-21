@@ -32,6 +32,7 @@ import {
 	registerSession,
 	store,
 } from "./arbiter-testkit";
+import { ignoreFailure } from "./caught.js";
 
 const sb = freshSandbox();
 
@@ -231,11 +232,8 @@ describe("readBilledPathsBy — the paths a session wrote or its commits touched
 		git("checkout", "-q", "-");
 		fs.writeFileSync(both, "mine\n");
 		commitFile("scripts/a.js");
-		try {
-			git("merge", "-q", "theirs");
-		} catch {
-			// The conflict on docs/both.md, resolved and committed below.
-		}
+		// Throws on the conflict on docs/both.md, resolved and committed below.
+		ignoreFailure(() => git("merge", "-q", "theirs"));
 		fs.writeFileSync(both, "resolved\n");
 		commitAll(sb, "merge");
 		store.recordCommit(readHead(), "alice");

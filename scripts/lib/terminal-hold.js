@@ -4,6 +4,8 @@
  * every exit a process can catch.
  */
 
+const { ignoreFailure } = require("./caught.js");
+
 /* How long a lone escape byte waits for the rest of a sequence before it reads as
  * the Esc key. Untraced, a first guess: a terminal writes a sequence whole, so
  * this need only outlast a split read. */
@@ -37,16 +39,12 @@ function holdTerminal({
 	const restore = () => {
 		if (restored) return;
 		restored = true;
+		// #3873: a gone terminal leaves nothing to restore, and the exit must go on.
 		for (const step of [
 			() => stdin.setRawMode(false),
 			() => stdout.write(screenOff),
-		]) {
-			try {
-				step();
-			} catch {
-				// #3873: the terminal is gone, so nothing is left to restore and the exit must go on.
-			}
-		}
+		])
+			ignoreFailure(step);
 	};
 	/** @param {unknown} err */
 	const crash = (err) => {

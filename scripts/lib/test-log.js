@@ -11,6 +11,7 @@ const fs = require("node:fs");
 const { readJsonl } = require("./jsonl.js");
 const { markersDir } = require("./marker-root.js");
 const path = require("node:path");
+const { ignoreFailure, orFallback } = require("./caught.js");
 
 const DIR_NAME = ".test-logs";
 
@@ -73,13 +74,9 @@ function recordRun(root, session, run) {
  * @returns {RunRecord[]}
  */
 function readRuns(root, session) {
-	let read = null;
-	try {
-		read = readJsonl(runsPath(root, session));
-	} catch {
-		/* An unreadable run log is no runs, as a missing one is: its readers
-		 * report what they find and never fail on it. */
-	}
+	// An unreadable run log is no runs, as a missing one is: its readers report
+	// what they find and never fail on it.
+	const read = orFallback(() => readJsonl(runsPath(root, session)), null);
 	return /** @type {RunRecord[]} */ (
 		(read?.rows ?? []).filter((run) => typeof run.log === "string")
 	);
@@ -133,14 +130,13 @@ function reap(dir, { keep = KEEP_RUNS, fs: fsImpl = fs } = {}) {
 	entries.sort((a, b) => a.mtime - b.mtime);
 	const excess = entries.length - keep;
 	if (excess <= 0) return [];
+	/** @type {string[]} */
 	const removed = [];
 	for (const { path: p } of entries.slice(0, excess)) {
-		try {
+		ignoreFailure(() => {
 			fsImpl.unlinkSync(p);
 			removed.push(p);
-		} catch {
-			/* another concurrent suite may have reaped or replaced it first */
-		}
+		});
 	}
 	/* A session's run record last written before the oldest kept log names
 	 * only reaped logs. */
@@ -148,13 +144,11 @@ function reap(dir, { keep = KEEP_RUNS, fs: fsImpl = fs } = {}) {
 	for (const name of names) {
 		if (!name.startsWith(RUNS_PREFIX) || !name.endsWith(RUNS_SUFFIX)) continue;
 		const p = path.join(dir, name);
-		try {
-			if (fsImpl.statSync(p).mtimeMs >= oldestKept) continue;
+		ignoreFailure(() => {
+			if (fsImpl.statSync(p).mtimeMs >= oldestKept) return;
 			fsImpl.unlinkSync(p);
 			removed.push(p);
-		} catch {
-			/* written or reaped by a concurrent suite meanwhile */
-		}
+		});
 	}
 	return removed;
 }

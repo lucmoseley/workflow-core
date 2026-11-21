@@ -40,11 +40,6 @@
  *    the same test as the core's own basename check: `/usr/bin/gh …` passes
  *    the basename but matches no `Bash(gh *)` pattern, so a path-spelled call
  *    is unjudged. With no node on PATH the hook line exits 0, unrecorded.
- *
- * IMPLICIT:  after a `gh issue edit <n> --add-assignee @me`, records that issue claim in the session arbiter without the session asking.
- * JUSTIFIED: convenience — the rule it automates is written down and still spellable by hand (`session-arbiter.js claim-issue <n>`); left as prose it was a second thing to remember.
- * DEFEAT:    evadable by spelling — `--repo`, a shell variable, `gh api` or the web UI all miss the seam — but there is no switch.
- * TREE:      host — records a gh issue claim into the host root's arbiter store
  */
 
 const { run } = require("./lib/guard-entry.js");

@@ -32,7 +32,7 @@ const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { storeConfigDir } = require("./arbiter-core.js");
 const { sleepSync } = require("./sleep-sync.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { budgetMs } = require("./hook-deadline.js");
 const { capMs } = require("./cap-ms.js");
 
@@ -227,18 +227,15 @@ function writeRefusal(key, why) {
  */
 function publish(key, fields) {
 	if (isDisabled()) return;
-	try {
+	// The caller already has its answer, and the next reader simply spawns.
+	ignoreFailure(() => {
 		writeFileAtomic(
 			cachePath(key),
 			JSON.stringify({ at: Date.now(), ...fields }),
 			{ mkdir: true },
 		);
 		sweep();
-	} catch {
-		/* An unwritable config dir, or a full disk. Publishing is best-effort by
-		 * design: the caller already has its answer, and the next reader simply
-		 * spawns. */
-	}
+	});
 }
 
 /* HOW LONG A RECORD IS KEPT ON DISK, as against how long it is BELIEVED. Long
@@ -254,7 +251,8 @@ const keepMs = () => capMs("WFC_ORACLE_CACHE_KEEP_MS", 300_000);
  * module is certainly allowed to write to the directory at all.
  */
 function sweep() {
-	try {
+	// A sweep is housekeeping: it never costs a caller its answer.
+	ignoreFailure(() => {
 		const dir = storeConfigDir();
 		const cutoff = Date.now() - keepMs();
 		for (const name of fs.readdirSync(dir)) {
@@ -265,9 +263,7 @@ function sweep() {
 			const full = path.join(dir, name);
 			if (fs.statSync(full).mtimeMs < cutoff) fs.rmSync(full, { force: true });
 		}
-	} catch {
-		/* A sweep is housekeeping: never let it cost a caller its answer. */
-	}
+	});
 }
 
 /**
@@ -334,11 +330,10 @@ function breakIfStale(key) {
 /** @param {string} key */
 function release(key) {
 	if (isDisabled()) return;
-	try {
-		fs.rmSync(lockPath(key), { recursive: true, force: true });
-	} catch {
-		/* A lock we cannot remove goes stale on its own bound. */
-	}
+	// A lock we cannot remove goes stale on its own bound.
+	ignoreFailure(() =>
+		fs.rmSync(lockPath(key), { recursive: true, force: true }),
+	);
 }
 
 /**

@@ -67,11 +67,6 @@
 # Never blocks. Every failure path — no gh, no auth, private repo, malformed
 # URL, or a command invoked with no issue at all — exits 0 and leaves the
 # session as well named as it managed.
-#
-# IMPLICIT:  renames the session (a registry write) after the issue(s) it was opened on, or /pick-next's start time, at UserPromptSubmit and SessionStart, and announces the name in a systemMessage. It keeps the name prefix its launcher pinned to this session in WFC_NAME_PREFIX, an overflow run's (#3701).
-# JUSTIFIED: convenience — nothing degrades but legibility: parallel sessions all read as `<repo>-76` otherwise, and telling them apart means opening each.
-# DEFEAT:    none — it renames whenever the prompt carries one of the six recognised shapes.
-# TREE:      none — it cds to the payload's cwd only so gh finds the repository; it reads the session registry and GitHub
 
 set -uo pipefail
 

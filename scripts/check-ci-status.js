@@ -121,11 +121,6 @@
  * job has no open issue and the day's repo-checks reading shows the red-suite
  * filer did not file, it launches that filer detached
  * (lib/red-suite-fallback.js), at no gh call of this run's own.
- *
- * IMPLICIT:  at every session start (its hook passing --write, without which neither the dispatch nor the filer launch below happens, #4449), asks GitHub whether the last sweep on the branch went red, injects the verdict into the session's context, dispatches a sweep the session never asked for when that verdict has gone stale (mantahostels#1816), and launches the red-suite filer — as no session's process, in a systemd user scope of its own stopped after 45 minutes where a user manager answers (#4706) — which files or comments on the tracker, where the daily filer did not (#2480).
- * JUSTIFIED: fail-safe — nothing reports a red between the local gates and the next sweep, so every detector here is a poll and this is the only one that fires unasked; a verdict nothing refreshes is the fault mantahostels#1816 measured at a 15h35m blind window; and a broken daily filer left a red unticketed for three days (#2480).
- * DEFEAT:    none at the hook; --notify is silent unless the run it reads is red or the newest sweep is older than SWEEP_STALE_MS. The dispatch is capped by AUTOFIRE_COOLDOWN_MS and withheld where HEAD is already covered; the filer launch at one an hour, on the core host only.
- * TREE:      host — reports CI on `main` against the main checkout's own HEAD
  */
 
 const fs = require("node:fs");
@@ -202,6 +197,7 @@ const repoFlag = () =>
 		.join("");
 const { NOT_A_TREE_VERDICT, hasVerdict } = require("./lib/ci-verdict.js");
 const { execGit } = require("./lib/git.js");
+const { orFallback } = require("./lib/caught.js");
 
 /* Anything NOT in here is reported. Listing the good conclusions rather than the
  * bad ones means a conclusion string GitHub adds later surfaces as a report
@@ -399,16 +395,16 @@ const nextSweepAfter = (t) => slotsFrom(t).find((at) => at > t) ?? null;
  * @returns {Coverage}
  */
 function headCoverage(sha) {
-	let head = "";
-	try {
-		head = execGit(["rev-parse", "HEAD"], {
-			encoding: "utf8",
-			cwd: REPO,
-			stdio: ["ignore", "pipe", "ignore"],
-		}).trim();
-	} catch {
-		// Not a git repo, or git is gone: this line is a nicety, not the report.
-	}
+	// Not a git repo, or git is gone: this line is a nicety, not the report.
+	const head = orFallback(
+		() =>
+			execGit(["rev-parse", "HEAD"], {
+				encoding: "utf8",
+				cwd: REPO,
+				stdio: ["ignore", "pipe", "ignore"],
+			}).trim(),
+		"",
+	);
 	// Unknown, not covered.
 	if (!head) return { head: "", ahead: null, line: null };
 	if (head === sha) return { head, ahead: 0, line: null };

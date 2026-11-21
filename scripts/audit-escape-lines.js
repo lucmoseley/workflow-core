@@ -38,11 +38,6 @@
  * but name, through `runCheck`, but `--judge` is a long batch that prints
  * one JSON line and exits 1 on a thrown error, which no family's contract
  * covers.
- *
- * IMPLICIT:  at every session start, at most once in six hours, starts a detached batch — as no session's process, in a systemd user scope of its own stopped after 45 minutes where a user manager answers (#4706) — that reads every seat's transcripts for this repo and sends each close question block that passed on an escape line, and each re-send of a refused question as its whole message, with its refused block and the tool calls and session text between, gitleaks-swept, to the Vercel AI Gateway.
- * JUSTIFIED: fail-safe — it refuses nothing, a missing key, SDK or gitleaks sends nothing, and a store that will not read reports that rather than zeros; #671 made the loosening reversible on this evidence.
- * DEFEAT:    `WFC_ESCAPE_AUDIT=0` for a session stops the batch starting.
- * TREE:      host — judges escape lines in transcripts filed under the host root's project slug
  */
 
 const { spawnOutliving } = require("./lib/user-scope.js");
@@ -57,6 +52,7 @@ const { markersDir } = require("./lib/marker-root.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { oneCopyEach, projectDirs } = require("./lib/project-dirs");
 const { scriptPath } = require("./lib/script-path.js");
+const { ignoreFailure, orFallback } = require("./lib/caught.js");
 
 const CHECKER = "escape-audit";
 const ENV_SWITCH = "WFC_ESCAPE_AUDIT";
@@ -165,12 +161,9 @@ function readTranscripts(dirs) {
 	/** @type {string[]} */
 	const files = [];
 	for (const dir of dirs) {
-		try {
-			for (const f of fs.readdirSync(dir))
-				if (f.endsWith(".jsonl")) files.push(path.join(dir, f));
-		} catch {
-			/* a seat with no sessions here (#671) */
-		}
+		// A seat with no sessions here has no directory (#671).
+		for (const f of orFallback(() => fs.readdirSync(dir), []))
+			if (f.endsWith(".jsonl")) files.push(path.join(dir, f));
 	}
 	return oneCopyEach(files);
 }
@@ -354,12 +347,11 @@ async function judge({ root, dirs, gapMs = GAP_MS }) {
 function kick(root) {
 	if (["0", "false", "off"].includes(process.env[ENV_SWITCH] ?? "")) return;
 	const marker = path.join(markersDir(root), KICK_NAME);
-	try {
-		if (Date.now() - fs.statSync(marker).mtimeMs < KICK_MS) return;
-	} catch {
-		/* never kicked (#671) */
-	}
-	try {
+	// A marker never written means never kicked (#671).
+	const kicked = orFallback(() => fs.statSync(marker).mtimeMs, undefined);
+	if (kicked !== undefined && Date.now() - kicked < KICK_MS) return;
+	// A failed kick is retried by the next session start (#671).
+	ignoreFailure(() => {
 		fs.writeFileSync(marker, new Date().toISOString());
 		/* Outliving its session, so a short one's end does not kill the
 		 * judging (#4706). */
@@ -367,9 +359,7 @@ function kick(root) {
 			cwd: root,
 			stdio: "ignore",
 		}).unref();
-	} catch {
-		/* the next session start tries again (#671) */
-	}
+	});
 }
 
 /**

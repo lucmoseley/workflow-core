@@ -9,6 +9,7 @@
  */
 
 const fs = require("node:fs");
+const { orFallback } = require("./caught.js");
 
 const store = require("./arbiter-store");
 const { findNewestTranscript } = require("./transcript");
@@ -34,15 +35,17 @@ const TAIL_BYTES = WHOLE_FILE_LIMIT / 2;
  */
 function resolve(payload, sessionId) {
 	const named = payload?.transcript_path;
-	if (typeof named === "string" && named !== "") {
-		try {
+	// An unreadable payload path leaves the lookup by session id, which may
+	// still find the transcript.
+	if (
+		typeof named === "string" &&
+		named !== "" &&
+		orFallback(() => {
 			fs.accessSync(named, fs.constants.R_OK);
-			return named;
-		} catch {
-			/* An unreadable payload path is no reason to give up: the lookup by
-			 * session id may still find the transcript. */
-		}
-	}
+			return true;
+		}, false)
+	)
+		return named;
 	/* Every config dir on the machine, not just this session's: three Claude
 	 * plans run here, and a transcript found under any of them is this
 	 * session's. */

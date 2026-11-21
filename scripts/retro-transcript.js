@@ -66,7 +66,7 @@ const {
 	parseContentText,
 	subagentDirOf,
 } = require("./lib/transcript");
-const { caught } = require("./lib/caught.js");
+const { caught, orFallback } = require("./lib/caught.js");
 const { parseJsonlRow } = require("./lib/jsonl.js");
 const { execGit } = require("./lib/git.js");
 const { relativeUnder } = require("./lib/is-under.js");
@@ -417,15 +417,15 @@ function readSubagentsOf(log) {
 		if (!m) continue;
 		const stem = requiredGroup(m, 1, AGENT_LOG);
 		const file = path.join(dir, name);
+		// Unread, it is keyed on its own path below, so the log is still reported.
 		/** @type {{ toolUseId?: string, description?: string }} the subagent's `.meta.json`, no transcript line */
-		let meta = {};
-		try {
-			meta = JSON.parse(
-				fs.readFileSync(path.join(dir, `${stem}.meta.json`), "utf8"),
-			);
-		} catch {
-			/* Keyed on its own path below, so the log is still reported. */
-		}
+		const meta = orFallback(
+			() =>
+				JSON.parse(
+					fs.readFileSync(path.join(dir, `${stem}.meta.json`), "utf8"),
+				),
+			{},
+		);
 		found.set(meta.toolUseId || file, {
 			file,
 			agent: stem.slice("agent-".length),
@@ -583,13 +583,11 @@ function main() {
 		);
 		process.exit(2);
 	}
-	let readable = false;
-	try {
+	// Missing and unreadable answer alike.
+	const readable = orFallback(() => {
 		fs.accessSync(log, fs.constants.R_OK);
-		readable = fs.statSync(log).isFile();
-	} catch {
-		/* Missing and unreadable answer alike: `readable` stays false. */
-	}
+		return fs.statSync(log).isFile();
+	}, false);
 	if (!readable) {
 		writeFd(
 			2,

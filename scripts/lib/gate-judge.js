@@ -16,7 +16,7 @@
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { withoutLateEpipe } = require("./child-failure.js");
 const { configDirFrom } = require("./config-dir.js");
@@ -476,15 +476,14 @@ const overrideNote = (reason, model) =>
  * @param {Record<string, unknown>} record
  */
 function logCall(record) {
-	try {
+	/* #4969: an unwritable log loses the record, never the write, and
+	 * says nothing: a scratch log is no concern of the writing session. */
+	ignoreFailure(() =>
 		fs.appendFileSync(
 			path.join(markersDir(hostRoot()), ".gate-judge-calls.jsonl"),
 			`${JSON.stringify({ at: new Date(now()).toISOString(), ...record })}\n`,
-		);
-	} catch {
-		/* #4969: an unwritable log loses the record, never the write, and
-		 * says nothing: a scratch log is no concern of the writing session. */
-	}
+		),
+	);
 }
 
 /** @param {JudgedFault} f */

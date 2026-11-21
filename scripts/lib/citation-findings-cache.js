@@ -35,6 +35,7 @@ const {
 	SINCE_SKEW_MS,
 } = require("./gh.js");
 const { writeFileAtomic } = require("./atomic-write.js");
+const { orFallback } = require("./caught.js");
 const { readText } = require("./file-read.js");
 const { MARKERS_REL } = require("./marker-root.js");
 const { hostRoot } = require("./host-root.js");
@@ -135,20 +136,16 @@ function readCache(deps, version) {
 		);
 		return null;
 	}
-	try {
-		const c = JSON.parse(read.data);
-		if (
-			typeof c?.stamp === "string" &&
-			!Number.isNaN(Date.parse(c.stamp)) &&
-			typeof c.fullStamp === "string" &&
-			c.issues &&
-			typeof c.issues === "object" &&
-			!Array.isArray(c.issues)
-		)
-			return c.version === version ? c : null;
-	} catch {
-		// Falls through to the warning below.
-	}
+	const c = orFallback(() => JSON.parse(read.data), undefined);
+	if (
+		typeof c?.stamp === "string" &&
+		!Number.isNaN(Date.parse(c.stamp)) &&
+		typeof c.fullStamp === "string" &&
+		c.issues &&
+		typeof c.issues === "object" &&
+		!Array.isArray(c.issues)
+	)
+		return c.version === version ? c : null;
 	deps.warn("the citation cache is unusable — reading the whole tracker.");
 	return null;
 }

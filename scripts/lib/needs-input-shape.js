@@ -21,7 +21,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
-const { caught } = require("./caught");
+const { caught, orFallback } = require("./caught");
 const { failOpenLogger } = require("./fail-open-logger");
 const { HAND_OFF_SHAPE } = require("./hand-off");
 const { INVENTORY } = require("./inventory-format");
@@ -393,16 +393,17 @@ function claimTurn(sessionId, message) {
 		}
 	};
 	if (create()) return true;
-	try {
-		if (Date.now() - fs.statSync(file).mtimeMs <= CLAIM_FRESH_MS) return false;
+	// A failure here is another guard moving it first; its create, or ours,
+	// wins below.
+	const fresh = orFallback(() => {
+		if (Date.now() - fs.statSync(file).mtimeMs <= CLAIM_FRESH_MS) return true;
 		/* Stale: one rename succeeds, so one of two racing re-sends re-creates. */
 		const aside = `${file}.${String(process.pid)}`;
 		fs.renameSync(file, aside);
 		fs.rmSync(aside, { force: true });
-	} catch {
-		/* Another guard moved it first; its create, or ours, wins below. */
-	}
-	return create();
+		return false;
+	}, false);
+	return fresh ? false : create();
 }
 
 /**

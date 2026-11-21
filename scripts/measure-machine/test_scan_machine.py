@@ -434,17 +434,17 @@ def test_a_kill_with_an_undatable_stamp_is_reported(capsys):
     assert "fail-open: kill counted as undated: ValueError" in err
 
 
-def test_a_truncated_gzip_syslog_is_skipped_and_reported(tmp_path, capsys):
+def test_a_truncated_gzip_syslog_is_skipped_and_counted(tmp_path, capsys):
     from scan_machine import read_syslogs
 
     (tmp_path / "syslog.1.gz").write_bytes(b"\x1f\x8b\x08\x00broken")
     tally = Counter()
     assert list(read_syslogs(tally, str(tmp_path / "syslog*"))) == []
     assert tally["unreadable syslogs"] == 1
-    assert "skipped" in capsys.readouterr().err
+    assert capsys.readouterr().err == ""
 
 
-def test_a_transcript_that_will_not_open_is_skipped_and_reported(tmp_path, capsys):
+def test_a_transcript_that_will_not_open_is_skipped_and_counted(tmp_path, capsys):
     import scan_machine
 
     # Listed as a transcript, but its target is gone.
@@ -453,10 +453,10 @@ def test_a_transcript_that_will_not_open_is_skipped_and_reported(tmp_path, capsy
     tally = Counter()
     assert scan_machine.transcript_spans(str(tmp_path), tally) == []
     assert tally[scan_machine.tc.UNREADABLE] == 1
-    assert f"fail-open: {gone} skipped: FileNotFoundError" in capsys.readouterr().err
+    assert capsys.readouterr().err == ""
 
 
-def test_a_transcript_with_unparsable_stamps_is_skipped_and_reported(tmp_path, capsys):
+def test_a_transcript_with_unparsable_stamps_is_skipped_and_counted(tmp_path, capsys):
     from scan_machine import transcript_spans
 
     p = tmp_path / "a.jsonl"
@@ -464,14 +464,14 @@ def test_a_transcript_with_unparsable_stamps_is_skipped_and_reported(tmp_path, c
     tally = Counter()
     assert transcript_spans(str(tmp_path), tally) == []
     assert tally["undated files"] == 1
-    assert f"fail-open: {p} skipped as undated: ValueError" in capsys.readouterr().err
+    assert capsys.readouterr().err == ""
 
 
 @pytest.mark.parametrize("scan", ["headroom", "bash"])
-def test_an_undated_record_is_skipped_and_reported(tmp_path, capsys, scan):
+def test_an_undated_record_is_skipped_and_counted(tmp_path, capsys, scan):
     from scan_machine import headroom_readings, scan_bash_commands
 
-    p = _write_transcript(
+    _write_transcript(
         tmp_path,
         "a.jsonl",
         [
@@ -488,8 +488,7 @@ def test_an_undated_record_is_skipped_and_reported(tmp_path, capsys, scan):
     else:
         assert scan_bash_commands(str(tmp_path), {"t": "x"}, tally) == {}
     assert tally["undated records"] == 1
-    err = capsys.readouterr().err
-    assert f"fail-open: record in {p} skipped as undated: ValueError" in err
+    assert capsys.readouterr().err == ""
 
 
 def test_available_mb_is_none_and_reported_when_the_file_will_not_open(

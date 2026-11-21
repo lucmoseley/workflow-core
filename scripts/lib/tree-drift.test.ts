@@ -18,6 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ignoreFailure } from "./caught.js";
 
 const {
 	readTreeSnapshot,
@@ -275,11 +276,8 @@ describe("endOfRunTreeIdentity (mantahostels#2187)", () => {
 		git("checkout", "-q", "master");
 		write("src/a.js", "master\n");
 		git("commit", "-qam", "master edit");
-		try {
-			git("merge", "-q", "feature");
-		} catch {
-			/* the conflict is the point */
-		}
+		// the conflict is the point
+		ignoreFailure(() => git("merge", "-q", "feature"));
 
 		expect(endOfRunTreeIdentity(repo)).toBeNull();
 	});

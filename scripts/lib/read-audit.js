@@ -65,6 +65,7 @@ const { readText } = require("./file-read.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
 const { parseJsonl } = require("./jsonl.js");
 const { pathKind } = require("./path-kind.js");
+const { ignoreFailure } = require("./caught.js");
 const {
 	isNode,
 	parseStanding,
@@ -161,11 +162,8 @@ function install(root, env = process.env, err = process.stderr) {
  */
 function remove(dir) {
 	if (!dir) return;
-	try {
-		fs.rmSync(dir, { recursive: true, force: true });
-	} catch {
-		// What will not go now goes at a later run's sweep, once stale (#5046).
-	}
+	// What will not go now goes at a later run's sweep, once stale (#5046).
+	ignoreFailure(() => fs.rmSync(dir, { recursive: true, force: true }));
 }
 
 /* A log directory's name: the prefix, the pid of the run that made it, and
@@ -196,11 +194,9 @@ function sweep(tmp, now = Date.now()) {
 		const pid = LOG_DIR_NAME.exec(name)?.[1];
 		if (pid === undefined || pidAlive(Number(pid))) continue;
 		const dir = path.join(tmp, name);
-		try {
+		ignoreFailure(() => {
 			if (now - fs.lstatSync(dir).mtimeMs > STALE_MS) remove(dir);
-		} catch {
-			// Gone already: another run's sweep took it.
-		}
+		});
 	}
 }
 

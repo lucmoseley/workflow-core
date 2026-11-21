@@ -28,7 +28,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { readText } = require("./file-read.js");
 const { isUnder } = require("./is-under.js");
 const { pathKind } = require("./path-kind.js");
@@ -168,12 +168,7 @@ function isCopying(abs, io) {
 	try {
 		fd = io.openSync(abs, fs.constants.O_WRONLY | fs.constants.O_NONBLOCK);
 	} catch (e) {
-		if (caught(e).code === "ENXIO")
-			try {
-				io.unlinkSync(abs);
-			} catch {
-				// Its `cat` removed it first.
-			}
+		if (caught(e).code === "ENXIO") ignoreFailure(() => io.unlinkSync(abs));
 		return false;
 	}
 	io.closeSync(fd);

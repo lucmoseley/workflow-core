@@ -22,6 +22,7 @@ const path = require("node:path");
 const { hostRoot } = require("./host-root");
 const { parseJsonl } = require("./jsonl.js");
 const { findTranscript, subagentDirOf } = require("./transcript");
+const { orFallback } = require("./caught.js");
 
 /** @typedef {import("./transcript.js").TranscriptRecord} TranscriptRecord */
 
@@ -376,12 +377,7 @@ function sessionTokens(mainFile) {
 function readSessionFiles(mainFile) {
 	const subDir = subagentDirOf(mainFile);
 	/** @type {string[]} */
-	let subs = [];
-	try {
-		subs = fs.readdirSync(subDir);
-	} catch {
-		// No subagents directory: the session dispatched none.
-	}
+	const subs = orFallback(() => fs.readdirSync(subDir), []);
 	return [
 		mainFile,
 		...subs
@@ -408,29 +404,23 @@ function readSessionFiles(mainFile) {
  * @returns {CostTable | null}
  */
 function readCostTable(file = costTableFile()) {
-	try {
-		const t = JSON.parse(fs.readFileSync(file, "utf8"));
-		if (
-			typeof t?.meanUsd === "number" &&
-			Array.isArray(t.quantilesUsd) &&
-			t.quantilesUsd.length >= 2 &&
-			t.quantilesUsd.every(
-				(/** @type {unknown} */ q) => typeof q === "number",
-			) &&
-			typeof t.tailRemainderUsd === "number" &&
-			Array.isArray(t.landedByHours) &&
-			t.landedByHours.length > 0 &&
-			t.landedByHours.every(
-				(/** @type {unknown} */ p) =>
-					Array.isArray(p) &&
-					p.length === 2 &&
-					p.every((x) => typeof x === "number"),
-			)
+	const t = orFallback(() => JSON.parse(fs.readFileSync(file, "utf8")), null);
+	if (
+		typeof t?.meanUsd === "number" &&
+		Array.isArray(t.quantilesUsd) &&
+		t.quantilesUsd.length >= 2 &&
+		t.quantilesUsd.every((/** @type {unknown} */ q) => typeof q === "number") &&
+		typeof t.tailRemainderUsd === "number" &&
+		Array.isArray(t.landedByHours) &&
+		t.landedByHours.length > 0 &&
+		t.landedByHours.every(
+			(/** @type {unknown} */ p) =>
+				Array.isArray(p) &&
+				p.length === 2 &&
+				p.every((x) => typeof x === "number"),
 		)
-			return t;
-	} catch {
-		/* unreadable or malformed: falls through to null */
-	}
+	)
+		return t;
 	return null;
 }
 

@@ -161,10 +161,7 @@ describe("--against HEAD refuses the commit that expires an anchor (#2617)", () 
 		const repo = stagingRepo();
 		const hook = path.join(repo.root, hookRel);
 		fs.mkdirSync(path.dirname(hook), { recursive: true });
-		fs.writeFileSync(
-			hook,
-			"#!/bin/sh\n# IMPLICIT:  a thing.\n# JUSTIFIED: fail-safe.\n# DEFEAT:    none\nexit 0\n",
-		);
+		fs.writeFileSync(hook, "#!/bin/sh\nexit 0\n");
 		/* Staged before its review: a guard outside the index has no digest (#4517). */
 		repo.git("add", "--", hookRel);
 		review(repo.root, [hookRel]);

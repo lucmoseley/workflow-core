@@ -25,6 +25,7 @@ const {
 	guardFiles,
 } = require("./lib/guard-code.js");
 const { writeFd } = require("./lib/write-fd.js");
+const { orFallback } = require("./lib/caught.js");
 
 parseOrExit(process.argv.slice(2), {
 	usage: `Usage: node ${scriptPath("adopt-guard-code.js")}`,
@@ -38,18 +39,18 @@ if (adoption === null) {
 	);
 	process.exit(0);
 }
-let live = false;
-try {
-	live = fs.existsSync(
-		path.join(
-			guardFiles(guardCodeDir()).current,
-			"scripts",
-			"guard-dispatch.js",
+// HOME unset throws: the adoption above already said why it failed.
+const live = orFallback(
+	() =>
+		fs.existsSync(
+			path.join(
+				guardFiles(guardCodeDir()).current,
+				"scripts",
+				"guard-dispatch.js",
+			),
 		),
-	);
-} catch {
-	// HOME unset: the adoption above already said why it failed.
-}
+	false,
+);
 writeFd(
 	adoption.kind === "error" || !live ? 2 : 1,
 	`${adoptionLine(adoption)}${live ? "" : "; no guard code is live, so every guarded call is refused"}\n`,

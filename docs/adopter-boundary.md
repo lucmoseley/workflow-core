@@ -24,6 +24,7 @@ The release tree an adopter installs. Tests, fixtures and TypeScript are left ou
 - `docs/effort-guide.md` — which model and effort a job gets.
 - `docs/environment.md` — one machine's limits as a worked example, and which live figure each shipped guard reads.
 - `docs/code-standards-base.md` — the code standards every review reads.
+- `docs/comment-kinds.md` — the comment keep-list `/code-review`'s Comments axis and `concision-pass` paste.
 - `docs/practice` — the practice notes, without their `## In workflow-core` sections, which hold only lines that would mislead an adopter: those about workflow-core's own release notes, its CI config and its unshipped tools. A line about shipped machinery, its measured evidence included, sits in its entry and ships: an adopter's session reads the plugin's copy of a note where its own is missing or stale.
 - `.husky` — the git hooks' source.
 - `ruff.toml` — the Python lint rules.
@@ -43,6 +44,7 @@ The release tree an adopter installs. Tests, fixtures and TypeScript are left ou
 - `CLAUDE.md` `AGENTS.md` — the adopter's own contract, written once from a template.
 - `.claude/workflow-core.json` — the adopter's config: modules, commands, tracker.
 - `.claude/guard-registry-anchors.json` — the guard registry's anchors, written once.
+- `.claude/implicit-behaviours.json` — the guard registry's row for each hook of the adopter's own, written once, empty: the shims take theirs from the core.
 - `docs/doc-map.md` `docs/doc-map-classes.json` `docs/doc-map-admissions.json` `docs/doc-map-high-water.json` `docs/doc-map-restatements.json` `docs/doc-map-retired-vocabulary.json` `docs/doc-map-superseded.json` — the adopter's own doc map and its sidecars, written once.
 - `docs/code-standards.md` — the adopter's local code standards, beside the shipped base, written once.
 - `docs/reference-roadmap.html` `docs/roadmap-digest.md` `docs/called-cards.md` — the roadmap module's documents, written once where it is on.

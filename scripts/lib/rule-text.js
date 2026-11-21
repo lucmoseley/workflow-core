@@ -42,7 +42,7 @@ const {
 	resolveScriptPaths,
 	scriptPath,
 } = require("./script-path.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure, orFallback } = require("./caught.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /** The store's home, relative to the repo root. */
@@ -382,14 +382,14 @@ function expandCommands(text, root) {
  * @returns {string}
  */
 function readRuleParagraph(id, head) {
-	try {
-		const paragraph = readRuleText(id)
-			.split(/\n\s*\n/)
-			.find((p) => p.startsWith(head));
-		if (paragraph) return paragraph;
-	} catch {
-		/* Fall through to the pointer. */
-	}
+	const paragraph = orFallback(
+		() =>
+			readRuleText(id)
+				.split(/\n\s*\n/)
+				.find((p) => p.startsWith(head)),
+		undefined,
+	);
+	if (paragraph) return paragraph;
 	return `The rule could not be read here: run \`${scriptPath("lib/rule-text.sh")} ${bareRuleId(id)}\` and follow the paragraph opening ${head}.`;
 }
 
@@ -438,16 +438,15 @@ function readRuleTextOr(id, lead, label, hostDir) {
 		root ??= hostRoot();
 		return readRuleText(id, root);
 	} catch (err) {
-		try {
+		// A log that cannot be written must not break the guard.
+		ignoreFailure(() =>
 			require("./arbiter-core.js").logError(
 				`${label} rule-text ${bareRuleId(id)}`,
 				err,
 				undefined,
 				root,
-			);
-		} catch {
-			/* A log that cannot be written must not break the guard. */
-		}
+			),
+		);
 		return fallbackLine(lead, bareRuleId(id));
 	}
 }

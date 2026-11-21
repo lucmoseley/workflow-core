@@ -37,6 +37,7 @@
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
+const { ignoreFailure } = require("./lib/caught.js");
 const path = require("node:path");
 const { sessionDirs } = require("./lib/arbiter-core.js");
 const { byCodeUnit } = require("./lib/by-code-unit.js");
@@ -82,13 +83,11 @@ function readLogTexts(dir) {
 	/** @type {string[]} */
 	const texts = [];
 	for (const entry of entries) {
-		try {
+		ignoreFailure(() =>
 			texts.push(
 				fs.readFileSync(path.join(projects, entry, "divergence.log"), "utf8"),
-			);
-		} catch {
-			/* no log in this project */
-		}
+			),
+		);
 	}
 	return texts;
 }

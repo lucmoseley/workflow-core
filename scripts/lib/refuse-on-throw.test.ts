@@ -6,6 +6,7 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { ignoreFailure } from "./caught.js";
 import {
 	fakeTreeClassifier,
 	unresolvedTreeClassifier,
@@ -72,11 +73,7 @@ describe("refuseOnThrow", () => {
 	it("refuses where the core throws something else after a tree read faulted and was caught", () => {
 		const { ctx, logs } = harness(unresolvedTreeClassifier("/x"));
 		const wrapped = refuseOnThrow("guard-x.js", (_c, x) => {
-			try {
-				x.treeClass("/x");
-			} catch {
-				/* the core recovered */
-			}
+			ignoreFailure(() => x.treeClass("/x"));
 			throw new Error("later");
 		});
 		expect(wrapped("git x", ctx)).toEqual({

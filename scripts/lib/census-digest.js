@@ -46,7 +46,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const { createRequire } = require("node:module");
 const path = require("node:path");
-const { caught } = require("./caught.js");
+const { caught, orFallback } = require("./caught.js");
 const { readCommit } = require("./commit-sha.js");
 const { loadShfmt } = require("./formatters.js");
 const { NO_CEILING } = require("./git-ceiling.js");
@@ -416,11 +416,10 @@ let typescript;
 function loadTypescript() {
 	if (typescript) return typescript;
 	for (const from of [path.join(process.cwd(), "package.json"), __filename]) {
-		try {
-			typescript = createRequire(from)("typescript");
+		const loaded = orFallback(() => createRequire(from)("typescript"), null);
+		if (loaded) {
+			typescript = loaded;
 			return typescript;
-		} catch {
-			// Not installed from here; the next root may have it.
 		}
 	}
 	throw new DigestUnavailable(

@@ -25,11 +25,6 @@
 # comes after SessionStart has finished. NO CLOUD EXEMPTION: a cloud session
 # cannot load a repo-declared plugin's hooks (#1892), so it is refused like any
 # unguarded session.
-#
-# IMPLICIT: refuses every tool call of a session whose self-plugin marker is absent, names a root other than the main checkout's self-plugin, or is empty
-# JUSTIFIED: fail-safe — a session the self-plugin did not load, or loaded from another tree, would otherwise run with no guards or another tree's, and nothing said
-# DEFEAT: none
-# TREE:   host — checks this session's self-plugin marker in the host root's markers against the main checkout
 
 set -uo pipefail
 

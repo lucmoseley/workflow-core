@@ -13,7 +13,7 @@
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { caught } from "./caught.js";
+import { caught, orFallback } from "./caught.js";
 
 const require = createRequire(import.meta.url);
 const { recordsDir, PREFIX } = require("./hook-record.js");
@@ -62,13 +62,9 @@ function readFileBreadcrumbs(
 	const out: Breadcrumb[] = [];
 	for (const line of fs.readFileSync(file, "utf8").split("\n")) {
 		if (!line.trim()) continue;
-		try {
-			const parsed = JSON.parse(line);
-			if (parsed?.guard === guard && parsed.session === session)
-				out.push(parsed);
-		} catch {
-			// A torn line, which the real reader also skips.
-		}
+		// A torn line, which the real reader also skips.
+		const parsed = orFallback(() => JSON.parse(line), undefined);
+		if (parsed?.guard === guard && parsed.session === session) out.push(parsed);
 	}
 	return out;
 }

@@ -23,7 +23,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { readCurrentBootId, holderAlive } = require("./arbiter-proc.js");
-const { caught } = require("./caught.js");
+const { caught, orFallback } = require("./caught.js");
 const { endGroup, isGroupAlive } = require("./grouped-child.js");
 const { readJsonl } = require("./jsonl.js");
 const { refillPath } = require("./refill-dir.js");
@@ -186,12 +186,8 @@ function readEndResult(run) {
 		typeof last?.total_cost_usd === "number" ? last.total_cost_usd : null;
 	const base = { costUsd, sessionId: run.sessionId };
 	if (isLive(run)) return { outcome: "running", ...base };
-	let stderr = "";
-	try {
-		stderr = fs.readFileSync(run.stderr, "utf8");
-	} catch {
-		/* no stderr is no refusal in it (#2607) */
-	}
+	// No stderr is no refusal in it (#2607).
+	const stderr = orFallback(() => fs.readFileSync(run.stderr, "utf8"), "");
 	const failed = last?.is_error
 		? `${last.result ?? ""} ${last.error ?? ""}`
 		: "";

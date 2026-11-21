@@ -59,7 +59,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 import claude_sessions
-from fail_open import fail_open
+from fail_open import expected, fail_open
 from wfc_bin import bin_path
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -152,8 +152,8 @@ def children_map():
         try:
             with open(f"/proc/{pid}/stat") as f:
                 stat_text = f.read()
-        except OSError as e:
-            fail_open(e, f"pid {pid} left out of the process tree")
+        except (FileNotFoundError, PermissionError, ProcessLookupError) as e:
+            expected(e, f"pid {pid} exited since the listing, or is not ours to read")
             continue
         ppid = parse_ppid(stat_text)
         if ppid is not None:
@@ -177,8 +177,8 @@ def proc_stats(pid):
             stat_text = f.read()
         with open(f"/proc/{pid}/statm") as f:
             statm_text = f.read()
-    except OSError as e:
-        fail_open(e, f"pid {pid} read as gone")
+    except (FileNotFoundError, PermissionError, ProcessLookupError) as e:
+        expected(e, f"pid {pid} gone, or not ours to read")
         return None
     return parse_cpu_ticks_and_rss(stat_text, statm_text)
 
@@ -404,7 +404,9 @@ class Watchdog:
     def _killpg(pgid):
         try:
             os.killpg(pgid, signal.SIGKILL)
-        except (ProcessLookupError, PermissionError) as e:
+        except ProcessLookupError as e:
+            expected(e, f"process group {pgid} gone before the kill")
+        except PermissionError as e:
             fail_open(e, f"process group {pgid} left unkilled")
 
     def arm(self, pgids):

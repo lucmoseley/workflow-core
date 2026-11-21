@@ -50,7 +50,7 @@ A program reads the time through `now()` from `scripts/lib/clock.js`, so a test 
 
 ## Failing open in Python
 
-A program-routed `.py` that keeps working past an error it caught hands that error to `fail_open` from `scripts/lib/fail_open.py`, imported from that module, in a statement of the handler itself, with what it does instead: `except OSError as e: fail_open(e, "cache read as empty")`. It prints both to stderr. The pre-commit's `check-swallowed-errors.js` refuses any other `except` that neither raises nor exits, and a test pins each fail-open.
+A program-routed `.py` that keeps working past an error it caught hands that error to `fail_open` from `scripts/lib/fail_open.py`, imported from that module, in a statement of the handler itself, with what it does instead: `except OSError as e: fail_open(e, "cache read as empty")`. It prints both to stderr. A drop the program counts into a tally it prints goes to `tallied(e, tally, key)` instead, and a condition that is the program's normal path, such as a process gone between listing and read, to `expected(e, "<outcome>")` under a specific caught type; neither prints. The pre-commit's `check-swallowed-errors.js` refuses any other `except` that neither raises nor exits, and a test pins each site.
 
 ## Proving a release against your checks
 

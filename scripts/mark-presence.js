@@ -19,14 +19,10 @@
  *
  * FAILS OPEN: never blocks the prompt, and a reminder it cannot work out is
  * not shown.
- *
- * IMPLICIT:  at every prompt the founder types in an interactive session, into a running background job or as an agents-view launch, writes the time and the typing session's seat to `~/.claude/.founder-presence`; at his first prompt back in away mode after a presence window with no prompt or switch, prints a `systemMessage` reminding him to run `set --normal`.
- * JUSTIFIED: fail-safe — a missed prompt reads him as away (#1995).
- * DEFEAT:    none needed — it never blocks; `disabled` in .claude/workflow-core.json stands it down.
- * TREE:      host — stamps machine-wide founder presence under the host root's config switch
  */
 
 const path = require("node:path");
+const { ignoreFailure } = require("./lib/caught.js");
 const { isFounderTyping } = require("./lib/founder-typing");
 const hookMessage = require("./lib/hook-message");
 const { hostRoot } = require("./lib/host-root");
@@ -75,8 +71,5 @@ function main() {
 	);
 }
 
-try {
-	main();
-} catch {
-	/* Fail open (#2004). */
-}
+// Fail open (#2004).
+ignoreFailure(main);

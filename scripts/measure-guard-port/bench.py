@@ -66,7 +66,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import gitop
-from fail_open import fail_open
+from fail_open import expected, fail_open
 from host_root import host_root
 from machine import machine_state
 
@@ -210,7 +210,7 @@ def reap_orphans() -> int:
         try:
             pid, _ = os.waitpid(-1, os.WNOHANG)
         except ChildProcessError as e:
-            fail_open(e, "no child left, none counted running")
+            expected(e, "no child left, none running")
             return 0
         if pid == 0:
             break
@@ -223,8 +223,10 @@ def reap_orphans() -> int:
             continue
         try:
             stat = (d / "stat").read_text()
-        except OSError as e:
-            fail_open(e, f"pid {d.name} skipped as exited")
+        except (FileNotFoundError, PermissionError, ProcessLookupError) as e:
+            expected(
+                e, f"pid {d.name} exited since the listing, or is not ours to read"
+            )
             continue
         # The command name may hold spaces; the fields after its closing
         # parenthesis start at the state (field 3).
@@ -247,7 +249,7 @@ def reaped(pid: int) -> bool:
             if os.waitpid(pid, os.WNOHANG)[0]:
                 return True
         except ChildProcessError as e:
-            fail_open(e, f"pid {pid} counted as reaped")
+            expected(e, f"pid {pid} reaped already")
             return True
         if time.monotonic() > deadline:
             return False

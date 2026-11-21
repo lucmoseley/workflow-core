@@ -28,6 +28,7 @@
 const fs = require("node:fs");
 const { markersDir } = require("./marker-root.js");
 const path = require("node:path");
+const { ignoreFailure } = require("./caught.js");
 
 /**
  * `scheduled` is null where no schedule was recorded.
@@ -74,19 +75,18 @@ const scheduled = { list: null };
 
 /** @param {string} root */
 function flush(root) {
-	try {
+	// Swallowed rather than reported: this runs on every module transition of
+	// every suite, so a store it cannot write would otherwise emit hundreds of
+	// identical lines into the run's own output. The silence is legible at the
+	// only place that reads the record — run-vitest.js says so when a stall
+	// finds no rows.
+	ignoreFailure(() => {
 		const rows = [...open].map(([module, stage]) => ({ module, stage }));
 		fs.writeFileSync(
 			inflightPath(root),
 			`${JSON.stringify({ open: rows, finished, scheduled: scheduled.list })}\n`,
 		);
-	} catch {
-		/* Swallowed rather than reported: this runs on every module transition of
-		 * every suite, so a store it cannot write would otherwise emit hundreds of
-		 * identical lines into the run's own output. The silence is legible at the
-		 * only place that reads the record — run-vitest.js says so when a stall
-		 * finds no rows. */
-	}
+	});
 }
 
 /**
@@ -140,12 +140,11 @@ function leave(root, moduleId) {
  * @param {string} root
  */
 function beat(root) {
-	try {
+	// A lost beat can cost a false stall kill, never the run's own result.
+	ignoreFailure(() => {
 		const now = new Date();
 		fs.utimesSync(inflightPath(root), now, now);
-	} catch {
-		/* a lost beat can cost a false stall kill, never the run's own result */
-	}
+	});
 }
 
 /**
@@ -213,12 +212,9 @@ function clear(root) {
  * @param {string} file
  */
 function clearFile(file) {
-	try {
-		fs.rmSync(file, { force: true });
-	} catch {
-		/* A record that outlives its run is read by nobody: the wrapper names a
-		 * fresh path per run, and `begin` empties whatever it finds. */
-	}
+	// A record that outlives its run is read by nobody: the wrapper names a fresh
+	// path per run, and `begin` empties whatever it finds.
+	ignoreFailure(() => fs.rmSync(file, { force: true }));
 }
 
 module.exports = {

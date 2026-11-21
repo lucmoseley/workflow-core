@@ -30,6 +30,7 @@ const { brokenError, skipError } = require("./outcome-error.js");
 const { errMessage } = require("./check.js");
 const { readText } = require("./file-read.js");
 const { limitIn } = require("./hook-limits.js");
+const { noop } = require("./noop.js");
 const { TRACKER_TEXT, loadTextModule } = require("./load-text-module.js");
 const {
 	readOutputStylePath,
@@ -82,9 +83,8 @@ function measure(t, ruleCap, root) {
 	const pricedOptions = t.pricedOptionsWhole(
 		readOutputStylePath({
 			root,
-			say: () => {
-				/* a config fault is the config checker's to report */
-			},
+			// A config fault is the config checker's to report.
+			say: noop,
 		}),
 	);
 	const read = fragmentLookup(root);

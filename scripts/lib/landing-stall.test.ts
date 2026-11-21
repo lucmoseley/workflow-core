@@ -9,8 +9,11 @@
  * onto a main idle for hours, or a machine that was off or asleep, is
  * ticketed as a stall.
  */
-import { describe, expect, it } from "vitest";
-import { stallFindings, supervision } from "./landing-stall.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { readHeldExit, stallFindings, supervision } from "./landing-stall.js";
 
 const NOW = Date.parse("2026-10-21T12:00:00Z");
 const Q = "b".repeat(40);
@@ -42,6 +45,7 @@ const reading = (
 		heartbeat: { pid: 7, at: new Date(NOW - MIN).toISOString(), batch: null },
 		alive: () => false,
 		owed: 0,
+		held: { kind: "none" },
 		...rest,
 	};
 };
@@ -52,7 +56,77 @@ const found = (over: Parameters<typeof reading>[0] = {}) =>
 const tags = (over: Parameters<typeof reading>[0]) =>
 	found(over).map((f) => f.tag);
 
+describe("readHeldExit (#5436)", () => {
+	let root = "";
+	beforeEach(() => {
+		root = fs.mkdtempSync(path.join(os.tmpdir(), "landing-stall-"));
+	});
+	afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+	const at = (min: number) => new Date(NOW - min * MIN).toISOString();
+	const log = (...lines: string[]) => {
+		const dir = path.join(root, ".claude", "tmp", "markers");
+		fs.mkdirSync(dir, { recursive: true });
+		fs.writeFileSync(path.join(dir, ".lander.log"), `${lines.join("\n")}\n`);
+	};
+
+	it("reads the newest run end where held, passing over a lock's turn-away", () => {
+		log(
+			`${at(30)} exit no queue ref waits`,
+			`${at(20)} merge-members onto m0: queue/a`,
+			`${at(10)} exit held: main is stale`,
+			`${at(5)} exit another lander holds the lock`,
+		);
+		expect(readHeldExit(root, NOW)).toEqual({
+			kind: "held",
+			at: NOW - 10 * MIN,
+			reason: "main is stale",
+		});
+	});
+
+	it("reads none where a later run ended unheld, or the held end is over a day old", () => {
+		log(
+			`${at(30)} exit held: main is stale`,
+			`${at(5)} exit no queue ref waits`,
+		);
+		expect(readHeldExit(root, NOW)).toEqual({ kind: "none" });
+		log(`${at(25 * 60)} exit held: main is stale`);
+		expect(readHeldExit(root, NOW)).toEqual({ kind: "none" });
+	});
+
+	it("reads an unreadable log as unread, never throwing", () => {
+		fs.mkdirSync(path.join(root, ".claude", "tmp", "markers", ".lander.log"), {
+			recursive: true,
+		});
+		expect(readHeldExit(root, NOW).kind).toBe("unread");
+	});
+});
+
 describe("stallFindings", () => {
+	it("names a held lander run while a queue ref waits, and none where nothing waits (#5436)", () => {
+		const held = {
+			kind: "held",
+			at: NOW - MIN,
+			reason: "main is stale",
+		} as const;
+		expect(found({ held })).toEqual([
+			{
+				tag: "LANDER-HELD",
+				line: `the queue lander's last run, at ${new Date(NOW - MIN).toISOString()}, ended held: main is stale`,
+			},
+		]);
+		expect(tags({ held, since: null })).toEqual([]);
+	});
+
+	it("names a lander log that would not read, so a hold may go unseen (#5436)", () => {
+		expect(found({ held: { kind: "unread", fault: "EISDIR" } })).toEqual([
+			{
+				tag: "LANDER-LOG-UNREAD",
+				line: "the queue lander's log would not read, so a held run end goes unseen: EISDIR",
+			},
+		]);
+	});
+
 	it("warns of a stall where main has not moved for 2 h with a queue ref waiting, naming both", () => {
 		const f = found({ movedAt: stale(1) });
 		expect(f.map((x) => x.tag)).toEqual(["LANDING-STALLED"]);

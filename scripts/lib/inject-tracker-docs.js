@@ -35,6 +35,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { ignoreFailure, orFallback } = require("./caught.js");
 const text = require("./tracker-inject-text.js");
 const { trimEndRun, trimStartRun } = require("./trim-run.js");
 const { escapeRe } = require("./regex-group.js");
@@ -60,12 +61,7 @@ const TOKEN_SEPARATORS = " \t\n\v\f\r,&+";
  */
 function parseFields(stdin) {
 	/** @type {unknown} */
-	let p = null;
-	try {
-		p = JSON.parse(stdin);
-	} catch {
-		/* unreadable: every field empty */
-	}
+	const p = orFallback(() => JSON.parse(stdin), null);
 	const obj =
 		p !== null && typeof p === "object" && !Array.isArray(p)
 			? /** @type {Record<string, unknown>} */ (p)
@@ -236,12 +232,7 @@ function settleMarker(marker, takesIssue, now) {
 	if (!st?.isFile()) return "clear";
 	const stamp = Math.floor(st.mtimeMs / 1000);
 	if (stamp <= now && now - stamp < DEDUPE_WINDOW_S) {
-		let held = null;
-		try {
-			held = fs.readFileSync(marker.file, "utf8");
-		} catch {
-			/* unreadable: no match */
-		}
+		const held = orFallback(() => fs.readFileSync(marker.file, "utf8"), null);
 		if (held === takesIssue) return "duplicate";
 	}
 	try {
@@ -265,7 +256,8 @@ function reserve(marker, takesIssue, now) {
 	} catch {
 		return false;
 	}
-	try {
+	// A sweep that fails costs only disk.
+	ignoreFailure(() => {
 		/* Stamped by the port's clock, which the window is read against. */
 		fs.utimesSync(marker.file, now, now);
 		for (const name of fs.readdirSync(marker.dir)) {
@@ -274,9 +266,7 @@ function reserve(marker, takesIssue, now) {
 			if (st?.isFile() && now - st.mtimeMs / 1000 > SWEEP_AGE_S)
 				fs.rmSync(f, { force: true });
 		}
-	} catch {
-		/* a sweep that fails costs only disk */
-	}
+	});
 	return true;
 }
 

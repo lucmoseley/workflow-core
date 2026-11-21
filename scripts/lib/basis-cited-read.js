@@ -11,7 +11,7 @@
  */
 
 const { gh } = require("./gh.js");
-const { caught } = require("./caught.js");
+const { caught, orFallback } = require("./caught.js");
 const {
 	citedKey,
 	untouchedBases,
@@ -95,12 +95,11 @@ function runQuery(query, timeoutMs, run) {
 			? { data }
 			: { why: "GitHub's answer held no data" };
 	} catch (e) {
-		try {
-			const data = JSON.parse(caught(e).stdout?.toString() ?? "")?.data;
-			if (data && typeof data === "object") return { data };
-		} catch {
-			// Not JSON: no partial answer to read, so the failure stands.
-		}
+		const data = orFallback(
+			() => JSON.parse(caught(e).stdout?.toString() ?? "")?.data,
+			undefined,
+		);
+		if (data && typeof data === "object") return { data };
 		return { why: failedWhy(caught(e), timeoutMs) };
 	}
 }

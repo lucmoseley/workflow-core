@@ -16,6 +16,14 @@
 		"route": null,
 		"consumes": null
 	},
+	".claude/implicit-behaviours.json": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "Each wired script's IMPLICIT / JUSTIFIED / DEFEAT / TREE row, checked both ways against the wiring by scripts/check-guard-registry.js (#5477)",
+		"route": null,
+		"consumes": null
+	},
 	".claude/output-styles/core-voice.md": {
 		"section": "Governance & process docs",
 		"class": "source-of-truth",
@@ -1668,6 +1676,15 @@
 		"class": "source-of-truth",
 		"classQualifier": null,
 		"role": "The core's local standards file, read beside `code-standards-base.md` (#967): its changes to the base (exception rows only), its route rows, and the core's own sections. **§W is the live tooling matrix** (mantahostels#1537), the check a candidate rule passes before it is written: which checker sees which surface, which CI gate runs each checker and whether it refuses, and what is not measured by decision; the pre-commit floor is base §0's. Then Smells not raised and Out of scope. Never shipped: an adopter keeps its own.",
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
+	"docs/comment-kinds.md": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The comment keep-list (#5455): the seven kinds a code comment may be, each with its keep-when test and form, and the tie rule. /code-review's Comments axis and concision-pass's comment criterion paste it whole.",
 		"route": null,
 		"consumes": null,
 		"reader": "agent"

@@ -18,6 +18,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initGitRepo, mkScratchDir } from "./git-fixture";
+import { noop } from "./noop.js";
 import { runInProcess } from "./run-in-process.js";
 
 const ROOT = path.resolve(__dirname, "..", "..");
@@ -107,11 +108,7 @@ const injectTrackerDocs = (host = ROOT) => {
 };
 
 /** The Stop nag, provoked by a code change this session's ledger owns. */
-const concisionBackstop = (
-	prepare = (_repo: string) => {
-		/* no setup beyond the code change */
-	},
-) => {
+const concisionBackstop = (prepare: (repo: string) => void = noop) => {
 	const repo = path.join(dir, "repo");
 	const hooks = path.join(dir, "no-hooks");
 	fs.mkdirSync(hooks);

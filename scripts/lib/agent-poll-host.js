@@ -9,6 +9,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { readText } = require("./file-read.js");
+const { ignoreFailure } = require("./caught.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { makeDir } = require("./guard-entry.js");
 
@@ -66,12 +67,11 @@ function buildHostPorts() {
 			}
 			for (const name of names) {
 				const p = path.join(dir, name);
-				try {
+				// Gone, or not ours to remove (mantahostels#103 §6).
+				ignoreFailure(() => {
 					const s = fs.lstatSync(p);
 					if (s.isFile() && s.mtimeMs < cutoff) fs.unlinkSync(p);
-				} catch {
-					/* Gone, or not ours to remove: best effort, as above (mantahostels#103 §6). */
-				}
+				});
 			}
 		},
 	};

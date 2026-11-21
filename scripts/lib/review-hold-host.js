@@ -13,6 +13,7 @@ const path = require("node:path");
 const { readText } = require("./file-read.js");
 const { spawnGitSync } = require("./git.js");
 const { commitRoute } = require("./commit-route.js");
+const { ignoreFailure, orFallback } = require("./caught.js");
 const {
 	reviewTierStamp,
 	sweepReviewTierStamps,
@@ -137,21 +138,16 @@ function buildHoldPorts({ cwd, env }) {
 			return found.state === "read" ? found.data : "";
 		},
 		writeStamp: (stamp, text) => fs.writeFileSync(stamp, text),
-		dropStamp: (stamp) => {
-			try {
-				fs.rmSync(stamp, { force: true });
-			} catch {
-				/* What a failed write left: the trailer reads it as unreadable. */
-			}
-		},
+		// What a failed drop leaves, the trailer reads as unreadable.
+		dropStamp: (stamp) =>
+			ignoreFailure(() => fs.rmSync(stamp, { force: true })),
 		ruleText: () => {
-			let root;
-			try {
-				root = require("./host-root.js").hostRoot(cwd);
-			} catch {
-				/* readRuleTextOr resolves it from process.cwd(), the cwd the entry
-				 * passes, and falls back there (#3142). */
-			}
+			// Unresolved, readRuleTextOr resolves it from process.cwd(), the cwd the
+			// entry passes (#3142).
+			const root = orFallback(
+				() => require("./host-root.js").hostRoot(cwd),
+				undefined,
+			);
 			return require("./rule-text.js").readRuleTextOr(
 				"review-hold",
 				"A commit on a declared sensitive path is held until its pre-commit review is recorded",
@@ -159,17 +155,14 @@ function buildHoldPorts({ cwd, env }) {
 				root,
 			);
 		},
-		log: (what, detail) => {
-			try {
+		log: (what, detail) =>
+			ignoreFailure(() =>
 				require("./arbiter-core.js").logError(
 					"review-hold-gate.js",
 					what,
 					detail || undefined,
-				);
-			} catch {
-				/* A log that cannot be written must not break the hold. */
-			}
-		},
+				),
+			),
 	};
 
 	/**

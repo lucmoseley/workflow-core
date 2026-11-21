@@ -10,37 +10,6 @@
 # spellings `git merge --no-verify` and `git commit --no-verify` meet the
 # gates.
 #
-# IMPLICIT:  runs the whole of .husky/pre-commit over the staged (or merge)
-#            content, on every commit that reaches this hook — EXCEPT on the
-#            replay path below (cherry-pick, rebase, `rebase --continue`),
-#            where it runs gitleaks alone and, on a cherry-pick, the review hold
-#            (mantahostels#1706, #3905).
-#            It also refuses a message carrying a GitHub closing keyword before
-#            an issue reference, on every route but a replay and a message
-#            still to be typed into $EDITOR (#138). On a commit that passes,
-#            writes the review hold's `Review-Tier:` trailer through
-#            scripts/review-tier-trailer.js (#3664), which refuses a tree that
-#            moved after the hold passed and fails the hold on re-reading it
-#            (#3905). Every step is a row of
-#            scripts/lib/prepare-commit-msg-rows.js, run in one Node process
-#            by scripts/prepare-commit-msg-dispatch.js (#5207), which reads
-#            the route through scripts/lib/commit-route.js; a missing
-#            dispatcher refuses every commit. Every step but the inline
-#            pre-commit runs under scripts/lib/hook-bound.sh's wall-clock
-#            limit, and one that hangs refuses the commit (#5213).
-# JUSTIFIED: fail-safe — this is the one hook that can refuse a commit and
-#            that `--no-verify` leaves running, and a gate skipped here runs next
-#            only in CI, after the push.
-# DEFEAT:    `HUSKY=0`, and `core.hooksPath` pointed off `.husky/_`, which
-#            turn off every hook in the repo at once; WFC_HOOK_LIMIT_S moves
-#            the limit.
-#            `scripts/guard-dispatch.js` (its `guard-commit-form` core) denies `--no-verify`
-#            on `git commit`, `git merge`, `git rebase`, `git cherry-pick` and
-#            `git revert` in an agent session unless wrapped;
-#            `scripts/lib/commit-form.js`'s LIMITS holds the whole defeat list (#800). Which
-#            binary the replay path's scan runs is named by WFC_GITLEAKS (§N7,
-#            #224).
-#
 # A refusal aborts the operation: git exits 1 and writes no commit. On a merge
 # it leaves the merge IN PROGRESS with MERGE_HEAD set, exactly as a
 # `pre-merge-commit` refusal does — `.husky/pre-merge-commit`'s header has what

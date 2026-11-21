@@ -20,7 +20,7 @@
 const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { forgetSession, REPORT_OWNER, reportOwner } = require("./session-id.js");
 const { REAL_PROC } = require("./proc-root.js");
 const { OUTLIVES_KEY, outlivesMark } = require("./session-scope.js");
@@ -262,17 +262,17 @@ function find(scope, pid) {
 	const cgroup = cgroupOf(line);
 	if (path.basename(cgroup) !== `${scope.unit}.scope`) return;
 	stopLooking(scope);
-	scope.dir = path.join(CGROUP_ROOT, cgroup);
+	const dir = path.join(CGROUP_ROOT, cgroup);
+	scope.dir = dir;
 	noteRefused(scope);
-	try {
-		scope.watcher = fs.watch(path.join(scope.dir, "pids.events"), () =>
+	// Unwatched, the end-of-run read alone counts the refusals (#3401).
+	ignoreFailure(() => {
+		scope.watcher = fs.watch(path.join(dir, "pids.events"), () =>
 			noteRefused(scope),
 		);
 		scope.watcher.on("error", () => scope.watcher?.close());
 		scope.watcher.unref();
-	} catch {
-		/* Unwatched, the end-of-run read alone counts the refusals (#3401). */
-	}
+	});
 }
 
 /** accumulator: clears `scope.timer`. @param {RunScope} scope */
@@ -319,12 +319,8 @@ function armExitKill() {
 	if (exitArmed) return;
 	exitArmed = true;
 	process.on("exit", () => {
-		for (const scope of live)
-			try {
-				killScope(scope);
-			} catch {
-				/* Exiting: RuntimeMaxSec still stops it (#3401). */
-			}
+		// Exiting: RuntimeMaxSec still stops it (#3401).
+		for (const scope of live) ignoreFailure(() => killScope(scope));
 	});
 }
 

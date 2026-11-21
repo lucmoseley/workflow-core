@@ -44,7 +44,8 @@ const { spawnSync } = require("node:child_process");
 const { createRequire } = require("node:module");
 const { readCiRuns } = require("./ci-runs.js");
 const { requiredGroup } = require("./regex-group.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure, orFallback } = require("./caught.js");
+const { noop } = require("./noop.js");
 const { readFdAll } = require("./read-fd.js");
 const { writeFd } = require("./write-fd.js");
 const { readBlob } = require("./staged.js");
@@ -90,11 +91,8 @@ function loadShfmt() {
 				(from) => () => createRequire(from)("@wasm-fmt/shfmt"),
 			);
 	for (const load of roots) {
-		try {
-			return load().format;
-		} catch {
-			// Not installed from here; the next root may have it.
-		}
+		const loaded = orFallback(load, null);
+		if (loaded) return loaded.format;
 	}
 	return null;
 }
@@ -359,15 +357,10 @@ function readTrackedShellFiles() {
 function ruffConfigArgs() {
 	const has = (/** @type {string} */ f) =>
 		fs.existsSync(path.join(process.cwd(), f));
-	let pyproject = "";
-	try {
-		pyproject = fs.readFileSync(
-			path.join(process.cwd(), "pyproject.toml"),
-			"utf8",
-		);
-	} catch {
-		// No pyproject.toml: no [tool.ruff] table in it either.
-	}
+	const pyproject = orFallback(
+		() => fs.readFileSync(path.join(process.cwd(), "pyproject.toml"), "utf8"),
+		"",
+	);
 	if (
 		has("ruff.toml") ||
 		has(".ruff.toml") ||
@@ -500,23 +493,21 @@ const WRITE_FORMAT_TIMEOUT_MS = 5000;
  */
 function formatWritten(file) {
 	const rel = path.relative(process.cwd(), path.resolve(file));
-	let shell = false;
-	try {
-		shell =
+	// git unreadable: left as written, for the gate to judge.
+	const shell = orFallback(
+		() =>
 			shellFiles([rel], readWorktreeHead, { timeout: HOOK_GIT_TIMEOUT_MS })
-				.length > 0;
-	} catch {
-		// git unreadable: left as written, for the gate to judge.
-	}
+				.length > 0,
+		false,
+	);
 	if (shell) {
 		const format = loadShfmt();
-		try {
+		// Unparseable or unreadable: left as written, for the gate to name.
+		ignoreFailure(() => {
 			const source = fs.readFileSync(file, "utf8");
 			const out = format && formatShell(format, source, rel);
 			if (out && out !== source) fs.writeFileSync(file, out);
-		} catch {
-			// Unparseable or unreadable: left as written, for the gate to name.
-		}
+		});
 		return "shell";
 	}
 	if (rel.endsWith(".py"))
@@ -525,9 +516,8 @@ function formatWritten(file) {
 			[
 				"format",
 				...ruffConfigArgs(),
-				...readRuffExcludeArgs(() => {
-					/* a write hook stays silent: the commit gate names an unread exclude */
-				}),
+				// A write hook stays silent: the commit gate names an unread exclude.
+				...readRuffExcludeArgs(noop),
 				"--",
 				rel,
 			],

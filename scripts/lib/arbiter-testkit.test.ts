@@ -27,6 +27,7 @@ import {
 	SANDBOX_RM_DELAY_MS,
 } from "./arbiter-testkit";
 import { ledgerPath } from "./dispatch-ledger.js";
+import { noop } from "./noop.js";
 
 /** An Error carrying a `code`, the shape node's fs throws. */
 const errno = (code: string) => Object.assign(new Error(code), { code });
@@ -86,9 +87,7 @@ describe("removeSandbox", () => {
 		expect(() =>
 			removeSandbox("/tmp/arbiter-y2", {
 				remove: stub.remove,
-				sleep: () => {
-					/* no real wait between retries */
-				},
+				sleep: noop,
 			}),
 		).toThrow(/ENOTEMPTY/);
 

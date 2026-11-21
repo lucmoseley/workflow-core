@@ -55,6 +55,7 @@ import {
 	WIDE_MISSING,
 	waitFor,
 } from "./lib/bg-run-testkit";
+import { ignoreFailure } from "./lib/caught.js";
 import { readText } from "./lib/file-read.js";
 import { isDead } from "./lib/process-fixture";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -215,11 +216,7 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 				0,
 			);
 		} finally {
-			try {
-				process.kill(-firstPid, "SIGKILL");
-			} catch {
-				// already killed above
-			}
+			ignoreFailure(() => process.kill(-firstPid, "SIGKILL"));
 			writeFileSync(go, "");
 		}
 
@@ -274,13 +271,9 @@ describe("the detached watcher (mantahostels#2691) — a kill recorded with no `
 			expect(lines).toHaveLength(1);
 			expect(lines[0].started_epoch).toBe(secondStarted);
 		} finally {
-			for (const pid of [firstPid, secondPid]) {
-				try {
-					if (pid !== undefined) process.kill(-pid, "SIGKILL");
-				} catch {
-					// already killed above
-				}
-			}
+			for (const pid of [firstPid, secondPid])
+				if (pid !== undefined)
+					ignoreFailure(() => process.kill(-pid, "SIGKILL"));
 		}
 	});
 

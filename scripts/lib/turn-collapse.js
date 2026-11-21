@@ -19,6 +19,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { ignoreFailure } = require("./caught.js");
 const { parseJsonl } = require("./jsonl.js");
 
 const { configDirs } = require("./arbiter-store");
@@ -93,11 +94,7 @@ function corpusFiles(roots) {
 			if (entry.isDirectory()) {
 				walk(full);
 			} else if (entry.name.endsWith(".jsonl")) {
-				try {
-					seen.add(fs.realpathSync(full));
-				} catch {
-					/* vanished between readdir and realpath; nothing to read */
-				}
+				ignoreFailure(() => seen.add(fs.realpathSync(full)));
 			}
 		}
 	};

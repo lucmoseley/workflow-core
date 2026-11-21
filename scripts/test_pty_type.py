@@ -57,11 +57,10 @@ def test_types_the_line_as_a_paste_then_a_separate_enter(tmp_path):
 def test_a_command_that_exits_without_drawing_is_a_failure():
     r = run("resume", "--", sys.executable, "-c", "pass")
     assert r.returncode == 1
-    assert "drew nothing or exited before the text" in r.stderr
-    assert "fail-open: command read as exited" in r.stderr
+    assert r.stderr == f"{sys.executable} drew nothing or exited before the text\n"
 
 
-def test_a_command_gone_before_its_sigterm_is_named():
+def test_a_command_gone_before_its_sigterm_is_taken_as_exited():
     # A fresh interpreter, as pty.fork in pytest's threaded process risks a
     # deadlocked child.
     driver = (
@@ -77,10 +76,27 @@ def test_a_command_gone_before_its_sigterm_is_named():
         timeout=30,
     )
     assert r.returncode == 1
-    assert "read as already exited" in r.stderr
+    assert r.stderr == f"{sys.executable} drew nothing or exited before the text\n"
 
 
 def test_a_bad_command_line_is_refused():
     r = run("resume")
     assert r.returncode == 2
     assert "pty_type.py <text> -- <command>" in r.stderr
+
+
+def test_a_read_error_other_than_eio_is_raised():
+    driver = (
+        "import errno, os, sys; sys.path.insert(0, sys.argv[1]); import pty_type\n"
+        "def read(fd, n): raise OSError(errno.EBADF, 'bad fd')\n"
+        "os.read = read\n"
+        "sys.exit(pty_type.main(['resume', '--', sys.executable, '-c', 'import time; time.sleep(1)']))\n"
+    )
+    r = subprocess.run(
+        [sys.executable, "-c", driver, str(SCRIPT.parent)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert r.returncode == 1
+    assert "OSError: [Errno 9] bad fd" in r.stderr

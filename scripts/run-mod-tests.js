@@ -49,7 +49,7 @@ const path = require("node:path");
 const { readFdAll } = require("./lib/read-fd.js");
 const { isZeroSha, parsePushes } = require("./lib/push-refs.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
-const { caught } = require("./lib/caught.js");
+const { caught, orFallback } = require("./lib/caught.js");
 const { compareVersions } = require("./lib/compare-versions.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { readClaudeVersion } = require("./lib/claude-version.js");
@@ -99,12 +99,11 @@ function readClaudeVersionOnce() {
  * @param {string} dir
  */
 function unmetTestFloor(dir) {
-	let readme = "";
-	try {
-		readme = fs.readFileSync(path.join(dir, "README.md"), "utf8");
-	} catch {
-		/* No README states no floor; the tests run. */
-	}
+	// No README states no floor; the tests run.
+	const readme = orFallback(
+		() => fs.readFileSync(path.join(dir, "README.md"), "utf8"),
+		"",
+	);
 	const floor = TEST_FLOOR.exec(readme)?.[1];
 	const have = floor && readClaudeVersionOnce();
 	if (!floor || !have) return null;

@@ -50,6 +50,7 @@ const { runCheck, errMessage } = require("./lib/check");
 const { hostRoot } = require("./lib/host-root.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { execGit } = require("./lib/git.js");
+const { ignoreFailure } = require("./lib/caught.js");
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
 
@@ -202,16 +203,14 @@ const swapBaseline = (statePath, count) => {
 		 * indistinguishable to a reader, and the file is regenerated below. */
 		previous = null;
 	}
-	try {
+	/* A read-only checkout must not cost the run its verdict. Uncached, it
+	 * simply speaks on every --notify run until the write works. */
+	ignoreFailure(() =>
 		fs.writeFileSync(
 			statePath,
 			`${JSON.stringify({ silenced: count, at: new Date().toISOString() }, null, 2)}\n`,
-		);
-	} catch {
-		/* Fails open: a read-only checkout must not cost the run its
-		 * verdict. Uncached, it simply speaks on every --notify run until the
-		 * write works. */
-	}
+		),
+	);
 	return previous;
 };
 

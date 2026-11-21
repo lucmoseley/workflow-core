@@ -409,23 +409,6 @@ describe("the core hooks an adopter's shims run (#1839)", () => {
 });
 
 describe("the shim text (#1839)", () => {
-	it.each(HOOKS)(
-		"%s carries the IMPLICIT / JUSTIFIED / DEFEAT header first",
-		(hook) => {
-			const header = renderHookShim(hook)
-				.split("\n")
-				.slice(1)
-				.filter((_, i, lines) =>
-					lines.slice(0, i + 1).every((l) => l.startsWith("#")),
-				);
-			expect(header.find((l) => l.startsWith("# IMPLICIT:  "))).toBeDefined();
-			expect(
-				header.find((l) => /^# JUSTIFIED: fail-safe — \S/.test(l)),
-			).toBeDefined();
-			expect(header.find((l) => l.startsWith("# DEFEAT:    "))).toBeDefined();
-		},
-	);
-
 	it("passes shellcheck at --severity=style, as an adopter's pre-commit checks its hooks", () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "shim-sc-"));
 		temps.push(dir);

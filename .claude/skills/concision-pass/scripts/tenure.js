@@ -34,7 +34,7 @@ const {
 	escapeRe,
 	requiredGroup,
 } = require("../../../../scripts/lib/regex-group.js");
-const { caught } = require("../../../../scripts/lib/caught.js");
+const { caught, ignoreFailure } = require("../../../../scripts/lib/caught.js");
 
 /**
  * Display caps. mantahostels#1114's bar: output that scales with a backlog carries a hard
@@ -894,13 +894,7 @@ function supervise(argv) {
 		detached: true,
 	});
 	const r = spawnSync(process.execPath, [__filename, ...argv], opts);
-	if (r.pid) {
-		try {
-			process.kill(-r.pid, "SIGKILL");
-		} catch {
-			// The group is already empty.
-		}
-	}
+	if (r.pid) ignoreFailure(() => process.kill(-r.pid, "SIGKILL"));
 	if (typeof r.status === "number") return r.status;
 	const why =
 		caught(r.error).code === "ETIMEDOUT"

@@ -20,6 +20,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { orFallback } from "./lib/caught.js";
 import { dispatch } from "./lib/precommit-dispatch.js";
 import { factsAt } from "./lib/precommit-dispatch-ports.js";
 import {
@@ -274,15 +275,15 @@ describe("each row's arm, against the hook ERE it replaced", () => {
 			"$JS_TEST_ERE",
 			JS_TEST_ERE,
 		);
-		let matched = "";
-		try {
-			matched = execFileSync("grep", ["-E", "-e", ere], {
-				input: `${PATHS.join("\n")}\n`,
-				encoding: "utf8",
-			});
-		} catch {
-			/* grep exits 1 where nothing matches. */
-		}
+		// grep exits 1 where nothing matches.
+		const matched = orFallback(
+			() =>
+				execFileSync("grep", ["-E", "-e", ere], {
+					input: `${PATHS.join("\n")}\n`,
+					encoding: "utf8",
+				}),
+			"",
+		);
 		expect(PATHS.filter((p) => gate.arm.pattern.test(p))).toEqual(
 			matched.split("\n").filter(Boolean),
 		);

@@ -25,12 +25,6 @@
  *  - The Skill limb matches the harness's refusal wording,
  *    "due to disable-model-invocation"; a reworded refusal goes unseen.
  *  - It speaks on every hit, unlatched.
- *
- * IMPLICIT: after a Bash call killed by signal, or a Skill call refused as
- *   slash-only, hands the session that rule's text as additionalContext.
- * JUSTIFIED: fail-safe — it adds context and refuses nothing.
- * DEFEAT: deleting either registration.
- * TREE:   host — injects a rule text the core ships, judged on the payload alone
  */
 
 const { run } = require("./lib/guard-entry.js");

@@ -38,7 +38,7 @@ const crypto = require("node:crypto");
 const nodeFs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { execGit } = require("./git.js");
 const { sleepSync } = require("./sleep-sync.js");
 
@@ -438,11 +438,8 @@ function markStart(root, { fs = nodeFs } = {}) {
 	} catch {
 		return null;
 	} finally {
-		try {
-			fs.rmdirSync(dir);
-		} catch {
-			// A leftover empty directory, which git never lists, costs an inode.
-		}
+		// A leftover empty directory, which git never lists, costs an inode.
+		ignoreFailure(() => fs.rmdirSync(dir));
 	}
 }
 

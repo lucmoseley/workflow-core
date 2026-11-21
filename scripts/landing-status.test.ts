@@ -192,6 +192,33 @@ it("ends on the queue's line: the refs waiting, the oldest's wait and the 7-day 
 	]);
 });
 
+it("names the queue lander's last run end where it was held, passing over a lock's turn-away (#5436)", () => {
+	fs.mkdirSync(markers(), { recursive: true });
+	const at = (min: number) => new Date(NOW - min * 60_000).toISOString();
+	const reason =
+		"main is stale: main at aaaaaaaaa holds 1 gating guard-registry fault(s), so no batch onto it lands; main must be re-anchored first: findings: x";
+	fs.writeFileSync(
+		path.join(markers(), ".lander.log"),
+		[
+			`${at(30)} exit no queue ref waits`,
+			`${at(10)} merge-members onto aaaaaaaaa: queue/alpha`,
+			`${at(9)} exit held: ${reason}`,
+			`${at(5)} exit another lander holds the lock`,
+			"",
+		].join("\n"),
+	);
+	ledger();
+
+	const r = runStatus();
+
+	expect(r.status, r.stderr).toBe(0);
+	expect(r.stdout.split("\n").filter(Boolean)).toEqual([
+		`Session ${SESSION} made no commit here.`,
+		`held: the queue lander's last run, at ${at(9)}, ended held: ${reason}`,
+		NO_QUEUE,
+	]);
+});
+
 it("dates a queue ref pushed again from its earliest pending push", () => {
 	const first = commit("first");
 	git(work, "push", "-q", "origin", "HEAD:refs/heads/queue/alpha");

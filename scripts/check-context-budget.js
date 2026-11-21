@@ -233,7 +233,7 @@ const { reachableAfterCall, reachableByTool } = require("./lib/rule-emission");
 const { asInstall } = require("./lib/install-probe.js");
 const { AFTER_EVENTS } = require("./lib/hook-events.js");
 const { RULES_DIR, CORE_RULES, fragmentLookup } = require("./lib/rule-text");
-const { caught } = require("./lib/caught.js");
+const { caught, orFallback } = require("./lib/caught.js");
 const { readImportedFiles } = require("./lib/pool-imports.js");
 const {
 	INJECTOR_ENTRY,
@@ -511,17 +511,13 @@ function parseEnabledPlugins(json) {
  * @returns {Record<string, boolean>}
  */
 function readEnabledPlugins(root) {
-	/** @type {Record<string, boolean>} */
-	let enabled = {};
-	try {
-		enabled =
+	return orFallback(
+		() =>
 			parseEnabledPlugins(
 				fs.readFileSync(path.join(root, SETTINGS_FILE), "utf8"),
-			) ?? {};
-	} catch {
-		/* Absent settings: no plugin is enabled. */
-	}
-	return enabled;
+			) ?? {},
+		{},
+	);
 }
 
 /**
@@ -654,25 +650,26 @@ function readDescriptions(ctx, root) {
 	 * @type {Record<string, string>}
 	 */
 	let overrides = {};
-	try {
-		const parsed = parseSkillOverrides(
-			fs.readFileSync(path.join(root, SETTINGS_FILE), "utf8"),
+	// An absent settings file is the ordinary case in a fixture, and says nothing.
+	const parsed = orFallback(
+		() =>
+			parseSkillOverrides(
+				fs.readFileSync(path.join(root, SETTINGS_FILE), "utf8"),
+			),
+		{},
+	);
+	if (parsed === null) {
+		/* A FINDING, not a note: it changes what every description below is
+		 * charged, so a commit that breaks the file must be able to report it
+		 * through the envelope rather than only onto a stream (mantahostels#1786). */
+		ctx.warn(
+			"UNPARSEABLE-SETTINGS",
+			`${SETTINGS_FILE} will not parse; every description charged`,
 		);
-		if (parsed === null) {
-			/* A FINDING, not a note: it changes what every description below is
-			 * charged, so a commit that breaks the file must be able to report it
-			 * through the envelope rather than only onto a stream (mantahostels#1786). */
-			ctx.warn(
-				"UNPARSEABLE-SETTINGS",
-				`${SETTINGS_FILE} will not parse; every description charged`,
-			);
-			ctx.say(
-				`NOTE: ${SETTINGS_FILE} will not parse; every description charged (mantahostels#1786).`,
-			);
-		} else overrides = parsed;
-	} catch {
-		/* Absent settings file is the ordinary case in a fixture, and says nothing. */
-	}
+		ctx.say(
+			`NOTE: ${SETTINGS_FILE} will not parse; every description charged (mantahostels#1786).`,
+		);
+	} else overrides = parsed;
 
 	for (const name of readDir(skillsDir)) {
 		const at = path.join(skillsDir, name);

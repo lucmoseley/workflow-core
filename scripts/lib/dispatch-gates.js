@@ -25,7 +25,7 @@
 const fs = require("node:fs");
 const { parseArgs } = require("node:util");
 const { markerPath } = require("./burn-mode.js");
-const { caught } = require("./caught.js");
+const { caught, orFallback } = require("./caught.js");
 const { claudeBin } = require("./claude-bin.js");
 const { ROOT_VARS } = require("./inherited-roots.js");
 const { launchAuthRefusal } = require("./launch-auth.js");
@@ -112,12 +112,11 @@ function usage() {
 
 /** @returns {[string, string | undefined]} the config dir and key var */
 function readArgs() {
-	let positionals = /** @type {string[]} */ ([]);
-	try {
-		({ positionals } = parseArgs({ allowPositionals: true, strict: true }));
-	} catch {
-		// An unknown option is a usage error, said below like a missing dir.
-	}
+	// An unknown option is a usage error, said below like a missing dir.
+	const positionals = orFallback(
+		() => parseArgs({ allowPositionals: true, strict: true }).positionals,
+		/** @type {string[]} */ ([]),
+	);
 	const [dir, keyVar, ...rest] = positionals;
 	if (!dir || rest.length > 0) return usage();
 	return [dir, keyVar];

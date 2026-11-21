@@ -1,3 +1,5 @@
+const { ignoreFailure } = require("./caught.js");
+
 /**
  * The fail-open log's writer for one evidence-reading limb, required at the
  * limb rather than at the top so that a library that will not load costs a
@@ -15,13 +17,7 @@ function failOpenLogger(where) {
 	} catch {
 		return null;
 	}
-	return (what) => {
-		try {
-			store.logError(where, what);
-		} catch {
-			/* logging this failure has the same failure mode */
-		}
-	};
+	return (what) => ignoreFailure(() => store.logError(where, what));
 }
 
 module.exports = { failOpenLogger };

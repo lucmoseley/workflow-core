@@ -382,11 +382,6 @@
  * `lib/hook-message.js`, shared with guard-selection-sum.js (mantahostels#844); the
  * prologue and epilogue around `judge()` — payload read, breadcrumb, fail-open,
  * drain — live in `lib/stop-guard.js`, shared with all three siblings (mantahostels#1798).
- *
- * IMPLICIT:  reads the session's ending message at every Stop and blocks the turn where it sends the founder away for his steps (#4058) or a question to the founder is not in the lettered priced form, naming the fault to the founder and sending the correction on the model-only limb; where its top two rivals sit close or its top option is priced 65 or less, once per question whatever `Checked:` or `Unmeasured:` line it carries (#1061), and, re-sent still caught by either, until each research-ladder rung shows a tool call (#2006), past the session ceiling (#1067); where it is sent under 10 tool calls after the founder's last message (#1710), past the ceiling too; where an option hands the founder an act by placeholder or back-reference rather than its literal text, or has him supply a credential by any route but `write-secret.js`, in an option (#1031) or in prose (#1817); where one option has the founder perform an act and another has the agent, and no `Blocked:` line says what stops the agent; where its recommendation names an option the same message priced below another, unexplained; and, in a background job, where a status marker carries nothing after its colon, where it ends on `waiting:` (#5395), or where a `needs input:` puts its decision as prose rather than as a lettered priced round, a lone founder hand-over (#926), a `Qn` pointer to a round still unanswered (#924) or a park on an open repo hold the job is attached to (#3858) excepted; and, once a turn, where a lib of its own will not load (#2645).
- * JUSTIFIED: fail-safe — the rule was written down and kept losing (mantahostels#802), and the turn ending is the last moment the defect can still be fixed.
- * DEFEAT:    the pointer block clears by writing the steps into the message; the format block clears by rewriting the question, never by a switch — the close-rivals block (#488) by sending the corrected question a second time (#1061) and, where the shape limb is silent, a fixed shape (#1742), or by its own cap of 3, its research-ladder block (#2006) by a qualifying tool call on each rung, a re-send no test still catches or its own cap of 3, and its re-price refusal (#489) by a tool call or the refused figures, the under-researched block (#1710) by any tool call before the re-send and, where the shape limb is silent, a fixed shape (#1730), or its own cap of 3, the founder-act block (#597) by the literal text, a secret ask's `write-secret.js` line (#1031), or its own cap of 3, the actor-only block (#598) by acting instead, a `Blocked:` line or its own cap of 3 — or, past `SESSION_MAX` blocks in one session, by the ceiling going quiet on every shape and filing limb at once, the close-rivals, research-ladder and under-researched limbs excepted (mantahostels#2786, #1067), shape limbs one block sooner (mantahostels#3430). The load-failure block (#2645) clears by stopping again.
- * TREE:      host — holds, markers and config are the host root's
  */
 
 /* Armed before every other `require` (#2645, `lib/load-failure-stop.js`). */
@@ -396,9 +391,8 @@ const disarmLoadFailure =
 				"the lettered priced round, the founder hand-over, a credential " +
 					"asked by any route but `write-secret.js`, the status marker",
 			)
-		: () => {
-				/* required, not run: nothing armed */
-			};
+		: // Required, not run: nothing armed.
+			require("./lib/noop.js").noop;
 
 const hookMessage = require("./lib/hook-message");
 const hookBlock = require("./lib/hook-block");

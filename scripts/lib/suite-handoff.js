@@ -35,6 +35,7 @@
 
 const { readEnvironVar } = require("./proc-environ.js");
 const { procRoot } = require("./proc-root.js");
+const { orFallback } = require("./caught.js");
 const {
 	FULL_REASONS,
 	FULL_CAUSES,
@@ -150,12 +151,7 @@ function launchEnv(launch) {
  * @returns {Launch}
  */
 function readLaunch(env = process.env) {
-	let raw = null;
-	try {
-		raw = JSON.parse(env[LAUNCH_ENV] ?? "");
-	} catch {
-		/* unparseable or missing reads as every field absent */
-	}
+	const raw = orFallback(() => JSON.parse(env[LAUNCH_ENV] ?? ""), null);
 	return validLaunch(raw !== null && typeof raw === "object" ? raw : {});
 }
 

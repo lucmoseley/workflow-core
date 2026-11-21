@@ -36,7 +36,7 @@ const { isRepoPath, isRepoPathList } = require("./repo-path.js");
 /* Re-exported rather than merely used, because callers and this file's own
  * suite already import it from here. */
 const { hostRoot } = require("./host-root.js");
-const { caught } = require("./caught.js");
+const { caught, orFallback } = require("./caught.js");
 const { writeFd } = require("./write-fd.js");
 
 /* POSIX-joined: it is a git path as well as a filesystem one. */
@@ -1104,30 +1104,26 @@ function repoSlug(spec) {
  * @param {string} root
  */
 function deriveTracker(root) {
-	let url = "";
-	try {
-		url = execGit(["-C", root, "config", "--get", "remote.origin.url"], {
-			encoding: "utf8",
-			stdio: ["ignore", "pipe", "ignore"],
-		});
-	} catch {
-		// No origin remote: nothing to derive.
-	}
+	const url = orFallback(
+		() =>
+			execGit(["-C", root, "config", "--get", "remote.origin.url"], {
+				encoding: "utf8",
+				stdio: ["ignore", "pipe", "ignore"],
+			}),
+		"",
+	);
 	return parseGithubRemote(url);
 }
 
 function deriveLogin() {
-	let login = "";
-	try {
+	const login = orFallback(() => {
 		// biome-ignore lint/suspicious/noImportCycles: required here, not at the top, as lib/gh.js requires this file.
 		const { gh } = require("./gh.js");
-		login = gh(["api", "user", "--jq", ".login"], {
+		return gh(["api", "user", "--jq", ".login"], {
 			// A guess, never measured: one API round trip with room to spare.
 			timeout: 15_000,
 		}).trim();
-	} catch {
-		// gh missing, unauthenticated or offline: nothing to derive.
-	}
+	}, "");
 	return login || undefined;
 }
 

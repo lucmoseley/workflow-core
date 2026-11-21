@@ -26,19 +26,6 @@
  * not an outage notice and never counts toward reversal (#226). Tripping it
  * deletes this file and its registration.
  *
- * IMPLICIT:  appends one JSONL line per turn under `.claude/tmp/markers/`,
- *            carrying the outgoing text itself on a `flagged` line and on no
- *            other (#285), and on a turn that passes every gate sends the
- *            turn's own text to the Vercel AI Gateway; writes the secrets
- *            store's `.gitignore` where its key read finds it missing (#3663);
- *            emits at most one advisory line and refuses nothing, ever.
- * JUSTIFIED: fail-safe — #175 made the adoption reversible on evidence, and
- *            evidence not collected from the first session cannot be argued
- *            from later.
- * DEFEAT:    name `jev-advisory` in `.claude/workflow-core.json`'s `disabled`
- *            list, or set `WFC_JEV_ADVISORY=0` for one session.
- * TREE:      host — judges the outgoing message, logging under the host root's markers
- *
  * WHAT LEAVES THIS MACHINE, AND NOTHING ELSE (#172): the outgoing message text,
  * swept by gitleaks' own rule set first. No file content, no diff, no index
  * read — so #172's staged-and-gitleaks-passed limb does not bind. A sweep
@@ -86,6 +73,8 @@ const jevLog = require("./lib/jev-log.js");
 const { guardDisabled } = require("./lib/workflow-core-config");
 const { hasRoundMarker } = require("./lib/round-marker");
 const { readSecretKeepingIgnore } = require("./lib/env-file.js");
+const { ignoreFailure, orFallback } = require("./lib/caught.js");
+const { noop } = require("./lib/noop.js");
 
 /**
  * The master switch's spelling in `.claude/workflow-core.json`'s `disabled`
@@ -724,13 +713,11 @@ function logGate({
 	 * literal is listed. */
 	if (!OUTCOMES.includes(outcome)) return;
 	const file = jevLog.logPath(root);
-	try {
-		let size = 0;
-		try {
-			size = fs.statSync(file).size;
-		} catch {
-			/* Absent counts as empty, which is what a first write wants. */
-		}
+	/* Fail open, as everywhere here: a guard whose log cannot be written
+	 * still refuses nothing, which is its real job. */
+	ignoreFailure(() => {
+		// Absent counts as empty, which is what a first write wants.
+		const size = orFallback(() => fs.statSync(file).size, 0);
 		if (size >= LOG_CAP_BYTES)
 			fs.renameSync(file, jevLog.previousLogPath(root));
 		const line = {
@@ -750,10 +737,7 @@ function logGate({
 				: {}),
 		};
 		fs.appendFileSync(file, `${JSON.stringify(line)}\n`);
-	} catch {
-		/* Fail open, as everywhere here: a guard whose log cannot be written
-		 * still refuses nothing, which is its real job. */
-	}
+	});
 }
 
 /**
@@ -946,6 +930,5 @@ module.exports = {
 };
 
 if (require.main === module)
-	main().catch(() => {
-		/* Belt to onMessageAsync's braces: fail open (#200's seventeenth story). */
-	});
+	// Belt to onMessageAsync's braces: fail open (#200's seventeenth story).
+	main().catch(noop);

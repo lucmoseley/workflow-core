@@ -3,7 +3,8 @@
  * from `unknown` (#1329, ruled at #1317 Q3 (A)).
  *
  * A handler reads through this or `instanceof Error`, never a binding typed
- * `any` (docs/code-standards-base.md §N8).
+ * `any` (docs/code-standards-base.md §N8). A throw nothing reads goes through
+ * `ignoreFailure` or `orFallback` here, never an empty catch (#5488).
  */
 
 /**
@@ -111,4 +112,39 @@ function readLogged(log, what, read) {
 	}
 }
 
-module.exports = { buildErrorText, caught, parseErrorText, readLogged };
+/**
+ * `read()`'s value, or `fallback` where it throws.
+ *
+ * @template T
+ * @template F
+ * @param {() => T} read
+ * @param {F} fallback
+ * @returns {T | F}
+ */
+function orFallback(read, fallback) {
+	try {
+		return read();
+	} catch {
+		return fallback;
+	}
+}
+
+/**
+ * Runs `act`, dropping anything it throws: for a side effect whose failure
+ * leaves nothing to do, such as removing a file that may be gone already.
+ *
+ * @param {() => unknown} act
+ * @returns {void}
+ */
+function ignoreFailure(act) {
+	orFallback(act, undefined);
+}
+
+module.exports = {
+	buildErrorText,
+	caught,
+	ignoreFailure,
+	orFallback,
+	parseErrorText,
+	readLogged,
+};

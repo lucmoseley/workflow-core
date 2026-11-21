@@ -11,6 +11,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { requiredGroup } = require("./regex-group.js");
+const { orFallback } = require("./caught.js");
 
 /**
  * A backticked span. Requiring the backticks is what keeps prose out: every
@@ -196,13 +197,12 @@ function parseLinePins(text) {
  */
 function baseLinePinFault(root, pin, shipped) {
 	if (!pin.rawPath) return "it names no file";
-	let isFile = false;
-	try {
-		isFile = fs.statSync(path.join(root, pin.rawPath)).isFile();
-	} catch {
-		/* Any stat failure, not only ENOENT, reads as no file: the release then
-		 * refuses, which fails closed. */
-	}
+	// Any stat failure, not only ENOENT, reads as no file: the release then
+	// refuses, which fails closed.
+	const isFile = orFallback(
+		() => fs.statSync(path.join(root, pin.rawPath)).isFile(),
+		false,
+	);
 	if (!isFile) return `no file opens at ${pin.rawPath}`;
 	if (!shipped(pin.rawPath)) return `the release leaves ${pin.rawPath} behind`;
 	return null;

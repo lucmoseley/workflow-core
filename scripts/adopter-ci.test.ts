@@ -14,6 +14,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { CI_WORKFLOW, renderCiWorkflow } from "./lib/adopter-ci.js";
 import { defineTemplate } from "./lib/git-fixture";
+import { noop } from "./lib/noop.js";
 import { runInProcess } from "./lib/run-in-process";
 import { parseJob, type Workflow } from "./lib/workflow-yaml-testkit";
 
@@ -164,9 +165,7 @@ describe("the workflow's pin step and core checkout", () => {
 			resolveCore({
 				root,
 				env: { CLAUDE_CONFIG_DIR: path.dirname(root) },
-				warn: () => {
-					/* only the thrown pin is read */
-				},
+				warn: noop,
 			});
 		} catch (e) {
 			const pin = /for pin (\S+) —/.exec((e as Error).message)?.[1];

@@ -597,7 +597,7 @@ def test_no_child_at_all_counts_none_running():
         check=True,
     )
     assert run.stdout.strip() == "0"
-    assert "fail-open: no child left, none counted running" in run.stderr
+    assert run.stderr == ""
 
 
 def test_a_process_gone_before_its_stat_is_read_is_skipped(monkeypatch, capsys):
@@ -615,11 +615,9 @@ def test_a_process_gone_before_its_stat_is_read_is_skipped(monkeypatch, capsys):
     finally:
         child.kill()
         child.wait()
-    assert "skipped as exited: FileNotFoundError" in capsys.readouterr().err
+    assert capsys.readouterr().err == ""
 
 
 def test_a_pid_no_longer_a_child_counts_as_reaped(capsys):
     assert bench.reaped(os.getpid()) is True
-    assert f"fail-open: pid {os.getpid()} counted as reaped: ChildProcessError" in (
-        capsys.readouterr().err
-    )
+    assert capsys.readouterr().err == ""

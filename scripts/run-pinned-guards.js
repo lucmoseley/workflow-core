@@ -16,11 +16,6 @@
  * machine), set the link up with scripts/adopt-guard-code.js. A throw while
  * judging the call offers that repair only where every call fails so.
  *
- * IMPLICIT: on every call the guard entry's registrations match, runs scripts/guard-dispatch.js from the pinned guard code, and refuses the call with exit 2 where that code is missing or throws.
- * JUSTIFIED: fail-safe — a guard that cannot run must not let the call through (#4125), and the refusal carries the founder's repair, as the refused session cannot make it (#4203).
- * DEFEAT: `WFC_GUARD_CODE_DIR` in the environment Claude Code was started in names another code directory, and a link repointed by hand runs whatever it names.
- * TREE: host — the pinned guard code; the dispatcher it runs picks each core's tree (#4242).
- *
  * LIMITS
  *  - An entry's asynchronous throw after its first tick is not caught here:
  *    it exits non-zero, which the PreToolUse registration's `onFailure:
@@ -68,11 +63,12 @@ if (!fs.existsSync(entry))
  */
 function refuseOn(err, loading) {
 	const first = String(err instanceof Error ? err.message : err).split("\n")[0];
-	let sha = "";
+	let sha;
 	try {
 		sha = path.basename(fs.realpathSync(link));
 	} catch {
 		// A link gone mid-call: the repair below still names it.
+		sha = "";
 	}
 	const back = fs.existsSync(previous);
 	const repair = back

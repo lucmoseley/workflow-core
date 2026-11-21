@@ -15,6 +15,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { commandPath } from "./command-path-testkit";
+import { noop } from "./noop.js";
 import { shellQuote } from "./sh-quote.js";
 import { restoreStderr, spyStderr } from "./write-fd-testkit";
 
@@ -314,9 +315,7 @@ describe("parity with the JS reader (#1481)", () => {
 			js: (root: string) =>
 				cfg.readOutputStylePath({
 					root,
-					say: () => {
-						/* only the path is compared */
-					},
+					say: noop,
 				}),
 		},
 		disabled: {
