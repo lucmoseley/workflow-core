@@ -57,25 +57,16 @@ function parseLineSites({ source, code }, matches, optOut) {
 }
 
 /**
- * Each match of the global `re` in the blanked code, its text collapsed, but
- * one whose line or the line above carries `optOut` in the raw text.
+ * Each match of the global `re` in the blanked code, its text collapsed.
  * @param {Program} program
  * @param {RegExp} re
- * @param {RegExp} [optOut]
  * @returns {Site[]}
  */
-function parseMatchSites({ source, code }, re, optOut) {
-	const raw = source.split("\n");
-	return [...code.matchAll(re)]
-		.map((m) => ({
-			line: code.slice(0, m.index).split("\n").length,
-			text: m[0].replace(/\s+/g, " "),
-		}))
-		.filter(
-			({ line }) =>
-				!optOut ||
-				!raw.slice(Math.max(0, line - 2), line).some((l) => optOut.test(l)),
-		);
+function parseMatchSites({ code }, re) {
+	return [...code.matchAll(re)].map((m) => ({
+		line: code.slice(0, m.index).split("\n").length,
+		text: m[0].replace(/\s+/g, " "),
+	}));
 }
 
 /**
