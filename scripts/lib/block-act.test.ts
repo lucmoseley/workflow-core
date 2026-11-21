@@ -228,6 +228,12 @@ describe("the API_ERROR row (#2359)", () => {
 				);
 	});
 
+	it("a billing stop resumes 1 min after the stop in normal mode (#5479)", () => {
+		expect(blockAct(transient({ billing: true }), "normal", NOW + MIN)).toBe(
+			"resume",
+		);
+	});
+
 	it("a transient stop resumes on the first tick that reads it", () => {
 		expect(blockAct(transient(), "normal", NOW)).toBe("resume");
 	});

@@ -819,6 +819,45 @@ describe("decideTick seats", () => {
 	});
 });
 
+describe("decideTick past a seat's billing stop (#5479)", () => {
+	const Min = 60 * 1000;
+	const seats = [seat("~/.claude2", 10, 10), seat("~/.claude3", 40, 20)];
+	const stopped = (minutes: number) => [
+		{ seat: "~/.claude2", since: NOW - minutes * Min },
+	];
+	const seatsOf = (d: { launches?: { seat: string }[] }) => [
+		...new Set((d.launches ?? []).map((l) => l.seat)),
+	];
+
+	it("passes the seat over for a new launch while the stop is under 30 min old", () => {
+		expect(seatsOf(tick({ seats, typedSeat: "~/.claude2" }))).toEqual([
+			"~/.claude2",
+		]);
+		expect(
+			seatsOf(
+				tick({ seats, typedSeat: "~/.claude2", billingStops: stopped(10) }),
+			),
+		).toEqual(["~/.claude3"]);
+		expect(
+			seatsOf(
+				tick({ seats, typedSeat: "~/.claude2", billingStops: stopped(31) }),
+			),
+		).toEqual(["~/.claude2"]);
+	});
+
+	it("still resumes a held session on that seat", () => {
+		const d = tick({
+			freeSlots: 1,
+			seats: [seat("~/.claude2", 10, 10)],
+			billingStops: stopped(10),
+			resumable: [
+				{ jobId: "held", seat: "~/.claude2", at: NOW - Min, line: "held" },
+			],
+		});
+		expect(d.resumes.map((r: { jobId: string }) => r.jobId)).toEqual(["held"]);
+	});
+});
+
 describe("decideTick's seat order and reason (#3732)", () => {
 	const Day = 24 * HOUR;
 	/* A plan seat with room whose week resets `days` from now, null unread. */
