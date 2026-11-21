@@ -7,9 +7,9 @@
 
 const fs = require("node:fs");
 const { parseJsonlRow } = require("./jsonl.js");
+const { writeFd } = require("./write-fd.js");
 
-/* Untraced: a read's buffer, about 800 minute lines; the first read of a
- * month's log takes some 60 of them. */
+/* Untraced: a read's buffer, about 800 minute lines. */
 const READ_BYTES = 1 << 20;
 
 /**
@@ -19,7 +19,7 @@ const READ_BYTES = 1 << 20;
 class MinuteTail {
 	/**
 	 * @param {string} file
-	 * @param {(row: Record<string, unknown>) => boolean} counts which rows count
+	 * @param {(row: Record<string, unknown>) => boolean} counts
 	 */
 	constructor(file, counts) {
 		this.file = file;
@@ -31,12 +31,15 @@ class MinuteTail {
 		this.last = null;
 	}
 
-	/** Reads what was appended since the last call; true where a row was. */
+	/** True where a row was appended since the last call. */
 	advance() {
 		let fd;
 		try {
 			fd = fs.openSync(this.file, "r");
-		} catch {
+		} catch (err) {
+			/* memwatch not yet started is nothing new; anything else is said. */
+			const code = /** @type {NodeJS.ErrnoException} */ (err).code;
+			if (code !== "ENOENT") writeFd(2, `${this.file}: ${String(err)}\n`);
 			return false;
 		}
 		try {
