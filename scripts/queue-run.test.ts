@@ -524,9 +524,7 @@ describe("queue-run.js", () => {
 		});
 
 		/* A host sleep steps the wall clock on resume and leaves CLOCK_MONOTONIC
-		 * where it was: the design-vault alarm of #5446 counted 8.5 h of it as
-		 * wait. Each phase here steps the wall 8 h past the monotonic clock.
-		 * The two clocks are spied, not injected: what is under test is the
+		 * where it was. The two clocks are spied, not injected: what is under test is the
 		 * default clock, which an injected `monoClock` would replace (§X2). */
 		it("records its wait and run on the monotonic clock, counting no host sleep (#5446)", async () => {
 			let wallMs = Date.now();
