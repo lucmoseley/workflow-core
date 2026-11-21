@@ -76,8 +76,6 @@ function writeFd(fd, text) {
 }
 
 /**
- * writeFd under the name of a path only a person at a terminal reads, so the
- * call says what kind of path it is (base §N6, #5484).
  * @param {number} fd
  * @param {string} text
  */
