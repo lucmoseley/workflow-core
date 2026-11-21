@@ -10,7 +10,10 @@
  * The install is a probe tree at WFC_SCRIPT_ROOT holding the real scripts/
  * and docs/ through links and no package.json, so script-path.js reads it as
  * an install. Its path is padded to the root a 32-character user name — the
- * useradd limit — gives under `~/.claude/plugins/cache/`.
+ * useradd limit — gives under `~/.claude/plugins/cache/`, at a version of two
+ * digits a part, a guess at the longest the plugin will ship. The store is
+ * pinned as both layers, so a core fragment's bare `#N` is qualified as an
+ * install's is: vitest.setup.ts's default leaves no core layer beneath it.
  */
 
 import fs from "node:fs";
@@ -34,6 +37,7 @@ const { reachableByTool } = require("./rule-emission.js") as {
 };
 
 const REPO = path.resolve(__dirname, "..", "..");
+const RULES = path.join(REPO, "docs", "agents", "rules");
 const INSTALL_ROOT_CHARS =
 	`/home/${"u".repeat(32)}/.claude/plugins/cache/workflow-core/workflow-core/10.10.10`
 		.length;
@@ -54,6 +58,8 @@ beforeAll(() => {
 
 beforeEach(() => {
 	vi.stubEnv("WFC_SCRIPT_ROOT", probe);
+	vi.stubEnv("WFC_RULES_DIR", RULES);
+	vi.stubEnv("WFC_RULES_FALLBACK_DIR", RULES);
 });
 
 afterAll(() => {
@@ -61,8 +67,17 @@ afterAll(() => {
 });
 
 describe("an injected fragment as an install spells it", () => {
-	it("is read as an install", () => {
+	it("comes from a probe tree read as an install, not a checkout", () => {
 		expect(require("./script-path.js").inCheckout()).toBe(false);
+	});
+
+	it("has its bare citations qualified, as an install's are", () => {
+		const { readRuleText } = require("./rule-text.js");
+		const texts = fs
+			.readdirSync(RULES)
+			.filter((f) => f.endsWith(".txt"))
+			.map((f) => readRuleText(f.slice(0, -4), REPO));
+		expect(texts.some((t: string) => t.includes("(workflow-core#"))).toBe(true);
 	});
 
 	it("fits RULE_CAP, so no adopter's guard refuses the call it fires on", () => {
