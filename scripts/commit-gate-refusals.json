@@ -249,7 +249,10 @@
 			"id": "test",
 			"lines": [
 				"the declared test command is RED",
-				"before the suite gave a verdict, so this commit is refused."
+				{
+					"text": "before the suite gave a verdict, so this commit is refused.",
+					"sites": 2
+				}
 			]
 		},
 		{

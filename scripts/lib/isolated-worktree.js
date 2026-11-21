@@ -437,7 +437,8 @@ const GIT_REDIRECTS = ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE"];
  *
  * Under `gate` it runs as a commit gate (#5274): through `queue-run.js
  * --gate`, which waits for the whole-suite slot, runs it under the suite
- * ceiling and records it, its own waiting lines on this process's stderr.
+ * ceiling and records it against `tree`, its own waiting lines on this
+ * process's stderr.
  * @param {string} root
  * @param {string} tree
  * @param {string} command
@@ -465,7 +466,7 @@ function runInTree(
 	try {
 		onStart?.();
 		const [file, args] = gate
-			? [process.execPath, [QUEUE_RUN, "--gate", "--", command]]
+			? [process.execPath, [QUEUE_RUN, "--gate", "--tree", tree, "--", command]]
 			: ["sh", ["-c", 'sh -c "$1" </dev/null 2>&1', "sh", command]];
 		const r = spawnSync(file, args, {
 			cwd: made.dir,

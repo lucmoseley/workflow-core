@@ -646,22 +646,32 @@ const readGateRunRecord = (root: string) => {
 		: [];
 };
 
-it("runs the pre-lock and the in-lock test as commit gates, each one gate-run record line (#5274)", () => {
+it("runs the pre-lock and the in-lock test as commit gates, each one gate-run record line naming the tree its commit holds (#5274, #5448)", () => {
 	const f = fixture();
+	const headTree = () => String(f.git("rev-parse", "HEAD^{tree}")).trim();
 	f.edit("a.txt", "changed\n");
 	const pre = f.commitPaths();
 	expect(pre.code, pre.out).toBe(0);
 	expect(pre.runs).toEqual(["lock=0 stamp=unset staged=a.txt"]);
+	const preTree = headTree();
 	expect(readGateRunRecord(f.root)).toEqual([
-		expect.objectContaining({ command: "sh stub.sh", outcome: "pass" }),
+		expect.objectContaining({
+			command: "sh stub.sh",
+			outcome: "pass",
+			tree: preTree,
+		}),
 	]);
 	f.stage("b.txt", "changed too\n");
 	const inLock = f.commit();
 	expect(inLock.code, inLock.out).toBe(0);
 	expect(inLock.runs.at(-1)).toBe("lock=1 stamp=unset staged=b.txt");
 	expect(readGateRunRecord(f.root)).toEqual([
-		expect.objectContaining({ command: "sh stub.sh", outcome: "pass" }),
-		expect.objectContaining({ command: "sh stub.sh", outcome: "pass" }),
+		expect.objectContaining({ outcome: "pass", tree: preTree }),
+		expect.objectContaining({
+			command: "sh stub.sh",
+			outcome: "pass",
+			tree: headTree(),
+		}),
 	]);
 });
 
