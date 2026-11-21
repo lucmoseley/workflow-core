@@ -503,7 +503,6 @@
 			"scripts/precommit-gate-input-deletion.test.ts",
 			"scripts/precommit-staged-gate.test.ts",
 			"scripts/precommit-test-stamp.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/release-plugin.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/run-vitest.test.ts",
@@ -703,7 +702,6 @@
 			"scripts/mutation-hold-gate.test.ts",
 			"scripts/practice-guard.test.ts",
 			"scripts/precommit-staged-gate.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/release-plugin.test.ts",
 			"scripts/session-checkout.test.ts",
 			"scripts/tooling-matrix.test.ts",
@@ -1195,7 +1193,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/adopter-pin-consent.txt": [
@@ -1207,7 +1204,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/anthropic-report.txt": [
@@ -1222,7 +1218,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/biome-staged-gate.txt": [
@@ -1235,7 +1230,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/blocked-ticket-gate.txt": [
@@ -1247,7 +1241,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/branch-publish.txt": [
@@ -1261,7 +1254,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/branch-shared-tree-cutover.txt": [
@@ -1274,7 +1266,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/branch-shared-tree.txt": [
@@ -1289,7 +1280,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/build-concurrency.txt": [
@@ -1303,7 +1293,6 @@
 			"scripts/lib/self-match.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/card-close-by-hand.txt": [
@@ -1317,7 +1306,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/card-close-route.txt": [
@@ -1330,7 +1318,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/ci-status-lag.txt": [
@@ -1344,7 +1331,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/citation-inferred-number.txt": [
@@ -1356,7 +1342,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/citation-number-first.txt": [
@@ -1368,7 +1353,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/citation-tracker.txt": [
@@ -1381,7 +1365,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/claim-bash-route.txt": [
@@ -1395,7 +1378,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/claim-release.txt": [
@@ -1408,7 +1390,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/claude-process-count.txt": [
@@ -1422,7 +1403,6 @@
 			"scripts/lib/self-match.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/close-outstanding-line.txt": [
@@ -1436,7 +1416,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/close-outstanding-where.txt": [
@@ -1449,7 +1428,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/close-outstanding.txt": [
@@ -1463,7 +1441,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/close-when-line.txt": [
@@ -1475,7 +1452,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/commit-closes-keyword.txt": [
@@ -1489,7 +1465,6 @@
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-test-stamp.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/commit-message.txt": [
@@ -1504,7 +1479,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/commit-pathspec.txt": [
@@ -1520,7 +1494,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/commit-show-diff.txt": [
@@ -1534,7 +1507,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/create-command-shape.txt": [
@@ -1546,7 +1518,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/decisions-search-first.txt": [
@@ -1559,7 +1530,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/dependabot-merge.txt": [
@@ -1572,7 +1542,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/dependency-edge-false-success.txt": [
@@ -1584,7 +1553,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/digest-version-drift.txt": [
@@ -1597,7 +1565,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/dispatch-fable-fork.txt": [
@@ -1609,7 +1576,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/dispatch-grandchild.txt": [
@@ -1623,7 +1589,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/dispatch-search-tracker.txt": [
@@ -1636,7 +1601,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/dispatch-tier.txt": [
@@ -1649,7 +1613,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/doc-authority-class.txt": [
@@ -1662,7 +1625,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/doc-map-precommit.txt": [
@@ -1676,7 +1638,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/file-claim.txt": [
@@ -1690,7 +1651,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/founder-acts.txt": [
@@ -1704,7 +1664,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/founder-deliverable.txt": [
@@ -1721,7 +1680,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/founder-handover.txt": [
@@ -1737,7 +1695,6 @@
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/priced-options-copies.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/gate-basis-line.txt": [
@@ -1750,7 +1707,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/gh-cli-limits.txt": [
@@ -1763,7 +1719,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/gh-job-dir-unreadable.txt": [
@@ -1775,7 +1730,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/guard-authoring.txt": [
@@ -1788,7 +1742,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/guard-registry-gate.txt": [
@@ -1801,7 +1754,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/headroom-reap.txt": [
@@ -1815,7 +1767,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/heavy-tree-search.txt": [
@@ -1830,7 +1781,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/hook-escape.txt": [
@@ -1844,7 +1794,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/hot-path-cost.txt": [
@@ -1857,7 +1806,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/house-decision.txt": [
@@ -1874,7 +1822,6 @@
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/priced-options-copies.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/implement-closing-steps.txt": [
@@ -1888,7 +1835,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/install-scripts-first.txt": [
@@ -1901,7 +1847,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-body-clobber.txt": [
@@ -1915,7 +1860,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-body-raw-write.txt": [
@@ -1928,7 +1872,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-body-success-signal.txt": [
@@ -1940,7 +1883,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-claim-scope.txt": [
@@ -1952,7 +1894,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-created-assigned.txt": [
@@ -1964,7 +1905,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-parent-unplaced.txt": [
@@ -1976,7 +1916,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-takes-label.txt": [
@@ -1990,7 +1929,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/issue-title-card-id.txt": [
@@ -2003,7 +1941,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/job-dir-scratch.txt": [
@@ -2016,7 +1953,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/job-holds-turn.txt": [
@@ -2028,7 +1964,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/job-wait-ceiling.txt": [
@@ -2040,7 +1975,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/killed-background-job.txt": [
@@ -2054,7 +1988,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/kind-label-vocabulary.txt": [
@@ -2067,7 +2000,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/load-wait.txt": [
@@ -2079,7 +2011,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/lockfile-sync.txt": [
@@ -2092,7 +2023,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/machinery-superseded.txt": [
@@ -2106,7 +2036,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/main-remote-rewind.txt": [
@@ -2119,7 +2048,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/main-rewind.txt": [
@@ -2134,7 +2062,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/manifest.json": [
@@ -2156,7 +2083,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/memory-figure.txt": [
@@ -2170,7 +2096,6 @@
 			"scripts/lib/suite-concurrency.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/mutation-hold.txt": [
@@ -2185,7 +2110,6 @@
 			"scripts/mutation-hold-gate-disable-comment.test.ts",
 			"scripts/mutation-hold-gate.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/new-package-vetted.txt": [
@@ -2200,7 +2124,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/no-command-opens-shape.txt": [
@@ -2213,7 +2136,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/node-heap.txt": [
@@ -2227,7 +2149,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/observe-first.txt": [
@@ -2239,7 +2160,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/push-cadence.txt": [
@@ -2256,7 +2176,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/queue-ref.txt": [
@@ -2269,7 +2188,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/recurrence-checks.txt": [
@@ -2281,7 +2199,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/repo-file-act.txt": [
@@ -2294,7 +2211,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/research-artefact-scratch.txt": [
@@ -2307,7 +2223,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/research-in-tree.txt": [
@@ -2320,7 +2235,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-attacker-run.txt": [
@@ -2333,7 +2247,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-deviations-read.txt": [
@@ -2348,7 +2261,6 @@
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-context-budget-gate.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-deviations-write.txt": [
@@ -2361,7 +2273,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-dispatch-shape.txt": [
@@ -2380,7 +2291,6 @@
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-context-budget-gate.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-finding-destination.txt": [
@@ -2396,7 +2306,6 @@
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-context-budget-gate.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-focused-run.txt": [
@@ -2409,7 +2318,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-hold.txt": [
@@ -2421,7 +2329,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/review-hold-gate.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
@@ -2435,7 +2342,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-standards-axis-absent.txt": [
@@ -2448,7 +2354,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-standards-axis-base.txt": [
@@ -2461,7 +2366,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-standards-axis-local.txt": [
@@ -2474,7 +2378,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-standards-axis.txt": [
@@ -2489,7 +2392,6 @@
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-tier-escalated.txt": [
@@ -2502,7 +2404,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-tier-globless.txt": [
@@ -2514,7 +2415,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-tier-not-live.txt": [
@@ -2527,7 +2427,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-tier-records.txt": [
@@ -2540,7 +2439,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/review-ultra-axis.txt": [
@@ -2553,7 +2451,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/rm-unchecked.txt": [
@@ -2567,7 +2464,6 @@
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/lib/unchecked-rm.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/roadmap-edit.txt": [
@@ -2580,7 +2476,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/roadmap-gating.txt": [
@@ -2593,7 +2488,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/roadmap-validity.txt": [
@@ -2606,7 +2500,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/scratch-dir-sanctioned.txt": [
@@ -2618,7 +2511,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/script-self-claim.txt": [
@@ -2631,7 +2523,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/self-spelt-escape.txt": [
@@ -2644,7 +2535,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/shell-lint-blind.txt": [
@@ -2657,7 +2547,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/shellcheck-changed-scope.txt": [
@@ -2670,7 +2559,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/shellcheck-not-installed.txt": [
@@ -2683,7 +2571,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/shellcheck-source-directive.txt": [
@@ -2696,7 +2583,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/silent-kill.txt": [
@@ -2710,7 +2596,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/size-line.txt": [
@@ -2724,7 +2609,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/skill-refused.txt": [
@@ -2738,7 +2622,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/spec-only-contract.txt": [
@@ -2750,7 +2633,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/suite-tree-dirty.txt": [
@@ -2764,7 +2646,6 @@
 			"scripts/lib/suite-concurrency.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/superseded-values-gate.txt": [
@@ -2777,7 +2658,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/sweep-fire-budget.txt": [
@@ -2790,7 +2670,6 @@
 			"scripts/lib/sweep-fire.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/takes-label-nuances.txt": [
@@ -2803,7 +2682,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/takes-label-unrouted.txt": [
@@ -2815,7 +2693,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/takes-value-vocabulary.txt": [
@@ -2829,7 +2706,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/targeted-runs.txt": [
@@ -2843,7 +2719,6 @@
 			"scripts/lib/suite-concurrency.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/test-reads-visible.txt": [
@@ -2858,7 +2733,6 @@
 			"scripts/lib/test-rules-inject.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/test-run-cost.txt": [
@@ -2873,7 +2747,6 @@
 			"scripts/lib/test-rules-inject.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/test-time-seam.txt": [
@@ -2888,7 +2761,6 @@
 			"scripts/lib/test-rules-inject.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/ticket-criteria-unticked.txt": [
@@ -2901,7 +2773,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/triage-role-labels.txt": [
@@ -2913,7 +2784,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/unasked-rerun.txt": [
@@ -2926,7 +2796,6 @@
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/lib/unasked-rerun-guard.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/urgent-label.txt": [
@@ -2938,7 +2807,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/vercel-build-on-push.txt": [
@@ -2952,7 +2820,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/vitest-wrapper.txt": [
@@ -2966,7 +2833,6 @@
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/lib/vitest-wrapper.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/wait-length.txt": [
@@ -2978,7 +2844,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/waiting-external-vocabulary.txt": [
@@ -2991,7 +2856,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/wayfinder-ops-shapes.txt": [
@@ -3005,7 +2869,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/weakens-line.txt": [
@@ -3018,7 +2881,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/whole-file-restore.txt": [
@@ -3031,7 +2893,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/write-reformatted.txt": [
@@ -3044,7 +2905,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/rules/writing-for-agents.txt": [
@@ -3057,7 +2917,6 @@
 			"scripts/lib/rule-text.test.ts",
 			"scripts/lib/tracker-rules.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"docs/agents/triage-labels.md": [
@@ -3434,7 +3293,6 @@
 			"scripts/lib/unasked-rerun-io.contract.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/precommit-whole-repo-gates.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/run-pytest.test.ts",
 			"scripts/run-vitest-pass-store.test.ts",
 			"scripts/run-vitest.test.ts",
@@ -3914,7 +3772,6 @@
 			"scripts/lib/issue-create-label.test.ts",
 			"scripts/lib/morning-review-filing.test.ts",
 			"scripts/markdown-tooling-declined.test.ts",
-			"scripts/queue-lander.test.ts",
 			"scripts/run-pytest.test.ts"
 		],
 		"ruff.toml": [
@@ -22940,149 +22797,125 @@
 		"scripts/lib/fixtures/gh-route/cites.js.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/claude-copies.js.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/claude-helper-stub.ts.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/claude-lib.js.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/claude-on-primitive.js.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/claude-path-stub.ts.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/claude-second-var.js.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/claude-wfc-stub.ts.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/env-read.js.txt": [
 			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/gh-lib.js.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/helper-stub.ts.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/literal-spawn-marked.js.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/literal-spawn.js.txt": [
 			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/on-primitive.js.txt": [
 			"scripts/check-gh-route.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/other-helper-stub.ts.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/other-stub.ts.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/path-stub-exempt.ts.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/path-stub-joined.ts.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/path-stub.ts.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/second-var-marked.js.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/second-var.js.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/second-var.ts.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/sets.js.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh-route/wfc-stub.ts.txt": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/gh-route.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/queue-lander.test.ts"
+			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/lib/fixtures/gh/blocked-by-page.json": [
 			"scripts/lib/generated-rule-copies.test.ts",

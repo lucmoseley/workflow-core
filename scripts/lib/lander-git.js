@@ -260,10 +260,9 @@ function readRemoteHeads(
  * `node_modules` and the host's `worktreeLinks`, as a test worktree does,
  * so a gate resolving a package from its cwd finds it (#5451); a link that
  * fails throws, half a tree's gates reading as the members' fault. The
- * links go, then the worktree is removed
- * after; a removal that fails prints and never replaces the result, as a
- * hook's child that left its commit's group can still be writing there
- * (#3913).
+ * links go, then the worktree; a removal that fails prints and never
+ * replaces the result, as a hook's child that left its commit's group can
+ * still be writing there (#3913).
  * @template T
  * @param {string} root
  * @param {string} tip

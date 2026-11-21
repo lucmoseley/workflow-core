@@ -103,8 +103,6 @@ function readLinkedPaths(dir) {
  * one into its canonical target. `git worktree remove --force` does not, so
  * the ordering is unverified belt and braces and the test asserts the outcome
  * — every target survives — rather than the order (mantahostels#2169, mantahostels#2213).
- * Only a link whose own directory resolves inside the worktree is unlinked: a
- * declared path under another linked one names a canonical file.
  *
  * Best effort throughout: a teardown failure is reported and never changes the
  * suite's exit code.

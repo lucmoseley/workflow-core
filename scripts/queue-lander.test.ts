@@ -52,6 +52,7 @@ import {
 	git,
 	landerSandbox,
 	markers,
+	OWN_CORE,
 	remote,
 	runLander,
 	stubRedWhile,
@@ -67,6 +68,7 @@ import {
 	verdictLedger,
 } from "./lib/queue-lander-adapters.js";
 import { logEnqueue, queueLogFile } from "./lib/queue-log.js";
+import { copyRequireClosure } from "./lib/require-closure";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 import { restoreStderr, spyStderr } from "./lib/write-fd-testkit";
@@ -365,7 +367,9 @@ describe("a run", () => {
 		);
 	});
 
-	it("gates a batch member staging a shell path in a merge tree linking the checkout's node_modules and worktreeLinks, so a formatter resolved from its cwd is found (#5451)", () => {
+	/* Paired with "drops a ref whose merge a gate refuses …", which shows a
+	 * refusing gate still drops its member. */
+	it("gates a batch member staging a shell path in a merge tree linking the checkout's node_modules and worktreeLinks, so the format gate's loadShfmt finds shfmt (#5451)", () => {
 		fs.writeFileSync(path.join(work, ".gitignore"), "node_modules\n.fmt\n");
 		fs.mkdirSync(path.join(work, ".claude"), { recursive: true });
 		fs.writeFileSync(
@@ -373,9 +377,17 @@ describe("a run", () => {
 			JSON.stringify({ worktreeLinks: [".fmt"] }),
 		);
 		const seed = commit("declare links");
-		const pkg = path.join(work, "node_modules", "stub-fmt");
-		fs.mkdirSync(pkg, { recursive: true });
-		fs.writeFileSync(path.join(pkg, "index.js"), "");
+		/* A core with no node_modules above it, as the plugin cache is, so
+		 * loadShfmt finds shfmt from its cwd or not at all. */
+		const core = path.join(tmp, "core");
+		copyRequireClosure(core, OWN_CORE, ["scripts/lib/formatters.js"]);
+		fs.mkdirSync(path.join(work, "node_modules", "@wasm-fmt"), {
+			recursive: true,
+		});
+		fs.symlinkSync(
+			path.join(OWN_CORE, "node_modules", "@wasm-fmt", "shfmt"),
+			path.join(work, "node_modules", "@wasm-fmt", "shfmt"),
+		);
 		fs.mkdirSync(path.join(work, ".fmt"));
 		fs.writeFileSync(path.join(work, ".fmt", "rules"), "");
 		const members = [
@@ -388,14 +400,32 @@ describe("a run", () => {
 			},
 			{ name: "b", sha: pushQueue("b", seed), pushedAt: 2 },
 		];
+		vi.stubEnv("WFC_SHFMT", undefined);
 		stubHooks(
 			["pre-commit"],
-			`node -e 'require("node:module").createRequire(process.cwd() + "/package.json")("stub-fmt")' && [ -f .fmt/rules ] || exit 1\n`,
+			`node -e 'process.exit(require(${JSON.stringify(path.join(core, "scripts/lib/formatters.js"))}).loadShfmt() ? 0 : 1)' && [ -f .fmt/rules ] || exit 1\n`,
 		);
 
-		expect(queueGit(work).mergeMembers(seed, members).kind).toBe("merged");
-		expect(fs.existsSync(path.join(pkg, "index.js"))).toBe(true);
+		const merged = queueGit(work).mergeMembers(seed, members);
+		expect(merged.kind, JSON.stringify(merged)).toBe("merged");
+		expect(
+			fs.existsSync(path.join(work, "node_modules", "@wasm-fmt", "shfmt")),
+		).toBe(true);
 		expect(fs.existsSync(path.join(work, ".fmt", "rules"))).toBe(true);
+	});
+
+	it("throws, merging nothing, where node_modules cannot be linked into the merge tree, as onto tracking its own copy is a setup fault (#5451)", () => {
+		fs.mkdirSync(path.join(work, "node_modules"));
+		fs.writeFileSync(path.join(work, "node_modules", "tracked.js"), "");
+		const seed = commit("track node_modules");
+		const members = [
+			{ name: "a", sha: pushQueue("a", seed), pushedAt: 1 },
+			{ name: "b", sha: pushQueue("b", seed), pushedAt: 2 },
+		];
+
+		expect(() => queueGit(work).mergeMembers(seed, members)).toThrow(
+			/could not link node_modules into/,
+		);
 	});
 
 	it("lands a lone queue ref that descends from main as pushed, with no merge commit", async () => {
