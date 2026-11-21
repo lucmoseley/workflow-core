@@ -31,6 +31,7 @@ import {
 	registerSession,
 	store,
 } from "./arbiter-testkit";
+import { noop } from "./noop.js";
 import { shellQuote } from "./sh-quote.js";
 
 const sb = freshSandbox();
@@ -520,9 +521,7 @@ describe("a store the filesystem refuses — unreadable is not empty (mantahoste
 	});
 
 	describe("readRecordOrFlag — absent, present-and-unreadable, told apart (mantahostels#2382)", () => {
-		const noPause = () => {
-			/* the probes run back to back */
-		};
+		const noPause = noop;
 
 		it("re-probes after the pause, so a TORN record is not called a fault", () => {
 			// The pause stands in for the writer finishing.

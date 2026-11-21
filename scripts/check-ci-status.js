@@ -202,6 +202,7 @@ const repoFlag = () =>
 		.join("");
 const { NOT_A_TREE_VERDICT, hasVerdict } = require("./lib/ci-verdict.js");
 const { execGit } = require("./lib/git.js");
+const { orFallback } = require("./lib/caught.js");
 
 /* Anything NOT in here is reported. Listing the good conclusions rather than the
  * bad ones means a conclusion string GitHub adds later surfaces as a report
@@ -399,16 +400,16 @@ const nextSweepAfter = (t) => slotsFrom(t).find((at) => at > t) ?? null;
  * @returns {Coverage}
  */
 function headCoverage(sha) {
-	let head = "";
-	try {
-		head = execGit(["rev-parse", "HEAD"], {
-			encoding: "utf8",
-			cwd: REPO,
-			stdio: ["ignore", "pipe", "ignore"],
-		}).trim();
-	} catch {
-		// Not a git repo, or git is gone: this line is a nicety, not the report.
-	}
+	// Not a git repo, or git is gone: this line is a nicety, not the report.
+	const head = orFallback(
+		() =>
+			execGit(["rev-parse", "HEAD"], {
+				encoding: "utf8",
+				cwd: REPO,
+				stdio: ["ignore", "pipe", "ignore"],
+			}).trim(),
+		"",
+	);
 	// Unknown, not covered.
 	if (!head) return { head: "", ahead: null, line: null };
 	if (head === sha) return { head, ahead: 0, line: null };

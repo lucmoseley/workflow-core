@@ -182,7 +182,7 @@ const {
 const { hostRoot } = require("./lib/host-root.js");
 const { emptyWhy } = require("./lib/empty-secret.js");
 const { readHidden } = require("./lib/read-hidden.js");
-const { caught } = require("./lib/caught.js");
+const { caught, ignoreFailure } = require("./lib/caught.js");
 const { SHELL_VAR_NAME } = require("./lib/shell-var-name.js");
 
 const VAR_NAME = new RegExp(`^${SHELL_VAR_NAME}$`);
@@ -970,14 +970,13 @@ function reportStored(file, name, replaced) {
 			`write-secret: ${replaced ? "replaced" : "added"} ${name} in ${file}\n`,
 		);
 	} catch (e) {
-		try {
+		// stderr failed as well, so nothing is left to print on (#3823).
+		ignoreFailure(() =>
 			writeFd(
 				2,
 				`write-secret: ${name} is stored in ${file}, but its success line could not be printed (${caught(e).code ?? "error"}).\n`,
-			);
-		} catch {
-			/* stderr failed as well, so nothing is left to print on (#3823). */
-		}
+			),
+		);
 	}
 }
 

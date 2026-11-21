@@ -58,7 +58,7 @@ const {
 	gitCommonDirOrThrow,
 	revParseWithCommonDirOrThrow,
 } = require("./git.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure, orFallback } = require("./caught.js");
 const { deref } = require("./deref.js");
 const { checkoutOfCommonDir } = require("./main-checkout.js");
 const { writeFd } = require("./write-fd.js");
@@ -177,12 +177,10 @@ function adoptHostRoot() {
  */
 function declaredHost(dir, timeoutMs, onTimeout) {
 	if (declaredMemo.key === dir) return declaredMemo.value;
-	let linked = false;
-	try {
-		linked = fs.statSync(path.join(dir, ".git")).isFile();
-	} catch {
-		/* No `.git` at all: no checkout to map. */
-	}
+	const linked = orFallback(
+		() => fs.statSync(path.join(dir, ".git")).isFile(),
+		false,
+	);
 	let value = dir;
 	if (linked) {
 		try {
@@ -320,14 +318,13 @@ function resolveCommitHost(cwd = process.cwd()) {
 		/* Unlike hostRoot's fail-open, reportable: the error log's directory does
 		 * not derive from this, and a caller's marker written under a wrong answer
 		 * sits in a store the hook never reads (#3906). */
-		try {
+		// A closed stderr must not turn this fail-open into a throw (#3906).
+		ignoreFailure(() =>
 			writeFd(
 				2,
 				`host-root: git named no top level for ${answer}, so the commit host falls back to it, and a marker stored under it may be one the commit's hook never reads (${caught(e).message.split("\n")[0]}).\n`,
-			);
-		} catch {
-			/* A closed stderr must not turn this fail-open into a throw (#3906). */
-		}
+			),
+		);
 		return answer;
 	}
 }

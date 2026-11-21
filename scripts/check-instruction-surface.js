@@ -70,6 +70,7 @@
 
 const { gitOutcome } = require("./lib/git.js");
 const { scriptPath } = require("./lib/script-path.js");
+const { ignoreFailure } = require("./lib/caught.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const {
@@ -377,14 +378,13 @@ function diskSkillCounts(root) {
 	const entries = [];
 	for (const name of names.sort()) {
 		const at = path.join(dir, name);
-		try {
+		// Removed between the listing and the stat: no skill.
+		ignoreFailure(() =>
 			entries.push({
 				link: fs.lstatSync(at).isSymbolicLink(),
 				text: readIfPresent(path.join(at, "SKILL.md")),
-			});
-		} catch {
-			// Removed between the listing and the stat: no skill.
-		}
+			}),
+		);
 	}
 	return tallySkills(entries);
 }

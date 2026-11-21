@@ -93,6 +93,7 @@ const { readPluginState, resolveConfigDir } = require("./lib/plugin-state.js");
 const { readRuleText } = require("./lib/rule-text.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { walkCommand } = require("./lib/walk-command.js");
+const { ignoreFailure, orFallback } = require("./lib/caught.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { isDeclined, readPendingConsent } = require("./lib/adopter-consent.js");
 const { readStepsOwed } = require("./lib/steps-owed.js");
@@ -179,15 +180,15 @@ function buildOwedBlock(root, pluginRoot) {
 
 /** @param {string} root @returns {string} */
 function readVersionAt(root) {
-	try {
-		const { version } = JSON.parse(
-			fs.readFileSync(path.join(root, ".claude-plugin/plugin.json"), "utf8"),
-		);
-		if (typeof version === "string") return version;
-	} catch {
-		/* no readable manifest: the plugin cache names each root by its version */
-	}
-	return path.basename(root);
+	const version = orFallback(
+		() =>
+			JSON.parse(
+				fs.readFileSync(path.join(root, ".claude-plugin/plugin.json"), "utf8"),
+			).version,
+		undefined,
+	);
+	// With no readable manifest, the plugin cache names each root by its version.
+	return typeof version === "string" ? version : path.basename(root);
 }
 
 /**
@@ -384,22 +385,18 @@ function buildRefConflictLines(state) {
  * @returns {string[]}
  */
 function buildRuleLines(supplyBehindPin) {
+	/** @type {string[]} */
 	const lines = [];
-	try {
-		lines.push("", readRuleText("adopter-materialise-sequence"));
-	} catch {
-		/* A missing/empty fragment is caught elsewhere (check-guard-registry.js);
-		 * the gap and commands above still reach the session either way. */
-	}
+	/* A missing/empty fragment is caught elsewhere (check-guard-registry.js);
+	 * the gap and commands above still reach the session either way. */
+	ignoreFailure(() =>
+		lines.push("", readRuleText("adopter-materialise-sequence")),
+	);
 	if (supplyBehindPin) {
 		/* Only where the pin itself has moved: a session reading this report
 		 * may be the one about to advance it further, and the consent
 		 * boundary is about that write, never about closing the gap below it. */
-		try {
-			lines.push("", readRuleText("adopter-pin-consent"));
-		} catch {
-			/* see above */
-		}
+		ignoreFailure(() => lines.push("", readRuleText("adopter-pin-consent")));
 	}
 	return lines;
 }

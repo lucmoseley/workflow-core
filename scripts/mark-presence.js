@@ -27,6 +27,7 @@
  */
 
 const path = require("node:path");
+const { ignoreFailure } = require("./lib/caught.js");
 const { isFounderTyping } = require("./lib/founder-typing");
 const hookMessage = require("./lib/hook-message");
 const { hostRoot } = require("./lib/host-root");
@@ -75,8 +76,5 @@ function main() {
 	);
 }
 
-try {
-	main();
-} catch {
-	/* Fail open (#2004). */
-}
+// Fail open (#2004).
+ignoreFailure(main);

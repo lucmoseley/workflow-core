@@ -100,7 +100,7 @@
 
 const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
-const { buildErrorText } = require("./lib/caught.js");
+const { buildErrorText, ignoreFailure } = require("./lib/caught.js");
 
 /**
  * @typedef {import("./lib/reaper.js").State} State
@@ -196,12 +196,11 @@ function readState() {
 
 /** @param {State} state */
 function writeState(state) {
-	try {
+	// The clock is an optimisation; losing it is not worth a throw.
+	ignoreFailure(() => {
 		fs.mkdirSync(configDir(), { recursive: true });
 		fs.writeFileSync(statePath(), `${JSON.stringify(state, null, "\t")}\n`);
-	} catch {
-		/* The clock is an optimisation; losing it is not worth a throw. */
-	}
+	});
 }
 
 /* THE RUN RECORD (mantahostels#1920).
@@ -277,15 +276,14 @@ function readRuns() {
  * @param {RunRecord} record
  */
 function writeRuns(record) {
-	try {
+	// Same trade as writeState: a lost record is not worth a throw at a session
+	// start.
+	ignoreFailure(() => {
 		fs.mkdirSync(configDir(), { recursive: true });
 		const all = readRuns();
 		all[record.mode] = record;
 		fs.writeFileSync(runPath(), `${JSON.stringify(all, null, "\t")}\n`);
-	} catch {
-		/* Same trade as writeState: a lost record is not worth a throw at a
-		 * session start. */
-	}
+	});
 }
 
 /**

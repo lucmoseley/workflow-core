@@ -63,6 +63,7 @@ import {
 	mkDirOutsideRepo,
 	mkScratchDir,
 } from "./lib/git-fixture";
+import { noop } from "./lib/noop.js";
 import { writeEnviron } from "./lib/proc-fake";
 import { isDead } from "./lib/process-fixture";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -1437,9 +1438,7 @@ describe("the stall ceiling from the environment", () => {
 		const err = sink();
 		const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
 		const child = parkedChild();
-		let spawned = () => {
-			/* replaced by the promise's resolve below */
-		};
+		let spawned: () => void = noop;
 		const up = new Promise<void>((resolve) => {
 			spawned = resolve;
 		});
@@ -1717,9 +1716,7 @@ describe("the suite ceiling", () => {
 			const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 			const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
 			const child = parkedChild();
-			let spawned = () => {
-				/* replaced by the promise's resolve below */
-			};
+			let spawned: () => void = noop;
 			const up = new Promise<void>((resolve) => {
 				spawned = resolve;
 			});

@@ -29,6 +29,7 @@ const { claudeBin } = require("./claude-bin.js");
 const { readClaudeVersionOrWhy } = require("./claude-version.js");
 const { jobDirPath } = require("./job-paths.js");
 const { parseJsonl } = require("./jsonl.js");
+const { orFallback } = require("./caught.js");
 const {
 	geoComparison,
 	heterogeneity,
@@ -980,13 +981,12 @@ function refuseGoneCli(p, cli, root) {
  */
 function nameStillGoing(p, root) {
 	for (const file of launchedFiles(root)) {
+		// Unparsed, it is named by its file below (#3506).
 		/** @type {LaunchRecord | undefined} */
-		let rec;
-		try {
-			rec = JSON.parse(fs.readFileSync(file, "utf8"));
-		} catch {
-			// Left undefined, so it is named by its file below (#3506).
-		}
+		const rec = orFallback(
+			() => JSON.parse(fs.readFileSync(file, "utf8")),
+			undefined,
+		);
 		if (!rec?.id || !rec.configDir || !rec.job) {
 			p.err(
 				`✗ ${file} does not name its run, which may still be going: find its job in its arm's \`claude agents\` and \`claude stop\` it\n`,

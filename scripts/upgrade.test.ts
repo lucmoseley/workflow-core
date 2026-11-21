@@ -22,7 +22,9 @@ import {
 	renderHookShim,
 	withIgnoreBlock,
 } from "./lib/adopter-skeleton.js";
+import { orFallback } from "./lib/caught.js";
 import { keptSpawn } from "./lib/kept-spawn.js";
+import { noop } from "./lib/noop.js";
 import { shellQuote } from "./lib/sh-quote.js";
 import { clearStepOwed } from "./lib/steps-owed.js";
 import { upgrade } from "./lib/upgrade-walk.js";
@@ -33,9 +35,8 @@ let made: string[] = [];
 
 const CORE_IGNORE_BLOCK = (withIgnoreBlock("") as string).trimEnd();
 
-const quiet = () => {
-	/* progress lines are not what these cases read */
-};
+// Progress lines are not what these cases read.
+const quiet = noop;
 
 const write = (base: string, rel: string, body: string) => {
 	const at = path.join(base, rel);
@@ -1041,13 +1042,12 @@ describe("upgrade", () => {
 
 	describe("a hand-moved pin's skipped notes are probed, not assumed (#284)", () => {
 		const contractIs7 = `node -e "process.exit(require('./.claude/workflow-core.json').contract === 7 ? 0 : 1)"`;
-		const readContract = () => {
-			try {
-				return readJson(root, ".claude/workflow-core.json").contract;
-			} catch {
-				// No config yet reads as no contract.
-			}
-		};
+		// No config yet reads as no contract.
+		const readContract = () =>
+			orFallback(
+				() => readJson(root, ".claude/workflow-core.json").contract,
+				undefined,
+			);
 		const pinnedAbove = () => {
 			writeJson(pluginRoot, ".claude-plugin/plugin.json", {
 				name: "workflow-core",

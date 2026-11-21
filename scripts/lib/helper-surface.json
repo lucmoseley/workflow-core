@@ -2,7 +2,7 @@
 	"about": "The helper surface: every file an adopter may import or source from outside the plugin, and the names each one exports, plus every script an adopter may run as a command, and the argv each one accepts. A file, export or command not listed here is internal and may change in any release. Paths are relative to the plugin root.",
 	"versioning": "The plugin's semver is the surface's version. Removing or renaming an entry point or a listed export, or changing an export's call shape incompatibly, is a major change and needs a migration note under migrations/. So is removing a listed command, removing or reordering its listed positionals, removing a listed flag or a listed positional value, or changing what a listed exit code means. So is adding a positional or flag a caller must now pass. Adding an entry point, an export, a command, a positional value, or a positional or flag a caller may omit is a minor change.",
 	"entryPoints": {
-		"scripts/lib/caught.js": ["caught"],
+		"scripts/lib/caught.js": ["caught", "ignoreFailure", "orFallback"],
 		"scripts/lib/check.js": [
 			"CheckContext",
 			"MAX_BUFFER",
@@ -11,6 +11,7 @@
 		],
 		"scripts/lib/clock.js": ["now"],
 		"scripts/lib/doc-map.js": ["sectionAMatcher"],
+		"scripts/lib/noop.js": ["noop"],
 		"scripts/lib/doc-map-generator.js": [
 			"claimDataFile",
 			"parseCliArgs",

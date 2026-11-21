@@ -27,6 +27,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { pidAlive } = require("./arbiter-proc.js");
 const { writeFileAtomic } = require("./atomic-write.js");
+const { orFallback } = require("./caught.js");
 const {
 	HEARTBEAT_MS,
 	queueLanderFiles,
@@ -191,12 +192,8 @@ const WAKE_SLACK_MS = 5 * 60 * 1000;
  */
 function recordWake(file, { startedAt, now }) {
 	/** @type {{startedAt?: number, wokeAt?: number}|null} */
-	let rec = null;
-	try {
-		rec = JSON.parse(fs.readFileSync(file, "utf8"));
-	} catch {
-		/* Absent, or torn by a hand edit: dated from the uptime alone. */
-	}
+	// Absent, or torn by a hand edit: dated from the uptime alone.
+	const rec = orFallback(() => JSON.parse(fs.readFileSync(file, "utf8")), null);
 	if (
 		typeof rec?.startedAt === "number" &&
 		typeof rec.wokeAt === "number" &&

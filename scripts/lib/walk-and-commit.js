@@ -55,6 +55,7 @@ const { ghLabels } = require("./core-owned-files.js");
 const { readDirtyTracked, readUntrackedFiles } = require("./dirty-tree.js");
 const { readStepsOwed } = require("./steps-owed.js");
 const { caught } = require("./caught.js");
+const { noop } = require("./noop.js");
 const { CONFIG_PATH } = require("./workflow-core-config.js");
 
 /**
@@ -165,15 +166,7 @@ function commitPaths({ root, paths, message }) {
  * @returns {{action: "dirty"|"unreadable"|"broken"|"committed"|"up-to-date",
  *   lines: string[]}}
  */
-function walkAndCommit({
-	root,
-	pluginRoot,
-	out = () => {
-		/* silent unless a caller wants progress */
-	},
-	claudeBin,
-	configDir,
-}) {
+function walkAndCommit({ root, pluginRoot, out = noop, claudeBin, configDir }) {
 	const measureCore = claudeBin
 		? measurerFor({ root, claudeBin, configDir })
 		: undefined;
@@ -347,9 +340,8 @@ function replayFailure({ root, pluginRoot, measureCore, labels }) {
 		root,
 		pluginRoot,
 		ceiling: lastVerified,
-		out: () => {
-			/* the replay's progress is not reported, only whether it failed */
-		},
+		// Only whether the replay failed is reported, never its progress.
+		out: noop,
 		measureCore,
 		labels,
 	});

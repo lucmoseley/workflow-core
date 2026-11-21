@@ -14,6 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { readRunningHooks } from "./lib/core-hooks.js";
+import { noop } from "./lib/noop.js";
 import { readRegistry } from "./lib/orphan-hooks.js";
 import { makeProcRoot, writeEnviron } from "./lib/proc-fake";
 import { readProcTable, USER_HZ } from "./lib/proc-table.js";
@@ -216,9 +217,8 @@ describe("a real orphaned guard", () => {
 	/** `prepare` shapes the checkout first. */
 	function sweepOrphanHook(
 		args = ["--json"],
-		prepare = () => {
-			/* a checkout as git init leaves it */
-		},
+		// By default a checkout as git init leaves it.
+		prepare: () => void = noop,
 	) {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "reap-orphan-hooks-real-"));
 		spawnSync("git", ["init", "-q", dir]);

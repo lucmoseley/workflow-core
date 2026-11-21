@@ -13,7 +13,7 @@
  */
 
 const path = require("node:path");
-const { caught } = require("./caught.js");
+const { caught, orFallback } = require("./caught.js");
 const { localDate } = require("./local-date.js");
 const { ESC } = require("./refill-panel-input.js");
 const { buildControlImage } = require("./refill-panel-sixel.js");
@@ -1300,14 +1300,10 @@ const buildFailureText = ({ code, stderr }) =>
  * @returns {import("./refill-notice.js").Notice|null}
  */
 function buildSetNote(result) {
+	// A command dead before its object falls to its stderr below (#3968).
 	/** @type {{refused?: import("./refill-notice.js").Notice|null,
 	 *   warning?: import("./refill-notice.js").Notice|null}|null} */
-	let said = null;
-	try {
-		said = JSON.parse(result.stdout);
-	} catch {
-		/* A command dead before its object falls to its stderr below (#3968). */
-	}
+	const said = orFallback(() => JSON.parse(result.stdout), null);
 	const note = said?.refused ?? said?.warning ?? null;
 	return note || result.code === 0
 		? note

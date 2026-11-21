@@ -60,7 +60,7 @@ const notify = require("./lib/notify-report.js");
 const { newestVerdictRuns } = require("./lib/ci-verdict.js");
 const { gh } = require("./lib/gh.js");
 const { fromEnv } = require("./lib/session-id.js");
-const { caught } = require("./lib/caught.js");
+const { caught, ignoreFailure, orFallback } = require("./lib/caught.js");
 const { isRepoChecksReport } = require("./lib/repo-checks-reading.js");
 const { trimEndRun } = require("./lib/trim-run.js");
 
@@ -148,16 +148,14 @@ function readLedger(session) {
 function writeLedger(session, { given, ci }) {
 	notify.atomicWriteJSON(ledgerFile(session), { given: [...given], ci });
 	const now = Date.now();
-	try {
+	// Housekeeping, and a ledger left behind costs a few bytes (#853).
+	ignoreFailure(() => {
 		for (const f of fs.readdirSync(ledgerDir())) {
 			const full = path.join(ledgerDir(), f);
 			if (now - fs.statSync(full).mtimeMs > LEDGER_MAX_AGE_MS)
 				fs.unlinkSync(full);
 		}
-	} catch {
-		/* Fails open (#853): housekeeping, and a ledger left behind costs a
-		 * few bytes. */
-	}
+	});
 }
 
 /**
@@ -321,13 +319,12 @@ function recheckEnvelope() {
 		[CI_CHECK, "--notify", "--recheck", "--write", "--json", "--json-text"],
 		{ encoding: "utf8", timeout: CI_CHECK_TIMEOUT_MS },
 	);
+	// Unparseable reads as failed, below.
 	/** @type {CiEnvelope | null} */
-	let envelope = null;
-	try {
-		envelope = ran.status === 0 ? JSON.parse(ran.stdout) : null;
-	} catch {
-		/* Unparseable reads as failed, below. */
-	}
+	const envelope = orFallback(
+		() => (ran.status === 0 ? JSON.parse(ran.stdout) : null),
+		null,
+	);
 	if (!envelope || envelope.outcome === "SKIP") {
 		core.logError(
 			"deliver-to-session ci re-check",

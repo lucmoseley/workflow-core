@@ -128,7 +128,7 @@ const {
 	resultFile,
 } = require("./lib/repo-checks-reading");
 const { gitCommonDirOrThrow } = require("./lib/git.js");
-const { caught } = require("./lib/caught.js");
+const { caught, orFallback } = require("./lib/caught.js");
 const { originLabel } = require("./lib/issue-origin");
 const { takesLabel } = require("./lib/takes-label");
 
@@ -342,13 +342,9 @@ function readJsonObject(file, consequence) {
 		if (caught(e).code !== "ENOENT") logError(WHERE, e);
 		return null;
 	}
-	try {
-		const value = JSON.parse(text);
-		if (value && typeof value === "object" && !Array.isArray(value))
-			return value;
-	} catch {
-		/* Unparseable and a non-object are one fault: the line below. */
-	}
+	// Unparseable and a non-object are one fault: the line below.
+	const value = orFallback(() => JSON.parse(text), undefined);
+	if (value && typeof value === "object" && !Array.isArray(value)) return value;
 	logError(WHERE, `${file} is not a JSON object; ${consequence}`);
 	return null;
 }

@@ -31,6 +31,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { orFallback } from "./lib/caught.js";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -326,12 +327,11 @@ const check = (repo: string) => {
 		cwd: repo,
 		env: { ...process.env },
 	});
-	let json: { outcome?: string; findings?: Finding[] } = {};
-	try {
-		json = JSON.parse(r.stdout);
-	} catch {
-		// A crash leaves no envelope; the assertions below then fail on `outcome`.
-	}
+	// A crash leaves no envelope; the assertions below then fail on `outcome`.
+	const json: { outcome?: string; findings?: Finding[] } = orFallback(
+		() => JSON.parse(r.stdout),
+		{},
+	);
 	return {
 		status: r.status,
 		outcome: json.outcome,

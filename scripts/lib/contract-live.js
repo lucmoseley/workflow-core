@@ -25,6 +25,7 @@
 const path = require("node:path");
 const fs = require("node:fs");
 const { writeFileAtomic } = require("./atomic-write.js");
+const { orFallback } = require("./caught.js");
 const { readText } = require("./file-read.js");
 const { reportRoot } = require("./suite-timings.js");
 
@@ -81,12 +82,8 @@ function readLedger(file) {
 	if (read.state === "absent") return { ledger: emptyLedger(), fault: null };
 	if (read.state === "unreadable")
 		return { ledger: emptyLedger(), fault: read.message };
-	try {
-		const parsed = JSON.parse(read.data);
-		if (isLedger(parsed)) return { ledger: parsed, fault: null };
-	} catch {
-		/* not JSON: the fault below */
-	}
+	const parsed = orFallback(() => JSON.parse(read.data), undefined);
+	if (isLedger(parsed)) return { ledger: parsed, fault: null };
 	return { ledger: emptyLedger(), fault: "not a ledger" };
 }
 

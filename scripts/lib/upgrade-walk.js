@@ -32,8 +32,9 @@ const { findPin } = require("./plugin-state.js");
 const { readInstalledRecord } = require("./plugin-record.js");
 const { appendStepsOwed } = require("./steps-owed.js");
 const { formatConfigJson } = require("./config-json.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { compareVersions } = require("./compare-versions.js");
+const { noop } = require("./noop.js");
 
 /**
  * @param {string} v `v1.2.3` or `1.2.3`
@@ -232,9 +233,7 @@ function upgrade({
 	root,
 	pluginRoot,
 	dryRun = false,
-	out = () => {
-		/* silent unless a caller wants progress */
-	},
+	out = noop,
 	ceiling,
 	env,
 	verifyTimeoutMs,
@@ -358,7 +357,7 @@ function readPluginManifest(pluginRoot) {
  * @param {{root: string, pluginRoot: string, out: (line: string) => void}} at
  */
 function reportForkDrift({ root, pluginRoot, out }) {
-	try {
+	ignoreFailure(() => {
 		for (const { name, recordedFrom, drifted, reason } of skillDrift({
 			root,
 			pluginRoot,
@@ -369,9 +368,7 @@ function reportForkDrift({ root, pluginRoot, out }) {
 					`"${name}" is forked (recorded from ${recordedFrom}) and has drifted from the plugin's current copy — review the fork against .claude/skills/${name}/SKILL.md`,
 				);
 		}
-	} catch {
-		/* see above */
-	}
+	});
 }
 
 /**

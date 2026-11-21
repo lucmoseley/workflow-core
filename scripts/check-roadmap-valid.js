@@ -92,7 +92,7 @@ const {
 } = require("./lib/workflow-core-config");
 
 const { readRuleTextOr } = require("./lib/rule-text");
-const { caught } = require("./lib/caught.js");
+const { caught, orFallback } = require("./lib/caught.js");
 const { execGit } = require("./lib/git.js");
 
 /*
@@ -407,12 +407,11 @@ function readBaseline(ctx) {
 	try {
 		git("rev-parse", "--verify", "--quiet", "HEAD");
 	} catch {
-		let commits = "1";
-		try {
-			commits = git("rev-list", "--all", "--count").trim();
-		} catch {
-			/* not a repo at all — the diff --cached above has already BROKEN */
-		}
+		// Not a repo at all: the diff --cached above has already BROKEN.
+		const commits = orFallback(
+			() => git("rev-list", "--all", "--count").trim(),
+			"1",
+		);
 		if (commits === "0") firstRoadmap = true;
 		else
 			ctx.broken(

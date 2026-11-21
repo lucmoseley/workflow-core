@@ -15,6 +15,7 @@
  */
 
 const fs = require("node:fs");
+const { ignoreFailure } = require("./caught.js");
 
 /**
  * Git's stdout less trailing newlines, as a shell `$(…)` reads it; null where
@@ -116,13 +117,12 @@ function buildHostPorts(env) {
 function appendRow(row) {
 	if (!row) return;
 	const { dir, file, line } = row;
-	try {
+	/* Silent by design (#289): a refused pull that costs a second failure
+	 * is worse than one observation lost. */
+	ignoreFailure(() => {
 		fs.mkdirSync(dir, { recursive: true });
 		fs.appendFileSync(file, line);
-	} catch {
-		/* Silent by design (#289): a refused pull that costs a second failure
-		 * is worse than one observation lost. */
-	}
+	});
 }
 
 module.exports = { appendRow, buildHostPorts };

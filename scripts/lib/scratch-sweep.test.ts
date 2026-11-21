@@ -25,6 +25,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { noop } from "./noop.js";
 import { runInProcess } from "./run-in-process.js";
 
 const { earliestStart, sweepScratch, writtenAtMs } = require("./scratch-sweep");
@@ -77,9 +78,8 @@ const started = (...ageMs: number[]) => ({
 /** The oracle answering with nothing usable. */
 const refused = { why: "`claude agents --json` would not run (ENOENT)" };
 
-const discardFault = () => {
-	/* the fault log is not what these cases read */
-};
+// The fault log is not what these cases read.
+const discardFault = noop;
 
 type Logged = [string, Error];
 

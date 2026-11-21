@@ -25,7 +25,7 @@ const { projectSlug, UNRESOLVED_ROOT_SLUG } = require("./project-slug.js");
 const { realKey } = require("./deref.js");
 const { SCRATCH_DIR } = require("./scratch-dir.js");
 const { hostRoot, worktreeRoot } = require("./host-root.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure, orFallback } = require("./caught.js");
 const { relativeUnder } = require("./is-under.js");
 
 /** @typedef {import("./arbiter-records.js").LockRecord} LockRecord */
@@ -551,11 +551,8 @@ function createOnce(file, body) {
 		if (caught(e).code === "EEXIST") return false;
 		throw e;
 	} finally {
-		try {
-			fs.unlinkSync(tmp);
-		} catch {
-			/* the link succeeded or the write never landed */
-		}
+		// The link succeeded or the write never landed.
+		ignoreFailure(() => fs.unlinkSync(tmp));
 	}
 }
 
@@ -590,7 +587,8 @@ function flat(value) {
  *   unbounded here (#3038)
  */
 function logError(where, err, detail, root) {
-	try {
+	// Logging this failure has the same failure mode, so a throw is dropped.
+	ignoreFailure(() => {
 		/* A thrown value is whatever was thrown, so the stack is read off the
 		 * shape rather than assumed: a STRING `stack` on an object, and nothing
 		 * else. The `typeof` limb is what keeps a `{stack: null}` — what a JSON
@@ -599,7 +597,7 @@ function logError(where, err, detail, root) {
 		 * Anything else with a non-string `stack` now falls back to the value
 		 * too, where `err?.stack` either read it or threw (mantahostels#1460).
 		 *
-		 * INSIDE the try, because `stack` is an accessor on a V8 Error and a
+		 * INSIDE ignoreFailure, because `stack` is an accessor on a V8 Error and a
 		 * `prepareStackTrace` that throws would otherwise escape into the caller
 		 * — and the whole point of this function is that logging a failure never
 		 * becomes one.
@@ -617,9 +615,7 @@ function logError(where, err, detail, root) {
 			file,
 			`${new Date().toISOString()}\t${flat(where)}\t${flat(stack ? stack.split("\n")[0] : String(err))}${detail ? `\t${flat(detail)}` : ""}\n`,
 		);
-	} catch {
-		// Nothing to do: logging this failure has the same failure mode.
-	}
+	});
 }
 
 /**
@@ -1429,20 +1425,17 @@ function identify(sessionId) {
  * @param {(file: string) => boolean} spared
  */
 function sweepAged(dir, ageMs, spared) {
-	try {
+	// No such directory yet sweeps nothing.
+	ignoreFailure(() => {
 		const now = Date.now();
 		for (const f of fs.readdirSync(dir)) {
 			if (spared(f)) continue;
 			const full = path.join(dir, f);
-			try {
+			ignoreFailure(() => {
 				if (now - fs.statSync(full).mtimeMs > ageMs) fs.unlinkSync(full);
-			} catch {
-				/* swept already */
-			}
+			});
 		}
-	} catch {
-		/* no such directory yet */
-	}
+	});
 }
 
 /**
@@ -1453,20 +1446,19 @@ function sweepAged(dir, ageMs, spared) {
  * @param {(file: string) => boolean} spared
  */
 function agedUnspared(dir, ageMs, spared) {
-	try {
+	// No such directory yet holds nothing aged.
+	return orFallback(() => {
 		const now = Date.now();
 		for (const f of fs.readdirSync(dir)) {
 			if (spared(f)) continue;
-			try {
-				if (now - fs.statSync(path.join(dir, f)).mtimeMs > ageMs) return true;
-			} catch {
-				/* gone already */
-			}
+			const mtime = orFallback(
+				() => fs.statSync(path.join(dir, f)).mtimeMs,
+				undefined,
+			);
+			if (mtime !== undefined && now - mtime > ageMs) return true;
 		}
-	} catch {
-		/* no such directory yet */
-	}
-	return false;
+		return false;
+	}, false);
 }
 
 /**

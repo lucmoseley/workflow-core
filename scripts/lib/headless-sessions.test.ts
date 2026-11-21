@@ -21,6 +21,7 @@ import {
 	REFUSED_AUTH,
 	writeSeatHelper,
 } from "./auth-status-fake";
+import { ignoreFailure } from "./caught.js";
 import { writeClaudeStub } from "./claude-stub";
 import {
 	buildHeadlessBranch,
@@ -88,11 +89,7 @@ afterEach(async () => {
 });
 
 function killQuietly(pid: number) {
-	try {
-		process.kill(pid, "SIGKILL");
-	} catch {
-		/* already gone */
-	}
+	ignoreFailure(() => process.kill(pid, "SIGKILL"));
 }
 
 const env = (extra: Record<string, string> = {}) => ({

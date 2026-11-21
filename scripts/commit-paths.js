@@ -140,6 +140,7 @@ const { notInTree } = require("./lib/patch-in-tree.js");
 const { formatHeader, parseHeader } = require("./lib/hunk-header.js");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { caught } = require("./lib/caught.js");
+const { noop } = require("./lib/noop.js");
 const {
 	commitKey,
 	stampVariable,
@@ -1298,9 +1299,8 @@ function sweptRunFiles() {
 		err(
 			`${NAME}: the shell that removes this run's files if it is killed did not start, so a kill may leave ${index} behind. Nothing honours it.\n`,
 		);
-	sweeper.on("error", () => {
-		/* reported above; unhandled, it would throw in a test running this in process */
-	});
+	// Reported above; unhandled, it would throw in a test running this in process.
+	sweeper.on("error", noop);
 	sweeper.unref();
 	runFiles = { index, messageFile, stamps, gates, sweeper };
 	return { index, messageFile, stamps, gates };
@@ -1615,9 +1615,8 @@ function readHookGatesText(root, env) {
 		try {
 			coreDir = resolveCore({
 				env,
-				warn: () => {
-					/* The shim says a version drift itself, in the lock. */
-				},
+				// The shim says a version drift itself, in the lock.
+				warn: noop,
 			});
 		} catch (e) {
 			const noCore = caught(e).message;

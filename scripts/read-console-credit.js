@@ -29,6 +29,7 @@ const {
 	findOverflowSeat,
 	readDeclaredSeats,
 } = require("./lib/refill-seats.js");
+const { orFallback } = require("./lib/caught.js");
 const { CHILD_ERROR_CHARS } = require("./lib/child-buffer.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
@@ -83,13 +84,12 @@ const DEFAULT_DEPS = { runChild: runChromeChild };
  * @returns {number}
  */
 function main(args, deps = DEFAULT_DEPS) {
+	// An unknown flag: no positionals, so the usage line below answers it.
 	/** @type {string[]} */
-	let positionals = [];
-	try {
-		({ positionals } = parseArgs({ args, allowPositionals: true }));
-	} catch {
-		/* An unknown flag: no positionals, so the usage line below answers it. */
-	}
+	const positionals = orFallback(
+		() => parseArgs({ args, allowPositionals: true }).positionals,
+		[],
+	);
 	const [keyVar, ...rest] = positionals;
 	if (!keyVar || rest.length > 0) {
 		writeFd(

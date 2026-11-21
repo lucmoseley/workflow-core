@@ -20,6 +20,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { orFallback } = require("./caught.js");
 
 /**
  * The routes a pass may record, plus the bucket for a receipt that names none
@@ -87,12 +88,12 @@ function collect(dir) {
 	const out = [];
 	for (const f of fs.readdirSync(dir)) {
 		if (!f.startsWith(".concision-pass-")) continue;
-		try {
-			const r = readReceipt(fs.readFileSync(path.join(dir, f), "utf8"));
-			if (r) out.push(r);
-		} catch {
-			// Unreadable mid-write, or gone since the readdir. Neither is a pass.
-		}
+		// Unreadable mid-write, or gone since the readdir. Neither is a pass.
+		const r = orFallback(
+			() => readReceipt(fs.readFileSync(path.join(dir, f), "utf8")),
+			null,
+		);
+		if (r) out.push(r);
 	}
 	return out;
 }

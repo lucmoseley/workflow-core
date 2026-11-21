@@ -194,7 +194,7 @@ const {
 	touchedByCeiling,
 } = require("./lib/touched-by.js");
 const { requiredGroup } = require("./lib/regex-group");
-const { caught } = require("./lib/caught.js");
+const { caught, ignoreFailure, orFallback } = require("./lib/caught.js");
 const { readText } = require("./lib/file-read.js");
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { byCodeUnit } = require("./lib/by-code-unit.js");
@@ -449,7 +449,7 @@ function walk(rel, out) {
  * corpora are filtered, so these accumulate, and a failure is sticky.
  */
 let ignoreDropped = 0;
-let ignoreFailure = "";
+let gitignoreFailure = "";
 let ignoreSkipped = false;
 let listedByGit = false;
 
@@ -508,7 +508,7 @@ function dropIgnored(files) {
 	 * answers. 128 is git's fatal, and a signal kill leaves it null. No git on
 	 * PATH arrives as an ENOENT in `r.error` instead, status and all. */
 	if (r.error || (r.status !== 0 && r.status !== 1)) {
-		ignoreFailure = r.error?.message ?? `git exited ${r.status}`;
+		gitignoreFailure = r.error?.message ?? `git exited ${r.status}`;
 		return files;
 	}
 	const ignored = new Set(r.stdout.split("\0").filter(Boolean));
@@ -734,11 +734,10 @@ function readWiringCorpus() {
 	/* At the core the self-plugin's file; at an adopter its settings and the
 	 * core plugin's hooks/hooks.json, which is how an adopter's guards are
 	 * wired at all (#5). */
-	try {
-		parts.push(...hookCommands(readRunningHooks(root, { core: CORE_ROOT })));
-	} catch {
-		/* absent or malformed wires nothing; an Enforced claim then reports UNWIRED */
-	}
+	// Absent or malformed wires nothing; an Enforced claim then reports UNWIRED.
+	ignoreFailure(() =>
+		parts.push(...hookCommands(readRunningHooks(root, { core: CORE_ROOT }))),
+	);
 	/*
 	 * package.json's `scripts` VALUES, and only those (mantahostels#2347). A script an npm
 	 * script runs is triggered as surely as a hook entry's is. The `comments`
@@ -826,15 +825,12 @@ function dispatcherRowScripts(corpus) {
 
 /** package.json's string `scripts` values — none where it is absent or malformed. */
 function readPackageScriptValues() {
-	try {
-		const pkg = JSON.parse(
-			fs.readFileSync(path.join(root, "package.json"), "utf8"),
-		);
-		if (pkg.scripts && typeof pkg.scripts === "object")
-			return Object.values(pkg.scripts).filter((v) => typeof v === "string");
-	} catch {
-		/* absent or malformed wires nothing */
-	}
+	const pkg = orFallback(
+		() => JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8")),
+		null,
+	);
+	if (pkg?.scripts && typeof pkg.scripts === "object")
+		return Object.values(pkg.scripts).filter((v) => typeof v === "string");
 	return [];
 }
 
@@ -845,13 +841,11 @@ function readDirFiles(/** @type {string} */ dir) {
 	if (!fs.existsSync(abs)) return out;
 	for (const entry of fs.readdirSync(abs, { withFileTypes: true })) {
 		if (!entry.isFile()) continue;
-		try {
+		ignoreFailure(() =>
 			out.push(
 				stripComments(fs.readFileSync(path.join(abs, entry.name), "utf8")),
-			);
-		} catch {
-			/* unreadable file cannot wire anything */
-		}
+			),
+		);
 	}
 	return out;
 }
@@ -4896,8 +4890,8 @@ function buildTreeFailureLines() {
 
 /** The summary's last line: what the gitignore filter did to the walk. */
 function buildIgnoreLine() {
-	if (ignoreFailure)
-		return `Gitignore filter FAILED OPEN — ${ignoreFailure}. Scope is the whole walk, scratch included.`;
+	if (gitignoreFailure)
+		return `Gitignore filter FAILED OPEN — ${gitignoreFailure}. Scope is the whole walk, scratch included.`;
 	if (ignoreSkipped)
 		return "Gitignore filter: not run — a materialised tree holds tracked files only.";
 	const docs = listedByGit

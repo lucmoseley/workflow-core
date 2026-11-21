@@ -58,7 +58,8 @@ const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { runProgram } = require("./lib/program-scope.js");
-const { caught } = require("./lib/caught.js");
+const { caught, ignoreFailure } = require("./lib/caught.js");
+const { noop } = require("./lib/noop.js");
 const { envelope } = require("./lib/hook-envelope.js");
 const { readOwnPaths } = require("./lib/own-work.js");
 const { FULL_SHA } = require("./lib/commit-sha.js");
@@ -83,7 +84,8 @@ const { appendRetained, DAY_MS } = require("./lib/retained-jsonl.js");
  * @returns {number}
  */
 function detachPrune() {
-	try {
+	// No node, no fork budget: the next session start retries.
+	ignoreFailure(() => {
 		const { spawnOutliving } = require("./lib/user-scope.js");
 		/* The child runs as no session, so it is told which session to spare
 		 * as the one starting (mantahostels#710). */
@@ -94,15 +96,11 @@ function detachPrune() {
 			{ stdio: "ignore" },
 		);
 		child.unref();
-		/* An ENOENT on the spawn itself surfaces asynchronously, so it is caught
-		 * here rather than by the try above — and swallowed, for the same reason
-		 * the sweep's own faults are: nothing waits on this. */
-		child.on("error", () => {
-			/* nothing waits on the sweep */
-		});
-	} catch {
-		/* no node, no fork budget — the next session start retries */
-	}
+		/* An ENOENT on the spawn itself surfaces asynchronously, so it is heard
+		 * here rather than by the ignoreFailure around it — and swallowed, for
+		 * the same reason the sweep's own faults are: nothing waits on this. */
+		child.on("error", noop);
+	});
 	return 0;
 }
 

@@ -10,6 +10,7 @@
  */
 
 const path = require("node:path");
+const { ignoreFailure } = require("./caught.js");
 const { brokenError } = require("./check");
 const { readObjectBatch } = require("./git-objects");
 const { requiredGroup } = require("./regex-group");
@@ -135,7 +136,9 @@ function readRuleSourcePathspecs(rev) {
 	const specs = new Set([CAP_SOURCE]);
 	/** @type {RegExpMatchArray[]} */
 	const matches = [];
-	try {
+	/* Absent, unshowable, unparseable or malformed at the revision — one case
+	 * here, every one of them failing closed downstream. */
+	ignoreFailure(() => {
 		const settings = { hooks: readOwnHooks(hostRoot(), { rev }) ?? {} };
 		const manifest = readManifestAtRev(rev);
 		if (manifest) specs.add(MANIFEST_REL);
@@ -144,10 +147,7 @@ function readRuleSourcePathspecs(rev) {
 		for (const event of [EVENT, ...AFTER_EVENTS])
 			for (const { commandLine } of registrationsOn(settings, event, manifest))
 				matches.push(...commandLine.matchAll(WIRED_SCRIPT_RE));
-	} catch {
-		/* Absent, unshowable, unparseable or malformed at the revision — one case
-		 * here, every one of them failing closed downstream. */
-	}
+	});
 	const guards = [
 		...new Set(matches.map((m) => requiredGroup(m, 1, WIRED_SCRIPT_RE))),
 	];

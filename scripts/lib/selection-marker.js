@@ -51,6 +51,7 @@ const fs = require("node:fs");
 const { MARKERS_REL } = require("./marker-root.js");
 const path = require("node:path");
 const idSeam = require("./session-id");
+const { ignoreFailure } = require("./caught.js");
 
 /** Beside the write-set cache and the warm-fraction log, under `.claude/tmp/markers/.pick-next/`. */
 const MARKER_SUBDIR = path.join(
@@ -94,11 +95,9 @@ function prune(root) {
 	const cutoff = Date.now() - MAX_AGE_MS;
 	for (const name of names) {
 		const file = path.join(dir, name);
-		try {
+		ignoreFailure(() => {
 			if (fs.statSync(file).mtimeMs < cutoff) fs.unlinkSync(file);
-		} catch {
-			/* a marker another run swept between the readdir and the stat */
-		}
+		});
 	}
 }
 

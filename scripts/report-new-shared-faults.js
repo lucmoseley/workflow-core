@@ -39,7 +39,7 @@ const { runProgram } = require("./lib/program-scope.js");
 const { newFaults } = require("./lib/fault-diff");
 const { hostRoot } = require("./lib/host-root.js");
 const { requiredGroup } = require("./lib/regex-group");
-const { caught } = require("./lib/caught.js");
+const { caught, ignoreFailure } = require("./lib/caught.js");
 const { pidAlive } = require("./lib/arbiter-proc.js");
 const { SIDE_ENV } = require("./lib/check-side.js");
 const { spawnAllSync } = require("./lib/spawn-all.js");
@@ -161,14 +161,13 @@ function sweepTrees() {
 	const root = leftoverRoot();
 	for (const base of fs.readdirSync(root)) {
 		const dir = path.join(root, base);
-		try {
+		// Raced by a concurrent sweep, or not ours to remove: left standing.
+		ignoreFailure(() => {
 			const parsed = parseLeftover(base);
-			if (parsed?.kind !== "tree") continue;
-			if (!isStale(parsed, fs.statSync(dir).mtimeMs)) continue;
+			if (parsed?.kind !== "tree") return;
+			if (!isStale(parsed, fs.statSync(dir).mtimeMs)) return;
 			fs.rmSync(dir, { recursive: true, force: true });
-		} catch {
-			/* raced by a concurrent sweep, or not ours to remove — leave it */
-		}
+		});
 	}
 }
 
@@ -192,15 +191,16 @@ function sweepWorktrees(/** @type {string} */ cwd) {
 	const realRoot = fs.existsSync(root) ? fs.realpathSync(root) : root;
 	for (const id of fs.readdirSync(admin)) {
 		const entry = path.join(admin, id);
-		try {
+		// Unreadable, raced, or git refused: the entry is left standing.
+		ignoreFailure(() => {
 			const worktree = path.dirname(
 				fs.readFileSync(path.join(entry, "gitdir"), "utf8").trim(),
 			);
 			const parent = path.dirname(worktree);
-			if (parent !== root && parent !== realRoot) continue;
+			if (parent !== root && parent !== realRoot) return;
 			const parsed = parseLeftover(path.basename(worktree));
-			if (parsed?.kind !== "dm") continue;
-			if (!isStale(parsed, fs.statSync(entry).mtimeMs)) continue;
+			if (parsed?.kind !== "dm") return;
+			if (!isStale(parsed, fs.statSync(entry).mtimeMs)) return;
 			if (fs.existsSync(worktree))
 				execGit(["worktree", "remove", "--force", worktree], {
 					cwd,
@@ -210,9 +210,7 @@ function sweepWorktrees(/** @type {string} */ cwd) {
 			 * between the rm and the deregistration — nothing but this removes
 			 * the registration. */
 			fs.rmSync(entry, { recursive: true, force: true });
-		} catch {
-			/* unreadable, raced, or git refused — leave the entry standing */
-		}
+		});
 	}
 }
 
@@ -227,16 +225,9 @@ function sweepLeftovers(/** @type {string} */ cwd) {
 	 * one act rather than finding the directory already gone. sweepTrees()
 	 * skipping `dm-` names makes the order redundant today — it is kept as the
 	 * second guard, not the only one. */
-	try {
-		sweepWorktrees(cwd);
-	} catch {
-		/* not a git checkout, or git refused — the report itself still stands */
-	}
-	try {
-		sweepTrees();
-	} catch {
-		/* the directory is unreadable — nothing to do about it here */
-	}
+	// Not a git checkout, or git refused: the report itself still stands.
+	ignoreFailure(() => sweepWorktrees(cwd));
+	ignoreFailure(sweepTrees);
 }
 
 /**

@@ -116,7 +116,7 @@ const { isListedLive, sweepSessionIds } = require("./lib/agent-liveness");
 const { capMs } = require("./lib/cap-ms.js");
 const core = require("./lib/arbiter-core");
 const store = require("./lib/arbiter-store");
-const { caught } = require("./lib/caught.js");
+const { caught, orFallback } = require("./lib/caught.js");
 const { isCutOver } = require("./lib/cutover.js");
 const { VERIFIED_REF } = require("./lib/landing-refs.js");
 const { takesLabel } = require("./lib/takes-label.js");
@@ -273,12 +273,11 @@ function takeFiling(dir, f) {
  * @param {string} marker
  */
 function readFiledStatus(marker) {
-	let ref = "";
-	try {
-		ref = JSON.parse(fs.readFileSync(marker, "utf8")).ref ?? "";
-	} catch {
-		// Empty or torn: the filing that made it is running or was killed.
-	}
+	// Empty or torn: the filing that made it is running or was killed.
+	const ref = orFallback(
+		() => JSON.parse(fs.readFileSync(marker, "utf8")).ref ?? "",
+		"",
+	);
 	return ref
 		? `already filed: ${ref}`
 		: "filing in progress or interrupted — search the tracker before filing by hand";

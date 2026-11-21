@@ -26,6 +26,7 @@ const fs = require("node:fs");
 const { writeFd } = require("./write-fd.js");
 const net = require("node:net");
 const vm = require("node:vm");
+const { noop } = require("./noop.js");
 const { shellQuote } = require("./sh-quote.js");
 
 /** The client's exit where the server never answered: sysexits' EX_SOFTWARE. */
@@ -191,9 +192,8 @@ function serve(handlerFile) {
 			const req = parseRequest(text.split("\0").slice(0, -1));
 			if (req) sock.end(answer(handler, req));
 		});
-		sock.on("error", () => {
-			// A caller killed mid-call drops only its own connection, never the server.
-		});
+		// A caller killed mid-call drops only its own connection, never the server.
+		sock.on("error", noop);
 	});
 	server.listen(0, "127.0.0.1", () => {
 		const at = server.address();

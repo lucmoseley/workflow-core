@@ -11,6 +11,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ignoreFailure } from "./caught.js";
 import { keptSpawn } from "./kept-spawn.js";
 
 const memory = require("./run-memory.js");
@@ -35,13 +36,8 @@ beforeEach(() => {
 	dir = fs.mkdtempSync(path.join(os.tmpdir(), "run-memory-"));
 });
 afterEach(() => {
-	if (main?.pid) {
-		try {
-			process.kill(-main.pid, "SIGKILL");
-		} catch {
-			/* already gone */
-		}
-	}
+	const pid = main?.pid;
+	if (pid) ignoreFailure(() => process.kill(-pid, "SIGKILL"));
 	main = null;
 	fs.rmSync(dir, { recursive: true, force: true });
 });

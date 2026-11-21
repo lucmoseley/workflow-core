@@ -47,7 +47,7 @@ const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { spawnOutliving } = require("./lib/user-scope.js");
 
 const { configDirs } = require("./lib/arbiter-store");
-const { caught } = require("./lib/caught.js");
+const { caught, ignoreFailure } = require("./lib/caught.js");
 const { runCheck, skipError } = require("./lib/check");
 const { trialLive } = require("./lib/trial-window");
 const { ladderPath } = require("./lib/workflow-core-config");
@@ -303,23 +303,17 @@ function claimKick(stamp) {
 		// Any other failure is an unwritable directory, where the stamp
 		// cannot be written either: no sweep, as kickRefresh() rules.
 		if (caught(e).code !== "EEXIST") return false;
-		try {
+		ignoreFailure(() => {
 			if (Date.now() - fs.statSync(claim).mtimeMs > KICK_CLAIM_STALE_MS)
 				fs.unlinkSync(claim);
-		} catch {
-			/* gone already, or unremovable: either way not ours */
-		}
+		});
 		return false;
 	}
 }
 
 /** @param {string} stamp */
 function releaseKick(stamp) {
-	try {
-		fs.unlinkSync(`${stamp}.claim`);
-	} catch {
-		/* already gone */
-	}
+	ignoreFailure(() => fs.unlinkSync(`${stamp}.claim`));
 }
 
 /** The stored sweep, or null where there is none, it will not parse, or it is

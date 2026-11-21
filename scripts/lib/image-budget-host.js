@@ -8,6 +8,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { orFallback } = require("./caught.js");
 const { sweepFiles, withDirLock } = require("./dir-lock.js");
 
 /* A judgement: two days outlasts any working session seen here. */
@@ -56,12 +57,10 @@ function buildHostPorts({ log }) {
 						path: line.slice(tab + 1),
 					};
 				});
-			let told = { warned: false, named: 0 };
-			try {
-				told = readTold(fs.readFileSync(`${store}.told`, "utf8"));
-			} catch {
-				/* No sidecar yet: nothing has been said. */
-			}
+			const told = orFallback(
+				() => readTold(fs.readFileSync(`${store}.told`, "utf8")),
+				{ warned: false, named: 0 },
+			);
 			const r = update(entries, told);
 			try {
 				fs.writeFileSync(

@@ -58,6 +58,7 @@ const {
 	subagentDirOf,
 } = require("./lib/transcript");
 const { byCodeUnit } = require("./lib/by-code-unit.js");
+const { orFallback } = require("./lib/caught.js");
 const { execGit } = require("./lib/git.js");
 const { errMessage, now: checkNow } = require("./lib/check");
 
@@ -152,13 +153,13 @@ function readSettingsAt(root, at) {
 			// A guess, never measured: a wedged git, not a slow one.
 			timeout: 10_000,
 		}).trim();
-	try {
+	// Not a repo git can read, or no parseable commit: the working copy below
+	// is the best remaining answer.
+	const committed = orFallback(() => {
 		const sha = git(["log", "-1", "--format=%H", `--before=${at}`, "--", rel]);
-		if (sha) return JSON.parse(git(["show", `${sha}:${rel}`]));
-	} catch {
-		/* Not a repo git can read, or no parseable commit: the working copy
-		 * below is the best remaining answer. */
-	}
+		return sha ? JSON.parse(git(["show", `${sha}:${rel}`])) : undefined;
+	}, undefined);
+	if (committed !== undefined) return committed;
 	return readJsonSafe(path.join(root, rel));
 }
 

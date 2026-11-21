@@ -16,6 +16,7 @@ const { readWindowsMemory } = require("./windows-memory.js");
 const { treePorts } = require("./guard-host-ports.js");
 const { buildIsWrapperScript } = require("./suite-launch.js");
 const { readCarriedWeightOf, readPs } = require("./suite-ladder.js");
+const { ignoreFailure } = require("./caught.js");
 
 /**
  * The host's declared `suiteRunners`, none where its config will not read.
@@ -141,14 +142,10 @@ function readGate(
 	const host = root ?? hostRoot();
 	if (guardDisabled("guard-suite-concurrency", { root: host })) return null;
 	const { logError } = require("./arbiter-core.js");
+	// A log that cannot be written must not break the poll.
 	/** @param {string} what @param {string} [detail] */
-	const log = (what, detail) => {
-		try {
-			logError("guard-suite-concurrency", what, detail);
-		} catch {
-			/* A log that cannot be written must not break the poll. */
-		}
-	};
+	const log = (what, detail) =>
+		ignoreFailure(() => logError("guard-suite-concurrency", what, detail));
 	const { decide } = require("./suite-concurrency.js");
 	const { kitContext, sharedReaders } = require("./kit-context.js");
 	const env = { root: host, payload: { cwd: host }, log };

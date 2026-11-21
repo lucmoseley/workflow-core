@@ -57,7 +57,7 @@ const { buildStateFile } = require("./lib/build-state");
 const { readClaimedIssues } = require("./lib/arbiter-issue-claims");
 const { isSubagentPayload } = require("./lib/subagent-payload");
 const { autocompactions } = require("./lib/transcript");
-const { caught } = require("./lib/caught.js");
+const { caught, ignoreFailure } = require("./lib/caught.js");
 const { envelope } = require("./lib/hook-envelope.js");
 const { writeFd } = require("./lib/write-fd.js");
 
@@ -65,14 +65,13 @@ const TRIGGER_PREFIX = ".compaction-trigger-";
 
 /** @param {string} what @param {unknown} err */
 function logFailOpen(what, err) {
-	try {
+	// A log that cannot be written must not break the hook.
+	ignoreFailure(() =>
 		require("./lib/arbiter-core").logError(
 			`inject-compaction-count ${what}`,
 			err,
-		);
-	} catch {
-		/* A log that cannot be written must not break the hook. */
-	}
+		),
+	);
 }
 
 /** @param {string} sid */

@@ -17,6 +17,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { ignoreFailure } = require("./caught.js");
 const { hostRoot } = require("./host-root.js");
 
 /**
@@ -24,15 +25,10 @@ const { hostRoot } = require("./host-root.js");
  * @returns {string}
  */
 function ensure(dir) {
-	try {
-		fs.mkdirSync(dir, { recursive: true });
-	} catch {
-		/* Swallowed (issue #2): a guard whose marker directory cannot be
-		 * created still has its real job to do. The failure surfaces at the
-		 * write that follows — a plain ENOENT/EACCES from that write, not
-		 * from here, and the caller's own fail-open handling (if any) is
-		 * what catches it. */
-	}
+	/* Issue #2: a guard whose marker directory cannot be created still has its
+	 * real job to do. The failure surfaces at the write that follows, where the
+	 * caller's own fail-open handling (if any) catches it. */
+	ignoreFailure(() => fs.mkdirSync(dir, { recursive: true }));
 	return dir;
 }
 

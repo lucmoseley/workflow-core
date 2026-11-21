@@ -17,6 +17,7 @@
 const path = require("node:path");
 const { relativeUnder } = require("./is-under.js");
 const { isNode, pairValue, repoPath } = require("./read-audit-paths.js");
+const { orFallback } = require("./caught.js");
 
 /* The git guard the suites put on every test's `PATH` (#3161). */
 const GUARD = path.join(__dirname, "host-git-guard", "git");
@@ -161,13 +162,9 @@ const FLAGS = /** @type {const} */ ([
  * @returns {(child: Spawned) => Provenance}
  */
 function buildVerdictOf({ root, tmps, realpath }) {
+	// No guard beside this library leaves no program it (#4790).
 	/** @type {string|null} */
-	let guardReal = null;
-	try {
-		guardReal = realpath(GUARD);
-	} catch {
-		// No guard stands beside this library, so no program is it (#4790).
-	}
+	const guardReal = orFallback(() => realpath(GUARD), null);
 	const isUnderTmp = (/** @type {string} */ at) =>
 		tmps.some((tmp) => relativeUnder(tmp, at) !== null);
 	const isUnderRoot = (/** @type {string} */ at) =>

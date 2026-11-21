@@ -147,6 +147,7 @@ describe("refill-loop.js status's per-call cost (#4821)", () => {
 			"lib/meminfo.js",
 			"lib/merge-heads.js",
 			"lib/model-table.js",
+			"lib/noop.js",
 			"lib/npm-options.js",
 			"lib/oracle-cache.js",
 			"lib/outcome-error.js",

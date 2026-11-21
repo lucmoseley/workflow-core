@@ -8,6 +8,7 @@
 const { spawn, spawnSync } = require("node:child_process");
 const os = require("node:os");
 const path = require("node:path");
+const { ignoreFailure } = require("./caught.js");
 
 const SCRIPTS = path.resolve(__dirname, "..");
 
@@ -100,11 +101,9 @@ function launch(argv, { cwd, env, timeoutS }) {
 		child.stdout?.on("data", take);
 		child.stderr?.on("data", take);
 		const signalGroup = (/** @type {NodeJS.Signals} */ sig) => {
-			try {
+			ignoreFailure(() => {
 				if (child.pid) process.kill(-child.pid, sig);
-			} catch {
-				// The group has already gone.
-			}
+			});
 		};
 		/** @type {NodeJS.Timeout | undefined} */
 		let grace;

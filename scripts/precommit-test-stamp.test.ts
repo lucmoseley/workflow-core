@@ -46,6 +46,7 @@ import os from "node:os";
 import path from "node:path";
 import { expect, it } from "vitest";
 import { renderHookShim } from "./lib/adopter-skeleton.js";
+import { ignoreFailure } from "./lib/caught.js";
 import { stampFile, stampVariable, writeStamp } from "./lib/commit-key.js";
 import { installHuskyShim } from "./lib/husky-testkit";
 import { keptSpawn } from "./lib/kept-spawn.js";
@@ -1271,15 +1272,13 @@ it("refuses a red pre-lock gate under --patch with exit 3, starting no suite and
 function readProcessTree(pid: number): number[] {
 	const parentOf = new Map<number, number>();
 	for (const d of fs.readdirSync("/proc").filter((name) => /^\d+$/.test(name)))
-		try {
+		ignoreFailure(() => {
 			const stat = fs.readFileSync(`/proc/${d}/stat`, "utf8");
 			parentOf.set(
 				Number(d),
 				Number(stat.slice(stat.lastIndexOf(")") + 2).split(" ")[1]),
 			);
-		} catch {
-			/* gone since the listing */
-		}
+		});
 	const tree = [pid];
 	for (let i = 0; i < tree.length; i++)
 		for (const [child, ppid] of parentOf)
@@ -1338,11 +1337,7 @@ it.each([
 			expect(f.readLeftInGitDir()).toEqual([]);
 		} finally {
 			// A signal to commit-paths alone leaves its suite or its commit running.
-			try {
-				process.kill(-run.pid, "SIGKILL");
-			} catch {
-				/* the group is gone already */
-			}
+			ignoreFailure(() => process.kill(-run.pid, "SIGKILL"));
 		}
 	},
 );

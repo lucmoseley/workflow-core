@@ -25,6 +25,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ignoreFailure } from "./lib/caught.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const { slugForRepo } = require("./lib/project-slug");
@@ -42,11 +43,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	// chmod back, or a directory a test made unreadable defeats the removal.
-	try {
-		fs.chmodSync(corpus, 0o755);
-	} catch {
-		/* already gone */
-	}
+	ignoreFailure(() => fs.chmodSync(corpus, 0o755));
 	fs.rmSync(sandbox, { recursive: true, force: true });
 });
 

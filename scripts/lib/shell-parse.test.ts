@@ -16,6 +16,7 @@
 import { describe, expect, it } from "vitest";
 import { parseFileAliases } from "./git-alias.js";
 import { fakeTreeClassifier } from "./git-tree-fake.js";
+import { noop } from "./noop.js";
 import { Lexer } from "./shell-lexer.js";
 import type {
 	Command,
@@ -538,13 +539,7 @@ describe("Command.cwd — the directory the walk's command runs in (mantahostels
 		walkCommands(
 			parsed,
 			(c) => {
-				walkCommands(
-					parsed,
-					() => {
-						// The inner walk only has to run.
-					},
-					ports(),
-				);
+				walkCommands(parsed, noop, ports());
 				seen.push(`${c.words[0]}=${c.cwd}`);
 			},
 			ports(),

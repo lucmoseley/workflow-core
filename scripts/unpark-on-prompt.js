@@ -23,6 +23,7 @@
  */
 
 const path = require("node:path");
+const { ignoreFailure } = require("./lib/caught.js");
 const { isFounderTyping } = require("./lib/founder-typing");
 const hookMessage = require("./lib/hook-message");
 const { hostRoot } = require("./lib/host-root");
@@ -43,8 +44,5 @@ function main() {
 	unparkIssues(tracker, sid, parked);
 }
 
-try {
-	main();
-} catch {
-	/* Fail open (#2000). */
-}
+// Fail open (#2000).
+ignoreFailure(main);

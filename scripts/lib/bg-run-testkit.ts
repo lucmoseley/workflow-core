@@ -21,6 +21,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect } from "vitest";
+import { ignoreFailure } from "./caught.js";
 import { REAL_PROC } from "./proc-root.js";
 import { isDead } from "./process-fixture";
 import { shellQuote } from "./sh-quote.js";
@@ -322,11 +323,7 @@ export function bgRunRoot(): void {
 
 	afterEach(() => {
 		for (const pid of readProcessesUnder(root)) {
-			try {
-				process.kill(Number(pid), "SIGKILL");
-			} catch {
-				// exited since the scan
-			}
+			ignoreFailure(() => process.kill(Number(pid), "SIGKILL"));
 		}
 		rmSync(root, { recursive: true, force: true });
 	});

@@ -31,6 +31,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { suiteRungMb, WHOLE_SUITE_WORKERS } from "./admission.js";
 import { mkScratchDir } from "./git-fixture";
 import { chargeMb as launchChargeMb } from "./launch-charge";
+import { noop } from "./noop.js";
 import type { PartAdmission } from "./part-suite-peak.js";
 import { writePsStub } from "./ps-stub";
 import { runInProcess } from "./run-in-process.js";
@@ -3184,10 +3185,7 @@ describe("queueSeat, one seat's lifecycle end to end (#4240)", () => {
 		JSON.parse(
 			fs.readFileSync(path.join(dir, markersIn(dir)[0] as string), "utf8"),
 		);
-	const never = () =>
-		new Promise<void>(() => {
-			/* never settles */
-		});
+	const never = () => new Promise<void>(noop);
 	const seatIn = (dir: string, seatOptions: object = {}) => {
 		const lines: { reason: string; extra?: object }[] = [];
 		const seat = queueSeat({
