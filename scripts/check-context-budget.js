@@ -159,10 +159,11 @@ const INJECTION_CAP_BYTES = 10_500;
  * pair DERIVES the cap and is not the live headroom (mantahostels#2272) — read
  * it off `npm run check:context`, which prints the per-tool figures.
  *
- * Last re-seeded at #2023: Bash at 31,079 B across 39 ids, rounded up past a
- * 421 B slack band.
+ * Last re-seeded at #5447, priced at the install spelling (lib/install-probe.js):
+ * Bash at 33,577 B across 41 ids in a linked worktree, rounded up past a 423 B
+ * slack band.
  */
-const SESSION_CAP_BYTES = 31_500;
+const SESSION_CAP_BYTES = 34_000;
 
 /*
  * docs/doc-map.md §Capture and placement §3 route (f)'s second, independent
@@ -181,8 +182,8 @@ const SESSION_CAP_BYTES = 31_500;
  * `npm run check:context`, which prints the union in the same run as the
  * per-tool figures.
  *
- * Last re-seeded at #2060: 51,147 B across 69 ids, rounded up past a 353 B
- * slack band.
+ * Last re-seeded at #5447, priced at the install spelling: 56,878 B across 70
+ * ids in a linked worktree, rounded up past a 122 B slack band.
  *
  * WHY NOT SEED IT BELOW THE MEASUREMENT. The direction gate refuses any commit that RAISES an
  * over-cap total, so a seed permanently below the measurement is not a passive
@@ -194,7 +195,7 @@ const SESSION_CAP_BYTES = 31_500;
  * complaint; the union is what a session actually pays, and nothing else
  * bounds it.
  */
-const RATCHET_CAP_BYTES = 51_500;
+const RATCHET_CAP_BYTES = 57_000;
 
 /*
  * docs/doc-map.md §Capture and placement §4's whole-file members, in the
@@ -229,6 +230,7 @@ const RATCHET_SURFACE = "rule-ratchet";
 /* The session cap's arithmetic, which is a module of its own so that this file
  * holds only the cap, the severity and the reporting (mantahostels#2003, mantahostels#2004). */
 const { reachableAfterCall, reachableByTool } = require("./lib/rule-emission");
+const { asInstall } = require("./lib/install-probe.js");
 const { AFTER_EVENTS } = require("./lib/hook-events.js");
 const { RULES_DIR, CORE_RULES, fragmentLookup } = require("./lib/rule-text");
 const { caught } = require("./lib/caught.js");
@@ -1042,9 +1044,10 @@ function sessionFigures(ctx, opts) {
 			fragmentBytes: {},
 		};
 	try {
-		return reachableByTool(opts);
+		/* Priced as an adopter receives it, not as this checkout spells it (#5447). */
+		return asInstall(() => reachableByTool(opts));
 	} catch (e) {
-		/* Every throw here is apparatus: a guard file, the RULE_CAP assignment,
+		/* Every throw here is apparatus: the probe install tree, a guard file, the RULE_CAP assignment,
 		 * a malformed settings shape, or an injection naming an id the fragment
 		 * store cannot resolve at all — none of them a bug in this checker, but all
 		 * of them what it reads the repo WITH rather than what it is asking about.
@@ -1068,7 +1071,7 @@ function sessionFigures(ctx, opts) {
  */
 function afterCallFigures(ctx, opts) {
 	try {
-		return reachableAfterCall(opts);
+		return asInstall(() => reachableAfterCall(opts));
 	} catch (e) {
 		return ctx.broken(
 			`cannot compute the after-call rule emission: ${errMessage(e)}`,

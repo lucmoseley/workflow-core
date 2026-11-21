@@ -33,13 +33,13 @@ const ROOT = path.resolve(__dirname, "..");
 
 /* Mirrors check-context-budget.js's own constant. Restated rather than
  * imported, so that moving the cap is a visible edit on both sides. */
-const SESSION_CAP = 31_500;
+const SESSION_CAP = 34_000;
 
 /* Route (f)'s second axis — the shared ratchet summed across every tool
  * (mantahostels#1787, mantahostels#2046). Mirrors
  * check-context-budget.js's own constant, for the same reason as SESSION_CAP
  * above. No fixture below writes its VALUE out (mantahostels#2223). */
-const RATCHET_CAP = 51_500;
+const RATCHET_CAP = 57_000;
 
 /* The RULE_CAP ceiling the fixtures run under, shared by the beforeEach that
  * writes it and by ratchetTotal's chunking, which must stay under it. */
