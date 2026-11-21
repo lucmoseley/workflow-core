@@ -18,8 +18,10 @@
  * writes the session marker a normal-mode loop resumes parked sessions from
  * (lib/parked.js).
  *
- * Residual: a session whose stay landed and that then passes gate after gate
- * without pushing is held while its newest run passes (#5438).
+ * Residual: a session whose stay landed, or that has no stay, and that then
+ * passes gate after gate without pushing is held while its newest run passes
+ * (#5438, #5441); and one pushing more than 11 minutes after its pass, as a
+ * slow review before the push can, is parked (#5441).
  */
 
 const { isActionable, launchName, stopJob } = require("./refill-block-core.js");
@@ -32,8 +34,8 @@ const GATE_RUN_BUDGET = 6;
 /* How long after a passing gate run its push is still due (#5441): the
  * longest of 56 gaps from a passing run's end to the session's next push, with
  * no gate run between, across four checkouts' gate-run and queue-log records
- * on 2026-11-21, was 634 s; 52 fell under 75 s. Two of 16 h, a later
- * session's push, are left out; rounded up to the minute. */
+ * on 2026-11-21, was 634 s; 52 fell under 75 s. Two gaps of about 16 h, each
+ * ended by a later session's push, are left out; rounded up to the minute. */
 const PUSH_DUE_MS = 11 * 60_000;
 
 /**
