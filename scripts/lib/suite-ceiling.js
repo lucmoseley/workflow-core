@@ -27,6 +27,7 @@
 const fs = require("node:fs");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
+const { monotonicMs } = require("./clock.js");
 const { pidAlive } = require("./arbiter-proc.js");
 const { readEnvironVar } = require("./proc-environ.js");
 const { procRoot, REAL_PROC } = require("./proc-root.js");
@@ -131,9 +132,6 @@ function hold(pgid) {
 		for (const held of live) killGroup(held);
 	});
 }
-
-/** CLOCK_MONOTONIC in ms, as `process.hrtime` reads it on Linux. */
-const monotonicMs = () => Math.floor(Number(process.hrtime.bigint()) / 1e6);
 
 /**
  * A group already gone is no failure.
@@ -364,7 +362,6 @@ module.exports = {
 	killCarrying,
 	killGroup,
 	killPid,
-	monotonicMs,
 	sweepAtStart,
 	sweepOrphanedRuns,
 };

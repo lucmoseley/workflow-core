@@ -11,8 +11,9 @@
  * rose with the suite would hide the decay that led to five cut-maps.
  *
  * WAIT IS CLIPPED TO THE WINDOW: a line logs its exit time and its wait, so
- * the wait ran over [at - waitS, at], and only the part inside the window
- * counts. The 14-day series clips to each UTC day the same way.
+ * the wait is read as [at - waitS, at], and only the part inside the window
+ * counts. The 14-day series clips to each UTC day the same way. `waitS` is
+ * awake seconds (`monotonicMs`), so a host sleep counts as no wait.
  *
  * ONE STANDING ISSUE (#1157 Q8), through lib/tracking-issue.js, matched on its
  * title alone because the session that takes it may relabel it. Under the
