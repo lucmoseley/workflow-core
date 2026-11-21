@@ -20,8 +20,8 @@
  *
  * Residual: a session whose stay landed, or that has no stay, and that then
  * passes gate after gate without pushing is held while its newest run passes
- * (#5438, #5441); and one pushing more than 11 minutes after its pass, as a
- * slow review before the push can, is parked (#5441).
+ * (#5438, #5441); and one pushing more than 11 minutes after its pass, as it
+ * can when a slow review runs before the push, is parked (#5441).
  */
 
 const { isActionable, launchName, stopJob } = require("./refill-block-core.js");

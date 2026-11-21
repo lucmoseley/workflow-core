@@ -162,7 +162,7 @@ describe("the gate-run budget (#5275)", () => {
 	});
 
 	it("holds a session whose newest run passed and whose commit waits on the lander, or has landed there ahead of origin/main, and logs why (#5438)", () => {
-		const passed = [{ ...gateRun(5), outcome: "pass" as const }, ...runsAgo(6)];
+		const passed = passedAgo(5);
 		for (const state of ["waiting", "landed"] as const) {
 			const { launches, events, calls } = tick(
 				[live()],
