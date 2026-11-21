@@ -15,7 +15,7 @@ from pathlib import Path
 from wfc_bin import bin_path
 
 INSTALL_DIR = Path.home() / ".local/lib/workflow-core"
-SHARED_LIBS = ("memwatch_minute.py",)
+SHARED_LIBS = ("fail_open.py", "memwatch_minute.py")
 
 
 def user_units():

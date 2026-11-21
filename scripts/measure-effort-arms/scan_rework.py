@@ -325,14 +325,14 @@ def config_tracker():
         ).stdout.strip()
     )
     path = os.path.join(os.path.realpath(root), ".claude", "workflow-core.json")
+    untracked = f'{path} declares no "tracker" — add it, or pass --repo.'
     try:
         with open(path, encoding="utf-8") as f:
             tracker = json.load(f).get("tracker")
     except FileNotFoundError:
-        # No file is no tracker, and the exit below says so (#1274).
-        tracker = None
+        sys.exit(untracked)
     if not isinstance(tracker, str):
-        sys.exit(f'{path} declares no "tracker" — add it, or pass --repo.')
+        sys.exit(untracked)
     return tracker
 
 

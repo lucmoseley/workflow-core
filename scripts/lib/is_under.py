@@ -13,14 +13,16 @@ def relative_under(root: str, p: str) -> str | None:
     (`""`) or sits beneath it; None where it lies outside, another drive
     included, or is empty. Strictly beneath is a truthy answer. No I/O: a
     caller comparing real paths resolves both first."""
-    try:
-        rel = os.path.relpath(p, root)
-    except ValueError:
-        # relpath raises on an empty path and across Windows drives; neither
-        # lies beneath the root (#5374).
+    if not p or _drive(p) != _drive(root):
         return None
+    rel = os.path.relpath(p, root)
     if rel == os.curdir:
         return ""
     if rel == os.pardir or rel.startswith(os.pardir + os.sep):
         return None
     return rel
+
+
+def _drive(p: str) -> str:
+    """`p`'s drive as `os.path.relpath` compares it: "" on POSIX."""
+    return os.path.normcase(os.path.splitdrive(os.path.abspath(os.path.normpath(p)))[0])

@@ -44,6 +44,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
+from fail_open import fail_open
 
 UTC = dt.timezone.utc
 # The reset stamps and the founder's day are both Asia/Singapore. Fixed +08:00:
@@ -120,9 +121,8 @@ def parse_earlyoom_kill(line: str) -> Kill | None:
         return None
     try:
         when = dt.datetime.fromisoformat(m.group("ts"))
-    except ValueError:
-        # A kill whose stamp is not ISO cannot be placed in a day; `main`
-        # counts it as undated (#1274).
+    except ValueError as e:
+        fail_open(e, "kill counted as undated")
         return None
     return Kill(when=when, name=m.group("name"), rss_mib=int(m.group("rss")))
 
@@ -142,7 +142,8 @@ def read_syslogs(tally, pattern: str = DEFAULT_SYSLOGS):
         try:
             with opener(path, "rt", errors="ignore") as fh:
                 yield from fh
-        except (OSError, EOFError):
+        except (OSError, EOFError) as e:
+            fail_open(e, f"{path} skipped")
             tally["unreadable syslogs"] += 1
             continue
 
@@ -196,7 +197,8 @@ def transcript_spans(
                     if first is None:
                         first = m.group(1)
                     last = m.group(1)
-        except OSError:
+        except OSError as e:
+            fail_open(e, f"{path} skipped")
             tally[tc.UNREADABLE] += 1
             continue
         if not first or not last:
@@ -204,7 +206,8 @@ def transcript_spans(
         try:
             a = dt.datetime.fromisoformat(first.replace("Z", "+00:00"))
             b = dt.datetime.fromisoformat(last.replace("Z", "+00:00"))
-        except ValueError:
+        except ValueError as e:
+            fail_open(e, f"{path} skipped as undated")
             tally["undated files"] += 1
             continue
         if since and b < since:
@@ -308,7 +311,8 @@ def headroom_readings(
                 when = dt.datetime.fromisoformat(
                     rec.get("timestamp", "").replace("Z", "+00:00")
                 )
-            except ValueError:
+            except ValueError as e:
+                fail_open(e, f"record in {path} skipped as undated")
                 tally["undated records"] += 1
                 continue
             if since and when < since:
@@ -342,7 +346,8 @@ def scan_bash_commands(
                 when = dt.datetime.fromisoformat(
                     rec.get("timestamp", "").replace("Z", "+00:00")
                 )
-            except ValueError:
+            except ValueError as e:
+                fail_open(e, f"record in {path} skipped as undated")
                 tally["undated records"] += 1
                 continue
             if since and when < since:

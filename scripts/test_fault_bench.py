@@ -155,9 +155,18 @@ def test_install_copies_the_script_writes_both_units_and_enables_the_timer(
     installed = home / ".local/lib/workflow-core/fault-bench/fault_bench.py"
     assert installed.read_text() == (HERE / "fault_bench.py").read_text()
     # The copy reads the minute log through its own lib/ at run time.
-    assert (
-        home / ".local/lib/workflow-core/fault-bench/lib/memwatch_minute.py"
-    ).exists()
+    imported = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-c",
+            f"import runpy; runpy.run_path({str(installed)!r}, run_name='imported')",
+        ],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+    )
+    assert imported.returncode == 0, imported.stderr
     units = home / ".config/systemd/user"
     service = (units / "fault-bench.service").read_text()
     # The unit runs the installed copy, which outlives any worktree.
@@ -183,3 +192,14 @@ def test_install_names_the_rerun_when_systemctl_fails(tmp_path):
     )
     assert done.returncode == 1
     assert "re-run: python3 scripts/fault_bench.py install" in done.stderr
+
+
+def test_no_minute_log_reads_windows_unread_and_is_named(tmp_path, capsys):
+    assert f.windows_reading(tmp_path / "absent.jsonl", 0) == "Windows unread"
+    assert "fail-open: Windows figure read as unread" in capsys.readouterr().err
+
+
+def test_no_log_yet_reads_as_no_bench_this_boot_and_is_named(tmp_path, capsys):
+    log = tmp_path / "absent.log"
+    assert f.benched_this_boot(log, "abcdef12") is False
+    assert f"fail-open: {log} read as no bench this boot" in capsys.readouterr().err

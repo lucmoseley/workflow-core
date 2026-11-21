@@ -25,6 +25,9 @@ import signal
 import sys
 import time
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+from fail_open import fail_open
+
 # Untraced: this long with no output counts as drawn.
 SETTLE_S = 1.0
 # Untraced: a TUI that has drawn nothing by now never will. lib/claude-attach.js's
@@ -55,8 +58,8 @@ def drain(fd, quiet, limit):
             continue
         try:
             chunk = os.read(fd, 4096)
-        except OSError:
-            # EIO is how a pty master reads once the command has exited (#2705).
+        except OSError as e:
+            fail_open(e, "command read as exited")
             return seen, False
         if not chunk:
             return seen, False
@@ -89,9 +92,8 @@ def main(argv):
     finally:
         try:
             os.kill(pid, signal.SIGTERM)
-        except ProcessLookupError:
-            # Already exited (#2705).
-            pass
+        except ProcessLookupError as e:
+            fail_open(e, f"pid {pid} read as already exited")
         os.waitpid(pid, 0)
         os.close(fd)
 

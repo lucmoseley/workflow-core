@@ -43,6 +43,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
+from fail_open import fail_open
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "measure-burn"))
 import scan_burn as sb
@@ -63,7 +64,8 @@ def parse_ts(value):
         return dt.datetime.fromisoformat(
             (value or "").replace("Z", "+00:00")
         ).astimezone(UTC)
-    except ValueError:
+    except ValueError as e:
+        fail_open(e, "timestamp read as None")
         return None
 
 

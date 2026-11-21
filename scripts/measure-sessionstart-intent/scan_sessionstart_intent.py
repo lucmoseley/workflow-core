@@ -41,6 +41,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
+from fail_open import fail_open
 
 # Commands scripts/inject-tracker-docs.js injects for. `pick-next` is named by
 # the naming hook but never injected, so counting it would understate injection.
@@ -94,9 +95,8 @@ def scan(jobs_dir, projects_dirs):
         try:
             with open(state_path) as handle:
                 state = json.load(handle)
-        except (OSError, ValueError):
-            # A job's state that will not read is skipped and counted beside
-            # skipped_no_transcript (#1274).
+        except (OSError, ValueError) as e:
+            fail_open(e, f"{state_path} skipped")
             tally["skipped_unreadable_state"] += 1
             continue
         session_id = state.get("sessionId")

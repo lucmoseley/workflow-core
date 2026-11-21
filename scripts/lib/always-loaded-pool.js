@@ -288,8 +288,6 @@ module.exports = {
 	readDeclaredStyle,
 	getDoubleLoadedFiles,
 	TRIGGER_VERDICT_MARKER,
-	// Consumed by lib/doc-map.js's `compactionVerdictFaults` (mantahostels#1968): a
-	// compacted entry's verdict answers to the same floor, for the same reason.
 	TRIGGER_VERDICT_MIN_WORDS,
 	entryIssue,
 	entryLabel,

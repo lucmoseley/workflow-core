@@ -164,8 +164,4 @@ function main() {
 
 if (require.main === module) main();
 
-/* `freshness` is exported for check-cleared-trackers.js (mantahostels#1699), which must ask
- * THIS function whether the manual is still behind: a second reading of the
- * checker's exit alphabet could call the tracking issue cleared while the filer
- * disagrees. */
 module.exports = { TITLE, LABEL, freshness };

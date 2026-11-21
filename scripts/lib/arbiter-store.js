@@ -118,10 +118,6 @@ module.exports = {
 	buildBreakNotice: breaks.buildBreakNotice,
 	claimVersions: contentMod.claimVersions,
 	claimIssue: issues.claimIssue,
-	// Every config dir on this machine, for a reader of a SIBLING store under
-	// them — check-ghost-jobs.js reads `jobs/`, which is not the arbiter's but
-	// faces the same multi-plan problem sessionDirs() already solves, and a second
-	// copy of that rule would sandbox differently under the proving harness.
 	configDirs: core.sessionDirs,
 	contentState: contentMod.contentState,
 	dropWant: wants.dropWant,
@@ -154,8 +150,6 @@ module.exports = {
 	readCommitsBy: ledger.readCommitsBy,
 	paths: core.paths,
 	pruneAll: sweep.pruneAll,
-	// Unjudged locks, for a reader that brings its own liveness oracle —
-	// check-stranded-file-claims.js asks `claude agents --json` (mantahostels#318).
 	readLocks: locksMod.readLocks,
 	readWants: wants.readWants,
 	recordAct: ledger.recordAct,

@@ -29,6 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
+from fail_open import fail_open
 from context_cost import grossed_up, price, window_cost
 from delivery_scan import (
     REPO,
@@ -82,9 +83,8 @@ def readable_text(path, tally):
     try:
         with open(os.path.join(REPO, path), "rb") as fh:
             head = fh.read(8192)
-    except OSError:
-        # Skipped so one bad file cannot sink the window, and printed by `main`
-        # (#1274).
+    except OSError as e:
+        fail_open(e, f"{path} skipped")
         tally["unreadable repo files"] += 1
         return False
     return b"\0" not in head
@@ -125,8 +125,8 @@ def candidates(min_line, tally):
             continue
         try:
             blobs[path] = open(os.path.join(REPO, path), errors="replace").read()
-        except OSError:
-            # As `readable_text` (#1274).
+        except OSError as e:
+            fail_open(e, f"{path} skipped")
             tally["unreadable repo files"] += 1
             continue
     corpus = "\n".join(blobs.values())
@@ -259,9 +259,8 @@ def sizes_by_date(cands, start, end, tally):
                 continue
             try:
                 blob = git("show", f"{sha}:{path}")
-            except subprocess.CalledProcessError:
-                # The day then prices at today's size, the fallback in `main`;
-                # counted so the substitution is seen (#1274).
+            except subprocess.CalledProcessError as e:
+                fail_open(e, f"{path} on {day} priced at today's size")
                 tally["unshown revisions"] += 1
                 continue
             for line in blob.split("\n"):

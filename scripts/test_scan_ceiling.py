@@ -476,3 +476,10 @@ def test_an_overflow_session_costs_the_plan_nothing_but_still_counts_as_working(
     assert act.cost_by_day["2026-08-13"] == pytest.approx(18.75 + 1.50 / 1e6)
     assert len(act.series) == 1
     assert overflow in act.turns
+
+
+@pytest.mark.parametrize("value", ["not-a-date", None])
+def test_an_unparsable_timestamp_reads_as_none_and_says_so(value, capsys):
+    assert sc.parse_ts(value) is None
+    err = capsys.readouterr().err
+    assert "fail-open: timestamp read as None: ValueError" in err

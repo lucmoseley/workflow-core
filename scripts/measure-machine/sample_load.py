@@ -29,6 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 from claude_sessions import PS_ARGS, count_sessions, is_claude, live_cwd, parse_ps
+from fail_open import fail_open
 from wfc_bin import bin_path
 
 # The real /proc, never WFC_PROC's fake, here and for load1: the sampler
@@ -64,7 +65,8 @@ def available_mb(path: str = MEMINFO) -> int | None:
             for line in fh:
                 if line.startswith("MemAvailable:"):
                     return int(line.split()[1]) // 1024
-    except OSError:
+    except OSError as e:
+        fail_open(e, f"{path} MemAvailable read as None")
         return None
     return None
 
@@ -83,7 +85,8 @@ def ps_snapshot() -> str:
         return subprocess.run(
             [bin_path("ps"), *PS_ARGS], capture_output=True, text=True, timeout=10
         ).stdout
-    except (OSError, subprocess.SubprocessError):
+    except (OSError, subprocess.SubprocessError) as e:
+        fail_open(e, "ps snapshot read as empty")
         return ""
 
 

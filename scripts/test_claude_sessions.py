@@ -98,8 +98,17 @@ def test_a_spare_under_a_non_host_parent_subtracts_nothing():
     assert count(RESUMED + orphan, {900: SPARE}) == 1
 
 
-def test_a_malformed_ps_line_is_skipped():
-    assert parse_ps("\nabc def claude bg-pty-host\n12\n") == []
+@pytest.mark.parametrize("line", ["abc def claude bg-pty-host", "12"])
+def test_a_malformed_ps_line_is_skipped_and_said(line, capsys):
+    assert parse_ps(f"\n{line}\n") == []
+    err = capsys.readouterr().err
+    assert "fail-open:" in err
+    assert f"ps line {line!r} skipped" in err
+
+
+def test_a_spare_with_no_claim_socket_after_its_flag_counts_as_claimed():
+    host = "800 1 claude bg-pty-host --bg-pty-host x.pty.sock"
+    assert count([host, "801 800 claude bg-spare --bg-spare"], {801: SPARE}) == 1
 
 
 def test_claude_matches_section_5s_three_argv0_shapes():
@@ -125,7 +134,7 @@ def test_a_session_pairs_through_its_spare_socket_and_alone_without_one():
 
 
 def test_live_cwd_reads_under_wfc_proc_and_is_none_for_a_pid_with_no_link(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, capsys
 ):
     # Built by hand: lib/proc-fake.ts, the TS suites' fake /proc, has no
     # Python twin, and one cwd symlink carries no behaviour to drift (#3674).
@@ -133,7 +142,11 @@ def test_live_cwd_reads_under_wfc_proc_and_is_none_for_a_pid_with_no_link(
     (tmp_path / "41" / "cwd").symlink_to(SPARE)
     monkeypatch.setenv("WFC_PROC", str(tmp_path))
     assert live_cwd(41) == SPARE
+    assert capsys.readouterr().err == ""
     assert live_cwd(42) is None
+    err = capsys.readouterr().err
+    assert "fail-open:" in err
+    assert "pid 42 cwd read as claimed" in err
 
 
 @pytest.mark.skipif(

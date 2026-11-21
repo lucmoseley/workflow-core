@@ -46,6 +46,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
+from fail_open import fail_open
 
 # $ per Mtok, Opus 5 API list ratios. `cw` is the 5-minute cache write, 1.25x
 # fresh input; `cw1h` the 1-hour one, 2x (#1203).
@@ -398,9 +399,8 @@ def report(reqs, tally):
                 a = dt.datetime.fromisoformat(s["t0"].replace("Z", "+00:00"))
                 b = dt.datetime.fromisoformat(s["t1"].replace("Z", "+00:00"))
                 durs.append((b - a).total_seconds() / 60)
-            except (AttributeError, TypeError, ValueError):
-                # An unparsable end leaves the session's spend counted but its
-                # duration out (#1274).
+            except (AttributeError, TypeError, ValueError) as e:
+                fail_open(e, "session duration left out")
                 undated += 1
         durs.sort()
         if durs:
@@ -583,14 +583,16 @@ def seat_map(tally):
     for cfg, d in tc.seats().items():
         try:
             fh = open(os.path.join(cfg, "history.jsonl"), "r", errors="replace")
-        except OSError:
+        except OSError as e:
+            fail_open(e, f"seat {d} history left unread")
             continue
         read.append(d)
         with fh:
             for line in fh:
                 try:
                     sid = json.loads(line).get("sessionId")
-                except (ValueError, AttributeError):
+                except (ValueError, AttributeError) as e:
+                    fail_open(e, "history line counted as unparsed")
                     tally["unparsed history lines"] += 1
                     continue
                 if sid and owner.setdefault(sid, d) != d:
@@ -609,7 +611,8 @@ def seat_accounts():
                 acct = (json.load(fh) or {}).get("oauthAccount") or {}
                 if isinstance(acct, dict) and acct.get("emailAddress"):
                     out[label] = acct["emailAddress"]
-        except (OSError, ValueError, AttributeError):
+        except (OSError, ValueError, AttributeError) as e:
+            fail_open(e, f"seat {label} account read as unknown")
             continue
     return out
 
@@ -663,9 +666,8 @@ def seat_report(reqs, tally):
                     c,
                 )
             )
-        except (ValueError, AttributeError):
-            # Counted in the seat's total but absent from its window, so the
-            # peak understates; printed below (#1274).
+        except (ValueError, AttributeError) as e:
+            fail_open(e, "request left out of its seat's peak window")
             undated[0] += 1
 
     def label(seat):

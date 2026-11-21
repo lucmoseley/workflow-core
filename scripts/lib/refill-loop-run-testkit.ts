@@ -151,6 +151,8 @@ const SANDBOX_FILES = [
 		"headless-contract.md",
 		/* Spawned by path: the resume typed into a live session (#2705). */
 		"../pty_type.py",
+		/* Imported by pty_type.py. */
+		"fail_open.py",
 		/* Spawned by path: a copy's issue claims moved (#2963). */
 		"../session-arbiter.js",
 		...readProgramLibs("session-arbiter.js"),

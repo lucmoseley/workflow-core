@@ -27,12 +27,15 @@ def test_only_transcripts_find_answers_are_parsed_and_skips_are_counted(seat_roo
     assert tally == {tc.UNPARSED: 1}
 
 
-def test_an_unreadable_transcript_is_counted_not_fatal(seat_roots):
+def test_an_unreadable_transcript_is_counted_not_fatal(seat_roots, capsys):
     root = seat_roots()[0]
     (root / "a.jsonl").mkdir()
     tally = Counter()
     assert list(ds.parent_transcripts(tally, bool)) == []
     assert tally == {tc.UNREADABLE: 1}
+    err = capsys.readouterr().err
+    assert "fail-open:" in err
+    assert f"{root / 'a.jsonl'} counted unreadable" in err
 
 
 def test_tool_results_yield_in_window_results_with_their_call():

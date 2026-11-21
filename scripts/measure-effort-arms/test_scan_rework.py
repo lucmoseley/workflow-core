@@ -216,3 +216,16 @@ def test_gh_runs_the_binary_wfc_gh_names(stub_bin, monkeypatch):
     monkeypatch.setenv("WFC_GH", path)
     assert sr.gh(["api", "repos/o/r/issues/7"]) == [{"number": 7}]
     assert calls() == ["api repos/o/r/issues/7"]
+
+
+@pytest.mark.parametrize("config", [None, "{}"])
+def test_a_host_declaring_no_tracker_exits_naming_its_config(
+    config, tmp_path, monkeypatch
+):
+    if config is not None:
+        (tmp_path / ".claude").mkdir()
+        (tmp_path / ".claude" / "workflow-core.json").write_text(config)
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+    with pytest.raises(SystemExit) as e:
+        sr.config_tracker()
+    assert 'workflow-core.json declares no "tracker"' in str(e.value.code)
