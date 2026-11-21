@@ -36,9 +36,7 @@
 #
 # Never blocks: every failure path exits 0 and injects nothing.
 #
-# Wired with `if: Bash(gh *)` (mantahostels#2127), which also declines to exec
-# this script on a wrapped spelling: CREATE_RE already refused those, so the
-# set it acts on is unchanged.
+# Wired with `if: Bash(gh *)` (mantahostels#2127).
 
 set -uo pipefail
 

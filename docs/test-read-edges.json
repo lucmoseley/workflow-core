@@ -147,6 +147,7 @@
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/check-guard-registry-stale.test.ts",
 			"scripts/check-guard-registry.test.ts",
+			"scripts/lib/guard-digest.test.ts",
 			"scripts/queue-lander.test.ts"
 		],
 		".claude/output-styles/core-voice.md": [

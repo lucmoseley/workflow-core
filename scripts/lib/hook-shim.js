@@ -1,13 +1,9 @@
 /*
- * hook-shim.js — what marks a husky hook as the core's shim, the guard
- * registry's row for it, and the manifest every other wired script's row sits
- * in (#5477). lib/adopter-skeleton.js renders the shim from it;
- * check-guard-registry.js reads a shim's row here, as every adopter's shims are
- * one rendering, and init writes the adopter's empty manifest.
+ * hook-shim.js — what marks a husky hook as the core's shim, and the guard
+ * registry's row for it (#5477). lib/adopter-skeleton.js renders the shim from
+ * it; check-guard-registry.js reads a shim's row here, as every adopter's
+ * shims are one rendering.
  */
-
-/** Each wired script's IMPLICIT / JUSTIFIED / DEFEAT / TREE row, by path. */
-const IMPLICIT_MANIFEST = ".claude/implicit-behaviours.json";
 
 /**
  * The hooks whose refusal would stop git: every hook but these four. pre-push
@@ -46,7 +42,6 @@ function shimAnnotation(hook) {
 
 module.exports = {
 	FAIL_OPEN_HOOKS,
-	IMPLICIT_MANIFEST,
 	SHIM_MARK,
 	isHookShim,
 	shimAnnotation,

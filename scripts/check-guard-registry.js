@@ -40,7 +40,7 @@
  *     does not (scripts/landing-registry-gate.js, #3074).
  *   node scripts/check-guard-registry.js --review [<path>…]
  *     re-anchor the named paths after re-reading what this file records about
- *     each — the rules describing a guard, a wired script's own annotation, or
+ *     each — the rules describing a guard, a wired script's manifest row, or
  *     both — dropping a named path neither reaches. With no path, re-anchors
  *     everything either assertion reaches and drops entries for paths neither
  *     does. Reports in prose, never JSON, and
@@ -356,9 +356,9 @@ const SKIP_DIRS = new Set(["node_modules", ".git", ".next", "__pycache__"]);
  *
  * @typedef {{ file: string, line: number, gist: string }} RuleRef
  *
- * A gating finding. `surface` is set by the two passes that judge a script's
- * own header rather than a rule — the implicit-wiring pass and the `if`
- * narrowing pass.
+ * A gating finding. `surface` is set by the two passes that judge a wired
+ * script's own statement rather than a rule — the implicit-wiring pass, on its
+ * manifest row, and the `if` narrowing pass, on its header.
  *
  * @typedef {{
  *   kind: string,
@@ -964,11 +964,7 @@ function readDeclaredNarrowings(rel) {
 	} catch (e) {
 		/* The path exists — scanIfNarrowing tested that — so this is the reader
 		 * failing, not the script, and reporting UNDECLARED-IF would blame the
-		 * script for it. Defence in depth and UNREACHABLE today, so untested:
-		 * readAnnotation and digestOf both read the same file earlier in the run
-		 * and raise the identical BROKEN first (measured against an EACCES
-		 * fixture). It stays because whichever reader arrives first must not
-		 * turn a read failure into a finding. */
+		 * script for it. */
 		throw brokenError(`cannot read ${rel}: ${caught(e).message}`);
 	}
 	const head = parseHeaderLines(text);
@@ -1243,9 +1239,10 @@ function unwiredNarrowingFindings(wired) {
  * The assertion is that the script SAYS what it does and which kind it is;
  * whether convenience is good enough is a reader's call.
  *
- * OUTCOMES, following this file's existing discipline. A missing or malformed
+ * OUTCOMES, following this file's existing discipline. A missing or incomplete
  * row is a FAIL — offline, deterministic, no judgement: "you wired this and it
- * says nothing about what it does to a session". Staleness against the
+ * says nothing about what it does to a session". A manifest that is not an
+ * object of string rows refuses the run as BROKEN. Staleness against the
  * content digest is the same WARN the guards get, sharing
  * guard-registry-anchors.json and --review rather than a second sidecar.
  *
@@ -1302,11 +1299,7 @@ const {
 	readOptsIn,
 } = require("./lib/guard-digest.js");
 const { parseHeaderLines } = require("./lib/guard-header.js");
-const {
-	IMPLICIT_MANIFEST,
-	isHookShim,
-	shimAnnotation,
-} = require("./lib/hook-shim.js");
+const { isHookShim, shimAnnotation } = require("./lib/hook-shim.js");
 const { coreDenyTexts, decideModule } = require("./lib/core-deny-text.js");
 const { isUnder, relativeUnder } = require("./lib/is-under.js");
 
@@ -1389,7 +1382,7 @@ function readVitestScripts() {
  * Every script the acting wiring reaches, as `path → the triggers that run it`.
  *
  * A path the wiring names but that does not exist is skipped rather than
- * reported: there is no header to annotate, and a hook command pointing at a
+ * reported: there is no script to annotate, and a hook command pointing at a
  * missing file is the hook registration's problem, not this assertion's.
  */
 function implicitWiring() {
@@ -1625,7 +1618,7 @@ function reportTree({ atCore, rel, triggers, ann }, report) {
  * @param {Map<string, WiredScript>} scripts
  * @returns {Finding[]}
  */
-function unwiredRows(scripts) {
+function unwiredRowFindings(scripts) {
 	return Object.keys(readImplicitRows())
 		.filter((rel) => !scripts.has(rel))
 		.sort()
@@ -1635,7 +1628,9 @@ function unwiredRows(scripts) {
 			file: IMPLICIT_MANIFEST,
 			line: 1,
 			rule: rel,
-			detail: `holds a row for ${rel}, which no hook, husky file or vitest entry runs — delete the row, or wire the script`,
+			detail: fs.existsSync(path.join(root, rel))
+				? `holds a row for ${rel}, which no hook, husky file or vitest entry runs — delete the row, or wire the script`
+				: `holds a row for ${rel}, which is not on disk — delete the row, or restore the script`,
 		}));
 }
 
@@ -1702,7 +1697,7 @@ function scanImplicit() {
 		reportTree({ atCore, rel, triggers, ann }, report);
 	}
 
-	findings.push(...unwiredRows(scripts));
+	findings.push(...unwiredRowFindings(scripts));
 	return { findings, scripts };
 }
 
@@ -1876,6 +1871,7 @@ function guardPathsOf(text) {
  * is never anchored on itself. */
 const {
 	ANCHORS,
+	IMPLICIT_MANIFEST,
 	buildAnchorsText,
 	parseRows,
 } = require("./lib/registry-anchors-file.js");

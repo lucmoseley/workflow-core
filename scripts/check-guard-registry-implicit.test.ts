@@ -89,6 +89,31 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 		expect(r.json.findings[0].detail).toContain("PostToolUse");
 	});
 
+	it("fails a script whose row is empty, as UNANNOTATED", () => {
+		const root = build({
+			claude: rules,
+			files: {
+				"scripts/post-write.sh": script,
+				...implicitRows({ "scripts/post-write.sh": {} }),
+				[SELF_PLUGIN_HOOKS]: wiredAt("PostToolUse", "scripts/post-write.sh"),
+			},
+		});
+		expect(run(root).kinds).toEqual(["UNANNOTATED"]);
+	});
+
+	it("tells a row whose script is not on disk to restore it, not to wire it", () => {
+		const root = build({
+			claude: rules,
+			files: {
+				...rowFor("scripts/gone.sh"),
+				[SELF_PLUGIN_HOOKS]: wiredAt("PostToolUse", "scripts/gone.sh"),
+			},
+		});
+		const r = run(root);
+		expect(r.kinds).toEqual(["UNWIRED-ROW"]);
+		expect(r.json.findings[0].detail).toContain("not on disk");
+	});
+
 	it("passes the same script once its row is complete", () => {
 		const root = build({
 			claude: rules,
@@ -117,17 +142,21 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 	});
 
 	it("is BROKEN, not OK, when the manifest is not an object of string rows", () => {
-		for (const body of ["{ not json", '{"scripts/x.sh": ["a"]}']) {
+		for (const [body, fault] of [
+			["{ not json", "is not JSON"],
+			['{"scripts/x.sh": ["a"]}', "is not a JSON object of rows"],
+		]) {
 			const root = build({
 				claude: rules,
 				files: { [IMPLICIT_MANIFEST]: body },
 			});
-			const { status } = runInProcess(
+			const { status, stdout, stderr } = runInProcess(
 				path.join(root, "scripts", "check-guard-registry.js"),
 				[],
 				{ env: { ...process.env, CLAUDE_PROJECT_DIR: root } },
 			);
 			expect(status, body).toBe(2);
+			expect(`${stdout}${stderr}`).toContain(`${IMPLICIT_MANIFEST} ${fault}`);
 		}
 	});
 
