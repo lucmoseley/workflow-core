@@ -1,7 +1,8 @@
 /*
- * clock.js — the one clock every program reads, apart from lib/check.js so a
- * hook reads it without loading check.js and its git libraries (#5151).
- * lib/check.js re-exports it.
+ * clock.js — the clocks every program reads: `now` for a timestamp,
+ * `monotonicMs` for a duration. Apart from lib/check.js so a hook reads them
+ * without loading check.js and its git libraries (#5151); lib/check.js
+ * re-exports `now`.
  */
 
 /**

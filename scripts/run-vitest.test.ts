@@ -725,7 +725,7 @@ describe("`--queue`, which waits for the suite-count cap (mantahostels#2024)", (
 					now += 10_000;
 					return Promise.resolve();
 				},
-				clock: () => now,
+				monoClock: () => now,
 			});
 			const calls = await run(["--queue", SHARED_FLAG, "scripts/a.test.ts"], o);
 			expect(calls).toHaveLength(1);

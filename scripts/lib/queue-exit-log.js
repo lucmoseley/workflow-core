@@ -12,8 +12,8 @@
  * NEVER THROWS, like `queueJoin`: an unwritable log costs the record, never
  * the run.
  *
- * Line shape: `at` (ISO exit time), `waitS` (awake seconds, off
- * CLOCK_MONOTONIC, so no host sleep, #5446), `reason`, `kind`
+ * Line shape: `at` (ISO exit time), `waitS` (awake seconds, `monotonicMs`),
+ * `reason`, `kind`
  * (`bare`, `touched`, `changed`, `full` or `named` from `--queue`, `other` from
  * queue-run.js, #1776, `seat` from queue-run.js `--seat` and from a `--queue`
  * run inside its seat, #2918), `slotFree` (whether the run is a touched run,

@@ -13,8 +13,7 @@
  * WAIT IS CLIPPED TO THE WINDOW: a line logs its exit time and its wait, so
  * the wait is read as [at - waitS, at], and only the part inside the window
  * counts. The 14-day series clips to each UTC day the same way. `waitS` is
- * awake time, off CLOCK_MONOTONIC, so a host sleep inside a wait counts as
- * none of it (#5446).
+ * awake seconds (`monotonicMs`), so a host sleep counts as no wait.
  *
  * ONE STANDING ISSUE (#1157 Q8), through lib/tracking-issue.js, matched on its
  * title alone because the session that takes it may relabel it. Under the

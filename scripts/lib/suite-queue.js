@@ -1765,11 +1765,11 @@ function changesOnly(listener) {
  * `traceLimbs` prints the limb that holds the wait each time it or its holder
  * changes, and the time held on each limb as the wait ends (#4359).
  *
- * `clock` times the wait, its bound and its holds, on CLOCK_MONOTONIC unless
- * injected, so a host sleep is neither waited nor charged to the bound
- * (#5446).
+ * `monoClock` times the wait, its bound and its holds, `monotonicMs` unless
+ * injected (#5446); a queue option's `clock` is wall time and never reaches
+ * it.
  *
- * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onClimbHeld?: (climbMb: number) => void, onPeerHeld?: (secs: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, clock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined } & HoldListeners} options
+ * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onClimbHeld?: (climbMb: number) => void, onPeerHeld?: (secs: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, monoClock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined } & HoldListeners} options
  * @returns {Promise<WaitOutcome>}
  */
 function waitForGate({
@@ -1803,7 +1803,7 @@ function waitForGate({
 	onExit = () => {
 		/* no caller listening */
 	},
-	clock = monotonicMs,
+	monoClock: clock = monotonicMs,
 	traceLimbs = false,
 	turnHold = () => undefined,
 	...holdOptions

@@ -505,7 +505,7 @@ function buildGateWait(options, words) {
 		command: words.join(" "),
 	};
 	const err = options.err ?? STDERR;
-	const clock = options.clock ?? monotonicMs;
+	const clock = options.monoClock ?? monotonicMs;
 	const started = clock();
 	const sleep =
 		options.sleepFn ??
@@ -806,7 +806,7 @@ function withExitExtra(logExit, exitExtra) {
  */
 function spawnGate({ seat, options, err, finish, holder, waitMs }) {
 	const { command } = holder;
-	const clock = options.clock ?? monotonicMs;
+	const clock = options.monoClock ?? monotonicMs;
 	const {
 		readTreeSample,
 		sampleTreePeak,
