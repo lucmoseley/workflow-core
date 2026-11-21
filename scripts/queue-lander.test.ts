@@ -367,8 +367,7 @@ describe("a run", () => {
 		);
 	});
 
-	/* Paired with "drops a ref whose merge a gate refuses …", which shows a
-	 * refusing gate still drops its member. */
+	/* Paired with "drops a ref whose merge a gate refuses …". */
 	it("gates a batch member staging a shell path in a merge tree linking the checkout's node_modules and worktreeLinks, so the format gate's loadShfmt finds shfmt (#5451)", () => {
 		fs.writeFileSync(path.join(work, ".gitignore"), "node_modules\n.fmt\n");
 		fs.mkdirSync(path.join(work, ".claude"), { recursive: true });
@@ -378,7 +377,7 @@ describe("a run", () => {
 		);
 		const seed = commit("declare links");
 		/* A core with no node_modules above it, as the plugin cache is, so
-		 * loadShfmt finds shfmt from its cwd or not at all. */
+		 * loadShfmt resolves from its cwd alone. */
 		const core = path.join(tmp, "core");
 		copyRequireClosure(core, OWN_CORE, ["scripts/lib/formatters.js"]);
 		fs.mkdirSync(path.join(work, "node_modules", "@wasm-fmt"), {
