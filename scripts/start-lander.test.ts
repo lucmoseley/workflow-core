@@ -29,6 +29,9 @@ const WAIT_MS = 30_000;
 let tmp: string;
 let work: string;
 let remote: string;
+/** Every lander a start reported, so teardown waits on one a failed case
+ * left too, and never removes `tmp` under a live lander (#5444). */
+let landers: number[];
 
 const git = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8" }).trim();
@@ -52,6 +55,7 @@ const commit = (message: string) => {
 };
 
 const markers = () => path.join(work, ".claude", "tmp", "markers");
+const landerPidFile = () => path.join(markers(), ".lander.pid");
 
 const gatedTester = (release: string) => {
 	const script = path.join(tmp, "tester.sh");
@@ -63,8 +67,8 @@ const gatedTester = (release: string) => {
 	return script;
 };
 
-const start = (args: string[]) =>
-	runInProcess(START, args, {
+const start = (args: string[]) => {
+	const r = runInProcess(START, args, {
 		cwd: work,
 		env: {
 			...process.env,
@@ -74,6 +78,10 @@ const start = (args: string[]) =>
 			CLAUDE_CODE_SESSION_ID: "",
 		},
 	});
+	const pid = /; pid (\d+);/.exec(r.stdout)?.[1];
+	if (pid !== undefined) landers.push(Number(pid));
+	return r;
+};
 
 /* Crosses the real clock: the lander is a detached process. */
 const waitFor = async (done: () => boolean) => {
@@ -82,14 +90,9 @@ const waitFor = async (done: () => boolean) => {
 	return done();
 };
 
-/** Whether the lander a start's stdout names has exited and freed its lock,
- * so `afterEach` never removes `tmp` under a live lander (#5444). */
-const landerExited = (stdout: string) => {
-	const pid = Number(/; pid (\d+);/.exec(stdout)?.[1]);
-	return waitFor(
-		() => !pidAlive(pid) && !fs.existsSync(path.join(markers(), ".lander.pid")),
-	);
-};
+/** Whether every lander started has exited and freed its lock. */
+const landerExited = () =>
+	landers.every((pid) => !pidAlive(pid)) && !fs.existsSync(landerPidFile());
 
 beforeEach(() => {
 	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "start-lander-"));
@@ -99,12 +102,19 @@ beforeEach(() => {
 	git(tmp, "clone", "-q", remote, work);
 	seedAdopterTree(work);
 	vi.stubEnv("WORKFLOW_CORE_DIR", OWN_CORE);
+	/* A no-op levelling pass: the real one, detached after a move of main,
+	 * would fetch into `work` past the lander's exit. */
+	const level = path.join(tmp, "level-stub.js");
+	fs.writeFileSync(level, "");
+	vi.stubEnv("WFC_LEVEL_MAIN_SCRIPT", level);
+	landers = [];
 	commit("seed");
 	git(work, "push", "-q", "origin", "HEAD:main", ":refs/heads/queue/seed");
 });
 
-afterEach(() => {
+afterEach(async () => {
 	fs.writeFileSync(path.join(tmp, "release"), "");
+	await waitFor(landerExited);
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -118,7 +128,7 @@ it("starts one detached queue lander that lands the queue ref, and none beside i
 	expect(first.stdout).toMatch(
 		/^\S+Z started the queue lander, 1 queue ref\(s\) waiting: queue\/work, 0 drop\(s\) owed a decision \(launched by no session; pid \d+; code [0-9a-f]{40}\); its output: /,
 	);
-	await waitFor(() => fs.existsSync(path.join(markers(), ".lander.pid")));
+	await waitFor(() => fs.existsSync(landerPidFile()));
 
 	const second = start(["--tester", tester]);
 	expect(second.stdout).toMatch(
@@ -129,7 +139,7 @@ it("starts one detached queue lander that lands the queue ref, and none beside i
 	expect(await waitFor(() => git(remote, "rev-parse", "main") === sha)).toBe(
 		true,
 	);
-	expect(await landerExited(first.stdout)).toBe(true);
+	expect(await waitFor(landerExited)).toBe(true);
 	expect(fs.statSync(path.join(markers(), ".lander.log")).size).toBeGreaterThan(
 		0,
 	);
@@ -171,7 +181,7 @@ it("starts a lander with no queue ref waiting where a drop is owed a decision, w
 	expect(
 		await waitFor(() => git(remote, "branch", "--list", "dropped/gone") === ""),
 	).toBe(true);
-	expect(await landerExited(r.stdout)).toBe(true);
+	expect(await waitFor(landerExited)).toBe(true);
 });
 
 it("starts none where no queue ref waits and every drop is settled or ticketed", () => {
