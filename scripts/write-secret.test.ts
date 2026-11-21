@@ -29,6 +29,7 @@ import {
 	secretsFile,
 } from "./lib/env-file.js";
 import { keptSpawn } from "./lib/kept-spawn.js";
+import { noop } from "./lib/noop.js";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 import { plantSocket } from "./lib/socket-fixture";
 
@@ -130,12 +131,7 @@ describe("write-secret", () => {
 	});
 
 	it.each([
-		[
-			"a missing",
-			() => {
-				/* seed writes none */
-			},
-		],
+		["a missing", noop],
 		[
 			"a symlinked",
 			() =>
@@ -834,9 +830,8 @@ describe("write-secret", () => {
 				stdio: ["pipe", "ignore", "ignore"],
 			});
 			child.on("close", resolve);
-			child.stdin.on("error", () => {
-				/* the run refused early; its status says so */
-			});
+			// The run refused early; its status says so.
+			child.stdin.on("error", noop);
 			child.stdin.write(big.slice(0, FirstPart));
 			setTimeout(() => child.stdin.end(`${big.slice(FirstPart)}\n`), DryMs);
 		});
@@ -1372,9 +1367,7 @@ describe("write-secret", () => {
 		 * is 0644.
 		 * Spied, as a test cannot mount one: mounting needs root. */
 		const writeFileSync = fs.writeFileSync;
-		vi.spyOn(fs, "chmodSync").mockImplementation(() => {
-			/* the mount drops it */
-		});
+		vi.spyOn(fs, "chmodSync").mockImplementation(noop);
 		vi.spyOn(fs, "writeFileSync").mockImplementation((p, data, options) =>
 			writeFileSync(
 				p,

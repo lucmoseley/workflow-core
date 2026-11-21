@@ -36,6 +36,7 @@ const path = require("node:path");
 const { configDirs } = require("./arbiter-store");
 const { hostRoot } = require("./host-root.js");
 const { readUsageCache, hasResetPassed } = require("./usage-cache.js");
+const { orFallback } = require("./caught.js");
 
 /**
  * One seat's reading, or the fact that there is nothing to read.
@@ -426,13 +427,13 @@ function commitsSince(hours) {
  */
 function recordReading(seats, now = Date.now()) {
 	const stamp = RECORD_STAMP();
-	try {
-		const last = Date.parse(fs.readFileSync(stamp, "utf8").trim());
-		if (Number.isFinite(last) && (now - last) / 36e5 < RECORD_MIN_AGE_HOURS)
-			return "throttled";
-	} catch {
-		/* no stamp yet, or an unreadable one: a reading is due */
-	}
+	// No stamp yet, or an unreadable one, makes a reading due.
+	const last = orFallback(
+		() => Date.parse(fs.readFileSync(stamp, "utf8").trim()),
+		Number.NaN,
+	);
+	if (Number.isFinite(last) && (now - last) / 36e5 < RECORD_MIN_AGE_HOURS)
+		return "throttled";
 	try {
 		fs.writeFileSync(stamp, `${new Date(now).toISOString()}\n`);
 	} catch {
@@ -815,13 +816,9 @@ function trialReview(history, decl) {
  * @returns {{ at: string, seats: any[] }[] & { dropped: number }}
  */
 function readHistory(file = HISTORY_FILE()) {
-	let read = null;
-	try {
-		read = readJsonl(file);
-	} catch {
-		/* An unreadable history is an empty series: the morning review prints
-		 * the gap rather than failing. */
-	}
+	// An unreadable history is an empty series: the morning review prints the
+	// gap rather than failing.
+	const read = orFallback(() => readJsonl(file), null);
 	if (!read) return Object.assign([], { dropped: 0 });
 	const rows = /** @type {{ at: string, seats: any[] }[]} */ (
 		read.rows.filter((row) => typeof row.at === "string")

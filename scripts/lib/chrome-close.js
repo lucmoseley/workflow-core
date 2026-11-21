@@ -16,6 +16,7 @@
 
 /* Every record, closed-log and sweep time here is written from now(), so an
  * exported WFC_NOW skews it (clock.js RESIDUAL). */
+const { ignoreFailure } = require("./caught.js");
 const { now } = require("./clock.js");
 const { sleepSync } = require("./sleep-sync.js");
 const { writeReport } = require("./notify-report.js");
@@ -103,11 +104,7 @@ function waitGone(pid, start, ms) {
 function endChild({ childPid, childStart }) {
 	if (waitGone(childPid, childStart, CHILD_WAIT_MS) || !childPid) return;
 	for (const target of [-childPid, childPid])
-		try {
-			process.kill(target, "SIGKILL");
-		} catch {
-			/* not a group leader, or already gone */
-		}
+		ignoreFailure(() => process.kill(target, "SIGKILL"));
 	waitGone(childPid, childStart, KILLED_WAIT_MS);
 }
 

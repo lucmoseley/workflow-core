@@ -26,6 +26,8 @@ The core's own primitives, beside the base's table.
 | Whether a path sits inside a directory | `isUnder` for a path and a set of roots spelt alike, `relativeUnder` for a root and a path wanted relative to it, in `scripts/lib/is-under.js`; in Python, `relative_under` in `scripts/lib/is_under.py` | `scripts/lib/session-worktrees.js`, `scripts/lib/call_cost_harness.py` | §LG3 | Standards axis criterion |
 | Blocking the thread for a wait | `sleepSync` in `scripts/lib/sleep-sync.js` | `scripts/check-kernel-stall.js` | §LG4 | Standards axis criterion |
 | Escaping a literal into a regex | `escapeRe` in `scripts/lib/regex-group.js` | `scripts/lib/run-cost-report.js` | §LG5 | Standards axis criterion |
+| A callback with nothing to do | `noop` in `scripts/lib/noop.js` | `scripts/queue-run.js` | §LG6 | Standards axis criterion |
+| A throw nothing reads | `ignoreFailure` for a side effect, `orFallback` for a read with a default, in `scripts/lib/caught.js` | `scripts/lib/atomic-write.js` | §LG6 | Standards axis criterion |
 | Building a git repo for a test | `defineTemplate` in `scripts/lib/git-fixture.ts` at module or describe scope, never inside a hook or `it`, building the repo once per file; `instantiate` copies it into the directory each `beforeEach` mints | `scripts/review-hold-gate.test.ts` | §X8 | Standards axis criterion |
 | Setting an environment variable in a test | `vi.stubEnv`, `undefined` to unset, undone before each test by `unstubEnvs: true` in `vitest.config.ts` | `scripts/lib/wait-loop.test.ts` | §X2 | `scripts/check-test-env-writes.js` |
 
@@ -60,6 +62,10 @@ Outside it: a stub program held in a string and run as its own process, such as 
 **Every code kind but shell.** Code that writes a literal string into a JavaScript regex source escapes it with `escapeRe` in `scripts/lib/regex-group.js`. A hand-written escaping `replace` is the breach (#4644).
 
 Outside it: escaping for another syntax or a narrower slot — a POSIX ERE (`scripts/lib/posix-ere.js`) or a bracket expression's body — and a glob translator that escapes only what its glob leaves literal (`scripts/lib/self-match.js`).
+
+### §LG6 · An empty block goes through the named helpers — **hard**
+
+**Every code kind but shell and Python.** A callback with nothing to do is `noop` from `scripts/lib/noop.js`; a throw that leaves nothing to do goes through `ignoreFailure`, and a read that has a default through `orFallback`, both in `scripts/lib/caught.js`. Any other empty block is restructured until it holds a statement. A comment put inside an empty block to pass Biome's `noEmptyBlockStatements` is the breach (#5488).
 
 ---
 
@@ -166,7 +172,7 @@ Deriving it: `biome lint --only=<rule>` **cannot** verify a rule's config took e
 
 ### Base rules, as the core's tools meet them
 
-- **§G3** — Biome already refuses `any` and `!`: `biome.json` pins `noNonNullAssertion` (mantahostels#1120) and `noExplicitAny` (mantahostels#1380) to `error`, so either needs a `biome-ignore` carrying the reason §G3 asks for. Biome reads all of `.claude/` bar `worktrees` and `settings*.json` (mantahostels#1138), so both rules bind there too. In non-test code, a `require` of an untyped CommonJS module is the only reason this corpus has ever accepted for an `any` that owes one (mantahostels#991). An empty `catch`, or any empty block, is refused by Biome (`noEmptyBlockStatements`, #1383) unless it holds a comment, so review judges only whether that comment is a reason.
+- **§G3** — Biome already refuses `any` and `!`: `biome.json` pins `noNonNullAssertion` (mantahostels#1120) and `noExplicitAny` (mantahostels#1380) to `error`, so either needs a `biome-ignore` carrying the reason §G3 asks for. Biome reads all of `.claude/` bar `worktrees` and `settings*.json` (mantahostels#1138), so both rules bind there too. In non-test code, a `require` of an untyped CommonJS module is the only reason this corpus has ever accepted for an `any` that owes one (mantahostels#991). An empty block is refused by Biome (`noEmptyBlockStatements`, #1383) unless it holds a comment; §LG6 refuses the comment.
 - **§N8** — enforced (mantahostels#1062): `npm run typecheck` gates CI hard; on a host deploying to Vercel (`"deploy": "vercel"`, which the core does not declare), its `next build` checks the same program on every push to `main`, so an error fails production rather than a gate.
 - **§S2** — no shellcheck exclusion beyond `SC2016` is ever added (#1315 Q2, #753, #3032); `scripts/precommit-shellcheck-gate.test.ts` refuses one, so review leaves it to that test.
 - **§T4** — its object-shape limb is Biome's: `style/useConsistentTypeDefinitions` refuses a `type` alias for an object shape repo-wide (#1388), so review leaves that limb to it.

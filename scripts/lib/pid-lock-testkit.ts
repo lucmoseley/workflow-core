@@ -10,6 +10,7 @@ import path from "node:path";
 import { expect, onTestFinished, vi } from "vitest";
 import { endedPid } from "./arbiter-testkit";
 import { keptSpawn } from "./kept-spawn.js";
+import { noop } from "./noop.js";
 import { TEST_TIMEOUT_MS } from "./test-ceiling";
 
 const YEAR_MS = 365 * 24 * 3_600_000;
@@ -57,9 +58,8 @@ export async function liveScriptProcess(script: string) {
 	const died = once(proc, "exit").then(([code, signal]) => {
 		throw new Error(`the holder exited before its exec (${code ?? signal})`);
 	});
-	died.catch(() => {
-		/* its kill at the test's end is no failure */
-	});
+	// Its kill at the test's end is no failure.
+	died.catch(noop);
 	await Promise.race([
 		died,
 		vi.waitFor(

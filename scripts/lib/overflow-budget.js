@@ -30,7 +30,7 @@ const {
 } = require("./agent-liveness.js");
 const { CREDIT_REFUSAL, readStoredRuns } = require("./headless-runs.js");
 const { writeFileAtomic } = require("./atomic-write.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { consoleLogFile, readConsoleLog } = require("./console-credit.js");
 const { readEveryOverflowLookup } = require("./dispatch-ledger.js");
 const { hostRoot } = require("./host-root.js");
@@ -389,11 +389,8 @@ function keepShown(kept) {
 	const file = shownFile(kept.seat);
 	const held = /** @type {KeptBudget|null} */ (readJsonOutcome(file).value);
 	if ((held?.at ?? 0) > kept.at) return;
-	try {
-		writeFileAtomic(file, JSON.stringify(kept));
-	} catch {
-		/* Only the next shown read's reuse is lost: not the sizing's failure (#4669). */
-	}
+	// Only the next shown read's reuse is lost: not the sizing's failure (#4669).
+	ignoreFailure(() => writeFileAtomic(file, JSON.stringify(kept)));
 }
 
 /**

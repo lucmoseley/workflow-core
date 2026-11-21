@@ -17,6 +17,8 @@
  */
 
 const fs = require("node:fs");
+const { ignoreFailure } = require("../caught.js");
+const { noop } = require("../noop.js");
 const shared = require("./in-process-probe-modes.js");
 const state = require("./in-process-probe-state.js");
 
@@ -50,20 +52,15 @@ const modes = {
 	},
 	"exit-swallowed": () => {
 		// The one path where the recorded code is the only record of the exit.
-		try {
+		ignoreFailure(() => {
 			say("before exit");
 			process.exit(6);
-		} catch {
-			/* the swallow under test: the recorded code is the exit's only trace */
-		}
+		});
 	},
 	"add-listener": () => {
-		process.on("uncaughtException", () => {
-			/* only its registration matters: the seam must remove it */
-		});
-		process.on("SIGUSR2", () => {
-			/* only its registration matters: the seam must remove it */
-		});
+		// Only their registration matters: the seam must remove them.
+		process.on("uncaughtException", noop);
+		process.on("SIGUSR2", noop);
 	},
 	"read-file": () => say(fs.readFileSync(String(arg), "utf8")),
 	"entry-module": () => say(String(require.main === module)),

@@ -225,17 +225,16 @@ function readLogs(root, since) {
  */
 function readStanding(root, all) {
 	let verdicts = new Map();
-	let standing = null;
 	try {
 		verdicts = jevTrial.readVerdicts(root);
-		standing = jevTrial.stand({ lines: all, verdicts });
+		return { verdicts, standing: jevTrial.stand({ lines: all, verdicts }) };
 	} catch {
 		/* FAIL OPEN, chosen at #253: the flags still get reported, unjudged,
 		 * because a report is what the reader is owed and a broken
 		 * verdict store is no reason to withhold one. Said below rather
 		 * than swallowed: showing zeros would read as a clean trial. */
+		return { verdicts, standing: null };
 	}
-	return { verdicts, standing };
 }
 
 /**

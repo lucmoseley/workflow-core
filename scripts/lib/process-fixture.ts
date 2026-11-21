@@ -10,6 +10,7 @@
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import { ignoreFailure } from "./caught.js";
 import { isInit } from "./orphan-hooks.js";
 import { REAL_PROC } from "./proc-root.js";
 import { FIELD, readStatFields } from "./proc-stat.js";
@@ -73,11 +74,7 @@ export function startOrphan(...argv: string[]) {
 	if (!stat) throw new Error(`orphan ${pid} exited before it was read`);
 	if (stat.pgrp !== pid) {
 		/* Its group may be this test's own: kill the orphan alone. */
-		try {
-			process.kill(pid, "SIGKILL");
-		} catch {
-			/* gone */
-		}
+		ignoreFailure(() => process.kill(pid, "SIGKILL"));
 		throw new Error(`orphan ${pid} does not lead its group: pgrp ${stat.pgrp}`);
 	}
 	return pid;
@@ -85,11 +82,7 @@ export function startOrphan(...argv: string[]) {
 
 /** SIGKILL process group `pgid`, one already gone included. */
 export function killGroup(pgid: number) {
-	try {
-		process.kill(-pgid, "SIGKILL");
-	} catch {
-		/* gone */
-	}
+	ignoreFailure(() => process.kill(-pgid, "SIGKILL"));
 }
 
 let reapsToInit: boolean | undefined;

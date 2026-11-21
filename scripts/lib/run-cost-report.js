@@ -47,6 +47,7 @@ const { latestTimings } = require("./latest-timings.js");
 const { readText } = require("./file-read.js");
 const { parseCsv } = require("./suite-timings.js");
 const { writeFd } = require("./write-fd.js");
+const { ignoreFailure } = require("./caught.js");
 
 /* 10 s of a file's own wall time: the founder's ruling at #1797 Q4 (A). */
 const BUDGET_SECONDS = 10;
@@ -425,12 +426,11 @@ function readProgramLines(argv) {
 
 if (require.main === module) {
 	const lines = readProgramLines(process.argv.slice(2));
-	try {
+	// A closed or stalled pipe loses the report, never the exit 0
+	// (mantahostels#2255).
+	ignoreFailure(() => {
 		if (lines.length > 0) writeFd(1, `${lines.join("\n")}\n`);
-	} catch {
-		/* A closed or stalled pipe loses the report, never the exit 0
-		 * (mantahostels#2255). */
-	}
+	});
 }
 
 module.exports = { buildFailOpenLine, reportForFile, reportForRun };

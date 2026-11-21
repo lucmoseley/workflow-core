@@ -125,7 +125,7 @@ const { pinnedOrFirstUsable } = require("./lib/can-hold-state.js");
 const deliveryStamp = require("./lib/delivery-stamp");
 const { hostRoot } = require("./lib/host-root.js");
 const { resolveMarketplace } = require("./lib/plugin-state.js");
-const { caught } = require("./lib/caught.js");
+const { caught, ignoreFailure, orFallback } = require("./lib/caught.js");
 const { parseJsonlRow } = require("./lib/jsonl.js");
 const {
 	flattenHooks,
@@ -258,12 +258,9 @@ const CACHE_VERSION = 2;
 
 /** @param {string} file */
 function readCache(file) {
-	try {
-		const c = JSON.parse(fs.readFileSync(file, "utf8"));
-		if (c && c.version === CACHE_VERSION && c.files) return c;
-	} catch {
-		// No cache, or one this build cannot read: rescan everything.
-	}
+	// No cache, or one this build cannot read: rescan everything.
+	const c = orFallback(() => JSON.parse(fs.readFileSync(file, "utf8")), null);
+	if (c && c.version === CACHE_VERSION && c.files) return c;
 	return { version: CACHE_VERSION, files: {} };
 }
 
@@ -865,13 +862,11 @@ function addFileTotals(totals, days, windowCutoff) {
  * @param {Cache} next
  */
 function writeCensusCache(cacheFile, next) {
-	try {
+	// An unwritable cache costs the next run a full rescan, never a wrong answer.
+	ignoreFailure(() => {
 		fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
 		fs.writeFileSync(cacheFile, JSON.stringify(next));
-	} catch {
-		// An unwritable cache costs the next run a full rescan, never a wrong
-		// answer.
-	}
+	});
 }
 
 /**
@@ -1109,12 +1104,8 @@ function readUpstreamManifest(marketplaceDir, rel, sha) {
 		};
 	}
 	const at = path.join(marketplaceDir, relFile);
-	let text = null;
-	try {
-		text = fs.readFileSync(at, "utf8");
-	} catch {
-		// Absent upstream, which the comparison below reads as "ships no hooks".
-	}
+	// Absent upstream, which the comparison below reads as "ships no hooks".
+	const text = orFallback(() => fs.readFileSync(at, "utf8"), null);
 	return {
 		text,
 		basis: `${at} (the checkout as it stands, not a pinned commit)`,
@@ -1409,12 +1400,8 @@ function auditInstall(audit, plugin, entry, scope) {
 		return;
 	}
 	const cachedAt = path.join(entry.installPath, "hooks/hooks.json");
-	let cached = null;
-	try {
-		cached = fs.readFileSync(cachedAt, "utf8");
-	} catch {
-		// Absent from the cache, which is a divergence wherever upstream has one.
-	}
+	// Absent from the cache, which is a divergence wherever upstream has one.
+	const cached = orFallback(() => fs.readFileSync(cachedAt, "utf8"), null);
 	audit.compared++;
 	if (enabledPlugins[key] === true) {
 		collectDroppedHooks(audit.droppedHooks, key, up, {
@@ -1482,15 +1469,10 @@ function collectDroppedHooks(out, key, up, cache) {
  * @param {string | null} cached
  */
 function collectBrokenPluginPaths(out, key, installPath, cached) {
-	let cachedDoc = null;
-	if (cached !== null) {
-		try {
-			cachedDoc = JSON.parse(cached);
-		} catch {
-			// Unparseable is already a divergence in its own right below;
-			// there is no hook set here to walk for path liveness.
-		}
-	}
+	/* Unparseable is already a divergence in its own right below; there is
+	 * no hook set here to walk for path liveness. */
+	const cachedDoc =
+		cached === null ? null : orFallback(() => JSON.parse(cached), null);
 	for (const { event, hook } of wiredHooks(cachedDoc))
 		for (const { rel, direct } of hookPaths(
 			hook.command,

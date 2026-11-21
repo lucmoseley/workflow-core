@@ -658,6 +658,7 @@ describe("guard-dispatch.js's per-call cost under PostToolUse (#5338)", () => {
 			"lib/main-checkout.js",
 			"lib/marker-root.js",
 			"lib/merge-heads.js",
+			"lib/noop.js",
 			"lib/oracle-cache.js",
 			"lib/outcome-error.js",
 			"lib/overflow-notice.js",

@@ -9,7 +9,13 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { buildErrorText, caught, parseErrorText } from "./caught.js";
+import {
+	buildErrorText,
+	caught,
+	ignoreFailure,
+	orFallback,
+	parseErrorText,
+} from "./caught.js";
 
 /** What `fn` threw. */
 function thrownBy(fn: () => unknown): unknown {
@@ -124,5 +130,31 @@ describe("buildErrorText", () => {
 	it("is a thrown non-Error as a string", () => {
 		expect(buildErrorText("refused")).toBe("refused");
 		expect(buildErrorText(null)).toBe("null");
+	});
+});
+
+describe("ignoreFailure", () => {
+	it("runs the act", () => {
+		let ran = false;
+		ignoreFailure(() => {
+			ran = true;
+		});
+		expect(ran).toBe(true);
+	});
+
+	it("drops what the act throws", () => {
+		expect(() =>
+			ignoreFailure(() => readFileSync("/nonexistent/caught-test")),
+		).not.toThrow();
+	});
+});
+
+describe("orFallback", () => {
+	it("returns the read's value", () => {
+		expect(orFallback(() => JSON.parse("[1]"), null)).toEqual([1]);
+	});
+
+	it("returns the fallback where the read throws", () => {
+		expect(orFallback(() => JSON.parse("{"), "unparsed")).toBe("unparsed");
 	});
 });

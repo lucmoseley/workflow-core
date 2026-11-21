@@ -36,6 +36,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { isListedLive } = require("./agent-liveness.js");
+const { orFallback } = require("./caught.js");
 
 // The arbiter's module, not its CLI: session-arbiter.js exports nothing (mantahostels#158).
 const { paths, recordTree, subjectPath } = require("./arbiter-store");
@@ -194,12 +195,12 @@ function attributeWorktreeDirt(found, listed) {
 function readNewestWrite(root, rels) {
 	let newest = null;
 	for (const rel of rels) {
-		try {
-			const { mtimeMs } = fs.statSync(path.join(root, rel));
-			if (newest === null || mtimeMs > newest) newest = mtimeMs;
-		} catch {
-			// Deleted: it has no mtime to count.
-		}
+		const mtimeMs = orFallback(
+			() => fs.statSync(path.join(root, rel)).mtimeMs,
+			null,
+		);
+		if (mtimeMs !== null && (newest === null || mtimeMs > newest))
+			newest = mtimeMs;
 	}
 	return newest;
 }

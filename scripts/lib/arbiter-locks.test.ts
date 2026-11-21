@@ -34,6 +34,7 @@ import {
 	store,
 } from "./arbiter-testkit";
 import { cutWorktree } from "./git-fixture";
+import { noop } from "./noop.js";
 import { sleepSync } from "./sleep-sync.js";
 
 const sb = freshSandbox();
@@ -591,11 +592,8 @@ describe("readLocks — a record that will not parse", () => {
 		planted("deadbeefcafe0007.json", ""); // torn, so the second pass runs too
 		const spy = vi.spyOn(core.paths, "locksDir");
 		try {
-			expect(
-				store.readLocks(() => {
-					/* no settle wait, so the torn record stays torn */
-				}),
-			).toHaveLength(3);
+			// No settle wait, so the torn record stays torn.
+			expect(store.readLocks(noop)).toHaveLength(3);
 			expect(spy).toHaveBeenCalledTimes(1);
 		} finally {
 			spy.mockRestore();

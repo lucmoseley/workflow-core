@@ -63,11 +63,12 @@ if (!fs.existsSync(entry))
  */
 function refuseOn(err, loading) {
 	const first = String(err instanceof Error ? err.message : err).split("\n")[0];
-	let sha = "";
+	let sha;
 	try {
 		sha = path.basename(fs.realpathSync(link));
 	} catch {
 		// A link gone mid-call: the repair below still names it.
+		sha = "";
 	}
 	const back = fs.existsSync(previous);
 	const repair = back

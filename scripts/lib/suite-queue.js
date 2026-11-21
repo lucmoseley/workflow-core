@@ -13,8 +13,9 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const { noop } = require("./noop.js");
 
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { monotonicMs } = require("./clock.js");
 const { GATE_ROLE, GATE_SEAT_DEFAULT_MB } = require("./gate-seat.js");
 const {
@@ -721,16 +722,15 @@ function queueJoin({
  */
 function stampMarker(file, fields, { queueFs = fs } = {}) {
 	if (!file) return;
-	try {
+	// What will not stamp degrades the ordering to the gate alone.
+	ignoreFailure(() => {
 		const record = {
 			...JSON.parse(String(queueFs.readFileSync(file, "utf8"))),
 			...fields,
 		};
 		for (const stamp of MARKER_STAMPS) if (!record[stamp]) delete record[stamp];
 		queueFs.writeFileSync(file, JSON.stringify(record));
-	} catch {
-		/* the ordering degrades to the gate alone */
-	}
+	});
 }
 
 /**
@@ -970,11 +970,7 @@ function heldSeat(options = {}) {
 /** @param {string} file */
 function queueLeave(file, { queueFs = fs } = {}) {
 	if (!file) return;
-	try {
-		queueFs.unlinkSync(file);
-	} catch {
-		/* already gone */
-	}
+	ignoreFailure(() => queueFs.unlinkSync(file));
 }
 
 /**
@@ -1006,11 +1002,7 @@ function readTurn({
 		 * mistakenly sweeps its own marker silently gives up its place and can
 		 * then be overtaken indefinitely. */
 		if (record.pid !== pid && isMarkerStale(record, { alive })) {
-			try {
-				queueFs.unlinkSync(full);
-			} catch {
-				/* a neighbour swept it first */
-			}
+			ignoreFailure(() => queueFs.unlinkSync(full));
 			continue;
 		}
 		live.push(record);
@@ -1412,15 +1404,14 @@ function gateDenies(
 			? read(command, weight, climbMb, onAdmission)
 			: read(command, weight, climbMb);
 	} catch (err) {
-		try {
+		// A log that cannot be written must not strand the suite.
+		ignoreFailure(() =>
 			require("./arbiter-core.js").logError(
 				"suite-queue.js",
 				err,
 				"gate unreadable — the run proceeds",
-			);
-		} catch {
-			/* A log that cannot be written must not strand the suite. */
-		}
+			),
+		);
 		return null;
 	}
 }
@@ -1778,9 +1769,7 @@ function waitForGate({
 	gateRead,
 	gateWords = [],
 	gateWeight = null,
-	onAdmission = () => {
-		/* no run to record it on */
-	},
+	onAdmission = noop,
 	gate: givenGate,
 	climbMb = () => 0,
 	turn = () => true,
@@ -1794,15 +1783,9 @@ function waitForGate({
 	waiting = "a suite is already running; waiting for it",
 	cap = "one whole suite runs at a time (#2714)",
 	part = false,
-	onClimbHeld = () => {
-		/* no killed line to give it to */
-	},
-	onPeerHeld = () => {
-		/* no killed line to give it to */
-	},
-	onExit = () => {
-		/* no caller listening */
-	},
+	onClimbHeld = noop,
+	onPeerHeld = noop,
+	onExit = noop,
 	monoClock: clock = monotonicMs,
 	traceLimbs = false,
 	turnHold = () => undefined,
@@ -1834,12 +1817,7 @@ function waitForGate({
 	 * is still fresh. */
 	let held = false;
 	const hear = buildHoldListeners((stamp) =>
-		changesOnly(
-			holdOptions[HOLD_STAMPS[stamp]] ??
-				(() => {
-					/* no marker to stamp */
-				}),
-		),
+		changesOnly(holdOptions[HOLD_STAMPS[stamp]] ?? noop),
 	);
 	let climbKept = false;
 	let climbHeldMb = 0;
@@ -2093,13 +2071,8 @@ function releaseOnSignal(host, signal, code) {
 	);
 	if (answered.length > 0) return;
 	for (const seat of seats) seat.logKilled(signal);
-	for (const cleanup of host.cleanups) {
-		try {
-			cleanup(signal);
-		} catch {
-			/* Reported by the cleanup itself. */
-		}
-	}
+	// Each cleanup reports its own failure.
+	for (const cleanup of host.cleanups) ignoreFailure(() => cleanup(signal));
 	for (const seat of seats) seat.leave();
 	host.exit(code);
 }

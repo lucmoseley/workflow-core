@@ -14,7 +14,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
 const core = require("./arbiter-core.js");
-const { caught } = require("./caught.js");
+const { caught, orFallback } = require("./caught.js");
 
 // ---------------------------------------------------------------------------
 // Tier snapshots — a baseline for the write no hook ever sees (mantahostels#419)
@@ -185,13 +185,9 @@ function readSnapshot(sessionId) {
 	}
 	const lines = text.split("\n");
 	const head = lines.shift() ?? "";
-	let trustBefore = null;
-	try {
-		trustBefore = BigInt(head.slice(HEADER.length));
-	} catch {
-		// Unparseable: trust no stat, so the scan hashes everything and
-		// compares blob ids (#833).
-	}
+	// Unparseable: trust no stat, so the scan hashes everything and
+	// compares blob ids (#833).
+	const trustBefore = orFallback(() => BigInt(head.slice(HEADER.length)), null);
 	const fields = 1 + STAT_FIELDS;
 	const entries = new Map();
 	for (const line of lines) {

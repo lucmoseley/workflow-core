@@ -18,7 +18,7 @@ const contentMod = require("./arbiter-content.js");
 const core = require("./arbiter-core.js");
 // biome-ignore lint/suspicious/noImportCycles: cyclic by design — arbiter-store.js's THE SPLIT RULE (mantahostels#1795).
 const locksMod = require("./arbiter-locks.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 
 /** @typedef {import("./arbiter-records.js").ObservationRecord} ObservationRecord */
 /** @typedef {import("./arbiter-records.js").Identity} Identity */
@@ -204,11 +204,7 @@ function dropObservation(rel, sessionId) {
 	// is what lets the path builder below see a string rather than a maybe.
 	if (!record || !sessionId) return null;
 	const state = contentMod.contentState(rel, record);
-	try {
-		fs.unlinkSync(core.paths.observation(rel, sessionId));
-	} catch {
-		/* swept already */
-	}
+	ignoreFailure(() => fs.unlinkSync(core.paths.observation(rel, sessionId)));
 	contentMod.dropContentRef(record.obsId);
 	return state;
 }

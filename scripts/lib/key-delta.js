@@ -10,6 +10,7 @@
  * says only what it gained, never its whole backlog again (#1553 review).
  */
 
+const { orFallback } = require("./caught.js");
 const { readStamp } = require("./delivery-stamp");
 
 const UNEXAMINED_STAMP = "unexamined:";
@@ -68,12 +69,8 @@ function readDeliveredKeys(stamp, onCorrupt) {
 	if (raw === null) return null;
 	const held = raw.startsWith(UNEXAMINED_STAMP) ? raw.indexOf("[") : 0;
 	if (held === -1) return null;
-	try {
-		const keys = JSON.parse(raw.slice(held));
-		if (Array.isArray(keys)) return new Set(keys);
-	} catch {
-		/* Unparseable and a non-array are one fault: the call below. */
-	}
+	const keys = orFallback(() => JSON.parse(raw.slice(held)), undefined);
+	if (Array.isArray(keys)) return new Set(keys);
 	onCorrupt?.(stamp);
 	return null;
 }

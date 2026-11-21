@@ -15,7 +15,7 @@ const {
 	readProcStartOf,
 } = require("./arbiter-proc.js");
 const { sleepSync } = require("./sleep-sync.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 
 /** @typedef {import("./arbiter-records.js").IssueClaimRecord} IssueClaimRecord */
 /** @typedef {import("./arbiter-records.js").Identity} Identity */
@@ -177,14 +177,13 @@ const MUTEX_POLL_MS = 10;
  */
 function breakStaleMutex(file, held) {
 	const aside = `${file}.stale-${process.pid}`;
-	try {
+	// A throw means another claimant broke or re-took it first: go round again.
+	ignoreFailure(() => {
 		fs.renameSync(file, aside);
 		const moved = core.readRecord(aside);
 		if (moved?.pid !== held?.pid || moved?.procStart !== held?.procStart)
 			fs.linkSync(aside, file);
-	} catch {
-		/* another claimant broke or re-took it first; go round again */
-	}
+	});
 	fs.rmSync(aside, { force: true });
 }
 

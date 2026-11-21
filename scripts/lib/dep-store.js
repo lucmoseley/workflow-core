@@ -45,7 +45,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { pidAlive } = require("./arbiter-proc.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const {
 	CheckoutError,
 	fetchShared,
@@ -423,12 +423,10 @@ function ageOf(at, now) {
 function readLinkedStores(standing) {
 	const linked = new Set();
 	for (const dir of standing)
-		try {
+		ignoreFailure(() => {
 			const target = fs.readlinkSync(path.join(dir, "node_modules"));
 			linked.add(path.dirname(path.resolve(dir, target)));
-		} catch {
-			/* No link: a worktree with no lockfile, or a real directory. */
-		}
+		});
 	return linked;
 }
 

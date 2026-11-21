@@ -17,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readProcStartOf } from "./lib/arbiter-proc.js";
+import { ignoreFailure } from "./lib/caught.js";
 import { writeClaudeStub } from "./lib/claude-stub";
 import {
 	buildHeadlessBranch,
@@ -411,11 +412,7 @@ describe("a stop", () => {
 			});
 			await exited;
 		} finally {
-			try {
-				process.kill(-pid, "SIGKILL");
-			} catch {
-				/* already gone */
-			}
+			ignoreFailure(() => process.kill(-pid, "SIGKILL"));
 		}
 	});
 });

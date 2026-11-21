@@ -22,6 +22,7 @@ const { gitRead, readUntrackedFiles } = require("./dirty-tree.js");
 const { VERIFIED_REF } = require("./landing-refs.js");
 const { FULL_SHA, commitSha } = require("./commit-sha.js");
 const { vitestList } = require("./vitest-collected.js");
+const { ignoreFailure, orFallback } = require("./caught.js");
 
 const REGENERATE_EDGES = "Regenerate it: npm run gen:test-read-edges";
 
@@ -746,12 +747,10 @@ function readEdges(loadEdges, diffOf, err) {
 		 * first — so the package.json warning runs its own readChangedPaths call,
 		 * un-narrowed (mantahostels#2151). A diff that
 		 * cannot be read either is silently no warning. */
-		try {
+		ignoreFailure(() => {
 			const warning = packageJsonWarning(diffOf());
 			if (warning) err.write(warning);
-		} catch {
-			/* no diff to warn about */
-		}
+		});
 		err.write(
 			`${EDGES_FILE} could not be read (${error}) — running --changed on the import graph alone, which misses every test that reads a document rather than importing it (mantahostels#2031). ${REGENERATE_EDGES}\n`,
 		);
@@ -847,12 +846,8 @@ function fillOwnWorkSelection(
  */
 function removeScratch(override, fsImpl) {
 	if (!override) return;
-	try {
-		fsImpl.unlinkSync(override);
-	} catch {
-		/* best effort: a leftover scratch file is cheaper than a run that
-		 * fails on its cleanup */
-	}
+	// A leftover scratch file is cheaper than a run that fails on its cleanup.
+	ignoreFailure(() => fsImpl.unlinkSync(override));
 }
 
 /**
@@ -867,13 +862,9 @@ function removeScratch(override, fsImpl) {
  *   rendered: Record<string, string[]>|null }}
  */
 function readGraph(edges, renderEdges) {
+	// Unrendered, the manifest alone selects.
 	/** @type {Record<string, string[]> | null} */
-	let rendered = null;
-	try {
-		rendered = renderEdges();
-	} catch {
-		/* the manifest alone selects */
-	}
+	const rendered = orFallback(() => renderEdges(), null);
 	/** @type {Record<string, string[]>} */
 	const graph = { ...edges };
 	for (const [p, readers] of Object.entries(rendered ?? {}))

@@ -27,7 +27,7 @@ const fs = require("node:fs");
 const { readJsonl } = require("./jsonl.js");
 const { MARKERS_REL } = require("./marker-root.js");
 const nodePath = require("node:path");
-const { caught } = require("./caught.js");
+const { caught, orFallback } = require("./caught.js");
 
 /**
  * One line of the log. `readRuns` refuses a record missing any of the three
@@ -152,12 +152,8 @@ function appendRun(
  * @returns {{runs: Run[], malformed: number}}
  */
 function readRuns(root) {
-	let read = null;
-	try {
-		read = readJsonl(logPath(root));
-	} catch {
-		/* An unreadable log is none: the reading never fails pick-next's run. */
-	}
+	// An unreadable log is none: the reading never fails pick-next's run.
+	const read = orFallback(() => readJsonl(logPath(root)), null);
 	// No log yet is the normal state before the first run, not a fault.
 	if (!read) return { runs: [], malformed: 0 };
 	// A missing count is not a zero. Defaulting one would pull the pooled

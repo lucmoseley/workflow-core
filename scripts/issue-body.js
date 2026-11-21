@@ -72,7 +72,7 @@ const { readGateWrite } = require("./lib/gate-judge.js");
 const { recordOwnAct } = require("./lib/own-acts.js");
 const { readRuleText } = require("./lib/rule-text");
 const { sleepSync } = require("./lib/sleep-sync");
-const { caught } = require("./lib/caught.js");
+const { caught, ignoreFailure } = require("./lib/caught.js");
 const { CHILD_ERROR_CHARS } = require("./lib/child-buffer.js");
 const { pidAlive } = require("./lib/arbiter-proc.js");
 const { addedCheckVerdict } = require("./lib/gate-check.js");
@@ -475,11 +475,7 @@ function createLock(file) {
 	try {
 		fs.linkSync(tmp, file);
 	} finally {
-		try {
-			fs.rmSync(tmp, { force: true });
-		} catch {
-			/* best effort: the lock itself is placed either way */
-		}
+		ignoreFailure(() => fs.rmSync(tmp, { force: true }));
 	}
 }
 
@@ -610,12 +606,10 @@ function warnWritingUnlocked(file, why) {
 
 /** @param {string} file */
 function releaseLock(file) {
-	try {
+	ignoreFailure(() => {
 		const held = JSON.parse(fs.readFileSync(file, "utf8"));
 		if (held.pid === process.pid) fs.rmSync(file, { force: true });
-	} catch {
-		/* already gone, or never ours */
-	}
+	});
 }
 
 /** Run `fn` holding the issue's lock where it can be had, without it where not. */

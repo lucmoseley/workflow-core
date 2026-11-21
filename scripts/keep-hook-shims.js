@@ -24,6 +24,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
 const { parseOrCode } = require("./lib/cli-args.js");
+const { ignoreFailure } = require("./lib/caught.js");
 const { gitCommonDir, gitOrNull } = require("./lib/git.js");
 const { keepShims } = require("./lib/hook-shims.js");
 const { runProgram } = require("./lib/program-scope.js");
@@ -207,11 +208,10 @@ function main(argv) {
 	} catch (e) {
 		/* Fail open, printed (#2879). */
 		writeFd(2, `keep-hook-shims: ${String(e)}\n`);
-		try {
-			require("./lib/arbiter-core.js").logError("keep-hook-shims", e);
-		} catch {
-			/* An unwritable log costs the record; the line above was printed. */
-		}
+		// An unwritable log costs only the record: the line above was printed.
+		ignoreFailure(() =>
+			require("./lib/arbiter-core.js").logError("keep-hook-shims", e),
+		);
 	}
 	return 0;
 }

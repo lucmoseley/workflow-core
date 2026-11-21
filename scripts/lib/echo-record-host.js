@@ -16,6 +16,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
+const { ignoreFailure } = require("./caught.js");
 const { sweepFiles, withDirLock } = require("./dir-lock.js");
 const { parseRecords, storeText } = require("./echo-chain.js");
 const { readText } = require("./file-read.js");
@@ -95,13 +96,8 @@ function buildHostPorts({ log }) {
 				}
 				return true;
 			});
-			if (first) {
-				try {
-					sweepFiles(dir, SWEEP_AGE_MS);
-				} catch {
-					/* Hygiene: a failed sweep is retried on the next agent's first. */
-				}
-			}
+			// A failed sweep is retried on the next agent's first.
+			if (first) ignoreFailure(() => sweepFiles(dir, SWEEP_AGE_MS));
 			return ok;
 		},
 	};

@@ -35,7 +35,7 @@ const crypto = require("node:crypto");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { writeFileAtomic } = require("./atomic-write.js");
-const { caught } = require("./caught.js");
+const { caught, orFallback } = require("./caught.js");
 const { now } = require("./clock.js");
 const { readRunReach } = require("./code-edges.js");
 const { isFile } = require("./file-reach.js");
@@ -93,15 +93,13 @@ function readAt(root, rel) {
 function resolvedCommand(command, root) {
 	const npm = NPM_SCRIPT.exec(command.trim());
 	if (!npm) return command;
-	let script = "";
-	try {
+	// Fails open (#5294): an unparseable package.json keys as no script, the
+	// probe then runs against it, and npm reports the fault there.
+	const script = orFallback(() => {
 		const manifest = readAt(root, "package.json");
 		const text = manifest && JSON.parse(manifest).scripts?.[npm[1] ?? "test"];
-		if (typeof text === "string") script = text;
-	} catch {
-		/* Fails open (#5294): an unparseable package.json keys as no script,
-		 * the probe then runs against it, and npm reports the fault there. */
-	}
+		return typeof text === "string" ? text : "";
+	}, "");
 	return `${command}\n${script}`;
 }
 

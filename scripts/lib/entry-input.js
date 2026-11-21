@@ -5,7 +5,7 @@
  * it knows (#2899).
  */
 
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { readFdAll } = require("./read-fd.js");
 
 /**
@@ -17,17 +17,15 @@ const { readFdAll } = require("./read-fd.js");
  */
 function logger(name, root) {
 	return (what, detail) => {
-		try {
+		// The record is the fail-open's trace, never its policy (mantahostels#103 §6).
+		ignoreFailure(() =>
 			require("./arbiter-core.js").logError(
 				name,
 				what,
 				detail?.replaceAll("\x01", ""),
 				root,
-			);
-		} catch {
-			/* A log that cannot be written must not break the guard: the record
-			 * is the fail-open's trace, never its policy (mantahostels#103 §6). */
-		}
+			),
+		);
 	};
 }
 

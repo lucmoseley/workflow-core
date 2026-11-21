@@ -6,7 +6,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { transcriptPath } = require("./project-slug.js");
 
 /**
@@ -28,12 +28,9 @@ function copyTranscript({ from, to, sessionId, cwd }) {
 		fs.renameSync(partial, dest);
 		return null;
 	} catch (e) {
-		try {
-			fs.rmSync(partial, { force: true });
-		} catch {
-			/* A `projects` path that is no directory refuses the rm too: the copy's
-			 * own failure is the one to name. */
-		}
+		// A `projects` path that is no directory refuses the rm too: the copy's own
+		// failure is the one to name.
+		ignoreFailure(() => fs.rmSync(partial, { force: true }));
 		return `copying its transcript ${source} to ${to}: ${caught(e).message}`;
 	}
 }

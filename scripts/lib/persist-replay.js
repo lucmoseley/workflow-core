@@ -8,6 +8,7 @@
  */
 
 const fs = require("node:fs");
+const { ignoreFailure, orFallback } = require("./caught.js");
 const { stampFile } = require("./delivery-stamp.js");
 const {
 	readSessionStartRoster,
@@ -286,28 +287,21 @@ function parkStamps(producers, reports = {}) {
 		const fromReport = Object.keys(reports[p.key]?.stamps ?? {});
 		for (const key of new Set([p.key, ...(p.stampKeys ?? []), ...fromReport])) {
 			const file = stampFile(key);
-			let text = null;
-			try {
-				text = fs.readFileSync(file, "utf8");
-			} catch {
-				/* never stamped, or unreadable: either way there is nothing to put back */
-			}
-			try {
+			const text = orFallback(() => fs.readFileSync(file, "utf8"), null);
+			// Not cleared, the comparison reads the suppression instead.
+			ignoreFailure(() => {
 				fs.rmSync(file, { force: true });
 				held.push([file, text]);
-			} catch {
-				/* could not clear it — the comparison reads the suppression instead */
-			}
+			});
 		}
 	}
 	return () => {
 		for (const [file, text] of held) {
-			try {
+			// A stamp that cannot be put back costs one repeated report.
+			ignoreFailure(() => {
 				if (text === null) fs.rmSync(file, { force: true });
 				else fs.writeFileSync(file, text);
-			} catch {
-				/* a stamp that cannot be put back costs one repeated report */
-			}
+			});
 		}
 	};
 }

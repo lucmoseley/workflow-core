@@ -15,6 +15,7 @@ const path = require("node:path");
 const { isTerminalAgent, listedAgents } = require("./agent-liveness");
 const { stopOn } = require("./claude-stop.js");
 const { jobStatePath, shortJobId } = require("./job-paths.js");
+const { orFallback } = require("./caught.js");
 const {
 	configDir,
 	die,
@@ -426,12 +427,9 @@ function readTranscriptCwd(transcript) {
 	const last = readTranscriptRecords(transcript).findLast(
 		(r) => typeof r?.cwd === "string" && r.cwd && fs.existsSync(r.cwd),
 	)?.cwd;
-	if (last)
-		try {
-			return gitTopLevel(last);
-		} catch {
-			/* Not a checkout any more: the slug below may still name one. */
-		}
+	// Not a checkout any more: the slug below may still name one.
+	const top = last ? orFallback(() => gitTopLevel(last), null) : null;
+	if (top !== null) return top;
 	const slug = path.basename(path.dirname(transcript));
 	const core = require("./arbiter-core");
 	return (

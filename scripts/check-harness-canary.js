@@ -42,7 +42,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
 const { runCheck } = require("./lib/check");
-const { caught } = require("./lib/caught.js");
+const { caught, ignoreFailure } = require("./lib/caught.js");
 const { CHILD_ERROR_CHARS } = require("./lib/child-buffer.js");
 const { claudeBin } = require("./lib/claude-bin.js");
 const { parseJsonl } = require("./lib/jsonl.js");
@@ -312,13 +312,12 @@ function probeAndRecord(version) {
  * its own, so a harness killing the hook's group spares it, and outside this
  * session's scope, so the session's end does too. */
 function detachProbe() {
-	try {
+	// A failed launch is retried by the next session start (#2037).
+	ignoreFailure(() =>
 		spawnOutliving(process.execPath, [__filename, "--probe"], {
 			stdio: "ignore",
-		}).unref();
-	} catch {
-		/* The next session start retries (#2037). */
-	}
+		}).unref(),
+	);
 }
 
 /** @param {Verdict} last */

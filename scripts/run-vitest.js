@@ -122,7 +122,8 @@ const {
 	killPid,
 	sweepAtStart,
 } = require("./lib/suite-ceiling.js");
-const { caught } = require("./lib/caught.js");
+const { caught, ignoreFailure } = require("./lib/caught.js");
+const { noop } = require("./lib/noop.js");
 const readAudit = require("./lib/read-audit.js");
 const {
 	makeRunRoot,
@@ -675,9 +676,7 @@ function runOnce(
 		launch = {},
 		// Called once vitest is spawned, so a `--queue` run can tell the waiters
 		// behind it that it is now visible to the guard.
-		onSpawn = () => {
-			/* no queue waits behind this run */
-		},
+		onSpawn = noop,
 		// Set only on a run that left the queue early (#1158): it may run an
 		// empty selection and nothing else, the gate being shut.
 		emptyOnly = false,
@@ -1200,29 +1199,15 @@ function releaseRunsAndWorktrees() {
 	for (const [file, kill] of heldRuns) {
 		const unkilled = killCarrying(inflight.INFLIGHT_ENV, file, { kill });
 		if (!unkilled) continue;
-		try {
-			writeFd(2, carrierUnkilled(unkilled));
-		} catch {
-			/* A lost line must not strand the removals below (#3585). */
-		}
+		// A lost line must not strand the removals below (#3585).
+		ignoreFailure(() => writeFd(2, carrierUnkilled(unkilled)));
 	}
+	// A lost line must not strand the removals below (#3585).
 	for (const root of heldRoots)
-		dropRunRoot(root, {
-			write: (s) => {
-				try {
-					writeFd(2, s);
-				} catch {
-					/* A lost line must not strand the removals below (#3585). */
-				}
-			},
-		});
-	for (const held of heldWorktrees) {
-		try {
-			removeIsolated(held.root, held.dir);
-		} catch {
-			/* Reported inside removeIsolated. */
-		}
-	}
+		dropRunRoot(root, { write: (s) => ignoreFailure(() => writeFd(2, s)) });
+	// Reported inside removeIsolated.
+	for (const held of heldWorktrees)
+		ignoreFailure(() => removeIsolated(held.root, held.dir));
 }
 
 /**
@@ -1291,7 +1276,7 @@ function fullCauseRefusal(word) {
  * @param {string[]} argv
  */
 function recordFullRefusal(root, word, argv) {
-	try {
+	ignoreFailure(() =>
 		recordFailure(
 			{
 				sha: readHeadSha(root),
@@ -1303,10 +1288,8 @@ function recordFullRefusal(root, word, argv) {
 				argv,
 			},
 			{ root: repoRoot(root) || root },
-		);
-	} catch {
-		/* a store this cannot write to costs the count, never the refusal */
-	}
+		),
+	);
 }
 
 /**

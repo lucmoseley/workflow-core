@@ -44,6 +44,7 @@ const {
 const { readLaunch, fillRunReport } = require("./lib/suite-handoff.js");
 const { sample: sampleCpu } = require("./lib/cpu-sample.js");
 const { relativeUnder } = require("./lib/is-under.js");
+const { ignoreFailure } = require("./lib/caught.js");
 const { foldCached, readCachedHandoff } = require("./lib/pass-store.js");
 
 const scopeUnrecorded = (failure: unknown, cached: string[]): string =>
@@ -281,15 +282,14 @@ export default class TestPassReporter {
 			failure = error;
 		}
 
-		try {
+		// A broken pipe at the end of a green run is not a red run.
+		ignoreFailure(() => {
 			fillRunReport({ scope });
 			const line = failure
 				? scopeUnrecorded(failure, cachedFiles(cached))
 				: formatFilteredRun(scope, cachedFiles(cached));
 			if (line) process.stdout.write(`${line}\n`);
-		} catch {
-			/* a broken pipe at the end of a green run is not a red run */
-		}
+		});
 
 		/*
 		 * What the verdict depended on (#189), after the scope because a full
@@ -307,15 +307,13 @@ export default class TestPassReporter {
 		} catch (error) {
 			closureFailure = error;
 		}
-		try {
+		ignoreFailure(() => {
 			fillRunReport({ attestation });
 			if (closureFailure)
 				process.stdout.write(
 					`CLOSURE UNRECORDED (#189) — this run attests its own sha alone, not the tree it read: ${closureFailure}\n`,
 				);
-		} catch {
-			/* as above */
-		}
+		});
 
 		this.handFiles(testModules as TestModuleLike[], unhandledErrors, reason);
 
@@ -323,13 +321,11 @@ export default class TestPassReporter {
 			try {
 				await writeEmptyRunMarker(this.vitest?.config?.root);
 			} catch (error) {
-				try {
+				ignoreFailure(() =>
 					process.stdout.write(
 						`MARKER UNWRITTEN (#189 §6) — this empty selection recorded no certificate: ${error}\n`,
-					);
-				} catch {
-					/* as above */
-				}
+					),
+				);
 			}
 		}
 	}
@@ -428,13 +424,12 @@ export default class TestPassReporter {
 				files: this.describeFiles(testModules, unhandledErrors.length, reason),
 			});
 		} catch (error) {
-			try {
+			// A broken pipe at the end of a green run is not a red run.
+			ignoreFailure(() =>
 				process.stdout.write(
 					`FILE RESULTS UNRECORDED (#4790) — no file of this run can be skipped on its result later: ${error}\n`,
-				);
-			} catch {
-				/* a broken pipe at the end of a green run is not a red run */
-			}
+				),
+			);
 		}
 	}
 

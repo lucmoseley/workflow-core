@@ -43,6 +43,7 @@
  */
 const { isFinishedAgent } = require("./agent-liveness.js");
 const { deathCount } = require("./detached-run.js");
+const { noop } = require("./noop.js");
 
 /* How long a session must have been finished before it is reaped. ZERO
  * (mantahostels#1290, which holds why), so nothing is ever held back for age
@@ -735,9 +736,7 @@ function reap({
 	 * entered only once its arguments — the listing among them — have all been
 	 * read. */
 	startedAt = new Date(now).toISOString(),
-	recordRun = () => {
-		/* unrecorded unless a caller asks */
-	},
+	recordRun = noop,
 	recordStopped = () => null,
 	log,
 }) {

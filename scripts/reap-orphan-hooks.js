@@ -49,7 +49,11 @@
  */
 
 const { runCheck } = require("./lib/check");
-const { parseErrorText } = require("./lib/caught.js");
+const {
+	ignoreFailure,
+	orFallback,
+	parseErrorText,
+} = require("./lib/caught.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
@@ -163,12 +167,7 @@ const SHOWN_STAMP = ".orphan-session-reaps-shown";
 function unseenSessionKills(canonical, log) {
 	if (canonical === null) return null;
 	const stamp = path.join(markersDir(canonical), SHOWN_STAMP);
-	let since = "";
-	try {
-		since = fs.readFileSync(stamp, "utf8").trim();
-	} catch {
-		/* none yet */
-	}
+	const since = orFallback(() => fs.readFileSync(stamp, "utf8").trim(), "");
 	let read;
 	try {
 		read = readJsonl(log);
@@ -213,12 +212,11 @@ function reportUnseen(ctx, { rows, stamp, unreadable }) {
 			.map((r) => String(r.at))
 			.sort()
 			.at(-1) ?? "";
-	try {
+	// An unwritable stamp names them again next start, never loses one.
+	ignoreFailure(() => {
 		fs.mkdirSync(path.dirname(stamp), { recursive: true });
 		writeFileAtomic(stamp, `${newest}\n`);
-	} catch {
-		/* An unwritable stamp names them again next start, never loses one. */
-	}
+	});
 }
 
 runCheck({

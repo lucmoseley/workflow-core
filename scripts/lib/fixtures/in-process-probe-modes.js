@@ -10,6 +10,7 @@
 
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
+const { noop } = require("../noop.js");
 const { readFdAll } = require("../read-fd.js");
 
 /* Where a leak mode parks its timer, so the test that refused one can clear
@@ -20,9 +21,8 @@ const say = (/** @type {string} */ text) => fs.writeSync(1, `${text}\n`);
 
 /* "armed" tells a spawned run that hangs apart from one that never started. */
 const leak = () => {
-	const timer = setInterval(() => {
-		/* only its being live matters: the harness must see it */
-	}, 1000);
+	// Only its being live matters: the harness must see it.
+	const timer = setInterval(noop, 1000);
 	/** @type {any} */ (globalThis)[LEAKED] = timer;
 	say("armed");
 	return timer;
@@ -77,9 +77,7 @@ const modes = {
 	},
 	/* A listener that returns keeps a real process running, timer and all. */
 	"leak-then-handled-throw": () => {
-		process.on("uncaughtException", () => {
-			/* returns */
-		});
+		process.on("uncaughtException", noop);
 		leak();
 		throw new Error("probe threw");
 	},

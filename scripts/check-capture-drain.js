@@ -52,18 +52,17 @@ const {
 	writeState,
 } = require("./lib/captures");
 const { scriptPath } = require("./lib/script-path");
+const { ignoreFailure } = require("./lib/caught.js");
 
 /** Fire and forget: the session must not wait on it, and its failure is the
  *  next run's stale state rather than anything to report here. */
 function kickRefresh() {
-	try {
+	ignoreFailure(() =>
 		spawn(process.execPath, [__filename, "--refresh"], {
 			detached: true,
 			stdio: "ignore",
-		}).unref();
-	} catch {
-		/* no refresh this time; the state simply stays as old as it was */
-	}
+		}).unref(),
+	);
 }
 
 /**

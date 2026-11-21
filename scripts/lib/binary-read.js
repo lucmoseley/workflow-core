@@ -7,6 +7,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { orFallback } = require("./caught.js");
 
 /** The binary is read in pieces, as 2.1.310's is 291 MB; the size is a guess. */
 const CHUNK = 16 * 1024 * 1024;
@@ -21,11 +22,11 @@ function binaryOf(bin) {
 		? [""]
 		: (process.env.PATH ?? "").split(path.delimiter).filter(Boolean);
 	for (const d of dirs) {
-		try {
-			return fs.realpathSync(d ? path.join(d, bin) : bin);
-		} catch {
-			/* Not in this PATH entry. */
-		}
+		const real = orFallback(
+			() => fs.realpathSync(d ? path.join(d, bin) : bin),
+			null,
+		);
+		if (real !== null) return real;
 	}
 	return null;
 }

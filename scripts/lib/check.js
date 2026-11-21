@@ -216,6 +216,7 @@ function exitFinished(code) {
  */
 const { CHILD_MAX_BUFFER: MAX_BUFFER } = require("./child-buffer.js");
 const { caught } = require("./caught.js");
+const { noop } = require("./noop.js");
 const { writeFd } = require("./write-fd.js");
 const { envelope: hookEnvelope } = require("./hook-envelope.js");
 
@@ -1942,9 +1943,7 @@ function runBody(spec, ctx, refusalOf) {
 			/* A plain function returning a thenable reaches here instead (#1586).
 			 * Its work has started, so its rejection is swallowed rather than left
 			 * to reportCrash, which would end the process first. */
-			returned.then(undefined, () => {
-				/* The refusal below is the report. */
-			});
+			returned.then(undefined, noop);
 			throw brokenError(asyncAgainstRefusal(spec));
 		}
 		return Promise.resolve(returned).then(

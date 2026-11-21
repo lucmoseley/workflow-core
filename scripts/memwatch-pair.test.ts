@@ -18,6 +18,7 @@ import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { promisify } from "node:util";
 import { afterAll, describe, expect, it, vi } from "vitest";
+import { ignoreFailure } from "./lib/caught.js";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
 import { writeCgroupRoot } from "./lib/sched-clock-fake";
@@ -1047,13 +1048,11 @@ describe.skipIf(!hasScope).concurrent("memwatch process runaway", () => {
 			});
 			return await body();
 		} finally {
-			try {
+			ignoreFailure(() =>
 				execFileSync("systemctl", ["--user", "stop", unit], {
 					stdio: "ignore",
-				});
-			} catch {
-				// Already gone: RuntimeMaxSec ended it, or it never started.
-			}
+				}),
+			);
 			scope.kill("SIGKILL");
 		}
 	}
@@ -1402,13 +1401,11 @@ describe
 						),
 					);
 				} finally {
-					try {
+					ignoreFailure(() =>
 						execFileSync("systemctl", ["--user", "stop", unit], {
 							stdio: "ignore",
-						});
-					} catch {
-						// Already gone: RuntimeMaxSec ended it, or it never started.
-					}
+						}),
+					);
 					forker.kill("SIGKILL");
 				}
 			},

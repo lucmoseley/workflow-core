@@ -38,6 +38,8 @@ const hookMessage = require("./hook-message");
 const hookRecord = require("./hook-record");
 const sessionId = require("./session-id");
 const { guardDisabled } = require("./workflow-core-config");
+const { ignoreFailure } = require("./caught.js");
+const { noop } = require("./noop.js");
 
 /* Every tracker read's cap together, for a Stop guard registered with a 15 s
  * timeout: the rest holds node's start and the block's write. */
@@ -93,12 +95,11 @@ function disabled(root) {
  * @returns {void}
  */
 function onMessage({ review }) {
-	try {
+	// Fail open (mantahostels#1731).
+	ignoreFailure(() => {
 		const ctx = readMessageContext();
 		if (ctx) review(ctx);
-	} catch {
-		/* Fail open (mantahostels#1731). */
-	}
+	});
 }
 
 /**
@@ -140,12 +141,11 @@ function readMessageContext() {
  * @returns {Promise<void>}
  */
 async function onMessageAsync({ review }) {
-	try {
+	// Fail open (mantahostels#1731).
+	await (async () => {
 		const ctx = readMessageContext();
 		if (ctx) await review(ctx);
-	} catch {
-		/* Fail open (mantahostels#1731). */
-	}
+	})().catch(noop);
 }
 
 /**
@@ -161,22 +161,17 @@ async function onMessageAsync({ review }) {
  * @returns {void}
  */
 function onPayload({ review, record = false }) {
-	try {
+	// Fail open (mantahostels#1731).
+	ignoreFailure(() => {
 		const root = hookBlock.repoRoot();
 		if (disabled(root)) return;
-		const note = record
-			? noteFor()
-			: () => {
-					/* unrecorded unless the guard asks */
-				};
+		const note = record ? noteFor() : noop;
 		const payload = hookMessage.readPayload();
 		if (!payload) return note("no-payload", undefined);
 		const sid = sessionId.fromPayload(payload);
 		if (!sid) return note("no-session-id", payload);
 		review({ sessionId: sid, payload, root, note });
-	} catch {
-		/* Fail open (mantahostels#1731). */
-	}
+	});
 }
 
 module.exports = { onMessage, onMessageAsync, onPayload, READ_BUDGET_MS };

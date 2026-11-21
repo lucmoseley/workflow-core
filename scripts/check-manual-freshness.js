@@ -68,6 +68,7 @@ const { runCheck } = require("./lib/check");
 const { readCommitOrBroken } = require("./lib/commit-sha.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { caught } = require("./lib/caught.js");
+const { noop } = require("./lib/noop.js");
 const { execGit } = require("./lib/git.js");
 const { trimEndRun } = require("./lib/trim-run.js");
 
@@ -231,11 +232,7 @@ function detailWriters(ctx) {
 	 * report-manual-staleness.js's in-process call — so these OK detail lines
 	 * always print there. */
 	/** @type {(label: string, msg: string) => void} */
-	const ok = ctx.notify
-		? () => {
-				/* a pass is withheld under --notify */
-			}
-		: line;
+	const ok = ctx.notify ? noop : line;
 	return { line, fail, warn, ok };
 }
 

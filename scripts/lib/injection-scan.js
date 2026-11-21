@@ -50,6 +50,8 @@
  * DEFEAT:    none at the hook; it is silent unless a pattern fires, a Read of any path but `.claude/tmp/research-*.md` is unscanned, and `--file` skips a path on EXEMPT_PATH.
  */
 
+const { orFallback } = require("./caught.js");
+
 /** Below this, a match is more likely coincidence than content. GSD's floor. */
 const MIN_CONTENT_CHARS = 20;
 
@@ -220,11 +222,8 @@ function scan(content) {
 			: content;
 	const patterns = [];
 	for (const p of ALL_PATTERNS) {
-		try {
-			if (p.re.test(text)) patterns.push(p.id);
-		} catch {
-			/* One pattern the runtime cannot compile must not cost the other 19. */
-		}
+		// One pattern the runtime cannot compile must not cost the other 19.
+		if (orFallback(() => p.re.test(text), false)) patterns.push(p.id);
 	}
 	if (patterns.length === 0) return { patterns, severity: null };
 	return { patterns, severity: patterns.length >= HIGH_AT ? "HIGH" : "LOW" };

@@ -37,7 +37,7 @@
 const { INVENTORY } = require("./inventory-format.js");
 const { gh, parseGhFailureReason, parseErrLine } = require("./gh.js");
 const { requiredGroup } = require("./regex-group.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure, orFallback } = require("./caught.js");
 
 /* The #958 spec's ceiling (ruled at #911): a guess, under the close guard's
  * 10 s hook budget. Unmeasured — one issue alone read in 0.88-0.92 s there,
@@ -113,14 +113,13 @@ const FENCE_RE = /^[ \t]{0,3}(```|~~~)/;
  */
 function trackerOf(tracker) {
 	if (tracker) return tracker.toLowerCase();
-	let t;
-	try {
-		t = require("./workflow-core-config").resolveKey("tracker");
-	} catch {
-		// An unreadable config resolves no tracker, as an undeclared one does:
-		// judge() passes a bare ref on shape alone and says so in `unchecked`
-		// (FAILS OPEN above, #911), and guard-inventory.js owes no claim.
-	}
+	// An unreadable config resolves no tracker, as an undeclared one does:
+	// judge() passes a bare ref on shape alone and says so in `unchecked`
+	// (FAILS OPEN above, #911), and guard-inventory.js owes no claim.
+	const t = orFallback(
+		() => require("./workflow-core-config").resolveKey("tracker"),
+		undefined,
+	);
 	return typeof t === "string" ? t.toLowerCase() : undefined;
 }
 
@@ -429,13 +428,9 @@ function runQuery(query, timeoutMs, run = gh) {
 		};
 	} catch (e) {
 		const out = caught(e).stdout?.toString() ?? "";
-		try {
-			const parsed = JSON.parse(out);
-			if (parsed && typeof parsed.data === "object" && parsed.data !== null)
-				return { data: parsed.data };
-		} catch {
-			// Not JSON: no partial answer to read, so the failure stands.
-		}
+		const parsed = orFallback(() => JSON.parse(out), undefined);
+		if (parsed && typeof parsed.data === "object" && parsed.data !== null)
+			return { data: parsed.data };
 		const code = caught(e).code;
 		const kind =
 			code === "ETIMEDOUT" || parseGhFailureReason(e) === "unreachable"
@@ -447,11 +442,8 @@ function runQuery(query, timeoutMs, run = gh) {
 
 /** @param {string} where @param {string} what */
 function defaultLog(where, what) {
-	try {
-		require("./arbiter-core").logError(where, what);
-	} catch {
-		// The error log is unloadable; the verdict still carries `unchecked`.
-	}
+	// The error log is unloadable; the verdict still carries `unchecked`.
+	ignoreFailure(() => require("./arbiter-core").logError(where, what));
 }
 
 /** @type {Record<string, string>} */

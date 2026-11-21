@@ -20,6 +20,7 @@ import { readText } from "./lib/file-read.js";
 import { mkScratchDir } from "./lib/git-fixture";
 import { keptSpawn } from "./lib/kept-spawn.js";
 import { chargeMb as launchChargeMb } from "./lib/launch-charge";
+import { noop } from "./lib/noop.js";
 import { writeCwd } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcessAsync } from "./lib/run-in-process.js";
@@ -77,10 +78,7 @@ const fixture = () => {
 		gate: () => false,
 		turn: () => true,
 		// A wait that never polls again: the gate's first answer is final.
-		sleepFn: () =>
-			new Promise(() => {
-				/* never settles */
-			}),
+		sleepFn: () => new Promise(noop),
 		out: { write: () => true },
 		err: { write: (s: string) => err.push(s) },
 		signals,
@@ -610,11 +608,7 @@ describe("queue-run.js", () => {
 				sleepFn: () => {
 					polls += 1;
 					if (polls === 2) fs.rmSync(holder);
-					return polls < 4
-						? Promise.resolve()
-						: new Promise(() => {
-								/* never settles */
-							});
+					return polls < 4 ? Promise.resolve() : new Promise(noop);
 				},
 			});
 			main(gateRun, g.options);
@@ -1157,9 +1151,7 @@ describe("queue-run.js", () => {
 		it("runs two type-checks one after the other", async () => {
 			const f = fixture();
 			machine(f.dir, ["bash -l"], 9000);
-			let wake = () => {
-				/* replaced by the second waiter's sleep */
-			};
+			let wake: () => void = noop;
 			const out: string[] = [];
 			const opts = (pid: number) =>
 				own(f, {

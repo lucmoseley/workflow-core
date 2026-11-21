@@ -63,6 +63,7 @@
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
 const { writeFd } = require("./lib/write-fd.js");
+const { orFallback } = require("./lib/caught.js");
 const { readJsonl } = require("./lib/jsonl.js");
 const path = require("node:path");
 const { failureReason } = require("./lib/check");
@@ -227,12 +228,13 @@ function recalibrate(threshold, y) {
 /** The window's end: origin's HEAD, else the checked-out HEAD. */
 function readWindowEnd() {
 	for (const ref of ["refs/remotes/origin/HEAD", "HEAD"]) {
-		try {
-			return { sha: git(["rev-parse", "--verify", "-q", ref]).trim(), ref };
-		} catch {
-			/* `--verify -q` exits 1, silent, on a ref that does not resolve,
-			 * which is the fallback's whole case. */
-		}
+		// `--verify -q` exits 1, silent, on a ref that does not resolve, which
+		// is the fallback's whole case.
+		const sha = orFallback(
+			() => git(["rev-parse", "--verify", "-q", ref]).trim(),
+			undefined,
+		);
+		if (sha !== undefined) return { sha, ref };
 	}
 	throw new Error(
 		"no commit to count to: neither origin's HEAD nor HEAD resolves",

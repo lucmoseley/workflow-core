@@ -110,6 +110,8 @@ const { isApparatus } = require("./lib/suite-apparatus.js");
 const { segmentTailMatches } = require("./lib/line-scan.js");
 const { blankComments } = require("./lib/strip-comments.js");
 const { shipsPlugin } = require("./lib/plugin-state.js");
+const { ignoreFailure } = require("./lib/caught.js");
+const { noop } = require("./lib/noop.js");
 
 const CWD_SUITE_CHECKER = {
 	tags: ["SECOND-SEAM-JS"],
@@ -810,9 +812,7 @@ function fileFaults(root, rel) {
 		// @ts-expect-error judgeFile's judges call fail alone
 		{
 			fail: collect,
-			warn: () => {
-				/* judgeFile's judges never warn */
-			},
+			warn: noop,
 		},
 		root,
 		{
@@ -824,9 +824,8 @@ function fileFaults(root, rel) {
 			hook:
 				(HOOK_ROOT_ANY.test(text) || SH_TREE_ANY.test(text)) &&
 				readHookCode(root).has(rel),
-			seen: () => {
-				/* the allowlist still applies; whether an entry went stale is the whole-repo pass's call */
-			},
+			// The allowlist still applies; whether an entry went stale is the whole-repo pass's call.
+			seen: noop,
 		},
 	);
 	return out;
@@ -843,12 +842,11 @@ function readImportableConstants(root, scanned) {
 	const importable = new Set();
 	for (const rel of scanned) {
 		if (!isJsExt(path.extname(rel)) || isApparatus(rel)) continue;
-		try {
+		// Unreadable here is unreadable below, where it is skipped too.
+		ignoreFailure(() => {
 			const text = blankComments(fs.readFileSync(path.join(root, rel), "utf8"));
 			for (const name of coreConstants(text)) importable.add(name);
-		} catch {
-			/* Unreadable here is unreadable below, where it is skipped too. */
-		}
+		});
 	}
 	return importable;
 }

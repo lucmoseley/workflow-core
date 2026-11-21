@@ -12,6 +12,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { readConfig, hostRoot } = require("./workflow-core-config.js");
+const { orFallback } = require("./caught.js");
 
 /**
  * @typedef {object} SkillDrift
@@ -23,14 +24,8 @@ const { readConfig, hostRoot } = require("./workflow-core-config.js");
 
 /** @param {string} p */
 function readOrUndefined(p) {
-	/** @type {string | undefined} */
-	let text;
-	try {
-		text = fs.readFileSync(p, "utf8");
-	} catch {
-		// Missing or unreadable: the caller reports which.
-	}
-	return text;
+	// Missing or unreadable, the caller reports which.
+	return orFallback(() => fs.readFileSync(p, "utf8"), undefined);
 }
 
 /**

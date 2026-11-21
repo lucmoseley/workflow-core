@@ -18,6 +18,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ignoreFailure } from "./caught.js";
 import {
 	REGISTER_SEP,
 	syntheticPaths,
@@ -1931,11 +1932,8 @@ describe("a conflicted index", () => {
 		fs.writeFileSync(path.join(repo, "contested.md"), "ours\n");
 		git("commit", "-qm", "ours", "--", "contested.md");
 
-		try {
-			git("merge", "other");
-		} catch {
-			/* the conflict this fixture exists to create */
-		}
+		// The conflict this fixture exists to create.
+		ignoreFailure(() => git("merge", "other"));
 		// The fixture is worthless if the merge resolved itself.
 		expect(git("ls-files", "--unmerged")).not.toBe("");
 
@@ -3042,12 +3040,9 @@ describe("the new-entry cap's git readers", () => {
 			const sha = git(["rev-parse", "HEAD"]).trim();
 			git(["checkout", "-q", "main"]);
 			commitMarked([["B1", 410, true]]);
-			try {
-				git(["cherry-pick", sha]);
-			} catch {
-				// A conflicting pick is what leaves CHERRY_PICK_HEAD set; with
-				// `--no-commit` git 2.43 writes none, conflict or not.
-			}
+			// A conflicting pick is what leaves CHERRY_PICK_HEAD set; with
+			// `--no-commit` git 2.43 writes none, conflict or not.
+			ignoreFailure(() => git(["cherry-pick", sha]));
 			expect(
 				git(["rev-parse", "--verify", "--quiet", "CHERRY_PICK_HEAD"]).trim(),
 			).toBe(sha);

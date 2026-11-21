@@ -18,6 +18,7 @@
 const cp = require("node:child_process");
 const fs = require("node:fs");
 const mod = require("node:module");
+const { ignoreFailure } = require("../lib/caught.js");
 
 const FORK_WORKER_DEPTH = 2;
 // Enough of argv to tell `bash <script>` and `git <subcommand>` apart in the
@@ -31,15 +32,14 @@ const OUT = process.env.WFC_GUARD_SHARE_OUT;
 
 /** @param {Record<string, unknown>} entry */
 const log = (entry) => {
-	try {
+	// A lost line costs one record; a throw would fail the test under measure
+	// (#2783).
+	ignoreFailure(() =>
 		fs.appendFileSync(
 			/** @type {string} */ (OUT),
 			`${JSON.stringify(entry)}\n`,
-		);
-	} catch {
-		// A lost line costs one record; a throw would fail the test under
-		// measure (#2783).
-	}
+		),
+	);
 };
 
 /**

@@ -27,6 +27,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { ignoreFailure } from "./caught.js";
 import { PROGRAM } from "./doc-map-gate-program.js";
 import { emptyDataFile } from "./doc-map-testkit";
 import { defineTemplate, mkScratchDir } from "./git-fixture";
@@ -793,11 +794,8 @@ describe("a conflicted index and the pre-commit hook", () => {
 		);
 		fs.chmodSync(hook, 0o755);
 
-		try {
-			git("merge", "other");
-		} catch {
-			/* expected: the merge conflicts */
-		}
+		// Expected: the merge conflicts.
+		ignoreFailure(() => git("merge", "other"));
 
 		expect(
 			execFileSync("git", ["ls-files", "-u"], { cwd: root }).length,

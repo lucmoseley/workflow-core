@@ -24,6 +24,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseJsonl } = require("./jsonl.js");
+const { orFallback } = require("./caught.js");
 
 /**
  * One parsed transcript line. `any` because the transcript is Claude Code's
@@ -375,12 +376,9 @@ function findNewestTranscript(dirs, sessionId) {
 	for (const dir of dirs) {
 		const file = findTranscript(dir, sessionId);
 		if (!file) continue;
-		try {
-			const { mtimeMs } = fs.statSync(file);
-			if (!newest || mtimeMs > newest.mtimeMs) newest = { file, mtimeMs };
-		} catch {
-			/* Found but unstattable: another dir's may still read. */
-		}
+		const mtimeMs = orFallback(() => fs.statSync(file).mtimeMs, null);
+		if (mtimeMs !== null && (!newest || mtimeMs > newest.mtimeMs))
+			newest = { file, mtimeMs };
 	}
 	return newest;
 }

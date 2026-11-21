@@ -12,6 +12,7 @@ const path = require("node:path");
 const { caught } = require("./caught.js");
 const { procRoot } = require("./proc-root.js");
 const { readProcTable } = require("./proc-table.js");
+const { noop } = require("./noop.js");
 const {
 	buildFrame,
 	countUnscrolledHeight,
@@ -135,9 +136,7 @@ async function buildScreensText(sizes, { run, runBurn, now }) {
 		returnFocus: async () => ({ code: 0, stdout: "", stderr: "" }),
 		height: () => 0,
 		columns: () => columns,
-		onChange: () => {
-			/* A print draws once, after its read. */
-		},
+		onChange: noop,
 	});
 	await panel.refreshStatus();
 	const screens = sizes.map((size) => {

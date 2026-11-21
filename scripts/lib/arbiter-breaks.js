@@ -13,7 +13,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const core = require("./arbiter-core.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 
 /** @typedef {import("./arbiter-records.js").LockRecord} LockRecord */
 /** @typedef {import("./arbiter-records.js").BreakRecord} BreakRecord */
@@ -225,13 +225,7 @@ function pruneBreaks() {
 				continue; // swept already
 			}
 		}
-		if (when < cutoff) {
-			try {
-				fs.unlinkSync(file);
-			} catch {
-				/* swept already */
-			}
-		}
+		if (when < cutoff) ignoreFailure(() => fs.unlinkSync(file));
 	}
 }
 

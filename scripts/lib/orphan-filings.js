@@ -13,6 +13,7 @@
 const { createHash } = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { orFallback } = require("./caught.js");
 const { gitRead } = require("./dirty-tree.js");
 const { scriptPath } = require("./script-path.js");
 const { shellQuote } = require("./sh-quote.js");
@@ -114,14 +115,16 @@ function readWorktreeFiling(commonDir, label, dirt) {
 	const want = dirt?.join("\n");
 	let best = { at: -1, ref: /** @type {string|null} */ (null) };
 	for (const n of names) {
-		try {
+		const floor = best.at;
+		// Empty or torn: a filing running or killed, which names no issue.
+		const better = orFallback(() => {
 			const m = JSON.parse(fs.readFileSync(path.join(dir, n), "utf8"));
-			if (want !== undefined && (m.dirt ?? []).join("\n") !== want) continue;
-			if (m.ref && Number(m.at) > best.at)
-				best = { at: Number(m.at), ref: m.ref };
-		} catch {
-			// Empty or torn: a filing running or killed, which names no issue.
-		}
+			if (want !== undefined && (m.dirt ?? []).join("\n") !== want) return null;
+			return m.ref && Number(m.at) > floor
+				? { at: Number(m.at), ref: m.ref }
+				: null;
+		}, null);
+		if (better) best = better;
 	}
 	return best.ref;
 }

@@ -52,6 +52,7 @@ const { markersDir } = require("./lib/marker-root.js");
 const { pidLock } = require("./lib/pid-lock.js");
 const { oneCopyEach, projectDirs } = require("./lib/project-dirs");
 const { scriptPath } = require("./lib/script-path.js");
+const { ignoreFailure, orFallback } = require("./lib/caught.js");
 
 const CHECKER = "escape-audit";
 const ENV_SWITCH = "WFC_ESCAPE_AUDIT";
@@ -160,12 +161,9 @@ function readTranscripts(dirs) {
 	/** @type {string[]} */
 	const files = [];
 	for (const dir of dirs) {
-		try {
-			for (const f of fs.readdirSync(dir))
-				if (f.endsWith(".jsonl")) files.push(path.join(dir, f));
-		} catch {
-			/* a seat with no sessions here (#671) */
-		}
+		// A seat with no sessions here has no directory (#671).
+		for (const f of orFallback(() => fs.readdirSync(dir), []))
+			if (f.endsWith(".jsonl")) files.push(path.join(dir, f));
 	}
 	return oneCopyEach(files);
 }
@@ -349,12 +347,11 @@ async function judge({ root, dirs, gapMs = GAP_MS }) {
 function kick(root) {
 	if (["0", "false", "off"].includes(process.env[ENV_SWITCH] ?? "")) return;
 	const marker = path.join(markersDir(root), KICK_NAME);
-	try {
-		if (Date.now() - fs.statSync(marker).mtimeMs < KICK_MS) return;
-	} catch {
-		/* never kicked (#671) */
-	}
-	try {
+	// A marker never written means never kicked (#671).
+	const kicked = orFallback(() => fs.statSync(marker).mtimeMs, undefined);
+	if (kicked !== undefined && Date.now() - kicked < KICK_MS) return;
+	// A failed kick is retried by the next session start (#671).
+	ignoreFailure(() => {
 		fs.writeFileSync(marker, new Date().toISOString());
 		/* Outliving its session, so a short one's end does not kill the
 		 * judging (#4706). */
@@ -362,9 +359,7 @@ function kick(root) {
 			cwd: root,
 			stdio: "ignore",
 		}).unref();
-	} catch {
-		/* the next session start tries again (#671) */
-	}
+	});
 }
 
 /**
