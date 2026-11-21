@@ -11,7 +11,9 @@ without a word.
 """
 
 import os
+import subprocess
 import sys
+from collections import Counter
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -29,3 +31,44 @@ def test_main_transcripts_span_both_seat_roots(seat_roots):
         str(roots[0] / "a.jsonl"),
         str(roots[1] / "b.jsonl"),
     ]
+
+
+def test_unopenable_file_is_skipped_and_reported(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(sll, "REPO", str(tmp_path))
+    tally = Counter()
+    assert sll.readable_text("gone.md", tally) is False
+    assert tally["unreadable repo files"] == 1
+    assert "fail-open: gone.md skipped: FileNotFoundError" in capsys.readouterr().err
+
+
+def test_candidate_that_will_not_read_is_skipped_and_reported(
+    tmp_path, monkeypatch, capsys
+):
+    (tmp_path / "a.md").write_text("x\n")
+    monkeypatch.setattr(sll, "REPO", str(tmp_path))
+    monkeypatch.setattr(sll, "git", lambda *a: "a.md\n")
+    monkeypatch.setattr(sll, "readable_text", lambda path, tally: True)
+
+    def refuse(*a, **k):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(sll, "open", refuse, raising=False)
+    tally = Counter()
+    assert sll.candidates(10, tally)[0] == []
+    assert tally["unreadable repo files"] == 1
+    assert "fail-open: a.md skipped: PermissionError: denied" in capsys.readouterr().err
+
+
+def test_unshown_revision_prices_at_todays_size_and_is_reported(monkeypatch, capsys):
+    def refuse(*a):
+        raise subprocess.CalledProcessError(128, ["git", "show"])
+
+    monkeypatch.setattr(sll, "window_days", lambda start, end: ["2026-01-01"])
+    monkeypatch.setattr(sll, "revision_on", lambda day, path: "abc")
+    monkeypatch.setattr(sll, "git", refuse)
+    tally = Counter()
+    cands = [{"path": "a.md", "lineno": 1, "needle": "n"}]
+    assert sll.sizes_by_date(cands, None, None, tally) == {}
+    assert tally["unshown revisions"] == 1
+    err = capsys.readouterr().err
+    assert "fail-open: a.md on 2026-01-01 priced at today's size" in err

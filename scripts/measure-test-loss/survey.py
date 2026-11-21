@@ -7,6 +7,11 @@ import json
 import os
 import sys
 
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib")
+)
+from fail_open import fail_open
+
 d = sys.argv[1]
 for name in [
     ".suite-queue-exits.jsonl",
@@ -24,9 +29,8 @@ for name in [
     for line in open(p, errors="replace"):
         try:
             rows.append(json.loads(line))
-        except ValueError:
-            # A torn or partial line is skipped, as #2812 read the stores.
-            pass
+        except ValueError as e:
+            fail_open(e, f"torn line in {name} skipped")
     ats = sorted(r.get("at", "") for r in rows if r.get("at"))
     keys = collections.Counter(k for r in rows for k in r)
     print("==", name, len(rows), ats[0] if ats else None, ats[-1] if ats else None)

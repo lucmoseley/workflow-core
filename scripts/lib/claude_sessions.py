@@ -20,6 +20,8 @@ claimed here — high, the safe direction.
 import os
 import re
 
+from fail_open import fail_open
+
 PS_ARGS = ["-eo", "pid=,ppid=,args="]
 
 
@@ -28,10 +30,12 @@ def parse_ps(text):
     rows = []
     for line in text.splitlines():
         fields = line.split()
+        if not fields:
+            continue
         try:
             rows.append((int(fields[0]), int(fields[1]), fields[2:]))
-        except (ValueError, IndexError):
-            # A header or torn line names no process to count (#1798).
+        except (ValueError, IndexError) as error:
+            fail_open(error, f"ps line {line!r} skipped")
             continue
     return rows
 
@@ -54,17 +58,18 @@ def live_cwd(pid):
     """`pid`'s cwd under WFC_PROC's root, or None where it has exited or is not ours to read."""
     try:
         return os.readlink(f"{os.environ.get('WFC_PROC') or '/proc'}/{pid}/cwd")
-    except OSError:
-        # None reads as claimed, so the count errs high (#1798).
+    except OSError as error:
+        fail_open(error, f"pid {pid} cwd read as claimed")
         return None
 
 
 def _unclaimed(argv, cwd):
-    try:
-        sock = argv[argv.index("--bg-spare") + 1]
-    except (ValueError, IndexError):
-        # No claim socket to sit beside: not the daemon's spare (#1798).
+    if "--bg-spare" not in argv:
         return False
+    at = argv.index("--bg-spare") + 1
+    if at >= len(argv):
+        return False
+    sock = argv[at]
     return cwd is not None and cwd == os.path.dirname(sock)
 
 

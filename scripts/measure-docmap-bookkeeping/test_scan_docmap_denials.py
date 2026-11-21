@@ -12,10 +12,12 @@ mantahostels#2430 published.
 """
 
 import sys
+from collections import Counter
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from scan_docmap_denials import held_subjects
+from scan_docmap_denials import held_subjects, scan
 
 MAP = "docs/doc-map.md"
 HOLDER = "735db33b (pid 762805) since 2026-08-30T11:12:13.456Z"
@@ -104,3 +106,24 @@ def test_a_hook_payload_matching_on_both_routes_yields_its_subject_once():
 # dropped.
 def test_a_denial_naming_no_claim_time_is_dropped():
     assert subjects(f"{MAP} is held by session 735db33b, which is still running.") == []
+
+
+def test_a_truncated_hook_payload_is_unescaped_by_hand_and_says_so(capsys):
+    subjects(f'"permissionDecisionReason":"{MAP} is held by session {HOLDER}\\')
+    assert "fail-open: truncated reason unescaped by hand: JSONDecodeError" in (
+        capsys.readouterr().err
+    )
+
+
+def test_an_undated_record_is_counted_and_reported(corpus, capsys):
+    path = corpus(
+        "s1",
+        [{"type": "user", "timestamp": "not-a-date", "text": "is held by session"}],
+    )
+    tally = Counter()
+    start = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    events, _ = scan(start, datetime.now(timezone.utc), tally)
+    assert (events, tally["undated records"]) == (set(), 1)
+    assert f"fail-open: {path} record counted as undated: ValueError" in (
+        capsys.readouterr().err
+    )

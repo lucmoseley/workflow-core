@@ -569,3 +569,42 @@ assert bench.main(args) == 0
     assert set(out["hook_cpu_ms"]["old"]) == {"pre-applypatch"}
     assert out["before"]["load1"] and out["after"]["load1"]
     assert not list((tmp_path / ".claude" / "tmp").iterdir())
+
+
+# --- fail-open sites (#5487) ---------------------------------------------------
+
+
+def test_a_hook_exiting_before_its_stdin_is_read_is_still_a_run(tmp_path, capsys):
+    # Past the pipe buffer, so the write meets the closed pipe.
+    call = one_call(["exit 2"], b"x" * (1 << 20), dict(os.environ), str(tmp_path))
+    assert call["denies"] == 1
+    assert "fail-open: hook run without its stdin read: BrokenPipeError" in (
+        capsys.readouterr().err
+    )
+
+
+def test_no_child_at_all_counts_none_running(monkeypatch, capsys):
+    def none(pid, opts):
+        raise ChildProcessError(10, "No child processes")
+
+    monkeypatch.setattr(bench.os, "waitpid", none)
+    assert bench.reap_orphans() == 0
+    assert "fail-open: no child left, none counted running" in capsys.readouterr().err
+
+
+def test_a_process_gone_before_its_stat_is_read_is_skipped(monkeypatch, capsys):
+    monkeypatch.setattr(bench.os, "waitpid", lambda pid, opts: (0, 0))
+
+    def gone(self, *a, **kw):
+        raise FileNotFoundError(2, "No such file or directory", str(self))
+
+    monkeypatch.setattr(bench.Path, "read_text", gone)
+    assert bench.reap_orphans() == 0
+    assert "skipped as exited: FileNotFoundError" in capsys.readouterr().err
+
+
+def test_a_pid_no_longer_a_child_counts_as_reaped(capsys):
+    assert bench.reaped(os.getpid()) is True
+    assert f"fail-open: pid {os.getpid()} counted as reaped: ChildProcessError" in (
+        capsys.readouterr().err
+    )

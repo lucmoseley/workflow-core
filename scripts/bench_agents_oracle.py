@@ -27,6 +27,7 @@ import sys
 import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+from fail_open import fail_open
 from wfc_bin import bin_path
 
 # Samples, and seconds between them. Both are guesses at "tens of calls, spaced":
@@ -64,7 +65,8 @@ def proc_stat(pid):
         utime, stime = int(fields[11]), int(fields[12])
         rss_pages = int(fields[21])
         return rss_pages * PAGE // 1024, (utime + stime) / CLK
-    except (OSError, ValueError):
+    except (OSError, ValueError) as e:
+        fail_open(e, f"pid {pid} read as gone")
         return None
 
 
@@ -94,6 +96,17 @@ def session_process_census():
         elif "bg-spare" in line or "--resume" in line:
             spares += 1
     return pty_hosts, spares
+
+
+def oracle_sessions(stdout):
+    """The session count `claude agents --json` printed, or -1 where it will
+    not parse: a failed call is still a latency sample, and the summary counts
+    the -1s (#1274)."""
+    try:
+        return len(json.loads(stdout))
+    except (ValueError, TypeError) as e:
+        fail_open(e, "oracle output counted as unparsed (-1)")
+        return -1
 
 
 def meminfo_available_kb():
@@ -140,12 +153,7 @@ def main():
         rusage_after = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
         d_after = proc_stat(daemon) if daemon else None
 
-        try:
-            n_sessions = len(json.loads(proc.stdout))
-        except (ValueError, TypeError):
-            # A failed call is still a latency sample; -1 marks it and the
-            # summary counts it (#1274).
-            n_sessions = -1
+        n_sessions = oracle_sessions(proc.stdout)
 
         rows.append(
             {

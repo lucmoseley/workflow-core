@@ -27,6 +27,7 @@ from collections import Counter, defaultdict
 from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
+from fail_open import fail_open
 from transcript_corpus import counts_line, records_with_lines, seats
 
 HOOK_TIMEOUT = "timed out; blocking because onFailure"
@@ -48,8 +49,8 @@ def transcripts(since):
                 seen.add(real)
                 try:
                     st = os.stat(f)
-                except OSError:
-                    # Gone since the glob: nothing of it is left to count (#3223).
+                except OSError as e:
+                    fail_open(e, f"{f} skipped")
                     continue
                 rel = os.path.relpath(f, projects)
                 if st.st_mtime >= since and st.st_size > copies.get(rel, ("", -1))[1]:

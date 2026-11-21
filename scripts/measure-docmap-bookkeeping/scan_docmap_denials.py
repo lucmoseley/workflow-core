@@ -29,6 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
+from fail_open import fail_open
 
 # The subject actually held, anchored on the two prefixes a real denial puts in
 # front of it — a bare `(\\S+) is held` also matches a session READING
@@ -105,7 +106,8 @@ def hook_reasons(blob):
         raw = rest[:i]
         try:
             yield json.loads(f'"{raw}"')
-        except ValueError:
+        except ValueError as e:
+            fail_open(e, "truncated reason unescaped by hand")
             yield raw.replace("\\n", "\n").replace('\\"', '"')
 
 
@@ -152,7 +154,8 @@ def scan(start, end, tally):
             ts = rec.get("timestamp") or ""
             try:
                 when = parse_iso(ts)
-            except ValueError:
+            except ValueError as e:
+                fail_open(e, f"{path} record counted as undated")
                 tally["undated records"] += 1
                 continue
             if not (start <= when < end):

@@ -19,6 +19,7 @@ import os
 import subprocess
 from pathlib import Path
 
+from fail_open import fail_open
 from wfc_bin import bin_path
 
 
@@ -39,29 +40,27 @@ def host_root(cwd: str | None = None) -> str:
 
 
 def _owning_checkout(here: str) -> str:
-    """The main checkout owning `here`, else `here` itself."""
+    """The main checkout owning `here`, else `here` itself: where git names no
+    checkout, or cannot be run."""
     try:
-        top, common = (
-            subprocess.run(
-                [
-                    bin_path("git"),
-                    "rev-parse",
-                    "--path-format=absolute",
-                    "--show-toplevel",
-                    "--git-common-dir",
-                ],
-                cwd=here,
-                capture_output=True,
-                text=True,
-                check=True,
-            )
-            .stdout.strip()
-            .split("\n")
+        answer = subprocess.run(
+            [
+                bin_path("git"),
+                "rev-parse",
+                "--path-format=absolute",
+                "--show-toplevel",
+                "--git-common-dir",
+            ],
+            cwd=here,
+            capture_output=True,
+            text=True,
         )
-    except (OSError, subprocess.CalledProcessError):
-        # Not a git tree, or no git: the module docstring's fail-open to the
-        # directory asked from (#1).
+    except OSError as error:
+        fail_open(error, f"{here} taken as its own checkout")
         return _deref(here)
+    if answer.returncode != 0:
+        return _deref(here)
+    top, common = answer.stdout.strip().split("\n")
     return _deref(
         os.path.dirname(common) if os.path.basename(common) == ".git" else top
     )
@@ -69,8 +68,10 @@ def _owning_checkout(here: str) -> str:
 
 def _deref(path: str) -> str:
     """Symlinks dereferenced, or the path itself where it cannot be resolved."""
+    if not os.path.exists(path):
+        return path
     try:
         return str(Path(path).resolve(strict=True))
-    except OSError:
-        # A dangling or missing path still names the root it was given (#1274).
+    except OSError as error:
+        fail_open(error, f"{path} kept unresolved")
         return path

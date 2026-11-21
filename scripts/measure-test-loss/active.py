@@ -13,6 +13,7 @@ from collections import defaultdict
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import corpus
 from corpus import epoch
+from fail_open import fail_open
 
 # A malformed timestamp is a skipped line, counted beside the unparsed ones (#2823).
 BAD_TIMESTAMP = "bad timestamps"
@@ -43,8 +44,8 @@ def scan_file(path, repo, start, end, *, tally):
             continue
         try:
             t = epoch(t)
-        except ValueError:
-            # counted, never fatal (#2823)
+        except ValueError as e:
+            fail_open(e, f"timestamp in {path} skipped")
             tally[BAD_TIMESTAMP] += 1
             continue
         if (

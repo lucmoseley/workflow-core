@@ -260,3 +260,13 @@ def test_the_json_output_carries_every_skip_count(corpus, unkeyed, capsys):
     out = json.loads(capsys.readouterr().out)
     assert out["skipped"] == {"unreadable files": 0, "unparsed lines": 1, "unkeyed": 1}
     assert [r["id"] for r in out["sessions"]] == ["sess"]
+
+
+@pytest.mark.parametrize(
+    ("t0", "kind"), [(None, "AttributeError"), ("not-a-date", "ValueError")]
+)
+def test_an_unparsable_session_span_reads_as_none_and_says_so(t0, kind, capsys):
+    assert sea._minutes(t0, "2026-08-23T10:00:00Z") is None
+    assert f"fail-open: session minutes read as None: {kind}" in (
+        capsys.readouterr().err
+    )

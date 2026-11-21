@@ -16,6 +16,7 @@ sys.path.insert(
     0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib")
 )
 import transcript_corpus as tc
+from fail_open import fail_open
 
 # #2812 (the baseline)'s window, each scanner's default.
 START = "2026-10-10T04:10:00Z"
@@ -57,7 +58,8 @@ def transcripts(roots, t_start, tally, subagents=True):
     for root in roots:
         try:
             projects = sorted(os.listdir(root))
-        except OSError:
+        except OSError as e:
+            fail_open(e, f"{root} skipped")
             tally[tc.UNREADABLE] += 1
             continue
         for proj in projects:
@@ -75,7 +77,8 @@ def transcripts(roots, t_start, tally, subagents=True):
                     try:
                         if os.path.getmtime(p) < t_start:
                             continue
-                    except OSError:
+                    except OSError as e:
+                        fail_open(e, f"{p} skipped")
                         tally[tc.UNREADABLE] += 1
                         continue
                     yield repo, p

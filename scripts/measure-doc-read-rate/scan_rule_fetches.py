@@ -99,6 +99,7 @@ from scan_doc_reads import (
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "lib"))
 import transcript_corpus as tc
+from fail_open import fail_open
 
 
 def rules_dir():
@@ -134,7 +135,8 @@ def guard_ids():
             os.path.join(os.path.dirname(rules_dir()), "..", "..", GUARD),
             encoding="utf-8",
         ).read()
-    except OSError:
+    except OSError as e:
+        fail_open(e, "guard read as no rule ids")
         return set()
     return {i for run in IDS_ARRAY.findall(src) for i in QUOTED_ID.findall(run)}
 
@@ -156,7 +158,8 @@ def needles():
         try:
             with open(os.path.join(store, f"{rule}.txt"), encoding="utf-8") as fh:
                 text = fh.read().strip()
-        except OSError:
+        except OSError as e:
+            fail_open(e, f"rule {rule} given no needle")
             continue
         if len(text) >= NEEDLE:
             out[rule] = text[:NEEDLE]
@@ -172,9 +175,8 @@ NEEDLE = 60
 def store_ids():
     try:
         return {f[:-4] for f in os.listdir(rules_dir()) if f.endswith(".txt")}
-    except OSError:
-        # No store reads as every fetch refused; the output prints the store's
-        # size, so an empty read shows as 0 (#1274).
+    except OSError as e:
+        fail_open(e, "rule store read as empty")
         return set()
 
 

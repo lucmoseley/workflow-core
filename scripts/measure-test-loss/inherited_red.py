@@ -8,6 +8,11 @@ import json
 import os
 import sys
 
+sys.path.insert(
+    0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib")
+)
+from fail_open import fail_open
+
 d = sys.argv[1]
 STRETCHES = [
     ("2026-10-22T03:21", "2026-10-22T14:35"),
@@ -20,9 +25,8 @@ for n in [".test-fail-markers.archive.jsonl", ".test-fail-markers.jsonl"]:
     for line in open(os.path.join(d, n), errors="replace"):
         try:
             rows.append(json.loads(line))
-        except ValueError:
-            # A torn or partial line is skipped, as #2812 read the stores.
-            pass
+        except ValueError as e:
+            fail_open(e, f"torn line in {n} skipped")
 
 
 def norm(f):

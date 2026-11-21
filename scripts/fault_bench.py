@@ -32,6 +32,7 @@ HERE = Path(__file__).resolve().parent
 # lib/ beside the checkout's copy and the installed one alike (lib/user_timer.py).
 sys.path.insert(0, str(HERE / "lib"))
 import memwatch_minute  # noqa: E402
+from fail_open import fail_open  # noqa: E402
 from memwatch_minute import MINUTE_LOG  # noqa: E402
 
 # #3246's bench: 28 h, at which the `gradual` bench read 37.9 s, and 1,900 MB,
@@ -82,8 +83,8 @@ def windows_reading(minute_log, now):
     """`Windows N MB (S s old)` off memwatch's newest whole minute line."""
     try:
         sample = memwatch_minute.win_sample(memwatch_minute.newest_line(minute_log))
-    except OSError:
-        # No memwatch, so no Windows figure; the bench still stands (#4768).
+    except OSError as e:
+        fail_open(e, "Windows figure read as unread")
         return "Windows unread"
     if not sample:
         return "Windows unread"
@@ -106,8 +107,8 @@ def bench(python):
 def benched_this_boot(log, boot_id):
     try:
         lines = Path(log).read_text().splitlines()
-    except FileNotFoundError:
-        # No log yet, so no bench this boot (#4768).
+    except FileNotFoundError as e:
+        fail_open(e, f"{log} read as no bench this boot")
         return False
     tag = f" boot {boot_id} "
     return any(tag in line and NO_BENCH not in line for line in lines)

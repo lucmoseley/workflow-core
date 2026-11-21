@@ -52,6 +52,7 @@ from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 from claude_sessions import session_pair, spare_socket
+from fail_open import fail_open
 from is_under import relative_under
 from wfc_bin import bin_path
 
@@ -159,9 +160,8 @@ def read_proc_table():
                 stat = f.read()
             fields = stat[stat.rfind(")") + 2 :].split()
             table[int(name)] = (int(fields[1]), int(fields[19]))
-        except (OSError, IndexError, ValueError):
-            # Exited between listdir and read; nothing of it is left to sample
-            # (#1274).
+        except (OSError, IndexError, ValueError) as e:
+            fail_open(e, f"pid {name} left out of the proc table")
             continue
     return table
 
@@ -174,8 +174,8 @@ def pss_kb(pid):
             for line in f:
                 if line.startswith("Pss:"):
                     return int(line.split()[1])
-    except (OSError, IndexError, ValueError):
-        pass
+    except (OSError, IndexError, ValueError) as e:
+        fail_open(e, f"pid {pid} PSS read as gone")
     return None
 
 
@@ -183,9 +183,8 @@ def cmdline(pid):
     try:
         with open(f"/proc/{pid}/cmdline", "rb") as f:
             raw = f.read()
-    except OSError:
-        # Gone since the table was read: no argv, as for a kernel thread
-        # (#1274).
+    except OSError as e:
+        fail_open(e, f"pid {pid} argv read as empty")
         return []
     return [a.decode("utf-8", "replace") for a in raw.split(b"\0") if a]
 
@@ -196,8 +195,8 @@ def environ_var(pid, name):
     try:
         with open(f"/proc/{pid}/environ", "rb") as f:
             raw = f.read()
-    except OSError:
-        # A process gone or not ours names no seat; it is sampled (#5274).
+    except OSError as e:
+        fail_open(e, f"pid {pid} {name} read as unset")
         return None
     prefix = f"{name}=".encode()
     for entry in raw.split(b"\0"):
@@ -211,8 +210,8 @@ def read_marker(path):
     try:
         with open(path) as f:
             record = json.load(f)
-    except (OSError, ValueError):
-        # An unreadable marker confirms no seat, so nothing is left out (#5274).
+    except (OSError, ValueError) as e:
+        fail_open(e, f"{path} read as no marker")
         return None
     return record if isinstance(record, dict) else None
 
@@ -322,7 +321,8 @@ def list_sessions():
                 timeout=30,
             ).stdout
         )
-    except (OSError, subprocess.SubprocessError, ValueError):
+    except (OSError, subprocess.SubprocessError, ValueError) as e:
+        fail_open(e, "session list kept from the last sample")
         return None
     if not isinstance(listed, list):
         return None
@@ -509,7 +509,8 @@ def read_rows(path, int_fields, tally):
             try:
                 for field in int_fields:
                     int(row[field])
-            except (KeyError, TypeError, ValueError):
+            except (KeyError, TypeError, ValueError) as e:
+                fail_open(e, f"row of {os.path.basename(path)} dropped")
                 tally[os.path.basename(path)] += 1
                 continue
             rows.append(row)

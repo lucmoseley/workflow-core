@@ -30,12 +30,15 @@ def home(tmp_path, monkeypatch):
     return tmp_path
 
 
-def test_the_default_set_is_the_three_sibling_plans(home):
+def test_the_default_set_is_the_three_sibling_plans(home, capsys):
     assert tc.seats() == {
         str(home / ".claude"): "plan A",
         str(home / ".claude2"): "plan B",
         str(home / ".claude3"): "plan C",
     }
+    err = capsys.readouterr().err
+    assert "fail-open:" in err
+    assert f"{home / '.claude3'} deduped by its literal path" in err
 
 
 def test_the_session_config_dir_comes_first_and_is_not_repeated(home, monkeypatch):
@@ -84,13 +87,14 @@ def test_files_reads_one_root_when_named_and_every_seat_otherwise(seat_roots):
     assert tc.files(str(roots[1])) == [(sub, True)]
 
 
-def test_the_reader_yields_objects_and_counts_every_line_it_skips(tmp_path):
+def test_the_reader_yields_objects_and_counts_every_line_it_skips(tmp_path, capsys):
     p = tmp_path / "s.jsonl"
     p.write_text('{"a": 1}\nnot json\n\n[1, 2]\n{"b": 2}\n')
     tally = Counter()
     assert list(tc.records(str(p), tally)) == [{"a": 1}, {"b": 2}]
     # A blank line is no record, so no skip; a JSON array is not an object.
     assert tally == {"unparsed lines": 2}
+    assert capsys.readouterr().err.count("fail-open: line counted unparsed") == 1
 
 
 def test_a_line_holding_no_needle_is_never_parsed_or_counted(tmp_path):
@@ -104,10 +108,13 @@ def test_a_line_holding_no_needle_is_never_parsed_or_counted(tmp_path):
     assert tally == {"unparsed lines": 1}
 
 
-def test_a_file_that_will_not_open_is_counted_not_raised(tmp_path):
+def test_a_file_that_will_not_open_is_counted_not_raised(tmp_path, capsys):
     tally = Counter()
     assert list(tc.records(str(tmp_path / "gone.jsonl"), tally)) == []
     assert tally == {"unreadable files": 1}
+    err = capsys.readouterr().err
+    assert "fail-open:" in err
+    assert f"{tmp_path / 'gone.jsonl'} counted unreadable" in err
 
 
 def test_the_counts_line_prints_zeros_and_named_keys_in_order():
@@ -119,11 +126,43 @@ def test_the_counts_line_prints_zeros_and_named_keys_in_order():
     )
 
 
-def test_jlen_measures_utf8_bytes_and_zero_for_what_will_not_dump():
+def test_jlen_measures_utf8_bytes_and_zero_for_what_will_not_dump(capsys):
     assert tc.jlen(None) == 0
     assert tc.jlen("é") == 2
     assert tc.jlen({"a": "é"}) == len('{"a": "é"}'.encode())
+    assert capsys.readouterr().err == ""
     assert tc.jlen({1, 2}) == 0
+    err = capsys.readouterr().err
+    assert "fail-open:" in err
+    assert "value measured as 0 bytes" in err
+
+
+def test_a_seat_with_no_projects_dir_lists_only_its_main_slug_and_says_so(home, capsys):
+    seat = home / ".claude"
+    got = tc.roots_on(str(seat))
+    assert len(got) == 1
+    assert got[0].startswith(str(seat / "projects") + os.sep)
+    err = capsys.readouterr().err
+    assert "fail-open:" in err
+    assert f"{seat / 'projects'} read as listing no worktree slug" in err
+
+
+def test_a_copy_gone_since_the_listing_loses_the_largest_copy_vote(
+    tmp_path, monkeypatch, capsys
+):
+    kept = tmp_path / "a" / "s.jsonl"
+    kept.parent.mkdir()
+    kept.write_text("{}\n")
+    gone = str(tmp_path / "b" / "s.jsonl")
+    monkeypatch.setattr(
+        tc,
+        "transcript_files",
+        lambda: [("s.jsonl", gone, False, None), ("s.jsonl", str(kept), False, None)],
+    )
+    assert list(tc.one_copy_each()) == [(str(kept), False, None)]
+    err = capsys.readouterr().err
+    assert "fail-open:" in err
+    assert f"{gone} loses the largest-copy vote" in err
 
 
 def test_a_worktree_slug_is_a_root_beside_the_main_checkouts(

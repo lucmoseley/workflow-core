@@ -29,3 +29,20 @@ def test_main_transcripts_span_both_seat_roots(seat_roots):
         str(roots[0] / "a.jsonl"),
         str(roots[1] / "b.jsonl"),
     ]
+
+
+def test_a_day_whose_ledger_will_not_parse_is_dropped_and_reported(monkeypatch, capsys):
+    def unparsable(rev=None):
+        raise SystemExit("no §5 bullets at abcdef12")
+
+    monkeypatch.setattr(
+        sl, "window_days", lambda start, end: ["2026-08-20", "2026-08-21"]
+    )
+    monkeypatch.setattr(sl, "revision_on", lambda day, path: "abcdef1234")
+    monkeypatch.setattr(sl, "ledger_bytes_at", unparsable)
+    assert sl.sizes_by_date(None, None) == {}
+    err = capsys.readouterr().err
+    assert (
+        "fail-open: 2026-08-20 (abcdef12) dropped from the series: "
+        "SystemExit: no §5 bullets at abcdef12"
+    ) in err

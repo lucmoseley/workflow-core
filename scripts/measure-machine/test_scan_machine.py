@@ -419,3 +419,96 @@ def test_the_default_corpus_spans_every_seat_root(seat_roots):
         str(roots[1] / "s1.jsonl"),
         str(roots[1] / "s1" / "subagents" / "agent-x.jsonl"),
     ]
+
+
+# --- fail-open sites (#5487) ------------------------------------------------
+
+
+def test_a_kill_with_an_undatable_stamp_is_reported(capsys):
+    line = (
+        "Aug-18-15:00 Luctop earlyoom[853]: sending SIGTERM "
+        'to process 3487996 uid 1000 "2.1.234": badness 700, VmRSS 5638 MiB'
+    )
+    assert parse_earlyoom_kill(line) is None
+    err = capsys.readouterr().err
+    assert "fail-open: kill counted as undated: ValueError" in err
+
+
+def test_a_truncated_gzip_syslog_is_skipped_and_reported(tmp_path, capsys):
+    from scan_machine import read_syslogs
+
+    (tmp_path / "syslog.1.gz").write_bytes(b"\x1f\x8b\x08\x00broken")
+    tally = Counter()
+    assert list(read_syslogs(tally, str(tmp_path / "syslog*"))) == []
+    assert tally["unreadable syslogs"] == 1
+    assert "skipped" in capsys.readouterr().err
+
+
+def test_a_transcript_that_will_not_open_is_skipped_and_reported(
+    tmp_path, monkeypatch, capsys
+):
+    import scan_machine
+
+    gone = str(tmp_path / "gone.jsonl")
+    monkeypatch.setattr(scan_machine, "_transcript_files", lambda c, s=True: [gone])
+    tally = Counter()
+    assert scan_machine.transcript_spans(str(tmp_path), tally) == []
+    assert tally[scan_machine.tc.UNREADABLE] == 1
+    assert f"fail-open: {gone} skipped: FileNotFoundError" in capsys.readouterr().err
+
+
+def test_a_transcript_with_unparsable_stamps_is_skipped_and_reported(tmp_path, capsys):
+    from scan_machine import transcript_spans
+
+    p = tmp_path / "a.jsonl"
+    p.write_text('{"timestamp":"2026-13-45T99:00:00.000Z"}\n')
+    tally = Counter()
+    assert transcript_spans(str(tmp_path), tally) == []
+    assert tally["undated files"] == 1
+    assert f"fail-open: {p} skipped as undated: ValueError" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("scan", ["headroom", "bash"])
+def test_an_undated_record_is_skipped_and_reported(tmp_path, capsys, scan):
+    from scan_machine import headroom_readings, scan_bash_commands
+
+    p = _write_transcript(
+        tmp_path,
+        "a.jsonl",
+        [
+            {
+                "timestamp": "not a date",
+                "message": {"content": [{"name": "Bash", "input": {}}]},
+                "text": FREE_OUTPUT,
+            }
+        ],
+    )
+    tally = Counter()
+    if scan == "headroom":
+        assert headroom_readings(str(tmp_path), tally) == []
+    else:
+        assert scan_bash_commands(str(tmp_path), {"t": "x"}, tally) == {}
+    assert tally["undated records"] == 1
+    err = capsys.readouterr().err
+    assert f"fail-open: record in {p} skipped as undated: ValueError" in err
+
+
+def test_available_mb_is_none_and_reported_when_the_file_will_not_open(
+    tmp_path, capsys
+):
+    from sample_load import available_mb
+
+    gone = str(tmp_path / "meminfo")
+    assert available_mb(gone) is None
+    err = capsys.readouterr().err
+    assert f"fail-open: {gone} MemAvailable read as None: FileNotFoundError" in err
+
+
+def test_a_failed_ps_snapshot_reads_empty_and_is_reported(
+    tmp_path, monkeypatch, capsys
+):
+    from sample_load import ps_snapshot
+
+    monkeypatch.setenv("WFC_PS", str(tmp_path / "no-such-ps"))
+    assert ps_snapshot() == ""
+    assert "fail-open: ps snapshot read as empty" in capsys.readouterr().err

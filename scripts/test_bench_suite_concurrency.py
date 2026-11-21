@@ -72,6 +72,18 @@ class TestWatchdogNeverSignalsAReapedGroup:
         assert victims == []
 
 
+@pytest.mark.parametrize("error", [ProcessLookupError, PermissionError])
+def test_a_group_gone_or_not_ours_is_left_unkilled_and_named(
+    bench, monkeypatch, capsys, error
+):
+    def killpg(pgid, sig):
+        raise error("no such group")
+
+    monkeypatch.setattr(bench.os, "killpg", killpg)
+    assert bench.Watchdog._killpg(4242) is None
+    assert "fail-open: process group 4242 left unkilled" in capsys.readouterr().err
+
+
 class TestWatchdogThreshold:
     def test_above_the_floor_it_does_not_trip(self, bench):
         victims = []
@@ -112,8 +124,11 @@ class TestTornProcReadsAreSurvivable:
         assert bench.parse_ppid("42 (a b (c)) S 9 42 42 0 -1 0 0 0") == 9
 
     @pytest.mark.parametrize("torn", ["", "42 (node", "42 (node) S", "garbage"])
-    def test_ppid_returns_none_rather_than_raising(self, bench, torn):
+    def test_ppid_returns_none_rather_than_raising(self, bench, torn, capsys):
         assert bench.parse_ppid(torn) is None
+        assert (
+            "fail-open: torn stat read as an exited process" in capsys.readouterr().err
+        )
 
     def test_a_well_formed_stat_and_statm_pair_parses_with_rss_as_pages_times_page_size(
         self, bench
@@ -126,12 +141,41 @@ class TestTornProcReadsAreSurvivable:
         assert rss == 128 * bench.PAGE
 
     @pytest.mark.parametrize("torn", ["", "1 (x", "1 (x) S 0 1 2"])
-    def test_cpu_and_rss_return_none_rather_than_raising(self, bench, torn):
+    def test_cpu_and_rss_return_none_rather_than_raising(self, bench, torn, capsys):
         assert bench.parse_cpu_ticks_and_rss(torn, "500 128 3") is None
+        assert (
+            "fail-open: torn stat/statm read as an exited process"
+            in capsys.readouterr().err
+        )
 
-    def test_torn_statm_returns_none(self, bench):
+    def test_torn_statm_returns_none(self, bench, capsys):
         stat = "1 (x) S 0 " + " ".join(str(i) for i in range(20))
         assert bench.parse_cpu_ticks_and_rss(stat, "") is None
+        assert (
+            "fail-open: torn stat/statm read as an exited process"
+            in capsys.readouterr().err
+        )
+
+    # Above pid_max, so no live process owns it.
+    GONE = 99_999_999
+
+    def test_a_pid_gone_before_its_stat_opens_is_left_out_of_the_tree(
+        self, bench, monkeypatch, capsys
+    ):
+        monkeypatch.setattr(bench.os, "listdir", lambda _: [str(self.GONE)])
+        assert bench.children_map() == {}
+        assert (
+            f"fail-open: pid {self.GONE} left out of the process tree"
+            in capsys.readouterr().err
+        )
+
+    def test_a_pid_gone_before_its_stats_read_is_none(self, bench, capsys):
+        assert bench.proc_stats(self.GONE) is None
+        assert f"fail-open: pid {self.GONE} read as gone" in capsys.readouterr().err
+
+    def test_a_pid_gone_before_it_is_volunteered_is_false(self, bench, capsys):
+        assert bench.volunteer(self.GONE) is False
+        assert f"fail-open: pid {self.GONE} not volunteered" in capsys.readouterr().err
 
 
 class TestSessionCountingUnit:

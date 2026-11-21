@@ -20,6 +20,7 @@ import json
 import os
 from collections import defaultdict
 
+from fail_open import fail_open
 from host_root import host_root
 from is_under import relative_under
 from project_slug import project_slug
@@ -37,9 +38,8 @@ def _resolved(path):
     """Realpath where it resolves, the absolute literal path otherwise."""
     try:
         return os.path.realpath(path, strict=True)
-    except OSError:
-        # A seat dir that does not exist still dedupes by its literal path
-        # (#1274).
+    except OSError as error:
+        fail_open(error, f"{path} deduped by its literal path")
         return os.path.abspath(path)
 
 
@@ -111,8 +111,8 @@ def roots_on(seat):
     projects = os.path.join(seat, "projects")
     try:
         names = sorted(os.listdir(projects))
-    except OSError:
-        # The main slug carries this seat's failure to its caller (#1520).
+    except OSError as error:
+        fail_open(error, f"{projects} read as listing no worktree slug")
         names = []
     return [os.path.join(projects, main)] + [
         os.path.join(projects, n) for n in names if n != main and n.startswith(worktree)
@@ -191,9 +191,8 @@ def transcripts():
 def _size(path):
     try:
         return os.path.getsize(path)
-    except OSError:
-        # A copy gone since the listing loses the largest-copy vote; the
-        # scanner opening it counts the failure (#1274).
+    except OSError as error:
+        fail_open(error, f"{path} loses the largest-copy vote")
         return -1
 
 
@@ -247,7 +246,8 @@ def records_with_lines(path, tally, needle=None):
     """
     try:
         fh = open(path, encoding="utf-8", errors="replace")
-    except OSError:
+    except OSError as error:
+        fail_open(error, f"{path} counted unreadable")
         tally[UNREADABLE] += 1
         return
     with fh:
@@ -268,8 +268,9 @@ def _pairs(lines, tally, needle):
             continue
         try:
             rec = json.loads(line)
-        except ValueError:
+        except ValueError as error:
             if line.strip():
+                fail_open(error, "line counted unparsed")
                 tally[UNPARSED] += 1
             continue
         if not isinstance(rec, dict):
@@ -298,7 +299,6 @@ def jlen(x):
         return len(x.encode("utf-8", "replace"))
     try:
         return len(json.dumps(x, ensure_ascii=False).encode("utf-8", "replace"))
-    except (TypeError, ValueError, RecursionError):
-        # A value json.loads produced always dumps; 0 keeps a caller passing
-        # anything else from sinking the run (#1274).
+    except (TypeError, ValueError, RecursionError) as error:
+        fail_open(error, "value measured as 0 bytes")
         return 0

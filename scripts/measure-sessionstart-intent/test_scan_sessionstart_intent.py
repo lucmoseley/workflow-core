@@ -159,6 +159,17 @@ def test_a_job_whose_transcript_is_gone_is_reported_not_counted(tmp_path):
     assert result["skipped_no_transcript"] == 1
 
 
+def test_a_job_state_that_will_not_parse_is_skipped_and_reported(tmp_path, capsys):
+    jobs_dir, projects_dir = build(tmp_path, [("a", {}, [NAMED])])
+    state = os.path.join(jobs_dir, "a", "state.json")
+    with open(state, "w") as handle:
+        handle.write("{broken")
+    result = ssi.scan(jobs_dir, [projects_dir])
+    assert result["jobs_scanned"] == 0
+    assert result["skipped_unreadable_state"] == 1
+    assert f"fail-open: {state} skipped: JSONDecodeError" in capsys.readouterr().err
+
+
 def test_a_malformed_transcript_line_does_not_stop_the_scan(tmp_path):
     lines = ['{"hookEvent": broken', NAMED]
     result = scan(tmp_path, [("a", {}, lines)])

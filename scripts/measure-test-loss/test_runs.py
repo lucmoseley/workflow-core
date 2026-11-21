@@ -146,3 +146,19 @@ def test_a_missing_ledger_exits_non_zero_naming_it(tmp_path):
     )
     assert r.returncode == 1
     assert ".test-runs.jsonl" in r.stderr
+
+
+def test_a_torn_ledger_line_is_reported(tmp_path):
+    (tmp_path / ".test-runs.jsonl").write_text(
+        json.dumps(line("2026-10-21T00:00:00Z", "named", "green"))
+        + "\n"
+        + '{"startedAt": "2026-10-23T\n'
+    )
+    err = subprocess.run(
+        [sys.executable, "-I", RUNS, str(tmp_path), START, END],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stderr
+    ledger = tmp_path / ".test-runs.jsonl"
+    assert f"fail-open: torn line in {ledger} skipped: JSONDecodeError" in err

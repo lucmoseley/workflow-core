@@ -183,3 +183,14 @@ def test_install_names_the_rerun_when_systemctl_fails(tmp_path):
     )
     assert done.returncode == 1
     assert "re-run: python3 scripts/fault_bench.py install" in done.stderr
+
+
+def test_no_minute_log_reads_windows_unread_and_is_named(tmp_path, capsys):
+    assert f.windows_reading(tmp_path / "absent.jsonl", 0) == "Windows unread"
+    assert "fail-open: Windows figure read as unread" in capsys.readouterr().err
+
+
+def test_no_log_yet_reads_as_no_bench_this_boot_and_is_named(tmp_path, capsys):
+    log = tmp_path / "absent.log"
+    assert f.benched_this_boot(log, "abcdef12") is False
+    assert f"fail-open: {log} read as no bench this boot" in capsys.readouterr().err

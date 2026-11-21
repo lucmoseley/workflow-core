@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from hookset import hook_commands, layer_paths
+from hookset import hook_commands, layer_paths, load_layers
 
 HERE = Path(__file__).parent
 
@@ -113,7 +113,9 @@ def test_the_program_prints_the_set_from_the_layers_and_names_a_missing_one(tmp_
     )
     assert done.returncode == 0
     assert done.stdout.splitlines() == ["always", "everything"]
-    assert f"no layer at {tmp_path / 'config' / 'settings.json'}" in done.stderr
+    assert (
+        f"fail-open: no layer at {tmp_path / 'config' / 'settings.json'}" in done.stderr
+    )
 
 
 def test_the_program_refuses_a_bad_invocation():
@@ -121,3 +123,12 @@ def test_the_program_refuses_a_bad_invocation():
         [sys.executable, str(HERE / "hookset.py"), "PreToolUse"], capture_output=True
     )
     assert done.returncode == 1
+
+
+def test_a_missing_layer_is_left_out_and_named(tmp_path, capsys):
+    (tmp_path / "a.json").write_text("{}")
+    missing = tmp_path / "b.json"
+    assert load_layers([str(tmp_path / "a.json"), str(missing)]) == [{}]
+    assert f"fail-open: no layer at {missing}: FileNotFoundError" in (
+        capsys.readouterr().err
+    )

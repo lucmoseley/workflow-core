@@ -21722,6 +21722,10 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
+			"scripts/refill-loop-run-holds.test.ts",
+			"scripts/refill-loop-run-outside.test.ts",
+			"scripts/refill-loop-run-recovery.test.ts",
+			"scripts/refill-loop-run.test.ts",
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/failed-call-rules.js": [
@@ -59759,12 +59763,27 @@
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
+		"scripts/measure-test-loss/test_active.py": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/measure-test-loss/test_corpus.py": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
 		"scripts/measure-test-loss/test_report.py": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		"scripts/measure-test-loss/test_runs.py": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/measure-test-loss/test_store_readers.py": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
@@ -62502,6 +62521,13 @@
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/residue-patterns.test.ts",
 			"scripts/npm-run-hints-scan.test.ts"
+		],
+		"scripts/test_bench_agents_oracle.py": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/test_bench_suite_concurrency.py": [
 			"scripts/lib/generated-rule-copies.test.ts",
