@@ -991,59 +991,6 @@ const lines = (out) =>
 		.filter(Boolean);
 
 /**
- * Whether a run's verdict still holds at `sha`, and by which key (#189,
- * settling #150).
- *
- * A certificate keyed to a sha alone is voided by the acts between earning
- * it and needing it — the commit, the push, a neighbour's push — even when the
- * content tested is byte-identical (#148). So the certificate also attests the TREE it
- * read (`treeAtEnd`) plus the paths its verdict depended on (`closure`), and
- * a sha whose tree differs from that one only outside the closure is attested
- * by content. Three rules, in order, first match wins:
- *
- *   1. `m.sha === sha` — a sha fixes its tree.
- *      Every pre-#189 certificate matches this way and nothing is migrated.
- *   2. Otherwise the certificate needs `treeAtEnd` and `closure`; lacking either
- *      it holds at no other sha.
- *   3. `git diff-tree` between `treeAtEnd` and the sha's tree must touch
- *      nothing in `closure`. With `closure === "*"` (a full run) that is tree
- *      equality, checked as one `rev-parse` rather than a diff. A narrowed
- *      certificate carrying `selected` (#799) first widens its closure by every
- *      document the manifest AT THE SHA maps to a selected test, so an edit
- *      to an unselected test's edges refuses nothing; a manifest absent,
- *      unreadable or malformed at the sha holds nothing. A certificate without
- *      `selected` carries the manifest in its closure and is judged on that
- *      closure alone.
- *
- * A certificate recording its closure test by test (#1860) is judged by
- * `testsHeldAt` instead, test by test, and composed by `pairAttestation`.
- *
- * `countedPaths`, where given, is the only paths a diff-tree change counts on:
- * the commit's range (`attestationOf`), so a change
- * already on `main`, a merge of `origin/main`'s included, voids nothing — the
- * lander's full run tests it with the push (#2517). Residual: such a change
- * that a certificate's closure reads is tested with the pusher's work by no
- * run before the lander's.
- *
- * IT ASKS NOTHING OF THE RANGE. Whether the commit's range was selected for
- * is asked of the whole set of runs, by `attestationOf` (ADR-0009), never of a
- * lone run's `changedPaths` (#814).
- *
- * NOT A SCOPE PREDICATE. `isFullRun`/`isAdmissibleRun` say whether the run
- * was wide enough to answer the gate at all; this says whether it answers for
- * THIS sha. Every gate asks both — a hand-typed one-file certificate holds at its
- * tree exactly and still attests nothing.
- *
- * The closure is exactly as blind as the selection that produced it: a
- * document read through an imported helper enters neither the module graph
- * nor the manifest (mantahostels#2131), so a sha differing from the tree only there is
- * attested when it should not be — the same commit `npm run test` would have
- * run nothing for. Accepted at #150 Q5.
- *
- * Every git failure — an unknown sha, a tree git cannot read — holds
- * nothing. `cache` memoises the git calls across the certificates one gate reads,
- * since the store holds hundreds and the sha is the same for all of them.
- *
  * @typedef {{by: "sha"}|{by: "tree", tree: string, closureSize: number|"*"}} AttestationMatch
  * @param {Marker} m
  * @param {string} sha
@@ -1295,42 +1242,6 @@ function holdsTestByTree(m, test, sha, options = {}) {
 }
 
 /**
- * Whether certificates from any sessions attest a commit between them
- * (ADR-0009, #810), per suite.
- *
- * A MEMBER is a run whose scope answers the gate — full, or admissible — and
- * whose verdict holds at `sha` (`holdsAt`).
- * Every path in the range must lie in some member's `changedPaths`, and a full-run
- * member attests every path. An attested suite needs at least one member, so an
- * empty range is not attested by nothing.
- *
- * A PER-TEST CERTIFICATE HOLDS TEST BY TEST (#1860, `testsHeldAt`), so a path is
- * judged against each test that reads it. A range path P that no older certificate attests is attested when some
- * per-test member names P in its `changedPaths` with its roots, its tests and
- * their recorded imports untouched — the witness that a selection was
- * computed with P in view over the graph `sha` still has (ADR-0009) — and every
- * test that reads P at `sha` is held by some per-test member that selected
- * it, any session's and whatever its diff. A test reads P where the manifest
- * at `sha` maps P to it, where P is in its recorded imports, or where it is
- * P; only tests `sha` tracks are asked. An unattested P with a witness names
- * the readers no member holds (`tests`), the only runs owed for it.
- *
- * THE RANGE runs from the merge-base of `sha` with the verified ref
- * (lib/landing-refs.js) to `sha`. Where git cannot name it, nothing is judged. `within` narrows it to those paths: the
- * session's own work, for the re-run guard (#1218). An empty `within` leaves
- * an empty range, which any member holding at `sha` attests.
- *
- * ONLY A CHANGE TO A RANGE PATH voids a member
- * (`holdsAt`'s `countedPaths`, the range before `within`): a clean merge of
- * `origin/main` owes no re-run, the lander testing it (#2517), while a
- * file the merge changed beyond `main`'s side is in the range and voids.
- *
- * EACH SUITE ANSWERS FOR ITSELF (mantahostels#1256), over the suites
- * `suitesFor` asks the range about.
- *
- * An unattested verdict naming no path carries `why` instead: the range was
- * empty and no member held.
- *
  * @typedef {{marker: Marker, match: AttestationMatch}} Member
  * @typedef {{path: string, tests?: string[]}} Unattested
  * @typedef {{suite: string, attested: true, members: Member[], note: string|null}

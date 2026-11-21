@@ -1633,7 +1633,7 @@ describe("attesting a sha by tree (#189)", () => {
 	});
 });
 
-describe("certificates composed across sessions (#811, ADR-0009)", () => {
+describe("certificates composed across sessions (#811, #789)", () => {
 	const git = (cwd: string, ...args: string[]) =>
 		execFileSync("git", args, {
 			cwd,
@@ -2135,7 +2135,7 @@ describe("a narrowed certificate judged test by test (#1860)", () => {
 		).toBe(true);
 	});
 
-	it("never takes a re-run for the witness: a path no run's diff names stays owed (ADR-0009)", () => {
+	it("never takes a re-run for the witness: a path no run's diff names stays owed (#789)", () => {
 		const { dir, own } = replay();
 		const retest = perTest({
 			sha: own,

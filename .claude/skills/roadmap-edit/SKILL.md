@@ -83,9 +83,9 @@ scheduled census, is what lists it.
   so `check-doc-map.js`'s DEAD-ANCHOR check reads quoted locators only and skips
   every card path (`scripts/check-doc-map.js:1246-1249`), and the count FAIL fires
   on the sidecar edit this step exists to make.
-- **A card line citing mantahostels#3196, mantahostels#3197 or an ADR-0006
-  (`docs/adr/0006-disposal-writes-back-to-source.md`) write-back is a disposal
-  record, not card history: compress it if you must, never lose the pointer**
+- **A card line citing mantahostels#3196, mantahostels#3197 or a step 3
+  write-back is a disposal record, not card history: compress it if you must,
+  never lose the pointer**
   (mantahostels#3339). **Unenforced**: nothing reads a card body for the citation.
 - **A `capOk` exemption is void on touch**: a session editing a field a
   `capOk` entry names re-judges it on the spot — cut it under the ceiling and
@@ -169,15 +169,17 @@ never skip them.
    **Where this edit discharges an item a source declares open in its own
    words** — a gap ledger, a `Disposition: worth a ticket` row, a "no card
    covers this" or "parked — revisit as a card" note — write the closure
-   back to that source in the same commit, per
-   `docs/adr/0006-disposal-writes-back-to-source.md` §2: an editable source
-   has its declaring line edited in place or deleted; a `derived` or
-   `generated-only` one is written back at its generator's input, never by
-   hand; a declaration that is an aged sidecar marker
-   (`docs/doc-map-classes.json` `role`) is cleared there; a file that merely
-   mentions the area takes nothing. Grep for the
-   declaration; none found, nothing owed. Carry any edit into step 8's
-   pathspec.
+   back to that source in the same commit, by its authority class
+   (mantahostels#3205): an editable source has its declaring line edited in
+   place or deleted; a `derived` or `generated-only` one is written back at
+   its generator's input, never by hand; a declaration that is an aged
+   sidecar marker (`docs/doc-map-classes.json` `role`) is cleared there; a
+   file that merely mentions the area takes nothing. An edited line names
+   its owning card slug or issue and that the item is discharged; a deleted
+   one names its owner in the commit message. Grep for the declaration;
+   none found, nothing owed. Carry any edit into step 8's pathspec.
+   **Unenforced** (mantahostels#3184): a lexical gate would fire on every
+   already-disposed "no card covers" line as loudly as on a live one.
 
 4. **Apply the model/effort (`m`) and note (`mn`) fields correctly**, per
    [`FIELDS.md`](FIELDS.md).

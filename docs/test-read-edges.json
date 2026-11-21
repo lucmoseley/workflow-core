@@ -270,8 +270,7 @@
 		".claude/skills/card-close/SKILL.md": [
 			"scripts/check-context-budget.test.ts",
 			"scripts/lib/issue-close.test.ts",
-			"scripts/lib/plugin-tree.test.ts",
-			"scripts/write-back-routes.test.ts"
+			"scripts/lib/plugin-tree.test.ts"
 		],
 		".claude/skills/code-review": [
 			"scripts/check-context-budget.test.ts"
@@ -382,8 +381,7 @@
 			"scripts/npm-run-hints-scan.test.ts"
 		],
 		".claude/skills/roadmap-edit/SKILL.md": [
-			"scripts/check-context-budget.test.ts",
-			"scripts/write-back-routes.test.ts"
+			"scripts/check-context-budget.test.ts"
 		],
 		".claude/skills/roadmap-edit/scripts/gen-roadmap-digest.js": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
@@ -55582,8 +55580,7 @@
 			"scripts/prepare-commit-msg-gate.test.ts",
 			"scripts/queue-lander.test.ts",
 			"scripts/record-divergence.test.ts",
-			"scripts/rule-fallback-template.test.ts",
-			"scripts/write-back-routes.test.ts"
+			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/tracker-ops.js": [
 			"scripts/check-guard-errors.test.ts",
@@ -63455,13 +63452,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/worktree-transcript-readers.test.ts": [
-			"scripts/lib/generated-rule-copies.test.ts",
-			"scripts/lib/helper-surface.test.ts",
-			"scripts/lib/script-path-scan.test.ts",
-			"scripts/npm-run-hints-scan.test.ts",
-			"scripts/rule-fallback-template.test.ts"
-		],
-		"scripts/write-back-routes.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",

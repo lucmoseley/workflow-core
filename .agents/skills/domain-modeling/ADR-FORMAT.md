@@ -12,12 +12,13 @@ Create the `docs/adr/` directory lazily: only when the first ADR is needed.
 {1-3 sentences: what's the context, what did we decide, and why.}
 ```
 
-That's it. An ADR can be a single paragraph. The value is in recording *that* a decision was made and *why*, not in filling out sections.
+That's it. An ADR can be a single paragraph, and never runs past one page. The value is in recording *that* a decision was made and *why*, not in filling out sections.
 
 ## Optional sections
 
 Only include these when they add genuine value. Most ADRs won't need them.
 
+- **Options**: one line naming each serious alternative and why it lost
 - **Consequences**: only when non-obvious downstream effects need to be called out
 
 ## Changing a decision
@@ -30,13 +31,15 @@ Scan `docs/adr/` and its git history (`git log --diff-filter=D --name-only -- do
 
 ## When to offer an ADR
 
-All three of these must be true:
+The decision must concern architectural shape — a boundary, a cross-module pattern, a lock-in choice — and all three of these must be true:
 
 1. **Hard to reverse**: the cost of changing your mind later is meaningful
 2. **Surprising without context**: a future reader will look at the code and wonder "why on earth did they do it this way?"
 3. **The result of a real trade-off**: there were genuine alternatives and you picked one for specific reasons
 
 If a decision is easy to reverse, skip it: you'll just reverse it. If it's not surprising, nobody will wonder why. If there was no real alternative, there's nothing to record beyond "we did the obvious thing."
+
+A decision that passes the three tests but is not architectural takes no ADR: a process rule lives in the shipped skill or doc sessions act on, and a behaviour contract in the doc comment of the module that keeps it.
 
 ### What qualifies
 
