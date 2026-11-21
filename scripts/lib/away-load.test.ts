@@ -2,9 +2,11 @@
 // Pins the away-only load's verdicts (#5472): it starts only after 15 minutes
 // with no Windows input, stops on input or a stale reading, ends at #5346's
 // gate, holds Windows free memory in its band and keeps WSL's CPU over 550%.
+// Pure verdicts over seeded readings, so each boundary is one case; the
+// program's own I/O is away-load.test.ts's. Break it and the load can start
+// while the founder is at the laptop, or swing out of #5346's band.
 import { describe, expect, it } from "vitest";
 import {
-	AWAY_S,
 	decide,
 	GATE_MINUTES,
 	holdStep,
@@ -15,8 +17,15 @@ import {
 	workersFor,
 } from "./away-load.js";
 
+/* #5449's away trigger, in seconds. */
+const AWAY_S = 900;
 const NOW = 1_800_000_000;
-const reading = (idleS: number, availMb = 1500, ageS = 10, commitPct = 60) => ({
+const reading = (
+	idleS: number | null,
+	availMb = 1500,
+	ageS = 10,
+	commitPct = 60,
+) => ({
 	at: NOW - ageS,
 	availMb,
 	commitPct,
@@ -36,25 +45,27 @@ describe("decide", () => {
 		expect(decide({ ...base, reading: reading(AWAY_S - 1) }).kind).toBe("none");
 	});
 
-	it("never starts on a reading older than memwatch's bound", () => {
+	it("never starts on a reading older than memwatch's bound, or with no input time", () => {
 		expect(decide({ ...base, reading: reading(5000, 1500, 121) }).kind).toBe(
 			"none",
 		);
+		expect(decide({ ...base, reading: reading(null) }).kind).toBe("none");
 	});
 
-	it("stops on input, and on a stale or missing reading", () => {
+	it("stops on input, on a reading past 75 s, and on no input time", () => {
 		const running = { ...base, running: true };
 		expect(decide({ ...running, reading: reading(30) })).toMatchObject({
 			kind: "stop",
 			why: expect.stringContaining("input"),
 		});
-		expect(decide({ ...running, reading: reading(5000, 1500, 200) }).kind).toBe(
+		expect(decide({ ...running, reading: reading(5000, 1500, 76) }).kind).toBe(
 			"stop",
 		);
-		expect(decide({ ...running, reading: null }).kind).toBe("stop");
-		expect(decide({ ...running, reading: reading(AWAY_S + 60) }).kind).toBe(
+		expect(decide({ ...running, reading: reading(5000, 1500, 75) }).kind).toBe(
 			"none",
 		);
+		expect(decide({ ...running, reading: null }).kind).toBe("stop");
+		expect(decide({ ...running, reading: reading(null) }).kind).toBe("stop");
 	});
 
 	it("runs through input during a hand start, then by the usual rules", () => {
@@ -92,8 +103,10 @@ describe("decide", () => {
 });
 
 describe("holdStep", () => {
-	it("adds the excess over the band's aim, in whole chunks", () => {
-		expect(holdStep(reading(5000, 1500), [])).toEqual({ add: 704 });
+	it("adds the excess over the band's aim in holders of 128 MB at most", () => {
+		expect(holdStep(reading(5000, 1500), [])).toEqual({
+			add: [128, 128, 128, 128, 128, 64],
+		});
 	});
 
 	it("does nothing inside the band", () => {
@@ -101,10 +114,13 @@ describe("holdStep", () => {
 		expect(holdStep(reading(5000, 890), [{ mb: 64 }])).toBeNull();
 	});
 
-	it("drops the newest holder under the band", () => {
-		const a = { mb: 704 };
-		const b = { mb: 128 };
-		expect(holdStep(reading(5000, 700), [a, b])).toEqual({ drop: b });
+	it("drops the newest holders under the band until about the shortfall is freed", () => {
+		const held = [{ mb: 128 }, { mb: 128 }, { mb: 128 }, { mb: 128 }];
+		const step = holdStep(reading(5000, 700), held);
+		expect(step).toEqual({ drop: [held[3]] });
+		expect(holdStep(reading(5000, 600), held)).toEqual({
+			drop: [held[3], held[2]],
+		});
 		expect(holdStep(reading(5000, 700), [])).toBeNull();
 	});
 
@@ -112,7 +128,7 @@ describe("holdStep", () => {
 		expect(holdStep(reading(5000, 1500, 10, 85), [])).toBeNull();
 		expect(holdStep(reading(5000, 1500), [{ mb: 7980 }])).toBeNull();
 		expect(holdStep(reading(5000, 1500), [{ mb: 7800 }])).toEqual({
-			add: 192,
+			add: [128, 64],
 		});
 	});
 });
@@ -140,17 +156,18 @@ describe("workersFor", () => {
 });
 
 describe("readings", () => {
-	it("reads memwatch's raw Windows reading, idle seconds last", () => {
+	it("reads memwatch's raw Windows reading, idle seconds last, -1 as none", () => {
 		expect(
 			parseReading(
 				"1795258321 2315 207247550 121285203 19141615616 30715088896 42\n",
 			),
 		).toEqual({ at: 1_795_258_321, availMb: 2315, commitPct: 62, idleS: 42 });
+		expect(parseReading("1795258321 2315 1 2 3 4 -1")?.idleS).toBeNull();
 		expect(parseReading("1795258321 2315 1 2 3 4")).toBeNull();
 		expect(parseReading("")).toBeNull();
 	});
 
-	it("counts a minute by #5346's own check", () => {
+	it("counts a minute by #5346's own check, a 0 read as missing", () => {
 		const row = {
 			ts: "2026-11-21T19:00:00+0800",
 			cpu_busy_pct: 550,
@@ -158,6 +175,7 @@ describe("readings", () => {
 		};
 		expect(isPreconditionMinute(row)).toBe(true);
 		expect(isPreconditionMinute({ ...row, win_avail_mb: 900 })).toBe(false);
+		expect(isPreconditionMinute({ ...row, win_avail_mb: 0 })).toBe(false);
 		expect(isPreconditionMinute({ ...row, cpu_busy_pct: null })).toBe(false);
 		expect(isPreconditionMinute({ ...row, win_avail_mb: null })).toBe(false);
 		expect(

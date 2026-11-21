@@ -1,164 +1,242 @@
 // @vitest-environment node
-// Drives the away-only load's runner (#5472) against fakes of Testlimit,
-// taskkill and wevtutil: a start on 15 idle minutes holds memory and starts
-// CPU workers, input stops both and logs the pair, and after a new
-// Kernel-Power 41 `recover` runs git fsck in each repo and ends the runner.
-import { execFileSync } from "node:child_process";
+// Drives the away-only load (#5472) as a program against fakes of Testlimit,
+// taskkill and wevtutil at their WFC_ variables: a start on 15 idle minutes
+// holds memory and starts CPU workers, input stops both and logs the pair,
+// and after a new Kernel-Power 41 `recover` ends the runner and runs git fsck
+// in each repo. Break it and the load either never starts, or keeps loading
+// the laptop after the founder is back or after #5346 is already answered.
+//
+// spawn-kept: `run` is a loop a signal ends, and the case reads its log while
+// it runs. Its waits cross the real clock: the loop's own poll, bounded.
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { paths, Runner } from "./away-load.js";
+import { defineTemplate, initGitRepo } from "./lib/git-fixture";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "away-load.js");
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "away-load-"));
 afterAll(() => fs.rmSync(tmp, { recursive: true, force: true }));
+/* Untraced: many polls of the 100 ms loop on a loaded machine. */
+const WAIT_MS = 20_000;
+
+const repoTemplate = defineTemplate((dir) => {
+	const none = path.join(dir, ".git-no-hooks");
+	fs.mkdirSync(none);
+	initGitRepo(dir, none);
+	fs.rmdirSync(none);
+});
 
 /** A fresh directory of fakes and files, and the environment naming them. */
 function rig(name: string) {
 	const dir = path.join(tmp, name);
 	fs.mkdirSync(dir);
-	const calls = path.join(dir, "taskkill.calls");
 	const fake = (file: string, body: string) => {
 		fs.writeFileSync(path.join(dir, file), `#!/bin/sh\n${body}\n`, {
 			mode: 0o755,
 		});
 		return path.join(dir, file);
 	};
+	const files = {
+		calls: path.join(dir, "taskkill.calls"),
+		held: path.join(dir, "testlimit.args"),
+		workers: path.join(dir, "worker.pids"),
+	};
 	const env = {
-		AWAY_LOAD_STATE_DIR: path.join(dir, "state"),
-		AWAY_LOAD_LOG: path.join(dir, "away-load.jsonl"),
+		CLAUDE_PROJECT_DIR: tmp,
+		WFC_AWAY_LOAD_STATE_DIR: path.join(dir, "state"),
+		WFC_AWAY_LOAD_LOG: path.join(dir, "away-load.jsonl"),
+		WFC_AWAY_LOAD_POLL_MS: "100",
 		MEMWATCH_WIN_OUT: path.join(dir, "memwatch-win"),
 		MEMWATCH_MINUTE_LOG: path.join(dir, "minute.jsonl"),
-		AWAY_LOAD_TESTLIMIT: fake(
+		WFC_TESTLIMIT: fake(
 			"Testlimit64.exe",
-			'echo "Testlimit v5.24"; echo "Process ID: 4242"; exec sleep 600',
+			`echo "$*" >> "${files.held}"; echo "Process ID: 4242"; exec sleep 600`,
 		),
-		AWAY_LOAD_TASKKILL: fake("taskkill", `echo "$*" >> "${calls}"`),
-		AWAY_LOAD_WORKER: "exec sleep 600",
-		AWAY_LOAD_REPOS_ROOT: path.join(dir, "home"),
+		WFC_TASKKILL: fake("taskkill", `echo "$*" >> "${files.calls}"`),
+		WFC_AWAY_LOAD_WORKER: `echo $$ >> "${files.workers}"; exec sleep 600`,
+		WFC_AWAY_LOAD_REPOS_ROOT: path.join(dir, "home"),
 	};
-	return { dir, env, calls };
+	return { dir, env, files };
 }
 
-function events(log: string) {
-	return fs.existsSync(log)
-		? fs
-				.readFileSync(log, "utf8")
-				.trimEnd()
-				.split("\n")
-				.map((l) => JSON.parse(l))
-		: [];
+const read = (file: string) =>
+	fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
+const events = (log: string) =>
+	read(log)
+		.split("\n")
+		.filter(Boolean)
+		.map((l) => JSON.parse(l));
+
+async function until(what: string, test: () => boolean) {
+	const deadline = Date.now() + WAIT_MS;
+	while (!test()) {
+		if (Date.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+		await new Promise((r) => setTimeout(r, 50));
+	}
 }
 
 const epoch = () => Math.floor(Date.now() / 1000);
-const reading = (idleS: number, availMb: number) =>
-	`${epoch()} ${availMb} 1 2 60 100 ${idleS}\n`;
 
-describe("the run", () => {
+describe("run", () => {
 	it("starts on 15 idle minutes, holds and loads, and stops on input", async () => {
-		const { env, calls } = rig("run");
-		const runner = new Runner(paths({ ...process.env, ...env }));
-		fs.writeFileSync(env.MEMWATCH_WIN_OUT, reading(900, 1500));
-		fs.writeFileSync(
-			env.MEMWATCH_MINUTE_LOG,
-			`${JSON.stringify({ ts: "2026-11-21T19:00:00+0800", cpu_busy_pct: 300, load1: 6, win_avail_mb: 1500 })}\n`,
-		);
+		const { env, files } = rig("run");
+		fs.writeFileSync(env.MEMWATCH_WIN_OUT, `${epoch()} 1100 1 2 60 100 900\n`);
+		// spawn-kept: a signal — SIGTERM ends the run loop.
+		const child = spawn("node", [SCRIPT, "run"], {
+			env: { ...process.env, ...env },
+			stdio: "ignore",
+		});
+		const exited = new Promise((r) => child.on("exit", r));
 		try {
-			expect(runner.tick().kind).toBe("start");
-			expect(runner.holders.map((h: { mb: number }) => h.mb)).toEqual([704]);
-			expect(runner.workers).toHaveLength(4);
-			const deadline = Date.now() + 10_000;
-			while (runner.holders[0].winPid === null && Date.now() < deadline)
-				await new Promise((r) => setTimeout(r, 50));
-			expect(runner.holders[0].winPid).toBe(4242);
-			const workerPids = runner.workers.map((w) => w.pid ?? 0);
+			await until("the start", () =>
+				events(env.WFC_AWAY_LOAD_LOG).some((e) => e.event === "hold"),
+			);
+			/* A CPU minute only after the start: the first read takes the log whole. */
+			fs.writeFileSync(
+				env.MEMWATCH_MINUTE_LOG,
+				`${JSON.stringify({ ts: "2026-11-21T19:00:00+0800", cpu_busy_pct: 300, load1: 6 })}\n`,
+			);
+			await until(
+				"the workers",
+				() => read(files.workers).trim().split("\n").length === 4,
+			);
+			expect(read(files.held)).toBe(
+				"-accepteula -d 64 -c 2\n-accepteula -d 64 -c 2\n-accepteula -d 64 -c 1\n",
+			);
 
 			/* Input: the next reading shows 3 s idle. */
 			fs.writeFileSync(
 				env.MEMWATCH_WIN_OUT,
-				`${epoch() + 1} 1500 1 2 60 100 3\n`,
+				`${epoch() + 1} 1100 1 2 60 100 3\n`,
 			);
-			expect(runner.tick()).toMatchObject({ kind: "stop" });
-			expect(runner.holders).toEqual([]);
-			expect(runner.workers).toEqual([]);
-			expect(fs.readFileSync(calls, "utf8")).toContain("/PID 4242 /F");
-			expect(fs.readFileSync(calls, "utf8")).toContain(
-				"/IM Testlimit64.exe /F",
+			/* The stop is logged, then the holders and workers ended. */
+			await until("the stop", () => read(files.calls).includes("/PID 4242 /F"));
+			expect(events(env.WFC_AWAY_LOAD_LOG).map((e) => e.event)).toEqual([
+				"start",
+				"hold",
+				"workers",
+				"stop",
+			]);
+			expect(events(env.WFC_AWAY_LOAD_LOG).at(-1)).toMatchObject({
+				why: "Windows input 3 s before the reading",
+				heldMb: 320,
+				workers: 4,
+			});
+			expect(read(files.calls)).toContain("/PID 4242 /F");
+			expect(read(files.calls)).toContain("/IM Testlimit64.exe /F");
+			const pids = read(files.workers).trim().split("\n").map(Number);
+			await until("the workers' end", () =>
+				pids.every((pid) => {
+					try {
+						process.kill(pid, 0);
+						return false;
+					} catch {
+						return true;
+					}
+				}),
 			);
-			await new Promise((r) => setTimeout(r, 200));
-			for (const pid of workerPids)
-				expect(() => process.kill(pid, 0)).toThrow();
-			const kinds = events(env.AWAY_LOAD_LOG).map((e) => e.event);
-			expect(kinds).toEqual(["start", "hold", "workers", "stop"]);
-			const status = JSON.parse(
-				fs.readFileSync(
-					path.join(env.AWAY_LOAD_STATE_DIR, "status.json"),
-					"utf8",
-				),
-			);
-			expect(status).toMatchObject({ running: false, heldMb: 0, workers: 0 });
 		} finally {
-			runner.quit();
+			child.kill("SIGTERM");
+			await exited;
 		}
 	});
 });
 
 describe("recover", () => {
 	const recover = (env: Record<string, string>, reset: string) => {
-		const wevtutil = path.join(env.AWAY_LOAD_STATE_DIR, "..", "wevtutil");
+		const wevtutil = path.join(env.WFC_AWAY_LOAD_STATE_DIR, "..", "wevtutil");
 		fs.writeFileSync(
 			wevtutil,
 			`#!/bin/sh\nprintf 'Event[0]:\\r\\n  Date: ${reset}.4670000Z\\r\\n'\n`,
 			{ mode: 0o755 },
 		);
 		return runInProcessAsync(SCRIPT, ["recover"], {
-			env: {
-				...process.env,
-				...env,
-				AWAY_LOAD_WEVTUTIL: wevtutil,
-				CLAUDE_PROJECT_DIR: tmp,
-			},
+			env: { ...process.env, ...env, WFC_WEVTUTIL: wevtutil },
 		});
 	};
 
 	it("records the first reading and checks nothing", async () => {
 		const { env } = rig("recover-first");
-		expect((await recover(env, "2026-11-11T17:26:26")).status).toBe(0);
-		expect(events(env.AWAY_LOAD_LOG)).toEqual([]);
-		expect(fs.existsSync(path.join(env.AWAY_LOAD_STATE_DIR, "done"))).toBe(
+		const r = await recover(env, "2026-11-11T17:26:26");
+		expect(r).toMatchObject({ status: 0, stdout: "" });
+		expect(read(path.join(env.WFC_AWAY_LOAD_STATE_DIR, "seen-reset"))).toBe(
+			"2026-11-11T17:26:26\n",
+		);
+		expect(fs.existsSync(path.join(env.WFC_AWAY_LOAD_STATE_DIR, "done"))).toBe(
 			false,
 		);
 	});
 
-	it("after a new reset, runs git fsck in each repo and ends the runner", async () => {
+	it("after a new reset, ends the runner and runs git fsck in each repo", async () => {
 		const { env } = rig("recover-reset");
-		const repo = path.join(env.AWAY_LOAD_REPOS_ROOT, "alpha");
-		fs.mkdirSync(repo, { recursive: true });
-		execFileSync("git", ["init", "-q", repo]);
-		fs.mkdirSync(path.join(env.AWAY_LOAD_REPOS_ROOT, "not-a-repo"));
+		const repo = path.join(env.WFC_AWAY_LOAD_REPOS_ROOT, "alpha");
+		repoTemplate.instantiate(repo);
+		fs.mkdirSync(path.join(env.WFC_AWAY_LOAD_REPOS_ROOT, "not-a-repo"));
 		await recover(env, "2026-11-11T17:26:26");
-		expect((await recover(env, "2026-11-22T03:00:00")).status).toBe(0);
-		const logged = events(env.AWAY_LOAD_LOG);
+		const r = await recover(env, "2026-11-22T03:00:00");
+		expect(r.status).toBe(0);
+		const logged = events(env.WFC_AWAY_LOAD_LOG);
 		expect(logged.map((e) => e.event)).toEqual(["reset", "fsck"]);
 		expect(logged[1]).toMatchObject({ repo, ok: true });
-		expect(
-			fs.readFileSync(path.join(env.AWAY_LOAD_STATE_DIR, "done"), "utf8"),
-		).toContain("gate met (reset)");
+		expect(r.stdout).toContain('"event":"fsck"');
+		expect(read(path.join(env.WFC_AWAY_LOAD_STATE_DIR, "done"))).toBe(
+			"Kernel-Power 41 at 2026-11-22T03:00:00: the page-combining gate met (reset) (#5346)\n",
+		);
 	});
 });
 
-describe("the command line", () => {
-	it("refuses a hand start of no minutes", async () => {
+describe("hand-start", () => {
+	it("refuses a hand start of no minutes, writing nothing", async () => {
 		const { env } = rig("hand-start");
 		const r = await runInProcessAsync(
 			SCRIPT,
 			["hand-start", "--minutes", "0"],
-			{
-				env: { ...process.env, ...env, CLAUDE_PROJECT_DIR: tmp },
-			},
+			{ env: { ...process.env, ...env } },
 		);
 		expect(r.status).toBe(2);
+		expect(r.stderr).toContain("--minutes takes a whole number over 0");
+		expect(fs.existsSync(env.WFC_AWAY_LOAD_STATE_DIR)).toBe(false);
+	});
+});
+
+describe("sweep", () => {
+	it("reads no Testlimit running as swept, and any other failure as exit 1", async () => {
+		const { dir, env } = rig("sweep");
+		const taskkill = (body: string) => {
+			fs.writeFileSync(path.join(dir, "taskkill"), `#!/bin/sh\n${body}\n`);
+			return runInProcessAsync(SCRIPT, ["sweep"], {
+				env: { ...process.env, ...env },
+			});
+		};
+		expect(
+			(
+				await taskkill(
+					"echo 'ERROR: The process \"Testlimit64.exe\" not found.' >&2; exit 128",
+				)
+			).status,
+		).toBe(0);
+		const failed = await taskkill(
+			"echo 'ERROR: Access is denied.' >&2; exit 1",
+		);
+		expect(failed.status).toBe(1);
+		expect(failed.stderr).toContain("Access is denied");
+	});
+});
+
+describe("status", () => {
+	it("names the run's state, its end and the newest reset read", async () => {
+		const { env } = rig("status");
+		fs.mkdirSync(env.WFC_AWAY_LOAD_STATE_DIR);
+		fs.writeFileSync(path.join(env.WFC_AWAY_LOAD_STATE_DIR, "done"), "met\n");
+		const r = await runInProcessAsync(SCRIPT, ["status"], {
+			env: { ...process.env, ...env },
+		});
+		expect(r.status).toBe(0);
+		expect(r.stdout).toContain("status: none written");
+		expect(r.stdout).toContain("done: met");
+		expect(r.stdout).toContain("newest Kernel-Power 41 seen: none read");
 	});
 });

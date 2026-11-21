@@ -19,11 +19,15 @@
  *
  * It reads memwatch: the raw Windows reading for input and free memory, fresh
  * each minute, and the minute log for CPU and #5346's count. Any input stops
- * the load at the next reading, within about 65 s. It stops for good at
+ * the load at the next reading, within about 65 s, or 75 s where a read
+ * runs slow under the load; past that it stops on the stale reading. It stops for good at
  * #5346's gate either way. A reset kills it; at the next start, before the
  * refill loop's boot-resume relaunches the killed sessions, `recover` runs
  * `git fsck` in each repo (the 4 Nov reset left empty loose objects, #4264).
  * It never touches `.wslconfig`.
+ *
+ * In no family (§N3): an install command and a unit's own processes, not a
+ * checker or a guard.
  *
  * Exit codes: 0; 1 where install or a systemd call fails; 2 on a command line.
  */
@@ -36,8 +40,10 @@ const {
 	CHUNK_MB,
 	GATE_MINUTES,
 	decide,
+	heldMb,
 	holdStep,
 	isGateReset,
+	isPreconditionMinute,
 	minuteOf,
 	newestResetOf,
 	parseReading,
@@ -51,14 +57,21 @@ const { scriptPath } = require("./lib/script-path.js");
 const { systemctl } = require("./lib/systemd-bins.js");
 const { MinuteTail } = require("./lib/minute-tail.js");
 const { minuteLogPath } = require("./lib/windows-memory.js");
+const { readText } = require("./lib/file-read.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 const UNIT = "away-load.service";
 const USAGE = `usage: node ${scriptPath("away-load.js")} run | recover | sweep | hand-start [--minutes N] | status | install`;
+/* Untraced: long enough to read a settled band and CPU off three or four
+ * minute lines. */
 const HAND_MINUTES = 20;
 /* Untraced: a poll costs a few small reads, and the reading it waits on
  * changes once a minute. */
-const POLL_MS = Number(process.env.AWAY_LOAD_POLL_MS) || 5000;
+const POLL_MS = Number(process.env.WFC_AWAY_LOAD_POLL_MS) || 5000;
+/* Untraced: Testlimit prints its pid in its first lines, and an fsck's output
+ * past this is the same fault repeated. */
+const PID_SCAN_CHARS = 4096;
+const FSCK_OUT_CHARS = 4000;
 /* Untraced: about twice the longest the 4 Nov repos would take, guessed. */
 const FSCK_TIMEOUT_MS = 30 * 60 * 1000;
 const WIN = "/mnt/c/Windows/System32";
@@ -66,7 +79,7 @@ const WIN = "/mnt/c/Windows/System32";
 /** @param {NodeJS.ProcessEnv} env */
 function paths(env = process.env) {
 	const state =
-		env.AWAY_LOAD_STATE_DIR ||
+		env.WFC_AWAY_LOAD_STATE_DIR ||
 		path.join(
 			env.XDG_STATE_HOME || path.join(os.homedir(), ".local", "state"),
 			"away-load",
@@ -77,29 +90,34 @@ function paths(env = process.env) {
 		hand: path.join(state, "hand-until"),
 		done: path.join(state, "done"),
 		seen: path.join(state, "seen-reset"),
-		log: env.AWAY_LOAD_LOG || path.join(os.homedir(), "away-load.jsonl"),
+		log: env.WFC_AWAY_LOAD_LOG || path.join(os.homedir(), "away-load.jsonl"),
 		/* memwatch's MEMWATCH_WIN_OUT, by the same default. */
 		reading:
 			env.MEMWATCH_WIN_OUT ||
 			path.join(env.XDG_RUNTIME_DIR || "/tmp", "memwatch-win"),
 		minutes: env.MEMWATCH_MINUTE_LOG || minuteLogPath(),
-		testlimit:
-			env.AWAY_LOAD_TESTLIMIT || "/mnt/c/diag/testlimit/Testlimit64.exe",
-		taskkill: env.AWAY_LOAD_TASKKILL || `${WIN}/taskkill.exe`,
-		wevtutil: env.AWAY_LOAD_WEVTUTIL || `${WIN}/wevtutil.exe`,
-		worker: env.AWAY_LOAD_WORKER || "while :; do :; done",
-		repos: env.AWAY_LOAD_REPOS_ROOT || os.homedir(),
+		testlimit: env.WFC_TESTLIMIT || "/mnt/c/diag/testlimit/Testlimit64.exe",
+		taskkill: env.WFC_TASKKILL || `${WIN}/taskkill.exe`,
+		wevtutil: env.WFC_WEVTUTIL || `${WIN}/wevtutil.exe`,
+		worker: env.WFC_AWAY_LOAD_WORKER || "while :; do :; done",
+		repos: env.WFC_AWAY_LOAD_REPOS_ROOT || os.homedir(),
 	};
 }
 
-/** @param {string} file */
-function readText(file) {
-	try {
-		return fs.readFileSync(file, "utf8");
-	} catch {
-		return null;
-	}
+/**
+ * A state or reading file's text, null where it is absent; one that will not
+ * read is said on stderr, the journal, and read as absent, so a run stops.
+ * @param {string} file
+ */
+function textOf(file) {
+	const r = readText(file);
+	if (r.state === "read") return r.data;
+	if (r.state === "unreadable") writeFd(2, `${file}: ${r.message}\n`);
+	return null;
 }
+
+/** @param {ReturnType<typeof paths>} p */
+const doneOf = (p) => textOf(p.done)?.trim() || null;
 
 /**
  * @param {string} file
@@ -139,7 +157,7 @@ function sweep(p) {
 /**
  * @param {ReturnType<typeof paths>} p
  * @param {number} mb
- * @param {(h: LiveHolder) => void} onExit
+ * @param {(h: LiveHolder, code: number|null) => void} onExit
  * @returns {LiveHolder}
  */
 function startHolder(p, mb, onExit) {
@@ -150,15 +168,15 @@ function startHolder(p, mb, onExit) {
 	);
 	/** @type {LiveHolder} */
 	const holder = { mb, child, winPid: null };
-	let seen = "";
+	let output = "";
 	child.stdout?.on("data", (d) => {
 		if (holder.winPid !== null) return;
-		seen = (seen + d.toString()).slice(-4096);
-		const m = /Process ID: (\d+)/.exec(seen);
+		output = (output + d.toString()).slice(-PID_SCAN_CHARS);
+		const m = /Process ID: (\d+)/.exec(output);
 		if (m) holder.winPid = Number(m[1]);
 	});
-	child.on("exit", () => onExit(holder));
-	child.on("error", () => onExit(holder));
+	child.on("exit", (code) => onExit(holder, code));
+	child.on("error", () => onExit(holder, null));
 	return holder;
 }
 
@@ -177,7 +195,7 @@ class Runner {
 	/** @param {ReturnType<typeof paths>} p */
 	constructor(p) {
 		this.p = p;
-		this.tail = new MinuteTail(p.minutes);
+		this.tail = new MinuteTail(p.minutes, isPreconditionMinute);
 		this.running = false;
 		/** @type {string|null} */
 		this.startedAt = null;
@@ -186,12 +204,8 @@ class Runner {
 		/** @type {import("node:child_process").ChildProcess[]} */
 		this.workers = [];
 		this.lastReadingAt = 0;
-		/** @type {Record<string, unknown>} */
-		this.seen = {};
-	}
-
-	held() {
-		return this.holders.reduce((sum, h) => sum + h.mb, 0);
+		/** @type {Record<string, unknown>} the readings each log line carries */
+		this.readout = {};
 	}
 
 	/** @param {string|null} done */
@@ -203,7 +217,7 @@ class Runner {
 				pid: process.pid,
 				running: this.running,
 				startedAt: this.startedAt,
-				heldMb: this.held(),
+				heldMb: heldMb(this.holders),
 				holders: this.holders.map((h) => ({ winPid: h.winPid, mb: h.mb })),
 				workers: this.workers.length,
 				gateCount: this.tail.count,
@@ -223,28 +237,31 @@ class Runner {
 		if (error) logEvent(this.p, "sweep-failed", { error });
 	}
 
-	/** @param {LiveHolder} h */
-	onHolderExit(h) {
+	/**
+	 * A holder that ends unasked has freed its memory: the next reading tops
+	 * up. Its exit code says whether Testlimit holds at all.
+	 * @param {LiveHolder} h
+	 * @param {number|null} code
+	 */
+	onHolderExit(h, code) {
 		if (!this.holders.includes(h)) return;
 		this.holders = this.holders.filter((x) => x !== h);
-		logEvent(this.p, "holder-exited", { mb: h.mb, winPid: h.winPid });
+		logEvent(this.p, "holder-exited", { mb: h.mb, winPid: h.winPid, code });
 	}
 
-	/** One poll; returns what it decided, for a test. */
 	tick() {
 		const p = this.p;
-		const reading = parseReading(readText(p.reading) ?? "");
+		const reading = parseReading(textOf(p.reading) ?? "");
 		const newMinute = this.tail.advance();
-		const done = readText(p.done)?.trim() || null;
 		const verdict = decide({
 			now: Math.floor(Date.now() / 1000),
 			running: this.running,
 			reading,
-			handUntil: Number(readText(p.hand)) || null,
+			handUntil: Number(textOf(p.hand)) || null,
 			gateCount: this.tail.count,
-			done,
+			done: doneOf(p),
 		});
-		this.seen = {
+		this.readout = {
 			idleS: reading?.idleS ?? null,
 			winAvailMb: reading?.availMb ?? null,
 			busyPct: this.tail.last ? minuteOf(this.tail.last)?.busyPct : null,
@@ -253,8 +270,7 @@ class Runner {
 		this.act(verdict);
 		if (this.running && reading) this.steerHold(reading);
 		if (this.running && newMinute) this.steerWorkers();
-		this.writeStatus(readText(p.done)?.trim() || null);
-		return verdict;
+		this.writeStatus(doneOf(p));
 	}
 
 	/** @param {import("./lib/away-load.js").Verdict} verdict */
@@ -263,7 +279,7 @@ class Runner {
 			this.running = true;
 			this.startedAt = new Date().toISOString();
 			this.lastReadingAt = 0;
-			logEvent(this.p, "start", { why: verdict.why, ...this.seen });
+			logEvent(this.p, "start", { why: verdict.why, ...this.readout });
 			return;
 		}
 		if (verdict.kind === "none") return;
@@ -271,9 +287,9 @@ class Runner {
 		if (this.running)
 			logEvent(this.p, verdict.kind, {
 				why: verdict.why,
-				heldMb: this.held(),
+				heldMb: heldMb(this.holders),
 				workers: this.workers.length,
-				...this.seen,
+				...this.readout,
 			});
 		this.running = false;
 		this.startedAt = null;
@@ -287,23 +303,25 @@ class Runner {
 		const step = holdStep(reading, this.holders);
 		if (!step) return;
 		if ("add" in step) {
-			this.holders.push(
-				startHolder(this.p, step.add, (gone) => this.onHolderExit(gone)),
-			);
+			for (const mb of step.add)
+				this.holders.push(
+					startHolder(this.p, mb, (gone, code) =>
+						this.onHolderExit(gone, code),
+					),
+				);
 			logEvent(this.p, "hold", {
-				addMb: step.add,
-				heldMb: this.held(),
-				...this.seen,
+				addMb: step.add.reduce((a, b) => a + b, 0),
+				heldMb: heldMb(this.holders),
+				...this.readout,
 			});
 			return;
 		}
-		const h = step.drop;
-		this.holders = this.holders.filter((x) => x !== h);
-		stopHolder(this.p, h);
+		this.holders = this.holders.filter((x) => !step.drop.includes(x));
+		for (const h of step.drop) stopHolder(this.p, h);
 		logEvent(this.p, "release", {
-			dropMb: h.mb,
-			heldMb: this.held(),
-			...this.seen,
+			dropMb: heldMb(step.drop),
+			heldMb: heldMb(this.holders),
+			...this.readout,
 		});
 	}
 
@@ -319,14 +337,14 @@ class Runner {
 				}),
 			);
 		while (this.workers.length > want) this.workers.pop()?.kill("SIGKILL");
-		logEvent(this.p, "workers", { workers: want, ...this.seen });
+		logEvent(this.p, "workers", { workers: want, ...this.readout });
 	}
 
 	quit() {
 		if (this.running) logEvent(this.p, "stop", { why: "the unit stopped" });
 		this.running = false;
 		this.stopAll();
-		this.writeStatus(readText(this.p.done)?.trim() || null);
+		this.writeStatus(doneOf(this.p));
 	}
 }
 
@@ -372,9 +390,26 @@ function reposUnder(root) {
 		.sort();
 }
 
+/** @param {ReturnType<typeof paths>} p @param {string} repo */
+function fsck(p, repo) {
+	const r = spawnSync(
+		"nice",
+		["-n", "19", "git", "-C", repo, "fsck", "--no-progress", "--no-dangling"],
+		{ encoding: "utf8", timeout: FSCK_TIMEOUT_MS },
+	);
+	const out = `${r.stdout ?? ""}${r.stderr ?? ""}`.trim();
+	logEvent(p, "fsck", {
+		repo,
+		ok: r.status === 0,
+		status: r.status,
+		out: out.slice(0, FSCK_OUT_CHARS),
+	});
+}
+
 /**
- * After a Kernel-Power 41 newer than the last one seen: `git fsck` in each
- * repo, and where it meets #5346's gate, the runner's end. The first start
+ * After a Kernel-Power 41 newer than the last one seen: the runner's end where
+ * it meets #5346's gate, then `git fsck` in each repo, then the reset marked
+ * seen, so a start cut off part-way does all of it again. The first start
  * only records the newest, so a reset before the install checks nothing.
  */
 function recover() {
@@ -393,39 +428,18 @@ function recover() {
 		logEvent(p, "recover-unread", { error: read.error });
 		return 0;
 	}
-	const seen = readText(p.seen)?.trim() || null;
-	writeAtomic(p.seen, `${reset}\n`);
-	if (seen !== null && reset > seen) {
-		logEvent(p, "reset", { at: reset });
-		for (const repo of reposUnder(p.repos)) {
-			const r = spawnSync(
-				"nice",
-				[
-					"-n",
-					"19",
-					"git",
-					"-C",
-					repo,
-					"fsck",
-					"--no-progress",
-					"--no-dangling",
-				],
-				{ encoding: "utf8", timeout: FSCK_TIMEOUT_MS },
-			);
-			const out = `${r.stdout ?? ""}${r.stderr ?? ""}`.trim();
-			logEvent(p, "fsck", {
-				repo,
-				ok: r.status === 0,
-				status: r.status,
-				out: out.slice(0, 4000),
-			});
-		}
-	}
-	if ((seen === null || reset > seen) && isGateReset(reset))
+	const lastSeen = textOf(p.seen)?.trim() || null;
+	const isNew = lastSeen === null || reset > lastSeen;
+	if (isNew && isGateReset(reset))
 		writeAtomic(
 			p.done,
 			`Kernel-Power 41 at ${reset}: the page-combining gate met (reset) (#5346)\n`,
 		);
+	if (lastSeen !== null && isNew) {
+		logEvent(p, "reset", { at: reset });
+		for (const repo of reposUnder(p.repos)) fsck(p, repo);
+	}
+	writeAtomic(p.seen, `${reset}\n`);
 	return 0;
 }
 
@@ -446,9 +460,9 @@ function status() {
 	const active = runCommand(systemctl(), ["--user", "is-active", UNIT]);
 	const lines = [
 		`unit: ${active.out || active.error}`,
-		`status: ${readText(p.status)?.trim() ?? "none written"}`,
-		`done: ${readText(p.done)?.trim() ?? "no"}`,
-		`newest Kernel-Power 41 seen: ${readText(p.seen)?.trim() ?? "none read"}`,
+		`status: ${textOf(p.status)?.trim() ?? "none written"}`,
+		`done: ${textOf(p.done)?.trim() ?? "no"}`,
+		`newest Kernel-Power 41 seen: ${textOf(p.seen)?.trim() ?? "none read"}`,
 		`log: ${p.log}`,
 	];
 	writeFd(1, `${lines.join("\n")}\n`);
@@ -542,7 +556,7 @@ async function main(argv = process.argv.slice(2)) {
 	}
 }
 
-module.exports = { Runner, main, paths, reposUnder };
+module.exports = { main };
 
 if (require.main === module)
 	main().then(

@@ -493,6 +493,17 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 			expect(row.win_age_s).toBeGreaterThanOrEqual(5);
 		});
 
+		it("keeps the memory counters where the input time would not read", async () => {
+			const out = path.join(tmp, "win-no-idle");
+			fs.writeFileSync(out, reading(5).replace(/ 1250\n$/, " -1\n"));
+			const { lines } = await quietPass("minute-win-no-idle", {
+				MEMWATCH_WIN_OUT: out,
+			});
+			const row = JSON.parse(lines[0]);
+			expect(row.win_avail_mb).toBe(1344);
+			expect(row.win_idle_s).toBeNull();
+		});
+
 		it("writes nulls for a reading more than two minutes old", async () => {
 			const out = path.join(tmp, "win-stale");
 			fs.writeFileSync(out, reading(600));

@@ -23,16 +23,21 @@ const BAND_LOW_MB = 760;
 const BAND_HIGH_MB = 890;
 const BAND_AIM_MB = 825;
 
-/* memwatch's own bound on a reading's age (WIN_MAX_AGE_S): past it the runner
- * cannot see input, so it stops. */
+/* memwatch's own bound on a reading's age (WIN_MAX_AGE_S) starts nothing
+ * past it. While loaded the bound is one minute's read plus 15 s for a read
+ * slowed by the load (0.5-7 s measured, #4159) and the poll: past it the
+ * runner cannot see input, so it stops. */
 const READING_MAX_AGE_S = 120;
+const RUNNING_MAX_AGE_S = 75;
 
-/* Untraced margins. A holder is one Testlimit process; its pages are not
- * locked, so Windows can trim them and the runner tops up, which the commit
- * line and the total bound. The CPU aim sits over the precondition line so a
- * minute's dip stays over it; load1 stays clear of the load ceiling's 24
- * (lib/cpu-sample.js), which would hold every slot. */
+/* Untraced margins. A holder is one Testlimit process of HOLDER_MB, so a
+ * release under the band frees about what it is short and never GBs; its
+ * pages are not locked, so Windows can trim them and the runner tops up,
+ * which the commit line and the total bound. The CPU aim sits over the
+ * precondition line so a minute's dip stays over it; load1 stays clear of the
+ * load ceiling's 24 (lib/cpu-sample.js), which would hold every slot. */
 const CHUNK_MB = 64;
+const HOLDER_MB = 2 * CHUNK_MB;
 const MAX_HELD_MB = 8000;
 const MAX_COMMIT_PCT = 85;
 const BUSY_LOW_PCT = 580;
@@ -42,40 +47,28 @@ const MAX_WORKERS = 7;
 const LOAD1_LINE = 20;
 
 /**
- * @typedef {{ at: number, availMb: number, commitPct: number, idleS: number }} Reading
+ * @typedef {{ at: number, availMb: number, commitPct: number, idleS: number|null }} Reading
  *   memwatch's newest Windows reading: epoch seconds, free MB, commit charge
- *   as a percentage of the limit, seconds since the last input.
+ *   as a percentage of the limit, seconds since the last input, null where
+ *   that read failed.
  * @typedef {{ ts: string, busyPct: number|null, load1: number|null }} Minute
  */
 
 /**
  * memwatch's raw reading file: epoch, free MB, pages in, pages out, commit
- * charge, commit limit, idle seconds.
+ * charge, commit limit, idle seconds (-1 where that read failed).
  * @param {string} text
  * @returns {Reading|null}
  */
 function parseReading(text) {
-	const m = /^(\d+) (\d+) \d+ \d+ (\d+) (\d+) (\d+)\s*$/.exec(text);
+	const m = /^(\d+) (\d+) \d+ \d+ (\d+) (\d+) (-1|\d+)\s*$/.exec(text);
 	if (!m || Number(m[4]) === 0) return null;
 	return {
 		at: Number(m[1]),
 		availMb: Number(m[2]),
 		commitPct: Math.floor((Number(m[3]) * 100) / Number(m[4])),
-		idleS: Number(m[5]),
+		idleS: m[5] === "-1" ? null : Number(m[5]),
 	};
-}
-
-/**
- * @param {string} line one line of `~/memwatch-minute.jsonl`
- * @returns {Record<string, unknown>|null}
- */
-function parseRow(line) {
-	if (line[0] !== "{" || line.trimEnd().slice(-1) !== "}") return null;
-	try {
-		return JSON.parse(line);
-	} catch {
-		return null;
-	}
 }
 
 /** @param {Record<string, unknown>} row @returns {Minute|null} */
@@ -86,12 +79,13 @@ function minuteOf(row) {
 }
 
 /**
- * Whether a minute line counts toward #5346's gate, by its own check.
+ * Whether a minute line counts toward #5346's gate, by its own check, whose
+ * `or` reads a 0 as missing.
  * @param {Record<string, unknown>} row
  */
 function isPreconditionMinute(row) {
-	const busy = typeof row.cpu_busy_pct === "number" ? row.cpu_busy_pct : 0;
-	const win = typeof row.win_avail_mb === "number" ? row.win_avail_mb : 9e9;
+	const busy = Number(row.cpu_busy_pct) || 0;
+	const win = Number(row.win_avail_mb) || 9e9;
 	return (
 		typeof row.ts === "string" &&
 		row.ts.slice(0, 16) >= GATE_SINCE &&
@@ -101,7 +95,8 @@ function isPreconditionMinute(row) {
 }
 
 /**
- * The newest Kernel-Power 41's local time from `wevtutil qe … /f:text`.
+ * The newest Kernel-Power 41's `Date:` from `wevtutil qe … /f:text`, compared
+ * as #5346's own check compares it.
  * @param {string} text
  * @returns {string|null} `YYYY-MM-DDTHH:MM:SS`
  */
@@ -136,59 +131,75 @@ function decide(s) {
 			kind: "finish",
 			why: `the page-combining gate met (clean): ${s.gateCount} of ${GATE_MINUTES} precondition minutes (#5346)`,
 		};
-	const hand = s.handUntil !== null && s.now < s.handUntil;
-	const fresh =
-		s.reading !== null && s.now - s.reading.at <= READING_MAX_AGE_S
-			? s.reading
-			: null;
-	if (hand)
+	if (s.handUntil !== null && s.now < s.handUntil)
 		return s.running ? { kind: "none" } : { kind: "start", why: "hand start" };
-	return s.running ? whileRunning(fresh) : whileWaiting(fresh);
+	const ageS = s.reading === null ? null : s.now - s.reading.at;
+	return s.running
+		? whileRunning(s.reading, ageS)
+		: whileWaiting(s.reading, ageS);
 }
 
-/** @param {Reading|null} fresh @returns {Verdict} */
-function whileWaiting(fresh) {
-	return fresh && fresh.idleS >= AWAY_S
-		? { kind: "start", why: `no Windows input for ${fresh.idleS} s` }
+/** @param {Reading|null} r @param {number|null} ageS @returns {Verdict} */
+function whileWaiting(r, ageS) {
+	return r?.idleS != null &&
+		ageS !== null &&
+		ageS <= READING_MAX_AGE_S &&
+		r.idleS >= AWAY_S
+		? { kind: "start", why: `no Windows input for ${r.idleS} s` }
 		: { kind: "none" };
 }
 
-/** @param {Reading|null} fresh @returns {Verdict} */
-function whileRunning(fresh) {
-	if (!fresh)
+/** @param {Reading|null} r @param {number|null} ageS @returns {Verdict} */
+function whileRunning(r, ageS) {
+	if (!r || ageS === null || ageS > RUNNING_MAX_AGE_S)
 		return {
 			kind: "stop",
-			why: `no Windows reading under ${READING_MAX_AGE_S} s old`,
+			why: `no Windows reading under ${RUNNING_MAX_AGE_S} s old`,
 		};
-	if (fresh.idleS < AWAY_S)
+	if (r.idleS === null)
+		return { kind: "stop", why: "Windows' input time would not read" };
+	if (r.idleS < AWAY_S)
 		return {
 			kind: "stop",
-			why: `Windows input ${fresh.idleS} s before the reading`,
+			why: `Windows input ${r.idleS} s before the reading`,
 		};
 	return { kind: "none" };
 }
 
+/** @param {{ mb: number }[]} holders */
+const heldMb = (holders) => holders.reduce((sum, h) => sum + h.mb, 0);
+
 /**
- * The memory hold's step on a new reading: a holder to add, one to drop, or
- * nothing. The newest holder drops first, so the oldest, least likely to be
- * trimmed half-way, stay.
+ * The memory hold's step on a new reading: holders to add, of HOLDER_MB at
+ * most, newest holders to drop until about the shortfall is freed, or nothing.
  * @template {{ mb: number }} H
  * @param {Reading} reading
  * @param {H[]} holders oldest first
- * @returns {{ add: number } | { drop: H } | null}
+ * @returns {{ add: number[] } | { drop: H[] } | null}
  */
 function holdStep(reading, holders) {
-	const held = holders.reduce((sum, h) => sum + h.mb, 0);
 	if (reading.availMb < BAND_LOW_MB) {
-		const last = holders.at(-1);
-		return last ? { drop: last } : null;
+		const drop = [];
+		let freed = 0;
+		for (const h of [...holders].reverse()) {
+			if (freed >= BAND_AIM_MB - reading.availMb) break;
+			drop.push(h);
+			freed += h.mb;
+		}
+		return drop.length > 0 ? { drop } : null;
 	}
 	if (reading.availMb <= BAND_HIGH_MB || reading.commitPct >= MAX_COMMIT_PCT)
 		return null;
 	const want = Math.ceil((reading.availMb - BAND_AIM_MB) / CHUNK_MB) * CHUNK_MB;
-	const room = Math.floor((MAX_HELD_MB - held) / CHUNK_MB) * CHUNK_MB;
-	const add = Math.min(want, room);
-	return add > 0 ? { add } : null;
+	const room =
+		Math.floor((MAX_HELD_MB - heldMb(holders)) / CHUNK_MB) * CHUNK_MB;
+	let left = Math.min(want, room);
+	const add = [];
+	while (left > 0) {
+		add.push(Math.min(HOLDER_MB, left));
+		left -= HOLDER_MB;
+	}
+	return add.length > 0 ? { add } : null;
 }
 
 /**
@@ -210,22 +221,15 @@ function workersFor(minute, workers) {
 }
 
 module.exports = {
-	AWAY_S,
-	BAND_HIGH_MB,
-	BAND_LOW_MB,
 	CHUNK_MB,
 	GATE_MINUTES,
-	GATE_SINCE,
-	MAX_WORKERS,
-	READING_MAX_AGE_S,
-	RESET_AFTER,
 	decide,
+	heldMb,
 	holdStep,
 	isGateReset,
 	isPreconditionMinute,
 	minuteOf,
 	newestResetOf,
 	parseReading,
-	parseRow,
 	workersFor,
 };

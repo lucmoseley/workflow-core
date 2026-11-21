@@ -12392,7 +12392,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/away-load.js": [
-			"scripts/away-load.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
@@ -16742,7 +16741,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/cli-args.js": [
-			"scripts/away-load.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
@@ -34108,7 +34106,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/minute-tail.js": [
-			"scripts/away-load.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
@@ -42319,7 +42316,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-code.js": [
-			"scripts/away-load.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
@@ -42543,7 +42539,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/refill-files.js": [
-			"scripts/away-load.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
@@ -48062,7 +48057,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/run-command.js": [
-			"scripts/away-load.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
@@ -49053,7 +49047,6 @@
 			"scripts/admission.test.ts",
 			"scripts/adopter-landing.test.ts",
 			"scripts/adopter-rule-copies.test.ts",
-			"scripts/away-load.test.ts",
 			"scripts/burn-mode.test.ts",
 			"scripts/check-context-budget.test.ts",
 			"scripts/check-guard-errors.test.ts",
@@ -53650,7 +53643,6 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/systemd-bins.js": [
-			"scripts/away-load.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
@@ -57661,7 +57653,6 @@
 		],
 		"scripts/lib/windows-memory.js": [
 			"scripts/admission.test.ts",
-			"scripts/away-load.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
@@ -58201,7 +58192,6 @@
 			"scripts/adopter-hook-errexit.test.ts",
 			"scripts/adopter-hook-shim.test.ts",
 			"scripts/alarm-notice.test.ts",
-			"scripts/away-load.test.ts",
 			"scripts/burn-mode.test.ts",
 			"scripts/check-citation-tracker.test.ts",
 			"scripts/check-clock-copies.test.ts",
