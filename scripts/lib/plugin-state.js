@@ -429,21 +429,15 @@ function installPathFor(configDir, marketplace, pluginName, version) {
 	);
 }
 
-/* `findInstallRecord` and `resolveConfigDir` are exported for
- * `scripts/reconcile-plugin.js` (#247, the SessionEnd materialiser), which
- * needs the two reads separately rather than as one state record (§N7). */
 module.exports = {
 	readPluginState,
-	/* scripts/pick-retro-sessions.js reads repo settings with it. */
 	readJsonSafe,
 	isCoreHost,
 	shipsPlugin,
 	findPin,
-	/* lib/landing-pin.js reads a served repo's pin with it. */
 	readPin,
 	resolveMarketplace,
 	findInstallRecord,
-	/* scripts/check-release-lag.js reads a row's version from it where the row records none. */
 	readRunningPlugin,
 	resolveConfigDir,
 	isTagRef,

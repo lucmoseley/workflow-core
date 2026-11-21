@@ -726,8 +726,6 @@ module.exports = {
 	groupByRepeatedError,
 	buildCollapsedFailureLine,
 	unreachableRemedy,
-	/* Exported for repo-checks.js, which spawns checkers reading through here
-	 * (#1566). */
 	MAX_BUFFER,
 	GH_TIMEOUT_MS,
 	ISSUE_LIST_LIMIT,

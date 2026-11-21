@@ -4631,8 +4631,6 @@ module.exports = {
 	staleExemptionMarkers,
 	malformedExemptionMarkers,
 	readMapTextAt,
-	// Consumed by check-doc-map.js's assertion 16 (mantahostels#1788) — it reads the
-	// same already-committed rev list for the pool delta and for the ledger.
 	readParentRevs,
 	newOverCapEntries,
 	unrecordedAdmissions,
@@ -4646,9 +4644,6 @@ module.exports = {
 	LEDGER_ENTRY_CAP_BYTES,
 	shedLedgerEntries,
 	overCapLedgerEntries,
-	// PREDICTION_MARKER stays file-local: nothing outside compactionVerdictFaults
-	// reads a prediction. VERDICT_MARKER is check-doc-map.js's, for the shape its
-	// advice string tells a session to write.
 	VERDICT_MARKER,
 	compactionVerdictFaults,
 	readSectionBBirths,
