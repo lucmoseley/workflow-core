@@ -134,7 +134,7 @@ def test_a_torn_last_line_is_dropped_and_counted_against_its_file_not_failing_th
     rows = m.read_rows(str(path), ("ts", "own_pss_kb", "desc_pss_kb"), torn)
     assert [r["ts"] for r in rows] == ["1"]
     assert torn == {"sessions.csv": 1}
-    assert "fail-open: row of sessions.csv dropped" in capsys.readouterr().err
+    assert capsys.readouterr().err == ""
 
 
 def test_a_gzipped_csv_is_read_where_the_plain_one_is_absent(tmp_path):
@@ -171,9 +171,7 @@ def test_a_pid_gone_before_its_stat_reads_is_left_out_of_the_table(monkeypatch, 
     # fixture can time.
     monkeypatch.setattr(m.os, "listdir", lambda _: [str(GONE)])
     assert m.read_proc_table() == {}
-    assert (
-        f"fail-open: pid {GONE} left out of the proc table" in capsys.readouterr().err
-    )
+    assert capsys.readouterr().err == ""
 
 
 @pytest.mark.parametrize(

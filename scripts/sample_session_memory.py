@@ -52,7 +52,7 @@ from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
 from claude_sessions import session_pair, spare_socket
-from fail_open import fail_open
+from fail_open import expected, fail_open, tallied
 from is_under import relative_under
 from wfc_bin import bin_path
 
@@ -160,7 +160,10 @@ def read_proc_table():
                 stat = f.read()
             fields = stat[stat.rfind(")") + 2 :].split()
             table[int(name)] = (int(fields[1]), int(fields[19]))
-        except (OSError, IndexError, ValueError) as e:
+        except (FileNotFoundError, ProcessLookupError) as e:
+            expected(e, f"pid {name} exited since the listing")
+            continue
+        except (IndexError, ValueError) as e:
             fail_open(e, f"pid {name} left out of the proc table")
             continue
     return table
@@ -510,8 +513,7 @@ def read_rows(path, int_fields, tally):
                 for field in int_fields:
                     int(row[field])
             except (KeyError, TypeError, ValueError) as e:
-                fail_open(e, f"row of {os.path.basename(path)} dropped")
-                tally[os.path.basename(path)] += 1
+                tallied(e, tally, os.path.basename(path))
                 continue
             rows.append(row)
     return rows

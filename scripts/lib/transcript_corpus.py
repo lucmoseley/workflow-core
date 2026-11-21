@@ -20,7 +20,7 @@ import json
 import os
 from collections import defaultdict
 
-from fail_open import fail_open
+from fail_open import fail_open, tallied
 from host_root import host_root
 from is_under import relative_under
 from project_slug import project_slug
@@ -247,8 +247,7 @@ def records_with_lines(path, tally, needle=None):
     try:
         fh = open(path, encoding="utf-8", errors="replace")
     except OSError as error:
-        fail_open(error, f"{path} counted unreadable")
-        tally[UNREADABLE] += 1
+        tallied(error, tally, UNREADABLE)
         return
     with fh:
         yield from _pairs(fh, tally, needle)
@@ -269,8 +268,7 @@ def _pairs(lines, tally, needle):
         try:
             rec = json.loads(line)
         except ValueError as error:
-            fail_open(error, "line counted unparsed")
-            tally[UNPARSED] += 1
+            tallied(error, tally, UNPARSED)
             continue
         if not isinstance(rec, dict):
             tally[UNPARSED] += 1

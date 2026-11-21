@@ -20,7 +20,7 @@ claimed here — high, the safe direction.
 import os
 import re
 
-from fail_open import fail_open
+from fail_open import expected, fail_open
 
 PS_ARGS = ["-eo", "pid=,ppid=,args="]
 
@@ -58,8 +58,8 @@ def live_cwd(pid):
     """`pid`'s cwd under WFC_PROC's root, or None where it has exited or is not ours to read."""
     try:
         return os.readlink(f"{os.environ.get('WFC_PROC') or '/proc'}/{pid}/cwd")
-    except OSError as error:
-        fail_open(error, f"pid {pid} cwd read as claimed")
+    except (FileNotFoundError, PermissionError, ProcessLookupError) as error:
+        expected(error, f"pid {pid} exited or is another user's")
         return None
 
 
