@@ -873,7 +873,7 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 			let behind: object | undefined;
 			const outcome = await head.wait({
 				gate: headGate as never,
-				clock: () => t,
+				monoClock: () => t,
 				timeoutMs: late,
 				sleepFn: async () => {
 					behind = await polled(
@@ -926,7 +926,7 @@ describe("readTurn, off the queue's markers (mantahostels#2024)", () => {
 			let behind: object | undefined;
 			await head.wait({
 				gate: () => ({ limb: "memory", mb: 1000, rungMb: 2550, ...denial }),
-				clock: () => t,
+				monoClock: () => t,
 				timeoutMs: late,
 				sleepFn: async () => {
 					behind = await polled({ queueDir, pid: 99, clock: () => late });
@@ -1360,7 +1360,7 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 		const lines: string[] = [];
 		const outcome = await tsc.seat.wait({
 			gate: () => null,
-			clock: () => 0,
+			monoClock: () => 0,
 			traceLimbs: true,
 			label: "q",
 			waiting: "waiting",
@@ -1388,7 +1388,7 @@ describe("a suite and a `tsc` admitted on one poll (#3203)", () => {
 		let polls = 0;
 		await tsc.seat.wait({
 			gate: () => null,
-			clock: () => 0,
+			monoClock: () => 0,
 			traceLimbs: true,
 			label: "q",
 			waiting: "waiting",
@@ -2359,7 +2359,7 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 			await waitForGate({
 				gate: () => polls.shift() ?? null,
 				admit: noQueue,
-				clock: () => now,
+				monoClock: () => now,
 				sleepFn: () => {
 					now += 10_000;
 					return Promise.resolve();
@@ -2417,7 +2417,7 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 			await waitForGate({
 				gate: () => polls.shift() ?? null,
 				admit: noQueue,
-				clock: () => now,
+				monoClock: () => now,
 				sleepFn: () => {
 					now += 1500;
 					return Promise.resolve();
@@ -2447,7 +2447,7 @@ describe("waitForGate, the wait itself (mantahostels#2024)", () => {
 					return polls.shift() ?? null;
 				},
 				admit: noQueue,
-				clock: () => now,
+				monoClock: () => now,
 				sleepFn: () => {
 					now += steps.shift() ?? 0;
 					return Promise.resolve();
@@ -2645,7 +2645,7 @@ describe("waitForGate's timeout, judged on the last poll (#2421, #2714)", () => 
 		const said: string[] = [];
 		const exits: unknown[][] = [];
 		const outcome = await waitForGate({
-			clock: () => now,
+			monoClock: () => now,
 			gate: () => {
 				now += 10;
 				return limbs[Math.min(poll++, limbs.length - 1)];
@@ -2822,7 +2822,7 @@ describe("waitForGate's timeout, judged on the last poll (#2421, #2714)", () => 
 			const said: string[] = [];
 			const exits: unknown[][] = [];
 			const outcome = await waitForGate({
-				clock: () => now,
+				monoClock: () => now,
 				gate: () => {
 					now += 10_000;
 					return limbs[Math.min(poll++, limbs.length - 1)] ?? null;
@@ -2868,7 +2868,7 @@ describe("waitForGate's timeout, judged on the last poll (#2421, #2714)", () => 
 		let now = 0;
 		const said: string[] = [];
 		await waitForGate({
-			clock: () => now,
+			monoClock: () => now,
 			gate: () => {
 				now += 40 * 60 * 1000;
 				return { limb: "count" };
@@ -3106,7 +3106,7 @@ describe("the Windows-memory hold, against the real gate (#4557)", () => {
 			timeoutMs,
 			pollMs,
 			...(turnShutAt === undefined ? {} : { turn: () => last !== turnShutAt }),
-			clock: () => clock,
+			monoClock: () => clock,
 			sleepFn: (ms: number) => {
 				clock += ms;
 				const next = frees.shift();

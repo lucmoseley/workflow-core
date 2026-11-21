@@ -20,8 +20,8 @@ const {
 	deadlineUnwritten,
 	groupUnkilled,
 	killGroup,
-	monotonicMs,
 } = require("./suite-ceiling.js");
+const { monotonicMs } = require("./clock.js");
 
 /* Where `pytest_pass_plugin.py` ships: beside `run-pytest.js`. */
 const PLUGIN_DIR = path.join(__dirname, "..");

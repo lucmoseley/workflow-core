@@ -15,6 +15,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { caught } = require("./caught.js");
+const { monotonicMs } = require("./clock.js");
 const { GATE_ROLE, GATE_SEAT_DEFAULT_MB } = require("./gate-seat.js");
 const {
 	WHOLE_SUITE_MAX,
@@ -1764,7 +1765,11 @@ function changesOnly(listener) {
  * `traceLimbs` prints the limb that holds the wait each time it or its holder
  * changes, and the time held on each limb as the wait ends (#4359).
  *
- * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onClimbHeld?: (climbMb: number) => void, onPeerHeld?: (secs: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, clock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined } & HoldListeners} options
+ * `monoClock` times the wait, its bound and its holds, `monotonicMs` unless
+ * injected (#5446); a queue option's `clock` is wall time and never reaches
+ * it.
+ *
+ * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onClimbHeld?: (climbMb: number) => void, onPeerHeld?: (secs: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, monoClock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined } & HoldListeners} options
  * @returns {Promise<WaitOutcome>}
  */
 function waitForGate({
@@ -1798,7 +1803,7 @@ function waitForGate({
 	onExit = () => {
 		/* no caller listening */
 	},
-	clock = Date.now,
+	monoClock: clock = monotonicMs,
 	traceLimbs = false,
 	turnHold = () => undefined,
 	...holdOptions
@@ -2132,7 +2137,7 @@ function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
 	const exitFields = passing
 		? passing.exitFields
 		: (_reason, heldBy) => ({ ...heldBy });
-	const started = Date.now();
+	const started = monotonicMs();
 	let waiting = false;
 	let held = true;
 	/** @type {SignalHost | null} */
@@ -2150,7 +2155,7 @@ function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
 		logKilled: (signal) => {
 			if (!waiting) return;
 			waiting = false;
-			logExit?.("killed", Date.now() - started, {
+			logExit?.("killed", monotonicMs() - started, {
 				signal,
 				...stamps.polledHold(),
 			});
