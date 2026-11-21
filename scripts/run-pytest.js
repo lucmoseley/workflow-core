@@ -69,7 +69,7 @@ const { reportForRun } = require("./lib/run-cost-report.js");
 const { writeFd } = require("./lib/write-fd.js");
 const { narrowingRefusal } = require("./lib/narrowing-refusal.js");
 const { pythonSpawnRemedy } = require("./lib/python-bin.js");
-const { monotonicMs } = require("./lib/suite-ceiling.js");
+const { monotonicMs } = require("./lib/clock.js");
 const { sweepDeadRunRoots } = require("./lib/run-temp-root.js");
 const { runPytest, ceilingKillRow } = require("./lib/pytest-child.js");
 

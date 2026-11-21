@@ -96,6 +96,7 @@ const {
 const { partKindOfRoute } = require("./lib/part-suite-peak.js");
 const { readOwnPaths, readOwnWork } = require("./lib/own-work.js");
 const idSeam = require("./lib/session-id.js");
+const { monotonicMs } = require("./lib/clock.js");
 const {
 	queueExitLogPath,
 	queueExitLogger,
@@ -2540,7 +2541,7 @@ function main(argv = process.argv.slice(2), options = {}) {
 			logExit,
 			signals: true,
 		});
-		const started = Date.now();
+		const started = monotonicMs();
 		runOptions.onSpawn = seat.spawned;
 		/** @type {PartAdmission | undefined} */
 		let admission;
@@ -2568,7 +2569,7 @@ function main(argv = process.argv.slice(2), options = {}) {
 					}),
 				options,
 				() =>
-					logExit("refused", Date.now() - started, seat.stamps.polledHold()),
+					logExit("refused", monotonicMs() - started, seat.stamps.polledHold()),
 			);
 
 			if (outcome === "refused") return 1;

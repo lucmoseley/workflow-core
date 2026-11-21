@@ -70,6 +70,7 @@ const {
 	queueExitLogger,
 } = require("./lib/queue-exit-log.js");
 const idSeam = require("./lib/session-id.js");
+const { monotonicMs } = require("./lib/clock.js");
 const {
 	buildHostPorts,
 	buildLaunchPorts,
@@ -504,7 +505,7 @@ function buildGateWait(options, words) {
 		command: words.join(" "),
 	};
 	const err = options.err ?? STDERR;
-	const clock = options.clock ?? Date.now;
+	const clock = options.clock ?? monotonicMs;
 	const started = clock();
 	const sleep =
 		options.sleepFn ??
@@ -805,7 +806,7 @@ function withExitExtra(logExit, exitExtra) {
  */
 function spawnGate({ seat, options, err, finish, holder, waitMs }) {
 	const { command } = holder;
-	const clock = options.clock ?? Date.now;
+	const clock = options.clock ?? monotonicMs;
 	const {
 		readTreeSample,
 		sampleTreePeak,
@@ -889,7 +890,7 @@ function spawnGate({ seat, options, err, finish, holder, waitMs }) {
 		const file =
 			options.gateLog === undefined ? gateRunLogPath() : options.gateLog;
 		const landed = appendGateRun(file, {
-			at: new Date(clock()).toISOString(),
+			at: new Date().toISOString(),
 			repo: holder.repo,
 			command: holder.command,
 			session: holder.session,

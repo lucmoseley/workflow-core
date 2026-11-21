@@ -660,7 +660,8 @@ describe("the launch log (mantahostels#2763) — the kill log's denominator", ()
 });
 
 describe("the suite ceiling's backstop (#2704)", () => {
-	const { DEADLINE_ENV, monotonicMs } = require("./lib/suite-ceiling.js");
+	const { DEADLINE_ENV } = require("./lib/suite-ceiling.js");
+	const { monotonicMs } = require("./lib/clock.js");
 
 	/* The clock the runners write the deadline on, in whole seconds. */
 	const monoS = () => Math.floor(monotonicMs() / 1000);

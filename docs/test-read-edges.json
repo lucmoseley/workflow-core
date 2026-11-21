@@ -16759,6 +16759,7 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/guard-dispatch-cost.test.ts",
+			"scripts/guard-lost-verdict-cost.test.ts",
 			"scripts/hook-registrations.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -16776,6 +16777,7 @@
 			"scripts/record-divergence.test.ts",
 			"scripts/refill-loop-status-load.test.ts",
 			"scripts/rule-fallback-template.test.ts",
+			"scripts/run-pytest.test.ts",
 			"scripts/session-start-outliving.test.ts",
 			"scripts/session-start-sweeps.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"

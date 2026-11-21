@@ -86,8 +86,8 @@ const GATE_RUN_LOG = ".gate-runs.jsonl";
  * @property {string} command
  * @property {string | null} session
  * @property {number | null} ticket the issue the session holds
- * @property {number} waitS
- * @property {number} runS
+ * @property {number} waitS awake seconds, off CLOCK_MONOTONIC: no host sleep (#5446)
+ * @property {number} runS awake seconds, off CLOCK_MONOTONIC: no host sleep (#5446)
  * @property {GateOutcome} outcome
  * @property {number} peakTreeMb the command's process-tree PSS peak
  */
