@@ -188,12 +188,15 @@ export function commitThroughHooks(
 	 * hooks logs there, never in the developer's live log (mantahostels#1452). */
 	const config = fs.mkdtempSync(path.join(os.tmpdir(), "adopter-config-"));
 	made.push(config);
+	/* The adopter's own .claude/workflow-core.json names its modules; the
+	 * suite's WFC_MODULES would replace that list with every module. */
+	const { WFC_MODULES: _suite, ...own } = env;
 	return spawnSync("git", ["commit", "-m", message, "--", ...paths], {
 		cwd: dir,
 		encoding: "utf8",
 		env: {
 			WORKFLOW_CORE_DIR: CORE,
-			...env,
+			...own,
 			CLAUDE_PROJECT_DIR: dir,
 			CLAUDE_CONFIG_DIR: config,
 			TMPDIR: gateTmpdir(dir),

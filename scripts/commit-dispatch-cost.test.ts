@@ -477,6 +477,7 @@ describe("the git-hook dispatchers' cost on an ordinary commit (#5338)", () => {
 			"lib/post-commit-rows.js",
 			"lib/post-commit-steps.js",
 			"lib/precommit-arm.js",
+			"lib/precommit-dispatch-ports.js",
 			"lib/precommit-dispatch.js",
 			"lib/precommit-gates.js",
 			"lib/priced-options-limbs.js",
