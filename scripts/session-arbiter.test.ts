@@ -46,6 +46,7 @@ import { throughFullPipe } from "./lib/full-pipe-testkit";
 import { printed as ghPrinted } from "./lib/gh-stub";
 import { writeFaultyGit } from "./lib/git-fault-fake";
 import { runCore } from "./lib/guard-core-testkit";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { buildRunIo, releaseClaimsRow } from "./lib/post-commit-steps.js";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -3133,11 +3134,14 @@ describe("alloc-entry — the next free B<n>, taken atomically", () => {
 				sessions.map(
 					(session) =>
 						new Promise<string>((resolve) => {
-							// spawn-kept: two processes at once — six allocations race.
-							const r = spawn(process.execPath, [SCRIPT, "alloc-entry"], {
-								cwd: sb.repo,
-								env: { ...process.env, CLAUDE_CODE_SESSION_ID: session },
-							});
+							const r = keptSpawn("concurrent").spawn(
+								process.execPath,
+								[SCRIPT, "alloc-entry"],
+								{
+									cwd: sb.repo,
+									env: { ...process.env, CLAUDE_CODE_SESSION_ID: session },
+								},
+							);
 							let stdout = "";
 							r.stdout.on("data", (d) => {
 								stdout += d;
@@ -4418,16 +4422,19 @@ describe("wait: one call waits on an issue claim (#540)", () => {
 		args: string[],
 		extraEnv: Record<string, string> = {},
 	) => {
-		// spawn-kept: two processes at once — the case acts while the wait runs.
-		const child = spawn(process.execPath, [SCRIPT, "wait", ...args], {
-			cwd: sb.repo,
-			env: {
-				...process.env,
-				CLAUDE_CODE_SESSION_ID: sid,
-				WFC_ARBITER_WAIT_POLL_S: "0.05",
-				...extraEnv,
+		const child = keptSpawn("concurrent").spawn(
+			process.execPath,
+			[SCRIPT, "wait", ...args],
+			{
+				cwd: sb.repo,
+				env: {
+					...process.env,
+					CLAUDE_CODE_SESSION_ID: sid,
+					WFC_ARBITER_WAIT_POLL_S: "0.05",
+					...extraEnv,
+				},
 			},
-		});
+		);
 		let stdout = "";
 		let stderr = "";
 		child.stdout.on("data", (d) => {

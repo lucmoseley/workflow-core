@@ -1,19 +1,9 @@
-// @vitest-environment node
-/*
- * The gate a session-start reporter reads behind: its lock (#4016).
- *
- * Loosen it and two starts both read and both file, a live reading loses its
- * lock to age, or a dead holder's lock stops the reporter for good.
- *
- * spawn-kept: two processes at once, since the race is between two takers'
- * syscalls and one process cannot interleave them.
- */
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { endedPid } from "./arbiter-testkit";
+import { keptSpawn } from "./kept-spawn.js";
 import { periodicReading } from "./periodic-reading.js";
 import { plantDeadLock, plantLiveLock } from "./pid-lock-testkit";
 
@@ -112,9 +102,11 @@ for (let round = 0; round < ${Rounds}; round++) {
 		const finished = [0, 1].map(
 			() =>
 				new Promise<number | null>((resolve) => {
-					spawn(process.execPath, [taker, dir, String(startAt)], {
-						stdio: "ignore",
-					}).on("exit", resolve);
+					keptSpawn("concurrent")
+						.spawn(process.execPath, [taker, dir, String(startAt)], {
+							stdio: "ignore",
+						})
+						.on("exit", resolve);
 				}),
 		);
 		expect(await Promise.all(finished)).toEqual([0, 0]);

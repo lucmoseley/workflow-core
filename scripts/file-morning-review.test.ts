@@ -19,6 +19,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { freshSandbox } from "./lib/arbiter-testkit";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { morningReviewFixture } from "./lib/morning-review-fixture";
 import { WSL_KERNEL, writeOsrelease, writeWsl } from "./lib/wsl-fake";
 
@@ -196,12 +197,15 @@ describe("file-morning-review.js (#2011)", () => {
 				const filing = () =>
 					new Promise<{ status: number | null; stderr: string }>(
 						(resolve, reject) => {
-							// spawn-kept: two processes at once — the race under test is between real pids, which runInProcess's one-at-a-time call cannot make
-							const child = spawn(process.execPath, [SCRIPT], {
-								cwd: wfc(),
-								env: { ...runEnv(), CLAUDE_PROJECT_DIR: wfc() },
-								stdio: ["ignore", "ignore", "pipe"],
-							});
+							const child = keptSpawn("concurrent").spawn(
+								process.execPath,
+								[SCRIPT],
+								{
+									cwd: wfc(),
+									env: { ...runEnv(), CLAUDE_PROJECT_DIR: wfc() },
+									stdio: ["ignore", "ignore", "pipe"],
+								},
+							);
 							let stderr = "";
 							child.stderr.on("data", (d) => {
 								stderr += d;
@@ -225,7 +229,6 @@ describe("file-morning-review.js (#2011)", () => {
 		it("files nothing and exits 1 while another filing holds the lock, so the loop's next tick retries", async () => {
 			seed([]);
 			fs.mkdirSync(path.dirname(lockFile()), { recursive: true });
-			// spawn-kept: two processes at once — the lock's holder is a real live pid, read by its command line, beside the call under test
 			const holder = spawn(
 				process.execPath,
 				["-e", "setInterval(() => {}, 1000)", path.basename(SCRIPT)],

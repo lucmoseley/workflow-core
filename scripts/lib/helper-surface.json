@@ -17,6 +17,7 @@
 		],
 		"scripts/lib/guard-log.sh": ["gl_log"],
 		"scripts/lib/hook-envelope.js": ["envelope"],
+		"scripts/lib/kept-spawn.js": ["keptSpawn", "REASONS"],
 		"scripts/lib/precommit-gate-harness.js": [
 			"cutGateFragment",
 			"cutGateScript",

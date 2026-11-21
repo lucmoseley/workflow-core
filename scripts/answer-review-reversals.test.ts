@@ -5,11 +5,12 @@
  * founder's `reverse <n>` goes unanswered, or files its ticket twice.
  */
 
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { endedPid, freshSandbox } from "./lib/arbiter-testkit";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { localDate } from "./lib/local-date.js";
 import { buildReviewTitle } from "./lib/morning-review.js";
 import { morningReviewFixture } from "./lib/morning-review-fixture";
@@ -291,10 +292,13 @@ describe("answer-review-reversals.js (#2017)", () => {
 			);
 			fs.mkdirSync(path.dirname(holderScript), { recursive: true });
 			fs.writeFileSync(holderScript, "setInterval(() => {}, 1000);\n");
-			// spawn-kept: two processes at once — the live lock holder runs beside the call under test, and is killed by signal.
-			const holder = spawn(process.execPath, [holderScript], {
-				stdio: "ignore",
-			});
+			const holder = keptSpawn("concurrent").spawn(
+				process.execPath,
+				[holderScript],
+				{
+					stdio: "ignore",
+				},
+			);
 			try {
 				fs.writeFileSync(lockFile(), String(holder.pid));
 				const r = await runIt();
@@ -319,12 +323,15 @@ describe("answer-review-reversals.js (#2017)", () => {
 				{ ...openReview(), title: buildReviewTitle(localDate(new Date())) },
 			]);
 			fs.writeFileSync(stub("hold-create"), "");
-			// spawn-kept: two processes at once — the lock's holder is a real program, read by its command line, while the other runs.
-			const holder = spawn(process.execPath, [holderScript], {
-				cwd: wfc(),
-				env: { ...runEnv(), ...heldGh() },
-				stdio: "ignore",
-			});
+			const holder = keptSpawn("concurrent").spawn(
+				process.execPath,
+				[holderScript],
+				{
+					cwd: wfc(),
+					env: { ...runEnv(), ...heldGh() },
+					stdio: "ignore",
+				},
+			);
 			const exited = new Promise((done) => holder.on("exit", done));
 			try {
 				await vi.waitFor(

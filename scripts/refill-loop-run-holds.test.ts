@@ -1,36 +1,3 @@
-// @vitest-environment node
-/*
- * The refill loop's `run` driven end to end through a hold: the repo, probe
- * and cleared holds with their phone notices, and the resume of a session its
- * seat's limit held. Split from scripts/refill-loop-run-recovery.test.ts
- * toward the 60 s per-file limit (#4602); its sandbox is
- * lib/refill-loop-run-testkit.ts's.
- *
- * The testkit's `claude` stub types through lib/claude-attach-fake.ts, which
- * answers from "scripts/fixtures/claude-attach.json": a re-recording selects
- * this file.
- *
- * Over §X8 (5)'s 10 s budget: each case drives real ticks, some ten of the
- * loop's own children apiece, none a fixture or a wait to cut (#4602).
- *
- * Loosen it and a fault in the program's own wiring, of its libs, children
- * and exits, passes unseen (#2851).
- *
- * Why each case stays a full tick: refill-loop-run.test.ts's header keys the
- * codes (A, E, S, F, R).
- * - repo hold (#3857): its command run for real A. Probe hold (#3860): a
- *   broken .git A, the other checkout A, the state's probe A, its parked
- *   resumed A, a stored hold left out of a dry run's preview A (the hold
- *   store read), the panel's waiting row naming it (#4736) A. Guard entry (#4226): raises and files A, attaches and
- *   resumes A. Locked out (#4228): raises, attaches, holds and resumes A.
- * - cleared repo hold (#3863): its raiser and attached resumed off a hand
- *   lift A (repo-hold.js lift).
- * - phone notice (#3871): one on raise, one on clear A (gh workflow).
- * - limit hold (#3735): resumes under its seat A; the ledger hold A and its
- *   swap A; moved to another plan seat A; onto a key A, its first overflow
- *   start A.
- */
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -46,6 +13,7 @@ import { ledgerPath, readOverflowLookup } from "./lib/dispatch-ledger.js";
 import { buildFiledLine } from "./lib/filed-line.js";
 import { readGhAnswer } from "./lib/gh-fake";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { HOLD_PROMPT, LIMIT_PROMPT, MOVED_PROMPT } from "./lib/loop-prompts.js";
 import { projectSlug } from "./lib/project-slug.js";
 import {
@@ -250,8 +218,7 @@ process.stdout.write(${JSON.stringify(`${buildFiledLine(Issue, `https://github.c
 	 * run is live. Live too to the panel: the run is in this process, which
 	 * status reads as no loop's (#3861). */
 	const readWaitingRow = async () => {
-		// spawn-kept: two processes at once — the run beside it holds the in-process runner.
-		const shown = execFileSync(
+		const shown = keptSpawn("concurrent").execFileSync(
 			process.execPath,
 			[path.join(scripts, "refill-loop.js"), "status", "--json"],
 			{ cwd: dir, env: loopEnv({}), encoding: "utf8" },

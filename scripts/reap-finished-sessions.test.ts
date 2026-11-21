@@ -21,11 +21,11 @@
  * holding memory, so admission turns new sessions away (mantahostels#421).
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import { buildBashCall } from "./lib/transcript-testkit";
@@ -301,13 +301,16 @@ function runReaper(
 	};
 	if (!opts.subprocess)
 		return runInProcess(SCRIPT, argv, { cwd: sandbox, env });
-	// spawn-kept: a timeout kills the run inside its slow part (mantahostels#1920).
-	const res = spawnSync(process.execPath, [SCRIPT, ...argv], {
-		encoding: "utf8",
-		cwd: sandbox,
-		env,
-		timeout: opts.subprocess.timeout,
-	});
+	const res = keptSpawn("timeout").spawnSync(
+		process.execPath,
+		[SCRIPT, ...argv],
+		{
+			encoding: "utf8",
+			cwd: sandbox,
+			env,
+			timeout: opts.subprocess.timeout,
+		},
+	);
 	if (res.error) throw res.error;
 	if (res.status !== 0) throw new Error(`exit ${res.status}: ${res.stderr}`);
 	return { status: 0, stdout: res.stdout, stderr: res.stderr };

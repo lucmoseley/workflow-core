@@ -12,11 +12,11 @@
  * the stub before it starts the grandchild that case pins.
  */
 
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { keptSpawn } from "./kept-spawn.js";
 
 const { runGrouped } = require("./grouped-child.js");
 
@@ -139,8 +139,9 @@ const wait = setInterval(() => {
 }, 50);
 `,
 		);
-		// spawn-kept: the case is the caller process exiting while its child runs.
-		execFileSync(process.execPath, [caller], { stdio: "ignore" });
+		keptSpawn("concurrent").execFileSync(process.execPath, [caller], {
+			stdio: "ignore",
+		});
 		expect(await groupGone(Number(fs.readFileSync(pgidFile, "utf8")))).toBe(
 			true,
 		);

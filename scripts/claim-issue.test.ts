@@ -12,12 +12,8 @@
  * nothing was written: no record, no assignment. It is the claim step
  * `docs/agents/issue-tracker.md` and the rescue-sessions skill send every
  * session through, so a loosened case puts two sessions on one ticket.
- *
- * spawn-kept: the race case runs two processes at once, the one shape here
- * runInProcess cannot take (§X3).
  */
 
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -29,6 +25,7 @@ import {
 } from "./lib/arbiter-testkit";
 import { stubGhScript } from "./lib/gh-stub";
 import { writeHeadlessRun } from "./lib/headless-runs-testkit";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -274,16 +271,20 @@ describe("inside a headless overflow run (#2608)", () => {
 describe("two live sessions racing for one ticket", () => {
 	const spawnClaim = (env: NodeJS.ProcessEnv) =>
 		new Promise<{ code: number | null; stderr: string }>((resolve) => {
-			const child = spawn(process.execPath, [SCRIPT, "530"], {
-				// Held long enough that the two reads certainly overlap without the
-				// mutex; with it, the second waits well inside MUTEX_WAIT_MS.
-				env: {
-					...env,
-					CLAUDE_PROJECT_DIR: sb.repo,
-					WFC_CLAIM_HOLD_MS: "500",
+			const child = keptSpawn("concurrent").spawn(
+				process.execPath,
+				[SCRIPT, "530"],
+				{
+					// Held long enough that the two reads certainly overlap without the
+					// mutex; with it, the second waits well inside MUTEX_WAIT_MS.
+					env: {
+						...env,
+						CLAUDE_PROJECT_DIR: sb.repo,
+						WFC_CLAIM_HOLD_MS: "500",
+					},
+					stdio: ["ignore", "ignore", "pipe"],
 				},
-				stdio: ["ignore", "ignore", "pipe"],
-			});
+			);
 			let stderr = "";
 			child.stderr.on("data", (d) => {
 				stderr += d;

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /*
  * check-test-spawn.js — a test runs the Node program under test through
- * lib/run-in-process.js, not a spawn of `node`, unless it states why (base
- * §X3's house clause, #3458).
+ * lib/run-in-process.js, not a spawn of `node`, unless it spawns through
+ * lib/kept-spawn.js with a typed reason (base §X3's house clause, #3458, #5483).
  *
  * Usage:
  *   node check-test-spawn.js [--root <dir>] [--against <rev>] [--index] [--json] [--warn]
@@ -18,20 +18,20 @@
  * a count among identical lines (lib/fault-profiles.js's `test-spawn`
  * profile): an edit to that line reads as a new spawn, and moving it does not.
  *
- * THE STATED REASON is a `spawn-kept: <why>` comment: anywhere from the call's
- * first line to the end of the line it closes on, in the comments directly
- * above it, or in the file's opening comments, which covers every spawn in
- * the file. A marker with no word after it is no marker.
+ * THE STATED REASON is the call itself spelled `keptSpawn("<reason>").<fn>(`,
+ * the reason one of lib/kept-spawn.js's REASONS. Any other spelling, a
+ * comment included, states none.
  *
- * IMPLICIT:  on every commit staging a test under scripts/ or .claude/skills/, refuses any spawn of `node` in the tree without a `spawn-kept: <why>` comment, naming the file, line and run-in-process.js.
+ * IMPLICIT:  on every commit staging a test under scripts/ or .claude/skills/, refuses any spawn of `node` in the tree not called through `keptSpawn("<reason>")`, naming the file, line, run-in-process.js and kept-spawn.js.
  * JUSTIFIED: fail-safe — a spawn pays node's startup on every case (mantahostels#1907).
- * DEFEAT:    the `spawn-kept: <why>` marker, whatever its reason, the header's covering every later spawn in its file; --warn caps findings below the gating line; a program named through a variable, a helper or a testkit; a spawn inside a template literal, or behind an env prefix in a command string; a spawn swapped for another whose first line reads the same; a test file outside scripts/ and .claude/skills/.
+ * DEFEAT:    `keptSpawn` with a listed reason that is not the true one, or the name `keptSpawn` bound to something else; --warn caps findings below the gating line; a program named through a variable, a helper or a testkit; a spawn inside a template literal, or behind an env prefix in a command string; a spawn swapped for another whose first line reads the same; a test file outside scripts/ and .claude/skills/.
  */
 
 const fs = require("node:fs");
 const path = require("node:path");
 const { listTreeFiles, saySites } = require("./lib/heresy-scan.js");
 const { hostRoot } = require("./lib/host-root.js");
+const { REASONS } = require("./lib/kept-spawn.js");
 const { programSource } = require("./lib/shell-words.js");
 const { scanJs } = require("./lib/strip-comments.js");
 const { isJsTestFile } = require("./lib/test-kind.js");
@@ -49,11 +49,12 @@ const SPAWN = new RegExp(
 	].join("|"),
 	"g",
 );
-const MARKER = /spawn-kept:\s*\w/;
+/* The helper call ending right before a spawn: `keptSpawn("fd").`. */
+const HELPER = /\bkeptSpawn\(\s*["'`](\w*)["'`]\s*\)\s*\.\s*$/;
 
 const WHY = "spawns node on the program under test";
 const NOUN = "spawn(s) of node on the program under test";
-const FIX = `run it through \`runInProcess\` in the plugin's scripts/lib/run-in-process.js, \`runInProcessAsync\` for an async entry, as its header's contract states; or, where §X3 keeps a spawn (a timeout or a signal, two processes at once, a real fd), state which in a \`spawn-kept: <why>\` comment on the call or directly above it; for any other reason, say why in that comment in the file's header (#3458).`;
+const FIX = `run it through \`runInProcess\` in the plugin's scripts/lib/run-in-process.js, \`runInProcessAsync\` for an async entry, as its header's contract states; or, where §X3 keeps a spawn, call it through scripts/lib/kept-spawn.js as \`keptSpawn("<reason>").spawnSync(process.execPath, …)\` (or .spawn, .execFile, .execFileSync), the reason one of ${REASONS.join(", ")} (#5483).`;
 
 /**
  * @param {string} source
@@ -63,46 +64,13 @@ function parseSource(source) {
 	const isMasked = (/** @type {number} */ at) =>
 		comments.some(([s, e]) => at >= s && at < e) ||
 		literals.some((l) => at > l.at && at < l.at + l.raw.length);
-	const text = (/** @type {[number, number]} */ [s, e]) => source.slice(s, e);
-	const isBlank = (/** @type {string} */ s) => s.trim() === "";
-	const lineStartOf = (/** @type {number} */ at) =>
-		source.lastIndexOf("\n", at - 1) + 1;
-	const lineEndOf = (/** @type {number} */ at) => {
-		const nl = source.indexOf("\n", at);
-		return nl === -1 ? source.length : nl;
-	};
-
-	/** @type {string[]} */
-	const header = [];
-	let edge = source.startsWith("#!") ? lineEndOf(0) : 0;
-	for (const c of comments) {
-		if (!isBlank(source.slice(edge, c[0]))) break;
-		header.push(text(c));
-		edge = c[1];
-	}
-
 	return {
 		isMasked,
-		lineStartOf,
-		lineEndOf,
-		header,
-		/** The comments starting in [from, to). */
-		commentsIn: (/** @type {number} */ from, /** @type {number} */ to) =>
-			comments.filter(([s]) => s >= from && s < to).map(text),
-		/* The comments a run of whitespace joins to `from`, walking back; a
-		 * comment trailing code on its own line belongs to that code. */
-		chainBefore(/** @type {number} */ from) {
-			/** @type {string[]} */
-			const found = [];
-			let at = from;
-			for (const c of [...comments].reverse()) {
-				if (c[1] > at) continue;
-				if (!isBlank(source.slice(c[1], at))) break;
-				if (!isBlank(source.slice(lineStartOf(c[0]), c[0]))) break;
-				found.push(text(c));
-				at = c[0];
-			}
-			return found;
+		lineStartOf: (/** @type {number} */ at) =>
+			source.lastIndexOf("\n", at - 1) + 1,
+		lineEndOf(/** @type {number} */ at) {
+			const nl = source.indexOf("\n", at);
+			return nl === -1 ? source.length : nl;
 		},
 		/** The offset past the bracket closing the one at `open`. */
 		closeOf(/** @type {number} */ open) {
@@ -142,13 +110,13 @@ function nodeWords(args, isArgv) {
  */
 function unstatedSpawns(source) {
 	const src = parseSource(source);
-	if (src.header.some((c) => MARKER.test(c))) return [];
-
 	/** @type {{ line: number, call: string }[]} */
 	const out = [];
 	for (const m of source.matchAll(SPAWN)) {
 		const at = m.index ?? 0;
 		if (src.isMasked(at)) continue;
+		const kept = source.slice(Math.max(0, at - 80), at).match(HELPER);
+		if (kept && REASONS.includes(kept[1] ?? "")) continue;
 		const open = source.indexOf("(", at);
 		const close = src.closeOf(open);
 		if (
@@ -157,11 +125,6 @@ function unstatedSpawns(source) {
 		)
 			continue;
 		const lineStart = src.lineStartOf(at);
-		const reasons = [
-			...src.commentsIn(lineStart, src.lineEndOf(close)),
-			...src.chainBefore(lineStart),
-		];
-		if (reasons.some((c) => MARKER.test(c))) continue;
 		out.push({
 			line: source.slice(0, at).split("\n").length,
 			call: source

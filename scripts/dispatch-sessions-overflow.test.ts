@@ -253,7 +253,6 @@ const helperOf = (launch: HeadlessCall | undefined) =>
 	JSON.parse(String(launch?.flags["--settings"])).apiKeyHelper;
 
 function expectHelperPrintsKey(helper: string) {
-	// spawn-kept: the subject is the literal apiKeyHelper line, run by a shell as `claude` runs it.
 	const h = spawnSync("sh", ["-c", helper], { encoding: "utf8" });
 	expect(h.stderr).toBe("");
 	expect(h.stdout).toBe("sk-fake-overflow\n");

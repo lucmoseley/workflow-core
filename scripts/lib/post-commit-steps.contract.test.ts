@@ -9,12 +9,9 @@
  * Breaking it costs the licence for the post-commit dispatcher's rows: a
  * program whose in-process run drifts from its spawned one says, or keeps
  * silent, differently after a commit.
- *
- * spawn-kept: the `spawnedNode` helper is the real process every in-process
- * run is held to.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -28,6 +25,7 @@ import {
 } from "./arbiter-testkit";
 import { checkInProcess } from "./check";
 import { scrubbedGitEnv } from "./hook-entry.js";
+import { keptSpawn } from "./kept-spawn.js";
 
 const ROOT = path.resolve(__dirname, "..", "..");
 const SCRIPTS = path.join(ROOT, "scripts");
@@ -76,11 +74,15 @@ const spawnedNode = (
 	cwd: string,
 	env: Env,
 ): Run => {
-	const r = spawnSync(process.execPath, [script, ...args], {
-		cwd,
-		env,
-		encoding: "utf8",
-	});
+	const r = keptSpawn("boundary").spawnSync(
+		process.execPath,
+		[script, ...args],
+		{
+			cwd,
+			env,
+			encoding: "utf8",
+		},
+	);
 	return { exit: r.status, stdout: r.stdout, stderr: r.stderr };
 };
 

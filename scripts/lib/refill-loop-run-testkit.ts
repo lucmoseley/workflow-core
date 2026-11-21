@@ -288,8 +288,6 @@ export const run = (slots: number, over: NodeJS.ProcessEnv = {}) => {
 	return running;
 };
 
-/* spawn-kept: another live process, its command line naming the program, or
- * pid-lock reads it as stale. */
 export const spawnIdleHolder = (env: NodeJS.ProcessEnv) =>
 	spawn(
 		process.execPath,
@@ -303,8 +301,6 @@ export const spawnIdleHolder = (env: NodeJS.ProcessEnv) =>
 export const SETTLE_MS = 20 * 1000;
 
 export const requestStop = () =>
-	/* spawn-kept: two processes at once — the stop lands while the loop is
-	 * still running in-process, which holds runInProcess's claim. */
 	spawnSync(process.execPath, [path.join(scripts, "request-stop.js")]);
 
 /** Whether `promise` settles inside SETTLE_MS, with its value where it does. */

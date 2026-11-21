@@ -9,11 +9,11 @@
  * processes, which no injected clock reaches.
  */
 
-import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { keptSpawn } from "./kept-spawn.js";
 import { isGroupDead } from "./process-fixture";
 import { runInProcessAsync } from "./run-in-process.js";
 
@@ -41,8 +41,7 @@ async function expectGroupDead(pgid: number) {
 
 function runSh(script: string) {
 	const started = Date.now();
-	// spawn-kept: a timeout and a signal — the budget kills a real process group
-	const r = spawnSync(
+	const r = keptSpawn("timeout").spawnSync(
 		process.execPath,
 		[
 			RUN_BUDGETED,
@@ -110,8 +109,7 @@ describe("its own failures", () => {
  * that arms its handlers late fails this only some runs: 3 in 10 under a
  * whole suite's load, 0 in 10 idle. */
 it("kills a group that ignores the signal, and dies by it, when told to stop (#2928)", async () => {
-	// spawn-kept: a signal, sent to the runner mid-run
-	const child = spawn(
+	const child = keptSpawn("signal").spawn(
 		process.execPath,
 		[
 			RUN_BUDGETED,
@@ -147,8 +145,7 @@ const SIGNAL_GAP_MS = 200;
 
 /** The runner over `script`, signalled once the script echoes its pid. */
 async function signalled(script: string, signals: NodeJS.Signals[]) {
-	// spawn-kept: a signal, sent to the runner mid-run
-	const child = spawn(
+	const child = keptSpawn("signal").spawn(
 		process.execPath,
 		[
 			RUN_BUDGETED,

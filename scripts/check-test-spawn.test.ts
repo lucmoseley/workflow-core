@@ -1,7 +1,7 @@
 // @vitest-environment node
 /*
  * Pins which test-file spawns check-test-spawn.js counts as spawning the
- * program under test, and which stated reasons it honours.
+ * program under test, and which keptSpawn calls it passes.
  *
  * check-test-spawn.js (#3458) against fabricated tests in a throwaway
  * directory, never this one.
@@ -62,7 +62,7 @@ describe("check-test-spawn", () => {
 			"Fix: run it through `runInProcess` in the plugin's scripts/lib/run-in-process.js, `runInProcessAsync` for an async entry, as its header's contract states; or,",
 		);
 		expect(r.out).toContain(
-			"where §X3 keeps a spawn (a timeout or a signal, two processes at once, a real fd), state which in a `spawn-kept: <why>` comment on the call or directly above it; for any other reason, say why in that comment in the file's header",
+			'where §X3 keeps a spawn, call it through scripts/lib/kept-spawn.js as `keptSpawn("<reason>").spawnSync(process.execPath, …)` (or .spawn, .execFile, .execFileSync), the reason one of timeout, signal, concurrent, fd, boundary (#5483).',
 		);
 		expect(r.out).toContain("FAIL: 3 spawn(s) of node");
 	});
@@ -72,6 +72,7 @@ describe("check-test-spawn", () => {
 		const fix = run().out.match(/Fix: .*/)?.[0] ?? "";
 		const named = fix.match(/scripts\/[\w./-]*\w/g) ?? [];
 		expect(named).toContain("scripts/lib/run-in-process.js");
+		expect(named).toContain("scripts/lib/kept-spawn.js");
 		expect(named.filter((rel) => !isShipped(CORE, rel))).toEqual([]);
 	});
 
@@ -116,33 +117,37 @@ describe("check-test-spawn", () => {
 		);
 	});
 
-	it("passes a spawn with a stated reason on its line, directly above it, or in the file's header", () => {
-		test("scripts/a.test.ts", `${SPAWN.trim()} // spawn-kept: a real fd\n`);
+	it("passes a spawn called through keptSpawn with each reason, in any call shape", () => {
+		test(
+			"scripts/a.test.ts",
+			'keptSpawn("timeout").spawnSync("node", [SCRIPT]);\nkeptSpawn("signal").spawn(process.execPath, [SCRIPT]);\n',
+		);
 		test(
 			"scripts/b.test.ts",
-			`const x = 1;\n// spawn-kept: a signal stops it\n// mid-write\n${SPAWN}`,
+			"keptSpawn('concurrent').execFile(process.execPath, [SCRIPT], cb);\nkeptSpawn(`fd`).execFileSync(\"node\", [SCRIPT]);\n",
 		);
 		test(
 			"scripts/c.test.ts",
-			`// @vitest-environment node\n/*\n * spawn-kept: the child needs a real fd\n */\n\nimport x from "y";\n${SPAWN}${SPAWN}`,
+			'const r = keptSpawn("boundary")\n\t.spawnSync(\n\t\tprocess.execPath,\n\t\t[SCRIPT],\n\t);\n',
 		);
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("OK: 3 test file(s), none spawning node");
 	});
 
-	it("credits a marker on a formatted call's later lines to that call alone", () => {
+	it("refuses a reason keptSpawn does not take, and a reason stated only in a comment", () => {
 		test(
 			"scripts/a.test.ts",
-			`const x = 0;\nconst a = spawnSync("node", [SCRIPT], {\n\tcwd: root,\n}); // spawn-kept: a timeout kills it\nconst b = spawnSync("node", [SCRIPT]);\n`,
+			'keptSpawn("slow").spawnSync("node", [SCRIPT]);\n',
 		);
-		test(
-			"scripts/b.test.ts",
-			`const x = 0;\nconst r = spawnSync(\n\t// spawn-kept: two processes contend\n\t"node",\n\t[SCRIPT],\n);\n`,
-		);
+		test("scripts/b.test.ts", 'keptSpawn("").spawnSync("node", [SCRIPT]);\n');
+		test("scripts/c.test.ts", `// keptSpawn("fd") is why\n${SPAWN}`);
+		test("scripts/d.test.ts", `${SPAWN.trim()} // a real fd\n`);
 		const r = run();
 		expect(r.status).toBe(1);
-		expect(r.out).toContain(": scripts/a.test.ts:5.");
+		expect(r.out).toContain(
+			": scripts/a.test.ts:1, scripts/b.test.ts:1, scripts/c.test.ts:2, scripts/d.test.ts:1.",
+		);
 	});
 
 	it("identifies a spawn by its first line, whitespace collapsed, and its count among identical lines", () => {
@@ -163,38 +168,5 @@ describe("check-test-spawn", () => {
 			[3, SPAWN.trim(), 2],
 			[4, "const r2 = spawnSync(", 1],
 		]);
-	});
-
-	it("reads the header's marker below a shebang, and refuses a marker a line of code separates from the shebang (#4117)", () => {
-		test(
-			"scripts/a.test.js",
-			`#!/usr/bin/env node\n/* header */\n// spawn-kept: a real fd\n${SPAWN}`,
-		);
-		expect(run().status).toBe(0);
-		test(
-			"scripts/b.test.js",
-			`#!/usr/bin/env node\nconst x = 1;\n// spawn-kept: a real fd\n\nconst y = 2;\n${SPAWN}`,
-		);
-		const r = run();
-		expect(r.status).toBe(1);
-		expect(r.out).toContain("scripts/b.test.js:6");
-	});
-
-	it("refuses a marker with no reason, one a line of code separates from the call, and one below the header", () => {
-		test("scripts/a.test.ts", `// spawn-kept:\n${SPAWN}`);
-		test(
-			"scripts/b.test.ts",
-			`const w = 0;\n// spawn-kept: two processes\nconst x = 1;\n${SPAWN}`,
-		);
-		test(
-			"scripts/c.test.ts",
-			`const x = 1;\n${SPAWN}// spawn-kept: a signal\nconst y = 2;\n${SPAWN}`,
-		);
-		const r = run();
-		expect(r.status).toBe(1);
-		expect(r.out).toContain(
-			": scripts/a.test.ts:2, scripts/b.test.ts:4, scripts/c.test.ts:2, scripts/c.test.ts:5.",
-		);
-		expect(r.out).toContain("Fix: run it through `runInProcess`");
 	});
 });

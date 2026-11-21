@@ -4,11 +4,6 @@
  * routes' one entry, driven with a body and the in-process `judge` fake
  * (lib/gate-judge-fake.ts `judgeServe`). Broken, a wait or basis the model faults
  * files unrefused, or a write the model cannot read is refused.
- *
- * spawn-kept: the boundary set runs the fake `claude` binary through the real
- * launcher — a real fd (§X3), the judge piping its prompt to the launcher,
- * which hands the child its own stdin; the launcher's kill of a hang (a
- * timeout); and its refusal to launch on an API key.
  */
 
 import fs from "node:fs";

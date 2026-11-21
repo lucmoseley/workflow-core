@@ -1,15 +1,8 @@
-// @vitest-environment node
-/*
- * Each run's private temp root (#5083): made under the real temp dir with its
- * owner's pid in the name, removed whole, and swept at a wrapper's start once
- * that pid is dead. Loosen a case and a killed run's fixtures stay in `/tmp`,
- * or a live run loses its root mid-run.
- */
-import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { keptSpawn } from "./kept-spawn.js";
 
 const {
 	STALE_MS,
@@ -94,9 +87,8 @@ describe("sweepDeadRunRoots", () => {
 		const dead = staleRoot(path.join(at, `wfc-pytest-${DEAD_PID}-abcdef`));
 		const live = staleRoot(path.join(at, `wfc-pytest-${process.pid}-abcdef`));
 		/* A path that is no test file: the wrapper runs no test, and returns
-		 * in under a second. spawn-kept: the sweep sits in the entry, whose
-		 * `main()` starts a pytest child an in-process call would outlive. */
-		const r = spawnSync(
+		 * in under a second. */
+		const r = keptSpawn("boundary").spawnSync(
 			process.execPath,
 			[
 				path.join(__dirname, "..", "run-pytest.js"),
@@ -117,11 +109,7 @@ describe("sweepDeadRunRoots", () => {
 		const dead = staleRoot(path.join(at, `wfc-vitest-${DEAD_PID}-abcdef`));
 		const live = staleRoot(path.join(at, `wfc-vitest-${process.pid}-abcdef`));
 		const host = fs.mkdtempSync(path.join(at, "host-"));
-		/* spawn-kept: the sweep sits in the entry, before a load hold that
-		 * may wait on this machine's memory, so the child is killed once the
-		 * sweep is seen. `--shared` and the stub bin as run-vitest.test.ts's
-		 * real-child case takes them. */
-		const child = spawn(
+		const child = keptSpawn("signal").spawn(
 			process.execPath,
 			[path.join(__dirname, "..", "run-vitest.js"), "--shared"],
 			{

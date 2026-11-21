@@ -3,11 +3,6 @@
  * watch-artefact.test.ts — the watcher's verdicts, read the way the parent
  * session reads them: the stdout verdict line and the exit code (#539).
  *
- * spawn-kept: two processes at once — a verdict case runs the watcher while
- * the test grows its artefact on a timeline of its own, started off the
- * watcher's live stderr, and runInProcess refuses overlapping async work. The
- * refusal cases run in-process, through runInProcessAsync.
- *
  * The timeline starts when the watcher prints its start line, which follows
  * its baseline, so every event lands half an interval from the nearest check. A case that fails only under heavy load is that margin
  * running out, not the verdict changing.
@@ -21,7 +16,7 @@
  * agent is abandoned, or a stalled one is waited on until the ceiling.
  */
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import {
 	appendFileSync,
 	existsSync,
@@ -33,6 +28,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = join(__dirname, "watch-artefact.js");
@@ -66,7 +62,10 @@ function watch(
 	steps: [at: number, act: () => void][] = [],
 ): Promise<{ status: number | null; stdout: string; stderr: string }> {
 	return new Promise((resolve) => {
-		const child = spawn(process.execPath, [SCRIPT, ...args]);
+		const child = keptSpawn("concurrent").spawn(process.execPath, [
+			SCRIPT,
+			...args,
+		]);
 		const timers: NodeJS.Timeout[] = [];
 		let stdout = "";
 		let stderr = "";
@@ -154,8 +153,11 @@ describe("verdicts", () => {
 	});
 
 	it("sets a 600 s first-write deadline by default", async () => {
-		// spawn-kept: a signal — the watcher is killed once its start line prints.
-		const child = spawn(process.execPath, [SCRIPT, artefact, "120"]);
+		const child = keptSpawn("signal").spawn(process.execPath, [
+			SCRIPT,
+			artefact,
+			"120",
+		]);
 		const line = await new Promise<string>((resolve) => {
 			let err = "";
 			child.stderr.on("data", (d) => {

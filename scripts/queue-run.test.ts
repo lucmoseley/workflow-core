@@ -18,6 +18,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readText } from "./lib/file-read.js";
 import { mkScratchDir } from "./lib/git-fixture";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { chargeMb as launchChargeMb } from "./lib/launch-charge";
 import { writeCwd } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
@@ -1296,9 +1297,7 @@ describe("queue-run.js", () => {
 				machine(f.dir, ["bash -l"], 9000);
 				const inner = `node ${PROGRAM} --tsc -- node -e "process.exit(7)"`;
 				const { WFC_TSC_SLOT: _held, ...env } = process.env;
-				/* spawn-kept: two processes run at once, the nested one's
-				 * ancestry being the real process tree, under a timeout. */
-				const r = spawnSync(
+				const r = keptSpawn("concurrent").spawnSync(
 					"node",
 					[PROGRAM, "--tsc", "--", "sh", "-c", inner],
 					{

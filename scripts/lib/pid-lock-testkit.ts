@@ -42,7 +42,6 @@ export function plantDeadLock(file: string) {
  * it is returned once `script` is there.
  */
 export async function liveScriptProcess(script: string) {
-	// spawn-kept: two processes at once — a live holder whose command line the lock reads.
 	const proc = spawn(process.execPath, ["-e", HOLDER_CODE, script], {
 		stdio: "ignore",
 	});

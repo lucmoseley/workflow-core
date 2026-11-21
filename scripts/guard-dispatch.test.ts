@@ -320,8 +320,6 @@ describe("each input channel", () => {
 	});
 
 	it("refuses through the shim where stdin will not read, logged (#4132)", () => {
-		// spawn-kept: a real fd — a directory as fd 0, so every read of it
-		// fails EISDIR; an in-process run takes stdin as a string.
 		const fd = fs.openSync(dir, "r");
 		try {
 			const r = spawnSync("/bin/bash", ["-c", LINES[0] ?? ""], {

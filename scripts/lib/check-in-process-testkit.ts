@@ -5,8 +5,6 @@
  * checker spawned as `node <checker> <args>`, over the same fixture tree.
  *
  * FOR TESTS ONLY.
- *
- * spawn-kept: the `spawned` helper is the real process every row is held to.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";

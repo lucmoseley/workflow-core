@@ -1,19 +1,9 @@
-// @vitest-environment node
-// Drives the away-only load (#5472) as a program against fakes of Testlimit,
-// taskkill and wevtutil at their WFC_ variables: a start on 15 idle minutes
-// holds memory and starts CPU workers, input stops both and logs the pair,
-// and after a new Kernel-Power 41 `recover` ends the runner and runs git fsck
-// in each repo. Break it and the load either never starts, or keeps loading
-// the laptop after the founder is back or after #5346 is already answered.
-//
-// spawn-kept: `run` is a loop a signal ends, and the case reads its log while
-// it runs. Its waits cross the real clock: the loop's own poll, bounded.
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "away-load.js");
@@ -84,8 +74,7 @@ describe("run", () => {
 	it("starts on 15 idle minutes, holds and loads, and stops on input", async () => {
 		const { env, files } = rig("run");
 		fs.writeFileSync(env.MEMWATCH_WIN_OUT, `${epoch()} 1100 1 2 60 100 900\n`);
-		// spawn-kept: a signal — SIGTERM ends the run loop.
-		const child = spawn("node", [SCRIPT, "run"], {
+		const child = keptSpawn("signal").spawn("node", [SCRIPT, "run"], {
 			env: { ...process.env, ...env },
 			stdio: "ignore",
 		});

@@ -10,7 +10,7 @@
  * unchanged from check-guard-registry.test.ts, whose cost was pre-existing (#4294).
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -31,6 +31,7 @@ import {
 	templateOf,
 	temps,
 } from "./lib/guard-registry-testkit";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process";
 
 afterEach(removeTemps);
@@ -100,9 +101,7 @@ describe("--against HEAD, the shape .husky/pre-commit's guard-registry gate runs
 
 	it("reports the materialised side's gitignore filter as not run, never FAILED OPEN (#710)", () => {
 		const root = committedRepo({ claude: clean, files: cleanFiles });
-		/* spawn-kept: a real fd — the re-exec streams its report to fd 2, which
-		 * the in-process run() cannot capture. */
-		const r = spawnSync(
+		const r = keptSpawn("fd").spawnSync(
 			"node",
 			[
 				path.join(root, "scripts", "check-guard-registry.js"),
@@ -346,9 +345,7 @@ describe("scripts/landing-registry-gate.js refuses only the faults a queue push 
 		execFileSync("git", ["update-ref", "refs/remotes/origin/main", tip], {
 			cwd: root,
 		});
-		/* spawn-kept: a real fd — the gate hands the checker it spawns the real
-		 * fd 2, where these cases read its report. */
-		return spawnSync(
+		return keptSpawn("fd").spawnSync(
 			"node",
 			[path.join(root, "scripts", "landing-registry-gate.js")],
 			{
@@ -509,9 +506,7 @@ describe("scripts/landing-registry-gate.js judges a push to a queue ref on main'
 		line: string,
 		inherited: Record<string, string> = {},
 	) =>
-		/* spawn-kept: a real fd — the gate hands the checker it spawns the real
-		 * fd 2, where these cases read its report. */
-		spawnSync(
+		keptSpawn("fd").spawnSync(
 			"node",
 			[path.join(root, "scripts", "landing-registry-gate.js")],
 			{

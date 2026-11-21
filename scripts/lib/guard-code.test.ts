@@ -9,11 +9,12 @@
  * call in every session, or a working copy's edit reaches the hooks again.
  */
 
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { keptSpawn } from "./kept-spawn.js";
 
 const CODE_LIB = path.resolve(__dirname, "guard-code.js");
 const { CORE_FAULT_TEXT } = require("./core-fault.js") as {
@@ -207,8 +208,7 @@ describe("adoption", () => {
 		const run = () =>
 			new Promise<{ code: number | null; out: string }>((resolve) => {
 				let out = "";
-				// spawn-kept: two processes at once, the lock a pidfile naming each adopter's script
-				const child = spawn(
+				const child = keptSpawn("concurrent").spawn(
 					process.execPath,
 					[path.resolve(__dirname, "../adopt-guard-code.js")],
 					{
