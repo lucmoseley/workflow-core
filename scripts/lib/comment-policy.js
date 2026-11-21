@@ -613,7 +613,7 @@ function jsdocProse(lines) {
 
 /**
  * @typedef {{ lang?: Lang, re: RegExp,
- *   read: (m: RegExpExecArray) => Suppression | "code" }} Directive
+ *   read: (m: RegExpExecArray) => Suppression | "code" | null }} Directive
  */
 
 /** @param {string} tool @param {number} [group] */
@@ -650,6 +650,11 @@ const DIRECTIVES = [
 		read: suppresses("stryker"),
 	},
 	{ re: /^Stryker\s+restore\b/i, read: readsAsCode },
+	{
+		re: /^(?:full-sweep-only:|Unbuilt caller:\s*\S+(?=\s|$))(.*)$/,
+		read: (m) => (barePointers(m[1] ?? "") ? "code" : null),
+	},
+	{ re: /^workflow-core hook shim:$/, read: readsAsCode },
 	{
 		re: /^(?:(?:c8|istanbul|v8)\s+ignore\b|pragma:\s*no\s*(?:cover|branch)\b)()/,
 		read: suppresses("coverage"),
@@ -887,24 +892,12 @@ function judgeSource(source, facts) {
 	return UNITS[facts.lang](source).flatMap((u) => judgeUnit(u, facts));
 }
 
-/**
- * A pattern matching any of the dependency names as a word, a scoped
- * package by its bare name as well; null where there are none.
- * @param {string[]} names
- */
+/** @param {string[]} names */
 function depsPattern(names) {
-	const words = new Set();
-	for (const n of names) {
-		words.add(n);
-		const bare = /^@[^/]+\/(.+)$/.exec(n)?.[1];
-		if (bare) words.add(bare);
-	}
-	if (words.size === 0) return null;
+	const words = names.filter((n) => !n.startsWith("@types/"));
+	if (words.length === 0) return null;
 	const alts = [...words].sort((a, b) => b.length - a.length).map(escapeRe);
-	return new RegExp(
-		String.raw`(?<![\w@/.-])(?:${alts.join("|")})(?![\w/-])`,
-		"i",
-	);
+	return new RegExp(String.raw`\`(?:${alts.join("|")})\``);
 }
 
 module.exports = { CODE_FILE, depsPattern, judgeSource, langOf };

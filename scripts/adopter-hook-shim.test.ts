@@ -11,6 +11,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { HOOKS, renderHookShim } from "./lib/adopter-skeleton";
+import { depsPattern, judgeSource } from "./lib/comment-policy.js";
 import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -409,6 +410,20 @@ describe("the core hooks an adopter's shims run (#1839)", () => {
 });
 
 describe("the shim text (#1839)", () => {
+	it("adds no comment the comments gate refuses in an adopter (#5492)", () => {
+		const adopter = {
+			lang: "sh" as const,
+			checkJs: false,
+			exports: new Set<string>(),
+			shipped: false,
+			adrs: new Set<string>(),
+			deps: depsPattern([]),
+			styleOnly: {},
+		};
+		for (const hook of HOOKS)
+			expect(judgeSource(renderHookShim(hook), adopter), hook).toEqual([]);
+	});
+
 	it("passes shellcheck at --severity=style, as an adopter's pre-commit checks its hooks", () => {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "shim-sc-"));
 		temps.push(dir);

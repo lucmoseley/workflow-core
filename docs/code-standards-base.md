@@ -57,8 +57,12 @@ A rule enters this base because it is right, never because the code already does
 
 ### Severity
 
-- **hard** — the breach is evident from the diff alone, no code breaks the rule without a written reason, and a deviation is a defect rather than a taste call. A breach elsewhere in the code is a second finding, never a reason to downgrade this one.
+- **hard** — the breach is evident from the diff alone, no code breaks the rule without a written reason on the issue that allowed it, and a deviation is a defect rather than a taste call. A breach elsewhere in the code is a second finding, never a reason to downgrade this one.
 - **judgement** — real, citable, but a change may have a good reason to differ. Say what the reason would have to be.
+
+### Comments
+
+**A comment in code is refused unless it is one of the kinds `docs/comment-kinds.md` lists, in that kind's form, and its tie rule binds** (#5455). No rule here asks for any other comment. Where a rule asks for a reason, the reason goes on the issue, and the site carries at most the bare `#N` that K5 admits (#5457). A marker a plugin checker reads — `full-sweep-only:` (§X10) or `Unbuilt caller:` (§G6) — is a directive, as `@vitest-environment` is, followed by a bare pointer and no prose.
 
 
 ### A local file changes this base only through its changes table, its route rows, its local rules and its primitives rows
@@ -150,32 +154,29 @@ Copy a row's exemplar, never the nearest file doing the same job (**Primitive**,
 
 ## §G — every code kind
 
-### §G1 · A non-obvious decision is written at the site, with its ticket and its residual — **judgement**
+### §G1 · A non-obvious decision is recorded on its issue, and its residual becomes a test or an open issue — **judgement**
 
-A decision that could reasonably have gone the other way carries, in a comment beside the code: what was chosen, the issue number that settled it, and what the choice leaves broken.
-
-The corpus does this three ways: `scripts/check-restatement-edges.js:52-55` cites the ticket beside the choice it made, *"reading those would silence the exceptions they were written to flag (mantahostels#1472)"*; residuals are headed `Residual:` (`scripts/check-self-throttling.js:238-240`); and the counterfactual is stated — `scripts/pick-next.js:1228-1229` *"a probe that could not run would read as 0 to anyone who cannot see the JSON"*.
+A decision that could reasonably have gone the other way is recorded where #5457 sends it: on the closed issue that settled it by default, in an ADR only where it passes #5459's bar, or carried by a test, a name, the code's shape or a check. The site keeps a bare `#N` or `ADR-NNNN` only where a reader would otherwise undo the code's shape (K5). What the choice leaves broken becomes a test pinning it or an open issue, never a comment.
 
 ### §G2 · A magic value carries its derivation — **hard**
 
-A value that was chosen — a threshold, a size, a count, a timeout — states where it came from, and says so when it is a guess, wherever it sits: a module constant, a parameter's default, a call-site argument or a local name (#1406). The derivation explains the value as it stands, never a change to it (#2351). Several sites holding one value for one reason take it from one constant that carries the derivation. A name for a fixed path or label is not one, nor is a value nothing chose, such as a unit conversion or a command's argument count.
+A value that was chosen — a threshold, a size, a count, a timeout — states where it came from, and says so when it is a guess, wherever it sits: a module constant, a parameter's default, a call-site argument or a local name (#1406). It does so in the value-derivation form `docs/comment-kinds.md` gives: one line holding `measured` and the figure, or `guess`, and the `#N` that holds the detail. Several sites holding one value for one reason take it from one constant that carries the derivation. A name for a fixed path or label is not one, nor is a value nothing chose, such as a unit conversion or a command's argument count.
 
-`scripts/lib/gh.js:24-41` carries the measurement behind `MAX_BUFFER = 256e6` (*"the widest query any checker makes … was 26.67 MB across 2,456 issues"*); `scripts/lib/hook-block.js:23-25` for `MAX_BLOCKS = 3`; `scripts/lib/report-once.js:16-19` labels `INPUT_CHARS` *"A first guess, and stated as one"* and names what nobody has measured.
+### §G3 · A retained escape hatch silences only a style-only or faulty rule, and names it — **hard**
 
-### §G3 · A retained escape hatch owes a written reason — **hard**
+A suppression is K3: the tool's own directive naming the rule, inline on the line it excuses, one rule per directive, never bare and never a file-top blanket. It silences only a rule that is style-only or faulty, which `scripts/lib/style-only-rules.json` lists by tool. A suppression of a correctness rule is refused: fix the code.
 
-An empty `catch`, and every spelling below that silences a checker, carries the reason it is kept, at the site.
+An empty block is no escape hatch either: the code changes shape so the block holds a statement (#5488).
 
-- *Stack (`tsconfig.json`)*: `any`, `!` and `@ts-ignore`. Prefer `unknown` and narrow (§T2). For example `// biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import`, above a `require` of an untyped CommonJS module.
-- *Stack (`biome.json`)*: a `biome-ignore` states its justification in its own text.
-- *Stack (`*.sh`)*: `# shellcheck disable=<code> # <reason>`, inline on the line it excuses, one code per directive — never a file-top blanket.
-- *Stack (`ruff.toml`)*: `# noqa: <code> - <reason>`, one code per directive, the directive inline on the line it excuses — never a bare `# noqa`, nor a file-top `# ruff: noqa` or `# flake8: noqa` (#1284). For example `# noqa: E402 - imported after the path constant the sys.path.insert above reads`: ruff exempts the insert itself, so the reason names the line it actually fires on. The reason may instead head the code it excuses, as a comment block above the enclosing `try`.
+- *Stack (`tsconfig.json`)*: `@ts-ignore`, `@ts-expect-error` and `@ts-nocheck` silence the type checker, a correctness rule, so none is kept. For `any` and `!`, prefer `unknown` and narrow (§T2).
+- *Stack (`biome.json`)*: a `biome-ignore` names a rule in a group the list holds.
+- *Stack (`*.sh`)*: `# shellcheck disable=<code>`. The list holds no ShellCheck code, so a disable is refused.
+- *Stack (`ruff.toml`)*: `# noqa: <code>`, never a bare `# noqa`, nor a file-top `# ruff: noqa` or `# flake8: noqa` (#1284). Ruff fires E402 on the import below a `sys.path.insert`, not on the insert, so the directive sits on the import.
+- *House*: an empty `catch` becomes `ignoreFailure(act)` or `orFallback(read, fallback)` from `scripts/lib/caught.js`, and an empty callback `noop` from `scripts/lib/noop.js`.
 
-### §G4 · A file departing from its family's policy says so in its header — **judgement**
+### §G4 · A file departing from its family's policy cites the issue that allowed it — **judgement**
 
-Families disagree with each other on purpose: error policy is *opposite* between a fail-loud writer and a fail-open guard.
-
-`scripts/issue-body.js:50` is the pattern: *"This script FAILS LOUD. The guards in this repo fail open because a broken guard must not block work; a broken writer must not silently drop a decision."*
+Families disagree with each other on purpose: error policy is *opposite* between a fail-loud writer and a fail-open guard. A file departing from its family's policy has an issue ruling the departure, and its opening comment is that issue's bare `#N` (K5), so a reader does not pull it back into line.
 
 ### §G5 · Names follow one scheme the repo states — **hard**
 
@@ -187,19 +188,19 @@ A repo's names follow one scheme, and a name breaking it is the breach.
 
 **Program, library and test.** A program is tested by running it. A module is tested through the exports its real callers use. Logic that deserves its own tests becomes a module with a real caller, never a helper exported for the test (#1348).
 
-The fixes, best first: the test drives the program end to end through `run-in-process`, and the export goes; the logic moves into a module whose real caller is the program, tested through that module's exports; or the name becomes file-local, and the test reaches it through an export a real caller uses. `scripts/lib/launch-route.js:5` is the second, a module of its own so *"the route table is tested through its export"*. A comment is never the fix.
+The fixes, best first: the test drives the program end to end through `run-in-process`, and the export goes; the logic moves into a module whose real caller is the program, tested through that module's exports; or the name becomes file-local, and the test reaches it through an export a real caller uses. `scripts/lib/launch-route.js` is the second, a module of its own whose route table is tested through its export. A comment is never the fix.
 
 Three kinds of export are not test-only:
 
 - **A program's entry point**, exported so `run-in-process` can run it: a `main` exported by a file carrying a `require.main` guard, as `scripts/audit-escape-lines.js:512` does — *"module.exports = { main };"*.
-- **Test support.** A testkit, harness, fixture, stub or fake module, named for what it is, and anything under a `fixtures/` directory. `scripts/lib/precommit-gate-harness.js:2` is *"the machinery the .husky/pre-commit gate suites share"*.
-- **A module built ahead of its caller**, whose opening comment names that caller and its ticket on a line spelt `Unbuilt caller: <caller> (#N)`.
+- **Test support.** A testkit, harness, fixture, stub or fake module, named for what it is, and anything under a `fixtures/` directory. `scripts/lib/precommit-gate-harness.js`, the machinery the `.husky/pre-commit` gate suites share, is one.
+- **A module built ahead of its caller**, whose opening comment is the directive `Unbuilt caller: <caller> (#N)`, naming the caller and the open issue that builds it.
 
 **Reported, never gated** (#1361): the plugin's citation checker reports a name only test-kind files consume as it does one nothing consumes, under §N7's scan and its limits.
 
 ### §G7 · An injected seam has a second adapter — **judgement**
 
-**Program, library and shell.** Every injected seam — a dependency parameter, a port, or an env var standing in for a binary, a file or a clock — has a second adapter beside production's, and a test fake counts. Otherwise a comment at the seam names the caller that will supply one.
+**Program, library and shell.** Every injected seam — a dependency parameter, a port, or an env var standing in for a binary, a file or a clock — has a second adapter beside production's, and a test fake counts. Otherwise an open issue names the caller that will supply one, and the seam cites it as a bare `#N` (K5).
 
 `scripts/lib/suite-queue.js:606` takes *"{ alive = pidAlive, startTime = readStartTimeOf } = {}"*, and its module test fills both with fakes; `scripts/bg-run.sh:179` reads *"${WFC_BG_MEMINFO:-/proc/meminfo}"*, which its test points at a fixture file.
 
@@ -207,7 +208,7 @@ Where neither fits, remove the seam: create the dependency in place, and let the
 
 **Outside the rule:** an env var that tunes a value (a timeout, a ceiling, a poll interval), and one a program sets for its own child.
 
-**The good reason to differ is a second adapter that lives outside the repo** — a parameter another release of the plugin fills, or an env var the founder or an adopter sets by hand — said at the seam, naming who fills it.
+**The good reason to differ is a second adapter that lives outside the repo** — a parameter another release of the plugin fills, or an env var the founder or an adopter sets by hand. That is an outside contract, so the seam's doc comment says who fills it (K4).
 
 **A fake the repo owns is held to its production adapter by a contract test** (#2207). It binds a fake a change adds or touches, so each standing owned fake (`claude`, `ps`, `gitleaks`, `ruff`, `journalctl`, `dmesg`, the `/proc/meminfo`, `/proc` and `loadavg` fixtures) comes under it when touched, its live cases using free calls only: `--help`, or a read of the real `/proc/meminfo` through the same parser.
 
@@ -255,7 +256,7 @@ The fixes, best first: return the value, so the caller holds it; pass it in, so 
 
 *House*: a shell caller sources `scripts/lib/rule-text.sh` and calls `rule_text <id>`; a Node caller calls `readRuleText` from `scripts/lib/rule-text.js`, or, where it must not crash, `readRuleTextOr` there or a guard core's `ruleOrFallback` in `scripts/lib/guard-verdict.js`. Their fallback for an unreadable store, one clause naming the rule and then the fragment's path, is no copy.
 
-**The good reason to differ is a place the fragment cannot be printed from**: a byte cap it does not fit, or a measuring tool that reads the text literally, as `scripts/check-context-budget.js` reads `scripts/lib/tracker-inject-text.js`'s payload. A shortened copy stays there only where a comment beside it names the fragment and the reason, as `GH_EMPTY_RESULT_RULE` and the `standardsText` texts in that file do. A copy a test pins word for word to the fragment, or to such a shortened copy, cannot drift unseen, and stays where a comment names the test, as `STANDING_LINE` in `scripts/lib/vitest-wrapper.js` and `standards_line` in `scripts/concision-backstop.sh` do.
+**The good reason to differ is a place the fragment cannot be printed from**: a byte cap it does not fit, or a measuring tool that reads the text literally, as `scripts/check-context-budget.js` reads `scripts/lib/tracker-inject-text.js`'s payload. A shortened copy stays there only where the issue that allowed it names the fragment, and the copy cites it beside it as a bare `#N` (K5); `GH_EMPTY_RESULT_RULE` and the `standardsText` texts in that file are such copies. A copy a test pins word for word to the fragment, or to such a shortened copy, cannot drift unseen, and stays, as `STANDING_LINE` in `scripts/lib/vitest-wrapper.js` and `standards_line` in `scripts/concision-backstop.sh` do.
 
 ### §G12 · A hook's JSON output is built by one builder, never an object literal of its own — **hard**
 
@@ -270,7 +271,7 @@ The fixes, best first: return the value, so the caller holds it; pass it in, so 
 
 A hot-path program is one the harness or git runs per tool call or per commit, or one polled every few seconds: a program a `PreToolUse`, `PostToolUse`, `PostToolUseFailure` or `PostToolBatch` hook entry runs, a module a hook or git-hook dispatcher loads for one, a program a git hook git runs on each commit runs, the status line's command, and a command the repo declares polled. It binds what a change adds or rewrites (#5319).
 
-1. Load only what the common path uses. Profile (`--cpu-prof`) before cutting. Defer a rare, heavy module with a `require()` inside its one caller, commented; never a module loaded for its side effects.
+1. Load only what the common path uses. Profile (`--cpu-prof`) before cutting. Defer a rare, heavy module with a `require()` inside its one caller; never a module loaded for its side effects.
 2. A new guard or gate joins the existing dispatcher process rather than registering its own hook entry (#2786, #5166). No child process where an in-process core serves (#2186).
 3. One pass over a shared input, as §X8 (3).
 4. A change made for speed records a before/after median per call, old and new alternating, on its ticket (#2797).
@@ -281,7 +282,7 @@ A hot-path program is one the harness or git runs per tool call or per commit, o
 - *House, shell*: pin through the harness's `shellCallCost`, which records each watched binary the script starts, a `run-budgeted.js` start followed by the checker it runs.
 <!-- rule:hot-path-cost:end -->
 
-Judge (4) from the ticket's comments: a change made for speed with no before/after medians there is the finding. Judge (5) from the change's test files. A good reason to differ: a program with no common path a pin can drive, said in its header (§G4), under (5); or a guard that must run in its own process for a reason the hook docs give, such as fail-closed isolation or a timeout of its own, said at its entry, under (2).
+Judge (4) from the ticket's comments: a change made for speed with no before/after medians there is the finding. Judge (5) from the change's test files. A good reason to differ: a program with no common path a pin can drive, cited per §G4, under (5); or a guard that must run in its own process for a reason the hook docs give, such as fail-closed isolation or a timeout of its own, cited per §G4, under (2).
 
 ---
 
@@ -327,9 +328,9 @@ Input from outside the library is narrowed by a runtime check before any code re
 
 ### §T7 · Dependencies are injected; the library does no I/O — **judgement**
 
-The clock arrives as a function, an external supplier as a one-function transport port, and the module header states that it performs no I/O, so every branch is exercised in-process.
+The clock arrives as a function, an external supplier as a one-function transport port, and the module performs no I/O, so every branch is exercised in-process.
 
-**Two kinds of module at a web app's edge may do I/O, on the ground of a stack this rule cannot fit** (#1872). Each says in its §N2 header which it is, in place of the no-I/O statement, and names the suppliers it touches:
+**Two kinds of module at a web app's edge may do I/O, on the ground of a stack this rule cannot fit** (#1872):
 
 - **A production adapter** fills a port against a real supplier — the network, a database, the filesystem, `process.env`, an SDK. It holds the transport and nothing a test needs to reach: it branches on the supplier's answer only to turn a transport failure into the port's outcome (§T3). Next.js, for one, keeps these in its Data Access Layer (`import 'server-only'`).
 - **A composition root** is a module the framework invokes as an entry point. It builds the adapters and hands them to the library. In the Next.js App Router, for example: a server-rendered `page.tsx` or `layout.tsx` and its `generateMetadata`; a `route.ts` handler; a `"use server"` function or module; `proxy.ts` (`middleware.ts` before Next 16); `instrumentation.ts`. In its Pages Router: a page's `getServerSideProps`, `getStaticProps` and `getStaticPaths`, which run only on the server, and a `pages/api/*` handler (#2061); the page's component hydrates in the browser, so it is a client component. Its body wires and delegates; a branch worth testing moves into the library behind a port.
@@ -367,15 +368,13 @@ Every other library module stays under the rule, and a client component is never
 
 A non-test `.ts` program is ESM; where it needs a CommonJS lib it reaches it through `createRequire`, because the lib is spawned as a plain node script by a bash hook and stays CommonJS. **Always `createRequire(import.meta.url)`, never `createRequire(__filename)`** (mantahostels#2191): `__filename` only resolves under Vitest's compatibility shim, so a non-test file copying it breaks when run directly by `node` — `scripts/vitest-inflight-reporter.ts:21` is the portable exemplar: *"const require = createRequire(import.meta.url);"*.
 
-### §N2 · Every program, library module, hook module, shell script and test opens with a header block saying why — **hard**
+### §N2 · A file opens with a comment only where a permitted kind needs one — **hard**
 
-Every program, library module, hook module and shell script opens with a block comment giving the filename, one line on what it is, then the *why* and the ticket that settled it. A test's header gives one line on what it pins, then the ticket, why the test is built the way it is, and what breaking it costs — for example, that it runs inside a throwaway repository rather than against the real one, and that it is a hard gate in CI, so loosening it loosens CI. Either header's why explains the code as it stands, never a change to it (#2351). A test header need not name itself or its subject, though it may: the runner prints a test's path on every result and failure, and a self-name goes stale on a rename (#1279, #1406).
-
-**Capitalised sentence-heads mark a caveat the reader must not skim** — `scripts/guard-priced-options.js:329` *"EVERY FAILURE PATH IS SILENT AND EXITS 0"*.
+No program, library module, hook module, shell script or test owes a header (#5455). A file opens with a comment only as K1, a licence line, or as K4, the contract of an entry point a party outside the repo runs or imports: a command's usage, a hook's input and output, a shipped module's exports. A header giving what the file is, its why or its ticket is refused.
 
 ### §N3 · The filename prefix is the contract — **hard**
 
-A filename prefix selects a contract. Where the repo has families for a program's language, a new program joins one and takes its contract whole, or states in its header why it is not in one (§G4). Where its language has no families, it owes no such line, since a header saying "no family" carries no contract (#1250, #1406); nor does it take another language's family prefix unless it keeps that family's contract, so a Python hook that always exits 0 is never a `check-*` (#1406).
+A filename prefix selects a contract. Where the repo has families for a program's language, a new program joins one and takes its contract whole, or cites the issue that keeps it out of one (§G4). Where its language has no families, it owes no such line, since a header saying "no family" carries no contract (#1250, #1406); nor does it take another language's family prefix unless it keeps that family's contract, so a Python hook that always exits 0 is never a `check-*` (#1406).
 
 *House, Node programs only*: the four families, under `scripts/`:
 
@@ -410,13 +409,13 @@ FAIL    real findings that gate                       exit 1
 BROKEN  the checker itself cannot do its job          exit 2
 ```
 
-### §N5 · A fail-open is written down, cited, and printed — **hard**
+### §N5 · A fail-open is pinned by a test, and printed — **hard**
 
-A program that swallows an error to keep working does so as a design choice that (a) is commented at the site, explaining the code as it stands and never a change to it, (b) cites the ticket that chose it, and (c) **where a human reads the output, is printed** (#2351). See §S3 for the shell half.
+A program that swallows an error to keep working does so as a design choice that a test pins, and that **where a human reads the output, is printed** (#2351, #5455). See §S3 for the shell half.
 
-**Gated for Python** (#1830, #5487): the plugin's pre-commit refuses an `except` a commit adds to a program-routed `.py` that neither raises, exits nor hands the error it binds to a reporter from `scripts/lib/fail_open.py`, so (c) is a duplicate finding there. `fail_open` prints the error; `tallied` counts it into a tally the program prints, one line for every drop of its kind. **A condition that is the program's normal path is no fault, so it is not printed** (#5503): a loop's end, such as `waitpid` raising `ChildProcessError` once no child is left, or a process that exited between being listed and being read. Its `except` hands the error to `expected`, which the gate passes only under a specific caught type, never `Exception`, `BaseException` or `OSError`; where only an errno marks the condition, the handler re-raises every other one. Whether a test pins the site, whether the condition is truly the normal path, and whether an errno handler re-raises every other errno stay review's: the gate passes any handler holding a `raise`.
+**Gated for Python** (#1830, #5487): the plugin's pre-commit refuses an `except` a commit adds to a program-routed `.py` that neither raises, exits nor hands the error it binds to a reporter from `scripts/lib/fail_open.py`, so the printing is a duplicate finding there. `fail_open` prints the error; `tallied` counts it into a tally the program prints, one line for every drop of its kind. **A condition that is the program's normal path is no fault, so it is not printed** (#5503): a loop's end, such as `waitpid` raising `ChildProcessError` once no child is left, or a process that exited between being listed and being read. Its `except` hands the error to `expected`, which the gate passes only under a specific caught type, never `Exception`, `BaseException` or `OSError`; where only an errno marks the condition, the handler re-raises every other one. Whether a test pins the site, whether the condition is truly the normal path, and whether an errno handler re-raises every other errno stay review's: the gate passes any handler holding a `raise`.
 
-The `guard-*` family swallows every error and exits 0 — *"breaking a session is worse than missing one"* (`scripts/guard-priced-options.js:329-330`) — and `scripts/session-arbiter.js:1548` names the rule's source, *"catches to fail open (mantahostels#103 §6)"*. Printed: `scripts/lib/pick-next-verdict.js:443` *"Assigned, but no live session recorded a claim: fail open, and say so"*.
+The `guard-*` family swallows every error and exits 0, since breaking a session is worse than missing one (mantahostels#103 §6).
 
 ### §N6 · Output that must survive `process.exit` on a pipe is written synchronously — **hard**
 
@@ -424,9 +423,9 @@ Node programs. On any path whose output precedes a `process.exit` **and** whose 
 
 A bare `fs.writeSync` is not enough — `scripts/lib/write-fd.js:7-8` *"it drops the tail of a partial write without saying so, and it throws EAGAIN on a full pipe that is non-blocking"*. The writer loops until every byte is taken, waiting out EAGAIN up to a ceiling.
 
-*House, Node programs only*: that writer is `writeFd` from `scripts/lib/write-fd.js` (#1676). A bare `fs.writeSync` to fd 1 or 2 stays only where a comment says why. A program calling `process.exit` writes a terminal-only path through `writeTerminal` from the same file, never `console` or a std stream's own write (#4018, #5484). A `report-*` writes every path through it, a terminal-only one included (#3454).
+*House, Node programs only*: that writer is `writeFd` from `scripts/lib/write-fd.js` (#1676). A bare `fs.writeSync` to fd 1 or 2 is the breach, bar a program that may load nothing of the repo's, as `scripts/run-pinned-guards.js` does. A program calling `process.exit` writes a terminal-only path through `writeTerminal` from the same file, never `console` or a std stream's own write (#4018, #5484). A `report-*` writes every path through it, a terminal-only one included (#3454).
 
-*House, production Node programs only*: a program reads all of its stdin through `readFdAll` from `scripts/lib/read-fd.js`, since `fs.readFileSync(0)` throws EAGAIN on a non-blocking pipe whose writer has not finished (#4017). A bare `fs.readFileSync(0)` stays only where a comment says why. An inline `node -e` in a shell script that never touches `process.stdin` is outside this.
+*House, production Node programs only*: a program reads all of its stdin through `readFdAll` from `scripts/lib/read-fd.js`, since `fs.readFileSync(0)` throws EAGAIN on a non-blocking pipe whose writer has not finished (#4017). A bare `fs.readFileSync(0)` is the breach, bar such a program, as `scripts/lib/load-failure-stop.js` is. An inline `node -e` in a shell script that never touches `process.stdin` is outside this.
 
 Stream discipline (`scripts/lib/check.js:30-34`): stdout is for machine readers (a `--json` envelope, Actions `::error::` commands); human text goes to stderr. A `SessionStart` hook inverts it, because its stdout is what is injected into the session — and it exits 0 unconditionally, BROKEN included, because a non-zero `SessionStart` hook is read as broken and dropped (`scripts/lib/check.js:2231-2234`).
 
@@ -452,11 +451,11 @@ Stream discipline (`scripts/lib/check.js:30-34`): stdout is for machine readers 
 
 **§T8's missing-entry check is part of the bar** (#1380): programs are held to it as library code is, wherever `tsc` checks them.
 
-**Cannot satisfy it? `// @ts-nocheck`, and say why in the header per §G3**, naming what the file does that defeats inference. The reason line is **machine-read**, so its spelling is fixed: `` NO type checking (§N8). `` followed by why. **Cost is not a reason** — a file declining on its own error count is one to convert, not to exempt (mantahostels#1397).
+**Cannot satisfy it? Convert the file.** `// @ts-nocheck` silences a correctness check, which §G3 refuses, and a file declining on its own error count is one to convert, not to exempt (mantahostels#1397).
 
 **Reported, never gated** (mantahostels#1464): the plugin's `scripts/check-scripts-typecheck.js` names every in-scope file carrying `// @ts-nocheck`, at WARN.
 
-**A catch binding stays `unknown`, as `strict` types it, and is read through `instanceof Error` or the plugin's `caught` (`scripts/lib/caught.js`)** (#1329, ruled at #1317). A thrown value promises no field at all: a thrown `null` makes `e.code` throw inside the handler meant to fail open. A cast of the binding — `NodeJS.ErrnoException`, `Error`, a hand-written shape — is §T2's unchecked assertion unless a runtime check precedes it. **An `any`, on a catch binding or anywhere else, owes its reason in a comment beside it.**
+**A catch binding stays `unknown`, as `strict` types it, and is read through `instanceof Error` or the plugin's `caught` (`scripts/lib/caught.js`)** (#1329, ruled at #1317). A thrown value promises no field at all: a thrown `null` makes `e.code` throw inside the handler meant to fail open. A cast of the binding — `NodeJS.ErrnoException`, `Error`, a hand-written shape — is §T2's unchecked assertion unless a runtime check precedes it. **An `any`, on a catch binding or anywhere else, is §G3's: prefer `unknown` and narrow.**
 
 **Annotate by hand, never through a generated pass such as TypeScript's `inferFromUsage` codefix** (mantahostels#1409).
 
@@ -464,7 +463,7 @@ Stream discipline (`scripts/lib/check.js:30-34`): stdout is for machine readers 
 
 **Program kind only**: library code leans on §T5's `readonly` instead, which holds a passed record's fields and arrays but not a passed Map, Set or regex. A function returns its result rather than changing an object or array it was passed, so every value a call changes shows at the call site. A field write, a push, an in-place sort and a reset of a regex's `lastIndex` all count, and so does a write to an element of a passed list or through a destructured options field. `scripts/lib/issue-gate.js:134` runs a caller's regex on a copy rather than resetting it: *"const local = new RegExp(re);"*.
 
-**The good reason to differ is a caller-owned accumulator or counter passed in for that purpose** — a findings list, a tally, a cache, the state a split-out loop step advances — the house shape (#1297). It is said at the parameter: in JS the `@param` description opens `accumulator:`, as at `scripts/lib/arbiter-core.js:1144` *"accumulator: each readable entry is pushed here"*; in Python a docstring sentence opens with the backticked parameter and calls it the caller's accumulator, as at `scripts/lib/transcript_corpus.py:263-264` *"accumulator: the skips are counted into it"* (#1375). A record handed in with one field for the callee to fill is an accumulator for that field alone, and the note names it. A record, a regex, a parsed document or a list handed in to be read is never an accumulator.
+**The good reason to differ is a caller-owned accumulator or counter passed in for that purpose** — a findings list, a tally, a cache, the state a split-out loop step advances — the house shape (#1297). It is said by the parameter's name or type, which names what accumulates in it, as the parameter `tally`, typed `Tally`, in `scripts/check-cleared-trackers.js` does (#1375, #5455). A record handed in with one field for the callee to fill is an accumulator for that field alone, and the name says which. A record, a regex, a parsed document or a list handed in to be read is never an accumulator.
 
 ### §N10 · An arbiter record is reached through the arbiter's one reader and one writer — **hard**
 
@@ -486,7 +485,7 @@ A test title is a third-person statement of the behaviour and never begins "shou
 
 A test fills its seam with a real temp directory, a real subprocess, an injected binary or an injected dependency. Replacing a module the code under test imports is the breach, and the fix is usually that the code needs a seam (§T7, §N7).
 
-**A spy is judged by what it is for** (#684). Three uses are sanctioned: capturing output (`process.stdout`/`stderr.write`, `console`, `fs.writeSync` to fd 1 or 2); watching a real call it lets through; and forcing a failure no real seam reaches, **with the reason no real seam reaches it written at the site**. A spy standing in for a collaborator the test depends on, where a temp directory, a subprocess or an injected dependency would do, is the breach.
+**A spy is judged by what it is for** (#684). Three uses are sanctioned: capturing output (`process.stdout`/`stderr.write`, `console`, `fs.writeSync` to fd 1 or 2); watching a real call it lets through; and forcing a failure no real seam reaches, **with the issue saying why no real seam reaches it, cited at the site as a bare `#N` (K5)**. A spy standing in for a collaborator the test depends on, where a temp directory, a subprocess or an injected dependency would do, is the breach.
 
 Prefer a shared testkit's fake to a hand-rolled one; for a port the repo owns, §G7 requires it.
 
@@ -499,7 +498,7 @@ A case that runs a file as a program — a top-level script, a lib module's `req
 
 Both halves are asserted: the exit code, against §N4 where the program is a checker, *and* that the output names the offending thing **and the way out**.
 
-**A builder earns a docstring where its name and signature do not already say what it builds** (mantahostels#3118) — why the builder exists at all, or which real-world act it stands in for. What an absent argument means is §X5's, and citable there; outside it, do not raise a missing docstring against a builder whose name and signature are the documentation.
+**A builder's name and signature say what it builds, or which real-world act it stands in for** (mantahostels#3118, #5455); where they cannot, the builder is renamed, never given a docstring. What an absent argument means is §X5's.
 
 **A module test is the deliberate opposite** — in-process, with injected deps, and held to §X6 instead: a lib test that imports its module and calls it, and any library-kind test. Do not cite this rule against one. A file holding both kinds owes it on its program cases only.
 
@@ -510,21 +509,21 @@ Both halves are asserted: the exit code, against §N4 where the program is a che
 
 Tests of any extension. A `#N` reference names the regression the case pins (mantahostels#991) — e.g. a title ending *mantahostels#137 (the hook reads the exit status)*.
 
-Every regression case is paired with a positive case proving the signal still fires. A case already in the file that proves the signal fires on the same code path is that pair: the regression case names it in its title or a comment, and no new positive case is written (#5181).
+Every regression case is paired with a positive case proving the signal still fires. A case already in the file that proves the signal fires on the same code path is that pair: the regression case names it in its title, and no new positive case is written (#5181).
 
 ### §X5 · A test builder says what an absent argument means — **judgement**
 
-A test builder with a nullable or optional parameter states in a docstring what that parameter's absence means, unless the builder's own body shows it (#1317 Q4, #1330). Absence is a `null`, an `undefined`, an omitted parameter or option field, or a Python `None` default. The body shows it where a reader learns what the absence builds without opening another file, a testkit's option type or the module under test: a branch or default on the parameter whose outcome reads plainly, the value written unchanged into the fixture it returns, or a hand-off to a builder in the same file that shows or states it.
+A test builder with a nullable or optional parameter shows in its own body what that parameter's absence means (#1317 Q4, #1330, #5455). Absence is a `null`, an `undefined`, an omitted parameter or option field, or a Python `None` default. The body shows it where a reader learns what the absence builds without opening another file, a testkit's option type or the module under test: a branch or default on the parameter whose outcome reads plainly, the value written unchanged into the fixture it returns, or a hand-off to a builder in the same file that shows it.
 
 ### §X6 · A module test checks what the interface returns or does, never the internals — **hard**
 
-A module test, §X3's in-process kind, asserts what the module's interface returns or does: the value returned, the files or records left, the output written, the calls made on a dependency it was handed. It never asserts the module's internal state, or how often its internals were called (#1308 Q4). A spy on captured output, or on an injected dependency, is at the interface and conforms; so is counting the calls a test's own fake receives. §X2's watched real call is held to this too. A breach owes the written reason a hard rule asks for, beside the assertion: for instance, a test counting an internal call because no return value shows the cost it guards (#1497).
+A module test, §X3's in-process kind, asserts what the module's interface returns or does: the value returned, the files or records left, the output written, the calls made on a dependency it was handed. It never asserts the module's internal state, or how often its internals were called (#1308 Q4). A spy on captured output, or on an injected dependency, is at the interface and conforms; so is counting the calls a test's own fake receives. §X2's watched real call is held to this too. A breach owes the written reason a hard rule asks for, on its issue, cited beside the assertion as a bare `#N` (K5): for instance, a test counting an internal call because no return value shows the cost it guards (#1497).
 
 ### §X7 · Deepening or replacing a module deletes the old module's tests the new ones cover — **judgement**
 
 When a module is deepened or replaced, the unit tests of the old module that the new module's tests now cover are deleted in the same change (#1308 Q7). A program keeps its §X11 boundary set; its other program cases are deleted under §X11 once a module case covers them (#2206).
 
-The good reason to differ: the old module still runs on a path the new module's tests never reach, such as a caller of its own. The kept test says so at the site.
+The good reason to differ: the old module still runs on a path the new module's tests never reach, such as a caller of its own. The kept test cites the issue naming that path, as a bare `#N` (K5).
 
 <!-- rule:test-run-cost:begin -->
 ### §X8 · A new test costs no more to run than its fitness needs — **judgement**
@@ -535,7 +534,7 @@ It binds the test cases a change adds or rewrites (#1771).
 2. Reach a state by seeding it, or a subject with a real dependency removed, and keep one case on the real call or dependency. For a program with a core, the real call is each production adapter its shell wires, crossed once for real: fs and git in the test's temp directory, and a binary at its §N7 var (§X11 item 3). *House*: `gh` is crossed through `WFC_GH`, its stub held to the real binary by §G7's contract test. Any other program test's process boundary stays §X3's.
 3. Replace a per-case search over a shared input with one pass, proven byte-identical to the old output on the real input and on planted variants.
 4. A change made for speed proves the test still fails: one mutation per changed assertion, reverted, named in the commit message.
-5. A test file the suite's run-cost report names as new over budget, or as grown, is made cheaper, or its header says why (§G4).
+5. A test file the suite's run-cost report names as new over budget, or as grown, is made cheaper, or cites the issue that keeps its cost (§G4).
 
 - *Stack (Vitest config)*: build in `beforeAll` or at module scope, copy fresh in `beforeEach`. §X3's `beforeEach` temp-directory clause still holds: the copy lands in the directory `beforeEach` mints. `.each` is no speed lever, since each row still runs its own setup.
 - *Stack (pytest config)*: build in a `module`-scoped fixture and copy in a function-scoped one. Under xdist, a build stays in its own worker's directory, never a path another worker shares.
@@ -546,7 +545,7 @@ Judge (4) from the full commit messages, `git log <fixed-point>..HEAD` with no `
 <!-- rule:test-time-seam:begin -->
 ### §X9 · A test asserts time through a seam, never through wall time — **hard**
 
-A budget, timeout or deadline is asserted through an injected clock or a count of what was done. Never assert real elapsed time measured around the call (mantahostels#2035, mantahostels#3535). A shipped timeout that is itself the guarantee is never shortened to make a test fast. A case that must cross the real clock (a signal, a kill, a process timeout) says why at the site.
+A budget, timeout or deadline is asserted through an injected clock or a count of what was done. Never assert real elapsed time measured around the call (mantahostels#2035, mantahostels#3535). A shipped timeout that is itself the guarantee is never shortened to make a test fast. A case that must cross the real clock (a signal, a kill, a process timeout) says why at the site through `keptSpawn`'s reason (§X3), or cites its issue as a bare `#N` (K5).
 
 - *Stack (Vitest config)*: fake timers or an injected `now`.
 <!-- rule:test-time-seam:end -->
@@ -554,7 +553,7 @@ A budget, timeout or deadline is asserted through an injected clock or a count o
 <!-- rule:test-reads-visible:begin -->
 ### §X10 · A test names what it reads where the repo's test selector can see it — **judgement**
 
-A test that reads a tracked file at runtime names it as a literal path, in the test or in a helper it loads directly, so a change to that file selects the test. Where it cannot, its header carries a `full-sweep-only:` line saying why, and the test runs only on a full run. This binds every test, standing or new: a read the selector misses loses an assertion, not time, so no #1771 exception reaches it.
+A test that reads a tracked file at runtime names it as a literal path, in the test or in a helper it loads directly, so a change to that file selects the test. Where it cannot, its header carries the directive `full-sweep-only: #N`, the issue saying why, and the test runs only on a full run. This binds every test, standing or new: a read the selector misses loses an assertion, not time, so no #1771 exception reaches it.
 
 - *Stack (read-edge manifest)*: the read shapes the plugin's read-edge extractor (`scripts/lib/test-read-edges.js`) attributes, and the shapes its header lists as getting no edge, are the shapes this clause means. A read in an unseen shape, with no `full-sweep-only:` line, is the breach. `node <plugin root>/scripts/generate-test-read-edges.js --unseen` lists each one the extractor can judge; its header names the reads it cannot.
 <!-- rule:test-reads-visible:end -->
@@ -599,7 +598,7 @@ Binds wherever no shellcheck gate refuses `SC2086`: a repo with no gate, a scrip
 
 ### §S2 · Every `source` line carries a `# shellcheck source=` directive — **hard**
 
-The directive names the real path where the sourced file is in the repo (`# shellcheck source=scripts/lib/<lib>.sh`). Where it is not — an adopter sourcing a plugin lib through `$WFC_PLUGIN_ROOT` — it reads `source=/dev/null`, with the reason on the same line.
+The directive names the real path where the sourced file is in the repo (`# shellcheck source=scripts/lib/<lib>.sh`). Where it is not — an adopter sourcing a plugin lib through `$WFC_PLUGIN_ROOT` — it reads `source=/dev/null`.
 
 *Stack (`*.sh`)*: a shebang-less file that is sourced rather than run opens with `# shellcheck shell=<sh|bash>`, as `scripts/lib/precommit-gate.sh` does (#753).
 
@@ -607,11 +606,11 @@ The directive names the real path where the sourced file is in the repo (`# shel
 
 Any hook that gates an act. A missing tool, a payload it cannot parse or a library it cannot read ALLOWS the act rather than wedge every session at once, and each swallowed error leaves a log line.
 
-**Fail open is the default, not the only answer** (#339). A limb may fail CLOSED only where the gate's header names it and its reason; its refusal is its own record. Judging a value the gate can prove — an empty variable target read as the cwd — is not a departure.
+**Fail open is the default, not the only answer** (#339). A limb may fail CLOSED only where the gate's record of its behaviours names it, the reason on its issue; its refusal is its own record. Judging a value the gate can prove — an empty variable target read as the cwd — is not a departure.
 
 **The default covers a fault the gate catches itself; a gate that can refuse fails closed when the harness ends it** (#2670 Q1 (A)): a timeout, a start failure, an exit other than 0 or 2 or invalid JSON refuses the act where the harness lets the registration say so, as Claude Code's `"onFailure": "block"` does from 2.1.295.
 
-*House*: a `guard-*.sh` logs through the plugin's `scripts/lib/guard-log.sh` (`gl_log`) and names its fail-closed limbs under a `LIMITS` header. `scripts/generate-plugin-hooks.js` writes `onFailure` onto each deny-capable registration.
+*House*: a `guard-*.sh` logs through the plugin's `scripts/lib/guard-log.sh` (`gl_log`) and names its fail-closed limbs on its row in `.claude/implicit-behaviours.json` (#5489). `scripts/generate-plugin-hooks.js` writes `onFailure` onto each deny-capable registration.
 
 ### §S4 · Deny on a structured fact, warn on an inference — **hard**
 
@@ -627,7 +626,7 @@ A script that stops at its first failure also sets `-e`: an installer, a mode sw
 
 A sourced library sets nothing. Husky hooks set `-e` and nothing else (#745): they fail closed, refusing the commit. Any other `sh` script sets `-u` alone, since dash has no `pipefail`.
 
-Under `-u`, a guard reads a positional that may be absent as `${2-}`. An abort still owes §S3's log line. In a gate whose caller refuses on any non-zero exit, as a husky hook does, it fails closed, and the header names that limb.
+Under `-u`, a guard reads a positional that may be absent as `${2-}`. An abort still owes §S3's log line. In a gate whose caller refuses on any non-zero exit, as a husky hook does, it fails closed, and its record names that limb (§S3).
 
 ### §S6 · A pre-commit gate that stages blobs out of the index is one `staged_gate` declaration — **hard**
 

@@ -104,10 +104,30 @@ describe("the permitted shapes", () => {
 				"js",
 			),
 		).toEqual([]);
-		expect(tags("/* vitest runs it twice */\nconst a = 1;\n", "js")).toEqual(
+		expect(tags("/* `vitest` runs it twice */\nconst a = 1;\n", "js")).toEqual(
 			[],
 		);
-		expect(tags("// biome sorts these\nconst a = 1;\n", "js")).toEqual([]);
+		expect(
+			tags("// `@biomejs/biome` sorts these\nconst a = 1;\n", "js"),
+		).toEqual([]);
+	});
+
+	it("refuses a dependency's name used as a word, unquoted or bare of its scope (#5492)", () => {
+		const deps = {
+			deps: depsPattern(["next", "@biomejs/biome", "@types/node"]),
+		};
+		expect(
+			tags("// the next run reads it\nconst a = 1;\n", "js", deps),
+		).toEqual(["COMMENT@1"]);
+		expect(tags("// `biome` sorts these\nconst a = 1;\n", "js", deps)).toEqual([
+			"COMMENT@1",
+		]);
+		expect(
+			tags("// `@types/node` lacks this\nconst a = 1;\n", "js", deps),
+		).toEqual(["COMMENT@1"]);
+		expect(tags("// `next` caches this\nconst a = 1;\n", "js", deps)).toEqual(
+			[],
+		);
 	});
 
 	it("passes a doc on an export the helper surface lists, or a shipped file's header (K4)", () => {
@@ -253,6 +273,22 @@ describe("what is not a comment", () => {
 			[],
 		);
 		expect(tags("# -*- coding: utf-8 -*-\nx = 1\n", "py")).toEqual([]);
+	});
+
+	it("passes a checker's marker followed by a bare pointer (§X10, §G6)", () => {
+		expect(tags("// full-sweep-only: #5492\nconst a = 1;\n", "js")).toEqual([]);
+		expect(
+			tags("/*\n * Unbuilt caller: app/reviews/page.tsx (#575)\n */\n", "js"),
+		).toEqual([]);
+	});
+
+	it("refuses a checker's marker carrying prose", () => {
+		expect(
+			tags(
+				"// full-sweep-only: reads every tracked file\nconst a = 1;\n",
+				"js",
+			),
+		).toEqual(["COMMENT@1"]);
 	});
 
 	it("reads no comment inside a string, a template, a regex or a heredoc", () => {

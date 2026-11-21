@@ -329,11 +329,9 @@ function renderHookShim(hook) {
 		? `workflow-core's ${hook} checks did not run.`
 		: "refused: no workflow-core resolves to run this repo's gates.";
 	return `#!/usr/bin/env sh
-${SHIM_MARK} core-owned; init and upgrade write it and a plugin
-# bump leaves it unchanged. A gate of this repo's own goes in
-# ${LOCAL_HOOKS.map((h) => `.husky/${h}.local`).join(" or ")}.
+${SHIM_MARK}
 
-set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
+set -e # lucmoseley/workflow-core-tracker#745
 WFC_PLUGIN_ROOT="$(node -e '${RESOLVE_CORE_SCRIPT}' </dev/null)" || {
   echo ${shellQuote(`${hook}: ${consequence} ${NO_CORE_FIX}`)} >&2
   exit ${failOpen ? 0 : 1}

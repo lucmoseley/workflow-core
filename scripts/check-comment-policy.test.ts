@@ -65,7 +65,7 @@ describe("check-comment-policy", () => {
 		);
 		write(
 			"scripts/lib/api.js",
-			"const a = 1;\n/** Runs it. */\nfunction runIt() {}\n// ADR-0003\nconst b = 1;\n// vitest needs it\nconst c = 1;\n",
+			"const a = 1;\n/** Runs it. */\nfunction runIt() {}\n// ADR-0003\nconst b = 1;\n// `vitest` needs it\nconst c = 1;\n",
 		);
 		write("scripts/b.py", "x = 1\n# a stray note\ny = 2\n");
 		write("scripts/c.js", "const a = 1;\n// one\nconst b = 1;\n// two\n");
@@ -166,7 +166,7 @@ describe("check-comment-policy", () => {
 					"// ADR-0007",
 					"const b = 1; // measured 3 s at p95 (#812)",
 					"// #5455",
-					"const c = 1; // ajv rejects a bare key",
+					"const c = 1; // `ajv` rejects a bare key",
 					"/** Runs it. */",
 					"function run() {}",
 					"/** @type {number} */",
@@ -200,7 +200,7 @@ describe("check-comment-policy", () => {
 			write("docs/adr/0007-x.md", "# x\n");
 			write(
 				"scripts/b.js",
-				"// ajv rejects a bare key\nconst a = 1;\n// ADR-0007\nconst b = 1;\n",
+				"// `ajv` rejects a bare key\nconst a = 1;\n// ADR-0007\nconst b = 1;\n",
 			);
 			git("add", "-A");
 			expect(run("--against", "HEAD").status).toBe(0);

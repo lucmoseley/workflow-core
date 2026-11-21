@@ -147,8 +147,8 @@ const buildSiteLines = (unseen, keep) =>
 
 const WAYS_OUT =
 	"Name the path as a literal the test or a helper it imports spells, so a " +
-	"change to that file selects the test, or add a `full-sweep-only: <why>` " +
-	"line to the test's header comment, leaving its reads to the full run.";
+	"change to that file selects the test, or add a `full-sweep-only: #N` " +
+	"line, the issue saying why, to the test's header, leaving its reads to the full run.";
 
 /**
  * The command that makes this commit's manifest fresh: the plain write where
