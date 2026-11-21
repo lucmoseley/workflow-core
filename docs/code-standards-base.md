@@ -62,7 +62,7 @@ A rule enters this base because it is right, never because the code already does
 
 ### Comments
 
-**A comment in code is refused unless it is one of the kinds `docs/comment-kinds.md` lists, in that kind's form, and its tie rule binds** (#5455). No rule here asks for any other comment. Where a rule asks for a reason, the reason goes on the issue, and the site carries at most the bare `#N` that K5 admits (#5457). A marker a plugin checker reads — `full-sweep-only:` (§X10) or `Unbuilt caller:` (§G6) — is a directive, as `@vitest-environment` is, followed by a bare pointer and no prose.
+**A comment in code is refused unless it is one of the kinds `docs/comment-kinds.md` lists, in that kind's form, and its tie rule binds** (#5455). No rule here asks for any other comment. Where a rule asks for a reason, the reason goes on the issue, and the site carries at most the bare `#N` that K5 admits (#5457). A marker a plugin checker reads — `full-sweep-only:` (§X10) or `Unbuilt caller:` (§G6) — is one of the directives `docs/comment-kinds.md` names as code.
 
 
 ### A local file changes this base only through its changes table, its route rows, its local rules and its primitives rows
@@ -370,7 +370,7 @@ A non-test `.ts` program is ESM; where it needs a CommonJS lib it reaches it thr
 
 ### §N2 · A file opens with a comment only where a permitted kind needs one — **hard**
 
-No program, library module, hook module, shell script or test owes a header (#5455). A file opens with a comment only as K1, a licence line, or as K4, the contract of an entry point a party outside the repo runs or imports: a command's usage, a hook's input and output, a shipped module's exports. A header giving what the file is, its why or its ticket is refused.
+No program, library module, hook module, shell script or test owes a header (#5455). A file opens with a comment only as K1, a licence line; as K4, the contract of an entry point a party outside the repo runs or imports: a command's usage, a hook's input and output, a shipped module's exports; as the bare K5 pointer §G4 gives a departing file; or as a directive (§Comments). A header giving what the file is, its why or its ticket is refused.
 
 ### §N3 · The filename prefix is the contract — **hard**
 
@@ -443,7 +443,7 @@ Stream discipline (`scripts/lib/check.js:30-34`): stdout is for machine readers 
 
 **Reported, never gated** (mantahostels#1799): the plugin's citation checker WARNs each unconsumed name. **A file spelling the name counts as a consumer only if it is neither a test nor test support (§G6), does not define one of its own, and names the exporting module** — a `require` or `import` of it, or its basename in a `path.join` or a spawned command (#1616), or, for a module the dispatcher's manifest loads, a `corePath(` call in a file reaching `guard-cores.js` (#4136); a definer reading the name off an object is a consumer again, so a caller rebinding an import under its own name is safe. The scan is **textual**, so a name and module path spelled in a comment or a JSON value read as consumed, bar `docs/export-callers.json` itself. A test's or test support's own exports are never scanned.
 
-### §N8 · Every program `.js` is type-checked, and opting out owes a reason — **hard**
+### §N8 · Every program `.js` is type-checked — **hard**
 
 *Stack (`checkJs`)*. With `checkJs` on across the program `.js` files the repo's `tsconfig.json` includes, every file is checked at full `strict` and a new one needs nothing to opt in. No per-file `// @ts-check` pragma is owed (mantahostels#1464).
 

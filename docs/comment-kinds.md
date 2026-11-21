@@ -1,6 +1,6 @@
 # Comment kinds
 
-A comment in code is refused unless it is one of the seven kinds below (#5455). A JSDoc type annotation that `checkJs` reads is code, not a comment, and is not judged here.
+A comment in code is refused unless it is one of the seven kinds below (#5455). A directive a tool reads is code, not a comment, and is not judged here: a JSDoc type annotation `checkJs` reads, a pragma such as `@vitest-environment`, the hook shim's mark, and a plugin checker's marker (`full-sweep-only:`, `Unbuilt caller: <path>`) followed by a bare pointer and nothing else.
 
 **Tie rule: where you are unsure whether a comment is its kind, it is not, and the comment dies.**
 

@@ -69,9 +69,16 @@ const readOr = (root, rel) => {
  */
 function readTreeFiles(ctx, root, walked) {
 	if (!walked) {
-		const r = spawnGitSync(["ls-files", "-z"], { cwd: root, encoding: "utf8" });
+		const r = spawnGitSync(["ls-files", "-s", "-z"], {
+			cwd: root,
+			encoding: "utf8",
+		});
 		if (r.status !== 0) ctx.broken(`git ls-files failed: ${r.stderr}`);
-		return r.stdout.split("\0").filter(Boolean).sort();
+		return r.stdout
+			.split("\0")
+			.filter((e) => /^100(?:644|755) /.test(e))
+			.map((e) => e.slice(e.indexOf("\t") + 1))
+			.sort();
 	}
 	/** @type {string[]} */
 	const out = [];

@@ -6,6 +6,7 @@
  * needs and hands them in.
  */
 
+const { SHIM_MARK } = require("./hook-shim.js");
 const { escapeRe } = require("./regex-group.js");
 const { scanJs } = require("./strip-comments.js");
 
@@ -651,10 +652,14 @@ const DIRECTIVES = [
 	},
 	{ re: /^Stryker\s+restore\b/i, read: readsAsCode },
 	{
-		re: /^(?:full-sweep-only:|Unbuilt caller:\s*\S+(?=\s|$))(.*)$/,
+		re: /^(?:full-sweep-only:|Unbuilt caller:\s*(?=[^\s./]*[./])\S+(?=\s|$))(.*)$/,
 		read: (m) => (barePointers(m[1] ?? "") ? "code" : null),
 	},
-	{ re: /^workflow-core hook shim:$/, read: readsAsCode },
+	{
+		lang: "sh",
+		re: new RegExp(`^${escapeRe(SHIM_MARK.replace(/^#\s*/, ""))}$`),
+		read: readsAsCode,
+	},
 	{
 		re: /^(?:(?:c8|istanbul|v8)\s+ignore\b|pragma:\s*no\s*(?:cover|branch)\b)()/,
 		read: suppresses("coverage"),

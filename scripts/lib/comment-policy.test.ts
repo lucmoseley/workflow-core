@@ -289,6 +289,16 @@ describe("what is not a comment", () => {
 				"js",
 			),
 		).toEqual(["COMMENT@1"]);
+		expect(tags("// Unbuilt caller: later #5\nconst a = 1;\n", "js")).toEqual([
+			"COMMENT@1",
+		]);
+	});
+
+	it("reads the hook-shim mark as code in a shell file alone", () => {
+		expect(tags("# workflow-core hook shim:\nset -e\n", "sh")).toEqual([]);
+		expect(tags("// workflow-core hook shim:\nconst a = 1;\n", "js")).toEqual([
+			"COMMENT@1",
+		]);
 	});
 
 	it("reads no comment inside a string, a template, a regex or a heredoc", () => {

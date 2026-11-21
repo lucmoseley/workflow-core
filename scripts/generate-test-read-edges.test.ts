@@ -512,10 +512,7 @@ describe("the unseen-read warning and listing (#1881)", () => {
 	});
 
 	it("--unseen lists nothing once the test's header says full-sweep-only", () => {
-		write(
-			unseenTest,
-			`// full-sweep-only: names its documents at runtime.\n${body}`,
-		);
+		write(unseenTest, `// full-sweep-only: #5492\n${body}`);
 		git("add", "-A");
 		const r = list();
 		expect(r.status).toBe(0);

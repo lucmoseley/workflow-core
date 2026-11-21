@@ -94,6 +94,15 @@ describe("check-comment-policy", () => {
 		expect(r.out).not.toContain("ok.js");
 	});
 
+	it("reads past a tracked symlink to a directory (#5492)", () => {
+		write("vendor/skill/run.js", "const a = 1;\n");
+		fs.symlinkSync("vendor/skill", path.join(root, "linked"));
+		git("add", "-A");
+		const r = run("--all");
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("1 code file(s), every comment a permitted kind.");
+	});
+
 	it("passes a tree whose every comment is a permitted kind", () => {
 		write("scripts/ok.js", "// #12\nconst a = 1;\n");
 		git("add", "-A");
