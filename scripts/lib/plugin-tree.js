@@ -975,9 +975,7 @@ module.exports = {
 	bareCitationFaults,
 	buildTree,
 	REWRITTEN,
-	// for check-code-standards.js's UNSHIPPED warning (#963)
 	isShipped,
-	// for check-adopter-boundary.js's coverage (#5294)
 	COPIED,
 	HOST_OWNED_DOCS,
 	KEPT,

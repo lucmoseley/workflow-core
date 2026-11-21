@@ -19,8 +19,7 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const { DEFAULT_ROTATE_AT, rotateAt, rotateLog }: any =
-	createRequire(__filename)("./log-rotate.js");
+const { rotateLog }: any = createRequire(__filename)("./log-rotate.js");
 
 const LOG = "/nowhere/errors.log";
 
@@ -99,25 +98,34 @@ describe("a rotation that genuinely failed", () => {
 });
 
 describe("the limit", () => {
+	const EightMb = 8 * 1024 * 1024;
+	/** Whether a log of `readSize` bytes rotates under this process's env. */
+	const rotates = (readSize: number) => {
+		const io = fakeFs({ size: readSize });
+		expect(rotateLog(LOG, readSize, { fs: io })).toBeNull();
+		return io.renames.length > 0;
+	};
+
 	it("is 8 MB", () => {
-		expect(DEFAULT_ROTATE_AT).toBe(8 * 1024 * 1024);
-		expect(rotateAt({})).toBe(DEFAULT_ROTATE_AT);
+		vi.stubEnv("WFC_ROTATE_AT", "");
+		expect(rotates(EightMb)).toBe(false);
+		expect(rotates(EightMb + 1)).toBe(true);
 	});
 
 	it("takes WFC_ROTATE_AT", () => {
-		expect(rotateAt({ WFC_ROTATE_AT: "2000" })).toBe(2000);
+		vi.stubEnv("WFC_ROTATE_AT", "2000");
+		expect(rotates(2000)).toBe(false);
+		expect(rotates(2001)).toBe(true);
 	});
 
 	it("ignores an override that is not a usable size", () => {
 		// A zero or negative cap would rotate every log on every run; a non-number is
 		// someone's typo.
-		for (const override of ["0", "-1", "lots", ""])
-			expect(rotateAt({ WFC_ROTATE_AT: override })).toBe(DEFAULT_ROTATE_AT);
-	});
-
-	it("defaults to this process's own environment", () => {
-		vi.stubEnv("WFC_ROTATE_AT", "4096");
-		expect(rotateAt()).toBe(4096);
+		for (const override of ["0", "-1", "lots", ""]) {
+			vi.stubEnv("WFC_ROTATE_AT", override);
+			expect(rotates(EightMb)).toBe(false);
+			expect(rotates(EightMb + 1)).toBe(true);
+		}
 	});
 });
 

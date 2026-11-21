@@ -77,7 +77,4 @@ function rotateLog(
 	}
 }
 
-// DEFAULT_ROTATE_AT and rotateAt have no caller outside this file: rotateLog is
-// the whole production interface. Both are exported so the limit can be asserted
-// as itself rather than inferred from which sizes happen to rotate.
-module.exports = { DEFAULT_ROTATE_AT, rotateAt, rotateLog };
+module.exports = { rotateLog };

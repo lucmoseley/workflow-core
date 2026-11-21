@@ -363,13 +363,7 @@ function isCancelled(run) {
 
 module.exports = {
 	LONG_STALE_MS,
-	// Consumed by mantahostels#1949's synchronous reader, scripts/replay-notify-reports.js
-	// — exported rather than inlined so the bound is set in one place.
 	DEFAULT_STALE_MS,
-	// The two file primitives, exported for that same reader: its own
-	// shown-records sit in this directory and are written the same way, and a
-	// second spelling of an atomic write there would be one more thing to keep
-	// in step (mantahostels#1976).
 	atomicWriteJSON,
 	readJSON,
 	base,

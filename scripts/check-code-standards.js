@@ -4,7 +4,8 @@
  * docs/code-standards-base.md where it is written, still resolves, so a
  * reviewer never cites a rule against the wrong lines; and no §N7 export block
  * offers a name nothing consumes (mantahostels#1799), or only tests consume
- * (#1361); and `pythonRoutes` in .claude/workflow-core.json routes Python as
+ * (#1361), bar a name docs/export-callers.json keeps for a caller the scan
+ * misses, whose row it verifies (#5486); and `pythonRoutes` in .claude/workflow-core.json routes Python as
  * the local file's route table does, which wins (#1863, lib/python-routes.js).
  *
  * Usage:
@@ -492,7 +493,7 @@ const EXPORTS_RUN_MEMBER = /^(?:exports\.|[ \t]*(?:\/\/|\/\*|\*))/;
 const EXPORTS_RUN_LINE = /^exports\.([A-Za-z_$][\w$]*) = ([\w$.]+);$/;
 /** One entry in it: `name,` or the re-export form `name: other.thing,`. */
 const EXPORT_ENTRY = /^\s*([A-Za-z_$][\w$]*)\s*(?::\s*[\w.$]+\s*)?,?$/;
-/** A comment-shaped line — the exemption's whole test, its content unread. */
+/** A comment-shaped line, which an export block may carry between entries. */
 const COMMENT_LINE = /^\s*(?:\/\/|\*|\/\*)/;
 /** Every identifier a file spells. */
 const TOKEN_RE = /[A-Za-z_$][\w$]*/g;
@@ -532,6 +533,12 @@ const UNBUILT_CALLER = new RegExp(
  */
 const RUN_IN_PROCESS = "scripts/lib/run-in-process.js";
 const REQUIRE_MAIN = /\brequire\.main\b/g;
+/**
+ * The exports kept for a caller the textual scan cannot see (§N7, #5486): a
+ * JSON array of `{module, name, caller}` rows, every path repo-relative.
+ * Absent, it keeps none.
+ */
+const EXPORT_CALLERS = "docs/export-callers.json";
 /** Tracked bytes no identifier can be hiding in. */
 const BINARY_EXT =
 	/\.(?:png|jpe?g|gif|webp|avif|ico|pdf|woff2?|ttf|zip|gz|xlsx?|docx?|ods)$/i;
@@ -543,13 +550,11 @@ const BINARY_EXT =
  * @property {number} unparsed  entries no `EXPORT_ENTRY` shape fits
  */
 
+/** @typedef {{module: string, name: string, caller: string}} CallerRow */
+
 /**
- * Every §N7 export block, with each entry's name and whether a comment exempts
- * it.
- *
- * A COMMENT DIRECTLY ABOVE THE ENTRY IS THE EXEMPTION, and the one-line form
- * takes a comment above the whole block instead — it has no per-entry line to
- * carry one, so without this every short block is inexemptible.
+ * Every §N7 export block, with each entry's name and whether the block's
+ * header or the entry-point rule exempts it.
  *
  * @param {{set: Set<string>}} tracked
  * @returns {ExportBlock[]}
@@ -584,13 +589,8 @@ function exportBlockOf(rel, text) {
 	const isEntryPoint = text.includes("require.main");
 	const block = moduleExportsBlock(text) ?? exportsRun(text);
 	if (!block) return null;
-	const { index, entries, oneLine } = block;
-	const before = text.slice(0, index).split("\n");
-	const blockExempt =
-		hasUnbuiltCaller || (oneLine && COMMENT_LINE.test(before.at(-1) ?? ""));
-
-	const { named, unparsed } = blockEntries(entries, {
-		blockExempt,
+	const { named, unparsed } = blockEntries(block.entries, {
+		blockExempt: hasUnbuiltCaller,
 		isEntryPoint,
 	});
 	return { rel, entries: named, unparsed };
@@ -599,7 +599,7 @@ function exportBlockOf(rel, text) {
 /**
  * The last `module.exports = { … }` block's entry lines.
  * @param {string} text
- * @returns {{index: number, entries: string[], oneLine: boolean} | null}
+ * @returns {{entries: string[]} | null}
  */
 function moduleExportsBlock(text) {
 	let block = null;
@@ -607,17 +607,16 @@ function moduleExportsBlock(text) {
 	for (let m = exportBlock.exec(text); m; m = exportBlock.exec(text)) block = m;
 	if (!block) return null;
 	const inner = requiredGroup(block, 1, EXPORT_BLOCK);
-	const oneLine = !inner.includes("\n");
-	const entries = oneLine
-		? inner.split(",").map((s) => s.trim())
-		: inner.split("\n");
-	return { index: block.index, entries, oneLine };
+	const entries = inner.includes("\n")
+		? inner.split("\n")
+		: inner.split(",").map((s) => s.trim());
+	return { entries };
 }
 
 /**
  * The trailing `exports.<name> =` run's lines.
  * @param {string} text
- * @returns {{index: number, entries: string[], oneLine: boolean} | null}
+ * @returns {{entries: string[]} | null}
  */
 function exportsRun(text) {
 	/* Walked back line by line: as one regex, every line of a long run that
@@ -637,15 +636,11 @@ function exportsRun(text) {
 				name === value ? `${name},` : `${name}: ${value},`,
 			),
 		);
-	return {
-		index: lines.slice(0, first).join("\n").length,
-		entries,
-		oneLine: false,
-	};
+	return { entries };
 }
 
 /**
- * Each entry's name and whether a comment exempts it, and how many entries no
+ * Each entry's name and whether it is exempt, and how many entries no
  * `EXPORT_ENTRY` shape fits.
  *
  * @param {string[]} entries
@@ -655,11 +650,7 @@ function blockEntries(entries, { blockExempt, isEntryPoint }) {
 	/** @type {{name: string, exempt: boolean}[]} */
 	const named = [];
 	let unparsed = 0;
-	/** @type {string | undefined} */
-	let previous;
 	for (const entry of entries) {
-		const above = previous;
-		previous = entry;
 		if (!entry.trim()) continue;
 		const hit = EXPORT_ENTRY.exec(entry);
 		if (!hit) {
@@ -670,10 +661,7 @@ function blockEntries(entries, { blockExempt, isEntryPoint }) {
 		const name = requiredGroup(hit, 1, EXPORT_ENTRY);
 		named.push({
 			name,
-			exempt:
-				blockExempt ||
-				(isEntryPoint && name === "main") ||
-				(above !== undefined && COMMENT_LINE.test(above)),
+			exempt: blockExempt || (isEntryPoint && name === "main"),
 		});
 	}
 	return { named, unparsed };
@@ -723,7 +711,9 @@ function consumersOf(paths, blocks) {
 			consumers.set(name, byExporter);
 		}
 	for (const rel of paths) {
-		if (BINARY_EXT.test(rel)) continue;
+		/* The baseline spells every name and module it keeps, so it would vouch
+		 * for its own rows. */
+		if (BINARY_EXT.test(rel) || rel === EXPORT_CALLERS) continue;
 		const text = readText(rel)?.replace(REQUIRE_MAIN, "require");
 		if (text === undefined) continue;
 		addConsumer(consumers, rel, text, dispatched);
@@ -817,13 +807,29 @@ function firstGroups(re, text) {
 }
 
 /**
+ * The files the scan finds consuming `name` off `rel`, the exporter itself
+ * aside: it lands here only on the re-export form (`a: b`), where the file
+ * spells the exported name without defining it.
+ *
+ * @param {Map<string, Map<string, Set<string>>>} consumers
+ * @param {string} name
+ * @param {string} rel
+ */
+const takersOf = (consumers, name, rel) =>
+	[...(consumers.get(name)?.get(rel) ?? [])].filter((f) => f !== rel);
+
+/**
  * Every exported name no tracked file consumes, tests aside: a name only
- * test-kind files spell is reported like one nothing spells (#1361).
+ * test-kind files spell is reported like one nothing spells (#1361). A name
+ * an export-callers row keeps is not judged here; `staleCallerRows` judges
+ * the row.
  *
  * @param {ExportBlock[]} blocks
  * @param {Map<string, Map<string, Set<string>>>} consumers
+ * @param {CallerRow[]} rows
  */
-function deadExports(blocks, consumers) {
+function deadExports(blocks, consumers, rows) {
+	const kept = new Set(rows.map((r) => `${r.module}\t${r.name}`));
 	/** @type {Finding[]} */
 	const findings = [];
 	let names = 0;
@@ -833,12 +839,8 @@ function deadExports(blocks, consumers) {
 		unparsed += skipped;
 		for (const { name, exempt } of entries) {
 			names += 1;
-			if (exempt) continue;
-			/* `rel` itself only lands here on the re-export form (`a: b`), where the
-			 * file spells the exported name without defining it. */
-			const takers = [...(consumers.get(name)?.get(rel) ?? [])].filter(
-				(f) => f !== rel,
-			);
+			if (exempt || kept.has(`${rel}\t${name}`)) continue;
+			const takers = takersOf(consumers, name, rel);
 			const tests = takers.filter((f) => isTestKind(f));
 			if (tests.length < takers.length) continue;
 			if (tests.length > 0) testOnly += 1;
@@ -866,8 +868,110 @@ function deadDetail(name, rel, tests) {
 				"Test through the program or the exports its real callers use and drop the export (§G6); " +
 				"a comment is no fix. A module built ahead of its caller names it on an `Unbuilt caller: <caller> (#N)` header line"
 		: `no tracked file consumes ${name} — every file spelling it defines one of its own or never reaches ${rel}. ` +
-				"Make it file-local (§N7), or keep it and write the caller that wants it in a comment directly above the entry";
+				`Make it file-local (§N7), or, where a real caller reaches it in a form the scan cannot see, keep it with a {module, name, caller} row in ${EXPORT_CALLERS}`;
 }
+
+/**
+ * The export-callers rows, or none where the file is absent.
+ *
+ * @param {(message: string) => never} broken
+ * @returns {CallerRow[]}
+ */
+function readCallerRows(broken) {
+	const text = readText(EXPORT_CALLERS);
+	if (text === null) return [];
+	/** @type {unknown} */
+	let rows;
+	try {
+		rows = JSON.parse(text);
+	} catch (e) {
+		broken(`${EXPORT_CALLERS} is not JSON: ${errMessage(e)}`);
+	}
+	if (!Array.isArray(rows) || !rows.every(isCallerRow))
+		broken(
+			`${EXPORT_CALLERS} must be an array of {module, name, caller} rows, each a string`,
+		);
+	return rows;
+}
+
+/**
+ * @param {unknown} row
+ * @returns {row is CallerRow}
+ */
+const isCallerRow = (row) =>
+	typeof row === "object" &&
+	row !== null &&
+	["module", "name", "caller"].every(
+		(k) =>
+			typeof (/** @type {Record<string, unknown>} */ (row)[k]) === "string",
+	);
+
+/**
+ * Every export-callers row that keeps nothing: its module no longer exports
+ * the name, the scan already finds a consumer, or its caller no longer reads
+ * the name off the module.
+ *
+ * THE CALLER CHECK IS LOOSER THAN THE SCAN, DELIBERATELY. A row exists for a
+ * caller the scan misses, so the caller is held only to spelling the name as
+ * a token and the module's basename anywhere, in a tracked file that is no
+ * test (§G6).
+ *
+ * @param {CallerRow[]} rows
+ * @param {ExportBlock[]} blocks
+ * @param {Map<string, Map<string, Set<string>>>} consumers
+ * @param {{set: Set<string>}} tracked
+ * @returns {Finding[]}
+ */
+function staleCallerRows(rows, blocks, consumers, tracked) {
+	const exported = new Map(
+		blocks.map((b) => [b.rel, new Set(b.entries.map((e) => e.name))]),
+	);
+	/** @type {Finding[]} */
+	const findings = [];
+	for (const row of rows) {
+		const detail = callerRowFault(row, exported, consumers, tracked);
+		if (detail)
+			findings.push({
+				kind: "STALE-CALLER",
+				docLine: 0,
+				where: EXPORT_CALLERS,
+				rel: row.module,
+				scopedBy: [row.caller, EXPORT_CALLERS],
+				pin: `${row.module} ${row.name} <- ${row.caller}`,
+				detail,
+			});
+	}
+	return findings;
+}
+
+/**
+ * Why a row keeps nothing, or null where it holds.
+ *
+ * @param {CallerRow} row
+ * @param {Map<string, Set<string>>} exported
+ * @param {Map<string, Map<string, Set<string>>>} consumers
+ * @param {{set: Set<string>}} tracked
+ */
+function callerRowFault(row, exported, consumers, tracked) {
+	const { module, name, caller } = row;
+	if (!exported.get(module)?.has(name))
+		return `${module} exports no ${name}; drop the row`;
+	if (takersOf(consumers, name, module).some((f) => !isTestKind(f)))
+		return `the scan finds a consumer of ${name} itself; drop the row`;
+	const text =
+		tracked.set.has(caller) && !isTestKind(caller) ? readText(caller) : null;
+	const stem = path.basename(module).replace(SCRIPT_EXT, "");
+	if (text === null || !text.includes(stem) || !spellsToken(text, name))
+		return `${caller} no longer reads ${name} off ${module} — make the name file-local, or name the caller that does`;
+	return null;
+}
+
+/**
+ * @param {string} text
+ * @param {string} token
+ */
+const spellsToken = (text, token) =>
+	new Set(text.match(TOKEN_RE) ?? []).has(token);
 
 /**
  * @typedef {object} Finding
@@ -1375,7 +1479,7 @@ function scopeToTouching(ctx, { touching, findings, read }) {
 /* The kinds that are no citation, so neither citations_stale nor the "fix
  * the document" line takes them. UNSHIPPED is a citation, but the release,
  * not the document, may be what is wrong. */
-const NOT_CITATIONS = ["DEAD-EXPORT", "ROUTE-DRIFT"];
+const NOT_CITATIONS = ["DEAD-EXPORT", "STALE-CALLER", "ROUTE-DRIFT"];
 
 /**
  * @param {import("./lib/check").Ctx} ctx
@@ -1415,6 +1519,12 @@ function reportFindings(ctx, findings) {
 				"  where only tests consume the name, §N7 where nothing does.\n" +
 				"  The scan is textual, so verify the name is unreachable by string too\n" +
 				"  before deleting it (mantahostels#1799).\n",
+		);
+	if (findings.some((f) => f.kind === "STALE-CALLER"))
+		ctx.say(
+			`  Every STALE-CALLER is a row in ${EXPORT_CALLERS} that keeps nothing:\n` +
+				"  fix or drop the row, and make the export file-local where no\n" +
+				"  caller wants it (§N7, #5486).\n",
 		);
 	if (findings.some((f) => f.kind === "ROUTE-DRIFT"))
 		ctx.say(
@@ -1513,10 +1623,18 @@ const SPEC = {
 		/* The export scan reads no part of either document, so it runs once
 		 * whatever was read. */
 		const blocks = readExportBlocks(tracked);
-		const dead = deadExports(blocks, consumersOf(tracked.set, blocks));
+		const consumers = consumersOf(tracked.set, blocks);
+		const rows = readCallerRows((m) => ctx.broken(m));
+		const dead = deadExports(blocks, consumers, rows);
+		const staleRows = staleCallerRows(rows, blocks, consumers, tracked);
 		const routes = routeDrift(ctx, docs, read);
 
-		let findings = [...stale, ...dead.findings, ...routes.findings];
+		let findings = [
+			...stale,
+			...dead.findings,
+			...staleRows,
+			...routes.findings,
+		];
 		let scopeNote = "";
 		if (touching)
 			({ findings, scopeNote } = scopeToTouching(ctx, {
@@ -1540,7 +1658,7 @@ const SPEC = {
 				touching,
 				findings,
 			}),
-			noun: "stale citation(s), export(s) nothing consumes, Python route row(s) out of step and hand-kept caller line(s)",
+			noun: "stale citation(s), export(s) nothing consumes, stale export-caller row(s) and Python route row(s) out of step",
 			data: {
 				citations,
 				documents: read.map((r) => r.doc),
@@ -1559,6 +1677,7 @@ const SPEC = {
 					(f) => !NOT_CITATIONS.includes(f.kind),
 				),
 				exports_dead: findings.filter((f) => f.kind === "DEAD-EXPORT"),
+				callers_stale: findings.filter((f) => f.kind === "STALE-CALLER"),
 				routes_drift: findings.filter((f) => f.kind === "ROUTE-DRIFT"),
 			},
 		};
