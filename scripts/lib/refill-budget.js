@@ -32,10 +32,8 @@ const { landingOf, sessionIdsOf } = require("./refill-breaker.js");
 const GATE_RUN_BUDGET = 6;
 
 /* How long after a passing gate run its push is still due (#5441): the
- * longest of 56 gaps from a passing run's end to the session's next push, with
- * no gate run between, across four checkouts' gate-run and queue-log records
- * on 2026-11-21, was 634 s; 52 fell under 75 s. Two gaps of about 16 h, each
- * ended by a later session's push, are left out; rounded up to the minute. */
+ * longest gap from a passing run's end to its push in four checkouts'
+ * gate-run and queue-log records, 634 s, rounded up to the minute. */
 const PUSH_DUE_MS = 11 * 60_000;
 
 /**
