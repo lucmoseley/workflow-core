@@ -434,7 +434,7 @@ def test_a_kill_with_an_undatable_stamp_is_reported(capsys):
     assert "fail-open: kill counted as undated: ValueError" in err
 
 
-def test_a_truncated_gzip_syslog_is_skipped_and_reported(tmp_path, capsys):
+def test_a_truncated_gzip_syslog_is_skipped_and_counted(tmp_path, capsys):
     from scan_machine import read_syslogs
 
     (tmp_path / "syslog.1.gz").write_bytes(b"\x1f\x8b\x08\x00broken")
@@ -444,7 +444,7 @@ def test_a_truncated_gzip_syslog_is_skipped_and_reported(tmp_path, capsys):
     assert capsys.readouterr().err == ""
 
 
-def test_a_transcript_that_will_not_open_is_skipped_and_reported(tmp_path, capsys):
+def test_a_transcript_that_will_not_open_is_skipped_and_counted(tmp_path, capsys):
     import scan_machine
 
     # Listed as a transcript, but its target is gone.
@@ -456,7 +456,7 @@ def test_a_transcript_that_will_not_open_is_skipped_and_reported(tmp_path, capsy
     assert capsys.readouterr().err == ""
 
 
-def test_a_transcript_with_unparsable_stamps_is_skipped_and_reported(tmp_path, capsys):
+def test_a_transcript_with_unparsable_stamps_is_skipped_and_counted(tmp_path, capsys):
     from scan_machine import transcript_spans
 
     p = tmp_path / "a.jsonl"
@@ -468,7 +468,7 @@ def test_a_transcript_with_unparsable_stamps_is_skipped_and_reported(tmp_path, c
 
 
 @pytest.mark.parametrize("scan", ["headroom", "bash"])
-def test_an_undated_record_is_skipped_and_reported(tmp_path, capsys, scan):
+def test_an_undated_record_is_skipped_and_counted(tmp_path, capsys, scan):
     from scan_machine import headroom_readings, scan_bash_commands
 
     _write_transcript(
