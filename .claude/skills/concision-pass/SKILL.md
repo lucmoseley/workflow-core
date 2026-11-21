@@ -77,7 +77,8 @@ the text and the criteria and withhold the justification** — no explanation of
 why any passage was written.
 
 The agent has no other access to the criteria; paste **Criteria** below into the
-prompt verbatim, then:
+prompt verbatim — and, where the file is code and **Comments in code** below
+applies, `docs/comment-kinds.md` after it — then:
 
 > Here is text added to `<path>` by one change: <the added text>. Also read the
 > full file for context. Return a numbered cut list: for each, quote the exact
@@ -288,6 +289,15 @@ reaches by pointer) the test is model-relative: does it change behaviour versus
 the model's default? `writing-for-agents` §Pruning holds it, under no-ops.
 Founder-facing prose keeps the reader test above.
 
+**Comments in code**, where the repo's coding standards link
+`docs/comment-kinds.md`, are judged against that keep-list first. A comment
+that fits no kind there, or has a kind's form but fails its keep-when test, is
+cut whatever a reader would lose; its tie rule binds — unsure, the comment
+dies. A comment that is its kind is still judged by the criteria below, its
+kind's form kept. Judge only comments this change added: pre-existing ones go
+to the comment sweeps (#5493–#5495), which build the test or check a comment
+stood in for before cutting it.
+
 Reliably fails:
 
 - **Restatement** — the same rationale made a second or third way.
@@ -336,7 +346,8 @@ Passes, and stays:
   load-bearing by what the reader does with it, never by being a number: one
   that only justifies the sentence beside it is evidence, and moves.
 - **A constant hedged as a guess** — *"A first guess, and stated as one"*, or any
-  wording saying a chosen value is unmeasured. `docs/code-standards-base.md`
+  wording saying a chosen value is unmeasured; in code, in the value-derivation
+  form `docs/comment-kinds.md` gives. `docs/code-standards-base.md`
   §G2 makes it a **hard** standard: never a restatement finding, and never a
   provenance one against the ticket cited beside it (#250).
 - Context that makes a neighbouring sentence parseable — **concision never

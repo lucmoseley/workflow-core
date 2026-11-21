@@ -85,9 +85,9 @@
 			"why": "wizard skill retired in favour of in-chat walks and a hidden-entry secret line; its /wizard bullet removed (#641); #879 Q5 then deleted the routes to /implement-spec, /pr and /retro, which this repo does not vendor (#880, #881, #883), and the /retro sentences in context hygiene and the diagnosing-bugs on-ramp"
 		},
 		".agents/skills/code-review/SKILL.md": {
-			"editedHash": "57277efd6d8bfde42593a5b82fd8057acd1833a0ff8863454dd35193ec6322b2",
-			"issue": 4633,
-			"why": "mantahostels#766 requires an Artefact: line in both review sub-agent prompts — the reason this file diverges from upstream at all; both paths sit under .claude/tmp/, mantahostels#2089's sanctioned scratch directory (mantahostels#2093), suffixed with the dispatching session's id since a bare filename collides across concurrent /code-review dispatches (mantahostels#2220); this file's tracker cites spelled mantahostels#n (mantahostels#3568); the frontmatter description removed, so the skill leaves the start listing (#2036); the Standards brief asks whether the diff weakens a check and names it on a Weakens: line (#2235); v1.3.2's \"Issue both sub-agent calls together, in the foreground\" declined, since the aggregation reads the sub-agents' Artefact: files and this harness runs every sub-agent in the background (#4633)"
+			"editedHash": "b4f8887bae93d55ab2bd9c8ef598863a0b939c3c4e8875bcfef0c02935cb55db",
+			"issue": 5491,
+			"why": "mantahostels#766 requires an Artefact: line in both review sub-agent prompts — the reason this file diverges from upstream at all; both paths sit under .claude/tmp/, mantahostels#2089's sanctioned scratch directory (mantahostels#2093), suffixed with the dispatching session's id since a bare filename collides across concurrent /code-review dispatches (mantahostels#2220); this file's tracker cites spelled mantahostels#n (mantahostels#3568); the frontmatter description removed, so the skill leaves the start listing (#2036); the Standards brief asks whether the diff weakens a check and names it on a Weakens: line (#2235); v1.3.2's \"Issue both sub-agent calls together, in the foreground\" declined, since the aggregation reads the sub-agents' Artefact: files and this harness runs every sub-agent in the background (#4633); a third Comments axis judges each added comment against docs/comment-kinds.md, running where a standards source links that file (#5491)"
 		},
 		".agents/skills/codebase-design/SKILL.md": {
 			"editedHash": "7a5cf36d2d3eaebd036ae43ccbe69894ab97272ee6e343d242112b07b2a4e887",
