@@ -35,8 +35,9 @@ const REPORT_PROGRAM = /^scripts\/report-[^/]+$/;
 const collapse = (line) => line.trim().replace(/\s+/g, " ");
 
 /**
- * Each code line `matches` picks, by its index among the blanked lines, but
- * one whose line or the line above carries `optOut` in the raw text.
+ * Each code line `matches` picks, by its index among the blanked lines, but,
+ * when `optOut` is given, one whose line or the line above carries it in the
+ * raw text.
  * @param {Program} program
  * @param {(line: string, i: number, lines: string[]) => boolean} matches
  * @param {RegExp} [optOut]

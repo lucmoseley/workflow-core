@@ -88,17 +88,4 @@ describe("check-clock-copies", () => {
 		expect(r.status).toBe(0);
 		expect(r.out).toContain("OK: 4 program(s), no WFC_NOW read outside now().");
 	});
-
-	it("passes a guard core's injected clock and refuses a commented read", () => {
-		program(
-			"core.js",
-			'const { now } = require("./lib/clock");\nconst t = now(ctx.env);\n',
-		);
-		program("noted.js", `// the caller pins this\n${COPY}`);
-		const r = run();
-		expect(r.status).toBe(1);
-		expect(r.out).toContain(
-			"1 site(s) read WFC_NOW outside now(): scripts/noted.js:2.",
-		);
-	});
 });

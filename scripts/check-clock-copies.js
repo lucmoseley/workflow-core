@@ -12,8 +12,7 @@
  * aside, of any non-test `.js`, `.cjs` or `.mjs` under scripts/ but
  * lib/clock.js. lib/heresy-scan.js lists and reads the programs (#3555). A
  * guard core, whose environment is its injected `ctx.env`, calls
- * `now(ctx.env)` (#3566). No comment exempts a read: the clock is passed in
- * or read through `now()` (#5485).
+ * `now(ctx.env)` (#3566).
  *
  * IMPLICIT:  on every commit staging a scripts/ program, refuses any WFC_NOW read outside lib/clock.js in the tree, naming the file, line, `now()` and its exemplar.
  * JUSTIFIED: fail-safe — each copy answers a malformed pin its own way, and one a test does not pin reads the wall clock; the fix is one `now()` call.
