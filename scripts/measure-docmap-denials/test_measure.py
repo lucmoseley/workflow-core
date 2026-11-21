@@ -91,7 +91,7 @@ def test_denials_are_read_from_every_seat_root(seat_roots):
     assert len(spans) == 2
 
 
-def test_an_unparsable_denial_line_is_counted_and_reported(tmp_path, capsys):
+def test_an_unparsable_denial_line_is_counted_silently(tmp_path, capsys):
     import measure
 
     path = tmp_path / "s.jsonl"
