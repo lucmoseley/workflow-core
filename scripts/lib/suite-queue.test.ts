@@ -149,7 +149,12 @@ async function polled(
 const turnOpen = async (queue: Parameters<typeof polled>[0] = {}) =>
 	((await polled(queue)) as { reason: string }).reason === "opened";
 
-const noSeats = () => ({ count: 0, under: () => false, unread: null });
+const noSeats = () => ({
+	count: 0,
+	part: 0,
+	under: () => false,
+	unread: null,
+});
 
 describe("isMarkerStale", () => {
 	it("is stale when the pid is not alive", () => {

@@ -302,16 +302,41 @@ function tscDenial(
 	{ windows = { state: "absent" }, peakMb = TSC_PEAK_MB } = {},
 ) {
 	const running = rows === null ? [] : runningTsc(rows);
-	const rung = rungMb(peakMb);
-	const memory =
-		mb !== null && mb - climbMb < rung
-			? { mb, rungMb: rung, ...(climbMb > 0 ? { climbMb } : {}) }
-			: null;
-	if (running.length >= TSC_MAX)
+	if (running.length >= TSC_MAX) {
+		const memory = memoryShortfall(mb, climbMb, peakMb);
 		return { limb: "count", pids: running, ...(memory ? { memory } : {}) };
+	}
+	return memoryDenial(mb, climbMb, { windows, peakMb });
+}
+
+/**
+ * Whether a launch charged its own `peakMb` would be refused on memory now:
+ * the rung that peak sets, MemAvailable less `climbMb` read against it, or
+ * the Windows-memory hold (#4557). Null where it would not, an unread reading
+ * failing open. The `tsc` slot's and a short gate's (#5450).
+ *
+ * @param {number | null} mb
+ * @param {number} climbMb
+ * @param {{ windows?: import("./windows-memory.js").WindowsRead, peakMb: number }} limbs
+ * @returns {import("./suite-queue.js").GateDenial | null}
+ */
+function memoryDenial(mb, climbMb, { windows = { state: "absent" }, peakMb }) {
+	const memory = memoryShortfall(mb, climbMb, peakMb);
 	if (memory) return { limb: "memory", ...memory };
 	const short = windowsShortfall(windows);
 	return short ? { limb: "windows", ...short } : null;
+}
+
+/**
+ * @param {number | null} mb
+ * @param {number} climbMb
+ * @param {number} peakMb
+ */
+function memoryShortfall(mb, climbMb, peakMb) {
+	const rung = rungMb(peakMb);
+	return mb !== null && mb - climbMb < rung
+		? { mb, rungMb: rung, ...(climbMb > 0 ? { climbMb } : {}) }
+		: null;
 }
 
 /** `tsc` or `tsc6`, bare or as a path's last segment. */
@@ -351,5 +376,6 @@ module.exports = {
 	checkoutPeakMb,
 	runnerPeakMb,
 	tscDenial,
+	memoryDenial,
 	tscLaunchBin,
 };

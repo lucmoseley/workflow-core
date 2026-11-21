@@ -95,6 +95,7 @@ const {
 	TSC_SLOT_ENV,
 	defaultTscQueueDir,
 	launchPeakMb,
+	memoryDenial,
 	tscDenial,
 	tscLaunchBin,
 } = require("./lib/tsc-slot.js");
@@ -110,6 +111,8 @@ const {
 	gateRunLogPath,
 	gateSeatChargeMb,
 	isInSuite,
+	readGateRuns,
+	shortGatePeakMb,
 	startGatePids,
 } = require("./lib/gate-seat.js");
 const { withMergeParents } = require("./lib/merge-heads.js");
@@ -294,6 +297,7 @@ const suiteRefusedWith = (why) => (words) => {
  *   schedule?: Parameters<typeof armCeiling>[0]["schedule"],
  *   sampleMs?: number,
  *   inSuite?: () => boolean,
+ *   shortGate?: typeof shortGateGate,
  * }} Options
  */
 
@@ -490,7 +494,8 @@ function isNamedFilesRun(words) {
 /**
  * A gate seat's wait (#5274): the suite queue joined whole, role `gate`,
  * carrying who holds it and its charge, waiting with no bound, its place
- * printed on joining and at each change.
+ * printed on joining and at each change. A short gate (#5450) joins as a
+ * part-suite charged its measured peak, held on that peak's rung alone.
  *
  * @param {Options} options
  * @param {string[]} words
@@ -524,29 +529,86 @@ function buildGateWait(options, words) {
 			}),
 		);
 	};
+	const shortMb = readShortGateMb(options, holder, err);
+	const unbounded = {
+		timeoutMs: Number.POSITIVE_INFINITY,
+		sleepFn: (/** @type {number} */ ms) => {
+			sayPlace();
+			return sleep(ms);
+		},
+	};
+	const seat = { ...options, role: GATE_ROLE, holder };
 	return {
 		queue: options,
-		join: {
-			...options,
-			role: GATE_ROLE,
-			chargeMb: options.gateChargeMb ?? readGateChargeMb(err),
-			holder,
-		},
-		wait: () => ({
-			timeoutMs: Number.POSITIVE_INFINITY,
-			waiting:
-				"waiting for the whole-suite slot as a commit gate, never refused at the wait bound (#5274)",
-			cap: "one whole suite runs at a time (#2680)",
-			sleepFn: (/** @type {number} */ ms) => {
-				sayPlace();
-				return sleep(ms);
-			},
-		}),
+		join:
+			shortMb === null
+				? { ...seat, chargeMb: options.gateChargeMb ?? readGateChargeMb(err) }
+				: { ...seat, chargeMb: shortMb, weight: NAMED_FILES_WEIGHT },
+		wait: () =>
+			shortMb === null
+				? {
+						...unbounded,
+						waiting:
+							"waiting for the whole-suite slot as a commit gate, never refused at the wait bound (#5274)",
+						cap: "one whole suite runs at a time (#2680)",
+					}
+				: {
+						...unbounded,
+						gate: (/** @type {number} */ climbMb) =>
+							(options.shortGate ?? shortGateGate)(climbMb, shortMb),
+						part: true,
+						waiting: `waiting as a short commit gate, a part-suite (#5450): MemAvailable, less what a climbing suite has yet to draw, under its ~${rungMb(shortMb)} MB rung, or Windows' own free memory under what it draws`,
+						cap: "one whole suite runs at a time (#2680)",
+					},
 		refused: refusedRun,
 		sayPlace,
 		start: (_words, launch) =>
 			spawnGate({ ...launch, holder, waitMs: clock() - started }),
 	};
+}
+
+/**
+ * A short gate's charge off its gate-run record (#5450), or null where the
+ * seat is not short or the record will not read, which is named on `err` and
+ * waits whole.
+ * @param {Options} options
+ * @param {{ repo: string | null, command: string }} holder
+ * @param {Out} err
+ * @returns {number | null}
+ */
+function readShortGateMb(options, holder, err) {
+	const file =
+		options.gateLog === undefined ? gateRunLogPath() : options.gateLog;
+	const runs = readGateRuns(file);
+	if (runs === null) {
+		if (file !== null)
+			err.write(
+				`${LABEL}: the gate-run record ${file} would not read; this gate waits for the whole-suite slot (#5450).\n`,
+			);
+		return null;
+	}
+	return shortGatePeakMb(runs, holder);
+}
+
+/**
+ * A short gate's gate (#5450): the memory rung its own peak sets and the
+ * Windows-memory hold, off the guard's MemAvailable and Windows readers, with
+ * no count limb; an unread one is logged and fails open.
+ * @param {number} climbMb what the suite queue's launches have yet to draw
+ * @param {number} peakMb
+ */
+function shortGateGate(climbMb, peakMb) {
+	const log = logger(LABEL);
+	const ports = buildHostPorts(hostRoot(), log);
+	const mb = ports.availableMb();
+	if (mb === null)
+		log("MemAvailable unreadable — the short gate's rung unread");
+	const windows = readWindowsRecorded(
+		ports.windowsMemory,
+		log,
+		"the short gate",
+	);
+	return memoryDenial(mb, climbMb, { windows, peakMb });
 }
 
 /**

@@ -2216,6 +2216,7 @@ function readLiveGateSeats({ queueDir } = {}) {
 			pid: r.pid,
 			chargeMb: r.chargeMb,
 			spawned: r.spawned === true,
+			part: r.part === true,
 		})),
 		unread,
 	};
@@ -2223,8 +2224,9 @@ function readLiveGateSeats({ queueDir } = {}) {
 
 /**
  * The live gate seats as the suite gate's count reads them (#5274): `count`,
- * how many have spawned their command, and `under`, whether a process runs
- * inside one — itself or one of its ancestors a spawned seat's holder pid.
+ * how many whole seats have spawned their command, `part`, how many short
+ * seats have, a part-suite each (#5450), and `under`, whether a process runs
+ * inside either — itself or one of its ancestors a spawned seat's holder pid.
  * THE ANCESTRY, NOT THE VARIABLE, IS THE TEST (spec #5273 §1): a runner
  * started with a scrubbed environment is still under its seat, and one
  * outside the seat's tree that inherited lib/gate-seat.js's GATE_ENV is
@@ -2234,9 +2236,12 @@ function readLiveGateSeats({ queueDir } = {}) {
  */
 function readGateSeats({ queueDir, parentOf = readParentOf } = {}) {
 	const { live, unread } = readLiveGateSeats({ queueDir });
-	const holders = live.filter((g) => g.spawned).map((g) => g.pid);
+	const spawned = live.filter((g) => g.spawned);
+	const holders = spawned.map((g) => g.pid);
+	const part = spawned.filter((g) => g.part).length;
 	return {
-		count: holders.length,
+		count: holders.length - part,
+		part,
 		unread: unread?.why ?? null,
 		under: (pid) =>
 			pid !== null &&

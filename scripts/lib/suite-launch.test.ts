@@ -27,12 +27,14 @@ const { QUOTED, literal, unwrap } = require("./shell-words.js") as {
 };
 const {
 	buildIsWrapperScript,
+	hasNamedTestFiles,
 	isOtherRunner,
 	isQueueable,
 	isWholePytestRun,
 	suiteLaunchKind,
 } = require("./suite-launch.js") as {
 	isQueueable: (words: string[], ports: object) => boolean;
+	hasNamedTestFiles: (words: string[]) => boolean;
 	isWholePytestRun: (argv: string[]) => boolean;
 	buildIsWrapperScript: (
 		tree: () => { readText: (rel: string) => string | null },
@@ -202,6 +204,30 @@ describe("isWholePytestRun (#4775)", () => {
 		[["--", "-k", "name", "-n", "4", "scripts/test_a.py"], "flags' values"],
 	])("reads %j as a part run — %s", (argv) => {
 		expect(whole(argv)).toBe(false);
+	});
+});
+
+describe("hasNamedTestFiles on `python3 -m unittest` (#5450)", () => {
+	const named = (command: string) => hasNamedTestFiles(command.split(" "));
+
+	it.each([
+		"python3 -m unittest tests.test_picker tests.test_bot",
+		"python3 -m unittest tests.test_picker.PickerTest.test_one",
+		"python3 -m unittest -v tests/test_picker.py",
+		"python3 -m unittest -k slow tests.test_picker",
+		"python3 -m unittest --durations 5 tests.checks_test",
+	])("reads `%s` as a part-suite", (command) => {
+		expect(named(command)).toBe(true);
+	});
+
+	it.each([
+		["python3 -m unittest", "a bare run discovers"],
+		["python3 -m unittest discover tests", "`discover`"],
+		["python3 -m unittest -k slow", "`-k` with no target discovers"],
+		["python3 -m unittest tests", "a package with no test segment"],
+		["python3 -m unittest tests.test_a tests/helper.py", "a non-test file"],
+	])("reads `%s` as whole — %s", (command) => {
+		expect(named(command)).toBe(false);
 	});
 });
 
