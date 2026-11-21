@@ -100,14 +100,14 @@
 			"why": "the frontmatter description removed, so the skill leaves the start listing"
 		},
 		".agents/skills/domain-modeling/ADR-FORMAT.md": {
-			"editedHash": "f548554f6fd3ea3e206395cac162af2be3492ee323fd89556e77656bc0e1e412",
+			"editedHash": "82dafd57ad313f9291162c8057f68286a5963597b61a00f015209f8d60820aba",
 			"issue": 5474,
-			"why": "the superseded Status and Considered Options optional sections removed; a changed decision's ADR is edited in place and a reversed one deleted; the rejected-alternatives qualifier recast as recording a rule against a tempting alternative; a deleted record's number is never reused (#2259 rows 1-2, #3358); the bar adds architectural shape, a process rule or behaviour contract going to its owner instead, an optional Options line is added, and an ADR is bounded to one page (#5459)"
+			"why": "the superseded Status and Considered Options optional sections removed; a changed decision's ADR is edited in place and a reversed one deleted; the rejected-alternatives qualifier recast as recording a rule against a tempting alternative; a deleted record's number is never reused (#2259 rows 1-2, #3358); the bar adds architectural shape, a process rule going to its shipped owner and a behaviour contract to its test, an optional Options line is added, and an ADR is bounded to one page (#5459)"
 		},
 		".agents/skills/domain-modeling/SKILL.md": {
-			"editedHash": "8782c00e2c37f8f398f2bfced4c12d547ddee1b5c09deb1ad860f8885c765719",
+			"editedHash": "c27b11a9bccb7f75b7dc5cd4f42433b1d6e7da8b57ca2415bbc6d7cd2bd63456",
 			"issue": 5474,
-			"why": "an ADR is committed only after a concision pass (#1407 row 1); the frontmatter description removed, so the skill leaves the start listing (#2036); the ADR bar adds architectural shape, a process rule or behaviour contract going to its owner instead (#5459)"
+			"why": "an ADR is committed only after a concision pass (#1407 row 1); the frontmatter description removed, so the skill leaves the start listing (#2036); the ADR bar adds architectural shape, a process rule going to its shipped owner and a behaviour contract to its test (#5459)"
 		},
 		".agents/skills/grilling/SKILL.md": {
 			"editedHash": "31930f77c987cc0ac3ec398d8d0fc07db03a272df8e800ea4d8385b794a1c4c8",

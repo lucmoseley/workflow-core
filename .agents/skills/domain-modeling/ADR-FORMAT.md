@@ -39,7 +39,7 @@ The decision must concern architectural shape — a boundary, a cross-module pat
 
 If a decision is easy to reverse, skip it: you'll just reverse it. If it's not surprising, nobody will wonder why. If there was no real alternative, there's nothing to record beyond "we did the obvious thing."
 
-A decision that passes the three tests but is not architectural takes no ADR: a process rule lives in the shipped skill or doc sessions act on, and a behaviour contract in the doc comment of the module that keeps it.
+A decision that passes the three tests but is not architectural takes no ADR: a process rule lives in the shipped skill or doc sessions act on, and a behaviour contract in the test that pins it, or in the doc comment on an export a party outside the repo relies on.
 
 ### What qualifies
 

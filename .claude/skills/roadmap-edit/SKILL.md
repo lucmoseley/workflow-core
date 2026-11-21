@@ -173,8 +173,11 @@ never skip them.
    (mantahostels#3205): an editable source has its declaring line edited in
    place or deleted; a `derived` or `generated-only` one is written back at
    its generator's input, never by hand; a declaration that is an aged
-   sidecar marker (`docs/doc-map-classes.json` `role`) is cleared there; a
-   file that merely mentions the area takes nothing. An edited line names
+   sidecar marker (a `docs/doc-map-classes.json` `role` carrying one of
+   `scripts/check-doc-map-markers.js`'s `NEVER_PERMANENT` phrases) is cleared
+   there and nowhere else; a file that merely mentions the area takes
+   nothing. The disposing session writes it; there is no queue and no
+   backfill ticket (mantahostels#2748). An edited line names
    its owning card slug or issue and that the item is discharged; a deleted
    one names its owner in the commit message. Grep for the declaration;
    none found, nothing owed. Carry any edit into step 8's pathspec.

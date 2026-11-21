@@ -70,6 +70,6 @@ Only offer to create an ADR when the decision concerns architectural shape — a
 2. **Surprising without context**: a future reader will wonder "why did they do it this way?"
 3. **The result of a real trade-off**: there were genuine alternatives and you picked one for specific reasons
 
-If any of the three is missing, skip the ADR. A process rule goes in the shipped skill or doc sessions act on; a behaviour contract in the module's doc comment. Use the format in [ADR-FORMAT.md](./ADR-FORMAT.md).
+If any of the three is missing, skip the ADR. A process rule goes in the shipped skill or doc sessions act on; a behaviour contract in the test that pins it. Use the format in [ADR-FORMAT.md](./ADR-FORMAT.md).
 
 Before committing an ADR, call the Skill tool with "concision-pass" over it and apply its cuts.
