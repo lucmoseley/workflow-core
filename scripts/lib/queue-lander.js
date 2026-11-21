@@ -47,8 +47,7 @@
  *   be re-anchored first; a member merged alone, in an isolation or a serial
  *   step, is taken as merged, so the search still reaches the member
  *   carrying the re-anchor. A batch not yet merged takes each member whose
- *   queue ref moved past its snapshot at its new tip, so a re-anchor pushed
- *   to a member of the held batch lands with it (#5436).
+ *   queue ref moved past its snapshot at its new tip (#5436).
  * - **Drop and defer.** A member that does not merge onto the batch so far is
  *   merged alone onto `main`. Where that fails too, as a conflict or a merge
  *   a commit gate refused, it is dropped: its batch leaves it out and
@@ -464,14 +463,12 @@ function freeSlot(p) {
 /** @param {string} reason @returns {QueueEnd} */
 const exit = (reason) => ({ kind: "exit", reason });
 
-/* The end of a run another lander's lock turned away. */
 const LOCK_HELD = "another lander holds the lock";
 /* What a held run's end opens with. */
 const HELD = "held: ";
 
 /**
- * Whether `b` is not yet merged, so it takes a member whose queue ref moved
- * past its snapshot at the ref's tip (#5436).
+ * Whether `b` is not yet merged.
  * @param {Batch} b
  */
 const retakesMoved = (b) => b.phase === "merging";
@@ -1389,8 +1386,7 @@ function retakeMoved(b, s, members) {
  * The merge of `b` onto `base`, where it is not merged there yet: a batch
  * merged onto a base that has since moved is merged again onto the new one,
  * so `main` only ever fast-forwards; else null. A withdrawn member is left
- * out of it first, merged or not, so `main` never takes it (#5308, #5316),
- * and a moved one not yet merged is retaken at its tip (#5436).
+ * out of it first, merged or not, so `main` never takes it (#5308, #5316).
  * @param {Batch} b
  * @param {QueueState} s
  * @param {string} base

@@ -22,8 +22,8 @@
  * by the stall alone.
  *
  * HELD: a queue ref waits and the queue lander's newest run end in its log
- * (lib/lander-start.js), within HELD_WINDOW_MS, is an `exit held: …` line,
- * as a stale `main`'s hold ends every run (#5436). An end another lander's
+ * (lib/lander-start.js), within HELD_WINDOW_MS, is an `exit held: …` line
+ * (#5436). An end another lander's
  * lock turned away is no run's, and is passed over. A log that will not
  * read is named, and judges nothing else.
  */
@@ -67,8 +67,8 @@ const HELD_WINDOW_MS = DAY_MS;
  *   | {tag: "LANDER-LOG-UNREAD", line: string}} StallFinding
  * @typedef {{kind: "held", at: number, reason: string}
  *   | {kind: "none"} | {kind: "unread", fault: string}} HeldRead the lander
- *   log's newest run end: held, `at` in ms and `reason` after `held: `; not
- *   held or none in the window; or the log unreadable
+ *   log's newest run end: held, `at` in ms and `reason` after `held: `; or
+ *   the log unreadable
  * @typedef {object} QueueReading
  * @property {number} now
  * @property {string|null} main `main`'s sha, null where the remote has none
@@ -129,7 +129,6 @@ const buildUnreadLine = (h) =>
 	`the queue lander's log would not read, so a held run end goes unseen: ${h.fault}`;
 
 /**
- * The newest run end in the lander log's events at or after `since`.
  * @param {readonly import("./time-to-land.js").LanderEvent[]} events
  * @param {number} since ms
  * @returns {HeldRead}
