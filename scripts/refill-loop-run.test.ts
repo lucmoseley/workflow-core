@@ -1401,35 +1401,58 @@ describe("a case's end (#4140)", () => {
 		throw new Error("the case fails with its loop up");
 	};
 
-	it.fails("ends a loop started as a child", async () => {
+	/* A throw before failWithLoopUp still passes as an it.fails case's expected
+	 * failure, so the summary case names it instead. */
+	const thrownEarly: { name: string; error: string }[] = [];
+	const failsWithLoopUp = (name: string, body: () => Promise<void>) =>
+		it.fails(name, async () => {
+			const before = failedCases.length;
+			try {
+				await body();
+			} catch (err) {
+				if (failedCases.length === before)
+					thrownEarly.push({ name, error: String(err) });
+				throw err;
+			}
+		});
+
+	/* `start` on a fresh sandbox writes no state, so the file is the detached
+	 * loop's own, absent until it boots. */
+	const readLastTick = () => {
+		try {
+			return Boolean(
+				JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
+					.lastTick,
+			);
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+			throw err;
+		}
+	};
+
+	failsWithLoopUp("ends a loop started as a child", async () => {
 		const running = runAsProcess(0);
 		await ticked(1);
 		failWithLoopUp(running, readPidsNaming(dir).length > 0);
 	});
 
-	it.fails("ends a detached loop", async () => {
+	failsWithLoopUp("ends a detached loop", async () => {
 		writeStored({ paused: { by: "founder", at: 4 } });
 		const running = commandFromRepo("start");
 		await running;
 		/* A paused loop asks no admission, so its tick reads in its state. */
-		await polled(
-			() =>
-				Boolean(
-					JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
-						.lastTick,
-				),
-			"the started loop never ticked",
-		);
+		await polled(readLastTick, "the started loop never ticked");
 		failWithLoopUp(running, readPidsNaming(dir).length > 0);
 	});
 
-	it.fails("ends a loop running in process", async () => {
+	failsWithLoopUp("ends a loop running in process", async () => {
 		const running = run(0);
 		await ticked(1);
 		failWithLoopUp(running, liveRun === running);
 	});
 
 	it("left none of them, each gone before its sandbox", async () => {
+		expect(thrownEarly).toEqual([]);
 		expect(failedCases).toHaveLength(3);
 		for (const failed of failedCases) {
 			expect(failed.upAtThrow).toBe(true);
