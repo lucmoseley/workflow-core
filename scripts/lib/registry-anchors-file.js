@@ -1,9 +1,7 @@
 /*
  * registry-anchors-file.js — the guard registry's anchors file: where it
  * lives, host data under the host's .claude/ (#37), and its one reader and
- * one writer, so every writer of it lays down the same bytes (#4177). Beside
- * it, the manifest holding each wired script's IMPLICIT / JUSTIFIED / DEFEAT /
- * TREE row (#5489), which an anchor's digest folds in.
+ * one writer, so every writer of it lays down the same bytes (#4177).
  */
 const fs = require("node:fs");
 const path = require("node:path");

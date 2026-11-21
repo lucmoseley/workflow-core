@@ -1,8 +1,7 @@
 /*
  * hook-shim.js — what marks a husky hook as the core's shim, and the guard
- * registry's row for it (#5477). lib/adopter-skeleton.js renders the shim from
- * it; check-guard-registry.js reads a shim's row here, as every adopter's
- * shims are one rendering.
+ * registry's row for it (#5477). Every adopter's shims are one rendering, so
+ * their row lives here, never in an adopter's manifest.
  */
 
 /**
