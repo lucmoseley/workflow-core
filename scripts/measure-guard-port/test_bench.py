@@ -583,23 +583,38 @@ def test_a_hook_exiting_before_its_stdin_is_read_is_still_a_run(tmp_path, capsys
     )
 
 
-def test_no_child_at_all_counts_none_running(monkeypatch, capsys):
-    def none(pid, opts):
-        raise ChildProcessError(10, "No child processes")
-
-    monkeypatch.setattr(bench.os, "waitpid", none)
-    assert bench.reap_orphans() == 0
-    assert "fail-open: no child left, none counted running" in capsys.readouterr().err
+def test_no_child_at_all_counts_none_running():
+    # A fresh interpreter has no child, so its own waitpid raises.
+    run = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            f"import sys; sys.path.insert(0, {str(HERE)!r}); import bench;"
+            " print(bench.reap_orphans())",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert run.stdout.strip() == "0"
+    assert "fail-open: no child left, none counted running" in run.stderr
 
 
 def test_a_process_gone_before_its_stat_is_read_is_skipped(monkeypatch, capsys):
-    monkeypatch.setattr(bench.os, "waitpid", lambda pid, opts: (0, 0))
+    # A live child, so the reap loop finds one running and goes on to /proc.
+    child = subprocess.Popen(["sleep", "30"])
+    try:
 
-    def gone(self, *a, **kw):
-        raise FileNotFoundError(2, "No such file or directory", str(self))
+        def gone(self, *a, **kw):
+            raise FileNotFoundError(2, "No such file or directory", str(self))
 
-    monkeypatch.setattr(bench.Path, "read_text", gone)
-    assert bench.reap_orphans() == 0
+        # A pid exiting between /proc's listing and its stat read is a race no
+        # fixture can time.
+        monkeypatch.setattr(bench.Path, "read_text", gone)
+        assert bench.reap_orphans() == 0
+    finally:
+        child.kill()
+        child.wait()
     assert "skipped as exited: FileNotFoundError" in capsys.readouterr().err
 
 

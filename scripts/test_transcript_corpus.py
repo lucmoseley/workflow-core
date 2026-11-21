@@ -147,19 +147,14 @@ def test_a_seat_with_no_projects_dir_lists_only_its_main_slug_and_says_so(home, 
     assert f"{seat / 'projects'} read as listing no worktree slug" in err
 
 
-def test_a_copy_gone_since_the_listing_loses_the_largest_copy_vote(
-    tmp_path, monkeypatch, capsys
-):
-    kept = tmp_path / "a" / "s.jsonl"
-    kept.parent.mkdir()
+def test_a_copy_gone_since_the_listing_loses_the_largest_copy_vote(seat_roots, capsys):
+    roots = seat_roots(2)
+    kept = roots[0] / "s.jsonl"
     kept.write_text("{}\n")
-    gone = str(tmp_path / "b" / "s.jsonl")
-    monkeypatch.setattr(
-        tc,
-        "transcript_files",
-        lambda: [("s.jsonl", gone, False, None), ("s.jsonl", str(kept), False, None)],
-    )
-    assert list(tc.one_copy_each()) == [(str(kept), False, None)]
+    # The same session on the second seat, listed but its target gone.
+    gone = roots[1] / "s.jsonl"
+    gone.symlink_to(roots[1] / "missing")
+    assert list(tc.one_copy_each()) == [(str(kept), False, "s")]
     err = capsys.readouterr().err
     assert "fail-open:" in err
     assert f"{gone} loses the largest-copy vote" in err

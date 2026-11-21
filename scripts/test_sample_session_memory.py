@@ -167,6 +167,8 @@ GONE = 99_999_999
 
 
 def test_a_pid_gone_before_its_stat_reads_is_left_out_of_the_table(monkeypatch, capsys):
+    # A pid exiting between /proc's listing and its stat read is a race no
+    # fixture can time.
     monkeypatch.setattr(m.os, "listdir", lambda _: [str(GONE)])
     assert m.read_proc_table() == {}
     assert (

@@ -72,13 +72,20 @@ class TestWatchdogNeverSignalsAReapedGroup:
         assert victims == []
 
 
-@pytest.mark.parametrize("error", [ProcessLookupError, PermissionError])
-def test_a_group_gone_or_not_ours_is_left_unkilled_and_named(
-    bench, monkeypatch, capsys, error
-):
-    def killpg(pgid, sig):
-        raise error("no such group")
+def test_a_group_gone_is_left_unkilled_and_named(bench, capsys):
+    # Above pid_max, so no live process group has it.
+    gone = 99_999_999
+    assert bench.Watchdog._killpg(gone) is None
+    err = capsys.readouterr().err
+    assert f"fail-open: process group {gone} left unkilled: ProcessLookupError" in err
 
+
+def test_a_group_not_ours_is_left_unkilled_and_named(bench, monkeypatch, capsys):
+    def killpg(pgid, sig):
+        raise PermissionError("not ours")
+
+    # No other user's process group is sure to exist on every test host, and
+    # the one that always does, pgid 1, makes killpg a kill(-1) of everything.
     monkeypatch.setattr(bench.os, "killpg", killpg)
     assert bench.Watchdog._killpg(4242) is None
     assert "fail-open: process group 4242 left unkilled" in capsys.readouterr().err
@@ -162,6 +169,8 @@ class TestTornProcReadsAreSurvivable:
     def test_a_pid_gone_before_its_stat_opens_is_left_out_of_the_tree(
         self, bench, monkeypatch, capsys
     ):
+        # A pid exiting between /proc's listing and its stat open is a race no
+        # fixture can time.
         monkeypatch.setattr(bench.os, "listdir", lambda _: [str(self.GONE)])
         assert bench.children_map() == {}
         assert (

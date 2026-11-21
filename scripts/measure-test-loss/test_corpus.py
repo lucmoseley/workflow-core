@@ -18,17 +18,11 @@ def test_a_root_that_will_not_list_is_skipped_and_reported(tmp_path, capsys):
     assert f"fail-open: {gone} skipped: FileNotFoundError" in capsys.readouterr().err
 
 
-def test_a_file_that_will_not_stat_is_skipped_and_reported(
-    tmp_path, monkeypatch, capsys
-):
+def test_a_file_that_will_not_stat_is_skipped_and_reported(tmp_path, capsys):
     proj = tmp_path / "-home-x-workflow-core"
     proj.mkdir()
-    (proj / "s1.jsonl").write_text("")
-
-    def refuse(path):
-        raise FileNotFoundError(path)
-
-    monkeypatch.setattr(corpus.os.path, "getmtime", refuse)
+    # Listed by the walk, but its target is gone.
+    (proj / "s1.jsonl").symlink_to(tmp_path / "missing")
     tally = Counter()
     assert list(corpus.transcripts([str(tmp_path)], 0, tally)) == []
     assert tally[corpus.tc.UNREADABLE] == 1

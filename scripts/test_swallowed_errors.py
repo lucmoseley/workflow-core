@@ -25,21 +25,34 @@ def handler(body, bind=" as e"):
     return f"try:\n    x = 1\nexcept OSError{bind}:\n    {body}\n"
 
 
+def imported(src, line="from fail_open import fail_open"):
+    return f"{line}\n{src}"
+
+
 def test_a_handler_that_raises_exits_or_reports_passes():
     for body in ("raise", "raise SystemExit(1)", "sys.exit(2)", "parser.error('x')"):
         assert breach_lines(handler(body)) == [], body
-    for body in ("fail_open(e, 'skipped')", "fo.fail_open(e, 'skipped')"):
-        assert breach_lines(handler(body)) == [], body
+    for line, body in (
+        ("from fail_open import fail_open", "fail_open(e, 'skipped')"),
+        ("import fail_open as fo", "fo.fail_open(e, 'skipped')"),
+    ):
+        assert breach_lines(imported(handler(body), line)) == [], body
 
 
-def test_a_comment_citing_a_ticket_no_longer_passes():
-    assert breach_lines(handler("pass  # skipped (#12)")) == [3]
+def test_a_fail_open_not_imported_from_the_reporter_is_a_swallow():
+    own = "def fail_open(e, s):\n    pass\n"
+    assert breach_lines(own + handler("fail_open(e, 'skipped')")) == [5]
+
+
+def test_a_fail_open_on_only_some_paths_is_a_swallow():
+    src = imported(handler("if x:\n        fail_open(e, 'skipped')"))
+    assert breach_lines(src) == [4]
 
 
 def test_fail_open_must_be_handed_the_error_the_clause_binds():
-    assert breach_lines(handler("fail_open(None, 'skipped')")) == [3]
-    assert breach_lines(handler("fail_open(err, 'skipped')")) == [3]
-    assert breach_lines(handler("fail_open(e, 'skipped')", bind="")) == [3]
+    assert breach_lines(imported(handler("fail_open(None, 'skipped')"))) == [4]
+    assert breach_lines(imported(handler("fail_open(err, 'skipped')"))) == [4]
+    assert breach_lines(imported(handler("fail_open(e, 'skipped')", bind=""))) == [4]
 
 
 def test_a_breach_names_its_function_and_clause():

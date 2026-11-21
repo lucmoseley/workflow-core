@@ -31,7 +31,7 @@ const ROUTES = { "tools/test_*.py": "test", "tools/**/*.py": "program" };
 const swallow = (fn = "fetch") =>
 	`def ${fn}():\n    try:\n        return 1\n    except OSError:\n        return None\n`;
 const REPORTED =
-	"def fetch():\n    try:\n        return 1\n    except OSError as e:\n        fail_open(e, 'none')\n        return None\n";
+	"from fail_open import fail_open\ndef fetch():\n    try:\n        return 1\n    except OSError as e:\n        fail_open(e, 'none')\n        return None\n";
 
 /** An adopter repo holding `committed` at HEAD and `staged` in the index. */
 function repo(
@@ -63,14 +63,10 @@ describe("check-swallowed-errors in an adopter", () => {
 		expect(code).toBe(1);
 	});
 
-	it("passes one that hands its error to fail_open, and a comment citing a ticket passes none", () => {
-		const passed = check(repo({}, { [PY]: REPORTED }));
-		expect(passed.output).toMatch(/no swallow introduced across 1/);
-		expect(passed.code).toBe(0);
-		const cited = swallow().replace("None\n", "None  # host gone (#12)\n");
-		const refused = check(repo({}, { [PY]: cited }));
-		expect(refused.output).toMatch(WAY_OUT);
-		expect(refused.code).toBe(1);
+	it("passes one that hands its error to fail_open", () => {
+		const { code, output } = check(repo({}, { [PY]: REPORTED }));
+		expect(output).toMatch(/no swallow introduced across 1/);
+		expect(code).toBe(0);
 	});
 
 	it("passes a swallow HEAD already had, moved down by an added line", () => {

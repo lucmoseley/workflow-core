@@ -264,14 +264,13 @@ def _pairs(lines, tally, needle):
     accumulator: the skips are counted into it (#1274)."""
     needles = (needle,) if isinstance(needle, str) else needle
     for line in lines:
-        if needles and not any(n in line for n in needles):
+        if not line.strip() or (needles and not any(n in line for n in needles)):
             continue
         try:
             rec = json.loads(line)
         except ValueError as error:
-            if line.strip():
-                fail_open(error, "line counted unparsed")
-                tally[UNPARSED] += 1
+            fail_open(error, "line counted unparsed")
+            tally[UNPARSED] += 1
             continue
         if not isinstance(rec, dict):
             tally[UNPARSED] += 1

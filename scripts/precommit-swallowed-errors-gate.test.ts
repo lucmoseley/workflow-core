@@ -5,7 +5,7 @@
  *
  * How the checker judges is scripts/check-swallowed-errors.test.ts's; this
  * suite owns the shell: when it runs, that a refusal stops the commit, and
- * that a missing python3 refuses rather than skips. Loosen a case and an
+ * that a missing python3 refuses rather than skips. Loosen a case and a
  * swallow lands unrefused in every repo the plugin runs in.
  */
 
@@ -106,7 +106,7 @@ describe("the pre-commit swallowed-error gate", () => {
 		const reported = SWALLOW.replace(
 			"except OSError:\n",
 			"except OSError as e:\n        fail_open(e, 'none')\n",
-		);
+		).replace("def fetch", "from fail_open import fail_open\ndef fetch");
 		const { code, output } = runGate(fixture({ [PY]: reported }));
 		expect(output).toMatch(/OK: no swallow introduced/);
 		expect(code).toBe(0);

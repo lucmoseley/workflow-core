@@ -1,6 +1,7 @@
 """swallowed_errors.py — base §N5 over Python source: an `except` raises,
-exits, or hands the error it binds to `fail_open` from `scripts/lib/fail_open.py`,
-which prints it (#1830, #5487).
+exits, or hands the error it binds to `fail_open`, imported from the
+`fail_open` module (`scripts/lib/fail_open.py`), in a statement of its own
+body, so every path through the handler prints it (#1830, #5487).
 
 Run by scripts/check-swallowed-errors.js, which picks the program-routed paths
 from the host's config. stdin is `{"sources": [{"name": ..., "text": ...}]}`;
@@ -23,21 +24,46 @@ EXITS = {"sys.exit", "exit", "quit", "os._exit"}
 PARSERS = {"p", "ap", "parser"}
 
 
-def reports(call, bound):
-    """`call` is `fail_open(<bound>, ...)`, bare or through a module."""
-    name = ast.unparse(call.func)
-    return (
-        (name == "fail_open" or name.endswith(".fail_open"))
-        and bound is not None
-        and bool(call.args)
-        and isinstance(call.args[0], ast.Name)
-        and call.args[0].id == bound
-    )
+def reporters(tree):
+    """The spellings that reach `fail_open` from the `fail_open` module:
+    `fail_open` from a `from ... import`, `<alias>.fail_open` from an `import`."""
+    out = set()
+    for n in ast.walk(tree):
+        if (
+            isinstance(n, ast.ImportFrom)
+            and (n.module or "").split(".")[-1] == "fail_open"
+        ):
+            out |= {a.asname or a.name for a in n.names if a.name == "fail_open"}
+        if isinstance(n, ast.Import):
+            out |= {
+                f"{a.asname or a.name}.fail_open"
+                for a in n.names
+                if a.name.split(".")[-1] == "fail_open"
+            }
+    return out
 
 
-def fails_loudly(handler):
+def reports(handler, names):
+    """A statement of the handler's own body is `<reporter>(<bound>, ...)`."""
+    for stmt in handler.body:
+        call = stmt.value if isinstance(stmt, ast.Expr) else None
+        if (
+            isinstance(call, ast.Call)
+            and ast.unparse(call.func) in names
+            and handler.name is not None
+            and call.args
+            and isinstance(call.args[0], ast.Name)
+            and call.args[0].id == handler.name
+        ):
+            return True
+    return False
+
+
+def fails_loudly(handler, names):
     """Raises, exits, calls an argparse `.error`, hands its error to
-    `fail_open`, or prints and returns a non-zero exit code."""
+    `fail_open` in its own body, or prints and returns a non-zero exit code."""
+    if reports(handler, names):
+        return True
     prints = any(
         isinstance(n, ast.Call) and ast.unparse(n.func) == "print"
         for n in ast.walk(handler)
@@ -47,10 +73,8 @@ def fails_loudly(handler):
             return True
         if isinstance(n, ast.Call):
             name = ast.unparse(n.func)
-            if (
-                name in EXITS
-                or (name.endswith(".error") and name.split(".")[0] in PARSERS)
-                or reports(n, handler.name)
+            if name in EXITS or (
+                name.endswith(".error") and name.split(".")[0] in PARSERS
             ):
                 return True
         if (
@@ -92,9 +116,10 @@ def breaches(src):
     is `<module>` outside one, `caught` `<bare>` for a bare `except:`."""
     tree = ast.parse(src)
     owner, names = owners(tree)
+    via = reporters(tree)
     out = []
     for h in ast.walk(tree):
-        if not isinstance(h, ast.ExceptHandler) or fails_loudly(h):
+        if not isinstance(h, ast.ExceptHandler) or fails_loudly(h, via):
             continue
         caught = ast.unparse(h.type) if h.type else "<bare>"
         out.append((h.lineno, names.get(owner.get(h), "<module>"), caught))

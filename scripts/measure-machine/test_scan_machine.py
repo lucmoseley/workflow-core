@@ -444,13 +444,12 @@ def test_a_truncated_gzip_syslog_is_skipped_and_reported(tmp_path, capsys):
     assert "skipped" in capsys.readouterr().err
 
 
-def test_a_transcript_that_will_not_open_is_skipped_and_reported(
-    tmp_path, monkeypatch, capsys
-):
+def test_a_transcript_that_will_not_open_is_skipped_and_reported(tmp_path, capsys):
     import scan_machine
 
+    # Listed as a transcript, but its target is gone.
     gone = str(tmp_path / "gone.jsonl")
-    monkeypatch.setattr(scan_machine, "_transcript_files", lambda c, s=True: [gone])
+    os.symlink(tmp_path / "missing", gone)
     tally = Counter()
     assert scan_machine.transcript_spans(str(tmp_path), tally) == []
     assert tally[scan_machine.tc.UNREADABLE] == 1

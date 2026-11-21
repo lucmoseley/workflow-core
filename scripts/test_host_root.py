@@ -72,6 +72,8 @@ def test_a_declared_root_that_will_not_resolve_is_kept_as_spelt_and_said(
     def refuse(self, strict=False):
         raise PermissionError("refused")
 
+    # An existing path that will not resolve must change between the exists
+    # check and resolve's own walk, a race no fixture can time.
     monkeypatch.setattr(host_root_module.Path, "resolve", refuse)
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
 
