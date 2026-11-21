@@ -848,6 +848,7 @@ function verdictLedger(file) {
 					verdict: v,
 				},
 				VERDICT_RETAIN_MS,
+				{ now: () => now() },
 			);
 		},
 	};
