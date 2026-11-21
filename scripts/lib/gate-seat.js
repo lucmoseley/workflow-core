@@ -22,7 +22,11 @@
  * THE GATE-RUN RECORD is `.gate-runs.jsonl` under the canonical checkout's
  * markers directory, one line per gate run, kept as long as the queue-exit
  * log (lib/queue-exit-log.js `QUEUE_EXIT_RETAIN_MS`). It is the
- * one source of gate-run counts.
+ * one source of gate-run counts. Each line names the tree its run tested,
+ * the commit's tree `isolated-worktree.js` hands it, and the command's own
+ * `selection` where it wrote one to the file GATE_SELECTION_ENV names, such
+ * as a runner's `all` or `n of N`, so a gate run joins the lander's verdict
+ * on the same change (#5448).
  *
  * THE PID RECORD names the processes of a running seat's tree for the
  * memory-kill filer (#5269): one file a seat in lib/run-memory.js's store,
@@ -78,11 +82,16 @@ const GATE_SEAT_DEFAULT_MB = suiteRungMb(WHOLE_SUITE_WORKERS);
 
 const GATE_RUN_LOG = ".gate-runs.jsonl";
 
+/* The variable naming the file a gate's command may write what it chose to
+ * run into, one line, for its record's `selection` (#5448). */
+const GATE_SELECTION_ENV = "WFC_GATE_SELECTION";
+
 /** @typedef {"pass" | "red" | "ceiling" | "killed"} GateOutcome */
 /**
  * @typedef {object} GateRun one gate run's record line
  * @property {string} at its end, ISO
  * @property {string | null} repo the canonical checkout's directory name
+ * @property {string} tree the sha of the tree the run tested
  * @property {string} command
  * @property {string | null} session
  * @property {number | null} ticket the issue the session holds
@@ -90,6 +99,8 @@ const GATE_RUN_LOG = ".gate-runs.jsonl";
  * @property {number} runS awake seconds (`monotonicMs`)
  * @property {GateOutcome} outcome
  * @property {number} peakTreeMb the command's process-tree PSS peak
+ * @property {string} [selection] what the command wrote it chose to run;
+ *   absent where it wrote nothing
  */
 
 /**
@@ -118,6 +129,24 @@ function gateRunLogPath(root) {
 function gateRepoName(root) {
 	const canonical = repoRoot(root);
 	return canonical ? path.basename(canonical) : null;
+}
+
+/**
+ * What a gate's command wrote it chose to run: the selection file's first
+ * non-blank line, trimmed, or null where it wrote none or the file will not
+ * read.
+ * @param {string} file
+ * @returns {string | null}
+ */
+function readGateSelection(file) {
+	const read = readText(file);
+	if (read.state !== "read") return null;
+	return (
+		read.data
+			.split("\n")
+			.map((line) => line.trim())
+			.find(Boolean) ?? null
+	);
 }
 
 /**
@@ -312,6 +341,7 @@ module.exports = {
 	GATE_ENV,
 	GATE_ROLE,
 	GATE_SEAT_DEFAULT_MB,
+	GATE_SELECTION_ENV,
 	appendGateRun,
 	gatePositionLine,
 	gateRepoName,
@@ -320,5 +350,6 @@ module.exports = {
 	gateSeatChargeMb,
 	isInSuite,
 	readGatePids,
+	readGateSelection,
 	startGatePids,
 };
