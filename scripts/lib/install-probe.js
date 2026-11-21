@@ -3,10 +3,9 @@
  * as an adopter receives it (#5439, #5447).
  *
  * An install respells each `scripts/x` and `docs/x` a message names at the
- * plugin root and qualifies each bare `#N` (script-path.js, rule-text.js), so
- * a checkout measures fewer bytes than an adopter pays. The probe is a tree
- * with no package.json, which script-path.js reads as an install, whose
- * `scripts/` and `docs/` are symlinks to the running core's.
+ * plugin root and qualifies each bare `#N` (script-path.js, rule-text.js). The
+ * probe is a tree with no package.json, which script-path.js reads as an
+ * install.
  *
  * Its path is padded to the root a 32-character user name — the useradd limit
  * — gives under `~/.claude/plugins/cache/`, at a version of two digits a part,
@@ -23,10 +22,10 @@ const INSTALL_ROOT_CHARS =
 		.length;
 
 /**
- * @param {string} [core] the core tree the probe's `scripts/` and `docs/` point at
+ * @param {string} core the core tree the probe's `scripts/` and `docs/` point at
  * @returns {{ root: string, remove: () => void }}
  */
-function makeInstallProbe(core = coreRoot()) {
+function makeInstallProbe(core) {
 	const base = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-install-"));
 	const root = path.join(
 		base,
@@ -45,13 +44,17 @@ function makeInstallProbe(core = coreRoot()) {
  * `read`'s result with a checkout's core read as the probe install. An
  * install already spells text as one, so there `read` runs as it stands.
  *
+ * The probe root travels in process.env, restored after, as rule-text.js's
+ * withRuleStore() pins its store: resolveScriptPaths() and readRuleText() read
+ * the core root from the environment and take none as an argument.
+ *
  * @template T
  * @param {() => T} read
  * @returns {T}
  */
 function asInstall(read) {
 	if (!inCheckout()) return read();
-	const probe = makeInstallProbe();
+	const probe = makeInstallProbe(coreRoot());
 	const before = process.env.WFC_SCRIPT_ROOT;
 	process.env.WFC_SCRIPT_ROOT = probe.root;
 	try {
@@ -63,4 +66,4 @@ function asInstall(read) {
 	}
 }
 
-module.exports = { makeInstallProbe, asInstall };
+module.exports = { asInstall };

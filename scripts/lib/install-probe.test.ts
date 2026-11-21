@@ -1,6 +1,12 @@
 // @vitest-environment node
+/*
+ * asInstall() (#5447) reads a checkout's text as the probe install spells it,
+ * and leaves no root or tree behind. A break here mis-prices route (f)'s
+ * budgets in scripts/check-context-budget.js. WFC_SCRIPT_ROOT is stubbed
+ * empty, so the run starts from a checkout whatever the shell inherited.
+ */
 import fs from "node:fs";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { asInstall } = require("./install-probe.js") as {
 	asInstall: <T>(read: () => T) => T;
@@ -9,26 +15,28 @@ const { inCheckout, resolveScriptPaths } = require("./script-path.js") as {
 	inCheckout: () => boolean;
 	resolveScriptPaths: (text: string) => string;
 };
+const { shellQuote } = require("./sh-quote.js") as {
+	shellQuote: (s: string) => string;
+};
 
-afterEach(() => {
-	vi.unstubAllEnvs();
+beforeEach(() => {
+	vi.stubEnv("WFC_SCRIPT_ROOT", "");
 });
 
 describe("asInstall", () => {
 	it("reads a checkout's text at the install spelling", () => {
-		vi.stubEnv("WFC_SCRIPT_ROOT", "");
-		const text = "run scripts/claim-issue.js";
 		const read = asInstall(() => ({
 			install: !inCheckout(),
-			text: resolveScriptPaths(text),
+			root: process.env.WFC_SCRIPT_ROOT ?? "",
+			text: resolveScriptPaths("run scripts/claim-issue.js"),
 		}));
 		expect(read.install).toBe(true);
-		expect(read.text).toMatch(/^run '?\/.+\/scripts\/claim-issue\.js'?$/);
-		expect(read.text.length).toBeGreaterThan(text.length + 80);
+		expect(read.text).toBe(
+			`run ${shellQuote(`${read.root}/scripts/claim-issue.js`)}`,
+		);
 	});
 
 	it("restores the core root and removes its tree, on a throw too", () => {
-		vi.stubEnv("WFC_SCRIPT_ROOT", "");
 		let root = "";
 		expect(() =>
 			asInstall(() => {

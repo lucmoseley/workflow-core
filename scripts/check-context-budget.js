@@ -1047,7 +1047,7 @@ function sessionFigures(ctx, opts) {
 		/* Priced as an adopter receives it, not as this checkout spells it (#5447). */
 		return asInstall(() => reachableByTool(opts));
 	} catch (e) {
-		/* Every throw here is apparatus: a guard file, the RULE_CAP assignment,
+		/* Every throw here is apparatus: the probe install tree, a guard file, the RULE_CAP assignment,
 		 * a malformed settings shape, or an injection naming an id the fragment
 		 * store cannot resolve at all — none of them a bug in this checker, but all
 		 * of them what it reads the repo WITH rather than what it is asking about.
