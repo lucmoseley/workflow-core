@@ -89,12 +89,16 @@ const GATE_RUN_LOG = ".gate-runs.jsonl";
  * third of the 180 s whole-suite target (#2729), ruled at #5442. */
 const SHORT_GATE_RUNS = 5;
 const SHORT_GATE_MAX_S = 60;
+/* The variable naming the file a gate's command may write what it chose to
+ * run into, one line (#5448). */
+const GATE_SELECTION_ENV = "WFC_GATE_SELECTION";
 
 /** @typedef {"pass" | "red" | "ceiling" | "killed"} GateOutcome */
 /**
  * @typedef {object} GateRun one gate run's record line
  * @property {string} at its end, ISO
  * @property {string | null} repo the canonical checkout's directory name
+ * @property {string} tree the sha of the tree the run tested
  * @property {string} command
  * @property {string | null} session
  * @property {number | null} ticket the issue the session holds
@@ -103,6 +107,7 @@ const SHORT_GATE_MAX_S = 60;
  * @property {GateOutcome} outcome
  * @property {number} peakTreeMb the command's process-tree PSS peak
  * @property {true} [part] a short gate's run, a part-suite (#5450)
+ * @property {string} [selection] what the command wrote it chose to run
  */
 
 /**
@@ -170,6 +175,21 @@ function shortGatePeakMb(runs, { repo, command }) {
 	if (!last.every((r) => r.runS <= SHORT_GATE_MAX_S && r.peakTreeMb > 0))
 		return null;
 	return Math.max(...last.map((r) => r.peakTreeMb));
+}
+
+/**
+ * @param {string} file
+ * @returns {string | null}
+ */
+function readGateSelection(file) {
+	const read = readText(file);
+	if (read.state !== "read") return null;
+	return (
+		read.data
+			.split("\n")
+			.map((line) => line.trim())
+			.find(Boolean) ?? null
+	);
 }
 
 /**
@@ -365,6 +385,7 @@ module.exports = {
 	GATE_RUN_LOG,
 	GATE_ROLE,
 	GATE_SEAT_DEFAULT_MB,
+	GATE_SELECTION_ENV,
 	appendGateRun,
 	gatePositionLine,
 	gateRepoName,
@@ -375,5 +396,6 @@ module.exports = {
 	readGatePids,
 	readGateRunsAt,
 	shortGatePeakMb,
+	readGateSelection,
 	startGatePids,
 };

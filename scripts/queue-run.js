@@ -58,6 +58,7 @@
  */
 
 const { spawn } = require("node:child_process");
+const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
@@ -105,6 +106,7 @@ const { writeFd } = require("./lib/write-fd.js");
 const {
 	GATE_ENV,
 	GATE_ROLE,
+	GATE_SELECTION_ENV,
 	appendGateRun,
 	gatePositionLine,
 	gateRepoName,
@@ -113,6 +115,7 @@ const {
 	isInSuite,
 	readGateRunsAt,
 	shortGatePeakMb,
+	readGateSelection,
 	startGatePids,
 } = require("./lib/gate-seat.js");
 const { withMergeParents } = require("./lib/merge-heads.js");
@@ -125,7 +128,7 @@ const {
 } = require("./lib/suite-ceiling.js");
 
 const LABEL = "queue-run.js";
-const USAGE = `Usage: node ${path.join("scripts", "queue-run.js")} [--seat | --tsc | --gate] -- <command…>
+const USAGE = `Usage: node ${path.join("scripts", "queue-run.js")} [--seat | --tsc | --gate --tree <sha>] -- <command…>
 Waits for a suite slot in the shared queue, then runs <command>: a node --test,
 pytest or Python test file, npm run test:py, a declared suiteRunners script,
 or an npm test script that does not run run-vitest.js (#1776).
@@ -136,7 +139,8 @@ or an npm test script that does not run run-vitest.js (#1776).
           type-check such as \`tsc --noEmit\` (#3163)
   --gate  wait for the whole-suite slot as a commit gate, never refused at the
           wait bound, then run <command>, the repo's declared test command,
-          under the suite ceiling (#5274)`;
+          under the suite ceiling (#5274), recorded against --tree, the sha
+          of the tree it tests (#5448)`;
 
 /* Why lib/suite-launch.js's reading refuses the command; `queue` is absent. */
 const REFUSALS = {
@@ -298,6 +302,7 @@ const suiteRefusedWith = (why) => (words) => {
  *   sampleMs?: number,
  *   inSuite?: () => boolean,
  *   shortGate?: typeof shortGateDenial,
+ *   tree?: string,
  * }} Options
  */
 
@@ -509,6 +514,11 @@ function buildGateWait(options, words) {
 		session,
 		command: words.join(" "),
 	};
+	const { tree } = options;
+	if (tree === undefined)
+		throw new Error(
+			"a gate seat's wait needs the --tree its run is recorded against",
+		);
 	const err = options.err ?? STDERR;
 	const clock = options.monoClock ?? monotonicMs;
 	const started = clock();
@@ -565,6 +575,7 @@ function buildGateWait(options, words) {
 			spawnGate({
 				...launch,
 				holder,
+				tree,
 				waitMs: clock() - started,
 				part: shortMb !== null,
 			}),
@@ -702,6 +713,8 @@ const SLOT_KINDS = {
 	},
 };
 
+const GIT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+
 const SLOT_FLAGS = /** @type {Exclude<Slot, "other">[]} */ (
 	Object.keys(SLOT_KINDS).filter((slot) => slot !== "other")
 );
@@ -731,7 +744,7 @@ function slotOf(flags) {
 async function main(argv, options = {}) {
 	const parsed = parseOrCode(argv, {
 		usage: USAGE,
-		flags: SLOT_FLAG_SPEC,
+		flags: { ...SLOT_FLAG_SPEC, "--tree": "value" },
 		min: 1,
 		max: Number.POSITIVE_INFINITY,
 	});
@@ -745,12 +758,28 @@ async function main(argv, options = {}) {
 		);
 		return 2;
 	}
+	const tree = parsed.flags["--tree"];
+	if ((slot === "gate") !== (typeof tree === "string")) {
+		err.write(
+			`${LABEL}: --gate and --tree go together: a gate run is recorded against the sha of the tree it tests (#5448).\n`,
+		);
+		return 2;
+	}
+	if (typeof tree === "string" && !GIT_SHA.test(tree)) {
+		err.write(`${LABEL}: --tree takes a git tree's sha, not '${tree}'.\n`);
+		return 2;
+	}
 	const why = SLOT_KINDS[slot].refusal(words);
 	if (why) {
 		err.write(`${LABEL}: not queued — ${why}\n`);
 		return 2;
 	}
-	return run(words, slot, options, err);
+	return run(
+		words,
+		slot,
+		typeof tree === "string" ? { ...options, tree } : options,
+		err,
+	);
 }
 
 /**
@@ -850,6 +879,34 @@ function withExitExtra(logExit, exitExtra) {
 }
 
 /**
+ * Append one gate run's line to the record, its time, repo, command, session
+ * and ticket filled in; a line that does not land is named on `err`.
+ * @param {Options} options
+ * @param {Out} err
+ * @param {{ repo: string | null, session: string | null, command: string }} holder
+ * @param {Omit<import("./lib/gate-seat.js").GateRun, "at" | "repo" | "command" | "session" | "ticket">} measured
+ */
+function recordGateRun(options, err, holder, measured) {
+	const file =
+		options.gateLog === undefined ? gateRunLogPath() : options.gateLog;
+	const landed = appendGateRun(file, {
+		at: new Date().toISOString(),
+		repo: holder.repo,
+		command: holder.command,
+		session: holder.session,
+		ticket:
+			options.ticket === undefined
+				? readTicket(holder.session)
+				: options.ticket,
+		...measured,
+	});
+	if (!landed && file)
+		err.write(
+			`${LABEL}: this gate run was not recorded on ${file}, so the gate-run count will miss it.\n`,
+		);
+}
+
+/**
  * Start a gate seat's command (#5274): in a process group of its own, its
  * marker in GATE_ENV, under the suite ceiling, which kills the group and reads
  * red; its tree's PSS sampled for its peak from spawn (lib/admission.js
@@ -865,12 +922,14 @@ function withExitExtra(logExit, exitExtra) {
  *   err: Out,
  *   finish: (code: number) => void,
  *   holder: { repo: string | null, session: string | null, command: string },
+ *   tree: string,
  *   waitMs: number,
  *   part: boolean,
  * }} launch
  */
-function spawnGate({ seat, options, err, finish, holder, waitMs, part }) {
+function spawnGate({ seat, options, err, finish, holder, tree, waitMs, part }) {
 	const { command } = holder;
+	const selection = makeGateSelectionFile(err);
 	const clock = options.monoClock ?? monotonicMs;
 	const {
 		readTreeSample,
@@ -905,6 +964,7 @@ function spawnGate({ seat, options, err, finish, holder, waitMs, part }) {
 		env: {
 			...withMergeParents(process.cwd(), process.env),
 			[GATE_ENV]: seat.ticket,
+			...selection.env,
 		},
 	});
 	const spawnedAt = clock();
@@ -952,27 +1012,16 @@ function spawnGate({ seat, options, err, finish, holder, waitMs, part }) {
 				`${LABEL}: ${unreadSamples} of this gate run's tree samples would not read (${firstUnread}), so its recorded peakTreeMb is a floor; set no gateSeatMb from it.\n`,
 			);
 		held.release();
-		const file =
-			options.gateLog === undefined ? gateRunLogPath() : options.gateLog;
-		const landed = appendGateRun(file, {
-			at: new Date().toISOString(),
-			repo: holder.repo,
-			command: holder.command,
-			session: holder.session,
-			ticket:
-				options.ticket === undefined
-					? readTicket(holder.session)
-					: options.ticket,
+		const chose = selection.take();
+		recordGateRun(options, err, holder, {
+			tree,
 			waitS: Math.round(waitMs / 1000),
 			runS: Math.round((clock() - spawnedAt) / 1000),
 			outcome,
 			peakTreeMb: Math.round(peakKb / 1024),
 			...(part ? { part: true } : {}),
+			...(chose === null ? {} : { selection: chose }),
 		});
-		if (!landed && file)
-			err.write(
-				`${LABEL}: this gate run was not recorded on ${file}, so the gate-run count will miss it.\n`,
-			);
 		finish(code);
 	};
 	running.once("error", (error) => {
@@ -986,6 +1035,36 @@ function spawnGate({ seat, options, err, finish, holder, waitMs, part }) {
 		close(status, status === 0 ? "pass" : "red");
 	});
 	return running;
+}
+
+/**
+ * @param {Out} err
+ * @returns {{ env: Record<string, string>, take: () => string | null }}
+ */
+function makeGateSelectionFile(err) {
+	try {
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-gate-selection-"));
+		const file = path.join(dir, "selection");
+		return {
+			env: { [GATE_SELECTION_ENV]: file },
+			take: () => {
+				const chose = readGateSelection(file);
+				try {
+					fs.rmSync(dir, { recursive: true, force: true });
+				} catch (error) {
+					err.write(
+						`${LABEL}: this gate run's selection file was not removed (${caught(error).message}); remove ${dir} by hand.\n`,
+					);
+				}
+				return chose;
+			},
+		};
+	} catch (error) {
+		err.write(
+			`${LABEL}: no selection file would make (${caught(error).message}), so this gate run's record will carry no selection.\n`,
+		);
+		return { env: {}, take: () => null };
+	}
 }
 
 /**
