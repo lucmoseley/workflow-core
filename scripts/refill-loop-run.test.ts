@@ -1376,6 +1376,7 @@ describe("a case's end (#4140)", () => {
 		});
 
 	const failedCases: {
+		name: string;
 		sandbox: string;
 		running: Promise<unknown>;
 		upAtThrow: boolean;
@@ -1385,8 +1386,13 @@ describe("a case's end (#4140)", () => {
 	/* Throws, as a failing case does. The last case reads what teardown left: a
 	 * failure raised around an it.fails case, its hooks' included, counts as that
 	 * case's expected one. */
-	const failWithLoopUp = (running: Promise<unknown>, upAtThrow: boolean) => {
+	const failWithLoopUp = (
+		name: string,
+		running: Promise<unknown>,
+		upAtThrow: boolean,
+	) => {
 		const failed: (typeof failedCases)[number] = {
+			name,
 			sandbox: dir,
 			running,
 			upAtThrow,
@@ -1401,36 +1407,71 @@ describe("a case's end (#4140)", () => {
 		throw new Error("the case fails with its loop up");
 	};
 
-	it.fails("ends a loop started as a child", async () => {
+	/* A throw before failWithLoopUp still passes as an it.fails case's expected
+	 * failure, so the summary case names it instead (#5445). */
+	const thrownEarly: { name: string; error: string }[] = [];
+	const failsWithLoopUp = (
+		name: string,
+		body: (
+			fail: (running: Promise<unknown>, up: boolean) => never,
+		) => Promise<void>,
+	) =>
+		it.fails(name, async () => {
+			const before = failedCases.length;
+			try {
+				await body((running, up) => failWithLoopUp(name, running, up));
+			} catch (err) {
+				if (failedCases.length === before)
+					thrownEarly.push({ name, error: String(err) });
+				throw err;
+			}
+		});
+
+	/* `start` on a fresh sandbox writes no state, so the file is the detached
+	 * loop's own, absent until it boots (#5445). */
+	const hasTicked = () => {
+		try {
+			return Boolean(
+				JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
+					.lastTick,
+			);
+		} catch (err) {
+			if ((err as NodeJS.ErrnoException).code === "ENOENT") return false;
+			throw err;
+		}
+	};
+
+	failsWithLoopUp("ends a loop started as a child", async (fail) => {
 		const running = runAsProcess(0);
 		await ticked(1);
-		failWithLoopUp(running, readPidsNaming(dir).length > 0);
+		fail(running, readPidsNaming(dir).length > 0);
 	});
 
-	it.fails("ends a detached loop", async () => {
+	failsWithLoopUp("ends a detached loop", async (fail) => {
 		writeStored({ paused: { by: "founder", at: 4 } });
 		const running = commandFromRepo("start");
-		await running;
+		const started = await running;
+		if (started.status !== 0)
+			throw new Error(`start exited ${started.status}: ${started.stderr}`);
 		/* A paused loop asks no admission, so its tick reads in its state. */
-		await polled(
-			() =>
-				Boolean(
-					JSON.parse(fs.readFileSync(at(".refill-loop-state.json"), "utf8"))
-						.lastTick,
-				),
-			"the started loop never ticked",
-		);
-		failWithLoopUp(running, readPidsNaming(dir).length > 0);
+		await polled(hasTicked, "the started loop never ticked");
+		fail(running, readPidsNaming(dir).length > 0);
 	});
 
-	it.fails("ends a loop running in process", async () => {
+	failsWithLoopUp("ends a loop running in process", async (fail) => {
 		const running = run(0);
 		await ticked(1);
-		failWithLoopUp(running, liveRun === running);
+		fail(running, liveRun === running);
 	});
 
 	it("left none of them, each gone before its sandbox", async () => {
-		expect(failedCases).toHaveLength(3);
+		expect(thrownEarly).toEqual([]);
+		/* Names a case swallowed outside its body too: a hook's throw, a timeout. */
+		expect(failedCases.map((f) => f.name)).toEqual([
+			"ends a loop started as a child",
+			"ends a detached loop",
+			"ends a loop running in process",
+		]);
 		for (const failed of failedCases) {
 			expect(failed.upAtThrow).toBe(true);
 			expect((await within(failed.running)).done).toBe(true);

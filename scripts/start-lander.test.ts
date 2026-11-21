@@ -90,8 +90,7 @@ const waitFor = async (done: () => boolean) => {
 	return done();
 };
 
-/** Whether every lander started has exited and freed its lock. */
-const landerExited = () =>
+const hasEveryLanderExited = () =>
 	landers.every((pid) => !pidAlive(pid)) && !fs.existsSync(landerPidFile());
 
 beforeEach(() => {
@@ -103,7 +102,8 @@ beforeEach(() => {
 	seedAdopterTree(work);
 	vi.stubEnv("WORKFLOW_CORE_DIR", OWN_CORE);
 	/* A no-op levelling pass: the real one, detached after a move of main,
-	 * would fetch into `work` past the lander's exit. */
+	 * would fetch into `work` past the lander's exit (#5444). The testkit's
+	 * levelStub() writes under a tmp this file never sets up. */
 	const level = path.join(tmp, "level-stub.js");
 	fs.writeFileSync(level, "");
 	vi.stubEnv("WFC_LEVEL_MAIN_SCRIPT", level);
@@ -114,7 +114,10 @@ beforeEach(() => {
 
 afterEach(async () => {
 	fs.writeFileSync(path.join(tmp, "release"), "");
-	await waitFor(landerExited);
+	expect(
+		await waitFor(hasEveryLanderExited),
+		`landers still alive: ${landers}`,
+	).toBe(true);
 	fs.rmSync(tmp, { recursive: true, force: true });
 });
 
@@ -139,7 +142,7 @@ it("starts one detached queue lander that lands the queue ref, and none beside i
 	expect(await waitFor(() => git(remote, "rev-parse", "main") === sha)).toBe(
 		true,
 	);
-	expect(await waitFor(landerExited)).toBe(true);
+	expect(await waitFor(hasEveryLanderExited)).toBe(true);
 	expect(fs.statSync(path.join(markers(), ".lander.log")).size).toBeGreaterThan(
 		0,
 	);
@@ -181,7 +184,7 @@ it("starts a lander with no queue ref waiting where a drop is owed a decision, w
 	expect(
 		await waitFor(() => git(remote, "branch", "--list", "dropped/gone") === ""),
 	).toBe(true);
-	expect(await waitFor(landerExited)).toBe(true);
+	expect(await waitFor(hasEveryLanderExited)).toBe(true);
 });
 
 it("starts none where no queue ref waits and every drop is settled or ticketed", () => {

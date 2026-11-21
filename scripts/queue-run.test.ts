@@ -523,6 +523,49 @@ describe("queue-run.js", () => {
 			]);
 		});
 
+		/* A host sleep steps the wall clock on resume and leaves CLOCK_MONOTONIC
+		 * where it was. The two clocks are spied, not injected: what is under test is the
+		 * default clock, which an injected `monoClock` would replace (§X2). */
+		it("records its wait and run on the monotonic clock, counting no host sleep (#5446)", async () => {
+			let wallMs = Date.now();
+			let monoMs = 1_000_000;
+			const sleep = (awakeMs: number) => {
+				wallMs += 8 * 3_600_000;
+				monoMs += awakeMs;
+			};
+			vi.spyOn(Date, "now").mockImplementation(() => wallMs);
+			vi.spyOn(process.hrtime, "bigint").mockImplementation(() =>
+				BigInt(monoMs * 1_000_000),
+			);
+			try {
+				const f = fixture();
+				let denials = 1;
+				const g = gateOptions(f, {
+					gate: () =>
+						denials-- > 0 ? { limb: "memory", mb: 100, rungMb: 3350 } : false,
+					sleepFn: () => {
+						sleep(30_000);
+						return Promise.resolve();
+					},
+				});
+				const done = main(gateRun, g.options);
+				await tick();
+				expect(f.spawned).toHaveLength(1);
+				f.spawned[0].child.emit("spawn");
+				sleep(60_000);
+				f.spawned[0].child.emit("exit", 0, null);
+				expect(await done).toBe(0);
+				expect(f.readLog()).toEqual([
+					expect.objectContaining({ reason: "opened", waitS: 30 }),
+				]);
+				expect(g.readGates()).toEqual([
+					expect.objectContaining({ waitS: 30, runS: 60, outcome: "pass" }),
+				]);
+			} finally {
+				vi.restoreAllMocks();
+			}
+		});
+
 		it("takes the command by its role, never the classifier", async () => {
 			const f = fixture();
 			const g = gateOptions(f);
