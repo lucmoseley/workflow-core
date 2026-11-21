@@ -97,6 +97,13 @@ Researched: 2026-11-11 for this section.
 - Budget: "Print something to the user in <100ms." clig.dev [named expert]. No source gives a budget for a polled command.
 - Thus: keep `require()` at the top level by default. For a command run every few seconds, profile first; then move what it never calls out of its load path, by a module split where the code divides cleanly and by a `require()` inside the one function that uses a rare, heavy module, with a comment saying why. Never defer a module loaded for its side effects. Pin the load set with a test, because a later top-level `require` undoes the cut unseen. Read a large append-only log's last row from its end.
 
+## A caught condition on the normal path versus a fault
+
+- Python style catches the expected case: EAFP "assumes the existence of valid keys or attributes and catches exceptions if the assumption proves false", a style "characterized by the presence of many try and except statements". docs.python.org/3/glossary.html §EAFP [standard or field body]
+- Silence only the specific: `contextlib.suppress` "should be used only to cover very specific errors where silently continuing with program execution is known to be the right thing to do". docs.python.org/3/library/contextlib.html §suppress [standard or field body]. Bandit's B110 and B112, which flag an `except` that passes or continues, "may be configured to ignore" one "where the exception is typed". bandit.readthedocs.io B110, B112, for what the tool does [standard or field body]
+- Report only the unexpected: WARNING is "an indication that something unexpected happened", INFO "confirmation that things are working as expected". docs.python.org/3/howto/logging.html §When to use logging [standard or field body]
+- Group repeats: "Signal-to-noise ratio is crucial"; for "multiple errors of the same type", "consider grouping them under a single explanatory header instead of printing many similar-looking lines". clig.dev §Errors [named expert]
+
 ## Tools
 
 - clig.dev names these libraries: "Node: oclif", "Python: Argparse, Click, Typer"; argparse ships with Python 3. clig.dev §Arguments and flags [named expert]
