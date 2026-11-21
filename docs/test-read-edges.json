@@ -3002,6 +3002,13 @@
 			"scripts/tooling-matrix.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
 		],
+		"docs/comment-kinds.md": [
+			"scripts/answer-review-reversals.test.ts",
+			"scripts/file-morning-review.test.ts",
+			"scripts/lib/checker-run.contract.test.ts",
+			"scripts/lib/file-issue.contract.test.ts",
+			"scripts/lib/morning-review-filing.test.ts"
+		],
 		"docs/data/arch-scan-runs.jsonl": [
 			"scripts/check-self-throttling.test.ts",
 			"scripts/checker-registrations.test.ts",
