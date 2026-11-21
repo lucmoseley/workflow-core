@@ -26,9 +26,17 @@ PARSERS = {"p", "ap", "parser"}
 
 
 REPORTERS = ("fail_open", "tallied", "expected")
-# The catch-alls `expected` may not take: under one, a fault reads as the
-# normal path and nothing is printed.
-BROAD = {"Exception", "BaseException", "OSError", "IOError", "EnvironmentError"}
+# The catch-alls `expected` may not take.
+BROAD = {
+    "Exception",
+    "BaseException",
+    "OSError",
+    "IOError",
+    "EnvironmentError",
+    "os.error",
+    "socket.error",
+    "select.error",
+}
 
 
 def reporters(tree):
@@ -53,11 +61,18 @@ def reporters(tree):
 
 
 def specific(handler):
-    """The handler names its caught types, and none is a catch-all."""
+    """The handler spells out each caught type as an `...Error` name, and
+    none is a catch-all: a name bound to a tuple of types cannot be read."""
     if handler.type is None:
         return False
     types = handler.type.elts if isinstance(handler.type, ast.Tuple) else [handler.type]
-    return all(ast.unparse(t).split(".")[-1] not in BROAD for t in types)
+    return all(
+        isinstance(t, (ast.Name, ast.Attribute))
+        and ast.unparse(t).endswith("Error")
+        and ast.unparse(t) not in BROAD
+        and ast.unparse(t).split(".")[-1] not in BROAD
+        for t in types
+    )
 
 
 def reports(handler, names):

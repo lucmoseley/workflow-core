@@ -152,8 +152,8 @@ def children_map():
         try:
             with open(f"/proc/{pid}/stat") as f:
                 stat_text = f.read()
-        except (FileNotFoundError, ProcessLookupError) as e:
-            expected(e, f"pid {pid} exited since the listing")
+        except (FileNotFoundError, PermissionError, ProcessLookupError) as e:
+            expected(e, f"pid {pid} exited since the listing, or is not ours to read")
             continue
         ppid = parse_ppid(stat_text)
         if ppid is not None:
@@ -177,8 +177,8 @@ def proc_stats(pid):
             stat_text = f.read()
         with open(f"/proc/{pid}/statm") as f:
             statm_text = f.read()
-    except (FileNotFoundError, ProcessLookupError) as e:
-        expected(e, f"pid {pid} gone")
+    except (FileNotFoundError, PermissionError, ProcessLookupError) as e:
+        expected(e, f"pid {pid} gone, or not ours to read")
         return None
     return parse_cpu_ticks_and_rss(stat_text, statm_text)
 

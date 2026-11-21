@@ -278,3 +278,18 @@ def test_a_dead_reused_or_unreadable_seat_marker_leaves_nothing_out():
     assert seats({"pid": 99}) == set()  # holder gone
     assert seats({"pid": 3, "start": 31}) == set()  # pid reused
     assert seats(None) == set()  # marker unread or torn
+
+
+def test_a_pid_not_ours_to_read_is_left_out_of_the_table(monkeypatch, capsys):
+    real_open = open
+
+    def opener(path, *a, **kw):
+        if path == f"/proc/{GONE}/stat":
+            raise PermissionError(13, "Permission denied", path)
+        return real_open(path, *a, **kw)
+
+    # hidepid lists another user's /proc/<pid> but refuses its stat.
+    monkeypatch.setattr(m.os, "listdir", lambda _: [str(GONE)])
+    monkeypatch.setattr("builtins.open", opener)
+    assert m.read_proc_table() == {}
+    assert capsys.readouterr().err == ""

@@ -99,10 +99,10 @@ Researched: 2026-11-11 for this section.
 
 ## A caught condition on the normal path versus a fault
 
-- Python style catches the expected case: EAFP "assumes the existence of valid keys or attributes and catches exceptions if the assumption proves false", a style "characterized by the presence of many try and except statements". docs.python.org/3/glossary.html §EAFP [standard or field body]
+- Python style catches the expected case: EAFP "assumes the existence of valid keys or attributes and catches exceptions if the assumption proves false". docs.python.org/3/glossary.html §EAFP [standard or field body]
 - Silence only the specific: `contextlib.suppress` "should be used only to cover very specific errors where silently continuing with program execution is known to be the right thing to do". docs.python.org/3/library/contextlib.html §suppress [standard or field body]. Bandit's B110 and B112, which flag an `except` that passes or continues, "may be configured to ignore" one "where the exception is typed". bandit.readthedocs.io B110, B112, for what the tool does [standard or field body]
-- Report only the unexpected: WARNING is "an indication that something unexpected happened", INFO "confirmation that things are working as expected". docs.python.org/3/howto/logging.html §When to use logging [standard or field body]
-- Group repeats: "Signal-to-noise ratio is crucial"; for "multiple errors of the same type", "consider grouping them under a single explanatory header instead of printing many similar-looking lines". clig.dev §Errors [named expert]
+- Report only the unexpected: WARNING is "an indication that something unexpected happened". docs.python.org/3/howto/logging.html §When to use logging [standard or field body]
+- Group repeats: for "multiple errors of the same type", "consider grouping them under a single explanatory header instead of printing many similar-looking lines". clig.dev §Errors [named expert]
 
 ## Tools
 

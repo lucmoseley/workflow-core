@@ -223,8 +223,10 @@ def reap_orphans() -> int:
             continue
         try:
             stat = (d / "stat").read_text()
-        except (FileNotFoundError, ProcessLookupError) as e:
-            expected(e, f"pid {d.name} exited since the listing")
+        except (FileNotFoundError, PermissionError, ProcessLookupError) as e:
+            expected(
+                e, f"pid {d.name} exited since the listing, or is not ours to read"
+            )
             continue
         # The command name may hold spaces; the fields after its closing
         # parenthesis start at the state (field 3).
