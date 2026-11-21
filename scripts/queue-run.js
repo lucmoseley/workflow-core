@@ -510,7 +510,11 @@ function buildGateWait(options, words) {
 		session,
 		command: words.join(" "),
 	};
-	const tree = options.tree ?? "";
+	const { tree } = options;
+	if (tree === undefined)
+		throw new Error(
+			"a gate seat's wait needs the --tree its run is recorded against",
+		);
 	const err = options.err ?? STDERR;
 	const clock = options.monoClock ?? monotonicMs;
 	const started = clock();
@@ -833,7 +837,7 @@ function withExitExtra(logExit, exitExtra) {
  */
 function spawnGate({ seat, options, err, finish, holder, tree, waitMs }) {
 	const { command } = holder;
-	const selection = gateSelectionFile(err);
+	const selection = makeGateSelectionFile(err);
 	const clock = options.monoClock ?? monotonicMs;
 	const {
 		readTreeSample,
@@ -962,7 +966,7 @@ function spawnGate({ seat, options, err, finish, holder, tree, waitMs }) {
  * @param {Out} err
  * @returns {{ env: Record<string, string>, take: () => string | null }}
  */
-function gateSelectionFile(err) {
+function makeGateSelectionFile(err) {
 	try {
 		const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-gate-selection-"));
 		const file = path.join(dir, "selection");

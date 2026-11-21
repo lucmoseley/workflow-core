@@ -459,8 +459,9 @@ describe("queue-run.js", () => {
 
 	describe("--gate, a commit gate's seat in the whole-suite slot (#5274)", () => {
 		const parentOf = (pid: number) => (pid > 10 ? pid - 10 : 0);
-		const Tree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
-		const gateRun = ["--gate", "--tree", Tree, "--", "bash test/all.sh"];
+		/* git's empty tree; the record carries whatever sha it is given. */
+		const emptyTree = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
+		const gateRun = ["--gate", "--tree", emptyTree, "--", "bash test/all.sh"];
 		const gateOptions = (f: ReturnType<typeof fixture>, extra: object = {}) => {
 			const gateLog = path.join(f.dir, "gate-runs.jsonl");
 			return {
@@ -569,7 +570,10 @@ describe("queue-run.js", () => {
 		it("takes the command by its role, never the classifier", async () => {
 			const f = fixture();
 			const g = gateOptions(f);
-			main(["--gate", "--tree", Tree, "--", "npm", "run", "test"], g.options);
+			main(
+				["--gate", "--tree", emptyTree, "--", "npm", "run", "test"],
+				g.options,
+			);
 			await tick();
 			expect(f.spawned).toHaveLength(1);
 		});
@@ -774,7 +778,7 @@ describe("queue-run.js", () => {
 				JSON.stringify({ pid: 20, at: 0, role: "gate", spawned: true }),
 			);
 			const done = main(
-				["--gate", "--tree", Tree, "--", "sh stub.sh"],
+				["--gate", "--tree", emptyTree, "--", "sh stub.sh"],
 				f.options({
 					env: { WFC_GATE_SEAT: outer },
 					pid: 40,
@@ -935,7 +939,7 @@ describe("queue-run.js", () => {
 			f.spawned[0].child.emit("exit", 0, null);
 			expect(await done).toBe(0);
 			expect(g.readGates()).toEqual([
-				expect.objectContaining({ tree: Tree, selection: "12 of 40" }),
+				expect.objectContaining({ tree: emptyTree, selection: "12 of 40" }),
 			]);
 			expect(fs.existsSync(path.dirname(file))).toBe(false);
 		});
@@ -949,27 +953,29 @@ describe("queue-run.js", () => {
 			f.spawned[0].child.emit("exit", 1, null);
 			expect(await done).toBe(1);
 			const [run] = g.readGates();
-			expect(run).toMatchObject({ tree: Tree, outcome: "red" });
+			expect(run).toMatchObject({ tree: emptyTree, outcome: "red" });
 			expect(run).not.toHaveProperty("selection");
 		});
 
 		it("refuses --gate without --tree, --tree without --gate, and a --tree no sha (#5448)", async () => {
-			const f = fixture();
+			const refusal = async (argv: string[]) => {
+				const f = fixture();
+				const code = await main(argv, f.options());
+				expect(f.spawned).toHaveLength(0);
+				return { code, err: f.err.join("") };
+			};
+			const together = /--gate and --tree go together/;
+			expect(await refusal(["--gate", "--", "bash test/all.sh"])).toEqual({
+				code: 2,
+				err: expect.stringMatching(together),
+			});
 			expect(
-				await main(["--gate", "--", "bash test/all.sh"], f.options()),
-			).toBe(2);
-			expect(
-				await main(
-					["--seat", "--tree", Tree, "--", "sh", "-c", "x"],
-					f.options(),
-				),
-			).toBe(2);
-			expect(
-				await main(["--gate", "--tree", "", "--", "sh x"], f.options()),
-			).toBe(2);
-			expect(f.err.join("")).toMatch(/--gate and --tree go together/);
-			expect(f.err.join("")).toMatch(/--tree takes a git tree's sha/);
-			expect(f.spawned).toHaveLength(0);
+				await refusal(["--seat", "--tree", emptyTree, "--", "sh", "-c", "x"]),
+			).toEqual({ code: 2, err: expect.stringMatching(together) });
+			expect(await refusal(["--gate", "--tree", "", "--", "sh x"])).toEqual({
+				code: 2,
+				err: expect.stringMatching(/--tree takes a git tree's sha/),
+			});
 		});
 
 		it("refuses --gate beside another slot flag", async () => {
