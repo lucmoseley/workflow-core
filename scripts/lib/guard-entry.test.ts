@@ -665,7 +665,7 @@ describe("a store fault refuses the call, as JSON on exit 0 (mantahostels#1762)"
 		const r = call(inject("huge"));
 		expect(r.out.permissionDecision).toBe("deny");
 		expect(r.out.permissionDecisionReason).toContain(
-			`"huge" resolves to ${RULE_CAP + 1} bytes, all of them ${path.join(store, "huge.txt")}'s own, over the ${RULE_CAP}-byte emission ceiling`,
+			`"huge" resolves to ${RULE_CAP + 1} bytes, from ${RULE_CAP + 1} in ${path.join(store, "huge.txt")}, over the ${RULE_CAP}-byte emission ceiling`,
 		);
 		expect(readGuardErrorsLog(config)).toMatch(
 			/guard-fixture\.js\trule fragment over the emission ceiling — refusing: huge/,
