@@ -28,7 +28,7 @@ const INSTALL_ROOT_CHARS =
 	`/home/${"u".repeat(32)}/.claude/plugins/cache/workflow-core/workflow-core/10.10.10`
 		.length;
 
-/* #5475: guess — as long as INSTALL_ROOT_CHARS. */
+/* #5475: guess. */
 const HOST_ROOT_STANDIN = `/${"h".repeat(INSTALL_ROOT_CHARS - 1)}`;
 
 /**
@@ -82,4 +82,4 @@ function asInstall(root, read) {
 	}
 }
 
-module.exports = { asInstall, installStore, HOST_ROOT_STANDIN };
+module.exports = { asInstall, installStore };

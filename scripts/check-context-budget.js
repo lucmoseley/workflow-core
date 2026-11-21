@@ -943,8 +943,8 @@ function reachOptions(settings, root) {
 		 * convention): the suite plants a fake hook-limits.js and points this at
 		 * it rather than at a file under --root. */
 		capFile: process.env.WFC_CAP_FILE,
-		/* #101, #109 */
 		rulesDir: store.dir,
+		/* #109 */
 		rulesFallbackDir:
 			process.env.WFC_RULES_FALLBACK_DIR === undefined
 				? store.fallback

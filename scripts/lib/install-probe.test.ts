@@ -10,9 +10,8 @@ import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { asInstall, HOST_ROOT_STANDIN } = require("./install-probe.js") as {
+const { asInstall } = require("./install-probe.js") as {
 	asInstall: <T>(root: string, read: () => T) => T;
-	HOST_ROOT_STANDIN: string;
 };
 const { readRuleText } = require("./rule-text.js") as {
 	readRuleText: (id: string, root: string) => string;
@@ -56,7 +55,7 @@ describe("asInstall", () => {
 		expect(fs.existsSync(root)).toBe(false);
 	});
 
-	it("reads a fragment alike at two roots of different lengths", () => {
+	it("reads a fragment alike at two roots of different lengths, as it reads a checkout's text at the install spelling (#5480)", () => {
 		const short = fs.mkdtempSync(path.join(os.tmpdir(), "c"));
 		try {
 			for (const rel of ["docs/agents/rules", "self-plugin/hooks/hooks.json"])
@@ -73,7 +72,8 @@ describe("asInstall", () => {
 			);
 			expect(short.length).not.toBe(REPO.length);
 			expect(atRepo).toContain("(workflow-core#");
-			expect(atRepo).toContain(HOST_ROOT_STANDIN);
+			expect(atRepo).not.toContain(REPO);
+			expect(atShort).not.toContain(short);
 			expect(atShort).toBe(atRepo);
 		} finally {
 			fs.rmSync(short, { recursive: true, force: true });
