@@ -195,7 +195,7 @@ One run of a repo's declared test command for one commit's verdict, however many
 _Avoid_: gate suite, commit suite, test run
 
 **Gate seat**:
-The suite-queue hold one gate run takes: the whole-suite slot, waited for in the suite queue's order and never refused at its wait bound (`queue-run.js --gate`, #5274).
+The suite-queue hold one gate run takes: the whole-suite slot, waited for in the suite queue's order and never refused at its wait bound (`queue-run.js --gate`, #5274), or for a short gate, one whose last 5 recorded runs each took 60 s or less, a part-suite's place (#5450).
 _Avoid_: gate slot, gate lock (the queue holds no lock)
 
 **Served repo**:

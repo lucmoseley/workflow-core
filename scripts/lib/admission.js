@@ -173,7 +173,7 @@ function cpuSlotsRow(cpu) {
  * @typedef {{ sessions: number, meanMb: number, varianceMb2: number, pssMb: number, unread: number, noProcess: number, noProcessUncharged: number, problems: string[], refused?: boolean }} LiveDraw
  * @typedef {{ why: string, chargeMb: number }} UnreadReserve a reserve whose record would not read, and the default charge held for it (#5301)
  * @typedef {{ live: { pid: number, chargeMb: number }[], unread: UnreadReserve | null }} Landers each lander's charge, its tester's measured tree peak for the run it holds (#3323)
- * @typedef {{ live: { pid: number, chargeMb: number, spawned: boolean }[], unread: UnreadReserve | null }} Gates each live gate seat's holder pid, charge and whether it has spawned its command, from suite-queue.js's `readLiveGateSeats`
+ * @typedef {{ live: { pid: number, chargeMb: number, spawned: boolean, part: boolean }[], unread: UnreadReserve | null }} Gates each live gate seat's holder pid, charge, whether it has spawned its command and whether it is a short gate's part-suite (#5450), from suite-queue.js's `readLiveGateSeats`
  * @typedef {{ landers: Landers, gates: Gates, testsHeld: number }} Reserves the reserves read live off other processes' records, by admission-reserves.js's `readReserves`; the pool and type-check reserves are read in `machineAdmission`
  * @typedef {{ pssKbOf: (pid: string) => number | null, children: Map<string, string[]>, sessionPids: Set<string> }} HeldTree the process tree a reserve's charge is credited against
  * @typedef {{ pid: string, rssKb: number, args: string }} PsRow

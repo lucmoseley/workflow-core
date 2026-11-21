@@ -191,6 +191,7 @@ interface Over {
 	carriedOf?: (pid: number | null) => Weight | null;
 	gateSeats?: {
 		count: number;
+		part: number;
 		under: (pid: number | null) => boolean;
 		unread: string | null;
 	};
@@ -231,7 +232,7 @@ function harness(over: Over = {}) {
 		},
 		carriedOf: over.carriedOf ?? (() => null),
 		gateSeats: () =>
-			over.gateSeats ?? { count: 0, under: () => false, unread: null },
+			over.gateSeats ?? { count: 0, part: 0, under: () => false, unread: null },
 		launchWeight: over.launchWeight ?? null,
 		partPeak: over.partPeak ?? (() => ({ peak: null })),
 		tripwire: () => over.tripwire ?? null,
@@ -2435,15 +2436,23 @@ describe("counts and judges a suite vitest does not run (#330)", () => {
 		const lanes = psListing(["node --test lanes/a", "node --test lanes/b"]);
 		const seat = (under: boolean) =>
 			judge(WHOLE, ROOMY_MB, lanes, {
-				gateSeats: { count: 1, under: () => under, unread: null },
+				gateSeats: { count: 1, part: 0, under: () => under, unread: null },
 			}).text;
 		expect(seat(true)).toMatch(/1 whole suite\(s\) already running/);
 		expect(seat(false)).toMatch(/3 whole suite\(s\) already running/);
 		expect(
 			judge(WHOLE, ROOMY_MB, psListing(["bash -l"]), {
-				gateSeats: { count: 1, under: () => false, unread: null },
+				gateSeats: { count: 1, part: 0, under: () => false, unread: null },
 			}).verdict?.deny,
 		).toBeDefined();
+	});
+
+	it("reads a running short gate seat as a part-suite, its own runners not counted (#5450)", () => {
+		const lanes = psListing(["node --test lanes/a", "node --test lanes/b"]);
+		const short = judge(WHOLE, ROOMY_MB, lanes, {
+			gateSeats: { count: 0, part: 1, under: () => true, unread: null },
+		});
+		expect(short.verdict?.deny).toBeUndefined();
 	});
 
 	/* Positive pair: "reads a running gate seat as one whole suite, its own runners not counted again (#5274)". */
@@ -2452,7 +2461,7 @@ describe("counts and judges a suite vitest does not run (#330)", () => {
 		const why = "the suite queue /q would not read (EACCES: permission denied)";
 		expect(
 			judge(WHOLE, ROOMY_MB, lanes, {
-				gateSeats: { count: 0, under: () => true, unread: why },
+				gateSeats: { count: 0, part: 0, under: () => true, unread: why },
 			}).text,
 		).toMatch(/2 whole suite\(s\) already running/);
 		expect(logs).toContain(

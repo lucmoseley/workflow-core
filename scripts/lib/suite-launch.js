@@ -101,9 +101,10 @@ function isSuiteScript(word, python, runners) {
 /**
  * Whether a non-vitest runner's words name the test files it runs, so the
  * run is a part-suite (#5274): `pytest` or `python3 -m pytest` whose paths
- * are all test files, `node --test` whose every argument is a JS test file,
- * or a bare `python3 <x>.test.py`. A run naming no file, `unittest`, and a
- * host's declared runner are whole.
+ * are all test files, `python3 -m unittest` whose every target names a test
+ * module, class or method (#5450), `node --test` whose every argument is a
+ * JS test file, or a bare `python3 <x>.test.py`. A run naming no file, and a
+ * host's declared runner, are whole.
  * @param {string[]} words words `isOtherRunner` takes for a runner
  */
 function hasNamedTestFiles(words) {
@@ -117,10 +118,22 @@ function hasNamedTestFiles(words) {
 			at > 0 && paths.length > 0 && paths.every((w) => JS_TEST_FILE.test(w))
 		);
 	}
+	return isNamedPythonRun(words);
+}
+
+/**
+ * `hasNamedTestFiles` for a `python` launch: `-m pytest|unittest`, a
+ * `pytest` script, or a test file run bare.
+ * @param {string[]} words
+ */
+function isNamedPythonRun(words) {
 	for (let i = 1; i < words.length; i++) {
 		const word = words[i] ?? "";
-		if (word === "-m")
-			return words[i + 1] === "pytest" && isNamedPytestRun(words.slice(i + 2));
+		if (word === "-m") {
+			const argv = words.slice(i + 2);
+			if (words[i + 1] === "unittest") return isNamedUnittestRun(argv);
+			return words[i + 1] === "pytest" && isNamedPytestRun(argv);
+		}
 		if (word.startsWith("-")) continue;
 		if (afterSlash(word) === "pytest")
 			return isNamedPytestRun(words.slice(i + 1));
@@ -136,6 +149,38 @@ function isNamedPytestRun(argv) {
 		paths.length > 0 &&
 		paths.every((w) => PY_COLLECTED_TEST.test(w.split("::")[0] ?? ""))
 	);
+}
+
+/* `python -m unittest`'s flags that take a value. */
+const UNITTEST_VALUED_FLAGS = new Set(["-k", "--durations"]);
+/* A dotted target's segment naming a test module, `PY_TEST`'s names. */
+const UNITTEST_MODULE_SEGMENT = /^test_\w+$|^\w+_test$/;
+
+/**
+ * Whether `python -m unittest`'s argv names its targets, so the run skips
+ * discovery: one target at least, each a dotted name with a test module
+ * segment (`tests.test_a.ATest.test_one`) or a test file path. `discover`, a
+ * bare run and `-k` with no target discover the whole tree.
+ * @param {string[]} argv unittest's own argv
+ */
+function isNamedUnittestRun(argv) {
+	const targets = argv.filter(
+		(w, i) =>
+			!w.startsWith("-") && !UNITTEST_VALUED_FLAGS.has(argv[i - 1] ?? ""),
+	);
+	return targets.length > 0 && targets.every(isUnittestTarget);
+}
+
+/** @param {string} word */
+function isUnittestTarget(word) {
+	if (word.includes("/") || word.endsWith(".py"))
+		return PY_COLLECTED_TEST.test(afterSlash(word));
+	/* The module part ends at the first segment naming a class, capitalised
+	 * by PEP 8. */
+	const segments = word.split(".");
+	const end = segments.findIndex((seg) => /^[A-Z]/.test(seg));
+	const module = end < 0 ? segments : segments.slice(0, end);
+	return UNITTEST_MODULE_SEGMENT.test(module.at(-1) ?? "");
 }
 
 /** @type {Record<string, LaunchKind>} */

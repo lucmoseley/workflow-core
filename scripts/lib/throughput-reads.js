@@ -9,7 +9,7 @@ const path = require("node:path");
 const { readCommitsBy } = require("./arbiter-ledger.js");
 const { parseErrorText } = require("./caught.js");
 const { readText } = require("./file-read.js");
-const { gateRunLogPath } = require("./gate-seat.js");
+const { gateRunLogPath, readGateRunsAt } = require("./gate-seat.js");
 const { gitOrNull } = require("./git.js");
 const { jobDirPath, readJobCwd, shortJobId } = require("./job-paths.js");
 const { parseJsonl } = require("./jsonl.js");
@@ -95,8 +95,7 @@ function readRows(file) {
  * @param {string} root
  * @returns {GateRun[]|null}
  */
-const readGateRuns = (root) =>
-	/** @type {GateRun[]|null} */ (readRows(gateRunLogPath(root)));
+const readGateRuns = (root) => readGateRunsAt(gateRunLogPath(root));
 
 /**
  * The breaker's record, oldest first; null where it will not read.

@@ -68,7 +68,7 @@ describe("readLiveGateSeats", () => {
 		q.marker({ pid: 999_999_999, role: "gate" });
 		q.marker({ pid: process.ppid, role: "lander", chargeMb: 1 });
 		expect(readLiveGateSeats({ queueDir: q.dir })).toEqual({
-			live: [{ pid: process.pid, chargeMb: 2100, spawned: true }],
+			live: [{ pid: process.pid, chargeMb: 2100, spawned: true, part: false }],
 			unread: null,
 		});
 	});
@@ -103,6 +103,17 @@ describe("readGateSeats, the count's reading of the seats", () => {
 		expect(seats.count).toBe(1);
 		expect(seats.under(40)).toBe(true);
 		expect(seats.under(process.pid)).toBe(true);
+	});
+
+	it("counts a short seat as a part-suite, its runners still under it (#5450)", () => {
+		const q = queue();
+		q.marker({ pid: process.pid, role: "gate", spawned: true, part: true });
+		const seats = readGateSeats({
+			queueDir: q.dir,
+			parentOf: tree(process.pid),
+		});
+		expect(seats).toMatchObject({ count: 0, part: 1 });
+		expect(seats.under(40)).toBe(true);
 	});
 
 	it("counts a process outside the seat's tree as itself, whatever it inherited", () => {
@@ -170,7 +181,9 @@ describe("runningSuites with a gate seat", () => {
 		expect(
 			runningSuites(lanes, isOther, () => null, {
 				count: 1,
+				part: 0,
 				under: () => true,
+				unread: null,
 			}),
 		).toEqual({
 			total: 1,
@@ -180,11 +193,24 @@ describe("runningSuites with a gate seat", () => {
 		});
 	});
 
+	it("reads a short gate with three lanes as one part-suite (#5450)", () => {
+		expect(
+			runningSuites(lanes, isOther, () => null, {
+				count: 0,
+				part: 1,
+				under: () => true,
+				unread: null,
+			}),
+		).toEqual({ total: 1, watchers: 0, whole: 0, workers: 0 });
+	});
+
 	it("still counts a runner outside the seat", () => {
 		expect(
 			runningSuites(lanes, isOther, () => null, {
 				count: 1,
+				part: 0,
 				under: (pid: number | null) => pid !== 42,
+				unread: null,
 			}).whole,
 		).toBe(2);
 	});

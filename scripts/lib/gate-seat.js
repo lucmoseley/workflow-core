@@ -19,6 +19,12 @@
  * holds it while a seat is queued or running, less what the seat's processes
  * already draw (lib/admission.js `gateSeatHeldMb`).
  *
+ * A SHORT GATE IS A PART-SUITE (#5450): one whose last SHORT_GATE_RUNS `pass`
+ * or `red` runs for its repo and command each ran SHORT_GATE_MAX_S or less
+ * neither takes nor waits for the whole-suite slot, and is charged the
+ * highest `peakTreeMb` of those runs (`shortGatePeakMb`). A gate that slows
+ * past the bound waits again within SHORT_GATE_RUNS runs.
+ *
  * THE GATE-RUN RECORD is `.gate-runs.jsonl` under the canonical checkout's
  * markers directory, one line per gate run, kept as long as the queue-exit
  * log (lib/queue-exit-log.js `QUEUE_EXIT_RETAIN_MS`). It is the
@@ -47,6 +53,7 @@ const { readCurrentBootId } = require("./arbiter-proc.js");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { caught } = require("./caught.js");
 const { readText } = require("./file-read.js");
+const { parseJsonl } = require("./jsonl.js");
 const { HOOK_GIT_TIMEOUT_MS } = require("./git.js");
 const { gitTopLevel } = require("./host-root.js");
 const { readConfig } = require("./workflow-core-config.js");
@@ -78,6 +85,10 @@ const GATE_SEAT_DEFAULT_MB = suiteRungMb(WHOLE_SUITE_WORKERS);
 
 const GATE_RUN_LOG = ".gate-runs.jsonl";
 
+/* A short gate's window and per-run bound (#5450): untraced, the 60 s a
+ * third of the 180 s whole-suite target (#2729), ruled at #5442. */
+const SHORT_GATE_RUNS = 5;
+const SHORT_GATE_MAX_S = 60;
 /* The variable naming the file a gate's command may write what it chose to
  * run into, one line (#5448). */
 const GATE_SELECTION_ENV = "WFC_GATE_SELECTION";
@@ -95,6 +106,7 @@ const GATE_SELECTION_ENV = "WFC_GATE_SELECTION";
  * @property {number} runS awake seconds (`monotonicMs`)
  * @property {GateOutcome} outcome
  * @property {number} peakTreeMb the command's process-tree PSS peak
+ * @property {true} [part] a short gate's run, a part-suite (#5450)
  * @property {string} [selection] what the command wrote it chose to run
  */
 
@@ -124,6 +136,45 @@ function gateRunLogPath(root) {
 function gateRepoName(root) {
 	const canonical = repoRoot(root);
 	return canonical ? path.basename(canonical) : null;
+}
+
+/**
+ * The gate-run record at `file`, oldest first: [] where it does not exist,
+ * null where it will not read.
+ * @param {string | null} file
+ * @returns {GateRun[] | null}
+ */
+function readGateRunsAt(file) {
+	if (file === null) return null;
+	const read = readText(file);
+	if (read.state === "absent") return [];
+	return read.state === "read"
+		? /** @type {GateRun[]} */ (parseJsonl(read.data).rows)
+		: null;
+}
+
+/**
+ * A short gate's charge, the highest `peakTreeMb` of its last SHORT_GATE_RUNS
+ * `pass` or `red` runs for `seat`'s repo and command, where each ran
+ * SHORT_GATE_MAX_S or less; null where it is not short (#5450).
+ * @param {GateRun[]} runs oldest first
+ * @param {{ repo: string | null, command: string }} seat
+ * @returns {number | null}
+ */
+function shortGatePeakMb(runs, { repo, command }) {
+	const last = runs
+		.filter(
+			(r) =>
+				r.repo === repo &&
+				r.command === command &&
+				(r.outcome === "pass" || r.outcome === "red"),
+		)
+		.slice(-SHORT_GATE_RUNS);
+	if (last.length < SHORT_GATE_RUNS) return null;
+	/* A run with no peak read is no measure to charge, so the gate waits whole. */
+	if (!last.every((r) => r.runS <= SHORT_GATE_MAX_S && r.peakTreeMb > 0))
+		return null;
+	return Math.max(...last.map((r) => r.peakTreeMb));
 }
 
 /**
@@ -331,6 +382,7 @@ function gateHeldUntil(seat, pid) {
 
 module.exports = {
 	GATE_ENV,
+	GATE_RUN_LOG,
 	GATE_ROLE,
 	GATE_SEAT_DEFAULT_MB,
 	GATE_SELECTION_ENV,
@@ -342,6 +394,8 @@ module.exports = {
 	gateSeatChargeMb,
 	isInSuite,
 	readGatePids,
+	readGateRunsAt,
+	shortGatePeakMb,
 	readGateSelection,
 	startGatePids,
 };

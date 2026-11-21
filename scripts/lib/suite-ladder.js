@@ -222,10 +222,10 @@ function isNextRunnerLine(sub, line) {
  * The live gate seats as the count reads them: how many are running, whether
  * a process runs inside one, and why the queue would not read, null where it
  * did. An unread queue counts no seat, so every runner is counted as itself.
- * @typedef {{ count: number, under: (pid: number | null) => boolean, unread: string | null }} GateSeats
+ * @typedef {{ count: number, part: number, under: (pid: number | null) => boolean, unread: string | null }} GateSeats
  */
 /** @type {GateSeats} */
-const NO_SEATS = { count: 0, under: () => false, unread: null };
+const NO_SEATS = { count: 0, part: 0, under: () => false, unread: null };
 
 /**
  * The test runs a `ps` listing shows (mantahostels#1906, #2560). A vitest run
@@ -241,9 +241,11 @@ const NO_SEATS = { count: 0, under: () => false, unread: null };
  * (#330); admission's reap counts vitest alone, the under-count only ever
  * pointing it at a lower rung (#627).
  *
- * A GATE SEAT COUNTS AS ONE WHOLE SUITE, however many runners its command
- * starts (#5274): `seats.count` live gate seats are counted, and a runner
- * `seats.under` places inside one is not counted again (lib/gate-seat.js).
+ * A GATE SEAT COUNTS AS ONE SUITE, however many runners its command starts
+ * (#5274): `seats.count` whole seats, each a whole suite's workers, and
+ * `seats.part` short ones, part-suites whose memory admission holds off their
+ * own charge (#5450); a runner `seats.under` places inside one is not counted
+ * again (lib/gate-seat.js).
  *
  * An EMPTY listing counts as zero: `readPs` rejects an empty or failed read.
  * @param {PsRow[]} rows
@@ -259,13 +261,13 @@ function runningSuites(
 	seats = NO_SEATS,
 ) {
 	const running = {
-		total: seats.count,
+		total: seats.count + seats.part,
 		watchers: 0,
 		whole: seats.count,
 		workers: seats.count * WHOLE_SUITE_WORKERS,
 	};
 	for (const { pid, args: line } of rows) {
-		if (seats.count > 0 && seats.under(pid)) continue;
+		if (seats.count + seats.part > 0 && seats.under(pid)) continue;
 		const run = rowWeigh(line, pid, isOther, carriedOf);
 		if (run === null) continue;
 		running.total++;

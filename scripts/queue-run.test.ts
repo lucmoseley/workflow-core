@@ -33,7 +33,7 @@ const TSC7_PEAK_MB = launchChargeMb({ kind: "tsc", major: 7 });
 const tscRung = rungMb(TSC_PEAK_MB);
 
 const { main } = require("./queue-run.js");
-const { readGatePids } = require("./lib/gate-seat.js");
+const { gateRepoName, readGatePids } = require("./lib/gate-seat.js");
 const PROGRAM = path.resolve(__dirname, "queue-run.js");
 
 const dirs: string[] = [];
@@ -424,6 +424,7 @@ describe("queue-run.js", () => {
 
 		it.each([
 			["pytest", "tests/test_a.py"],
+			["python3", "-m", "unittest", "tests.test_a"],
 			["node", "--test", "a.test.js"],
 		])(
 			"joins and polls %s as a part-suite, its file count unread so the rung charges a whole suite's workers",
@@ -629,6 +630,103 @@ describe("queue-run.js", () => {
 			expect(places[1]).toMatch(
 				/position 1 for the whole-suite slot, slot free/,
 			);
+		});
+
+		describe("a short gate, a part-suite on its record (#5450)", () => {
+			const run = (runS: number, peakTreeMb: number, outcome = "pass") => ({
+				repo: gateRepoName(),
+				command: "bash test/all.sh",
+				outcome,
+				runS,
+				peakTreeMb,
+			});
+			/* Seats a gate while a whole suite holds the slot, its record
+			 * `runs`, and returns its marker and whether it started. */
+			const seatBeside = async (runs: object[]) => {
+				const f = fixture();
+				fs.writeFileSync(
+					path.join(f.dir, "wfc-suite-queue-20.json"),
+					JSON.stringify({ pid: 20, at: 0, spawned: true }),
+				);
+				const peaks: number[] = [];
+				const g = gateOptions(f, {
+					alive: () => true,
+					gate: () => ({ limb: "count" }),
+					shortGate: (_climbMb: number, peakMb: number) => {
+						peaks.push(peakMb);
+						return null;
+					},
+					sleepFn: () => new Promise(noop),
+				});
+				fs.writeFileSync(
+					g.gateLog,
+					runs.map((r) => `${JSON.stringify(r)}\n`).join(""),
+				);
+				main(gateRun, g.options);
+				await tick();
+				const mine = f
+					.readMarkers()
+					.find((m: string) => m !== "wfc-suite-queue-20.json");
+				return {
+					marker: JSON.parse(
+						fs.readFileSync(path.join(f.dir, mine as string), "utf8"),
+					),
+					started: f.spawned.length === 1,
+					peaks,
+					f,
+					g,
+				};
+			};
+			const five = [
+				run(20, 120),
+				run(34, 189),
+				run(21, 90),
+				run(60, 150),
+				run(19, 80),
+			];
+
+			it("starts beside a whole suite, charged the highest of its last 5 peaks", async () => {
+				const { marker, started, peaks, f, g } = await seatBeside(five);
+				expect(started).toBe(true);
+				expect(marker).toMatchObject({
+					role: "gate",
+					part: true,
+					chargeMb: 189,
+				});
+				expect(peaks).toEqual([189]);
+				f.spawned[0].child.emit("spawn");
+				f.spawned[0].child.emit("exit", 0, null);
+				await tick();
+				expect(g.readGates().at(-1)).toMatchObject({
+					outcome: "pass",
+					part: true,
+				});
+			});
+
+			it.each([
+				["4 records", five.slice(1)],
+				["5 records, one at 61 s", [...five.slice(1), run(61, 100)]],
+				["5 records, one with no peak read", [...five.slice(1), run(20, 0)]],
+				[
+					"a slower run of another command",
+					[...five.slice(1), { ...run(20, 100), command: "other" }],
+				],
+			])("waits whole on %s", async (_what, runs) => {
+				const { marker, started } = await seatBeside(runs);
+				expect(started).toBe(false);
+				expect(marker.part).toBeUndefined();
+				expect(marker.chargeMb).toBe(2100);
+			});
+
+			it("leaves a `ceiling` outcome out of the 5", async () => {
+				const { marker, started } = await seatBeside([
+					...five.slice(0, 4),
+					run(840, 3000, "ceiling"),
+					five[4] as object,
+				]);
+				expect(started).toBe(true);
+				expect(marker.chargeMb).toBe(189);
+			});
 		});
 
 		it("kills its command at the suite ceiling and reads red", async () => {
