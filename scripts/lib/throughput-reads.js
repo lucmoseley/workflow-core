@@ -9,10 +9,7 @@ const path = require("node:path");
 const { readCommitsBy } = require("./arbiter-ledger.js");
 const { parseErrorText } = require("./caught.js");
 const { readText } = require("./file-read.js");
-const {
-	gateRunLogPath,
-	readGateRuns: readGateRunsAt,
-} = require("./gate-seat.js");
+const { gateRunLogPath, readGateRunsAt } = require("./gate-seat.js");
 const { gitOrNull } = require("./git.js");
 const { jobDirPath, readJobCwd, shortJobId } = require("./job-paths.js");
 const { parseJsonl } = require("./jsonl.js");

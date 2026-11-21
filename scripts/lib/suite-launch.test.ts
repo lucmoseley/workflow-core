@@ -225,6 +225,10 @@ describe("hasNamedTestFiles on `python3 -m unittest` (#5450)", () => {
 		["python3 -m unittest discover tests", "`discover`"],
 		["python3 -m unittest -k slow", "`-k` with no target discovers"],
 		["python3 -m unittest tests", "a package with no test segment"],
+		[
+			"python3 -m unittest pkg.Foo.test_x",
+			"a module part with no test segment",
+		],
 		["python3 -m unittest tests.test_a tests/helper.py", "a non-test file"],
 	])("reads `%s` as whole — %s", (command) => {
 		expect(named(command)).toBe(false);

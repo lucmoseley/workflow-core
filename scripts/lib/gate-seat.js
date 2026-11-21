@@ -85,7 +85,8 @@ const GATE_SEAT_DEFAULT_MB = suiteRungMb(WHOLE_SUITE_WORKERS);
 
 const GATE_RUN_LOG = ".gate-runs.jsonl";
 
-/* A short gate's window and per-run bound (#5450). */
+/* A short gate's window and per-run bound (#5450): untraced, the 60 s a
+ * third of the 180 s whole-suite target (#2729), ruled at #5442. */
 const SHORT_GATE_RUNS = 5;
 const SHORT_GATE_MAX_S = 60;
 
@@ -101,6 +102,7 @@ const SHORT_GATE_MAX_S = 60;
  * @property {number} runS awake seconds (`monotonicMs`)
  * @property {GateOutcome} outcome
  * @property {number} peakTreeMb the command's process-tree PSS peak
+ * @property {true} [part] a short gate's run, a part-suite (#5450)
  */
 
 /**
@@ -137,7 +139,7 @@ function gateRepoName(root) {
  * @param {string | null} file
  * @returns {GateRun[] | null}
  */
-function readGateRuns(file) {
+function readGateRunsAt(file) {
 	if (file === null) return null;
 	const read = readText(file);
 	if (read.state === "absent") return [];
@@ -164,8 +166,10 @@ function shortGatePeakMb(runs, { repo, command }) {
 		)
 		.slice(-SHORT_GATE_RUNS);
 	if (last.length < SHORT_GATE_RUNS) return null;
-	if (!last.every((r) => r.runS <= SHORT_GATE_MAX_S)) return null;
-	return Math.max(...last.map((r) => Number(r.peakTreeMb) || 0));
+	/* A run with no peak read is no measure to charge, so the gate waits whole. */
+	if (!last.every((r) => r.runS <= SHORT_GATE_MAX_S && r.peakTreeMb > 0))
+		return null;
+	return Math.max(...last.map((r) => r.peakTreeMb));
 }
 
 /**
@@ -358,6 +362,7 @@ function gateHeldUntil(seat, pid) {
 
 module.exports = {
 	GATE_ENV,
+	GATE_RUN_LOG,
 	GATE_ROLE,
 	GATE_SEAT_DEFAULT_MB,
 	appendGateRun,
@@ -368,7 +373,7 @@ module.exports = {
 	gateSeatChargeMb,
 	isInSuite,
 	readGatePids,
-	readGateRuns,
+	readGateRunsAt,
 	shortGatePeakMb,
 	startGatePids,
 };

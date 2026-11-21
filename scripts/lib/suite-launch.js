@@ -175,7 +175,12 @@ function isNamedUnittestRun(argv) {
 function isUnittestTarget(word) {
 	if (word.includes("/") || word.endsWith(".py"))
 		return PY_COLLECTED_TEST.test(afterSlash(word));
-	return word.split(".").some((seg) => UNITTEST_MODULE_SEGMENT.test(seg));
+	/* The module part ends at the first segment naming a class, capitalised
+	 * by PEP 8. */
+	const segments = word.split(".");
+	const end = segments.findIndex((seg) => /^[A-Z]/.test(seg));
+	const module = end < 0 ? segments : segments.slice(0, end);
+	return UNITTEST_MODULE_SEGMENT.test(module.at(-1) ?? "");
 }
 
 /** @type {Record<string, LaunchKind>} */

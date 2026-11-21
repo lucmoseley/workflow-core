@@ -76,6 +76,7 @@ const {
 const { chargeMb } = require("./launch-charge");
 const { partKindOf } = require("./part-suite-peak.js");
 const { TSC_MAX, isCutTscRunner } = require("./tsc-slot");
+const { GATE_RUN_LOG } = require("./gate-seat.js");
 const {
 	isWindowsFresh,
 	windowsReadingOf,
@@ -251,14 +252,10 @@ function readLogs({ markers, memwatch, minuteLog, since, until }) {
 	const otherWhole = ledger
 		.filter((d) => d.suite !== "vitest" && d.run.wholeSlot === true)
 		.map((d) => d.run);
-	const gates = readRows(
-		path.join(markers, ".gate-runs.jsonl"),
-		unread,
-		inRange,
-	)
+	const gates = readRows(path.join(markers, GATE_RUN_LOG), unread, inRange)
 		.filter((g) => g.part !== true)
 		.map(gateRunOf)
-		.filter((g) => !vitest.some((r) => holdsRun(g, r)));
+		.filter((g) => ![...vitest, ...otherWhole].some((r) => isRunOfGate(g, r)));
 	const runs = [...vitest, ...otherWhole, ...gates];
 	const mem = readMemwatch(memwatch, unread);
 	const windows = readWindowsMinutes(
@@ -296,7 +293,7 @@ const gateRunOf = (g) => {
  * @param {Run} g
  * @param {Run} r
  */
-const holdsRun = (g, r) =>
+const isRunOfGate = (g, r) =>
 	r.session !== null && r.session === g.session && g.st <= r.st && r.en <= g.en;
 
 /**

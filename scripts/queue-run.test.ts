@@ -668,6 +668,8 @@ describe("queue-run.js", () => {
 					),
 					started: f.spawned.length === 1,
 					peaks,
+					f,
+					g,
 				};
 			};
 			const five = [
@@ -679,7 +681,7 @@ describe("queue-run.js", () => {
 			];
 
 			it("starts beside a whole suite, charged the highest of its last 5 peaks", async () => {
-				const { marker, started, peaks } = await seatBeside(five);
+				const { marker, started, peaks, f, g } = await seatBeside(five);
 				expect(started).toBe(true);
 				expect(marker).toMatchObject({
 					role: "gate",
@@ -687,11 +689,19 @@ describe("queue-run.js", () => {
 					chargeMb: 189,
 				});
 				expect(peaks).toEqual([189]);
+				f.spawned[0].child.emit("spawn");
+				f.spawned[0].child.emit("exit", 0, null);
+				await tick();
+				expect(g.readGates().at(-1)).toMatchObject({
+					outcome: "pass",
+					part: true,
+				});
 			});
 
 			it.each([
 				["4 records", five.slice(1)],
 				["5 records, one at 61 s", [...five.slice(1), run(61, 100)]],
+				["5 records, one with no peak read", [...five.slice(1), run(20, 0)]],
 				[
 					"a slower run of another command",
 					[...five.slice(1), { ...run(20, 100), command: "other" }],

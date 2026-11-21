@@ -111,7 +111,7 @@ const {
 	gateRunLogPath,
 	gateSeatChargeMb,
 	isInSuite,
-	readGateRuns,
+	readGateRunsAt,
 	shortGatePeakMb,
 	startGatePids,
 } = require("./lib/gate-seat.js");
@@ -297,7 +297,7 @@ const suiteRefusedWith = (why) => (words) => {
  *   schedule?: Parameters<typeof armCeiling>[0]["schedule"],
  *   sampleMs?: number,
  *   inSuite?: () => boolean,
- *   shortGate?: typeof shortGateGate,
+ *   shortGate?: typeof shortGateDenial,
  * }} Options
  */
 
@@ -532,6 +532,7 @@ function buildGateWait(options, words) {
 	const shortMb = readShortGateMb(options, holder, err);
 	const unbounded = {
 		timeoutMs: Number.POSITIVE_INFINITY,
+		cap: "one whole suite runs at a time (#2680)",
 		sleepFn: (/** @type {number} */ ms) => {
 			sayPlace();
 			return sleep(ms);
@@ -550,20 +551,23 @@ function buildGateWait(options, words) {
 						...unbounded,
 						waiting:
 							"waiting for the whole-suite slot as a commit gate, never refused at the wait bound (#5274)",
-						cap: "one whole suite runs at a time (#2680)",
 					}
 				: {
 						...unbounded,
 						gate: (/** @type {number} */ climbMb) =>
-							(options.shortGate ?? shortGateGate)(climbMb, shortMb),
+							(options.shortGate ?? shortGateDenial)(climbMb, shortMb),
 						part: true,
 						waiting: `waiting as a short commit gate, a part-suite (#5450): MemAvailable, less what a climbing suite has yet to draw, under its ~${rungMb(shortMb)} MB rung, or Windows' own free memory under what it draws`,
-						cap: "one whole suite runs at a time (#2680)",
 					},
 		refused: refusedRun,
 		sayPlace,
 		start: (_words, launch) =>
-			spawnGate({ ...launch, holder, waitMs: clock() - started }),
+			spawnGate({
+				...launch,
+				holder,
+				waitMs: clock() - started,
+				part: shortMb !== null,
+			}),
 	};
 }
 
@@ -579,7 +583,7 @@ function buildGateWait(options, words) {
 function readShortGateMb(options, holder, err) {
 	const file =
 		options.gateLog === undefined ? gateRunLogPath() : options.gateLog;
-	const runs = readGateRuns(file);
+	const runs = readGateRunsAt(file);
 	if (runs === null) {
 		if (file !== null)
 			err.write(
@@ -597,7 +601,7 @@ function readShortGateMb(options, holder, err) {
  * @param {number} climbMb what the suite queue's launches have yet to draw
  * @param {number} peakMb
  */
-function shortGateGate(climbMb, peakMb) {
+function shortGateDenial(climbMb, peakMb) {
 	const log = logger(LABEL);
 	const ports = buildHostPorts(hostRoot(), log);
 	const mb = ports.availableMb();
@@ -862,9 +866,10 @@ function withExitExtra(logExit, exitExtra) {
  *   finish: (code: number) => void,
  *   holder: { repo: string | null, session: string | null, command: string },
  *   waitMs: number,
+ *   part: boolean,
  * }} launch
  */
-function spawnGate({ seat, options, err, finish, holder, waitMs }) {
+function spawnGate({ seat, options, err, finish, holder, waitMs, part }) {
 	const { command } = holder;
 	const clock = options.monoClock ?? monotonicMs;
 	const {
@@ -962,6 +967,7 @@ function spawnGate({ seat, options, err, finish, holder, waitMs }) {
 			runS: Math.round((clock() - spawnedAt) / 1000),
 			outcome,
 			peakTreeMb: Math.round(peakKb / 1024),
+			...(part ? { part: true } : {}),
 		});
 		if (!landed && file)
 			err.write(
