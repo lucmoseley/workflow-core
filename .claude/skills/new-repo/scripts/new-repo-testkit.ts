@@ -430,7 +430,10 @@ export function sandbox({
 		CLAUDE_CODE_SESSION_ID: "new-repo-test-session",
 	};
 	setHooks(env, hooks);
+	/* The suite's WFC_MODULES would arm every module over the adopter's own
+	 * declared list, which its real hook stack reads. */
 	for (const k of [
+		"WFC_MODULES",
 		"GIT_DIR",
 		"GIT_WORK_TREE",
 		"GIT_INDEX_FILE",

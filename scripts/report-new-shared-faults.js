@@ -45,29 +45,45 @@ const { SIDE_ENV } = require("./lib/check-side.js");
 const { spawnAllSync } = require("./lib/spawn-all.js");
 const { parseErrorFirstLine, parseFirstLine } = require("./lib/first-line.js");
 const { NOTICES } = require("./lib/shared-fault-notices.js");
+const { factsAt } = require("./lib/precommit-dispatch-ports.js");
 const { scriptPath } = require("./lib/script-path.js");
 
-/** Profile name -> the checker read over the archived `--root` trees: every
- * notice row but doc-map's, which readDocMapEnvelope reads instead. */
-const CHECKERS = Object.fromEntries(
-	Object.entries(NOTICES)
-		.filter(([profile]) => profile !== "doc-map")
-		.map(([profile, { script }]) => [profile, script]),
-);
+/**
+ * Profile name -> the checker read over the archived `--root` trees: every
+ * notice row but doc-map's, which readDocMapEnvelope reads instead, and but a
+ * row whose pre-commit gate arms on a fact the host's config does not hold,
+ * such as a module left off.
+ * @param {string} cwd
+ * @returns {Record<string, string>}
+ */
+const checkersAt = (cwd) => {
+	const fact = factsAt(cwd, writeFd);
+	return Object.fromEntries(
+		Object.entries(NOTICES)
+			.filter(
+				([profile, { facts }]) =>
+					profile !== "doc-map" && facts.every((name) => fact(name)),
+			)
+			.map(([profile, { script }]) => [profile, script]),
+	);
+};
 
 const docMapRow = NOTICES["doc-map"];
 if (docMapRow === undefined) throw new Error("NOTICES has no doc-map row");
 const CHECK_DOC_MAP = docMapRow.script;
 
-/* A JSON object of profile name -> checker script that replaces CHECKERS
+/* A JSON object of profile name -> checker script that replaces checkersAt's map
  * whole, so report-new-shared-faults.test.ts can run the program against stub
  * checkers in a fixture repo (#1370). Never set in production. */
 const CHECKERS_ENV = "WFC_SHARED_FAULT_CHECKERS";
 
-/** @returns {Record<string, string>} */
-const checkersInForce = () => {
+/**
+ * @param {string} cwd
+ * @returns {Record<string, string>}
+ */
+const checkersInForce = (cwd) => {
 	const raw = process.env[CHECKERS_ENV];
-	return raw ? JSON.parse(raw) : CHECKERS;
+	return raw ? JSON.parse(raw) : checkersAt(cwd);
 };
 
 /* git and check-doc-map.js's stdout both default to Node's 1 MiB spawn cap —
@@ -448,7 +464,7 @@ function collectNewFaults(trees) {
 	const ctx = { sha, parent, err, byProfile };
 
 	/* Every checker's two sides at once: the checkers are independent (#4297). */
-	const checkers = Object.entries(checkersInForce());
+	const checkers = Object.entries(checkersInForce(cwd));
 	/** @type {import("./lib/spawn-all.js").JobResult[]} */
 	let results = [];
 	try {
@@ -483,7 +499,7 @@ function collectNewFaults(trees) {
 				broken = true;
 		});
 
-	// check-doc-map.js is not in CHECKERS (see readDocMapEnvelope's header): it
+	// check-doc-map.js is not in checkersAt's map (see readDocMapEnvelope's header): it
 	// reads a throwaway detached worktree rather than the one archived
 	// `--root` tree the checkers above share.
 	//

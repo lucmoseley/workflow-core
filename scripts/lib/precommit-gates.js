@@ -63,6 +63,8 @@ const SITE_IDENTITY = ["severity", "tag", "file", "match"];
  * @property {string} [side] why its `--against`/`--index` sides spawn the
  *   checker rather than run in-process, where they do
  * @property {boolean} [quietPass] its pass prints nothing unless it WARNs
+ * @property {import("./precommit-dispatch.js").When} [when] the facts that
+ *   must hold for it to arm, such as `module:<name>`, a module the host has on
  * @typedef {(io: { cwd: string, env: NodeJS.ProcessEnv }) =>
  *   import("./precommit-dispatch.js").RowResult} Program a program row's
  *   core: its exit code and output over the repo at `cwd`, never a write to
@@ -572,6 +574,37 @@ const GATES = [
 			cost: "warns every other session's commit staging a script",
 		},
 		floor: true,
+	},
+	/*
+	 * A comment the commit adds that fits no permitted kind (#5490), armed only
+	 * while the host turns the comments module on. Identity is the
+	 * comment's text and its occurrence in the file, never `line`, so a moved
+	 * comment is inherited and an edited one new.
+	 */
+	{
+		id: "comment-policy",
+		script: "scripts/check-comment-policy.js",
+		lander: "batch",
+		args: ["--against", "HEAD"],
+		arm: { pattern: /\.(?:[cm]?[jt]sx?|py|sh|bash)$|(?:^|\/)[^/.]+$/ },
+		when: { facts: ["module:comments"] },
+		policy: "gate",
+		kind: "checker",
+		staged: "scripts/a.js",
+		identity: ["severity", "tag", "file", "match", "nth"],
+		sources: ["scripts/lib/comment-policy.js"],
+		refusals: [
+			"fits no permitted comment kind",
+			"not on the style-only list (scripts/lib/style-only-rules.json)",
+			"suppression naming no rule",
+			"names no file under docs/adr/",
+		],
+		notice: {
+			scope: "every JS, TS, Python and shell file",
+			cite: "(#5490)",
+			cost: "warns every other session's commit staging code",
+		},
+		floor: false,
 	},
 	/*
 	 * A hook, guard or checker of the repo's own left unregistered, untested or

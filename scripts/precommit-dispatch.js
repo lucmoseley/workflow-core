@@ -23,6 +23,7 @@ const { dispatch, gateSetOf } = require("./lib/precommit-dispatch.js");
 const {
 	computed,
 	existsUnder,
+	factsAt,
 	load,
 	readStaged,
 } = require("./lib/precommit-dispatch-ports.js");
@@ -47,6 +48,7 @@ async function main() {
 			staged: () => readStaged(cwd),
 			computed,
 			exists: existsUnder(cwd),
+			fact: factsAt(cwd, writeFd),
 			load,
 			write: writeFd,
 			interrupted,

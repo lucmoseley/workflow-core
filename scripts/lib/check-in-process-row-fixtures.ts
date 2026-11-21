@@ -9,7 +9,9 @@
  * tree's one commit holds, one fault among them, and `added` the files the
  * index then stages, adding a second. `names` is what the added fault's
  * findings print, where that is not its files' paths: a checker whose
- * findings name something else, such as a command.
+ * findings name something else, such as a command. `scoped` marks a checker
+ * whose sides hold only the files the commit changes, so a fault in a file
+ * it leaves alone reaches neither side.
  *
  * FOR TESTS ONLY.
  */
@@ -18,7 +20,12 @@ export type Files = Record<string, string>;
 
 export interface RowFixture {
 	path?: string;
-	fault?: { inherited: Files; added: Files; names?: string[] };
+	fault?: {
+		inherited: Files;
+		added: Files;
+		names?: string[];
+		scoped?: true;
+	};
 }
 
 /* Joined, so this file's own lines hold none of the faults they write for
@@ -54,6 +61,13 @@ export const ROW_FIXTURES: Record<string, RowFixture> = {
 		},
 	},
 	"test-read-edges": { path: "docs/test-read-edges.json" },
+	"comment-policy": {
+		fault: {
+			inherited: { "scripts/a.js": "const a = 1;\n// first note\n" },
+			added: { "scripts/b.js": "const b = 1;\n// second note\n" },
+			scoped: true,
+		},
+	},
 	"review-hold": { path: "README.md" },
 	"roadmap-pair": { path: "docs/reference-roadmap.html" },
 	"roadmap-valid": { path: "docs/reference-roadmap.html" },

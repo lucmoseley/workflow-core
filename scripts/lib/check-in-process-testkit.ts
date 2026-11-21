@@ -174,7 +174,13 @@ const treesOf = (row: GateRow): RowTree[] => {
 				stage(r, at, versionOf(at, 2));
 			},
 			verdict: against
-				? { exit: 0, says: /is already in /, names: [] }
+				? {
+						exit: 0,
+						says: fault.scoped
+							? /no gating fault in the index/
+							: /is already in /,
+						names: [],
+					}
 				: { exit: 1, says: /FAIL/, names: [] },
 		},
 		{
