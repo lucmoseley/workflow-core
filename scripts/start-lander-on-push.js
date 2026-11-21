@@ -5,17 +5,6 @@
  * The core is lib/lander-on-push.js. Not a `guard-*`: it judges no call,
  * only starts a process after one, though it fails open as a guard does.
  *
- * IMPLICIT:  after a Bash call that pushes to a queue ref, runs
- *            start-lander.js detached, which — where no lander runs and a
- *            queue ref waits on the remote or a drop is owed a decision —
- *            starts `queue-lander.js run` in a
- *            session of its own.
- * JUSTIFIED: fail-safe — a queue push that starts no lander sits untested
- *            until some later session starts, and every session meanwhile
- *            builds on a `main` behind its own work.
- * DEFEAT:    deleting the registration.
- * TREE:      both — resolves the pushed ref in the session's checkout, walked from host-root.js's sessionDir, and starts the lander in the host root
- *
  * PostToolUse fires only on a call that exited 0, a failed push reaching
  * PostToolUseFailure instead, where this hook is not registered
  * (hook-registrations.test.ts pins it). A push whose failure the call hides

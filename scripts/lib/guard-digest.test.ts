@@ -155,6 +155,49 @@ describe("a guard's closure, read on disk in a plain directory", () => {
 		]);
 		expect(write.digest).not.toBe(bash.digest);
 	});
+
+	it("moves when only the script's implicit-behaviour row changes, and not on another's (#5489)", () => {
+		const tree = (rows: Record<string, Record<string, string>>) =>
+			plainTree({
+				"scripts/post-write.sh": "exit 0\n",
+				".claude/implicit-behaviours.json": `${JSON.stringify(rows)}\n`,
+			});
+		const row = {
+			IMPLICIT: "formats the file.",
+			JUSTIFIED: "convenience — x.",
+		};
+		const other = { "scripts/other.sh": row };
+		const base = digestOf(
+			tree({ "scripts/post-write.sh": row, ...other }),
+			"scripts/post-write.sh",
+		);
+		const edited = digestOf(
+			tree({
+				"scripts/post-write.sh": { ...row, JUSTIFIED: "fail-safe — x." },
+				...other,
+			}),
+			"scripts/post-write.sh",
+		);
+		const reordered = digestOf(
+			tree({
+				"scripts/post-write.sh": {
+					JUSTIFIED: row.JUSTIFIED,
+					IMPLICIT: row.IMPLICIT,
+				},
+			}),
+			"scripts/post-write.sh",
+		);
+		const unrowed = digestOf(tree(other), "scripts/post-write.sh");
+
+		expect(sorted(base.hashed)).toEqual([
+			".claude/implicit-behaviours.json",
+			"scripts/post-write.sh",
+		]);
+		expect(edited.digest).not.toBe(base.digest);
+		expect(reordered.digest).toBe(base.digest);
+		expect(sorted(unrowed.hashed)).toEqual(["scripts/post-write.sh"]);
+		expect(unrowed.digest).not.toBe(base.digest);
+	});
 });
 
 describe("a gate stack's digest stops at the gates it runs (#4456)", () => {

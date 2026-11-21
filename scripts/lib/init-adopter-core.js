@@ -128,7 +128,7 @@ const { execGit, gitOrNull, GIT_TIMEOUT_MS } = require("./git.js");
 
 const EXPLICIT = "--command";
 const SETTINGS = ".claude/settings.json";
-const { ANCHORS } = require("./registry-anchors-file.js");
+const { ANCHORS, IMPLICIT_MANIFEST } = require("./registry-anchors-file.js");
 
 /** The doc-map sidecars every adopter carries, each with its day-one text. */
 const SIDECARS = {
@@ -170,6 +170,11 @@ const CLASSES = {
 		reader: "agent",
 	},
 	[SETTINGS]: { section: "Skills & settings", class: "free-edit" },
+	[IMPLICIT_MANIFEST]: {
+		section: "Skills & settings",
+		class: "source-of-truth",
+		role: "Each script this repo wires beside the core's shims: what it does to a session unasked, why, and its escape, checked both ways against the wiring by the guard registry",
+	},
 	[ANCHORS]: {
 		section: "Skills & settings",
 		class: "generated-only",
@@ -671,6 +676,9 @@ function init(at) {
 		once: true,
 	});
 	w.write("AGENTS.md", renderAgentsMd(), { once: true });
+	/* Empty: the core's shims take their rows from the core, and a hook of the
+	 * repo's own adds its row here. */
+	w.write(IMPLICIT_MANIFEST, "{}\n", { once: true });
 
 	/* 3. Materialise the plugin, before declaring it (header, above). Idempotent
 	 * on all three calls: an already-declared marketplace no-ops rather than
@@ -731,9 +739,10 @@ function init(at) {
 		});
 	out("set     core.hooksPath to .husky");
 
-	/* The hooks' own IMPLICIT / JUSTIFIED / DEFEAT annotations are the core's,
-	 * read and accepted upstream, so the adopter's registry records them as
-	 * anchored rather than failing its first commit on seven unread headers. */
+	/* The shims' IMPLICIT / JUSTIFIED / DEFEAT rows are the core's
+	 * (lib/hook-shim.js), read and accepted upstream, so the adopter's registry
+	 * records them as anchored rather than failing its first commit on seven
+	 * unread shims. */
 	const anchored = anchorHooks({ root, pluginRoot, dryRun, out, ports });
 
 	/* 7. The roadmap triple, under its module. */

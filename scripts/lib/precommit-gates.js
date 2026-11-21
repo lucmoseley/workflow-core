@@ -131,7 +131,7 @@ const GATES = [
 		staged: "scripts/guard-x.sh",
 		refusals: [
 			"Fix the rule or fix the claim",
-			"so its own header must say what",
+			"keyed by its path, must say what",
 			"has two parts that must agree",
 			"decides whether the script runs at all",
 		],

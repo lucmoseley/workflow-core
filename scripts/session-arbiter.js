@@ -34,11 +34,6 @@
  * write (declined prompt, tool error) holds a file its session never touched. It
  * is not given a timeout: any expiry is the timeout mantahostels#104 rejected wearing another
  * name, and it would fire on precisely the long tool calls.
- *
- * IMPLICIT:  wired at SessionStart as `prune-markers --detach`, which launches a detached `prune-markers` as no session's process, naming this session as its report owner, in a systemd user scope of its own stopped after 45 minutes where a user manager answers (#4706), told to count this session live, and returns at once; that child sweeps EVERY session's expired markers, breaks, observations, snapshots, pinned blob refs, wants and issue claims — not just this session's.
- * JUSTIFIED: fail-safe — each record pins a git blob open, so an unswept store grows without bound; a run that cannot tell live from finished deletes nothing.
- * DEFEAT:    `--detach` is the registration's only flag and changes who runs the sweep, never what it sweeps; the sweep always exits 0.
- * TREE:      host — every record it sweeps is the host root's store.
  */
 
 const {

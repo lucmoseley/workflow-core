@@ -8,25 +8,6 @@
 # on the failed merge, and the resolution `git commit` is an ordinary gated
 # commit. Measurements on mantahostels#1679.
 #
-# IMPLICIT:  runs the whole of .husky/pre-commit over the merge's own content.
-# JUSTIFIED: fail-safe — a merge is the only route onto main that ran no gate at
-#            all, and a committed key is permanent (AGENTS.md §Secrets boundary).
-#            The whole stack rather than gitleaks alone, because a merge RESULT
-#            can break a cross-file check that both parents pass on their own:
-#            the doc map's coverage, the roadmap/digest version pair, the
-#            guard registry. `git diff --cached` here is the merge delta against
-#            `ours`, not the tree, so every `--staged`/`--cached` read in
-#            pre-commit is already scoped to it.
-# DEFEAT:    `git merge --no-verify` skips this hook and `commit-msg` both —
-#            but not the gates: `.husky/prepare-commit-msg` runs them, that
-#            being the one hook that can refuse a commit and that the flag
-#            leaves running, and
-#            `scripts/guard-dispatch.js` (its `guard-commit-form` core) denies the
-#            spelling in an agent session too (mantahostels#1705). What is left
-#            is `HUSKY=0` and `core.hooksPath` pointed off `.husky/_`, which
-#            turn off every hook at once — the whole list is that core's LIMITS
-#            (`scripts/lib/commit-form.js`, #800).
-#
 # A refusal leaves the merge IN PROGRESS: git writes MERGE_HEAD after this hook
 # returns, so the hook cannot `git merge --abort` on its own behalf — it fails
 # with "no merge to abort". Until someone aborts, every commit in THAT TREE must

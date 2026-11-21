@@ -24,17 +24,6 @@
  * run's end, so a run killed after it reads as paid. A try whose commit another
  * gate then refused still owes, and so does a commit behind the session's own
  * background type-check, which costs one more run.
- *
- * IMPLICIT:  reads the queue exit log at every Stop, and blocks the turn when
- *            this session has a held try and no own run after it, or an unheard
- *            RED record, which it deletes.
- * JUSTIFIED: fail-safe — a type error otherwise waits for the landing push's CI
- *            result, and the command it asks for only reports.
- * DEFEAT:    at most three blocks a session; a held try is silent with no log
- *            or no declared command; silent on every failure path. A commit
- *            made with no session id is in no session's lines and leaves no
- *            record.
- * TREE:      host — reads the red and held type-check records in the host root's markers
  */
 
 const { logger } = require("./lib/entry-input.js");

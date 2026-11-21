@@ -70,11 +70,6 @@
  * draft-and-act limb this turn's message, unlogged: a passing Stop hook's output
  * reaches no one.
  *
- * IMPLICIT:  reads the session's ending message at every Stop and blocks the turn where a background job's `result:` or `needs input:` carries no `waits on you:` inventory, or where any session's inventory is misshapen, cites an issue that is not open, disagrees with its status-line tail, or leaves a `needs input:` round posted on no cited issue, on none this session claims, or with no well-formed hand-off in its comment, or parks at `needs input:` with no round and no well-formed hand-off on a cited issue, or parks on a hand-off older than its start or last resume having made a tool call since, or parks while its ledgered files sit uncommitted; and, once a session, where a background job's owed `waits on you: nothing` follows a turn that handed the founder a draft to act on.
- * JUSTIFIED: fail-safe — work left waiting on the founder in chat or a closed issue is lost when the conversation scrolls away (#958), and the ending is the last moment it can still be filed.
- * DEFEAT:    the block clears by writing the inventory the refusal names, or the hand-off into the round comment — or, at a park asking no round, a comment on a cited issue — and committing or restoring the session's files, or by its own cap of 3 a session; the draft-and-act block by ending a second time, its cap being 1.
- * TREE:      both — a park's hand-off is judged against the session tree's dirt; ledgers, claims, holds and markers are the host root's
- *
  * WHAT IT CAN NEVER SEE: founder-facing work the session never put in a
  * draft-and-act turn; a gist that misstates the act; an open issue under the
  * wrong `takes:` label; an interactive session's final turn, no hook telling

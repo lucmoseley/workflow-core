@@ -24,17 +24,7 @@
  * say which way it took and does not grade the answer. So it does NOT stand
  * down on `stop_hook_active` the way guard-lost-deny.js does — a turn another
  * Stop hook sent back would otherwise end unshown, the next human prompt
- * starting a new turn. The latch in DEFEAT is what bounds it.
- *
- * IMPLICIT:  reads this session's own transcript at every Stop and refuses one
- *            turn carrying an auto-mode refusal it has not yet shown the rule
- *            for.
- * JUSTIFIED: fail-safe — a session that ends on a refusal stalls the ticket,
- *            and the remedy is one sentence saying which way it went.
- * DEFEAT:    once per refused call and at most MAX_BLOCKS times per session;
- *            silent where the turn carries no refusal, and on every failure
- *            path.
- * TREE:      host — judges the transcript against a rule text the core ships
+ * starting a new turn. The latch its registry row's DEFEAT names bounds it.
  */
 
 const hookBlock = require("./lib/hook-block");

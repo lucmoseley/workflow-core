@@ -7,33 +7,6 @@
 # runs BEFORE the editor opens and is handed an empty file (measured at #138).
 # So this is the sole seam at which the editor route can be refused.
 #
-# IMPLICIT:  scans this commit's finished message for a GitHub closing keyword
-#            before an issue reference and refuses the commit on a hit
-#            (docs/agents/rules/commit-closes-keyword.txt), and a subject over
-#            72 characters (scripts/lib/commit-subject.js), on every route
-#            but a replay. Then, but on a merge, refuses a commit whose
-#            staged diff weakens a check its message names on no `Weakens:`
-#            line (scripts/check-weakens-line.js). All three run in one Node
-#            process, scripts/commit-msg-dispatch.js (lib/commit-msg-rows.js,
-#            #5207), whose absence refuses every commit. Last, on every route a
-#            replay included, sources the adopter's own
-#            `.husky/commit-msg.local` where it exists, after
-#            refusing every commit on a script it names that the repo lacks
-#            (scripts/lib/local-hook.sh) or where mktemp cannot make the file
-#            that hands it `$route`.
-# JUSTIFIED: fail-safe — the keyword closes the issue server-side on the push,
-#            so the guard-issue-close core never fires and the issue closes with no
-#            resolution comment and no `**Outstanding:**` line (#118); a
-#            subject over 72 characters breaks `git log --oneline` (#2172); and a
-#            check weakened inside a large commit goes unseen until it bites
-#            (#2203).
-# DEFEAT:    `--no-verify`, which DOES skip this hook (unlike
-#            `prepare-commit-msg`), plus `HUSKY=0` and `core.hooksPath`
-#            pointed off `.husky/_`. `scripts/guard-dispatch.js` (its `guard-commit-form` core)
-#            denies `--no-verify` in an agent session unless wrapped;
-#            `scripts/lib/commit-form.js`'s LIMITS holds the whole defeat list
-#            (#800).
-#
 # A refusal aborts the commit: git exits 1 and writes nothing.
 
 set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)

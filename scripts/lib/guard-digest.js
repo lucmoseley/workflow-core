@@ -21,6 +21,10 @@ const path = require("node:path");
 const { manifestAt, readManifest } = require("./guard-cores.js");
 const { COMMENT_LEAD, parseHeaderLines } = require("./guard-header.js");
 const { parseEdges } = require("./guard-reach.js");
+const {
+	IMPLICIT_MANIFEST,
+	implicitRowIn,
+} = require("./registry-anchors-file.js");
 const { isTreeMember } = require("./tree-members.js");
 
 /**
@@ -179,7 +183,36 @@ function headerNamed(header) {
  */
 function digestOf(base, rel) {
 	const out = { hashed: new Set(), absent: new Set() };
-	return { digest: hashClosure(base, rel, out, false), ...out };
+	const closure = hashClosure(base, rel, out, false);
+	const digest =
+		closure === null ? null : withImplicitRow(base, rel, closure, out);
+	return { digest, ...out };
+}
+
+/**
+ * The closure's digest with `rel`'s manifest row folded in, so an edit to the
+ * row stales its anchor as an edit to the header lines it replaced did
+ * (#5489). Keys sorted, so reordering a row moves nothing.
+ * @param {string} base
+ * @param {string} rel
+ * @param {string} closure
+ * @param {{ hashed: Set<string> }} acc
+ */
+function withImplicitRow(base, rel, closure, acc) {
+	const row = isTreeMember(base, IMPLICIT_MANIFEST)
+		? implicitRowIn(base, rel)
+		: null;
+	if (row === null) return closure;
+	acc.hashed.add(IMPLICIT_MANIFEST);
+	const sorted = Object.keys(row)
+		.sort()
+		.map((k) => [k, row[k]]);
+	return crypto
+		.createHash("sha256")
+		.update(closure)
+		.update(`\0${JSON.stringify(sorted)}`)
+		.digest("hex")
+		.slice(0, 16);
 }
 
 /**

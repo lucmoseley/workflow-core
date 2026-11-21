@@ -38,11 +38,6 @@
  * ITS NOTICES REACH THE FOUNDER'S SCREEN as a `systemMessage`, and the model as
  * context (lib/check.js's screenNotices, #3776). A stamp is written once the
  * notice is out.
- *
- * IMPLICIT:  at every session start but a dispatcher's or the loop's job, prints the refill loop's checkout no-progress pauses, or its last stop where it was a damaged control file, where newer than the stamp, then stamps it; prints its newest first overflow launch where newer than that launch's stamp, then stamps it; and names a damaged state file, a stopped loop's damaged control file or a running loop's overlong restart wait.
- * JUSTIFIED: fail-safe — the loop runs outside any session, so nothing else reports its stopping, its pausing itself, its spending or its sticking in a restart wait.
- * DEFEAT:    none needed — it never blocks; deleting a stamp names its last event again.
- * TREE:      none — judges machine-wide refill-loop state
  */
 
 const fs = require("node:fs");
