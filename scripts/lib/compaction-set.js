@@ -12,6 +12,7 @@
  */
 
 const path = require("node:path");
+const { ignoreFailure } = require("./caught.js");
 const { repoRoot } = require("./hook-block");
 const { markersDir } = require("./marker-root");
 const { readSeen, writeSeen } = require("./report-once");
@@ -45,14 +46,13 @@ function recordCompactions(sid, keys) {
 	for (const key of seen) if (key.startsWith(PENDING_PREFIX)) seen.delete(key);
 	for (const key of keys) seen.add(key);
 	if ([...seen].join("\n") !== before && !writeSeen(file, seen)) {
-		try {
+		// A log that cannot be written must not break the hook.
+		ignoreFailure(() =>
 			require("./arbiter-core").logError(
 				"compaction-set",
 				new Error(`unwritable: ${file}`),
-			);
-		} catch {
-			/* A log that cannot be written must not break the hook. */
-		}
+			),
+		);
 	}
 	return seen.size;
 }

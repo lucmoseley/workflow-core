@@ -391,9 +391,8 @@ const disarmLoadFailure =
 				"the lettered priced round, the founder hand-over, a credential " +
 					"asked by any route but `write-secret.js`, the status marker",
 			)
-		: () => {
-				/* required, not run: nothing armed */
-			};
+		: // Required, not run: nothing armed.
+			require("./lib/noop.js").noop;
 
 const hookMessage = require("./lib/hook-message");
 const hookBlock = require("./lib/hook-block");

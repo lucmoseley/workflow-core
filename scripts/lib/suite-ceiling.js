@@ -26,7 +26,7 @@
 
 const fs = require("node:fs");
 const { writeFileAtomic } = require("./atomic-write.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { monotonicMs } = require("./clock.js");
 const { pidAlive } = require("./arbiter-proc.js");
 const { readEnvironVar } = require("./proc-environ.js");
@@ -330,13 +330,9 @@ function armCeiling({
 			cancel();
 			if (!pgid) return;
 			live.delete(pgid);
-			if (file)
-				try {
-					fs.rmSync(file, { force: true });
-				} catch {
-					/* A stale deadline names a dead group, which bg-run's kill
-					 * finds already gone. */
-				}
+			// A stale deadline names a dead group, which bg-run's kill finds already
+			// gone.
+			if (file) ignoreFailure(() => fs.rmSync(file, { force: true }));
 		},
 	};
 }

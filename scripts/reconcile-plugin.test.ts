@@ -37,6 +37,7 @@ import {
 	setPendingConsent,
 } from "./lib/adopter-consent.js";
 import { keptSpawn } from "./lib/kept-spawn.js";
+import { noop } from "./lib/noop.js";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -415,12 +416,8 @@ describe("reconcile-plugin.js --session-end (#247)", () => {
 		// …and on every path that stops before the materialise.
 		const stoppers: [RegExp, (at: Fixture) => void][] = [
 			[/^$/, (at) => decline(at.root, "v3.0.0", { configDir: at.configDir })],
-			[
-				/^$/,
-				() => {
-					/* the fixture as built: no consent pending */
-				},
-			],
+			// The fixture as built: no consent pending.
+			[/^$/, noop],
 			[
 				/^$/,
 				(at) => writeJson(path.join(at.root, ".claude", "settings.json"), {}),

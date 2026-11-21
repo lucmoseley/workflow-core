@@ -47,6 +47,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { logError } = require("./lib/arbiter-core");
+const { ignoreFailure } = require("./lib/caught.js");
 const { gitRead } = require("./lib/dirty-tree.js");
 const hookBlock = require("./lib/hook-block");
 const hookMessage = require("./lib/hook-message");
@@ -94,11 +95,10 @@ function readSeen(sid) {
  * @param {Set<string>} seen
  */
 function writeSeen(sid, seen) {
-	try {
-		fs.writeFileSync(seenPath(sid), `${[...seen].join("\n")}\n`);
-	} catch {
-		/* The block has gone out; the cost is one repeat, bounded by the counter. */
-	}
+	// The block has gone out; the cost is one repeat, bounded by the counter.
+	ignoreFailure(() =>
+		fs.writeFileSync(seenPath(sid), `${[...seen].join("\n")}\n`),
+	);
 }
 
 /**

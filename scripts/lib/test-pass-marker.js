@@ -44,6 +44,7 @@ const fs = require("node:fs");
 const { parseJsonl, readJsonl } = require("./jsonl.js");
 const { markersDir } = require("./marker-root.js");
 const path = require("node:path");
+const { ignoreFailure, orFallback } = require("./caught.js");
 const {
 	execProgram,
 	gitBinary,
@@ -385,12 +386,7 @@ function recordFailure(entry, options) {
  * @param {{root: string|null, say: (text: string) => void}} options
  */
 function recordKill(kill, { root, say }) {
-	let landed = false;
-	try {
-		landed = recordFailure(kill, { root });
-	} catch {
-		/* reported below with the false return */
-	}
+	const landed = orFallback(() => recordFailure(kill, { root }), false);
 	if (!landed)
 		say(
 			"This kill was not recorded to the fail store, so it will not be counted.\n",
@@ -442,7 +438,8 @@ function append(
 	} catch {
 		return false;
 	}
-	try {
+	// The marker is written; a failed prune costs disk, not correctness.
+	ignoreFailure(() => {
 		const lines = fs.readFileSync(file, "utf8").split("\n").filter(Boolean);
 		if (lines.length > pruneAt) {
 			/* archive first: a failed archive leaves the store unpruned, to be
@@ -450,9 +447,7 @@ function append(
 			archive(root, store, lines.slice(0, -keep));
 			fs.writeFileSync(file, `${lines.slice(-keep).join("\n")}\n`);
 		}
-	} catch {
-		/* the marker is written; a failed prune costs disk, not correctness */
-	}
+	});
 	return true;
 }
 
@@ -468,13 +463,9 @@ function append(
  * @returns {{markers: Marker[], malformed: number, total: number}}
  */
 function parseStore(file) {
-	let read = null;
-	try {
-		read = readJsonl(file);
-	} catch {
-		/* An unreadable store holds no markers: a gate reading it then finds no
-		 * pass, the fail-safe answer. */
-	}
+	// An unreadable store holds no markers: a gate reading it then finds no pass,
+	// the fail-safe answer.
+	const read = orFallback(() => readJsonl(file), null);
 	if (!read) return { markers: [], malformed: 0, total: 0 };
 	const markers = /** @type {Marker[]} */ (
 		read.rows.filter((entry) => typeof entry.sha === "string")

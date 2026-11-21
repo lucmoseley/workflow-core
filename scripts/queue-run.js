@@ -62,6 +62,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const { caught } = require("./lib/caught.js");
+const { noop } = require("./lib/noop.js");
 const { parseOrCode } = require("./lib/cli-args.js");
 const { logger } = require("./lib/entry-input.js");
 const { hostRoot } = require("./lib/host-root.js");
@@ -376,9 +377,8 @@ function sayTscHeld(err) {
  * }} Launch
  */
 
-const sayNoPlace = () => {
-	/* only a gate seat prints its place */
-};
+// Only a gate seat prints its place.
+const sayNoPlace = noop;
 
 /**
  * @param {string | null} handed
@@ -738,9 +738,7 @@ async function run(words, slot, options, err) {
 		},
 	});
 	/** @type {(code: number) => void} */
-	let finish = () => {
-		/* replaced as `done` is built */
-	};
+	let finish = noop;
 	const done = new Promise((resolve) => {
 		finish = (code) => {
 			seat.leave();

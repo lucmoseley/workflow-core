@@ -66,6 +66,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ignoreFailure, orFallback } from "../../../../scripts/lib/caught.js";
 import { keptSpawn } from "../../../../scripts/lib/kept-spawn.js";
 import { runInProcess } from "../../../../scripts/lib/run-in-process.js";
 
@@ -146,11 +147,9 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-	try {
-		process.kill(Number(fs.readFileSync(`${ghStub}.pid`, "utf8")), "SIGKILL");
-	} catch {
-		// No hanging stub ran, or it is already gone.
-	}
+	ignoreFailure(() =>
+		process.kill(Number(fs.readFileSync(`${ghStub}.pid`, "utf8")), "SIGKILL"),
+	);
 	fs.rmSync(repo, { recursive: true, force: true });
 });
 
@@ -949,12 +948,10 @@ describe("a lookup that never ends (#5311)", () => {
 		// The kill reached the worker's lookups too, not only the worker: the
 		// stub is gone, or a zombie awaiting its reaper.
 		const pid = Number(fs.readFileSync(`${ghStub}.pid`, "utf8"));
-		let state = "gone";
-		try {
-			state = fs.readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1][0];
-		} catch {
-			// No /proc entry: the stub is gone.
-		}
+		const state = orFallback(
+			() => fs.readFileSync(`/proc/${pid}/stat`, "utf8").split(") ")[1][0],
+			"gone",
+		);
 		expect(["gone", "Z"]).toContain(state);
 	});
 });

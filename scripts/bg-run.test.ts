@@ -61,6 +61,7 @@ import {
 	WIDE_MISSING,
 	waitFor,
 } from "./lib/bg-run-testkit";
+import { ignoreFailure } from "./lib/caught.js";
 import { commandPath } from "./lib/command-path-testkit";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -622,13 +623,9 @@ describe("a check overlapping a same-name re-run (#3097)", () => {
 			);
 		} finally {
 			child?.kill("SIGKILL");
-			for (const pid of [firstPid, secondPid]) {
-				try {
-					if (pid !== undefined) process.kill(-pid, "SIGKILL");
-				} catch {
-					// already killed above
-				}
-			}
+			for (const pid of [firstPid, secondPid])
+				if (pid !== undefined)
+					ignoreFailure(() => process.kill(-pid, "SIGKILL"));
 		}
 	});
 });

@@ -38,7 +38,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { readCurrentBootId } = require("./arbiter-proc.js");
 const { writeFileAtomic } = require("./atomic-write.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { readText } = require("./file-read.js");
 const { procRoot } = require("./proc-root.js");
 const { readParentOf } = require("./proc-stat.js");
@@ -194,20 +194,14 @@ const memoryOf = ({ pids, peaksMiB, workerFile }) => ({
 
 /** @param {string} file @param {RunFile} run */
 function writeRun(file, run) {
-	try {
-		writeFileAtomic(file, `${JSON.stringify(run)}\n`, { mkdir: true });
-	} catch {
-		/* NEVER THROWS */
-	}
+	ignoreFailure(() =>
+		writeFileAtomic(file, `${JSON.stringify(run)}\n`, { mkdir: true }),
+	);
 }
 
 /** @param {string} target */
 function removeQuietly(target) {
-	try {
-		fs.rmSync(target, { recursive: true, force: true });
-	} catch {
-		/* the sweep takes it */
-	}
+	ignoreFailure(() => fs.rmSync(target, { recursive: true, force: true }));
 }
 
 /**
@@ -223,11 +217,9 @@ function sweep(dir, now) {
 	}
 	for (const name of names) {
 		const full = path.join(dir, name);
-		try {
+		ignoreFailure(() => {
 			if (now - fs.statSync(full).mtimeMs > RETAIN_MS) removeQuietly(full);
-		} catch {
-			/* a neighbour's sweep took it first */
-		}
+		});
 	}
 }
 
@@ -370,15 +362,13 @@ function claimFile(
 ) {
 	const file = env[MEMORY_ENV];
 	if (!file) return;
-	try {
+	ignoreFailure(() => {
 		fs.mkdirSync(claimsDir(file), { recursive: true });
 		fs.writeFileSync(
 			path.join(claimsDir(file), String(pid)),
 			path.relative(cwd, testPath),
 		);
-	} catch {
-		/* the run's file goes unnamed */
-	}
+	});
 }
 
 /**

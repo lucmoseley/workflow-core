@@ -40,6 +40,7 @@ const path = require("node:path");
 const { markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { gitRead } = require("./dirty-tree.js");
+const { ignoreFailure } = require("./caught.js");
 
 const RUN_LEDGER = ".test-runs.jsonl";
 const RETAIN_MS = 30 * DAY_MS;
@@ -184,16 +185,15 @@ function buildLedgerLine(m, { green, root }) {
  */
 function appendLedgerLine(root, marker, green) {
 	if (marker.refused) return;
-	try {
+	// appendRetained never throws, so only a marker shaped past its typedef
+	// throws here (#2824).
+	ignoreFailure(() =>
 		appendRetained(
 			path.join(markersDir(root), RUN_LEDGER),
 			buildLedgerLine(marker, { green, root }),
 			RETAIN_MS,
-		);
-	} catch {
-		/* appendRetained never throws, so only a marker shaped past its
-		 * typedef reaches here (#2824) */
-	}
+		),
+	);
 }
 
 /**

@@ -61,7 +61,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { configDir } = require("./config-dir.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 
 /**
  * The record file, one per config dir, keyed by job name.
@@ -172,13 +172,12 @@ function readRuns() {
  * @param {RunRecord} record
  */
 function writeRuns(record) {
-	try {
+	// A lost record is not worth a throw at a session start.
+	ignoreFailure(() => {
 		const all = readRuns();
 		all[record.job] = record;
 		fs.writeFileSync(runPath(), `${JSON.stringify(all, null, "\t")}\n`);
-	} catch {
-		/* A lost record is not worth a throw at a session start. */
-	}
+	});
 }
 
 /**

@@ -31,6 +31,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const { configDirs } = require("./arbiter-store");
+const { orFallback } = require("./caught.js");
 const { readJsonl } = require("./jsonl.js");
 const { markersDir } = require("./marker-root.js");
 
@@ -183,13 +184,13 @@ function trimmedRoots(current, baseline) {
  */
 function recordReading(roots, now, watchFile = WATCH_FILE()) {
 	const stamp = RECORD_STAMP(watchFile);
-	try {
-		const last = Date.parse(fs.readFileSync(stamp, "utf8").trim());
-		if (Number.isFinite(last) && (now - last) / 36e5 < RECORD_MIN_AGE_HOURS)
-			return "throttled";
-	} catch {
-		/* no stamp yet, or an unreadable one: a reading is due */
-	}
+	// No stamp yet, or an unreadable one, reads NaN: a reading is due.
+	const last = orFallback(
+		() => Date.parse(fs.readFileSync(stamp, "utf8").trim()),
+		Number.NaN,
+	);
+	if (Number.isFinite(last) && (now - last) / 36e5 < RECORD_MIN_AGE_HOURS)
+		return "throttled";
 	try {
 		fs.writeFileSync(stamp, `${new Date(now).toISOString()}\n`);
 	} catch {

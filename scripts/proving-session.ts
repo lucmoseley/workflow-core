@@ -7,6 +7,8 @@
 import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import { ignoreFailure } from "./lib/caught.js";
+import { noop } from "./lib/noop.js";
 import { procRoot } from "./lib/proc-root.js";
 import type { Arena } from "./proving-run";
 
@@ -189,11 +191,8 @@ export class Session {
 	/** The session's process is gone without a SessionEnd — an earlyoom kill. */
 	killed() {
 		if (!this.pid) return this;
-		try {
-			process.kill(this.pid, "SIGKILL");
-		} catch {
-			/* already gone */
-		}
+		const pid = this.pid;
+		ignoreFailure(() => process.kill(pid, "SIGKILL"));
 		// init reaps an orphan promptly, but not instantly; until it does, /proc
 		// still answers and the holder would read as alive.
 		const deadline = Date.now() + 3000;
@@ -292,9 +291,7 @@ export class Session {
 			child.on("error", reject);
 			// A guard that exits without draining stdin raises EPIPE, which is
 			// uncaught and kills the run rather than failing the scenario.
-			child.stdin.on("error", () => {
-				/* the exit status is what the scenario judges */
-			});
+			child.stdin.on("error", noop);
 			child.on("close", (status) => {
 				try {
 					resolve(this.result(name, { status, stdout, stderr }));

@@ -16,7 +16,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { parseJsonl } = require("./jsonl.js");
 const { withDirLock } = require("./dir-lock.js");
 const { writeFileAtomic } = require("./atomic-write.js");
@@ -43,7 +43,8 @@ function appendRetained(
 ) {
 	if (!file) return false;
 	let landed = false;
-	try {
+	// A log that will not take the line costs the line.
+	ignoreFailure(() =>
 		withDirLock(
 			lockOf(file),
 			(held) => {
@@ -56,10 +57,8 @@ function appendRetained(
 				if (held) prune(file, retainMs, now());
 			},
 			now,
-		);
-	} catch {
-		/* a log that will not take the line costs the line */
-	}
+		),
+	);
 	return landed;
 }
 
@@ -71,7 +70,8 @@ function appendRetained(
  * @param {number} now
  */
 function prune(file, retainMs, now) {
-	try {
+	// The line is written; a failed prune costs disk, not the record.
+	ignoreFailure(() =>
 		replaceCarrying(file, (text) => {
 			const { rows } = parseJsonl(text);
 			const ageOf = (/** @type {Record<string, unknown>} */ row) =>
@@ -82,10 +82,8 @@ function prune(file, retainMs, now) {
 				.filter((row) => ageOf(row) <= retainMs)
 				.map((row) => `${JSON.stringify(row)}\n`)
 				.join("");
-		});
-	} catch {
-		/* the line is written; a failed prune costs disk, not the record */
-	}
+		}),
+	);
 }
 
 /**

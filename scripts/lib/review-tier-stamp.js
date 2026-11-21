@@ -9,6 +9,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { ignoreFailure } = require("./caught.js");
 
 const PREFIX = "wfc-review-tier-";
 
@@ -38,12 +39,10 @@ function sweepReviewTierStamps(gitDir, now) {
 	for (const name of fs.readdirSync(gitDir)) {
 		if (!name.startsWith(PREFIX)) continue;
 		const file = path.join(gitDir, name);
-		try {
+		ignoreFailure(() => {
 			if (now - fs.statSync(file).mtimeMs > STALE_MS)
 				fs.rmSync(file, { force: true });
-		} catch {
-			/* Gone under the sweep, or a neighbour's: the next sweep retries. */
-		}
+		});
 	}
 }
 

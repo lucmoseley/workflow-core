@@ -10,6 +10,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { ignoreFailure } = require("./caught.js");
 const { trimEndRun } = require("./trim-run.js");
 
 /* The `gh` give-up: past the hook's 10 s the harness would drop the whole
@@ -108,11 +109,9 @@ function buildHostPorts(log) {
 /** The guard-errors.log writer, which check-guard-errors.js reads.
  * @param {string} what @param {string} [detail] */
 function logFailOpen(what, detail) {
-	try {
-		require("./arbiter-core.js").logError("inject-tracker-docs", what, detail);
-	} catch {
-		/* logging this failure has the same failure mode */
-	}
+	ignoreFailure(() =>
+		require("./arbiter-core.js").logError("inject-tracker-docs", what, detail),
+	);
 }
 
 module.exports = {

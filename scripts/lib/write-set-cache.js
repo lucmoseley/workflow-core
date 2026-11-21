@@ -30,7 +30,7 @@ const fs = require("node:fs");
 const nodePath = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
 const { requiredGroup } = require("./regex-group.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 
 /**
  * One stored record, and what `lookup` says about it. Each `Lookup` arm spells
@@ -377,21 +377,17 @@ function prune(root, openNumbers) {
 	const removed = [];
 	for (const name of names) {
 		if (name.endsWith(".tmp")) {
-			try {
-				fs.rmSync(nodePath.join(cacheDir(root), name));
-			} catch {
-				/* already gone, or not ours to remove: the next sweep retries it */
-			}
+			// Already gone, or not ours to remove: the next sweep retries it.
+			ignoreFailure(() => fs.rmSync(nodePath.join(cacheDir(root), name)));
 			continue;
 		}
 		const m = /^(\d+)\.json$/.exec(name);
 		if (!m || open.has(Number(m[1]))) continue;
-		try {
+		// A neighbour pruning the same entry got there first: nothing to report.
+		ignoreFailure(() => {
 			fs.rmSync(nodePath.join(cacheDir(root), name));
 			removed.push(Number(m[1]));
-		} catch {
-			// A neighbour pruning the same entry got there first; nothing to report.
-		}
+		});
 	}
 	return { ok: true, removed: removed.sort((a, b) => a - b) };
 }

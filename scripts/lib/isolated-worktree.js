@@ -28,7 +28,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { pidAlive } = require("./arbiter-proc.js");
 const { shellQuote } = require("./sh-quote.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { isUnder } = require("./is-under.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 const { writeFd } = require("./write-fd.js");
@@ -118,8 +118,10 @@ function removeIsolated(
 	dir,
 	{ execFn = execFileSync, worktreeFs = fs, err = process.stderr } = {},
 ) {
+	/* Never created, or already gone — either way there is nothing to unlink
+	 * and the remove below is still the operation that matters. */
 	for (const artefact of readLinkedPaths(dir))
-		try {
+		ignoreFailure(() => {
 			const link = path.join(dir, artefact);
 			const parent = worktreeFs.realpathSync(path.dirname(link));
 			if (
@@ -127,10 +129,7 @@ function removeIsolated(
 				worktreeFs.lstatSync(link).isSymbolicLink()
 			)
 				worktreeFs.unlinkSync(link);
-		} catch {
-			/* Never created, or already gone — either way there is nothing to unlink
-			 * and the remove below is still the operation that matters. */
-		}
+		});
 	try {
 		execFn(
 			gitBinary(),

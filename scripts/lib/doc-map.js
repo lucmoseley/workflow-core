@@ -22,7 +22,7 @@ const { escapeRe, requiredGroup } = require("./regex-group.js");
 const { trimEndRun } = require("./trim-run.js");
 const { cutAt } = require("./cut-at.js");
 const { byCodeUnit } = require("./by-code-unit.js");
-const { caught } = require("./caught.js");
+const { caught, orFallback } = require("./caught.js");
 const { isUnder } = require("./is-under.js");
 const { execGit, gitOrNull } = require("./git.js");
 const { readMergeHeadLines } = require("./merge-heads.js");
@@ -1158,15 +1158,15 @@ const DEFAULT_MAP_PATH = "docs/doc-map.md";
  */
 function readCommittedTextAt(rev, file, fallback) {
 	for (const p of new Set([repoRelative(file), fallback])) {
-		try {
-			return execGit(["show", `${rev}:${p}`], {
-				encoding: "utf8",
-				stdio: ["ignore", "pipe", "ignore"],
-			});
-		} catch {
-			// Try the next candidate path; the `return null` below answers for
-			// every failure alike.
-		}
+		const text = orFallback(
+			() =>
+				execGit(["show", `${rev}:${p}`], {
+					encoding: "utf8",
+					stdio: ["ignore", "pipe", "ignore"],
+				}),
+			null,
+		);
+		if (text !== null) return text;
 	}
 	return null;
 }

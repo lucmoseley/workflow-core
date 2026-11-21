@@ -11,7 +11,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { isTerminalAgent, listedAgents } = require("./agent-liveness");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { readOwnJob } = require("./claude-stop.js");
 const { readTail } = require("./file-read.js");
 const { readJobRecord, shortJobId } = require("./job-paths.js");
@@ -181,13 +181,8 @@ function subagentSizes(mainTranscript, sessionId) {
 		for (const e of entries) {
 			const p = path.join(d, e.name);
 			if (e.isDirectory()) walk(p);
-			else if (e.name.endsWith(".jsonl")) {
-				try {
-					out.set(p, fs.statSync(p).size);
-				} catch {
-					// Deleted since the listing: absent from this sample, as it now is.
-				}
-			}
+			else if (e.name.endsWith(".jsonl"))
+				ignoreFailure(() => out.set(p, fs.statSync(p).size));
 		}
 	};
 	walk(path.join(path.dirname(mainTranscript), sessionId));

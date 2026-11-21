@@ -24,7 +24,7 @@ const ledger = require("./arbiter-ledger.js");
 // biome-ignore lint/suspicious/noImportCycles: cyclic by design — arbiter-store.js's THE SPLIT RULE (mantahostels#1795).
 const observations = require("./arbiter-observations.js");
 const { sleepSync } = require("./sleep-sync.js");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 
 /** @typedef {import("./arbiter-records.js").LockRecord} LockRecord */
 /** @typedef {import("./arbiter-records.js").ListedLock} ListedLock */
@@ -102,13 +102,12 @@ function renameAside(lockPath) {
 	} catch {
 		return null;
 	}
-	try {
+	/* Unstamped, a concurrent sweep may delete it before the caller can read
+	 * it back. An aside that cannot be read is treated as inconclusive. */
+	ignoreFailure(() => {
 		const now = new Date();
 		fs.utimesSync(aside, now, now);
-	} catch {
-		// Unstamped, so a concurrent sweep may delete it before the caller can read
-		// it back. An aside that cannot be read is treated as inconclusive.
-	}
+	});
 	return aside;
 }
 
@@ -127,11 +126,8 @@ function restoreAside(aside, lockPath) {
 	} catch {
 		return false; // the path is occupied again; the occupant's claim stands
 	}
-	try {
-		fs.unlinkSync(aside);
-	} catch {
-		/* swept already; the restored link is what matters */
-	}
+	// Swept already is no matter: the restored link is what counts.
+	ignoreFailure(() => fs.unlinkSync(aside));
 	return true;
 }
 
@@ -155,7 +151,8 @@ function restoreAside(aside, lockPath) {
  * Silent and best-effort: this is housekeeping, and a claim must not fail over it.
  */
 function sweepDebris() {
-	try {
+	// No locks directory yet sweeps nothing.
+	ignoreFailure(() => {
 		const now = Date.now();
 		const wasResumed = core.resumedHolderTest(
 			"sweep",
@@ -166,9 +163,7 @@ function sweepDebris() {
 		const dir = core.paths.locksDir();
 		for (const f of fs.readdirSync(dir))
 			sweepDebrisEntry(dir, f, now, wasResumed);
-	} catch {
-		/* no locks directory yet */
-	}
+	});
 }
 
 /**
@@ -187,11 +182,9 @@ function sweepDebrisEntry(dir, f, now, wasResumed) {
 		return;
 	const full = path.join(dir, f);
 	if (f.includes(".json.stale-") && keepLiveAside(full, wasResumed)) return;
-	try {
+	ignoreFailure(() => {
 		if (now - fs.statSync(full).mtimeMs > DEBRIS_AGE_MS) fs.unlinkSync(full);
-	} catch {
-		/* another sweeper got there first, or it is gone already */
-	}
+	});
 }
 
 /**
@@ -256,11 +249,7 @@ function dropIfUnchanged(rel, isDroppable) {
 	// logging reader (mantahostels#174).
 	const moved = core.readRecordOrLog(aside, `drop ${rel}`);
 	if (moved !== null && isDroppable(moved)) {
-		try {
-			fs.unlinkSync(aside);
-		} catch {
-			/* already gone */
-		}
+		ignoreFailure(() => fs.unlinkSync(aside));
 		return { outcome: "dropped", moved };
 	}
 	return {
@@ -291,11 +280,7 @@ function updateIfUnchanged(rel, isOurs, mutate) {
 	if (moved !== null && isOurs(moved)) {
 		const updated = mutate({ ...moved });
 		if (core.createOnce(lockPath, updated)) {
-			try {
-				fs.unlinkSync(aside);
-			} catch {
-				/* already gone */
-			}
+			ignoreFailure(() => fs.unlinkSync(aside));
 			return { outcome: "updated", lock: updated };
 		}
 	}
@@ -448,11 +433,7 @@ function breakCorrupt(rel, me = null) {
 		return "retry";
 	}
 
-	try {
-		fs.unlinkSync(aside);
-	} catch {
-		/* already gone */
-	}
+	ignoreFailure(() => fs.unlinkSync(aside));
 	// Filed unkeyed, because unparseable means the holder is unknown — so
 	// buildBreakNotice, which matches a break to a session on lostBy, will never
 	// surface it and the log line below is the whole of the visibility.

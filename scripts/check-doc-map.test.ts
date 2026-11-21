@@ -21,8 +21,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { ignoreFailure } from "./lib/caught.js";
 import { writeFaultyGit } from "./lib/git-fault-fake";
 import { defineTemplate, mkScratchDir, scratchBase } from "./lib/git-fixture";
+import { noop } from "./lib/noop.js";
 import { runInProcess } from "./lib/run-in-process";
 
 const SCRIPT = path.resolve(__dirname, "check-doc-map.js");
@@ -1792,11 +1794,8 @@ describe("check-doc-map mid-merge", () => {
 		git("checkout", "-q", "-");
 		write("docs/contested.md", "ours\n");
 		git("commit", "-qm", "ours", "--", "docs/contested.md");
-		try {
-			git("merge", "other");
-		} catch {
-			/* the conflict this fixture exists to create */
-		}
+		// Throws on the conflict this fixture exists to create.
+		ignoreFailure(() => git("merge", "other"));
 		expect(git("ls-files", "--unmerged")).not.toBe("");
 	};
 
@@ -2308,11 +2307,7 @@ describe("the page–source assertion", () => {
 	};
 
 	it("passes a page whose source is registered and human-read", () => {
-		expect(
-			withPage(() => {
-				/* no edit: the row as written passes */
-			}).status,
-		).toBe(0);
+		expect(withPage(noop).status).toBe(0);
 	});
 
 	it("fails a page whose source has no key, naming the page and the source", () => {

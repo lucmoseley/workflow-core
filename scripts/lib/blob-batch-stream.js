@@ -7,6 +7,7 @@
 
 const { spawn } = require("node:child_process");
 const { gitBinary, gitSpawnOptions } = require("./git.js");
+const { noop } = require("./noop.js");
 
 /**
  * A `git cat-file --batch` stdout parser fed chunk by chunk. `onObject` gets
@@ -124,9 +125,8 @@ function matchBlobGroups(groups, { cwd, timeout } = {}) {
 			}
 			if (settledAll()) settle(() => resolve(found));
 		});
-		child.stdin.on("error", () => {
-			/* A kill once every group matched leaves ids unwritten: EPIPE (#4542). */
-		});
+		// A kill once every group matched leaves ids unwritten: EPIPE (#4542).
+		child.stdin.on("error", noop);
 		child.on("error", (e) => settle(() => reject(e)));
 		child.on("close", (code) =>
 			settle(() =>

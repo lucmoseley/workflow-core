@@ -17,7 +17,9 @@
 const { spawn } = require("node:child_process");
 const crypto = require("node:crypto");
 const readline = require("node:readline");
+const { ignoreFailure } = require("./caught.js");
 const { parseJsonlRow } = require("./jsonl.js");
+const { noop } = require("./noop.js");
 const { writeFd } = require("./write-fd.js");
 
 /* The flags that make a `claude -p` child read and write stream-json. */
@@ -66,9 +68,8 @@ function startStreamChild(bin, args, opts, onRow) {
 		child.on("exit", end);
 		child.on("error", () => end(null, null));
 	});
-	child.stdin?.on("error", () => {
-		/* EPIPE once the child has gone: `exited` says so */
-	});
+	// EPIPE once the child has gone: `exited` says so.
+	child.stdin?.on("error", noop);
 
 	/** @type {Record<string, unknown> | undefined} */
 	let lastResult;
@@ -98,11 +99,9 @@ function startStreamChild(bin, args, opts, onRow) {
 
 	/** @param {NodeJS.Signals} signal */
 	const signalGroup = (signal) => {
-		try {
+		ignoreFailure(() => {
 			if (child.pid) process.kill(-child.pid, signal);
-		} catch {
-			/* already gone */
-		}
+		});
 	};
 
 	const interrupt = () =>

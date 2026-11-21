@@ -201,7 +201,7 @@ Three kinds of export are not test-only:
 
 **Program, library and shell.** Every injected seam — a dependency parameter, a port, or an env var standing in for a binary, a file or a clock — has a second adapter beside production's, and a test fake counts. Otherwise a comment at the seam names the caller that will supply one.
 
-`scripts/lib/suite-queue.js:567` takes *"{ alive = pidAlive, startTime = readStartTimeOf } = {}"*, and its module test fills both with fakes; `scripts/bg-run.sh:179` reads *"${WFC_BG_MEMINFO:-/proc/meminfo}"*, which its test points at a fixture file.
+`scripts/lib/suite-queue.js:606` takes *"{ alive = pidAlive, startTime = readStartTimeOf } = {}"*, and its module test fills both with fakes; `scripts/bg-run.sh:179` reads *"${WFC_BG_MEMINFO:-/proc/meminfo}"*, which its test points at a fixture file.
 
 Where neither fits, remove the seam: create the dependency in place, and let the test reach it another way, through a temp directory, the real clock, or a binary stubbed at its §N7 var (#1374).
 
@@ -398,7 +398,7 @@ Three sub-rules a reviewer may cite directly against a program reporting in the 
 
 - **SKIP versus BROKEN turns on subject-versus-apparatus** (`scripts/lib/check.js:15-23`): what the checker is *asking about* is unavailable → SKIP; what it *reads the repo with* failed → BROKEN.
 - **Severity is a property of the finding**; a caller-side cap such as `--warn` lowers the outcome only, never the findings, and cannot cap BROKEN (`scripts/lib/check.js:25-28`).
-- **A bad invocation is BROKEN, never a finding** — `scripts/lib/check.js:395` *"Bad invocation is BROKEN, never a finding: nothing was checked."*
+- **A bad invocation is BROKEN, never a finding** — `scripts/lib/check.js:396` *"Bad invocation is BROKEN, never a finding: nothing was checked."*
 
 *House, Node programs only*: a `check-*` program delegates its reporting tail to `runCheck` from `scripts/lib/check.js` (mantahostels#994). Its body returns a small record (`{ okLine }` or `{ noun, count, data }`, contract at `scripts/lib/check.js:238-240`), or a Promise of one, which `runCheck` awaits, a rejection reading as a throw (#1586); and `runCheck` owns the exit — `scripts/lib/outcome-error.js:8` *"Thrown, not exited, so lib/check.js's runCheck stays the single place a process ends."* The five outcomes, stated once at `scripts/lib/check.js:8-13`:
 
@@ -416,7 +416,7 @@ A program that swallows an error to keep working does so as a design choice that
 
 **Gated for Python** (#1830, #5487): the plugin's pre-commit refuses an `except` a commit adds to a program-routed `.py` that neither raises, exits nor hands the error it binds to a reporter from `scripts/lib/fail_open.py`, so (c) is a duplicate finding there. `fail_open` prints the error; `tallied` counts it into a tally the program prints, one line for every drop of its kind. **A condition that is the program's normal path is no fault, so it is not printed** (#5503): a loop's end, such as `waitpid` raising `ChildProcessError` once no child is left, or a process that exited between being listed and being read. Its `except` hands the error to `expected`, which the gate passes only under a specific caught type, never `Exception`, `BaseException` or `OSError`; where only an errno marks the condition, the handler re-raises every other one. Whether a test pins the site, whether the condition is truly the normal path, and whether an errno handler re-raises every other errno stay review's: the gate passes any handler holding a `raise`.
 
-The `guard-*` family swallows every error and exits 0 — *"breaking a session is worse than missing one"* (`scripts/guard-priced-options.js:329-330`) — and `scripts/session-arbiter.js:1550` names the rule's source, *"catches to fail open (mantahostels#103 §6)"*. Printed: `scripts/lib/pick-next-verdict.js:443` *"Assigned, but no live session recorded a claim: fail open, and say so"*.
+The `guard-*` family swallows every error and exits 0 — *"breaking a session is worse than missing one"* (`scripts/guard-priced-options.js:329-330`) — and `scripts/session-arbiter.js:1548` names the rule's source, *"catches to fail open (mantahostels#103 §6)"*. Printed: `scripts/lib/pick-next-verdict.js:443` *"Assigned, but no live session recorded a claim: fail open, and say so"*.
 
 ### §N6 · Output that must survive `process.exit` on a pipe is written synchronously — **hard**
 
@@ -464,7 +464,7 @@ Stream discipline (`scripts/lib/check.js:30-34`): stdout is for machine readers 
 
 **Program kind only**: library code leans on §T5's `readonly` instead, which holds a passed record's fields and arrays but not a passed Map, Set or regex. A function returns its result rather than changing an object or array it was passed, so every value a call changes shows at the call site. A field write, a push, an in-place sort and a reset of a regex's `lastIndex` all count, and so does a write to an element of a passed list or through a destructured options field. `scripts/lib/issue-gate.js:134` runs a caller's regex on a copy rather than resetting it: *"const local = new RegExp(re);"*.
 
-**The good reason to differ is a caller-owned accumulator or counter passed in for that purpose** — a findings list, a tally, a cache, the state a split-out loop step advances — the house shape (#1297). It is said at the parameter: in JS the `@param` description opens `accumulator:`, as at `scripts/lib/arbiter-core.js:1148` *"accumulator: each readable entry is pushed here"*; in Python a docstring sentence opens with the backticked parameter and calls it the caller's accumulator, as at `scripts/lib/transcript_corpus.py:262-263` *"accumulator: the skips are counted into it"* (#1375). A record handed in with one field for the callee to fill is an accumulator for that field alone, and the note names it. A record, a regex, a parsed document or a list handed in to be read is never an accumulator.
+**The good reason to differ is a caller-owned accumulator or counter passed in for that purpose** — a findings list, a tally, a cache, the state a split-out loop step advances — the house shape (#1297). It is said at the parameter: in JS the `@param` description opens `accumulator:`, as at `scripts/lib/arbiter-core.js:1144` *"accumulator: each readable entry is pushed here"*; in Python a docstring sentence opens with the backticked parameter and calls it the caller's accumulator, as at `scripts/lib/transcript_corpus.py:263-264` *"accumulator: the skips are counted into it"* (#1375). A record handed in with one field for the callee to fill is an accumulator for that field alone, and the note names it. A record, a regex, a parsed document or a list handed in to be read is never an accumulator.
 
 ### §N10 · An arbiter record is reached through the arbiter's one reader and one writer — **hard**
 

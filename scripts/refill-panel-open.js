@@ -34,6 +34,7 @@ const { spawn, spawnSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
 const { pidAlive } = require("./lib/arbiter-proc.js");
+const { ignoreFailure } = require("./lib/caught.js");
 const { parseOrCode } = require("./lib/cli-args");
 const { buildRoutes } = require("./lib/refill-panel-routes.js");
 const {
@@ -44,6 +45,7 @@ const { scriptPath } = require("./lib/script-path.js");
 const { shellQuote } = require("./lib/sh-quote.js");
 const { sleepSync } = require("./lib/sleep-sync.js");
 const { readConfig } = require("./lib/workflow-core-config.js");
+const { noop } = require("./lib/noop.js");
 const { writeFd } = require("./lib/write-fd.js");
 
 /* Untraced, a first guess: time to read the reason before the view covers it. */
@@ -96,11 +98,8 @@ function runRoute({ file, args }, env) {
 function appendToLoopLog(line) {
 	/* Required here, as the view's start waits on this script and the module takes tens of ms to load. */
 	const { appendLoopLog } = require("./lib/refill-files.js");
-	try {
-		appendLoopLog(line);
-	} catch {
-		/* Nowhere is left to say so: the view is drawn. */
-	}
+	// Nowhere is left to say so: the view is drawn.
+	ignoreFailure(() => appendLoopLog(line));
 }
 
 /**
@@ -115,9 +114,8 @@ function detachRoutes(routes, pid, env) {
 		[__filename, "--run-routes", JSON.stringify(routes), String(pid)],
 		{ detached: true, stdio: "ignore", env },
 	);
-	child.on("error", () => {
-		/* A failed spawn shows as no pid; unheard, this event would end the script. */
-	});
+	// A failed spawn shows as no pid; unheard, this event would end the script.
+	child.on("error", noop);
 	child.unref();
 	return child.pid !== undefined;
 }

@@ -21,6 +21,7 @@
  */
 
 const path = require("node:path");
+const { orFallback } = require("./caught.js");
 const { deref } = require("./deref.js");
 const { WORKTREES } = require("./worktree-dirs.js");
 const { isZeroSha, parseRefLines } = require("./push-refs.js");
@@ -200,19 +201,20 @@ function readUnpushedRef(opts) {
 			encoding: "utf8",
 			stdio: ["ignore", "pipe", "ignore"],
 		}).trim();
-	try {
-		const branch = git(["symbolic-ref", "--short", "-q", "HEAD"]);
-		if (branch !== VERIFIED_BRANCH)
-			return git([
-				"rev-parse",
-				"--abbrev-ref",
-				"--symbolic-full-name",
-				"@{upstream}",
-			]);
-	} catch {
-		// Detached, or no upstream: the pushed ref.
-	}
-	return pushedRef({ tree: opts?.tree });
+	// Detached, or no upstream: the pushed ref.
+	const upstream = orFallback(
+		() =>
+			git(["symbolic-ref", "--short", "-q", "HEAD"]) === VERIFIED_BRANCH
+				? null
+				: git([
+						"rev-parse",
+						"--abbrev-ref",
+						"--symbolic-full-name",
+						"@{upstream}",
+					]),
+		null,
+	);
+	return upstream ?? pushedRef({ tree: opts?.tree });
 }
 
 if (require.main === module) {

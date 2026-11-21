@@ -69,6 +69,7 @@
  */
 
 const fs = require("node:fs");
+const { ignoreFailure } = require("./lib/caught.js");
 const hookBlock = require("./lib/hook-block");
 const { readMessageText } = require("./lib/hook-message");
 const {
@@ -309,14 +310,13 @@ function compactionParagraph(count) {
  * @param {unknown} err
  */
 function logFailOpen(what, err) {
-	try {
+	// A log that cannot be written must not break the Stop.
+	ignoreFailure(() =>
 		require("./lib/arbiter-core").logError(
 			`guard-session-ceiling ${what}`,
 			err,
-		);
-	} catch {
-		/* A log that cannot be written must not break the Stop. */
-	}
+		),
+	);
 }
 
 /**

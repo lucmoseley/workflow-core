@@ -15,6 +15,7 @@ const { reviewTierStamp } = require("./review-tier-stamp.js");
 const { runHold } = require("./review-hold.js");
 const { buildHoldPorts } = require("./review-hold-host.js");
 const { scriptPath } = require("./script-path.js");
+const { ignoreFailure, orFallback } = require("./caught.js");
 
 /**
  * @param {{ cwd: string, env: NodeJS.ProcessEnv }} opts
@@ -44,12 +45,7 @@ function buildTrailerPorts({ cwd, env }) {
 				return out(["log", "-1", "--format=%B", "CHERRY_PICK_HEAD"]);
 			if (route === "rebase") return "";
 			const head = out(["rev-parse", "-q", "--verify", "HEAD^{tree}"]).trim();
-			let staged = "";
-			try {
-				staged = tree();
-			} catch {
-				/* No staged tree vouches for nothing. */
-			}
+			const staged = orFallback(() => tree(), "");
 			return head !== "" && head === staged
 				? out(["log", "-1", "--format=%B", "HEAD"])
 				: "";
@@ -79,17 +75,14 @@ function buildTrailerPorts({ cwd, env }) {
 			};
 		},
 		commitPaths: scriptPath("commit-paths.js"),
-		log: (what, detail) => {
-			try {
+		log: (what, detail) =>
+			ignoreFailure(() =>
 				require("./arbiter-core.js").logError(
 					"review-tier-trailer.js",
 					what,
 					detail || undefined,
-				);
-			} catch {
-				/* A log that cannot be written must not break the trailer. */
-			}
-		},
+				),
+			),
 	};
 }
 

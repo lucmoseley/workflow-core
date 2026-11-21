@@ -44,6 +44,7 @@ const { scriptPath } = require("./lib/script-path.js");
 const { caught } = require("./lib/caught.js");
 const { CANONICAL, readSiblings } = require("./lib/plan-dirs.js");
 const { isUnder } = require("./lib/is-under.js");
+const { noop } = require("./lib/noop.js");
 
 const USAGE = `Usage: node ${scriptPath("link-config-dirs.js")} [--check] [--home <dir>]`;
 
@@ -400,13 +401,7 @@ function relinkDiverged(fix, at, want) {
  * @returns {{drift: {sibling: string, entry: string, state: string}[],
  *   fixed: string[], kept: string[]}}
  */
-function run({
-	home,
-	check = false,
-	out = () => {
-		/* silent unless a caller wants each line */
-	},
-}) {
+function run({ home, check = false, out = noop }) {
 	const canonical = path.join(home, CANONICAL);
 	const drift = [];
 	const fixed = [];

@@ -32,6 +32,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { keptSpawn } from "./lib/kept-spawn.js";
+import { noop } from "./lib/noop.js";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import { copyLibs, readProgramLibs } from "./lib-closure-fixture";
@@ -260,9 +261,8 @@ const ATTEMPTS = 2;
 const SHORT_ABORT_MS = 500;
 const SHORT_ABORT = { WFC_JEV_ABORT_MS: String(SHORT_ABORT_MS) };
 
-const neverAnswers = () => {
-	/* so every attempt runs to its abort */
-};
+// Never answers, so every attempt runs to its abort.
+const neverAnswers = noop;
 
 /** The outcome of the single line this run logged. */
 async function outcomeOf(

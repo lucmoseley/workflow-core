@@ -21,7 +21,7 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { readPsRows, readTreePssKb, sampleTreePeak } = require("./admission.js");
-const { caught } = require("./caught.js");
+const { caught, orFallback } = require("./caught.js");
 const { MARKERS_REL, markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { writeFd } = require("./write-fd.js");
@@ -245,11 +245,8 @@ function install(dir, exec) {
 		.update(fs.readFileSync(lock))
 		.digest("hex");
 	const stamp = path.join(dir, STAMP);
-	try {
-		if (fs.readFileSync(stamp, "utf8").trim() === hash) return;
-	} catch {
-		/* no stamp: never installed, or the install was removed */
-	}
+	if (orFallback(() => fs.readFileSync(stamp, "utf8").trim() === hash, false))
+		return;
 	exec(npmBin(), ["ci", "--no-audit", "--no-fund"], dir, {
 		timeout: INSTALL_TIMEOUT_MS,
 	});

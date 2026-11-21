@@ -17,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { bringCoreFiles } from "./core-owned-files.js";
+import { noop } from "./noop.js";
 import { runInProcess } from "./run-in-process.js";
 import { walkAndCommit } from "./walk-and-commit.js";
 
@@ -98,9 +99,7 @@ function pinAt(ref: string) {
 		root,
 		pluginRoot,
 		dryRun: false,
-		out: () => {
-			/* progress lines are not what this reads */
-		},
+		out: noop,
 		record: null,
 		pin: { marketplace: "wc", source, plugin: "workflow-core" },
 	});
@@ -441,9 +440,7 @@ describe("walkAndCommit", () => {
 			pluginRoot,
 			dryRun: false,
 			fresh: true,
-			out: () => {
-				/* progress lines are not what this reads */
-			},
+			out: noop,
 			record: null,
 			pin: null,
 		});

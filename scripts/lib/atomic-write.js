@@ -15,6 +15,7 @@
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const { ignoreFailure } = require("./caught.js");
 const { escapeRe } = require("./regex-group.js");
 
 /**
@@ -78,11 +79,8 @@ function writeStreamAtomic(file, write) {
 		}
 		fs.renameSync(aside, file);
 	} catch (e) {
-		try {
-			fs.rmSync(aside, { force: true });
-		} catch {
-			/* the write's own fault is the one to report */
-		}
+		// The write's own fault is the one to report.
+		ignoreFailure(() => fs.rmSync(aside, { force: true }));
 		throw e;
 	}
 }
@@ -117,11 +115,8 @@ function writeFileAtomic(file, data, options = {}) {
 		options.beforeRename?.(aside);
 		fs.renameSync(aside, file);
 	} catch (e) {
-		try {
-			fs.rmSync(aside, { force: true });
-		} catch {
-			/* the write's own fault is the one to report */
-		}
+		// The write's own fault is the one to report.
+		ignoreFailure(() => fs.rmSync(aside, { force: true }));
 		throw e;
 	}
 }

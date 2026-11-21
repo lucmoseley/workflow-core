@@ -74,7 +74,7 @@ const redSuite = require("./report-red-suite");
 const roadmapCeilings = require("./report-roadmap-ceilings");
 const retro = require("./report-retro-due");
 const bandDrift = require("./check-band-drift");
-const { caught } = require("./lib/caught.js");
+const { caught, orFallback } = require("./lib/caught.js");
 
 /**
  * @typedef {{
@@ -279,17 +279,13 @@ function noteUnfiled(t, unfiled) {
 	 * multi-sweep read (mantahostels#2297). Failed open on a throw — an apparatus
 	 * fault must not read as "so it must have been filed". */
 	if (!t.unfiledCondition) return;
-	try {
-		const v = t.unfiledCondition();
-		if (v?.held)
-			unfiled.push({
-				title: t.title,
-				script: t.script,
-				detail: v.detail,
-			});
-	} catch {
-		// Unreadable and unfiled: say nothing rather than guess.
-	}
+	const v = orFallback(() => t.unfiledCondition?.(), undefined);
+	if (v?.held)
+		unfiled.push({
+			title: t.title,
+			script: t.script,
+			detail: v.detail,
+		});
 }
 
 /**

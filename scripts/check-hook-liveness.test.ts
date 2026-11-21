@@ -26,6 +26,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { orFallback } from "./lib/caught.js";
 import { MAIN_SCRIPTS } from "./lib/core-hooks-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 import { useScratchCore } from "./lib/scratch-core-testkit";
@@ -285,12 +286,10 @@ function plugin(
  */
 function enablePlugin(key: string) {
 	const at = path.join(repo, ".claude", "settings.json");
-	let doc: Record<string, unknown> = {};
-	try {
-		doc = JSON.parse(fs.readFileSync(at, "utf8"));
-	} catch {
-		// No settings.json yet — start from an empty one.
-	}
+	const doc: Record<string, unknown> = orFallback(
+		() => JSON.parse(fs.readFileSync(at, "utf8")),
+		{},
+	);
 	doc.enabledPlugins = {
 		...(doc.enabledPlugins as Record<string, unknown> | undefined),
 		[key]: true,
@@ -308,12 +307,10 @@ function enablePlugin(key: string) {
  */
 function directoryMarketplace(cfg: string, marketplace: string, at: string) {
 	const known = path.join(cfg, "plugins", "known_marketplaces.json");
-	let doc: Record<string, unknown> = {};
-	try {
-		doc = JSON.parse(fs.readFileSync(known, "utf8"));
-	} catch {
-		// No known_marketplaces.json yet.
-	}
+	const doc: Record<string, unknown> = orFallback(
+		() => JSON.parse(fs.readFileSync(known, "utf8")),
+		{},
+	);
 	doc[marketplace] = {
 		source: { source: "directory", path: at },
 		installLocation: at,

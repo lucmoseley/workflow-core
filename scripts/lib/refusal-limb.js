@@ -15,7 +15,7 @@
 const fs = require("node:fs");
 
 const hookBlock = require("./hook-block");
-const { caught } = require("./caught.js");
+const { caught, orFallback } = require("./caught.js");
 const { failOpenLogger } = require("./fail-open-logger");
 
 /**
@@ -120,12 +120,8 @@ function refusalLimb({ prefix, limb, skipped, parseQuestion, log }) {
 			logFailOpen(`refusal record would not be read: ${e} — ${skipped}`);
 			return "unreadable";
 		}
-		try {
-			const record = parseRecord(JSON.parse(text));
-			if (record !== null) return record;
-		} catch {
-			/* reported below with the malformed case */
-		}
+		const record = orFallback(() => parseRecord(JSON.parse(text)), null);
+		if (record !== null) return record;
 		logFailOpen(`refusal record is malformed — ${skipped}`);
 		return "unreadable";
 	}

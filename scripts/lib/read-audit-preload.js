@@ -42,7 +42,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 const { relativeUnder } = require("./is-under.js");
 const { listingId } = require("./listing-id.js");
 const { absoluteWords, buildHanded } = require("./read-audit-handed.js");
@@ -132,13 +132,8 @@ function install() {
 		fs.writeSync(fd, `${line}\n`);
 	};
 	add({ k: "self", owner, pid: process.pid });
-	const fault = () => {
-		try {
-			add({ k: "fault" });
-		} catch {
-			// The log will not take it: its reads are already short (#4916).
-		}
-	};
+	// A log that will not take it leaves its reads short already (#4916).
+	const fault = () => ignoreFailure(() => add({ k: "fault" }));
 	/**
 	 * @param {unknown} p
 	 * @returns {string|null}

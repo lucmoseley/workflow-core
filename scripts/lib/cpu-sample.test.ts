@@ -138,9 +138,9 @@ describe("sample — parsing /proc/stat", () => {
 		const a = sample();
 		// Busy-wait rather than sleep: the span must be > 0 jiffies, not > 0 ms.
 		const until = Date.now() + 60;
-		while (Date.now() < until) {
-			/* spin */
-		}
+		let spins = 0;
+		while (Date.now() < until) spins++;
+		expect(spins).toBeGreaterThan(0);
 		const b = sample();
 		expect(b.total).toBeGreaterThan(a.total);
 		const d = delta(a, b, 8);

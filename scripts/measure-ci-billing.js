@@ -37,6 +37,7 @@ const fs = require("node:fs");
 const { writeFd } = require("./lib/write-fd.js");
 const path = require("node:path");
 const { writeFileAtomic } = require("./lib/atomic-write.js");
+const { orFallback } = require("./lib/caught.js");
 
 const { ghApiSlurpAsync, parseErrLine } = require("./lib/gh");
 const { CliExit, flagValue, parse, printExit } = require("./lib/cli-args");
@@ -238,19 +239,18 @@ async function cachedGet(opts, apiPath) {
 	const file = path.join(opts.cache, `${key}.json`);
 	const usable = !opts.refresh;
 	if (usable && fs.existsSync(file)) {
-		try {
+		// A truncated or unreadable entry is refetched, never fatal: the cache
+		// is an optimisation.
+		const cached = orFallback(() => {
 			const age = Date.now() - fs.statSync(file).mtimeMs;
-			if (age <= opts.maxCacheAgeMs) {
-				const entry = JSON.parse(fs.readFileSync(file, "utf8"));
-				/* Read-side too, not just write-side: entries written before this
-				 * guard existed hold partial answers and stay servable for
-				 * --max-cache-age days. */
-				if (responseIsFinal(entry)) return { pages: entry, inFlight: false };
-			}
-		} catch {
-			/* A truncated or unreadable entry is refetched, never fatal — the
-			 * cache is an optimisation. */
-		}
+			if (age > opts.maxCacheAgeMs) return;
+			const entry = JSON.parse(fs.readFileSync(file, "utf8"));
+			/* Read-side too, not just write-side: entries written before this
+			 * guard existed hold partial answers and stay servable for
+			 * --max-cache-age days. */
+			return responseIsFinal(entry) ? entry : undefined;
+		}, undefined);
+		if (cached !== undefined) return { pages: cached, inFlight: false };
 	}
 	const parsed = await ghApiSlurpAsync([apiPath, "--cache", "0"]);
 	const inFlight = !responseIsFinal(parsed);

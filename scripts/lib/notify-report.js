@@ -19,6 +19,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { writeFileAtomic } = require("./atomic-write.js");
+const { ignoreFailure } = require("./caught.js");
 const { configDir } = require("./config-dir.js");
 // Called as `store.stateDir()`, never destructured: a test forcing the
 // fallback spies on this live property.
@@ -307,11 +308,7 @@ function openRun(checker) {
  * @param {string} checker
  */
 function closeRun(checker) {
-	try {
-		fs.unlinkSync(runFile(checker));
-	} catch {
-		/* already gone, or never opened */
-	}
+	ignoreFailure(() => fs.unlinkSync(runFile(checker)));
 }
 
 /**

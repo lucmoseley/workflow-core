@@ -29,6 +29,7 @@ import { core, freshSandbox, store } from "./arbiter-testkit";
 import { writeFaultyGit } from "./git-fault-fake";
 import { initGitRepo, mkDirOutsideRepo } from "./git-fixture";
 import { runCore } from "./guard-core-testkit";
+import { noop } from "./noop.js";
 import { runInProcess } from "./run-in-process";
 import { shellQuote } from "./sh-quote.js";
 
@@ -979,9 +980,7 @@ describe("the cases a mutant must not survive (#2792)", () => {
 		},
 		corePaths: (t: string) => t,
 		docPath: (name: string) => `docs/${name}`,
-		log: () => {
-			/* The stub context records nothing. */
-		},
+		log: noop,
 		...over,
 	});
 

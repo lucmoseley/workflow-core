@@ -25,6 +25,7 @@ const {
 	readDispatchedCores,
 } = require("./guard-cores.js");
 const { readRunReach } = require("./code-edges.js");
+const { noop } = require("./noop.js");
 const { requiredGroup } = require("./regex-group.js");
 
 const REGISTRATIONS = ["hooks/hooks.json", SELF_PLUGIN_HOOKS, HOST_SETTINGS];
@@ -83,11 +84,9 @@ function readHookCode(root, event) {
 	const runReach = readRunReach(root);
 	/** @type {Set<string>} */
 	const code = new Set();
-	const noFault = () => {
-		/* a foreign Python import is plugin-tree.js's fault to report */
-	};
+	// A foreign Python import is plugin-tree.js's fault to report.
 	for (const entry of entries)
-		for (const rel of runReach(entry, noFault).files)
+		for (const rel of runReach(entry, noop).files)
 			if (rel.startsWith("scripts/")) code.add(rel);
 	return code;
 }

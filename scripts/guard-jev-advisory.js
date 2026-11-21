@@ -73,6 +73,8 @@ const jevLog = require("./lib/jev-log.js");
 const { guardDisabled } = require("./lib/workflow-core-config");
 const { hasRoundMarker } = require("./lib/round-marker");
 const { readSecretKeepingIgnore } = require("./lib/env-file.js");
+const { ignoreFailure, orFallback } = require("./lib/caught.js");
+const { noop } = require("./lib/noop.js");
 
 /**
  * The master switch's spelling in `.claude/workflow-core.json`'s `disabled`
@@ -711,13 +713,11 @@ function logGate({
 	 * literal is listed. */
 	if (!OUTCOMES.includes(outcome)) return;
 	const file = jevLog.logPath(root);
-	try {
-		let size = 0;
-		try {
-			size = fs.statSync(file).size;
-		} catch {
-			/* Absent counts as empty, which is what a first write wants. */
-		}
+	/* Fail open, as everywhere here: a guard whose log cannot be written
+	 * still refuses nothing, which is its real job. */
+	ignoreFailure(() => {
+		// Absent counts as empty, which is what a first write wants.
+		const size = orFallback(() => fs.statSync(file).size, 0);
 		if (size >= LOG_CAP_BYTES)
 			fs.renameSync(file, jevLog.previousLogPath(root));
 		const line = {
@@ -737,10 +737,7 @@ function logGate({
 				: {}),
 		};
 		fs.appendFileSync(file, `${JSON.stringify(line)}\n`);
-	} catch {
-		/* Fail open, as everywhere here: a guard whose log cannot be written
-		 * still refuses nothing, which is its real job. */
-	}
+	});
 }
 
 /**
@@ -933,6 +930,5 @@ module.exports = {
 };
 
 if (require.main === module)
-	main().catch(() => {
-		/* Belt to onMessageAsync's braces: fail open (#200's seventeenth story). */
-	});
+	// Belt to onMessageAsync's braces: fail open (#200's seventeenth story).
+	main().catch(noop);

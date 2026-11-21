@@ -14,6 +14,7 @@ import {
 	buildJobRow,
 	type Row,
 } from "./lib/agents-stop-fake";
+import { ignoreFailure } from "./lib/caught.js";
 import { writeClaudeStub } from "./lib/claude-stub";
 import { runInProcess } from "./lib/run-in-process";
 
@@ -324,11 +325,8 @@ describe("mid-merge (#4426)", () => {
 	});
 
 	it("refuses while a conflict is unresolved", () => {
-		try {
-			startMerge("a.js", "theirs\n");
-		} catch {
-			// the conflict stops the merge
-		}
+		// the conflict stops the merge
+		ignoreFailure(() => startMerge("a.js", "theirs\n"));
 		expect(git("rev-parse", "-q", "--verify", "MERGE_HEAD")).toMatch(
 			/^[0-9a-f]{40}$/,
 		);

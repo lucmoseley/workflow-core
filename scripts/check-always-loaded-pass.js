@@ -40,6 +40,7 @@ const { runCheck, now } = require("./lib/check");
 const { getPoolFiles } = require("./lib/always-loaded-pool");
 const { hostRoot } = require("./lib/host-root.js");
 const { caught } = require("./lib/caught.js");
+const { noop } = require("./lib/noop.js");
 const { FULL_SHA } = require("./lib/commit-sha.js");
 
 const RECORD_FILE = "docs/always-loaded-passes.json";
@@ -329,9 +330,7 @@ const SPEC = {
 		 * withheld with the finding — check.js already withholds the summary. */
 		/** @type {(label: string, msg: string) => void} */
 		const ok = ctx.notify
-			? () => {
-					/* a pass is withheld under --notify */
-				}
+			? noop
 			: (/** @type {string} */ label, /** @type {string} */ msg) =>
 					sayLine(ctx, label, msg);
 

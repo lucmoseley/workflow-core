@@ -29,7 +29,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { parseArgs } = require("node:util");
-const { caught } = require("./caught.js");
+const { caught, orFallback } = require("./caught.js");
 const {
 	readEnvFileValue,
 	readSecretKeepingIgnore,
@@ -174,13 +174,11 @@ function buildOverflowLaunch(keyVar, env) {
 module.exports = { buildKeyHelper, buildOverflowLaunch };
 
 if (require.main === module) {
-	/** @type {string[]} */
-	let positionals = [];
-	try {
-		({ positionals } = parseArgs({ allowPositionals: true }));
-	} catch {
-		/* an unknown option: bad usage, below */
-	}
+	// An unknown option is bad usage, said below.
+	const positionals = orFallback(
+		() => parseArgs({ allowPositionals: true }).positionals,
+		/** @type {string[]} */ ([]),
+	);
 	const [keyVar, file] = positionals;
 	if (positionals.length !== 2 || !keyVar || !file) {
 		writeFd(

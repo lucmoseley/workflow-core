@@ -74,7 +74,7 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
-const { caught } = require("./caught.js");
+const { caught, ignoreFailure } = require("./caught.js");
 
 /** The floor under ordinary scratch (mantahostels#2090). */
 const SCRATCH_AGE_MS = 24 * 60 * 60 * 1000;
@@ -440,7 +440,8 @@ module.exports = {
  * `WFC_SCRATCH_DIR` re-points the directory, for a run against a fixture.
  */
 if (require.main === module) {
-	try {
+	// Housekeeping nobody waits on never fails a session start.
+	ignoreFailure(() => {
 		const core = require("./arbiter-core");
 		const { listedAgents } = require("./agent-liveness");
 		const { hostRoot } = require("./host-root.js");
@@ -451,8 +452,6 @@ if (require.main === module) {
 			readAgents: () => listedAgents({ requireSelf: false }),
 			logError: core.logError,
 		});
-	} catch {
-		/* Housekeeping nobody waits on never fails a session start. */
-	}
+	});
 	process.exit(0);
 }
