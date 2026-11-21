@@ -14,6 +14,7 @@ import { dispatch } from "./lib/precommit-dispatch.js";
 import { factsAt } from "./lib/precommit-dispatch-ports.js";
 import { GATES } from "./lib/precommit-gates.js";
 import { runInProcess } from "./lib/run-in-process.js";
+import { NOTICES } from "./lib/shared-fault-notices.js";
 
 const SCRIPT = path.resolve(__dirname, "check-comment-policy.js");
 
@@ -237,6 +238,7 @@ describe("the pre-commit row", () => {
 	it("runs the checker under --against HEAD only while the module is on", async () => {
 		expect(row?.args).toEqual(["--against", "HEAD"]);
 		expect(row?.when).toEqual({ facts: ["module:comments"] });
+		expect(NOTICES["comment-policy"]?.facts).toEqual(["module:comments"]);
 		expect(await armed([])).toEqual({ code: 0, ran: [] });
 		expect(await armed(["comments"])).toEqual({
 			code: 1,
