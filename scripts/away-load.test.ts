@@ -44,6 +44,7 @@ function rig(name: string) {
 		calls: path.join(dir, "taskkill.calls"),
 		held: path.join(dir, "testlimit.args"),
 		workers: path.join(dir, "worker.pids"),
+		holders: path.join(dir, "holder.pids"),
 	};
 	const env = {
 		CLAUDE_PROJECT_DIR: tmp,
@@ -54,7 +55,7 @@ function rig(name: string) {
 		MEMWATCH_MINUTE_LOG: path.join(dir, "minute.jsonl"),
 		WFC_TESTLIMIT: fake(
 			"Testlimit64.exe",
-			`echo "$*" >> "${files.held}"; echo "Process ID: 4242"; exec sleep 600`,
+			`echo "$*" >> "${files.held}"; echo $$ >> "${files.holders}"; exec sleep 600`,
 		),
 		WFC_TASKKILL: fake("taskkill", `echo "$*" >> "${files.calls}"`),
 		WFC_SYSTEMCTL: fake("systemctl", `echo "$*" >> "${files.calls}"; exit 1`),
@@ -71,6 +72,16 @@ const events = (log: string) =>
 		.split("\n")
 		.filter(Boolean)
 		.map((l) => JSON.parse(l));
+
+const gone = (pid: number) => {
+	try {
+		process.kill(pid, 0);
+		return false;
+	} catch {
+		return true;
+	}
+};
+const pidsIn = (file: string) => read(file).trim().split("\n").map(Number);
 
 async function until(what: string, test: () => boolean) {
 	const deadline = Date.now() + WAIT_MS;
@@ -113,7 +124,9 @@ describe("run", () => {
 				`${epoch() + 1} 1100 1 2 60 100 3\n`,
 			);
 			/* The stop is logged, then the holders and workers ended. */
-			await until("the stop", () => read(files.calls).includes("/PID 4242 /F"));
+			await until("the stop", () =>
+				events(env.WFC_AWAY_LOAD_LOG).some((e) => e.event === "stop"),
+			);
 			expect(events(env.WFC_AWAY_LOAD_LOG).map((e) => e.event)).toEqual([
 				"start",
 				"hold",
@@ -125,19 +138,9 @@ describe("run", () => {
 				heldMb: 320,
 				workers: 4,
 			});
-			expect(read(files.calls)).toContain("/PID 4242 /F");
+			const pids = [...pidsIn(files.workers), ...pidsIn(files.holders)];
+			await until("the workers' and holders' end", () => pids.every(gone));
 			expect(read(files.calls)).toContain("/IM Testlimit64.exe /F");
-			const pids = read(files.workers).trim().split("\n").map(Number);
-			await until("the workers' end", () =>
-				pids.every((pid) => {
-					try {
-						process.kill(pid, 0);
-						return false;
-					} catch {
-						return true;
-					}
-				}),
-			);
 		} finally {
 			child.kill("SIGTERM");
 			await exited;
@@ -165,32 +168,30 @@ describe("run, by its readings", () => {
 		}
 	}
 
-	it("ends every holder where one's Windows pid never read", async () => {
-		const { dir, env, files } = rig("blind");
-		const testlimit = path.join(dir, "Testlimit64.exe");
-		fs.writeFileSync(testlimit, "#!/bin/sh\nexec sleep 600\n", { mode: 0o755 });
+	it("releases only the newest holders, about the shortfall", async () => {
+		const { env, files } = rig("release");
 		fs.writeFileSync(env.MEMWATCH_WIN_OUT, `${epoch()} 1100 1 2 60 100 900\n`);
-		let dipped = false;
-		await runUntil({ ...env, WFC_TESTLIMIT: testlimit }, "the release", () => {
-			const logged = events(env.WFC_AWAY_LOAD_LOG);
-			if (!dipped && logged.some((e) => e.event === "hold")) {
-				dipped = true;
+		let held: number[] = [];
+		let oldestKept = false;
+		await runUntil(env, "the release", () => {
+			if (held.length === 0 && pidsIn(files.holders).length === 3) {
+				held = pidsIn(files.holders);
 				fs.writeFileSync(
 					env.MEMWATCH_WIN_OUT,
-					`${epoch() + 1} 600 1 2 60 100 900\n`,
+					`${epoch() + 1} 700 1 2 60 100 900\n`,
 				);
 			}
-			return logged.some((e) => e.event === "release");
+			const released =
+				events(env.WFC_AWAY_LOAD_LOG).some((e) => e.event === "release") &&
+				gone(held[1]) &&
+				gone(held[2]);
+			if (released) oldestKept = !gone(held[0]);
+			return released;
 		});
 		expect(
 			events(env.WFC_AWAY_LOAD_LOG).find((e) => e.event === "release"),
-		).toMatchObject({
-			dropMb: 320,
-			heldMb: 0,
-			all: "a holder's Windows pid never read",
-			swept: null,
-		});
-		expect(read(files.calls)).toContain("/IM Testlimit64.exe /F");
+		).toMatchObject({ dropMb: 192, heldMb: 128 });
+		expect(oldestKept).toBe(true);
 	});
 
 	it("logs the gate met while it waits, and writes the end", async () => {
