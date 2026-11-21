@@ -86,6 +86,7 @@ const { writeFd } = require("./lib/write-fd.js");
 const fs = require("node:fs");
 const path = require("node:path");
 const { runCheck, errMessage, baselineOf } = require("./lib/check");
+const { readText: readFile } = require("./lib/file-read.js");
 const { requiredGroup } = require("./lib/regex-group");
 const { JS_COMMENT, LINE_START, headerOf } = require("./lib/script-header.js");
 const { isTestKind } = require("./lib/test-kind");
@@ -520,7 +521,6 @@ const SCRIPT_EXT = /\.[cm]?[jt]sx?$/;
  * A header line naming the unbuilt caller a module was built ahead of, and
  * that caller's ticket — `Unbuilt caller: app/reviews/page.tsx (#575)`. Its
  * exports are interface, not test-only (base §G6).
- * Detected by presence, like the comment escape.
  */
 const UNBUILT_CALLER = new RegExp(
 	String.raw`${LINE_START}${JS_COMMENT}\s*Unbuilt caller:.*#\d+`,
@@ -553,8 +553,7 @@ const BINARY_EXT =
 /** @typedef {{module: string, name: string, caller: string}} CallerRow */
 
 /**
- * Every §N7 export block, with each entry's name and whether the block's
- * header or the entry-point rule exempts it.
+ * Every §N7 export block.
  *
  * @param {{set: Set<string>}} tracked
  * @returns {ExportBlock[]}
@@ -872,18 +871,22 @@ function deadDetail(name, rel, tests) {
 }
 
 /**
- * The export-callers rows, or none where the file is absent.
+ * The export-callers rows, or none where the file is absent. One that will
+ * not read is BROKEN, since reading it as absent would report every name it
+ * keeps as dead.
  *
  * @param {(message: string) => never} broken
  * @returns {CallerRow[]}
  */
 function readCallerRows(broken) {
-	const text = readText(EXPORT_CALLERS);
-	if (text === null) return [];
+	const read = readFile(path.join(root(), EXPORT_CALLERS));
+	if (read.state === "absent") return [];
+	if (read.state === "unreadable")
+		broken(`${EXPORT_CALLERS} will not read: ${read.message}`);
 	/** @type {unknown} */
 	let rows;
 	try {
-		rows = JSON.parse(text);
+		rows = JSON.parse(read.data);
 	} catch (e) {
 		broken(`${EXPORT_CALLERS} is not JSON: ${errMessage(e)}`);
 	}
@@ -912,9 +915,10 @@ const isCallerRow = (row) =>
  * the name off the module.
  *
  * THE CALLER CHECK IS LOOSER THAN THE SCAN, DELIBERATELY. A row exists for a
- * caller the scan misses, so the caller is held only to spelling the name as
- * a token and the module's basename anywhere, in a tracked file that is no
- * test (§G6).
+ * caller the scan misses, so the caller is held only to spelling the name and
+ * the module's basename each as a whole word, in a tracked file that is no
+ * test (§G6) and does not define the name for itself, as the scan holds a
+ * consumer to.
  *
  * @param {CallerRow[]} rows
  * @param {ExportBlock[]} blocks
@@ -961,7 +965,12 @@ function callerRowFault(row, exported, consumers, tracked) {
 	const text =
 		tracked.set.has(caller) && !isTestKind(caller) ? readText(caller) : null;
 	const stem = path.basename(module).replace(SCRIPT_EXT, "");
-	if (text === null || !text.includes(stem) || !spellsToken(text, name))
+	if (
+		text === null ||
+		!hasWord(text, stem) ||
+		!hasToken(text, name) ||
+		definesOwn(text, name)
+	)
 		return `${caller} no longer reads ${name} off ${module} — make the name file-local, or name the caller that does`;
 	return null;
 }
@@ -970,8 +979,28 @@ function callerRowFault(row, exported, consumers, tracked) {
  * @param {string} text
  * @param {string} token
  */
-const spellsToken = (text, token) =>
+const hasToken = (text, token) =>
 	new Set(text.match(TOKEN_RE) ?? []).has(token);
+
+/**
+ * Whether `text` spells `word` with no `[\w-]` character either side, so `gh`
+ * is not found inside `ghost`.
+ * @param {string} text
+ * @param {string} word
+ */
+const hasWord = (text, word) =>
+	new RegExp(
+		`(?<![\\w-])${word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w-])`,
+	).test(text);
+
+/**
+ * Whether `text` binds `name` at top level without reading it off an object.
+ * @param {string} text
+ * @param {string} name
+ */
+const definesOwn = (text, name) =>
+	firstGroups(DEFINITION_RE, text).has(name) &&
+	!firstGroups(MEMBER_RE, text).has(name);
 
 /**
  * @typedef {object} Finding

@@ -705,7 +705,7 @@ describe("§N7 export blocks", () => {
 		});
 	});
 
-	it("exempts nothing for a comment directly above an entry (#5486)", () => {
+	it("exempts nothing for a comment directly above an entry", () => {
 		doc(docline);
 		track(
 			"scripts/thing.js",
@@ -790,13 +790,18 @@ describe("§N7 export blocks", () => {
 		expect(finding.pin).toBe("spare");
 	});
 
-	it("exempts nothing for a comment above a one-line block (#5486)", () => {
+	it("exempts nothing for a comment above a one-line block", () => {
 		doc(docline);
 		track(
 			"scripts/thing.js",
 			"function spare() {}\nspare();\n\n// Kept for check-later.js, which lands with #999.\nmodule.exports = { spare };\n",
 		);
-		expect(run().out).toContain("DEAD-EXPORT  scripts/thing.js  spare");
+		const r = run();
+		expect(r.status).toBe(0);
+		expect(r.out).toContain("DEAD-EXPORT  scripts/thing.js  spare");
+		expect(r.out).toContain(
+			"keep it with a {module, name, caller} row in docs/export-callers.json",
+		);
 	});
 
 	describe("the export-callers baseline (#5486)", () => {
@@ -812,6 +817,21 @@ describe("§N7 export blocks", () => {
 			name: "spare",
 			caller: "scripts/load.sh",
 		};
+		const stale =
+			"STALE-CALLER  docs/export-callers.json  scripts/thing.js spare <- scripts/load.sh";
+		const unread =
+			"scripts/load.sh no longer reads spare off scripts/thing.js — make the name file-local, or name the caller that does";
+		/** A WARN run reporting `detail` on the row, with its footer. */
+		const expectStale = (detail: string) => {
+			const r = run();
+			expect(r.status).toBe(0);
+			expect(r.out).toContain(stale);
+			expect(r.out).toContain(detail);
+			expect(r.out).toContain(
+				"Every STALE-CALLER is a row in docs/export-callers.json that keeps nothing",
+			);
+			expect(r.out).not.toContain("DEAD-EXPORT");
+		};
 		beforeEach(() => {
 			doc(docline);
 			track("scripts/thing.js", thing);
@@ -822,43 +842,52 @@ describe("§N7 export blocks", () => {
 			track("scripts/load.sh", missedCaller);
 			rows(row);
 			const r = run();
+			expect(r.status).toBe(0);
 			expect(r.out).not.toContain("DEAD-EXPORT");
 			expect(r.out).not.toContain("STALE-CALLER");
 		});
 
-		it("reports a row whose caller no longer spells the name or the module", () => {
-			for (const body of ["node scripts/load.js thing\n", "spare\n"]) {
+		it("reports a row whose caller no longer spells the name or the module as a whole word", () => {
+			for (const body of [
+				"node scripts/load.js thing\n",
+				"spare\n",
+				"node scripts/load.js things spare\n",
+			]) {
 				track("scripts/load.sh", body);
 				rows(row);
-				const r = run();
-				expect(r.status).toBe(0);
-				expect(r.out).toContain(
-					"STALE-CALLER  docs/export-callers.json  scripts/thing.js spare <- scripts/load.sh",
-				);
-				expect(r.out).toContain("scripts/load.sh no longer reads spare");
-				expect(r.out).not.toContain("DEAD-EXPORT");
+				expectStale(unread);
 			}
+		});
+
+		it("reports a row whose caller defines the name for itself", () => {
+			track("scripts/load.sh", "const spare = 1;\nthing\n");
+			rows(row);
+			expectStale(unread);
 		});
 
 		it("reports a row whose caller is gone, or is a test", () => {
 			rows(row);
-			expect(run().out).toContain("scripts/load.sh no longer reads spare");
+			expectStale(unread);
 			track("scripts/load.test.ts", missedCaller);
 			rows({ ...row, caller: "scripts/load.test.ts" });
-			expect(run().out).toContain("scripts/load.test.ts no longer reads spare");
+			const r = run();
+			expect(r.status).toBe(0);
+			expect(r.out).toContain("scripts/load.test.ts no longer reads spare");
 		});
 
 		it("reports a row for a name the module no longer exports", () => {
 			track("scripts/load.sh", "node scripts/load.js thing gone\n");
 			rows({ ...row, name: "gone" });
-			expect(run().out).toContain("scripts/thing.js exports no gone");
+			const r = run();
+			expect(r.status).toBe(0);
+			expect(r.out).toContain("scripts/thing.js exports no gone; drop the row");
 		});
 
 		it("reports a row the scan no longer needs, since it finds a consumer itself", () => {
 			track("scripts/load.sh", missedCaller);
 			track("scripts/real.js", 'require("./thing").spare();\n');
 			rows(row);
-			expect(run().out).toContain("the scan finds a consumer of spare itself");
+			expectStale("the scan finds a consumer of spare itself; drop the row");
 		});
 
 		it("carries the stale rows in --json", () => {
@@ -873,8 +902,19 @@ describe("§N7 export blocks", () => {
 				track(Callers, body);
 				const r = run();
 				expect(r.status).toBe(2);
-				expect(r.out).toContain(Callers);
+				expect(r.out).toContain(
+					body === "{"
+						? `${Callers} is not JSON`
+						: `${Callers} must be an array of {module, name, caller} rows`,
+				);
 			}
+		});
+
+		it("is BROKEN on a baseline that will not read, rather than reading it as absent", () => {
+			fs.mkdirSync(path.join(repo, Callers));
+			const r = run();
+			expect(r.status).toBe(2);
+			expect(r.out).toContain(`${Callers} will not read`);
 		});
 
 		it("scopes a stale row under --touching by its module, its caller or the baseline", () => {
@@ -884,7 +924,7 @@ describe("§N7 export blocks", () => {
 			const base = git("rev-parse", "HEAD").trim();
 			expect(run("--touching", base).out).not.toContain("STALE-CALLER");
 			track("scripts/load.sh", "node scripts/load.js thing\n");
-			expect(run("--touching", base).out).toContain("STALE-CALLER");
+			expect(run("--touching", base).out).toContain(stale);
 		});
 	});
 
