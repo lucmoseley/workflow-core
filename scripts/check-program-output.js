@@ -13,15 +13,12 @@
  * program emits as code is no write.
  * One is in scope where it calls `process.exit`, and a `report-*` directly
  * under scripts/ always, read with only its comments blanked. A site is any reach for `console`, `process.stdout.write`
- * or `process.stderr.write`, an alias included.
- *
- * THE OPT-OUT is a `console-kept: <why>` comment on the site's line or the line
- * above — §N6's terminal-only path, or a reach that is no write. A marker with
- * no word after it is no marker, and a `report-*` honours none.
+ * or `process.stderr.write`, an alias included. No comment exempts one: a
+ * terminal-only path writes through writeTerminal, which is no site.
  *
  * IMPLICIT:  on every commit staging a scripts/ or skill program, refuses any program in the tree that calls process.exit and writes past writeFd, naming the file, line, writeFd and its exemplar.
  * JUSTIFIED: fail-safe — process.exit drops what node still holds for a pipe, so the tail of a piped report is lost without a word.
- * DEFEAT:    the `console-kept: <why>` marker; --warn caps findings below the gating line; console reached through a destructure or `globalThis`, an exit reached through an alias, or, outside a report-*, a write inside a template's `${…}`.
+ * DEFEAT:    --warn caps findings below the gating line; console reached through a destructure or `globalThis`, an exit reached through an alias, or, outside a report-*, a write inside a template's `${…}`.
  */
 
 const {
@@ -39,10 +36,9 @@ const EXIT = /\bprocess\.exit\s*\(/;
  * console or a std stream, an alias or a bracket access, is matched bare. */
 const OUTPUT =
 	/\b(?:console\s*\.\s*\w+|process\.std(?:out|err)\.write)\s*\(|\bconsole\s*[.[]|\bprocess\.std(?:out|err)\.write\b/g;
-const KEPT = /console-kept:\s*\w/;
 
 const FIX =
-	"write through writeFd in scripts/lib/write-fd.js, as scripts/check-plugin-gap.js does, or on a path only a human runs at a terminal mark the site `console-kept: <why>` (§N6).";
+	"write through writeFd in scripts/lib/write-fd.js, as scripts/check-plugin-gap.js does, or, on a path only a human runs at a terminal, through writeTerminal from the same file (§N6).";
 
 /** @param {string} rel */
 const include = (rel) =>
@@ -62,7 +58,7 @@ const SPEC = heresySpec({
 				if (REPORT_PROGRAM.test(rel)) return parseMatchSites(program, OUTPUT);
 				const code = blankInert(program.source);
 				if (!EXIT.test(code)) return [];
-				return parseMatchSites({ ...program, code }, OUTPUT, KEPT);
+				return parseMatchSites({ ...program, code }, OUTPUT);
 			},
 			message: (rel, site) =>
 				`${rel}:${site.line} writes past writeFd before process.exit (\`${site.text}\`). Fix: ${FIX}`,

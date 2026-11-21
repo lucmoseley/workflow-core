@@ -74,14 +74,14 @@ describe("check-program-output", () => {
 			);
 	});
 
-	it("FAILs a report-* with no process.exit, one marked console-kept, a bare alias in a .cjs and a write in a template's placeholder", () => {
+	it("FAILs a report-* with no process.exit, one whose console call a comment explains, a bare alias in a .cjs and a write in a template's placeholder", () => {
 		program("scripts/report-a.js", 'console.log("x");\n');
 		program("scripts/report-c.cjs", "const w = process.stdout.write;\n");
 		// biome-ignore lint/suspicious/noTemplateCurlyInString: JS source under test, not a template
 		program("scripts/report-d.js", "const s = `${console.log(1)}`;\n");
 		program(
 			"scripts/report-b.js",
-			'// console-kept: terminal only\nconsole.log("x");\n',
+			'// only a human runs this, at a terminal\nconsole.log("x");\n',
 		);
 		const r = run();
 		expect(r.status).toBe(1);
@@ -110,12 +110,25 @@ describe("check-program-output", () => {
 		passes(1);
 	});
 
-	it("passes a site marked console-kept, on its line or the line above", () => {
+	it("passes a program writing through writeTerminal", () => {
 		program(
-			"scripts/kept.js",
-			`// console-kept: only a human runs --watch, at a terminal\nconsole.log("x");\nconsole.error("y"); // console-kept: same path\n${EXIT}`,
+			"scripts/watch.js",
+			`const { writeTerminal } = require("./lib/write-fd.js");\nwriteTerminal(1, "x\\n");\n${EXIT}`,
 		);
 		passes(1);
+	});
+
+	it("FAILs a console call a comment explains, on its line or the line above", () => {
+		program(
+			"scripts/kept.js",
+			`// only a human runs --watch, at a terminal\nconsole.log("x");\nconsole.error("y"); // same path\n${EXIT}`,
+		);
+		const r = run();
+		expect(r.status).toBe(1);
+		expect(r.out).toContain("FAIL: 2 write(s) past writeFd");
+		expect(r.out).toContain(
+			"scripts/kept.js:2 writes past writeFd before process.exit (`console.log(`). Fix: write through writeFd in scripts/lib/write-fd.js, as scripts/check-plugin-gap.js does, or, on a path only a human runs at a terminal, through writeTerminal from the same file",
+		);
 	});
 
 	it.each([
@@ -140,13 +153,10 @@ describe("check-program-output", () => {
 				`const s = "process.stdout.write(x)";\n${EXIT}`,
 		);
 		program("scripts/says.js", 'console.log("process.exit(1)");\n');
-		program(
-			"scripts/bare-marker.js",
-			`// console-kept:\nconsole.log("x");\n${EXIT}`,
-		);
+		program("scripts/writes.js", `console.log("x");\n${EXIT}`);
 		const r = run();
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("FAIL: 1 write(s) past writeFd");
-		expect(r.out).toContain("scripts/bare-marker.js:2 writes past writeFd");
+		expect(r.out).toContain("scripts/writes.js:1 writes past writeFd");
 	});
 });

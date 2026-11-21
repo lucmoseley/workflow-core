@@ -31,7 +31,7 @@
 		"scripts/lib/rule-text.sh": ["rule_text"],
 		"scripts/lib/run-in-process.js": ["runInProcess", "runInProcessAsync"],
 		"scripts/lib/test-ceiling.js": ["TEST_TIMEOUT_MS"],
-		"scripts/lib/write-fd.js": ["writeFd"],
+		"scripts/lib/write-fd.js": ["writeFd", "writeTerminal"],
 		"scripts/run-vitest.js": ["main"],
 		"scripts/vitest-inflight-reporter.ts": ["default"],
 		"scripts/vitest-pass-reporter.ts": ["default"],
