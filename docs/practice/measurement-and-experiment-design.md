@@ -50,3 +50,9 @@ Researched: 2026-11-10
 - On a shared, loaded host, time the two versions at the same moment rather than one after the other, and judge them by the paired ratio: both runs meet the same interference, which the pairing filters out. It gives a relative figure only, never an absolute time. Bulej, Horký and Tůma, "Initial Experiments with Duet Benchmarking" (ICPE 2019 companion) and "Duet Benchmarking: Improving Measurement Accuracy in the Cloud", arXiv 2001.05811 (ICPE 2020) [named expert]
 - The two concurrent runs contend with each other, CPU scheduling included, so alternate which starts first and keep each to the smallest unit compared. "Investigating the Impact of Isolation on Synchronized Benchmarks", arXiv 2511.03533 (2025) [named expert]
 - A defended window states the question, the baseline as k/N with its source, the target bound, the confidence, the method, the resulting n with its expected time at the observed rate, and the stopping rule. Full survey: #4926.
+
+## Synthetic stress
+
+- Synthetic stress may stand in for field load to reach a rare failure sooner only where it triggers the field's failure mechanism; stress past field levels can cause "extraneous failure modes that would never occur at use levels". Escobar and Meeker, "A Review of Accelerated Test Models", arXiv 0708.0369 [named expert]
+- A clean synthetic run counts as evidence only beside a control: the same load producing the failure with the fix off. Without one, a clean run says nothing about whether the load reaches the failure. Escobar and Meeker, arXiv 0708.0369; McKenney, "Why Ten Hours?", kernel.org [named expert]; stb-tester, "Preconditions" [unverified]
+- Size the run from the baseline rate as for a field window: a fix that only cuts the rate tenfold still passes a 10-hour clean run about 37% of the time. McKenney, "Why Ten Hours?" [named expert]
