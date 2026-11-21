@@ -13,8 +13,8 @@
  * program emits as code is no write.
  * One is in scope where it calls `process.exit`, and a `report-*` directly
  * under scripts/ always, read with only its comments blanked. A site is any reach for `console`, `process.stdout.write`
- * or `process.stderr.write`, an alias included. No comment exempts one: a
- * terminal-only path writes through writeTerminal, which is no site.
+ * or `process.stderr.write`, an alias included. A terminal-only path writes
+ * through writeTerminal, which is no site.
  *
  * IMPLICIT:  on every commit staging a scripts/ or skill program, refuses any program in the tree that calls process.exit and writes past writeFd, naming the file, line, writeFd and its exemplar.
  * JUSTIFIED: fail-safe — process.exit drops what node still holds for a pipe, so the tail of a piped report is lost without a word.

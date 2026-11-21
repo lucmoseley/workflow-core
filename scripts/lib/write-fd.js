@@ -9,6 +9,9 @@
  * a module the process loads makes it by touching process.stdout, as can a
  * non-node parent. A caller's fail-open catch then loses the text and the
  * exit code.
+ *
+ * writeTerminal is the same writer, named for a path only a person at a
+ * terminal reads (#5484).
  */
 
 const fs = require("node:fs");

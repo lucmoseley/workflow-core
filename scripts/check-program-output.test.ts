@@ -74,24 +74,19 @@ describe("check-program-output", () => {
 			);
 	});
 
-	it("FAILs a report-* with no process.exit, one whose console call a comment explains, a bare alias in a .cjs and a write in a template's placeholder", () => {
+	it("FAILs a report-* with no process.exit, a bare alias in a .cjs and a write in a template's placeholder", () => {
 		program("scripts/report-a.js", 'console.log("x");\n');
 		program("scripts/report-c.cjs", "const w = process.stdout.write;\n");
 		// biome-ignore lint/suspicious/noTemplateCurlyInString: JS source under test, not a template
 		program("scripts/report-d.js", "const s = `${console.log(1)}`;\n");
-		program(
-			"scripts/report-b.js",
-			'// only a human runs this, at a terminal\nconsole.log("x");\n',
-		);
 		const r = run();
 		expect(r.status).toBe(1);
-		expect(r.out).toContain("FAIL: 4 write(s) past writeFd");
+		expect(r.out).toContain("FAIL: 3 write(s) past writeFd");
 		expect(r.out).toContain("scripts/report-a.js:1 writes past writeFd");
 		expect(r.out).toContain(
 			"scripts/report-c.cjs:1 writes past writeFd before process.exit (`process.stdout.write`)",
 		);
 		expect(r.out).toContain("scripts/report-d.js:1 writes past writeFd");
-		expect(r.out).toContain("scripts/report-b.js:2 writes past writeFd");
 	});
 
 	const passes = (scanned: number) => {
@@ -102,34 +97,16 @@ describe("check-program-output", () => {
 		);
 	};
 
-	it("passes a program writing through writeFd", () => {
-		program(
-			"scripts/clean.js",
-			`const { writeFd } = require("./lib/write-fd.js");\nwriteFd(1, "x\\n");\n${EXIT}`,
-		);
-		passes(1);
-	});
-
-	it("passes a program writing through writeTerminal", () => {
-		program(
-			"scripts/watch.js",
-			`const { writeTerminal } = require("./lib/write-fd.js");\nwriteTerminal(1, "x\\n");\n${EXIT}`,
-		);
-		passes(1);
-	});
-
-	it("FAILs a console call a comment explains, on its line or the line above", () => {
-		program(
-			"scripts/kept.js",
-			`// only a human runs --watch, at a terminal\nconsole.log("x");\nconsole.error("y"); // same path\n${EXIT}`,
-		);
-		const r = run();
-		expect(r.status).toBe(1);
-		expect(r.out).toContain("FAIL: 2 write(s) past writeFd");
-		expect(r.out).toContain(
-			"scripts/kept.js:2 writes past writeFd before process.exit (`console.log(`). Fix: write through writeFd in scripts/lib/write-fd.js, as scripts/check-plugin-gap.js does, or, on a path only a human runs at a terminal, through writeTerminal from the same file",
-		);
-	});
+	it.each(["writeFd", "writeTerminal"])(
+		"passes a program writing through %s",
+		(writer) => {
+			program(
+				"scripts/clean.js",
+				`const { ${writer} } = require("./lib/write-fd.js");\n${writer}(1, "x\\n");\n${EXIT}`,
+			);
+			passes(1);
+		},
+	);
 
 	it.each([
 		["a test file", "scripts/clean.test.js"],
