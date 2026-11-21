@@ -285,7 +285,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		expect(r.stdout).toContain("real binary ran");
 	});
 
-	// spawn-kept: a timeout and a signal — the launch ceiling TERMs, then KILLs, the launch's process group
+	// A timeout and a signal: the launch ceiling TERMs, then KILLs, the launch's process group.
 	it("kills and reports a launch that hangs past the ceiling", () => {
 		// Answers the `/usage` probe normally and hangs only on the spawn, so the
 		// case exercises the launch ceiling rather than the 120s usage timeout.

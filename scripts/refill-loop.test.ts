@@ -23,6 +23,7 @@ import { writeClaudeStub } from "./lib/claude-stub";
 import { writeCostTable } from "./lib/cost-table-testkit";
 import { readText } from "./lib/file-read.js";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { withPanelSource } from "./lib/refill-commands.js";
 import { writeCheckout } from "./lib/refill-loop-fixture";
 import { runInProcessAsync } from "./lib/run-in-process.js";
@@ -856,13 +857,15 @@ describe("set (#3856)", () => {
 		return holder;
 	}
 	function spawnCommand(...argv: string[]) {
-		/* spawn-kept: the command waits on a lock this test frees, which an
-		 * in-process run would block it from freeing. */
-		const child = spawn(process.execPath, [SCRIPT, ...argv], {
-			cwd: dir,
-			env: commandEnv(),
-			stdio: "ignore",
-		});
+		const child = keptSpawn("concurrent").spawn(
+			process.execPath,
+			[SCRIPT, ...argv],
+			{
+				cwd: dir,
+				env: commandEnv(),
+				stdio: "ignore",
+			},
+		);
 		return new Promise<number | null>((resolve) => child.on("close", resolve));
 	}
 	/* A guess: long enough for a spawned command to reach the lock; a command

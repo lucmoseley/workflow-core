@@ -30,7 +30,6 @@
  *   swap A; moved to another plan seat A; onto a key A, its first overflow
  *   start A.
  */
-import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -46,6 +45,7 @@ import { ledgerPath, readOverflowLookup } from "./lib/dispatch-ledger.js";
 import { buildFiledLine } from "./lib/filed-line.js";
 import { readGhAnswer } from "./lib/gh-fake";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { HOLD_PROMPT, LIMIT_PROMPT, MOVED_PROMPT } from "./lib/loop-prompts.js";
 import { projectSlug } from "./lib/project-slug.js";
 import {
@@ -250,8 +250,7 @@ process.stdout.write(${JSON.stringify(`${buildFiledLine(Issue, `https://github.c
 	 * run is live. Live too to the panel: the run is in this process, which
 	 * status reads as no loop's (#3861). */
 	const readWaitingRow = async () => {
-		// spawn-kept: two processes at once — the run beside it holds the in-process runner.
-		const shown = execFileSync(
+		const shown = keptSpawn("concurrent").execFileSync(
 			process.execPath,
 			[path.join(scripts, "refill-loop.js"), "status", "--json"],
 			{ cwd: dir, env: loopEnv({}), encoding: "utf8" },

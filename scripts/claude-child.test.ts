@@ -5,9 +5,6 @@
  * harness's recorded options and logs it, its environment and its stdin
  * (#2040).
  *
- * spawn-kept: a real fd (§X3) — the script hands the child real fds —
- * its own stdout and stderr, and the prompt file as stdin.
- *
  * Each of the Chrome mode's ends (#4847, #5385) is a launch of its own, most
  * a third of a second, those waiting out the 1.5 s SIGKILL or a closer's 5 s
  * wait for a live child longer: clean, a close turn, its caps, the limit's
@@ -18,7 +15,7 @@
  * over its CI record.
  */
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { once } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
@@ -47,6 +44,7 @@ import {
 	readStreamEvents,
 	writeHeadlessFake,
 } from "./lib/headless-run-fake";
+import { keptSpawn } from "./lib/kept-spawn.js";
 
 const SCRIPT = path.resolve(__dirname, "claude-child.js");
 
@@ -96,7 +94,7 @@ const run = (
 	extra: Record<string, string> = {},
 	input?: string,
 ) =>
-	spawnSync(process.execPath, [SCRIPT, ...args], {
+	keptSpawn("fd").spawnSync(process.execPath, [SCRIPT, ...args], {
 		encoding: "utf8",
 		input,
 		env: runEnv(extra),
@@ -548,7 +546,7 @@ describe("chrome", () => {
 		fs.writeFileSync(wrap, `#!/bin/bash\necho "$*" >> ${trapLog}\n`, {
 			mode: 0o755,
 		});
-		const launcher = spawn(
+		const launcher = keptSpawn("fd").spawn(
 			process.execPath,
 			[
 				SCRIPT,

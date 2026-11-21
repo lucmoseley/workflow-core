@@ -9,12 +9,12 @@
  * a module read alone against the run importing it.
  */
 
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { keptSpawn } from "./kept-spawn.js";
 
 const require = createRequire(import.meta.url);
 const { readRunReach } = require("./code-edges.js");
@@ -1097,9 +1097,7 @@ describe("a shell script's loads", () => {
 			probe,
 			`const { fileReach } = require(${JSON.stringify(require.resolve("./file-reach.js"))});\nprocess.stdout.write(JSON.stringify(fileReach("/x/s/a.sh", "python3 -c 'import sys'\\n", () => {}, null).edges));\n`,
 		);
-		/* spawn-kept: python3's version is read once per process, so a walk
-		 * with no python3 on PATH needs a process that never read it. */
-		const r = spawnSync(process.execPath, [probe], {
+		const r = keptSpawn("boundary").spawnSync(process.execPath, [probe], {
 			encoding: "utf8",
 			env: { PATH: root },
 		});

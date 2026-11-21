@@ -8,12 +8,13 @@
  * lands, or a killed run's worktree stays registered in the repository.
  */
 
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFileSync, type spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { emptyDataFile } from "./lib/doc-map-testkit";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import {
 	newRepo,
 	registerTempCleanup,
@@ -348,16 +349,19 @@ describe("check-doc-map.js's pointer-count fault, sha vs parent", () => {
 		 */
 		async function killMidWorktree(ref: string, root: string) {
 			for (let attempt = 0; attempt < 8; attempt++) {
-				// spawn-kept: a signal — the run is SIGKILLed mid-worktree.
-				const child = spawn(process.execPath, [SCRIPT, ref], {
-					cwd: root,
-					env: {
-						...process.env,
-						CLAUDE_PROJECT_DIR: root,
-						[CHECKERS_ENV]: "{}",
+				const child = keptSpawn("signal").spawn(
+					process.execPath,
+					[SCRIPT, ref],
+					{
+						cwd: root,
+						env: {
+							...process.env,
+							CLAUDE_PROJECT_DIR: root,
+							[CHECKERS_ENV]: "{}",
+						},
+						stdio: "ignore",
 					},
-					stdio: "ignore",
-				});
+				);
 				const pid = child.pid as number;
 				const killed = await killOnceWorktreeExists(child, pid);
 				await new Promise((r) => child.on("exit", r));

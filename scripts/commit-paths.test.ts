@@ -9,23 +9,19 @@
  *
  * Every refusal also asserts the index is untouched.
  *
- * spawn-kept: one case asserts the process boundary — module resolution must
- * start from a tree with no node_modules above it and no NODE_PATH — and the
- * claim-release cases run the real .husky/post-commit as git fires it, mid
- * commit, while the index still holds what the commit replaced (#3565).
- *
  * It is the commit route `CLAUDE.md`'s pathspec rule and
  * the guard-commit-form core send every session down: loosen a case and a
  * commit sweeps in work it was not handed, or leaves a new file behind.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshSandbox, live, store } from "./lib/arbiter-testkit";
 import { readText } from "./lib/file-read.js";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { installLib } from "./lib/lib-install-testkit";
 import { plantSequencer, ROOT } from "./lib/precommit-gate-testkit";
 import { reviewTierStamp } from "./lib/review-tier-stamp.js";
@@ -950,7 +946,7 @@ describe("an adopter's plugin copy", () => {
 
 		write("a.md", "edited\n");
 		const { NODE_PATH: _, ...env } = process.env;
-		const r = spawnSync(
+		const r = keptSpawn("boundary").spawnSync(
 			"node",
 			[path.join(plugin, "commit-paths.js"), "-m", "plugin", "--", "a.md"],
 			{ cwd: sb.repo, env, encoding: "utf8" },

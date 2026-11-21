@@ -48,6 +48,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { shellQuote } from "./lib/sh-quote.js";
 import { isApparatus } from "./lib/suite-apparatus.js";
 import { isJsExt } from "./lib/test-kind.js";
@@ -374,14 +375,16 @@ describe("every rooted script, loaded from the cache against the host", () => {
 			tmp,
 			`probe-${path.relative(cache, script).replace(/\W/g, "_")}.json`,
 		);
-		/* spawn-kept: a timeout — the probe patches `fs` and `child_process` for
-		 * its whole process and loads any rooted script, one of which may never exit. */
-		const r = spawnSync(process.execPath, [probe, script, record], {
-			cwd: host,
-			env: hostEnv({ CLAUDE_CONFIG_DIR: path.join(tmp, "config") }),
-			encoding: "utf8",
-			timeout: 20_000,
-		});
+		const r = keptSpawn("timeout").spawnSync(
+			process.execPath,
+			[probe, script, record],
+			{
+				cwd: host,
+				env: hostEnv({ CLAUDE_CONFIG_DIR: path.join(tmp, "config") }),
+				encoding: "utf8",
+				timeout: 20_000,
+			},
+		);
 		expect(
 			fs.existsSync(record),
 			`${script} left no probe record; it exited ${r.status}: ${r.stderr}`,

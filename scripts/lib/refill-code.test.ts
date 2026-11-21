@@ -27,17 +27,13 @@
  * sweep's children, or a boot starts from a working copy mid-edit or a link
  * left dangling.
  */
-import {
-	type ChildProcess,
-	execFileSync,
-	spawn,
-	spawnSync,
-} from "node:child_process";
+import { type ChildProcess, execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { copyLibs, readProgramLibs } from "../lib-closure-fixture.js";
+import { keptSpawn } from "./kept-spawn.js";
 import { SHA_SHOWN } from "./pinned-code.js";
 import { makeProcRoot, writeCwd } from "./proc-fake";
 import {
@@ -158,11 +154,14 @@ async function startLoop(env: Record<string, string> = {}) {
 		codeDir,
 	});
 	if ("error" in launch) throw new Error(launch.error);
-	// spawn-kept: a long-running loop that re-execs under its pid while the test runs beside it
-	loopProc = spawn(process.execPath, [launch.program, "run"], {
-		env: { ...gitEnv, FIXTURE_DIR: dir, ...env },
-		stdio: "ignore",
-	});
+	loopProc = keptSpawn("concurrent").spawn(
+		process.execPath,
+		[launch.program, "run"],
+		{
+			env: { ...gitEnv, FIXTURE_DIR: dir, ...env },
+			stdio: "ignore",
+		},
+	);
 	await until(() => readTicks().length > 0, "the first tick");
 	return launch.program;
 }
@@ -224,8 +223,7 @@ describe("launchProgram", () => {
 		expect(fs.existsSync(first)).toBe(false);
 		expect(ino(second)).toBe(firstIno);
 		expect(git(second, "status", "--porcelain", "--ignored")).toBe("");
-		// spawn-kept: a lander an older image started, running from its tree
-		const holder = spawn(
+		const holder = keptSpawn("concurrent").spawn(
 			process.execPath,
 			["-e", "setInterval(() => {}, 1000)"],
 			{
@@ -381,8 +379,7 @@ describe("control commands from a stale checkout (#4337)", () => {
 	}
 
 	const fromStale = (...argv: string[]) =>
-		// spawn-kept: the hand-off's child inherits fd 1 and 2, which an in-process run does not capture
-		spawnSync(
+		keptSpawn("fd").spawnSync(
 			process.execPath,
 			[path.join(main, "scripts", "refill-loop.js"), ...argv],
 			{
@@ -423,8 +420,7 @@ describe("control commands from a stale checkout (#4337)", () => {
 			if ("error" in launch) throw new Error(launch.error);
 			return launch.program;
 		});
-		// spawn-kept: an idle process whose command line names the pinned program, the lock's holder
-		loopProc = spawn(
+		loopProc = keptSpawn("concurrent").spawn(
 			process.execPath,
 			["-e", "setInterval(() => {}, 1000)", pinned],
 			{ stdio: "ignore" },
@@ -560,10 +556,13 @@ describe("the boot link (#3891)", () => {
 		fs.mkdirSync(idle, { recursive: true });
 		const lander = path.join(held, "scripts", "queue-lander.js");
 		fs.writeFileSync(lander, "setInterval(() => {}, 1000);\n");
-		// spawn-kept: a lander an older image started, running beside the loop
-		const holder = spawn(process.execPath, [lander, "run"], {
-			stdio: "ignore",
-		});
+		const holder = keptSpawn("concurrent").spawn(
+			process.execPath,
+			[lander, "run"],
+			{
+				stdio: "ignore",
+			},
+		);
 		try {
 			await startLoop();
 			await moreTicks(2);
@@ -605,11 +604,14 @@ describe("the boot link (#3891)", () => {
 			recursive: true,
 		});
 		fs.rmSync(path.join(dir, "log"));
-		// spawn-kept: the loop restarted from its unregistered worktree
-		loopProc = spawn(process.execPath, [program, "run"], {
-			env: { ...gitEnv, FIXTURE_DIR: dir },
-			stdio: "ignore",
-		});
+		loopProc = keptSpawn("concurrent").spawn(
+			process.execPath,
+			[program, "run"],
+			{
+				env: { ...gitEnv, FIXTURE_DIR: dir },
+				stdio: "ignore",
+			},
+		);
 		await until(() => readTicks().length > 0, "the first tick");
 		expect(readLogLines()[0]).toMatch(
 			new RegExp(
@@ -646,8 +648,7 @@ describe("the boot link (#3891)", () => {
 		const worktree = path.join(codeDir, "named");
 		fs.mkdirSync(worktree, { recursive: true });
 		fs.symlinkSync(worktree, link());
-		// spawn-kept: the loop's image in the checkout itself, ticking beside the test
-		loopProc = spawn(
+		loopProc = keptSpawn("concurrent").spawn(
 			process.execPath,
 			[path.join(scriptsDir(), "refill-loop.js"), "run"],
 			{ env: { ...gitEnv, FIXTURE_DIR: dir }, stdio: "ignore" },
@@ -687,12 +688,15 @@ describe("the boot link (#3891)", () => {
 			path.join(main, "scripts/refill-loop.js"),
 			"\nthis is not javascript (\n",
 		);
-		// spawn-kept: the boot resume outlives its call in a detached loop, and node resolving the symlinked program is what is under test
-		const r = spawnSync(process.execPath, [boot.program, "boot-resume"], {
-			cwd: dir,
-			env,
-			encoding: "utf8",
-		});
+		const r = keptSpawn("concurrent").spawnSync(
+			process.execPath,
+			[boot.program, "boot-resume"],
+			{
+				cwd: dir,
+				env,
+				encoding: "utf8",
+			},
+		);
 		expect(r.status, r.stderr).toBe(0);
 		const pid = Number(/resumed .*, pid (\d+)/.exec(r.stdout)?.[1]);
 		expect(pid, r.stdout).toBeGreaterThan(0);

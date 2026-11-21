@@ -73,7 +73,7 @@ function runHook(name: string, body: string, prelude = "") {
 		hook,
 		`#!/usr/bin/env sh\nset -e\n${prelude}${SOURCE_LINE}\n${body}\n`,
 	);
-	// spawn-kept: a timeout — the library's limit kills a real process group
+	// A timeout: the library's limit kills a real process group.
 	return spawnSync("sh", ["-e", hook], {
 		encoding: "utf8",
 		env: boundEnv(ROOT),
@@ -138,7 +138,7 @@ describe("a checker that never returns (#4187)", () => {
 		const env: NodeJS.ProcessEnv = boundEnv(plugin);
 		delete env.CLAUDE_CODE_SESSION_ID;
 		delete env.CLAUDE_PROJECT_DIR;
-		// spawn-kept: a timeout — the library's limit kills a real process group
+		// A timeout: the library's limit kills a real process group.
 		const r = spawnSync("sh", [path.join(ROOT, ".husky", "post-commit")], {
 			cwd: repo,
 			encoding: "utf8",
@@ -208,7 +208,7 @@ describe("prepare-commit-msg's steps (#5213)", () => {
 		};
 		delete env.CLAUDE_CODE_SESSION_ID;
 		delete env.CLAUDE_PROJECT_DIR;
-		// spawn-kept: a timeout — the library's limit kills a real process group
+		// A timeout: the library's limit kills a real process group.
 		return spawnSync("sh", [path.join(husky, "prepare-commit-msg"), file], {
 			cwd: repo,
 			encoding: "utf8",

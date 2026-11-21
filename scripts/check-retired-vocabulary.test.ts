@@ -13,11 +13,12 @@
  * of a settled claim, findable only by its old wording, stays live unflagged.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-retired-vocabulary.js");
@@ -131,8 +132,7 @@ const shape = (r: {
 
 const checkWithin = (timeout: number, ...args: string[]) =>
 	shape(
-		// spawn-kept: a timeout — a hung scan must be killed, which in-process cannot do.
-		spawnSync("node", [SCRIPT, ...args], {
+		keptSpawn("timeout").spawnSync("node", [SCRIPT, ...args], {
 			cwd: repo,
 			encoding: "utf8",
 			timeout,

@@ -19,8 +19,6 @@
  * that is correct and never invoked (`docs/agents/guard-authoring.md` §The
  * proving discipline).
  *
- * spawn-kept: each case that fires the hook spawns git to fire the real hook.
- *
  * Past 2.5x its CI record (base §X8 (5)): 17 cases each fire the real hook
  * through a real git apply, at 0.3–0.8 s apiece (#5208).
  */

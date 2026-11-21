@@ -636,7 +636,7 @@ const GATES = [
 	},
 	/*
 	 * A test spawning node on the program under test rather than running it
-	 * through runInProcess, with no `spawn-kept: <why>` (§X3, #3458). One spawn
+	 * through runInProcess, nor through keptSpawn (§X3, #3458, #5483). One spawn
 	 * per finding, at its call's first line and occurrence, never its line
 	 * number.
 	 */

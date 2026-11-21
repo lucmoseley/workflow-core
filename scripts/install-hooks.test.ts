@@ -10,10 +10,6 @@
  * neighbour's half-written edit does.
  *
  * Loosen it and a neighbour's stale hook judges every worktree's commit again.
- *
- * spawn-kept: husky's bin.js, which the fixture runs, is an ES module, and
- * node's ESM cache evaluates it once per process, so in-process it would
- * run on the first case only.
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -21,6 +17,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { OWN_LOOKUP } from "./lib/husky-shim.js";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 
@@ -97,7 +94,10 @@ beforeEach(() => {
 	git(shared, "-c", "core.hooksPath=/dev/null", "commit", "-q", "-m", "seed");
 	git(shared, "push", "-q", "--no-verify", "origin", "main");
 
-	execFileSync(process.execPath, [HUSKY], { cwd: shared, env: env() });
+	keptSpawn("boundary").execFileSync(process.execPath, [HUSKY], {
+		cwd: shared,
+		env: env(),
+	});
 	expect(install(shared).status).toBe(0);
 	git(shared, "worktree", "add", "-q", "--detach", wt);
 });
@@ -220,12 +220,18 @@ describe("install-hooks.js", () => {
 	});
 
 	it("patches a stock shim husky copied read-only, leaving it writable for husky's next copy (#4372)", () => {
-		execFileSync(process.execPath, [HUSKY], { cwd: shared, env: env() });
+		keptSpawn("boundary").execFileSync(process.execPath, [HUSKY], {
+			cwd: shared,
+			env: env(),
+		});
 		fs.chmodSync(shim(), 0o444);
 		expect(install(shared).status).toBe(0);
 		expect(fs.readFileSync(shim(), "utf8")).toContain(OWN_LOOKUP);
 		expect(fs.statSync(shim()).mode & 0o200).toBe(0o200);
-		execFileSync(process.execPath, [HUSKY], { cwd: shared, env: env() });
+		keptSpawn("boundary").execFileSync(process.execPath, [HUSKY], {
+			cwd: shared,
+			env: env(),
+		});
 	});
 
 	it("exits 2 naming the shim, leaving it untouched, where husky's lookup line is gone", () => {

@@ -26,7 +26,7 @@
  * accepted is dropped, or one runs under a live neighbour or against a declined
  * tag.
  */
-import { execFileSync, execSync } from "node:child_process";
+import { execSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -36,6 +36,7 @@ import {
 	readPendingConsent,
 	setPendingConsent,
 } from "./lib/adopter-consent.js";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { writePsStub } from "./lib/ps-stub";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -304,12 +305,14 @@ describe("reconcile-plugin.js --session-end (#247)", () => {
 		const out = path.join(at.tmp, "stdout.log");
 		const fd = fs.openSync(out, "a");
 		try {
-			/* spawn-kept: a real fd — the run's stdout and the stub's log share
-			 * one file, so the order they land in is the order they happened. */
-			execFileSync(process.execPath, [SCRIPT, "--session-end"], {
-				stdio: ["ignore", fd, "pipe"],
-				env: sessionEnv(at, { WFC_CLAUDE_BIN: claudeStub(at, { log: out }) }),
-			});
+			keptSpawn("fd").execFileSync(
+				process.execPath,
+				[SCRIPT, "--session-end"],
+				{
+					stdio: ["ignore", fd, "pipe"],
+					env: sessionEnv(at, { WFC_CLAUDE_BIN: claudeStub(at, { log: out }) }),
+				},
+			);
 		} finally {
 			fs.closeSync(fd);
 		}

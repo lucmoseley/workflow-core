@@ -11,13 +11,13 @@
  * corpus, or a rationed week goes unreported before a cut to the agent bill.
  */
 
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hookIsWired, registrationsOf } from "./lib/hook-wiring";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { writeSystemdRun } from "./lib/systemd-run-fake";
 
@@ -313,10 +313,11 @@ describe("--notify", () => {
 			{ length: 6 },
 			() =>
 				new Promise((resolve) =>
-					// spawn-kept: two processes running at once — the six starts must overlap.
-					spawn(process.execPath, [SCRIPT, "--notify"], {
-						env: runEnv(),
-					}).on("exit", resolve),
+					keptSpawn("concurrent")
+						.spawn(process.execPath, [SCRIPT, "--notify"], {
+							env: runEnv(),
+						})
+						.on("exit", resolve),
 				),
 		);
 		await Promise.all(starts);

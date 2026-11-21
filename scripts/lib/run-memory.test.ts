@@ -6,11 +6,12 @@
  * checked against what runs draw.
  */
 
-import { type ChildProcess, spawn } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { keptSpawn } from "./kept-spawn.js";
 
 const memory = require("./run-memory.js");
 
@@ -53,12 +54,14 @@ async function startTree(): Promise<{
 }> {
 	const script = path.join(dir, "stand-in.js");
 	fs.writeFileSync(script, STAND_IN);
-	/* spawn-kept: three processes at once, a main and its two forked
-	 * workers, whose pids and RSS the sampler reads off the real /proc. */
-	main = spawn(process.execPath, [script, "4", "main"], {
-		stdio: ["ignore", "pipe", "inherit"],
-		detached: true,
-	});
+	main = keptSpawn("concurrent").spawn(
+		process.execPath,
+		[script, "4", "main"],
+		{
+			stdio: ["ignore", "pipe", "inherit"],
+			detached: true,
+		},
+	);
 	const line = await new Promise<string>((resolve, reject) => {
 		main?.stdout?.once("data", (b: Buffer) => resolve(b.toString()));
 		main?.once("exit", () => reject(new Error("stand-in exited")));

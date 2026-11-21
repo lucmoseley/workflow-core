@@ -5,9 +5,6 @@
  *
  * Breaking it costs every after-commit notice, release and record at once:
  * the hook's one line runs them all.
- *
- * spawn-kept: the boundary cases commit in a temp repo so git itself fires
- * the real hook, which is the process boundary under test.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";

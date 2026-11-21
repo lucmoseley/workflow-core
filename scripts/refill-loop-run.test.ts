@@ -50,7 +50,7 @@
  *   (#3870): the lock held by another writer S. Waits (#3859): pauses on no
  *   progress, resumed by `set --resume` A S.
  */
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
@@ -67,6 +67,7 @@ import { writeCostTable } from "./lib/cost-table-testkit";
 import { ledgerPath, record as recordDispatch } from "./lib/dispatch-ledger.js";
 import { printed, stubGhRoutes } from "./lib/gh-stub";
 import { writeHeadlessRun } from "./lib/headless-runs-testkit";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { parkedPromptOf } from "./lib/loop-prompts.js";
 import { REAL_PROC } from "./lib/proc-root.js";
 import { killGroup, startOrphan } from "./lib/process-fixture";
@@ -127,8 +128,7 @@ const PARKED_PROMPT = parkedPromptOf(undefined);
  * holder's own command line, so an in-process run reads as no process and the
  * resume starts a second, detached loop (#3943). */
 const runAsProcess = (slots: number) => {
-	// spawn-kept: two processes at once, and pid-lock reads the holder's command line.
-	const child = spawn(
+	const child = keptSpawn("concurrent").spawn(
 		process.execPath,
 		[path.join(scripts, "refill-loop.js"), "run"],
 		{
@@ -254,8 +254,7 @@ describe("run (#2435)", () => {
 printf '%s\\n' "$*" >> ${shellQuote(at("dispatches"))}
 kill -9 $PPID\n`,
 		);
-		/* spawn-kept: the kill needs a loop of its own process to land on. */
-		const killed = spawn(
+		const killed = keptSpawn("signal").spawn(
 			process.execPath,
 			[path.join(scripts, "refill-loop.js"), "run"],
 			{ cwd: dir, env: loopEnv({ FAKE_SLOTS: "1" }), stdio: "ignore" },
@@ -441,23 +440,27 @@ process.stdout.write("filed #900");\n`,
 				label: "morning review",
 				today: "2026-11-02",
 			});
-			/* spawn-kept: two processes at once, and pid-lock reads the holder's
-			 * command line for the runner's name. */
-			const first = spawn(process.execPath, [runner, start], {
-				env: loopEnv({}),
-				detached: true,
-				stdio: "ignore",
-			});
+			const first = keptSpawn("concurrent").spawn(
+				process.execPath,
+				[runner, start],
+				{
+					env: loopEnv({}),
+					detached: true,
+					stdio: "ignore",
+				},
+			);
 			first.unref();
 			await appeared(at("reviews"));
 
-			/* spawn-kept: the holder above must be another live process. Without
-			 * the limb it joins the held filing, and SETTLE_MS ends it as a failure. */
-			const second = spawnSync(process.execPath, [runner, start], {
-				encoding: "utf8",
-				env: loopEnv({}),
-				timeout: SETTLE_MS,
-			});
+			const second = keptSpawn("concurrent").spawnSync(
+				process.execPath,
+				[runner, start],
+				{
+					encoding: "utf8",
+					env: loopEnv({}),
+					timeout: SETTLE_MS,
+				},
+			);
 			expect(second.status).toBe(0);
 			expect(second.stdout + second.stderr).toBe("");
 			expect(readLines(at("reviews"))).toEqual(["file-morning-review.js"]);
@@ -1511,8 +1514,7 @@ describe("a paused loop on the real tick (#3856)", () => {
 	const ticksDone = () =>
 		polled(() => fs.existsSync(stateFile()), "no paused tick wrote its state");
 	const setCommand = (flag: string) =>
-		/* spawn-kept: two processes at once, as requestStop's. */
-		spawnSync(
+		keptSpawn("concurrent").spawnSync(
 			process.execPath,
 			[path.join(scripts, "refill-loop.js"), "set", flag],
 			{ cwd: dir, env: loopEnv({}), encoding: "utf8" },
@@ -1657,8 +1659,7 @@ describe("the loop's own waits on the real tick (#3859)", () => {
 	const wake = () => fs.writeFileSync(at(".refill-loop-wake"), "");
 	const statusJson = () =>
 		JSON.parse(
-			/* spawn-kept: the loop holds runInProcess's claim. */
-			spawnSync(
+			keptSpawn("concurrent").spawnSync(
 				process.execPath,
 				[path.join(scripts, "refill-loop.js"), "status", "--json"],
 				{ cwd: dir, env: loopEnv({}), encoding: "utf8" },
@@ -1691,8 +1692,7 @@ describe("the loop's own waits on the real tick (#3859)", () => {
 		expect(control().repoPaused[repo].at).toBe(pausedAt);
 		expect(statusJson().repoPaused[repo].by).toBe("no-progress");
 
-		// spawn-kept: the loop holds the pidfile the command reads.
-		const resumed = spawnSync(
+		const resumed = keptSpawn("concurrent").spawnSync(
 			process.execPath,
 			[path.join(scripts, "refill-loop.js"), "set", "--resume"],
 			{ cwd: dir, env: loopEnv({}), encoding: "utf8" },

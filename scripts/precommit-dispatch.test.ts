@@ -12,8 +12,6 @@
  *
  * Breaking it costs the hook's own contract: a dispatcher whose exit the
  * hook drops lets every red gate's commit through.
- *
- * spawn-kept: the hook line is a real `sh` running a real Node process.
  */
 
 import { spawn, spawnSync } from "node:child_process";
@@ -197,7 +195,7 @@ async function hookSignalled(id: string, signal: NodeJS.Signals) {
 	const { root, log, args, options } = hookCall(SCRIPT, {
 		act: `${id}:scratch`,
 	});
-	// spawn-kept: a signal, sent to the hook's process group mid-row
+	// A signal, sent to the hook's process group mid-row.
 	const sh = spawn("sh", args, {
 		...options,
 		detached: true,

@@ -18,6 +18,7 @@ import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { promisify } from "node:util";
 import { afterAll, describe, expect, it, vi } from "vitest";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
 import { writeCgroupRoot } from "./lib/sched-clock-fake";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -676,8 +677,9 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 		fs.mkdirSync(bin, { recursive: true });
 		const tsc = path.join(bin, "tsc");
 		fs.writeFileSync(tsc, "setTimeout(() => {}, 30_000);\n");
-		// spawn-kept: two processes at once — a live tsc for the watcher to count
-		const child = spawn(process.execPath, [tsc], { stdio: "ignore" });
+		const child = keptSpawn("concurrent").spawn(process.execPath, [tsc], {
+			stdio: "ignore",
+		});
 		try {
 			await setTimeout(300);
 			const { lines } = await quietPass("minute-tsc");

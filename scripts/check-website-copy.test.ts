@@ -13,11 +13,12 @@
  * live site, where Vercel deploys every push to `main`.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-website-copy.js");
@@ -47,9 +48,10 @@ const check = (...args: string[]) => {
 	};
 	let r: { status: number | null; stdout: string; stderr: string };
 	if (args.includes("--against")) {
-		/* spawn-kept: a real fd — under --against the script re-execs itself
-		 * with stderr inherited, which writes past the in-process capture. */
-		r = spawnSync("node", [SCRIPT, ...args], { ...options, encoding: "utf8" });
+		r = keptSpawn("fd").spawnSync("node", [SCRIPT, ...args], {
+			...options,
+			encoding: "utf8",
+		});
 	} else r = runInProcess(SCRIPT, args, options);
 	return {
 		status: r.status ?? -1,

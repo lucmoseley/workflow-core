@@ -8,17 +8,17 @@
  * a reduction that loads a large log whole.
  *
  * Every case runs in-process (scripts/lib/run-in-process.js, §X3) except the
- * memory bound. spawn-kept: a process's peak RSS, under node's heap flags and
- * a preload, is a property of a fresh node of its own. That case also measures a
+ * memory bound. That case also measures a
  * whole-file read of the same log, so the bound is shown to separate streaming
  * from loading rather than merely to pass.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { API_PROMPT, IDLE_PROMPT, scriptPrompt } from "./lib/loop-prompts.js";
 import { runInProcess } from "./lib/run-in-process";
 import { buildBashCall } from "./lib/transcript-testkit";
@@ -1039,7 +1039,7 @@ describe("memory bound", () => {
 		};
 		/* So the heap flags below are the only ones in force. */
 		delete env.NODE_OPTIONS;
-		const r = spawnSync(
+		const r = keptSpawn("boundary").spawnSync(
 			process.execPath,
 			[
 				"--max-old-space-size=24",

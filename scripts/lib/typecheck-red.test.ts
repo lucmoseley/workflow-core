@@ -14,12 +14,13 @@
  * checkout's store.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { runCore, splitCheckout } from "./guard-core-testkit";
+import { keptSpawn } from "./kept-spawn.js";
 import { recordRed, takeRed } from "./typecheck-red-host.js";
 
 const SID = "11111111-2222-3333-4444-555555555555";
@@ -126,8 +127,7 @@ describe("a Bash answer to a session in its own worktree (#4242)", () => {
 describe("the recorder", () => {
 	it("says a record that did not land, and exits 0", () => {
 		fs.writeFileSync(path.join(root, ".claude"), "a file in the way");
-		// spawn-kept: a real fd, as the recorder reads the hook's pipe on stdin.
-		const r = spawnSync("node", [RECORDER, "--", COMMAND], {
+		const r = keptSpawn("fd").spawnSync("node", [RECORDER, "--", COMMAND], {
 			cwd: root,
 			input: "e",
 			env: {

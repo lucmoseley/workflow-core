@@ -66,6 +66,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { keptSpawn } from "../../../../scripts/lib/kept-spawn.js";
 import { runInProcess } from "../../../../scripts/lib/run-in-process.js";
 
 const TENURE = path.resolve(__dirname, "tenure.js");
@@ -890,8 +891,7 @@ describe("a lookup that never ends (#5311)", () => {
 	 * 30 s cap is far past every clock a case sets, so a run that ignored them
 	 * reads `code: null`, not a pass. */
 	const spawned = (env: Record<string, string>, ...args: string[]) => {
-		// spawn-kept: two processes at once and a timeout (§X3).
-		const r = spawnSync("node", [TENURE, ...args], {
+		const r = keptSpawn("concurrent").spawnSync("node", [TENURE, ...args], {
 			cwd: repo,
 			encoding: "utf8",
 			env: { ...process.env, WFC_GH: ghStub, ...env },
