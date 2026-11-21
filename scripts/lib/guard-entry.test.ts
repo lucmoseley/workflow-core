@@ -665,10 +665,20 @@ describe("a store fault refuses the call, as JSON on exit 0 (mantahostels#1762)"
 		const r = call(inject("huge"));
 		expect(r.out.permissionDecision).toBe("deny");
 		expect(r.out.permissionDecisionReason).toContain(
-			`"huge" is ${RULE_CAP + 1} bytes, over the ${RULE_CAP}-byte emission ceiling`,
+			`"huge" resolves to ${RULE_CAP + 1} bytes, all of them ${path.join(store, "huge.txt")}'s own, over the ${RULE_CAP}-byte emission ceiling`,
 		);
 		expect(readGuardErrorsLog(config)).toMatch(
 			/guard-fixture\.js\trule fragment over the emission ceiling — refusing: huge/,
+		);
+	});
+
+	it("names the bytes an include adds to a fragment its own file keeps under the cap (#5439)", () => {
+		fragment("part", RULE_CAP - 2);
+		fs.writeFileSync(path.join(store, "whole.txt"), "lead {rule:part}");
+		const r = call(inject("whole"));
+		expect(r.out.permissionDecision).toBe("deny");
+		expect(r.out.permissionDecisionReason).toContain(
+			`"whole" resolves to ${RULE_CAP + 3} bytes, 16 of them ${path.join(store, "whole.txt")}'s own and ${RULE_CAP - 13} added by its {rule:} includes`,
 		);
 	});
 

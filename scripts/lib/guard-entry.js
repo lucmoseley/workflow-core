@@ -246,10 +246,7 @@ function renderInjection(
 	if ("deny" in fit) {
 		log(`rule fragment over the emission ceiling — refusing: ${fit.id}`);
 		return {
-			deny: refusal(
-				`${name}: the fragment for rule id "${fit.id}" is ${fit.bytes} bytes, over the ${cap}-byte emission ceiling, so it can never be injected. Split the rule or shorten the fragment.`,
-				prelude,
-			),
+			deny: refusal(overCapReason({ name, cap, root, ...fit }), prelude),
 			latches: [],
 		};
 	}
@@ -261,6 +258,24 @@ function renderInjection(
 		],
 		...flagged,
 	};
+}
+
+/**
+ * The refusal for a fragment that alone overruns the cap, naming the bytes its
+ * own file holds and the bytes its expansion adds: a file under the cap can
+ * still resolve over it, which "shorten the fragment" alone misreads (#5439).
+ * @param {{ name: string, id: string, bytes: number, cap: number, root: string }} over
+ */
+function overCapReason({ name, id, bytes, cap, root }) {
+	const file = require("./rule-text.js").fragmentPath(id, root);
+	const own = Buffer.byteLength(
+		trimEndRun(fs.readFileSync(file, "utf8"), "\n"),
+	);
+	const madeOf =
+		own === bytes
+			? `all of them ${file}'s own`
+			: `${own} of them ${file}'s own and ${bytes - own} added by its {rule:} includes, plugin-root script paths and qualified citations`;
+	return `${name}: rule id "${id}" resolves to ${bytes} bytes, ${madeOf}, over the ${cap}-byte emission ceiling, so it can never be injected. Shorten the fragment or what it includes, or split the rule.`;
 }
 
 /**
