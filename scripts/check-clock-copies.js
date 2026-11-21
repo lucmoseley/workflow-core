@@ -12,14 +12,12 @@
  * aside, of any non-test `.js`, `.cjs` or `.mjs` under scripts/ but
  * lib/clock.js. lib/heresy-scan.js lists and reads the programs (#3555). A
  * guard core, whose environment is its injected `ctx.env`, calls
- * `now(ctx.env)` (#3566).
- *
- * THE OPT-OUT is a `clock-kept: <why>` comment on the read's line or the line
- * above. A marker with no word after it is no marker.
+ * `now(ctx.env)` (#3566). No comment exempts a read: the clock is passed in
+ * or read through `now()` (#5485).
  *
  * IMPLICIT:  on every commit staging a scripts/ program, refuses any WFC_NOW read outside lib/clock.js in the tree, naming the file, line, `now()` and its exemplar.
  * JUSTIFIED: fail-safe — each copy answers a malformed pin its own way, and one a test does not pin reads the wall clock; the fix is one `now()` call.
- * DEFEAT:    the `clock-kept: <why>` marker; --warn caps findings below the gating line; a read split across lines, or one through a computed key.
+ * DEFEAT:    --warn caps findings below the gating line; a read split across lines, or one through a computed key.
  */
 
 const { runCheck } = require("./lib/check");
@@ -33,10 +31,9 @@ const READ_SHAPES = [
 	// eslint-disable-next-line regexp/no-super-linear-move -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
 	new RegExp(`\\{[^}]*\\b${VAR}\\b[^}]*\\}\\s*=(?![=>])`),
 ];
-const KEPT = /clock-kept:\s*\w/;
 const CLOCK = "scripts/lib/clock.js";
 
-const FIX = `call now() from ${CLOCK}, as scripts/check-history-trim.js does, where runCheck turns its throw on a malformed WFC_NOW into BROKEN; outside runCheck, catch that throw as scripts/lib/log-reading.js's now does; in a guard core, pass its env as scripts/lib/sweep-fire-host.js's now(env) does; or mark the read \`clock-kept: <why>\` (#3457).`;
+const FIX = `call now() from ${CLOCK}, as scripts/check-history-trim.js does, where runCheck turns its throw on a malformed WFC_NOW into BROKEN; outside runCheck, catch that throw as scripts/lib/log-reading.js's now does; in a guard core, pass its env as scripts/lib/sweep-fire-host.js's now(env) does (#3457).`;
 
 /** @type {import("./lib/check").CheckSpec} */
 const SPEC = heresySpec({
@@ -46,10 +43,8 @@ const SPEC = heresySpec({
 		{
 			tag: "CLOCK-COPY",
 			sites: (program) =>
-				parseLineSites(
-					program,
-					(line) => READ_SHAPES.some((re) => re.test(line)),
-					KEPT,
+				parseLineSites(program, (line) =>
+					READ_SHAPES.some((re) => re.test(line)),
 				),
 			message: (rel, site) =>
 				`${rel}:${site.line} reads WFC_NOW itself (\`${site.text}\`). Fix: ${FIX}`,

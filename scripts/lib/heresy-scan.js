@@ -39,7 +39,7 @@ const collapse = (line) => line.trim().replace(/\s+/g, " ");
  * one whose line or the line above carries `optOut` in the raw text.
  * @param {Program} program
  * @param {(line: string, i: number, lines: string[]) => boolean} matches
- * @param {RegExp} optOut
+ * @param {RegExp} [optOut]
  * @returns {Site[]}
  */
 function parseLineSites({ source, code }, matches, optOut) {
@@ -47,7 +47,9 @@ function parseLineSites({ source, code }, matches, optOut) {
 	const lines = code.split("\n");
 	return lines.flatMap((line, i) =>
 		matches(line, i, lines) &&
-		!raw.slice(Math.max(0, i - 1), i + 1).some((l) => optOut.test(l))
+		!(
+			optOut && raw.slice(Math.max(0, i - 1), i + 1).some((l) => optOut.test(l))
+		)
 			? [{ line: i + 1, text: collapse(line) }]
 			: [],
 	);
