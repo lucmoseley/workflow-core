@@ -59,6 +59,7 @@ const ROWS = {
 				script: g.script,
 				/** @type {Gate} */
 				gate: g.args[0] === "--index" ? "index" : "against",
+				facts: g.when?.facts ?? [],
 				...g.notice,
 			},
 		]),
@@ -66,18 +67,22 @@ const ROWS = {
 	...OWN_BLOCK_ROWS,
 };
 
-/** @type {Record<string, { script: string, gate: Gate, why: string, cost: string, full: string }>} */
+/** @type {Record<string, { script: string, gate: Gate, facts: string[], why: string, cost: string, full: string }>} */
 const NOTICES = Object.fromEntries(
-	Object.entries(ROWS).map(([profile, { script, gate, scope, cite, cost }]) => [
-		profile,
-		{
-			script: fromCoreRoot(script),
-			gate,
-			why: `${scope}, ${GATE_CLAUSE[gate]}${cite ? ` ${cite}` : ""}`,
-			cost,
-			full: `node ${scriptPath(path.basename(script))}`,
-		},
-	]),
+	Object.entries(ROWS).map(([profile, row]) => {
+		const { script, gate, scope, cite, cost } = row;
+		return [
+			profile,
+			{
+				script: fromCoreRoot(script),
+				gate,
+				facts: "facts" in row ? row.facts : [],
+				why: `${scope}, ${GATE_CLAUSE[gate]}${cite ? ` ${cite}` : ""}`,
+				cost,
+				full: `node ${scriptPath(path.basename(script))}`,
+			},
+		];
+	}),
 );
 
 module.exports = { NOTICES };

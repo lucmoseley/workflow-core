@@ -116,6 +116,8 @@ const MODULES = /** @type {const} */ ([
 	"site",
 	/* The hold on a surviving mutant on a declared sensitive path (#1906). */
 	"mutation",
+	/* The pre-commit gate on a comment fitting no permitted kind (#5490). */
+	"comments",
 ]);
 const COMMANDS = /** @type {const} */ ([
 	"test",
