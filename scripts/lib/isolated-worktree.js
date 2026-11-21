@@ -103,8 +103,6 @@ function readLinkedPaths(dir) {
  * one into its canonical target. `git worktree remove --force` does not, so
  * the ordering is unverified belt and braces and the test asserts the outcome
  * — every target survives — rather than the order (mantahostels#2169, mantahostels#2213).
- * Only a link whose own directory resolves inside the worktree is unlinked: a
- * declared path under another linked one names a canonical file.
  *
  * Best effort throughout: a teardown failure is reported and never changes the
  * suite's exit code.
@@ -118,18 +116,7 @@ function removeIsolated(
 	dir,
 	{ execFn = execFileSync, worktreeFs = fs, err = process.stderr } = {},
 ) {
-	/* Never created, or already gone — either way there is nothing to unlink
-	 * and the remove below is still the operation that matters. */
-	for (const artefact of readLinkedPaths(dir))
-		ignoreFailure(() => {
-			const link = path.join(dir, artefact);
-			const parent = worktreeFs.realpathSync(path.dirname(link));
-			if (
-				isUnder(parent, [worktreeFs.realpathSync(dir)], path.sep) &&
-				worktreeFs.lstatSync(link).isSymbolicLink()
-			)
-				worktreeFs.unlinkSync(link);
-		});
+	unlinkArtefacts(dir, worktreeFs);
 	try {
 		execFn(
 			gitBinary(),
@@ -146,6 +133,26 @@ function removeIsolated(
 			`isolated worktree: could not remove the worktree at ${dir} (${error}) — remove it by hand with \`git worktree remove --force ${shellQuote(dir)}\`.\n`,
 		);
 	}
+}
+
+/**
+ * Unlink each `readLinkedPaths` symlink in `dir` whose own directory resolves
+ * inside it: a declared path under another linked one names a canonical file.
+ * Best effort: a link never created, or already gone, is skipped.
+ * @param {string} dir
+ * @param {WorktreeFs} [worktreeFs]
+ */
+function unlinkArtefacts(dir, worktreeFs = fs) {
+	for (const artefact of readLinkedPaths(dir))
+		ignoreFailure(() => {
+			const link = path.join(dir, artefact);
+			const parent = worktreeFs.realpathSync(path.dirname(link));
+			if (
+				isUnder(parent, [worktreeFs.realpathSync(dir)], path.sep) &&
+				worktreeFs.lstatSync(link).isSymbolicLink()
+			)
+				worktreeFs.unlinkSync(link);
+		});
 }
 
 /**
@@ -332,12 +339,14 @@ function createIsolated(
 }
 
 /**
+ * Link each of `readLinkedPaths` the checkout at `root` has into the worktree
+ * at `dir`.
  * @param {string} root
  * @param {string} dir
- * @param {WorktreeFs} worktreeFs
+ * @param {WorktreeFs} [worktreeFs]
  * @returns {string|null} why a link failed, or null where every one landed
  */
-function linkArtefacts(root, dir, worktreeFs) {
+function linkArtefacts(root, dir, worktreeFs = fs) {
 	for (const artefact of readLinkedPaths(dir)) {
 		/* A checkout lacking a member gets no link for it: a dangling one fails
 		 * any test that stats the tree (#822). `existsSync` follows a link, so a
@@ -537,8 +546,10 @@ if (require.main === module) {
 
 module.exports = {
 	createIsolated,
+	linkArtefacts,
 	overlayFiles,
 	removeIsolated,
 	runInTree,
 	sweepIsolated,
+	unlinkArtefacts,
 };

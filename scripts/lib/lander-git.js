@@ -23,6 +23,7 @@ const { parseFirstLine } = require("./first-line.js");
 const { REMOTE } = require("./landing-refs.js");
 const { execGit, SHORT_SHA } = require("./git.js");
 const { writeFd } = require("./write-fd.js");
+const { linkArtefacts, unlinkArtefacts } = require("./isolated-worktree.js");
 
 /* Untraced: room for a fetch over a slow link. */
 const LANDER_GIT_TIMEOUT_MS = 120 * 1000;
@@ -255,10 +256,13 @@ function readRemoteHeads(
 
 /**
  * `use`'s result in a throwaway worktree of `root` detached at `tip`, so the
- * checkout's own tree and branch are never touched. The worktree is removed
- * after; a removal that fails prints and never replaces the result, as a
- * hook's child that left its commit's group can still be writing there
- * (#3913).
+ * checkout's own tree and branch are never touched. It links in `root`'s
+ * `node_modules` and the host's `worktreeLinks`, as a test worktree does,
+ * so a gate resolving a package from its cwd finds it (#5451); a link that
+ * fails throws, half a tree's gates reading as the members' fault. The
+ * links go, then the worktree; a removal that fails prints and never
+ * replaces the result, as a hook's child that left its commit's group can
+ * still be writing there (#3913).
  * @template T
  * @param {string} root
  * @param {string} tip
@@ -279,8 +283,11 @@ function withThrowawayTree(root, tip, { program, use: purpose }, use) {
 			timeout,
 		});
 	try {
+		const linkFault = linkArtefacts(root, dir);
+		if (linkFault !== null) throw new Error(linkFault);
 		return use(dir, inTree);
 	} finally {
+		unlinkArtefacts(dir);
 		const unremoved = stderrIfThrown(() =>
 			readGit(root, ["worktree", "remove", "--force", dir]),
 		);
