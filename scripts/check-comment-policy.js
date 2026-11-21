@@ -1,18 +1,15 @@
 #!/usr/bin/env node
 /*
- * check-comment-policy.js — refuses a comment that fits none of the
- * permitted kinds (#5455), judged by lib/comment-policy.js (#5477 Q1 (A),
- * #5490).
+ * check-comment-policy.js — the comment-policy gate's shell over the
+ * permitted kinds (#5455), judged by lib/comment-policy.js (#5477, #5490).
  *
  * Usage:
  *   node check-comment-policy.js [--root <dir>] [--all] [--against <rev>] [--json] [--warn]
  *
- * Bare, it lists every breach in the host's tracked files, or under `--root`
- * in every file there; `--all` prints the count per file
- * instead, the sweeps' and the migration step's listing. lib/precommit-gates.js
- * runs it under `--against HEAD` while the `comments` module is on, so
- * a commit is charged only the comments it adds: an edited comment is new, a
- * moved one is not, and a renamed file keeps the comments it brought.
+ * lib/precommit-gates.js runs it under `--against HEAD` while the `comments`
+ * module is on, so a commit is charged only the comments it adds: an edited
+ * comment is new, a moved one is not, and a renamed file keeps the comments
+ * it brought.
  *
  * IMPLICIT:  with the comments module on, refuses a commit adding a comment to a JS, TS, Python or shell file that fits no permitted kind, or a suppression of a rule off the style-only list, naming the file and line.
  * JUSTIFIED: fail-safe — the fix is deleting or reshaping the comment the commit itself adds.
@@ -64,8 +61,7 @@ const readOr = (root, rel) => {
 };
 
 /**
- * The tree's files: the host's tracked files, or under `--root` every file
- * there, as a materialised side holds them.
+ * The tree's files, as a materialised side holds them.
  * @param {Ctx} ctx
  * @param {string} root
  * @param {boolean} walked
@@ -305,8 +301,7 @@ const factsFor = (tree, rel, lang) => ({
 });
 
 /**
- * Record one file's breaches, printing each outside `--all`; returns how
- * many.
+ * Record one file's breaches; returns how many.
  * @param {Ctx} ctx
  * @param {string} rel
  * @param {string} text

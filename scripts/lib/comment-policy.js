@@ -1,6 +1,6 @@
 /*
- * comment-policy.js — the comment-policy gate's core (#5490, ruled at #5477
- * Q1 (A)): a source file's comments as units, and each unit's verdict
+ * comment-policy.js — the comment-policy gate's core (#5490, ruled at
+ * #5477): a source file's comments as units, and each unit's verdict
  * against the permitted kinds #5455 lists. Pure: the shell,
  * scripts/check-comment-policy.js, reads the files and the facts a verdict
  * needs and hands them in.
@@ -229,7 +229,6 @@ const blockLines = (body) =>
 	body.split("\n").map((l) => l.replace(/^\s*\*(?!\/)\s?/, "").trimEnd());
 
 /**
- * A JS or TS file's comment units.
  * @param {string} source
  * @returns {Unit[]}
  */
@@ -431,7 +430,6 @@ function shQuoteEnd(source, i) {
 }
 
 /**
- * Read a heredoc's delimiter at `i` into `st.pending`.
  * @param {ShState} st accumulator: the delimiter is pushed onto `st.pending`.
  * @param {number} i
  */
@@ -514,7 +512,6 @@ function pastBody(source, at, doc) {
 }
 
 /**
- * A shell file's comment units.
  * @param {string} source
  * @returns {Unit[]}
  */
@@ -736,9 +733,7 @@ function ruffSelects(entry, rule) {
 }
 
 /**
- * Whether `rule` is on the tool's style-only list, by that tool's own
- * selector reading: a Biome group covers its rules, a ruff code prefix its
- * codes.
+ * Whether `rule` is on the tool's style-only list.
  * @param {Record<string, string[]>} list
  * @param {string} tool
  * @param {string} rule
@@ -804,8 +799,8 @@ function onShippedExport(unit, facts) {
 }
 
 /**
- * A unit's suppressions that name a rule off the style-only list, and the
- * lines left once every directive is taken out.
+ * A unit's suppressions that name no rule or one off the style-only list,
+ * and the lines left once every directive is taken out.
  * @param {Unit} unit
  * @param {FileFacts} facts
  * @returns {{ out: Breach[], prose: string[] }}
@@ -873,7 +868,6 @@ function proseBreach(unit, prose, facts) {
 }
 
 /**
- * One unit's breaches; none where it fits a permitted kind.
  * @param {Unit} unit
  * @param {FileFacts} facts
  * @returns {Breach[]}
@@ -885,7 +879,6 @@ function judgeUnit(unit, facts) {
 }
 
 /**
- * Every breach in one file, each unit judged.
  * @param {string} source
  * @param {FileFacts} facts
  * @returns {Breach[]}

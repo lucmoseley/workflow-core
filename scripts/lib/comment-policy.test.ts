@@ -1,8 +1,7 @@
 // @vitest-environment node
 /*
- * Pins each comment shape lib/comment-policy.js permits and each it refuses
- * (#5455, #5477 Q1 (A), #5490), in JS, Python and shell, on judgeSource alone
- * so a shape's verdict is read without a git repo. A shape that drifts here
+ * Judges each shape (#5455, #5477, #5490) on judgeSource alone, so a
+ * shape's verdict is read without a git repo. A shape that drifts here
  * refuses a permitted comment, or lets prose through, in every adopter's
  * commit once the module is on.
  */

@@ -1,10 +1,7 @@
 // @vitest-environment node
 /*
- * Pins check-comment-policy.js over a throwaway git repo: the bare listing,
- * `--all`'s per-file counts, `--against HEAD` charging only the comments a
- * commit adds, and the pre-commit row standing down while the module is off
- * (#5490). A real repo, because the facts the verdict reads come from the
- * commit's own tree; a break here charges a commit comments it inherited, or
+ * Runs check-comment-policy.js (#5490) over a real git repo, because the
+ * facts the verdict reads come from the commit's own tree; a break here charges a commit comments it inherited, or
  * arms the gate in a repo that never switched it on.
  */
 
