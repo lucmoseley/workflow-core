@@ -347,6 +347,7 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 			"uptime_s",
 			"win_avail_mb",
 			"win_commit_pct",
+			"win_idle_s",
 			"win_pages_in",
 			"win_pages_out",
 			"win_age_s",
@@ -471,9 +472,10 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 		expect(total).toBeGreaterThan(busy);
 	});
 
-	/* A stored Windows reading taken ageS ago: epoch, then the five counters. */
+	/* A stored Windows reading taken ageS ago: epoch, the five counters, then
+	 * the seconds since the last input. */
 	const reading = (ageS: number) =>
-		`${Math.floor(Date.now() / 1000) - ageS} 1344 50538099 32868535 21980766208 33936314368\n`;
+		`${Math.floor(Date.now() / 1000) - ageS} 1344 50538099 32868535 21980766208 33936314368 1250\n`;
 
 	// The guest cannot see Windows paging (#3246), so a background read supplies it (#4159).
 	describe("Windows memory", () => {
@@ -486,6 +488,7 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 			const row = JSON.parse(lines[0]);
 			expect(row.win_avail_mb).toBe(1344);
 			expect(row.win_commit_pct).toBe(64);
+			expect(row.win_idle_s).toBe(1250);
 			expect(row.win_pages_in).toBeNull();
 			expect(row.win_age_s).toBeGreaterThanOrEqual(5);
 		});
@@ -498,6 +501,7 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 			});
 			const row = JSON.parse(lines[0]);
 			expect(row.win_avail_mb).toBeNull();
+			expect(row.win_idle_s).toBeNull();
 			expect(row.win_age_s).toBeNull();
 		});
 
@@ -508,7 +512,7 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 			const fake = path.join(tmp, "fake-powershell");
 			fs.writeFileSync(
 				fake,
-				"#!/bin/sh\nsleep 1\nprintf '1344 1 2 3 4\\r\\n'\n",
+				"#!/bin/sh\nsleep 1\nprintf '1344 1 2 3 4 5\\r\\n'\n",
 				{
 					mode: 0o755,
 				},
@@ -523,7 +527,7 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 				.readFileSync(out, "utf8")
 				.trimEnd()
 				.split(" ");
-			expect(rest.join(" ")).toBe("1344 1 2 3 4");
+			expect(rest.join(" ")).toBe("1344 1 2 3 4 5");
 			expect(Number(stamp)).toBeGreaterThanOrEqual(before + 1);
 		});
 
@@ -624,11 +628,11 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 		it("writes the paging change between two readings", async () => {
 			const out = path.join(tmp, "win-delta");
 			const now = Math.floor(Date.now() / 1000);
-			fs.writeFileSync(out, `${now - 30} 1344 1000 2000 50 100\n`);
+			fs.writeFileSync(out, `${now - 30} 1344 1000 2000 50 100 7\n`);
 			const fake = path.join(tmp, "next-powershell");
 			fs.writeFileSync(
 				fake,
-				"#!/bin/sh\nprintf '1300 1100 2500 60 100\\r\\n'\n",
+				"#!/bin/sh\nprintf '1300 1100 2500 60 100 8\\r\\n'\n",
 				{ mode: 0o755 },
 			);
 			const rows = await twoLines("delta-win", {
@@ -641,6 +645,7 @@ describe.skipIf(!hasProc || !present).concurrent("memwatch minute line", () => {
 				win_pages_in: 100,
 				win_pages_out: 500,
 				win_commit_pct: 60,
+				win_idle_s: 8,
 			});
 		});
 	});
