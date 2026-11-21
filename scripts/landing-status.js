@@ -34,7 +34,11 @@ const {
 	buildStateLine,
 } = require("./lib/landing-status.js");
 const { ownQueueRef } = require("./lib/landing-refs.js");
-const { buildHeldLine, readHeldExit } = require("./lib/landing-stall.js");
+const {
+	buildHeldLine,
+	buildUnreadLine,
+	readHeldExit,
+} = require("./lib/landing-stall.js");
 const { buildQueueLine, queueGaugeOf } = require("./lib/queue-gauge.js");
 const { queueGit } = require("./lib/queue-lander-adapters.js");
 const { queueLogFile, readQueueRows } = require("./lib/queue-log.js");
@@ -173,8 +177,9 @@ function readLanding(root, sessionId) {
  * held, then the gauge. Fail-open (#4485): the queue's lines are a second
  * reading, and the commit states stand without them.
  * @param {string} root
- * @param {string[]} lines
+ * @param {string[]} lines accumulator: the reading's lines
  * @param {Map<string, import("./lib/queue-ref-status.js").RefState["state"]>} refKinds
+ *   accumulator: each queue ref stay's state, by sha
  */
 function pushQueueLines(root, lines, refKinds) {
 	try {
@@ -186,7 +191,8 @@ function pushQueueLines(root, lines, refKinds) {
 			refKinds.set(s.sha, s.state);
 		}
 		const held = readHeldExit(root, now());
-		if (held) lines.push(`held: ${buildHeldLine(held)}`);
+		if (held.kind === "held") lines.push(`held: ${buildHeldLine(held)}`);
+		if (held.kind === "unread") fail(buildUnreadLine(held));
 		lines.push(buildQueueLine(queueGaugeOf(refs.queue, rows, now())));
 	} catch (err) {
 		fail(`could not read the landing queue: ${parseErrorText(err)}`);

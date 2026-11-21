@@ -15,7 +15,7 @@
  * session start while either stands; the refill loop's queue alert
  * (lib/queue-alert.js) is the one that fires once per crossing.
  *
- * IMPLICIT:  at every session start, reads the remote's `main` and queue refs, fetching their commits where missing, the queue log, the queue lander's heartbeat and its log, and warns where a queue ref waits and `main` has not moved for 2 h since the oldest waiting ref's push and the machine's last boot or resume, or where a queue ref waits and no queue lander is running, or where a queue ref waits and the queue lander's last run within a day ended held (#5436); and warns where the oldest waiting queue ref has waited past twice the 7-day p90 time in queue (floor 60 min), or more refs wait than twice the 7-day p90 depth (floor 10).
+ * IMPLICIT:  at every session start, reads the remote's `main` and queue refs, fetching their commits where missing, the queue log, the queue lander's heartbeat and its log, and warns where a queue ref waits and `main` has not moved for 2 h since the oldest waiting ref's push and the machine's last boot or resume, or where a queue ref waits and no queue lander is running, or where a queue ref waits and the queue lander's last run within a day ended held or its log would not read (#5436); and warns where the oldest waiting queue ref has waited past twice the 7-day p90 time in queue (floor 60 min), or more refs wait than twice the 7-day p90 depth (floor 10).
  * JUSTIFIED: fail-safe — the lander runs outside any session, so nothing else reports it stalling or dying.
  * DEFEAT:    none needed — it never blocks.
  */

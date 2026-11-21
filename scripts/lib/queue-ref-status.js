@@ -34,7 +34,7 @@ const {
 	queueHead,
 } = require("./landing-refs.js");
 const { pipelineRecord, readDropFile } = require("./lander-records.js");
-const { batchesOf } = require("./queue-lander.js");
+const { batchesOf, retakesMoved } = require("./queue-lander.js");
 
 /**
  * @template T
@@ -175,7 +175,7 @@ function waitingState(r, sha, mine) {
 			name,
 			sha,
 			snapshot: m?.sha ?? null,
-			retaken: b?.phase === "merging",
+			retaken: Boolean(b && m && retakesMoved(b)),
 		};
 	/* Between the lander's push to `main` and its record-landed step. */
 	const held = r.mainHolds(sha);

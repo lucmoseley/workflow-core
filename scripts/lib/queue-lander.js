@@ -466,6 +466,15 @@ const exit = (reason) => ({ kind: "exit", reason });
 
 /* The end of a run another lander's lock turned away. */
 const LOCK_HELD = "another lander holds the lock";
+/* What a held run's end opens with. */
+const HELD = "held: ";
+
+/**
+ * Whether `b` is not yet merged, so it takes a member whose queue ref moved
+ * past its snapshot at the ref's tip (#5436).
+ * @param {Batch} b
+ */
+const retakesMoved = (b) => b.phase === "merging";
 
 /**
  * @param {Member} a
@@ -629,7 +638,7 @@ function staleBaseExit({ onto, rows }, main) {
 			? `main is stale: main at ${short(main)}`
 			: `the batch ahead at ${short(onto)}`;
 	return exit(
-		`held: ${base} holds ${rows.length} gating guard-registry fault(s), so no batch onto it lands; main must be re-anchored first: ${rows.join("; ")}`,
+		`${HELD}${base} holds ${rows.length} gating guard-registry fault(s), so no batch onto it lands; main must be re-anchored first: ${rows.join("; ")}`,
 	);
 }
 
@@ -1363,7 +1372,7 @@ const fastForward = (b, s, sha) =>
  * @returns {Extract<QueueAction, {kind: "retake-member"}>|null}
  */
 function retakeMoved(b, s, members) {
-	if (b.phase !== "merging") return null;
+	if (!retakesMoved(b)) return null;
 	for (const m of members) {
 		const r = s.queue.find((q) => q.name === m.name);
 		if (r && r.sha !== m.sha)
@@ -1558,7 +1567,7 @@ function heldExit({ hold, members }, now, main, waiting) {
 	}`;
 	if (hold.kind === "refused")
 		return exit(
-			`held: the push of ${short(hold.sha)} to main was refused: ${hold.reason}; ${until}`,
+			`${HELD}the push of ${short(hold.sha)} to main was refused: ${hold.reason}; ${until}`,
 		);
 	const on =
 		hold.files.length > 0
@@ -1567,7 +1576,7 @@ function heldExit({ hold, members }, now, main, waiting) {
 	const ticket =
 		hold.ticket === null ? "its base-red ticket unfiled" : `#${hold.ticket}`;
 	return exit(
-		`held: red only where main at ${short(main)} is too, ${on}, ${ticket}; ${until}`,
+		`${HELD}red only where main at ${short(main)} is too, ${on}, ${ticket}; ${until}`,
 	);
 }
 
@@ -3402,10 +3411,12 @@ function buildQueueActionLine(a) {
 }
 
 module.exports = {
+	HELD,
 	LOCK_HELD,
 	RED_PATH_KINDS,
 	TransientFault,
 	batchesOf,
+	retakesMoved,
 	buildQueueActionLine,
 	fileSetKey,
 	runQueueLander,
