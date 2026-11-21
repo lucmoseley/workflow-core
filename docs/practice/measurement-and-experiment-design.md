@@ -54,5 +54,5 @@ Researched: 2026-11-10
 ## Synthetic stress
 
 - Synthetic stress may stand in for field load to reach a rare failure sooner only where it triggers the field's failure mechanism; stress past field levels can cause "extraneous failure modes that would never occur at use levels". Escobar and Meeker, "A Review of Accelerated Test Models", arXiv 0708.0369 [named expert]
-- A clean synthetic run counts as evidence only beside a control: the same load producing the failure with the fix off. Without one, a clean run says nothing about whether the load reaches the failure. Escobar and Meeker, arXiv 0708.0369; McKenney, "Why Ten Hours?", kernel.org [named expert]; stb-tester, "Preconditions" [unverified]
+- A clean synthetic run counts as evidence only beside a control: the same load producing the failure with the fix off. Escobar and Meeker, arXiv 0708.0369; McKenney, "Why Ten Hours?", kernel.org [named expert]; stb-tester, "Preconditions" [unverified]
 - Size the run from the baseline rate as for a field window: a fix that only cuts the rate tenfold still passes a 10-hour clean run about 37% of the time. McKenney, "Why Ten Hours?" [named expert]
