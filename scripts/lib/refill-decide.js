@@ -6,6 +6,7 @@
  */
 
 const path = require("node:path");
+const { LAST_RESUME_OFFSET_MS } = require("./block-act.js");
 const { WAITING_LABEL } = require("./frontier-order.js");
 const { buildAgeText } = require("./hold-age.js");
 const { newestMarkerListing, PARKED_LABEL } = require("./parked.js");
@@ -33,8 +34,7 @@ const MODEL = "opus";
  * left is the cap's projection alone, which the per-call floor of one can
  * overrun. */
 const FULL = 100;
-/* guess: 30 min, the last fixed transient resume offset (#5479). */
-const BILLING_SKIP_MS = 30 * 60 * 1000;
+const BILLING_SKIP_MS = LAST_RESUME_OFFSET_MS;
 /* The idle reason of a tick that walked its frontier and launched nothing. */
 const NOTHING_LAUNCHABLE = "nothing launchable";
 /* The idle reason of one missing a checkout's shortlist, named over "nothing
@@ -219,7 +219,7 @@ const isClashSkip = (s) => s.why.startsWith(CLASH_PREFIX);
  * @property {BillingStop[]} [billingStops]
  */
 
-/** #5479 @typedef {{seat: string, since: number}} BillingStop */
+/** @typedef {{seat: string, since: number}} BillingStop */
 
 /**
  * `issue` and `raisedAt` are its stored record's, null on a probe this tick
@@ -585,13 +585,12 @@ function pickMoveSeat({
 }
 
 /**
- * #5479
  * @param {SizedSeat[]} seats
  * @param {BillingStop[]} stops
  * @param {number} now
  * @returns {SizedSeat[]}
  */
-function passBillingSeats(seats, stops, now) {
+function barBillingSeats(seats, stops, now) {
 	const live = new Set(
 		stops.filter((b) => now - b.since < BILLING_SKIP_MS).map((b) => b.seat),
 	);
@@ -1349,8 +1348,8 @@ function decideLaunches(
 	if (launchSlots === 0) return buildIdleDecision(spent, held, resumes);
 	const chargedInput = { ...input, seats: seatsLeft };
 	const launchPick = pickSeat({
-		...chargedInput,
-		seats: passBillingSeats(seatsLeft, input.billingStops ?? [], input.now),
+		...input,
+		seats: barBillingSeats(seatsLeft, input.billingStops ?? [], input.now),
 	});
 	if (launchPick.seat === null)
 		return buildNoSeatIdle(

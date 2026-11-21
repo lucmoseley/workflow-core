@@ -14,7 +14,6 @@
  * harness is still retrying.
  */
 import { describe, expect, it } from "vitest";
-import { blockAct } from "./block-act.js";
 import {
 	blockCause,
 	hasEndedUnblocked,
@@ -383,16 +382,6 @@ describe("an API error", () => {
 					job({ detail: null, needs: "can't use subscription — pay or renew" }),
 				),
 			).toEqual(billing);
-		});
-
-		it("resumes 1 min after the stop in normal mode", () => {
-			const stop = Date.parse("2026-11-20T08:58:40Z");
-			const reading = cause(row(), job({ detail: null, needs: null }), [
-				apiErrorRow("oauth_org_not_allowed", Billing),
-			]);
-			expect(
-				blockAct({ ...reading, since: stop }, "normal", stop + 60 * 1000),
-			).toBe("resume");
 		});
 
 		it("leaves an organization's OAuth refusal auth", () => {

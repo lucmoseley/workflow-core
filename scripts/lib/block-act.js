@@ -10,7 +10,11 @@ const MIN_MS = 60 * 1000;
 /* A transient API stop's resumes, at about these offsets from the stop, then
  * every RESUME_EVERY_MS: untraced (#2359, chosen to land inside the prompt
  * cache's hour). */
-const RESUME_OFFSETS_MS = [1, 5, 15, 30].map((m) => m * MIN_MS);
+const LAST_RESUME_OFFSET_MS = 30 * MIN_MS;
+const RESUME_OFFSETS_MS = [
+	...[1, 5, 15].map((m) => m * MIN_MS),
+	LAST_RESUME_OFFSET_MS,
+];
 const RESUME_EVERY_MS = 30 * MIN_MS;
 /* Untraced (#2359): a guard against a loop that never ends. A limit hold's
  * failed resumes (#3790) and a limit-blocked launch's resumes in a row that
@@ -311,6 +315,7 @@ const blockAct = (block, mode, now) => TABLE[block.cause][mode](block, now);
 
 module.exports = {
 	IDLE_TRIES,
+	LAST_RESUME_OFFSET_MS,
 	RESUME_CAP,
 	SYNTHETIC_QUIET_MS,
 	SYNTHETIC_TRIES,

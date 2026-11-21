@@ -982,14 +982,18 @@ const buildStandInControl = (io, dryRun, now) => ({
 });
 
 /**
- * #5479
  * @param {import("./refill-loop.js").LoopLaunch[]} launches
  * @returns {import("./refill-decide.js").BillingStop[]}
  */
 const billingStopsOf = (launches) =>
 	launches.flatMap((l) =>
-		l.block?.billing && l.keyVar === undefined
-			? [{ seat: l.seat, since: l.block.since }]
+		l.block?.billing && l.keyVar === undefined && l.finishedAt === null
+			? [
+					{
+						seat: l.seat,
+						since: Math.max(l.block.since, l.resumes?.triedAt ?? 0),
+					},
+				]
 			: [],
 	);
 
@@ -1156,6 +1160,7 @@ async function runTick(adapter, { dryRun, now, opening }) {
 }
 
 module.exports = {
+	billingStopsOf,
 	buildFinishLine,
 	buildReviewSkip,
 	FREE_SLOT_ARGS,
