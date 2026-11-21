@@ -1,47 +1,43 @@
-"""swallowed_errors.py — base §N5 over Python source: an `except` that neither raises nor exits says
-why at the site and cites the ticket that chose it (#1274, #1830).
-
-The reason is lexical — a ticket citation is all that is checked. It may sit
-in a comment from two lines above the `except` to the handler's end, in the
-enclosing function's docstring, or in the comment above the first assignment of
-the counter the handler increments. Whether the drop is also printed is §N5's
-third part, which no walk can see.
-
-A citation is a bare `#N`, or `<repo>#N` for a repo in the host's corpus,
-owner-qualified or not. A `#N` glued to any other word (`design-vault#3` in a
-repo whose corpus lacks design-vault) cites a tracker the host cannot read, so
-it is no citation.
+"""swallowed_errors.py — base §N5 over Python source: an `except` raises,
+exits, or hands the error it binds to `fail_open` from `scripts/lib/fail_open.py`,
+which prints it (#1830, #5487).
 
 Run by scripts/check-swallowed-errors.js, which picks the program-routed paths
-and the corpus from the host's config. stdin is
-`{"prefixes": [...], "sources": [{"name": ..., "text": ...}]}`; stdout is
-`{"results": [{"name": ..., "breaches": [{"line", "function", "caught"}]}]}`,
+from the host's config. stdin is `{"sources": [{"name": ..., "text": ...}]}`;
+stdout is `{"results": [{"name": ..., "breaches": [{"line", "function", "caught"}]}]}`,
 a source that does not parse carrying `"error"` instead. `function` and `caught` let the judge count a file's
 breaches against HEAD's without line numbers, which any edit above them moves.
 """
 
 import ast
 import json
-import re
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
+from fail_open import fail_open
 
 EXITS = {"sys.exit", "exit", "quit", "os._exit"}
 # The names the core binds an argparse parser to. A host binding one to another
-# name has its `.error()` read as a swallow: a false failure, never a missed
-# one, fixed by a citation at the site.
+# name has its `.error()` read as a swallow: a false failure, never a missed one.
 PARSERS = {"p", "ap", "parser"}
 
 
-def cite_pattern(prefixes):
-    """A bare `#N` not glued to a word, or `#N` after one of `prefixes`."""
-    named = "|".join(re.escape(p) for p in sorted(prefixes, key=len, reverse=True))
-    head = rf"(?<!\w)(?:{named})|(?<!\w)" if named else r"(?<!\w)"
-    return re.compile(rf"(?:{head})#\d+", re.IGNORECASE)
+def reports(call, bound):
+    """`call` is `fail_open(<bound>, ...)`, bare or through a module."""
+    name = ast.unparse(call.func)
+    return (
+        (name == "fail_open" or name.endswith(".fail_open"))
+        and bound is not None
+        and bool(call.args)
+        and isinstance(call.args[0], ast.Name)
+        and call.args[0].id == bound
+    )
 
 
 def fails_loudly(handler):
-    """Raises, exits, calls an argparse `.error`, or prints and returns a
-    non-zero exit code from the handler."""
+    """Raises, exits, calls an argparse `.error`, hands its error to
+    `fail_open`, or prints and returns a non-zero exit code."""
     prints = any(
         isinstance(n, ast.Call) and ast.unparse(n.func) == "print"
         for n in ast.walk(handler)
@@ -51,8 +47,10 @@ def fails_loudly(handler):
             return True
         if isinstance(n, ast.Call):
             name = ast.unparse(n.func)
-            if name in EXITS or (
-                name.endswith(".error") and name.split(".")[0] in PARSERS
+            if (
+                name in EXITS
+                or (name.endswith(".error") and name.split(".")[0] in PARSERS)
+                or reports(n, handler.name)
             ):
                 return True
         if (
@@ -64,35 +62,6 @@ def fails_loudly(handler):
         ):
             return True
     return False
-
-
-def comments_above(lines, lineno):
-    """The contiguous comment block directly above 1-based `lineno`."""
-    out, i = [], lineno - 2
-    while i >= 0 and lines[i].lstrip().startswith("#"):
-        out.append(lines[i])
-        i -= 1
-    return " ".join(out)
-
-
-def counters(handler):
-    """Names the handler increments: `n += 1` and `DROPS[k] += 1` alike."""
-    out = set()
-    for n in ast.walk(handler):
-        if isinstance(n, ast.AugAssign):
-            target = n.target.value if isinstance(n.target, ast.Subscript) else n.target
-            if isinstance(target, ast.Name):
-                out.add(target.id)
-    return out
-
-
-def first_assignment(scope, name):
-    for n in ast.walk(scope):
-        if isinstance(n, ast.Assign) and any(
-            isinstance(t, ast.Name) and t.id == name for t in n.targets
-        ):
-            return n
-    return None
 
 
 def owners(tree):
@@ -118,44 +87,28 @@ def owners(tree):
     return owner, names
 
 
-def breaches(src, cite):
-    """`(line, function, caught)` for each handler that swallows and cites
-    nothing `cite` matches; `function` is `<module>` outside one, `caught`
-    `<bare>` for a bare `except:`."""
-    lines = src.splitlines()
+def breaches(src):
+    """`(line, function, caught)` for each handler that swallows; `function`
+    is `<module>` outside one, `caught` `<bare>` for a bare `except:`."""
     tree = ast.parse(src)
     owner, names = owners(tree)
     out = []
     for h in ast.walk(tree):
         if not isinstance(h, ast.ExceptHandler) or fails_loudly(h):
             continue
-        fn = owner.get(h)
-        site = "\n".join(lines[max(0, h.lineno - 3) : h.end_lineno])
-        where = [
-            " ".join(re.findall(r"#.*", site)),
-            (fn and ast.get_docstring(fn)) or "",
-        ]
-        for name in counters(h):
-            for scope in (fn, tree):
-                a = scope and first_assignment(scope, name)
-                if a:
-                    where.append(comments_above(lines, a.lineno))
-                    break
-        if not any(cite.search(w) for w in where):
-            caught = ast.unparse(h.type) if h.type else "<bare>"
-            out.append((h.lineno, names.get(fn, "<module>"), caught))
+        caught = ast.unparse(h.type) if h.type else "<bare>"
+        out.append((h.lineno, names.get(owner.get(h), "<module>"), caught))
     return sorted(out)
 
 
 def main():
     req = json.load(sys.stdin)
-    cite = cite_pattern(req["prefixes"])
     results = []
     for s in req["sources"]:
         try:
-            found = breaches(s["text"], cite)
+            found = breaches(s["text"])
         except SyntaxError as error:
-            # Reported, not judged: ruff's E9 refuses the commit (#1830).
+            fail_open(error, f"{s['name']} not judged")
             results.append({"name": s["name"], "error": str(error)})
             continue
         results.append(

@@ -90,7 +90,7 @@ The floor is every gate in the plugin's own `.husky/pre-commit` that judges code
 | shfmt at `-i 2 -ci`, `ruff format` at its defaults | any layout difference, so layout in either language is never a finding | the same shell files, and staged `.py`; a missing formatter refuses unless a workflow runs it |
 | actionlint | a workflow fault, shellcheck over each `run:` block included | staged `.github/workflows/*.yml` and `*.yaml`; skips with no binary |
 | ruff | a finding the commit introduces, under the repo's root ruff config, else the plugin's `ruff.toml` | staged `.py` outside `ruffExclude`; a missing binary refuses unless a workflow runs `ruff check` |
-| `scripts/check-swallowed-errors.js` | an `except` the commit adds that neither raises nor exits and cites no ticket (§N5) | staged program-routed `.py`; a missing `python3` refuses |
+| `scripts/check-swallowed-errors.js` | an `except` the commit adds that neither raises, exits nor hands its error to `fail_open` (§N5) | staged program-routed `.py`; a missing `python3` refuses |
 | `scripts/check-cli-args.js` | a program reading its command line without a strict parser | a `scripts/*.js` the commit adds or edits; an inherited one only warns |
 | `scripts/check-jsonl-reads.js` | a hand split-and-parse of JSONL rather than `scripts/lib/jsonl.js` | a commit staging a `scripts/` program, judging the whole repo |
 | `scripts/check-arbiter-commands.js` | a printed `session-arbiter.js` command, or a `scriptPath()` of the arbiter, spelt by hand rather than through `buildArbiterCommand` in `scripts/lib/build-arbiter-command.js` | a commit staging a `scripts/` program, judging the whole repo |
@@ -414,7 +414,7 @@ BROKEN  the checker itself cannot do its job          exit 2
 
 A program that swallows an error to keep working does so as a design choice that (a) is commented at the site, explaining the code as it stands and never a change to it, (b) cites the ticket that chose it, and (c) **where a human reads the output, is printed** (#2351). See §S3 for the shell half.
 
-**Gated for Python** (#1830): the plugin's pre-commit refuses an `except` a commit adds to a program-routed `.py` that neither raises nor exits and cites no ticket, so (b) is a duplicate finding there. Whether (a)'s comment gives a reason, and (c), stay review's.
+**Gated for Python** (#1830, #5487): the plugin's pre-commit refuses an `except` a commit adds to a program-routed `.py` that neither raises, exits nor hands the error it binds to `fail_open` from `scripts/lib/fail_open.py`, which prints it, so (c) is a duplicate finding there. Whether a test pins the fail-open stays review's.
 
 The `guard-*` family swallows every error and exits 0 — *"breaking a session is worse than missing one"* (`scripts/guard-priced-options.js:366-367`) — and `scripts/session-arbiter.js:1550` names the rule's source, *"catches to fail open (mantahostels#103 §6)"*. Printed: `scripts/lib/pick-next-verdict.js:435` *"Assigned, but no live session recorded a claim: fail open, and say so"*.
 

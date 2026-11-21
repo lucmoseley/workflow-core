@@ -431,9 +431,9 @@ fi
 
 # The swallowed-error gate: HARD-FAILING base §N5 over the commit's own staged
 # program-routed .py paths, charging only the `except` blocks it ADDS that
-# neither raise nor exit and cite no ticket, narrow catches included, which
-# ruff's BLE001 and E722 never see (#1830). The checker's header owns which
-# paths are programs (`pythonRoutes`) and what a citation is. Its own block,
+# neither raise, exit nor hand their error to `fail_open`, narrow catches
+# included, which ruff's BLE001 and E722 never see (#1830, #5487). The
+# checker's header owns which paths are programs (`pythonRoutes`). Its own block,
 # not the ruff gate's: it needs python3, never ruff, and a missing python3
 # refuses the commit.
 if ! lander_batch && armed '\.py$' && [ -n "$(armed_live --index)" ]; then
@@ -443,7 +443,7 @@ if ! lander_batch && armed '\.py$' && [ -n "$(armed_live --index)" ]; then
       echo "pre-commit: the swallowed-error gate refused this commit, its checker unable to run." >&2
     else
       echo "pre-commit: the swallowed-error gate refused this commit's own Python paths." >&2
-      echo "  Say why at the site and cite the ticket that chose the swallow, or let the error raise or exit (base §N5)." >&2
+      echo "  Let the error raise or exit, or hand it to fail_open from scripts/lib/fail_open.py with a test pinning the fail-open (base §N5)." >&2
     fi
     exit "$se_rc"
   }
