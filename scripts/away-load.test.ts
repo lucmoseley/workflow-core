@@ -240,3 +240,23 @@ describe("status", () => {
 		expect(r.stdout).toContain("newest Kernel-Power 41 seen: none read");
 	});
 });
+
+describe("install", () => {
+	it("refuses a copy git cannot place in a main checkout, writing no unit", async () => {
+		const { dir, env } = rig("install");
+		const config = path.join(dir, "config");
+		const r = await runInProcessAsync(SCRIPT, ["install"], {
+			env: {
+				...process.env,
+				...env,
+				XDG_CONFIG_HOME: config,
+				GIT_DIR: path.join(dir, "no-repo"),
+			},
+		});
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			`install from the main checkout, not ${path.dirname(SCRIPT)}`,
+		);
+		expect(fs.existsSync(config)).toBe(false);
+	});
+});

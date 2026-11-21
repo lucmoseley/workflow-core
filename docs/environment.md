@@ -509,7 +509,7 @@ pooled with it as separate sessions.
 
 - **Any input stops the run** at memwatch's next Windows reading, within about 65 s; so does a reading over 75 s old, or an input time that would not read. It ends for good at #5346's gate, met either way, writing `~/.local/state/away-load/done`. A holder that exits unasked is logged with its exit code.
 - **After a reset**, the unit's start (`recover`) reads the newest Kernel-Power 41 and, where it is new, runs `git fsck` in each repository directly under `~` before the refill loop's boot unit resumes the sessions the reset killed (§4 *The refill loop's boot unit*).
-- **Stop it now**: `systemctl --user stop away-load.service` (it starts again at the next boot). **For good**: `systemctl --user disable --now away-load.service`. **Read it**: `node scripts/away-load.js status`; every start, stop, top-up and fsck is a line of `~/away-load.jsonl`. **Run it now**, whatever the input: `node scripts/away-load.js hand-start --minutes 20`. Install or re-install, after the loop's pinned code carries it: `node scripts/away-load.js install`.
+- **Stop it now**: `systemctl --user stop away-load.service` (it starts again at the next boot). **For good**: `systemctl --user disable --now away-load.service`. **Read it**: `node scripts/away-load.js status`; every start, stop, top-up and fsck is a line of `~/away-load.jsonl`. **Run it now**, whatever the input: `node scripts/away-load.js hand-start --minutes 20`. Install or re-install, from the main checkout (`~/workflow-core`), which refuses any other copy: `node scripts/away-load.js install`; the unit runs that copy, read at each start.
 
 ---
 

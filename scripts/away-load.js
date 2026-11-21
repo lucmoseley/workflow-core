@@ -50,8 +50,6 @@ const {
 	workersFor,
 } = require("./lib/away-load.js");
 const { parseOrCode } = require("./lib/cli-args.js");
-const { bootProgram } = require("./lib/refill-code.js");
-const { loopFiles } = require("./lib/refill-files.js");
 const { runCommand } = require("./lib/run-command.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { systemctl } = require("./lib/systemd-bins.js");
@@ -475,15 +473,20 @@ const PLAIN_PATH = /^[\w./@+-]+$/;
 
 function install() {
 	const shell = process.env.SHELL || "/bin/bash";
-	const files = loopFiles();
-	const boot = bootProgram({ scriptsDir: __dirname, codeDir: files.code });
-	if ("error" in boot) {
-		writeFd(2, `no code for the unit to start: ${boot.error}\n`);
-		return 1;
-	}
-	const script = path.join(path.dirname(boot.program), "away-load.js");
-	if (!fs.existsSync(script)) {
-		writeFd(2, `the loop's pinned code has no ${script} yet\n`);
+	/* This copy, from the main checkout alone: a session's linked worktree is
+	 * removed when it ends, and the refill loop's pinned code moves only when
+	 * the loop's own files do. The run reads its code at each unit start. */
+	const script = __filename;
+	const dirs = runCommand("git", [
+		"-C",
+		__dirname,
+		"rev-parse",
+		"--absolute-git-dir",
+		"--git-common-dir",
+	]);
+	const [own, common] = dirs.out.split("\n");
+	if (dirs.error !== null || path.resolve(__dirname, common ?? "") !== own) {
+		writeFd(2, `install from the main checkout, not ${__dirname}\n`);
 		return 1;
 	}
 	for (const word of [shell, script])
