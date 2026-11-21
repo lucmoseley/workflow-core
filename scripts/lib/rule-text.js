@@ -118,6 +118,25 @@ function withRuleStore(dir, fallback, read) {
 	}
 }
 
+/** @type {string | null} */
+let pinnedHostRoot = null;
+
+/**
+ * @template T
+ * @param {string} spelling
+ * @param {() => T} read
+ * @returns {T}
+ */
+function withHostRootSpelling(spelling, read) {
+	const before = pinnedHostRoot;
+	pinnedHostRoot = spelling;
+	try {
+		return read();
+	} finally {
+		pinnedHostRoot = before;
+	}
+}
+
 /**
  * The store directory in force: the override, else the host repo's own, else
  * the CORE's, which is where an adopter's fragments live — so a guard firing
@@ -323,7 +342,7 @@ function readRuleText(id, root) {
 	 * through the plugin root (#343). */
 	const resolved = expandPastePaths(
 		resolveScriptPaths(expandIncludes(body, host)),
-		host,
+		pinnedHostRoot ?? host,
 	);
 	/* A core fragment's bare `#N` is the core's issue, which an install's host
 	 * reads as its own (#416). The host's own fragments cite its own tracker. */
@@ -461,6 +480,7 @@ const fallbackLine = (lead, id) =>
 
 module.exports = {
 	withRuleStore,
+	withHostRootSpelling,
 	RULES_DIR,
 	RuleMissing,
 	CORE_RULES,
