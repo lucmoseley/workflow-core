@@ -974,7 +974,14 @@ process.stdout.write(JSON.stringify(r.changed));
 		const env = { ...unmerged(), CLAUDE_PROJECT_DIR: dir, TMPDIR: tmp };
 		const r = keptSpawn("fd").spawnSync(
 			process.execPath,
-			[QUEUE_RUN, "--gate", "--", `node ${probe} ${overlay}`],
+			[
+				QUEUE_RUN,
+				"--gate",
+				"--tree",
+				"4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+				"--",
+				`node ${probe} ${overlay}`,
+			],
 			{ cwd: dir, env, encoding: "utf8" },
 		);
 		expect(r.status, r.stderr).toBe(0);

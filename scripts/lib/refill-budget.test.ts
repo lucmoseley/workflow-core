@@ -21,6 +21,7 @@ const LAUNCHED = NOW - 300 * MIN;
 const gateRun = (minutesAgo: number, session = "s-job42"): GateRun => ({
 	at: new Date(NOW - minutesAgo * MIN).toISOString(),
 	repo: "design-vault",
+	tree: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
 	command: "npm run test",
 	session,
 	ticket: 42,

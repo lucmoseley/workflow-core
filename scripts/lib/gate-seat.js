@@ -78,11 +78,16 @@ const GATE_SEAT_DEFAULT_MB = suiteRungMb(WHOLE_SUITE_WORKERS);
 
 const GATE_RUN_LOG = ".gate-runs.jsonl";
 
+/* The variable naming the file a gate's command may write what it chose to
+ * run into, one line (#5448). */
+const GATE_SELECTION_ENV = "WFC_GATE_SELECTION";
+
 /** @typedef {"pass" | "red" | "ceiling" | "killed"} GateOutcome */
 /**
  * @typedef {object} GateRun one gate run's record line
  * @property {string} at its end, ISO
  * @property {string | null} repo the canonical checkout's directory name
+ * @property {string} tree the sha of the tree the run tested
  * @property {string} command
  * @property {string | null} session
  * @property {number | null} ticket the issue the session holds
@@ -90,6 +95,7 @@ const GATE_RUN_LOG = ".gate-runs.jsonl";
  * @property {number} runS awake seconds (`monotonicMs`)
  * @property {GateOutcome} outcome
  * @property {number} peakTreeMb the command's process-tree PSS peak
+ * @property {string} [selection] what the command wrote it chose to run
  */
 
 /**
@@ -118,6 +124,21 @@ function gateRunLogPath(root) {
 function gateRepoName(root) {
 	const canonical = repoRoot(root);
 	return canonical ? path.basename(canonical) : null;
+}
+
+/**
+ * @param {string} file
+ * @returns {string | null}
+ */
+function readGateSelection(file) {
+	const read = readText(file);
+	if (read.state !== "read") return null;
+	return (
+		read.data
+			.split("\n")
+			.map((line) => line.trim())
+			.find(Boolean) ?? null
+	);
 }
 
 /**
@@ -312,6 +333,7 @@ module.exports = {
 	GATE_ENV,
 	GATE_ROLE,
 	GATE_SEAT_DEFAULT_MB,
+	GATE_SELECTION_ENV,
 	appendGateRun,
 	gatePositionLine,
 	gateRepoName,
@@ -320,5 +342,6 @@ module.exports = {
 	gateSeatChargeMb,
 	isInSuite,
 	readGatePids,
+	readGateSelection,
 	startGatePids,
 };

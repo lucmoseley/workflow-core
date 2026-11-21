@@ -532,7 +532,13 @@ if ! lander_batch && ! lander_tested && declared_cmd node "${WFC_PLUGIN_ROOT:-.}
       echo "pre-commit: no worktree holds this commit's tree alone, so '$tg_cmd' runs in this checkout." >&2
       tg_rc=0
       tg_inplace=1
-      tg_out="$(command node "${WFC_PLUGIN_ROOT:-.}"/scripts/queue-run.js --gate -- "$tg_cmd" </dev/null)" || tg_rc=$?
+      # The gate-run record names the commit's tree, though the run reads this checkout (#5448).
+      if ! tg_tree="$(git write-tree)"; then
+        echo "pre-commit: git could not write this commit's tree to record the declared test command's run against, before the suite gave a verdict, so this commit is refused." >&2
+        echo "  Commit again once \`git write-tree\` runs in this checkout." >&2
+        exit 2
+      fi
+      tg_out="$(command node "${WFC_PLUGIN_ROOT:-.}"/scripts/queue-run.js --gate --tree "$tg_tree" -- "$tg_cmd" </dev/null)" || tg_rc=$?
     fi
     if [ "$tg_rc" -ne 0 ]; then
       printf '%s\n' "$tg_out" >&2
