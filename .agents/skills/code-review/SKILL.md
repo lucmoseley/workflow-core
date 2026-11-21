@@ -2,12 +2,13 @@
 name: code-review
 ---
 
-Two-axis review of the diff between `HEAD` and a fixed point the user supplies:
+Review of the diff between `HEAD` and a fixed point the user supplies, on these axes:
 
 - **Standards**: does the code conform to this repo's documented coding standards?
 - **Spec**: does the code faithfully implement the originating issue / spec?
+- **Comments**: is each comment the diff adds a kind `docs/comment-kinds.md` permits? It runs only where a standards source from step 3 links that file and the diff adds a comment or doc comment.
 
-Both axes run as **parallel sub-agents** so they don't pollute each other's context, then this skill aggregates their findings. Start every sub-agent with a fresh context window.
+The axes run as **parallel sub-agents** so they don't pollute each other's context, then this skill aggregates their findings. Start every sub-agent with a fresh context window.
 
 The issue tracker should have been provided to you. If not, tell the user to run `/setup-matt-pocock-skills`.
 
@@ -19,7 +20,7 @@ Whatever the user said is the fixed point (a commit SHA, branch name, tag, `main
 
 Capture the diff command once: `git diff <fixed-point>...HEAD` (three-dot, so the comparison is against the merge-base). Also note the list of commits via `git log <fixed-point>..HEAD --oneline`.
 
-Before going further, confirm the fixed point resolves (`git rev-parse <fixed-point>`) and the diff is non-empty. A bad ref or empty diff should fail here, not inside two parallel sub-agents.
+Before going further, confirm the fixed point resolves (`git rev-parse <fixed-point>`) and the diff is non-empty. A bad ref or empty diff should fail here, not inside the parallel sub-agents.
 
 ### 2. Identify the spec source
 
@@ -54,15 +55,16 @@ Each smell reads *what it is* → *how to fix*; match it against the diff:
 - **Middle Man**: a class or function that mostly just delegates onward. → cut it, call the real target direct.
 - **Refused Bequest**: a subclass or implementer that ignores or overrides most of what it inherits. → drop the inheritance, use composition.
 
-### 4. Spawn both sub-agents in parallel
+### 4. Spawn the sub-agents in parallel
 
-**Both prompts carry an `Artefact:` line of their own**, on its own line, each
+**Every prompt carries an `Artefact:` line of its own**, on its own line, each
 suffixed with the first 8 characters of THIS session's own id — resolve it
 first (e.g. `echo $CLAUDE_CODE_SESSION_ID` via Bash) and interpolate the
 literal value yourself, since a sub-agent's `Write`/`Edit` expands no
 environment variable:
-`Artefact: .claude/tmp/review-standards-<sid8>.md` and
-`Artefact: .claude/tmp/review-spec-<sid8>.md`, with `<sid8>` replaced by
+`Artefact: .claude/tmp/review-standards-<sid8>.md`,
+`Artefact: .claude/tmp/review-spec-<sid8>.md` and
+`Artefact: .claude/tmp/review-comments-<sid8>.md`, with `<sid8>` replaced by
 those first 8 characters — a bare, unsuffixed filename collides with a
 concurrent session's own review (mantahostels#2220). Tell each sub-agent to
 append findings there as it makes them rather than holding them for its final
@@ -75,7 +77,7 @@ path — a relative one resolves inside that worktree, out of the parent's sight
 
 - The full diff command and commit list.
 - The list of standards-source files you found in step 3, **plus the smell baseline from step 3** pasted in full (the sub-agent has no other access to it).
-- The brief: "Report, per file/hunk where relevant, (a) every place the diff violates a documented standard: cite the standard (file + the rule); and (b) any baseline smell you spot: name it and quote the hunk. Distinguish hard violations from judgement calls: documented-standard breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard overrides the baseline. Skip anything tooling enforces. And (c) whether the diff weakens a check, guard, assertion or error path: flag one bundled with unrelated work, or whose commit message names it on no `Weakens:` line. Under 400 words."
+- The brief: "Report, per file/hunk where relevant, (a) every place the diff violates a documented standard: cite the standard (file + the rule); and (b) any baseline smell you spot: name it and quote the hunk. Distinguish hard violations from judgement calls: documented-standard breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard overrides the baseline. Skip anything tooling enforces. And (c) whether the diff weakens a check, guard, assertion or error path: flag one bundled with unrelated work, or whose commit message names it on no `Weakens:` line. Leave the comments the diff adds to the Comments axis. Under 400 words." Where the Comments axis does not run, drop that sentence.
 
 **Spec sub-agent prompt** should include:
 
@@ -83,19 +85,25 @@ path — a relative one resolves inside that worktree, out of the parent's sight
 - The path or fetched contents of the spec.
 - The brief: "Report: (a) requirements the spec asked for that are missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong. Quote the spec line for each finding. Under 400 words."
 
+**Comments sub-agent prompt**, where that axis runs, should include:
+
+- The diff command and commit list.
+- `docs/comment-kinds.md` pasted in full (the sub-agent has no other access to it).
+- The brief: "Judge every comment and doc comment the diff adds against the pasted keep-list — never one the diff only moves or leaves in place. Report each added comment that fits no kind, or has a kind's form but fails its keep-when test: quote it, name the kind it claims (or `none`), and say what replaces it — deletion, or the name, type, test, check or issue that carries it. Apply the tie rule: unsure means it goes. On a mixed comment, report the part that goes and the part that stays. Each finding is a hard violation. Then list each kept comment in one line with its kind. Under 400 words."
+
 If the spec is missing, skip the Spec sub-agent and note this in the final report.
 
 ### 5. Aggregate
 
-Present the two reports under `## Standards` and `## Spec` headings, verbatim or lightly cleaned. Do **not** merge or rerank findings, because the two axes are deliberately separate (see _Why two axes_).
+Present the reports under `## Standards`, `## Spec` and, where it ran, `## Comments` headings, verbatim or lightly cleaned. Do **not** merge or rerank findings, because the axes are deliberately separate (see _Why separate axes_).
 
 End with a one-line summary: total findings per axis, and the worst issue _within each axis_ (if any). Don't pick a single winner across axes: that's the reranking the separation exists to prevent.
 
-## Why two axes
+## Why separate axes
 
-A change can pass one axis and fail the other:
+A change can pass one axis and fail another:
 
 - Code that follows every standard but implements the wrong thing → **Standards pass, Spec fail.**
 - Code that does exactly what the issue asked but breaks the project's conventions → **Spec pass, Standards fail.**
 
-Reporting them separately stops one axis from masking the other.
+Reporting them separately stops one axis from masking another.

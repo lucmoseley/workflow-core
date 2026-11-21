@@ -20,6 +20,12 @@
  * with a stale beat is a lander inside one call, which beats only between
  * them; residual: a hung lander, or a reused pid, reads alive and is caught
  * by the stall alone.
+ *
+ * HELD: a queue ref waits and the queue lander's newest run end in its log
+ * (lib/lander-start.js), within HELD_WINDOW_MS, is an `exit held: …` line
+ * (#5436). An end another lander's
+ * lock turned away is no run's, and is passed over. A log that will not
+ * read is named, and judges nothing else.
  */
 
 const fs = require("node:fs");
@@ -41,14 +47,28 @@ const { queueGit } = require("./queue-lander-adapters.js");
 const { oldestWaiting, queueGaugeOf } = require("./queue-gauge.js");
 const { queueLogFile, readQueueRows } = require("./queue-log.js");
 const { STALL_MS } = require("./queue-tickets.js");
+const { landerLog } = require("./lander-start.js");
+const { HELD, LOCK_HELD } = require("./queue-lander.js");
+const { parseErrorText } = require("./caught.js");
+const { DAY_MS } = require("./retained-jsonl.js");
+const { parseLanderLog, readLogSince } = require("./time-to-land.js");
 
 /* Untraced: five missed beats, so one slow tester tick is never read as a
  * death. */
 const STALE_MS = 5 * HEARTBEAT_MS;
+/* Untraced: a lander runs at each push and refill tick, so where any runs
+ * its newest end is well within a day. */
+const HELD_WINDOW_MS = DAY_MS;
 
 /**
  * @typedef {{tag: "LANDING-STALLED", line: string, movedAt: number}
- *   | {tag: "LANDER-DEAD", line: string}} StallFinding
+ *   | {tag: "LANDER-DEAD", line: string}
+ *   | {tag: "LANDER-HELD", line: string}
+ *   | {tag: "LANDER-LOG-UNREAD", line: string}} StallFinding
+ * @typedef {{kind: "held", at: number, reason: string}
+ *   | {kind: "none"} | {kind: "unread", fault: string}} HeldRead the lander
+ *   log's newest run end: held, `at` in ms and `reason` after `held: `; or
+ *   the log unreadable
  * @typedef {object} QueueReading
  * @property {number} now
  * @property {string|null} main `main`'s sha, null where the remote has none
@@ -61,6 +81,7 @@ const STALE_MS = 5 * HEARTBEAT_MS;
  * @property {(pid: number) => boolean} alive
  * @property {number} owed the drops owed a decision: open, with no fix
  *   ticket
+ * @property {HeldRead} held
  */
 
 /** @param {QueueReading} r */
@@ -86,6 +107,10 @@ function stallFindings(r) {
 			movedAt,
 			line: `main has not moved since ${new Date(movedAt).toISOString()}, over ${STALL_MS / 60_000} min, with ${at} waiting since ${new Date(oldest.since).toISOString()}`,
 		});
+	if (r.held.kind === "held")
+		found.push({ tag: "LANDER-HELD", line: buildHeldLine(r.held) });
+	if (r.held.kind === "unread")
+		found.push({ tag: "LANDER-LOG-UNREAD", line: buildUnreadLine(r.held) });
 	if (running(r)) return found;
 	if (!(heartbeat && now - Date.parse(heartbeat.at) <= STALE_MS))
 		found.push({
@@ -93,6 +118,47 @@ function stallFindings(r) {
 			line: `${at} waits and no queue lander is running, its heartbeat ${heartbeat ? `last written ${heartbeat.at}` : "absent"}`,
 		});
 	return found;
+}
+
+/** @param {Extract<HeldRead, {kind: "held"}>} h */
+const buildHeldLine = (h) =>
+	`the queue lander's last run, at ${new Date(h.at).toISOString()}, ended held: ${h.reason}`;
+
+/** @param {Extract<HeldRead, {kind: "unread"}>} h */
+const buildUnreadLine = (h) =>
+	`the queue lander's log would not read, so a held run end goes unseen: ${h.fault}`;
+
+/**
+ * @param {readonly import("./time-to-land.js").LanderEvent[]} events
+ * @param {number} since ms
+ * @returns {HeldRead}
+ */
+function heldExitOf(events, since) {
+	const end = events.findLast(
+		(e) => e.t >= since && e.kind === "exit" && e.rest !== LOCK_HELD,
+	);
+	return end?.rest.startsWith(HELD)
+		? { kind: "held", at: end.t, reason: end.rest.slice(HELD.length) }
+		: { kind: "none" };
+}
+
+/**
+ * The lander log's newest run end in `root` within HELD_WINDOW_MS of `now`.
+ * Never throws: an unreadable log reads as `unread`.
+ * @param {string} root the canonical checkout's root
+ * @param {number} now
+ * @returns {HeldRead}
+ */
+function readHeldExit(root, now) {
+	const since = now - HELD_WINDOW_MS;
+	try {
+		return heldExitOf(
+			parseLanderLog(readLogSince(landerLog(root), since)),
+			since,
+		);
+	} catch (err) {
+		return { kind: "unread", fault: parseErrorText(err) };
+	}
 }
 
 /**
@@ -158,6 +224,7 @@ function readQueue(root, now) {
 		heartbeat: readHeartbeat(queueLanderFiles(root).heartbeat),
 		alive: pidAlive,
 		owed: readOwedDrops(queueLanderFiles(root).drops).length,
+		held: readHeldExit(root, now),
 	};
 }
 
@@ -212,6 +279,9 @@ function recordWake(file, { startedAt, now }) {
 }
 
 module.exports = {
+	buildHeldLine,
+	buildUnreadLine,
+	readHeldExit,
 	readQueue,
 	stallFindings,
 	supervision,

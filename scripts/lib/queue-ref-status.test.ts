@@ -184,6 +184,22 @@ describe("a waiting ref", () => {
 		]);
 	});
 
+	it("reads as queued for its own batch's retake where it moved after the snapshot of a batch not yet merged (#5436)", () => {
+		expect(
+			lines({
+				waiting: later,
+				rows: [
+					row(1, "enqueue", member),
+					row(2, "take", member),
+					row(3, "enqueue", later),
+				],
+				batch: batch({ phase: "merging", integration: null }),
+			}),
+		).toEqual([
+			`queued: queue/alpha at ${short(later)} — moved past its snapshot ${short(member)} in a batch not yet merged, which takes it at this sha`,
+		]);
+	});
+
 	it("reads as testing in a batch behind the head, and landed off a landed one beside it (#4556)", () => {
 		const behind = {
 			line: [

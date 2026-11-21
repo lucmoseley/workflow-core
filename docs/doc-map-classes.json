@@ -1680,6 +1680,15 @@
 		"consumes": null,
 		"reader": "agent"
 	},
+	"docs/comment-kinds.md": {
+		"section": "Governance & process docs",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "The comment keep-list (#5455): the seven kinds a code comment may be, each with its keep-when test and form, and the tie rule. /code-review's Comments axis and concision-pass's comment criterion paste it whole.",
+		"route": null,
+		"consumes": null,
+		"reader": "agent"
+	},
 	"docs/data/arch-scan-runs.jsonl": {
 		"section": "Evidence & data",
 		"class": "source-of-truth",
