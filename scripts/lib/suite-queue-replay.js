@@ -42,7 +42,9 @@
  * MATCH_BEFORE_S before the exit to MATCH_AFTER_S after it, nearest first.
  * The run's `wholeSlot` and `resolvedFiles` weigh it; a run logged before
  * those fields existed is weighed from its vitest marker's module count and
- * PRE_FIELDS_GATE.
+ * PRE_FIELDS_GATE. A non-vitest whole run holds the slot too (#5450): a whole
+ * one on the ledger, and a gate run off `.gate-runs.jsonl`, but a short
+ * gate's and one whose own vitest run the ledger holds.
  * An exit line's own `passed` (#3115) is tallied beside the modelled pass, as
  * what the waiters themselves recorded, and so is its `peerS` and a `peer`
  * limb at the bound (#4765) beside the modelled peer-climb limb. The opened part waits the memory limb
@@ -224,13 +226,13 @@ function readLogs({ markers, memwatch, minuteLog, since, until }) {
 		path.join(markers, ".suite-queue-exits.jsonl"),
 		unread,
 	);
-	const logged = readRows(
+	const ledger = readRows(
 		path.join(markers, ".test-runs.jsonl"),
 		unread,
 		inRange,
-	)
-		.filter((d) => d.suite === "vitest")
-		.map((d) => ({
+	).map((d) => ({
+		suite: d.suite,
+		run: {
 			st: Date.parse(d.startedAt),
 			en: Date.parse(d.at),
 			session: d.session ?? null,
@@ -240,10 +242,24 @@ function readLogs({ markers, memwatch, minuteLog, since, until }) {
 			verdict: d.verdict,
 			modulesRun: null,
 			modulesTotal: null,
-		}));
-	const runs = logged.some((r) => r.resolvedFiles === null)
+		},
+	}));
+	const logged = ledger.filter((d) => d.suite === "vitest").map((d) => d.run);
+	const vitest = logged.some((r) => r.resolvedFiles === null)
 		? withModuleCounts(logged, readModuleCounts(markers, unread, inRange))
 		: logged;
+	const otherWhole = ledger
+		.filter((d) => d.suite !== "vitest" && d.run.wholeSlot === true)
+		.map((d) => d.run);
+	const gates = readRows(
+		path.join(markers, ".gate-runs.jsonl"),
+		unread,
+		inRange,
+	)
+		.filter((g) => g.part !== true)
+		.map(gateRunOf)
+		.filter((g) => !vitest.some((r) => holdsRun(g, r)));
+	const runs = [...vitest, ...otherWhole, ...gates];
 	const mem = readMemwatch(memwatch, unread);
 	const windows = readWindowsMinutes(
 		minuteLog,
@@ -253,6 +269,35 @@ function readLogs({ markers, memwatch, minuteLog, since, until }) {
 	);
 	return { exits, runs, mem, windows, unread };
 }
+
+/**
+ * A whole gate run off its `.gate-runs.jsonl` line (lib/gate-seat.js), its
+ * span `runS` before its end.
+ * @param {import("./gate-seat.js").GateRun} g
+ * @returns {Run}
+ */
+const gateRunOf = (g) => {
+	const en = Date.parse(g.at);
+	return {
+		st: en - g.runS * 1000,
+		en,
+		session: g.session ?? null,
+		kind: "gate",
+		wholeSlot: true,
+		resolvedFiles: null,
+		verdict: g.outcome,
+		modulesRun: null,
+		modulesTotal: null,
+	};
+};
+
+/**
+ * Whether gate run `g` started run `r`: its session's, inside its span.
+ * @param {Run} g
+ * @param {Run} r
+ */
+const holdsRun = (g, r) =>
+	r.session !== null && r.session === g.session && g.st <= r.st && r.en <= g.en;
 
 /**
  * memwatch's minute log's Windows free memory, keyed by minute, from each

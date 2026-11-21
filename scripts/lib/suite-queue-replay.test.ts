@@ -985,6 +985,49 @@ describe("reading the logs", () => {
 		]);
 	});
 
+	it("names a hold by a non-vitest whole run `count`, never `open` (#5450)", () => {
+		const read = (gateRuns: object[], ledger: object[] = []) => {
+			jsonl(".suite-queue-exits.jsonl", [
+				exit({ from: 0, to: 10, slotFree: false, kind: "bare" }, 1),
+			]);
+			jsonl(".test-runs.jsonl", ledger);
+			jsonl(".gate-runs.jsonl", gateRuns);
+			const logs = readLogs({
+				markers: dir,
+				memwatch: [],
+				minuteLog: path.join(dir, "memwatch-minute.jsonl"),
+				since: T0,
+				until: T0 + 60 * MIN,
+			});
+			return render(replay(logs, window()), window());
+		};
+		const gate = {
+			at: iso(T0 + 20 * MIN),
+			repo: "r",
+			command: "python3 -m unittest discover tests",
+			session: "g",
+			runS: 20 * 60,
+			outcome: "pass",
+			peakTreeMb: 400,
+		};
+		const pytest = {
+			startedAt: iso(T0),
+			at: iso(T0 + 20 * MIN),
+			kind: "pytest",
+			suite: "pytest",
+			session: "p",
+			wholeSlot: true,
+		};
+		expect(read([gate])).toContain("| count | 0.17 |");
+		expect(read([gate])).toContain("| `gate` | 0.17 |");
+		expect(read([], [pytest])).toContain("| count | 0.17 |");
+		expect(read([{ ...gate, part: true }])).toContain("| open | 0.17 |");
+		/* The gate's own vitest suite is the ledger's run, read once. */
+		const own = { ...pytest, suite: "vitest", kind: "bare", session: "g" };
+		expect(read([gate], [own])).toContain("| `bare` | 0.17 |");
+		expect(read([gate], [own])).not.toContain("`gate`");
+	});
+
 	it("weighs a run logged before `resolvedFiles` by its vitest marker", () => {
 		const st = Date.parse("2026-10-25T09:00:00Z");
 		jsonl(".test-runs.jsonl", [
