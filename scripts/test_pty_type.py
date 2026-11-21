@@ -83,3 +83,20 @@ def test_a_bad_command_line_is_refused():
     r = run("resume")
     assert r.returncode == 2
     assert "pty_type.py <text> -- <command>" in r.stderr
+
+
+def test_a_read_error_other_than_eio_is_raised():
+    driver = (
+        "import errno, os, sys; sys.path.insert(0, sys.argv[1]); import pty_type\n"
+        "def read(fd, n): raise OSError(errno.EBADF, 'bad fd')\n"
+        "os.read = read\n"
+        "sys.exit(pty_type.main(['resume', '--', sys.executable, '-c', 'import time; time.sleep(1)']))\n"
+    )
+    r = subprocess.run(
+        [sys.executable, "-c", driver, str(SCRIPT.parent)],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert r.returncode == 1
+    assert "OSError: [Errno 9] bad fd" in r.stderr

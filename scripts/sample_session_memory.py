@@ -160,8 +160,8 @@ def read_proc_table():
                 stat = f.read()
             fields = stat[stat.rfind(")") + 2 :].split()
             table[int(name)] = (int(fields[1]), int(fields[19]))
-        except (FileNotFoundError, ProcessLookupError) as e:
-            expected(e, f"pid {name} exited since the listing")
+        except (FileNotFoundError, PermissionError, ProcessLookupError) as e:
+            expected(e, f"pid {name} exited since the listing, or is not ours to read")
             continue
         except (IndexError, ValueError) as e:
             fail_open(e, f"pid {name} left out of the proc table")

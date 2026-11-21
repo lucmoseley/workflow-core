@@ -933,7 +933,7 @@ def test_an_unopenable_seat_history_is_left_out_of_roots_read(seats, capsys):
     assert "history left unread: FileNotFoundError" in capsys.readouterr().err
 
 
-def test_an_unparsable_history_line_is_counted_and_reported(seats, capsys):
+def test_an_unparsable_history_line_is_counted_silently(seats, capsys):
     seats(".claude", ["s1"])
     home = Path(next(iter(sb.tc.seats())))
     with open(home / "history.jsonl", "a") as fh:

@@ -53,7 +53,16 @@ def test_expected_passes_only_under_a_specific_caught_type():
     for caught in ("ChildProcessError", "(FileNotFoundError, ProcessLookupError)"):
         src = f"try:\n    x = 1\nexcept {caught} as e:\n    {body}\n"
         assert breach_lines(imported(src, line)) == [], caught
-    for caught in ("OSError", "Exception", "(ProcessLookupError, OSError)"):
+    for caught in (
+        "OSError",
+        "Exception",
+        "(ProcessLookupError, OSError)",
+        "os.error",
+        "socket.error",
+        "builtins.OSError",
+        "ERRORS",
+        "(ProcessLookupError, (OSError,))",
+    ):
         src = f"try:\n    x = 1\nexcept {caught} as e:\n    {body}\n"
         assert breach_lines(imported(src, line)) == [4], caught
 
