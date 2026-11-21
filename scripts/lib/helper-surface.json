@@ -9,6 +9,7 @@
 			"errMessage",
 			"runCheck"
 		],
+		"scripts/lib/clock.js": ["now"],
 		"scripts/lib/doc-map.js": ["sectionAMatcher"],
 		"scripts/lib/doc-map-generator.js": [
 			"claimDataFile",

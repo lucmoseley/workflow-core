@@ -35,11 +35,12 @@ const REPORT_PROGRAM = /^scripts\/report-[^/]+$/;
 const collapse = (line) => line.trim().replace(/\s+/g, " ");
 
 /**
- * Each code line `matches` picks, by its index among the blanked lines, but
- * one whose line or the line above carries `optOut` in the raw text.
+ * Each code line `matches` picks, by its index among the blanked lines, but,
+ * when `optOut` is given, one whose line or the line above carries it in the
+ * raw text.
  * @param {Program} program
  * @param {(line: string, i: number, lines: string[]) => boolean} matches
- * @param {RegExp} optOut
+ * @param {RegExp} [optOut]
  * @returns {Site[]}
  */
 function parseLineSites({ source, code }, matches, optOut) {
@@ -47,7 +48,9 @@ function parseLineSites({ source, code }, matches, optOut) {
 	const lines = code.split("\n");
 	return lines.flatMap((line, i) =>
 		matches(line, i, lines) &&
-		!raw.slice(Math.max(0, i - 1), i + 1).some((l) => optOut.test(l))
+		!(
+			optOut && raw.slice(Math.max(0, i - 1), i + 1).some((l) => optOut.test(l))
+		)
 			? [{ line: i + 1, text: collapse(line) }]
 			: [],
 	);
