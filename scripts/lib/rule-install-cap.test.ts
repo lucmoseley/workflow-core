@@ -1,20 +1,12 @@
 // @vitest-environment node
 /*
  * Every fragment a wired guard injects fits RULE_CAP as an INSTALL spells it
- * (#5439). An install respells each `scripts/x` and `docs/x` at the plugin
- * root and qualifies each bare `#N`.
- *
- * The install is a probe tree at WFC_SCRIPT_ROOT with no package.json, so
- * script-path.js reads it as
- * an install. Its path is padded to the root a 32-character user name — the
- * useradd limit — gives under `~/.claude/plugins/cache/`, at a version of two
- * digits a part, a guess at the longest the plugin will ship. The store is
- * pinned as both layers, so a core fragment's bare `#N` is qualified as an
- * install's is: vitest.setup.ts's default leaves no core layer beneath it.
+ * (#5439), read through lib/install-probe.js's probe tree. The store is pinned
+ * as both layers, so a core fragment's bare `#N` is qualified as an install's
+ * is: vitest.setup.ts's default leaves no core layer beneath it.
  */
 
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import {
 	afterAll,
@@ -33,34 +25,27 @@ const { reachableByTool } = require("./rule-emission.js") as {
 	};
 };
 
+const { makeInstallProbe } = require("./install-probe.js") as {
+	makeInstallProbe: (core: string) => { root: string; remove: () => void };
+};
+
 const REPO = path.resolve(__dirname, "..", "..");
 const RULES = path.join(REPO, "docs", "agents", "rules");
-const INSTALL_ROOT_CHARS =
-	`/home/${"u".repeat(32)}/.claude/plugins/cache/workflow-core/workflow-core/10.10.10`
-		.length;
 
-let base: string;
-let probe: string;
+let probe: { root: string; remove: () => void };
 
 beforeAll(() => {
-	base = fs.mkdtempSync(path.join(os.tmpdir(), "wfc-install-"));
-	probe = path.join(
-		base,
-		"p".repeat(Math.max(1, INSTALL_ROOT_CHARS - base.length - 1)),
-	);
-	fs.mkdirSync(probe);
-	for (const dir of ["scripts", "docs"])
-		fs.symlinkSync(path.join(REPO, dir), path.join(probe, dir));
+	probe = makeInstallProbe(REPO);
 });
 
 beforeEach(() => {
-	vi.stubEnv("WFC_SCRIPT_ROOT", probe);
+	vi.stubEnv("WFC_SCRIPT_ROOT", probe.root);
 	vi.stubEnv("WFC_RULES_DIR", RULES);
 	vi.stubEnv("WFC_RULES_FALLBACK_DIR", RULES);
 });
 
 afterAll(() => {
-	fs.rmSync(base, { recursive: true, force: true });
+	probe.remove();
 });
 
 describe("an injected fragment as an install spells it", () => {
