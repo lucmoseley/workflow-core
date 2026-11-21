@@ -85,6 +85,7 @@ function paths(env = process.env) {
 		minutes: env.MEMWATCH_MINUTE_LOG || minuteLogPath(),
 		testlimit: env.WFC_TESTLIMIT || "/mnt/c/diag/testlimit/Testlimit64.exe",
 		taskkill: env.WFC_TASKKILL || `${WIN}/taskkill.exe`,
+		tasklist: env.WFC_TASKLIST || `${WIN}/tasklist.exe`,
 		wevtutil: env.WFC_WEVTUTIL || `${WIN}/wevtutil.exe`,
 		worker: env.WFC_AWAY_LOAD_WORKER || "while :; do :; done",
 		repos: env.WFC_AWAY_LOAD_REPOS_ROOT || os.homedir(),
@@ -138,9 +139,28 @@ function sweep(p) {
 }
 
 /**
+ * How many Testlimit processes Windows runs, null where tasklist fails.
+ * @param {ReturnType<typeof paths>} p
+ */
+function windowsHolders(p) {
+	const name = path.basename(p.testlimit);
+	const r = runCommand(p.tasklist, [
+		"/FI",
+		`IMAGENAME eq ${name}`,
+		"/FO",
+		"CSV",
+		"/NH",
+	]);
+	if (r.error !== null) return null;
+	return r.out.split("\n").filter((l) => l.startsWith(`"${name}"`)).length;
+}
+
+/**
  * A Testlimit process. Its stdout never reaches a pipe while it holds, so its
- * Windows pid is unknown; ending its WSL interop proxy ends it, within 300 ms
- * as measured on 22 Nov.
+ * Windows pid is unknown; ending its WSL interop proxy ended a piped
+ * PING.EXE within 300 ms on 22 Nov (#5472). Residual: Testlimit runs x64
+ * under emulation, untested there, so each new reading counts Windows'
+ * Testlimit processes and a stray ends the whole hold.
  * @typedef {{ mb: number, child: import("node:child_process").ChildProcess }} LiveHolder
  */
 
@@ -193,7 +213,7 @@ class Runner {
 				running: this.running,
 				startedAt: this.startedAt,
 				heldMb: heldMb(this.holders),
-				holders: this.holders.map((h) => h.mb),
+				holderMb: this.holders.map((h) => h.mb),
 				workers: this.workers.length,
 				gateCount: this.tail.count,
 				gateMinutes: GATE_MINUTES,
@@ -205,6 +225,11 @@ class Runner {
 	stopAll() {
 		for (const w of this.workers) w.kill("SIGKILL");
 		this.workers = [];
+		this.dropAllHolders();
+	}
+
+	/* The sweep ends any Testlimit its proxy's end left running. */
+	dropAllHolders() {
 		const was = this.holders;
 		this.holders = [];
 		for (const h of was) stopHolder(h);
@@ -275,6 +300,16 @@ class Runner {
 	steerHold(reading) {
 		if (reading.at <= this.lastReadingAt) return;
 		this.lastReadingAt = reading.at;
+		const onWindows = windowsHolders(this.p);
+		if (onWindows !== null && onWindows > this.holders.length) {
+			logEvent(this.p, "strays", {
+				onWindows,
+				holders: this.holders.length,
+				...this.readout,
+			});
+			this.dropAllHolders();
+			return;
+		}
 		const step = holdStep(reading, this.holders);
 		if (!step) return;
 		if ("add" in step) {
