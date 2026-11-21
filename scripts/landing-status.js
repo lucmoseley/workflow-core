@@ -5,8 +5,9 @@
  * session's queue ref, not yet on `main`), or unpushed. Fetches `main` and
  * the queue refs first. Then, where the session runs in a worktree, each stay
  * of its queue ref, queued, testing, landed or dropped
- * (lib/queue-ref-status.js). Its last line is the landing queue's
- * (lib/queue-gauge.js).
+ * (lib/queue-ref-status.js), and the queue lander's last run end where it
+ * was held (lib/landing-stall.js, #5436). Its last line is the landing
+ * queue's (lib/queue-gauge.js).
  *
  *   node scripts/landing-status.js [--session <id>] [--wait]
  *
@@ -33,6 +34,7 @@ const {
 	buildStateLine,
 } = require("./lib/landing-status.js");
 const { ownQueueRef } = require("./lib/landing-refs.js");
+const { buildHeldLine, readHeldExit } = require("./lib/landing-stall.js");
 const { buildQueueLine, queueGaugeOf } = require("./lib/queue-gauge.js");
 const { queueGit } = require("./lib/queue-lander-adapters.js");
 const { queueLogFile, readQueueRows } = require("./lib/queue-log.js");
@@ -155,6 +157,26 @@ function readLanding(root, sessionId) {
 			);
 			return { fault: 1, network: isNetworkFault(err) };
 		}
+	pushQueueLines(root, lines, refKinds);
+	/** @type {Map<string, ShaState>} */
+	const states = new Map();
+	for (const sha of new Set([...commitKinds.keys(), ...refKinds.keys()])) {
+		const s = shaState(commitKinds.get(sha), refKinds.get(sha));
+		if (s) states.set(sha, s);
+	}
+	return { lines, states };
+}
+
+/**
+ * The queue's lines, pushed onto `lines`: each stay of the session's queue
+ * ref, recorded in `refKinds` by sha, the lander's held run end where it was
+ * held, then the gauge. Fail-open (#4485): the queue's lines are a second
+ * reading, and the commit states stand without them.
+ * @param {string} root
+ * @param {string[]} lines
+ * @param {Map<string, import("./lib/queue-ref-status.js").RefState["state"]>} refKinds
+ */
+function pushQueueLines(root, lines, refKinds) {
 	try {
 		const refs = queueGit(root).refs();
 		const rows = readQueueRows(queueLogFile(root));
@@ -163,19 +185,12 @@ function readLanding(root, sessionId) {
 			lines.push(buildQueueRefLine(s));
 			refKinds.set(s.sha, s.state);
 		}
+		const held = readHeldExit(root, now());
+		if (held) lines.push(`held: ${buildHeldLine(held)}`);
 		lines.push(buildQueueLine(queueGaugeOf(refs.queue, rows, now())));
 	} catch (err) {
-		/* Fail-open (#4485): the queue's lines are a second reading, and
-		 * the commit states above stand without them. */
 		fail(`could not read the landing queue: ${parseErrorText(err)}`);
 	}
-	/** @type {Map<string, ShaState>} */
-	const states = new Map();
-	for (const sha of new Set([...commitKinds.keys(), ...refKinds.keys()])) {
-		const s = shaState(commitKinds.get(sha), refKinds.get(sha));
-		if (s) states.set(sha, s);
-	}
-	return { lines, states };
 }
 
 if (require.main === module) process.exit(main());

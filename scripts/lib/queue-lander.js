@@ -46,7 +46,9 @@
  *   holds too ends the run, naming them, and drops no member, as `main` must
  *   be re-anchored first; a member merged alone, in an isolation or a serial
  *   step, is taken as merged, so the search still reaches the member
- *   carrying the re-anchor.
+ *   carrying the re-anchor. A batch not yet merged takes each member whose
+ *   queue ref moved past its snapshot at its new tip, so a re-anchor pushed
+ *   to a member of the held batch lands with it (#5436).
  * - **Drop and defer.** A member that does not merge onto the batch so far is
  *   merged alone onto `main`. Where that fails too, as a conflict or a merge
  *   a commit gate refused, it is dropped: its batch leaves it out and
@@ -278,6 +280,8 @@ class TransientFault extends Error {}
  *   | ({readonly kind: "defer-member"} & Deferral)
  *   | {readonly kind: "leave-withdrawn", readonly name: string,
  *     readonly sha: string}
+ *   | {readonly kind: "retake-member", readonly member: Member,
+ *     readonly was: string}
  *   | {readonly kind: "drop-member", readonly drop: Drop}
  *   | {readonly kind: "file-fix-ticket", readonly drop: Drop,
  *     readonly held: readonly DroppedRef[]}
@@ -459,6 +463,9 @@ function freeSlot(p) {
 
 /** @param {string} reason @returns {QueueEnd} */
 const exit = (reason) => ({ kind: "exit", reason });
+
+/* The end of a run another lander's lock turned away. */
+const LOCK_HELD = "another lander holds the lock";
 
 /**
  * @param {Member} a
@@ -1348,10 +1355,33 @@ const fastForward = (b, s, sha) =>
 	leased(s, unlanded(b), { kind: "fast-forward-main", sha });
 
 /**
+ * The first member of a batch not yet merged whose queue ref moved past its
+ * snapshot, at the ref's tip, where one did; else null (#5436).
+ * @param {Batch} b
+ * @param {QueueState} s
+ * @param {readonly Member[]} members
+ * @returns {Extract<QueueAction, {kind: "retake-member"}>|null}
+ */
+function retakeMoved(b, s, members) {
+	if (b.phase !== "merging") return null;
+	for (const m of members) {
+		const r = s.queue.find((q) => q.name === m.name);
+		if (r && r.sha !== m.sha)
+			return {
+				kind: "retake-member",
+				member: { name: r.name, sha: r.sha, pushedAt: r.pushedAt },
+				was: m.sha,
+			};
+	}
+	return null;
+}
+
+/**
  * The merge of `b` onto `base`, where it is not merged there yet: a batch
  * merged onto a base that has since moved is merged again onto the new one,
  * so `main` only ever fast-forwards; else null. A withdrawn member is left
- * out of it first, merged or not, so `main` never takes it (#5308, #5316).
+ * out of it first, merged or not, so `main` never takes it (#5308, #5316),
+ * and a moved one not yet merged is retaken at its tip (#5436).
  * @param {Batch} b
  * @param {QueueState} s
  * @param {string} base
@@ -1361,6 +1391,8 @@ function mergeStep(b, s, base) {
 	const members = included(b);
 	const withdrawn = leaveWithdrawn(s, members);
 	if (withdrawn) return withdrawn;
+	const moved = retakeMoved(b, s, members);
+	if (moved) return moved;
 	if (b.phase !== "merging" && b.onto === base && b.integration !== null)
 		return null;
 	return {
@@ -2783,6 +2815,17 @@ async function act(deps, action, run) {
 			record.write(batch);
 			return { ...run, acting: batch, unmerged: null, alone: null };
 		}
+		case "retake-member": {
+			const { member } = action;
+			const b = batchOf(run);
+			const batch = {
+				...b,
+				members: b.members.map((m) => (m.name === member.name ? member : m)),
+			};
+			record.write(batch);
+			deps.logQueue("take", member);
+			return { ...run, acting: batch, unmerged: null, alone: null };
+		}
 		case "defer-member": {
 			const { name, sha, onto, main } = action;
 			const batch = leaveOut(batchOf(run), name, "deferred");
@@ -3177,7 +3220,7 @@ function pruneReaped(deps) {
 async function runQueueLander(deps) {
 	const { lock, log = () => undefined, say = () => undefined } = deps;
 	if (!lock.acquire()) {
-		const held = exit("another lander holds the lock");
+		const held = exit(LOCK_HELD);
 		log(held);
 		return held;
 	}
@@ -3312,6 +3355,8 @@ function buildQueueActionLine(a) {
 			return `merge-alone onto ${short(a.onto)}: ${queueBranch(a.member.name)}`;
 		case "defer-member":
 			return `defer-member ${queueBranch(a.name)}`;
+		case "retake-member":
+			return `retake-member ${queueBranch(a.member.name)}@${short(a.member.sha)}: moved past its snapshot ${short(a.was)} before its batch merged`;
 		case "leave-withdrawn":
 			return `leave-withdrawn ${queueBranch(a.name)}@${short(a.sha)}: ${goneReason(1)}`;
 		case "drop-member":
@@ -3357,6 +3402,7 @@ function buildQueueActionLine(a) {
 }
 
 module.exports = {
+	LOCK_HELD,
 	RED_PATH_KINDS,
 	TransientFault,
 	batchesOf,

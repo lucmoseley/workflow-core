@@ -4,7 +4,8 @@
  * since the session's worktree was made, read as one of
  *
  *   - queued: the ref waits and no batch in flight holds it at the sha it
- *     holds now;
+ *     holds now; where one not yet merged holds it at an older snapshot, that
+ *     batch takes it at this sha (#5436);
  *   - testing: a batch in flight holds it at its snapshot sha, which `main`
  *     does not yet hold;
  *   - landed: a land row names it, or `main` holds its snapshot sha, with the
@@ -60,7 +61,7 @@ const { batchesOf } = require("./queue-lander.js");
  * @property {(sha: string) => string|null|Unwalked} mainReached the green
  *   ledger's `main` sha that first held `sha`, null where it names none
  * @typedef {{state: "queued", name: string, sha: string,
- *     snapshot: string|null}
+ *     snapshot: string|null, retaken?: boolean}
  *   | {state: "testing", name: string, sha: string}
  *   | {state: "unread", name: string, sha: string, why: "torn"|"absent"}
  *   | {state: "unwalked", name: string, sha: string, fault: string}
@@ -169,7 +170,13 @@ function waitingState(r, sha, mine) {
 	const b = holderOf(r.pipeline.value, name, false);
 	const m = b && memberOf(b, name);
 	if (!b || m?.sha !== sha)
-		return { state: "queued", name, sha, snapshot: m?.sha ?? null };
+		return {
+			state: "queued",
+			name,
+			sha,
+			snapshot: m?.sha ?? null,
+			retaken: b?.phase === "merging",
+		};
 	/* Between the lander's push to `main` and its record-landed step. */
 	const held = r.mainHolds(sha);
 	if (typeof held === "object")
@@ -242,8 +249,10 @@ function buildQueueRefLine(s) {
 	const at = `${queueBranch(s.name)} at ${short(s.sha)}`;
 	switch (s.state) {
 		case "queued":
-			return s.snapshot === null
-				? `queued: ${at} — waiting for the lander's next batch`
+			if (s.snapshot === null)
+				return `queued: ${at} — waiting for the lander's next batch`;
+			return s.retaken
+				? `queued: ${at} — moved past its snapshot ${short(s.snapshot)} in a batch not yet merged, which takes it at this sha`
 				: `queued: ${at} — moved past its snapshot ${short(s.snapshot)} in the batch under test, so it waits for the next batch`;
 		case "testing":
 			return `testing: ${at} — in the lander's batch under test`;

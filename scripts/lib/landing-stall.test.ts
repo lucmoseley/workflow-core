@@ -10,7 +10,7 @@
  * ticketed as a stall.
  */
 import { describe, expect, it } from "vitest";
-import { stallFindings, supervision } from "./landing-stall.js";
+import { heldExitOf, stallFindings, supervision } from "./landing-stall.js";
 
 const NOW = Date.parse("2026-10-21T12:00:00Z");
 const Q = "b".repeat(40);
@@ -42,6 +42,7 @@ const reading = (
 		heartbeat: { pid: 7, at: new Date(NOW - MIN).toISOString(), batch: null },
 		alive: () => false,
 		owed: 0,
+		held: null,
 		...rest,
 	};
 };
@@ -52,7 +53,43 @@ const found = (over: Parameters<typeof reading>[0] = {}) =>
 const tags = (over: Parameters<typeof reading>[0]) =>
 	found(over).map((f) => f.tag);
 
+describe("heldExitOf (#5436)", () => {
+	const ev = (t: number, kind: string, rest = "") => ({ t, kind, rest });
+
+	it("reads the newest run end where held, passing over a lock's turn-away", () => {
+		expect(
+			heldExitOf([
+				ev(1, "exit", "no queue ref waits"),
+				ev(2, "merge-members", "onto m0: queue/a"),
+				ev(3, "exit", "held: main is stale"),
+				ev(4, "exit", "another lander holds the lock"),
+			]),
+		).toEqual({ at: 3, reason: "main is stale" });
+	});
+
+	it("reads none where a later run ended unheld, or no run end is logged", () => {
+		expect(
+			heldExitOf([
+				ev(1, "exit", "held: main is stale"),
+				ev(2, "exit", "no queue ref waits"),
+			]),
+		).toBeNull();
+		expect(heldExitOf([ev(1, "take-batch", "onto m0")])).toBeNull();
+	});
+});
+
 describe("stallFindings", () => {
+	it("names a held lander run while a queue ref waits, and none where nothing waits (#5436)", () => {
+		const held = { at: NOW - MIN, reason: "main is stale" };
+		expect(found({ held })).toEqual([
+			{
+				tag: "LANDER-HELD",
+				line: `the queue lander's last run, at ${new Date(NOW - MIN).toISOString()}, ended held: main is stale`,
+			},
+		]);
+		expect(tags({ held, since: null })).toEqual([]);
+	});
+
 	it("warns of a stall where main has not moved for 2 h with a queue ref waiting, naming both", () => {
 		const f = found({ movedAt: stale(1) });
 		expect(f.map((x) => x.tag)).toEqual(["LANDING-STALLED"]);
