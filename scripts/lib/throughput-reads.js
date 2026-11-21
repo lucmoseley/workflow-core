@@ -27,7 +27,7 @@ const {
 	workingMsOf,
 } = require("./refill-breaker.js");
 
-/* #5275 guess: a fetched repo's log over the lookback, short of a stall. */
+/* #5275 guess: one git log, reflog or ancestry read on a fetched repo, short of a stall. */
 const GIT_LOG_TIMEOUT_MS = 20_000;
 
 /**
