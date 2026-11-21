@@ -1,11 +1,14 @@
 // @vitest-environment node
 /*
  * Pins each comment shape lib/comment-policy.js permits and each it refuses
- * (#5455, #5477 Q1 (A), #5490), in JS, Python and shell.
+ * (#5455, #5477 Q1 (A), #5490), in JS, Python and shell, on judgeSource alone
+ * so a shape's verdict is read without a git repo. A shape that drifts here
+ * refuses a permitted comment, or lets prose through, in every adopter's
+ * commit once the module is on.
  */
 
 import { describe, expect, it } from "vitest";
-import { depsPattern, judgeSource, langOf, UNITS } from "./comment-policy.js";
+import { depsPattern, judgeSource, langOf } from "./comment-policy.js";
 
 type Lang = "js" | "py" | "sh";
 
@@ -29,7 +32,7 @@ const tags = (source: string, lang: Lang, over = {}) =>
 	judge(source, lang, over).map((b) => `${b.tag}@${b.line}`);
 
 describe("the permitted shapes", () => {
-	it("K1: a licence or SPDX line at the file top, past a shebang", () => {
+	it("passes a licence or SPDX line at the file top, past a shebang (K1)", () => {
 		expect(
 			tags(
 				"#!/usr/bin/env node\n// SPDX-License-Identifier: MIT\nconst a = 1;\n",
@@ -45,7 +48,7 @@ describe("the permitted shapes", () => {
 		]);
 	});
 
-	it("K3: a suppression naming a rule on the style-only list", () => {
+	it("passes a suppression naming a rule on the style-only list (K3)", () => {
 		const src = [
 			"// biome-ignore lint/style/noNonNullAssertion: narrowed above",
 			"const a = b!;",
@@ -60,11 +63,11 @@ describe("the permitted shapes", () => {
 		);
 	});
 
-	it("an ADR-NNNN pointer that resolves under docs/adr/", () => {
+	it("passes an ADR-NNNN pointer that resolves under docs/adr/", () => {
 		expect(tags("// ADR-0010\nconst a = 1;\n", "js")).toEqual([]);
 	});
 
-	it("a one-line derivation holding measured or guess and a #N", () => {
+	it("passes a one-line derivation holding measured or guess and a #N", () => {
 		expect(
 			tags("const CAP = 5; // measured: 4.1 s at p95 (#812)\n", "js"),
 		).toEqual([]);
@@ -74,7 +77,7 @@ describe("the permitted shapes", () => {
 		).toEqual(["COMMENT@1"]);
 	});
 
-	it("K5: a bare #N, owner/repo#N or RFC pointer, several together", () => {
+	it("passes a bare #N, owner/repo#N or RFC pointer, several together (K5)", () => {
 		const src = [
 			"// #5455",
 			"const a = 1;",
@@ -95,7 +98,7 @@ describe("the permitted shapes", () => {
 		);
 	});
 
-	it("K2: a comment naming its source, a URL or a manifest dependency", () => {
+	it("passes a comment naming its source, a URL or a manifest dependency (K2)", () => {
 		expect(
 			tags(
 				"// Biome reads this shape: https://biomejs.dev/x\nconst a = 1;\n",
@@ -108,7 +111,7 @@ describe("the permitted shapes", () => {
 		expect(tags("// biome sorts these\nconst a = 1;\n", "js")).toEqual([]);
 	});
 
-	it("K4: a doc on an export the helper surface lists, or a shipped file's header", () => {
+	it("passes a doc on an export the helper surface lists, or a shipped file's header (K4)", () => {
 		const src = [
 			"const x = 1;",
 			"/** Runs it. */",
@@ -172,7 +175,7 @@ describe("JSDoc types checkJs reads are code", () => {
 		expect(out.map((b) => b.match)).toEqual(["Adds them. the first"]);
 	});
 
-	it("reads the tags as prose where checkJs is off, or in TS", () => {
+	it("reads the tags as prose where checkJs is off", () => {
 		expect(
 			tags("/** @type {number} */\nconst a = 1;\n", "js", { checkJs: false }),
 		).toEqual(["COMMENT@1"]);
@@ -275,16 +278,5 @@ describe("langOf", () => {
 		expect(langOf(".husky/pre-commit", "#!/usr/bin/env sh\n")).toBe("sh");
 		expect(langOf("Makefile", "all:\n")).toBeNull();
 		expect(langOf("docs/a.md", "")).toBeNull();
-	});
-});
-
-describe("UNITS", () => {
-	it("marks the file-top unit and the code line each sits on", () => {
-		const [head, doc] = UNITS.js(
-			"/* head */\nconst a = 1;\n// doc\nfunction f() {}\n",
-		);
-		expect(head?.top).toBe(true);
-		expect(doc?.top).toBe(false);
-		expect(doc?.next).toBe("function f() {}");
 	});
 });

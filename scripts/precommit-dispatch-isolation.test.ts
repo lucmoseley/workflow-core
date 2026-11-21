@@ -21,6 +21,7 @@ import path from "node:path";
 import { afterEach, expect, it, vi } from "vitest";
 import { defineTemplate, mkScratchDir } from "./lib/git-fixture";
 import { dispatch } from "./lib/precommit-dispatch.js";
+import { factsAt } from "./lib/precommit-dispatch-ports.js";
 import { buildRepoPorts } from "./lib/precommit-gate-testkit";
 import { GATES } from "./lib/precommit-gates.js";
 
@@ -81,6 +82,7 @@ async function pass(repo: string) {
 		})),
 		gates: "all",
 		ports: buildRepoPorts(repo, {
+			fact: factsAt(repo, () => undefined),
 			computed,
 			load,
 			write: (fd: number, text: string) => {

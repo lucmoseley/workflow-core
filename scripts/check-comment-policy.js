@@ -10,11 +10,11 @@
  * Bare, it lists every breach in the host's tracked files, or under `--root`
  * in every file there; `--all` prints the count per file
  * instead, the sweeps' and the migration step's listing. lib/precommit-gates.js
- * runs it under `--against HEAD` while the `comment-policy` module is on, so
+ * runs it under `--against HEAD` while the `comments` module is on, so
  * a commit is charged only the comments it adds: an edited comment is new, a
  * moved one is not, and a renamed file keeps the comments it brought.
  *
- * IMPLICIT:  with the comment-policy module on, refuses a commit adding a comment to a JS, TS, Python or shell file that fits no permitted kind, or a suppression of a rule off the style-only list, naming the file and line.
+ * IMPLICIT:  with the comments module on, refuses a commit adding a comment to a JS, TS, Python or shell file that fits no permitted kind, or a suppression of a rule off the style-only list, naming the file and line.
  * JUSTIFIED: fail-safe — the fix is deleting or reshaping the comment the commit itself adds.
  * DEFEAT:    --warn caps findings below the gating line; the module off stands the gate down.
  */
@@ -24,12 +24,18 @@ const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
 const { spawnGitSync } = require("./lib/git.js");
 const { listTree } = require("./lib/git-objects.js");
-const { depsPattern, judgeSource, langOf } = require("./lib/comment-policy.js");
+const {
+	CODE_FILE,
+	depsPattern,
+	judgeSource,
+	langOf,
+} = require("./lib/comment-policy.js");
+const { readText } = require("./lib/file-read.js");
 const STYLE_ONLY = require("./lib/style-only-rules.json").rules;
 
 /** @typedef {import("./lib/check").Ctx} Ctx */
 /** @typedef {import("./lib/comment-policy.js").FileFacts} FileFacts */
-const { runCheck } = require("./lib/check");
+const { baselineOf, runCheck } = require("./lib/check");
 
 const SURFACE = "scripts/lib/helper-surface.json";
 const ADR_DIR = "docs/adr";
@@ -40,31 +46,35 @@ const SUPPORT = [
 	"pyproject.toml",
 	"tsconfig.json",
 ];
-const REQUIREMENTS = /^requirements[\w.-]*\.(?:txt|in)$/;
-const CODE_PATH = /\.(?:[cm]?[jt]sx?|py|sh|bash)$|(?:^|\/)[^/.]+$/;
+/* The direct requirements: an `.in` file, or `requirements.txt` where it is
+ * hand-written; a compiled lock such as requirements-dev.txt names every
+ * transitive package. */
+const REQUIREMENTS = /^requirements(?:[\w.-]*\.in|\.txt)$/;
+/* A guess at what a terminal line shows of a comment beside its path. */
+const EXCERPT_MAX = 80;
 
 /**
  * @param {string} root
  * @param {string} rel
  */
 const readOr = (root, rel) => {
-	try {
-		return fs.readFileSync(path.join(root, rel), "utf8");
-	} catch {
-		return null;
-	}
+	const r = readText(path.join(root, rel));
+	if (r.state === "unreadable") throw new Error(r.message);
+	return r.state === "read" ? r.data : null;
 };
 
 /**
  * The tree's files: the host's tracked files, or under `--root` every file
  * there, as a materialised side holds them.
+ * @param {Ctx} ctx
  * @param {string} root
  * @param {boolean} walked
  * @returns {string[]}
  */
-function treeFiles(root, walked) {
+function readTreeFiles(ctx, root, walked) {
 	if (!walked) {
 		const r = spawnGitSync(["ls-files", "-z"], { cwd: root, encoding: "utf8" });
+		if (r.status !== 0) ctx.broken(`git ls-files failed: ${r.stderr}`);
 		return r.stdout.split("\0").filter(Boolean).sort();
 	}
 	/** @type {string[]} */
@@ -95,7 +105,7 @@ const PACKAGE_KEYS = [
  * The names each requirements file's lines open with.
  * @param {string} root
  */
-function requirementDeps(root) {
+function readRequirementDeps(root) {
 	const files = fs.existsSync(root)
 		? fs.readdirSync(root).filter((n) => REQUIREMENTS.test(n))
 		: [];
@@ -110,7 +120,7 @@ function requirementDeps(root) {
  * Every dependency name the tree's manifests declare.
  * @param {string} root
  */
-function manifestDeps(root) {
+function readManifestDeps(root) {
 	const pkg = JSON.parse(readOr(root, "package.json") ?? "{}");
 	const pyproject = readOr(root, "pyproject.toml") ?? "";
 	const fromPyproject = [
@@ -122,7 +132,7 @@ function manifestDeps(root) {
 	);
 	return [
 		...PACKAGE_KEYS.flatMap((key) => Object.keys(pkg[key] ?? {})),
-		...requirementDeps(root),
+		...readRequirementDeps(root),
 		...fromPyproject,
 	].filter(Boolean);
 }
@@ -131,7 +141,7 @@ function manifestDeps(root) {
  * The facts every file's verdict shares.
  * @param {string} root
  */
-function treeFacts(root) {
+function readTreeFacts(root) {
 	const surface = JSON.parse(readOr(root, SURFACE) ?? "{}");
 	const adrDir = path.join(root, ADR_DIR);
 	const adrs = new Set(
@@ -145,7 +155,7 @@ function treeFacts(root) {
 		entryPoints: surface.entryPoints ?? {},
 		commands: new Set(Object.keys(surface.commands ?? {})),
 		adrs,
-		deps: depsPattern(manifestDeps(root)),
+		deps: depsPattern(readManifestDeps(root)),
 		checkJs: /"checkJs"\s*:\s*true/.test(readOr(root, "tsconfig.json") ?? ""),
 	};
 }
@@ -154,8 +164,8 @@ function treeFacts(root) {
  * The paths the commit changes, and each rename's source.
  * @param {Ctx} ctx
  */
-function changedPaths(ctx) {
-	const rev = ctx.value("--against", "HEAD");
+function readChangedPaths(ctx) {
+	const rev = baselineOf(ctx.value("--against", "HEAD"));
 	const head = ctx.value("--head", "");
 	const args = head
 		? ["diff", "-z", "--name-status", "-M", rev, head]
@@ -180,8 +190,20 @@ function changedPaths(ctx) {
 	return { paths, renames };
 }
 
-/** @type {ReturnType<typeof changedPaths> | undefined} */
-let changed;
+/** @type {WeakMap<Ctx, ReturnType<typeof readChangedPaths>>} */
+const changed = new WeakMap();
+
+/**
+ * The commit's changed paths, read once a run for both sides and the settle.
+ * @param {Ctx} ctx
+ */
+const changedOnce = (ctx) => {
+	const known = changed.get(ctx);
+	if (known) return known;
+	const read = readChangedPaths(ctx);
+	changed.set(ctx, read);
+	return read;
+};
 
 /**
  * What a side materialises: the changed code paths, each rename's source,
@@ -190,13 +212,11 @@ let changed;
  * @param {string} rev
  */
 function sidePaths(ctx, rev) {
-	changed ??= changedPaths(ctx);
+	const { paths, renames } = changedOnce(ctx);
 	const requirements = listTree(rev, [], { recursive: false })
 		.map((e) => e.path)
 		.filter((p) => REQUIREMENTS.test(p));
-	const code = [...changed.paths, ...changed.renames.values()].filter((p) =>
-		CODE_PATH.test(p),
-	);
+	const code = [...paths, ...renames.values()].filter((p) => CODE_FILE.test(p));
 	return [...SUPPORT, ...requirements, ...code];
 }
 
@@ -213,8 +233,7 @@ const identity = (item) => {
  * @param {{ baseline: Record<string, unknown> | undefined }} sides
  */
 function settle(ctx, added, { baseline }) {
-	changed ??= changedPaths(ctx);
-	const { renames } = changed;
+	const { renames } = changedOnce(ctx);
 	const had = new Set(
 		/** @type {unknown[]} */ (baseline?.findings ?? []).map(identity),
 	);
@@ -247,11 +266,11 @@ const SPEC = {
 		const root = path.resolve(ctx.value("--root") ?? hostRoot());
 		if (!fs.existsSync(root))
 			ctx.broken(`the host root ${root} does not exist — nothing was read`);
-		const tree = treeFacts(root);
+		const tree = readTreeFacts(root);
 		/** @type {Map<string, number>} */
 		const perFile = new Map();
 		let judged = 0;
-		for (const rel of treeFiles(root, ctx.has("--root"))) {
+		for (const rel of readTreeFiles(ctx, root, ctx.has("--root"))) {
 			const text = readOr(root, rel);
 			const lang = text === null ? null : langOf(rel, text);
 			if (text === null || lang === null) continue;
@@ -270,14 +289,14 @@ const SPEC = {
 };
 
 /**
- * @param {ReturnType<typeof treeFacts>} tree
+ * @param {ReturnType<typeof readTreeFacts>} tree
  * @param {string} rel
  * @param {import("./lib/comment-policy.js").Lang} lang
  * @returns {FileFacts}
  */
 const factsFor = (tree, rel, lang) => ({
 	lang,
-	checkJs: tree.checkJs,
+	checkJs: tree.checkJs && /\.[cm]?jsx?$/.test(rel),
 	exports: new Set(tree.entryPoints[rel] ?? []),
 	shipped: rel in tree.entryPoints || tree.commands.has(rel),
 	adrs: tree.adrs,
@@ -300,7 +319,10 @@ function judgeFile(ctx, rel, text, facts) {
 	for (const b of breaches) {
 		const nth = (seen.get(`${b.tag}\t${b.match}`) ?? 0) + 1;
 		seen.set(`${b.tag}\t${b.match}`, nth);
-		const shown = b.match.length > 80 ? `${b.match.slice(0, 77)}…` : b.match;
+		const shown =
+			b.match.length > EXCERPT_MAX
+				? `${b.match.slice(0, EXCERPT_MAX - 3)}…`
+				: b.match;
 		const message = `${rel}:${b.line}  ${shown} — ${b.why}`;
 		ctx.fail(b.tag, message, { file: rel, line: b.line, match: b.match, nth });
 		if (!ctx.has("--all")) ctx.say(`  ${message}`);

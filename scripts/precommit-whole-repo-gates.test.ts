@@ -21,6 +21,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { dispatch } from "./lib/precommit-dispatch.js";
+import { factsAt } from "./lib/precommit-dispatch-ports.js";
 import {
 	newRepo,
 	registerTempCleanup,
@@ -34,7 +35,7 @@ import { JS_TEST_FILE, siblingTests } from "./lib/test-kind.js";
 const temps = registerTempCleanup();
 
 /** A path no gate's condition holds, and where a rename of it goes. */
-const OUTSIDE = "lib/page.tsx";
+const OUTSIDE = "lib/page.png";
 
 type Gate = (typeof PROFILE_GATES)[number];
 
@@ -45,6 +46,7 @@ async function arms(gate: Gate, root: string): Promise<boolean> {
 		rows: [gate],
 		gates: "all",
 		ports: buildRepoPorts(root, {
+			fact: factsAt(root, () => undefined),
 			load: () => () => {
 				ran = true;
 				return { exit: 0, stdout: "", stderr: "" };
@@ -120,7 +122,7 @@ describe.each(PROFILE_GATES)("the pre-commit $id gate", (gate) => {
 	});
 
 	it("does not arm on a rename with neither end in its condition", async () => {
-		expect(await arms(gate, renamed(OUTSIDE, "bin/page.tsx"))).toBe(false);
+		expect(await arms(gate, renamed(OUTSIDE, "bin/page.png"))).toBe(false);
 	});
 
 	it("does not arm on a commit outside its condition", async () => {
@@ -142,6 +144,7 @@ describe.each(PROFILE_GATES)("the pre-commit $id gate", (gate) => {
  * same paths of a list spanning every condition.
  */
 const HOOK_ERE: Record<string, string> = {
+	"scripts/check-comment-policy.js": String.raw`\.([cm]?[jt]sx?|py|sh|bash)$|(^|/)[^/.]+$`,
 	"scripts/check-guard-registry.js": String.raw`^(docs/|\.claude/|scripts/|\.husky/|self-plugin/|AGENTS\.md$|CLAUDE\.md$)`,
 	"scripts/check-guard-test-isolation.js": String.raw`^scripts/.*$JS_TEST_ERE|^scripts/.*\.(ts|sh)$`,
 	"scripts/check-host-root-test-isolation.js": String.raw`^scripts/.*$JS_TEST_ERE|^scripts/.*\.(js|sh)$`,

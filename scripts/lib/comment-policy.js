@@ -6,6 +6,7 @@
  * needs and hands them in.
  */
 
+const { escapeRe } = require("./regex-group.js");
 const { scanJs } = require("./strip-comments.js");
 
 /**
@@ -37,6 +38,9 @@ const { scanJs } = require("./strip-comments.js");
  * @typedef {{ tag: "COMMENT" | "SUPPRESSION" | "ADR-UNRESOLVED",
  *   line: number, match: string, why: string }} Breach
  */
+
+/** A path that may hold code: a JS, TS, Python or shell extension, or none. */
+const CODE_FILE = /\.(?:[cm]?[jt]sx?|py|sh|bash)$|(?:^|\/)[^/.]+$/;
 
 /** @param {string} rel @param {string} text @returns {Lang | null} */
 function langOf(rel, text) {
@@ -265,7 +269,7 @@ const PY_PREFIX = /^(?:[rRuUbBfF]|[bBfF][rR]|[rR][bBfF])$/;
 
 /**
  * The end of the word at `i`, or of the string it prefixes.
- * @param {PyState} st
+ * @param {PyState} st accumulator: the word's token is pushed onto `st.current`.
  * @param {number} i
  */
 function pyWordEnd(st, i) {
@@ -282,7 +286,7 @@ function pyWordEnd(st, i) {
 
 /**
  * Read the Python token at `i` into `st`, returning where the next starts.
- * @param {PyState} st
+ * @param {PyState} st accumulator: tokens, comments and logical lines grow on it.
  * @param {number} i
  */
 function pyStep(st, i) {
@@ -428,7 +432,7 @@ function shQuoteEnd(source, i) {
 
 /**
  * Read a heredoc's delimiter at `i` into `st.pending`.
- * @param {ShState} st
+ * @param {ShState} st accumulator: the delimiter is pushed onto `st.pending`.
  * @param {number} i
  */
 function shHeredoc(st, i) {
@@ -442,7 +446,7 @@ function shHeredoc(st, i) {
 
 /**
  * Read the shell token at `i` into `st`, returning where the next starts.
- * @param {ShState} st
+ * @param {ShState} st accumulator: comments and pending heredocs grow on it.
  * @param {number} i
  */
 function shStep(st, i) {
@@ -903,20 +907,11 @@ function depsPattern(names) {
 		if (bare) words.add(bare);
 	}
 	if (words.size === 0) return null;
-	const alts = [...words]
-		.sort((a, b) => b.length - a.length)
-		.map((w) => w.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&"));
+	const alts = [...words].sort((a, b) => b.length - a.length).map(escapeRe);
 	return new RegExp(
 		String.raw`(?<![\w@/.-])(?:${alts.join("|")})(?![\w/-])`,
 		"i",
 	);
 }
 
-module.exports = {
-	depsPattern,
-	directiveOf,
-	jsdocProse,
-	judgeSource,
-	langOf,
-	UNITS,
-};
+module.exports = { CODE_FILE, depsPattern, judgeSource, langOf };

@@ -577,7 +577,7 @@ const GATES = [
 	},
 	/*
 	 * A comment the commit adds that fits no permitted kind (#5490), armed only
-	 * while the host turns the comment-policy module on. Identity is the
+	 * while the host turns the comments module on. Identity is the
 	 * comment's text and its occurrence in the file, never `line`, so a moved
 	 * comment is inherited and an edited one new.
 	 */
@@ -587,7 +587,7 @@ const GATES = [
 		lander: "batch",
 		args: ["--against", "HEAD"],
 		arm: { pattern: /\.(?:[cm]?[jt]sx?|py|sh|bash)$|(?:^|\/)[^/.]+$/ },
-		when: { facts: ["module:comment-policy"] },
+		when: { facts: ["module:comments"] },
 		policy: "gate",
 		kind: "checker",
 		staged: "scripts/a.js",

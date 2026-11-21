@@ -3,7 +3,9 @@
  * Pins check-comment-policy.js over a throwaway git repo: the bare listing,
  * `--all`'s per-file counts, `--against HEAD` charging only the comments a
  * commit adds, and the pre-commit row standing down while the module is off
- * (#5490). lib/comment-policy.test.ts pins each shape.
+ * (#5490). A real repo, because the facts the verdict reads come from the
+ * commit's own tree; a break here charges a commit comments it inherited, or
+ * arms the gate in a repo that never switched it on.
  */
 
 import { execFileSync } from "node:child_process";
@@ -150,6 +152,51 @@ describe("check-comment-policy", () => {
 			expect(r.out).not.toContain("moved.js:2  inherited note —");
 		});
 
+		it("refuses each refused shape a staged file holds, and passes each permitted one", () => {
+			write("tsconfig.json", '{ "compilerOptions": { "checkJs": true } }');
+			write("package.json", JSON.stringify({ dependencies: { ajv: "8" } }));
+			write("docs/adr/0007-x.md", "# x\n");
+			write(
+				"scripts/lib/helper-surface.json",
+				JSON.stringify({ entryPoints: { "scripts/s.js": ["run"] } }),
+			);
+			write(
+				"scripts/s.js",
+				[
+					"// SPDX-License-Identifier: MIT",
+					"const a = 1; // biome-ignore format: a table",
+					"// ADR-0007",
+					"const b = 1; // measured 3 s at p95 (#812)",
+					"// #5455",
+					"const c = 1; // ajv rejects a bare key",
+					"/** Runs it. */",
+					"function run() {}",
+					"/** @type {number} */",
+					"const d = 1; // a stray note",
+					"// eslint-disable-next-line no-console",
+					"const e = 1;",
+					"// ADR-0999",
+					"const f = 1;",
+					"",
+				].join("\n"),
+			);
+			write("scripts/t.ts", "/** @type {number} */\nconst a = 1;\n");
+			git("add", "-A");
+			const r = run("--against", "HEAD");
+			expect(r.status).toBe(1);
+			const lines = [
+				...new Set(
+					[...r.out.matchAll(/(scripts\/[\w.]+:\d+) {2}/g)].map((m) => m[1]),
+				),
+			];
+			expect(lines).toEqual([
+				"scripts/s.js:10",
+				"scripts/s.js:11",
+				"scripts/s.js:13",
+				"scripts/t.ts:1",
+			]);
+		});
+
 		it("reads the manifest and docs/adr/ the commit carries", () => {
 			write("package.json", JSON.stringify({ dependencies: { ajv: "8" } }));
 			write("docs/adr/0007-x.md", "# x\n");
@@ -192,9 +239,9 @@ describe("the pre-commit row", () => {
 
 	it("runs the checker under --against HEAD only while the module is on", async () => {
 		expect(row?.args).toEqual(["--against", "HEAD"]);
-		expect(row?.when).toEqual({ facts: ["module:comment-policy"] });
+		expect(row?.when).toEqual({ facts: ["module:comments"] });
 		expect(await armed([])).toEqual({ code: 0, ran: [] });
-		expect(await armed(["comment-policy"])).toEqual({
+		expect(await armed(["comments"])).toEqual({
 			code: 1,
 			ran: ["comment-policy"],
 		});
