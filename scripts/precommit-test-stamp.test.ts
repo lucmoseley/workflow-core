@@ -40,7 +40,7 @@
  * loosening its cases does the same to every adopter's commit (#5288).
  */
 
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -48,6 +48,7 @@ import { expect, it } from "vitest";
 import { renderHookShim } from "./lib/adopter-skeleton.js";
 import { stampFile, stampVariable, writeStamp } from "./lib/commit-key.js";
 import { installHuskyShim } from "./lib/husky-testkit";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { newRepo, registerTempCleanup } from "./lib/precommit-gate-harness";
 import {
 	CORE_ROOT,
@@ -412,8 +413,7 @@ function fixture({
 			nodeArgs?: string[];
 			patch?: string;
 		} = {}) {
-			// spawn-kept: a signal to its own process group, and a sweeper it leaves running past its exit
-			const child = spawn(
+			const child = keptSpawn("signal").spawn(
 				process.execPath,
 				[...nodeArgs, COMMIT_PATHS, ...commitPathsArgs(patch)],
 				{ cwd: root, env: commitPathsEnv(), detached: true },

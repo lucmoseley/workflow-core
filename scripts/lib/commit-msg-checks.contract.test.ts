@@ -7,8 +7,6 @@
  *
  * Loosen a case and a check whose in-process run drifts from its program
  * refuses, or passes, a commit differently from the hook it replaced.
- *
- * spawn-kept: `spawned` is the program each in-process run is held to.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";

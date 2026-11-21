@@ -12,10 +12,11 @@
  * adopter's checks and npm scripts resolve the wrong core, or die without
  * naming the pin.
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { keptSpawn } from "./kept-spawn.js";
 import { adopterFixtures } from "./plugin-state-testkit.js";
 import { resolveCore } from "./resolve-core.js";
 import { shellQuote } from "./sh-quote.js";
@@ -359,8 +360,7 @@ describe("resolve-core.js run as a script (#552)", () => {
 	const self = path.join(__dirname, "resolve-core.js");
 	/** Runs the resolver's script form in `cwd` with only `env` set. */
 	function run(cwd: string, env: Record<string, string>, args: string[]) {
-		// spawn-kept: a real fd — the form under test hands its stdio and exit status to a child
-		return spawnSync(process.execPath, [self, ...args], {
+		return keptSpawn("fd").spawnSync(process.execPath, [self, ...args], {
 			cwd,
 			env: { PATH: process.env.PATH ?? "", ...env },
 			encoding: "utf8",

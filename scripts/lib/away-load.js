@@ -1,11 +1,11 @@
 /*
  * away-load.js — what the away-only reset-precondition runner (#5472) does
- * next, from the readings it is given. No I/O: `scripts/away-load.js` reads
+ * next. No I/O: `scripts/away-load.js` reads
  * memwatch and Windows, acts on the verdict and logs it.
  *
  * The precondition is #5346's: a minute with WSL CPU at or over 550% of 800
- * and Windows free memory under 900 MB. The runner makes it only while
- * Windows has had no keyboard or mouse input for 15 minutes, holding Windows
+ * and Windows free memory under 900 MB. The runner makes that minute only
+ * while Windows has had no keyboard or mouse input for 15 minutes, holding Windows
  * free memory in a band above the Windows-memory hold's 750 MB floor
  * (lib/windows-memory.js), so the refill loop keeps admitting some sessions.
  */
@@ -23,19 +23,18 @@ const BAND_LOW_MB = 760;
 const BAND_HIGH_MB = 890;
 const BAND_AIM_MB = 825;
 
-/* memwatch's own bound on a reading's age (WIN_MAX_AGE_S) starts nothing
- * past it. While loaded the bound is one minute's read plus 15 s for a read
- * slowed by the load (0.5-7 s measured, #4159) and the poll: past it the
- * runner cannot see input, so it stops. */
+/* To start: memwatch's own bound on a reading's age (WIN_MAX_AGE_S, 120 s).
+ * While loaded: one minute's read plus 15 s for a read slowed by the load
+ * and the poll (#4159). */
 const READING_MAX_AGE_S = 120;
 const RUNNING_MAX_AGE_S = 75;
 
 /* Untraced margins. A holder is one Testlimit process of HOLDER_MB, so a
- * release under the band frees about what it is short and never GBs; its
- * pages are not locked, so Windows can trim them and the runner tops up,
- * which the commit line and the total bound. The CPU aim sits over the
- * precondition line so a minute's dip stays over it; load1 stays clear of the
- * load ceiling's 24 (lib/cpu-sample.js), which would hold every slot. */
+ * release under the band frees about what it is short. Its pages are not
+ * locked, so Windows can trim them and the runner tops up, bounded by the
+ * commit line and the total. The CPU aim sits over the precondition line so a
+ * minute's dip stays over it; load1 stays clear of the admission load
+ * ceiling's 24 (lib/cpu-sample.js). */
 const CHUNK_MB = 64;
 const HOLDER_MB = 2 * CHUNK_MB;
 const MAX_HELD_MB = 8000;
@@ -79,8 +78,8 @@ function minuteOf(row) {
 }
 
 /**
- * Whether a minute line counts toward #5346's gate, by its own check, whose
- * `or` reads a 0 as missing.
+ * Whether a minute line counts toward #5346's gate, as its check's `or` reads
+ * it: a 0 as missing.
  * @param {Record<string, unknown>} row
  */
 function isPreconditionMinute(row) {
@@ -116,7 +115,6 @@ const isGateReset = (reset) => reset !== null && reset > RESET_AFTER;
  */
 
 /**
- * Whether a run starts, goes on, stops or ends for good.
  * @param {{ now: number, running: boolean, reading: Reading|null,
  *   handUntil: number|null, gateCount: number, done: string|null }} s
  *   `now` and `handUntil` in epoch seconds; a hand start runs until then

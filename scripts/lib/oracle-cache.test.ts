@@ -16,12 +16,9 @@
  * The stranded-claim and ghost-job checks under `npm run status` read session
  * liveness through it, so a loosened case lets a cached listing answer for a
  * daemon that has since failed (mantahostels#1946).
- *
- * spawn-kept: two processes running at once — the racing readers are separate
- * processes, the race this cache exists for.
  */
 
-import { spawn } from "node:child_process";
+import type { spawn } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -29,6 +26,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withStopClockLeft } from "./hook-deadline-testkit";
+import { keptSpawn } from "./kept-spawn.js";
 import { shellQuote } from "./sh-quote.js";
 
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
@@ -299,7 +297,7 @@ describe("a cached record that does not answer THIS caller", () => {
 			new Promise<number>((done) => {
 				kid.on("exit", (code) => done(code ?? -1));
 			});
-		const leader = spawn(process.execPath, [reader], {
+		const leader = keptSpawn("concurrent").spawn(process.execPath, [reader], {
 			env: { ...baseEnv, CLAUDE_CODE_SESSION_ID: "" },
 			stdio: "ignore",
 		});
@@ -309,7 +307,7 @@ describe("a cached record that does not answer THIS caller", () => {
 			await new Promise((r) => setTimeout(r, 10));
 		}
 		expect(fs.existsSync(held)).toBe(true);
-		const follower = spawn(process.execPath, [reader], {
+		const follower = keptSpawn("concurrent").spawn(process.execPath, [reader], {
 			env: { ...baseEnv, CLAUDE_CODE_SESSION_ID: "me", EXPECT_ME: "1" },
 			stdio: "ignore",
 		});
@@ -358,7 +356,7 @@ describe("a cached record that does not answer THIS caller", () => {
 			new Promise<number>((done) => {
 				kid.on("exit", (code) => done(code ?? -1));
 			});
-		const leader = spawn(process.execPath, [reader], {
+		const leader = keptSpawn("concurrent").spawn(process.execPath, [reader], {
 			env: baseEnv,
 			stdio: "ignore",
 		});
@@ -368,7 +366,7 @@ describe("a cached record that does not answer THIS caller", () => {
 			await new Promise((r) => setTimeout(r, 10));
 		}
 		expect(fs.existsSync(held)).toBe(true);
-		const follower = spawn(process.execPath, [reader], {
+		const follower = keptSpawn("concurrent").spawn(process.execPath, [reader], {
 			env: baseEnv,
 			stdio: "ignore",
 		});
@@ -477,10 +475,14 @@ describe("racing readers (mantahostels#1924)", () => {
 			[0, 1, 2].map(
 				() =>
 					new Promise<number>((done) => {
-						const kid = spawn(process.execPath, [reader], {
-							env,
-							stdio: "ignore",
-						});
+						const kid = keptSpawn("concurrent").spawn(
+							process.execPath,
+							[reader],
+							{
+								env,
+								stdio: "ignore",
+							},
+						);
 						kid.on("exit", (code) => done(code ?? -1));
 					}),
 			),

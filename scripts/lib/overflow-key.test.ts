@@ -4,10 +4,6 @@
  * apiKeyHelper (#3699): it prints the seat's key from the secrets file, and a
  * missing file or variable fails naming the variable, never a value. Break it and an overflow session
  * runs on no key, or prints one into a log.
- *
- * spawn-kept: `claude` runs the helper as a shell command line, so each case
- * runs it through `sh -c` from a directory whose name needs quoting: the
- * quoting buildKeyHelper writes is under test.
  */
 
 import { spawnSync } from "node:child_process";

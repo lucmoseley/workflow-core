@@ -35,6 +35,7 @@ import {
 	templateOf,
 	temps,
 } from "./lib/guard-registry-testkit";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process";
 
 afterEach(removeTemps);
@@ -159,8 +160,7 @@ describe("stale prose — has the guard moved since anyone confirmed the sentenc
 			{ length: 1500 },
 			(_, i) => `scripts/guard-never-written-${String(i).padStart(4, "0")}.sh`,
 		);
-		// spawn-kept: a real fd — the pipe buffer, as above.
-		const r = spawnSync(
+		const r = keptSpawn("fd").spawnSync(
 			process.execPath,
 			[
 				path.join(root, "scripts", "check-guard-registry.js"),

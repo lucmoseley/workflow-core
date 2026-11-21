@@ -5,17 +5,7 @@
  * holds Windows free memory at 760–890 MB with Sysinternals Testlimit64 and
  * keeps WSL's CPU at 550% or more with niced busy loops, so #5346 (whether
  * page combining off stopped the resets) gathers its precondition minutes.
- * The refill loop keeps running throughout.
- *
- *   node scripts/away-load.js run         the unit's main process
- *   node scripts/away-load.js recover     the unit's start: after a new
- *                                         Kernel-Power 41, git fsck in each repo
- *   node scripts/away-load.js sweep       the unit's stop: end every Testlimit64
- *   node scripts/away-load.js hand-start [--minutes N]
- *                                         run now for N minutes (20) whatever
- *                                         the input, then by the usual rules
- *   node scripts/away-load.js status
- *   node scripts/away-load.js install     write, enable and start the unit
+ * Commands: USAGE below.
  *
  * It reads memwatch: the raw Windows reading for input and free memory, fresh
  * each minute, and the minute log for CPU and #5346's count. Any input stops
@@ -23,13 +13,13 @@
  * runs slow under the load; past that it stops on the stale reading. It stops for good at
  * #5346's gate either way. A reset kills it; at the next start, before the
  * refill loop's boot-resume relaunches the killed sessions, `recover` runs
- * `git fsck` in each repo (the 4 Nov reset left empty loose objects, #4264).
+ * `git fsck` in each repo (#4264).
  * It never touches `.wslconfig`.
  *
  * In no family (§N3): an install command and a unit's own processes, not a
  * checker or a guard.
  *
- * Exit codes: 0; 1 where install or a systemd call fails; 2 on a command line.
+ * Exit codes: 0; 1 where a command fails; 2 on a command line.
  */
 
 const { spawn, spawnSync } = require("node:child_process");
@@ -50,8 +40,7 @@ const {
 	workersFor,
 } = require("./lib/away-load.js");
 const { parseOrCode } = require("./lib/cli-args.js");
-const { bootProgram } = require("./lib/refill-code.js");
-const { loopFiles } = require("./lib/refill-files.js");
+const { gitBinary, gitDirs, gitSpawnOptions } = require("./lib/git.js");
 const { runCommand } = require("./lib/run-command.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { systemctl } = require("./lib/systemd-bins.js");
@@ -190,7 +179,6 @@ function stopHolder(p, h) {
 	h.child.kill("SIGKILL");
 }
 
-/** One run's load, and the poll that starts, steers and stops it. */
 class Runner {
 	/** @param {ReturnType<typeof paths>} p */
 	constructor(p) {
@@ -284,7 +272,7 @@ class Runner {
 		}
 		if (verdict.kind === "none") return;
 		if (verdict.kind === "finish") writeAtomic(this.p.done, `${verdict.why}\n`);
-		if (this.running)
+		if (this.running || verdict.kind === "finish")
 			logEvent(this.p, verdict.kind, {
 				why: verdict.why,
 				heldMb: heldMb(this.holders),
@@ -316,11 +304,17 @@ class Runner {
 			});
 			return;
 		}
-		this.holders = this.holders.filter((x) => !step.drop.includes(x));
-		for (const h of step.drop) stopHolder(this.p, h);
+		/* A holder whose Windows pid never read cannot be ended alone: end
+		 * every one, and the next reading builds the hold again. */
+		const blind = step.drop.some((h) => h.winPid === null);
+		const drop = blind ? this.holders : step.drop;
+		this.holders = this.holders.filter((x) => !drop.includes(x));
+		for (const h of drop) stopHolder(this.p, h);
+		const swept = blind ? sweep(this.p) : null;
 		logEvent(this.p, "release", {
-			dropMb: heldMb(step.drop),
+			dropMb: heldMb(drop),
 			heldMb: heldMb(this.holders),
+			...(blind ? { all: "a holder's Windows pid never read", swept } : {}),
 			...this.readout,
 		});
 	}
@@ -369,13 +363,15 @@ async function run() {
 /**
  * The git repositories directly under `root`; a linked worktree's `.git` is a
  * file, and its repository is checked from its main checkout.
+ * @param {ReturnType<typeof paths>} p
  * @param {string} root
  */
-function reposUnder(root) {
+function reposUnder(p, root) {
 	let names;
 	try {
 		names = fs.readdirSync(root);
-	} catch {
+	} catch (err) {
+		logEvent(p, "repos-unread", { root, error: String(err) });
 		return [];
 	}
 	return names
@@ -394,8 +390,17 @@ function reposUnder(root) {
 function fsck(p, repo) {
 	const r = spawnSync(
 		"nice",
-		["-n", "19", "git", "-C", repo, "fsck", "--no-progress", "--no-dangling"],
-		{ encoding: "utf8", timeout: FSCK_TIMEOUT_MS },
+		[
+			"-n",
+			"19",
+			gitBinary(),
+			"-C",
+			repo,
+			"fsck",
+			"--no-progress",
+			"--no-dangling",
+		],
+		gitSpawnOptions({ encoding: "utf8", timeout: FSCK_TIMEOUT_MS }),
 	);
 	const out = `${r.stdout ?? ""}${r.stderr ?? ""}`.trim();
 	logEvent(p, "fsck", {
@@ -423,11 +428,13 @@ function recover() {
 		"/f:text",
 	]);
 	const reset = newestResetOf(read.out.replace(/\r/g, ""));
-	if (reset === null) {
-		/* Never holds the boot: the run itself reads no reset. */
+	if (read.error !== null) {
+		/* The unit's start fails and systemd retries it: a run started now
+		 * could load past a reset it cannot see. */
 		logEvent(p, "recover-unread", { error: read.error });
-		return 0;
+		return 1;
 	}
+	if (reset === null) return 0;
 	const lastSeen = textOf(p.seen)?.trim() || null;
 	const isNew = lastSeen === null || reset > lastSeen;
 	if (isNew && isGateReset(reset))
@@ -437,7 +444,7 @@ function recover() {
 		);
 	if (lastSeen !== null && isNew) {
 		logEvent(p, "reset", { at: reset });
-		for (const repo of reposUnder(p.repos)) fsck(p, repo);
+		for (const repo of reposUnder(p, p.repos)) fsck(p, repo);
 	}
 	writeAtomic(p.seen, `${reset}\n`);
 	return 0;
@@ -475,21 +482,18 @@ const PLAIN_PATH = /^[\w./@+-]+$/;
 
 function install() {
 	const shell = process.env.SHELL || "/bin/bash";
-	const files = loopFiles();
-	const boot = bootProgram({ scriptsDir: __dirname, codeDir: files.code });
-	if ("error" in boot) {
-		writeFd(2, `no code for the unit to start: ${boot.error}\n`);
-		return 1;
-	}
-	const script = path.join(path.dirname(boot.program), "away-load.js");
-	if (!fs.existsSync(script)) {
-		writeFd(2, `the loop's pinned code has no ${script} yet\n`);
+	/* This copy, from the main checkout alone: a session's linked worktree is
+	 * removed when it ends. The run reads its code at each unit start. */
+	const script = __filename;
+	const dirs = gitDirs(__dirname);
+	if (dirs === null || dirs.gitDir !== dirs.common) {
+		writeFd(2, `install from the main checkout, not ${__dirname}\n`);
 		return 1;
 	}
 	for (const word of [shell, script])
 		if (!PLAIN_PATH.test(word)) {
 			writeFd(2, `the unit cannot quote this path: ${word}\n`);
-			return 2;
+			return 1;
 		}
 	const text = fs
 		.readFileSync(path.join(__dirname, `${UNIT}.template`), "utf8")

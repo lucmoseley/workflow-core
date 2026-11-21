@@ -12,6 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
 import { textModuleSource, writeTextModule } from "./lib/tracker-text-fixture";
@@ -100,11 +101,14 @@ function stage(...rels: string[]) {
 }
 
 function spawnGate(...args: string[]) {
-	// spawn-kept: a real fd — lib/check.js streams the index side's report to the OS fd through a grandchild.
-	return spawnSync("node", [SCRIPT, "--against", "HEAD", ...args], {
-		cwd: dir,
-		encoding: "utf8",
-	});
+	return keptSpawn("fd").spawnSync(
+		"node",
+		[SCRIPT, "--against", "HEAD", ...args],
+		{
+			cwd: dir,
+			encoding: "utf8",
+		},
+	);
 }
 
 function gate() {

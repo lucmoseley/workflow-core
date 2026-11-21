@@ -12,16 +12,15 @@
  * Breaking it costs the licence for the trailer row: a trailer whose
  * in-process run drifts from its spawned one writes, strips or refuses
  * differently at commit.
- *
- * spawn-kept: `spawned` is the program each in-process run is held to.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { PROGRAM } from "../review-tier-trailer.js";
 import { initGitRepo, mkScratchDir } from "./git-fixture";
+import { keptSpawn } from "./kept-spawn.js";
 import { reviewTierStamp } from "./review-tier-stamp.js";
 
 const TRAILER = path.join(__dirname, "..", "review-tier-trailer.js");
@@ -82,12 +81,15 @@ const left = (f: Fixture) => ({
 });
 
 const spawned = (f: Fixture, args: string[]) => {
-	// spawn-kept: the spawned program is the comparand each in-process run is held to.
-	const r = spawnSync(process.execPath, [TRAILER, ...args], {
-		cwd: f.repo,
-		env: f.env,
-		encoding: "utf8",
-	});
+	const r = keptSpawn("boundary").spawnSync(
+		process.execPath,
+		[TRAILER, ...args],
+		{
+			cwd: f.repo,
+			env: f.env,
+			encoding: "utf8",
+		},
+	);
 	return { exit: r.status, stdout: r.stdout, stderr: r.stderr, ...left(f) };
 };
 

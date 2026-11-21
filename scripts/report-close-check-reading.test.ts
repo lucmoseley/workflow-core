@@ -10,18 +10,15 @@
  * and close-check logs into them, and runs the
  * script in-process with `gh` stubbed, because the real corpus is
  * machine-local and the real issue must never be filed by a test.
- *
- * spawn-kept: the failing-gh case spawns, since a real process.exit skips the
- * gate's `finally`, which runInProcess's unwind would run, hiding a lock left
- * behind.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { stubGhScript } from "./lib/gh-stub";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { minute } from "./lib/log-reading";
 import { MARKERS_REL } from "./lib/marker-root";
 import { plantDeadLock, plantLiveLock } from "./lib/pid-lock-testkit";
@@ -920,7 +917,7 @@ describe("filing the reading (#1104)", () => {
 	it("drops its stamp where gh refuses and dies, so a re-run files at once (#3220)", () => {
 		reachedReading();
 		stubGh({ failing: true });
-		const r = spawnSync(
+		const r = keptSpawn("boundary").spawnSync(
 			"node",
 			[SCRIPT, ...seats.flatMap((s) => ["--config-dir", s])],
 			{

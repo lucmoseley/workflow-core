@@ -8,17 +8,14 @@
  *
  * The seam is under every suite that runs through it, so a row missing here
  * is a behaviour nothing holds it to.
- *
- * spawn-kept: the `spawned` helper is the real node every parity case holds
- * the seam to.
  */
 
-import { execFile, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LEAKED } from "./fixtures/in-process-probe-modes";
+import { keptSpawn } from "./kept-spawn.js";
 import { runInProcess, runInProcessAsync } from "./run-in-process";
 
 const PROBE = path.resolve(__dirname, "fixtures/in-process-probe.js");
@@ -31,12 +28,16 @@ type RunOptions = Parameters<typeof runInProcess>[2];
 
 /** The same call through a real `node`, for the parity assertions. */
 const spawned = (args: string[], options: RunOptions = {}, script = PROBE) => {
-	const r = spawnSync(process.execPath, [script, ...args], {
-		encoding: "utf8",
-		cwd: options.cwd,
-		env: options.env as NodeJS.ProcessEnv,
-		input: options.stdin,
-	});
+	const r = keptSpawn("boundary").spawnSync(
+		process.execPath,
+		[script, ...args],
+		{
+			encoding: "utf8",
+			cwd: options.cwd,
+			env: options.env as NodeJS.ProcessEnv,
+			input: options.stdin,
+		},
+	);
 	return {
 		status: r.status ?? -1,
 		stdout: r.stdout,
@@ -205,8 +206,7 @@ const HANG_MS = 2000;
  * that it never exits, which is what the in-process refusal stands in for. */
 const hangs = (script: string, mode: string) =>
 	new Promise<{ stdout: string; killed: boolean }>((resolve) => {
-		// spawn-kept: a timeout — only a real process shows it never exits
-		execFile(
+		keptSpawn("timeout").execFile(
 			process.execPath,
 			[script, mode],
 			{ timeout: HANG_MS },

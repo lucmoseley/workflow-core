@@ -10,11 +10,6 @@
  * Every checker the .husky/pre-commit stack and CI run reports through this
  * tail: loosen a case here and a checker that crashed reads as one that ran
  * clean, or a finding exits on the wrong code and a gate passes it.
- *
- * spawn-kept: the import-closure block reads the require cache, which this
- * file's own persist tests fill in-process (#459). And `spawnRun`'s async
- * run() cases: runCheck's `beforeExit` listener, which reports a run() that
- * never settles, fires only in a process the checker has to itself (#1586).
  */
 
 import { execFileSync, spawnSync } from "node:child_process";
@@ -24,6 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ENVELOPE_FRAME_KEYS } from "./envelope-frame-keys";
+import { keptSpawn } from "./kept-spawn.js";
 import { runRecordFile } from "./notify-report-testkit";
 import { copyRequireClosure } from "./require-closure";
 import { runInProcess, runInProcessAsync } from "./run-in-process";
@@ -644,7 +640,7 @@ const spawnRun = (
 	args: string[] = [],
 	env: Record<string, string> = {},
 ) => {
-	const r = spawnSync("node", [file, ...args], {
+	const r = keptSpawn("boundary").spawnSync("node", [file, ...args], {
 		cwd: dir,
 		encoding: "utf8",
 		env: { ...process.env, GITHUB_ACTIONS: "", ...env },
@@ -1023,9 +1019,7 @@ runCheck({
 		}
 		if (worktree !== undefined)
 			fs.writeFileSync(path.join(root, "faults.txt"), worktree);
-		/* spawn-kept: a real fd — the re-exec streams the checker's own report
-		 * to fd 2 through its inherited stderr, past run-in-process's capture. */
-		const r = spawnSync(
+		const r = keptSpawn("fd").spawnSync(
 			"node",
 			[path.join(root, "fixture-check.js"), ...args],
 			{
@@ -1458,9 +1452,7 @@ runCheck({
 		fs.copyFileSync(bad, path.join(root, "against-check.js"));
 		git("add", "--", "against-check.js");
 		git("commit", "-qm", "add");
-		/* spawn-kept: a real fd — the re-exec's ctx.say output reaches fd 2
-		 * through its inherited stderr, past run-in-process's capture. */
-		const r2 = spawnSync(
+		const r2 = keptSpawn("fd").spawnSync(
 			"node",
 			[path.join(root, "against-check.js"), "--against", "HEAD"],
 			{
@@ -1557,9 +1549,7 @@ runCheck({
 	};
 
 	const gateBlobs = (root: string, args: string[] = ["--against", "HEAD"]) => {
-		/* spawn-kept: a real fd — the re-exec's ctx.say output reaches fd 2
-		 * through its inherited stderr, past run-in-process's capture. */
-		const r = spawnSync(
+		const r = keptSpawn("fd").spawnSync(
 			"node",
 			[path.join(root, "fixture-check.js"), ...args],
 			{
@@ -2210,11 +2200,15 @@ const { runCheck } = require(${JSON.stringify(LIB)});
 runCheck({ name: "closure", usage: "node closure-check.js", run() { return { okLine: "clean." }; } });
 `,
 		);
-		const r = spawnSync(process.execPath, [file, ...args], {
-			cwd: dir,
-			encoding: "utf8",
-			env: { ...process.env, GITHUB_ACTIONS: "", ...env },
-		});
+		const r = keptSpawn("boundary").spawnSync(
+			process.execPath,
+			[file, ...args],
+			{
+				cwd: dir,
+				encoding: "utf8",
+				env: { ...process.env, GITHUB_ACTIONS: "", ...env },
+			},
+		);
 		expect(r.status).toBe(0);
 		return JSON.parse(fs.readFileSync(out, "utf8")) as string[];
 	};

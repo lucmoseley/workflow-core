@@ -4,7 +4,7 @@
  * working tree (#640, #3202).
  *
  * Every CLI case drives the script from a throwaway git repo, in-process bar
- * the spawns marked `spawn-kept:`, the value on piped stdin, or for the
+ * the spawns through keptSpawn, the value on piped stdin, or for the
  * hidden-prompt cases on a fake terminal, and XDG_CONFIG_HOME on a throwaway
  * directory, and reads back only what the founder sees: the exit, the printed lines, the file's
  * bytes and mode. Every run is checked for the value leaking into stdout or
@@ -15,7 +15,7 @@
  * `.env` write reaches it, or mangles the file's other entries.
  */
 
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -28,6 +28,7 @@ import {
 	readStoredSecrets,
 	secretsFile,
 } from "./lib/env-file.js";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process.js";
 import { plantSocket } from "./lib/socket-fixture";
 
@@ -194,8 +195,7 @@ describe("write-secret", () => {
 	/* Runs the script with each named stream's reader gone before it is given
 	 * the value, so its first write to one meets a closed pipe. */
 	const runWithReaderGone = async (gone: ("stdout" | "stderr")[]) => {
-		// spawn-kept: a real fd, a pipe whose reader has gone, which run-in-process cannot give (§X3)
-		const child = spawn(process.execPath, [SCRIPT, "K"], {
+		const child = keptSpawn("fd").spawn(process.execPath, [SCRIPT, "K"], {
 			cwd: host,
 			env: isolatedEnv({ CLAUDE_PROJECT_DIR: host }),
 			stdio: "pipe",
@@ -664,8 +664,7 @@ describe("write-secret", () => {
 	it("refuses by name with exit 1 where the file is a FIFO, without hanging (#3822)", () => {
 		makeStoreDir();
 		plantFifo();
-		// spawn-kept: a timeout, as a block on open(2) stops an in-process run (§X3)
-		const r = spawnSync(process.execPath, [SCRIPT, "K"], {
+		const r = keptSpawn("timeout").spawnSync(process.execPath, [SCRIPT, "K"], {
 			cwd: host,
 			env: isolatedEnv({ CLAUDE_PROJECT_DIR: host }),
 			input: SECRET,
@@ -759,12 +758,15 @@ describe("write-secret", () => {
 			names.map(
 				(name) =>
 					new Promise<number | null>((resolve) => {
-						// spawn-kept: two processes at once, the lock's race (§X3)
-						const child = spawn(process.execPath, [SCRIPT, name], {
-							cwd: host,
-							env: isolatedEnv({ CLAUDE_PROJECT_DIR: host }),
-							stdio: ["pipe", "ignore", "ignore"],
-						});
+						const child = keptSpawn("concurrent").spawn(
+							process.execPath,
+							[SCRIPT, name],
+							{
+								cwd: host,
+								env: isolatedEnv({ CLAUDE_PROJECT_DIR: host }),
+								stdio: ["pipe", "ignore", "ignore"],
+							},
+						);
 						child.on("close", resolve);
 						child.stdin.end(`${name.toLowerCase()}-value\n`);
 					}),
@@ -826,8 +828,7 @@ describe("write-secret", () => {
 	it("reads a piped value to its end where the non-blocking pipe runs dry mid-way (#3663)", async () => {
 		const big = "v".repeat(PipedBytes);
 		const status = await new Promise<number | null>((resolve) => {
-			// spawn-kept: a real non-blocking pipe, which run-in-process cannot give (§X3); the real clock makes it run dry (§X9)
-			const child = spawn(process.execPath, [SCRIPT, "BIG"], {
+			const child = keptSpawn("fd").spawn(process.execPath, [SCRIPT, "BIG"], {
 				cwd: host,
 				env: isolatedEnv({ CLAUDE_PROJECT_DIR: host }),
 				stdio: ["pipe", "ignore", "ignore"],

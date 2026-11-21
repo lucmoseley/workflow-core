@@ -10,9 +10,6 @@
  * module encodes is git's own behaviour per hook — which a constructed $GIT_DIR
  * can only restate.
  *
- * spawn-kept: the route cases spawn git to fire real hooks, each of which
- * starts node on the module as a dispatcher hook does.
- *
  * A loosened row lets a hook gate a replay as an ordinary commit or stand an
  * ordinary commit down as a replay, on a route git does not show it as.
  */

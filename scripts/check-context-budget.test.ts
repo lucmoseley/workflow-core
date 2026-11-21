@@ -30,6 +30,7 @@ import { getPoolFiles } from "./lib/always-loaded-pool.js";
 import { SHED_REGISTERS } from "./lib/context-budget-pathspecs";
 import { liveCaps } from "./lib/context-budget-testkit";
 import { PROFILES } from "./lib/fault-profiles.js";
+import { keptSpawn } from "./lib/kept-spawn.js";
 /* The core rule store's own path, so a fixture can find a real id to collide
  * on (#109) without restating rule-text.js's own resolution. */
 import { CORE_RULES } from "./lib/rule-text";
@@ -1013,14 +1014,14 @@ describe("--against HEAD, the pre-commit gate (mantahostels#1224, mantahostels#1
 	 * each materialised tree to the child itself.
 	 */
 	function gate(...args: string[]) {
-		/* spawn-kept: a real fd (mantahostels#1945) — lib/check.js's `reread`
-		 * streams the index side's report by handing its own grandchild `stdio:
-		 * "inherit"` on stderr, which writes straight to this process's OS fd and
-		 * bypasses runInProcess's captured state.stderr entirely. */
-		const r = spawnSync("node", [SCRIPT, "--against", "HEAD", ...args], {
-			cwd: dir,
-			encoding: "utf8",
-		});
+		const r = keptSpawn("fd").spawnSync(
+			"node",
+			[SCRIPT, "--against", "HEAD", ...args],
+			{
+				cwd: dir,
+				encoding: "utf8",
+			},
+		);
 		return { ...r, json: () => JSON.parse(r.stdout) };
 	}
 

@@ -2,8 +2,7 @@
 /*
  * run-pinned-guards.js runs the guard entry from the pinned guard code (#4227): its
  * refusals where that code is missing or throws, and the hook line run end to
- * end over the 3 Nov case. spawn-kept: the shim's contract is its own process —
- * it rewrites process.argv for the entry and ends on process.exit(2).
+ * end over the 3 Nov case.
  *
  * Break it and a working copy's edit reaches the hooks again, or a load fault
  * refuses every call with no repair the founder can paste.
@@ -17,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { isLockoutText } from "./lib/core-fault.js";
 import { SELF_PLUGIN_DIR } from "./lib/core-hooks.js";
 import { MAIN_SCRIPTS } from "./lib/core-hooks-testkit";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { readHookLines } from "./lib/pretool-guard-testkit";
 
 const SHIM = path.join(__dirname, "run-pinned-guards.js");
@@ -40,7 +40,7 @@ function code(name: string, entry: string, kit = ""): string {
 const entryOf = () => path.join(link, "scripts", "guard-dispatch.js");
 
 const runShim = (...args: string[]) =>
-	spawnSync(process.execPath, [SHIM, ...args], {
+	keptSpawn("boundary").spawnSync(process.execPath, [SHIM, ...args], {
 		encoding: "utf8",
 		input: "{}",
 	});

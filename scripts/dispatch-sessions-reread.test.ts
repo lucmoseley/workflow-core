@@ -15,7 +15,6 @@
  * Over the run-cost budget (base §X8 (5)) by inheritance: its cases moved
  * unchanged from dispatch-sessions.test.ts, whose cost was pre-existing (#2413).
  */
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -26,6 +25,7 @@ import {
 	SELF_SESSION_ID,
 	writeCache,
 } from "./lib/dispatch-sessions-testkit";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { buildLoadavgLine } from "./lib/proc-fake";
 import { writePsStub } from "./lib/ps-stub";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -370,8 +370,7 @@ describe("the launch stagger (mantahostels#2553)", () => {
 	it("sleeps WFC_DISPATCH_STAGGER_SECONDS between two launches", () => {
 		stubClaude({});
 		const start = Date.now();
-		// spawn-kept: a timeout — the stagger is the host's real sleep, timed on the real clock
-		const r = spawnSync(
+		const r = keptSpawn("timeout").spawnSync(
 			process.execPath,
 			[SCRIPT, "sonnet", "/implement 341", "opus", "/wayfinder 1114"],
 			{

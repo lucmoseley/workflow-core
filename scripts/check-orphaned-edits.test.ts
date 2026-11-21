@@ -15,7 +15,7 @@
  * files the same orphan at every session start.
  */
 
-import { spawn, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
@@ -34,6 +34,7 @@ import {
 	store,
 } from "./lib/arbiter-testkit";
 import { writeClaudeStub } from "./lib/claude-stub";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { readWorktreeEdits, readWorktreeFiling } from "./lib/orphan-filings.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 import { worktreeLabel } from "./lib/session-worktrees.js";
@@ -415,8 +416,7 @@ describe("check-orphaned-edits", () => {
 			dirty("a.txt", 30);
 			const child = () =>
 				new Promise<string>((resolve) => {
-					// spawn-kept: two processes at once, as two session starts are.
-					const p = spawn(
+					const p = keptSpawn("concurrent").spawn(
 						process.execPath,
 						[SCRIPT, "--hourly", "--json", "--write"],
 						{

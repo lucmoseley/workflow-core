@@ -11,11 +11,7 @@
  * run are what is under test, which no seeded log reaches.
  */
 
-import {
-	execFileSync,
-	spawn as spawnAsync,
-	spawnSync,
-} from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -23,6 +19,7 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
+import { keptSpawn } from "./kept-spawn.js";
 import { watched } from "./pass-store-testkit";
 
 const require = createRequire(import.meta.url);
@@ -136,12 +133,15 @@ function runAudited(
 		file,
 		`${settle ? "globalThis.__wfcReadAudit.settle();\n" : ""}globalThis.__wfcReadAudit.claim(${JSON.stringify(path.join(root, file))});\n${body}\n`,
 	);
-	// spawn-kept: the preload arms only through NODE_OPTIONS in a fresh process.
-	const r = spawnSync(process.execPath, [path.join(root, file)], {
-		cwd: os.tmpdir(),
-		env: scope,
-		encoding: "utf8",
-	});
+	const r = keptSpawn("boundary").spawnSync(
+		process.execPath,
+		[path.join(root, file)],
+		{
+			cwd: os.tmpdir(),
+			env: scope,
+			encoding: "utf8",
+		},
+	);
 	expect(r.stderr).toBe("");
 	expect(r.status).toBe(0);
 	return { log: log as string, stdout: r.stdout };
@@ -2470,8 +2470,7 @@ describe("arming", () => {
 		const root = checkout();
 		/* A run that arms the audit, names its directory and waits. */
 		const arm = () => {
-			// spawn-kept: the run must be a process of its own to be killed.
-			const child = spawnAsync(
+			const child = keptSpawn("signal").spawn(
 				process.execPath,
 				[
 					"-e",

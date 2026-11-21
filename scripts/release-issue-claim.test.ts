@@ -12,7 +12,7 @@
  * Break the line and every claim outlives its issue.
  */
 
-import { execFileSync, spawn } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -24,6 +24,7 @@ import {
 	gitRepo,
 	issueClaims,
 } from "./lib/arbiter-testkit";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import {
 	buildBashPayload,
 	guardOutput,
@@ -130,8 +131,7 @@ describe("each exit", () => {
 
 describe("run by hand (#3556)", () => {
 	it("refuses an issue number on exit 1 while its stdin stays open, naming the release command", async () => {
-		// spawn-kept: a real stdin pipe held open, the fd the hang blocked on.
-		const child = spawn("node", [SCRIPT, "646"], {
+		const child = keptSpawn("fd").spawn("node", [SCRIPT, "646"], {
 			cwd: CHECKOUT,
 			env: {
 				...process.env,

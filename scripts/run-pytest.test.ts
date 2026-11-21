@@ -20,6 +20,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { tmpRootWithMarkers } from "./lib/admission-testkit";
 import { freshSandbox, ledger } from "./lib/arbiter-testkit";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcessAsync } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import { restoreStderr, spyStderr } from "./lib/write-fd-testkit";
@@ -724,12 +725,15 @@ describe("what it says out loud", () => {
 		() => {
 			// `--collect-only` runs no tests and records no marker.
 			const checkout = path.join(__dirname, "..");
-			// spawn-kept: a real fd — pytest inherits stdio, writing past runInProcess.
-			const r = spawnSync(process.execPath, [SCRIPT, "--collect-only", "-q"], {
-				encoding: "utf8",
-				cwd: checkout,
-				env: { ...process.env, CLAUDE_PROJECT_DIR: checkout },
-			});
+			const r = keptSpawn("fd").spawnSync(
+				process.execPath,
+				[SCRIPT, "--collect-only", "-q"],
+				{
+					encoding: "utf8",
+					cwd: checkout,
+					env: { ...process.env, CLAUDE_PROJECT_DIR: checkout },
+				},
+			);
 			expect(r.status, r.stderr).toBe(0);
 			expect(r.stdout).toContain("test_pytest_pass_plugin.py");
 		},

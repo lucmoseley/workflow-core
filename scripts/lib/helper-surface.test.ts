@@ -12,9 +12,6 @@
  * The manifest is what adopters import and run against, so a loosened case
  * lets a release drop or reshape a promised helper or command line and break
  * an adopter's tests or hooks with nothing on this side going red.
- *
- * spawn-kept: the fixtures case is a plain node process outside vitest's
- * loader, the shape an adopter loads them in (#462).
  */
 
 import { spawnSync } from "node:child_process";
@@ -22,6 +19,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { keptSpawn } from "./kept-spawn.js";
 import { isShipped } from "./plugin-tree.js";
 import { runInProcess, runInProcessAsync } from "./run-in-process.js";
 import { shellQuote } from "./sh-quote.js";
@@ -150,10 +148,14 @@ for (const fn of cleanups) fn();
 console.log(JSON.stringify({ ceiling: TEST_TIMEOUT_MS, ran: ran.stdout.trim(), cleaned: !fs.existsSync(root) }));
 `,
 			);
-			const r = spawnSync(process.execPath, ["adopter.js", ROOT], {
-				cwd: dir,
-				encoding: "utf8",
-			});
+			const r = keptSpawn("boundary").spawnSync(
+				process.execPath,
+				["adopter.js", ROOT],
+				{
+					cwd: dir,
+					encoding: "utf8",
+				},
+			);
 			expect(r.status, r.stderr).toBe(0);
 			expect(r.stderr).toBe("");
 			expect(JSON.parse(r.stdout)).toEqual({

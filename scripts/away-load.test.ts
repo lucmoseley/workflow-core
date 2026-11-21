@@ -6,14 +6,16 @@
 // in each repo. Break it and the load either never starts, or keeps loading
 // the laptop after the founder is back or after #5346 is already answered.
 //
-// spawn-kept: `run` is a loop a signal ends, and the case reads its log while
-// it runs. Its waits cross the real clock: the loop's own poll, bounded.
-import { spawn } from "node:child_process";
+// `run` is a loop a signal ends, so its cases cross the real clock: the
+// loop's own poll, bounded.
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
+import { gitBinary, gitSpawnOptions } from "./lib/git.js";
 import { defineTemplate, initGitRepo } from "./lib/git-fixture";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcessAsync } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "away-load.js");
@@ -29,7 +31,6 @@ const repoTemplate = defineTemplate((dir) => {
 	fs.rmdirSync(none);
 });
 
-/** A fresh directory of fakes and files, and the environment naming them. */
 function rig(name: string) {
 	const dir = path.join(tmp, name);
 	fs.mkdirSync(dir);
@@ -56,6 +57,7 @@ function rig(name: string) {
 			`echo "$*" >> "${files.held}"; echo "Process ID: 4242"; exec sleep 600`,
 		),
 		WFC_TASKKILL: fake("taskkill", `echo "$*" >> "${files.calls}"`),
+		WFC_SYSTEMCTL: fake("systemctl", `echo "$*" >> "${files.calls}"; exit 1`),
 		WFC_AWAY_LOAD_WORKER: `echo $$ >> "${files.workers}"; exec sleep 600`,
 		WFC_AWAY_LOAD_REPOS_ROOT: path.join(dir, "home"),
 	};
@@ -84,8 +86,7 @@ describe("run", () => {
 	it("starts on 15 idle minutes, holds and loads, and stops on input", async () => {
 		const { env, files } = rig("run");
 		fs.writeFileSync(env.MEMWATCH_WIN_OUT, `${epoch()} 1100 1 2 60 100 900\n`);
-		// spawn-kept: a signal — SIGTERM ends the run loop.
-		const child = spawn("node", [SCRIPT, "run"], {
+		const child = keptSpawn("signal").spawn("node", [SCRIPT, "run"], {
 			env: { ...process.env, ...env },
 			stdio: "ignore",
 		});
@@ -107,7 +108,6 @@ describe("run", () => {
 				"-accepteula -d 64 -c 2\n-accepteula -d 64 -c 2\n-accepteula -d 64 -c 1\n",
 			);
 
-			/* Input: the next reading shows 3 s idle. */
 			fs.writeFileSync(
 				env.MEMWATCH_WIN_OUT,
 				`${epoch() + 1} 1100 1 2 60 100 3\n`,
@@ -145,6 +145,72 @@ describe("run", () => {
 	});
 });
 
+describe("run, by its readings", () => {
+	/** Runs the loop until `test` holds, then ends it with SIGTERM. */
+	async function runUntil(
+		env: Record<string, string>,
+		what: string,
+		test: () => boolean,
+	) {
+		const child = keptSpawn("signal").spawn("node", [SCRIPT, "run"], {
+			env: { ...process.env, ...env },
+			stdio: "ignore",
+		});
+		const exited = new Promise((r) => child.on("exit", r));
+		try {
+			await until(what, test);
+		} finally {
+			child.kill("SIGTERM");
+			await exited;
+		}
+	}
+
+	it("ends every holder where one's Windows pid never read", async () => {
+		const { dir, env, files } = rig("blind");
+		const testlimit = path.join(dir, "Testlimit64.exe");
+		fs.writeFileSync(testlimit, "#!/bin/sh\nexec sleep 600\n", { mode: 0o755 });
+		fs.writeFileSync(env.MEMWATCH_WIN_OUT, `${epoch()} 1100 1 2 60 100 900\n`);
+		let dipped = false;
+		await runUntil({ ...env, WFC_TESTLIMIT: testlimit }, "the release", () => {
+			const logged = events(env.WFC_AWAY_LOAD_LOG);
+			if (!dipped && logged.some((e) => e.event === "hold")) {
+				dipped = true;
+				fs.writeFileSync(
+					env.MEMWATCH_WIN_OUT,
+					`${epoch() + 1} 600 1 2 60 100 900\n`,
+				);
+			}
+			return logged.some((e) => e.event === "release");
+		});
+		expect(
+			events(env.WFC_AWAY_LOAD_LOG).find((e) => e.event === "release"),
+		).toMatchObject({
+			dropMb: 320,
+			heldMb: 0,
+			all: "a holder's Windows pid never read",
+			swept: null,
+		});
+		expect(read(files.calls)).toContain("/IM Testlimit64.exe /F");
+	});
+
+	it("logs the gate met while it waits, and writes the end", async () => {
+		const { env } = rig("finish");
+		fs.writeFileSync(env.MEMWATCH_WIN_OUT, `${epoch()} 1100 1 2 60 100 3\n`);
+		const row = JSON.stringify({
+			ts: "2026-11-21T19:00:00+0800",
+			cpu_busy_pct: 600,
+			win_avail_mb: 800,
+		});
+		fs.writeFileSync(env.MEMWATCH_MINUTE_LOG, `${row}\n`.repeat(1308));
+		await runUntil(env, "the finish", () =>
+			events(env.WFC_AWAY_LOAD_LOG).some((e) => e.event === "finish"),
+		);
+		expect(read(path.join(env.WFC_AWAY_LOAD_STATE_DIR, "done"))).toContain(
+			"1308 of 1308 precondition minutes",
+		);
+	});
+});
+
 describe("recover", () => {
 	const recover = (env: Record<string, string>, reset: string) => {
 		const wevtutil = path.join(env.WFC_AWAY_LOAD_STATE_DIR, "..", "wevtutil");
@@ -157,6 +223,28 @@ describe("recover", () => {
 			env: { ...process.env, ...env, WFC_WEVTUTIL: wevtutil },
 		});
 	};
+
+	it("fails the unit's start where the event log will not read", async () => {
+		const { env } = rig("recover-unread");
+		const wevtutil = path.join(env.WFC_AWAY_LOAD_STATE_DIR, "..", "wevtutil");
+		fs.writeFileSync(
+			wevtutil,
+			"#!/bin/sh\necho 'Access is denied.' >&2; exit 5\n",
+			{
+				mode: 0o755,
+			},
+		);
+		const r = await runInProcessAsync(SCRIPT, ["recover"], {
+			env: { ...process.env, ...env, WFC_WEVTUTIL: wevtutil },
+		});
+		expect(r.status).toBe(1);
+		expect(events(env.WFC_AWAY_LOAD_LOG)).toMatchObject([
+			{
+				event: "recover-unread",
+				error: expect.stringContaining("Access is denied"),
+			},
+		]);
+	});
 
 	it("records the first reading and checks nothing", async () => {
 		const { env } = rig("recover-first");
@@ -238,5 +326,47 @@ describe("status", () => {
 		expect(r.stdout).toContain("status: none written");
 		expect(r.stdout).toContain("done: met");
 		expect(r.stdout).toContain("newest Kernel-Power 41 seen: none read");
+	});
+});
+
+describe("install", () => {
+	const install = (dir: string, env: Record<string, string>, gitDir: string) =>
+		runInProcessAsync(SCRIPT, ["install"], {
+			env: {
+				...process.env,
+				...env,
+				XDG_CONFIG_HOME: path.join(dir, "config"),
+				GIT_DIR: gitDir,
+			},
+		});
+
+	it("refuses a copy git cannot place, writing no unit", async () => {
+		const { dir, env, files } = rig("install-none");
+		const r = await install(dir, env, path.join(dir, "no-repo"));
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain(
+			`install from the main checkout, not ${path.dirname(SCRIPT)}`,
+		);
+		expect(fs.existsSync(path.join(dir, "config"))).toBe(false);
+		expect(read(files.calls)).toBe("");
+	});
+
+	it("refuses a linked worktree, which its session removes", async () => {
+		const { dir, env, files } = rig("install-linked");
+		const repo = path.join(dir, "repo");
+		repoTemplate.instantiate(repo);
+		const git = (...args: string[]) =>
+			execFileSync(gitBinary(), ["-C", repo, ...args], gitSpawnOptions({}));
+		git("commit", "-q", "--allow-empty", "-m", "a");
+		git("worktree", "add", "-q", path.join(dir, "linked"));
+		const r = await install(
+			dir,
+			env,
+			path.join(repo, ".git", "worktrees", "linked"),
+		);
+		expect(r.status).toBe(1);
+		expect(r.stderr).toContain("install from the main checkout");
+		expect(fs.existsSync(path.join(dir, "config"))).toBe(false);
+		expect(read(files.calls)).toBe("");
 	});
 });

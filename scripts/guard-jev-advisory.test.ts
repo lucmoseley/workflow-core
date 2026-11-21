@@ -13,9 +13,6 @@
  * is a network call and the sync seam returns before an awaited one has done
  * anything (`lib/run-in-process.js`'s own header).
  *
- * spawn-kept: one case asserts the process boundary — module resolution off a
- * fresh process's paths, which cannot find the `ai` SDK.
- *
  * Every call path goes to a `node:http` server this file starts on a loopback
  * port, handed to the guard through `WFC_JEV_BASE_URL`.
  *
@@ -34,6 +31,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess, runInProcessAsync } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import { copyLibs, readProgramLibs } from "./lib-closure-fixture";
@@ -431,7 +429,7 @@ describe("the vendor gate", () => {
 		copyLibs(path.join(bin, "lib"), readProgramLibs("guard-jev-advisory.js"));
 		fs.copyFileSync(GUARD, path.join(bin, "guard-jev-advisory.js"));
 
-		const res = spawnSync(
+		const res = keptSpawn("boundary").spawnSync(
 			process.execPath,
 			[path.join(bin, "guard-jev-advisory.js")],
 			{

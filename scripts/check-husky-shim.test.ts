@@ -7,8 +7,6 @@
  * The shim is the real one: husky writes it, as `npm install` does, and
  * scripts/install-hooks.js patches it, as `prepare` does.
  *
- * spawn-kept: husky's bin.js is an ES module, which runInProcess cannot load.
- *
  * Loosen it and a stock shim sends every worktree's commit and push back to
  * the shared checkout's hook copy with nothing said (#3125).
  */
@@ -18,6 +16,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { initGitRepo } from "./lib/git-fixture";
+import { keptSpawn } from "./lib/kept-spawn.js";
 
 const { runInProcess } = require("./lib/run-in-process.js");
 
@@ -36,7 +35,10 @@ const env = () => {
 	return e;
 };
 const husky = () =>
-	execFileSync(process.execPath, [HUSKY], { cwd: shared, env: env() });
+	keptSpawn("boundary").execFileSync(process.execPath, [HUSKY], {
+		cwd: shared,
+		env: env(),
+	});
 const install = () => {
 	const r = runInProcess(INSTALL, [], { cwd: wt, env: env() });
 	if (r.status !== 0) throw new Error(`install-hooks.js: ${r.stderr}`);

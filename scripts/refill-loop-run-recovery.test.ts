@@ -29,7 +29,7 @@
  *   judged by state.json A; the copy tracked as the job A; pass markers
  *   moved A.
  */
-import { spawn, spawnSync } from "node:child_process";
+import { type spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -37,6 +37,7 @@ import { ADMISSION_VERDICT } from "./lib/admission-verdict-fake";
 import { buildJobRow, type Row } from "./lib/agents-stop-fake";
 import { readCurrentBootId, readProcStartOf } from "./lib/arbiter-proc.js";
 import { FAKE_COPY } from "./lib/bg-resume-fake";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { API_PROMPT, BOOT_PROMPT, IDLE_PROMPT } from "./lib/loop-prompts.js";
 import { buildMeminfo } from "./lib/meminfo-fake";
 import { MODEL } from "./lib/refill-decide.js";
@@ -679,8 +680,7 @@ describe("the launches a restart killed (#3880)", () => {
 				"kill -9 $PPID;",
 			].join(" "),
 		);
-		/* spawn-kept: the kill needs a loop of its own process to land on. */
-		const killed = spawn(
+		const killed = keptSpawn("signal").spawn(
 			process.execPath,
 			[path.join(scripts, "refill-loop.js"), "run"],
 			{ cwd: dir, env: loopEnv({ FAKE_SLOTS: "1" }), stdio: "ignore" },

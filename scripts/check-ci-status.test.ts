@@ -21,7 +21,7 @@
  * sit red unannounced, or a session is sent hunting the wrong commits.
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -29,6 +29,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./lib/arbiter-testkit";
 import { GH_FAILING_SCRIPT, stubGhScript } from "./lib/gh-stub";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import { sleepSync } from "./lib/sleep-sync.js";
@@ -490,13 +491,16 @@ describe("--notify reports each failure once (mantahostels#143)", () => {
 		setRuns([run_({ databaseId: 200, conclusion: "failure" })]);
 		const full = fs.openSync("/dev/full", "w");
 
-		// spawn-kept: a real fd — stdout must be /dev/full so the report's write fails.
-		const r = spawnSync(process.execPath, [SCRIPT, "--notify"], {
-			encoding: "utf8",
-			env: { ...process.env, CLAUDE_PROJECT_DIR: sb.repo },
-			cwd: sb.repo,
-			stdio: ["ignore", full, "pipe"],
-		});
+		const r = keptSpawn("fd").spawnSync(
+			process.execPath,
+			[SCRIPT, "--notify"],
+			{
+				encoding: "utf8",
+				env: { ...process.env, CLAUDE_PROJECT_DIR: sb.repo },
+				cwd: sb.repo,
+				stdio: ["ignore", full, "pipe"],
+			},
+		);
 		fs.closeSync(full);
 
 		expect(r.status).not.toBe(0);

@@ -4,9 +4,6 @@
  * (#4514): stale on the merged index, fresh on both parents, and no file of
  * its closure changed on both sides since the merge base. A row only the
  * merged-in side holds is carried on that side's freshness (#4801).
- *
- * spawn-kept: the merge cases commit through real git hooks, since only git
- * shows which index reaches a merge commit's tree.
  */
 
 import { execFileSync, spawnSync } from "node:child_process";

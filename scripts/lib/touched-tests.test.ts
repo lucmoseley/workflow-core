@@ -10,7 +10,7 @@
  * Its merge cases (#5334) build merging repos and run throwaway worktrees:
  * a merge's own content has no cheaper witness than git's own merge.
  */
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -25,6 +25,7 @@ import {
 	vi,
 } from "vitest";
 import { defineTemplate, mkScratchDir } from "./git-fixture";
+import { keptSpawn } from "./kept-spawn.js";
 import type { TouchedBase } from "./test-pass-marker.js";
 
 const require = createRequire(import.meta.url);
@@ -971,9 +972,7 @@ process.stdout.write(JSON.stringify(r.changed));
 		/* The gate's records land under the fixture, never the live checkout
 		 * a commit gate's CLAUDE_PROJECT_DIR names (#160). */
 		const env = { ...unmerged(), CLAUDE_PROJECT_DIR: dir, TMPDIR: tmp };
-		/* spawn-kept: a real fd — the gate's command inherits queue-run's stdout,
-		 * which an in-process run cannot capture apart from vitest's own. */
-		const r = spawnSync(
+		const r = keptSpawn("fd").spawnSync(
 			process.execPath,
 			[QUEUE_RUN, "--gate", "--", `node ${probe} ${overlay}`],
 			{ cwd: dir, env, encoding: "utf8" },

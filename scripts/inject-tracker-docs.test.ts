@@ -138,7 +138,7 @@ describe("the SessionStart/UserPromptSubmit double-fire (mantahostels#1117)", ()
 			["SessionStart", "UserPromptSubmit"].map(
 				(event) =>
 					new Promise<string>((resolve) => {
-						// spawn-kept: two processes at once — only real processes can race the marker (§X3).
+						// Two processes at once: only real processes can race the marker (§X3).
 						execFile(HOOK, { env: ENV }, (_err, stdout) =>
 							resolve(stdout),
 						).stdin?.end(
@@ -163,7 +163,7 @@ describe("a command typed on an issue labelled for another (#1164)", () => {
 		);
 		const fire = (env: Record<string, string>) =>
 			new Promise<string>((resolve) => {
-				// spawn-kept: the kill of a real hung gh child, which only a process shows.
+				// The kill of a real hung gh child, which only a process shows.
 				execFile(HOOK, { env: { ...ENV, ...env } }, (_err, stdout) =>
 					resolve(stdout),
 				).stdin?.end(

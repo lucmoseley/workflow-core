@@ -14,11 +14,12 @@
  * case and the cut swaps hooks under a live Manta session, or leaves a half-cut
  * repo with no rollback recipe.
  */
-import { execFileSync, spawn, spawnSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { makeProcRoot, writeCwd } from "./lib/proc-fake";
 import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -366,12 +367,14 @@ describe("cut-mantahostels.js", () => {
 		);
 		f.git("add", "-A");
 		f.git("commit", "-q", "-m", "an unclosed join before a real edge");
-		/* spawn-kept: a regex match blocks, so only a process timeout can stop one.
-		 * 30 s is a guess: well over this refusal's run, under the test ceiling. */
-		const r = spawnSync(process.execPath, [SCRIPT, ...f.cutArgs], {
-			encoding: "utf8",
-			timeout: 30_000,
-		});
+		const r = keptSpawn("timeout").spawnSync(
+			process.execPath,
+			[SCRIPT, ...f.cutArgs],
+			{
+				encoding: "utf8",
+				timeout: 30_000,
+			},
+		);
 		expect(r.status).toBe(1);
 		expect(r.stderr).toContain("scripts/runner.js → old.js");
 		expect(r.stderr).toContain("keep the target in MANTA.keep");

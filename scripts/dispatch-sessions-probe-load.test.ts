@@ -10,11 +10,11 @@
  * in docs/test-read-edges.json: any lib change selects it rather than the
  * whole dispatch suite (#2423).
  */
-import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { dispatchFixture, SCRIPT } from "./lib/dispatch-sessions-testkit";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { installLib } from "./lib/lib-install-testkit";
 
 const fx = dispatchFixture();
@@ -42,8 +42,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		});
 		fs.writeFileSync(path.join(shadowLib, "interop-probe.sh"), "if then fi\n");
 
-		// spawn-kept: a §N5 fail-open, crossed through the entry from a shadow scripts tree
-		const r = spawnSync(
+		const r = keptSpawn("boundary").spawnSync(
 			process.execPath,
 			[
 				"--preserve-symlinks",

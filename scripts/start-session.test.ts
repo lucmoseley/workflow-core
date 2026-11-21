@@ -6,8 +6,6 @@
  * stubs; the `claude` stub records each call's cwd and argv, and its `--bg`
  * prints the recorded promptless launch (lib/bg-launch-fake.ts).
  *
- * spawn-kept: a shell script, which run-in-process cannot load.
- *
  * Loosen it and a hand-started session opens in the main checkout, in a
  * worktree no dispatched session would have, or as no job at all.
  */

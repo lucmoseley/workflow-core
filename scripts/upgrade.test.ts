@@ -12,7 +12,7 @@
  * Verify failed (#6; each later limb cites its own ticket on its describe).
  */
 
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -22,6 +22,7 @@ import {
 	renderHookShim,
 	withIgnoreBlock,
 } from "./lib/adopter-skeleton.js";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { shellQuote } from "./lib/sh-quote.js";
 import { clearStepOwed } from "./lib/steps-owed.js";
 import { upgrade } from "./lib/upgrade-walk.js";
@@ -1579,9 +1580,7 @@ describe("upgrade.js through the resolve-core.js runner (#5286)", () => {
 		execFileSync("git", ["init", "-q"], { cwd: root });
 		const env: NodeJS.ProcessEnv = { ...process.env, WORKFLOW_CORE_DIR: core };
 		delete env.CLAUDE_PLUGIN_ROOT;
-		// spawn-kept: a real fd — the runner hands upgrade.js its own fds with
-		// `stdio: "inherit"`, which no in-process run captures
-		const r = spawnSync(
+		const r = keptSpawn("fd").spawnSync(
 			process.execPath,
 			["scripts/lib/resolve-core.js", "scripts/upgrade.js", "--dry-run"],
 			{ cwd: root, env, encoding: "utf8" },

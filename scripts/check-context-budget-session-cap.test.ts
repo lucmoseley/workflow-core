@@ -24,6 +24,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { keptSpawn } from "./lib/kept-spawn.js";
 import { runInProcess } from "./lib/run-in-process.js";
 import { textModuleSource, writeTextModule } from "./lib/tracker-text-fixture";
 
@@ -947,12 +948,15 @@ describe("--against HEAD over a guard's own bytes", () => {
 	}
 
 	function gate(...args: string[]) {
-		// spawn-kept: a real fd — --against re-execs itself over two materialised trees, and the grandchild streams its report to the OS fd 2 the cases read.
-		const r = spawnSync("node", [SCRIPT, "--against", "HEAD", ...args], {
-			cwd: dir,
-			encoding: "utf8",
-			env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
-		});
+		const r = keptSpawn("fd").spawnSync(
+			"node",
+			[SCRIPT, "--against", "HEAD", ...args],
+			{
+				cwd: dir,
+				encoding: "utf8",
+				env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
+			},
+		);
 		return { ...r, json: () => JSON.parse(r.stdout) };
 	}
 
