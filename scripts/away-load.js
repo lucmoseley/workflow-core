@@ -158,7 +158,7 @@ function windowsHolders(p) {
 /**
  * A Testlimit process. Its stdout never reaches a pipe while it holds, so its
  * Windows pid is unknown; ending its WSL interop proxy ended a piped
- * PING.EXE within 300 ms on 22 Nov (#5472). Residual: Testlimit runs x64
+ * PING.EXE (#5472). Residual: Testlimit runs x64
  * under emulation, untested there, so each new reading counts Windows'
  * Testlimit processes and a stray ends the whole hold.
  * @typedef {{ mb: number, child: import("node:child_process").ChildProcess }} LiveHolder
