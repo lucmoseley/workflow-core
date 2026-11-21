@@ -2,13 +2,10 @@
 /*
  * Every fragment a wired guard injects fits RULE_CAP as an INSTALL spells it
  * (#5439). An install respells each `scripts/x` and `docs/x` at the plugin
- * root and qualifies each bare `#N`, so a fragment that fits in this checkout
- * can overrun the cap in an adopter, where guard-entry.js then refuses every
- * call the guard fires on: 3.0.0's killed-background-job, 3527 B here, read
- * 4020 B there and refused every backgrounded Bash call.
+ * root and qualifies each bare `#N`.
  *
- * The install is a probe tree at WFC_SCRIPT_ROOT holding the real scripts/
- * and docs/ through links and no package.json, so script-path.js reads it as
+ * The install is a probe tree at WFC_SCRIPT_ROOT with no package.json, so
+ * script-path.js reads it as
  * an install. Its path is padded to the root a 32-character user name — the
  * useradd limit — gives under `~/.claude/plugins/cache/`, at a version of two
  * digits a part, a guess at the longest the plugin will ship. The store is
