@@ -140,61 +140,10 @@ const CAP_BYTES = 22_500;
  */
 const INJECTION_CAP_BYTES = 10_500;
 
-/*
- * docs/doc-map.md §Capture and placement §3 route (f): the bytes of rule text
- * ONE SESSION can be made to pay through a single PreToolUse tool — the sum of
- * the distinct ids that tool's wired guards can reach.
- *
- * THE SESSION, NOT THE EVENT (mantahostels#2046). An `injectRules` id latches per
- * (rule, agent, session), so it is delivered once in a session's life.
- *
- * A CONTEXT-COST CEILING, NOT A TRUNCATION GUARANTEE. RULE_CAP — 4,000 B,
- * enforced by lib/guard-entry.js — holds every delivery under the cut. What
- * this bounds is what the rules layer costs a session that trips every
- * trigger.
- *
- * RATCHETED THE WAY §4 RATCHETS THE POOL'S: the largest live group, rounded up
- * past a slack band under one fragment's worth at the median, so an added rule
- * spends it and has to move the cap rather than pass unseen. That measurement
- * pair DERIVES the cap and is not the live headroom (mantahostels#2272) — read
- * it off `npm run check:context`, which prints the per-tool figures.
- *
- * Last re-seeded at #5447, priced at the install spelling (lib/install-probe.js):
- * Bash at 33,577 B across 41 ids in a linked worktree, rounded up past a 423 B
- * slack band.
- */
+/* #5447: measured 33,577 B for Bash at the install spelling, past a 423 B slack band. */
 const SESSION_CAP_BYTES = 34_000;
 
-/*
- * docs/doc-map.md §Capture and placement §3 route (f)'s second, independent
- * axis (mantahostels#1720). SESSION_CAP_BYTES above bounds ONE PreToolUse tool; this one is
- * a shared ratchet over the UNION OF EVERY REACHABLE ID across every tool at
- * once — one fragment counted once however many guards or tools reach it, the
- * latch paying it once — moved only by deliberate edit exactly as CAP_BYTES is
- * (mantahostels#1720).
- *
- * SEEDED ON THE SESSION UNIT (mantahostels#2223, taking option (A)): the
- * measured union rounded up past a slack band under one fragment's worth at
- * the median, so an added rule spends it and has to move the cap rather than
- * pass unseen. That is mantahostels#2046's method for SESSION_CAP_BYTES
- * above, applied to the same measurement. The measured union DERIVES the cap
- * and is not the live headroom (mantahostels#2272) — read it off
- * `npm run check:context`, which prints the union in the same run as the
- * per-tool figures.
- *
- * Last re-seeded at #5447, priced at the install spelling: 56,878 B across 70
- * ids in a linked worktree, rounded up past a 122 B slack band.
- *
- * WHY NOT SEED IT BELOW THE MEASUREMENT. The direction gate refuses any commit that RAISES an
- * over-cap total, so a seed permanently below the measurement is not a passive
- * drift report: it makes every addition to the rule layer net-zero-or-below.
- * That is the downward-only ratchet mantahostels#1220 rejected and
- * docs/doc-map.md §Capture and placement §4 legislates against
- * (mantahostels#2223). WHY NOT RETIRE IT. The
- * per-tool cap would permit SESSION_CAP_BYTES on each wired tool with no
- * complaint; the union is what a session actually pays, and nothing else
- * bounds it.
- */
+/* #5447: measured 56,878 B across 70 ids at the install spelling, past a 122 B slack band. */
 const RATCHET_CAP_BYTES = 57_000;
 
 /*
@@ -230,9 +179,9 @@ const RATCHET_SURFACE = "rule-ratchet";
 /* The session cap's arithmetic, which is a module of its own so that this file
  * holds only the cap, the severity and the reporting (mantahostels#2003, mantahostels#2004). */
 const { reachableAfterCall, reachableByTool } = require("./lib/rule-emission");
-const { asInstall } = require("./lib/install-probe.js");
+const { asInstall, installStore } = require("./lib/install-probe.js");
 const { AFTER_EVENTS } = require("./lib/hook-events.js");
-const { RULES_DIR, CORE_RULES, fragmentLookup } = require("./lib/rule-text");
+const { fragmentLookup } = require("./lib/rule-text");
 const { caught, orFallback } = require("./lib/caught.js");
 const { readImportedFiles } = require("./lib/pool-imports.js");
 const {
@@ -981,6 +930,7 @@ function readHooks(ctx, root) {
  * @param {string} root
  */
 function reachOptions(settings, root) {
+	const store = installStore(root);
 	return {
 		settings,
 		root,
@@ -993,21 +943,11 @@ function reachOptions(settings, root) {
 		 * convention): the suite plants a fake hook-limits.js and points this at
 		 * it rather than at a file under --root. */
 		capFile: process.env.WFC_CAP_FILE,
-		/* RULES_DIR is the fragment store the host's own guards write to
-		 * (docs/agents/rules), never core content, so it stays root-relative. */
-		rulesDir: path.join(root, RULES_DIR),
-		/* A core guard wired in an adopter resolves its injected ids out of the
-		 * core's store; without this layer they read as unresolvable (#101).
-		 * `WFC_RULES_FALLBACK_DIR` is the test-injection seam `lib/host-root.js`'s
-		 * header convention names (as `WFC_CAP_FILE` above honours it for the cap
-		 * source): a fixture pins this away from the live core store, rather than
-		 * inheriting it and letting a colliding id resolve silently (#109).
-		 * `!== undefined`, not `||`: an EMPTY string is a fixture asking for no
-		 * fallback layer at all, as rule-text.js's own resolution reads it — `||`
-		 * would fall that case through to the live store too. */
+		rulesDir: store.dir,
+		/* #109 */
 		rulesFallbackDir:
 			process.env.WFC_RULES_FALLBACK_DIR === undefined
-				? CORE_RULES
+				? store.fallback
 				: process.env.WFC_RULES_FALLBACK_DIR,
 	};
 }
@@ -1042,7 +982,7 @@ function sessionFigures(ctx, opts) {
 		};
 	try {
 		/* Priced as an adopter receives it, not as this checkout spells it (#5447). */
-		return asInstall(() => reachableByTool(opts));
+		return asInstall(opts.root, () => reachableByTool(opts));
 	} catch (e) {
 		/* Every throw here is apparatus: the probe install tree, a guard file, the RULE_CAP assignment,
 		 * a malformed settings shape, or an injection naming an id the fragment
@@ -1068,7 +1008,7 @@ function sessionFigures(ctx, opts) {
  */
 function afterCallFigures(ctx, opts) {
 	try {
-		return asInstall(() => reachableAfterCall(opts));
+		return asInstall(opts.root, () => reachableAfterCall(opts));
 	} catch (e) {
 		return ctx.broken(
 			`cannot compute the after-call rule emission: ${errMessage(e)}`,

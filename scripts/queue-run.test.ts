@@ -528,11 +528,11 @@ describe("queue-run.js", () => {
 		/* A host sleep steps the wall clock on resume and leaves CLOCK_MONOTONIC
 		 * where it was. The two clocks are spied, not injected: what is under test is the
 		 * default clock, which an injected `monoClock` would replace (§X2). */
-		it("records its wait and run on the monotonic clock, counting no host sleep (#5446)", async () => {
+		it("records its wait and run on the monotonic clock, counting no host sleep (#5446), and its run's wall time beside it (#5471)", async () => {
 			let wallMs = Date.now();
 			let monoMs = 1_000_000;
 			const sleep = (awakeMs: number) => {
-				wallMs += 8 * 3_600_000;
+				wallMs += 8 * 3_600_000 + awakeMs;
 				monoMs += awakeMs;
 			};
 			vi.spyOn(Date, "now").mockImplementation(() => wallMs);
@@ -561,7 +561,12 @@ describe("queue-run.js", () => {
 					expect.objectContaining({ reason: "opened", waitS: 30 }),
 				]);
 				expect(g.readGates()).toEqual([
-					expect.objectContaining({ waitS: 30, runS: 60, outcome: "pass" }),
+					expect.objectContaining({
+						waitS: 30,
+						runS: 60,
+						wallS: 8 * 3600 + 60,
+						outcome: "pass",
+					}),
 				]);
 			} finally {
 				vi.restoreAllMocks();

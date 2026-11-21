@@ -75,6 +75,7 @@ const WORKING_STATES = new Set(["working", "running"]);
  *   gate-run budget
  * @property {Record<string, {commits: {sha: string, at: number}[]|null,
  *   gateRuns: import("./gate-seat.js").GateRun[]|null,
+ *   suiteCommand: string|null,
  *   sessions: SessionTimeline[], timelinesUnread: string[]}>} byRoot each
  *   served checkout's non-merge `origin/main` commits and its loop sessions'
  *   job timelines since its lookback, each timeline that would not read, and
