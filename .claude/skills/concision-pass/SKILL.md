@@ -289,7 +289,7 @@ reaches by pointer) the test is model-relative: does it change behaviour versus
 the model's default? `writing-for-agents` §Pruning holds it, under no-ops.
 Founder-facing prose keeps the reader test above.
 
-**Comments in code**, where a coding-standards source links
+**Comments in code**, where a standards source links
 `docs/comment-kinds.md`, are judged against that keep-list first. A comment
 that fits no kind there, or has a kind's form but fails its keep-when test, is
 cut whatever a reader would lose; its tie rule binds — unsure, the comment

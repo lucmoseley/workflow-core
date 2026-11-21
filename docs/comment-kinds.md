@@ -12,10 +12,10 @@ A comment in code is refused unless it is one of the seven kinds below (#5455). 
 | K4 outside contract | a party outside the repo relies on what it documents: an adopter importing the export, a hook runner, a person at the CLI, a tool reading the output | it sits on that export, entry point or output: a usage block, a hook's input and output, an exported function's behaviour |
 | K5 issue or RFC pointer | a reader would otherwise undo the code's shape, and the issue or RFC says why | the bare `#N` or RFC link, with no reasoning beside it. A test pinning the behaviour may cite the same `#N` beside its descriptive title |
 | ADR pointer | as K5, for a decision recorded as an ADR | the bare `ADR-NNNN`, resolving to a file in `docs/adr/` |
-| Value derivation | a chosen value (a threshold, a size, a timeout) whose origin its name cannot carry | one line on the constant holding `measured` and the figure, or `guess`, and the `#N` holding the detail |
+| Value derivation | a chosen value (a threshold, a size, a timeout) whose origin its name cannot carry | one line on the constant holding the `#N` with the detail and either `measured` and the figure, or `guess` |
 
 A comment's form alone does not make it its kind: a URL that forces nothing is not K2, a doc comment on an export nothing outside the repo uses is not K4, and a `#N` no reader would undo the code without is not K5.
 
 **What these refuse, most often:** what the code does; why our own code is shaped this way; a file header giving what the file is, its why or its ticket; a rejected alternative; a `TODO`; commented-out code.
 
-**What replaces a refused comment:** nothing, or the name, type, test or check that can carry it, with the reasoning on the issue. Leave a bare `#N` only where K5 allows one.
+**What replaces a refused comment:** nothing, or the name, type, test or check that can carry it, with the reasoning on the issue.

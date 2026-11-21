@@ -2,11 +2,11 @@
 name: code-review
 ---
 
-Review of the diff between `HEAD` and a fixed point the user supplies, on up to three axes:
+Review of the diff between `HEAD` and a fixed point the user supplies, on these axes:
 
 - **Standards**: does the code conform to this repo's documented coding standards?
 - **Spec**: does the code faithfully implement the originating issue / spec?
-- **Comments**: is each comment the diff adds a kind `docs/comment-kinds.md` permits? It runs only where a coding-standards source links that file and the diff adds a comment or doc comment.
+- **Comments**: is each comment the diff adds a kind `docs/comment-kinds.md` permits? It runs only where a standards source from step 3 links that file and the diff adds a comment or doc comment.
 
 The axes run as **parallel sub-agents** so they don't pollute each other's context, then this skill aggregates their findings. Start every sub-agent with a fresh context window.
 
@@ -20,7 +20,7 @@ Whatever the user said is the fixed point (a commit SHA, branch name, tag, `main
 
 Capture the diff command once: `git diff <fixed-point>...HEAD` (three-dot, so the comparison is against the merge-base). Also note the list of commits via `git log <fixed-point>..HEAD --oneline`.
 
-Before going further, confirm the fixed point resolves (`git rev-parse <fixed-point>`) and the diff is non-empty. A bad ref or empty diff should fail here, not inside two parallel sub-agents.
+Before going further, confirm the fixed point resolves (`git rev-parse <fixed-point>`) and the diff is non-empty. A bad ref or empty diff should fail here, not inside the parallel sub-agents.
 
 ### 2. Identify the spec source
 
@@ -105,6 +105,5 @@ A change can pass one axis and fail another:
 
 - Code that follows every standard but implements the wrong thing → **Standards pass, Spec fail.**
 - Code that does exactly what the issue asked but breaks the project's conventions → **Spec pass, Standards fail.**
-- Code that passes both but carries a comment explaining its own design choice → **Comments fail.**
 
 Reporting them separately stops one axis from masking another.
