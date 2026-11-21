@@ -26,7 +26,6 @@ import { spyStderr } from "./write-fd-testkit";
 const {
 	hostRoot,
 	readConfig,
-	KNOWN_KEYS,
 	resolveKey,
 	requireKey,
 	moduleOn,
@@ -592,21 +591,30 @@ describe("readConfig — commands.testCanary (#5294)", () => {
 });
 
 describe("readConfig — the known-key list (#1534)", () => {
-	it("lists exactly the keys readConfig returns, plus those read elsewhere", () => {
-		const returned = Object.keys(readConfig({ root: dir, quiet: true }));
+	it("knows every key readConfig returns, plus those read elsewhere", () => {
+		const defaults = readConfig({ root: dir, quiet: true });
+		const returned = Object.keys(defaults);
 		const readElsewhere = ["mods", "stepsOwed", "walkedTo"];
-		/* KNOWN_KEYS itself, not the unknown-key warning: the warning shows a
-		 * returned key is listed, never that a listed key is still read. */
-		expect(new Set(KNOWN_KEYS).size).toBe(KNOWN_KEYS.length);
-		expect([...KNOWN_KEYS].sort()).toEqual(
-			[
-				/* testCanary is read under `commands`, never a key of its own. */
-				...returned.filter(
-					(k) => !["file", "warnings", "faults", "testCanary"].includes(k),
+		const keys = [
+			/* testCanary is read under `commands`, never a key of its own. */
+			...returned.filter(
+				(k) => !["file", "warnings", "faults", "testCanary"].includes(k),
+			),
+			...readElsewhere,
+		];
+		writeConfig(
+			dir,
+			/* Only an unread contract throws; any other value is a malformed fault. */
+			JSON.stringify(
+				Object.fromEntries(
+					keys.map((k) => [k, k === "contract" ? defaults.contract : null]),
 				),
-				...readElsewhere,
-			].sort(),
+			),
 		);
+		const { faults } = readConfig({ root: dir, quiet: true });
+		expect(
+			faults.filter((f: { kind: string }) => f.kind === "unknown-key"),
+		).toEqual([]);
 	});
 });
 

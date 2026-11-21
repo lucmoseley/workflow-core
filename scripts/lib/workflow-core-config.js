@@ -1647,8 +1647,6 @@ module.exports = {
 	CONFIG_PATH,
 	hasConfig,
 	PYTHON_KINDS,
-	/* For workflow-core-config.test.ts's key-list parity test alone (#1534). */
-	KNOWN_KEYS,
 	retroFault,
 	faultsOn,
 	archScanFault,

@@ -32,8 +32,8 @@ const DEFAULT_ROTATE_AT = 8 * 1024 * 1024;
  * WFC_ROTATE_AT is for tests only — otherwise each case writes an 8 MB log,
  * on a memory-capped machine with a parallel suite.
  */
-function rotateAt(env = process.env) {
-	const override = Number(env.WFC_ROTATE_AT);
+function rotateAt() {
+	const override = Number(process.env.WFC_ROTATE_AT);
 	return Number.isFinite(override) && override > 0
 		? override
 		: DEFAULT_ROTATE_AT;
@@ -77,7 +77,4 @@ function rotateLog(
 	}
 }
 
-// DEFAULT_ROTATE_AT and rotateAt have no caller outside this file: rotateLog is
-// the whole production interface. Both are exported so the limit can be asserted
-// as itself rather than inferred from which sizes happen to rotate.
-module.exports = { DEFAULT_ROTATE_AT, rotateAt, rotateLog };
+module.exports = { rotateLog };

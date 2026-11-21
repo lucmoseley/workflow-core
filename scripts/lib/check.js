@@ -2295,7 +2295,6 @@ module.exports = {
 	failureReason,
 	CheckContext,
 	MAX_BUFFER,
-	/* biome-staged.js extracts the index and runs git through them (#2429). */
 	git,
 	indexTree,
 	extractTree,

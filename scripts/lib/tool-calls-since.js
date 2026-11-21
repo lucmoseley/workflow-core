@@ -270,7 +270,6 @@ const isStopRefusal = (rec) =>
 	rec.type === "user" && STOP_FEEDBACK.test(textOf(rec));
 
 module.exports = {
-	// close-rivals.js, through refusal-limb.js's fromTranscript
 	sinceTime,
 	toolCallsSince,
 	toolNamesSince,
