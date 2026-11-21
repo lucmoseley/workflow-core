@@ -782,6 +782,7 @@
 			"scripts/adopter-hook-shim.test.ts",
 			"scripts/alarm-notice.test.ts",
 			"scripts/check-citation-tracker.test.ts",
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-commit-message-closes.test.ts",
 			"scripts/check-format-staged.test.ts",
 			"scripts/check-guard-registry-implicit.test.ts",
@@ -4396,6 +4397,7 @@
 		],
 		"scripts/check-adopter-boundary.js": [
 			"scripts/check-adopter-boundary.test.ts",
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -4456,6 +4458,7 @@
 		],
 		"scripts/check-arbiter-commands.js": [
 			"scripts/check-arbiter-commands.test.ts",
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -4591,6 +4594,7 @@
 		],
 		"scripts/check-citation-tracker.js": [
 			"scripts/check-citation-tracker.test.ts",
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -4654,6 +4658,7 @@
 		],
 		"scripts/check-cli-args.js": [
 			"scripts/check-cli-args.test.ts",
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-host-root.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
@@ -4713,6 +4718,7 @@
 		],
 		"scripts/check-clock-copies.js": [
 			"scripts/check-clock-copies.test.ts",
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -4753,6 +4759,7 @@
 		],
 		"scripts/check-code-standards.js": [
 			"scripts/check-code-standards.test.ts",
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -4786,6 +4793,46 @@
 			"scripts/tooling-matrix.test.ts"
 		],
 		"scripts/check-code-standards.test.ts": [
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/helper-surface.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/check-comment-policy.js": [
+			"scripts/check-comment-policy.test.ts",
+			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/generate-rule-fragments.test.ts",
+			"scripts/lib/adopter-skeleton.test.ts",
+			"scripts/lib/arm-secondary.test.ts",
+			"scripts/lib/check-in-process-always-rows.contract.test.ts",
+			"scripts/lib/check-in-process-armed-rows.contract.test.ts",
+			"scripts/lib/check-in-process-side-rows.contract.test.ts",
+			"scripts/lib/check.declared-flags.test.ts",
+			"scripts/lib/commit-form.test.ts",
+			"scripts/lib/doc-map-gate-program.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/test-kind.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/precommit-ci-gates.test.ts",
+			"scripts/precommit-dispatch-isolation.test.ts",
+			"scripts/precommit-dispatch.test.ts",
+			"scripts/precommit-gate-input-deletion.test.ts",
+			"scripts/precommit-gate-sets.test.ts",
+			"scripts/precommit-injector-margin-gate.test.ts",
+			"scripts/precommit-roadmap-valid-gate.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
+			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
+		],
+		"scripts/check-comment-policy.test.ts": [
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
@@ -4862,6 +4909,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-context-budget.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-context-budget-admission.test.ts",
 			"scripts/check-context-budget-materialise.test.ts",
 			"scripts/check-context-budget-session-cap.test.ts",
@@ -5077,6 +5125,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-gate-switches.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-gate-switches.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
@@ -5138,6 +5187,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-gh-route.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-gh-route.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
@@ -5196,6 +5246,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-git-fixture-identity.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-git-fixture-identity.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
@@ -5320,6 +5371,7 @@
 		],
 		"scripts/check-guard-registry.js": [
 			".claude/skills/new-repo/scripts/new-repo-copy.test.ts",
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
 			"scripts/check-guard-registry-expiry-pathspec.test.ts",
@@ -5380,6 +5432,7 @@
 			"scripts/run-vitest.test.ts"
 		],
 		"scripts/check-guard-test-isolation.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-guard-test-isolation.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
@@ -5421,6 +5474,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-hand-callers.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-hand-callers.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
@@ -5498,6 +5552,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-hook-liveness.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-hook-liveness.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
@@ -5539,6 +5594,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-host-root-test-isolation.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-host-root-test-isolation.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
@@ -5579,6 +5635,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-host-root.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-host-root.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
@@ -5657,6 +5714,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-injector-margin.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-injector-margin.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
@@ -5856,6 +5914,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-jsonl-reads.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-jsonl-reads.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
@@ -5945,6 +6004,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-lockfile-sync.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -6003,6 +6063,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-main-checkout-commit.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-main-checkout-commit.test.ts",
 			"scripts/check-research-added.test.ts",
@@ -6263,6 +6324,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-precommit-exit.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-precommit-exit.test.ts",
 			"scripts/check-research-added.test.ts",
@@ -6303,6 +6365,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-primitives.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-primitives.test.ts",
 			"scripts/check-research-added.test.ts",
@@ -6345,6 +6408,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-program-output.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-program-output.test.ts",
 			"scripts/check-research-added.test.ts",
@@ -6403,6 +6467,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-registrations.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-host-root.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-registrations.test.ts",
@@ -6480,6 +6545,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-report-programs.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-report-programs.test.ts",
 			"scripts/check-research-added.test.ts",
@@ -6520,6 +6586,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-research-added.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -6615,6 +6682,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-roadmap-pair.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/check-roadmap-pair.test.ts",
@@ -6657,6 +6725,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-roadmap-valid.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/check-roadmap-valid.test.ts",
@@ -6835,6 +6904,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-skill-body-size.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/check-skill-body-size.test.ts",
@@ -6877,6 +6947,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-skill-frontmatter.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/check-skill-frontmatter.test.ts",
@@ -7147,6 +7218,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-test-env-writes.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/check-test-env-writes.test.ts",
@@ -7187,6 +7259,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-test-spawn.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/check-test-spawn.test.ts",
@@ -7300,6 +7373,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-user-settings-drift.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/check-user-settings-drift.test.ts",
@@ -7343,6 +7417,7 @@
 		],
 		"scripts/check-vendored-skills.js": [
 			"scripts/arm-tasks.test.ts",
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/check-vendored-skills.test.ts",
@@ -7424,6 +7499,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/check-website-copy.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/check-website-copy.test.ts",
@@ -7467,6 +7543,7 @@
 		],
 		"scripts/check-workflow-permissions.js": [
 			"scripts/adopter-ci.test.ts",
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/check-workflow-permissions.test.ts",
@@ -8397,6 +8474,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/generate-core-docs.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -8460,6 +8538,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/generate-effort-guide-routing.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -8500,6 +8579,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/generate-plugin-hooks.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -8558,6 +8638,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/generate-rule-fragments.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-guard-registry-rule-text.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
@@ -8599,6 +8680,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/generate-test-read-edges.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",
@@ -14517,6 +14599,7 @@
 			"scripts/lib/ci-runs.test.ts",
 			"scripts/lib/claimed-bash-write.test.ts",
 			"scripts/lib/code-edges.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/commit-route.test.ts",
 			"scripts/lib/cutover.test.ts",
@@ -14977,6 +15060,7 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/guard-dispatch-cost.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
@@ -15011,6 +15095,7 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/guard-dispatch-cost.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
@@ -15260,6 +15345,7 @@
 			"scripts/guard-failed-call-rules-cost.test.ts",
 			"scripts/guard-lost-verdict-cost.test.ts",
 			"scripts/guard-session-ceiling.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/console-credit.test.ts",
 			"scripts/lib/file-issue.contract.test.ts",
@@ -16842,6 +16928,7 @@
 			"scripts/guard-dispatch-cost.test.ts",
 			"scripts/guard-lost-verdict-cost.test.ts",
 			"scripts/hook-registrations.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
@@ -17084,6 +17171,7 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/guard-dispatch-cost.test.ts",
 			"scripts/lib/code-edges.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
@@ -17207,6 +17295,82 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/post-commit-dispatch.test.ts",
+			"scripts/prepare-commit-msg-gate.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/comment-policy.js": [
+			"scripts/check-comment-policy.test.ts",
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-dispatchers.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/check-lockfile-sync.test.ts",
+			"scripts/check-research-added.test.ts",
+			"scripts/checker-registrations.test.ts",
+			"scripts/commit-msg-dispatch.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/generate-rule-fragments.test.ts",
+			"scripts/lib/adopter-skeleton.test.ts",
+			"scripts/lib/arm-secondary.test.ts",
+			"scripts/lib/check-in-process-always-rows.contract.test.ts",
+			"scripts/lib/check-in-process-armed-rows.contract.test.ts",
+			"scripts/lib/check-in-process-side-rows.contract.test.ts",
+			"scripts/lib/comment-policy.test.ts",
+			"scripts/lib/commit-form.test.ts",
+			"scripts/lib/doc-map-gate-program.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
+			"scripts/lib/git.test.ts",
+			"scripts/lib/project-slug-scan.test.ts",
+			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/test-kind.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/post-commit-dispatch.test.ts",
+			"scripts/precommit-ci-gates.test.ts",
+			"scripts/precommit-dispatch-isolation.test.ts",
+			"scripts/precommit-dispatch.test.ts",
+			"scripts/precommit-gate-input-deletion.test.ts",
+			"scripts/precommit-gate-sets.test.ts",
+			"scripts/precommit-injector-margin-gate.test.ts",
+			"scripts/precommit-roadmap-valid-gate.test.ts",
+			"scripts/precommit-whole-repo-gates.test.ts",
+			"scripts/prepare-commit-msg-gate.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/report-new-shared-faults.test.ts",
+			"scripts/review-hold-gate.test.ts",
+			"scripts/rule-fallback-template.test.ts",
+			"scripts/tooling-matrix.test.ts"
+		],
+		"scripts/lib/comment-policy.test.ts": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-dispatchers.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-msg-dispatch.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
@@ -17671,6 +17835,7 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/guard-dispatch-cost.test.ts",
 			"scripts/hook-registrations.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/commit-sha.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -20608,6 +20773,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/doc-map-gate-program.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
@@ -21603,6 +21769,7 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/guard-dispatch-cost.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
@@ -21801,6 +21968,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/fault-diff.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -21860,6 +22028,7 @@
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
@@ -24384,6 +24553,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/gh-route.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
@@ -24969,6 +25139,7 @@
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/ci-runs.test.ts",
 			"scripts/lib/code-edges.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/commit-route.test.ts",
 			"scripts/lib/doc-map-gate-program.test.ts",
@@ -25051,6 +25222,7 @@
 			"scripts/guard-dispatch-cost.test.ts",
 			"scripts/guard-failed-call-rules-cost.test.ts",
 			"scripts/guard-lost-verdict-cost.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git-objects.test.ts",
@@ -25339,6 +25511,7 @@
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/ci-runs.test.ts",
 			"scripts/lib/code-edges.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/commit-route.test.ts",
 			"scripts/lib/cutover.test.ts",
@@ -27938,6 +28111,7 @@
 			"scripts/credit-chain-e2e.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/guard-dispatch-cost.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
@@ -29831,6 +30005,7 @@
 			"scripts/level-main.test.ts",
 			"scripts/lib/anthropic-report.test.ts",
 			"scripts/lib/call-cost-harness.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/cutover.test.ts",
 			"scripts/lib/echo-call.test.ts",
@@ -34178,6 +34353,7 @@
 			"scripts/concision-backstop.test.ts",
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/guard-dispatch-cost.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
@@ -35029,6 +35205,7 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/hook-registrations.test.ts",
 			"scripts/lib/check.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
@@ -35648,6 +35825,7 @@
 			"scripts/guard-dispatch-cost.test.ts",
 			"scripts/guard-failed-call-rules-cost.test.ts",
 			"scripts/guard-lost-verdict-cost.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git-objects.test.ts",
@@ -37006,6 +37184,7 @@
 			"scripts/dispatch-sessions-probe-load.test.ts",
 			"scripts/guard-dispatch-cost.test.ts",
 			"scripts/lib/check.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
@@ -38506,6 +38685,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/precommit-exit.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
@@ -44630,6 +44810,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/lib/registrations.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-guard-errors.test.ts",
 			"scripts/check-guard-registry-carry.test.ts",
 			"scripts/check-guard-registry-dispatchers.test.ts",
@@ -50218,6 +50399,7 @@
 			"scripts/guard-lost-verdict-cost.test.ts",
 			"scripts/guard-selection-sum.test.ts",
 			"scripts/hook-registrations.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/git.test.ts",
@@ -52409,6 +52591,30 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/npm-run-hints-scan.test.ts",
+			"scripts/post-commit-dispatch.test.ts",
+			"scripts/prepare-commit-msg-gate.test.ts",
+			"scripts/queue-lander.test.ts",
+			"scripts/record-divergence.test.ts",
+			"scripts/rule-fallback-template.test.ts"
+		],
+		"scripts/lib/style-only-rules.json": [
+			"scripts/check-guard-errors.test.ts",
+			"scripts/check-guard-registry-carry.test.ts",
+			"scripts/check-guard-registry-dispatchers.test.ts",
+			"scripts/check-guard-registry-expiry-pathspec.test.ts",
+			"scripts/check-guard-registry-expiry.test.ts",
+			"scripts/check-guard-registry-implicit.test.ts",
+			"scripts/check-guard-registry-landing.test.ts",
+			"scripts/check-guard-registry-reads.test.ts",
+			"scripts/check-guard-registry-rule-text.test.ts",
+			"scripts/check-guard-registry-stale.test.ts",
+			"scripts/check-guard-registry.test.ts",
+			"scripts/commit-msg-dispatch.test.ts",
+			"scripts/commit-paths.test.ts",
+			"scripts/concision-backstop.test.ts",
+			"scripts/dispatch-sessions-probe-load.test.ts",
+			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
@@ -58016,6 +58222,7 @@
 			"scripts/lib/ci-runs.test.ts",
 			"scripts/lib/claimed-bash-write.test.ts",
 			"scripts/lib/code-edges.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-form.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/commit-route.test.ts",
@@ -58409,6 +58616,7 @@
 			"scripts/lib/arm-secondary.test.ts",
 			"scripts/lib/ci-runs.test.ts",
 			"scripts/lib/code-edges.test.ts",
+			"scripts/lib/comment-policy.test.ts",
 			"scripts/lib/commit-msg-checks.contract.test.ts",
 			"scripts/lib/commit-route.test.ts",
 			"scripts/lib/console-credit.test.ts",
@@ -61706,6 +61914,7 @@
 			"scripts/rule-fallback-template.test.ts"
 		],
 		"scripts/review-hold-gate.js": [
+			"scripts/check-comment-policy.test.ts",
 			"scripts/check-lockfile-sync.test.ts",
 			"scripts/check-research-added.test.ts",
 			"scripts/checker-registrations.test.ts",

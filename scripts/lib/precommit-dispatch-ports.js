@@ -10,6 +10,7 @@ const vm = require("node:vm");
 const { getPoolFiles } = require("./always-loaded-pool.js");
 const { checkInProcess } = require("./check.js");
 const { spawnGitSync } = require("./git.js");
+const { MODULES, moduleReader } = require("./workflow-core-config.js");
 const { fromCoreRoot } = require("./precommit-gates.js");
 
 /*
@@ -108,9 +109,28 @@ function readStaged(cwd) {
 }
 
 /**
+ * The facts a row's `when` may name: `module:<name>`, whether the host at
+ * `cwd` has that module on, a config fault reading as off and said on fd 2.
+ * @param {string} cwd
+ * @param {(fd: number, text: string) => void} write
+ * @returns {(name: string) => boolean}
+ */
+function factsAt(cwd, write) {
+	const on = moduleReader(cwd, (what, detail) =>
+		write(2, `pre-commit: ${what}${detail ? ` — ${detail}` : ""}\n`),
+	);
+	return (name) => {
+		const module = /^module:(.+)$/.exec(name)?.[1];
+		const known = MODULES.find((m) => m === module);
+		if (!known) throw new Error(`no fact is named '${name}'`);
+		return on(known);
+	};
+}
+
+/**
  * @param {string} cwd
  * @returns {(rel: string) => boolean}
  */
 const existsUnder = (cwd) => (rel) => fs.existsSync(path.join(cwd, rel));
 
-module.exports = { computed, existsUnder, load, readStaged };
+module.exports = { computed, existsUnder, factsAt, load, readStaged };

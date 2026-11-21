@@ -1,0 +1,31 @@
+{
+	"about": "The rules a comment may suppress (#5455's K3), by tool, each entry in that tool's own selector form: a Biome group covers its rules, a ruff code prefix its codes, `format` the tool's formatter. Read by scripts/check-comment-policy.js. A tool with no entry has no style-only rule: every suppression of it is refused.",
+	"sources": {
+		"biome": "https://biomejs.dev/linter/#rule-groups",
+		"ruff": "https://docs.astral.sh/ruff/rules/",
+		"pycodestyle": "https://pycodestyle.pycqa.org/en/latest/intro.html#error-codes"
+	},
+	"rules": {
+		"biome": ["format", "lint/style", "lint/complexity"],
+		"prettier": ["format"],
+		"ruff": [
+			"format",
+			"E1",
+			"E2",
+			"E3",
+			"E4",
+			"E5",
+			"W1",
+			"W2",
+			"W3",
+			"W5",
+			"N",
+			"I",
+			"Q",
+			"D",
+			"COM",
+			"C90",
+			"PLR09"
+		]
+	}
+}
