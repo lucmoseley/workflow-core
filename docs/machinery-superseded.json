@@ -2712,5 +2712,48 @@
 			}
 		],
 		"allowlist": []
+	},
+	"route-f-session-cap": {
+		"needles": [
+			{
+				"needle": "31,500 B",
+				"scanned": true
+			},
+			{
+				"needle": "31_500",
+				"scanned": true
+			},
+			{
+				"needle": "31.5 KB",
+				"scanned": true
+			}
+		],
+		"allowlist": [
+			{
+				"path": "scripts/check-context-budget-session-cap.test.ts",
+				"anchors": [
+					{
+						"anchor": "from 24,900 B to 31,500 B",
+						"needle": "31,500 B"
+					}
+				]
+			}
+		]
+	},
+	"route-f-ratchet-cap": {
+		"needles": [
+			{
+				"needle": "51,500 B",
+				"scanned": true
+			},
+			{
+				"needle": "51_500",
+				"scanned": true
+			},
+			{
+				"needle": "51.5 KB",
+				"scanned": true
+			}
+		]
 	}
 }
