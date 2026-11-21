@@ -51,9 +51,8 @@
  * prints its position, the slot's holder and the time waited on joining and
  * at each change. Its command runs in a process group of its own under the
  * suite ceiling, killed and red past it, with its marker in GATE_ENV, and
- * each run is a `.gate-runs.jsonl` line carrying its tree's PSS peak, the
- * `--tree` sha it tested and what the command wrote it chose to run
- * (lib/gate-seat.js, #5448). A `--seat` or plain launch inside a gate seat's process
+ * each run is a `.gate-runs.jsonl` line carrying its tree's PSS peak
+ * (lib/gate-seat.js). A `--seat` or plain launch inside a gate seat's process
  * tree runs at once, in the slot the seat holds; a gate inside a running
  * suite's tree runs at once, in that suite's.
  */
@@ -647,7 +646,6 @@ const SLOT_KINDS = {
 	},
 };
 
-/* A sha-1 or sha-256 object name. */
 const GIT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 const SLOT_FLAGS = /** @type {Exclude<Slot, "other">[]} */ (
@@ -821,9 +819,7 @@ function withExitExtra(logExit, exitExtra) {
  * (lib/gate-seat.js); and, on its exit, one line on the gate-run record.
  * Run in the committing checkout, with no throwaway worktree's runner to
  * hand them, it hands this checkout's merge parents to the overlay a touched
- * run moves into (lib/merge-heads.js, #5334). Its command gets in
- * GATE_SELECTION_ENV a file of its own to write what it chose to run into,
- * read onto the record and removed at its exit (#5448).
+ * run moves into (lib/merge-heads.js, #5334).
  *
  * @param {{
  *   seat: ReturnType<typeof queueSeat>,
@@ -959,10 +955,6 @@ function spawnGate({ seat, options, err, finish, holder, tree, waitMs }) {
 }
 
 /**
- * A file of a gate run's own for its command's selection, in a fresh temp
- * directory: `env` hands it to the command, and `take` reads what the command
- * wrote there, or null, and removes it. One that will not make costs the
- * record its `selection`, never the gate run (#5448).
  * @param {Out} err
  * @returns {{ env: Record<string, string>, take: () => string | null }}
  */
