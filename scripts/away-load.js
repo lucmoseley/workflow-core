@@ -140,7 +140,7 @@ function sweep(p) {
 
 /**
  * How many Testlimit processes Windows runs, null where tasklist fails.
- * @param {{ testlimit: string, tasklist: string }} p
+ * @param {ReturnType<typeof paths>} p
  */
 function windowsHolders(p) {
 	const name = path.basename(p.testlimit);
@@ -165,7 +165,7 @@ function windowsHolders(p) {
  */
 
 /**
- * @param {{ testlimit: string }} p
+ * @param {ReturnType<typeof paths>} p
  * @param {number} mb
  * @param {(h: LiveHolder, code: number|null) => void} onExit
  * @returns {LiveHolder}
@@ -576,7 +576,7 @@ async function main(argv = process.argv.slice(2)) {
 	}
 }
 
-module.exports = { main, paths, startHolder, stopHolder, windowsHolders };
+module.exports = { main };
 
 if (require.main === module)
 	main().then(
