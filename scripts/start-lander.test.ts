@@ -17,6 +17,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { pidAlive } from "./lib/arbiter-proc.js";
 import { OWN_CORE, seedAdopterTree } from "./lib/lander-testkit";
 import { runInProcess } from "./lib/run-in-process.js";
 import { shellQuote } from "./lib/sh-quote.js";
@@ -81,6 +82,15 @@ const waitFor = async (done: () => boolean) => {
 	return done();
 };
 
+/** Whether the lander a start's stdout names has exited and freed its lock,
+ * so `afterEach` never removes `tmp` under a live lander (#5444). */
+const landerExited = (stdout: string) => {
+	const pid = Number(/; pid (\d+);/.exec(stdout)?.[1]);
+	return waitFor(
+		() => !pidAlive(pid) && !fs.existsSync(path.join(markers(), ".lander.pid")),
+	);
+};
+
 beforeEach(() => {
 	tmp = fs.mkdtempSync(path.join(os.tmpdir(), "start-lander-"));
 	remote = path.join(tmp, "remote.git");
@@ -119,6 +129,7 @@ it("starts one detached queue lander that lands the queue ref, and none beside i
 	expect(await waitFor(() => git(remote, "rev-parse", "main") === sha)).toBe(
 		true,
 	);
+	expect(await landerExited(first.stdout)).toBe(true);
 	expect(fs.statSync(path.join(markers(), ".lander.log")).size).toBeGreaterThan(
 		0,
 	);
@@ -160,6 +171,7 @@ it("starts a lander with no queue ref waiting where a drop is owed a decision, w
 	expect(
 		await waitFor(() => git(remote, "branch", "--list", "dropped/gone") === ""),
 	).toBe(true);
+	expect(await landerExited(r.stdout)).toBe(true);
 });
 
 it("starts none where no queue ref waits and every drop is settled or ticketed", () => {
