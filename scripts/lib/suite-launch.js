@@ -122,8 +122,6 @@ function hasNamedTestFiles(words) {
 }
 
 /**
- * `hasNamedTestFiles` for a `python` launch: `-m pytest|unittest`, a
- * `pytest` script, or a test file run bare.
  * @param {string[]} words
  */
 function isNamedPythonRun(words) {
@@ -151,16 +149,10 @@ function isNamedPytestRun(argv) {
 	);
 }
 
-/* `python -m unittest`'s flags that take a value. */
 const UNITTEST_VALUED_FLAGS = new Set(["-k", "--durations"]);
-/* A dotted target's segment naming a test module, `PY_TEST`'s names. */
 const UNITTEST_MODULE_SEGMENT = /^test_\w+$|^\w+_test$/;
 
 /**
- * Whether `python -m unittest`'s argv names its targets, so the run skips
- * discovery: one target at least, each a dotted name with a test module
- * segment (`tests.test_a.ATest.test_one`) or a test file path. `discover`, a
- * bare run and `-k` with no target discover the whole tree.
  * @param {string[]} argv unittest's own argv
  */
 function isNamedUnittestRun(argv) {

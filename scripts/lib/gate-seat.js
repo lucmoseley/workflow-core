@@ -106,7 +106,7 @@ const GATE_SELECTION_ENV = "WFC_GATE_SELECTION";
  * @property {number} runS awake seconds (`monotonicMs`)
  * @property {GateOutcome} outcome
  * @property {number} peakTreeMb the command's process-tree PSS peak
- * @property {true} [part] a short gate's run, a part-suite (#5450)
+ * @property {true} [part]
  * @property {string} [selection] what the command wrote it chose to run
  */
 
@@ -154,9 +154,6 @@ function readGateRunsAt(file) {
 }
 
 /**
- * A short gate's charge, the highest `peakTreeMb` of its last SHORT_GATE_RUNS
- * `pass` or `red` runs for `seat`'s repo and command, where each ran
- * SHORT_GATE_MAX_S or less; null where it is not short (#5450).
  * @param {GateRun[]} runs oldest first
  * @param {{ repo: string | null, command: string }} seat
  * @returns {number | null}
@@ -171,7 +168,6 @@ function shortGatePeakMb(runs, { repo, command }) {
 		)
 		.slice(-SHORT_GATE_RUNS);
 	if (last.length < SHORT_GATE_RUNS) return null;
-	/* A run with no peak read is no measure to charge, so the gate waits whole. */
 	if (!last.every((r) => r.runS <= SHORT_GATE_MAX_S && r.peakTreeMb > 0))
 		return null;
 	return Math.max(...last.map((r) => r.peakTreeMb));

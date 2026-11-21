@@ -313,7 +313,7 @@ function tscDenial(
  * Whether a launch charged its own `peakMb` would be refused on memory now:
  * the rung that peak sets, MemAvailable less `climbMb` read against it, or
  * the Windows-memory hold (#4557). Null where it would not, an unread reading
- * failing open. The `tsc` slot's and a short gate's (#5450).
+ * failing open.
  *
  * @param {number | null} mb
  * @param {number} climbMb

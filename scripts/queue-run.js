@@ -499,8 +499,7 @@ function isNamedFilesRun(words) {
 /**
  * A gate seat's wait (#5274): the suite queue joined whole, role `gate`,
  * carrying who holds it and its charge, waiting with no bound, its place
- * printed on joining and at each change. A short gate (#5450) joins as a
- * part-suite charged its measured peak, held on that peak's rung alone.
+ * printed on joining and at each change.
  *
  * @param {Options} options
  * @param {string[]} words
@@ -583,9 +582,6 @@ function buildGateWait(options, words) {
 }
 
 /**
- * A short gate's charge off its gate-run record (#5450), or null where the
- * seat is not short or the record will not read, which is named on `err` and
- * waits whole.
  * @param {Options} options
  * @param {{ repo: string | null, command: string }} holder
  * @param {Out} err
@@ -606,10 +602,7 @@ function readShortGateMb(options, holder, err) {
 }
 
 /**
- * A short gate's gate (#5450): the memory rung its own peak sets and the
- * Windows-memory hold, off the guard's MemAvailable and Windows readers, with
- * no count limb; an unread one is logged and fails open.
- * @param {number} climbMb what the suite queue's launches have yet to draw
+ * @param {number} climbMb
  * @param {number} peakMb
  */
 function shortGateDenial(climbMb, peakMb) {
