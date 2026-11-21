@@ -10,9 +10,13 @@
 import fs from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { renderHookShim } from "./lib/adopter-skeleton.js";
 import {
+	ACTING_ROW,
 	ANCHORS,
 	build,
+	IMPLICIT_MANIFEST,
+	implicitRows,
 	type Result,
 	region,
 	removeTemps,
@@ -31,20 +35,13 @@ afterEach(removeTemps);
  * A guard is a refusal; an implicit behaviour is an action taken for you
  * (mantahostels#1180). The load-bearing property under test throughout is that
  * the set is DERIVED FROM THE WIRING rather than listed anywhere — so wiring a
- * new hook fails the build until its header says what it does.
+ * new hook fails the build until its manifest row says what it does, and a row
+ * outlives no wiring (#5477).
  */
 describe("implicit behaviours — the second assertion (mantahostels#1261)", () => {
-	const annotated = [
-		"#!/bin/sh",
-		"# Does a thing.",
-		"#",
-		"# IMPLICIT:  rewrites the file the session just wrote.",
-		"# JUSTIFIED: fail-safe — an unformatted file is read as a clobber later.",
-		"# DEFEAT:    none — every failure path exits 0.",
-		"# TREE:      host — reads the host root's stores.",
-		"exit 0",
-		"",
-	].join("\n");
+	const script = "#!/bin/sh\n# Does a thing.\nexit 0\n";
+	const rowFor = (rel: string, row: Record<string, string> = ACTING_ROW) =>
+		implicitRows({ [rel]: row });
 
 	/* A hooks file wiring one script at one event, with the house command
 	 * spelling — the `"$CLAUDE_PROJECT_DIR"/…` form the real file uses. */
@@ -78,7 +75,7 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 		).implicit;
 	}
 
-	it("fails a PostToolUse script whose header says nothing about what it does", () => {
+	it("fails a PostToolUse script the manifest holds no row for", () => {
 		const root = build({
 			claude: rules,
 			files: {
@@ -92,15 +89,46 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 		expect(r.json.findings[0].detail).toContain("PostToolUse");
 	});
 
-	it("passes the same script once it carries all three lines", () => {
+	it("passes the same script once its row is complete", () => {
 		const root = build({
 			claude: rules,
 			files: {
-				"scripts/post-write.sh": annotated,
+				"scripts/post-write.sh": script,
+				...rowFor("scripts/post-write.sh"),
 				[SELF_PLUGIN_HOOKS]: wiredAt("PostToolUse", "scripts/post-write.sh"),
 			},
 		});
 		expect(run(root).code).toBe(0);
+	});
+
+	it("fails a row for a script no wiring runs, as UNWIRED-ROW", () => {
+		const root = build({
+			claude: rules,
+			files: {
+				"scripts/retired.sh": script,
+				...rowFor("scripts/retired.sh"),
+			},
+		});
+		const r = run(root);
+		expect(r.code).toBe(1);
+		expect(r.kinds).toEqual(["UNWIRED-ROW"]);
+		expect(r.json.findings[0]).toMatchObject({ file: IMPLICIT_MANIFEST });
+		expect(r.json.findings[0].detail).toContain("scripts/retired.sh");
+	});
+
+	it("is BROKEN, not OK, when the manifest is not an object of string rows", () => {
+		for (const body of ["{ not json", '{"scripts/x.sh": ["a"]}']) {
+			const root = build({
+				claude: rules,
+				files: { [IMPLICIT_MANIFEST]: body },
+			});
+			const { status } = runInProcess(
+				path.join(root, "scripts", "check-guard-registry.js"),
+				[],
+				{ env: { ...process.env, CLAUDE_PROJECT_DIR: root } },
+			);
+			expect(status, body).toBe(2);
+		}
 	});
 
 	it("reaches all four acting events and no others", () => {
@@ -148,17 +176,15 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 		]);
 	});
 
-	it("takes a PreToolUse guard that ALSO acts, on its own declaration", () => {
+	it("takes a PreToolUse guard that ALSO acts, on its own row", () => {
 		// The file-claim guard's shape: it refuses a write to a
 		// held file AND takes a claim the session never asked for. Declared, not
 		// inferred — reading "also acts" out of a guard's body is reading intent.
 		const root = build({
 			claude: rules,
 			files: {
-				"scripts/guard-file-claim.sh": annotated.replace(
-					"# DEFEAT:    none — every failure path exits 0.",
-					"# DEFEAT:    none",
-				),
+				"scripts/guard-file-claim.sh": script,
+				...rowFor("scripts/guard-file-claim.sh"),
 				[SELF_PLUGIN_HOOKS]: wiredAt(
 					"PreToolUse",
 					"scripts/guard-file-claim.sh",
@@ -177,7 +203,8 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 		const root = build({
 			claude: rules,
 			files: {
-				"scripts/self-plugin-canary.sh": annotated,
+				"scripts/self-plugin-canary.sh": script,
+				...rowFor("scripts/self-plugin-canary.sh"),
 				".claude/settings.json": wiredAt(
 					"PreToolUse",
 					"scripts/self-plugin-canary.sh",
@@ -191,12 +218,15 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 		]);
 	});
 
-	it("names each missing line rather than the annotation as a whole", () => {
+	it("names each missing key rather than the row as a whole", () => {
 		const root = build({
 			claude: rules,
 			files: {
-				"scripts/x.sh":
-					"#!/bin/sh\n# IMPLICIT:  does a thing.\n# TREE:      host — reads the host root's stores.\nexit 0\n",
+				"scripts/x.sh": script,
+				...rowFor("scripts/x.sh", {
+					IMPLICIT: ACTING_ROW.IMPLICIT,
+					TREE: ACTING_ROW.TREE,
+				}),
 				[SELF_PLUGIN_HOOKS]: wiredAt("Stop", "scripts/x.sh"),
 			},
 		});
@@ -204,23 +234,16 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 		expect(r.code).toBe(1);
 		expect(r.kinds).toEqual(["INCOMPLETE-ANNOTATION", "INCOMPLETE-ANNOTATION"]);
 		const details = r.json.findings.map((f) => f.detail).join("\n");
-		expect(details).toContain("`JUSTIFIED:`");
-		expect(details).toContain("`DEFEAT:`");
+		expect(details).toContain("`JUSTIFIED`");
+		expect(details).toContain("`DEFEAT`");
 	});
 
-	it("fails a line that is present and empty", () => {
+	it("fails a key that is present and empty", () => {
 		const root = build({
 			claude: rules,
 			files: {
-				"scripts/x.sh": [
-					"#!/bin/sh",
-					"# IMPLICIT:  does a thing.",
-					"# JUSTIFIED: convenience — nothing degrades.",
-					"# DEFEAT:",
-					"# TREE:      host — reads the host root's stores.",
-					"exit 0",
-					"",
-				].join("\n"),
+				"scripts/x.sh": script,
+				...rowFor("scripts/x.sh", { ...ACTING_ROW, DEFEAT: "" }),
 				[SELF_PLUGIN_HOOKS]: wiredAt("Stop", "scripts/x.sh"),
 			},
 		});
@@ -238,15 +261,13 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 		const root = build({
 			claude: rules,
 			files: {
-				"scripts/name-session.sh": [
-					"#!/bin/sh",
-					"# IMPLICIT:  renames the session after its issue.",
-					"# JUSTIFIED: convenience — nothing degrades but legibility.",
-					"# DEFEAT:    none",
-					"# TREE:      host — reads the host root's stores.",
-					"exit 0",
-					"",
-				].join("\n"),
+				"scripts/name-session.sh": script,
+				...rowFor("scripts/name-session.sh", {
+					IMPLICIT: "renames the session after its issue.",
+					JUSTIFIED: "convenience — nothing degrades but legibility.",
+					DEFEAT: "none",
+					TREE: ACTING_ROW.TREE,
+				}),
 				[SELF_PLUGIN_HOOKS]: wiredAt(
 					"UserPromptSubmit",
 					"scripts/name-session.sh",
@@ -260,10 +281,11 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 		const root = build({
 			claude: rules,
 			files: {
-				"scripts/x.sh": annotated.replace(
-					"# JUSTIFIED: fail-safe — an unformatted file is read as a clobber later.",
-					"# JUSTIFIED: necessary — obviously.",
-				),
+				"scripts/x.sh": script,
+				...rowFor("scripts/x.sh", {
+					...ACTING_ROW,
+					JUSTIFIED: "necessary — obviously.",
+				}),
 				[SELF_PLUGIN_HOOKS]: wiredAt("Stop", "scripts/x.sh"),
 			},
 		});
@@ -278,21 +300,21 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 		const root = build({
 			claude: rules,
 			files: {
-				"scripts/x.sh": annotated.replace(
-					"# JUSTIFIED: fail-safe — an unformatted file is read as a clobber later.",
-					"# JUSTIFIED: fail-safe",
-				),
+				"scripts/x.sh": script,
+				...rowFor("scripts/x.sh", { ...ACTING_ROW, JUSTIFIED: "fail-safe" }),
 				[SELF_PLUGIN_HOOKS]: wiredAt("Stop", "scripts/x.sh"),
 			},
 		});
 		expect(run(root).kinds).toEqual(["BAD-JUSTIFICATION"]);
 	});
 
-	it("owes a hook's header the tree it reads, as NO-TREE (#4243)", () => {
+	it("owes a hook's row the tree it reads, as NO-TREE (#4243)", () => {
+		const { TREE: _, ...treeless } = ACTING_ROW;
 		const root = build({
 			claude: rules,
 			files: {
-				"scripts/x.sh": annotated.replace(/^# TREE:.*\n/m, ""),
+				"scripts/x.sh": script,
+				...rowFor("scripts/x.sh", treeless),
 				[SELF_PLUGIN_HOOKS]: wiredAt("Stop", "scripts/x.sh"),
 			},
 		});
@@ -302,14 +324,12 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 	});
 
 	it("fails a tree outside session, host, both and none, or with no reason, as BAD-TREE (#4243)", () => {
-		for (const line of [
-			"# TREE:      sometimes — it depends.",
-			"# TREE:      session",
-		]) {
+		for (const line of ["sometimes — it depends.", "session"]) {
 			const root = build({
 				claude: rules,
 				files: {
-					"scripts/x.sh": annotated.replace(/^# TREE:.*$/m, line),
+					"scripts/x.sh": script,
+					...rowFor("scripts/x.sh", { ...ACTING_ROW, TREE: line }),
 					[SELF_PLUGIN_HOOKS]: wiredAt("Stop", "scripts/x.sh"),
 				},
 			});
@@ -318,75 +338,32 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 	});
 
 	it("owes no tree from the dispatcher, whose cores carry their own (#4242)", () => {
+		const { TREE: _, ...treeless } = ACTING_ROW;
 		const root = build({
 			claude: rules,
 			files: {
-				"scripts/guard-dispatch.js": annotated
-					.replace(/^# TREE:.*\n/m, "")
-					.replaceAll("# ", "// ")
-					.replace("#!/bin/sh", "#!/usr/bin/env node"),
+				"scripts/guard-dispatch.js": "#!/usr/bin/env node\n",
+				...rowFor("scripts/guard-dispatch.js", treeless),
 				[SELF_PLUGIN_HOOKS]: wiredAt("PreToolUse", "scripts/guard-dispatch.js"),
 			},
 		});
 		expect(run(root).kinds).not.toContain("NO-TREE");
 	});
 
-	it("reads only the header, not an annotation buried in the body", () => {
-		// A reader arriving at the file must meet the annotation without
-		// scrolling (mantahostels#102).
+	it("takes a core hook shim's row from the shim it is, with no manifest row (#1839)", () => {
 		const root = build({
 			claude: rules,
 			files: {
-				"scripts/x.sh": [
-					"#!/bin/sh",
-					"# Does a thing.",
-					"exit 0",
-					"",
-					"# IMPLICIT:  does a thing.",
-					"# JUSTIFIED: fail-safe — because.",
-					"# DEFEAT:    none",
-					"# TREE:      host — reads the host root's stores.",
-					"",
-				].join("\n"),
-				[SELF_PLUGIN_HOOKS]: wiredAt("Stop", "scripts/x.sh"),
+				".husky/pre-commit": renderHookShim("pre-commit"),
+				".husky/post-merge": renderHookShim("post-merge"),
 			},
 		});
-		expect(run(root).kinds).toEqual(["UNANNOTATED"]);
-	});
-
-	it("reads a block comment and a // header as well as a # one", () => {
-		const root = build({
-			claude: rules,
-			files: {
-				"scripts/a.js": [
-					"#!/usr/bin/env node",
-					"/*",
-					" * a.js — does a thing.",
-					" *",
-					" * IMPLICIT:  injects a report into the session's context.",
-					" * JUSTIFIED: fail-safe — nothing else reports it.",
-					" * DEFEAT:    none",
-					" * TREE:      host — reads the host root's stores.",
-					" */",
-					"process.exit(0);",
-					"",
-				].join("\n"),
-				"scripts/b.ts": [
-					"// IMPLICIT:  records the run's verdict.",
-					"// JUSTIFIED: fail-safe — any doubt reads as not-green.",
-					"// DEFEAT:    none",
-					"// TREE:      host — reads the host root's stores.",
-					"export default {};",
-					"",
-				].join("\n"),
-				[SELF_PLUGIN_HOOKS]: wiredAt(
-					"SessionStart",
-					"scripts/a.js",
-					"scripts/b.ts",
-				),
-			},
-		});
-		expect(run(root).code).toBe(0);
+		const r = run(root);
+		expect(r.code).toBe(0);
+		expect(implicitOf(r).map((i) => i.annotation?.JUSTIFIED)).toEqual([
+			expect.stringMatching(/^fail-safe — \S/),
+			expect.stringMatching(/^fail-safe — \S/),
+		]);
 	});
 
 	it("reaches every husky hook by existence, including one added later", () => {
@@ -395,12 +372,17 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 			claude: rules,
 			files: {
 				".husky/pre-commit": "# Gates.\nexit 0\n",
-				".husky/post-commit": annotated,
-				".husky/pre-push": annotated,
+				".husky/post-commit": script,
+				".husky/pre-push": script,
 				/* Read from the directory, not a list — a hook added later is wired
 				 * by its own existence and named by nothing, so a list here would be
 				 * the one place it escapes the assertion silently. */
-				".husky/post-merge": annotated,
+				".husky/post-merge": script,
+				...implicitRows({
+					".husky/post-commit": ACTING_ROW,
+					".husky/pre-push": ACTING_ROW,
+					".husky/post-merge": ACTING_ROW,
+				}),
 				".husky/_/husky.sh": "# husky's own runner, in a subdirectory.\n",
 			},
 		});
@@ -422,9 +404,13 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 		const root = build({
 			claude: rules,
 			files: {
-				"scripts/vitest-tree-watch.ts": annotated,
-				"scripts/vitest-pass-reporter.ts": annotated,
-				"scripts/vitest-retired.ts": annotated,
+				"scripts/vitest-tree-watch.ts": script,
+				"scripts/vitest-pass-reporter.ts": script,
+				"scripts/vitest-retired.ts": script,
+				...implicitRows({
+					"scripts/vitest-tree-watch.ts": ACTING_ROW,
+					"scripts/vitest-pass-reporter.ts": ACTING_ROW,
+				}),
 				"scripts/vitest-setup.ts": "#!/bin/sh\nexit 0\n",
 				"vitest.config.ts": [
 					"export default {",
@@ -504,7 +490,8 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 		const root = build({
 			claude: rules,
 			files: {
-				"scripts/both.sh": annotated,
+				"scripts/both.sh": script,
+				...rowFor("scripts/both.sh"),
 				[SELF_PLUGIN_HOOKS]: JSON.stringify({
 					hooks: {
 						SessionStart: [
@@ -562,21 +549,20 @@ describe("implicit behaviours — the second assertion (mantahostels#1261)", () 
 
 describe("implicit behaviours share the guards' anchor sidecar (mantahostels#1261)", () => {
 	const rules = region("- A rule. **Unenforceable**: nothing can check it.");
-	const annotated = [
-		"#!/bin/sh",
-		"# IMPLICIT:  does a thing to a session that never asked.",
-		"# JUSTIFIED: fail-safe — nothing else covers it.",
-		"# DEFEAT:    none",
-		"# TREE:      host — reads the host root's stores.",
-		"exit 0",
-		"",
-	].join("\n");
+	const script = "#!/bin/sh\nexit 0\n";
+	const rows = implicitRows({
+		"scripts/act.sh": {
+			...ACTING_ROW,
+			IMPLICIT: "does a thing to a session that never asked.",
+		},
+	});
 
 	function postToolUseRepo(): string {
 		return build({
 			claude: rules,
 			files: {
-				"scripts/act.sh": annotated,
+				"scripts/act.sh": script,
+				...rows,
 				[SELF_PLUGIN_HOOKS]: JSON.stringify({
 					hooks: {
 						PostToolUse: [
@@ -596,7 +582,7 @@ describe("implicit behaviours share the guards' anchor sidecar (mantahostels#126
 		});
 	}
 
-	it("warns that nobody has read a wired script's annotation against it, as UNANCHORED, naming the IMPLICIT / JUSTIFIED / DEFEAT annotation", () => {
+	it("warns that nobody has read a wired script's row against it, as UNANCHORED, naming the IMPLICIT / JUSTIFIED / DEFEAT row", () => {
 		const r = run(postToolUseRepo());
 		expect(r.code).toBe(0);
 		expect(r.json.warnings.map((w) => w.kind)).toEqual(["UNANCHORED"]);
@@ -614,7 +600,7 @@ describe("implicit behaviours share the guards' anchor sidecar (mantahostels#126
 		expect(run(root).json.warnings).toEqual([]);
 	});
 
-	it("warns again once the script moves under its annotation, as STALE-PROSE, naming the IMPLICIT / JUSTIFIED / DEFEAT annotation", () => {
+	it("warns again once the script moves under its row, as STALE-PROSE, naming the IMPLICIT / JUSTIFIED / DEFEAT row", () => {
 		const root = postToolUseRepo();
 		reviewIn(root);
 		fs.appendFileSync(path.join(root, "scripts", "act.sh"), "echo drift\n");
@@ -651,7 +637,8 @@ describe("implicit behaviours share the guards' anchor sidecar (mantahostels#126
 				"- Claims are taken for you. **Enforced** (#113): `scripts/act.sh` records the write.",
 			),
 			files: {
-				"scripts/act.sh": annotated,
+				"scripts/act.sh": script,
+				...rows,
 				[SELF_PLUGIN_HOOKS]: JSON.stringify({
 					hooks: {
 						PostToolUse: [
@@ -694,17 +681,17 @@ describe("the roster names what the wiring reached (mantahostels#1261)", () => {
 		return build({
 			claude: rules,
 			files: {
-				"scripts/act.sh": annotated
-					? [
-							"#!/bin/sh",
-							"# IMPLICIT:  sweeps every session's expired markers.",
-							"# JUSTIFIED: fail-safe — an unswept store grows without bound.",
-							"# DEFEAT:    none",
-							"# TREE:      host — reads the host root's stores.",
-							"exit 0",
-							"",
-						].join("\n")
-					: "#!/bin/sh\nexit 0\n",
+				"scripts/act.sh": "#!/bin/sh\nexit 0\n",
+				...(annotated
+					? implicitRows({
+							"scripts/act.sh": {
+								IMPLICIT: "sweeps every session's expired markers.",
+								JUSTIFIED: "fail-safe — an unswept store grows without bound.",
+								DEFEAT: "none",
+								TREE: "host — reads the host root's stores.",
+							},
+						})
+					: {}),
 				[SELF_PLUGIN_HOOKS]: JSON.stringify({
 					hooks: {
 						SessionStart: [
@@ -747,6 +734,8 @@ describe("the roster names what the wiring reached (mantahostels#1261)", () => {
 	it("prints the detail unasked when something in the set is unannotated", () => {
 		const out = prose(sessionStartRepo(false));
 		expect(out).toContain("scripts/act.sh  [SessionStart]  unannotated");
-		expect(out).toContain("(no IMPLICIT / JUSTIFIED / DEFEAT annotation)");
+		expect(out).toContain(
+			`(no IMPLICIT / JUSTIFIED / DEFEAT row in ${IMPLICIT_MANIFEST})`,
+		);
 	});
 });

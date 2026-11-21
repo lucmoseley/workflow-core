@@ -4,18 +4,6 @@
  * status marker while the session holds the arbiter claim on an unfinished
  * build unit: an open, unparked, ungated `kind:ticket` with an unticked,
  * unwaived criterion (lib/held-unit.js).
- *
- * IMPLICIT:  at every Stop of a session holding an issue claim and ending on
- *            `result:` or no marker, reads each claimed issue from GitHub and
- *            refuses the turn where one is an unfinished build unit.
- * JUSTIFIED: fail-safe — a session that ends with its unit unfinished leaves
- *            the claim hiding the issue and the remaining criteria to no one.
- * DEFEAT:    at most three blocks a session; silent with no claim, on a
- *            `needs input:` or `waiting:` ending, past the 300,000 tripwire
- *            (its reading at or past it now, or its one block spent), at the
- *            compaction backstop, and on every read error, the message's and
- *            the transcript's included.
- * TREE:      host — claims, counters, the compaction set and the tracker are the host root's
  */
 
 const { logError, readClaimedIssues } = require("./lib/arbiter-store");

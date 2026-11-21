@@ -21,6 +21,7 @@ import {
 	asRoot,
 	build,
 	hooksWiring,
+	implicitRows,
 	REAL_SCRIPT,
 	region,
 	removeTemps,
@@ -92,16 +93,18 @@ describe("false enforcement claims — the reason the script exists", () => {
 			claude: region(
 				"- Stay on `main`. **Enforced** (#110): `.husky/pre-commit` blocks it.",
 			),
-			/* The hook also owes the second assertion its annotation, since mantahostels#1261
+			/* The hook also owes the second assertion its row, since mantahostels#1261
 			 * reaches every .husky hook by existence too. */
 			files: {
-				".husky/pre-commit": [
-					"# IMPLICIT:  runs the gate stack on every commit.",
-					"# JUSTIFIED: fail-safe — nothing else gates before the work is shared.",
-					"# DEFEAT:    none",
-					"exit 0",
-					"",
-				].join("\n"),
+				".husky/pre-commit": "exit 0\n",
+				...implicitRows({
+					".husky/pre-commit": {
+						IMPLICIT: "runs the gate stack on every commit.",
+						JUSTIFIED:
+							"fail-safe — nothing else gates before the work is shared.",
+						DEFEAT: "none",
+					},
+				}),
 			},
 		});
 		expect(run(root).code).toBe(0);

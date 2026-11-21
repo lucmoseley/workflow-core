@@ -20,7 +20,6 @@ import {
 	describePluginRecord,
 	HOOKS,
 	hookRootOf,
-	isHookShim,
 	labelPlan,
 	renderClaudeMd,
 	renderCodeStandards,
@@ -35,6 +34,7 @@ import {
 	TOOLS,
 	withIgnoreBlock,
 } from "./adopter-skeleton.js";
+import { isHookShim } from "./hook-shim.js";
 import { ORIGINS } from "./issue-origin.js";
 import { readPluginStyles } from "./output-styles.js";
 import { CORE_ROOT, cutLocalGateBlock } from "./precommit-gate-testkit";

@@ -35,9 +35,10 @@ describe.skipIf(!HAS_GITLEAKS)(
 		it("stops, exit 2, on a hook refusing the skeleton commit, printing its output word for word, and --resume finishes once it is fixed", () => {
 			const s = builtThrough("plugin reads", false, undefined, golden);
 			/* A copied repo's own gate (#694 item 6), which the core's wiring
-			 * gate refuses until its header says what it does. */
+			 * gate refuses until the manifest holds its row. */
 			const gate = path.join(s.clone, ".husky/pre-commit.local");
-			fs.writeFileSync(gate, ":\n");
+			const rows = path.join(s.clone, ".claude/implicit-behaviours.json");
+			fs.writeFileSync(gate, "# shellcheck shell=sh\n:\n");
 			const r = s.resume();
 			expect(r.status, r.stdout).toBe(2);
 			expect(r.stdout).toMatch(
@@ -53,8 +54,14 @@ describe.skipIf(!HAS_GITLEAKS)(
 			expect(() => s.git("rev-parse", "--verify", "-q", "HEAD")).toThrow();
 
 			fs.writeFileSync(
-				gate,
-				"# shellcheck shell=sh\n# IMPLICIT: runs tides's own checks on every commit\n# JUSTIFIED: fail-safe — the source repo's checks keep running\n# DEFEAT: none\n:\n",
+				rows,
+				JSON.stringify({
+					".husky/pre-commit.local": {
+						IMPLICIT: "runs tides's own checks on every commit",
+						JUSTIFIED: "fail-safe — the source repo's checks keep running",
+						DEFEAT: "none",
+					},
+				}),
 			);
 			const again = s.resume();
 			expect(again.status, again.stdout).toBe(0);

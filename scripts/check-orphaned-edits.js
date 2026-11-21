@@ -77,11 +77,6 @@
  *
  * A DELETED FILE IS NOT JUDGED: it has no mtime, so "unchanged for 24 hours"
  * cannot be read. Counted in `deleted`.
- *
- * IMPLICIT:  at session start, at most once a clock hour across the repository's worktrees (its hook passes --write --hourly), files each uncommitted tracked file that no live session owns once as a takes:triage issue, a linked worktree's together as one, printing nothing: in a linked worktree, or in a main checkout not yet cut over, once nobody has touched it for 24 hours; in a cut-over main checkout, at any age. It never reverts or writes the file.
- * JUSTIFIED: fail-safe — an orphan voids certificates for days unseen, and any ownership signal that cannot be read silences the report rather than calling a live session's edit orphaned.
- * DEFEAT:    none at the hook beyond its hourly throttle; --hours <n> moves the threshold on a hand run, save in a cut-over main checkout, which has none.
- * TREE:      host — walks the main checkout, as git's common dir names it from whichever tree launched the run (#4483), and every linked worktree (#4244)
  */
 
 const { spawnSync } = require("node:child_process");

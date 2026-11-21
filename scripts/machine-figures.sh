@@ -7,11 +7,6 @@
 #
 # WFC_MEMINFO replaces /proc/meminfo with a fixture, the seam lib/proc-root.js
 # names; WFC_UNAME and WFC_NPROC name the `uname` and `nproc` to run.
-#
-# IMPLICIT:  at every session start, prints one line of this machine's architecture, cores, MemTotal and SwapTotal into the session's context.
-# JUSTIFIED: convenience — the machine rules are figure-free, so this line is where a session learns the machine it runs on (#5340).
-# DEFEAT:    none — it only prints.
-# TREE:      none — reads /proc/meminfo, uname and nproc, no repository.
 set -uo pipefail
 
 arch=$("${WFC_UNAME:-uname}" -m 2>/dev/null) || arch=

@@ -10,17 +10,6 @@
  * `session-checkout.js land` is filed by that script itself, as a `land` row:
  * its push runs inside node, where neither event sees it.
  *
- * IMPLICIT:  appends one row per refused `git pull` and per rejected `git push`
- *            to a per-repo log under the Claude config directory. Records only;
- *            it reaches no verdict and refuses nothing.
- * JUSTIFIED: convenience — #289 holds the counts. The measurement that looked
- *            like the cause sees only pushes that SUCCEEDED, and this file is
- *            the population it cannot reach; until the refusals are on record,
- *            any reconcile recipe (#290) is aimed at a cause nobody has
- *            established.
- * DEFEAT:    WFC_NO_DIVERGENCE_LOG=1 — recording stops entirely. There is no
- *            partial setting.
- * TREE:      session — counts the refused pull or push's own checkout, host-root.js's sessionDir or its `-C`, against its pushed ref; the log lands under that checkout's project slug, which divergence-report.js reads with every other
  * Overrides (test seams): WFC_PS, WFC_NOW.
  *
  * In no §N3 family: it refuses nothing, and `guard-*` names a hook that can

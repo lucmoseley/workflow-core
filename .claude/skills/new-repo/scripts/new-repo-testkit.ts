@@ -262,12 +262,19 @@ export const SOURCE = "octo/surf-lib";
 export const SOURCE_IGNORE = "node_modules/\nCLAUDE.md\n";
 export const SOURCE_AGENTS =
 	"# surf-lib\n\nOpen a pull request from a feature branch.\n";
+/** Shebang-less, as husky v9 writes hooks (#1870). */
+export const SOURCE_HOOK = "test -f lib/tide.js\n";
 /**
- * Annotated, so the core's wiring gate passes it as `.husky/pre-commit.local`,
- * and shebang-less, as husky v9 writes hooks (#1870).
+ * The source repo's row for its hook once set aside, so the core's wiring gate
+ * passes `.husky/pre-commit.local`.
  */
-export const SOURCE_HOOK =
-	"# IMPLICIT: runs surf-lib's own check on every commit\n# JUSTIFIED: fail-safe — a missing library refuses the commit\n# DEFEAT: none\ntest -f lib/tide.js\n";
+export const SOURCE_HOOK_ROWS = `${JSON.stringify({
+	".husky/pre-commit.local": {
+		IMPLICIT: "runs surf-lib's own check on every commit",
+		JUSTIFIED: "fail-safe — a missing library refuses the commit",
+		DEFEAT: "none",
+	},
+})}\n`;
 /** SOURCE_HOOK set aside: given the shell directive shellcheck needs. */
 export const SET_ASIDE_HOOK = `# shellcheck shell=sh\n${SOURCE_HOOK}`;
 
@@ -301,6 +308,7 @@ function makeSource(
 		".github/workflows/ci.yml": "on: push\njobs: {}\n",
 		"AGENTS.md": SOURCE_AGENTS,
 		".husky/pre-commit": SOURCE_HOOK,
+		".claude/implicit-behaviours.json": SOURCE_HOOK_ROWS,
 		"docs/tides.md": "# Tides\n\nHow the table is computed.\n",
 		...extra,
 	};

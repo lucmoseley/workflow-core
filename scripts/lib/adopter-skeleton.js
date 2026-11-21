@@ -32,6 +32,7 @@ const { shellQuote } = require("./sh-quote.js");
 const { URGENT_LABEL } = require("./urgent-label.js");
 const { RESOLVE_CORE_SCRIPT } = require("./tree-core.js");
 const { realPathOrNull } = require("./real-path.js");
+const { FAIL_OPEN_HOOKS, SHIM_MARK, isHookShim } = require("./hook-shim.js");
 
 const TEMPLATES = path.join(__dirname, "..", "templates", "adopter");
 
@@ -302,25 +303,9 @@ function renderRoadmap({ project, categories, version, stamp }) {
 	});
 }
 
-/**
- * The hooks whose refusal would stop git: every hook but these four. pre-push
- * refuses no push on a checker that cannot run (#1444), and git ignores
- * post-commit's, post-merge's and a finished post-checkout's exit, so none
- * refuses where no core resolves.
- */
-const FAIL_OPEN_HOOKS = new Set([
-	"pre-push",
-	"post-commit",
-	"post-merge",
-	"post-checkout",
-]);
-
 /** The hooks whose core copy sources an adopter's own `.husky/<hook>.local`
  * last (#437, #5142). */
 const LOCAL_HOOKS = ["pre-commit", "commit-msg"];
-
-/** A line every shim carries, which tells it from an adopter's own hook. */
-const SHIM_MARK = "# workflow-core hook shim:";
 
 /** What makes a shim resolve a core, said wherever one does not. */
 const NO_CORE_FIX =
@@ -347,10 +332,6 @@ function renderHookShim(hook) {
 ${SHIM_MARK} core-owned; init and upgrade write it and a plugin
 # bump leaves it unchanged. A gate of this repo's own goes in
 # ${LOCAL_HOOKS.map((h) => `.husky/${h}.local`).join(" or ")}.
-#
-# IMPLICIT:  on every ${hook}, finds workflow-core through scripts/lib/resolve-core.js and runs that core's .husky/${hook}; ${failOpen ? "where none resolves, says so and lets git go on" : "where none resolves, refuses"}.
-# JUSTIFIED: fail-safe — a hook naming no plugin path cannot be left pointing at a pruned version or at another machine's install (#1839).
-# DEFEAT:    WORKFLOW_CORE_DIR or WORKFLOW_CORE_CHECKOUT chooses the core that runs; the core's .husky/${hook} names its own.
 
 set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
 WFC_PLUGIN_ROOT="$(node -e '${RESOLVE_CORE_SCRIPT}' </dev/null)" || {
@@ -361,10 +342,6 @@ export WFC_PLUGIN_ROOT
 exec sh -e "$WFC_PLUGIN_ROOT/.husky/"${shellQuote(hook)} "$@"
 `;
 }
-
-/** @param {string} text */
-const isHookShim = (text) =>
-	text.split("\n").some((line) => line.startsWith(SHIM_MARK));
 
 /* A hook init or upgrade wrote before #1839 carried the plugin's path on this
  * line (#1168). */
@@ -781,7 +758,6 @@ module.exports = {
 	renderCalledCards,
 	renderRoadmap,
 	renderHookShim,
-	isHookShim,
 	NO_CORE_FIX,
 	RULES_FILE,
 	REFERENCE_FILE,

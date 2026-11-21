@@ -72,11 +72,6 @@
  * IT NEVER RECOVERS ANYTHING. It prints `sync` and `wsl --shutdown` for a human
  * to run; running either itself would kill every live session on a false
  * positive — §9's rule for Guard 2.
- *
- * IMPLICIT:  at every session start, reads this boot's kernel log and the scheduler clock over 1 s and, where the log holds an RCU stall or the clock is frozen, prints that the VM is unhealthy and the sync-then-shutdown recovery, reading the Windows event log once where a stall's `t` is large; prints nothing on a clean or unreadable reading.
- * JUSTIFIED: fail-safe — nothing else tells a session the VM is unhealthy, and a reading it cannot take is silence, never a warning.
- * DEFEAT:    none at the hook; a reboot of the VM clears a stall, the signal being per-boot, and a freeze clears once the clock moves.
- * TREE:      host — reads kernel state only, its report persisted in the host root's notify store
  */
 
 const { spawnSync } = require("node:child_process");

@@ -84,32 +84,6 @@
  * install's hook timeout, which the harness read at session start — a
  * release raising that timeout gets it one bump late.
  *
- * IMPLICIT:  on every SessionEnd, where an accept for this exact
- *            repo+tag is pending: with the install already at the pin and no
- *            other Claude session in this checkout, goes straight to the
- *            walk; otherwise, with no other Claude session live under this
- *            config dir, runs `claude plugin marketplace add` → `install` →
- *            `update` against the adopter, rotating this machine's shared
- *            marketplace clone — and, once that succeeds on a clean tree,
- *            walks and commits whatever migration notes the new version
- *            owes, re-anchoring the guard-registry rows of the paths the
- *            walk wrote in that commit; whatever it says is also filed as
- *            its notify report.
- * JUSTIFIED: convenience — the committed pin is the consent token and the
- *            recorded accept is the second half, so every write here only brings
- *            reality to the state the pin already declares (#238); the walk
- *            is the same argument one step further, since a migration note
- *            is itself pinned content the plugin ships (#249). What it buys
- *            is no session leaving the install and walk half done, and no
- *            one landing on a stale, mid-migration repo;
- *            nothing breaks if it never runs.
- * DEFEAT:    decline the tag (`node scripts/adopter-consent.js decline <repo>
- *            <tag>`), or never accept one — with no pending consent no
- *            `claude` runs, and nothing is installed, rotated, walked or
- *            written. (The four-record read still spawns `git` up to twice, to
- *            learn which ref the supply clone sits on.)
- * TREE:      host — reconciles the main checkout's pinned plugin and walks its migrations there
- *
  * FAILS OPEN AND QUIET on anything unexpected (#247), naming the error on
  * one line and stopping: a session END broken by this hook is worse than an
  * upgrade missed, and the consent survives either way, so the next exit

@@ -191,7 +191,7 @@ The fixes, best first: the test drives the program end to end through `run-in-pr
 
 Three kinds of export are not test-only:
 
-- **A program's entry point**, exported so `run-in-process` can run it: a `main` exported by a file carrying a `require.main` guard, as `scripts/audit-escape-lines.js:432` does — *"module.exports = { main };"*.
+- **A program's entry point**, exported so `run-in-process` can run it: a `main` exported by a file carrying a `require.main` guard, as `scripts/audit-escape-lines.js:512` does — *"module.exports = { main };"*.
 - **Test support.** A testkit, harness, fixture, stub or fake module, named for what it is, and anything under a `fixtures/` directory. `scripts/lib/precommit-gate-harness.js:2` is *"the machinery the .husky/pre-commit gate suites share"*.
 - **A module built ahead of its caller**, whose opening comment names that caller and its ticket on a line spelt `Unbuilt caller: <caller> (#N)`.
 
@@ -365,13 +365,13 @@ Every other library module stays under the rule, and a client component is never
 
 *House, Node programs only*. Every `.js` program uses `require`, never `import`, and an executable carries `#!/usr/bin/env node` as line 1.
 
-A non-test `.ts` program is ESM; where it needs a CommonJS lib it reaches it through `createRequire`, because the lib is spawned as a plain node script by a bash hook and stays CommonJS. **Always `createRequire(import.meta.url)`, never `createRequire(__filename)`** (mantahostels#2191): `__filename` only resolves under Vitest's compatibility shim, so a non-test file copying it breaks when run directly by `node` — `scripts/vitest-inflight-reporter.ts:25` is the portable exemplar: *"const require = createRequire(import.meta.url);"*.
+A non-test `.ts` program is ESM; where it needs a CommonJS lib it reaches it through `createRequire`, because the lib is spawned as a plain node script by a bash hook and stays CommonJS. **Always `createRequire(import.meta.url)`, never `createRequire(__filename)`** (mantahostels#2191): `__filename` only resolves under Vitest's compatibility shim, so a non-test file copying it breaks when run directly by `node` — `scripts/vitest-inflight-reporter.ts:21` is the portable exemplar: *"const require = createRequire(import.meta.url);"*.
 
 ### §N2 · Every program, library module, hook module, shell script and test opens with a header block saying why — **hard**
 
 Every program, library module, hook module and shell script opens with a block comment giving the filename, one line on what it is, then the *why* and the ticket that settled it. A test's header gives one line on what it pins, then the ticket, why the test is built the way it is, and what breaking it costs — for example, that it runs inside a throwaway repository rather than against the real one, and that it is a hard gate in CI, so loosening it loosens CI. Either header's why explains the code as it stands, never a change to it (#2351). A test header need not name itself or its subject, though it may: the runner prints a test's path on every result and failure, and a self-name goes stale on a rename (#1279, #1406).
 
-**Capitalised sentence-heads mark a caveat the reader must not skim** — `scripts/guard-priced-options.js:366` *"EVERY FAILURE PATH IS SILENT AND EXITS 0"*.
+**Capitalised sentence-heads mark a caveat the reader must not skim** — `scripts/guard-priced-options.js:329` *"EVERY FAILURE PATH IS SILENT AND EXITS 0"*.
 
 ### §N3 · The filename prefix is the contract — **hard**
 
@@ -416,7 +416,7 @@ A program that swallows an error to keep working does so as a design choice that
 
 **Gated for Python** (#1830): the plugin's pre-commit refuses an `except` a commit adds to a program-routed `.py` that neither raises nor exits and cites no ticket, so (b) is a duplicate finding there. Whether (a)'s comment gives a reason, and (c), stay review's.
 
-The `guard-*` family swallows every error and exits 0 — *"breaking a session is worse than missing one"* (`scripts/guard-priced-options.js:366-367`) — and `scripts/session-arbiter.js:1550` names the rule's source, *"catches to fail open (mantahostels#103 §6)"*. Printed: `scripts/lib/pick-next-verdict.js:435` *"Assigned, but no live session recorded a claim: fail open, and say so"*.
+The `guard-*` family swallows every error and exits 0 — *"breaking a session is worse than missing one"* (`scripts/guard-priced-options.js:329-330`) — and `scripts/session-arbiter.js:1550` names the rule's source, *"catches to fail open (mantahostels#103 §6)"*. Printed: `scripts/lib/pick-next-verdict.js:443` *"Assigned, but no live session recorded a claim: fail open, and say so"*.
 
 ### §N6 · Output that must survive `process.exit` on a pipe is written synchronously — **hard**
 

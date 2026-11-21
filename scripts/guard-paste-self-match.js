@@ -27,15 +27,6 @@
  * read costs a wrong answer, not a shell. A segment naming `$$` or `$PPID`
  * passes. A pattern that will not compile, or carries an expansion, passes and
  * is logged to the fail-open record.
- *
- * IMPLICIT:  scans every outgoing message for `!` code with a pgrep or pkill
- *            in it.
- * JUSTIFIED: fail-safe — the miss kills the founder's shell mid-paste and can
- *            orphan whatever the paste had started.
- * DEFEAT:    MAX_BLOCKS refusals a session on its own counter; past the cap the
- *            finding goes to the founder's screen instead. Silent on every
- *            failure path.
- * TREE:      host — scans the message, refusing through the host root's markers
  */
 
 const hookBlock = require("./lib/hook-block");

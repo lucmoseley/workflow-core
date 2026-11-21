@@ -15,15 +15,6 @@
  *   - a bare full UUID, or a bare 8-hex word, that is the id or the id's
  *     prefix of a session in the sessions registry. A bare UUID the registry
  *     does not know is passed.
- *
- * IMPLICIT:  scans every outgoing message, and reads the sessions registry
- *            where one holds a UUID or an 8-hex word.
- * JUSTIFIED: fail-safe — the miss is the reader left with an id to look up,
- *            the founder's standing complaint (#2478, #3557).
- * DEFEAT:    one send-back a reply: a turn already sent back by a Stop hook
- *            (`stop_hook_active`) passes. MAX_BLOCKS a session on its own
- *            counter. Silent on every failure path.
- * TREE:      host — checks the message against Claude Code's session registry under the host root's config switch
  */
 
 const hookBlock = require("./lib/hook-block");

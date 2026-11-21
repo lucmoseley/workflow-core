@@ -8,9 +8,11 @@
  *      guard-registry delimiters carries a backing marker, and the marker is
  *      true. That is everything down to the reprint pass.
  *   2. IMPLICIT BEHAVIOURS (mantahostels#1261) — an action taken for a session without it
- *      asking. Every script the ACTING wiring reaches annotates itself with what
- *      it does, why, and what escape exists. See §the implicit-behaviour surface
- *      below for the derivation and why it is derived rather than listed.
+ *      asking. Every script the ACTING wiring reaches has a row in
+ *      .claude/implicit-behaviours.json saying what it does, why, and what
+ *      escape exists, and every row names a script that wiring reaches. See
+ *      §the implicit-behaviour surface below for the derivation and why it is
+ *      derived rather than listed.
  *   3. THE RULE-TEXT STORE (mantahostels#1644) — a rule whose text left this file for the
  *      guard that prints it. Every `rule:<id>` trigger in a scanned document,
  *      and every one a script's comment or string cites (mantahostels#3135), resolves to a
@@ -1208,7 +1210,7 @@ function unwiredNarrowingFindings(wired) {
  *
  * A PreToolUse ENTRY THAT ALSO ACTS DECLARES ITSELF, exactly as a delayed deny
  * does above: a guard that refuses a write AND takes a claim the session never
- * asked for is in this set because it carries the annotation, not because this
+ * asked for is in this set because the manifest holds its row, not because this
  * file names it. Inferring "also acts" from a
  * guard's body would be reading intent, which this script refuses everywhere.
  * KNOWN RESIDUAL: a PreToolUse guard that acts and stays silent is not caught.
@@ -1221,15 +1223,17 @@ function unwiredNarrowingFindings(wired) {
  * the call graph, and included the scheduled workflows, which are no part of a
  * session's wiring.
  *
- * WHAT IS REQUIRED — annotation-in-place, per mantahostels#102's ruling that "rules are
- * annotated where they are read, not in a separate table. A table elsewhere
- * leaves the page a session actually meets just as undifferentiated, and adds a
- * second surface to drift." So each wired script carries, in its own header
- * comment:
+ * WHAT IS REQUIRED — one row per wired script in .claude/implicit-behaviours.json,
+ * keyed by its path from the root (#5477):
  *
- *     IMPLICIT:  <one line — what this does to a session without being asked>
- *     JUSTIFIED: fail-safe | convenience — <why>
- *     DEFEAT:    none | <the env var or flag>
+ *     "IMPLICIT":  what this does to a session without being asked
+ *     "JUSTIFIED": "fail-safe | convenience — <why>"
+ *     "DEFEAT":    "none | <the env var or flag>"
+ *
+ * CHECKED BOTH WAYS: a wired script with no row is UNANNOTATED, and a row for a
+ * script the wiring does not reach is UNWIRED-ROW. The core's hook shim in an
+ * adopter's .husky/ takes the row lib/hook-shim.js renders, as every adopter's
+ * shims are one rendering.
  *
  * DEFEAT RECORDS, IT NEVER DEMANDS, and `convenience` is as legal an answer as
  * `fail-safe`. mantahostels#1181 ruled Archon's "individually defeatable" clause does not
@@ -1240,20 +1244,20 @@ function unwiredNarrowingFindings(wired) {
  * whether convenience is good enough is a reader's call.
  *
  * OUTCOMES, following this file's existing discipline. A missing or malformed
- * annotation is a FAIL — offline, deterministic, no judgement: "you wired this
- * and it says nothing about what it does to a session". Staleness against the
+ * row is a FAIL — offline, deterministic, no judgement: "you wired this and it
+ * says nothing about what it does to a session". Staleness against the
  * content digest is the same WARN the guards get, sharing
  * guard-registry-anchors.json and --review rather than a second sidecar.
  *
- * WHICH TREE IT READS (#4229, #4243). At the core, every script a Claude Code
- * hook runs also carries
+ * WHICH TREE IT READS (#4229, #4243). At the core, the row of every script a
+ * Claude Code hook runs also carries
  *
- *     TREE:      session | host | both | none — <why>
+ *     "TREE":      "session | host | both | none — <why>"
  *
  * a hook's cwd being the session's own worktree while `CLAUDE_PROJECT_DIR`
  * names the main checkout. `session` reads git state or working files through
  * `sessionTree()`, `host` reads the shared stores through `hostRoot()`, `both`
- * reads each, `none` reads no repository. A missing line is NO-TREE, one
+ * reads each, `none` reads no repository. A missing one is NO-TREE, one
  * opening with another word BAD-TREE. Not owed by `scripts/guard-dispatch.js`,
  * whose cores are classified one by one (#4242), nor by a git hook or an
  * adopter's own script.
@@ -1297,7 +1301,12 @@ const {
 	isDep,
 	readOptsIn,
 } = require("./lib/guard-digest.js");
-const { COMMENT_LEAD, parseHeaderLines } = require("./lib/guard-header.js");
+const { parseHeaderLines } = require("./lib/guard-header.js");
+const {
+	IMPLICIT_MANIFEST,
+	isHookShim,
+	shimAnnotation,
+} = require("./lib/hook-shim.js");
 const { coreDenyTexts, decideModule } = require("./lib/core-deny-text.js");
 const { isUnder, relativeUnder } = require("./lib/is-under.js");
 
@@ -1442,23 +1451,15 @@ function addHookTriggers(hooks, add) {
 			}
 }
 
-/* Both regexes are BUILT from their vocabulary rather than restating it: an
- * alternation written out beside the array is a second place to add a key to,
- * and the one that gets missed fails silently — the parser simply never sees
- * the line. */
+/* The JUSTIFIED and TREE patterns are BUILT from their vocabulary rather than
+ * restating it: an alternation written out beside the array is a second place
+ * to add a word to, and the one that gets missed fails silently. */
 const ANNOTATION_KEYS = ["IMPLICIT", "JUSTIFIED", "DEFEAT"];
 const JUSTIFICATIONS = ["fail-safe", "convenience"];
 const TREE_KEY = "TREE";
 const TREES = ["session", "host", "both", "none"];
 const TREE_EXEMPT = "scripts/guard-dispatch.js";
 
-/* Backtracks super-linearly on a crafted line; the input is the host repo's own
- * files, which its own writers control, so a crafted one slows the check,
- * nothing worse (#4642). COMMENT_LEAD is imported, so the regexp lint no longer
- * sees this pattern. */
-const ANNOTATION_RE = new RegExp(
-	`${COMMENT_LEAD}(${[...ANNOTATION_KEYS, TREE_KEY].join("|")}):[ \\t]*(.*)$`,
-);
 /* The reason is required, not decoration: "fail-safe" alone asserts a verdict
  * and shows no working, which is the stale label mantahostels#102 ruled out. */
 const JUSTIFIED_RE = new RegExp(
@@ -1466,43 +1467,73 @@ const JUSTIFIED_RE = new RegExp(
 );
 const TREE_RE = new RegExp(`^(?:${TREES.join("|")})\\s*[—:-]\\s*\\S`);
 
-/**
- * path → parsed annotation (or null), memoised: implicitWiring asks too.
- *
- * @type {Map<string, Record<string, string> | null>}
- */
-const annotationCache = new Map();
+/** @type {Record<string, Record<string, string>> | undefined} */
+let manifestRows;
 
 /**
+ * The manifest's rows, none where the file is absent: every wired script then
+ * reports UNANNOTATED, which names the gap. A file there that is not an object
+ * of string-valued rows is apparatus, and refuses the run.
+ *
+ * @returns {Record<string, Record<string, string>>}
+ */
+function readImplicitRows() {
+	if (manifestRows) return manifestRows;
+	const read = readText(path.join(root, IMPLICIT_MANIFEST));
+	if (read.state === "unreadable")
+		throw brokenError(`cannot read ${IMPLICIT_MANIFEST}: ${read.message}`);
+	/** @type {unknown} */
+	let parsed = {};
+	if (read.state !== "absent")
+		try {
+			parsed = JSON.parse(read.data);
+		} catch (e) {
+			throw brokenError(
+				`${IMPLICIT_MANIFEST} is not JSON: ${caught(e).message}`,
+			);
+		}
+	if (!isRowTable(parsed))
+		throw brokenError(
+			`${IMPLICIT_MANIFEST} is not a JSON object of rows, each an object of strings keyed ${[...ANNOTATION_KEYS, TREE_KEY].join(" / ")}`,
+		);
+	manifestRows = parsed;
+	return parsed;
+}
+
+/**
+ * @param {unknown} v
+ * @returns {v is Record<string, Record<string, string>>}
+ */
+function isRowTable(v) {
+	const isPlain = (/** @type {unknown} */ o) =>
+		typeof o === "object" && o !== null && !Array.isArray(o);
+	return (
+		isPlain(v) &&
+		Object.values(/** @type {object} */ (v)).every(
+			(row) =>
+				isPlain(row) && Object.values(row).every((s) => typeof s === "string"),
+		)
+	);
+}
+
+/**
+ * A wired script's annotation: its manifest row, else for the core's hook
+ * shim the row lib/hook-shim.js renders, else null.
+ *
  * @param {string} rel
  * @returns {Record<string, string> | null}
  */
 function readAnnotation(rel) {
-	if (annotationCache.has(rel)) return annotationCache.get(rel) ?? null;
-	/** @type {Record<string, string>} */
-	const keys = {};
-	/* Callers only ever reach a path the wiring named AND that exists, so a read
-	 * that fails here is apparatus, not a script with nothing to say — reporting
-	 * it as UNANNOTATED would blame the script for the reader's failure. */
+	const row = readImplicitRows()[rel];
+	if (row) return Object.keys(row).length > 0 ? row : null;
+	if (!rel.startsWith(`${HUSKY_DIR}/`)) return null;
+	let text;
 	try {
-		const text = fs.readFileSync(path.join(root, rel), "utf8");
-		for (const line of parseHeaderLines(text)) {
-			const m = ANNOTATION_RE.exec(line);
-			if (!m) continue;
-			/* First wins: a later restatement in the same header is prose about the
-			 * annotation, not a second annotation. */
-			const key = requiredGroup(m, 1, ANNOTATION_RE);
-			if (!(key in keys)) keys[key] = requiredGroup(m, 2, ANNOTATION_RE).trim();
-		}
+		text = fs.readFileSync(path.join(root, rel), "utf8");
 	} catch (e) {
-		if (fs.existsSync(path.join(root, rel)))
-			throw brokenError(`cannot read ${rel}: ${caught(e).message}`);
+		throw brokenError(`cannot read ${rel}: ${caught(e).message}`);
 	}
-	/* null, not {}: no annotation at all is UNANNOTATED — one finding naming the
-	 * whole omission — where a partial one is reported line by line. */
-	const found = Object.keys(keys).length > 0 ? keys : null;
-	annotationCache.set(rel, found);
-	return found;
+	return isHookShim(text) ? shimAnnotation(path.basename(rel)) : null;
 }
 
 /* Matched against the vocabulary, never split on the dash: `fail-safe` carries
@@ -1536,7 +1567,10 @@ function buildImplicitLines(info, head, { detail }) {
 			`    ${ann.IMPLICIT || "?"}`,
 			`    defeat: ${ann.DEFEAT || "?"}`,
 		);
-	else lines.push("    (no IMPLICIT / JUSTIFIED / DEFEAT annotation)");
+	else
+		lines.push(
+			`    (no IMPLICIT / JUSTIFIED / DEFEAT row in ${IMPLICIT_MANIFEST})`,
+		);
 	return lines;
 }
 
@@ -1575,13 +1609,34 @@ function reportTree({ atCore, rel, triggers, ann }, report) {
 	if (tree === undefined)
 		report(
 			"NO-TREE",
-			`wired at ${triggers.join(", ")}, and its header has no \`TREE:\` line saying whether it reads the session's worktree, the main checkout's shared stores, both or neither`,
+			`wired at ${triggers.join(", ")}, and its row in ${IMPLICIT_MANIFEST} has no \`TREE\` saying whether it reads the session's worktree, the main checkout's shared stores, both or neither`,
 		);
 	else if (!TREE_RE.test(tree))
 		report(
 			"BAD-TREE",
-			`\`TREE: ${tree}\` — it must open with one of ${TREES.join(" | ")} and then give the reason, as \`TREE: session — <why>\``,
+			`\`TREE\` is "${tree}" — it must open with one of ${TREES.join(" | ")} and then give the reason, as "session — <why>"`,
 		);
+}
+
+/**
+ * A row for each script the wiring does not reach: the manifest's side of the
+ * check both ways.
+ *
+ * @param {Map<string, WiredScript>} scripts
+ * @returns {Finding[]}
+ */
+function unwiredRows(scripts) {
+	return Object.keys(readImplicitRows())
+		.filter((rel) => !scripts.has(rel))
+		.sort()
+		.map((rel) => ({
+			kind: "UNWIRED-ROW",
+			surface: "implicit",
+			file: IMPLICIT_MANIFEST,
+			line: 1,
+			rule: rel,
+			detail: `holds a row for ${rel}, which no hook, husky file or vitest entry runs — delete the row, or wire the script`,
+		}));
 }
 
 /**
@@ -1614,8 +1669,8 @@ function scanImplicit() {
 		if (!ann) {
 			report(
 				"UNANNOTATED",
-				`${where}, so it acts on a session that never asked — but its header carries no ` +
-					"`IMPLICIT:` / `JUSTIFIED:` / `DEFEAT:` lines saying what it does, why, or what escape exists",
+				`${where}, so it acts on a session that never asked — but ${IMPLICIT_MANIFEST} holds no row for it ` +
+					"whose `IMPLICIT` / `JUSTIFIED` / `DEFEAT` say what it does, why, or what escape exists",
 			);
 			continue;
 		}
@@ -1624,15 +1679,12 @@ function scanImplicit() {
 			if (!(key in ann)) {
 				report(
 					"INCOMPLETE-ANNOTATION",
-					`${where}, and its header annotation has no \`${key}:\` line`,
+					`${where}, and its row in ${IMPLICIT_MANIFEST} has no \`${key}\``,
 				);
 				continue;
 			}
 			if (ann[key] === "")
-				report(
-					"EMPTY-ANNOTATION",
-					`${where}, and its \`${key}:\` line says nothing`,
-				);
+				report("EMPTY-ANNOTATION", `${where}, and its \`${key}\` says nothing`);
 		}
 
 		if (
@@ -1642,14 +1694,15 @@ function scanImplicit() {
 		)
 			report(
 				"BAD-JUSTIFICATION",
-				`\`JUSTIFIED: ${ann.JUSTIFIED}\` — it must open with one of ${JUSTIFICATIONS.join(
+				`\`JUSTIFIED\` is "${ann.JUSTIFIED}" — it must open with one of ${JUSTIFICATIONS.join(
 					" | ",
-				)} and then give the reason, as \`JUSTIFIED: fail-safe — <why>\``,
+				)} and then give the reason, as "fail-safe — <why>"`,
 			);
 
 		reportTree({ atCore, rel, triggers, ann }, report);
 	}
 
+	findings.push(...unwiredRows(scripts));
 	return { findings, scripts };
 }
 
@@ -2250,7 +2303,7 @@ function noRegionFindings(st) {
  * Both surfaces anchor in one sidecar (mantahostels#1261). What a re-anchor ASSERTS differs
  * by surface and so the prose does: for a guard a rule names, that the rule was
  * re-read against the guard; for a wired implicit behaviour, that its own
- * IMPLICIT / JUSTIFIED / DEFEAT lines were re-read against what the script now
+ * IMPLICIT / JUSTIFIED / DEFEAT row was re-read against what the script now
  * does. A path can be both, and then the warning says both.
  */
 /**
@@ -2336,7 +2389,9 @@ function targetWarning(g, describedBy, implicitScripts, { anchors, fresh }) {
 			`the rule(s) at ${rules.map((r) => `${r.file}:${r.line}`).join(", ")}`,
 		);
 	if (implicitScripts.has(g))
-		claims.push("its own IMPLICIT / JUSTIFIED / DEFEAT annotation");
+		claims.push(
+			`its IMPLICIT / JUSTIFIED / DEFEAT row in ${IMPLICIT_MANIFEST}`,
+		);
 	const what = claims.join(" and ");
 	if (!recorded)
 		return {
@@ -4751,7 +4806,7 @@ function sayExpired(ctx, { expired, gone }, anchors) {
  * @param {Pick<Warning, "kind" | "guard" | "rules">} w
  * @param {string[]} via
  * @param {{ annotated: boolean, untouched: boolean }} how `annotated` the path
- *   carries its own IMPLICIT annotation; `untouched` this commit changed none
+ *   has an IMPLICIT row; `untouched` this commit changed none
  *   of the files its digest hashes
  * @returns {string[]}
  */
@@ -4760,7 +4815,9 @@ function buildExpiredRow(w, via, { annotated, untouched }) {
 		`  ${w.kind}  ${w.guard}${via.length > 0 ? ` (through ${via.join(", ")})` : ""}`,
 		...w.rules.map((r) => `    rule:  ${r.file}:${r.line}  ${r.gist}`),
 		...(annotated
-			? ["    and its own IMPLICIT / JUSTIFIED / DEFEAT annotation"]
+			? [
+					`    and its IMPLICIT / JUSTIFIED / DEFEAT row in ${IMPLICIT_MANIFEST}`,
+				]
 			: []),
 		...(untouched
 			? [
@@ -4978,14 +5035,14 @@ function sayFindings(
 	if (implicitFindings.length > 0)
 		ctx.say(
 			"  A script the acting wiring reaches does something to a session that never\n" +
-				"  asked for it, so its own header must say what — three lines, anywhere in the\n" +
-				"  header comment:\n\n" +
-				"    IMPLICIT:  <one line — what this does to a session without being asked>\n" +
-				"    JUSTIFIED: fail-safe | convenience — <why>\n" +
-				"    DEFEAT:    none | <the env var or flag>\n\n" +
+				`  asked for it, so its row in ${IMPLICIT_MANIFEST}, keyed by its path, must say what:\n\n` +
+				'    "IMPLICIT":  "<one line — what this does to a session without being asked>"\n' +
+				'    "JUSTIFIED": "fail-safe | convenience — <why>"\n' +
+				'    "DEFEAT":    "none | <the env var or flag>"\n\n' +
 				"  `none` and `convenience` are both legal answers: DEFEAT records what escape\n" +
 				"  exists and never demands one (mantahostels#1181), and whether convenience is good enough\n" +
-				"  is a reader's call. Unwire the script instead if it should not act at all.\n",
+				"  is a reader's call. Unwire the script instead if it should not act at all, and\n" +
+				"  delete the row of a script nothing wires.\n",
 		);
 	if (storeFindings.length > 0)
 		ctx.say(

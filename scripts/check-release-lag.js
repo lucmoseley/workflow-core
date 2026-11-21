@@ -19,11 +19,6 @@
  *
  * WFC_REPO_ROOT, HOME and CLAUDE_CONFIG_DIR inject the repo, the adopters'
  * home and the install registry.
- *
- * IMPLICIT:  at every session start, reads the newest release tag's source, `origin/main`, each adopter checkout's pin and its installed version, and where the source is more than LAG_WARN_DAYS behind `origin/main`, or unreadable, or an adopter's install is not at its pin, prints that with the pins and installs it concerns; prints nothing otherwise.
- * JUSTIFIED: convenience — it only reports; nothing else says that no fix has reached an adopter.
- * DEFEAT:    none at the hook; cutting a release clears the lag, installing the pinned release clears an adopter's.
- * TREE:      host — reads the main checkout's tags and `origin/main`, the adopters' main checkouts and the config dir's install registry
  */
 
 const path = require("node:path");

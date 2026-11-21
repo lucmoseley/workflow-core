@@ -41,18 +41,6 @@
  * but only where a launch in the transcript is still out, as
  * guard-uncommitted-work.js rules it (mantahostels#2567): the word alone would
  * be an exemption a session could type.
- *
- * IMPLICIT:  reads this session's commit ledger and git at every Stop, and
- *            blocks one turn when a commit it made is on HEAD but not on the
- *            pushed ref and has not been warned about before.
- * JUSTIFIED: fail-safe — committed work is safe, but GitHub and the deploy lag
- *            until someone pushes, and the session that made the commits is the
- *            one that knows whether its suite is green.
- * DEFEAT:    once per commit and at most three blocks a session; silent where
- *            the pushed ref does not resolve, with no ledger, and on every
- *            failure path.
- * TREE:      both — the session tree's HEAD and branch, then the main
- *            checkout's; the host root's commit ledger and markers.
  */
 
 const fs = require("node:fs");

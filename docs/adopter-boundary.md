@@ -43,6 +43,7 @@ The release tree an adopter installs. Tests, fixtures and TypeScript are left ou
 - `CLAUDE.md` `AGENTS.md` — the adopter's own contract, written once from a template.
 - `.claude/workflow-core.json` — the adopter's config: modules, commands, tracker.
 - `.claude/guard-registry-anchors.json` — the guard registry's anchors, written once.
+- `.claude/implicit-behaviours.json` — the guard registry's row for each hook of the adopter's own, written once, empty: the shims take theirs from the core.
 - `docs/doc-map.md` `docs/doc-map-classes.json` `docs/doc-map-admissions.json` `docs/doc-map-high-water.json` `docs/doc-map-restatements.json` `docs/doc-map-retired-vocabulary.json` `docs/doc-map-superseded.json` — the adopter's own doc map and its sidecars, written once.
 - `docs/code-standards.md` — the adopter's local code standards, beside the shipped base, written once.
 - `docs/reference-roadmap.html` `docs/roadmap-digest.md` `docs/called-cards.md` — the roadmap module's documents, written once where it is on.

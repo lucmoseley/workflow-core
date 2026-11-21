@@ -16,6 +16,14 @@
 		"route": null,
 		"consumes": null
 	},
+	".claude/implicit-behaviours.json": {
+		"section": "Skills & settings",
+		"class": "source-of-truth",
+		"classQualifier": null,
+		"role": "Each wired script's IMPLICIT / JUSTIFIED / DEFEAT / TREE row, checked both ways against the wiring by scripts/check-guard-registry.js (#5477)",
+		"route": null,
+		"consumes": null
+	},
 	".claude/output-styles/core-voice.md": {
 		"section": "Governance & process docs",
 		"class": "source-of-truth",

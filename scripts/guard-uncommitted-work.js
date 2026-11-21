@@ -70,22 +70,6 @@
  * Widening to unattributed dirt is refused: a change attributable to nobody is
  * billed to nobody, because over-billing sends a session to edit files a live
  * neighbour is holding.
- *
- * IMPLICIT:  reads git state at Stop and refuses the turn while this session's
- *            own tracked edits sit uncommitted in its checkout — unless the
- *            turn is the `waiting:` hand-off docs/agents/guard-registry.md §Conventions makes the
- *            one exception, and a launch in this transcript is still out; and
- *            refuses a `result:` or `needs input:` turn while this session
- *            holds a whole-file claim on a clean file.
- * JUSTIFIED: fail-safe — an unattended job that stops mid-edit leaves the work
- *            unrecoverable-by-anyone-else for hours.
- * DEFEAT:    this file caps the block at six per session (`BLOCK_CAP`, mantahostels#2791),
- *            so a session that genuinely cannot commit — a red pre-commit
- *            gate — is taught and then released rather than
- *            trapped. The clean-claim
- *            limb takes the house cap of three, on a counter of its own.
- * TREE:      both — dirt from the session's tree; attribution from the host
- *            root's ledger, claims and observations.
  */
 
 const { REFUSAL_NAMED_MAX, readDirtyTracked } = require("./lib/dirty-tree.js");
