@@ -18,6 +18,7 @@ const { isLoopJob, jobKeyOf, loopJobsPath } = require("./loop-jobs.js");
 const { queueGit } = require("./queue-lander-adapters.js");
 const { queueLogFile, readQueueRows } = require("./queue-log.js");
 const { readQueueStays } = require("./queue-ref-status.js");
+const { readConfig } = require("./workflow-core-config.js");
 const {
 	SILENCE_CAP_MS,
 	breakerRecordPath,
@@ -96,6 +97,18 @@ function readRows(file) {
  * @returns {GateRun[]|null}
  */
 const readGateRuns = (root) => readGateRunsAt(gateRunLogPath(root));
+
+/**
+ * @param {string} root
+ * @returns {string|null}
+ */
+function readSuiteCommand(root) {
+	try {
+		return readConfig({ root, quiet: true }).commands?.test ?? null;
+	} catch {
+		return null;
+	}
+}
 
 /**
  * The breaker's record, oldest first; null where it will not read.
@@ -346,6 +359,7 @@ function readThroughput({ roots, launches, lookbackOf, now }) {
 				{
 					commits: readMainCommits(root, lookback(root)),
 					gateRuns: readGateRuns(root),
+					suiteCommand: readSuiteCommand(root),
 					sessions: sessions.byRoot[root]?.sessions ?? [],
 					timelinesUnread: sessions.byRoot[root]?.timelinesUnread ?? [],
 				},

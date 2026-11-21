@@ -128,6 +128,23 @@ describe("a checkout's origin/main commits", () => {
 	});
 });
 
+describe("the declared whole-suite command (#5471)", () => {
+	it("reads a checkout's commands.test, and none where it declares none or has no config", () => {
+		const root = path.join(tmp, "declared");
+		fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
+		const config = path.join(root, ".claude", "workflow-core.json");
+		fs.writeFileSync(
+			config,
+			JSON.stringify({ contract: 1, commands: { test: "bash test/all.sh" } }),
+		);
+		expect(tickRead(root).byRoot[root]?.suiteCommand).toBe("bash test/all.sh");
+		fs.writeFileSync(config, JSON.stringify({ contract: 1 }));
+		expect(tickRead(root).byRoot[root]?.suiteCommand).toBeNull();
+		fs.rmSync(config);
+		expect(tickRead(root).byRoot[root]?.suiteCommand).toBeNull();
+	});
+});
+
 describe("the breaker's record", () => {
 	it("reads back what was appended, and none where it is absent", () => {
 		expect(tickRead(tmp).record).toEqual([]);

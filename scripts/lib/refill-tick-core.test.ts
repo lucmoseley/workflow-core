@@ -1630,7 +1630,13 @@ describe("the throughput acts through the tick (#5275)", () => {
 	const throughputOf = (events: BreakerEvent[]) => ({
 		...NO_THROUGHPUT,
 		byRoot: {
-			[WFC]: { commits: [], gateRuns: [], sessions: [], timelinesUnread: [] },
+			[WFC]: {
+				commits: [],
+				gateRuns: [],
+				suiteCommand: null,
+				sessions: [],
+				timelinesUnread: [],
+			},
 		},
 		record: events,
 	});

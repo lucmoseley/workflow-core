@@ -92,6 +92,7 @@ function replay(f: Fixture, from: string, to: string) {
 					[root]: {
 						commits: commits.filter((c) => c.at <= t),
 						gateRuns: [],
+						suiteCommand: null,
 						timelinesUnread: [],
 						sessions: sessions
 							.filter((s) => s.launch.launchedAt <= t)
@@ -224,7 +225,15 @@ const readOf = (
 		...rest
 	} = over;
 	return {
-		byRoot: { [DV]: { commits, gateRuns: [], sessions, timelinesUnread } },
+		byRoot: {
+			[DV]: {
+				commits,
+				gateRuns: [],
+				suiteCommand: null,
+				sessions,
+				timelinesUnread,
+			},
+		},
 		commitsOf: () => [],
 		queueOf: () => {
 			throw new Error("the queue ref read where no trial asked for it");
