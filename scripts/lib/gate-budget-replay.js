@@ -21,7 +21,7 @@ const { CEILING_MS } = require("./suite-ceiling.js");
  * @param {BudgetRule} rule
  * @returns {GateRun}
  */
-function readWallClockRunS(run, rule) {
+function withLegacyWallClock(run, rule) {
 	const ceilingS = CEILING_MS / 1000;
 	if (run.wallS !== undefined || run.runS <= ceilingS + rule.sleepAllowanceS)
 		return run;
@@ -45,7 +45,7 @@ function replayPark(
 ) {
 	const parkedAt = Date.parse(park.at);
 	const ids = new Set([park.session]);
-	const runs = repoRuns.map((r) => readWallClockRunS(r, rule));
+	const runs = repoRuns.map((r) => withLegacyWallClock(r, rule));
 	const mine = runs
 		.filter((r) => r.session === park.session && Date.parse(r.at) <= parkedAt)
 		.sort((a, b) => Date.parse(a.at) - Date.parse(b.at));
@@ -78,6 +78,31 @@ function replayPark(
 	}
 	return { park, firstPark: null, count };
 }
+
+/**
+ * @param {{at: number, sha: string}[]} reflog
+ * @param {(sha: string) => boolean} holds
+ * @returns {number|null}
+ */
+function firstHeldAt(reflog, holds) {
+	let lo = 0;
+	let hi = reflog.length;
+	while (lo < hi) {
+		const mid = (lo + hi) >> 1;
+		if (holds(reflog[mid]?.sha ?? "")) hi = mid;
+		else lo = mid + 1;
+	}
+	return reflog[lo]?.at ?? null;
+}
+
+/**
+ * @param {Park} park
+ * @param {"gate-run record"|"commands.test"|"commit ledger"} unread
+ */
+const unreadLine = (park, unread) =>
+	unread === "commit ledger"
+		? `${parkLabel(park)}: its commit ledger will not read, so nothing of it is taken to have landed`
+		: `${parkLabel(park)}: not replayed, its checkout's ${unread} will not read`;
 
 /**
  * @param {ParkReplay} r
@@ -125,10 +150,4 @@ function renderSweep(inputs, { streaks, backstops }, rule = BUDGET_RULE) {
 	return lines.join("\n");
 }
 
-module.exports = {
-	readWallClockRunS,
-	parkLabel,
-	renderReplay,
-	renderSweep,
-	replayPark,
-};
+module.exports = { firstHeldAt, renderReplay, renderSweep, unreadLine };

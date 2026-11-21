@@ -532,7 +532,7 @@ describe("queue-run.js", () => {
 			let wallMs = Date.now();
 			let monoMs = 1_000_000;
 			const sleep = (awakeMs: number) => {
-				wallMs += 8 * 3_600_000;
+				wallMs += 8 * 3_600_000 + awakeMs;
 				monoMs += awakeMs;
 			};
 			vi.spyOn(Date, "now").mockImplementation(() => wallMs);

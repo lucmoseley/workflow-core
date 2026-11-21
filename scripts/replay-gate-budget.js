@@ -4,16 +4,20 @@ const { flagValue, parseOrCode } = require("./lib/cli-args");
 const { readText } = require("./lib/file-read.js");
 const { gateRunLogPath, readGateRunsAt } = require("./lib/gate-seat.js");
 const {
-	parkLabel,
+	firstHeldAt,
 	renderReplay,
 	renderSweep,
+	unreadLine,
 } = require("./lib/gate-budget-replay.js");
 const { gitOrNull } = require("./lib/git.js");
 const { parseJsonl } = require("./lib/jsonl.js");
 const { BUDGET_RULE } = require("./lib/refill-budget.js");
 const { breakerRecordPath } = require("./lib/refill-breaker.js");
 const { scriptPath } = require("./lib/script-path.js");
-const { readConfig } = require("./lib/workflow-core-config.js");
+const {
+	GIT_LOG_TIMEOUT_MS,
+	readSuiteCommand,
+} = require("./lib/throughput-reads.js");
 const { writeFd } = require("./lib/write-fd");
 
 const USAGE = `usage: node ${scriptPath("replay-gate-budget.js")} [options]
@@ -24,9 +28,6 @@ const USAGE = `usage: node ${scriptPath("replay-gate-budget.js")} [options]
   --systemic-hours <n>     the window they are read over (default ${BUDGET_RULE.systemicWindowMs / 3_600_000})
   --sleep-s <n>            wall time past awake time that marks a sleep (default ${BUDGET_RULE.sleepAllowanceS})
   --sweep                  try streaks 2-6 against backstops 6-14 instead`;
-
-/* #5471 guess: a fetched repo's log or reflog, short of a stall. */
-const GIT_TIMEOUT_MS = 20_000;
 
 const NUMBER_FLAGS = /** @type {const} */ ([
 	["--streak", "streakLimit", 1],
@@ -41,7 +42,7 @@ const NUMBER_FLAGS = /** @type {const} */ ([
  * @param {string} root
  */
 const git = (args, root) =>
-	gitOrNull(["-C", root, ...args], { timeout: GIT_TIMEOUT_MS });
+	gitOrNull(["-C", root, ...args], { timeout: GIT_LOG_TIMEOUT_MS });
 
 /**
  * @param {string} root
@@ -69,27 +70,6 @@ function readMainReflog(root) {
 
 /**
  * @param {string} root
- * @param {{at: number, sha: string}[]} reflog
- * @param {string} sha
- */
-function firstHeldAt(root, reflog, sha) {
-	let lo = 0;
-	let hi = reflog.length;
-	while (lo < hi) {
-		const mid = (lo + hi) >> 1;
-		const held =
-			git(
-				["merge-base", "--is-ancestor", sha, reflog[mid]?.sha ?? ""],
-				root,
-			) !== null;
-		if (held) hi = mid;
-		else lo = mid + 1;
-	}
-	return reflog[lo]?.at ?? null;
-}
-
-/**
- * @param {string} root
  * @param {string} session
  * @param {{at: number, sha: string}[]} reflog
  * @returns {import("./lib/gate-budget-replay.js").Landing[]|null}
@@ -99,23 +79,18 @@ function readLandings(root, session, reflog) {
 	if (shas === null) return null;
 	return shas.flatMap((sha) => {
 		const ct = git(["log", "-1", "--format=%ct", sha], root);
-		const arrivedAt = ct === null ? null : firstHeldAt(root, reflog, sha);
+		const arrivedAt =
+			ct === null
+				? null
+				: firstHeldAt(
+						reflog,
+						(entry) =>
+							git(["merge-base", "--is-ancestor", sha, entry], root) !== null,
+					);
 		return arrivedAt === null
 			? []
 			: [{ arrivedAt, at: Number(ct?.trim()) * 1000 }];
 	});
-}
-
-/**
- * @param {string} root
- * @returns {string|null}
- */
-function readSuiteCommand(root) {
-	try {
-		return readConfig({ root, quiet: true }).commands?.test ?? null;
-	} catch {
-		return null;
-	}
 }
 
 /**
@@ -140,15 +115,12 @@ function readInputs(parks) {
 		const { runs, suite, reflog } = root;
 		if (runs === null || suite === null) {
 			notes.push(
-				`${parkLabel(park)}: not replayed, its checkout's ${runs === null ? "gate-run record" : "commands.test"} will not read`,
+				unreadLine(park, runs === null ? "gate-run record" : "commands.test"),
 			);
 			continue;
 		}
 		const landings = readLandings(park.repo, park.session, reflog);
-		if (landings === null)
-			notes.push(
-				`${parkLabel(park)}: its commit ledger will not read, so nothing of it is taken to have landed`,
-			);
+		if (landings === null) notes.push(unreadLine(park, "commit ledger"));
 		inputs.push({
 			park,
 			repoRuns: runs,

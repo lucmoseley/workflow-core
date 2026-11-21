@@ -1,12 +1,11 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
 import {
-	readWallClockRunS,
+	firstHeldAt,
 	renderReplay,
 	renderSweep,
-	replayPark,
+	unreadLine,
 } from "./gate-budget-replay.js";
-import { BUDGET_RULE } from "./refill-budget.js";
 
 type GateRun = import("./gate-seat.js").GateRun;
 type ParkInput = import("./gate-budget-replay.js").ParkInput;
@@ -49,28 +48,32 @@ const input = (
 	...over,
 });
 
+const replayed = (i: ParkInput) => renderReplay([i]).split("\n")[1];
+
+const PARKED = "design-vault #473 s-parked, parked 2026-11-21T02:00:00.000Z:";
+
 describe("the budget park replay (#5471)", () => {
 	it("keeps a park the rule makes, at the run it trips on", () => {
 		const reds = [1, 2, 3, 4, 5].map((m) => run(m, "red"));
-		expect(replayPark(input([run(0, "pass"), ...reds])).firstPark).toEqual({
-			at: reds[3]?.at,
-			why: "its 4 failed whole-suite gate runs in a row since its last landing, at the limit of 4",
-			onBackstopPass: false,
-		});
+		expect(replayed(input([run(0, "pass"), ...reds]))).toBe(
+			`${PARKED} kept at ${reds[3]?.at}, on its 4 failed whole-suite gate runs in a row since its last landing, at the limit of 4`,
+		);
 	});
 
 	it("releases one whose failures were one-file runs and scripts through the gate, never counted", () => {
-		const r = replayPark(
-			input([
-				run(1, "ceiling"),
-				run(2, "ceiling"),
-				run(3, "red", { command: "sh .claude/tmp/s-nest.sh" }),
-				run(4, "red", { command: `${SUITE} test/a.test.sh` }),
-				run(5, "red", { command: "sh .claude/tmp/s-nest2.sh" }),
-			]),
+		expect(
+			replayed(
+				input([
+					run(1, "ceiling"),
+					run(2, "ceiling"),
+					run(3, "red", { command: "sh .claude/tmp/s-nest.sh" }),
+					run(4, "red", { command: `${SUITE} test/a.test.sh` }),
+					run(5, "red", { command: "sh .claude/tmp/s-nest2.sh" }),
+				]),
+			),
+		).toBe(
+			`${PARKED} released, 2 failed in a row and 2 counted at its last run`,
 		);
-		expect(r.firstPark).toBeNull();
-		expect(r.count).toMatchObject({ failStreak: 2, counted: 2 });
 	});
 
 	it("ignores runs after the park, and any other session's", () => {
@@ -78,7 +81,9 @@ describe("the budget park replay (#5471)", () => {
 		const other = [1, 2, 3, 4].map((m) =>
 			run(m, "red", { session: "s-other" }),
 		);
-		expect(replayPark(input([...late, ...other])).firstPark).toBeNull();
+		expect(replayed(input([...late, ...other]))).toBe(
+			`${PARKED} released, no gate run of its read`,
+		);
 	});
 
 	it("takes a landing from when origin/main showed it, and counts the run ending in its commit's second before it", () => {
@@ -97,29 +102,45 @@ describe("the budget park replay (#5471)", () => {
 			run(12, "red"),
 		];
 		expect(
-			replayPark(input(runs, { landings: [{ arrivedAt: ct, at: ct }] }))
-				.firstPark,
-		).toBeNull();
+			replayed(input(runs, { landings: [{ arrivedAt: ct, at: ct }] })),
+		).toContain("released, 3 failed in a row and 3 counted");
 		expect(
-			replayPark(
+			replayed(
 				input(runs, { landings: [{ arrivedAt: ct + 5 * MIN, at: ct }] }),
-			).firstPark?.at,
-		).toBe(letThrough.at);
+			),
+		).toContain(`kept at ${letThrough.at}`);
 	});
 
-	it("reads a line written on the wall clock before #5446 whose run outlasted the ceiling as a sleep, and leaves a line with wallS as written", () => {
-		const slept = run(2, "ceiling", { runS: 31_544 });
-		expect(readWallClockRunS(slept, BUDGET_RULE)).toMatchObject({
-			wallS: 31_544,
-			runS: 840,
-		});
-		const measured = run(2, "ceiling", { runS: 31_544, wallS: 31_544 });
-		expect(readWallClockRunS(measured, BUDGET_RULE)).toBe(measured);
+	it("skips a line written on the wall clock before #5446 whose run outlasted the ceiling, as a sleep, and reads a line with wallS as written", () => {
+		const around = (slept: GateRun) =>
+			replayed(input([run(1, "ceiling"), slept, run(3, "red"), run(4, "red")]));
+		expect(around(run(2, "ceiling", { runS: 31_544 }))).toContain(
+			"released, 3 failed in a row",
+		);
 		expect(
-			readWallClockRunS(run(2, "ceiling", { runS: 900 }), BUDGET_RULE).wallS,
-		).toBe(undefined);
-		const runs = [run(1, "ceiling"), slept, run(3, "red"), run(4, "red")];
-		expect(replayPark(input(runs)).firstPark).toBeNull();
+			around(run(2, "ceiling", { runS: 31_544, wallS: 31_544 })),
+		).toContain("kept at");
+		expect(around(run(2, "ceiling", { runS: 900 }))).toContain("kept at");
+	});
+
+	it("finds when origin/main first held a commit, by its reflog, and none where it never did", () => {
+		const reflog = [10, 20, 30, 40].map((at) => ({ at, sha: `s${at}` }));
+		const heldFrom = (first: number) => (sha: string) =>
+			Number(sha.slice(1)) >= first;
+		expect(firstHeldAt(reflog, heldFrom(30))).toBe(30);
+		expect(firstHeldAt(reflog, heldFrom(0))).toBe(10);
+		expect(firstHeldAt(reflog, heldFrom(99))).toBeNull();
+		expect(firstHeldAt([], heldFrom(0))).toBeNull();
+	});
+
+	it("names what would not read for a park", () => {
+		const { park } = input([]);
+		expect(unreadLine(park, "commands.test")).toBe(
+			"design-vault #473 s-parked: not replayed, its checkout's commands.test will not read",
+		);
+		expect(unreadLine(park, "commit ledger")).toBe(
+			"design-vault #473 s-parked: its commit ledger will not read, so nothing of it is taken to have landed",
+		);
 	});
 
 	it("renders each park and the tally, and the sweep's kept parks per streak and backstop", () => {
@@ -159,12 +180,8 @@ describe("the budget park replay (#5471)", () => {
 
 	it("names a park the backstop makes on a newest pass, its holds unjudged", () => {
 		const passes = Array.from({ length: 10 }, (_, i) => run(i + 1, "pass"));
-		expect(replayPark(input(passes)).firstPark).toMatchObject({
-			at: passes[9]?.at,
-			onBackstopPass: true,
-		});
-		expect(renderReplay([input(passes)])).toContain(
-			"the #5438 and #5441 holds unjudged",
+		expect(replayed(input(passes))).toBe(
+			`${PARKED} kept at ${passes[9]?.at}, on its 10 whole-suite gate runs since its last landing, at the backstop of 10 (a newest pass: the #5438 and #5441 holds unjudged)`,
 		);
 	});
 });

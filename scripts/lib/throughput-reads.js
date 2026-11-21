@@ -7,7 +7,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { readCommitsBy } = require("./arbiter-ledger.js");
-const { parseErrorText } = require("./caught.js");
+const { orFallback, parseErrorText } = require("./caught.js");
 const { readText } = require("./file-read.js");
 const { gateRunLogPath, readGateRunsAt } = require("./gate-seat.js");
 const { gitOrNull } = require("./git.js");
@@ -27,7 +27,7 @@ const {
 	workingMsOf,
 } = require("./refill-breaker.js");
 
-/** A guess: long enough for a fetched repo's log over the lookback, short of a stall. */
+/* #5275 guess: a fetched repo's log over the lookback, short of a stall. */
 const GIT_LOG_TIMEOUT_MS = 20_000;
 
 /**
@@ -102,13 +102,11 @@ const readGateRuns = (root) => readGateRunsAt(gateRunLogPath(root));
  * @param {string} root
  * @returns {string|null}
  */
-function readSuiteCommand(root) {
-	try {
-		return readConfig({ root, quiet: true }).commands?.test ?? null;
-	} catch {
-		return null;
-	}
-}
+const readSuiteCommand = (root) =>
+	orFallback(
+		() => readConfig({ root, quiet: true }).commands?.test ?? null,
+		null,
+	);
 
 /**
  * The breaker's record, oldest first; null where it will not read.
@@ -412,4 +410,9 @@ function readThroughputWindow({ roots, launches, lo, hi }) {
 	});
 }
 
-module.exports = { readThroughput, readThroughputWindow };
+module.exports = {
+	GIT_LOG_TIMEOUT_MS,
+	readSuiteCommand,
+	readThroughput,
+	readThroughputWindow,
+};

@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -53,4 +54,54 @@ it("refuses a figure that is no positive number, and a record that will not read
 	);
 	fs.rmSync(record);
 	expect(run().stderr).toContain("will not read");
+});
+
+it("replays a park off its checkout's real gate-run record, config and git, and sweeps it", () => {
+	const repo = path.join(dir, "checkout");
+	fs.mkdirSync(path.join(repo, ".claude", "tmp", "markers"), {
+		recursive: true,
+	});
+	execFileSync("git", ["init", "-q", repo]);
+	fs.writeFileSync(
+		path.join(repo, ".claude", "workflow-core.json"),
+		JSON.stringify({ contract: 1, commands: { test: "npm run test" } }),
+	);
+	const at = (minute: number) =>
+		new Date(
+			Date.parse("2026-11-21T01:00:00.000Z") + minute * 60_000,
+		).toISOString();
+	fs.writeFileSync(
+		path.join(repo, ".claude", "tmp", "markers", ".gate-runs.jsonl"),
+		[1, 2, 3, 4]
+			.map((m) =>
+				JSON.stringify({
+					at: at(m),
+					repo: "checkout",
+					tree: "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+					command: "npm run test",
+					session: "s-thrash-1",
+					ticket: 7,
+					waitS: 0,
+					runS: 200,
+					wallS: 200,
+					outcome: "red",
+					peakTreeMb: 0,
+				}),
+			)
+			.join("\n"),
+	);
+	fs.writeFileSync(
+		record,
+		`${JSON.stringify({ at: at(10), repo, event: "budget-park", session: "s-thrash-1", ticket: 7 })}\n`,
+	);
+	const r = run();
+	expect(r.status).toBe(0);
+	expect(r.stdout).toContain(
+		`checkout #7 s-thrash, parked ${at(10)}: kept at ${at(4)}`,
+	);
+	expect(r.stdout).toContain("Kept 1, released 0, of 1 parks.");
+	const swept = run("--sweep");
+	expect(swept.stdout).toContain("4 10 1: checkout #7 s-thrash");
+	expect(swept.stdout).toContain("5 10 0: none");
+	expect(run("--nope").status).toBe(2);
 });

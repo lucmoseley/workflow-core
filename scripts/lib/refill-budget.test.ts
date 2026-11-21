@@ -238,7 +238,7 @@ describe("the gate-run budget (#5275, #5471)", () => {
 		).toEqual([]);
 	});
 
-	it("parks nothing where its landing or its checkout's declared commands.test will not read, and logs why (#5273)", () => {
+	it('parks nothing where its landing or its checkout\'s declared commands.test will not read, and logs why, where "parks one at its 4th" parks it (#5273)', () => {
 		const unreadMain = readOf(runsAgo(8), {
 			byRoot: { [DV]: rootOf(runsAgo(8), { commits: null }) },
 		});
