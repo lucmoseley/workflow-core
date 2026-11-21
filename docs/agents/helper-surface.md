@@ -44,6 +44,10 @@ The core's release gate refuses the first three on a minor cut; the manifest doe
 
 A test runs a Node program through `runInProcess` from `scripts/lib/run-in-process.js`. Where base §X3 keeps a real process, it spawns through `keptSpawn` from `scripts/lib/kept-spawn.js`, naming the reason: `keptSpawn("fd").spawnSync(process.execPath, [script], options)`, with `.spawn`, `.execFile` and `.execFileSync` beside it. The reasons are `REASONS`: `timeout`, `signal`, `concurrent`, `fd` and `boundary`. The pre-commit's `check-test-spawn.js` refuses any other spawn of `node` in a test.
 
+## Reading the clock
+
+A program reads the time through `now()` from `scripts/lib/clock.js`, so a test pins it with `WFC_NOW`; a guard core passes its injected env, `now(ctx.env)`. The pre-commit's `check-clock-copies.js` refuses any other read of `WFC_NOW` in your `scripts/`.
+
 ## Proving a release against your checks
 
 Declare `commands.helper_check` in `.claude/workflow-core.json`: a command that imports surface helpers through `resolveCore()` and exits non-zero on a failure. A release cut with `--dry-run-adopter <your checkout>` runs it against the rendered release tree, `WORKFLOW_CORE_DIR` pointed there, before the tag exists (#464); undeclared, that step skips. It runs in a copy of your tree without `node_modules`, so it must need no npm package: plain `node`, never a test runner.

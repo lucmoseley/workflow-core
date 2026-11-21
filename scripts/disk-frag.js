@@ -191,7 +191,6 @@ function main() {
 			`${frag.groups} groups of ${8 * blockBytes} blocks do not cover the filesystem's ${fsBlocks}`,
 		);
 	}
-	// console-kept: the readout is the program's product, so it goes to stdout.
 	writeFd(1, values.json ? `${JSON.stringify(frag)}\n` : `${render(frag)}\n`);
 }
 

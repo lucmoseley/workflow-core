@@ -12,7 +12,7 @@ import { createRequire } from "node:module";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const load = createRequire(__filename);
-const { writeFd } = load("./write-fd.js");
+const { writeFd, writeTerminal } = load("./write-fd.js");
 const sleep = load("./sleep-sync.js");
 
 /* The ceiling over the pause, both from write-fd.js. */
@@ -80,5 +80,20 @@ describe("writeFd", () => {
 		vi.spyOn(fs, "writeSync").mockReturnValue(0);
 		expect(() => writeFd(1, "a\n")).toThrow("fd 1 took no bytes");
 		expect(pause).toHaveBeenCalledTimes(PAUSES_TO_CEILING);
+	});
+});
+
+describe("writeTerminal", () => {
+	it("finishes a partial write on the fd it is given, as writeFd does", () => {
+		const seen: number[] = [];
+		const fds = new Set<number>();
+		vi.spyOn(fs, "writeSync").mockImplementation((fd, data, offset) => {
+			fds.add(fd);
+			seen.push(bytes(data)[offset as number] as number);
+			return 1;
+		});
+		writeTerminal(2, "héllo");
+		expect(Buffer.from(seen).toString()).toBe("héllo");
+		expect([...fds]).toEqual([2]);
 	});
 });
