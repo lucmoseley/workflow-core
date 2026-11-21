@@ -88,11 +88,6 @@
 # Named for what it guards, not `guard-*`: the founder's machine copy under
 # ~/.claude/hooks/ carries this name, and check:settings pairs the two by it.
 #
-# IMPLICIT:  on a session's first touch of docs/practice/ hands over the craft list, refuses a Write of an off-list note, and at Stop refuses once a session that wrote a tracked file with no **Practice:** line that holds up, the machine copy standing down at Stop where the session's project enables a plugin release pinned at or above the first to ship this guard.
-# JUSTIFIED: fail-safe — refusing once is the only Stop channel that reaches the model (#829).
-# DEFEAT:    a pin raised to a release that ships this guard before the install is updated — the machine copy stands down while the older plugin, without it, loads. Otherwise none: each refusal fires once a session, and is cleared by declaring a line that holds up.
-# TREE:      session — the work tree roots of the files the session wrote, the plugin root beside this script, and, for the machine copy, the user's and the session project's Claude Code settings.
-#
 # Self-contained: it also runs outside any adopter, so it sources nothing from
 # workflow-core and writes its own envelopes. The latch is shared by path, so
 # the shipped and machine copies running on one call latch once between them.

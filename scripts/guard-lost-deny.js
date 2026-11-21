@@ -32,16 +32,6 @@
  * REPORTING guard (docs/agents/guard-authoring.md), which is why the first
  * bound is a `seen` set of toolUseIDs and not a counter.
  *
- * IMPLICIT:  reads this session's own transcript at every Stop and refuses one
- *            turn where, since the last report, a deny-capable PreToolUse
- *            guard was cancelled or exited non-zero and the call went ahead;
- *            records each reported call and block under .claude/tmp/markers.
- * JUSTIFIED: fail-safe — an unenforced rule the session does not know about is
- *            the failure this exists to end, and the remedy is one command.
- * DEFEAT:    once per tool call and at most MAX_BLOCKS times per session; silent
- *            where no deny-capable guard was lost, and on every failure path.
- * TREE:      host — reads the guards the main checkout runs and the host root's markers
- *
  * EACH GUARD IT NAMES CARRIES ITS MEASURED DENY RATE (mantahostels#3261). A
  * replay costs a second turn, and the rate is what tells a session whether to
  * spend it. `lib/guard-deny-rates.js` holds the figures, the cut and

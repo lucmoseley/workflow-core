@@ -27,11 +27,6 @@
 # which the canary compares with the main checkout (#4712). It records rather
 # than judges: a copy of this writer run from the wrong root would be that
 # root's own copy, so a check here could not catch the case it exists for.
-#
-# IMPLICIT:  writes a `.self-plugin-loaded-<session id>` marker holding CLAUDE_PLUGIN_ROOT under `.claude/tmp/markers/` at every session start, unasked (#2438).
-# JUSTIFIED: fail-safe — the marker is the canary's only proof the self-plugin's guards loaded, and from where; without it every session is refused.
-# DEFEAT:    none
-# TREE:      host — writes this session's self-plugin marker into the host root's markers
 
 set -uo pipefail
 

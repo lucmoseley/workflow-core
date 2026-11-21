@@ -46,11 +46,6 @@
  * RESIDUAL: a machine with no systemd user manager has no timer, so there it
  * runs at session start alone. A hook's child running a different script,
  * orphaned with its own parent gone, is not matched while its session lives.
- *
- * IMPLICIT:  at every session start, and every few minutes from a user timer, SIGKILLs every process on this machine that runs any `scripts/guard-*` script or a registered hook invocation, has an init for a parent and is older than the longest registered hook timeout plus a minute, together with its process group where it leads it or the group holds nothing else, else its descendant tree; appends one line per kill to `.orphan-hook-reaps.jsonl` under the canonical checkout's .claude/tmp/markers; SIGKILLs every process whose WFC_INFLIGHT_OWNER names a run-vitest.js pid no longer running; SIGKILLs every process with an init for a parent whose CLAUDE_CODE_SESSION_ID and CLAUDE_PID name a session whose leader is gone, with its descendants, and appends one line per kill to `~/.local/state/workflow-core/orphan-session-reaps.jsonl`, making that directory where it is missing; names each kill in the session; and at a session start names the kills that log holds that no start in this checkout has named, writing `.orphan-session-reaps-shown` under its markers, or says it cannot read that log and writes nothing.
- * JUSTIFIED: fail-safe — an orphaned hook run has nothing waiting on its answer, and one left spinning timed out every session's hooks for eleven hours (#2922); a session's worker left spinning at 80% CPU ran for eight hours unseen (2026-11-04, #4333); a run that cannot read /proc kills nothing.
- * DEFEAT:    none at the hook; WFC_PROC on a hand run reads a fixture and kills nothing.
- * TREE:      host — matches /proc against the hooks the main checkout registers
  */
 
 const { runCheck } = require("./lib/check");

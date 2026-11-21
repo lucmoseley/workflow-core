@@ -33,11 +33,6 @@
  * A HAND RUN reads the recorded verdict and spends nothing. Red is FAIL.
  * Unprobed, or a version not yet probed, is WARN rather than SKIP, so `npm run
  * status` still shows a canary that is not guarding (#2037).
- *
- * IMPLICIT:  at every session start, reads the installed Claude Code version; where no probe has passed on it, launches, as no session's process in a systemd user scope of its own stopped after 45 minutes where a user manager answers (#4706), one detached `claude -p` haiku turn against a throwaway plugin, and prints a red verdict at each start until a version passes, or a fault reading its state file at the start that finds it (#3436).
- * JUSTIFIED: fail-safe — nothing else notices a harness update restoring the listing cost or breaking every description-less skill, and an unreadable version or a failed probe is silence at start, never a block.
- * DEFEAT:    none at the hook; a later version that passes ends it, and `--probe` re-runs the probe by hand for a red suspected false.
- * TREE:      host — probes the harness from a scratch directory
  */
 
 const { spawnSync } = require("node:child_process");

@@ -68,19 +68,6 @@
  *   read is layered over it, and a declaration that cannot be honoured falls
  *   back to the ordinary trigger loudly rather than SKIPping (mantahostels#2847) — a SKIP
  *   would lose the upward trigger, which is this collector's primary job.
- *
- * IMPLICIT:  at every session start, reads each seat's usage cache and injects a
- *            blocked-work notice when every live seat is exhausted, a tier-drop
- *            notice when a model's weekly allowance is spent on every readable
- *            seat, a SEAT UNREAD panel when an unread seat holds either back,
- *            and the gate-2 trial's pending, failed, review or cannot-honour
- *            notice; records one reading a day either way.
- * JUSTIFIED: fail-safe — the condition is that work has stopped, and a session
- *            that has to go looking for it finds out after the founder has
- *            already worked around it.
- * DEFEAT:    none at the hook; --notify is silent unless one of those notices
- *            holds or the ladder declaration falls back (#410).
- * TREE:      host — reads seat usage and the capacity ladder the host root's config names
  */
 
 const { configDirs } = require("./lib/arbiter-store");

@@ -55,23 +55,6 @@
  * records nothing either, but spends the delivery stamps of the held-back
  * reports it shows, bar under `--json`, since no start ever delivers them
  * (#2038).
- *
- * IMPLICIT:  reads the persisted report files at every session start and
- *            injects into the session whatever a slow async producer finished
- *            after the harness had stopped listening to it, bar the reports
- *            `isHeldForStatus` keeps for `npm run status` and a founder
- *            notice at a start not his: a dispatcher's or the loop's job, a
- *            wake, a print-mode run, or a compaction. A founder notice also
- *            reaches his screen (lib/check.js's screenNotices, #3776).
- * JUSTIFIED: fail-safe — it touches local files and nothing else, under
- *            --notify writing only its own shown-records, start count and
- *            delivery stamps, and under --status only those stamps, so it cannot inherit the cancellation it exists
- *            to repair (mantahostels#1949 story 15);
- *            the alternative is a finished report no session ever sees.
- * DEFEAT:    none at the hook. --notify shows and consumes only what is fresh
- *            and unshown, so a start with nothing outstanding is silent, and a
- *            plain hand run shows everything and records nothing.
- * TREE:      host — replays reports from the host root's notify store against the hooks it registers
  */
 
 const crypto = require("node:crypto");

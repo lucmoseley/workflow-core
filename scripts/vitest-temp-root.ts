@@ -1,13 +1,5 @@
 /*
  * vitest-temp-root.ts — a vitest globalSetup that gives the run one private temp root (#5083).
- *
- * IMPLICIT:  on every suite run, makes `<os.tmpdir()>/wfc-vitest-<pid>-XXXXXX`,
- *            hands it to the workers, whose setup file points `TMPDIR` at it,
- *            and removes it at teardown, with every fixture a test left in it.
- * JUSTIFIED: fail-safe — a test that never removes its fixture otherwise
- *            leaves it in the machine's `/tmp` for good (#5081).
- * DEFEAT:    none — the wrapper keeps the real temp root, so the suite
- *            queue and its hand-off files never move.
  */
 
 import { createRequire } from "node:module";

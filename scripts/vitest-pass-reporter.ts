@@ -18,10 +18,6 @@
  * IT MUST NEVER TURN A PASSING SUITE RED. Every scope read is wrapped: a failure
  * records no scope, which reads as unknown (mantahostels#1230), and says so on
  * stdout so the unknown met hours later is traceable to this run.
- *
- * IMPLICIT:  records every suite run's verdict, scope and closure, the files the launcher's pass store cached folded in, for the globalSetup teardown to stamp into the pre-push marker, and each file's own verdict and imports for the pass store (#4790), writes that marker itself on an empty selection, and prints a line on a filtered or unrecorded scope.
- * JUSTIFIED: fail-safe — that marker is the only thing keyed to a sha (mantahostels#910), and any doubt leaves no certificate.
- * DEFEAT:    none — naming any reporter replaces the default set, so dropping it means editing vitest.config.ts.
  */
 
 import { createRequire } from "node:module";

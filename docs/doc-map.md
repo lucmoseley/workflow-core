@@ -93,6 +93,7 @@ npm run gen:doc-map-section-a
 |---|---|---|---|---|
 | `.claude/agents/code-reviewer.md` | The code-review axis agent: pins both review axes to Opus 5.5 at high effort through its frontmatter (#363) | `source-of-truth` | Direct | — |
 | `.claude/guard-registry-anchors.json` | Guard registry anchors — data file | `source-of-truth` | Direct | — |
+| `.claude/implicit-behaviours.json` | Each wired script's IMPLICIT / JUSTIFIED / DEFEAT / TREE row, checked both ways against the wiring by scripts/check-guard-registry.js (#5477) | `source-of-truth` | Direct | — |
 | `.claude/plugin-context-cost.json` | Plugin context cost — data file | `source-of-truth` | Direct | — |
 | `.claude/settings.json` | Settings — data file | `free-edit` | Direct | — |
 | `.claude/skills/THIRD-PARTY-NOTICES.md` | Licence notices for the vendored skills | `source-of-truth` | Upstream's licence text, verbatim, one `## <source>` section per `skills-lock.json` source, its `Skills:` line matching the lock; `scripts/check-vendored-skills.js` and the release render refuse a mismatch (#1939) | — |

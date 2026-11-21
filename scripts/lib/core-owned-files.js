@@ -27,7 +27,6 @@ const {
 	renderReference,
 	renderPluginRecord,
 	renderHookShim,
-	isHookShim,
 	withIgnoreBlock,
 	withStatusScript,
 	STATUS_SCRIPT,
@@ -42,6 +41,7 @@ const {
 	LOCAL_HOOKS,
 	HELPERS,
 } = require("./adopter-skeleton.js");
+const { isHookShim } = require("./hook-shim.js");
 const {
 	readConfig,
 	resolveKey,

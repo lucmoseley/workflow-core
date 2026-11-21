@@ -365,7 +365,7 @@ Every other library module stays under the rule, and a client component is never
 
 *House, Node programs only*. Every `.js` program uses `require`, never `import`, and an executable carries `#!/usr/bin/env node` as line 1.
 
-A non-test `.ts` program is ESM; where it needs a CommonJS lib it reaches it through `createRequire`, because the lib is spawned as a plain node script by a bash hook and stays CommonJS. **Always `createRequire(import.meta.url)`, never `createRequire(__filename)`** (mantahostels#2191): `__filename` only resolves under Vitest's compatibility shim, so a non-test file copying it breaks when run directly by `node` — `scripts/vitest-inflight-reporter.ts:25` is the portable exemplar: *"const require = createRequire(import.meta.url);"*.
+A non-test `.ts` program is ESM; where it needs a CommonJS lib it reaches it through `createRequire`, because the lib is spawned as a plain node script by a bash hook and stays CommonJS. **Always `createRequire(import.meta.url)`, never `createRequire(__filename)`** (mantahostels#2191): `__filename` only resolves under Vitest's compatibility shim, so a non-test file copying it breaks when run directly by `node` — `scripts/vitest-inflight-reporter.ts:21` is the portable exemplar: *"const require = createRequire(import.meta.url);"*.
 
 ### §N2 · Every program, library module, hook module, shell script and test opens with a header block saying why — **hard**
 
@@ -416,7 +416,7 @@ A program that swallows an error to keep working does so as a design choice that
 
 **Gated for Python** (#1830, #5487): the plugin's pre-commit refuses an `except` a commit adds to a program-routed `.py` that neither raises, exits nor hands the error it binds to `fail_open` from `scripts/lib/fail_open.py`, which prints it, so (c) is a duplicate finding there. Whether a test pins the fail-open stays review's.
 
-The `guard-*` family swallows every error and exits 0 — *"breaking a session is worse than missing one"* (`scripts/guard-priced-options.js:329-330`) — and `scripts/session-arbiter.js:1553` names the rule's source, *"catches to fail open (mantahostels#103 §6)"*. Printed: `scripts/lib/pick-next-verdict.js:443` *"Assigned, but no live session recorded a claim: fail open, and say so"*.
+The `guard-*` family swallows every error and exits 0 — *"breaking a session is worse than missing one"* (`scripts/guard-priced-options.js:329-330`) — and `scripts/session-arbiter.js:1548` names the rule's source, *"catches to fail open (mantahostels#103 §6)"*. Printed: `scripts/lib/pick-next-verdict.js:443` *"Assigned, but no live session recorded a claim: fail open, and say so"*.
 
 ### §N6 · Output that must survive `process.exit` on a pipe is written synchronously — **hard**
 

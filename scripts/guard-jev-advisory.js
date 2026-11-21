@@ -26,19 +26,6 @@
  * not an outage notice and never counts toward reversal (#226). Tripping it
  * deletes this file and its registration.
  *
- * IMPLICIT:  appends one JSONL line per turn under `.claude/tmp/markers/`,
- *            carrying the outgoing text itself on a `flagged` line and on no
- *            other (#285), and on a turn that passes every gate sends the
- *            turn's own text to the Vercel AI Gateway; writes the secrets
- *            store's `.gitignore` where its key read finds it missing (#3663);
- *            emits at most one advisory line and refuses nothing, ever.
- * JUSTIFIED: fail-safe — #175 made the adoption reversible on evidence, and
- *            evidence not collected from the first session cannot be argued
- *            from later.
- * DEFEAT:    name `jev-advisory` in `.claude/workflow-core.json`'s `disabled`
- *            list, or set `WFC_JEV_ADVISORY=0` for one session.
- * TREE:      host — judges the outgoing message, logging under the host root's markers
- *
  * WHAT LEAVES THIS MACHINE, AND NOTHING ELSE (#172): the outgoing message text,
  * swept by gitleaks' own rule set first. No file content, no diff, no index
  * read — so #172's staged-and-gitleaks-passed limb does not bind. A sweep

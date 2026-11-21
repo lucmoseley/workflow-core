@@ -61,6 +61,23 @@ const FIXTURE_LIBS = new Set([
 
 export const ANCHORS = ".claude/guard-registry-anchors.json";
 
+export const IMPLICIT_MANIFEST = ".claude/implicit-behaviours.json";
+
+/** A complete, well-formed implicit-behaviour row. */
+export const ACTING_ROW = {
+	IMPLICIT: "rewrites the file the session just wrote.",
+	JUSTIFIED: "fail-safe — an unformatted file is read as a clobber later.",
+	DEFEAT: "none — every failure path exits 0.",
+	TREE: "host — reads the host root's stores.",
+};
+
+/** The manifest file holding `rows`, as a build() files entry. */
+export function implicitRows(
+	rows: Record<string, Record<string, string>>,
+): Record<string, string> {
+	return { [IMPLICIT_MANIFEST]: JSON.stringify(rows) };
+}
+
 export function readAnchors(root: string): Record<string, string> {
 	return JSON.parse(fs.readFileSync(path.join(root, ANCHORS), "utf8"));
 }

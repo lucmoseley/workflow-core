@@ -35,17 +35,6 @@
  * `LAUNCH_ROOM_MS` left, so a kill never falls between them and leaves two
  * jobs on one prompt; a cut finishing later is handed to the session to work
  * in instead.
- *
- * IMPLICIT:  at every startup or resume of a background job in the main
- *            checkout, cuts a worktree; at a startup with a prompt, copies
- *            the files it names in the job directory there, starts a second
- *            job there and removes the first.
- * JUSTIFIED: fail-safe — a job left in the main checkout edits and commits
- *            where every session's dirt blocks `main` following the lander.
- * DEFEAT:    a fault anywhere leaves the job in the main checkout, saying why
- *            on stderr.
- * TREE:      host — acts only where the hook's cwd is the main checkout, and
- *            cuts under it
  */
 
 const fs = require("node:fs");

@@ -13,10 +13,6 @@
  * each file for the run-cost report (#1883), whose reasoning is in
  * scripts/lib/test-file-timings.js, and names the run's slowest files to the
  * pass marker through the run report (#2770).
- *
- * IMPLICIT:  writes .test-inflight.json on every module transition of every suite run, and touches it on every test and hook event; writes the run's file timings once at its end, where the wrapper names a file for them, and hands its slowest files to the pass marker.
- * JUSTIFIED: fail-safe — every write is wrapped and a lost record costs the diagnosis or the report, never the run.
- * DEFEAT:    drop it from vitest.config.ts's `reporters`, which costs run-vitest.js the file name and the heartbeat, so any file silent past the ceiling is killed again, and costs the run-cost report its timings.
  */
 
 import { createRequire } from "node:module";

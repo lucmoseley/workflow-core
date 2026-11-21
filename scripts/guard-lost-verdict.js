@@ -29,14 +29,6 @@
  * `t`, `ts`, `tst` and `tes` hold no `test`, and no single glob takes them
  * and `run-vitest` short of `*t*`. ONE registration per event, never two:
  * two both fire on some calls, doubling the context (#1661).
- *
- * IMPLICIT: after a suite run whose output shows no pass/fail line, hands the
- *   session that run's verdict lines and TEST LOG path.
- * JUSTIFIED: fail-safe — it adds context and refuses nothing; the re-run it
- *   heads off costs minutes of suite time.
- * DEFEAT: `bash -c`, a script or a heredoc wrapping the launch; deleting the
- *   registration.
- * TREE:   host — reads the suite run log the host root's markers keep
  */
 
 const { run } = require("./lib/guard-entry.js");

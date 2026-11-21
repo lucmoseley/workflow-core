@@ -36,18 +36,7 @@
 #
 # Never blocks: every failure path exits 0 and injects nothing.
 #
-# IMPLICIT:  after a `gh issue create`, injects an ask to place the new issue under a parent and label it — once per prompt for placement, every issue for labels; it applies neither itself.
-# JUSTIFIED: fail-safe — an ad-hoc issue reaches no rule in docs/agents/issue-tracker.md, and PostToolUse is the only point at which its shape is visible (mantahostels#136).
-# DEFEAT:    real, two ways, both silent. No `jq` on PATH exits at :54 before
-#            the payload is even parsed. And CREATE_RE (:64) anchors `gh issue
-#            create` to start-of-segment or after a separator, so `timeout 5
-#            gh issue create`, `sh -c "gh issue create …"` and `xargs gh issue
-#            create` all fail the match at :65 and exit unasked. Neither is
-#            the `if: Bash(gh *)` field's doing (docs/agents/guard-authoring.md's
-#            surface 4): anchored at mantahostels#2127, it now also declines to exec this
-#            script on the wrapped spellings — but CREATE_RE was already
-#            refusing them, so the set this script acts on is unchanged.
-# TREE:      none — reads the payload, the session and job records and GitHub, no repository
+# Wired with `if: Bash(gh *)` (mantahostels#2127).
 
 set -uo pipefail
 

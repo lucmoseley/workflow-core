@@ -154,7 +154,8 @@ const { trimEndRun } = require("./lib/trim-run.js");
 const { readText } = require("./lib/file-read.js");
 const { precommitStamp } = require("./lib/precommit-stamp.js");
 const { reviewTierStamp } = require("./lib/review-tier-stamp.js");
-const { isHookShim, NO_CORE_FIX } = require("./lib/adopter-skeleton.js");
+const { NO_CORE_FIX } = require("./lib/adopter-skeleton.js");
+const { isHookShim } = require("./lib/hook-shim.js");
 const { resolveCore } = require("./lib/resolve-core.js");
 
 const NAME = "commit-paths";

@@ -66,30 +66,6 @@
  * per-session set that outlives the tail read, and every block carries the
  * count. The model hears of each new one from `inject-compaction-count.js`
  * (#1148), so this guard says nothing of it unblocked.
- *
- * IMPLICIT:  reads this session's own transcript at every Stop and, once a
- *            band other than the tripwire has been crossed, the turn's status
- *            marker; once a band is crossed, reads the transcript's launches
- *            through lib/pending-tasks.js; past 200,000 also checks for
- *            park-blocked.sh's local record. Writes the compaction set.
- * JUSTIFIED: fail-safe — the founder-visible cost of overrunning is real spend,
- *            and the remedy is one turn spent committing and recording state.
- * DEFEAT:    the turn band blocks three times and the tripwire once,
- *            so a session with nothing left to commit is taught and released;
- *            past 200,000 the block repeats.
- *            Apart from the tripwire's one block, any session escapes by
- *            ending on `waiting:` or `needs input:` — the marker is read, never
- *            checked for truth, and an unreadable message passes too — or on
- *            `result:` under a well-formed inventory, which says nothing of
- *            whether the unit was finished or committed, or
- *            simply by ending again: the refusal rides the band's
- *            every-other-Stop stand-down, so a second `result:` straight after
- *            one it refused passes — a launch still out included. The launch
- *            list misses work backgrounded inside a foreground call or
- *            started from a script, and keeps a launch whose notification never
- *            came for the rest of the session.
- *            Silent under every band and on every failure path.
- * TREE:      host — judges the session ceiling from the host root's markers and the transcript
  */
 
 const fs = require("node:fs");

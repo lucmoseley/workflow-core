@@ -38,11 +38,6 @@
  * but name, through `runCheck`, but `--judge` is a long batch that prints
  * one JSON line and exits 1 on a thrown error, which no family's contract
  * covers.
- *
- * IMPLICIT:  at every session start, at most once in six hours, starts a detached batch — as no session's process, in a systemd user scope of its own stopped after 45 minutes where a user manager answers (#4706) — that reads every seat's transcripts for this repo and sends each close question block that passed on an escape line, and each re-send of a refused question as its whole message, with its refused block and the tool calls and session text between, gitleaks-swept, to the Vercel AI Gateway.
- * JUSTIFIED: fail-safe — it refuses nothing, a missing key, SDK or gitleaks sends nothing, and a store that will not read reports that rather than zeros; #671 made the loosening reversible on this evidence.
- * DEFEAT:    `WFC_ESCAPE_AUDIT=0` for a session stops the batch starting.
- * TREE:      host — judges escape lines in transcripts filed under the host root's project slug
  */
 
 const { spawnOutliving } = require("./lib/user-scope.js");
