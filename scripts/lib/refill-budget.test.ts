@@ -190,8 +190,27 @@ describe("the gate-run budget (#5275)", () => {
 			{ ...gateRun(20), outcome: "pass" as const },
 		];
 		expect(tick([live()], readOf(newestRed, waiting)).events).toHaveLength(1);
-		const passed = [{ ...gateRun(5), outcome: "pass" as const }, ...runsAgo(6)];
+		const passed = [
+			{ ...gateRun(11), outcome: "pass" as const },
+			...runsAgo(6, 12),
+		];
 		expect(tick([live()], readOf(passed)).events).toHaveLength(1);
+	});
+
+	it("holds one whose passed commit is not on its queue ref while its push is due, and parks it once 11 minutes pass (#5441)", () => {
+		const passedAgo = (minutes: number) => [
+			{ ...gateRun(minutes), outcome: "pass" as const },
+			...runsAgo(6, minutes + 1),
+		];
+		const { launches, events, calls } = tick([live()], readOf(passedAgo(10.9)));
+		expect(launches[0]?.finishedAt).toBeNull();
+		expect(events).toEqual([]);
+		expect(logs(calls)).toEqual([
+			expect.stringMatching(
+				/^gate-run budget of .+ held: its push of its passed commit is still due$/,
+			),
+		]);
+		expect(tick([live()], readOf(passedAgo(11))).events).toHaveLength(1);
 	});
 
 	it("logs a stop that fails and parks nothing, for the next tick to try again", () => {

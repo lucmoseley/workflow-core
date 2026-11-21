@@ -13,13 +13,13 @@
  * time, so the gate run that let that commit through counts before it. A
  * session whose newest gate run passed and whose queue ref has a stay queued,
  * under test or landed is waiting on the lander, or on `origin/main` showing
- * its landing, so is never parked (#5438). No park
+ * its landing, so is never parked (#5438); nor is one whose queue ref reads
+ * no stay while its push of that passed commit is still due (#5441). No park
  * writes the session marker a normal-mode loop resumes parked sessions from
  * (lib/parked.js).
  *
  * Residual: a session whose stay landed and that then passes gate after gate
- * without pushing is held while its newest run passes; and one parked between
- * a passing run and its push, its queue ref reading no stay yet (#5438).
+ * without pushing is held while its newest run passes (#5438).
  */
 
 const { isActionable, launchName, stopJob } = require("./refill-block-core.js");
@@ -28,6 +28,13 @@ const { landingOf, sessionIdsOf } = require("./refill-breaker.js");
 
 /* Ruling #5250, read off its 14-day distribution of gate runs per landing. */
 const GATE_RUN_BUDGET = 6;
+
+/* How long after a passing gate run its push is still due (#5441): the
+ * longest of 56 gaps from a passing run's end to the session's next push, with
+ * no gate run between, across four checkouts' gate-run and queue-log records
+ * on 2026-11-21, was 634 s; 52 fell under 75 s. Two of 16 h, a later
+ * session's push, are left out; rounded up to the minute. */
+const PUSH_DUE_MS = 11 * 60_000;
 
 /**
  * @typedef {import("./refill-loop.js").LoopLaunch} LoopLaunch
@@ -65,20 +72,24 @@ function gateRunsSinceLanding(l, read) {
  * why it is not judged or is held.
  * @param {LoopLaunch} l
  * @param {ThroughputRead} read
+ * @param {number} now
  * @returns {number|{note: string}|null}
  */
-function budgetVerdict(l, read) {
+function budgetVerdict(l, read, now) {
 	const runs = gateRunsSinceLanding(l, read);
 	if (runs === null) return null;
 	if (!Array.isArray(runs)) return { note: `not judged: ${runs.unread}` };
 	if (runs.length < GATE_RUN_BUDGET) return null;
-	if (runs.at(-1)?.outcome !== "pass") return runs.length;
+	const newest = runs.at(-1);
+	if (newest?.outcome !== "pass") return runs.length;
 	const queue = read.queueOf(l);
 	/* An unread queue ref parks nothing, as an unread landing does (#5273). */
 	if (queue.state === "unread") return { note: `not judged: ${queue.why}` };
-	return queue.state === "gone"
-		? runs.length
-		: { note: "held: its passed commit waits on the lander" };
+	if (queue.state !== "gone")
+		return { note: "held: its passed commit waits on the lander" };
+	return now - Date.parse(newest.at) < PUSH_DUE_MS
+		? { note: "held: its push of its passed commit is still due" }
+		: runs.length;
 }
 
 /**
@@ -122,7 +133,7 @@ function parkOverBudget(launches, read, seen) {
 	const events = [];
 	const out = launches.map((l) => {
 		if (!isActionable(l) || l.jobId === null) return l;
-		const verdict = budgetVerdict(l, read);
+		const verdict = budgetVerdict(l, read, seen.now);
 		if (verdict === null) return l;
 		if (typeof verdict === "object") {
 			seen.io.log(`gate-run budget of ${launchName(l)} ${verdict.note}`);
