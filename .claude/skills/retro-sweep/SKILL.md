@@ -99,12 +99,12 @@ and end the turn — in a background job, hold it instead (`rule:job-holds-turn`
 
 ## 5. Stalls, cost and model
 
-The watcher reads the agent's log before a stall, and a call in flight there
-counts as growth (#5421): its `STALLED` is an agent that stopped. Where its
-stderr says `judging on growth alone`, the log did not read and the
+The watcher reads the agent's log at each check: a log reading stopped is
+`DONE` (#5496), and a call in flight counts as growth (#5421). Where its
+stderr says `judging on growth alone`, the log did not read and a
 `STALLED` is growth alone: fix the `--log` path and re-arm once.
 
-A `STALLED` for an agent that has **not** reported, or a `MISSING`: abandon
+A `DONE` is a finished agent: read its report. A `STALLED` for an agent that has **not** reported, or a `MISSING`: abandon
 that agent (`TaskStop`) and finish its work yourself from its artefact — every candidate it lists
 without a class gets one, by the same checks and class rules as `brief.md`
 §3; a `MISSING` artefact means the session's retro is redone here or

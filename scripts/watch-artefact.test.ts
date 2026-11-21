@@ -34,7 +34,7 @@ import { runInProcessAsync } from "./lib/run-in-process.js";
 const SCRIPT = join(__dirname, "watch-artefact.js");
 const POLL_GUARD = join(__dirname, "guard-dispatch.js");
 
-const EXIT = { USAGE: 2, STALLED: 3, MISSING: 4, CEILING: 5 };
+const EXIT = { USAGE: 2, STALLED: 3, MISSING: 4, CEILING: 5, DONE: 6 };
 
 /** The check interval, in seconds — a guess at a margin wide enough that a
  * check and a write do not race on a loaded machine, never measured. */
@@ -245,16 +245,68 @@ describe("reading the agent's own log (#5421)", () => {
 			writeFileSync(log, text);
 			const r = await watchLog();
 			expect(r.status).toBe(EXIT.CEILING);
-			expect(r.stderr).toContain(`reading the agent log ${log} before a stall`);
+			expect(r.stderr).toContain(
+				`reading the agent log ${log}, DONE once it reads stopped`,
+			);
 		},
 		15_000,
 	);
 
-	it("stalls after two checks once the log ends on a turn with no tool call", async () => {
-		writeFileSync(log, toolCall + toolResult + turnEnd);
-		const r = await watchLog();
-		expect(r.status).toBe(EXIT.STALLED);
-		expect(r.stdout).toMatch(new RegExp(`^STALLED ${artefact} size=10 `));
+	const handback = record({
+		type: "assistant",
+		message: {
+			content: [
+				{ type: "tool_use", id: "h1", name: "SubagentHandback", input: {} },
+			],
+			stop_reason: "tool_use",
+		},
+	});
+	const handbackResult = record({
+		type: "user",
+		message: { content: [{ type: "tool_result", tool_use_id: "h1" }] },
+	});
+
+	it.each([
+		[
+			"a turn with no tool call",
+			() => writeFileSync(log, toolCall + toolResult + turnEnd),
+		],
+		[
+			"a SubagentHandback result",
+			() =>
+				writeFileSync(log, toolCall + toolResult + handback + handbackResult),
+		],
+		[
+			"a tool result, its meta file marking it finished",
+			() => {
+				writeFileSync(log, toolCall + toolResult);
+				writeFileSync(join(root, "agent-a1.meta.json"), '{"finished":true}');
+			},
+		],
+	])(
+		"ends DONE at the start, never STALLED, on a log ending on %s (#5496)",
+		async (_name, write) => {
+			write();
+			const t0 = Date.now();
+			const r = await watchLog();
+			expect(r.status).toBe(EXIT.DONE);
+			expect(r.stdout).toMatch(
+				new RegExp(`^DONE ${artefact} size=10 last-growth=none — `),
+			);
+			expect(Date.now() - t0).toBeLessThan(2 * INTERVAL_S * 1000);
+		},
+		15_000,
+	);
+
+	it("ends DONE between checks, within a poll of the log turning stopped (#5496)", async () => {
+		writeFileSync(log, toolCall);
+		const t0 = Date.now();
+		const r = await watch(
+			[artefact, "8", "--log", log],
+			[[2, () => appendFileSync(log, toolResult + turnEnd)]],
+		);
+		expect(r.status).toBe(EXIT.DONE);
+		expect(Date.now() - t0).toBeLessThan(6000);
 	}, 15_000);
 
 	it("falls back to growth alone on a malformed log, saying so once", async () => {

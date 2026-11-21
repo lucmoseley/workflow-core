@@ -1,27 +1,3 @@
-/*
- * subagent-log-state.js — whether a subagent's own log shows a call in flight
- * (#5421), so scripts/watch-artefact.js never calls an agent stalled that is
- * waiting on a long tool call or a long model turn.
- *
- * The log is `<session>/subagents/agent-<agentId>.jsonl`; a background
- * `Agent` launch result's `output_file` is a symlink to it. Beside it the
- * harness keeps `agent-<agentId>.meta.json`.
- *
- * STOPPED: the meta file's `"finished": true`, since a finished agent's log
- * ends on its `SubagentHandback` `tool_result` (#5421); a user record reading
- * `[Request interrupted by user]`; or an assistant record with no tool call.
- *
- * RESIDUAL: the harness wrote no `finished` flag before November 2026, so on
- * such a harness a finished agent reads in flight.
- *
- * IN FLIGHT is everything else: an assistant record calling a tool, whose
- * result is not yet written; a user record (a tool result, or the prompt)
- * the model is answering; an `api-request` with no reply.
- *
- * UNREAD is a log missing, unreadable, or holding no turn record: the caller
- * judges on growth alone and says so.
- */
-
 const fs = require("node:fs");
 const { caught } = require("./caught.js");
 const { readLastJsonlRow } = require("./jsonl.js");
@@ -29,6 +5,7 @@ const { readLastJsonlRow } = require("./jsonl.js");
 /** @typedef {{state: "in-flight" | "stopped"} | {state: "unread", why: string}} LogState */
 
 const INTERRUPTED = "[Request interrupted by user";
+const HANDBACK = "SubagentHandback";
 
 /** @param {Record<string, unknown>} row */
 const isTurnRecord = (row) =>
@@ -72,6 +49,38 @@ function isCallOpen(row) {
 }
 
 /**
+ * @param {import("./transcript.js").TranscriptRecord} row
+ * @param {string} type
+ * @returns {Record<string, unknown>[]}
+ */
+const blocksTyped = (row, type) =>
+	/** @type {Record<string, unknown>[]} */ (
+		blocksOf(row.message?.content).filter((b) => isBlock(b, type))
+	);
+
+/**
+ * @param {string} log
+ * @param {import("./transcript.js").TranscriptRecord} row
+ */
+function isHandedBack(log, row) {
+	let call = row.type === "assistant" ? row : null;
+	if (row.type === "user")
+		try {
+			call = readLastJsonlRow(log, (r) => r.type === "assistant") ?? null;
+		} catch {
+			return false;
+		}
+	if (!call) return false;
+	const handbacks = blocksTyped(call, "tool_use").filter(
+		(b) => b.name === HANDBACK,
+	);
+	if (row === call) return handbacks.length > 0;
+	const ids = new Set(handbacks.map((b) => b.id));
+	const results = blocksTyped(row, "tool_result");
+	return results.length > 0 && results.every((b) => ids.has(b.tool_use_id));
+}
+
+/**
  * The meta file is read beside the log's real path, so a launch result's
  * symlink finds it.
  * @param {string} log
@@ -103,7 +112,8 @@ function readSubagentLogState(log) {
 	if (row === null) return { state: "unread", why: `${log} does not exist` };
 	if (row === undefined)
 		return { state: "unread", why: `${log} holds no turn record` };
-	if (isMarkedFinished(log)) return { state: "stopped" };
+	if (isMarkedFinished(log) || isHandedBack(log, row))
+		return { state: "stopped" };
 	return { state: isCallOpen(row) ? "in-flight" : "stopped" };
 }
 
