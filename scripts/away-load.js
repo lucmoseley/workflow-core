@@ -50,6 +50,7 @@ const {
 	workersFor,
 } = require("./lib/away-load.js");
 const { parseOrCode } = require("./lib/cli-args.js");
+const { gitDirs } = require("./lib/git.js");
 const { runCommand } = require("./lib/run-command.js");
 const { scriptPath } = require("./lib/script-path.js");
 const { systemctl } = require("./lib/systemd-bins.js");
@@ -477,15 +478,8 @@ function install() {
 	 * removed when it ends, and the refill loop's pinned code moves only when
 	 * the loop's own files do. The run reads its code at each unit start. */
 	const script = __filename;
-	const dirs = runCommand("git", [
-		"-C",
-		__dirname,
-		"rev-parse",
-		"--absolute-git-dir",
-		"--git-common-dir",
-	]);
-	const [own, common] = dirs.out.split("\n");
-	if (dirs.error !== null || path.resolve(__dirname, common ?? "") !== own) {
+	const dirs = gitDirs(__dirname);
+	if (dirs === null || dirs.gitDir !== dirs.common) {
 		writeFd(2, `install from the main checkout, not ${__dirname}\n`);
 		return 1;
 	}
