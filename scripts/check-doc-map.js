@@ -83,6 +83,7 @@ const {
 	scriptPath,
 } = require("./lib/script-path");
 const { caught } = require("./lib/caught.js");
+const { assertionOf } = require("./lib/doc-map-assertions.js");
 const { isCoreRepo } = require("./lib/core-repo.js");
 const { withGitReadMemo } = require("./lib/git-read-memo.js");
 
@@ -152,9 +153,15 @@ function reportFault(
 		severity = "fail",
 	},
 ) {
+	const assertion = assertionOf(tag);
 	if (items.length === 0) return;
 	const ids = [...new Set(items.map(id))].sort();
-	ctx[severity](tag, msg, { [key]: items }, [tag, ...ids].join("\t"));
+	ctx[severity](
+		tag,
+		msg,
+		{ assertion, [key]: items },
+		[tag, ...ids].join("\t"),
+	);
 	ctx.say(msg);
 	for (const item of items) ctx.say(`  ${line(item)}`);
 	ctx.say(`\n${resolveScriptPaths(advice)}`);
