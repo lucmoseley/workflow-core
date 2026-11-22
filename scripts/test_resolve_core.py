@@ -399,7 +399,7 @@ def test_resolves_a_root_with_an_exact_install_row_without_spawning_git(
     assert not called.exists()
 
 
-def _the_file(which, root, config, install):
+def _resolver_input(which, root, config, install):
     return {
         "settings": root / ".claude" / "settings.json",
         "record": config / "plugins" / "installed_plugins.json",
@@ -411,7 +411,7 @@ def _the_file(which, root, config, install):
 def test_fails_alike_naming_a_file_that_is_there_but_not_json(adopter, which):
     """#5504."""
     root, config, install = adopter()
-    at = _the_file(which, root, config, install)
+    at = _resolver_input(which, root, config, install)
     at.write_text("{")
     out = agreed(root, {"CLAUDE_CONFIG_DIR": str(config)})
     assert not out["ok"]
@@ -422,7 +422,7 @@ def test_fails_alike_naming_a_file_that_is_there_but_not_json(adopter, which):
 def test_fails_alike_naming_a_file_that_is_there_but_unreadable(adopter, which):
     """#5504."""
     root, config, install = adopter()
-    at = _the_file(which, root, config, install)
+    at = _resolver_input(which, root, config, install)
     at.chmod(0)
     try:
         out = agreed(root, {"CLAUDE_CONFIG_DIR": str(config)})

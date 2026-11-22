@@ -159,9 +159,7 @@ function readPin(root) {
 }
 
 /**
- * The install rows for `root`, else for its main checkout, and what was
- * searched. An exact row spawns no git (#4150). `any` for readJson's reason:
- * the CLI writes the record, and every row read narrows through `?.`.
+ * #4150, #5504
  * @param {any} entries
  * @param {string} root
  * @returns {{rows: any[], searched: string}}
