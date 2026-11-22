@@ -1326,6 +1326,33 @@ describe("check-hook-liveness — the plugin cache manifest", () => {
 		expect(status).toBe(1);
 	});
 
+	it("counts a cache copy that will not read as unverifiable, never as missing", () => {
+		plugin(dir, { cached: null, upstream: '{"hooks": {"Stop": []}}' });
+		fs.mkdirSync(
+			path.join(dir, "plugins/cache/market/demo/1.0.0/hooks/hooks.json"),
+			{ recursive: true },
+		);
+
+		const { out } = run("--only", "manifest");
+
+		expect(out).toContain("1 plugin(s) could not be compared");
+		expect(out).toContain("hooks.json will not read: EISDIR");
+		expect(out).not.toContain("the cache holds no hooks/hooks.json at all");
+	});
+
+	it("counts a marketplace copy that will not read as unverifiable, never as shipping no hooks", () => {
+		plugin(dir, { cached: '{"hooks": {"Stop": []}}', upstream: null });
+		fs.mkdirSync(
+			path.join(dir, "plugins/marketplaces/market/hooks/hooks.json"),
+			{ recursive: true },
+		);
+
+		const { out } = run("--only", "manifest");
+
+		expect(out).toContain("1 plugin(s) could not be compared");
+		expect(out).toContain("hooks.json will not read: EISDIR");
+	});
+
 	it("passes where the two agree apart from formatting", () => {
 		plugin(dir, {
 			cached: '{"hooks":{"Stop":[]}}',

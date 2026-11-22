@@ -79,6 +79,20 @@ describe("upgrade()'s skill-drift report", () => {
 		expect(lines.some((l) => l.includes("pick-next"))).toBe(false);
 	});
 
+	it("says a fork that will not read goes unchecked", () => {
+		fs.mkdirSync(path.join(root, ".claude/skills/pick-next/SKILL.md"), {
+			recursive: true,
+		});
+		write(pluginRoot, ".claude/skills/pick-next/SKILL.md", "core body\n");
+		const lines: string[] = [];
+		upgrade({ root, pluginRoot, out: (l) => lines.push(l) });
+		expect(
+			lines.some(
+				(l) => l.includes('"pick-next"') && l.includes("goes unchecked"),
+			),
+		).toBe(true);
+	});
+
 	it("says nothing where overrides.skills declares no fork", () => {
 		writeJson(root, ".claude/workflow-core.json", {
 			founder: "Fixture Founder",

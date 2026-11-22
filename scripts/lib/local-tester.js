@@ -21,7 +21,8 @@ const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
 const { readPsRows, readTreePssKb, sampleTreePeak } = require("./admission.js");
-const { caught, orFallback } = require("./caught.js");
+const { caught } = require("./caught.js");
+const { readBytes, readText } = require("./file-read.js");
 const { MARKERS_REL, markersDir } = require("./marker-root.js");
 const { DAY_MS, appendRetained } = require("./retained-jsonl.js");
 const { writeFd } = require("./write-fd.js");
@@ -238,15 +239,13 @@ function checkOut(root, dir, sha, exec) {
  * @param {Exec} exec
  */
 function install(dir, exec) {
-	const lock = path.join(dir, LOCKFILE);
-	if (!fs.existsSync(lock)) return;
-	const hash = crypto
-		.createHash("sha256")
-		.update(fs.readFileSync(lock))
-		.digest("hex");
+	const lock = readBytes(path.join(dir, LOCKFILE));
+	if (lock.state === "absent") return;
+	if (lock.state === "unreadable") throw lock.error;
+	const hash = crypto.createHash("sha256").update(lock.data).digest("hex");
 	const stamp = path.join(dir, STAMP);
-	if (orFallback(() => fs.readFileSync(stamp, "utf8").trim() === hash, false))
-		return;
+	const stamped = readText(stamp);
+	if (stamped.state === "read" && stamped.data.trim() === hash) return;
 	exec(npmBin(), ["ci", "--no-audit", "--no-fund"], dir, {
 		timeout: INSTALL_TIMEOUT_MS,
 	});

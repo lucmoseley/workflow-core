@@ -219,6 +219,8 @@ export const FAULTS = {
 		unreadable: "EISDIR: illegal operation on a directory, read",
 		logUnreadable:
 			"its log /r/.headless-runs/0e0e0e0e/out.jsonl: EISDIR: illegal operation on a directory, read",
+		stderrUnreadable:
+			"its stderr /r/.headless-runs/0e0e0e0e/err.log: EISDIR: illegal operation on a directory, read",
 	},
 };
 
