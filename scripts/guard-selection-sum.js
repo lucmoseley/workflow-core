@@ -110,7 +110,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const hookBlock = require("./lib/hook-block");
-const { isBackgroundJob } = require("./lib/background-start");
+const { isBackgroundJob } = require("./lib/job-paths");
 const { INVENTORY } = require("./lib/inventory-format");
 const { requiredGroup } = require("./lib/regex-group");
 const selectionMarker = require("./lib/selection-marker");

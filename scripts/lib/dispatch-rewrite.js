@@ -73,7 +73,7 @@
  */
 
 const path = require("node:path");
-const { isBackgroundJob } = require("./background-start.js");
+const { isBackgroundJob } = require("./job-paths.js");
 const { caught } = require("./caught.js");
 const { injectArtefact, buildWatchNote } = require("./dispatch-artefact.js");
 const { tierDeparture, untrackedSearch } = require("./dispatch-rules.js");

@@ -28,7 +28,7 @@
  * DEFEAT:    re-send the same call: the latch passes it.
  */
 
-const { isBackgroundJob } = require("./background-start.js");
+const { isBackgroundJob } = require("./job-paths.js");
 const { COMMENT_SPELLING, readIssueCall } = require("./gh-acts.js");
 const { isGh } = require("./gh-issue-ref.js");
 const { refuseOnce } = require("./refuse-once.js");

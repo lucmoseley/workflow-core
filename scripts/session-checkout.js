@@ -48,7 +48,7 @@
 
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
-const { isBackgroundJob } = require("./lib/background-start.js");
+const { isBackgroundJob } = require("./lib/job-paths.js");
 const { caught } = require("./lib/caught.js");
 const { buildWaysOut } = require("./lib/orphan-filings.js");
 const { claudeBin } = require("./lib/claude-bin.js");

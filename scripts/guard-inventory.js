@@ -103,7 +103,7 @@ const {
 } = require("./lib/hand-off");
 const { listIssueClaims } = require("./lib/arbiter-store");
 const { readOwnJob } = require("./lib/claude-stop");
-const { isBackgroundJob } = require("./lib/background-start");
+const { isBackgroundJob } = require("./lib/job-paths");
 const { readStrandedFiles } = require("./lib/neighbour-dirt");
 const { sessionTree } = require("./lib/host-root.js");
 const { findOwnHold } = require("./lib/repo-holds");

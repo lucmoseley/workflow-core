@@ -29,13 +29,14 @@
  * BLIND SPOT: he types `claude --bg` himself: held, as a dispatcher's is.
  */
 
-const { readJobRecordIn } = require("./job-paths.js");
+const {
+	isBackgroundJob,
+	readJobDir,
+	readJobRecordIn,
+} = require("./job-paths.js");
 
 /** @param {NodeJS.ProcessEnv} env */
 const isPrintMode = (env) => env.CLAUDE_CODE_ENTRYPOINT === "sdk-cli";
-
-/** @param {NodeJS.ProcessEnv} env */
-const isBackgroundJob = (env) => Boolean(env.CLAUDE_JOB_DIR);
 
 /** @param {NodeJS.ProcessEnv} env */
 const isBackgroundStart = (env) => isBackgroundJob(env) || isPrintMode(env);
@@ -56,8 +57,9 @@ function isHisJobRecord(record) {
  * @param {NodeJS.ProcessEnv} env
  */
 function isHisOwnJob(env) {
-	if (!isBackgroundJob(env) || isPrintMode(env)) return false;
-	return isHisJobRecord(readJobRecordIn(String(env.CLAUDE_JOB_DIR)));
+	const jobDir = readJobDir(env);
+	if (!jobDir || isPrintMode(env)) return false;
+	return isHisJobRecord(readJobRecordIn(jobDir));
 }
 
 const FOUNDER_NOTICES = new Set(["idle-efforts", "refill-loop-stop"]);
@@ -79,7 +81,6 @@ const isFounderNoticeHeld = (checker, source, env = process.env) => {
 };
 
 module.exports = {
-	isBackgroundJob,
 	isHisJobRecord,
 	isFounderNotice,
 	isFounderNoticeHeld,

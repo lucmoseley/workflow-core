@@ -408,7 +408,7 @@ const {
 } = require("./lib/priced-options-ceiling");
 const stopGuard = require("./lib/stop-guard");
 const { parseStatus } = require("./lib/status-marker");
-const { isBackgroundJob } = require("./lib/background-start");
+const { isBackgroundJob } = require("./lib/job-paths");
 const { INVENTORY } = require("./lib/inventory-format");
 /** @typedef {import("./lib/status-marker").StatusReading} StatusReading */
 const { escapeRe, requiredGroup } = require("./lib/regex-group");
