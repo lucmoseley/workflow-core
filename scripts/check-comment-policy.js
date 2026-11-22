@@ -4,6 +4,7 @@ const path = require("node:path");
 const { hostRoot } = require("./lib/host-root.js");
 const { spawnGitSync } = require("./lib/git.js");
 const { listTree } = require("./lib/git-objects.js");
+const { readAttributeExcluded } = require("./lib/git-attributes.js");
 const {
 	CODE_FILE,
 	depsPattern,
@@ -168,7 +169,77 @@ function readChangedPaths(ctx) {
 	return { paths, renames };
 }
 
-/** @type {WeakMap<Ctx, ReturnType<typeof readChangedPaths>>} */
+/**
+ * @param {Ctx} ctx
+ * @param {ReturnType<typeof readChangedPaths>} read
+ * @param {string} head
+ */
+function dropAttributeExcluded(ctx, { paths, renames }, head) {
+	const excluded = readExcludedOrBroken(ctx, paths, {
+		from: head ? { rev: head } : "index",
+	});
+	return {
+		paths: paths.filter((p) => !excluded.has(p)),
+		renames: new Map([...renames].filter(([to]) => !excluded.has(to))),
+	};
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {string[]} paths
+ * @param {import("./lib/git-attributes.js").AttributeRead} read
+ * @returns {Set<string>}
+ */
+function readExcludedOrBroken(ctx, paths, read) {
+	try {
+		return readAttributeExcluded(paths, read);
+	} catch (e) {
+		return ctx.broken(e instanceof Error ? e.message : String(e));
+	}
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {string} root
+ * @returns {string[]}
+ */
+function readJudgedFiles(ctx, root) {
+	const walked = ctx.has("--root");
+	const files = readTreeFiles(ctx, root, walked);
+	if (ctx.side) return files;
+	const env = walked ? withoutGitRedirects() : undefined;
+	if (!inWorkTree(ctx, root, env)) return files;
+	const excluded = readExcludedOrBroken(ctx, files, {
+		from: walked ? "worktree" : "index",
+		cwd: root,
+		env,
+	});
+	return files.filter((p) => !excluded.has(p));
+}
+
+const withoutGitRedirects = () =>
+	Object.fromEntries(
+		Object.entries(process.env).filter(
+			([k]) => !["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"].includes(k),
+		),
+	);
+
+/**
+ * @param {Ctx} ctx
+ * @param {string} root
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+function inWorkTree(ctx, root, env) {
+	const r = spawnGitSync(["rev-parse", "--is-inside-work-tree"], {
+		cwd: root,
+		encoding: "utf8",
+		...(env ? { env } : {}),
+	});
+	if (r.error) ctx.broken(`git rev-parse failed: ${r.error.message}`);
+	return r.status === 0 && r.stdout.trim() === "true";
+}
+
+/** @type {WeakMap<Ctx, ReturnType<typeof dropAttributeExcluded>>} */
 const changed = new WeakMap();
 
 /**
@@ -177,7 +248,11 @@ const changed = new WeakMap();
 const changedOnce = (ctx) => {
 	const known = changed.get(ctx);
 	if (known) return known;
-	const read = readChangedPaths(ctx);
+	const read = dropAttributeExcluded(
+		ctx,
+		readChangedPaths(ctx),
+		ctx.value("--head", ""),
+	);
 	changed.set(ctx, read);
 	return read;
 };
@@ -244,7 +319,7 @@ const SPEC = {
 		/** @type {Map<string, number>} */
 		const perFile = new Map();
 		let judged = 0;
-		for (const rel of readTreeFiles(ctx, root, ctx.has("--root"))) {
+		for (const rel of readJudgedFiles(ctx, root)) {
 			const text = readOr(root, rel);
 			const lang = text === null ? null : langOf(rel, text);
 			if (text === null || lang === null) continue;

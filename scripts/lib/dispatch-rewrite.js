@@ -96,14 +96,18 @@ const WATCHER = path.resolve(__dirname, "..", "watch-artefact.js");
 
 // guess (#539): never measured against a band's timings
 const WATCH_INTERVAL_S = 120;
+// guess (#5520): 10 s under rule:job-holds-turn's `timeout 540`
+const JOB_CEILING_S = 530;
 
 /**
  * @param {string | null} file
+ * @param {boolean} [job]
  * @returns {string}
  */
-function watchCommand(file) {
+function watchCommand(file, job = false) {
 	const watched = file === null ? "--no-artefact" : shellQuote(file);
-	return `node ${shellQuote(WATCHER)} ${watched} ${WATCH_INTERVAL_S} --log <output_file>`;
+	const ceiling = job ? ` ${JOB_CEILING_S}` : "";
+	return `node ${shellQuote(WATCHER)} ${watched} ${WATCH_INTERVAL_S}${ceiling} --log <output_file>`;
 }
 
 /**
@@ -116,7 +120,7 @@ const [TIER_RULE = "", SEARCH_RULE = ""] = EMITTED.injectRules;
 
 const END_TURN =
 	"While this agent runs, end the turn: its completion notification wakes this session, so a poll learns nothing.";
-const HOLD_TURN = `This session is a background job: hold the turn on \`${watchCommand(null)}\`, its \`<output_file>\` the one the launch result names, run in the foreground as \`rule:job-holds-turn\` says, until it exits \`DONE\`.`;
+const HOLD_TURN = `This session is a background job: hold the turn on \`${watchCommand(null, true)}\`, its \`<output_file>\` the one the launch result names, run in the foreground as \`rule:job-holds-turn\` says, until it exits \`DONE\`.`;
 
 /**
  * @param {unknown} input
