@@ -1,17 +1,10 @@
 #!/usr/bin/env bash
-# self-plugin-marker.sh — the path of a session's self-plugin marker (#2438).
-#
-# SOURCED, NEVER RUN.
 _spm_here="${BASH_SOURCE[0]%/*}"
 [[ "$_spm_here" == "${BASH_SOURCE[0]}" ]] && _spm_here=.
 # shellcheck source=scripts/lib/marker-root.sh
 source "$_spm_here/marker-root.sh" 2>/dev/null
 unset _spm_here
 
-# spm_marker_path <out-var> — reads the hook payload on stdin and sets
-# <out-var> to `.self-plugin-loaded-<session id>` under gr_declared_markers_dir
-# (marker-root.sh says why), the id
-# sanitised to `[A-Za-z0-9_-]`. On failure sets it to the cause and returns 1.
 spm_marker_path() {
   local -n _spm_out="$1"
   local sid markers

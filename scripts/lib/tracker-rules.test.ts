@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * lib/tracker-rules.js, a PreToolUse dispatcher core (#2792), hands a session
- * a tracker rule at the `gh` call that engages it (mantahostels#2493,
- * mantahostels#2497; spec mantahostels#2457 §T3).
- *
- * THE TABLE IS ASSERTED SHAPE BY SHAPE. Each mapped `gh` form gets the exact id
- * set its TRIGGERS row names and nothing else, so a row that widens silently —
- * a `--body` matched anywhere on a `--add-assignee` command, say — fails here
- * rather than costing a session a rule it did not engage.
- *
- * It never denies, so every case asserts `permissionDecision` is ABSENT as
- * well as asserting the text.
- *
- * Module cases, run in process through lib/guard-core-testkit.ts over the
- * production ports (lib/tracker-rules-host.js), the real rule store and the
- * latch directory under the case's root. The hook line and stdin are
- * scripts/guard-dispatch.test.ts's boundary set.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -24,11 +6,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { freshSandbox } from "./arbiter-testkit";
 import { latchesAt, runCore, splitCheckout } from "./guard-core-testkit";
-/* The rule latch lives under the markers directory, not the throwaway root
- * itself. */
 import { markersDir } from "./marker-root.js";
-/* The store's Node accessor, so a test asks for the rule by id rather than
- * holding a second copy of its text. */
 import { readRuleText } from "./rule-text.js";
 
 const CORE = "guard-tracker-rules";
@@ -53,14 +31,12 @@ afterEach(() => {
 
 type Payload = Record<string, unknown>;
 
-/** A Bash PreToolUse payload. */
 const bash = (command: string, session = "test"): Payload => ({
 	session_id: session,
 	tool_name: "Bash",
 	tool_input: { command },
 });
 
-/** The core's merged output for one payload; null where it said nothing. */
 function emission(
 	payload: Payload,
 	{ cwd = root, env = {} }: { cwd?: string; env?: Record<string, string> } = {},
@@ -70,19 +46,11 @@ function emission(
 	return r.output as Record<string, string>;
 }
 
-/* The kit's ceiling on one delivery. Restated rather than read out of the
- * kit, so moving it is a visible edit on both sides. */
 const RULE_CAP = 4000;
 
 const CREATE =
 	'gh issue create --title "t" --body "b" --label takes:implement --label kind:ticket';
 
-/*
- * THE TABLE, restated on this side rather than read out of the core: a test
- * that parsed TRIGGERS out of the shell would move with a mutation to it and
- * catch nothing. The order is the core's emission order, which is its priority
- * order, and `expect(ids)` below is order-sensitive.
- */
 const MAPPED: [string, string[], string][] = [
 	[
 		CREATE,
@@ -116,7 +84,6 @@ const MAPPED: [string, string[], string][] = [
 		["citation-number-first"],
 		"a comment, where a citation is written",
 	],
-	/* #2309: the session ending on a ticket it found not ready. */
 	[
 		'gh issue comment 2497 --body "**Blocked** — waiting on the pin bumps."',
 		["blocked-ticket-gate", "citation-number-first"],
@@ -157,8 +124,6 @@ const MAPPED: [string, string[], string][] = [
 		["dependency-edge-false-success"],
 		"the singular DELETE spelling the re-root takes",
 	],
-	/* mantahostels#2592's three added routes. The issue-body.js one is the core's only
-	 * non-`gh` shape, and the reason the registration carries no `if`. */
 	[
 		'node scripts/issue-body.js tick 2592 --match "some criterion"',
 		["issue-body-success-signal"],
@@ -169,8 +134,6 @@ const MAPPED: [string, string[], string][] = [
 		["issue-body-success-signal"],
 		"the same script run directly, with no `node` in front",
 	],
-	/* mantahostels#2652. The parser masks a quoted span, so the raw glob gating the limb
-	 * never sees the text. */
 	[
 		'gh issue comment 2592 --body "run node scripts/issue-body.js tick 12 first"',
 		["citation-number-first"],
@@ -198,9 +161,6 @@ const MAPPED: [string, string[], string][] = [
 		["gh-job-dir-unreadable"],
 		"the `-F body=@<path>` spelling, which names no `--body-file` flag",
 	],
-	/* mantahostels#2652's three added job-dir shapes. The piped one is why the predicate
-	 * went command-wide: its path sits in the `cat` segment, which is not a
-	 * `gh` call at all. */
 	[
 		"cat $CLAUDE_JOB_DIR/tmp/body.md | gh issue comment 2592 --body-file -",
 		["gh-job-dir-unreadable", "citation-number-first"],
@@ -220,9 +180,6 @@ const MAPPED: [string, string[], string][] = [
 		],
 		"the documented resolution route, whose comment substitutes an unreadable file",
 	],
-	/* THE `=`-JOINED AND SHORT SPELLINGS. Three of the predicates' six flag arms
-	 * exist only for these, so without a case each a mutation deleting one
-	 * passes the suite. */
 	[
 		"gh issue edit 2497 --body=new",
 		["issue-body-raw-write"],
@@ -258,9 +215,6 @@ const MAPPED: [string, string[], string][] = [
 		["dependency-edge-false-success"],
 		"the other side of the dependency edge",
 	],
-	/* Two rows share the `issue edit` subcommand, and this is the only shape
-	 * where engaged()'s dedupe carries weight — both rows match, and neither id
-	 * may arrive twice. */
 	[
 		"gh issue edit 2497 --add-assignee @me --body new",
 		["issue-body-raw-write", "issue-claim-scope"],
@@ -309,7 +263,6 @@ const MAPPED: [string, string[], string][] = [
 	],
 ];
 
-/** Every [start, end) at which `text` occurs in `ctx`. */
 const occurrences = (ctx: string, text: string) => {
 	const out: [number, number][] = [];
 	for (let at = ctx.indexOf(text); at >= 0; at = ctx.indexOf(text, at + 1))
@@ -317,9 +270,6 @@ const occurrences = (ctx: string, text: string) => {
 	return out;
 };
 
-/** The ids whose fragment text the emission carries, in the order they appear.
- * An inline span's fragment is a sentence of its region's (#4155), so an
- * occurrence lying inside a longer fragment's text is not a handing. */
 const idsIn = (ctx: string) => {
 	const found = fs
 		.readdirSync(STORE)
@@ -360,7 +310,6 @@ describe("each mapped shape is handed its row's rules, and refused nothing", () 
 		expect(idsIn(out.additionalContext)).toContain("create-command-shape");
 	});
 
-	/* #5012: each run ghWords reads gets the bare call's rules. */
 	describe.each([
 		["timeout 5 ", ""],
 		["env ", ""],
@@ -419,8 +368,6 @@ describe("each mapped shape is handed its row's rules, and refused nothing", () 
 		},
 	);
 
-	/* Inside a job tree every relative word holding a `/` resolves under it, so
-	 * only a word that can be a body path is judged (#4043). */
 	describe("from inside a job tree", () => {
 		const jobTree = () => {
 			const job = path.join(dir, ".claude", "jobs", "abc");
@@ -505,8 +452,6 @@ describe("each mapped shape is handed its row's rules, and refused nothing", () 
 	});
 
 	it("hands a `waiting:` edit its vocabulary and the role table in one envelope, and nothing on the next label edit (#2023)", () => {
-		// One envelope only while the two fragments together fit RULE_CAP;
-		// grow either past it and the role table defers to the next edit.
 		const edit = bash("gh issue edit 2497 --remove-label=waiting:external");
 		const first = emission(edit);
 		expect(first.permissionDecision).toBeUndefined();
@@ -532,29 +477,16 @@ describe("each mapped shape is handed its row's rules, and refused nothing", () 
 	});
 
 	it("emits in priority order, so a truncated delivery keeps the costliest rule", () => {
-		// The create row is the only one carrying more than two ids, and
-		// `create-command-shape` leads it because its breach hides the body from
-		// the `takes:human` and blank-body checks.
 		const ids = idsIn(emission(bash(CREATE)).additionalContext);
 		expect(ids[0]).toBe("create-command-shape");
 	});
 
 	it("spends little of the cap on the widest row, so a later id still fits", () => {
-		// RULE_CAP is BYTES, and the fragments are multibyte.
 		const ctx = emission(bash(CREATE)).additionalContext;
 		expect(Buffer.byteLength(ctx, "utf8")).toBeLessThan(RULE_CAP);
 	});
 });
 
-/*
- * MUTATION ANCHORS. `idsIn` above reads the same files the core does, so it
- * moves with a mutation to a fragment instead of catching it: cut a row and
- * both sides lose it together.
- *
- * Whitespace is collapsed because a fragment is authored markdown — a table
- * row, a wrapped sentence — so pinning column widths and line breaks would
- * refuse a re-wrap that changed nothing a reader acts on.
- */
 const carries = (id: string, clause: string) =>
 	expect(readRuleText(id).replace(/\s+/g, " ")).toContain(clause);
 
@@ -588,8 +520,6 @@ describe("each injected rule still carries the clause it exists for", () => {
 			"dependency-edge-false-success",
 			"a false success is the ordinary failure",
 		],
-		/* Two cases for one id: the caps take DIFFERENT remedies, and a fragment
-		 * giving one remedy for both passed a single-clause anchor. */
 		[
 			"dependency-edge-false-success",
 			"At 7 layers, give the new issue the **same parent**",
@@ -608,12 +538,6 @@ describe("each injected rule still carries the clause it exists for", () => {
 	])("%s keeps %s", (id, clause) => carries(id, clause));
 });
 
-/*
- * THE SUBCOMMAND LIST IS A SECOND COPY of scripts/issue-body.js's own less
- * `show`, and nothing else pins them together: a subcommand added there and
- * not here drops silently out of the limb. Read out of the USAGE block rather
- * than restated, and asserted on what the core DOES with each.
- */
 describe("the issue-body.js limb knows every subcommand the script has", () => {
 	const script = fs.readFileSync(
 		path.resolve(__dirname, "..", "issue-body.js"),
@@ -629,8 +553,6 @@ describe("the issue-body.js limb knows every subcommand the script has", () => {
 
 	it("tells a run of each writing subcommand, and not `show`", () => {
 		expect(declared.length).toBeGreaterThan(4);
-		/* `show` writes nothing, so the `written and verified` signal the rule
-		 * is about never appears in its output and it engages no rule. */
 		const told = declared.filter((sub) => {
 			const out = emission(
 				bash(`node scripts/issue-body.js ${sub} 1`, `sess-${sub}`),
@@ -651,8 +573,6 @@ describe("it says it once", () => {
 		expect(emission(bash(CREATE, "sess-B"))).not.toBeNull();
 	});
 
-	/* The latch is per (rule, agent, session), so a shape whose ids a sibling
-	 * shape does not carry has a silence of its own to prove. */
 	it.each(MAPPED)("%s is silent the second time — %s", (command) => {
 		const session = `sess-${command.length}-${command.slice(-6)}`;
 		expect(emission(bash(command, session))).not.toBeNull();
@@ -660,8 +580,6 @@ describe("it says it once", () => {
 	});
 
 	it("a shape whose ids a session has not met still speaks to it", () => {
-		// The prelude is latched once, the fragments per id: a session told the
-		// create rules must still meet the close rules at its first close.
 		expect(emission(bash(CREATE, "sess-mixed"))).not.toBeNull();
 		const out = emission(bash("gh issue close 1 --comment x", "sess-mixed"));
 		expect(idsIn(out.additionalContext)).toEqual([
@@ -671,10 +589,6 @@ describe("it says it once", () => {
 	});
 
 	it("a subagent under a session already told is told too", () => {
-		// A dispatched subagent's payload carries its PARENT's session_id and is
-		// told apart only by agent_id (mantahostels#1804). Keyed on the session
-		// alone, the subagent would inherit the parent's latch and never meet
-		// the rule.
 		expect(emission(bash(CREATE, "sess-C"))).not.toBeNull();
 		expect(
 			emission({ ...bash(CREATE, "sess-C"), agent_id: "sub-1" }),
@@ -682,12 +596,6 @@ describe("it says it once", () => {
 	});
 });
 
-/*
- * The prelude carries its own latch (mantahostels#2275), marked by the kit
- * once the envelope is out (mantahostels#2528). Marked by the core, it would
- * be marked before the emission, so an arm that loses the prelude would still
- * mark the session told.
- */
 describe("the prelude's latch is written after the emission", () => {
 	const preludeMarker = () =>
 		path.join(
@@ -747,9 +655,6 @@ describe("a command the table does not map is handed nothing", () => {
 			"grep -rn 'gh issue create' scripts",
 			"a search for the shape, which must not fire on itself",
 		],
-		/* mantahostels#2652. The latch is `issue-body-success-signal`'s only
-		 * delivery, so a READ of the script spending it means the session's
-		 * first real write goes unsaid. */
 		[
 			"grep -n foo scripts/issue-body.js",
 			"a read of the script, which must not spend the write rule's one latch",
@@ -777,9 +682,6 @@ describe("a command the table does not map is handed nothing", () => {
 
 describe("what it cannot resolve, it records and allows", () => {
 	it("keeps only the standalone framing, and logs, when the payload carries no session", () => {
-		// Without a session id there is no latch key, so the FRAGMENT is dropped
-		// rather than repeated on every call (mantahostels#103 §6). The held
-		// prelude is still emitted (mantahostels#2369).
 		const out = emission({
 			tool_name: "Bash",
 			tool_input: { command: CREATE },
@@ -792,8 +694,6 @@ describe("what it cannot resolve, it records and allows", () => {
 	});
 
 	it("writes nothing at all on a gh call it was never going to judge", () => {
-		// A core gated on `.session_id` would record a fail-open on every Bash
-		// call in the repo, burying the records that mean something.
 		const out = emission({
 			tool_name: "Bash",
 			tool_input: { command: "gh issue view 1" },
@@ -803,27 +703,14 @@ describe("what it cannot resolve, it records and allows", () => {
 	});
 
 	it("refuses the call when the fragment cannot be read, naming the leading rule id", () => {
-		// The one place this core refuses (mantahostels#1762): a rule that
-		// cannot be stated is worth a refused tool call, whatever the row's
-		// failure policy.
 		vi.stubEnv("WFC_RULES_DIR", fs.mkdtempSync(path.join(dir, "store-")));
 		const out = emission(bash(CREATE));
 		expect(out.permissionDecision).toBe("deny");
-		/* The id named is the FIRST of the injectRules array, not the first one
-		 * this command matched: every id is resolved before the skips are
-		 * applied, so a creation refuses on the id that leads the priority
-		 * order (mantahostels#2592). */
 		expect(out.permissionDecisionReason).toContain("gh-job-dir-unreadable");
 		expect(out.permissionDecisionReason).toMatch(/^guard-tracker-rules: /);
 	});
 });
 
-/*
- * THE ROW JUDGES EVERY BASH CALL (mantahostels#2592), and nothing else pins
- * that. A row narrowed to `gh` calls would leave
- * `rule:issue-body-success-signal` reaching nobody: its trigger is `node
- * scripts/issue-body.js`, which is not a `gh` call.
- */
 describe("the wiring reaches the non-`gh` shape", () => {
 	it("registers guard-tracker-rules on every Bash call", () => {
 		const manifest = JSON.parse(
@@ -860,11 +747,6 @@ describe("in a plugin install (#1010)", () => {
 	});
 });
 
-/*
- * THE CASES A MUTANT MUST NOT SURVIVE (#2792, §X8 (4)). Each pins one arm of a
- * predicate that the bash suite's shapes left free to drift; the commit
- * message names the mutants they kill.
- */
 describe("the cases a mutant must not survive (#2792)", () => {
 	const ids = (command: string, opts?: Parameters<typeof emission>[1]) => {
 		const out = emission(bash(command), opts);

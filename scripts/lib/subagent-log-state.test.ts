@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * subagent-log-state.test.ts — reading a subagent's log for a call in flight
- * (#5421). Each record shape is one a real log ends on (the module header's
- * measurement); a reading that calls a live agent stopped gets it abandoned,
- * and one that calls a finished agent live holds its watcher to the ceiling.
- */
 
 import {
 	mkdirSync,

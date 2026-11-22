@@ -1,11 +1,3 @@
-/*
- * unclosed-launch.test.ts — which launch reads as committed and not closed
- * (#3782). A false reading sends a session to re-check finished work; a missed
- * one relaunches `/implement` on work already landed. And which reads as
- * having ended with no act (#5399): a missed one relaunches a ticket whose
- * session released it ungated.
- */
-
 import { describe, expect, it } from "vitest";
 
 const {

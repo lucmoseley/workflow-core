@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * suite-queue-replay.test.ts — the queue-wait replay (#3060). Break it
- * and a firing of the alarm is answered with the wrong limb: a memory hold read
- * as a turn, a count hold blamed on the wrong slot holder, or a session's
- * side-by-side waits counted twice.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -23,7 +17,6 @@ import { readLogs, render, replay } from "./suite-queue-replay";
 
 const peak5 = chargeMb({ kind: "tsc", major: 5 });
 const peak7 = chargeMb({ kind: "tsc", major: 7 });
-/* A logged line with no `chargeMb` ran on TypeScript 5. */
 const rung5 = rungMb(peak5);
 
 const MIN = 60_000;
@@ -84,14 +77,12 @@ const window = (until = 60, eras: { label: string; from: number }[] = []) => ({
 	loadCeiling: 48,
 });
 
-/** memwatch blocks over minutes [from, to) of the window. */
 const blocks = (from: number, to: number, used: number, load = 1) =>
 	Array.from(
 		{ length: to - from },
 		(_, i) =>
 			[Math.floor(T0 / MIN) + from + i, { used, load, tsc: 0 }] as const,
 	);
-/** The same, each listing a running `tsc`. */
 const tscBlocks = (from: number, to: number, used: number, load = 1) =>
 	blocks(from, to, used, load).map(([k, b]) => [k, { ...b, tsc: 1 }] as const);
 
@@ -280,8 +271,6 @@ describe("a `tsc` wait, on the type-check slot's gate (#3163)", () => {
 		);
 	});
 
-	/* 4,000 MB available against the 3,150 MB `tsc` rung, which clears it alone
-	 * and not less the 2,000 MB the exit line recorded (#3806). */
 	it("names the climb limb where the charge held a wait the reading clears, ahead of the `tsc` fifo", () => {
 		const r = replayOf({
 			waiters: [
@@ -307,10 +296,6 @@ describe("a `tsc` wait, on the type-check slot's gate (#3163)", () => {
 		expect(hoursOf(clear.limb)).toEqual({ open: 300 });
 	});
 
-	/* Available memory between the two compilers' rungs: a logged TypeScript 7
-	 * type-check clears its rung, a 5.x one, charged 2,045 MB or logged before
-	 * #4892 with no charge, is held on its own (#4892). A killed line is read by
-	 * its charge alone (#4921). */
 	it("charges each logged type-check the peak of the compiler it ran", () => {
 		const between = 10_000 - (rungMb(peak7) + rung5) / 2;
 		const limbsOf = (logged?: number, reason = "refused") =>
@@ -343,11 +328,6 @@ describe("a `tsc` wait, on the type-check slot's gate (#3163)", () => {
 	});
 });
 
-/* Each pair of waits is staged in the logs and the younger's limbs read back
- * per tick; what they should be is asked of `turnOf` itself, so a change to the
- * gate's turn reaches the replay with no edit here (#4260). The older wait's
- * exit line charges a 9,000 MB climb, which its rung cannot clear: the
- * `memoryHeld` stamp the gate would read. */
 describe("the turn limbs, the gate's own turnOf (#4260)", () => {
 	const Class = {
 		part: { slotFree: true },
@@ -482,8 +462,6 @@ it("sums a session's waits and their union apart", () => {
 });
 
 describe("the windows limb, the Windows-memory hold (#4782, #4850)", () => {
-	/** The limbs a 4-file head and a 1-file part wait are held on, the two
-	 * waits shifted to `at`, Windows reading `mb` free and `pagesIn`. */
 	const replayAt = (at: string, mb: number, pagesIn?: number) => {
 		const Shift = Date.parse(at) - T0;
 		const later = (t: number) => t + Shift;
@@ -529,8 +507,6 @@ describe("the windows limb, the Windows-memory hold (#4782, #4850)", () => {
 	};
 
 	it("holds a 4-file head on its draw and lets a 1-file part wait that fits pass it, before #4850", () => {
-		/* A day after #4557's hold and #4782's pass took effect; 1,500 MB is
-		 * under a 4-worker draw plus the margin, over a 1-worker one. */
 		const limbsOf = replayAt("2026-11-10T00:00:00Z", 1500);
 		expect(limbsOf("s-0")).toEqual({ windows: 1800 });
 		expect(limbsOf("s-1")).toEqual({ open: 480 });
@@ -555,13 +531,6 @@ describe("the windows limb, the Windows-memory hold (#4782, #4850)", () => {
 });
 
 describe("the peer-climb limb, a younger waiter yielding to a climb-held one (#4760, #4799)", () => {
-	/* A whole head charged a 1,587 MB climb against its 3,650 MB rung, a
-	 * 1-worker run beside it, a `tsc` running, and a younger `tsc` waiting.
-	 * Each 10 minutes the head is held on another limb: the climb (4,000 MB
-	 * available), the Windows hold (5,500 MB, Windows' 2,100 MB free under
-	 * its ~2,300 MB need and the `tsc`'s), then the rung itself (the `tsc`'s
-	 * rung available). Outside the middle phase Windows has the `tsc`'s need
-	 * free. The head's figures hold for a `tsc` peak of ~1,800 to ~2,500 MB. */
 	const head = (at: string, { tsc = 1, wholeSlot = false } = {}) => {
 		const base = Date.parse(at);
 		const shift = (t: number) => t - T0 + base;
@@ -642,8 +611,6 @@ describe("the peer-climb limb, a younger waiter yielding to a climb-held one (#4
 });
 
 describe("the rung clamped to MemTotal less earlyoom's line (#5310)", () => {
-	/* A 5-file waiter beside four 5-file runs prices 25 workers' rung, past
-	 * the 10,000 MB window's reach; memwatch reads 9,500 MB available. */
 	const memoryHeldS = (at: string) => {
 		const later = (t: number) => t + Date.parse(at) - T0;
 		const r = replay(
@@ -691,9 +658,6 @@ describe("the rung clamped to MemTotal less earlyoom's line (#5310)", () => {
 });
 
 describe("the pass past a head the memory rung holds at rest (#4783)", () => {
-	/* A 4-file head held from minute 0 to its bound with no run alive, and a
-	 * 1-file part waiting from minute 10, past PART_PASS_AGE_MS, that fits:
-	 * MemAvailable between the two rungs. */
 	const held = (shift: number, alongside: Run[] = []) => {
 		const later = (t: number) => t + shift;
 		const used = 10_000 - (suiteRungMb(1) + suiteRungMb(4)) / 2;
@@ -730,15 +694,12 @@ describe("the pass past a head the memory rung holds at rest (#4783)", () => {
 		);
 	};
 
-	/* Any tick after #4783's commit. */
 	it("lets the part that fits pass, from #4783's commit", () => {
 		expect(held(Date.parse("2026-11-10T00:00:00Z") - T0)).toEqual({
 			open: 120,
 		});
 	});
 
-	/* One worker running: the part still fits its rung, but that run's end
-	 * could let the head in, so the head is not at rest. */
 	it("holds the part behind a head a running run's end could let in", () => {
 		expect(
 			held(Date.parse("2026-11-10T00:00:00Z") - T0, [
@@ -753,11 +714,6 @@ describe("the pass past a head the memory rung holds at rest (#4783)", () => {
 });
 
 describe("the named lane and a touched waiter's first claim (#5367)", () => {
-	/* A touched part waiting from minute 0, and a named part waiting
-	 * minutes [from, from + 2), its ticks starting at `start`, its exit line
-	 * carrying `lane` where given, else none, as one logged before #5366's
-	 * review recorded lanes. Nothing else holds either: no memwatch block,
-	 * no run. */
 	const named = (from: number, start: number, lane?: "touched") => {
 		const later = (t: number) => t - T0 - from * MIN + start;
 		const r = replay(
@@ -785,7 +741,6 @@ describe("the named lane and a touched waiter's first claim (#5367)", () => {
 		);
 	};
 
-	/* Either side of suite-queue-replay.js's NAMED_LANE_FROM, #5367's commit. */
 	const BeforeLane = Date.parse("2026-11-16T00:00:00Z");
 	const AfterLane = Date.parse("2027-01-01T00:00:00Z");
 
@@ -809,8 +764,6 @@ describe("the named lane and a touched waiter's first claim (#5367)", () => {
 });
 
 describe("a part waiter the gate charged its own peak (#5366)", () => {
-	/* A 1-file waiter beside a 5-file run: 2,000 MB available clears its
-	 * peak's 1,750 MB rung, under the ladder's for six workers. */
 	const memoryHeldS = (at: string) => {
 		const later = (t: number) => t + Date.parse(at) - T0;
 		const admission = {
@@ -872,7 +825,6 @@ describe("reading the logs", () => {
 			path.join(dir, file),
 			rows.map((r) => JSON.stringify(r)).join("\n"),
 		);
-	/* memwatch writes local time. */
 	const local = (t: number) => {
 		const d = new Date(t);
 		const p = (n: number) => String(n).padStart(2, "0");
@@ -946,8 +898,6 @@ describe("reading the logs", () => {
 	});
 
 	it("counts a 7.0 native `tsc` off memwatch's cut rows once, a 5.x runner once, a waiter never (#5217)", () => {
-		/* Recorded in ~/memwatch.log: one native compiler in the RSS
-		 * list and the CPU list, each cut at its own column width. */
 		const store =
 			"/home/lucmo/workflow-core/.claude/worktrees/.dep-stores/8a38214acca573b5/node_modules";
 		const memwatch = path.join(dir, "memwatch.log");
@@ -1022,7 +972,6 @@ describe("reading the logs", () => {
 		expect(read([gate])).toContain("| `gate` | 0.17 |");
 		expect(read([], [pytest])).toContain("| count | 0.17 |");
 		expect(read([{ ...gate, part: true }])).toContain("| open | 0.17 |");
-		/* The gate's own vitest suite is the ledger's run, read once. */
 		const own = { ...pytest, suite: "vitest", kind: "bare", session: "g" };
 		expect(read([gate], [own])).toContain("| `bare` | 0.17 |");
 		expect(read([gate], [own])).not.toContain("`gate`");

@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * lib/spawn-all.js (#4297): several children at once for a synchronous
- * caller, each result in spawnSync's shape. It runs real children, since the
- * concurrency is what it pins.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -27,12 +22,6 @@ const markDir = () => {
 	return dir;
 };
 
-/*
- * A child that leaves the mark `mine`, then waits until `count` marks are
- * there. The wait is a real-clock bound on the failure alone, never the
- * assertion (§X9): untraced, far past a node start, so only a run that never
- * starts its partner reaches it.
- */
 const WAIT_CEILING_MS = 20_000;
 const markThenWait = (dir: string, mine: string, count: number) => `
 const fs = require("node:fs");
@@ -48,8 +37,6 @@ describe("spawnAllSync (#4297)", () => {
 		"returns each child's status and output in the jobs' order, whichever finishes first",
 		() => {
 			const dir = markDir();
-			/* The first job ends only once the second has left its mark, so it
-			 * always finishes last. */
 			const r = spawnAllSync([
 				node(`${markThenWait(dir, "first", 2)}\nprocess.stdout.write("first")`),
 				node(

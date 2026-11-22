@@ -1,39 +1,3 @@
-/*
- * tree-drift.js — did the working tree change while something else was running?
- *
- * A suite reads the files on disk as it imports them, so a file saved mid-run —
- * by the session itself or by a subagent sharing its worktree — reaches the
- * run half-written. On 12 August 2026 that produced mantahostels#273: one
- * `npm run test` importing a half-written `check-superseded-values.js` and a
- * shell lib. The suite went red with a different set of failures each run and
- * green on the re-run.
- *
- * `drift` returns what moved; the caller says what that means. Nothing here
- * fails a run — a tree that changes mid-run is normal, and a gate on it would
- * block the work it describes.
- *
- * UNTRACKED PATHS RIDE BESIDE `files`, NOT IN IT, and only `neighbourDirty`
- * reads them (mantahostels#392, which also holds the figures). Not in `files` because
- * `drift` reads that map, and a new scratch file appearing mid-run is not drift
- * worth naming. The suite's own root markers are no argument for dropping them
- * altogether: every one is gitignored, so `git status` never listed them.
- *
- * `drift` SEES A WINDOW, NOT A STATE. Comparing two snapshots catches a file
- * written *during* the run and nothing else — a half-finished file saved
- * before the run began breaks the suite just as thoroughly and leaves no drift
- * to find. Nor can two snapshots see a file edited and put back, or removed
- * and restored, between them (#5018): `markStart` and `readChangedSince` do,
- * off each file's change time, which every write, chmod, link or rename
- * stamps and nothing but a clock stepped back can unset.
- *
- * `neighbourDirty` names the dirty files another session's claim covers, for
- * check-guard-registry.js's anchor stand-down (mantahostels#2636). Past it: a
- * file dirty under NO CLAIM at all, and any Bash-route write, which mints no
- * claim (mantahostels#364); a dead holder's claim older than
- * DEAD_CLAIM_MAX_AGE_MS, dropped deliberately below; and a lock too corrupt to
- * name its path.
- */
-
 const crypto = require("node:crypto");
 const nodeFs = require("node:fs");
 const os = require("node:os");
@@ -43,20 +7,14 @@ const { execGit } = require("./git.js");
 const { sleepSync } = require("./sleep-sync.js");
 
 /**
- * A tree as one moment saw it, and the claim rows `neighbourDirty` reads.
- *
  * @typedef {{head: string, files: Record<string, string>,
  *   untracked?: string[]}} Snapshot
- *   `untracked` is optional: only `neighbourDirty` reads it, and it already
- *   tolerates a snapshot taken before the field existed.
  * @typedef {{path?: string, sessionId?: string|null, pid?: number|null,
  *   alive?: boolean, unreadable?: boolean, claimedAt?: string, tree?: string}} Lock
  * @typedef {{path: string, sessionId: string, pid: number|null,
  *   dead: boolean}} HeldEntry
  */
 
-/* stderr is dropped: the one call that fails is a tree git will not answer for,
- * and its "not a git repository" would print into the middle of a test run. */
 /**
  * @param {string} root
  * @param {string[]} args
@@ -71,17 +29,12 @@ const git = (root, args, env) =>
 		...(env ? { env: { ...process.env, ...env } } : {}),
 	});
 
-/**
- * A tracked path git reports as dirty. `??` (untracked) is dropped — see above.
- * @param {string} porcelain
- */
+/** @param {string} porcelain */
 function dirtyPaths(porcelain) {
 	/** @type {string[]} */
 	const out = [];
 	for (const line of porcelain.split("\n")) {
 		if (line.length < 4 || line.startsWith("??")) continue;
-		// `XY <path>`, and `XY <old> -> <new>` for a rename: both, as the old
-		// path is gone from where a run read it (#4993).
 		const rest = line.slice(3);
 		const arrow = rest.indexOf(" -> ");
 		if (arrow === -1) out.push(rest);
@@ -90,14 +43,7 @@ function dirtyPaths(porcelain) {
 	return out;
 }
 
-/**
- * The `??` paths — a file git has never been told about, which is what a
- * half-written NEW module looks like (mantahostels#392).
- *
- * A rename has no `??` form, so there is no arrow to split here.
- *
- * @param {string} porcelain
- */
+/** @param {string} porcelain */
 function untrackedPaths(porcelain) {
 	/** @type {string[]} */
 	const out = [];
@@ -106,20 +52,9 @@ function untrackedPaths(porcelain) {
 	return out;
 }
 
-/**
- * Content hash, or a fixed sentinel where the file could not be read at all —
- * a path that vanished mid-run, or one the reader has no permission for. Never
- * throws: a file being rewritten as we hash it is the condition under study.
- *
- * THE SENTINEL IS STABLE ON PURPOSE. A clock in it would make two unreadable
- * reads of an unchanged file compare unequal, so every run with one unreadable
- * path would cry drift. The cost is the reverse case — a file unreadable at both
- * ends and changed in between reads as unchanged.
- */
 const UNREADABLE = "unreadable";
 
-/* How many paths a warning names before it counts the rest: a guess, never
- * measured against what a reader takes in. */
+// #1440 guess
 const NAMED_PATHS = 12;
 
 /**
@@ -138,16 +73,6 @@ function readFileHash(fs, file) {
 }
 
 /**
- * The tree as it stands: HEAD, plus a hash per dirty tracked file. Hashing only
- * the dirty set keeps this cheap — a clean file edited mid-run
- * becomes dirty, so it shows up in the later snapshot and is caught as an add.
- *
- * Returns null where git cannot answer at all, which the caller reads as "no
- * comparison available" rather than "nothing changed".
- *
- * `untracked` carries names only, no hashes: its one reader tests set membership
- * and never compares content.
- *
  * @param {string} root
  * @param {{fs?: typeof nodeFs}} [opts]
  * @returns {Snapshot|null}
@@ -157,10 +82,6 @@ function readTreeSnapshot(root, { fs = nodeFs } = {}) {
 	let porcelain;
 	try {
 		head = git(root, ["rev-parse", "HEAD"]).trim();
-		// `-uall` because the default collapses a wholly-new directory to one
-		// `?? dir/` line, and a claim names a file — so a new module in a new
-		// directory, exactly mantahostels#291's case, would match nothing. Gitignored paths
-		// stay out either way, which is what keeps the listing small here.
 		porcelain = git(root, ["status", "--porcelain=v1", "-uall"]);
 	} catch {
 		return null;
@@ -173,14 +94,6 @@ function readTreeSnapshot(root, { fs = nodeFs } = {}) {
 }
 
 /**
- * What moved between two snapshots. `changed` names a file whose content
- * differs, `appeared` one that became dirty during the window, `settled` one
- * that stopped being dirty — a commit or a revert mid-run.
- *
- * `headMoved` is reported even with no file movement: a merge or a
- * checkout mid-run rewrites tracked files that were clean and stay clean, so
- * they enter neither snapshot's dirty set.
- *
  * @param {Snapshot|null} before
  * @param {Snapshot|null} after
  * @returns {{headMoved: boolean, moved: {path: string, kind: string}[]}|null}
@@ -200,12 +113,7 @@ function drift(before, after) {
 	return headMoved || moved.length > 0 ? { headMoved, moved } : null;
 }
 
-/**
- * The warning a session reads, or null where there is nothing to say.
- *
- * @param {ReturnType<typeof drift>} drifted
- * @param {number} [limit]
- */
+/** @param {ReturnType<typeof drift>} drifted @param {number} [limit] */
 function format(drifted, limit = NAMED_PATHS) {
 	if (!drifted) return null;
 	const lines = [
@@ -224,45 +132,10 @@ function format(drifted, limit = NAMED_PATHS) {
 	return lines.join("\n");
 }
 
-/**
- * How long after its holder died a claim still counts (mantahostels#392).
- *
- * A lock has no age-prune of its own — it sits until the next claimant of that
- * path breaks it — so without a bound an abandoned dirty file would nag for ever.
- *
- * 24 HOURS IS A FIRST GUESS, NOT A MEASUREMENT. Re-derive it against sampled
- * data as soon as there is any; mantahostels#392 holds what it was set from.
- *
- * IT AGES THE CLAIM, NOT THE EDIT. `claimedAt` is when the path was taken, so a
- * session that claimed a file a day before dying but dirtied it minutes earlier
- * ages out wrongly. Accepted: the store records no per-write timestamp, and the
- * file's own mtime is not the holder's either.
- */
+// lucmoseley/mantahostels#392 guess
 const DEAD_CLAIM_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Of the files already dirty when the window opened, those another session holds
- * a claim on.
- *
- * Neither input works alone: the dirty set is mostly the session's own work in
- * progress, and most claimed files are untouched. Their intersection is a file a
- * neighbour holds *and* has left uncommitted.
- *
- * UNTRACKED PATHS COUNT (mantahostels#392). A half-written NEW module is exactly the case
- * mantahostels#291 describes, and it is `??` rather than dirty until its first commit.
- *
- * A DEAD HOLDER STILL COUNTS, up to DEAD_CLAIM_MAX_AGE_MS: the session being
- * gone does not make the file whole. The entry carries `dead`.
- *
- * A dead claim carrying no readable `claimedAt` is REPORTED, not skipped: an
- * absent field means not-observed, never false (`arbiter-store.js`'s header).
- *
- * `locks` is `arbiter-store.listLocks()`: every held path carrying an `alive`
- * flag, or null where the store could not be read.
- *
- * SILENT WHERE THE SESSION CANNOT NAME ITSELF. Without an id its own claims read
- * exactly like a neighbour's, so it would report every file it is editing.
- *
  * @param {Snapshot|null} before
  * @param {Lock[]|null} locks
  * @param {string} selfSessionId
@@ -298,61 +171,26 @@ function neighbourDirty(
 }
 
 /**
- * Whether `lock` names a path in `dirty` that a session other than this one
- * holds.
  * @param {Lock|null|undefined} lock
  * @param {string} selfSessionId
  * @param {Set<string>} dirty
  * @returns {lock is Lock & {path: string, sessionId: string}}
  */
 function isNeighbourHold(lock, selfSessionId, dirty) {
-	if (!lock || lock.unreadable || !lock.path) return false; // names no path
+	if (!lock || lock.unreadable || !lock.path) return false;
 	if (!lock.sessionId || lock.sessionId === selfSessionId) return false;
 	return dirty.has(lock.path);
 }
 
-/**
- * Has a dead holder's claim aged past the point of explaining anything?
- *
- * @param {Lock} lock
- * @param {number} now
- */
+/** @param {Lock} lock @param {number} now */
 function staleBeyondUse(lock, now) {
 	const claimedAt = Date.parse(lock.claimedAt ?? "");
-	if (Number.isNaN(claimedAt)) return false; // not observed, so not aged out
+	if (Number.isNaN(claimedAt)) return false;
 	return now - claimedAt > DEAD_CLAIM_MAX_AGE_MS;
 }
 
-/**
- * The tracked tree's identity as a run FINISHES (mantahostels#2187) — HEAD's own tree
- * where nothing tracked is dirty, or the tree a `git stash create` would
- * commit where something is. Taken in the RUN'S OWN worktree: for an
- * `--isolated` run that is the frozen checkout, for any other run the
- * session's own.
- *
- * The dirty tree is built on a PRIVATE COPY of the index, never `.git/index`
- * itself (#2104): `stash create` takes `index.lock`, so any git holding it at
- * teardown — a commit under way in the same tree — left the marker with no tree.
- * `add -u` then `write-tree` on the copy gives the tree `stash create` would —
- * both stage every tracked path's working-tree content over the index.
- * `--no-optional-locks` keeps `status` from refreshing the real index too.
- * Under another git's lock the copy is the index before its write, which
- * `add -u` restages from the working tree anyway.
- *
- * It carries only TRACKED changes, which is what a tree's identity is a hash
- * of; a dirty-but-untracked-only tree reads as HEAD's tree.
- *
- * An unmerged path reads as null, as `stash create` refused it, where `add -u`
- * would quietly stage the conflict markers as a resolution. An intent-to-add
- * path, which `stash create` also refused, reads as a tree holding it.
- *
- * Null where git will not answer at all — an unreadable tree, same as
- * `readTreeSnapshot`'s null — which every reader of the marker's `treeAtEnd` treats as
- * unknown, never as "matched".
- *
- * @param {string} root
- * @returns {string|null}
- */
+// #2104
+/** @param {string} root @returns {string|null} */
 function endOfRunTreeIdentity(root) {
 	try {
 		const porcelain = git(root, [
@@ -383,9 +221,7 @@ function privateIndexTree(root) {
 	try {
 		const copy = path.join(dir, "index");
 		nodeFs.copyFileSync(index, copy);
-		// git trusts an entry's cached stat only where the file is older than
-		// the index itself; a copy stamped now would trust a same-size edit
-		// made just before the real index was written, and miss it.
+		// git trusts a cached stat only where the file is older than the index: https://git-scm.com/docs/racy-git
 		const { atime, mtime } = nodeFs.statSync(index);
 		nodeFs.utimesSync(copy, atime, mtime);
 		const copyIndex = { GIT_INDEX_FILE: copy };
@@ -396,24 +232,12 @@ function privateIndexTree(root) {
 	}
 }
 
-/* How long `markStart` waits for a fresh stamp to pass its mark: a stamp
- * moves once a kernel tick, 1 to 10 ms, or once a second on a filesystem
- * that keeps whole seconds. A guess, past one second: a wait that runs out
- * takes no mark, so the run records no pass. */
+// #5018 guess
 const MARK_WAIT_MS = 2000;
 
-/* The variable `scripts/run-vitest.js` hands its run's mark on, taken
- * before vitest loads its config. */
 const START_MARK_ENV = "WFC_RUN_START_MARK";
 
 /**
- * A mark of now on the clock the kernel stamps a file's change time with in
- * `root`, stamped there, since another filesystem may keep another clock:
- * a change made after it stamps a later time, one made before it no later
- * (git's racy-git, where an equal stamp is no proof either way). It returns
- * only once a fresh stamp has passed the mark, so nothing changed after the
- * mark can share its stamp. Null where no stamp can be taken, or none moves,
- * as on a filesystem that never restamps a change time.
  * @param {string} root
  * @param {{fs?: typeof nodeFs}} [opts]
  * @returns {bigint|null}
@@ -438,29 +262,19 @@ function markStart(root, { fs = nodeFs } = {}) {
 	} catch {
 		return null;
 	} finally {
-		// A leftover empty directory, which git never lists, costs an inode.
 		ignoreFailure(() => fs.rmdirSync(dir));
 	}
 }
 
-/**
- * The mark `scripts/run-vitest.js` handed this process, null where it
- * handed none or none that reads.
- * @param {NodeJS.ProcessEnv} [env]
- * @returns {bigint|null}
- */
+/** @param {NodeJS.ProcessEnv} [env] @returns {bigint|null} */
 function readHandedMark(env = process.env) {
 	const handed = env[START_MARK_ENV];
 	return handed && /^\d+$/.test(handed) ? BigInt(handed) : null;
 }
 
 /**
- * Which of `paths` under `root` changed since `mark`, a `markStart` mark:
- * each whose change time is later, and each that will not stat for any
- * reason but its absence. A file made and removed again since leaves no
- * stamp to read. Null where there is no mark.
  * @param {string} root
- * @param {string[]} paths repo-relative
+ * @param {string[]} paths
  * @param {bigint|null} mark
  * @param {{fs?: typeof nodeFs}} [opts]
  * @returns {Set<string>|null}

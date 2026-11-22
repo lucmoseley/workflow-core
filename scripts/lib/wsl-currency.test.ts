@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * The check-wsl-currency core (#4082), held apart so every verdict runs without
- * a bridge or a network. Loosened, a machine behind upstream
- * reads as current, or an unread version as a pass.
- */
 import { describe, expect, it } from "vitest";
 
 const { judgeCurrency } = require("./wsl-currency.js") as {

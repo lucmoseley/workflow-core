@@ -1,14 +1,5 @@
 // @vitest-environment node
 
-/*
- * scripts/lib/serialised.sh — the machine-wide lock every shellcheck run takes
- * (#2579, #2627). Its wait and fallback limbs are exercised through the
- * pre-commit gate (precommit-shellcheck-gate.test.ts) and check:sh:changed
- * (check-sh-changed.test.ts); this file pins what neither does: that all three
- * callers name the SAME lock, and that the runner passes its command's status
- * through.
- */
-
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

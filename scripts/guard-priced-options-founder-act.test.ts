@@ -333,6 +333,16 @@ describe("a secret ask in prose (#1817)", () => {
 		expect(text).toContain(proseRefused);
 	});
 
+	it("is refused where a broken route sits in a fence indented past 64 columns (#5534)", () => {
+		const indent = " ".repeat(65);
+		const text = stop(
+			"```\ncd /x && node scripts/write-secret.js FOO_KEY\n```\nthen\n" +
+				`${indent}\`\`\`\nnode scripts/write-secret.js FOO_KEY && echo $FOO_KEY\n${indent}\`\`\`\n` +
+				"paste your token",
+		);
+		expect(text).toContain(proseRefused);
+	});
+
 	it.each([
 		"Run `cd /srv/host && node /srv/host/scripts/write-secret.js HF_TOKEN` in a normal terminal, then paste the token at its hidden prompt.",
 		"I can't supply the password, so the kernel half waits.",

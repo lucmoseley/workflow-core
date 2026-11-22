@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/usage-probe-fake.ts, which every `claude -p "/usage"` stub prints
- * and refreshes the seat's cache through, to the installed harness's
- * recording of one real probe (scripts/fixtures/usage-probe.json, re-recorded
- * by `node scripts/record-claude-responses.js`), read through the same
- * lib/allowance.js and lib/usage-cache.js parses; and, on a plan seat on the
- * founder's machine, to the live seat's cache (#3266); and pins the fake's own
- * refusal of a cache with no stamp (#3969). Breaking it costs the allowance
- * gate: a stub printing bars or a cache the harness no longer writes passes
- * tests while the probe reads nothing, or never sees its stamp move and runs
- * a minute past every refresh.
- *
- * No case runs the real probe. It rewrites the seat's cache and leaves a
- * transcript in the live config dir, which #838 keeps every test out of, and
- * no throwaway config dir holds the seat's sign-in. The recorder's run
- * stands in: it probes the seat as lib/usage-probe.js does, to its end, and
- * refuses to record a stamp that did not move. So a harness change to the
- * printed bars or to the refresh shows only once the recording is re-run.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -53,7 +34,6 @@ const writeConfig = (text: string) =>
 
 const recordedPercent = (kind: string) => recordedLimit(kind).percent;
 
-/** The bars lib/allowance.js reads off `usageText`, under no cache. */
 const printedBars = (usageText: string) => {
 	const { session, weekly_all } = readAllowance({
 		configDir: path.join(dir, "no-seat"),
@@ -71,12 +51,8 @@ const keyTypes = (o: object) =>
 		.map(([key, value]) => `${key}:${value === null ? "null" : typeof value}`)
 		.sort();
 
-/** The order the fake writes its bars in: a carried session bar sits last
- * in the recording but first in a written cache. */
 const KIND_ORDER = ["session", "weekly_all", "weekly_scoped"];
 
-/** The written bars are of `kinds`, in order, each of its recorded bar's
- * key types. */
 const expectRecordedBars = (limits: { kind: string }[], kinds: string[]) => {
 	expect(limits.map((l) => l.kind)).toEqual(kinds);
 	for (const limit of limits)
@@ -102,7 +78,6 @@ describe("the /usage fake against the recording (#3266)", () => {
 		});
 	});
 
-	// The session-less pair of the case above, which reads both bars.
 	it("answers a seat with no session bar as the recording read without one (#5332)", () => {
 		const week = recordedPercent("weekly_all");
 		const reading = (opts: { configDir: string; usageText?: string }) => {
@@ -173,7 +148,6 @@ describe("the /usage fake against the recording (#3266)", () => {
 	});
 
 	it("writes a weekly_scoped bar of the recorded shape, read per model (#3282)", () => {
-		// Any reset after the case runs would do.
 		const resetsAt = new Date(Date.now() + 60_000).toISOString();
 		const written = buildUsageCache({ session: 40, week: 50 }, Date.now(), {
 			scoped: [{ model: "Opus", percent: 77, resetsAt }],
@@ -216,8 +190,6 @@ describe("the /usage fake against the recording (#3266)", () => {
 
 describe("the fake's refusal of a cache it cannot re-stamp", () => {
 	it("throws rather than writing a broken cache (#3969)", () => {
-		// A spy, because no real seam reaches this: buildUsageCache always writes
-		// the stamp it is handed.
 		const stringify = vi.spyOn(JSON, "stringify").mockReturnValue("{}");
 		try {
 			expect(() =>
@@ -229,8 +201,6 @@ describe("the fake's refusal of a cache it cannot re-stamp", () => {
 	});
 });
 
-/** The config dir the runner was started with: vitest.setup.ts re-points
- * this worker's at a sandbox (#838). */
 const readLiveSeat = () =>
 	fs
 		.readFileSync("/proc/self/environ", "utf8")
@@ -241,10 +211,6 @@ const readLiveSeat = () =>
 const readSeatConfig = (seat: string) =>
 	JSON.parse(fs.readFileSync(path.join(seat, ".claude.json"), "utf8"));
 
-/** Why `seat` has no cache to check: an API-key seat's `.claude.json` holds
- * neither a usage cache nor a sign-in (#3768). A signed-in seat with no cache
- * still runs, so a harness renaming the key fails here; so does a file that
- * fails to parse, or a cache of the wrong shape. */
 function seatSkipReason(seat: string): string | undefined {
 	if (readUsageCache(seat).state === "missing")
 		return `no .claude.json in ${seat}`;
@@ -260,8 +226,6 @@ function seatSkipReason(seat: string): string | undefined {
 		: undefined;
 }
 
-// Residual: off the founder's machine, or on an API-key seat on it, this skips,
-// and the recording goes unchecked.
 function liveSkipReason(): string | undefined {
 	if (process.env.CI)
 		return "CI: the live seat's cache is read on the founder's machine only";
@@ -277,7 +241,6 @@ const expectCarriesBars = (seat: string) => {
 	expect(cache.bars.find((b) => b.kind === "weekly_all")).toMatchObject({
 		percent: expect.any(Number),
 	});
-	// A plan with no 5-hour bar lists none (#3758); one listed carries a figure.
 	const session = cache.bars.find((b) => b.kind === "session");
 	if (session) expect(session.percent).toEqual(expect.any(Number));
 };
@@ -319,9 +282,6 @@ describe("which seats the live case skips (#3768)", () => {
 	});
 });
 
-/** The live seat's raw `weekly_scoped` bar, parsed by hand because the
- * shape check needs the keys lib/usage-cache.js drops; a seat on no model
- * allowance caches none. */
 function readLiveScopedLimit(): Record<string, unknown> | undefined {
 	return readSeatConfig(
 		readLiveSeat(),
@@ -330,8 +290,6 @@ function readLiveScopedLimit(): Record<string, unknown> | undefined {
 	);
 }
 
-// Residual: a seat on no model allowance skips this, and the recorded
-// weekly_scoped bar goes unchecked against the live one.
 const scopedSkipReason = () =>
 	liveSkipReason() ??
 	(readLiveScopedLimit()

@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/wsl-fake.ts to the real wsl.exe (§G7, #4082): the production reader
- * runs over the fake and the machine's own, checking shape, never values.
- * Loosened, every check-wsl-currency.js test stays green on the fake while a
- * WSL release prints a version the check cannot read.
- *
- * The real side runs where wsl.exe is reachable, never in CI (§G7 item 2):
- * `wsl.exe --version` is a free read with no side effect.
- *
- * Red on the real side: run `wsl.exe --version` by hand, then fix the fake.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -32,7 +21,6 @@ const reachable = (() => {
 		fs.accessSync(WSL_EXE, fs.constants.X_OK);
 		return !process.env.CI;
 	} catch {
-		// Not WSL: the real side skips.
 		return false;
 	}
 })();
@@ -40,7 +28,7 @@ const reachable = (() => {
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wsl-contract-"));
 afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/* The reader's budget, plus a guessed margin for vitest's own start under load. */
+// #4082 guess
 const CASE_MS = WSL_BUDGET_MS + 5000;
 
 const expectFourParts = (bin: string) =>

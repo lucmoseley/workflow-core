@@ -1,25 +1,13 @@
-/*
- * script-filer-argv.js — the file-issue.js argv a script builds for a filing
- * no person makes, so a flag file-issue.js gains is added here once rather
- * than at every script filer (#4859). A script filing names its origin in
- * code and declares `--no-fault`: what it files is an incident instance, not
- * a claim to stop a fault (#4796).
- *
- * A CORE: it reads nothing but its arguments.
- */
-
 /**
  * @typedef {{parent: number} | {standalone: string}} Placement
  * @typedef {object} ScriptFiling
  * @property {string} title
  * @property {readonly string[]} labels
  * @property {Placement} placement
- * @property {string} origin one of lib/issue-origin.js's ORIGINS, which
- *   file-issue.js refuses a filing off
- * @property {readonly number[]} [distinctFrom] open lookalikes already
- *   ruled out
+ * @property {string} origin
+ * @property {readonly number[]} [distinctFrom]
  * @property {readonly number[]} [sizeLineChecked]
- * @property {string} [bodyFile] `-` (the default) reads the body from stdin
+ * @property {string} [bodyFile]
  */
 
 /**

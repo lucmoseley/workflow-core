@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * A seat's reading, its cap sizing and the overflow seats' readings
- * (lib/seat-reading.js, #4218), each overflow seat's budget injected. No
- * fixture touches disk but the usage caches the reading cases write, the cap
- * sized on them, and the reads of dispatch-sessions.js that pin the copies
- * of its cap thresholds to the script's.
- *
- * Loosen one and failover leaves its order, a full seat reopens before its
- * reset, a stale seat behind a full one is waited on rather than read, the
- * loop's cap disagrees with the dispatcher's, or the loop spends credits while
- * plan allowance remains.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -32,7 +20,6 @@ import {
 	sizeResumeSeats,
 } from "./seat-reading.js";
 
-/** A week reading at the default ceiling, where the cap starts sizing. */
 const AT_WEEK_CEILING = ceilingsOf({}).week;
 
 import { buildUsageCache } from "./usage-probe-fake";
@@ -173,11 +160,8 @@ describe("a seat's reading (#2606)", () => {
 	afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 	const Ahead = "2026-10-20T00:00:00Z";
 	const Passed = "2026-10-18T11:00:00Z";
-	/** A bar's percent, null where the cache omits it, and its reset. */
 	type Bar = [percent: number | null, resetsAt: string | null];
 	const Stale = NOW - 60 * MIN;
-	/** The reading off a cache stamped `fetchedAtMs`, NOW reading it fresh and
-	 * Stale stale. */
 	const readOn = (fetchedAtMs: number, session: Bar, week: Bar) => {
 		const percents = { session: session[0], week: week[0] };
 		const cache = buildUsageCache(
@@ -283,10 +267,6 @@ describe("a seat's reading (#2606)", () => {
 	});
 });
 
-/**
- * readSizedSeats over readings no probe changes, with the seats each probe
- * was asked to refresh.
- */
 function sizedRead(
 	readings: ReturnType<typeof seat>[],
 	slots: number,
@@ -316,9 +296,7 @@ describe("the seats due a read for the panel's figures (#4060)", () => {
 		fetchedAtMs: null,
 		trust: "unreported" as const,
 	};
-	/** A seat's bars off a cache read `ago` before NOW, its week resetting at `resets`. */
 	const barsOf = (percent: number | null, ago: number, resets: number) => {
-		/* lib/allowance.js's trustOf, whose five-minute window it keeps private. */
 		const isFresh = percent !== null && ago < 5 * 60_000 && resets > NOW;
 		return {
 			session: unreported,
@@ -517,8 +495,6 @@ describe("which seats the cap is sized on (#2278)", () => {
 });
 
 describe("a tick's seat read past a seat sized 0 (#2432)", () => {
-	/* Seat a reads 98% of the week and sizes 0; seat b is stale until probed,
-	 * reading 10% then (or still stale, where its probe fails) and sizing 2. */
 	function io(probeReads = true) {
 		const probed: string[][] = [];
 		const asked: string[] = [];
@@ -574,8 +550,6 @@ describe("a tick's seat read past a seat sized 0 (#2432)", () => {
 });
 
 describe("the launch walk's retry of a seat whose probe failed (#4074)", () => {
-	/* Seat a is unread, last tried `triedMs` ago, with seat b fresh behind it;
-	 * the seats each probe was asked to refresh. */
 	function walk(triedMs?: number) {
 		const probed: string[][] = [];
 		const { seats } = readSizedSeats(1, {
@@ -666,10 +640,7 @@ describe("the cap's launch count (#2278)", () => {
 	let dir: string;
 	beforeEach(() => {
 		dir = fs.mkdtempSync(path.join(os.tmpdir(), "seat-cap-"));
-		/* No seat file, so no overflow seat and no ledger read (#4393). */
 		vi.stubEnv("HOME", dir);
-		/* A $100-mean table, all of a session landing within an hour: one
-		 * running session projects 5.4 points of the week. */
 		const table = path.join(dir, "table.json");
 		fs.writeFileSync(
 			table,
@@ -687,8 +658,6 @@ describe("the cap's launch count (#2278)", () => {
 		vi.unstubAllEnvs();
 		fs.rmSync(dir, { recursive: true, force: true });
 	});
-	/** A seat dir under `dir` whose fresh cache reads `week`, its 5-hour bar
-	 * at 10%, the week resetting two days out. */
 	const seatAt = (name: string, week: number) => {
 		const seatDir = path.join(dir, name);
 		fs.mkdirSync(seatDir);
@@ -703,12 +672,10 @@ describe("the cap's launch count (#2278)", () => {
 		);
 		return seatDir;
 	};
-	/** A listing of one session just launched, with no transcript yet. */
 	const oneRunning = () =>
 		vi.fn(() => ({
 			agents: [{ sessionId: "s-1", state: "running", startedAt: Date.now() }],
 		}));
-	/** capSizer in `dir`, its listing `readAgents`, with the lines noted. */
 	const sizerWith = (readAgents: () => unknown) => {
 		const lines: string[] = [];
 		const sizeOf = capSizer(
@@ -755,7 +722,6 @@ describe("the cap's launch count (#2278)", () => {
 	});
 
 	it("reads a checkout with no cost table as a fault, not a full seat, naming allowance.js's own why (#2937)", () => {
-		/* Past the week ceiling, so the cap reads the cost table. */
 		const s = seatAt("s", AT_WEEK_CEILING);
 		vi.stubEnv("WFC_SESSION_COST_TABLE", path.join(dir, "no-such-table.json"));
 		const lines: string[] = [];
@@ -784,9 +750,6 @@ describe("the cap's launch count (#2278)", () => {
 	});
 
 	describe("through decideTick, a seat that fits only the floor's member", () => {
-		/* Seats at these week readings, sized through capSizer with one
-		 * session running: at the week ceiling it projects 5.4 points of the
-		 * week, past 100%. */
 		const sizedOn = (weeks: Record<string, number>) => {
 			const dirs = Object.fromEntries(
 				Object.entries(weeks).map(([name, week]) => [name, seatAt(name, week)]),
@@ -879,7 +842,6 @@ describe("sizeResumeSeats (#3895)", () => {
 		at: NOW,
 		line: "held",
 	});
-	/** The seats sized, each cap's reading fits 1, with the seats it read. */
 	const size = (
 		seats: ReturnType<typeof reading>[],
 		resumable: ReturnType<typeof due>[],
@@ -1055,7 +1017,6 @@ describe("sizeParkerSeats (#3669, #4147)", () => {
 		...seat(name, week, 10),
 		fits,
 	});
-	/** A parker of #5 on `name`, its marker naming `keyVar` where given, else a plan seat's. */
 	const parker = (name: string, keyVar?: string) => ({
 		root: "wfc",
 		number: 5,
@@ -1063,7 +1024,6 @@ describe("sizeParkerSeats (#3669, #4147)", () => {
 		job: { ...seatIdOf({ seat: name, keyVar }), jobId: "j5", cwd: "wfc" },
 		resumeCwd: "wfc",
 	});
-	/** The seats sized, each cap's reading fits 1, with the seats it read. */
 	const size = (
 		seats: ReturnType<typeof reading>[],
 		parkers: ReturnType<typeof parker>[],

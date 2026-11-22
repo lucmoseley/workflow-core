@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * lib/wsl-disk-host.js (#5044): the reads behind the compaction's verdicts,
- * each crossed for real in a temp directory through its §N7 seam. Loosened,
- * an unread log or timer reads as absent and the status check stays quiet.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -29,7 +24,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** A systemctl printing `says` and exiting `code`, at WFC_SYSTEMCTL. */
 function stubSystemctl(says: string, code = 0) {
 	const file = path.join(dir, "systemctl");
 	fs.writeFileSync(file, `#!/bin/sh\necho '${says}'\nexit ${code}\n`, {

@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Pins how lib/usage-probe.js ends a probe that will not end itself (#2306):
- * at its ceiling, on its caller's abort, or not at all where it never
- * started. Each stops a real process group, so each crosses the real clock
- * (§X9): the ceiling is shortened through `timeoutMs`, never asserted as
- * elapsed time. Break it and a hung probe holds the dispatcher or the loop's
- * tick with nothing to stop it, or outlives the caller that started it.
- * A launch whose auth would not bill the subscription fails before it
- * spawns (lib/launch-auth.js, #2236).
- * The fresh-cache, early-stop and run-to-end cases are pinned through the
- * dispatcher's CLI in dispatch-sessions-allowance.test.ts.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -77,7 +65,6 @@ describe("a probe that will not end itself (#2306)", () => {
 	});
 
 	it("reads as failed where the binary will not start", async () => {
-		/* Answers `auth status`, then is gone before the probe spawns. */
 		const vanishing = path.join(dir, "vanishing");
 		fs.writeFileSync(
 			vanishing,
@@ -109,7 +96,6 @@ describe("the probe's auth (#2236)", () => {
 		);
 	});
 
-	/** `env` set on this process, which the probe hands its child. */
 	async function probeUnder(env: Record<string, string>) {
 		for (const [k, v] of Object.entries(env)) vi.stubEnv(k, v);
 		return await probeUsage({ configDir: seat(), claudeBin: quick });

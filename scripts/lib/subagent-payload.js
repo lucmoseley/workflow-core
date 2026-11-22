@@ -1,14 +1,3 @@
-/*
- * subagent-payload.js — whether a hook payload came from a subagent. The shell
- * hooks ask it through lib/subagent-payload.sh.
- *
- * A payload carrying an `agent_id` is a subagent's; the parent's never do.
- * The field reads as jq's `// ""` does, so `null`, `false` and `""` read as
- * the parent's. Harness 2.1.323 sends it on a subagent's `PreCompact` and
- * `SessionStart:compact` too, whose `session_id` and `transcript_path` are
- * the parent's (#1785, #1837).
- */
-
 /**
  * @param {unknown} payload
  * @returns {boolean}

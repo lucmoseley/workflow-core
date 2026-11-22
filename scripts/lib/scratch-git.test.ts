@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * lib/scratch-git.js, a PreToolUse dispatcher core (#3162), refuses running
- * an untracked shell script that writes git state before turning on errexit
- * and nounset — the route by which a review probe's failed `cd` committed on
- * the shared `main` and emptied its ref (the incident comment on #3098).
- *
- * The first case is that incident's shape: a helper the script sources is
- * missing, so its scratch directory variable is unset and every git command
- * runs in the repository the session started in. Do not thin it out.
- *
- * Module cases, run in process through lib/guard-core-testkit.ts over real
- * git and the production host ports: one host repository and one sibling,
- * built once, each holding a tracked script the core must never read. Each
- * case writes its own script. Each refusal costs a real `git ls-files`, which
- * is most of the file's time; a run at load 41 on 8 cores took 10.2 s, 4.4 s
- * of it in the cases.
- *
- * Loosen a fire case and a probe's failed `cd` reaches the shared `.git/`
- * again; widen it and a script that reads git, or fails closed, is refused.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -34,14 +14,11 @@ let sibling: string;
 let outside: string;
 let n = 0;
 
-/** A repository at `at` with `tracked.sh` committed in it. */
 function trackedRepo(at: string) {
 	fs.mkdirSync(path.join(at, ".claude", "tmp"), { recursive: true });
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: at, stdio: "ignore" });
 	git("init", "-q", "-b", "main", ".");
-	// This checkout's core.hooksPath is absolute, so a scratch repo would
-	// otherwise run the real Husky gates (mantahostels#100's finding).
 	git("config", "core.hooksPath", path.join(dir, "no-hooks"));
 	fs.writeFileSync(path.join(at, ".gitignore"), ".claude/tmp/\n");
 	fs.writeFileSync(
@@ -74,7 +51,6 @@ afterAll(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** A fresh script under `where`, named `.sh` unless `name` says otherwise. */
 function script(body: string, where = ".claude/tmp", name?: string) {
 	const rel = path.join(where, name ?? `probe${++n}.sh`);
 	const abs = path.isAbsolute(rel) ? rel : path.join(repo, rel);
@@ -93,7 +69,6 @@ function refusal(command: string): string | null {
 		: null;
 }
 
-/** The line a refusal says the script reached unguarded. */
 const reached = (command: string) =>
 	/it reaches `([^`]*)`/.exec(refusal(command) ?? "")?.[1] ?? null;
 

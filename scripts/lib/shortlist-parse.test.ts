@@ -1,11 +1,3 @@
-/*
- * shortlist-parse.test.ts — the refill loop's read of a shortlist's conflict
- * graph (#4355): each row gets its write-set and held-file overlap, and a
- * shortlist without the graph fails rather than reads clash-free. Holds
- * lib/shortlist-fake.ts, the shortlist the refill loop's run tests stub, to
- * what the parser requires (#4358).
- */
-
 import { describe, expect, it } from "vitest";
 import { buildShortlist, buildShortlistRow } from "./shortlist-fake";
 

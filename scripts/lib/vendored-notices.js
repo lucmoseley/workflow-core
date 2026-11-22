@@ -1,31 +1,10 @@
-/*
- * vendored-notices.js — every upstream `skills-lock.json` vendors from has its
- * licence notice in NOTICES, under a `## <source>` heading whose `Skills:` line
- * names exactly the skills the lock gives that source (#1939).
- *
- * NOTICES sits in .claude/skills/, so the plugin tree ships it with the
- * skills, and outside .agents/skills/, where the vendor installer writes, so a
- * re-pull never removes it. The lock does not ship, so the `Skills:` line is what tells an
- * adopter which licence covers which skill. Two readers refuse a mismatch:
- * check-vendored-skills.js at commit, and the release render.
- *
- * `readNoticeLicences` hands each section's licence text to
- * check-vendored-skills.js --upstream, which compares it with upstream's (#1951).
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 
 const NOTICES = ".claude/skills/THIRD-PARTY-NOTICES.md";
 const LOCK = "skills-lock.json";
 
-/**
- * Skill names by source, from the lock. Null where the lock is absent.
- *
- * @param {string} root
- * @returns {Map<string, string[]> | null}
- * @throws {Error} where the lock exists and will not parse
- */
+/** @param {string} root @returns {Map<string, string[]> | null} */
 function readLockedSources(root) {
 	const file = path.join(root, LOCK);
 	if (!fs.existsSync(file)) return null;
@@ -41,14 +20,8 @@ function readLockedSources(root) {
 }
 
 /**
- * Each `## <source>` section's `Skills:` names, or an empty list where the
- * section has no such line, and its licence: the text after that line, or
- * empty where there is none. A section ends only at the next heading naming a
- * lock source, so a licence holding a `## ` heading of its own keeps its
- * tail (#2378).
- *
  * @param {string} text
- * @param {Map<string, string[]>} sources the lock's skill names by source
+ * @param {Map<string, string[]>} sources
  * @returns {Map<string, { names: string[], licence: string }>}
  */
 function noticeSections(text, sources) {
@@ -89,25 +62,13 @@ function readNoticesText(root) {
 	return fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
 }
 
-/**
- * The `## <owner>/<repo>` headings naming no lock source.
- *
- * @param {string} text
- * @param {Map<string, string[]>} sources
- */
+/** @param {string} text @param {Map<string, string[]>} sources */
 const staleHeadings = (text, sources) =>
 	[...text.matchAll(/^## ([^\s/]+\/[^\s/]+)[ \t\r]*$/gm)]
 		.map((m) => m[1] ?? "")
 		.filter((h) => !sources.has(h));
 
-/**
- * The licence text NOTICES holds for each lock source it has a section for. A
- * source with none is NOTICE-MISSING's, so it is absent here.
- *
- * @param {string} root
- * @returns {Map<string, string>}
- * @throws {Error} where the lock exists and will not parse
- */
+/** @param {string} root @returns {Map<string, string>} */
 function readNoticeLicences(root) {
 	const bySource = readLockedSources(root) ?? new Map();
 	const sections = noticeSections(readNoticesText(root), bySource);
@@ -120,14 +81,7 @@ function readNoticeLicences(root) {
 	return out;
 }
 
-/**
- * One line per lock source NOTICES fails, each naming its way out. None where
- * the lock is absent.
- *
- * @param {string} root
- * @returns {string[]}
- * @throws {Error} where the lock exists and will not parse
- */
+/** @param {string} root @returns {string[]} */
 function noticeFaults(root) {
 	const bySource = readLockedSources(root);
 	if (!bySource) return [];

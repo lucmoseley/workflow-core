@@ -63,25 +63,11 @@
 const { ruleOrFallback } = require("./guard-verdict.js");
 const { parseCommand, unmask, walkCommands } = require("./shell-parse.js");
 
-/*
- * The standing line names the failure and the id. It repeats
- * docs/agents/rules/vitest-wrapper.txt's own first sentence, and a test pins
- * the two together — an unpinned copy goes stale in the state where a session
- * is relying on it.
- */
 const STANDING_LINE =
 	"A vitest run outside `scripts/run-vitest.js` has no stall watchdog (`rule:vitest-wrapper`).";
 
-/*
- * The heap cap comes with the suggestion: package.json's test scripts set it
- * and ~/.bashrc's default is double.
- */
 const HEAP_CAP = "NODE_OPTIONS=--max-old-space-size=2048";
 
-/*
- * The subcommands the wrapper cannot serve, because run-vitest.js hardcodes
- * `run` and would turn any of them into `vitest run <that>`.
- */
 const UNSERVABLE = new Set([
 	"watch",
 	"bench",
@@ -92,7 +78,6 @@ const UNSERVABLE = new Set([
 	"dev",
 ]);
 
-/* `npx` flags that take a value; every other flag is a switch. */
 const NPX_VALUE_FLAGS = new Set(["-p", "--package", "-c", "--call"]);
 
 /**
@@ -108,33 +93,12 @@ const NPX_VALUE_FLAGS = new Set(["-p", "--package", "-c", "--call"]);
 const isVitestWord = (word) =>
 	word !== undefined && (word === "vitest" || word.endsWith("/vitest"));
 
-/**
- * Whether vitest's own arguments ask for something the wrapper cannot serve.
- *
- * A SUBCOMMAND IS READ IN THE FIRST POSITION ONLY, which is where vitest's cac
- * parser takes one, so a flag's VALUE cannot silence the guard. `--watch` is
- * still looked for anywhere, being a flag rather than a subcommand.
- *
- * THE RESIDUAL RUNS THE OTHER WAY: a subcommand behind a leading flag
- * (`vitest --silent bench`) is read as a one-shot and warned about, telling a
- * bench run to use a wrapper that cannot serve it.
- *
- * `--watch=false` reads as a watcher and is wrong only in staying silent — the
- * same direction the guard-suite-concurrency core chose.
- * @param {string[]} args
- */
+/** @param {string[]} args */
 const isUnservable = (args) =>
 	args.some((w) => w === "--watch" || w.startsWith("--watch=")) ||
 	args.slice(0, 1).some((w) => UNSERVABLE.has(w));
 
-/**
- * The index of the word `npx` runs, past npx's own flags, so `npx
- * --no-install vitest run x` finds vitest; -1 where it runs nothing. An
- * unknown flag is skipped as a switch, which can swallow vitest's own name
- * where that flag took it as a value — a miss, and the safe direction for a
- * warn.
- * @param {string[]} words npx's arguments
- */
+/** @param {string[]} words */
 function npxTarget(words) {
 	for (let i = 0; i < words.length; ) {
 		const w = words[i];
@@ -144,10 +108,7 @@ function npxTarget(words) {
 	return -1;
 }
 
-/**
- * vitest's own arguments where `words` runs vitest, else null.
- * @param {string[]} words
- */
+/** @param {string[]} words */
 function vitestArgs(words) {
 	const head = words[0];
 	if (isVitestWord(head)) return words.slice(1);
@@ -159,13 +120,8 @@ function vitestArgs(words) {
 }
 
 /**
- * The warning's per-call body: the command, unmasked, and the same run through
- * the wrapper. The wrapper prepends `run` itself, so a `run` the session typed
- * is not passed on — `vitest run run` runs a file called `run`. Unmasked, so a
- * quoted `-t "some name"` reads back as the session typed it rather than as
- * the splitter's sentinel.
- * @param {string} segment masked
- * @param {string[]} args vitest's own arguments, masked
+ * @param {string} segment
+ * @param {string[]} args
  * @param {WrapperContext} ctx
  */
 function body(segment, args, ctx) {
@@ -176,11 +132,7 @@ function body(segment, args, ctx) {
 	return `This command: ${unmask(segment)}\nWrapped:      ${suggestion}`;
 }
 
-/**
- * The rule's text, or the fallback naming the file where the store cannot
- * give it, logged.
- * @param {WrapperContext} ctx
- */
+/** @param {WrapperContext} ctx */
 const wrapperRule = (ctx) =>
 	ruleOrFallback(
 		ctx,

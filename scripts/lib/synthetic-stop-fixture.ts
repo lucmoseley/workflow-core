@@ -1,8 +1,3 @@
-/*
- * The incident's rows (#5322): after the synthetic record comes no
- * `turn_duration` row and no Stop hook record.
- */
-
 export const STOP_AT = "2026-11-17T02:47:07.916Z";
 
 export const toolCallRow = (timestamp = "2026-11-17T02:46:33.802Z") => ({

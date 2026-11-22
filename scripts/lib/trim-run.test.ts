@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * lib/trim-run.js's contract: it cuts exactly the run a `/[set]+$/` or
- * `/^[set]+/` regex would (#3383). Its callers replaced those regexes one for
- * one, so a helper that cut one character more or less would change what
- * every one of them reads, a guard's verdict among them.
- */
 
 import { describe, expect, it } from "vitest";
 import { endRun, trimEndRun, trimRun, trimStartRun } from "./trim-run.js";

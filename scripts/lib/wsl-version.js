@@ -1,32 +1,15 @@
-/*
- * wsl-version.js — reads this machine's installed WSL version off
- * `wsl.exe --version` (#4082): the adapter, so the core never touches the bridge.
- *
- * THREE TRIES, each at the flat budget, as lib/interop-probe.sh's: a vsock stall
- * fails one call, `accept4 failed 110`, and the next is normal
- * (docs/environment.md §9), which must not read as an unread machine. A binary
- * that will not start is no stall, so it is not retried.
- */
-
 const { spawnSync } = require("node:child_process");
 const { caught } = require("./caught.js");
 const { CHILD_MAX_BUFFER } = require("./child-buffer.js");
 
 const WSL_EXE = "/mnt/c/Windows/System32/wsl.exe";
 
-/**
- * lib/interop-probe.sh's per-attempt budget, above the ~10 s vsock stall and
- * the slowest degraded call, 7.4 s (#3564): a wedged bridge must not hold the
- * status fan-out.
- */
+// #3564 measured 7.4 s slowest degraded call, ~10 s vsock stall
 const WSL_BUDGET_MS = 12_000;
 
 const TRIES = 3;
 
-/**
- * wsl.exe prints UTF-16LE, or UTF-8 under WSL_UTF8; dropping the NULs reads both.
- * @param {Buffer} raw
- */
+/** @param {Buffer} raw */
 const decodeWslText = (raw) => raw.toString("latin1").replaceAll("\0", "");
 
 /**

@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * The contract lib/unasked-rerun-io-fake.js keeps with lib/unasked-rerun-io.js
- * (#2913, §G7): each answer the fake serves is the shape and verdict the real
- * adapter gives, over real fs and git, in the situation the answer names. Only
- * the situation's own values — shas, paths, the git dir — differ. These cases
- * are also the adapter's one real crossing (§X8 (2)). Let the fake drift and
- * judge's module cases pass on answers production never gives.
- *
- * The timed-out situations cross the real clock: the adapter's bound is a
- * child-process timeout, which only a git that really overruns trips, so
- * each points WFC_GIT at a stub that sleeps past a short bound (§X9) — 200 ms,
- * or 1 s in the one case its site explains — short enough to keep the file
- * fast. The other situations keep the 3 s default, which a real git under a
- * loaded machine never trips.
- *
- * The last block asks the adapter alone which red runs stand beside the
- * certificates (#3633): which reds class, and how they rank against
- * certificates, is the adapter's work, so no fake answer can carry it.
- * Loosen one and a red run with a NEW failure, or one superseded by a newer
- * certificate, refuses a session's needed run.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -50,7 +29,6 @@ const { judgeIO } = require("./unasked-rerun-io.js") as {
 const fx = rerunFixture();
 const { f } = fx;
 
-/** A git that overruns any bound under 5 s. */
 function slowGit() {
 	const stub = path.join(f.dir, "slow-git");
 	fs.writeFileSync(stub, "#!/bin/sh\nexec sleep 5\n", { mode: 0o755 });
@@ -58,7 +36,6 @@ function slowGit() {
 	return judgeIO(f.project, { timeoutMs: 200 });
 }
 
-/** The thrown error, or null where the write went through. */
 const outcome = (write: () => void) => {
 	try {
 		write();
@@ -75,7 +52,6 @@ interface Dir {
 type Selected = ReturnType<JudgeIO["selection"]>;
 type Attested = ReturnType<JudgeIO["attestation"]>;
 
-/** A member's already-red classing less its values, or null for a certificate. */
 const classingShape = (marker: object) => {
 	const { alreadyRed } = marker as { alreadyRed?: Classing };
 	return alreadyRed
@@ -89,7 +65,6 @@ const classingShape = (marker: object) => {
 		: null;
 };
 
-/** An answer less its situation's values, keyed by port. */
 const SHAPES: Record<string, (v: unknown, rootDir: string) => unknown> = {
 	latched: (v) => v,
 	latch: (v) => (v as { code?: string } | null)?.code ?? null,
@@ -217,8 +192,6 @@ const SITUATIONS: Record<string, Record<string, () => unknown>> = {
 			fs.mkdirSync(fx.ledgerPath(SID), { recursive: true });
 			return io().ledger(SID);
 		},
-		/* Without CLAUDE_PROJECT_DIR the store finds its root with git, from a
-		 * directory its per-cwd memo has not seen. */
 		timedOut: () => {
 			const fresh = path.join(f.project, "fresh");
 			fs.mkdirSync(fresh);
@@ -375,7 +348,6 @@ describe("the fake answers as the adapter does", () => {
 });
 
 describe("which red runs stand beside the certificates (#3633)", () => {
-	/** The deciding members' `at`s, or null where nothing decides. */
 	const deciders = (sha: string, within: string[] | null) => {
 		const { verdict } = io().attestation(sha, within);
 		const vitest = verdict.judged
@@ -399,9 +371,6 @@ describe("which red runs stand beside the certificates (#3633)", () => {
 		expect(deciders(sha, ["a.js"])).toBeNull();
 	});
 
-	/* A bare `--changed` records the default's base, never `HEAD` (#3678):
-	 * a red at the session's own commit is no record its failure was red
-	 * before that commit, though against `HEAD` it classes as one. */
 	it("admits no red whose only record on its base is a red at the session's own commit (#3678)", () => {
 		const sha = fx.commitTouching("a.js");
 		const own = fx.redOn(sha, ["a.js"], "RUN-0", false);
@@ -450,10 +419,7 @@ describe("which red runs stand beside the certificates (#3633)", () => {
 		expect(io().attestation(sha, ["a.js"]).redFault).toBeNull();
 	});
 
-	/* Before `markerFrom`'s clock time, which a run-name `at` sorts after. */
 	const earlier = "2000-01-01T00:00:00.000Z";
-	/* A full red as production writes it (#3646): `markerFrom` over the
-	 * reporter's own full-run attestation. */
 	const fullRed = (sha: string, base: string | null) =>
 		markerFrom({ head: sha, files: {} }, { head: sha, files: {} }, null, {
 			scope: {
@@ -526,9 +492,7 @@ describe("which red runs stand beside the certificates (#3633)", () => {
 			{ mode: 0o755 },
 		);
 		vi.stubEnv("WFC_GIT", stub);
-		// Every other git call runs for real through the stub's shell, and must
-		// finish under the bound so the tree read is the one that trips it; 1 s
-		// is a guess at that headroom, unmeasured.
+		// #3633 guess
 		expect(
 			judgeIO(f.project, { timeoutMs: 1000 }).attestation(sha, ["a.js"])
 				.timedOut,

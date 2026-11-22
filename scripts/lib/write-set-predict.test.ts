@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * Pins what the grep predictor reads off an issue body — the tracked paths it
- * backticks, the paired roadmap and digest, a size guess kept out of `sizeBand` —
- * and that its provisional entry is stored, or refused, without throwing.
- *
- * The grep predictor (mantahostels#1001). Exercised against a throwaway root, since
- * `storeProvisional` writes into the cache directory under it.
- *
- * Breaking it lets `/pick-next` rank a freshly filed issue on a wrong
- * write-set, or pass an invented size off as a band read's judgement.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -22,7 +11,6 @@ const { readEntry, bodyHash, writeEntry } = require("./write-set-cache.js");
 
 let root: string;
 
-/** `trackedFiles()`'s shape, as pick-next.js passes it in. */
 const tracked = (files: string[]) => ({ ok: true as const, files });
 
 const REPO = [
@@ -54,8 +42,6 @@ describe("predict", () => {
 	});
 
 	it("adds docs/doc-map.md wherever a body names a §B entry", () => {
-		// A body says it writes the map by naming the entry, never by backticking
-		// the file — which is why the collision block alone cannot see the queue.
 		expect(
 			predict({ number: 1, body: "register it in §B7" }, tracked(REPO)),
 		).toMatchObject({ writeSet: ["docs/doc-map.md"] });
@@ -73,8 +59,6 @@ describe("predict", () => {
 	});
 
 	it("adds the roadmap wherever only the digest is named, the pair being one unit", () => {
-		// mantahostels#1075: 172 of 172 commits touching the digest also touch the roadmap,
-		// none solo — so a body naming the digest alone still writes both.
 		expect(
 			predict(
 				{ number: 1, body: "edit `docs/roadmap-digest.md`" },
@@ -128,9 +112,6 @@ describe("predict", () => {
 });
 
 describe("the size guess's thresholds", () => {
-	/* A body built to carry exactly the three signals the guess reads:
-	 * `pathCount` backticked tracked files, `sectionCount` headings, padded to
-	 * at least `bodyLength`. */
 	const fixtureFiles = Array.from({ length: 8 }, (_, i) => `src/f${i}.js`);
 	const sizeOf = ({
 		bodyLength,
@@ -151,10 +132,6 @@ describe("the size guess's thresholds", () => {
 		return predict({ number: 1, body }, tracked(fixtureFiles)).predictedSize;
 	};
 
-	// Thresholds calibrated against this repo's own corpus (measured 24 August
-	// 2026, 168 open issues — see the constant block's own comment): every real
-	// body here runs well past 800 characters, so a synthetic short body is the
-	// only way to exercise `small` at all.
 	it("calls a short, low-path, headerless body small", () => {
 		expect(sizeOf({ bodyLength: 50, pathCount: 2, sectionCount: 0 })).toBe(
 			"small",
@@ -262,12 +239,6 @@ describe("storeProvisional", () => {
 	});
 
 	it("discards a superseded band read's size even where the body is unchanged", () => {
-		/*
-		 * The path-gone miss — a rename under a body an agent has already read.
-		 * Carrying its size forward was tried and reverted: the merge test admits
-		 * on `sizeBand === "small"` alone, never on source, so a carried size puts a
-		 * grep-derived write-set into a test that assumes an agent judged it.
-		 */
 		writeEntry(root, {
 			issue: 7,
 			bodyHash: bodyHash(issue.body),
@@ -309,7 +280,6 @@ describe("storeProvisional", () => {
 	});
 
 	it("reports an unwritable store rather than throwing, so selection still runs", () => {
-		// A file where the cache directory belongs.
 		fs.mkdirSync(path.join(root, ".claude", "tmp", "markers"), {
 			recursive: true,
 		});
@@ -331,8 +301,6 @@ describe("pathsNamedIn", () => {
 	});
 
 	it("prefers an exact tracked path over the files nested beneath it", () => {
-		// Without exact-first, a root README.md loses to its own nested namesakes
-		// and resolves to nothing.
 		const files = ["README.md", "app/README.md", "docs/README.md"];
 		expect(pathsNamedIn("rewrite `README.md`", files)).toEqual(["README.md"]);
 	});

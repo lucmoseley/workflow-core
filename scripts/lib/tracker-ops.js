@@ -1,17 +1,3 @@
-/*
- * tracker-ops.js — the tracker operations claim-issue.js, file-issue.js,
- * resolve-ticket.js and promote-spec.js share (#528, the spec for the first
- * three).
- *
- * Every gh call goes through lib/gh.js, so WFC_GH reaches it, and every one
- * names the tracker `.claude/workflow-core.json` declares rather than relying
- * on the working directory's remote.
- *
- * No hook sees a gh call a script makes, so what record-issue-claim.js does for
- * the hand spelling — the arbiter record — is done here, by claimIfFree; what
- * record-acts.js does — the acts ledger line — is lib/own-acts.js's.
- */
-
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 const { parseErrLine, gh, ghApiSlurp, ghJson } = require("./gh.js");
@@ -31,19 +17,16 @@ const { shellQuote } = require("./sh-quote.js");
  *   body: string, parentPath: string|null, isPullRequest: boolean}} Issue
  */
 
+// TypeScript narrows on a `never` return only through an explicitly typed name. https://github.com/microsoft/TypeScript/pull/32695
 /**
- * Annotate the binding (`@type {ScriptIo}`): TypeScript narrows on a `never`
- * return only through an explicitly typed name.
  * @typedef {{out: (text: string) => void,
- *   warn: (text: string) => void,
- *   fail: (text: string, code: number) => never,
- *   trackerOrFail: () => string}} ScriptIo
+ *  warn: (text: string) => void,
+ *  fail: (text: string, code: number) => never,
+ *  trackerOrFail: () => string}} ScriptIo
  */
 
-/** The tracker, as `owner/name`. */
 const tracker = () => requireKey("tracker");
 
-/** What a buffered io's `exit` throws, for `collectIo` to read. */
 class IoExit extends Error {
 	/** @param {number} code */
 	constructor(code) {
@@ -58,13 +41,7 @@ class IoExit extends Error {
  *   result: (status: number) => {status: number, stdout: string, stderr: string}}} BufferedIo
  */
 
-/**
- * scriptIo for a core (§X11): the same lines, held until the core returns,
- * with `err` a raw stderr write and `exit` and `fail` throwing for
- * `collectIo`, which answers the outcome a shell writes and exits on.
- * @param {string} name
- * @returns {BufferedIo}
- */
+/** @param {string} name @returns {BufferedIo} */
 function bufferedIo(name) {
 	let stdout = "";
 	let stderr = "";
@@ -102,12 +79,7 @@ function bufferedIo(name) {
 	};
 }
 
-/**
- * `body`'s outcome on `io`: the status it returns, 0 where it returns none,
- * or the code its `exit` or `fail` threw. Any other throw passes through.
- * @param {BufferedIo} io
- * @param {() => Promise<number | void> | number | void} body
- */
+/** @param {BufferedIo} io @param {() => Promise<number | void> | number | void} body */
 async function collectIo(io, body) {
 	try {
 		return io.result((await body()) ?? 0);
@@ -117,13 +89,7 @@ async function collectIo(io, body) {
 	}
 }
 
-/**
- * What every tracker script opens with: stdout, a `<name>: <text>` line on
- * stderr, a refusal that writes one and exits `code`, and the tracker read
- * that refuses with exit 2.
- * @param {string} name
- * @returns {ScriptIo}
- */
+/** @param {string} name @returns {ScriptIo} */
 function scriptIo(name) {
 	/** @param {string} text */
 	const warn = (text) => {
@@ -150,21 +116,11 @@ function scriptIo(name) {
 	};
 }
 
-/**
- * Label names off a REST issue, whose labels are objects or bare strings.
- * @param {{labels?: Array<string|{name: string}>}} raw
- * @returns {string[]}
- */
+/** @param {{labels?: Array<string|{name: string}>}} raw @returns {string[]} */
 const labelNames = (raw) =>
 	(raw.labels || []).map((l) => (typeof l === "string" ? l : l.name));
 
-/**
- * One issue off the REST API, which carries `parent_issue_url` where
- * `gh issue view --json` does not.
- * @param {string} apiPath
- * @param {import("./gh.js").GhRun} [run]
- * @returns {Issue}
- */
+/** @param {string} apiPath @param {import("./gh.js").GhRun} [run] @returns {Issue} */
 function readIssueAt(apiPath, run = gh) {
 	const raw = ghJson(["api", apiPath], {}, run);
 	return {
@@ -195,12 +151,7 @@ const readIssue = (repo, n, run = gh) =>
 const readParent = (issue, run = gh) =>
 	issue.parentPath ? readIssueAt(issue.parentPath, run) : null;
 
-/**
- * A roadmap card's own issue, by the guard-issue-close core's discriminator: a
- * `<card-id> — ` title, no parent (a child borrows the prefix), no
- * `wayfinder:map` label (a map borrows it too).
- * @param {Issue} issue
- */
+/** @param {Issue} issue */
 const isCardOwnIssue = (issue) =>
 	/^[a-z0-9][a-z0-9-]* — /.test(issue.title) &&
 	!issue.parentPath &&
@@ -209,13 +160,7 @@ const isCardOwnIssue = (issue) =>
 /** @param {string} s */
 const same = (s) => s.replace(/\r\n/g, "\n").trim();
 
-/**
- * Whether this account's latest comment on `n` is `comment` already — the
- * re-run after a comment landed and the close did not.
- * @param {string} repo
- * @param {number} n
- * @param {string} comment
- */
+/** @param {string} repo @param {number} n @param {string} comment */
 function alreadyCommented(repo, n, comment) {
 	const mine = readOwnComments(repo, n);
 	return mine.length > 0 && same(mine.at(-1)?.body ?? "") === same(comment);
@@ -225,12 +170,7 @@ function alreadyCommented(repo, n, comment) {
  * @typedef {{body: string, html_url: string, created_at: string}} Comment
  */
 
-/**
- * This account's comments on `n`, oldest first.
- * @param {string} repo
- * @param {number} n
- * @returns {Comment[]}
- */
+/** @param {string} repo @param {number} n @returns {Comment[]} */
 function readOwnComments(repo, n) {
 	const login = ghJson(["api", "user"]).login;
 	return ghApiSlurp([`repos/${repo}/issues/${n}/comments`]).filter(
@@ -238,23 +178,11 @@ function readOwnComments(repo, n) {
 	);
 }
 
-/**
- * Any comment by this account on `n` whose body is `comment`, or null — the
- * re-run after a comment landed and what followed it did not.
- * @param {string} repo
- * @param {number} n
- * @param {string} comment
- * @returns {Comment | null}
- */
+/** @param {string} repo @param {number} n @param {string} comment @returns {Comment | null} */
 const findOwnComment = (repo, n, comment) =>
 	readOwnComments(repo, n).find((c) => same(c.body) === same(comment)) ?? null;
 
-/**
- * Release this session's arbiter claim on `n`, saying so. 0, or 1 where the
- * release failed.
- * @param {ScriptIo} io
- * @param {number} n
- */
+/** @param {ScriptIo} io @param {number} n */
 function releaseOwnClaim(io, n) {
 	const sessionId = process.env.CLAUDE_CODE_SESSION_ID;
 	if (!sessionId) {
@@ -277,16 +205,7 @@ function releaseOwnClaim(io, n) {
 	return 0;
 }
 
-/**
- * Release every whole-file claim this session holds on a file with no
- * uncommitted change, through the arbiter's `release-committed`, whose report
- * names each (#3565). The session's next write to the file re-takes it.
- * Returns the exit
- * code to fold into the caller's: 1 where the store would not read or a clean
- * claim is still held after the release.
- * @param {ScriptIo} io
- * @returns {0|1}
- */
+/** @param {ScriptIo} io @returns {0|1} */
 function releaseCleanFileClaims(io) {
 	const sessionId = process.env.CLAUDE_CODE_SESSION_ID;
 	if (!sessionId) return 0;
@@ -309,8 +228,6 @@ function releaseCleanFileClaims(io) {
 	);
 	io.out(r.stdout ?? "");
 	if (r.stderr) writeFd(2, r.stderr);
-	// Re-read, never trust the exit: release-committed exits 0 on every claim
-	// it keeps.
 	const kept = readHeldClean(sessionId);
 	if (kept !== null && kept.length === 0) return 0;
 	io.warn(
@@ -320,12 +237,9 @@ function releaseCleanFileClaims(io) {
 }
 
 /**
- * The arbiter's check-and-record for `sessionId` on issue `n`, liveness read
- * here. What each status means: claimIssueExclusive in arbiter-issue-claims.js.
  * @param {number} n
  * @param {string} sessionId
- * @param {import("./agent-liveness.js").Opts} [oracle]  the liveness read's
- *   options: a core's `run` port, where it answers the oracle in-process
+ * @param {import("./agent-liveness.js").Opts} [oracle]
  */
 function claimIfFree(n, sessionId, oracle) {
 	const listedAt = Date.now();
@@ -339,12 +253,7 @@ function claimIfFree(n, sessionId, oracle) {
 	return { ...result, names: listed.names };
 }
 
-/**
- * Assign `n` to the caller. Null on success, else gh's reason.
- * @param {string} repo
- * @param {number} n
- * @param {import("./gh.js").GhRun} [run]
- */
+/** @param {string} repo @param {number} n @param {import("./gh.js").GhRun} [run] */
 function assignSelf(repo, n, run = gh) {
 	try {
 		run(["issue", "edit", String(n), "--repo", repo, "--add-assignee", "@me"]);
@@ -354,14 +263,7 @@ function assignSelf(repo, n, run = gh) {
 	}
 }
 
-/**
- * The similar-title list for `query`, off the open issues read live and the
- * closed titles' cache: the matches, and the list as printed text. Throws
- * where the open issues cannot be read, or the whole tracker with no cache.
- * @param {string} repo
- * @param {string} query
- * @param {import("./gh.js").GhRun} [run]
- */
+/** @param {string} repo @param {string} query @param {import("./gh.js").GhRun} [run] */
 function similarTitles(repo, query, run = gh) {
 	const found = similarOpen(query, readTrackerTitles(repo, {}, run));
 	const text =

@@ -1,56 +1,20 @@
-/*
- * script-runs.js — which script files a Bash command runs, for the
- * scratch-git dispatcher core (#3208).
- *
- * The routes it reads: a script under one of the caller's interpreters, as
- * an argument or, with no word after the options, on a `<` redirect; through
- * `source` or `.`; as the command itself where the command word holds a `/`;
- * each of those behind a WRAPPERS prefix; and inside a shell's `-c` text.
- * A relative path resolves against the walker's tracked `cd`, else the
- * session's directory.
- *
- * LIMITS
- *  - It reads the PARSED command form, so a grep, an echo or a heredoc
- *    mentioning a script passes. A script piped in (`cat p.sh | bash`) is
- *    not read: the walker hands each pipeline segment alone.
- *  - Under a shell the script is the first word past the options, as the
- *    shell reads it. Under any other interpreter it is the first such word
- *    that names an existing file, so an option taking a value it does not
- *    know (`node -r x`) is passed over rather than read as the script.
- *    Everything after the script belongs to it, never a second run.
- *  - A word it cannot read literally — an unexpanded $VAR, a substitution —
- *    is skipped.
- */
-
 const { parseCommand, walkCommands } = require("./shell-parse.js");
 const { absolute, literal } = require("./shell-words.js");
 
 /**
  * @typedef {{ abs: string, shown: string, interpreter: string | null,
  *   opts: string[], direct: boolean }} Run
- *   the script's absolute path and its word as the command named it; the
- *   interpreter's name (`source` and `.` included), null where the script
- *   runs as the command itself, `direct`, so its shebang is its interpreter;
- *   and the option words the interpreter was given ahead of it
  * @typedef {import("./shell-parse.js").WalkPorts & {
  *   isFile: (abs: string) => boolean }} RunPorts
  * @typedef {{ interpreters: Set<string>,
  *   onUnmatched?: (head: string, rest: string[], spans: string[]) => void }} Routes
- *   `onUnmatched` is handed each segment, past its prefixes, that runs no
- *   script by these routes, its command word read literally
  */
 
 const SHELL_NAMES = ["bash", "sh", "zsh", "dash", "ksh"];
 const SHELLS = new Set(SHELL_NAMES);
 
-/* A shell option that takes the next word as its argument. */
 const ARG_OPTS = new Set(["-o", "+o", "-O", "+O", "--rcfile", "--init-file"]);
 
-/*
- * A prefix that runs the rest of the segment as its command, with the options
- * of its own that take a value. `timeout` and `nice` lead with an operand
- * (`timeout 60`, `nice -n 5`) skipped as a bare number.
- */
 const WRAPPERS = new Map([
 	["timeout", new Set(["-s", "--signal", "-k", "--kill-after"])],
 	["env", new Set(["-u", "--unset", "-C", "--chdir", "-S"])],
@@ -103,9 +67,6 @@ function unwrap(words) {
 }
 
 /**
- * An interpreter's words split into the option words ahead of its first
- * operand and the operands — option words among them dropped, unless a `--`
- * ended the options; or a shell's `-c` text.
  * @param {string[]} words
  * @param {boolean} shell
  * @returns {{ inline: string } | { opts: string[], operands: string[] }}
@@ -128,10 +89,7 @@ function interpreterArgs(words, shell) {
 	return { opts, operands };
 }
 
-/**
- * @typedef {(word: string | undefined) => { abs: string, shown: string } | null} FileOf
- *   a word resolved to the file it names, null where it names none
- */
+/** @typedef {(word: string | undefined) => { abs: string, shown: string } | null} FileOf */
 
 /**
  * @param {string} name

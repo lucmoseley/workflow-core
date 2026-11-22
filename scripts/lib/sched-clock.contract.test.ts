@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * Holds lib/sched-clock-fake.ts's writeSchedClock to the real cgroup and /proc
- * files (#4092): check-kernel-stall.js reads each the same way.
- *
- * Red on the real side after a kernel update:
- * `cat /sys/fs/cgroup/*\/cpu.stat`, then fix readClock and ~/memwatch.sh's
- * `sched_clock`, or find another source (docs/environment.md §7).
- */
 
 import fs from "node:fs";
 import os from "node:os";

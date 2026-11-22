@@ -1,18 +1,3 @@
-/*
- * stryker-comments.js — the comments Stryker 10's instrumenter reads in a
- * file, parsed as it parses them, for the mutation hold's disable-comment
- * check (#2366, #2573, #2624); and the host Stryker config, loaded as the
- * hold's wrapper loads it for Stryker.
- *
- *   node scripts/lib/stryker-comments.js < request.json
- *
- * is `readComments` over the request on stdin, `{files}` holding its result
- * as JSON on fd RESULT_FD, or `{error}` where Babel will not load: not stdout,
- * where a host Babel or Stryker config may print (#2727). A child, since the
- * instrumenter parses with `parseAsync`, which alone loads a Babel config
- * holding top-level await, and the host config is loaded by `import()`.
- */
-
 const fs = require("node:fs");
 const { createRequire } = require("node:module");
 const path = require("node:path");
@@ -32,12 +17,7 @@ const NOT_CHILDREN = new Set([
 	"extra",
 ]);
 
-/* The parser plugins Stryker 10's instrumenter passes Babel
- * (`parsers/js-parser.js`, and `ts-parser.js` through its presets), each
- * parse a module, as both set or default it. A JS parse takes the host's
- * `mutator.plugins` in their place where set. Residual: a host Stryker at
- * another version than the hold's STRYKER_VERSION may parse with other
- * plugins. */
+// The parser plugins Stryker 10's instrumenter passes Babel: https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/parsers/js-parser.ts
 const JS_PLUGINS = [
 	"doExpressions",
 	"exportDefaultFrom",
@@ -56,27 +36,17 @@ const TS_PLUGINS = [
 	"decorators-legacy",
 	"explicitResourceManagement",
 ];
-/* `ts-parser.js` adds `preset-react`, so JSX, for a TSX parse. */
 const TSX_PLUGINS = [...TS_PLUGINS, "jsx"];
 
 /** @typedef {"js"|"ts"|"tsx"} ParseKind */
 /**
- * Set here: `leads`, the line the node it is a leading comment of starts on,
- * since Stryker reads only those, binding a `next-line` directive to that line
- * and opening a region there (instrumenter `directive-bookkeeper.js`);
- * `within`, the line spans of that node's ancestors, since Stryker reads no
- * directive under one overlapping none of its `mutate` ranges
- * (`babel-transformer.js` skips its subtree); and `block` and `blockEnd`, the
- * piece it sits in and that piece's last line, since each `<script>` block has
- * a bookkeeper of its own (`html-transformer.js`).
+ * Stryker reads only leading comments, binding a `next-line` directive to the line its node starts on: https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/transformers/directive-bookkeeper.ts
  * @typedef {{type: string, value: string, start: number, loc: {start: {line: number}, end: {line: number}}, leads?: number, within?: [number, number][], block: number, blockEnd: number}} BabelComment
  */
 /** @typedef {{id: string, filename: string, pieces: {code: string, kind: ParseKind}[]}} ParseEntry */
 /** @typedef {Record<string, {comments: BabelComment[]} | {error: string}>} ReadComments */
 
 /**
- * The options object a host Stryker config at `file` exports, its default
- * export or a JSON file's whole. Throws HOST_CONFIG_FAULT where it will not.
  * @param {string} file
  * @returns {Promise<object>}
  */
@@ -99,8 +69,6 @@ async function loadStrykerConfig(file) {
 }
 
 /**
- * Babel's core as the host's Stryker install ships it, beside its
- * instrumenter, which parses through it.
  * @param {string} root
  * @returns {{parseAsync: (code: string, opts: object) => Promise<{comments: BabelComment[], program: unknown} | null>}}
  */
@@ -113,12 +81,7 @@ function hostBabel(root) {
 	)("@babel/core");
 }
 
-/**
- * Set `leads` and `within` on every leading comment under `node`, the
- * outermost node's where several share one.
- * @param {unknown} node accumulator: its comment objects are written in place
- * @param {[number, number][]} within the spans of `node`'s ancestors
- */
+/** @param {unknown} node @param {[number, number][]} within */
 function markLeads(node, within) {
 	if (typeof node !== "object" || node === null) return;
 	if (Array.isArray(node)) {
@@ -144,21 +107,13 @@ function markLeads(node, within) {
 	]);
 }
 
-/**
- * markLeads over each child of `node`.
- * @param {object} node
- * @param {[number, number][]} within
- */
+/** @param {object} node @param {[number, number][]} within */
 function markChildren(node, within) {
 	for (const [k, v] of Object.entries(node))
 		if (!NOT_CHILDREN.has(k)) markLeads(v, within);
 }
 
 /**
- * Every comment Babel reads in each entry's pieces, keyed by its id, or the
- * first line of why it would not: JS under the host's Babel config and
- * `mutator.plugins` (`parsers/js-parser.js` passes `filename` and leaves
- * config loading on), TypeScript under neither (`ts-parser.js` turns it off).
  * @param {{root: string, strykerConfig: string|null, entries: ParseEntry[]}} request
  * @returns {Promise<ReadComments>}
  */
@@ -213,7 +168,6 @@ async function readComments({ root, strykerConfig, entries }) {
 /** @param {object} result */
 function answerAndExit(result) {
 	writeFd(RESULT_FD, JSON.stringify(result));
-	// A host config's timer or open handle would keep the child past its answer.
 	process.exit();
 }
 
@@ -223,6 +177,5 @@ if (require.main === module)
 		(e) => answerAndExit({ error: parseErrorFirstLine(e) }),
 	);
 
-// The hold's wrapper imports loadStrykerConfig from ESM by name, which
-// Node finds only while this stays a literal object.
+// Node finds a CommonJS module's named exports for an ESM import only in a literal `module.exports` object: https://nodejs.org/api/esm.html#commonjs-namespaces
 module.exports = { HOST_CONFIG_FAULT, RESULT_FD, loadStrykerConfig };

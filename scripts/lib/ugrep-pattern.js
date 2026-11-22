@@ -52,22 +52,15 @@ const { literal, scanFlags } = require("./shell-words.js");
 
 const LATCH = "ugrep-pattern";
 
-/* Flags taking a value, read off ugrep's own `--help`. Its optional-value
- * flags (`--group-separator[=SEP]`, `--config[=FILE]`) are absent: listed,
- * they would eat the pattern. */
 const UGREP_VALUE_FLAGS =
 	"-A -B -C -D -J -K -M -N -O -d -e -f -g -m -t --regexp --file --max-count --after-context --before-context --context --directories --devices --jobs --range --file-magic --neg-regexp --file-extension --file-type --glob --iglob --include --exclude --exclude-dir --exclude-from --include-dir --include-from --binary-files --and --andnot --not";
 
-/* The function's own hand-off to GNU grep: its case globs, copied from Claude
- * Code 2.1.295. */
 const GNU_HANDOFF =
 	/^(?:-[\s\S]*-(?:filter|pager|view|format-open|config)|---|-@|-[Zz]|-[^-][\s\S]*[Zz]|--null$|--null-data$)/;
 
 const ERE_REPEAT = /(?:^|[^\\])\{(?:[0-9]+,[0-9]*|,[0-9]+)\}/;
 const BRE_REPEAT = /\\\{(?:[0-9]+,[0-9]*|,[0-9]+)\\\}/;
 
-/* Each flag's say in the mode; the last of -E and -G wins, -P and -F win from
- * anywhere. */
 const MODE_FLAGS = new Map([
 	["-P", "perl"],
 	["--perl-regexp", "perl"],
@@ -79,7 +72,6 @@ const MODE_FLAGS = new Map([
 	["--basic-regexp", "bre"],
 ]);
 
-/* The value flags whose value is a pattern; `-f` names a file of them. */
 const PATTERN_OPTS = ["-e", "--regexp", "--and", "--andnot", "--not"];
 const FILE_OPTS = ["-f", "--file"];
 
@@ -95,8 +87,7 @@ const NOTE_TAIL =
  * @typedef {import("./guard-entry.js").Decision} Decision
  * @typedef {import("./shell-parse.js").Command} Command
  * @typedef {import("./shell-parse.js").Redirect} Redirect
- * @typedef {{ fires: boolean, silenced: boolean }} Verdict whether some grep
- *   fires, and whether some firing grep's stderr is discarded
+ * @typedef {{ fires: boolean, silenced: boolean }} Verdict
  */
 
 /**
@@ -132,12 +123,7 @@ function decide(command, ctx) {
 const note = (silenced) =>
 	`${NOTE_HEAD}${silenced ? NOTE_SILENCED : ""}${NOTE_TAIL}`;
 
-/**
- * Whether one command is a bare `grep` the function keeps whose pattern holds
- * a ranged repeat in the mode it reads.
- * @param {string[]} words the command's own words, masked
- * @param {string[]} spans
- */
+/** @param {string[]} words @param {string[]} spans */
 function judge(words, spans) {
 	const [head, ...args] = words;
 	if (literal(head ?? "", spans).text !== "grep") return false;
@@ -151,22 +137,13 @@ function judge(words, spans) {
 	});
 }
 
-/**
- * Whether the function hands this word's call to GNU grep; a word it cannot
- * read hands nothing off.
- * @param {string} word
- * @param {string[]} spans
- */
+/** @param {string} word @param {string[]} spans */
 function handsOff(word, spans) {
 	const { text, known } = literal(word, spans);
 	return known && GNU_HANDOFF.test(text);
 }
 
-/**
- * The flags' modes, whether ERE is the one in force, and the patterns: every
- * `-e`-style value, else the first bare word — none where `-f` names a file.
- * @param {string[]} args
- */
+/** @param {string[]} args */
 function scanPatterns(args) {
 	/** @type {Set<string>} */
 	const mode = new Set();
@@ -188,23 +165,13 @@ function scanPatterns(args) {
 	return { mode, ere, patterns };
 }
 
-/**
- * Takes an `-e`-style value into `patterns`; whether this option names the
- * patterns itself, which an `-f` file does too.
- * @param {string} name
- * @param {string} value
- * @param {string[]} patterns accumulator: every `-e`-style value so far
- */
+/** @param {string} name @param {string} value @param {string[]} patterns */
 function takeOpt(name, value, patterns) {
 	if (PATTERN_OPTS.includes(name)) patterns.push(value);
 	return PATTERN_OPTS.includes(name) || FILE_OPTS.includes(name);
 }
 
-/**
- * Whether these redirects, read in the order written as bash applies them,
- * discard stderr: `>/dev/null 2>&1` does, `2>&1 >/dev/null` keeps it.
- * @param {Redirect[]} redirects
- */
+/** @param {Redirect[]} redirects */
 function silencesStderr(redirects) {
 	let silenced = false;
 	let nullOut = false;
@@ -216,13 +183,7 @@ function silencesStderr(redirects) {
 	return silenced;
 }
 
-/**
- * Whether this one redirect sends stderr nowhere, given whether stdout
- * already goes to /dev/null.
- * @param {Redirect} r
- * @param {boolean} writes
- * @param {boolean} nullOut
- */
+/** @param {Redirect} r @param {boolean} writes @param {boolean} nullOut */
 function discardsStderr({ fd, kind, path, target }, writes, nullOut) {
 	if ((fd === "&" || fd === "2") && writes && path === "/dev/null") return true;
 	if (fd !== "2") return false;

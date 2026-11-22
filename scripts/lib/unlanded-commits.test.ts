@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * lib/unlanded-commits.js (#3101): which of a ticket's commits the pushed ref
- * lacks under any hash. Both close routes refuse on its answer, so a commit it
- * misses closes a ticket over unpushed work (#3092, #2983), and one it wrongly
- * names strands a close whose work did land — rebased under a new hash, or
- * cited only by another tracker.
- *
- * Real git in a throwaway host, `origin/main` set by update-ref so no remote
- * is needed.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -41,7 +31,6 @@ const git = (...args: string[]) =>
 		encoding: "utf8",
 	}).trim();
 
-/** Commits a change to `file` under `message`; its full sha. */
 const commit = (message: string, file = "a.txt") => {
 	fs.appendFileSync(path.join(root, file), `${message}\n`);
 	git("add", "-A");

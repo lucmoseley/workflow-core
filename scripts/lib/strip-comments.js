@@ -1,18 +1,3 @@
-/*
- * strip-comments.js — JavaScript source with its comments removed, for the lexical checks that
- * must not count a header's mention of `process.argv` or `ctx.has("--x")` as
- * a read; and the string and template literals it holds, for the readers of a
- * guard core's wording (lib/core-deny-text.js); and the stretches that are
- * not code, for js-lex.js's bracket scanning (#3667).
- *
- * A scan, not a pattern: a `/*` or `//` inside a literal opens no comment, a
- * quote inside a regex literal opens no string, and a template's `${…}` may
- * hold literals of its own. A `/` is read as a regex after an operator,
- * an opening bracket, a `}` or a keyword such as `return`, and as division
- * after a name, a number or a closing `)` or `]`. A regex replaced the scan
- * once a backtick inside a regex literal swallowed the rest of a file (#3001).
- */
-
 const KEYWORDS_BEFORE_EXPRESSION = new Set([
 	"return",
 	"typeof",
@@ -39,9 +24,7 @@ const WORD = /[\w$]/;
  *   comments: [number, number][],
  *   literals: Literal[],
  *   inert: [number, number][],
- * }} Scan `inert` every comment, string, template and regex literal outside
- *   any template, as `[start, end)` in order; a template is one stretch, its
- *   interpolations included, and an unclosed one runs to the end
+ * }} Scan
  * @typedef {{
  *   source: string,
  *   comments: [number, number][],
@@ -50,15 +33,10 @@ const WORD = /[\w$]/;
  *   placeholders: number[],
  *   templateAt: number,
  *   regexOk: boolean,
- * }} State `placeholders` the brace depth inside each open `${…}`, innermost
- *   last; `templateAt` where the outermost open template began, or -1
+ * }} State
  */
 
-/**
- * Where the comment opening at `i` ends, or -1 where none opens there.
- * @param {string} source
- * @param {number} i
- */
+/** @param {string} source @param {number} i */
 function commentEnd(source, i) {
 	if (source.charAt(i) !== "/") return -1;
 	const next = source.charAt(i + 1);
@@ -71,12 +49,7 @@ function commentEnd(source, i) {
 	return end < 0 ? source.length : end + 2;
 }
 
-/**
- * Where the quoted string opening at `i` ends, its closing quote included; an
- * unclosed one ends at the line.
- * @param {string} source
- * @param {number} i
- */
+/** @param {string} source @param {number} i */
 function quotedEnd(source, i) {
 	const quote = source.charAt(i);
 	let j = i + 1;
@@ -85,11 +58,7 @@ function quotedEnd(source, i) {
 	return Math.min(j + 1, source.length);
 }
 
-/**
- * Where the regex literal opening at `i` ends, its flags included.
- * @param {string} source
- * @param {number} i
- */
+/** @param {string} source @param {number} i */
 function regexEnd(source, i) {
 	let j = i + 1;
 	let inClass = false;
@@ -113,12 +82,7 @@ function wordEnd(source, i) {
 	return j;
 }
 
-/**
- * Scan template text from `j` to its `${` or closing backtick, recording the
- * outermost template as it closes.
- * @param {State} st accumulator: the scan's literals, comments and position
- * @param {number} j
- */
+/** @param {State} st @param {number} j */
 function templateTextEnd(st, j) {
 	const { source } = st;
 	while (j < source.length) {
@@ -144,12 +108,7 @@ function templateTextEnd(st, j) {
 	return j;
 }
 
-/**
- * A bracket or other punctuatorEnd at `i`: a `}` closing a placeholder resumes
- * its template.
- * @param {State} st accumulator: the scan's literals, comments and position
- * @param {number} i
- */
+/** @param {State} st @param {number} i */
 function punctuatorEnd(st, i) {
 	const c = st.source.charAt(i);
 	const depth = st.placeholders.at(-1);
@@ -162,21 +121,12 @@ function punctuatorEnd(st, i) {
 	return i + 1;
 }
 
-/**
- * Record a stretch that is not code, unless it sits inside a template.
- * @param {State} st accumulator: the scan's literals, comments and position
- * @param {number} start
- * @param {number} end
- */
+/** @param {State} st @param {number} start @param {number} end */
 function pushInert(st, start, end) {
 	if (st.templateAt < 0) st.inert.push([start, end]);
 }
 
-/**
- * Read the token at `i` into `st`, returning where the next one starts.
- * @param {State} st accumulator: the scan's literals, comments and position
- * @param {number} i
- */
+/** @param {State} st @param {number} i */
 function step(st, i) {
 	const { source } = st;
 	const c = source.charAt(i);
@@ -214,12 +164,7 @@ function step(st, i) {
 	return punctuatorEnd(st, i);
 }
 
-/**
- * The comment spans, the outermost string and template literals and the
- * stretches that are not code of `source`, in source order.
- * @param {string} source
- * @returns {Scan}
- */
+/** @param {string} source @returns {Scan} */
 function scanJs(source) {
 	/** @type {State} */
 	const st = {
@@ -247,13 +192,7 @@ function stripComments(source) {
 	return out + source.slice(from);
 }
 
-/**
- * `source` with each of `ranges`, in order, blanked to spaces and its line
- * breaks kept, so an offset or line number in the result is the one in
- * `source` (#3634).
- * @param {string} source
- * @param {[number, number][]} ranges
- */
+/** @param {string} source @param {[number, number][]} ranges */
 function blankRanges(source, ranges) {
 	let out = "";
 	let from = 0;
@@ -266,14 +205,10 @@ function blankRanges(source, ranges) {
 	return out + source.slice(from);
 }
 
-/** `source` with every comment blanked. @param {string} source */
+/** @param {string} source */
 const blankComments = (source) => blankRanges(source, scanJs(source).comments);
 
-/**
- * `source` with every stretch that is not code — comments, strings, templates
- * and regex literals — blanked, a template's `${…}` with it.
- * @param {string} source
- */
+/** @param {string} source */
 const blankInert = (source) => blankRanges(source, scanJs(source).inert);
 
 module.exports = { blankComments, blankInert, scanJs, stripComments };

@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * sensitive-paths.test.ts — the sensitive-path matcher (#1617, spec #1612).
- * Break it and a change to declared sensitive code gets the standard review,
- * an undeclared adopter reads as one that declared none, or a typo in the
- * declaration takes a hook down.
- *
- * Run in process against a throwaway host root whose config each case writes,
- * and once against this repo's own declaration, since that is what its hooks
- * read. The glob semantics are git's `:(glob)` pathspec, so a table of globs is
- * matched against a real repo by `git diff` and by the matcher, and any
- * disagreement fails: a hand-written expectation would only restate a reading.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -24,7 +12,6 @@ import { readConfig } from "./workflow-core-config.js";
 
 const SCRIPT = path.join(__dirname, "sensitive-paths.js");
 const REPO_ROOT = path.join(__dirname, "..", "..");
-/* The default focus, restated so a change to it fails here. */
 const DEFAULT_FOCUS = "access control and money logic";
 
 let dir: string;
@@ -35,7 +22,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** A fixture host root under `dir` whose config declares `sensitivePaths`. */
 function host(sensitivePaths?: unknown) {
 	const root = path.join(dir, "host");
 	fs.mkdirSync(path.join(root, ".claude"), { recursive: true });
@@ -216,7 +202,6 @@ describe("heldAreas, the review hold's read of what it holds (#3905, #4512)", ()
 	});
 	const declared = (root: string) => () =>
 		readConfig({ root, quiet: true }).sensitivePaths;
-	/** Two fixture roots' declarations, `after`'s text given raw. */
 	const held = (before: unknown, afterText: string, paths = [Config]) => {
 		const was = host(before);
 		const now = path.join(dir, "after");
@@ -459,7 +444,6 @@ describe("sensitive-paths — parity with git's :(glob) pathspec", () => {
 			execFileSync("git", args, { cwd: root, encoding: "utf8" });
 		git(["add", "-A"]);
 		git(["commit", "-qm", "files"]);
-		/* One declared area per glob, so a single run answers for all of them. */
 		const { json } = run(
 			host(GLOBS.map((g) => ({ name: g, description: g, globs: [g] }))),
 			FILES,

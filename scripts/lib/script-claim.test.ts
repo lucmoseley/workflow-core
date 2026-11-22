@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * claimByArbiter and releaseByArbiter, the one spawn of the arbiter's `claim`
- * and `release` (#4719): the stand-in's argument order and each outcome, the
- * warning against the real arbiter in the testkit sandbox. Every script that
- * writes a tracked file under its own claim goes through them, so a loosened
- * case lets a refused claim pass as taken, or loses the warning that a live
- * neighbour holds the file too.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -21,7 +13,6 @@ afterEach(() => {
 		fs.rmSync(d, { recursive: true, force: true });
 });
 
-/** A stand-in arbiter running `body` as sh, its path returned. */
 function stub(body: string): string {
 	const dir = mkScratchDir("script-claim-");
 	dirs.push(dir);
@@ -55,8 +46,6 @@ describe("claimByArbiter", () => {
 	});
 
 	it("is not claimed where the arbiter outruns the timeout", () => {
-		// The real clock: spawnSync's own timeout is what kills the stand-in. The
-		// 100 ms limit sits fifty times under the 5 s sleep, so the kill is certain.
 		const r = claimByArbiter("docs/x.md", {
 			claimCmd: stub("sleep 5"),
 			timeoutMs: 100,

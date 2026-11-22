@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * tickCriteria (#5354): the tick a landing-queue closer writes before its
- * close. Loosen it and a box outside the criteria section or a waived one is
- * ticked as verified, or a met alarm closes unticked and fails the daily
- * criteria check.
- */
 import { expect, it } from "vitest";
 import { tickCriteria, unmetCriteria } from "./ticket-criteria.js";
 

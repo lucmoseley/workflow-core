@@ -1,11 +1,3 @@
-/*
- * script-claim.js — the one spawn of `session-arbiter.js claim` and `release`
- * for a script that writes a tracked file under its own claim (#4719). The
- * claim guard sees Write and Edit only, never a script's write, so such a
- * script claims by the arbiter's CLI; each caller keeps its own policy on a
- * refusal.
- */
-
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 
@@ -14,8 +6,6 @@ const path = require("node:path");
  */
 
 /**
- * `verb` run on `subject` by the arbiter's CLI, or by `cmd` standing in for
- * it with the verb left out.
  * @param {"claim" | "release"} verb
  * @param {string[]} args
  * @param {{ cmd?: string | null, cwd?: string, timeoutMs?: number }} opts
@@ -30,10 +20,7 @@ function runArbiter(verb, args, { cmd, cwd, timeoutMs }) {
 	return spawnSync(bin, binArgs, { cwd, encoding: "utf8", timeout: timeoutMs });
 }
 
-/**
- * Why a spawn did not exit 0: its output, else its spawn error, else its exit.
- * @param {import("node:child_process").SpawnSyncReturns<string>} r
- */
+/** @param {import("node:child_process").SpawnSyncReturns<string>} r */
 function whyFailed(r) {
 	return (
 		`${r.stderr ?? ""}${r.stdout ?? ""}`.trim() ||
@@ -56,14 +43,6 @@ function argsFor(subject, session, generator) {
 }
 
 /**
- * `subject` claimed through the arbiter's CLI. Exit 0 is `claimed`, a
- * contended claim included, and its stderr, the warning naming the live
- * neighbour that also holds the subject (#4249), is `warning`. Any other exit,
- * a timeout or a failed spawn is `why`.
- *
- * `claimCmd` stands in for the arbiter, for tests: it is run with the subject
- * as `$1`, then the session, then `--generator`.
- *
  * @param {string} subject
  * @param {{ claimCmd?: string | null, session?: string | null, cwd?: string,
  *   timeoutMs?: number, generator?: boolean }} [opts]
@@ -86,12 +65,6 @@ function claimByArbiter(
 }
 
 /**
- * A claim `claimByArbiter` took on `subject` given back, or why not. Release
- * only on `claimed`: a contended claim took nothing, and the arbiter refuses
- * to release a subject a neighbour holds (mantahostels#2422). `generator`
- * waives the dirty refusal a §A subject would earn from its own generator's
- * write (mantahostels#2428). `releaseCmd` stands in as `claimCmd` does.
- *
  * @param {string} subject
  * @param {{ releaseCmd?: string | null, generator?: boolean }} [opts]
  * @returns {{ released: true } | { released: false, why: string }}

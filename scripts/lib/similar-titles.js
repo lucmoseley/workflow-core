@@ -1,11 +1,3 @@
-/*
- * similar-titles.js — the ranking file-issue.js lists similar open issues by
- * (#536), as #500's research measured it. The stopwords, the stem, the
- * threshold and the cut are that measurement's; changing any of them
- * invalidates it, and docs/data/issue-title-search-2026-09-27/ is the
- * dataset lib/file-issue-core.test.ts re-checks it against.
- */
-
 const STOPWORDS = new Set(
 	"a an the and or but of to in on at by for from with without into onto over under is are was were be been being it its it's this that these those as not no so do does did done make makes making one each every any all when where which who what why how than then too very can cannot could would should will just only also more less most first own same other their them they there here via per our we you your i my me us up out off before after again once still yet across about spec".split(
 		" ",
@@ -32,11 +24,6 @@ const contentWords = (title) =>
 const stem = (w) => w.replace(/(ing|ed|es|s|al)$/, "");
 
 /**
- * The open issues whose titles most resemble `query`: each scored by the
- * summed inverse document frequency of the query's words whose stem it
- * shares, frequencies over every title in `issues` plus the query's own;
- * at least SIMILAR_MIN_SCORE, best SIMILAR_TOP. Closed issues only weight
- * the frequencies.
  * @param {string} query
  * @param {{number: number, title: string, state: string}[]} issues
  */
@@ -62,19 +49,11 @@ function similarOpen(query, issues) {
 		.slice(0, SIMILAR_TOP);
 }
 
-/*
- * The refusal's re-run hint, written by file-issue.js and read back by the
- * unattended filers that dedupe for themselves (check-orphaned-edits.js) —
- * one spelling, so a reword cannot strand them (#1073).
- */
 /** @param {number[]} numbers */
 const buildDistinctFromHint = (numbers) =>
 	`--distinct-from ${numbers.join(",")}.`;
 
-/**
- * The numbers a refusal's hint names, comma-joined, or null.
- * @param {string} text
- */
+/** @param {string} text */
 const readDistinctFromHint = (text) =>
 	/--distinct-from ([\d,]+)\.$/m.exec(text)?.[1] ?? null;
 

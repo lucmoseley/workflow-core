@@ -19,26 +19,17 @@ const {
  *   & {alreadyRed: import("./already-red.js").Classing}} ClassedRed
  * @typedef {object} JudgeIO
  * @property {(sessionId: string) => boolean} latched
- * @property {(sessionId: string, at: string) => void} latch writes it; throws where it cannot
- * @property {(record: object) => void} logRefusal appends a refusal-log line; throws where it cannot
+ * @property {(sessionId: string, at: string) => void} latch
+ * @property {(record: object) => void} logRefusal
  * @property {(cwd: string) => { dir: string|null, timedOut: boolean }} gitDir
- *   the absolute git dir of the checkout holding `cwd`
- * @property {() => { dir: string|null, timedOut: boolean }} treeGitDir the
- *   session's tree's (#4242)
+ * @property {() => { dir: string|null, timedOut: boolean }} treeGitDir
  * @property {() => { sha: string|null, timedOut: boolean }} head
  * @property {(sessionId: string) => { readable: boolean, timedOut: boolean }} ledger
- *   whether the session's write ledger reads
  * @property {(sessionId: string) => { selection: Selection|null, timedOut: boolean }} selection
- *   what the run would read, as `ownSelection` answers
- * @property {() => string|null} storeFault why the pass-marker store will not
- *   read, as an error code — `ENOENT` where it is absent — or null where it reads
+ * @property {() => string|null} storeFault
  * @property {(tip: string, within: string[]|null) => { verdict: Attestation, timedOut: boolean, redFault: string|null }} attestation
- *   `attestationOf` at `tip` over the store and the classed reds, narrowed to
- *   `within`; a classed red counts among the `attested: true` members, deciding
- *   the verdict as a certificate attests one; `redFault` why the red store
- *   could not be read for them
  * @property {() => number} malformed
- * @property {() => string} now an ISO timestamp
+ * @property {() => string} now
  */
 
 /**
@@ -54,15 +45,11 @@ function judge({ sessionId, cwd, command = "" }, io) {
 		if (elsewhere) return elsewhere;
 	}
 
-	/* attributeDirty reads an unreadable ledger as "wrote nothing", so the
-	 * fault is told apart here. */
 	const ledger = io.ledger(sessionId);
 	if (ledger.timedOut)
 		return { why: "a git read timed out finding this session's write ledger" };
 	if (!ledger.readable)
 		return { why: "this session's write ledger could not be read" };
-	/* A timed-out read leaves an answer built on unknowns, so it is not judged
-	 * even where one came back. */
 	const { selection, timedOut } = io.selection(sessionId);
 	if (timedOut)
 		return { why: "a git read timed out reading this session's own work" };
@@ -75,10 +62,6 @@ function judge({ sessionId, cwd, command = "" }, io) {
 }
 
 /**
- * `{}` for a run in a checkout other than the session's tree, whose HEAD
- * and own work are not the ones judged; `{why}` where git cannot say; null
- * for a run in the session's own tree (#4242).
- *
  * @param {string} cwd
  * @param {JudgeIO} io
  * @returns {{why: string} | {} | null}
@@ -102,8 +85,6 @@ function checkoutVerdict(cwd, io) {
 }
 
 /**
- * The paths the run would test, or null for the whole range.
- *
  * @param {string} command
  * @param {Selection} selection
  * @returns {string[]|null}
@@ -115,9 +96,6 @@ function testedPaths(command, { uncommitted, scoped }) {
 }
 
 /**
- * Refuse where certificates attest what the run would test at the overlay's
- * commit, latching and logging the refusal.
- *
  * @param {JudgeIO} io
  * @param {string} sessionId
  * @param {string} command
@@ -135,18 +113,14 @@ function judgeAttestation(io, sessionId, command, selection) {
 	if (timedOut) return { why: "a git read timed out judging the certificates" };
 	if (!verdict.judged) return { why: verdict.why };
 	const vitest = verdict.suites.find((s) => s.suite === DEFAULT_SUITE);
-	/* A red-store fault beside attesting certificates is not logged: it could
-	 * only have hidden another member, never changed the refusal (#3632). */
 	if (!vitest?.attested) return unattestedVerdict(io, redFault);
 
-	/* Read before the latch, so a timed-out read leaves none. */
 	const named = io.head();
 	if (named.timedOut) return { why: "a git read timed out naming HEAD" };
 	const head = named.sha ?? tip;
 	try {
 		io.latch(sessionId, io.now());
 	} catch (e) {
-		/* Unlatched, it would refuse every bare run, not one. */
 		return {
 			why: `the refusal latch could not be written (${caught(e).code ?? e})`,
 		};
@@ -193,9 +167,6 @@ function judgeAttestation(io, sessionId, command, selection) {
 }
 
 /**
- * An unattested selection: `{why}` where a malformed certificate line or an
- * unread red store may have hidden what attests it, else `{}`.
- *
  * @param {JudgeIO} io
  * @param {string|null} redFault
  * @returns {{why: string} | {}}
@@ -213,14 +184,7 @@ function unattestedVerdict(io, redFault) {
 		: {};
 }
 
-/**
- * `{why}` where the pass-marker store is unreadable: readMarkers reads it as
- * empty, so the fault is told apart here, before it is read. Null where it
- * reads or is absent.
- *
- * @param {JudgeIO} io
- * @returns {{why: string} | null}
- */
+/** @param {JudgeIO} io @returns {{why: string} | null} */
 function storeVerdict(io) {
 	const fault = io.storeFault();
 	return fault && fault !== "ENOENT"
@@ -238,10 +202,9 @@ const classedRed = (m) =>
 /**
  * @param {string} head
  * @param {Selection} selection
- * @param {string[]|null} within the paths the run would test
- * @param {{reading: string, reds: ClassedRed[]}} attesting the attesting
- *   members, as attestedReading prints them, and those that are classed reds
- * @returns {string} the refusal the guard prints
+ * @param {string[]|null} within
+ * @param {{reading: string, reds: ClassedRed[]}} attesting
+ * @returns {string}
  */
 function buildRefusalText(head, { mine, scoped }, within, { reading, reds }) {
 	const tree =

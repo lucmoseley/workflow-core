@@ -1,14 +1,4 @@
 // @vitest-environment node
-/*
- * wfc-config.sh — the shell half of workflow-core-config.js: each read's
- * default, the declared value, the unknown-contract refusal and the two skip
- * lines, run in a real bash against a throwaway host root (#2, #944), then
- * its parity with the JS reader (#1481).
- *
- * Every bash hook reading config reads it through this; loosen a case and an
- * adopter's gated checks are silently skipped or run on a host that never
- * opted in, or the shell half drifts from the JS reader's defaults.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -240,7 +230,6 @@ describe("unknown module names (#43)", () => {
 		expect(sh('printf %s "$WFC_KNOWN_COMMANDS"').stdout.split(" ")).toEqual([
 			...COMMANDS,
 		]);
-		/* The JS reader names the contracts it reads in its refusal. */
 		writeConfig(JSON.stringify({ contract: -1 }));
 		const refusal = (() => {
 			try {
@@ -256,13 +245,6 @@ describe("unknown module names (#43)", () => {
 	});
 });
 
-/*
- * The parity table (#1481): each fixture through both readers, every key the
- * shell reads asked of each. A row's `answers` are what both give, over `baseAnswers`;
- * `shellDiffers` is an intended difference, with its reason. "refused" is the
- * JS reader's contract throw, and in shell the key's `baseAnswers` entry with the
- * refusal on stderr.
- */
 describe("parity with the JS reader (#1481)", () => {
 	const cfg = require("./workflow-core-config.js");
 	const refusalPattern = /which this workflow-core does not read/;
@@ -365,7 +347,6 @@ describe("parity with the JS reader (#1481)", () => {
 	};
 	interface Row {
 		name: string;
-		/** The config's text, or an object to serialise; absent, no file. */
 		config?: string | object;
 		remote?: string;
 		modulesEnv?: string;
@@ -580,7 +561,6 @@ describe("parity with the JS reader (#1481)", () => {
 		}
 	};
 
-	/** What a JS probe that threw answers, read off its message. */
 	const thrownAnswer = (e: unknown) => {
 		const m = (e as Error).message;
 		if (refusalPattern.test(m)) return "refused";
@@ -591,7 +571,6 @@ describe("parity with the JS reader (#1481)", () => {
 	const jsAnswers = (row: Row, asks: Asks): Answers => {
 		vi.stubEnv("WFC_OUTPUT_STYLE", undefined);
 		vi.stubEnv("WFC_MODULES", row.modulesEnv);
-		// The rows' own malformed keys warn; the answers are what is compared.
 		spyStderr();
 		try {
 			const out = {} as Answers;
@@ -608,8 +587,6 @@ describe("parity with the JS reader (#1481)", () => {
 		}
 	};
 
-	/** One bash for the row, each probe in a subshell of its own so one
-	 *  probe's once-per-process refusal never silences another's. */
 	const shellAnswers = (row: Row, asks: Asks): Answers => {
 		const out = path.join(dir, "probes");
 		fs.mkdirSync(out);
@@ -659,7 +636,6 @@ describe("parity with the JS reader (#1481)", () => {
 			"wfc_module_off_line",
 			"wfc_command_undeclared_line",
 			"wfc_repo_slug",
-			// Reads the harness's settings, not this config (#2039).
 			"wfc_core_voice_loaded",
 		];
 		const readers = [

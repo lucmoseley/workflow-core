@@ -1,58 +1,3 @@
-/*
- * touched-tests.js — the tests a session's own work touched (#2930), which a
- * bare `npm run test` runs, the lander being the only full gate (#2868). A bare `npm run test:py` takes the same set for
- * pytest's route (#2934).
- *
- * THE SET is the union of every changed path that is a test file and every
- * test that directly imports or reads a changed path. One hop only: a test
- * reaching a changed file through a helper it imports is not selected. Reads
- * come from the read-graph manifest, committed and as this tree renders it;
- * imports are read lexically off each test's own source, since the manifest
- * holds no import edge. The manifest scans no pytest file, so on pytest's
- * route a read is lexical too: the test names the path in string literals.
- *
- * THE ONE EXCEPTION (#4967): a changed path that is a row of
- * `CHECKER_ONLY`, a file a tool rewrites as a side effect of ordinary work,
- * a checker-only file, selects its checker tests alone, the tests that
- * check it against the tool writing it,
- * and these whether or not an edge reaches them. Its other readers are left
- * to the lander and returned as `leftOut`. Every other changed path, and
- * every edited test, selects as above, so a test is left out only where each
- * edge that would select it comes from a checker-only file. A row is added only
- * with a measured miss rate for that file: the share of red touched runs in
- * which the tests it would leave out caught a fault the session's own change
- * caused.
- *
- * EACH ROUTE KEEPS ONLY WHAT ITS RUNNER COLLECTS (#2952): a test file its
- * suite would never run is not run by name either. Vitest's is its own
- * `vitest list`, asked where a config can narrow its include or exclude.
- * Pytest's is read off its config, by `pytest-collection.js`.
- *
- * THE OWN WORK'S BASE. `merge-base`, the default, is all the session's own work since the merge base with verified main: a
- * bare run's check of the whole branch. `head` is the tree's changes over
- * HEAD, which a commit gate's tree holds as the commit's paths (#5320): each
- * commit's gate answers for its own commit, the branch's earlier commits
- * having answered for themselves at theirs. A seat is judged by process
- * ancestry, never by the seat's variable alone (#5273). Residual: an earlier
- * commit made with no gate run is not touched-tested before the lander's
- * full suite.
- *
- * A MERGE'S OWN CONTENT (#5334). Where the commit is a merge, `head`'s paths
- * are those whose content differs from HEAD and from every merge parent: what
- * both sides changed and every hand resolution. A path taken whole from one
- * side adds nothing, each side having answered for it already. Tests reading
- * one side's change through the other's are left to the bare run before
- * landing, on vitest's route the push-coverage warning, and the lander's
- * full suite. Where no parent will read, or a diff against one fails, the
- * tree's changes over HEAD.
- *
- * WHERE THE MANIFEST IS UNREADABLE OR WILL NOT RENDER, its readers give way
- * to each changed file's same-stem siblings: for `<dir>/<stem>.<ext>`, the
- * test files in `<dir>` that `JS_TEST_FILE` takes and that open `<stem>.`,
- * or pytest's own sibling names on its route. The lexical edges, needing no
- * manifest, stay. It never widens, and no checker-only file cuts it.
- */
-
 const { execFileSync } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -86,15 +31,8 @@ const { EDGES_FILE, shortSha } = require("./test-pass-marker.js");
 /** @typedef {import("./own-selection.js").OwnSet} OwnSet */
 /** @typedef {import("./test-pass-marker.js").TouchedBase} TouchedBase */
 
-/**
- * The checker-only files, each with its checker tests: a path, or a pattern
- * over one family of them. A ROW IS ADDED ONLY WITH A MEASURED MISS RATE FOR
- * THAT FILE; these three rest on #4967's. `touched-tests.live.test.ts` holds
- * each row against this tree, failing where its file or a checker test is
- * gone; a new row adds its case there.
- *
- * @type {{ file: string, checkers: (string|RegExp)[] }[]}
- */
+// #4967
+/** @type {{ file: string, checkers: (string|RegExp)[] }[]} */
 const CHECKER_ONLY = [
 	{
 		file: ".claude/guard-registry-anchors.json",
@@ -126,15 +64,7 @@ const checkerMatches = (checker, tracked) =>
 		typeof checker === "string" ? t === checker : checker.test(t),
 	);
 
-/**
- * The checker tests `tracked` holds for `p`, or null where `p` is no
- * checker-only file here: a tree holding none of a row's checker tests, an
- * adopting repo's, selects that path's readers as any other's.
- *
- * @param {string} p
- * @param {Set<string>} tracked
- * @returns {string[]|null}
- */
+/** @param {string} p @param {Set<string>} tracked @returns {string[]|null} */
 function checkerTests(p, tracked) {
 	const row = CHECKER_ONLY.find(({ file }) => file === p);
 	if (!row) return null;
@@ -142,24 +72,11 @@ function checkerTests(p, tracked) {
 	return tests.length > 0 ? tests : null;
 }
 
-/**
- * `import a.b, c` and `from a.b import c, d` — `from .m import x` included —
- * at a line's start. A parenthesised name list continued past the line is
- * read for its module alone. An absent module is exactly one blank before
- * the blanks ahead of `import`, so the two runs never split one run of
- * blanks every way (#3383).
- */
 const PY_IMPORT = /^[ \t]*import[ \t]+([\w.][\w., \t]*)/gm;
 const PY_FROM =
 	/^[ \t]*from(?:[ \t]+([\w.]+)|[ \t])[ \t]+import[ \t]+(?:\(|(?![ \t]))([\w, \t]*)/gm;
 
-/**
- * The modules `source` imports, as written: dotted, relative ones led by
- * their dots.
- *
- * @param {string} source
- * @returns {string[]}
- */
+/** @param {string} source @returns {string[]} */
 function pythonModules(source) {
 	const first = (/** @type {string} */ part) =>
 		part.trim().split(/[ \t]/)[0] ?? "";
@@ -169,7 +86,6 @@ function pythonModules(source) {
 		modules.push(...list.split(",").map(first));
 	for (const [, mod = "", names = ""] of source.matchAll(PY_FROM)) {
 		modules.push(mod);
-		/* `from pkg import mod` names a submodule as often as an attribute. */
 		const sep = mod.endsWith(".") ? "" : ".";
 		for (const name of names.split(",").map(first))
 			if (name) modules.push(`${mod}${sep}${name}`);
@@ -177,16 +93,7 @@ function pythonModules(source) {
 	return modules;
 }
 
-/**
- * The files `mod` can resolve to from a test in `dir`: against `dir` and
- * `scripts/`, the two roots run-pytest.js and the tests' own
- * `sys.path.insert(0, HERE)` put on the path, or against `dir`'s ancestor
- * where it is relative.
- *
- * @param {string} mod
- * @param {string} dir
- * @returns {string[]}
- */
+/** @param {string} mod @param {string} dir @returns {string[]} */
 function pythonCandidates(mod, dir) {
 	const dots = /^\.*/.exec(mod)?.[0].length ?? 0;
 	const rel = mod.slice(dots).split(".").filter(Boolean).join("/");
@@ -202,8 +109,6 @@ function pythonCandidates(mod, dir) {
 }
 
 /**
- * The tracked `.py` files `source` imports, one hop.
- *
  * @param {string} source
  * @param {string} self
  * @param {Set<string>} tracked
@@ -216,15 +121,9 @@ const pythonImports = (source, self, tracked) =>
 			.filter((p) => tracked.has(p)),
 	);
 
-/** A one-line quoted string literal. */
 const PY_LITERAL = /(["'])((?:(?!\1)[^\\\n])*)\1/g;
 
 /**
- * The tracked files under the test's own directory that `source` names in
- * string literals, one literal per path segment or several in one:
- * `Path(__file__).parent / "m" / "scan.py"` and `"m/scan.py"` both name
- * `<dir>/m/scan.py`.
- *
  * @param {string} source
  * @param {string} self
  * @param {Set<string>} tracked
@@ -283,7 +182,6 @@ const isOnDisk = (root, p) => {
 	try {
 		return fs.statSync(path.join(root, p)).isFile();
 	} catch {
-		/* Deleted, or never there: nothing to run. */
 		return false;
 	}
 };
@@ -304,7 +202,6 @@ function readSiblingTests(root, changed, isSibling) {
 		try {
 			names = fs.readdirSync(path.join(root, dir));
 		} catch {
-			/* A deleted path's directory, gone with it: no sibling to select. */
 			continue;
 		}
 		for (const name of names)
@@ -314,16 +211,12 @@ function readSiblingTests(root, changed, isSibling) {
 }
 
 /**
- * Each changed path's lexical tests: those whose own source imports it or,
- * on pytest's route, names it.
- *
  * @param {ReturnType<typeof readWorkingTree>} tree
  * @param {string[]} changed
  * @param {Pick<typeof ROUTES["vitest"], "isTest"|"edges">} route
  * @returns {Map<string, string[]>}
  */
 function lexicalTests(tree, changed, { isTest, edges }) {
-	/* A deleted path stays resolvable, so its importers are selected. */
 	const tracked = new Set([...tree.tracked, ...changed]);
 	/** @type {Map<string, string[]>} */
 	const lexical = new Map(changed.map((p) => [p, []]));
@@ -335,21 +228,13 @@ function lexicalTests(tree, changed, { isTest, edges }) {
 }
 
 /**
- * The touched tests of `changed` in the tree at `root`, and the fallback's
- * cause where the manifest could not be read.
- *
  * @param {string} root
- * @param {string[]} changed repo-relative, forward slashes
+ * @param {string[]} changed
  * @param {{ suite?: "vitest"|"pytest", execFn?: ExecFn,
- *   loadEdges?: () => Record<string, string[]>,
- *   renderEdges?: () => Record<string, string[]> }} [options]
+ *  loadEdges?: () => Record<string, string[]>,
+ *  renderEdges?: () => Record<string, string[]> }} [options]
  * @returns {{ files: string[], uncollected: string[], leftOut: string[],
- *   leftBy: string[], fallback: unknown }}
- *   `uncollected` the touched tests the runner does not collect; `leftOut`
- *   the collected tests only checker-only files would select, and `leftBy`
- *   those files; `fallback` null where the manifest selected
- * @throws where the runner's collection cannot be read: a selection it
- *   cannot check is never run, the fallback's included
+ *  leftBy: string[], fallback: unknown }}
  */
 function resolveTouched(
 	root,
@@ -362,10 +247,7 @@ function resolveTouched(
 	} = {},
 ) {
 	const { isTest, isSibling, collected } = ROUTES[suite];
-	/**
-	 * @param {string[]} owed the tests selected
-	 * @param {[string, string[]][]} [cuts] each checker-only file's other readers
-	 */
+	/** @param {string[]} owed @param {[string, string[]][]} [cuts] */
 	const settle = (owed, cuts = []) => {
 		const collectedSet = new Set(
 			collected(root, sortedUnion(owed, ...cuts.map(([, t]) => t)), execFn),
@@ -406,12 +288,12 @@ function resolveTouched(
 			);
 		}
 	}
-	/** @param {string} p the tests an edge from `p` selects */
+	/** @param {string} p */
 	const reach = (p) => [
 		...(lexical.get(p) ?? []),
 		...testsReading([p], graph).filter((t) => isTest(t) && isOnDisk(root, t)),
 	];
-	/** @type {Map<string, string[]>} each changed checker-only file's checker tests */
+	/** @type {Map<string, string[]>} */
 	const checkers = new Map();
 	for (const p of changed) {
 		const tests = checkerTests(p, tree.tracked);
@@ -434,29 +316,15 @@ function resolveTouched(
 	};
 }
 
-/**
- * The base a touched run started here selects from: `head` inside a live
- * commit-gate seat, its ancestry the test as the suite gate's count reads it
- * (lib/suite-queue.js `readGateSeats`), else `merge-base`.
- *
- * @returns {TouchedBase}
- */
+/** @returns {TouchedBase} */
 const readTouchedBase = () =>
 	readGateSeats().under(process.pid) ? "head" : "merge-base";
 
 /**
- * The session's own changed paths in the tree at `at` since `from`'s base,
- * untracked files included. Under `merge-base`, `ownWork` stands in for the
- * own-work read where the caller already holds it; null reads the plain
- * diff. One that `carriesUntracked` is the whole set, so the tree's untracked
- * files, a neighbour's among them, are not added (#2958). Under `head`, the
- * tree's changes over HEAD, `ownWork` being a range's and not read, or on a
- * merge its own content, `merge` its parents as read from `env`.
- *
  * @param {string} at
  * @param {{ from: TouchedBase, sessionId?: string|null, execFn?: ExecFn,
- *   ledger?: import("./own-work.js").CommitLedger,
- *   ownWork?: OwnSet|null, env?: NodeJS.ProcessEnv }} options
+ *  ledger?: import("./own-work.js").CommitLedger,
+ *  ownWork?: OwnSet|null, env?: NodeJS.ProcessEnv }} options
  * @returns {{ base: string, changed: string[], merge: MergeState }}
  */
 function readTouchedPaths(
@@ -481,18 +349,9 @@ function readTouchedPaths(
 	};
 }
 
-/**
- * A commit's merge parents besides HEAD, none where it is no merge, or why
- * they would not read (#5334).
- * @typedef {{ parents: string[] }|{ unread: string }} MergeState
- */
+/** @typedef {{ parents: string[] }|{ unread: string }} MergeState */
 
 /**
- * Of `changed`, the tree's changes over HEAD, those that also differ from
- * every merge parent, untracked files kept: `changed` whole where the commit
- * is no merge, or where its parents or a diff against one will not read
- * (#5334).
- *
  * @param {string} at
  * @param {string[]} changed
  * @param {NodeJS.ProcessEnv|undefined} env
@@ -533,13 +392,9 @@ function readChanged(at, base, own, execFn) {
 	].sort();
 }
 /**
- * A touched run's selection in the tree at `at`: the session's changed
- * paths since `from`'s base, the tests they touch on `suite`'s route, and the
- * banner the run prints.
- *
  * @param {string} at
  * @param {Partial<Parameters<typeof readTouchedPaths>[1]> &
- *   Parameters<typeof resolveTouched>[2]} [options]
+ *  Parameters<typeof resolveTouched>[2]} [options]
  */
 function selectTouched(
 	at,
@@ -548,7 +403,6 @@ function selectTouched(
 	const { base, changed, merge } = readTouchedPaths(at, {
 		...options,
 		from,
-		/* `||`, not `??`: the suite stubs the id to "", which is no session. */
 		sessionId: options.sessionId || idSeam.fromEnv(),
 	});
 	const resolved = resolveTouched(at, changed, {
@@ -567,17 +421,12 @@ function selectTouched(
 }
 
 /**
- * How the banner names the work a selection answers for: a merge's own
- * content, a commit's changes over HEAD, or the session's own work since the
- * merge base; `selected` its TOUCHED TESTS ONLY line's tail, `coda` a last
- * line or none. A merge's coda names the nets left on `suite`'s route.
- *
  * @param {string} base
  * @param {TouchedBase} from
  * @param {MergeState} merge
  * @param {"vitest"|"pytest"} [suite]
  * @returns {{ ownWork: string, uncollectedWork: string, selected: string,
- *   coda: string|null }}
+ *  coda: string|null }}
  */
 function scopeWording(base, from, merge, suite = "vitest") {
 	const at = shortSha(base);

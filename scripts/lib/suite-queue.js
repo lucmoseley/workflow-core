@@ -1,15 +1,3 @@
-/*
- * suite-queue.js — the suite queue's wait, shared by `run-vitest.js --queue`
- * (mantahostels#2024) and `queue-run.js` (#1776): its
- * marker per waiter, the turn order and the gate poll. The walk over
- * `wfc-suite-queue-*.json` markers and the `(pid, start)` staleness rule for
- * one are shared with check-stale-suite-queue.js, which only reports a stale
- * marker where `readTurn` sweeps it (mantahostels#2034).
- *
- * ONE DEFINITION, OF BOTH: the walk and the staleness rule, never restated by
- * a caller (mantahostels#2034).
- */
-
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
@@ -48,107 +36,55 @@ const { TSC_QUEUE_NAME, isTscRunner, runnerPeakMb } = require("./tsc-slot.js");
 const { describeWindowsHold } = require("./windows-memory.js");
 
 /**
- * Which limb of the suite gate denied: its count cap, with the PIDs holding it
- * where the gate read them (#4359), or its memory rung, with the reading and
- * the rung where the guard gave them, and what the other queue's launches have
- * yet to draw where the gate charged it (#3416), and `busy`, the vitest
- * workers running, where it read `ps` (#4783), and `ladderMb`, the rung as
- * priced where it passed the machine's reach and `rungMb` is the clamp
- * (#5310).
- * A count denial carries the memory reading where the rung fails too (#4359).
- * `peak` names a part-suite's own peak charge where the rung is its (#5366).
  * @typedef {{ mb?: number, rungMb?: number, climbMb?: number, busy?: number, ladderMb?: number, peak?: import("./part-suite-peak.js").PeakCharge }} MemoryReading
  * @typedef {{ limb: "windows" } & import("./windows-memory.js").WindowsHold} WindowsHold
  * @typedef {{ limb: "count", pids?: (number | null)[], memory?: MemoryReading } | ({ limb: "memory" } & MemoryReading) | WindowsHold} GateDenial
  */
 /**
- * Why a turn is closed, by whom (#4359): `fifo`, the waiters joined ahead,
- * by PID; `admitted`, the launches admitted and not yet up, by PID and queue;
- * `peer`, the other queue's older waiters the climb charge holds (#4760);
- * `claim`, the older touched waiters whose first claim holds a named one
- * (#5367).
  * @typedef {{ limb: "fifo" | "claim", pids: number[] } | { limb: "admitted" | "peer", holders: { pid: number, queue: string }[] }} TurnHold
  */
 /** @typedef {Exclude<import("./queue-exit-log.js").QueueExitReason, "killed">} WaitExitReason */
 /** @typedef {"run"|"left"|"refused"} WaitOutcome */
 /** @typedef {import("./queue-exit-log.js").HeldLimb} HeldLimb */
 /**
- * What a wait's exit line records of what held it: `limb` at the queue's bound,
- * `climbMb`, the highest charge a poll was held on (`heldOnClimbMb`), and
- * `peerS`, the seconds the `peer` limb held it (#4765).
- * `admission`, how the gate's last reading judged a part-suite (#5366).
  * @typedef {{ limb?: HeldLimb, climbMb?: number, peerS?: number, windowsReleased?: true, admission?: import("./part-suite-peak.js").PartAdmission }} WaitHold
  */
 /** @typedef {{ queueFs?: typeof fs, alive?: (pid: number) => boolean, treePssKb?: (pid: number) => number, onUnread?: (dir: string, error: unknown) => void, ps?: typeof readPs, parentOf?: (pid: number) => number, carriedOf?: typeof readCarriedWeightOf, rungQueue?: string | null }} ClimbOptions */
-/**
- * Which climb a launch the guard judges unqueued pays (#4111): `"all"`, both
- * queues' climb, or `"off-rung"`, what its suite rung does not count already.
- * @typedef {"all" | "off-rung"} ClimbScope
- */
-/**
- * The stamps `waitForGate` sets on a queued waiter's marker each poll, each
- * against the option that hears it (#4798).
- */
+/** @typedef {"all" | "off-rung"} ClimbScope */
 const HOLD_STAMPS = /** @type {const} */ ({
 	memoryHeld: "onMemoryHeld",
 	restHeld: "onRestHeld",
 	windowsHeld: "onWindowsHeld",
-	/* `onClimbHeld` already hears the climb charge's MB (#3806). */
 	climbHeld: "onClimbStamp",
 });
 /** @typedef {keyof typeof HOLD_STAMPS} HoldStamp */
 /** @typedef {{ [K in HoldStamp as (typeof HOLD_STAMPS)[K]]?: (held: boolean) => void }} HoldListeners */
-/** The marker stamps set outside `waitForGate`. */
 const OTHER_STAMPS = /** @type {const} */ (["admitted", "yielding"]);
 /** @typedef {(typeof OTHER_STAMPS)[number] | HoldStamp} MarkerStamp */
-/**
- * The marker stamps written only while true: `stampMarker` drops one set false.
- * @type {readonly MarkerStamp[]}
- */
+/** @type {readonly MarkerStamp[]} */
 const MARKER_STAMPS = [
 	...OTHER_STAMPS,
 	.../** @type {HoldStamp[]} */ (Object.keys(HOLD_STAMPS)),
 ];
 /**
- * A gate seat's marker also carries `repo`, `session` and `command`, who holds
- * the slot as a waiting gate names it (lib/gate-seat.js).
  * @typedef {{ repo: string | null, session: string | null, command: string }} SeatHolder
  * @typedef {import("./part-suite-peak.js").PartKind} PartKind
- * @typedef {{ chargeMb?: number }} SpawnCharge the peak a spawned launch's
- *   climb is charged, where its gate measured one (#5366)
+ * @typedef {{ chargeMb?: number }} SpawnCharge
  * @typedef {{ pid: number, at: number, start?: number, role?: string, chargeMb?: number, memoryRungMb?: number, part?: boolean, kind?: PartKind, files?: number, spawned?: boolean } & Partial<SeatHolder> & { [K in MarkerStamp]?: boolean }} QueueRecord
  */
+/** @typedef {"admitted"|"behind"|"ahead"} Admission */
 /**
- * How a waiter's admission came out: `admitted`, or yielded to another launch
- * admitted on the same poll, which joined `behind` or `ahead` of it (#2622).
- * @typedef {"admitted"|"behind"|"ahead"} Admission
- */
-/**
- * A queued launcher's options: `waitForGate`'s own, less the `admit` it wires
- * to its marker itself, and the queue's (#2742).
  * @typedef {Omit<Parameters<typeof waitForGate>[0], "admit"> & Parameters<typeof queueJoin>[0] & Parameters<typeof readTurn>[0]} QueuedLaunchOptions
  */
 
 const QUEUE_PREFIX = "wfc-suite-queue-";
 const QUEUE_NAME = "wfc-suite-queue";
 
-/**
- * The queue's own directory under the temp root, which every default reads.
- * Never the root itself: a shared `/tmp` grows too large to list on every
- * admission and poll (#2889). Read at call time, so a caller's `TMPDIR`
- * redirects it.
- * @returns {string}
- */
+/** @returns {string} */
 function defaultQueueDir() {
 	return path.join(os.tmpdir(), QUEUE_NAME);
 }
 
-/*
- * The queues admitting against one MemAvailable reading, the suite queue and
- * the type-check slot's (#3203), each with the peak a launch in it is charged
- * on the other's rung while it climbs (#3416), each measured in
- * lib/launch-charge.js.
- */
 /** @type {Record<string, number>} */
 const PEAK_MB = {
 	[QUEUE_NAME]: launchChargeMb({ kind: "suite" }),
@@ -157,14 +93,6 @@ const PEAK_MB = {
 const ADMITTING_QUEUES = Object.keys(PEAK_MB);
 
 /**
- * The peak a marker in queue `name` is charged against: one carrying its own
- * measured charge, that — a lander's (#3973), a queued non-vitest runner's
- * (#4648), or a part-suite admitted on its own peak, stamped at its spawn
- * with the p99 its gate charged off its own repo's ledger (#5366); any other
- * part-suite's its line by the test files it resolved to; any other's its
- * queue's. A part marker with no file count, a run not counted at admission,
- * takes its queue's.
- *
  * @param {string} name
  * @param {Pick<QueueRecord, "part" | "files" | "chargeMb">} record
  * @returns {number}
@@ -179,10 +107,6 @@ function peakMbOf(name, record) {
 }
 
 /**
- * The other queues admitting against the reading `queueDir`'s does: its
- * siblings among ADMITTING_QUEUES, or none where `queueDir` is not one of
- * them.
- *
  * @param {string} queueDir
  * @returns {string[]}
  */
@@ -194,25 +118,12 @@ function peerQueueDirs(queueDir) {
 	);
 }
 
-/**
- * Whether a marker is stamped `admitted` and not yet `spawned`: a launch about
- * to start that no `ps` count or MemAvailable reading sees yet.
- *
- * @param {QueueRecord} record
- */
+/** @param {QueueRecord} record */
 function isUnspawnedAdmission(record) {
 	return record.admitted === true && record.spawned !== true;
 }
 
 /**
- * The live markers in `queueDir`'s peer queues that `keep` accepts, each with
- * its queue's name. Sweeps nothing, a peer queue's stale markers being its own
- * `readTurn`'s to remove.
- *
- * A PEER DIRECTORY THAT WILL NOT READ CONTRIBUTES NONE, failing open as an
- * unreadable own queue does. What is lost is the ordering against that queue:
- * the same-poll yield (#3203) and the climb yield (#4760).
- *
  * @param {string} queueDir
  * @param {(record: QueueRecord) => boolean} keep
  * @param {{ queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
@@ -231,10 +142,6 @@ function readPeerMarkers(
 }
 
 /**
- * The live launches admitted and unspawned besides `pid`'s: those in
- * `records`, `queueDir`'s own markers, then its peer queues', each with its
- * queue's name.
- *
  * @param {QueueRecord[]} records
  * @param {string} queueDir
  * @param {{ pid: number, queueFs: typeof fs, alive: (pid: number) => boolean }} options
@@ -256,10 +163,6 @@ function openAdmissions(records, queueDir, { pid, queueFs, alive }) {
 }
 
 /**
- * The live waiters in `queueDir`'s peer queues that joined before `mine` and
- * that the climb charge holds (#4760): stamped `climbHeld`, neither admitted
- * nor spawned (`readPeerMarkers`).
- *
  * @param {string} queueDir
  * @param {Pick<QueueRecord, "pid" | "at">} mine
  * @param {{ queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
@@ -278,28 +181,6 @@ function readPeerClimbHeld(queueDir, mine, options = {}) {
 }
 
 /**
- * What the launches in `queueDirs` have yet to draw, in MB (#3416): each live
- * marker stamped `spawned` is charged its peak (`peakMbOf`) less its process
- * tree's PSS, never below 0. MemAvailable counts a launch only as far
- * as it has climbed, so a gate reading it live charges the rest itself. A
- * launch admitted and unspawned closes the turn instead (`readTurn`).
- *
- * CHARGED FOR AS LONG AS ITS MARKER LIVES, not for a climb window: a `tsc`
- * peaks at its end, a marker may hold several in series, and a suite's draw
- * swings back to near its peak late in its run. Save a held seat stamped
- * `yielding` (#4766): its next run waits on a peer the climb holds, nothing
- * of its tree climbs, and its charge would hold that peer in turn. A tree's PSS reads at most
- * its RSS, against peaks measured as RSS, so the charge errs high. A
- * directory that will not read charges none, handed to `onUnread`.
- *
- * A launch holding no marker is charged the same way, read off `ps`
- * (`readUnmarkedRunners`, #3615).
- *
- * `rungQueue` names the queue whose launches on `ps` the caller's rung counts
- * (#4111): its runners holding no marker are charged nothing, and its markers
- * only while no runner of theirs is on `ps` yet, the gap between a spawn and
- * its vitest's first `ps` row.
- *
  * @param {string[]} queueDirs
  * @param {ClimbOptions} [options]
  * @returns {number}
@@ -309,7 +190,6 @@ function readClimbMb(
 	{
 		queueFs = fs,
 		alive = pidAlive,
-		/* Required at the call: admission.js costs a hook ~65 ms to load. */
 		treePssKb = (pid) => require("./admission.js").readTreePssKb(pid),
 		onUnread = logClimbUnread,
 		ps = readPs,
@@ -360,8 +240,6 @@ function readClimbMb(
 }
 
 /**
- * The pids `rungQueue`'s runners on `ps` sit under, themselves included: a
- * marker holding one is a launch the caller's rung counts (#4111).
  * @param {{ pid: number, args: string }[]} runners
  * @param {string | null} rungQueue
  * @param {(pid: number) => number} parentOf
@@ -377,7 +255,6 @@ function readRungPids(runners, rungQueue, parentOf) {
 }
 
 /**
- * A climb read that came up short, on the guard-error log.
  * @param {string} what
  * @param {unknown} error
  */
@@ -389,11 +266,7 @@ function logClimbUnread(what, error) {
 	);
 }
 
-/**
- * The xdist workers a pytest line asks for: `-n`'s value, a CPU each for
- * `auto` or `logical`, none where it names none.
- * @param {string} args
- */
+/** @param {string} args */
 function pytestWorkersOf(args) {
 	const value = /(?:^| )(?:-n[ =]?|--numprocesses[ =])(\S+)/.exec(args)?.[1];
 	if (value === "auto" || value === "logical") return os.availableParallelism();
@@ -404,7 +277,6 @@ function pytestWorkersOf(args) {
 /** @param {string} args */
 const isNodeLine = (args) => /^ *(\S*\/)?node(js)?( |$)/.test(args);
 
-/* A launch read with no host: no declared runner. */
 const NO_HOST_PORTS = { runners: () => [], isWrapperScript: () => true };
 
 /** @param {string} args */
@@ -412,9 +284,6 @@ const isOtherSuiteLine = (args) =>
 	isOtherRunner(args.trim().split(/\s+/), NO_HOST_PORTS.runners);
 
 /**
- * The runners `readClimbMb` charges holding no marker, each with the queue
- * whose gate counts it on its own rung or slot, or null for one no gate
- * counts, and its peak.
  * @type {{ queue: string | null, isRunner: (args: string) => boolean, peakMbOf: (row: { pid: number, args: string }, carriedOf: typeof readCarriedWeightOf) => number }[]}
  */
 const RUNNERS = [
@@ -435,7 +304,6 @@ const RUNNERS = [
 		peakMbOf: ({ args }) =>
 			launchChargeMb({ kind: "pytest", workers: pytestWorkersOf(args) }),
 	},
-	/* Charged its own compiler's peak, read off its line (#4892). */
 	{
 		queue: TSC_QUEUE_NAME,
 		isRunner: isTscRunner,
@@ -452,15 +320,7 @@ const RUNNERS = [
 const runnerOf = (args) => RUNNERS.find((r) => r.isRunner(args));
 
 /**
- * The measured peak a `queue-run.js` launch of `words` stamps on its marker
- * as `chargeMb` (#4648): its runner class's, as one holding no marker is
- * charged. `npm run test:py` is charged pytest's, at the workers its argv
- * names, else TEST_PY_WORKERS (#4775). Undefined for a vitest line, a runner
- * of another queue's class, or one no class matches, a host's declared runner
- * among them: its marker takes the queue's peak. Residual: a host's `npm test`
- * whose script runs pytest or `node --test`, queued through `queue-run.js`,
- * reads as no class and is charged the queue's peak.
- * @param {string[]} words the command, wrappers taken off
+ * @param {string[]} words
  * @returns {number | undefined}
  */
 function queuedRunnerPeakMb(words) {
@@ -473,38 +333,11 @@ function queuedRunnerPeakMb(words) {
 	const runner = runnerOf(args);
 	if (runner?.queue !== QUEUE_NAME || runner.isRunner === isVitestRunnerLine)
 		return;
-	/* No pid: only the vitest class, left out above, reads one. */
 	return runner.peakMbOf({ pid: 0, args }, readCarriedWeightOf);
 }
 
 /**
- * The running launches of a `RUNNERS` class in no queue (#3615, #4112): a bare
- * launch the guard admitted, or one it never judged, such as a `sh -c "…"`. A
- * hook outlives no launch, so none can leave a marker, and `ps` is what shows
- * them. `readClimbMb` charges each to the queue whose gate counts it, never
- * an unqueued suite at a suite's gate (`runningSuites`).
- *
- * A RUNNER UNDER A LIVE MARKER'S PID OR ANOTHER RUNNER IS LEFT OUT: the marker
- * is charged already, and an outer runner's charge covers its tree. Markers
- * are read from the temp root `queueDirs` sit in, so a launch queued under
- * another `TMPDIR` reads as unmarked.
- *
- * FAILS OPEN, handed to `onUnread`: a `ps` that will not run charges none, and
- * a queue directory that will not read leaves its launches' runners unmarked.
- *
- * Residual:
- * - a launch is unseen from the guard's exit until its runner is on `ps`;
- * - a `tsc` whose line `isTscRunner` misses, such as one with node flags before
- *   its path, is charged nothing;
- * - a `tsc` under an unqueued vitest is charged nothing at a queued suite's gate,
- *   which does not charge that vitest;
- * - an open watcher is charged a whole suite's rest for as long as it is open,
- *   as its rung is (mantahostels#1927);
- * - a host's declared runner is charged nothing, having no measured peak.
- *
  * @param {string[]} queueDirs
- * Returns every runner on `ps` too, which `readClimbMb` matches to markers.
- *
  * @param {Required<Pick<ClimbOptions, "queueFs" | "alive" | "onUnread" | "ps" | "parentOf">>} options
  * @returns {{ runners: { pid: number, args: string }[], unmarked: { pid: number, args: string }[] }}
  */
@@ -530,7 +363,6 @@ function readUnmarkedRunners(
 		ADMITTING_QUEUES.flatMap((name) => {
 			const dir = path.join(tempRoot, name);
 			const { markers, error } = readMarkers(dir, queueFs);
-			/* A directory in `queueDirs` is `readClimbMb`'s to report. */
 			if (error && !queueDirs.includes(dir)) onUnread(dir, error);
 			return markers
 				.map((m) => m.record)
@@ -549,8 +381,6 @@ function readUnmarkedRunners(
 }
 
 /**
- * What `queueDir`'s peer queues' launches have yet to draw, in MB: the charge
- * a queued gate takes, its own queue's launches being its turn's to order.
  * @param {string} queueDir
  * @param {ClimbOptions} [options]
  */
@@ -558,10 +388,6 @@ const readPeerClimbMb = (queueDir, options) =>
 	readClimbMb(peerQueueDirs(queueDir), options);
 
 /**
- * What the admitting queues' launches have yet to draw, in MB (#3488): the
- * charge a launch the guard judges unqueued takes, being in neither queue. A
- * bare `tsc` or a build pays `"all"`; a suite pays `"off-rung"` (#4111, #4112). Read at
- * call time, so a caller's `TMPDIR` redirects it.
  * @param {ClimbScope} scope
  * @param {ClimbOptions} [options]
  */
@@ -572,12 +398,6 @@ const readQueuesClimbMb = (scope, options) =>
 	});
 
 /**
- * A process's start time, in clock ticks since boot, from `/proc/<pid>/stat`.
- *
- * Returns 0 where it cannot be read — a kernel without procfs, another
- * namespace — and the caller then falls back to the pid alone rather than
- * treating every marker as stale.
- *
  * @param {number} pid
  * @returns {number}
  */
@@ -587,16 +407,6 @@ function readStartTimeOf(pid) {
 }
 
 /**
- * Whether a queue marker is stale — the process is gone, or the pid has been
- * REUSED by an unrelated process, which a leaked marker makes likely rather
- * than exotic.
- *
- * Where `start` is absent, or 0 because procfs could not be read, the check
- * falls back to liveness alone rather than sweeping something it cannot judge.
- *
- * DUPLICATED BY HAND in scripts/sample_session_memory.py's live_holder: move
- * both, or neither (#5274).
- *
  * @param {{ pid: number, start?: number }} record
  * @param {{ alive?: (pid: number) => boolean, startTime?: (pid: number) => number }} [options]
  * @returns {boolean}
@@ -613,21 +423,6 @@ function isMarkerStale(
 }
 
 /**
- * Every `wfc-suite-queue-*.json` marker in `dir`, parsed where it will
- * parse.
- *
- * A marker that will not parse, or that names no numeric `pid`/`at`, is
- * silently skipped rather than reported (mantahostels#2034): such a marker is
- * most likely one caught mid-write by `queueJoin`'s bare `writeFileSync` (no
- * temp-and-rename).
- *
- * A directory that will not read returns `error` rather than an empty list,
- * so a caller can tell "nothing is queued" from "the read failed" — one `[]`
- * for both would read as an all-clear on a directory this process could not
- * see into at all. A directory that does not exist is the empty queue
- * (#2889): `queueJoin` makes it, so none has joined since the temp root was
- * cleared.
- *
  * @param {string} dir
  * @param {typeof fs} [fsImpl]
  * @returns {{ markers: { file: string, record: QueueRecord }[], error: unknown }}
@@ -659,22 +454,7 @@ function readMarkers(dir, fsImpl = fs) {
 }
 
 /**
- * Announce this waiter, so the others can order themselves against it (mantahostels#2024).
- *
- * A MARKER PER PROCESS, NOT A LOCK, and liveness alone is not self-healing: a
- * killed waiter must drop its marker on the signal that killed it, not only on
- * resolution — each waiter's signal handler does that — and the marker must carry `(pid, start)` rather than `pid` alone
- * since pids recycle (mantahostels#2034). Between them there is still no lease and no
- * expiry.
- *
  * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, clock?: () => number, role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight, kind?: PartKind, holder?: SeatHolder }} [options]
- *   `role` marks a waiter session admission reads: the lander (#2416) or a
- *   gate seat (#5274), `chargeMb` what admission holds back for it (#3323),
- *   `holder` who a gate seat is;
- *   `weight` the admission weight the launch carries (#2931), a waiter with
- *   none, such as `queue-run.js`'s, joining whole. One resolving below the
- *   whole-slot bound joins `part`, a part-suite (#2558), with its resolved
- *   `files` (#3806) and its `kind`, which picks its turn's lane (#5367).
  */
 function queueJoin({
 	queueDir = defaultQueueDir(),
@@ -708,21 +488,16 @@ function queueJoin({
 		);
 		return file;
 	} catch {
-		// Unwritable queue costs the ordering, never the run.
 		return "";
 	}
 }
 
 /**
- * Merge `fields` into this waiter's marker, dropping any `MARKER_STAMPS`
- * stamp set false. Fails silent, like `queueJoin`.
- *
  * @param {string} file
  * @param {{ spawned?: true, memoryRungMb?: number } & { [K in MarkerStamp]?: boolean }} fields
  */
 function stampMarker(file, fields, { queueFs = fs } = {}) {
 	if (!file) return;
-	// What will not stamp degrades the ordering to the gate alone.
 	ignoreFailure(() => {
 		const record = {
 			...JSON.parse(String(queueFs.readFileSync(file, "utf8"))),
@@ -734,9 +509,6 @@ function stampMarker(file, fields, { queueFs = fs } = {}) {
 }
 
 /**
- * Whether marker `a` joined ahead of `b`. Ties break on pid so that two
- * waiters reading the same millisecond still agree on their order.
- *
  * @param {{ pid: number, at: number }} a
  * @param {{ pid: number, at: number }} b
  */
@@ -745,25 +517,6 @@ function joinedBefore(a, b) {
 }
 
 /**
- * Stamp this waiter's marker `admitted`, the moment its wait ends in a run and
- * before anything launches, so no other waiter's turn comes until it spawns
- * (#2578). Then re-read the markers: two waiters whose turns came true on one
- * poll each read the gate before either stamped (#2622). Whichever re-reads
- * second sees the other's stamp, so a waiter that finds another live marker
- * admitted and unspawned drops its stamp and yields — `behind` where that
- * marker joined ahead of it, to wait a poll, `ahead` where every such marker
- * joined behind it, to re-read at once and launch once they yield in turn.
- *
- * THE RE-READ COVERS EVERY QUEUE ON THE SAME READING (#3203): its peer queues,
- * the type-check slot's queue for a suite and the suite queue for a `tsc`, so a
- * whole suite and a `tsc` admitted on one poll never both launch. The pid
- * order holds across queues.
- *
- * FAILS OPEN, silently like `readTurn`, where there is nothing to contest
- * with: no marker of its own (an unwritable queue, `queueJoin`'s "") or a
- * queue directory that will not read. Residual: a dropped stamp that will not
- * write leaves this waiter `admitted`, holding every turn until it launches.
- *
  * @param {string} file
  * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, alive?: (pid: number) => boolean }} [options]
  * @returns {Admission}
@@ -790,10 +543,6 @@ function queueAdmit(
 }
 
 /**
- * Stamp this waiter's marker `spawned`, once vitest is up and the guard can
- * count it, with the peak its climb is charged where its gate measured one
- * (`peakMbOf`, #5366).
- *
  * @param {string} file
  * @param {QueueOptions} [options]
  * @param {SpawnCharge} [charge]
@@ -803,8 +552,6 @@ function queueSpawned(file, options = {}, charge = {}) {
 }
 
 /**
- * One listener per `HOLD_STAMPS` stamp, under the option name it is heard by.
- *
  * @param {(stamp: HoldStamp) => (held: boolean) => void} listen
  * @returns {Required<HoldListeners>}
  */
@@ -820,15 +567,6 @@ function buildHoldListeners(listen) {
 }
 
 /**
- * What a queued waiter's `waitForGate` reads and writes through its queue,
- * spread into its options as one, so no queued caller wires one without the
- * others: `admit` (`queueAdmit`), a listener per `HOLD_STAMPS` stamp that
- * writes it to the marker, and `climbMb`, what
- * its peer queues' launches have yet to draw (#3416). `onClimbHeld` keeps the highest charge that held the wait, and
- * `onPeerHeld` the seconds the `peer` limb held it to the last poll (#4765), for
- * `polledHold` to give an exit line `waitForGate` never writes: a killed
- * wait's (#3806) or one a failed re-check refuses.
- *
  * @param {string} file
  * @param {Parameters<typeof queueAdmit>[1] & Parameters<typeof readPeerClimbMb>[1]} [options]
  * @returns {{ admit: () => Admission, climbMb: () => number, onClimbHeld: (climbMb: number) => void, onPeerHeld: (secs: number) => void, onMemoryRung: (rungMb: number) => void, polledHold: () => WaitHold } & Required<HoldListeners>}
@@ -859,10 +597,6 @@ function queueStamps(file, options = {}) {
 }
 
 /**
- * The live markers `role` names, waiting or running, and why the queue would
- * not read, null where it did (#5301). Sweeps nothing: a stale marker is
- * `readTurn`'s to remove.
- *
  * @param {string} role
  * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
  * @returns {{ records: QueueRecord[], unread: string | null }}
@@ -907,10 +641,6 @@ function readLiveWaiters({
 }
 
 /**
- * How many live waiters, in either admitting queue, the Windows-memory hold
- * is holding now: session admission adds no session while one waits (#4956).
- * A queue that will not read counts none, failing open.
- *
  * @param {{ queueDir?: string, queueFs?: typeof fs, alive?: (pid: number) => boolean }} [options]
  * @returns {number}
  */
@@ -943,22 +673,8 @@ function readTestsHeldOnMemory(options = {}) {
 		}));
 }
 
-/* The environment variable a seat hands its driver: the seat's marker path
- * (#2918). */
 const SEAT_ENV = "WFC_SUITE_SEAT";
 /**
- * The marker `envName` names where this process runs inside its holder: a
- * live marker whose pid is an ancestor of `pid`. Null otherwise. Unstamped
- * `spawned` counts: the holder spawns its command only once admitted, and the
- * stamp may land after a fast command reads it (#3404).
- *
- * THE ANCESTRY IS THE CHECK, not the variable: an environment leaks into any
- * process its holder starts, so a variable alone would let a run outside the
- * holder's process tree skip the queue.
- *
- * DUPLICATED BY HAND, for GATE_ENV, in scripts/sample_session_memory.py's
- * gate_seat_pids: move both, or neither (#5274).
- *
  * @param {string} envName
  * @param {{ env?: NodeJS.ProcessEnv, queueFs?: typeof fs, pid?: number, alive?: (pid: number) => boolean, startTime?: (pid: number) => number, parentOf?: (pid: number) => number }} [options]
  * @returns {{ file: string, record: QueueRecord } | null}
@@ -990,14 +706,6 @@ function heldMarker(
 }
 
 /**
- * The part-suite seat this process runs inside (#2918): the marker `SEAT_ENV`
- * names, where `heldMarker` holds it and it is a part marker, spawned. Null otherwise,
- * and the run then queues as any other.
- *
- * Residual: the seat is priced as one part-suite, but nothing counts the runs
- * inside it, so a driver running its mutants in parallel passes the count cap
- * with only the memory rung to hold it.
- *
  * @param {Parameters<typeof heldMarker>[1]} [options]
  * @returns {string | null}
  */
@@ -1015,13 +723,6 @@ function queueLeave(file, { queueFs = fs } = {}) {
 }
 
 /**
- * Whether this waiter's turn has come: it reads the queue's markers, sweeps
- * the stale ones and asks `turnOf`. `passed` is 0 where an open part-suite
- * turn passed none, absent on any other turn or a closed one.
- *
- * FAILS OPEN, like every other part of this wait: a queue directory that cannot
- * be read opens the turn.
- *
  * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, alive?: typeof pidAlive, slots?: number, clock?: () => number }} [options]
  * @returns {{ open: boolean, passed?: number, hold?: TurnHold }}
  */
@@ -1038,10 +739,6 @@ function readTurn({
 	/** @type {QueueRecord[]} */
 	const live = [];
 	for (const { file: full, record } of markers) {
-		/* Never liveness-check THIS waiter. `alive` is a probe that can be wrong —
-		 * a pid in another namespace, a hardened kernel — and a waiter that
-		 * mistakenly sweeps its own marker silently gives up its place and can
-		 * then be overtaken indefinitely. */
 		if (record.pid !== pid && isMarkerStale(record, { alive })) {
 			ignoreFailure(() => queueFs.unlinkSync(full));
 			continue;
@@ -1069,11 +766,8 @@ function readTurn({
 		now,
 	});
 	if (reasons.length === 0) return { open: true, passed };
-	/* An open admission closes every turn, the waiters ahead's too, so it
-	 * names the hold over them. */
 	if (reasons.includes("admitted"))
 		return { open: false, hold: { limb: "admitted", holders: admissions } };
-	/* The claim is named over a peer, as the waiters ahead are. */
 	if (reasons.includes("touched-claim"))
 		return {
 			open: false,
@@ -1082,22 +776,12 @@ function readTurn({
 				pids: ahead.filter((r) => hasFirstClaim(r, now)).map((r) => r.pid),
 			},
 		};
-	/* The waiters ahead in this queue are named over a peer (#4760).
-	 * Residual: where the peer outlasts them, a trace names it only once
-	 * they have cleared. */
 	if (reasons.length === 1 && reasons[0] === "peer-climb")
 		return { open: false, hold: { limb: "peer", holders: peers } };
 	return { open: false, hold: { limb: "fifo", pids: ahead.map((r) => r.pid) } };
 }
 
 /**
- * A whole-suite waiter's place for the slot (#5274): its 1-based position
- * among the live whole-suite markers, its own and those joined ahead of it,
- * and the slot's holder, the oldest of them spawned, else null. A queue
- * directory that will not read places it nowhere: position and holder null,
- * with why in `unread`, so a waiting gate says its place is unknown rather
- * than first in a free slot (#5274).
- *
  * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, alive?: typeof pidAlive }} [options]
  * @returns {{ position: number, holder: QueueRecord | null } | { position: null, holder: null, unread: string }}
  */
@@ -1128,15 +812,7 @@ function readSlotPlace({
 }
 
 /**
- * A held seat's turn (#4766): closed while the other queue holds an older
- * waiter the climb charge holds (`readPeerClimbHeld`), and on nothing else, a
- * seat skipping its own queue's order (#2918). Fails open on a queue directory that cannot be read, as `readTurn` does.
- *
- * While closed it stamps the seat's marker `yielding`, which takes the seat's
- * charge off the climb (`readClimbMb`). `release` drops
- * the stamp, on every path out of the wait.
- *
- * @param {string} seat the held seat's marker file
+ * @param {string} seat
  * @param {{ queueDir?: string, queueFs?: typeof fs, pid?: number, alive?: typeof pidAlive }} [options]
  * @returns {{ turn: () => boolean, turnHold: () => TurnHold | undefined, release: () => void }}
  */
@@ -1173,33 +849,20 @@ function peerClimbTurn(
 }
 
 /**
- * Why a turn is closed: a whole suite or a part-suite
- * held behind the waiters ahead of it, a `tsc` behind its own queue's, or
- * another launch admitted and unspawned, or an older waiter in the other
- * queue the climb charge holds, or behind a first claim (#5367).
  * @typedef {"fifo-whole" | "fifo-part" | "touched-claim" | "tsc-fifo" | "admitted" | "peer-climb"} TurnReason
  */
 /**
- * A turn's inputs, as a value: this waiter's class, the live waiters that
- * joined ahead of it, whether another launch in this queue or a peer is
- * admitted and unspawned, and whether the other queue holds an older waiter
- * the climb charge holds (#4760). `part` is a touched part-suite, `named` a
- * named one (#5367).
  * @typedef {"whole" | "part" | "named" | "tsc"} TurnWaiter
  * @typedef {{ waiter: TurnWaiter, ahead: Pick<QueueRecord, "at" | "part" | "kind" | "spawned" | "memoryHeld" | "restHeld" | "windowsHeld">[], admissionOpen: boolean, peerClimbHeld?: boolean, slots: number, now: number }} TurnSnapshot
  */
 
 /**
- * The lane a part-suite of `kind` queues in (#5367): a named run's own, and
- * every other, an untold kind included, a touched run's.
  * @param {PartKind | null | undefined} kind
  * @returns {PartKind}
  */
 const partLaneOf = (kind) => (kind === "named" ? "named" : "touched");
 
 /**
- * The turn class a queue marker waits in: a part-suite's lane by its `kind`
- * (#5367).
  * @param {Pick<QueueRecord, "part" | "kind">} record
  * @returns {TurnWaiter}
  */
@@ -1209,9 +872,6 @@ function waiterOf(record) {
 }
 
 /**
- * Whether an older waiter holds first claim over a named part-suite (#5367):
- * a part-suite in the touched lane (`partLaneOf`), unspawned, waiting
- * PART_PASS_AGE_MS or more.
  * @param {TurnSnapshot["ahead"][number]} r
  * @param {number} now
  */
@@ -1222,76 +882,6 @@ const hasFirstClaim = (r, now) =>
 	now - r.at >= PART_PASS_AGE_MS;
 
 /**
- * Every reason `snapshot`'s turn is closed, in the gate's order, and on an open
- * part-suite turn how many older part-suites it passed (#3115). `readTurn` and the queue-wait replay both ask it, so a change
- * to the rule reaches both (#4260).
- *
- * `partPass` switches #3058's pass on: always in the gate, from its commit in
- * the replay.
- *
- * `slots` IS WHOLE_SUITE_MAX: one whole suite at a time (#2680). A running
- * queued run holds its marker, so it keeps the slot until it finishes. An
- * unqueued or stood-down run holds no marker: the gate holds it instead, the
- * guard counting it off `ps` at the same cap, and `waitForGate` needs both.
- * ONE UNSPAWNED LAUNCH AT A TIME (#601): the gate counts `ps`, so waiters
- * admitted on one tick before any of them is visible would each read the same
- * free slots and overshoot the cap. No waiter's turn comes while another's marker is
- * `admitted` and unspawned, and a whole suite's turn also waits on every
- * waiter ahead having spawned.
- *
- * ACROSS QUEUES TOO (#3203): no turn comes while a peer queue's marker is
- * `admitted` and unspawned (`queueAdmit`'s peer queues). Every suite-queue marker
- * counts, a part-suite's and the lander's install included. Once spawned, a
- * launch is charged on the other queue's rung while it climbs
- * (`readPeerClimbMb`).
- *
- * THE QUEUES ARE ORDERED AGAINST EACH OTHER WHERE THE CLIMB DECIDES (#4760):
- * no turn comes while the other queue holds an older waiter stamped
- * `climbHeld`, one whose wait the climb charge of launches already running
- * has held, and holds still on its rung or the Windows hold while they are
- * charged (`isClimbKept`, #4799). The oldest such waiter yields to nobody, and
- * what holds it is running and ends, so the yield cannot deadlock.
- *
- * A PART-SUITE TAKES NO SLOT (#2558): a marker joined `part`, a run whose
- * carried weight resolves below the whole-slot bound (#2931), which the guard
- * never holds at its count cap. IT BACKFILLS PAST WHOLE SUITES (#2578): its turn waits on the
- * part-suites ahead alone, so a whole suite running or waiting never holds
- * it. A whole suite is delayed only by part-suites ahead of it or already
- * admitted, each charged on the rung once spawned, and an admitted one holds
- * every turn through run-vitest.js's prep. Two waiters whose turns come true
- * on one poll are settled by `queueAdmit`'s re-read (#2622).
- *
- * A PART-SUITE ALSO BACKFILLS PAST AN OLDER PART-SUITE THE MEMORY RUNG HOLDS
- * (#3058): one stamped `memoryHeld` and younger than PART_PASS_AGE_MS. Its own
- * rung is the gate's to judge, so a pass never admits a run the rung refuses;
- * a part-suite held only on its turn is never passed.
- *
- * PAST THAT AGE, ONLY WHILE IT IS HELD AT REST (#4783): stamped `restHeld`,
- * its rung refused with no vitest worker running and no climb charge. Then no
- * run that ends can let it in, so a pass cannot delay it. A pass that starts
- * a run ends the rest at the head's next poll, so the passes stop and the
- * runs drain to it.
- *
- * AND PAST ONE THE WINDOWS-MEMORY HOLD KEEPS OUT (#4782): one stamped
- * `windowsHeld`, at any age. The hold judges every waiter on one reading,
- * but releases each after its own spell's maximum (#4850), so a waiter
- * released first runs past an older one still held.
- *
- * Residual: the stamp is a poll old, so a part-suite may pass one whose
- * memory freed or whose rest ended since; memory freed outside the queue, or
- * by a `tsc` or build past its climb, which `busy` does not count, while a
- * passer runs waits on that passer's end; and a drop that will not write leaves the stamp, letting
- * younger ones pass until the age bound, or a `windowsHeld` one for as long
- * as its marker lives.
- *
- * A NAMED PART-SUITE HAS A LANE OF ITS OWN (#5367): it skips every older
- * part-suite, `passed` counting them.
- * FIRST CLAIM: while an older touched part-suite waits unspawned
- * PART_PASS_AGE_MS or more (`hasFirstClaim`), the named turn closes on
- * `touched-claim`, so a stream of named runs cannot starve it. `namedLane`
- * switches the lane on: always in the gate, from its commit in the replay;
- * off, a named waiter takes a touched one's rules.
- *
  * @param {TurnSnapshot} snapshot
  * @param {{ partPass?: boolean, namedLane?: boolean }} [options]
  * @returns {{ reasons: TurnReason[], passed?: number }}
@@ -1324,8 +914,6 @@ function turnOf(
 }
 
 /**
- * A part-suite's own turn, `turnOf`'s: the reason it closes, else how many
- * older part-suites it passes. `named` is the named lane (#5367).
  * @param {TurnSnapshot["ahead"]} ahead
  * @param {number} now
  * @param {{ named: boolean, partPass: boolean }} lane
@@ -1348,13 +936,6 @@ function partTurnOf(ahead, now, { named, partPass }) {
 }
 
 /**
- * A queued waiter's turn, and the extra fields for its exit line: `passed`,
- * from the turn read that opened it (#3115), on an `opened` exit alone. Every
- * other exit may follow polls the gate denied before reading the turn, so the
- * last count read there could be stale.
- *
- * `turnHold` is who held the last turn read shut (#4359).
- *
  * @param {Parameters<typeof readTurn>[0]} [options]
  * @returns {{ turn: () => boolean, turnHold: () => TurnHold | undefined, exitFields: (reason: WaitExitReason, heldBy?: WaitHold) => object }}
  */
@@ -1378,48 +959,20 @@ function passingTurn(options = {}) {
 	};
 }
 
-/* The age past which no part-suite passes an older one the memory rung holds
- * but not at rest (#3058, #4783), so passing never starves it: the p90 of
- * opened part-suite waits the memory rung held. p90 is a chosen rate, not a
- * measured safe pass time. Its figure and window are on #3361. A touched
- * waiter this old also holds first claim over named ones (#5367,
- * `hasFirstClaim`): reused there untraced, so one age bounds every pass. */
+// #3361 measured p90 370 s of 265 opened part-suite waits the memory rung held, rounded up to the minute
 const PART_PASS_AGE_MS = 7 * 60 * 1000;
 
-/* The signals a waiter drops its marker on, each with the shell's exit code
- * for it, 128 + its number (mantahostels#2034). */
 const QUEUE_SIGNALS = { SIGTERM: 143, SIGINT: 130, SIGHUP: 129 };
 
-/* The 40-minute bound clears the measured
- * p99 wait that ended in a run, in each repo (#5252). A gate seat waits past
- * it (queue-run.js `--gate`, #5274). */
+// #5252 measured p99 wait that ended in a run 20.5 min here, 33 min in design-vault
 const QUEUE_TIMEOUT_MS = 40 * 60 * 1000;
 
-/* How long one spell of the Windows-memory hold may hold a wait before the
- * wait runs anyway, logged (#4850). A first guess that has not yet bound
- * (#4852). */
+// #4852 guess
 const WINDOWS_MAX_HOLD_MS = 10 * 60 * 1000;
 
 /**
- * Whether the suite gate would refuse a run right now, and on which limb:
- * its count cap or its memory rung (mantahostels#2024, #155, #2305). Null where
- * it would not.
- *
- * `words` is the launch's own run-vitest.js argv, and `weight` the admission
- * weight its launch record carries (#2931), which the guard prices in place of
- * the files the words name. Neither asks about a whole suite.
- *
- * IT ASKS THE GUARD'S OWN CORE, NEVER `ps`: a caller that matches processes
- * itself drifts from the gate (mantahostels#2024).
- *
- * FAILS OPEN, so an unreadable gate never strands the suite: a launch that
- * cannot be judged proceeds (mantahostels#2024).
- *
- * `charge.climbMb` is what the peer queues' launches have yet to draw, and
- * `charge.onAdmission` hears how the gate judged a part-suite (#5366).
  * @param {string[]} [words]
  * @param {(command: string, weight: import("./suite-handoff.js").CarriedWeight | null, climbMb: number, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void) => GateDenial | null} [read]
- *   the gate's reading of a command
  * @param {import("./suite-handoff.js").CarriedWeight | null} [weight]
  * @param {{ climbMb?: number, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void }} [charge]
  * @returns {GateDenial | null}
@@ -1445,7 +998,6 @@ function gateDenies(
 			? read(command, weight, climbMb, onAdmission)
 			: read(command, weight, climbMb);
 	} catch (err) {
-		// A log that cannot be written must not strand the suite.
 		ignoreFailure(() =>
 			require("./arbiter-core.js").logError(
 				"suite-queue.js",
@@ -1458,9 +1010,6 @@ function gateDenies(
 }
 
 /**
- * What held a wait neither memory limb did: the count cap where the
- * gate denied, else the queue's turn, `peer` where a peer closes it (#4765).
- *
  * @param {GateDenial | null} denial
  * @param {TurnHold | undefined} turnHold
  * @returns {Exclude<HeldLimb, "memory" | "windows">}
@@ -1489,9 +1038,6 @@ const HELD_LINE = {
 };
 
 /**
- * What holds a wait on one poll: a gate denial, who holds the turn shut, a
- * turn closed by a caller's own `turn` (`{ limb: "turn" }`), or a yield to a
- * launch admitted on the same poll.
  * @typedef {GateDenial | TurnHold | { limb: "turn" } | { limb: "yielded" }} WaitLimb
  */
 
@@ -1499,12 +1045,7 @@ const HELD_LINE = {
 const pidList = (pids) =>
 	pids.length === 0 ? "" : `, PID ${pids.map((p) => p ?? "unread").join(", ")}`;
 
-/**
- * A memory reading is no identity, so a moving MemAvailable never reads as a
- * new limb.
- *
- * @param {WaitLimb} hold
- */
+/** @param {WaitLimb} hold */
 function limbHolder(hold) {
 	if (hold.limb === "count") return pidList(hold.pids ?? []);
 	if (hold.limb === "fifo" || hold.limb === "claim") return pidList(hold.pids);
@@ -1513,10 +1054,7 @@ function limbHolder(hold) {
 	return "";
 }
 
-/**
- * The peak charge a memory hold names in place of the ladder's (#5366).
- * @param {MemoryReading} hold
- */
+/** @param {MemoryReading} hold */
 const peakOf = ({ peak }) => (peak ? `, the rung of ${peakClause(peak)}` : "");
 
 /**
@@ -1548,11 +1086,6 @@ function waitLimb(denial, open, turnHold) {
 }
 
 /**
- * Every limb besides `denial`'s that fails this poll too, the gate's order
- * hiding them (#4359): the memory rung under a count cap, and the turn.
- * Reading the turn here sweeps stale markers as `readTurn` does on any poll,
- * so a traced wait sweeps on denied polls too; nothing it sweeps is live.
- *
  * @param {GateDenial} denial
  * @param {() => boolean} turn
  * @param {() => TurnHold | undefined} turnHold
@@ -1569,9 +1102,7 @@ function readAlsoHeld(denial, turn, turnHold) {
 }
 
 /**
- * Whole seconds per limb, summing to `wholeSecs` (largest remainder).
- *
- * @param {[WaitLimb["limb"], number][]} parts  each limb's milliseconds
+ * @param {[WaitLimb["limb"], number][]} parts
  * @param {number} wholeSecs
  * @returns {[WaitLimb["limb"], number][]}
  */
@@ -1588,7 +1119,7 @@ function roundedSecs(parts, wholeSecs) {
 
 /**
  * @param {WaitLimb[]} limbs
- * @param {number | undefined} lowest  the lowest MemAvailable read so far
+ * @param {number | undefined} lowest
  * @returns {number | undefined}
  */
 function lowestReading(limbs, lowest) {
@@ -1600,14 +1131,6 @@ function lowestReading(limbs, lowest) {
 }
 
 /**
- * A wait's trace of what holds it (#4359): `see` takes each poll's limb, or
- * null where nothing held it, with the other limbs failing that poll, and
- * returns the line to print where any of them or their holders changed;
- * `breakdown` names the time on each limb from `started`, in the order each
- * first held it, the limb holding it now counted to now, then the lowest
- * MemAvailable any poll read. A yield's time is its own, and leaves the
- * printed limbs alone, so the limb after it prints no line again.
- *
  * @param {() => number} clock
  * @param {number} started
  */
@@ -1630,18 +1153,16 @@ function limbTrace(clock, started) {
 	return {
 		/**
 		 * @param {WaitLimb | null} hold
-		 * @param {WaitLimb[]} [also]  the other limbs failing this poll
+		 * @param {WaitLimb[]} [also]
 		 * @returns {string | null}
 		 */
 		see(hold, also = []) {
 			if (first) {
-				/* The wait's first stretch is its first limb's. */
 				first = false;
 				current = hold;
 			}
 			accrue();
 			current = hold;
-			/* A yield prints its own line (`admitOrYield`). */
 			if (!hold || hold.limb === "yielded") {
 				if (!hold) identity = "";
 				return null;
@@ -1663,7 +1184,7 @@ function limbTrace(clock, started) {
 			accrue();
 			return heldMs.get(limb) ?? 0;
 		},
-		/** @param {number} wholeSecs  the wait's length, as its lines print it */
+		/** @param {number} wholeSecs */
 		breakdown(wholeSecs) {
 			accrue();
 			const spent = roundedSecs([...heldMs], wholeSecs)
@@ -1676,11 +1197,6 @@ function limbTrace(clock, started) {
 }
 
 /**
- * The line a wait the memory rung still holds at its timeout ends on (#2421):
- * the reading, the other queue's climb charged on it (#3416) and the rung
- * where the guard gave them, whether that rung was clamped to the machine's
- * reach (#5310), and the reap.
- *
  * @param {string} label
  * @param {number} secs
  * @param {MemoryReading} denial
@@ -1700,10 +1216,6 @@ function memoryRefusal(label, secs, { mb, rungMb, climbMb, ladderMb, peak }) {
 }
 
 /**
- * The line a wait the Windows-memory hold still holds at its timeout ends on
- * (#4557): refused, as a memory wait is, since running it is what pages
- * Windows.
- *
  * @param {string} label
  * @param {number} secs
  * @param {WindowsHold} denial
@@ -1714,9 +1226,6 @@ function windowsRefusal(label, secs, denial) {
 }
 
 /**
- * The charge a gate denial held a wait on, in MB: its climb where MemAvailable
- * alone clears the rung, so the charge decided it. 0 on any other denial.
- *
  * @param {GateDenial | null} denial
  * @returns {number}
  */
@@ -1727,17 +1236,8 @@ function heldOnClimbMb(denial) {
 }
 
 /**
- * Whether a wait the climb charge held keeps its `climbHeld` stamp on this
- * poll (#4799): its rung or the Windows hold still denies it, and launches
- * already running are still charged. Their draw moves from the charge into
- * MemAvailable as they climb, and into what Windows has free; dropping the
- * stamp there lets the other queue launch into the same memory.
- *
- * The queue-wait replay asks it too, so a change to the rule reaches both
- * (#4260).
- *
- * @param {string | undefined} limb the limb that denied this poll
- * @param {boolean} charged whether launches are charged this poll
+ * @param {string | undefined} limb
+ * @param {boolean} charged
  * @returns {boolean}
  */
 function isClimbKept(limb, charged) {
@@ -1745,9 +1245,6 @@ function isClimbKept(limb, charged) {
 }
 
 /**
- * A setter that hands `listener` its flag only when the flag changes,
- * starting from false.
- *
  * @param {(held: boolean) => void} listener
  * @returns {(held: boolean) => void}
  */
@@ -1761,46 +1258,6 @@ function changesOnly(listener) {
 }
 
 /**
- * Block until the gate would allow a suite and it is this run's turn, or until
- * `leave` answers a base the run's selection has emptied against (#1158), then
- * return `run`, or `left` for the leave.
- *
- * On timeout the LAST poll decides. A whole suite still held — on the count
- * cap, the memory rung or a closed turn — returns `refused`, naming the bound
- * (#2714). A `part` suite takes no whole-suite slot, so only its memory rung
- * refuses it, a suite launched short of its rung risking an earlyoom freeze
- * (docs/environment.md §6, #2421); held on the count cap or the turn it runs
- * ANYWAY.
- *
- * Residual: a turn ahead that never spawns — a leaked marker, an open
- * watcher — gets every whole-suite waiter behind it refused at the bound
- * rather than run.
- *
- * `label` opens each line it prints: the waiter's own name, `--queue` or
- * `queue-run.js` (#1776). `waiting` is the line a held wait opens with, and
- * `cap` the one-at-a-time rule a count-cap refusal cites: a suite's by default, a
- * type-check's under `queue-run.js --tsc` (#3163).
- *
- * `hold` is a load hold run once the wait would end in a launch, whether the
- * gate and turn opened or the ceiling came. Both are then read again before
- * anything is admitted (#2622); a hold that refuses returns `refused`. `admit` stamps the launch (`queueAdmit`), and a yield goes back
- * to waiting: at once where an open turn yielded `ahead`, else after a poll.
- * `admit` is REQUIRED, and refused at entry when missing, so no launch goes
- * unstamped (#2742).
- *
- * Each `HOLD_STAMPS` listener hears its stamp each time it changes, starting
- * from false: a queued caller stamps its marker with it (`queueStamps`).
- *
- * `climbMb` is read each poll and handed to `gate` to charge on its memory
- * rung (#3416).
- *
- * `traceLimbs` prints the limb that holds the wait each time it or its holder
- * changes, and the time held on each limb as the wait ends (#4359).
- *
- * `monoClock` times the wait, its bound and its holds, `monotonicMs` unless
- * injected (#5446); a queue option's `clock` is wall time and never reaches
- * it.
- *
  * @param {{ pollMs?: number, timeoutMs?: number, gate?: (climbMb: number, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void) => GateDenial | null, climbMb?: () => number, gateRead?: Parameters<typeof gateDenies>[1], gateWords?: string[], gateWeight?: import("./suite-handoff.js").CarriedWeight | null, onAdmission?: (admission: import("./part-suite-peak.js").PartAdmission) => void, turn?: () => boolean, leave?: () => string|null, hold?: () => Promise<boolean>, admit: () => Admission, sleepFn?: (ms: number) => Promise<void>, out?: { write: (s: string) => unknown }, label?: string, waiting?: string, cap?: string, part?: boolean, onClimbHeld?: (climbMb: number) => void, onPeerHeld?: (secs: number) => void, onMemoryRung?: (rungMb: number) => void, onExit?: (reason: WaitExitReason, waitMs: number, heldBy?: WaitHold) => void, monoClock?: () => number, traceLimbs?: boolean, turnHold?: () => TurnHold | undefined } & HoldListeners} options
  * @returns {Promise<WaitOutcome>}
  */
@@ -1837,8 +1294,6 @@ function waitForGate({
 		throw new TypeError("waitForGate: `admit` is required (#2742)");
 	/** @type {import("./part-suite-peak.js").PartAdmission | undefined} */
 	let heard;
-	/* A given gate hears the admission through this too, so its exit line
-	 * records it (#5366). */
 	const hearAdmission = (
 		/** @type {import("./part-suite-peak.js").PartAdmission} */ a,
 	) => {
@@ -1855,8 +1310,6 @@ function waitForGate({
 	const started = clock();
 	const secs = () => Math.round((clock() - started) / 1000);
 	let announced = false;
-	/* Whether `hold` has run since the last sleep: a reading taken after it
-	 * is still fresh. */
 	let held = false;
 	const hear = buildHoldListeners((stamp) =>
 		changesOnly(holdOptions[HOLD_STAMPS[stamp]] ?? noop),
@@ -1871,17 +1324,11 @@ function waitForGate({
 		rungHeardMb = rungMb;
 		onMemoryRung(rungMb);
 	};
-	/** @type {number | undefined} when this spell of the Windows-memory hold began */
+	/** @type {number | undefined} */
 	let windowsSince;
-	/* Any spell's release, for the exit log. */
 	let spellReleased = false;
 	let windowsReleased = false;
-	/**
-	 * The gate's denial, or none once one unbroken spell of the
-	 * Windows-memory hold has held this wait for WINDOWS_MAX_HOLD_MS; a poll
-	 * on any other limb or none ends the spell.
-	 * @param {GateDenial | null} denial
-	 */
+	/** @param {GateDenial | null} denial */
 	const releaseWindows = (denial) => {
 		if (denial?.limb !== "windows") {
 			windowsSince = undefined;
@@ -1978,8 +1425,6 @@ function waitForGate({
 	};
 	/** @param {GateDenial | null} denial @returns {Promise<WaitOutcome>} */
 	const runAnyway = (denial) =>
-		/* Not at once: the bound ignores the turn, so an immediate re-read
-		 * would yield again on the same stamp. */
 		admitOrYield(() => {
 			sayBreakdown();
 			out.write(
@@ -2011,9 +1456,8 @@ function waitForGate({
 		}, true);
 	};
 	/**
-	 * Stamp what held this poll's gate denial on the waiter's marker.
 	 * @param {GateDenial | null} denial
-	 * @param {number} charged the climb charge the gate read
+	 * @param {number} charged
 	 */
 	const stampDenial = (denial, charged) => {
 		const heldOn = heldOnClimbMb(denial);
@@ -2021,28 +1465,19 @@ function waitForGate({
 			climbHeldMb = heldOn;
 			onClimbHeld(heldOn);
 		}
-		/* The memory rung holds the wait (#3058). */
 		hear.onMemoryHeld(denial?.limb === "memory");
 		if (denial?.limb === "memory" && denial.rungMb !== undefined)
 			hearRung(denial.rungMb);
-		/* It holds it at rest, `busy` read as 0 and no climb charged (#4783). */
 		hear.onRestHeld(
 			denial?.limb === "memory" && denial.busy === 0 && !denial.climbMb,
 		);
-		/* The Windows-memory hold holds it (#4782). */
 		hear.onWindowsHeld(denial?.limb === "windows");
-		/* The climb charge alone holds it, which the other queue's waiters
-		 * yield to (#4760), or held it and running launches still do
-		 * (`isClimbKept`, #4799). */
 		climbKept =
 			heldOn > 0 || (climbKept && isClimbKept(denial?.limb, charged > 0));
 		hear.onClimbStamp(climbKept);
 	};
 	/** @returns {Promise<WaitOutcome>} */
 	const step = () => {
-		/* BOTH conditions, not either. The gate answers "is the machine free",
-		 * the queue answers "is it my turn" — and a waiter that checks only the
-		 * gate joins a stampede the moment the machine frees up. */
 		const charged = climbMb();
 		const denial = releaseWindows(gate(charged, hearAdmission));
 		stampDenial(denial, charged);
@@ -2069,26 +1504,10 @@ function waitForGate({
  * @typedef {{ seats: Set<SignalSeat>, cleanups: Set<(signal: string) => void>, exit: (code: number) => void }} SignalHost
  */
 
-/* Each emitter's armed handler state, which `releaseOnSignal` reads: a
- * handler takes no argument but its signal. */
 /** @type {WeakMap<SignalEmitter, SignalHost>} */
 const signalHosts = new WeakMap();
 
 /**
- * Arm `emitter`'s QUEUE_SIGNALS handlers, ONCE PER EMITTER: a process that
- * runs many seats, as a test run calls `main` many times, would otherwise
- * exhaust the emitter's listener cap. On a signal a seat whose wait has ended
- * and whose `onSignal` answers true, as queue-run forwarding it to its
- * command, keeps the process alive and every marker held. Otherwise each
- * seat still waiting writes its `killed` line, each `cleanup` runs, then each
- * seat leaves and the process exits with the signal's code
- * (mantahostels#2034). The markers go last, so no waiter takes a slot whose
- * run a cleanup has yet to kill.
- *
- * SYNCHRONOUS BY NECESSITY: the handler exits at the end of its tick, and a
- * promise's `.finally()` never runs on a signal. One cleanup that throws must
- * not strand the rest.
- *
  * @param {{ emitter?: SignalEmitter, exit?: (code: number) => void, cleanup?: (signal: string) => void }} [options]
  * @returns {SignalHost}
  */
@@ -2123,35 +1542,12 @@ function releaseOnSignal(host, signal, code) {
 	);
 	if (answered.length > 0) return;
 	for (const seat of seats) seat.logKilled(signal);
-	// Each cleanup reports its own failure.
 	for (const cleanup of host.cleanups) ignoreFailure(() => cleanup(signal));
 	for (const seat of seats) seat.leave();
 	host.exit(code);
 }
 
 /**
- * A queue seat, end to end (#4240): the marker joined, its stamps, the turn,
- * the wait, the exit line, the spawned stamp and the leave.
- *
- * `queue` is the queue's options every step reads; `join` adds what the marker alone carries (`role`, `chargeMb`,
- * `weight`), or is `false` for a caller already inside its slot, which takes
- * no marker and keeps the seat for its signal path alone (#3404). `turn`
- * replaces `passingTurn`'s, whose `passed` then never reaches the exit line.
- * `logExit` writes each exit line, a `queueExitLogger`; none writes no line.
- * `signals` opts the seat into `armSeatSignals`' handlers, with the emitter
- * and exit they arm and an `onSignal`, asked once the wait has ended, that
- * answers true where it handled the signal itself. A seat with one stays
- * registered past its leave, for the rest of its caller's life; one without
- * leaves the registry as it leaves the queue.
- *
- * THE LEAVE RUNS ON EVERY PATH and only once: `wait` leaves on a refusal, a
- * leave or a throw; `leave` is the caller's for an opened wait; a signal leaves
- * through the handler.
- *
- * The seat's stamps beat the caller's wait options, save an `admit` the
- * caller wraps round `stamps.admit` (queue-run's `--tsc` try); a `turn`
- * among them beats the seat's.
- *
  * @param {{ queue?: QueueOptions, join?: false | { role?: string, chargeMb?: number, weight?: import("./suite-handoff.js").CarriedWeight, kind?: PartKind, holder?: SeatHolder }, turn?: () => boolean, logExit?: (reason: import("./queue-exit-log.js").QueueExitReason, waitMs: number, extra?: object) => void, signals?: true | { emitter?: SignalEmitter, exit?: (code: number) => void, onSignal?: (signal: NodeJS.Signals, code: number) => boolean } }} [options]
  */
 function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
@@ -2233,9 +1629,6 @@ function queueSeat({ queue = {}, join = {}, turn, logExit, signals } = {}) {
 /** @typedef {ReturnType<typeof queueSeat>} QueueSeat */
 
 /**
- * The live markers `role` names, each with the charge admission holds for
- * it: its marker's, else `defaultMb`. A queue that will not read holds
- * `defaultMb`, failing closed (#5301).
  * @param {string} role
  * @param {number} defaultMb
  * @param {string} [queueDir]
@@ -2253,7 +1646,6 @@ function readLiveCharged(role, defaultMb, queueDir) {
 }
 
 /**
- * The live gate seats, queued or running, each with its charge.
  * @param {{ queueDir?: string }} [options]
  * @returns {import("./admission.js").Gates}
  */
@@ -2275,14 +1667,6 @@ function readLiveGateSeats({ queueDir } = {}) {
 }
 
 /**
- * The live gate seats as the suite gate's count reads them (#5274): `count`,
- * how many whole seats have spawned their command, `part`, how many short
- * seats have, a part-suite each (#5450), and `under`, whether a process runs
- * inside either — itself or one of its ancestors a spawned seat's holder pid.
- * THE ANCESTRY, NOT THE VARIABLE, IS THE TEST (spec #5273 §1): a runner
- * started with a scrubbed environment is still under its seat, and one
- * outside the seat's tree that inherited lib/gate-seat.js's GATE_ENV is
- * counted as itself.
  * @param {{ queueDir?: string, parentOf?: (pid: number) => number }} [options]
  * @returns {import("./suite-ladder.js").GateSeats}
  */

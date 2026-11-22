@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * lib/suite-handoff.js's two hand-offs (#1491): the launch record's round
- * trip and its per-field fail-shut reading, and the run report's one take.
- * Both are driven in-process, never through a spawn: `run-vitest.test.ts`
- * covers the launcher's side through a fake child, and this file is the one
- * place a record is encoded and decoded end to end.
- *
- * Every certificate's launch facts pass through here. A field that stops
- * failing shut lets a forged launch mint an admissible certificate; a take
- * that stops clearing lets a later run's certificate carry an earlier run's
- * verdict or closure.
- */
 
 import fs from "node:fs";
 import { afterAll, afterEach, describe, expect, it } from "vitest";
@@ -24,7 +12,6 @@ import {
 	takeRunReport,
 } from "./suite-handoff.js";
 
-/* The one key the module writes, read off it rather than restated. */
 const [KEY] = Object.keys(launchEnv({}));
 
 const LAUNCH = {
@@ -59,7 +46,6 @@ const ABSENT = {
 	base: null,
 };
 
-/** The launch a child reads off a record whose fields were written as given. */
 const readRaw = (fields: Record<string, unknown>) =>
 	readLaunch({ [KEY]: JSON.stringify({ ...LAUNCH, ...fields }) });
 

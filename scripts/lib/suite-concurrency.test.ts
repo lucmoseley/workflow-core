@@ -1,35 +1,4 @@
 // @vitest-environment node
-/*
- * lib/suite-concurrency.js, the guard-suite-concurrency core (#2795), in
- * process: which launches the suite gate refuses under the resting headroom
- * docs/environment.md §6 measures (#2305), sending them to the queue; which
- * second concurrent whole suite it refuses (#2680); which it only warns
- * about; and which rules it hands a quiet launch (mantahostels#1805, #181,
- * #2024, #2237).
- *
- * Every port is a fake the case sets: MemAvailable, the `ps -eo args`
- * listing, the host's package.json scripts and `suiteRunners`, the latches.
- * The rule store is the real one, read through lib/rule-text.js. What the kit
- * makes of a verdict — the envelope, the latch files, the env seams — is guard-suite-concurrency.test.ts's boundary set.
- * The one exception is `its row fails closed`, which runs the real row of
- * scripts/lib/guard-cores.json through the kit, as only the row gives a throw
- * its policy.
- *
- * A verdict reads "deny" where the core refuses, "warn" where it hands the
- * session text of its own (the prelude), "allow" where it hands nothing. The
- * ladder cases latch suite-tree-dirty and memory-figure, so the only text an
- * allowed launch could carry is the guard's own warning.
- *
- * Loosen a case here and a second whole suite, or a launch under the measured
- * headroom, runs unrefused or unwarned into the 10 GB cap that earlyoom
- * enforces by killing live sessions.
- *
- * The seam-2 cases (#4242) run it through the dispatcher from a linked
- * worktree of a main checkout, over a roomy MemAvailable and a quiet `ps`
- * planted at their seams: whether the launch's npm script runs run-vitest.js
- * is read from the worktree's package.json, the declared command from the
- * main checkout's config.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -91,82 +60,42 @@ const { WHOLE_SUITE_WORKERS } = require("./suite-bounded.js") as {
 	WHOLE_SUITE_WORKERS: number;
 };
 
-/** A carried admission weight (#2931). */
 interface Weight {
 	resolvedFiles: number | null;
 	wholeSlot: boolean;
 }
 
-/** `n` named test files, as a launch's words. */
 const namedFiles = (n: number) =>
 	Array.from({ length: n }, (_, i) => `scripts/f${i}.test.ts`).join(" ");
 const { readRuleText } = require("./rule-text.js") as {
 	readRuleText: (id: string) => string;
 };
 
-/**
- * Neighbours enough that THIS launch is the one the cap refuses —
- * `WHOLE_SUITE_MAX` of them, making the launch the second (#2680).
- *
- * A literal, not read from the core: every case using it is about the
- * boundary, so moving `WHOLE_SUITE_MAX` should fail these rather than slide
- * them.
- */
 const NEIGHBOURS_AT_CAP = 1;
 
-/**
- * Neighbours that fill the ladder's last measured rung (SUITE_MAX), so a
- * launch beside them is past every rung and draws the over-the-ladder warn.
- * A literal for the same reason as `NEIGHBOURS_AT_CAP`.
- */
 const NEIGHBOURS_PAST_LADDER = 3;
 
-/** MemAvailable far above every rung the cases reach, so no memory warning competes with the verdict under test. */
 const ROOMY_MB = 20_000;
 
-/**
- * What a whole-suite launch the cap EXEMPTS reads as at `NEIGHBOURS_AT_CAP`
- * neighbours — a `--queue`. The deny is never applied, and the one-at-a-time
- * warn is what is left standing (#159).
- * Never "allow": past the cap nothing passes in silence. A part-suite is no
- * exemption: it takes no whole-suite slot and is allowed.
- */
 const EXEMPTED = "warn";
 
-/**
- * The rung a whole-suite launch reaches beside `running` whole suites, each
- * WHOLE_SUITE_WORKERS wide, read out of lib/suite-ladder.js rather than copied
- * (mantahostels#2007), which computes it from §6's dips (#2558).
- *
- * A case discriminating only inside a band the ladder sets has to move with it,
- * or raising the figure defangs the case instead of failing it. Cases pinning a
- * boundary keep their literals — the literal is the assertion there.
- */
 const wholeRung = (running: number) =>
 	suiteRungMb((running + 1) * WHOLE_SUITE_WORKERS);
 const ladder1 = () => wholeRung(0);
 const ladder2 = () => wholeRung(1);
 const ladder3 = () => wholeRung(2);
-/** Strictly between two rungs, so a case stays in band when either moves. */
 const between = (lo: number, hi: number) => Math.floor((lo + hi) / 2);
-/** Clears the one-suite floor and misses the two-suite rung. */
 const inBand2 = () => between(ladder1(), ladder2());
-/** Clears the two-suite rung and misses the three-suite one. */
 const inBand3 = () => between(ladder2(), ladder3());
 
-/** The two rules the ladder cases pre-latch. */
 const LADDER_LATCHES: Record<string, string> = {
 	"suite-tree-dirty": "",
 	"memory-figure": "",
 };
 
-/* What one case's calls accumulate. */
 let logs: string[];
-/** package.json's `scripts`; null where the host has no package.json. */
 let pkg: Record<string, string> | null;
-/** The host's declared `suiteRunners`. */
 let runners: string[];
-/** The argv each `fullLaunchPlain` call was asked about. */
 let asked: string[][];
 
 beforeEach(() => {
@@ -182,7 +111,6 @@ interface Over {
 	ps?: string | null;
 	climb?: Partial<Record<ClimbScope, number>>;
 	declaredTest?: string | null;
-	/** Whether `commands.test` has a fresh verdict proof; proven by default. */
 	proven?: boolean;
 	modules?: string[];
 	told?: string[];
@@ -198,9 +126,7 @@ interface Over {
 	launchWeight?: Weight | null;
 	windows?: WindowsRead;
 	tscPeakMb?: number;
-	/** The compiler peak each launch directory resolves to. */
 	tscPeaks?: Record<string, number>;
-	/** A part-suite's peak off the ledger; thin by default (#5366). */
 	partPeak?: (run: {
 		kind: "named" | "touched";
 		files: number;
@@ -209,7 +135,6 @@ interface Over {
 	noteAdmission?: (admission: PartAdmission) => void;
 }
 
-/** A context of fakes: a quiet machine, no package.json, no config. */
 function harness(over: Over = {}) {
 	return kitContextFake({
 		cwd: "/repo",
@@ -255,31 +180,20 @@ function harness(over: Over = {}) {
 	});
 }
 
-/** What the verdict hands the session: the deny's reason, or its own text. */
 const textOf = (v: Verdict) => v?.deny ?? v?.prelude ?? "";
 
-/** The verdict as the spawned guard's output read. */
 const outcome = (v: Verdict) => {
 	if (v && "deny" in v) return "deny";
 	return v?.prelude ? "warn" : "allow";
 };
 
-/** The ids a verdict hands over: requested, less skipped. */
 const handed = (v: Verdict) =>
 	(v?.injectRules ?? []).filter((id) => !(v?.skip ?? []).includes(id));
 
-/** Every fail-open record the core logged in this case. */
 const readRecords = () => logs.join("\n");
 
-/** A `ps` listing whose every line is `args`, one per process. */
 const psListing = (args: string[]) => `${args.join("\n")}\n`;
 
-/**
- * A `ps` listing of `n` one-shot suites plus `watchers` open watchers
- * (mantahostels#1906; the watcher arm is mantahostels#1927), behind two
- * lines that mention the words but are not runners, present in every
- * listing: they pin that the count is anchored on the `.bin/` path.
- */
 const psWith = (n: number, watchers = 0) =>
 	psListing([
 		"bash -l",
@@ -294,7 +208,6 @@ const psWith = (n: number, watchers = 0) =>
 		),
 	]);
 
-/** The verdict for `command`, `ps` null where it cannot be read. */
 const judge = (
 	command: string,
 	mb: number | null,
@@ -305,39 +218,21 @@ const judge = (
 	return { verdict, text: textOf(verdict) };
 };
 
-/** Runs `command` with MemAvailable unreadable — the core's fail-open branch. */
 const failOpen = (command: string) => judge(command, null, psWith(0));
 
-/** The verdict for `command` beside `suites` one-shot suites and `watchers` open watchers. */
 const gated = (command: string, mb: number, suites = 0, watchers = 0) =>
 	gatedOn(command, mb, psWith(suites, watchers));
 
-/**
- * The launch as its deny's line one hands it back, `--queue` added: a launch
- * the gates warn rather than refuse.
- */
 const queued = (command: string) =>
 	command.startsWith("npm ") && !command.split(" ").includes("--")
 		? `${command} -- --queue`
 		: `${command} --queue`;
 
-/**
- * A whole-suite vitest launch. A bare `npm run test` is a touched run (#2930),
- * never held at the count cap; `--changed` is what it was before: the diff's
- * selection, unresolved at launch, so charged the whole slot and read as
- * narrowed.
- */
 const WHOLE = "npm run test -- --changed";
 
-/** `gated` against an arbitrary `ps` listing. */
 const gatedOn = (command: string, mb: number, ps: string | null) =>
 	judge(command, mb, ps);
 
-/*
- * Every deny's first line is what to run instead (#519): the command's own
- * launch with `--queue`, or — where the queue cannot apply — the wait, then
- * that launch.
- */
 const expectFixFirst = (command: string, reason: string) => {
 	const first = reason.split("\n")[0];
 	const launch =
@@ -354,13 +249,11 @@ const expectFixFirst = (command: string, reason: string) => {
 	expect(command, first).toContain(launch?.[1]);
 };
 
-/** The verdict of a judged launch, a deny's line one checked on the way. */
 const fixChecked = (v: Verdict, command: string) => {
 	if (v?.deny !== undefined) expectFixFirst(command, v.deny);
 	return outcome(v);
 };
 
-/** Like `verdict`, but "deny" is a verdict rather than a thrown error. */
 const gatedVerdict = (command: string, mb: number, suites = 0, watchers = 0) =>
 	fixChecked(gated(command, mb, suites, watchers).verdict, command);
 
@@ -375,7 +268,6 @@ const readDenyReason = (
 	return v?.deny as string;
 };
 
-/** A launch's warning text. */
 const warning = (command: string, mb: number, suites = 0, watchers = 0) => {
 	const v = gated(command, mb, suites, watchers).verdict;
 	expect(v).not.toHaveProperty("deny");
@@ -406,8 +298,6 @@ describe("warns under the ~3350 MB resting floor (a whole suite's rung, #2772)",
 		expect(r.text).toMatch(/1000 MB/);
 	});
 
-	/* The floor's derivation is on `suiteRungMb` in lib/suite-ladder.js
-	 * (#1603). */
 	it("warns at one MB under the floor and allows at the floor", () => {
 		expect(gatedVerdict(queued(WHOLE), 3349)).toBe("warn");
 		expect(gatedVerdict(queued(WHOLE), 3350)).toBe("allow");
@@ -415,8 +305,6 @@ describe("warns under the ~3350 MB resting floor (a whole suite's rung, #2772)",
 });
 
 describe("the memory ladder queues a launch under its rung (#2305)", () => {
-	/* Text appended to the segment would land past the string's closing quote,
-	 * on `flock` (#4978). */
 	it.each([
 		['flock /l -c "true\nnpm run test"', "npm run test -- --queue"],
 		['flock /l -c "true; npm run test"', "npm run test -- --queue"],
@@ -448,8 +336,6 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 		expect(reason).toMatch(/`pretest` reaps finished sessions before the wait/);
 	});
 
-	/* The queue's poll reads the limb (lib/suite-queue.js, #2421); the kit
-	 * sends the session the deny alone, which the boundary set pins. */
 	it("names the limb each deny was reached on, for the queue's poll", () => {
 		expect(gated(WHOLE, 1000, 0).verdict?.gate).toEqual({
 			limb: "memory",
@@ -462,8 +348,6 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 		});
 	});
 
-	/* The ladder past its last measured rung prices more than the machine has:
-	 * 16 Nov's ~13150 MB on a 9930 MB machine (#5310). */
 	it("clamps a rung past MemTotal less earlyoom's line, and says so", () => {
 		const part = "npm run test -- a.test.ts";
 		const ceiling = 9930 - EARLYOOM_FLOOR_MB;
@@ -484,8 +368,6 @@ describe("the memory ladder queues a launch under its rung (#2305)", () => {
 		).toBeUndefined();
 	});
 
-	/* A head its rung holds with none running is held at rest, which a
-	 * younger part-suite may pass (#4783); an unread `ps` leaves it unknown. */
 	it("gives the vitest workers it read running, and none where `ps` went unread (#4783)", () => {
 		expect(gated(WHOLE, 1000, 0).verdict?.gate).toMatchObject({
 			busy: 0,
@@ -598,8 +480,6 @@ describe("judges a narrowed run on the full-suite ladder (mantahostels#1906, man
 		expect(gatedVerdict(queued("npm run test:changed"), 9000, 3)).toBe("warn");
 	});
 
-	/* `package.json` runs `test:changed` through `run-vitest.js --changed`,
-	 * which prepends `run`, so the runner line carries an argument after it. */
 	it("counts a running `--changed` suite as a neighbour", () => {
 		const p = psListing(["node /r/node_modules/.bin/vitest run --changed"]);
 		expect(gatedOn(queued(WHOLE), inBand2(), p).text).toMatch(
@@ -607,7 +487,6 @@ describe("judges a narrowed run on the full-suite ladder (mantahostels#1906, man
 		);
 	});
 
-	/* Telling a run that is already narrowed to narrow itself is a no-op. */
 	it("drops the narrow-the-run advice, which it has already taken", () => {
 		expect(gated(queued("npm run test:changed"), 1000).text).toMatch(
 			/already narrowed as far as it goes/,
@@ -620,8 +499,6 @@ describe("judges a narrowed run on the full-suite ladder (mantahostels#1906, man
 		);
 	});
 
-	/* A bare `npm run test` IS the narrowed run (mantahostels#3208), so the guard reads
-	 * `--full` and nothing else as a whole-suite launch (mantahostels#3209). */
 	it("reads a bare `npm run test` as narrowed and `--full` as the whole suite", () => {
 		for (const cmd of [WHOLE, "npm test"]) {
 			const out = gated(queued(cmd), 1000).text;
@@ -643,8 +520,6 @@ describe("judges a narrowed run on the full-suite ladder (mantahostels#1906, man
 		);
 	});
 
-	/* The wrapper form is in SCOPE, so the reading has to hold there and on the
-	 * `npm test` spelling too. */
 	it("reads the wrapper form on the same flag", () => {
 		for (const cmd of [
 			"node scripts/run-vitest.js",
@@ -657,8 +532,6 @@ describe("judges a narrowed run on the full-suite ladder (mantahostels#1906, man
 		}
 	});
 
-	/* `narrowed` must reach the lever string and nothing else: the deny and
-	 * the `--queue` allowance read `bounded`/`queued`. */
 	it("leaves the deny and the queue allowance alone", () => {
 		for (const cmd of [WHOLE, "npm run test -- --full"]) {
 			expect([cmd, gatedVerdict(cmd, 8000, NEIGHBOURS_AT_CAP)]).toEqual([
@@ -672,16 +545,12 @@ describe("judges a narrowed run on the full-suite ladder (mantahostels#1906, man
 		}
 	});
 
-	/* The watcher runs everything and takes no `--full`, so the flag's absence
-	 * must not read it as narrowed. */
 	it("keeps a watcher off the narrowed reading", () => {
 		expect(gated("npm run test:watch", 1000).text).not.toMatch(
 			/already narrowed as far as it goes/,
 		);
 	});
 
-	/* `test:changed` is no lever the deny or watcher text offers: a bare
-	 * `npm run test` already selects on the diff (mantahostels#3209). */
 	it("keeps `test:changed` out of the deny text and out of the watcher text", () => {
 		expect(gated(WHOLE, 8000, NEIGHBOURS_AT_CAP).text).not.toMatch(
 			/test:changed/,
@@ -708,9 +577,6 @@ describe("judges a narrowed run on the full-suite ladder (mantahostels#1906, man
 		expect(out).toMatch(/does not say what the run will get/);
 	});
 
-	/* pretest-reap.js judges the rung for the suite being started (#627), and
-	 * `test:changed` has its own pre-script (#633), so both keep the lever on
-	 * every rung. */
 	it("gives both npm suite commands the reaps-for-itself lever at rungs 2 and 3", () => {
 		for (const cmd of [WHOLE, "npm run test:changed"]) {
 			for (const [mb, suites] of [
@@ -732,15 +598,11 @@ describe("judges a narrowed run on the full-suite ladder (mantahostels#1906, man
 		}
 	});
 
-	/* The reap stops FINISHED sessions, so a live neighbour's memory is
-	 * reclaimed by nothing — both levers say so. */
 	it("says the reap reaches no live neighbour, whichever lever it offers", () => {
 		expect(gated(queued(WHOLE), 1000).text).toMatch(/LIVE neighbour/);
 		expect(gated("npm run build", 1000).text).toMatch(/LIVE neighbours/);
 	});
 
-	/* The direct wrapper and a build take no pre-script, so the hand reap is
-	 * the only lever there. */
 	it("hands the reap command to a run that has no pretest of its own", () => {
 		for (const cmd of ["node scripts/run-vitest.js", "npm run build"]) {
 			const out = gated(cmd, 1000).text;
@@ -760,9 +622,6 @@ describe("counts an open watcher, and prices it as a full rung (mantahostels#192
 	});
 
 	it("counts watchers and one-shot runs into the same rung", () => {
-		// Clears the 2-suite rung and misses the 3-suite one, so only a count
-		// that adds the watcher to the run can produce this warning. In band
-		// deliberately, not on the 2-suite rung itself.
 		const mb = inBand3();
 		expect(warning(queued(WHOLE), mb, 1, 0)).not.toMatch(/as suite 3 of 3/);
 		expect(gatedVerdict(queued(WHOLE), mb, 1, 1)).toBe("warn");
@@ -774,15 +633,10 @@ describe("counts an open watcher, and prices it as a full rung (mantahostels#192
 		expect(gated(queued(WHOLE), 99_999, 0, 3).text).toMatch(/would be suite 4/);
 	});
 
-	/* Between the one-suite floor and the 2-suite rung, and nowhere else:
-	 * counting the decoy would put this launch on the 2-suite rung and warn, so
-	 * the case discriminates. */
 	it("does not count a binary whose name merely starts with vitest", () => {
 		expect(gatedVerdict(WHOLE, ladder1(), 0, 0)).toBe("allow");
 	});
 
-	/* "Wait for one to finish" is advice a session cannot take when the thing
-	 * it would wait on never finishes. */
 	it("tells a capped launch to close a watcher rather than wait for it", () => {
 		const out = gated(WHOLE, 99_999, 0, 4).text;
 		expect(out).toMatch(/Every one of them is an open watcher/);
@@ -804,9 +658,6 @@ describe("counts an open watcher, and prices it as a full rung (mantahostels#192
 });
 
 describe("tells the two spellings of a one-shot apart (mantahostels#1927)", () => {
-	/* `vitest --run` is the form vitest's own docs lead with, and it finishes
-	 * like any other one-shot — filing it as a watcher would tell a session to
-	 * close a neighbour's run that was about to end on its own. */
 	it("counts a `--run` suite as a one-shot, not a watcher", () => {
 		const ps = psListing(
 			Array.from({ length: 4 }, () => "node /r/node_modules/.bin/vitest --run"),
@@ -817,7 +668,6 @@ describe("tells the two spellings of a one-shot apart (mantahostels#1927)", () =
 		expect(out).not.toMatch(/open watcher/);
 	});
 
-	/* vitest's CLI is cac-parsed, so the subcommand need not come first. */
 	it("counts a one-shot whose subcommand follows an option", () => {
 		const ps = psListing(
 			Array.from(
@@ -831,9 +681,6 @@ describe("tells the two spellings of a one-shot apart (mantahostels#1927)", () =
 		expect(out).not.toMatch(/open watcher/);
 	});
 
-	/* The subcommand is looked for anywhere in the tail, so an explicit
-	 * `--watch` has to win over it — otherwise a watcher reads as a one-shot
-	 * and the session is told to wait for something that never ends. */
 	it("keeps a watcher a watcher when `run` appears later in its argv", () => {
 		const ps = psListing(
 			Array.from(
@@ -853,9 +700,6 @@ describe("tells the two spellings of a one-shot apart (mantahostels#1927)", () =
 		);
 	});
 
-	/* The class the header declines to fix: the anchor matches a line that only
-	 * names the binary, so a `less` on it is counted as a suite. Pinned so the
-	 * declined tightening cannot land unnoticed. */
 	it("counts a line that merely names the binary, as the header says it does", () => {
 		const ps = psListing(
 			Array.from({ length: 3 }, () => "less /r/node_modules/.bin/vitest"),
@@ -863,7 +707,6 @@ describe("tells the two spellings of a one-shot apart (mantahostels#1927)", () =
 		expect(gatedOn(queued(WHOLE), 99_999, ps).text).toMatch(/would be suite 4/);
 	});
 
-	/* It costs the right rung; only the close-it advice is wrong. */
 	it("still misfiles `--watch=false`, as the header says it does", () => {
 		const ps = psListing(
 			Array.from(
@@ -876,8 +719,6 @@ describe("tells the two spellings of a one-shot apart (mantahostels#1927)", () =
 });
 
 describe("counts one line per real suite, never its wrappers (#1127)", () => {
-	/* A Bash-tool launch spelled with the path: the tool's shell line, the
-	 * `timeout` line and the runner all carry `.bin/vitest`. */
 	const runLine = "node_modules/.bin/vitest run";
 	const wrapped = [
 		`/bin/bash -c source /snap.sh && eval 'timeout 300 ${runLine}'`,
@@ -952,16 +793,12 @@ describe("never counts a `vitest list` selection probe as a suite (#1180)", () =
 });
 
 describe("judges a `npm run test:watch` launch (mantahostels#1927)", () => {
-	/* Opening a watcher runs the whole suite immediately, so the launch costs a
-	 * full run before it costs anything for holding. */
 	it("denies under the one-suite floor, as a full run does, quoting the free memory", () => {
 		const out = gated("npm run test:watch", 1000).text;
 		expect(out).toMatch(/MemAvailable is 1000 MB/);
 		expect(out).toMatch(/needs resting/);
 	});
 
-	/* Beside a part-suite of five files, a whole suite's workers, so the count
-	 * cap, which a whole suite would fire first, leaves the rung to judge it. */
 	it("takes the rung the running count reaches", () => {
 		const files = ["a", "b", "c", "d", "e"].map((f) => `scripts/${f}.test.ts`);
 		const part = psListing([
@@ -977,13 +814,9 @@ describe("judges a `npm run test:watch` launch (mantahostels#1927)", () => {
 		const out = gated("npm run test:watch", 99_999, 0).text;
 		expect(out).toMatch(/holds a full rung for as long as it stays open/);
 		expect(out).toMatch(/The command: npm run test:watch/);
-		// The command stays LAST, as it is in every other warning here.
 		expect(out.trimEnd()).toMatch(/npm run test:watch[^a-z]*$/);
 	});
 
-	/* A deny ends the decision, so the guard emits at most one message: the
-	 * watcher's cost rides as a limb on whichever deny fires rather than as a
-	 * second one. */
 	it("carries the watcher limb on the memory deny too", () => {
 		const out = gated("npm run test:watch", 1000).text;
 		expect(out).toMatch(/MemAvailable is 1000 MB/);
@@ -997,8 +830,6 @@ describe("judges a `npm run test:watch` launch (mantahostels#1927)", () => {
 		expect(out).toMatch(/holds a full rung for as long as it stays open/);
 	});
 
-	/* A watcher has no `pretest`, so it reaches vitest with the finished
-	 * sessions still resident. */
 	it("hands it the reap command, not the reaps-for-itself lever", () => {
 		const out = gated("npm run test:watch", 1000).text;
 		expect(out).toMatch(/node scripts\/reap-finished-sessions\.js/);
@@ -1007,19 +838,14 @@ describe("judges a `npm run test:watch` launch (mantahostels#1927)", () => {
 });
 
 describe("carries the watcher limb across a compound command (mantahostels#1978)", () => {
-	/* A pre-pass finds the watcher before any segment is judged, so the limb
-	 * rides on the build's warning instead of being lost. */
 	it("puts the limb on an earlier segment's headroom warning", () => {
 		const out = gated("npm run build && npm run test:watch", 1000).text;
 		expect(out).toMatch(/a build run needs resting/);
 		expect(out).toMatch(/Another segment of this command opens a WATCHER/);
 		expect(out).toMatch(/holds a full rung for as long as it stays open/);
-		// Still one message, not one per segment.
 		expect(out.match(/holds a full rung/g)?.length).toBe(1);
 	});
 
-	/* The reader is being told to close something the warning's own command
-	 * never opens. */
 	it("names the watcher's segment, while the warning names its own", () => {
 		const out = gated("npm run build && npm run test:watch", 1000).text;
 		expect(out).toMatch(/WATCHER \(`npm run test:watch`\)/);
@@ -1039,16 +865,12 @@ describe("carries the watcher limb across a compound command (mantahostels#1978)
 		expect(out.trimEnd()).toMatch(/The command: npm run test:watch[^a-z]*$/);
 	});
 
-	/* The pre-pass reads the command's words rather than the script name. */
 	it("puts the limb on a bare `npm test` segment", () => {
 		const out = gated("npm test && npm run test:watch", 1000).text;
 		expect(out).toMatch(/a test run needs resting/);
 		expect(out).toMatch(/Another segment of this command opens a WATCHER/);
 	});
 
-	/* The cost of deciding the limb command-wide: `||` is flattened like any
-	 * other separator, so the limb is hung off a segment whose watcher opens
-	 * only if the build fails. Pinned as a known wrong answer. */
 	it("hangs the limb off a `||` branch that may never run", () => {
 		const out = gated("npm run build || npm run test:watch", 1000).text;
 		expect(out).toMatch(/a build run needs resting/);
@@ -1063,7 +885,6 @@ describe("carries the watcher limb across a compound command (mantahostels#1978)
 });
 
 describe("its row fails closed (#4128)", () => {
-	/** The row's run on `command`; with `throwing`, its `decide` throws that. */
 	const judged = (command: string, throwing?: string) => {
 		const root = fs.mkdtempSync(path.join(os.tmpdir(), "suite-row-"));
 		try {
@@ -1107,8 +928,6 @@ describe("fails open", () => {
 		expect(readRecords()).toContain("MemAvailable unreadable");
 	});
 
-	/* The paired negative: a run that reads MemAvailable records nothing, so a
-	 * guard logging on every call could not pass the case above vacuously. */
 	it("records nothing when MemAvailable reads fine, warn or allow", () => {
 		expect(gatedVerdict(WHOLE, 1000)).toBe("deny");
 		expect(gatedVerdict(WHOLE, 4000)).toBe("allow");
@@ -1118,8 +937,6 @@ describe("fails open", () => {
 
 describe("counts the suites already running (mantahostels#1906)", () => {
 	it("picks the 2-suite rung when one is already going", () => {
-		// Clears the 1-suite rung and misses the 2-suite one, so the count is the only thing
-		// that can produce a warning here.
 		expect(gatedVerdict(queued(WHOLE), inBand2(), 0)).toBe("allow");
 		expect(gatedVerdict(queued(WHOLE), inBand2(), 1)).toBe("warn");
 	});
@@ -1136,8 +953,6 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 		expect(r.text).toMatch(/runs whole suites one at a time/);
 	});
 
-	/* Inside the ladder a queued launch's rung still speaks first, the
-	 * one-at-a-time warn standing only once it is met. */
 	it("warns one at a time, not on memory, at each rung its headroom meets", () => {
 		for (const [mb, suites] of [
 			[5200, 1],
@@ -1155,23 +970,17 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 		expect(gated(queued(WHOLE), inBand3(), 2).text).toMatch(/~7850 MB/);
 	});
 
-	/* A build is not on the ladder — §6 measured vitest — so it keeps the
-	 * one-suite floor and running suites neither raise its rung nor count it. */
 	it("leaves a build on the one-suite floor whatever is running", () => {
 		expect(gatedVerdict("npm run build", inBand2(), 3)).toBe("allow");
 		expect(gatedVerdict("next build", 1000, 0)).toBe("warn");
 	});
 
-	/** The deny's reason with `lines` running, or null where it allowed. */
 	const reasonFor = (command: string, lines: string[]) =>
 		gatedOn(command, ROOMY_MB, psListing(["bash -l", ...lines])).verdict
 			?.deny ?? null;
 
-	/* #1733: a build beside a running `next build` is refused with the rule,
-	 * whatever the headroom. The literal anchors fail if the print is dropped. */
 	describe("a second build", () => {
 		const runner = "node /r/node_modules/.bin/next build";
-		// The title Next 16 gives its build process (next/dist/cli/next-build.js).
 		const titled = "next-build (v16.3.3)";
 
 		it.each([
@@ -1185,8 +994,6 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 			"npm --prefix=app --silent run build",
 			"npm -w app run build",
 			"npm run --silent build",
-			// #1778: a valued flag spelled apart from its value, and npm's
-			// aliases for `run`.
 			"npm --loglevel warn run build",
 			"npm --cache /tmp/npm-cache run build",
 			"npm --userconfig .npmrc run --if-present build",
@@ -1248,8 +1055,6 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 		});
 	});
 
-	/* #1759: a dev server beside a running `next dev` is refused with the same
-	 * rule. */
 	describe("a second dev server", () => {
 		const devServer = [
 			"node /r/node_modules/.bin/next dev",
@@ -1291,12 +1096,6 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 		});
 	});
 
-	/* Fails open exactly like every other read here: an unreadable `ps` must
-	 * leave the headroom check standing, never refuse and never guess a count.
-	 *
-	 * PAIRED WITH THE CASE BELOW ON PURPOSE. `grep -c` prints 0 and exits 1 on
-	 * no match, so an unreadable ps and a genuine zero count can reach the
-	 * caller identically; the fail-open record is what separates them. */
 	it("falls back to the headroom floor when ps cannot be read, and records it", () => {
 		expect(gatedOn(WHOLE, 1000, null).text).toMatch(/1000 MB/);
 		expect(readRecords()).toContain(
@@ -1304,9 +1103,6 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 		);
 	});
 
-	/* The watcher limb is built before the count is read, so an unreadable `ps`
-	 * must still deliver it rather than dying on the empty two-field read
-	 * (mantahostels#1927). */
 	it("still warns a watcher launch when ps cannot be read, recording ps as unreadable", () => {
 		const r = gatedOn("npm run test:watch", 99_999, null);
 		expect(r.text).toMatch(/This opens a WATCHER/);
@@ -1318,22 +1114,15 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 		expect(readRecords()).toBe("");
 	});
 
-	/* One `npm run test` puts both an `sh -c ... vitest run` wrapper and the
-	 * `.bin/vitest run` runner in ps. */
 	it("does not count the npm wrapper line as a second suite", () => {
-		// One runner + its wrapper decoy. Counted once, this is suite 2, whose
-		// 2-suite rung this misses; counted twice it would read as suite 3.
 		expect(gated(queued(WHOLE), inBand2(), 1).text).toMatch(/as suite 2 of 3/);
 	});
 
-	/* The workers are per-suite children and would multiply the count by
-	 * maxWorkers; only the runner process is one-per-suite. */
 	it("counts the runner, not its worker children", () => {
 		const p = psListing([
 			"node /r/node_modules/.bin/vitest run",
 			...new Array(6).fill("node /r/node_modules/vitest/dist/workers/forks.js"),
 		]);
-		// One runner + this launch = suite 2, whose 2-suite rung this misses.
 		expect(gatedOn(queued(WHOLE), inBand2(), p).text).toMatch(
 			/as suite 2 of 3/,
 		);
@@ -1341,7 +1130,6 @@ describe("counts the suites already running (mantahostels#1906)", () => {
 });
 
 describe("reads npm's aliases as the launch `npm test` is (#4032)", () => {
-	/** Under the ~2900 MB whole-suite rung. */
 	const UnderFloorMb = 1000;
 	const drawn = (command: string) => ({
 		floor: gated(command, UnderFloorMb, 0).verdict?.gate,
@@ -1377,8 +1165,6 @@ describe("reads npm's aliases as the launch `npm test` is (#4032)", () => {
 
 describe("the count cap denies a second whole suite (#2680, #155)", () => {
 	it("denies a `npm run test` with the ladder's last rung already taken", () => {
-		// exempt (mantahostels#2082): deny reason pinned by the "what the refusal tells the session" describe block —
-		// this is the exact case readDenyReason() below is called with.
 		expect(gatedVerdict(WHOLE, 8000, NEIGHBOURS_AT_CAP)).toBe("deny");
 	});
 
@@ -1405,8 +1191,6 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 		).toBe("allow");
 	});
 
-	/* A launch naming its files is a touched run, never held at the cap
-	 * (#2935); the line binds a running run that carries no record. */
 	it("keeps the part-suite line at WHOLE_SLOT_BOUND, not at WHOLE_SUITE_WORKERS (#2931)", () => {
 		const at = (command: string, ps: string) =>
 			outcome(judge(command, ROOMY_MB, ps).verdict);
@@ -1421,7 +1205,6 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 	});
 
 	describe("weighs a running run by the weight its launch record carries (#2931)", () => {
-		/* A `--changed` or full run's runner line names no file. */
 		const listing = psListing(["node /r/node_modules/.bin/vitest run"]);
 		const at = (weight: Weight | null) =>
 			outcome(
@@ -1498,9 +1281,6 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 		});
 	});
 
-	/* Asserts the output `EXEMPTED` only names: with the constant flipped to
-	 * "allow", every case using it would still pass. Matching the warning's
-	 * text keeps a memory warning from satisfying it. */
 	it("draws the one-at-a-time warn where an exempted launch gets through", () => {
 		const { verdict: v, text } = gated(queued(WHOLE), 8000, NEIGHBOURS_AT_CAP);
 		expect(v).not.toHaveProperty("deny");
@@ -1515,7 +1295,6 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 		);
 	});
 
-	/* #1528: lib/suite-launch.js reads a quoted script name as typed. */
 	it('denies a quoted `npm run "test"` too', () => {
 		expect(
 			gatedVerdict(`npm run "test" -- --changed`, 8000, NEIGHBOURS_AT_CAP),
@@ -1599,8 +1378,6 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 	});
 
 	it("counts an open watcher as the suite already running", () => {
-		// exempt (mantahostels#2082): deny reason pinned directly by "tells a session waiting on watchers
-		// alone that they never finish", same watcher-counts-as-running params.
 		expect(gatedVerdict(WHOLE, 8000, 0, NEIGHBOURS_AT_CAP)).toBe("deny");
 	});
 
@@ -1657,7 +1434,6 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 				).toBe(`Run instead: ${fix}`);
 		});
 
-		/* Handing back the launch alone would drop the `cd` ahead of it. */
 		it("tells a compound command to keep its other parts", () => {
 			expect(
 				readDenyReason(compound, 8000, NEIGHBOURS_AT_CAP).split("\n")[0],
@@ -1666,7 +1442,6 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 			);
 		});
 
-		/* #1007, the next three. */
 		it("allows every launch it suggests, re-submitted at the cap", () => {
 			for (const command of [
 				...typedFixes.map(([typed]) => typed),
@@ -1730,8 +1505,6 @@ describe("the count cap denies a second whole suite (#2680, #155)", () => {
 			);
 		});
 
-		/* The rest is cut to what changes the next call (#519); the entry's
-		 * header holds it, which the boundary set pins. */
 		it("keeps its reasons out of the deny", () => {
 			expect(reason()).not.toContain("TWO AND THREE ARE NOT REFUSED");
 		});
@@ -1766,15 +1539,10 @@ describe("`--queue` is a lever a session may choose (mantahostels#2024, #155)", 
 		expect(gatedVerdict(WHOLE, 8000, NEIGHBOURS_AT_CAP)).toBe("deny");
 	});
 
-	/* The flag says WHEN to run, never how much memory the run needs, so the
-	 * ladder is untouched by it. */
 	it("does not exempt a queued launch from the memory ladder", () => {
 		expect(gatedVerdict("npm run test -- --queue", 1000, 0)).toBe("warn");
 	});
 
-	/* `--queue` starts with a dash, so `runner_test_file_count` must keep skipping it
-	 * rather than reading it as a named test file — which would make the whole
-	 * suite look narrowed and cheap. */
 	it("is not mistaken for a named test file", () => {
 		expect(
 			gatedVerdict(
@@ -1920,7 +1688,6 @@ describe("the wrapper form is in scope, so it is not a bypass (mantahostels#2015
 		).toBe("allow");
 	});
 
-	/* #1196: `foo` is the flag's value, not a file; every file still runs. */
 	it("denies one whose only bare word is a flag's value", () => {
 		for (const command of [
 			"node scripts/run-vitest.js -t foo",
@@ -1972,8 +1739,6 @@ describe("a run naming its test files is charged by the vitest workers it can oc
 	const three = "scripts/a.test.ts scripts/b.test.ts scripts/c.test.ts";
 	const atBound = namedFiles(WHOLE_SLOT_BOUND);
 
-	/* A named run is a touched run, never held at the cap, at the whole-slot
-	 * bound or past it (#2935). */
 	it.each([
 		[two, "allow"],
 		[three, "allow"],
@@ -1996,8 +1761,6 @@ describe("a run naming its test files is charged by the vitest workers it can oc
 			);
 		});
 
-		/* Past the ladder the rung is extrapolated, and the over-the-ladder warn
-		 * still stands on a run the rung lets through. */
 		it("passes a two-file run beside three suites at 8,900 MB and refuses it at 8,850 MB", () => {
 			expect(gatedVerdict(launch(two), 8900, NEIGHBOURS_PAST_LADDER)).toBe(
 				"warn",
@@ -2018,8 +1781,6 @@ describe("a run naming its test files is charged by the vitest workers it can oc
 		);
 	});
 
-	/* §6's table, every cell: 794 MB + the dip + ~300 MB, rounded up to 50.
-	 * Each running suite is a whole one, WHOLE_SUITE_WORKERS wide. */
 	it.each([
 		[0, one, 1650],
 		[0, two, 2150],
@@ -2035,8 +1796,6 @@ describe("a run naming its test files is charged by the vitest workers it can oc
 		expect(gatedVerdict(routes.npm(files), rung - 1, suites)).toBe("deny");
 	});
 
-	/* A whole suite beside another is past the count cap, so its rung speaks
-	 * only on a launch the cap lets through: a `--queue` here. */
 	it.each([
 		[1, wholeRung(1)],
 		[2, wholeRung(2)],
@@ -2064,8 +1823,6 @@ describe("a run naming its test files is charged by the vitest workers it can oc
 		expect(gatedVerdict(command, ladder1() - 1, 0)).toBe("deny");
 	});
 
-	/* A bare word vitest reads as a path filter (#2559). A flag's value is no
-	 * file, however it is shaped. */
 	it.each([
 		"npm run test -- run scripts/foo.test.ts",
 		"npm run test -- -t scripts/foo.test.ts",
@@ -2113,8 +1870,6 @@ describe("a running vitest run is weighed by the workers its runner line names (
 		expect(gatedWith(full, 3600, line)).toBe("deny");
 	});
 
-	/* The guard's rung against admission.js's `suiteRungMb`, between rungs and
-	 * past 9 workers, where pretest-reap now judges. */
 	const whole = runner(" run");
 	it.each([
 		[[oneFile], full, 6],
@@ -2152,13 +1907,6 @@ describe("a running vitest run is weighed by the workers its runner line names (
 	);
 });
 
-/*
- * A wrapper standing in front of the command word (mantahostels#2511).
- *
- * `is_test` reads the head word, so before the strip an `env`, `nohup`,
- * `setsid` or `bg-run.sh run <name>` prefix meant the scope test never saw
- * `npm` at all: the throughput deny was absent.
- */
 describe("strips a wrapper before the scope test (mantahostels#2511)", () => {
 	it.each([
 		"env npm run test -- --changed",
@@ -2167,8 +1915,6 @@ describe("strips a wrapper before the scope test (mantahostels#2511)", () => {
 		"time npm run test -- --changed",
 		"command npm run test -- --changed",
 		"stdbuf -oL npm run test -- --changed",
-		/* `timeout`'s duration is a bare positional, so a flag sweep alone
-		 * leaves `900` standing where the command word is looked for. */
 		"timeout 900 npm run test -- --changed",
 		"timeout -k 10 900 npm run test -- --changed",
 		"env -u FOO npm run test -- --changed",
@@ -2196,8 +1942,6 @@ describe("strips a wrapper before the scope test (mantahostels#2511)", () => {
 		).toBe("deny");
 	});
 
-	/* A false strip is the failure the other way: it would make an unrelated
-	 * command read as the suite launch standing behind it. */
 	it.each([
 		"env npm run lint",
 		"scripts/bg-run.sh check npm run test",
@@ -2207,8 +1951,6 @@ describe("strips a wrapper before the scope test (mantahostels#2511)", () => {
 		expect(gatedVerdict(command, 8000, NEIGHBOURS_AT_CAP)).toBe("allow");
 	});
 
-	/* A wrapper with nothing behind it unwraps to no words at all, and the
-	 * scope test must not be handed an empty argument list. */
 	it.each(["env", "timeout 900", "scripts/bg-run.sh run suite"])(
 		"allows `%s`, which wraps nothing",
 		(command) => {
@@ -2223,16 +1965,12 @@ describe("strips a wrapper before the scope test (mantahostels#2511)", () => {
 	});
 });
 
-/* The rest of the wrapper class (mantahostels#2552). */
 describe("strips the rest of the wrapper class (mantahostels#2552)", () => {
 	it.each([
 		"sudo npm run test -- --changed",
 		"sudo -u root npm run test -- --changed",
 		"nice npm run test -- --changed",
 		"nice -n 5 npm run test -- --changed",
-		/* `nice`'s obsolete adjustment spelling is one flag word, so the sweep
-		 * needs nothing for it — but reading it as a value-taker would eat
-		 * `npm`. */
 		"nice -5 npm run test -- --changed",
 		"ionice -c2 npm run test -- --changed",
 		"ionice -c 2 -n 0 npm run test -- --changed",
@@ -2240,15 +1978,11 @@ describe("strips the rest of the wrapper class (mantahostels#2552)", () => {
 		"xargs -n 1 npm run test -- --changed",
 		"xargs -I {} npm run test -- --changed",
 		"nice ionice -c 2 npm run test -- --changed",
-		/* The separate-value spellings of wrappers already in the list. */
 		"stdbuf -o L npm run test -- --changed",
 		"stdbuf -i 0 -e L npm run test -- --changed",
 		"env -S 'npm run test -- --changed'",
 		"env --split-string 'npm run test -- --changed'",
 		"env --split-string='npm run test -- --changed'",
-		/* An OPTIONAL-value flag must NOT be swept as a value-taker: swept, it
-		 * eats `npm` and the launch goes unjudged. `xargs -e[END]`/`-i[R]` and
-		 * `sudo -h` — `--help` as readily as `--host` — are the three. */
 		"xargs --eof npm run test -- --changed",
 		"xargs --replace npm run test -- --changed",
 		"sudo -h npm run test -- --changed",
@@ -2259,8 +1993,6 @@ describe("strips the rest of the wrapper class (mantahostels#2552)", () => {
 		expect(gatedVerdict(command, 8000, NEIGHBOURS_AT_CAP)).toBe("deny");
 	});
 
-	/* A leading assignment, or one an `env` carries, leaves the wrapper
-	 * stripped and the launch behind it judged. */
 	it.each([
 		"FOO=1 sudo npm run test -- --changed",
 		"FOO=1 nice -n 5 npm run test -- --changed",
@@ -2277,7 +2009,6 @@ describe("strips the rest of the wrapper class (mantahostels#2552)", () => {
 		expect(gatedVerdict(command, 8000, NEIGHBOURS_AT_CAP)).toBe("deny");
 	});
 
-	/* A wrapper that runs out of words judges nothing rather than crashing. */
 	it.each(["env -S", "stdbuf -o", "xargs -n", "sudo -u"])(
 		"allows `%s`, which wraps nothing",
 		(command) => {
@@ -2295,9 +2026,7 @@ describe("strips the rest of the wrapper class (mantahostels#2552)", () => {
 
 describe("counts and judges a suite vitest does not run (#330)", () => {
 	const vitest = "node /r/node_modules/.bin/vitest run";
-	// Naming no file, so a whole suite (#5274).
 	const nodeTest = "node --test --experimental-test-coverage";
-	// `node --test`'s per-file children carry no `--test` of their own.
 	const nodeChild =
 		"/usr/bin/node --test-coverage-lines=0 --test-isolation=process scripts/a.test.js";
 	const guardOut = (
@@ -2455,7 +2184,6 @@ describe("counts and judges a suite vitest does not run (#330)", () => {
 		expect(short.verdict?.deny).toBeUndefined();
 	});
 
-	/* Positive pair: "reads a running gate seat as one whole suite, its own runners not counted again (#5274)". */
 	it("counts every runner as itself, and logs why, where the gate seats will not read (#5301)", () => {
 		const lanes = psListing(["node --test lanes/a", "node --test lanes/b"]);
 		const why = "the suite queue /q would not read (EACCES: permission denied)";
@@ -2478,19 +2206,12 @@ describe("counts and judges a suite vitest does not run (#330)", () => {
 	});
 });
 
-/*
- * THE PRE-EMPTIVE LIMBS (mantahostels#1805, #181, #2024, #2237), reached only
- * where nothing spoke. What the core asks for is read here: the ids it hands
- * over, the prelude ahead of them, the latch the limb takes. That each is said
- * once a session, the latch files being the kit's, is the boundary set's.
- */
 const QUIET_MB = Math.floor(8_000_000 / 1024);
 const QUIET_PS = "sleep 1\n";
 const { readFullLaunchPlain } = require("./full-launch-plain.js") as {
 	readFullLaunchPlain: (argv: string[]) => Plain;
 };
 
-/** The verdict on a quiet machine, every rule unlatched. */
 const quiet = (command: string, over: Over = {}) =>
 	decide(
 		command,
@@ -2509,7 +2230,6 @@ describe("a suite launch on a quiet machine is handed the rule", () => {
 	});
 
 	it("spends one id and stays far inside the ceiling", () => {
-		// Fails once a second cluster fires on `npm run test` and shares the ceiling.
 		const v = quiet("npm run test");
 		expect(handed(v)).toEqual(["suite-tree-dirty"]);
 		expect(v?.prelude).toBeUndefined();
@@ -2519,18 +2239,6 @@ describe("a suite launch on a quiet machine is handed the rule", () => {
 	});
 });
 
-/*
- * MUTATION ANCHORS. A handed id reads the same file the kit does, so it moves
- * with a mutation to the fragment instead of catching it.
- *
- * Reads the fragment directly, not the emission (mantahostels#2230): a row over
- * the emission stops catching a clause moved to a second fragment once one
- * joins this trigger.
- *
- * The fragment is hard-wrapped at ~80 columns, so a clause straddles a newline
- * whenever a reflow moves it. Collapsing the fragment's whitespace pins the
- * words and never the wrapping — so a wrap CANNOT be pinned here.
- */
 const carries = (clause: string) =>
 	expect(readRuleText("suite-tree-dirty").replace(/\s+/g, " ")).toContain(
 		clause,
@@ -2589,7 +2297,6 @@ describe("a build or a whole-suite launch is handed the memory figure (#2024)", 
 		expect(handed(v)).not.toContain("memory-figure");
 	});
 
-	/* The figure goes out with the rule's first telling alone. */
 	it("hands no figure once the rule's latch is spent", () => {
 		const v = quiet("npm run build", { latches: { "memory-figure": "" } });
 		expect(v?.prelude).toBeUndefined();
@@ -2626,10 +2333,6 @@ describe("things that are not a suite launch", () => {
 
 describe("a warning outranks the injection, and leaves it unlatched", () => {
 	it("a watcher launch is warned about and handed no rule, on any machine", () => {
-		// THE ONE SUITE LAUNCH THAT NEVER GETS THIS RULE. `npm run test:watch`
-		// always draws the watcher warning (mantahostels#1927) — it costs a rung
-		// for as long as it is open — so the injection is unreachable on it
-		// however quiet the machine. The rule is not spent: nothing is latched.
 		const v = quiet("npm run test:watch");
 		expect(v?.prelude).toContain("This opens a WATCHER");
 		expect(v?.injectRules).toEqual([]);
@@ -2637,7 +2340,6 @@ describe("a warning outranks the injection, and leaves it unlatched", () => {
 	});
 
 	it("a short machine gets the headroom warn and no rule", () => {
-		// A `--queue` launch, since a plain one is refused (#2305).
 		const v = quiet("npm run test -- --queue", {
 			mb: Math.floor(100_000 / 1024),
 		});
@@ -2646,11 +2348,8 @@ describe("a warning outranks the injection, and leaves it unlatched", () => {
 	});
 });
 
-/* The plain-`--full` limb (#181). Its fire needle keys on this clause. */
 const LIMB = "THE QUEUE LANDER RUNS THE WHOLE SUITE ON EVERY LAND";
 
-/** A quiet launch whose limb is judged by the real port, its render half
- * standing at WFC_READ_GRAPH_RENDERS's `renders`. */
 const limbed = (command: string, renders: "0" | "1", over: Over = {}) => {
 	vi.stubEnv("WFC_READ_GRAPH_RENDERS", renders);
 	return decide(command, {
@@ -2670,7 +2369,6 @@ describe("a plain --full over a tree whose read graph renders is told the lander
 		[`npm "run" "test" -- --full`, "quoted words, read as typed (#1528)"],
 	])("%s draws the limb — %s", (command) => {
 		const v = limbed(command, "1");
-		// A notice, not a refusal: the launch still goes ahead.
 		expect(v).not.toHaveProperty("deny");
 		expect(v?.prelude).toContain(LIMB);
 		expect(v?.prelude).toContain("A SESSION OWES ONLY ITS TOUCHED TESTS");
@@ -2699,16 +2397,12 @@ describe("a plain --full over a tree whose read graph renders is told the lander
 	});
 
 	it("still travels once suite-tree-dirty's own latch is spent", () => {
-		// THE REASON THE LIMB HAS A LATCH OF ITS OWN. A session whose first
-		// launch was narrowed has already spent the rule's latch, and the
-		// `--full` it types later is exactly the launch this limb is for.
 		const v = limbed("npm run test -- --full", "1", {
 			latches: { "suite-tree-dirty": "" },
 		});
 		expect(v?.prelude).toContain(LIMB);
 	});
 
-	/* The render is paid once a session: a told limb never asks the port. */
 	it("is unsaid, and the port unasked, once its own latch is told", () => {
 		const v = limbed("npm run test -- --full", "1", {
 			told: [FULL_LIMB_ID],
@@ -2726,8 +2420,6 @@ describe("a plain --full over a tree whose read graph renders is told the lander
 		);
 	});
 
-	/* A LADDER WARN ON THE SAME LAUNCH OUTRANKS IT, and the limb lands on the
-	 * next `--full`. */
 	it("is outranked by a ladder warn on the same launch", () => {
 		const v = limbed("npm run test -- --full --queue", "1", { mb: 1000 });
 		expect(v?.prelude).toContain("MemAvailable is 1000 MB");
@@ -2756,8 +2448,6 @@ describe("the limb is silent on everything else", () => {
 	});
 
 	it("is silent where the read graph will not render", () => {
-		// The one case where `--full` is the right call: a bare run would
-		// escalate to it anyway (#998).
 		const v = limbed("npm run test -- --full", "0");
 		expect(v?.prelude ?? "").not.toContain(LIMB);
 		expect(handed(v)).toContain("suite-tree-dirty");
@@ -2884,8 +2574,6 @@ describe("a bare `tsc` the type-check slot would hold is sent to `queue-run.js -
 		},
 	);
 
-	/* Recorded off `ps` during a 7.0.2 pass (#4892): the native compiler its
-	 * launcher became under the same PID. */
 	it("denies a TypeScript 7 launch beside a running 7.0 compiler (#4892)", () => {
 		const native = psListing([
 			"bash -l",
@@ -3006,7 +2694,6 @@ describe("a whole-suite launch from a session in its own worktree (#4242)", () =
 	const wrappedScript = JSON.stringify({
 		scripts: { test: "node scripts/run-vitest.js" },
 	});
-	/** Records a passed verdict probe for the worktree's tree as it stands. */
 	const prove = () =>
 		expect(
 			ensureProof({
@@ -3140,8 +2827,6 @@ describe("the Windows-memory hold (#4557, #4850)", () => {
 });
 
 describe("judges a part-suite on its own measured peak (#5366)", () => {
-	/* One whole suite running: the ladder asks a 1-file run the rung of six
-	 * workers, the peak charge the rung of its p99 alone. */
 	const oneWhole = psListing(["node /r/node_modules/.bin/vitest run"]);
 	const Peak: Omit<PartPeak, "kind"> = {
 		p99Mb: 609,
@@ -3281,8 +2966,6 @@ describe("judges a part-suite on its own measured peak (#5366)", () => {
 	});
 
 	it("judges an --adopt run, which routes as named but the ledger records as adopt, on the ladder, its kind untold", () => {
-		/* Queued, so it carries its resolved weight: the guard alone charges
-		 * an --adopt launch a whole suite. */
 		const { notes, peakAsked } = run(
 			"npm run test -- --adopt scripts/a.test.ts",
 			{ launchWeight: { resolvedFiles: 1, wholeSlot: false } },

@@ -1,19 +1,3 @@
-"""transcript_corpus.py — where this repo's transcripts live, across every seat: the
-Python half of scripts/lib/project-dirs.js, reading the same seat set (#379). Also
-the reader and byte measure every transcript scanner shares.
-
-The set is scripts/lib/arbiter-core.js's `sessionDirs()`: the config dir
-(CLAUDE_CONFIG_DIR, else ~/.claude) first, then WFC_CLAUDE_CONFIG_A, _B and _C,
-each falling back on its own to the sibling `.claude`, `.claude2` or `.claude3`,
-deduped by realpath. Kept in sync by hand — a JS and a Python caller do not share
-a runtime.
-
-Each seat keeps its own sessions under its own `projects/<slug>`, a real
-directory (#375), so reading one alone drops the others'. A session in a linked
-worktree under `.claude/worktrees/` writes under that worktree's own slug
-(#4229), so `roots()` returns those beside the main checkout's.
-"""
-
 import functools
 import glob
 import json
@@ -25,17 +9,13 @@ from host_root import host_root
 from is_under import relative_under
 from project_slug import project_slug
 
-# The two skip counts every transcript scanner prints (#1274), one spelling each.
 UNREADABLE = "unreadable files"
 UNPARSED = "unparsed lines"
 
-# What WFC_CLAUDE_CONFIG_A, _B and _C fall back to — arbiter-core.js's
-# DEFAULT_CONFIG_DIR_NAMES.
 _DEFAULT_CONFIG_DIR_NAMES = (".claude", ".claude2", ".claude3")
 
 
 def _resolved(path):
-    """Realpath where it resolves, the absolute literal path otherwise."""
     try:
         return os.path.realpath(path, strict=True)
     except FileNotFoundError as error:
@@ -47,11 +27,6 @@ def _resolved(path):
 
 
 def seats():
-    """{config dir: label}, in arbiter-core.js's order, deduped by realpath.
-
-    A knob's dir is labelled `plan A`, `plan B` or `plan C` after its letter; a
-    CLAUDE_CONFIG_DIR that is none of them is labelled by its basename.
-    """
     config = os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude")
     parent = os.path.dirname(config)
     knobs = [
@@ -76,11 +51,6 @@ def seats():
 
 @functools.cache
 def _slugs(_declared, _cwd):
-    """(main checkout's slug, worktree slug prefix) — project-dirs.js's
-    `projectDirs()` root and `repoSlugMatcher()`. Once per CLAUDE_PROJECT_DIR
-    and working directory, the two it reads: `host_root()` may run git, and
-    `seat_of` runs once per transcript (#1275). A repo moved under an unchanged
-    working directory keeps its old slugs until the process ends."""
     root = host_root()
     worktrees = os.path.join(root, ".claude", "worktrees")
     return project_slug(root), project_slug(worktrees) + "-"
@@ -91,11 +61,6 @@ def _repo_slugs():
 
 
 def roots():
-    """Every seat's projects directories for this repo, deduped by realpath —
-    project-dirs.js's `projectDirs()`: each seat's main-checkout slug, in seat
-    order, then each worktree slug a seat lists. Read at each call, so a test
-    points it at a temp dir by CLAUDE_CONFIG_DIR and the WFC_CLAUDE_CONFIG_*
-    knobs."""
     per_seat = [roots_on(d) for d in seats()]
     out, seen = [], set()
     for p in [r[0] for r in per_seat] + [p for r in per_seat for p in r[1:]]:
@@ -107,9 +72,6 @@ def roots():
 
 
 def roots_on(seat):
-    """One seat's projects directories for this repo: the main checkout's slug
-    first, whether or not it exists, so a caller reports a seat it could not
-    read; then each worktree slug the seat lists."""
     main, worktree = _repo_slugs()
     projects = os.path.join(seat, "projects")
     try:
@@ -126,7 +88,6 @@ def roots_on(seat):
 
 
 def seat_of(path):
-    """The label of the seat whose root holds `path`, or None."""
     main, worktree = _repo_slugs()
     for d, label in seats().items():
         rel = relative_under(os.path.join(d, "projects"), path)
@@ -139,8 +100,6 @@ def seat_of(path):
 
 
 def root_files():
-    """{root: transcript file count} for every root whose seat exists, one
-    with no directory for this repo reading 0."""
     return {
         r: sum(1 for _ in _files_under(r))
         for r in roots()
@@ -162,14 +121,6 @@ def _files_under(root):
 
 
 def transcript_files():
-    """(relpath, path, is_subagent, owning_session_id), ordered so every copy
-    of one relpath is adjacent.
-
-    A root reached twice — one seat's slug symlinked to another's — is read
-    once, deduplicated on realpath. The same relpath under two real roots is
-    one session's transcript on two seats, and a caller merges those by
-    keying on the relpath — `transcripts()`, which drops it, yields both.
-    """
     seen, out = set(), []
     for root in roots():
         for rel, p, is_sub in _files_under(root):
@@ -188,8 +139,6 @@ def transcript_files():
 
 
 def transcripts():
-    """(path, is_subagent, owning_session_id) for every transcript, every
-    seat root included."""
     for _rel, p, is_sub, owner in transcript_files():
         yield p, is_sub, owner
 
@@ -206,9 +155,6 @@ def _size(path):
 
 
 def one_copy_each():
-    """`transcripts()`, but one copy per relpath — the largest, which holds the
-    most of that session. For a scanner that tallies whole files, where a
-    session on two seats would otherwise count twice."""
     groups = defaultdict(list)
     for rel, p, is_sub, owner in transcript_files():
         groups[rel].append((p, is_sub, owner))
@@ -217,18 +163,14 @@ def one_copy_each():
 
 
 def main_transcripts():
-    """Every seat root's main-session transcripts, one copy each, sorted."""
     return sorted(p for p, is_sub, _ in one_copy_each() if not is_sub)
 
 
 def all_transcripts():
-    """Every seat root's transcripts, main and subagent, one copy each, sorted."""
     return sorted(p for p, _, _ in one_copy_each())
 
 
 def files(root=None, subagents=True):
-    """(path, is_subagent), sorted: under `root` alone, or every seat root's,
-    one copy each, where it is None. For a scanner taking a one-directory flag."""
     found = (
         [(p, is_sub) for _, p, is_sub in _files_under(root)]
         if root
@@ -238,21 +180,10 @@ def files(root=None, subagents=True):
 
 
 def records(path, tally, needle=None):
-    """Each JSON object in the transcript at `path`, in order. A line holding
-    none of `needle` (a string or a tuple of them) is passed over unparsed. Its
-    skips are counted as `records_with_lines` counts them."""
     return (rec for _line, rec in records_with_lines(path, tally, needle))
 
 
 def records_with_lines(path, tally, needle=None):
-    """`records`, each paired with its line as written: (line, record).
-
-    A file that will not open counts `tally[UNREADABLE]` and yields nothing; a
-    line that is not a JSON object counts `tally[UNPARSED]`, a blank one
-    nothing. Counted, never fatal: one bad transcript must not sink the corpus,
-    and the caller prints the counts (#1274). `tally` is the caller's
-    accumulator, its own Counter, so nothing carries over between runs (#1290).
-    """
     try:
         fh = open(path, encoding="utf-8", errors="replace")
     except OSError as error:
@@ -263,13 +194,10 @@ def records_with_lines(path, tally, needle=None):
 
 
 def parsed(lines, tally, needle=None):
-    """`records` over lines already in hand."""
     return (rec for _line, rec in _pairs(lines, tally, needle))
 
 
 def _pairs(lines, tally, needle):
-    """(line, record) for each JSON-object line. `tally` is the caller's
-    accumulator: the skips are counted into it (#1274)."""
     needles = (needle,) if isinstance(needle, str) else needle
     for line in lines:
         if not line.strip() or (needles and not any(n in line for n in needles)):
@@ -286,19 +214,14 @@ def _pairs(lines, tally, needle):
 
 
 def skips(tally, *keys):
-    """{key: count} for `keys`, in order, zeros included — the two skip counts
-    where none are named. What a `--json` output carries."""
     return {k: tally[k] for k in keys or (UNREADABLE, UNPARSED)}
 
 
 def counts_line(tally, *keys):
-    """`skips()` as the line a scanner prints."""
     return "(" + ", ".join(f"{k}: {v}" for k, v in skips(tally, *keys).items()) + ")"
 
 
 def jlen(x):
-    """Byte length of a transcript value as it sits in the prompt: a str measured
-    directly, anything else as the JSON the transcript holds it as."""
     if x is None:
         return 0
     if isinstance(x, str):

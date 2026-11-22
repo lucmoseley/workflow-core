@@ -1,13 +1,3 @@
-/*
- * unasked-rerun-fixture.ts — the real repository lib/unasked-rerun-io.js's
- * cases run over (#2913): a throwaway git repo a commit past its own
- * origin/main, with its own marker store and write ledger, copied per case
- * from a template built once (§X8 (1), scripts/lib/git-fixture.ts).
- *
- * Calling `rerunFixture()` registers the per-case copy and env restore, so
- * call it once at a test file's top level.
- */
-
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -50,10 +40,6 @@ const template = defineTemplate((root) => {
 	gitIn(root, "update-ref", "refs/remotes/origin/main", "HEAD");
 });
 
-/**
- * An admissible narrowed certificate on `sha` in `tree`, selected for `rels`
- * and reading them alone.
- */
 export const narrowedIn = (
 	tree: string,
 	sha: string,
@@ -118,10 +104,8 @@ export function rerunFixture() {
 			`${entries.map((e) => JSON.stringify(e)).join("\n")}\n`,
 		);
 	const writeStore = (...entries: unknown[]) => writeLines(STORE, entries);
-	/** The red store's lines (#3633). */
 	const writeReds = (...entries: unknown[]) => writeLines(FAIL_STORE, entries);
 
-	/** `narrowedOn`'s run gone red on `a.test.ts`, against origin/main where `based`. */
 	function redOn(sha: string, rels: string[], at: string, based = true) {
 		const run = narrowedOn(sha, rels, at);
 		return {
@@ -137,7 +121,6 @@ export function rerunFixture() {
 		};
 	}
 
-	/** A run red on `a.test.ts` at origin/main's content: the record it was already red there. */
 	const redAtBase = (at: string) => ({
 		sha: git("rev-parse", "origin/main"),
 		at,
@@ -159,21 +142,18 @@ export function rerunFixture() {
 		fs.writeFileSync(at, `${rels.join("\n")}\n`);
 	}
 
-	/** `sid`'s commit ledger, as `.husky/post-commit` keeps it (#766). */
 	function writeCommits(sid: string, ...shas: string[]) {
 		const at = paths.commitLedger(sid, f.project);
 		fs.mkdirSync(path.dirname(at), { recursive: true });
 		fs.writeFileSync(at, `${shas.join("\n")}\n`);
 	}
 
-	/** HEAD a commit past origin/main, attested by one narrowed certificate named RUN-A. */
 	function attestedHead() {
 		const sha = commitTouching("a.js");
 		writeStore(narrowedOn(sha, ["a.js"], "RUN-A"));
 		return sha;
 	}
 
-	/** HEAD plus this session's uncommitted edit to c.js, which its ledger names. */
 	function ownEdit() {
 		const sha = commitTouching("c.js");
 		fs.writeFileSync(path.join(f.project, "c.js"), "edited\n");
@@ -181,7 +161,6 @@ export function rerunFixture() {
 		return sha;
 	}
 
-	/** This session's commit, attested by RUN-A, under a neighbour's untested one. */
 	function neighbourOnTop(...theirPaths: string[]) {
 		const own = attestedHead();
 		for (const rel of theirPaths)
@@ -194,7 +173,6 @@ export function rerunFixture() {
 		return { own, theirs };
 	}
 
-	/** A directory git will not name a repository for. */
 	function outside() {
 		const at = path.join(f.dir, "outside");
 		fs.mkdirSync(at, { recursive: true });

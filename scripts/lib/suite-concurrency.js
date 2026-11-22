@@ -184,71 +184,40 @@ const { treeOrHost } = require("./tree-or.js");
  * @typedef {{ limb: "count" } | { limb: "memory", mb: number, rungMb: number, ladderMb?: number, climbMb?: number, busy?: number, peak?: import("./part-suite-peak.js").PeakCharge } | import("./suite-queue.js").WindowsHold} Gate
  * @typedef {import("./guard-entry.js").Decision | ({ deny: string, gate: Gate })} Verdict
  * @typedef {object} SuitePorts
- * @property {() => number | null} availableMb MemAvailable, in MB
- * @property {() => number | null} totalMb MemTotal, in MB, which caps the
- *   rung (#5310)
+ * @property {() => number | null} availableMb
+ * @property {() => number | null} totalMb
  * @property {() => import("./windows-memory.js").WindowsRead} windowsMemory
- *   Windows' own free memory, off memwatch's newest reading (#4557)
- * @property {(scope: ClimbScope) => number} climbMb what the queues'
- *   running launches in `scope` have yet to draw, in MB, which MemAvailable
- *   does not yet count (#3488, #4111)
- * @property {(dir: string, bin: string) => number} tscLaunchPeakMb the peak
- *   a `bin` launch from `dir` is charged, by the compiler it resolves to
- *   there (#4892, #5216)
- * @property {() => import("./suite-ladder.js").PsRow[] | null} psRows `ps`,
- *   read once a call
+ * @property {(scope: ClimbScope) => number} climbMb
+ * @property {(dir: string, bin: string) => number} tscLaunchPeakMb
+ * @property {() => import("./suite-ladder.js").PsRow[] | null} psRows
  * @property {(pid: number | null) => import("./suite-handoff.js").CarriedWeight | null} carriedOf
- *   the weight process `pid`'s launch record carries (#2931)
- * @property {() => import("./suite-ladder.js").GateSeats} gateSeats the live
- *   gate seats, each one whole suite, and whether a process runs inside one
- *   (#5274)
+ * @property {() => import("./suite-ladder.js").GateSeats} gateSeats
  * @property {import("./suite-handoff.js").CarriedWeight | null} [launchWeight]
- *   the judged launch's own carried weight, where the queue asks for it
  * @property {(run: { kind: import("./part-suite-peak.js").PartKind, files: number }) => { peak: import("./part-suite-peak.js").PartPeak | null } | { why: string }} partPeak
- *   a part-suite's measured peak off the host's run ledger (#5366)
  * @property {() => import("./peak-tripwire.js").Fallback | null} tripwire
- *   why part-suites are back on the ladder, null while the peak charge is
- *   armed and watched (lib/peak-tripwire.js)
- * @property {(admission: PartAdmission) => void} [noteAdmission] hears how a
- *   part-suite was judged, where the queue records it
- * @property {() => string[]} runners the host's declared `suiteRunners`
- * @property {() => string | null} declaredTest the host's `commands.test`
- * @property {(tree: string) => boolean} testProven whether `commands.test` has
- *   a fresh verdict-proof record for the tree at `tree` (lib/verdict-probe.js)
+ * @property {(admission: PartAdmission) => void} [noteAdmission]
+ * @property {() => string[]} runners
+ * @property {() => string | null} declaredTest
+ * @property {(tree: string) => boolean} testProven
  * @property {(argv: string[], tree: string) => { plain: boolean } | { fault: string }} fullLaunchPlain
- *   whether a `--full` launch's argv is plain and the read graph renders from
- *   the tree at `tree`, the session's
  * @typedef {import("./shell-parse.js").WalkPorts & SuitePorts &
  *   Pick<import("./kit-context.js").KitContext, "scriptPath" | "corePaths" | "ruleText" | "docPath"> & {
  *   log: (what: string, detail?: string) => void,
  *   told: (id: string) => boolean,
  *   readLatch: (name: string) => string | null,
  *   tree: () => import("./guard-host-ports.js").TreePorts,
- * } & import("./guard-host-ports.js").TreePorts} Ctx the kit's context, the
- *   part this core reads, and its own ports; `tree` the session's, whose npm
- *   scripts and read graph are read (#4242), else the host's own tree ports
+ * } & import("./guard-host-ports.js").TreePorts} Ctx
  */
 
 /** @param {Ctx} ctx @returns {string} */
 const treeRoot = (ctx) => treeOrHost(ctx).root;
 
-/* The id the plain-`--full` limb latches under (#181), in the `warn.<id>`
- * namespace and never a rule-text id: the limb composes its own wording. */
 const FULL_LIMB_ID = "full-suite-admissible";
 
-/*
- * The limb's fire needle (scripts/guard-fire-needles.json,
- * `full-suite-admissible`, #188) keys on `THE QUEUE LANDER RUNS THE WHOLE SUITE ON EVERY LAND`.
- * Reword that clause and move the needle with it.
- */
 const FULL_LIMB_TEXT =
 	"THIS `--full` BUYS NOTHING (#181): THE QUEUE LANDER RUNS THE WHOLE SUITE ON EVERY LAND, SO A SESSION OWES ONLY ITS TOUCHED TESTS, A BARE `npm run test`. A full run costs ~373 s here (#149). Want the whole suite for its own sake? Run it — this is advice, not a refusal.";
 
-/**
- * The build-concurrency fragment, or its fallback where the store cannot give
- * it; the fault is logged.
- * @param {Ctx} ctx
- */
+/** @param {Ctx} ctx */
 const buildRule = (ctx) =>
 	ruleOrFallback(
 		ctx,
@@ -260,25 +229,15 @@ const buildRule = (ctx) =>
 			),
 	);
 
-/* What one finished-but-resident session holds (reap-finished-sessions.js). */
 const REAP_GAIN = "330-450 MB";
-/* A trailing `#` comment cut, as bash's `${x%%[[:space:]]#*}` cuts it. */
 const cutComment = (/** @type {string} */ s) =>
 	s.replace(/[ \t\n\v\f\r]#[\s\S]*$/, "");
 
-/**
- * Whether the launch asks for the WHOLE suite (mantahostels#3209), off every
- * word: `--full`, or `--full=<cause>` (#182). A quoted one is not the flag.
- * @param {string[]} words
- */
+/** @param {string[]} words */
 const hasFullFlag = (words) =>
 	words.some((w) => w === "--full" || w.startsWith("--full="));
 
-/**
- * Whether the launch asks to QUEUE rather than to run now (mantahostels#2024):
- * the deny obeyed. A quoted `--queue` is not the flag.
- * @param {string[]} words
- */
+/** @param {string[]} words */
 const hasQueueFlag = (words) => words.includes("--queue");
 
 /**
@@ -305,7 +264,6 @@ function isNextLaunch(sub, words) {
 }
 
 /**
- * The `next <sub>` runners `ps` shows (`isNextRunnerLine`).
  * @param {"build" | "dev"} sub
  * @param {import("./suite-ladder.js").PsRow[]} ps
  */
@@ -324,12 +282,7 @@ const SHELL_KEYWORDS = [
 	"!",
 ];
 
-/**
- * A segment split at its leading assignments: those, and the rest. A shell
- * keyword the segment opens with is dropped from both.
- * @param {string} segment
- * @returns {{ lead: string, rest: string }}
- */
+/** @param {string} segment @returns {{ lead: string, rest: string }} */
 function splitLead(segment) {
 	let rest = segment;
 	let lead = "";
@@ -347,16 +300,10 @@ function splitLead(segment) {
 const dropTrailingDash = (/** @type {string} */ s) =>
 	s.endsWith(" --") ? s.slice(0, -3) : s;
 
-/** A launch with its `--queue`, and the lone ` --` that leaves, dropped. */
 const unqueued = (/** @type {string} */ s) =>
 	dropTrailingDash(s.replace(" --queue", ""));
 
 /**
- * The typed launch with scripts/queue-run.js put in front of it (#1776),
- * behind the segment's leading assignments, which a spawn cannot take as a
- * command, and ahead of any wrapper, so a `timeout` bounds the run and not the
- * wait. A shell keyword the segment opens with — the `do` of a loop — is
- * dropped, the launch being only what follows it. So is a `--queue`.
  * @param {string} segment
  * @param {string[]} spans
  * @param {string} queueRun
@@ -371,68 +318,54 @@ function queuedLaunch(segment, spans, queueRun) {
 }
 
 /**
- * @typedef {object} St what one command's walks share
+ * @typedef {object} St
  * @property {Ctx} ctx
  * @property {string[]} spans
- * @property {(w: string) => string} typed a word as typed: a quoted span put
- *   back where it reads whole, else the masked word, which no launch spelling
- *   matches
+ * @property {(w: string) => string} typed
  * @property {import("./suite-launch.js").LaunchPorts} launchPorts
- * @property {() => import("./suite-ladder.js").PsRow[] | null} readPs `ps`,
- *   read once a command
+ * @property {() => import("./suite-ladder.js").PsRow[] | null} readPs
  * @property {(scope: ClimbScope) => number} readClimb
- * @property {string} watcherSegment the first segment opening a watcher
- * @property {string} trimmedCommand the raw command, comment cut and trimmed
- * @property {boolean} ruleSubject whether a test launch earns suite-tree-dirty
- * @property {string[] | null} fullLaunchWords the first `--full` launch's argv
- * @property {string} memoryKind the first build or whole-suite run's name
- * @property {number} memoryMb the MemAvailable read for it
- *
- * @typedef {object} Subject one launch this guard judges
+ * @property {string} watcherSegment
+ * @property {string} trimmedCommand
+ * @property {boolean} ruleSubject
+ * @property {string[] | null} fullLaunchWords
+ * @property {string} memoryKind
+ * @property {number} memoryMb
+ * @typedef {object} Subject
  * @property {"test" | "build"} kind
  * @property {import("./suite-launch.js").LaunchKind | undefined} launchKind
- * @property {boolean} other a runner other than vitest (#330)
- * @property {boolean} plain an npm script not running run-vitest.js
+ * @property {boolean} other
+ * @property {boolean} plain
  * @property {boolean} narrowed
  * @property {boolean} part
- * @property {boolean} reaps whether the command reaps for itself on the way
- *   in: npm runs a pre-script for `test` and `test:changed` alone (#633)
+ * @property {boolean} reaps
  * @property {boolean} queued
- * @property {boolean} countOnly held at the count cap alone: a whole `npm run
- *   test:py` (#4775), off the memory rung, which prices vitest workers, and
- *   off the Windows-memory hold, which holds what that rung admits
+ * @property {boolean} countOnly
  * @property {number} workers
- * @property {boolean} vitestPart a vitest part-suite (#5366)
- * @property {import("./part-suite-peak.js").PartKind | null} partKind a vitest
- *   part-suite's kind, which its peak charge reads, null where it cannot be
- *   told (#5366)
- * @property {number | null} files the test files a vitest part-suite resolves
- *   to, null where unresolved
- *
- * @typedef {object} Judged a subject against the machine
+ * @property {boolean} vitestPart
+ * @property {import("./part-suite-peak.js").PartKind | null} partKind
+ * @property {number | null} files
+ * @typedef {object} Judged
  * @property {string} segment
  * @property {string[]} words
  * @property {Subject} s
- * @property {number} mb MemAvailable less `climbMb`, what the rung reads
- * @property {number} readMb MemAvailable as read
+ * @property {number} mb
+ * @property {number} readMb
  * @property {number} climbMb
  * @property {ClimbScope} climbScope
- * @property {Running | null} running null where `ps` went unread
+ * @property {Running | null} running
  * @property {number} whole
  * @property {number} busy
  * @property {number} watching
- * @property {import("./suite-ladder.js").Reach} reach the rung this launch
- *   reaches, clamped to the machine's reach (#5310)
- * @property {PeakAdmission | null} peak the part-suite's own peak charge,
- *   null where it is judged on the ladder
+ * @property {import("./suite-ladder.js").Reach} reach
+ * @property {PeakAdmission | null} peak
  * @property {number} nth
  * @property {string} lever
  * @property {string} tail
  * @property {string} watchLimb
  * @property {string} waitLever
- * @property {boolean} refusable a test launch not queued
- * @property {string} launchText the launch's own text, masked: the segment,
- *   or the command a `-c` string in it runs
+ * @property {boolean} refusable
+ * @property {string} launchText
  * @property {string} typedLaunch
  */
 
@@ -482,19 +415,11 @@ function buildState(command, parsed, ctx) {
 	};
 }
 
-/**
- * @param {St} st
- * @param {string[]} words masked, unwrapped
- */
+/** @param {St} st @param {string[]} words */
 const launchOf = (st, words) =>
 	suiteLaunchKind(words.map(st.typed), st.launchPorts);
 
-/**
- * THE WATCHER IS FOUND BEFORE ANY SEGMENT IS JUDGED (mantahostels#1978): a
- * command gets one message. The first watcher wins.
- * @param {St} st
- * @param {import("./shell-parse.js").Parsed} parsed
- */
+/** @param {St} st @param {import("./shell-parse.js").Parsed} parsed */
 function prePass(st, parsed) {
 	walkCommands(
 		parsed,
@@ -510,11 +435,7 @@ function prePass(st, parsed) {
 	);
 }
 
-/**
- * The words as one string, an npm script launch spelt with `run` whatever
- * its spelling and a trailing lone `--` dropped.
- * @param {string[]} given
- */
+/** @param {string[]} given */
 function launchKey(given) {
 	const words = [...given];
 	if (words.at(-1) === "--") words.pop();
@@ -525,15 +446,7 @@ function launchKey(given) {
 	return key.join(" ");
 }
 
-/**
- * THE HOST'S WHOLE-SUITE LAUNCH (#2237): its declared `commands.test` typed
- * with nothing after it but a lone `--`. `npm test`, `npm t` and `npm run
- * test` are one launch. A command running run-vitest.js is no whole suite,
- * bare: that runner selects from the diff. Any further word reads as
- * narrowing, and a declared command holding a quoted word never matches.
- * @param {St} st
- * @param {import("./shell-parse.js").Parsed} parsed
- */
+/** @param {St} st @param {import("./shell-parse.js").Parsed} parsed */
 function wholeSuiteLaunch(st, parsed) {
 	const declared = (st.ctx.declaredTest() ?? "")
 		.split(/[ \t\n]+/)
@@ -559,11 +472,7 @@ function wholeSuiteLaunch(st, parsed) {
 	return found;
 }
 
-/**
- * The memory figure for a `test:py` run naming no path (#2024).
- * @param {St} st
- * @param {string[]} argv its own argv, quoted spans read as typed
- */
+/** @param {St} st @param {string[]} argv */
 function notePytestFigure(st, argv) {
 	if (st.memoryKind || pytestPathWords(argv).length > 0) return;
 	const mb = st.ctx.availableMb();
@@ -590,7 +499,6 @@ const buildBlankSubject = () => ({
 });
 
 /**
- * A test launch as this guard charges it.
  * @param {St} st
  * @param {Launch} launch
  * @param {string[]} words
@@ -599,10 +507,6 @@ const buildBlankSubject = () => ({
 function buildTestSubject(st, launch, words) {
 	const s = { ...buildBlankSubject(), launchKind: launch.kind };
 	st.ruleSubject = true;
-	/* Not vitest (#330): no `pretest` reap, no `--full`, and its queue is
-	 * scripts/queue-run.js rather than `--queue` (#1776). One naming its test
-	 * files is a part-suite charged a whole suite's workers (#5274): one heavy
-	 * file is not cheap to run. */
 	if (launch.kind === "other")
 		return {
 			...s,
@@ -627,19 +531,15 @@ function buildTestSubject(st, launch, words) {
 		s.partKind = partKindOfRoute(route);
 		s.files = st.ctx.launchWeight ? st.ctx.launchWeight.resolvedFiles : files;
 	}
-	/* `test:watch` runs the whole suite and takes no `--full`. */
 	s.narrowed = files !== null || (!watch && !hasFullFlag(words));
 	s.reaps = launch.kind === "npm-vitest";
 	s.plain = !!launch.script && !st.launchPorts.isWrapperScript(launch.script);
-	/* The FIRST `--full` launch in the command, kept for the limb (#181). */
 	if (!watch && !st.fullLaunchWords && hasFullFlag(words))
 		st.fullLaunchWords = words.slice(launch.taken).map(st.typed);
 	return s;
 }
 
 /**
- * A test launch's weight: the one the queue hands in, else a touched run's,
- * which takes no whole slot (#2935), else its named files'.
  * @param {St} st
  * @param {{ slotFree: boolean } | null} route
  * @param {number | null} files
@@ -652,11 +552,6 @@ function launchWeigh(st, route, files) {
 }
 
 /**
- * A wrapper or npm vitest launch as run-vitest.js routes it: its route's
- * kind and source, and whether it is a touched run in #2935's sense — a bare run, a
- * `--retest` or one naming its files — `slotFree`. Null for a launch
- * run-vitest.js does not route: a script that is plain vitest, not
- * run-vitest.js (#1776), or a `test:changed`.
  * @param {St} st
  * @param {Launch} launch
  * @param {string[]} words
@@ -667,8 +562,6 @@ function routedLaunch(st, launch, words) {
 	if (argv === null || launch.script === "test:changed") return null;
 	if (launch.script && !st.launchPorts.isWrapperScript(launch.script))
 		return null;
-	/* Required here, not at load: its graph costs ~8 ms, which a folded core
-	 * pays serially on every admitted call (#3227). */
 	const { isTouchedRun, launchRoute } = require("./launch-route.js");
 	const route = launchRoute(
 		argv.map((w) => literal(w, st.spans).text),
@@ -682,8 +575,6 @@ function routedLaunch(st, launch, words) {
 }
 
 /**
- * What this guard judges in one command's words: a subject, or a verdict
- * reached on the words alone — undefined where the walk goes on.
  * @param {St} st
  * @param {string[]} words
  * @param {Command} cmd
@@ -723,16 +614,7 @@ function subjectOf(st, words, cmd) {
 	return { verdict: undefined };
 }
 
-/**
- * The peak of the compiler `bin` resolves to in each directory the launch may
- * stand in, the highest taken: a `cd` may have failed (#4980, #5216). A
- * directory the walk cannot name is charged the session's tree (#4892).
- * Residual: a launch whose `cd` did reach a lighter tree is over-charged, and
- * may queue where it would fit.
- * @param {St} st
- * @param {Command["cwds"]} cwds
- * @param {string} bin
- */
+/** @param {St} st @param {Command["cwds"]} cwds @param {string} bin */
 function launchDirPeakMb(st, cwds, bin) {
 	if (cwds.includes(""))
 		st.ctx.log(
@@ -744,12 +626,9 @@ function launchDirPeakMb(st, cwds, bin) {
 }
 
 /**
- * A bare `tsc` the type-check slot would hold (#3163): denied, line one the
- * same launch through `queue-run.js --tsc`, which waits for the slot. A
- * launch the slot would admit passes.
  * @param {St} st
  * @param {Command} cmd
- * @param {string} bin the `tsc` binary it launches
+ * @param {string} bin
  * @returns {Verdict | undefined}
  */
 function denyBareTsc(st, { segment, cwds }, bin) {
@@ -785,10 +664,7 @@ function denyBareTsc(st, { segment, cwds }, bin) {
 	};
 }
 
-/**
- * Why the type-check slot holds a bare `tsc`, by limb.
- * @param {import("./suite-queue.js").GateDenial} denial
- */
+/** @param {import("./suite-queue.js").GateDenial} denial */
 function buildTscWhy(denial) {
 	if (denial.limb === "count")
 		return "A `tsc` is already running, and the machine runs one at a time (docs/environment.md §6, #3163).";
@@ -804,29 +680,17 @@ function buildTscWhy(denial) {
 const readingOf = (mb, climbMb, scope = "all") =>
 	`MemAvailable is ${mb} MB${climbMb ? `, less ${climbMb} MB the queues' running launches ${scope === "off-rung" ? "its rung does not count " : ""}have yet to draw` : ""}`;
 
-/**
- * A segment's launch as typed: comment cut, quoted spans put back, trimmed.
- * @param {St} st
- * @param {string} segment
- */
+/** @param {St} st @param {string} segment */
 const typedLaunchOf = (st, segment) =>
 	trimRun(asWritten(cutComment(segment), st.spans), BASH_SPACE);
 
-/**
- * A deny's line one: the launch to run, as the whole command where the
- * segment is the whole command, else as the launch to swap in (#482).
- * @param {St} st
- * @param {string} typed the segment's launch as typed
- * @param {string} launch
- */
+/** @param {St} st @param {string} typed @param {string} launch */
 const insteadLine = (st, typed, launch) =>
 	typed === st.trimmedCommand
 		? `Run instead: ${launch}`
 		: `Run the command with this launch in place of its own: ${launch}`;
 
 /**
- * Deny where a `next <sub>` is already running. Neither is on the ladder or
- * measured, so the count alone judges.
  * @param {St} st
  * @param {"build" | "dev"} sub
  * @param {string} what
@@ -851,13 +715,7 @@ function denySecondNext(st, sub, what, segment) {
 	};
 }
 
-/**
- * The suites running, for a test launch; null where `ps` went unread, which
- * is judged as if none were running. A build is never counted, being off the
- * ladder.
- * @param {St} st
- * @param {Subject} s
- */
+/** @param {St} st @param {Subject} s */
 function readRunning(st, s) {
 	if (s.kind !== "test") return null;
 	const out = st.readPs();
@@ -880,11 +738,7 @@ function readRunning(st, s) {
 	);
 }
 
-/**
- * The watcher's limb, carried on whichever message fires (mantahostels#1927).
- * @param {St} st
- * @param {string} segment
- */
+/** @param {St} st @param {string} segment */
 function watchLimbOf(st, segment) {
 	if (!st.watcherSegment) return "";
 	const opener =
@@ -894,11 +748,7 @@ function watchLimbOf(st, segment) {
 	return `${opener}, which runs the whole suite now AND holds a full rung for as long as it stays open — it re-runs on any file save, and \`ps\` cannot tell an idle watcher from a running one, so it is counted the whole time. Close it (\`q\` in its terminal) when you stop iterating.`;
 }
 
-/**
- * An open watcher does not end on its own, so "wait for one to finish" is
- * advice a session cannot take when the neighbours are all watchers.
- * @param {Running | null} running
- */
+/** @param {Running | null} running */
 function waitLeverOf(running) {
 	const watching = running?.watchers ?? 0;
 	if (watching > 0 && watching === running?.total)
@@ -909,10 +759,6 @@ function waitLeverOf(running) {
 }
 
 /**
- * A vitest part-suite's own peak (#5366), or why it is judged on the ladder.
- * The tripwire is read first: tripped or blind, the ledger goes unread. A
- * fault — a ledger or journal that will not read — is logged; a thin bucket
- * or a tripped wire is a state, and is not.
  * @param {St} st
  * @param {Subject} s
  * @returns {import("./part-suite-peak.js").PartPeak | { cause: import("./part-suite-peak.js").LadderCause, bucket?: string }}
@@ -942,9 +788,6 @@ function peakChargeOf(st, s) {
 }
 
 /**
- * What a launch is charged: the climb it pays and the rung it must clear. A
- * vitest part-suite on its own peak is charged that peak's rung and every
- * queue's climb, and its admission is heard (#5366).
  * @param {St} st
  * @param {Subject} s
  * @param {{ busy: number, queued: boolean }} read
@@ -954,10 +797,6 @@ function chargeOf(st, s, { busy, queued }) {
 	const test = s.kind === "test";
 	const charge = test && s.vitestPart ? peakChargeOf(st, s) : null;
 	const peakRead = charge && "p99Mb" in charge ? charge : null;
-	/* A queued launch's own gate charges the climb its way (#3416); a test
-	 * launch's ladder rung counts every suite on `ps` (#4111), and a build's
-	 * none, so a build pays every queue's climb (#4112), and so does a
-	 * part-suite on its own peak, whose rung counts no suite (#5366). */
 	const climbScope = test && !peakRead ? "off-rung" : "all";
 	const climbMb = queued ? 0 : st.readClimb(climbScope);
 	const reach = reachableRung(
@@ -984,8 +823,7 @@ function chargeOf(st, s, { busy, queued }) {
 
 /**
  * @param {St} st
- * @param {{ segment: string, words: string[], scripted: boolean }} at the
- *   segment and its words, unwrapped, and whether a `-c` string runs them
+ * @param {{ segment: string, words: string[], scripted: boolean }} at
  * @param {Subject} s
  * @param {number} readMb
  * @returns {Judged}
@@ -1021,12 +859,9 @@ function judgedOf(st, at, s, readMb) {
 		reach,
 		peak,
 		nth: running ? running.whole + 1 : 1,
-		/* Telling a narrowed launcher to narrow the run is a no-op. */
 		lever: s.narrowed
 			? "since this run is already narrowed as far as it goes"
 			: "or narrow the run",
-		/* Every warning ends with the command it is about, so the limb goes
-		 * before it. */
 		tail: watchLimb
 			? `. ${watchLimb} The command: ${unmask(segment)}`
 			: `: ${unmask(segment)}`,
@@ -1038,23 +873,13 @@ function judgedOf(st, at, s, readMb) {
 	};
 }
 
-/**
- * A warning: one message a command, and no rule beside it.
- * @param {St} st
- * @param {string} text
- * @returns {Verdict}
- */
+/** @param {St} st @param {string} text @returns {Verdict} */
 const buildWarnVerdict = (st, text) => ({
 	injectRules: [],
 	prelude: st.ctx.corePaths(text),
 });
 
-/**
- * A watcher's line one: the wait, then the same launch (#1927).
- * @param {St} st
- * @param {Judged} j
- * @param {string} watchLever
- */
+/** @param {St} st @param {Judged} j @param {string} watchLever */
 function watcherFix(st, j, watchLever) {
 	const launch = unqueued(j.typedLaunch);
 	const how =
@@ -1067,13 +892,7 @@ function watcherFix(st, j, watchLever) {
 	};
 }
 
-/**
- * A queueable launch's line one: the launch with `--queue` — `-- --queue` on
- * an npm launch carrying no `--` — or through scripts/queue-run.js (#1776). A
- * compound command's other parts — a `cd` first — still matter.
- * @param {St} st
- * @param {Judged} j
- */
+/** @param {St} st @param {Judged} j */
 function queueFix(st, j) {
 	const viaQueueRun = j.s.other || j.s.plain;
 	const flag =
@@ -1092,9 +911,6 @@ function queueFix(st, j) {
 }
 
 /**
- * Refuse a refusable launch, line one being the command that waits instead
- * (#482, #519). `gate` names the limb for the queue's poll (#2421); the kit
- * sends the session the deny alone.
  * @param {St} st
  * @param {Judged} j
  * @param {{ gate: Gate, watchLever: string, why: string, waiter: string }} d
@@ -1109,16 +925,7 @@ function denyToQueue(st, j, d) {
 	return { deny: st.ctx.corePaths(reason), gate: d.gate };
 }
 
-/**
- * THE COUNT CAP (#2680): one whole suite at a time; a part-suite takes no
- * whole-suite slot. Past it, what the deny lets through — a part-suite, a
- * `--queue` — is warned: past the ladder's last rung every launch, but a
- * refusable part-suite short of its own rung goes on to the memory deny;
- * inside the ladder a whole suite past the cap only where its rung is met.
- * @param {St} st
- * @param {Judged} j
- * @returns {Verdict | undefined}
- */
+/** @param {St} st @param {Judged} j @returns {Verdict | undefined} */
 function countVerdict(st, j) {
 	if (!j.running) return;
 	const { s } = j;
@@ -1154,15 +961,7 @@ function rungClause(j) {
 	return j.nth > 1 ? ` as suite ${j.nth} of ${SUITE_MAX}` : "";
 }
 
-/**
- * THE MEMORY LADDER (#2305): a refusable launch short of its rung is sent to
- * the queue, anything else warned. The message names the reap
- * (mantahostels#1930); pretest-reap.js judges the rung for the suite being
- * started (#627).
- * @param {St} st
- * @param {Judged} j
- * @returns {Verdict | undefined}
- */
+/** @param {St} st @param {Judged} j @returns {Verdict | undefined} */
 function memoryVerdict(st, j) {
 	if (j.mb >= j.reach.rungMb) return;
 	const rung = `${rungClause(j)}${clampedClause(j.reach.ladderMb)}`;
@@ -1203,15 +1002,7 @@ function memoryVerdict(st, j) {
 	);
 }
 
-/**
- * THE WINDOWS-MEMORY HOLD (#4557, #4850): a launch its guest rung admits
- * while Windows is under its floor or paging hard is sent to the queue as a
- * memory shortfall is; anything else is warned. No fresh reading fails open,
- * recorded.
- * @param {St} st
- * @param {Judged} j
- * @returns {Verdict | undefined}
- */
+/** @param {St} st @param {Judged} j @returns {Verdict | undefined} */
 function windowsVerdict(st, j) {
 	const read = readWindowsRecorded(
 		st.ctx.windowsMemory,
@@ -1234,14 +1025,7 @@ function windowsVerdict(st, j) {
 	);
 }
 
-/**
- * A build or a whole-suite run owes a before-and-after reading (#2024); a
- * non-vitest runner and a watcher do not. The first such launch in the
- * command is the one the injection reports.
- * @param {St} st
- * @param {Subject} s
- * @param {number} mb
- */
+/** @param {St} st @param {Subject} s @param {number} mb */
 function noteMemoryFigure(st, s, mb) {
 	if (st.memoryKind || s.narrowed || s.other || s.launchKind === "npm-watch")
 		return;
@@ -1249,12 +1033,7 @@ function noteMemoryFigure(st, s, mb) {
 	st.memoryMb = mb;
 }
 
-/**
- * One command's words judged; undefined where the walk goes on.
- * @param {St} st
- * @param {Command} cmd
- * @returns {Verdict | undefined}
- */
+/** @param {St} st @param {Command} cmd @returns {Verdict | undefined} */
 function judge(st, cmd) {
 	/** @type {Verdict | undefined} */
 	let verdict;
@@ -1266,7 +1045,6 @@ function judge(st, cmd) {
 }
 
 /**
- * One unwrap run judged, as judge answers.
  * @param {St} st
  * @param {Command} cmd
  * @param {import("./shell-words.js").Unwrapped} run
@@ -1290,18 +1068,12 @@ function judgeRun(st, cmd, { words, scripted }) {
 		countVerdict(st, j) ??
 		(s.countOnly ? undefined : (memoryVerdict(st, j) ?? windowsVerdict(st, j)));
 	if (verdict !== undefined) return verdict;
-	/* The watcher limb, on the watcher's OWN segment alone. */
 	return st.watcherSegment === cmd.segment
 		? buildWarnVerdict(st, `${j.watchLimb} The command: ${unmask(cmd.segment)}`)
 		: undefined;
 }
 
-/**
- * The plain-`--full` limb (#181): its latch is tested first and is its own,
- * the check costing a read-graph render, paid once a session. A fault leaves
- * it unsaid, on the record.
- * @param {St} st
- */
+/** @param {St} st */
 function fullLimb(st) {
 	if (!st.fullLaunchWords || st.ctx.told(FULL_LIMB_ID)) return false;
 	const full = st.ctx.fullLaunchPlain(st.fullLaunchWords, treeRoot(st.ctx));
@@ -1312,14 +1084,7 @@ function fullLimb(st) {
 	return false;
 }
 
-/**
- * PRE-EMPTIVE INJECTION (mantahostels#1805): reached only where nothing spoke,
- * so a session told to wait is handed no rule about a run it has not started.
- * Every notice of this guard's own travels as the prelude, ahead of the rules.
- * @param {St} st
- * @param {boolean} whole the host's whole-suite launch
- * @returns {Verdict}
- */
+/** @param {St} st @param {boolean} whole @returns {Verdict} */
 function injectionOf(st, whole) {
 	if (!(st.ruleSubject || whole) && !st.memoryKind) return null;
 	const limb = fullLimb(st);
@@ -1327,15 +1092,11 @@ function injectionOf(st, whole) {
 	/** @type {string[]} */
 	const skip = [];
 	if (!st.ruleSubject) skip.push("suite-tree-dirty");
-	/* The figure goes out only with the rule's first telling, which says the
-	 * later readings are the session's own to take. */
 	if (!st.memoryKind) skip.push("memory-figure");
 	else if (st.ctx.readLatch("memory-figure") === null)
 		prelude.push(
 			`BEFORE THIS ${st.memoryKind.toUpperCase()} RUN, MemAvailable reads ${st.memoryMb} MB.`,
 		);
-	/* Only a command whose verdict probe passed is known to take file
-	 * arguments, so only its whole-suite launch is told to name files. */
 	if (!whole || !st.ctx.testProven(treeRoot(st.ctx)))
 		skip.push("targeted-runs");
 	return {

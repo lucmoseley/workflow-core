@@ -1,9 +1,3 @@
-/*
- * seat-claude.js — `claude` run on a seat (#4344). `--bg`, `rm`, `attach` and
- * the job record are scoped to CLAUDE_CONFIG_DIR, so a call addressing a job
- * runs on that job's seat.
- */
-
 const { stripVTControlCharacters } = require("node:util");
 const { claudeBin } = require("./claude-bin.js");
 const { CHILD_TIMEOUT_MS, spawnRaw } = require("./child-spawn.js");
@@ -12,8 +6,6 @@ const { forgetRoots } = require("./inherited-roots.js");
 const { forgetSession } = require("./session-id.js");
 
 /**
- * `env` on seat `seat`, with `over` laid on it and the caller's session
- * identity and root forgotten (lib/inherited-roots.js).
  * @param {NodeJS.ProcessEnv} env
  * @param {string} seat
  * @param {Record<string, string>} [over]
@@ -27,12 +19,8 @@ function buildSeatEnv(env, seat, over = {}) {
 }
 
 /**
- * `claude <args>` run to its end in `cwd` (else the caller's) under `env`
- * (buildSeatEnv's).
  * @param {string[]} args
  * @param {{cwd?: string, env: NodeJS.ProcessEnv, timeout?: number, bin?: string, spawn?: typeof spawnRaw}} opts
- *   `bin` where the caller pins a CLI version; `spawn` the call, where a test
- *   runs it in-process
  */
 function runClaude(
 	args,
