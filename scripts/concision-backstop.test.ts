@@ -1,28 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that the Stop backstop bills a concision pass or code review only for
- * work this session wrote, in its own tree, against a valid base. The
- * marker, floor and sensitive-tier cases sit in the -markers, -floor and
- * -sensitive files (#4308).
- *
- * concision-backstop.sh fires at Stop against a diff of a REPO-GLOBAL working
- * tree, so its whole correctness question is whose work it is looking at (mantahostels#114).
- *
- * Every regression case is paired with a positive case proving the signal still
- * fires for the session that did the work.
- *
- * Two sessions are simulated by writing to the same throwaway repo under two
- * different session ids, only one of which has a ledger entry.
- *
- * Numbered instances below ("Instances 4 and 5") are the six documented misfires
- * on mantahostels#96's evidence base — mantahostels#96 is the parallel-session safety map.
- *
- * Loosen a case and the hook tells a session to edit files a live neighbour is
- * still writing, or lets prose and code end a session with no quality pass.
- *
- * Over base §X8 (5)'s 10 s budget: each case spawns the hook for real, 0.3-0.5 s
- * a run (#4308's profile), and the logic under test is bash with no in-process seam.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -87,7 +63,6 @@ describe("the session's own worktree (#4243)", () => {
 		const wt = cutWorktree(repo);
 		fs.mkdirSync(path.join(wt, "docs"));
 		fs.writeFileSync(path.join(wt, "docs", "mine.md"), PARAGRAPH);
-		/* Keyed by its path in the tree, as the recorder run there keys it (#4397). */
 		record("docs/mine.md", ME, wt);
 		const reason = stopIn(wt);
 		expect(reason).toContain("concision-pass");
@@ -104,7 +79,6 @@ describe("the session's own worktree (#4243)", () => {
 
 describe("attribution — the mantahostels#114 regression", () => {
 	it("bills nothing to a session that wrote nothing, however busy the tree", () => {
-		// Instances 3 and 6: a session whose only actions were reads.
 		write("docs/theirs.md", PARAGRAPH);
 		git("add", "docs/theirs.md");
 		git("commit", "-qm", "parallel session's prose");
@@ -116,14 +90,10 @@ describe("attribution — the mantahostels#114 regression", () => {
 	});
 
 	it("bills a parallel session's committed prose to nobody", () => {
-		// Instance 2: prose committed minutes earlier by the session working mantahostels#100,
-		// which had already run its own pass, demanded again of the mantahostels#101 session.
 		write("docs/theirs.md", PARAGRAPH);
 		git("add", "docs/theirs.md");
 		git("commit", "-qm", "theirs");
 		record("docs/theirs.md", OTHER);
-		// This session did write something, so it is not excused by the empty-ledger
-		// shortcut — the filter itself has to do the work.
 		write("docs/mine.md", "three short words\n");
 		record("docs/mine.md", ME);
 
@@ -131,8 +101,6 @@ describe("attribution — the mantahostels#114 regression", () => {
 	});
 
 	it("bills a parallel session's untracked code to nobody", () => {
-		// Instances 4 and 5: scripts/proving-run.ts, untracked in-flight work of the
-		// mantahostels#107 session, charged to mantahostels#104, mantahostels#105 and mantahostels#106 in turn.
 		write("scripts/proving-run.ts", "export const harness = 1;\n");
 		record("scripts/proving-run.ts", OTHER);
 		write("docs/mine.md", "mine\n");
@@ -150,14 +118,6 @@ describe("attribution — the mantahostels#114 regression", () => {
 		expect(reason).toContain("docs/mine.md");
 	});
 
-	/*
-	 * mantahostels#1011 — the nag is the only route to the standards files for a
-	 * session that ran neither /code-review nor /implement, so
-	 * inject-tracker-docs.js never reached it. Asserted here rather than by
-	 * grepping this hook's source from the injector's suite: the text surviving
-	 * in a comment while dropping out of the emitted nag is exactly the
-	 * regression, and only running the hook can tell the two apart (§X3).
-	 */
 	describe("the standards base and local file (#965)", () => {
 		const core = () => path.join(dir, "core");
 		const basePath = () => path.join(core(), "docs", "code-standards-base.md");
@@ -171,11 +131,6 @@ describe("attribution — the mantahostels#114 regression", () => {
 			return run("stop", ME, { WFC_SCRIPT_ROOT: core() }) as string;
 		};
 		const readLog = () => readGuardErrorsLog(cfg);
-		/*
-		 * #2097: inject-tracker-docs.js hands a typed /code-review the same
-		 * Standards-axis text, which each case below pins this hook's to. Run
-		 * after nag(), under another session id, so its markers decide nothing.
-		 */
 		const readInjected = () => {
 			const opener =
 				"You invoked /code-review, whose vendored skill file cannot carry project rules. ";
@@ -211,8 +166,6 @@ describe("attribution — the mantahostels#114 regression", () => {
 				`Hand the Standards axis, in its prompt, base \`${basePath()}\` and local \`docs/code-standards.md\`.`,
 			);
 			expect(reason).toContain('"§X2 (base), excepted by local row 2"');
-			// A local file still on the old heading keeps its smells unraised
-			// (mantahostels#994).
 			expect(reason).toContain('"Smells not raised" (or "Suppressions")');
 			expect(reason).toContain("`Base unreadable: <path>`");
 			expect(readLog()).not.toContain("standards base absent");
@@ -253,7 +206,6 @@ describe("attribution — the mantahostels#114 regression", () => {
 			expect(reason).toContain(
 				`\`No standards base or local file: ${basePath()} and docs/code-standards.md are absent.\``,
 			);
-			// #886's line, which this replaces.
 			expect(reason).not.toContain("No standards file:");
 			expect(readLog()).toContain("standards base absent");
 		});
@@ -273,11 +225,6 @@ describe("attribution — the mantahostels#114 regression", () => {
 			expect(nag()).not.toContain("GLOSSARY.md");
 		});
 
-		/*
-		 * #2096: an adopter's install with review-standards.sh unsourceable, so
-		 * the base falls to the default. Each file is linked one by one so the
-		 * directories stay real and doc_path resolves to the install.
-		 */
 		it("spells the default base at the install root when review-standards.sh cannot be sourced (#2096)", () => {
 			const install = path.join(dir, "install");
 			fs.mkdirSync(path.join(install, "scripts", "lib"), { recursive: true });
@@ -319,11 +266,6 @@ describe("attribution — the mantahostels#114 regression", () => {
 		expect(reason).toContain("scripts/mine.ts");
 	});
 
-	/*
-	 * #2390: an edit through an inline interpreter (`python3 - <<EOF`) leaves no
-	 * write-ledger line, so the commit ledger is the session's only record of
-	 * the code.
-	 */
 	describe("code committed with no write-ledger line (#2390)", () => {
 		const commitCode = (sid: string) => {
 			write("scripts/mine.ts", `${BIG_CODE}\n`);
@@ -365,8 +307,6 @@ describe("attribution — the mantahostels#114 regression", () => {
 	});
 
 	it("counts only its own words when both sessions wrote prose", () => {
-		// The sharp case: a naive filter that fires whenever ANY attributed file
-		// changed would report the parallel session's word count alongside its own.
 		write("docs/theirs.md", `${PARAGRAPH}${PARAGRAPH}${PARAGRAPH}`);
 		record("docs/theirs.md", OTHER);
 		write("docs/mine.md", PARAGRAPH);
@@ -375,13 +315,10 @@ describe("attribution — the mantahostels#114 regression", () => {
 		const reason = run("stop");
 		expect(reason).toContain("docs/mine.md");
 		expect(reason).not.toContain("docs/theirs.md");
-		// 60 words of its own, not 240 of everyone's.
 		expect(reason).toMatch(/roughly 6\d net words/);
 	});
 
 	it("matches ledger paths whole, so a prefix cannot borrow the credit", () => {
-		// -F -x, not a substring search: "docs/mine.md" must not vouch for
-		// "docs/mine.md.bak", which is a different file and someone else's work.
 		write("docs/mine.md", "short\n");
 		record("docs/mine.md", ME);
 		write("docs/mine.md.bak", PARAGRAPH);
@@ -390,9 +327,6 @@ describe("attribution — the mantahostels#114 regression", () => {
 	});
 
 	it("bills a non-ASCII path, which git would otherwise render escaped", () => {
-		// git renders "docs/café.md" as "docs/caf\303\251.md" under its default
-		// core.quotePath, while the ledger holds the path raw — so a whole-line
-		// match never fires and the file goes silently unbilled.
 		write("docs/café.md", PARAGRAPH);
 		record("docs/café.md", ME);
 
@@ -406,15 +340,6 @@ describe("attribution — the mantahostels#114 regression", () => {
 	});
 
 	it("bills nothing when the ledger cannot be read at all", () => {
-		// mantahostels#137 (the ticket that made this hook read the exit status). `writes`
-		// exits non-zero for "attribution unavailable", a different fact from
-		// "wrote nothing" (mantahostels#135) — but it lands in the same place here on purpose:
-		// with no ledger to intersect, every candidate path is unattributable, and
-		// mantahostels#114 bills those to nobody rather than to whichever session stops next.
-		// So this test passes against the pre-mantahostels#137 script too, and no mutation can
-		// make it fail: reading the status changes what the hook MEANS, not what it
-		// does, since a failed read also leaves `$mine` empty. It pins the contract
-		// against a future `writes` that prints before it fails.
 		write("docs/mine.md", PARAGRAPH);
 		record("docs/mine.md", ME);
 		fs.chmodSync(ledgerFor(ME), 0o000);
@@ -425,20 +350,12 @@ describe("attribution — the mantahostels#114 regression", () => {
 
 describe("baseline validity", () => {
 	it("diffs against the merge base when the recorded base is off the branch", () => {
-		// The second defect: after a parallel session rebases main, the recorded
-		// commit still EXISTS as an object — cat-file -e passes, which was the only
-		// test — but is no longer an ancestor of HEAD, so the range is measured
-		// against content that was rewritten off the branch.
-		//
-		// The orphaned base already holds the paragraph, so a diff against it sees
-		// no prose added at all, while the branch this session is really on has
-		// never had it.
 		const root = git("rev-parse", "HEAD").trim();
 		write("docs/mine.md", PARAGRAPH);
 		git("add", "docs/mine.md");
 		git("commit", "-qm", "later rewritten off the branch");
 		const orphan = git("rev-parse", "HEAD").trim();
-		git("branch", "keep-alive"); // keeps the object reachable, so cat-file -e passes
+		git("branch", "keep-alive");
 		git("reset", "-q", "--hard", root);
 		fs.writeFileSync(
 			path.join(markersDir(), `.concision-base-${ME}`),
@@ -462,14 +379,6 @@ describe("baseline validity", () => {
 	});
 });
 
-/*
- * mantahostels#2076's own acceptance criterion, migrating onto scripts/lib/git-fixture.ts
- * (mantahostels#2068): a write made in an instantiated copy must not reach a second,
- * independent instantiation of the same template. The helper's own
- * leak-checked instantiate() already throws before any test body runs were a
- * copy still pointing at the template (proven in git-fixture.test.ts) — what
- * is left to assert here is the BEHAVIOURAL isolation a leak would cause.
- */
 describe("the copied fixture is isolated from its template (mantahostels#2068, mantahostels#2076)", () => {
 	const freshCopy = () => {
 		const fresh = mkScratchDir("backstop-fresh-");

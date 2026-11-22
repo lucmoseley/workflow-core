@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-stale-claims.js reports an open issue assigned long ago with
- * no sign of work since, never gates or unassigns, and says what it could not
- * read rather than calling it clean.
- *
- * Runs with a stub `gh` injected via WFC_GH: no network, no auth, and no
- * dependence on this repo's own issue state — which is what the script reports
- * on and so cannot also be its fixture.
- *
- * The fixtures are the measured cases from mantahostels#270 (a spun-off ticket created
- * already assigned): an issue assigned one second after creation and untouched
- * since, the shape that hid 9 of 41 open issues from selection.
- *
- * It runs daily in the repo-checks run, report-only: loosen a case and work
- * claimed by the session that merely filed it stays off the /wayfinder
- * frontier unseen.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -42,26 +25,17 @@ interface Issue {
 
 interface Fixture {
 	issues: Issue[];
-	/** issue number -> its timeline events */
 	timeline?: Record<number, Event[]>;
-	/** issue numbers whose timeline call returns an HTTP error */
 	failTimeline?: number[];
-	/** issue numbers whose timeline call fails with the SAME error text —
-	 *  for the >3-failures-collapse case (#93), where failTimeline's own
-	 *  per-issue text would defeat the "same error" grouping under test. */
 	failTimelineSame?: number[];
-	/** the issues list call itself fails */
 	failList?: boolean;
-	/** what that failure says — defaults to the unauthenticated spelling */
 	listError?: string;
-	/** every call fails the way an unauthenticated gh does */
 	unreachable?: boolean;
 }
 
 const daysAgo = (d: number) =>
 	new Date(Date.now() - d * 864e5).toISOString().replace(/\.\d+Z$/, "Z");
 
-/** An `assigned` event `d` days old, plus any activity events after it. */
 const claimed = (d: number, since: Event[] = []): Event[] => [
 	{ event: "assigned", created_at: daysAgo(d) },
 	...since,
@@ -167,7 +141,6 @@ describe("probably-dead claims", () => {
 	);
 
 	it("ignores activity that predates the assignment", () => {
-		// The spin-off shape: an issue discussed, then filed and assigned.
 		const r = run({
 			issues: [{ number: 249, assignees: ["owner"] }],
 			timeline: {
@@ -240,7 +213,6 @@ describe("never gates, never writes", () => {
 		for (const call of r.calls()) {
 			expect(call.split(" ")[0]).toBe("api");
 			expect(call).not.toMatch(/(^|\s)(-X|--method)\s+(?!GET(\s|$))/);
-			// gh api turns a call carrying -f fields into a POST unless told GET.
 			if (/(^|\s)-[fF]\s/.test(call))
 				expect(call).toMatch(/(^|\s)-X GET(\s|$)/);
 		}
@@ -280,7 +252,6 @@ describe("what it could not read", () => {
 			"4 failing the same way — gh: Service Unavailable (HTTP 503)",
 		);
 		for (const n of numbers) expect(r.out).toContain(`#${n}`);
-		// collapsed, not one block each: no per-issue title/url line for these
 		for (const n of numbers) expect(r.out).not.toContain(`issue ${n}\n`);
 	});
 
@@ -307,13 +278,11 @@ describe("what it could not read", () => {
 
 	it("SKIPs when the issue list fails for want of credentials", () => {
 		const r = run({ issues: [], failList: true });
-		expect(r.status).toBe(0); // a 401 is an unreachable GitHub, not a fault here
+		expect(r.status).toBe(0);
 		expect(r.out).toContain("SKIP");
 	});
 
 	it("is BROKEN when a gh failure is the call's own fault", () => {
-		// The mantahostels#164 split: a malformed request is the check breaking, not GitHub
-		// being unreachable.
 		const r = run({ issues: [], failList: true, listError: "HTTP 422" });
 		expect(r.status).toBe(2);
 		expect(r.out).toContain("BROKEN");

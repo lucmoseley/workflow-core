@@ -1,43 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-user-settings-drift.js — local guard that the settings snapshot
- * (`userSettingsSnapshotPath`, else docs/claude-user-settings.md) still matches
- * the live ~/.claude/settings.json, and its file copies the live files under
- * ~/.claude (COPIES below: #2174, #2322); and that the founder's machine copies
- * of what the plugin ships equal their sources in this repo (SOURCED below:
- * #5344).
- *
- * Usage:
- *   node check-user-settings-drift.js [--warn] [<doc.md>] [<settings.json>]
- *   (defaults: `userSettingsSnapshotPath` in .claude/workflow-core.json, else
- *   docs/claude-user-settings.md, under the host root;  ~/.claude/settings.json)
- *
- * Why this is not a CI job. The source of truth lives OUTSIDE the repository,
- * is not version-controlled, and exists on exactly one laptop. A CI runner has
- * no ~/.claude/settings.json to compare against, so a CI job here could only
- * ever skip while showing green.
- *
- * A snapshot that has silently drifted is worse than none: it will be trusted
- * to restore settings it no longer describes.
- *
- * The settings comparison is semantic, not textual — both sides are parsed and
- * compared as JSON, so key order and indentation never register as drift. Only a
- * real difference in settings does. The file copies compare as text. `model`
- * and `modelSettings` are compared against the routing file's current mode
- * (burn per its marker), never the snapshot, which leaves them out: burn mode
- * writes them on every switch (ROUTED_KEYS below).
- *
- * MISSING SOURCE IS NOT A FAILURE. ~/.claude/settings.json lives outside the
- * repo, so its absence SKIPs at exit 0. Absence of the DOC, or a doc whose JSON
- * block will not parse, is BROKEN at exit 2 — the doc is tracked, so that is a
- * repo-side problem visible everywhere. The asymmetry is the SKIP/BROKEN rule in
- * scripts/lib/check.js, not a special case (mantahostels#155 — the checker family's
- * exit-code and severity model — decision 6).
- *
- * Those BROKEN paths keep hard-blocking every commit from .husky/pre-commit;
- * --warn covers real drift only and cannot cap them. If that is ever unwanted,
- * the fix is `|| true` at the hook.
- */
 
 const fs = require("node:fs");
 const os = require("node:os");
@@ -60,11 +21,6 @@ const { trimEndRun } = require("./lib/trim-run.js");
 /** @typedef {import("./lib/check").Ctx} Ctx */
 
 const JSON_BLOCK = /```json\n([\s\S]*?)\n```/;
-// The outside-the-repo files under ~/.claude that the settings call or a
-// session reads. A doc missing a block added after the first is DRIFT, not BROKEN:
-// a snapshot predating it, as an adopter's declared copy can, would otherwise
-// block its every commit. The Markdown fences are four backticks, so a ``` fence
-// inside the file cannot close them (#2174).
 const COPIES = [
 	{
 		live: ["statusline.sh"],
@@ -80,17 +36,13 @@ const COPIES = [
 	},
 ];
 
-/** The plugin root, where each SOURCED file's source lives. */
 const PLUGIN_ROOT = coreRoot();
 const CONTRACT = path.join("docs", "working-contract.md");
-/* The working rules the founder's ~/.claude/CLAUDE.md carries as sections of
- * the same name (#5344). */
 const RULE_SECTIONS = [
 	"Removal means gone",
 	"Leading practice",
 	"Reports and paid data",
 ];
-/** Machine copies of shipped files, each against its repo source, byte for byte. */
 const SOURCED = [
 	{
 		live: ["hooks", "browser-profile-guard.sh"],
@@ -106,21 +58,13 @@ const SOURCED = [
 	},
 ];
 
-/**
- * A Markdown file cut at each `## ` heading: the text before the first, then
- * one chunk per section, its heading line included.
- * @param {string} text
- */
+/** @param {string} text */
 const chunks = (text) => text.split(/(?=^## )/m);
 
-/** The heading a chunk opens with, or null for the text before the first. */
 const headingOf = (/** @type {string} */ chunk) =>
 	chunk.startsWith("## ") ? chunk.slice(3).split("\n")[0] : null;
 
 /**
- * The named section's body, its heading and any guard-registry marker left
- * out and its edges trimmed; null where the text has no such section. The
- * markers are this repo's own, which no machine copy carries.
  * @param {string} text
  * @param {string} heading
  */
@@ -136,7 +80,6 @@ function sectionBody(text, heading) {
 				.trim();
 }
 
-/** The text with RULE_SECTIONS' sections cut out. */
 const withoutRuleSections = (/** @type {string} */ text) =>
 	chunks(text)
 		.filter((c) => !RULE_SECTIONS.includes(headingOf(c) ?? ""))
@@ -149,18 +92,13 @@ const typeOf = (v) => {
 	return typeof v;
 };
 
-/**
- * @typedef {{side: string, lines: string[]}} Report diff()'s accumulator: what
- *   the first side is called in a line, and each differing leaf's line
- */
+/** @typedef {{side: string, lines: string[]}} Report */
 
 /**
- * diff() over two objects. `any` for the reason diff() gives: both sides are
- * arbitrary parsed JSON.
  * @param {any} a
  * @param {any} b
  * @param {string} at
- * @param {Report} out accumulator: each differing leaf's line is pushed to `lines`; `side` names the expected side
+ * @param {Report} out
  */
 function diffObject(a, b, at, out) {
 	for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
@@ -174,16 +112,12 @@ function diffObject(a, b, at, out) {
 }
 
 /**
- * diff() over two arrays. `any` for the reason diff() gives: both sides are
- * arbitrary parsed JSON.
  * @param {any} a
  * @param {any} b
  * @param {string} at
- * @param {Report} out accumulator: each differing leaf's line is pushed to `lines`; `side` names the expected side
+ * @param {Report} out
  */
 function diffArray(a, b, at, out) {
-	// Order matters in these settings (deny lists are read as ordered), so
-	// compare positionally rather than as sets.
 	const n = Math.max(a.length, b.length);
 	for (let i = 0; i < n; i++) {
 		const where = `${at}[${i}]`;
@@ -197,15 +131,10 @@ function diffArray(a, b, at, out) {
 }
 
 /**
- * Collect every leaf path where the two structures differ.
- *
- * Both sides are arbitrary parsed JSON, so `any`: typeOf() returns a string
- * tag, which narrows neither side for diffObject() and diffArray().
- *
- * @param {any} a  the expected side — the doc's snapshot, or the routing file's writes — at this level
- * @param {any} b  the live settings, at this level
- * @param {string} [at]  dotted path to this level, for the report
- * @param {Report} [out]  accumulator: each differing leaf's line is pushed to `lines`; `side` names the expected side
+ * @param {any} a
+ * @param {any} b
+ * @param {string} [at]
+ * @param {Report} [out]
  * @returns {string[]}
  */
 function diff(a, b, at = "", out = { side: "doc", lines: [] }) {
@@ -229,12 +158,11 @@ function diff(a, b, at = "", out = { side: "doc", lines: [] }) {
 	return out.lines;
 }
 
-// The keys the routing file owns (see the header).
 const ROUTED_KEYS = ["model", "modelSettings"];
 
 /**
  * @param {Record<string, unknown>} o
- * @returns {[Record<string, unknown>, Record<string, unknown>]} the rest, and the routed keys present
+ * @returns {[Record<string, unknown>, Record<string, unknown>]}
  */
 const splitRouted = (o) => [
 	Object.fromEntries(
@@ -245,13 +173,7 @@ const splitRouted = (o) => [
 	),
 ];
 
-/**
- * Where the snapshot is read. An explicit argument is taken from the working
- * directory; otherwise the host's declaration, under its root (#447). A
- * declaration the reader refuses, or a config that will not read, is BROKEN
- * rather than a fall back to the default, which would SKIP.
- * @param {Ctx} ctx
- */
+/** @param {Ctx} ctx */
 function snapshotAt(ctx) {
 	if (ctx.args[0])
 		return { docPath: ctx.args[0], docFile: ctx.args[0], declared: false };
@@ -267,16 +189,11 @@ function snapshotAt(ctx) {
 }
 
 /**
- * The doc and its parsed JSON-fenced snapshot block, BROKEN where either is
- * missing or the block will not parse; SKIP where this repo keeps no snapshot.
- * `docJson` is `any` for the reason diff() gives: arbitrary parsed JSON.
  * @param {Ctx} ctx
  * @param {{ docPath: string, docFile: string, declared: boolean }} snapshot
  * @returns {{ doc: string, docJson: any }}
  */
 function readSnapshot(ctx, { docPath, docFile, declared }) {
-	// The snapshot is machine-level and kept by one repo; every other adopter
-	// has none by default (mantahostels#3515 F3, #2).
 	if (!ctx.args[0] && !declared && !fs.existsSync(docFile))
 		ctx.skip(`this repo has no ${docPath} — no settings snapshot to compare`);
 	if (!fs.existsSync(docFile))
@@ -289,8 +206,6 @@ function readSnapshot(ctx, { docPath, docFile, declared }) {
 
 	const doc = fs.readFileSync(docFile, "utf8");
 
-	// The doc carries more than one fenced block (a bash re-copy hint, plus the
-	// snapshot). Take the ```json one specifically rather than the first fence.
 	const match = doc.match(JSON_BLOCK);
 	if (!match)
 		ctx.broken(
@@ -309,9 +224,6 @@ function readSnapshot(ctx, { docPath, docFile, declared }) {
 }
 
 /**
- * The live settings, parsed; null where the file will not parse, which is
- * raised and said here. `liveJson` is `any` for the reason diff() gives:
- * arbitrary parsed JSON.
  * @param {Ctx} ctx
  * @param {string} settingsPath
  * @returns {{ liveJson: any } | null}
@@ -328,9 +240,6 @@ function readLive(ctx, settingsPath) {
 		return { liveJson: JSON.parse(fs.readFileSync(settingsPath, "utf8")) };
 	} catch (e) {
 		const { message } = caught(e);
-		/* The live file being broken is a real problem, but it lives outside the
-		 * repo and is not this repo's to fail over — an intrinsic WARN, so it is
-		 * reported loudly and the exit code stays 0. */
 		ctx.warn(
 			"LIVE-UNPARSEABLE",
 			`${settingsPath} is not valid JSON: ${message}`,
@@ -341,11 +250,6 @@ function readLive(ctx, settingsPath) {
 }
 
 /**
- * One file against its doc copy: the ok line's note, and the difference
- * where there is one.
- *
- * Textual compare, not semantic: a shell script's or Markdown file's
- * whitespace is not free.
  * @param {Ctx} ctx
  * @param {{ doc: string, docPath: string }} snapshot
  * @param {{ live: string[], fence: string, missingIsDrift: boolean, ruleSectionsCut: boolean }} copy
@@ -390,8 +294,6 @@ function compareCopy(
 
 	const docLines = docText.split("\n");
 	const liveLines = liveText.split("\n");
-	// findIndex returns -1 when every shared line matches and one side
-	// simply has more — report that as a length difference, not "line 0".
 	const at = docLines.findIndex((l, i) => l !== liveLines[i]);
 	const where =
 		at === -1
@@ -406,10 +308,6 @@ function compareCopy(
 }
 
 /**
- * `file`'s text, or null where it is absent. BROKEN where it is there but
- * unreadable: an absent copy is a machine that keeps none, while an
- * unreadable one is a fault at a path the founder keeps, and calling it
- * "not compared" would read as OK (base §N4, #5383's review).
  * @param {Ctx} ctx
  * @param {string} file
  * @returns {string | null}
@@ -424,7 +322,6 @@ function readOrBreak(ctx, file) {
 }
 
 /**
- * Where two texts first part, for a DRIFT line.
  * @param {string} expected
  * @param {string} live
  */
@@ -438,10 +335,6 @@ function firstDifference(expected, live) {
 }
 
 /**
- * Each machine copy of a shipped file against its source in this repo: the ok
- * line's note, and the differences. A live file that is absent is not
- * compared; nor is a source this checkout lacks. One that is there but
- * unreadable is BROKEN, as the check cannot say whether it drifted.
  * @param {Ctx} ctx
  * @returns {{ note: string, differences: string[] }}
  */
@@ -467,10 +360,6 @@ function compareSourcedFiles(ctx) {
 }
 
 /**
- * Each working-rule section of the live ~/.claude/CLAUDE.md against the
- * contract's: the ok line's note, and the differences. Not compared where
- * either file is absent, as an adopter's plugin holds no contract; BROKEN
- * where either is unreadable, or the contract has lost a section it names.
  * @param {Ctx} ctx
  * @returns {{ note: string, differences: string[] }}
  */
@@ -513,18 +402,12 @@ const SPEC = {
 		const settingsPath =
 			ctx.args[1] || path.join(os.homedir(), ".claude", "settings.json");
 
-		// --- Read the doc's snapshot block ---------------------------------------
-
 		const { doc, docJson } = readSnapshot(ctx, { docPath, docFile, declared });
-
-		// --- Read the live settings ----------------------------------------------
 
 		const live = readLive(ctx, settingsPath);
 		if (live === null) return { noun: "unreadable live settings file" };
 		const { liveJson } = live;
 		const burn = isBurnMarkerOn(process.env);
-
-		// --- Compare --------------------------------------------------------------
 
 		const [liveRest, liveRouted] = splitRouted(liveJson);
 		let routedDiffs;
@@ -545,8 +428,6 @@ const SPEC = {
 			...routedDiffs,
 		];
 
-		// --- Compare the file copies -----------------------------------------------
-
 		const copies = COPIES.map((sc) => compareCopy(ctx, { doc, docPath }, sc));
 		const files = compareSourcedFiles(ctx);
 		const rules = compareRuleSections(ctx);
@@ -564,8 +445,6 @@ const SPEC = {
 		for (const d of differences) ctx.fail("DRIFT", d);
 
 		if (differences.length > 0) {
-			// No severity prefix: check.js owns the one `SEVERITY:` line a run emits,
-			// and it is the thing that knows whether --warn demoted this.
 			ctx.say(
 				`${docPath} has drifted from ${settingsPath} — ` +
 					`${differences.length} difference(s):\n`,

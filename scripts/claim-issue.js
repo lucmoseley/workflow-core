@@ -1,34 +1,4 @@
 #!/usr/bin/env node
-/*
- * claim-issue.js — claim a ticket in one call: refuse if a live session holds
- * it, record the arbiter claim, assign it to the caller, print it and its
- * parent (#530; spec #528, ruled at #481).
- *
- *   node scripts/claim-issue.js <n>
- *
- * The check and the arbiter record are one step under the arbiter's
- * per-issue mutex, so two sessions racing for one ticket cannot both pass.
- *
- * ORDER: check-and-record, then assign, then unpark, then print.
- *
- * UNPARKS: a claimed issue loses its `parked` label (lib/parked.js, #2000) —
- * the claiming session answers the round, or carries the founder's answer.
- * A failed removal warns and does not fail the claim.
- *
- * FAILS CLOSED on an unreadable claim store or liveness read, the frontier's
- * keep-on-doubt rule: a claim taken on doubt may put a second session on work
- * already in flight. No session id (the founder's terminal) assigns only, and
- * says no record was written.
- *
- * No override flag: taking over a frozen session's ticket (#503) stops the
- * holder first, after which the plain check passes: a holder the oracle
- * lists as terminal does not block (#619).
- *
- * Joins no §N3 family: its exits are the three the spec gives all three
- * tracker scripts — 0 done or already done, 1 retry (a gh read, the lock or
- * the assignment did not answer), 2 fix the input (a usage error or a
- * refusal). Every refusal comes before the first write.
- */
 
 const {
 	assignSelf,
@@ -83,7 +53,6 @@ function main() {
 }
 
 /**
- * The issue, refused unless it is an open issue rather than a pull request.
  * @param {string} repo
  * @param {number} n
  * @returns {import("./lib/tracker-ops.js").Issue}
@@ -102,8 +71,6 @@ function readOpenIssue(repo, n) {
 }
 
 /**
- * Checks and records the arbiter claim, refusing on a live holder or doubt;
- * returns the line saying what was recorded.
  * @param {number} n
  * @param {string | undefined} sessionId
  * @returns {string}
@@ -134,7 +101,6 @@ function recordClaim(n, sessionId) {
 }
 
 /**
- * Takes `parked` off `n`, saying so, or warning where it would not come off.
  * @param {string} repo
  * @param {number} n
  */
@@ -148,7 +114,6 @@ function unpark(repo, n) {
 }
 
 /**
- * Prints the issue's parent, or says it has none.
  * @param {import("./lib/tracker-ops.js").Issue} issue
  * @param {number} n
  */

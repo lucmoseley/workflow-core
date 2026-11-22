@@ -124,7 +124,7 @@ const judge = (texts: Record<string, string>) => {
 const GH_FIX = {
 	"SECOND-VAR":
 		"gh SECOND-VAR Fix: name the binary through WFC_GH, the one var scripts/lib/gh.js reads, as scripts/check-issue-orphans.js and scripts/park-blocked.sh do.",
-	"SHELL-BARE": `gh SHELL-BARE Fix: run "${sub("WFC_GH:-gh")}", the var scripts/lib/gh.js reads, as scripts/park-blocked.sh does; or mark it \`gh-route-exempt: <why>\` where \`gh\` is only text.`,
+	"SHELL-BARE": `gh SHELL-BARE Fix: run "${sub("WFC_GH:-gh")}", the var scripts/lib/gh.js reads, as scripts/park-blocked.sh does; or mark it \`gh-route-exempt: #N\` where \`gh\` is only text.`,
 	"PATH-STUB":
 		"gh PATH-STUB Fix: point WFC_GH at the stub executable, never PATH.",
 	"NODE-COPY":
@@ -134,7 +134,7 @@ const GH_FIX = {
 const CLAUDE_FIX = {
 	"SECOND-VAR":
 		"claude SECOND-VAR Fix: name the binary through WFC_CLAUDE_BIN, the one var scripts/lib/claude-bin.js reads, as scripts/run-mod-tests.js and scripts/start-session.sh do.",
-	"SHELL-BARE": `claude SHELL-BARE Fix: run "${sub("WFC_CLAUDE_BIN:-claude")}", the var scripts/lib/claude-bin.js reads, as scripts/start-session.sh does; or mark it \`claude-route-exempt: <why>\` where \`claude\` is only text.`,
+	"SHELL-BARE": `claude SHELL-BARE Fix: run "${sub("WFC_CLAUDE_BIN:-claude")}", the var scripts/lib/claude-bin.js reads, as scripts/start-session.sh does; or mark it \`claude-route-exempt: #N\` where \`claude\` is only text.`,
 	"PATH-STUB":
 		"claude PATH-STUB Fix: point WFC_CLAUDE_BIN at the stub executable, never PATH.",
 	"NODE-COPY":
@@ -261,9 +261,10 @@ describe("judgeTree", () => {
 		expect(r.findings).toEqual([]);
 	});
 
-	it("honours the opt-out marker only where it gives a reason", () => {
+	it("honours the opt-out marker only where it gives a reason or an issue pointer", () => {
 		const r = judge({
 			"scripts/why.sh": `# gh-route-exempt: tells the agent what to run\n${TEXT_ONLY}`,
+			"scripts/pointer.sh": `# gh-route-exempt: #5527\n${TEXT_ONLY}`,
 			"scripts/sandbox.test.ts": fixture("path-stub-exempt.ts.txt"),
 			"scripts/bare.sh": `# gh-route-exempt:\n${TEXT_ONLY}`,
 		});

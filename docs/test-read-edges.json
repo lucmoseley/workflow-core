@@ -611,7 +611,6 @@
 		],
 		".github/workflows/document-guards.yml": [
 			"scripts/check-release-pin.test.ts",
-			"scripts/check-workflow-permissions.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/warm-caches-workflow.test.ts",
 			"scripts/windows-script-tooling-declined.test.ts"
@@ -815,14 +814,12 @@
 			"scripts/check-sh-changed.test.ts",
 			"scripts/check-shfmt.test.ts",
 			"scripts/check-swallowed-errors.test.ts",
-			"scripts/check-user-settings-drift.test.ts",
 			"scripts/check-vendored-skills.test.ts",
 			"scripts/checker-new-faults.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/commit-paths.test.ts",
 			"scripts/concision-backstop-floor.test.ts",
 			"scripts/coverage-declined.test.ts",
-			"scripts/generate-plugin-hooks.test.ts",
 			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-unpushed-commits.test.ts",
 			"scripts/husky-script-refs.test.ts",
@@ -1036,7 +1033,6 @@
 			"scripts/check-plugin-gap.test.ts",
 			"scripts/check-user-settings-drift.test.ts",
 			"scripts/claude-child.test.ts",
-			"scripts/commit-paths.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/file-morning-review.test.ts",
 			"scripts/guard-issue-create-label.test.ts",
@@ -1097,7 +1093,6 @@
 			"scripts/check-context-budget.test.ts",
 			"scripts/check-issue-labels.test.ts",
 			"scripts/claude-child.test.ts",
-			"scripts/concision-backstop.test.ts",
 			"scripts/file-issue.test.ts",
 			"scripts/file-morning-review.test.ts",
 			"scripts/guard-issue-create-label.test.ts",
@@ -1157,6 +1152,9 @@
 		"docs/agents/autonomy-ceiling.md": [
 			"scripts/check-workflow-permissions.test.ts"
 		],
+		"docs/agents/dependabot.md": [
+			"scripts/generate-rule-fragments.test.ts"
+		],
 		"docs/agents/guard-authoring.md": [
 			"scripts/pre-applypatch-gate.test.ts",
 			"scripts/pre-merge-commit-gate.test.ts",
@@ -1167,6 +1165,7 @@
 		],
 		"docs/agents/issue-tracker.md": [
 			"scripts/check-guard-registry.test.ts",
+			"scripts/generate-rule-fragments.test.ts",
 			"scripts/lib/file-issue-core.test.ts",
 			"scripts/lib/inject-tracker-docs.test.ts",
 			"scripts/lib/script-path.test.ts",
@@ -2922,6 +2921,7 @@
 		],
 		"docs/agents/triage-labels.md": [
 			"scripts/file-issue.test.ts",
+			"scripts/generate-rule-fragments.test.ts",
 			"scripts/lib/inject-tracker-docs.test.ts",
 			"scripts/lib/tracker-rules.test.ts"
 		],
@@ -2987,7 +2987,6 @@
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/arm-tasks.test.ts",
 			"scripts/check-code-standards.test.ts",
-			"scripts/concision-backstop.test.ts",
 			"scripts/file-morning-review.test.ts",
 			"scripts/init-adopter.test.ts",
 			"scripts/lib/adopter-skeleton.test.ts",
@@ -3160,7 +3159,6 @@
 			".claude/skills/new-repo/scripts/new-repo.test.ts",
 			"scripts/answer-review-reversals.test.ts",
 			"scripts/check-host-root.test.ts",
-			"scripts/count-guard-fires.test.ts",
 			"scripts/file-morning-review.test.ts",
 			"scripts/generate-doc-map-section-a.test.ts",
 			"scripts/init-adopter.test.ts",
@@ -3376,7 +3374,6 @@
 			"scripts/adopter-landing.test.ts",
 			"scripts/check-host-root.test.ts",
 			"scripts/check-orphaned-edits.test.ts",
-			"scripts/clear-rule-latch.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/generate-plugin-hooks.test.ts",
 			"scripts/guard-agent-poll.test.ts",
@@ -8227,6 +8224,7 @@
 		"scripts/file-issue.js": [
 			"scripts/checker-registrations.test.ts",
 			"scripts/file-issue.test.ts",
+			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-session-ceiling.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/file-issue-core.test.ts",
@@ -9792,6 +9790,7 @@
 			"scripts/check-band-drift.test.ts",
 			"scripts/check-report-programs.test.ts",
 			"scripts/checker-registrations.test.ts",
+			"scripts/generate-rule-fragments.test.ts",
 			"scripts/guard-session-ceiling.test.ts",
 			"scripts/issue-body.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
@@ -17231,6 +17230,7 @@
 			"scripts/lib/git.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
 			"scripts/lib/script-path-scan.test.ts",
+			"scripts/lib/test-read-edges.test.ts",
 			"scripts/npm-run-hints-scan.test.ts",
 			"scripts/post-commit-dispatch.test.ts",
 			"scripts/prepare-commit-msg-gate.test.ts",
@@ -61093,7 +61093,6 @@
 		],
 		"scripts/proving-run.ts": [
 			"scripts/check-host-root.test.ts",
-			"scripts/concision-backstop.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
 			"scripts/lib/helper-surface.test.ts",
 			"scripts/lib/project-slug-scan.test.ts",
@@ -61676,7 +61675,6 @@
 		"scripts/release-plugin.js": [
 			"scripts/check-adopter-boundary.test.ts",
 			"scripts/check-release-pin.test.ts",
-			"scripts/check-surface-contract.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/lib/check.declared-flags.test.ts",
 			"scripts/lib/generated-rule-copies.test.ts",
@@ -63775,7 +63773,6 @@
 			"scripts/check-host-root.test.ts",
 			"scripts/check-instruction-surface.test.ts",
 			"scripts/checker-registrations.test.ts",
-			"scripts/clear-rule-latch.test.ts",
 			"scripts/count-guard-fires.test.ts",
 			"scripts/generate-plugin-hooks.test.ts",
 			"scripts/guard-agent-poll.test.ts",

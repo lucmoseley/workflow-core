@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the dispatch's interop-bridge probe (mantahostels#3111): a wedged Windows
- * bridge refuses the set, or the rest of it, before a launch hangs on it. The
- * shipped budget's end-to-end case is dispatch-sessions-bridge-budget.test.ts's.
- *
- * Loosen a test here and a set launches into a wedged bridge, and hangs.
- *
- * Over the run-cost budget (base §X8 (5)): the wedge cases each wait out a
- * real 1 s probe expiry in the interop adapter (#4299's profile), and the
- * launch-ceiling case spawns the dispatcher, the entry's timeout and signal
- * path, and waits out its 1 s ceiling.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -38,16 +26,12 @@ const {
 	runCore,
 } = fx;
 
-/* One 1 s attempt for a wedge case: what it pins is the verdict, and the
- * three-attempt loop is pinned by the transient-stall case here and the
- * budget case in dispatch-sessions-bridge-budget.test.ts (#4299). */
 const ONE_SHORT_ATTEMPT = {
 	CLAUDE_INTEROP_PROBE_TIMEOUT: "1",
 	CLAUDE_INTEROP_PROBE_ATTEMPTS: "1",
 };
 
 describe("the interop-bridge probe (mantahostels#3111)", () => {
-	/** A reg.exe that never answers. */
 	it("refuses the whole call, with the recovery text, and launches nothing", async () => {
 		stubClaude({});
 		const r = await runCore(
@@ -60,8 +44,6 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		expect(r.code).toBe(5);
 		expect(r.stderr).toContain("interop bridge is wedged");
 		expect(r.stderr).toContain("wsl --shutdown");
-		// Not one `claude` call of any kind — the probe precedes even the
-		// `/usage` read, whose own 120s ceiling would otherwise set the wait.
 		expect(readArgvLines()).toEqual([]);
 	});
 
@@ -84,7 +66,6 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 
 	it("re-probes before each member, catching a bridge that wedges mid-set", async () => {
 		stubClaude({});
-		// Healthy for the run's opening probe, wedged from the next call on.
 		const at = path.join(fx.dir, "reg-wedges-later");
 		const counter = path.join(fx.dir, "reg-calls");
 		fs.writeFileSync(
@@ -116,8 +97,6 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		expect(fs.existsSync(ledger)).toBe(false);
 	});
 
-	// The fault mantahostels#3306 fixed: the bridge's vsock accept times out per call at
-	// about 10s and the NEXT call answers normally.
 	it("launches through a transient stall rather than calling it a wedge", async () => {
 		stubClaude({});
 		const at = path.join(fx.dir, "reg-stalls-once");
@@ -128,7 +107,6 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 				"#!/bin/bash",
 				`printf 'x' >> ${shellQuote(counter)}`,
 				`n=$(wc -c < ${shellQuote(counter)})`,
-				// Attempts 1 and 2 stall past the budget; attempt 3 answers.
 				'if [ "$n" -le 2 ]; then sleep 600; fi',
 				"exit 1",
 			].join("\n"),
@@ -145,9 +123,6 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 
 	it("launches as before on a healthy bridge, saying nothing extra", async () => {
 		stubClaude({ jobId: JOB });
-		// A fresh allowance cache, so the per-spawn re-read (#294) has nothing
-		// to warn about here — this case pins what the interop probe adds, not
-		// the allowance warning line, which has its own coverage above.
 		const configDir = path.join(fx.dir, "fresh-config");
 		writeCache(configDir, { session: 12, weeklyAll: 3 });
 		const r = await runCore(["haiku", "/implement 341"], {
@@ -155,11 +130,6 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		});
 		expect(r.code).toBe(0);
 		expect(launchArgv()).toContain("--bg");
-		// Whole output, not a `not.toContain("interop")`: the probe must add
-		// NOTHING to what this script already prints, and a new line worded
-		// around the word would pass a substring check (mantahostels#3127). The cost is that
-		// this pins the allowance and advisor lines, which nothing else pins
-		// exactly — reword either and this case fails from over here.
 		expect(r.stdout).toBe(
 			"Allowance OK: week 3%, session 12%.\n" +
 				"Advisor not checked: no /usage probe ran to report it.\n" +
@@ -171,7 +141,6 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 	it("fails open where the probe cannot run at all", async () => {
 		stubClaude({});
 		const r = await runCore(["sonnet", "/implement 341"], {
-			// No such file — a non-WSL machine.
 			CLAUDE_INTEROP_REG: path.join(fx.dir, "no-such-reg"),
 		});
 		expect(r.code).toBe(0);
@@ -180,9 +149,6 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 
 	it("reads a TERM-ignoring wedge as a wedge, not as a healthy answer", async () => {
 		stubClaude({});
-		// `timeout -k` escalates to KILL when the target ignores the TERM, and
-		// that exits 137 rather than 124 — the shape a wedged bridge takes if it
-		// is stuck in the kernel rather than merely slow (mantahostels#3111).
 		const at = path.join(fx.dir, "reg-ignores-term");
 		fs.writeFileSync(at, '#!/bin/bash\ntrap "" TERM\nsleep 600\n', {
 			mode: 0o755,
@@ -198,10 +164,6 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 
 	it("names the members already launched when the bridge wedges mid-set", async () => {
 		stubClaude({});
-		// Healthy for the opening probe and the first member's, wedged from the
-		// third call on. The first member is launched AND recorded, so telling the
-		// founder nothing was recorded would walk them into the duplicate gate on
-		// a re-run (mantahostels#3111).
 		const at = path.join(fx.dir, "reg-wedges-after-one");
 		const counter = path.join(fx.dir, "reg-calls-2");
 		fs.writeFileSync(
@@ -249,9 +211,6 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 	});
 
 	it("leaves the interactive guard a pass-through on a library that will not load", () => {
-		// scripts/claude-interop-guard.sh sources the same library and defines the
-		// `claude` shell function around it. A broken library must degrade it to
-		// `command claude "$@"`, never to a refusal (mantahostels#3111).
 		const shadow = path.join(fx.dir, "guard");
 		fs.mkdirSync(path.join(shadow, "lib"), { recursive: true });
 		fs.copyFileSync(
@@ -277,7 +236,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 			],
 			{
 				encoding: "utf8",
-				// claude-route-exempt: the user-shell wrapper runs PATH's `claude`
+				// claude-route-exempt: #3559
 				env: { ...process.env, PATH: `${onPath}:${process.env.PATH}` },
 			},
 		);
@@ -285,10 +244,7 @@ describe("the interop-bridge probe (mantahostels#3111)", () => {
 		expect(r.stdout).toContain("real binary ran");
 	});
 
-	// A timeout and a signal: the launch ceiling TERMs, then KILLs, the launch's process group.
 	it("kills and reports a launch that hangs past the ceiling", () => {
-		// Answers the `/usage` probe normally and hangs only on the spawn, so the
-		// case exercises the launch ceiling rather than the 120s usage timeout.
 		const at = stubPath();
 		fs.writeFileSync(
 			at,

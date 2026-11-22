@@ -1,23 +1,4 @@
 #!/usr/bin/env node
-/*
- * file-morning-review.js — file the day's morning review issue (#2011, spec
- * #1995 §The morning review issue). Its core, lib/morning-review-filing.js,
- * does the once-a-day check, the reads, the rendering, the filing and the
- * reversals' answering, and its header says what the review holds and its
- * exit. This shell wires the production adapters, lib/checker-run.js's among
- * them.
- *
- *   node scripts/file-morning-review.js [--dry-run]
- *
- * REVERSALS (#3388): after filing, it answers each unanswered `reverse <n>`
- * through scripts/answer-review-reversals.js (#2017), so a hand run while the
- * loop is stopped answers them too. `--dry-run` passes to both.
- *
- * Joins no §N3 family: it files an issue as `report-*` does, but a run whose
- * filing failed on gh or found the filing lock held exits 1, and one
- * file-issue.js refused exits with its code, so the loop that runs it can tell
- * a filing from a failure.
- */
 
 const { answerReversals } = require("./answer-review-reversals.js");
 const { parseOrExit } = require("./lib/cli-args.js");

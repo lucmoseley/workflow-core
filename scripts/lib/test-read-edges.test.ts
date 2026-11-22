@@ -53,6 +53,11 @@ describe("a test's direct reads", () => {
 		expect(readsOf(src, tracked, "scripts/a.test.ts")).toEqual([DOC]);
 	});
 
+	it("records the path a code-edges loads line names, against the test's own directory, with no anchor", () => {
+		const src = `// code-edges loads: ../${DOC}\nrun();\n`;
+		expect(readsOf(src, tracked, "scripts/a.test.ts")).toEqual([DOC]);
+	});
+
 	it("records nothing when the literal is a tempdir fixture with no anchor", () => {
 		const src = `fs.writeFileSync(path.join(os.tmpdir(), "${DOC}"), body);`;
 		expect(readsOf(src, tracked, "scripts/a.test.ts")).toEqual([]);

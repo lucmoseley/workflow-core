@@ -62,11 +62,11 @@ function buildRoute({
 		fix: {
 			"SECOND-VAR": `name the binary through ${envVar}, the one var ${primitive} reads, as ${exemplar} and ${shellExemplar} do.`,
 			"NODE-COPY": `call ${calls} from ${primitive}, as ${exemplar} does.`,
-			"SHELL-BARE": `run "\${${envVar}:-${bin}}", the var ${primitive} reads, as ${shellExemplar} does; or mark it \`${bin}-route-exempt: <why>\` where \`${bin}\` is only text.`,
+			"SHELL-BARE": `run "\${${envVar}:-${bin}}", the var ${primitive} reads, as ${shellExemplar} does; or mark it \`${bin}-route-exempt: #N\` where \`${bin}\` is only text.`,
 			"PATH-STUB": `point ${envVar} at the stub executable, never PATH.`,
 		},
 		secondVar,
-		exempt: new RegExp(`${bin}-route-exempt:\\s*\\w`),
+		exempt: new RegExp(`${bin}-route-exempt:\\s*[\\w#]`),
 		envRead: new RegExp(`\\bprocess\\.env\\.${envVar}\\b(?!\\s*=[^=])`),
 		literalSpawn: new RegExp(
 			`\\b(?:execFileSync|execFile|spawnSync|spawn)\\s*\\(\\s*(["'\`])${bin}\\1`,

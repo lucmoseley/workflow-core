@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that a turn ending after an auto-mode refusal is sent back once per
- * refused call, with the founder's hand-over paragraph and #1023's re-run
- * clause, and that a quoted denial, an earlier turn or a spent cap passes.
- *
- * #860's guard is run black-box: a Stop payload on stdin, the repo root pointed
- * at a throwaway directory so the counter, the seen set and the breadcrumbs
- * land there and never spend the shared tree's real allowance.
- *
- * It is a `Stop` hook in `self-plugin/hooks/hooks.json` and the shipped
- * plugin's `hooks/hooks.json`: loosen a case and a session ends silently on a
- * refusal, stalling its ticket, or is sent back over a transcript that merely
- * quotes the denial.
- */
 
 import fs from "node:fs";
 import { createRequire } from "node:module";
@@ -46,7 +32,6 @@ const result = (id: string, content: unknown, over: object = {}) => ({
 	},
 });
 
-/** A classifier refusal, shaped as the harness records one. */
 const refused = (id: string) => ({
 	...result(id, DENIAL, { is_error: true }),
 	toolDenialKind: "automode-blocked",
@@ -58,11 +43,6 @@ const transcript = (records: object[]) =>
 		`${records.map((r) => JSON.stringify(r)).join("\n")}\n`,
 	);
 
-/**
- * The guard's verdict on this session's transcript, run as an interactive
- * session unless `over.job` says otherwise; with no `over.message`, the guard
- * reads the turn's text from the transcript.
- */
 const run = (over: Partial<StopRun> = {}) => {
 	const block = readStopGuardBlock(GUARD, {
 		dir,
@@ -215,7 +195,6 @@ describe("a turn it passes", () => {
 		expect(run().blocked).toBe(true);
 	});
 
-	// Paired with "knows it by the harness's tag alone, whatever the wording".
 	it("passes the classifier giving no verdict, which is no refusal (#5422)", () => {
 		transcript([
 			prompt(),

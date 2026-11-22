@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * Pins the dispatch's duplicate gate (mantahostels#1337): the ledger each launch
- * writes, and its refusal of an issue already launched.
- *
- * The fixture is scripts/lib/dispatch-sessions-testkit.ts's. The dispatch's
- * cases are split by subject across dispatch-sessions.test.ts (the advisor),
- * -launch (model, burn mode, launcher binary, seat, auth, usage), -allowance,
- * -duplicate, -drop (a set with one member already dispatched), -reread (the
- * per-member re-read, CPU holds, stagger, roster remedy), -overflow, -bridge
- * and -bridge-budget (the interop-bridge probe), so the forks pool runs them
- * side by side and no file holds the suite to its own length (#2413, #4299). The case that breaks the interop-probe library lives in
- * dispatch-sessions-probe-load.test.ts, as it links every file in scripts/lib
- * and so makes its file a reader of each one (#2423).
- *
- * Loosen a test here and a /pick-next set launches an issue a session already
- * holds, or records a launch that never happened.
- *
- * Over the run-cost budget (base §X8 (5)) by inheritance: its cases moved
- * unchanged from dispatch-sessions.test.ts, whose cost was pre-existing (#2413).
- */
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -41,8 +21,6 @@ describe("the duplicate gate (mantahostels#1337)", () => {
 		expect(fs.readFileSync(ledger(), "utf8")).toContain("341");
 	});
 
-	/* mantahostels#3488: the launched job's own id, not the launcher's — the field
-	 * pick-next.js reads to say whether the launch is still alive. */
 	it("records the job id claude --bg printed as the ledger's jobId", async () => {
 		stubClaude({ jobId: "efbb4e5e" });
 		await runCore(["opus", "/implement 341"]);
@@ -57,8 +35,6 @@ describe("the duplicate gate (mantahostels#1337)", () => {
 		expect(rec.jobId).toBeNull();
 	});
 
-	/* The stub answers `agents --json` with plain text, so the live limb fails
-	 * open with a warning and these cases exercise the ledger limb alone. */
 	const ledger = () =>
 		path.join(
 			fx.dir,
@@ -117,8 +93,6 @@ describe("the duplicate gate (mantahostels#1337)", () => {
 	});
 
 	it("launches nothing on that refusal", async () => {
-		/* Counts `--bg` lines, not every `claude` call: the gate's own live-oracle
-		 * probe (`claude agents --json`) reaches the stub too and is recorded. */
 		const launches = () =>
 			fs
 				.readFileSync(path.join(fx.dir, "argv"), "utf8")

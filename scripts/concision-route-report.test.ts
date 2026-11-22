@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that the route report splits the pass receipts by route with each arm's
- * mean, and names an unusable directory rather than reporting no evidence.
- *
- * The CLI over the `.concision-pass-<sid>` receipts is driven in-process
- * against a throwaway directory.
- *
- * The parsing and totalling are asserted in-process next to the seam
- * (scripts/lib/concision-receipts.test.ts). What is left here is what only a
- * end-to-end run can show.
- *
- * What breaking these costs: this command is how mantahostels#1099's held question —
- * subagent passes against in-session ones — gets answered, and it is run once,
- * by hand. A crash or a silently empty table would be read as "no evidence".
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -25,14 +10,12 @@ const SCRIPT = path.resolve(__dirname, "concision-route-report.js");
 
 let dir: string;
 
-/** Drops one receipt into the throwaway directory, as a pass's step 6 would. */
 const receipt = (sid: string, findings: number, route?: string) =>
 	fs.writeFileSync(
 		path.join(dir, `.concision-pass-${sid}`),
 		`base=${"a".repeat(40)}\nfindings=${findings}\n${route ? `route=${route}\n` : ""}`,
 	);
 
-/** Runs the CLI, returning both streams and the exit code. */
 const run = (...args: string[]) =>
 	runInProcess(SCRIPT, args, {
 		env: { ...process.env, CLAUDE_PROJECT_DIR: dir },
@@ -73,9 +56,6 @@ describe("reporting the receipts in a directory (mantahostels#1099)", () => {
 });
 
 describe("a directory argument that is not usable (mantahostels#1099)", () => {
-	// The paired positive is the passing --dir above. A bare --dir must not reach
-	// readdirSync(undefined) and throw a stack trace at the one session that
-	// will ever run this.
 	it("names the missing path rather than crashing on a bare --dir", () => {
 		const r = run("--dir");
 		expect(r.stderr).toContain("--dir needs a value");
@@ -102,7 +82,6 @@ describe("a directory argument that is not usable (mantahostels#1099)", () => {
 		const absent = path.join(dir, "absent");
 		const r = run("--dir", absent);
 		expect(r.stderr).toContain(`Cannot read receipts in ${absent}`);
-		// Never a build failure: this command gates nothing.
 		expect(r.status).toBe(0);
 	});
 });

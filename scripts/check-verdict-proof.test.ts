@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * check-verdict-proof.js — what `npm run status` says of the verdict proof
- * (#5294): fresh, stale, failed with its clause, or no canary. Loosen it and
- * status calls a repo's commits suite-free while they still run the suite.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

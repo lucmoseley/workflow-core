@@ -1,30 +1,4 @@
 // @vitest-environment node
-/*
- * Every scripts/check-*.js is run by something that is not a human typing it,
- * and has a sibling test; every `check:*` npm script names a file that exists.
- *
- * The sibling of hook-registrations.test.ts, which does this for the guard set
- * (mantahostels#1266). Ruled at mantahostels#1541: a checker losing its caller would have been silent,
- * exactly the class mantahostels#112 and mantahostels#117 paid for on the guard side.
- *
- * WHY AN npm NAME IS NOT A CALLER. `package.json` makes a checker invocable; it
- * does not make it run. A checker whose only route in is `npm run check:x` fires
- * when someone remembers it, which is the state this test exists to detect. So
- * the caller surfaces below are the four that run without being asked — the
- * husky hooks, the workflows, self-plugin/hooks/hooks.json, and another script
- * — and a deliberate hand-only checker goes in CALLED_ELSEWHERE with its reason.
- *
- * WHY COMMENT LINES ARE STRIPPED. This repo's hooks and workflows name their
- * local backstops in prose constantly — `.husky/pre-commit` mentions `check:sh`,
- * document-guards.yml's steps name their `npm run` equivalents — so a bare
- * substring search over these files passes on the mention rather than the call.
- * The strip is deliberately crude: it drops whole-line comments only, so an
- * invocation trailing a comment on the same line still counts.
- *
- * Loosen a case and a checker renamed out of its hook or workflow goes on
- * reporting nothing, with no red anywhere — the suite in `.github/workflows/ci.yml`
- * is the only place that would say so.
- */
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -33,15 +7,9 @@ import { spellSiblingTestsIfUntested } from "./lib/registrations.js";
 const SCRIPTS = __dirname;
 const ROOT = path.join(SCRIPTS, "..");
 
-/**
- * Checkers with no automatic caller, on purpose. Commented per entry, as
- * hook-registrations.test.ts requires of its own allowlist: an uncommented key
- * is a checker someone silently gave up on.
- */
 const CALLED_ELSEWHERE: Record<string, string> = {};
 
-/** Whole-line comments only — see the header. */
-function stripComments(text: string): string {
+function stripWholeLineComments(text: string): string {
 	return text
 		.split("\n")
 		.filter((line) => {
@@ -61,10 +29,6 @@ const CHECKER_FILES = fs
 	.filter((f) => /^check-.+\.js$/.test(f))
 	.sort();
 
-/**
- * The four surfaces that run a checker without being asked. Keyed by the label
- * a failure prints, so the reader is told where a caller was expected.
- */
 const CALLER_SOURCES: Record<string, string> = {};
 
 for (const hook of [
@@ -95,9 +59,6 @@ CALLER_SOURCES["self-plugin/hooks/hooks.json"] = fs.readFileSync(
 	"utf8",
 );
 
-/* Another script counts. A *.test.ts does NOT — a checker whose only caller is
- * its own test is precisely the unwired case. One loop per directory, so each
- * listing selects this file when a script in it changes (base §X10). */
 for (const file of fs.readdirSync(SCRIPTS)) {
 	if (!/\.(js|sh)$/.test(file)) continue;
 	CALLER_SOURCES[`scripts/${file}`] = fs.readFileSync(
@@ -114,12 +75,11 @@ for (const file of fs.readdirSync(LIB)) {
 	);
 }
 
-/** Every caller surface but the checker itself, comments stripped. */
 function callersOf(checker: string): string[] {
 	const self = path.join("scripts", checker);
 	return Object.entries(CALLER_SOURCES)
 		.filter(([label]) => label !== self)
-		.filter(([, text]) => stripComments(text).includes(checker))
+		.filter(([, text]) => stripWholeLineComments(text).includes(checker))
 		.map(([label]) => label);
 }
 
@@ -163,31 +123,20 @@ describe("checker registrations", () => {
 		expect(untested).toEqual([]);
 	});
 
-	/*
-	 * The one convention for judging the commit rather than the working tree
-	 * (mantahostels#1801, mantahostels#1833). A checker carrying a lib/fault-profiles.js profile is one
-	 * whose faults get attributed to a commit, and `--against <rev>` in
-	 * scripts/lib/check.js is where that is done.
-	 */
 	it("every checker with a fault-diff profile takes --against", () => {
 		const shellDirectionGated: Record<string, string> = {
-			// Its own core, for its --map-dirty flag, temp index and
-			// untracked-entry replay (mantahostels#1793).
 			"doc-map": "gated by scripts/lib/doc-map-gate.js (#1793, #5155)",
 		};
-		const heresyScan = stripComments(
+		const heresyScan = stripWholeLineComments(
 			fs.readFileSync(path.join(SCRIPTS, "lib/heresy-scan.js"), "utf8"),
 		);
 		const heresyScanTakesAgainst =
 			heresyScan.includes("profile: checkName") &&
 			heresyScan.includes("[--against <rev>]");
-		/* Comments stripped, per this file's header: a checker MENTIONING
-		 * either token in prose has not declared anything. */
 		const hasAgainstFlag = (file: string, profile: string) => {
-			const source = stripComments(
+			const source = stripWholeLineComments(
 				fs.readFileSync(path.join(SCRIPTS, file), "utf8"),
 			);
-			/* lib/heresy-scan.js declares --against under the check's name (#3555). */
 			if (source.includes("heresySpec("))
 				return heresyScanTakesAgainst && source.includes(`name: "${profile}"`);
 			return (
@@ -212,9 +161,6 @@ describe("checker registrations", () => {
 		expect(missing).toEqual([]);
 	});
 
-	/* The inverse direction: package.json is where a checker is renamed out from
-	 * under its npm name, and `npm run check:x` then dies on a missing file with
-	 * nothing having reported it. */
 	it("every check:* npm script naming a scripts/ file names one that exists", () => {
 		const pkg = JSON.parse(
 			fs.readFileSync(path.join(ROOT, "package.json"), "utf8"),

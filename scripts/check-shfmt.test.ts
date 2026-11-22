@@ -1,16 +1,5 @@
 // @vitest-environment node
 
-/*
- * Pins scripts/check-shfmt.js, the shfmt run CI's `check:sh:format` step makes
- * over the tracked shell (#1332): it checks by default, --write formats, no
- * paths means every tracked shell file and nothing else, and a missing
- * shfmt or path is BROKEN (#1354).
- *
- * Run in process in a throwaway repo, with the core's pinned shfmt. Loosen a
- * case and CI passes unformatted shell, or reads files outside the set
- * shellcheck lints.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";

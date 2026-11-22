@@ -295,6 +295,8 @@ describe("what is not a comment", () => {
 
 	it("passes a checker's marker followed by a bare pointer (§X10, §G6)", () => {
 		expect(tags("// full-sweep-only: #5492\nconst a = 1;\n", "js")).toEqual([]);
+		expect(tags("// cli-args-exempt: #4820\nconst a = 1;\n", "js")).toEqual([]);
+		expect(tags("# claude-route-exempt: #5527\nx=1\n", "sh")).toEqual([]);
 		expect(
 			tags("/*\n * Unbuilt caller: app/reviews/page.tsx (#575)\n */\n", "js"),
 		).toEqual([]);
@@ -310,6 +312,9 @@ describe("what is not a comment", () => {
 		expect(tags("// Unbuilt caller: later #5\nconst a = 1;\n", "js")).toEqual([
 			"COMMENT@1",
 		]);
+		expect(
+			tags("// cli-args-exempt: a pass-through\nconst a = 1;\n", "js"),
+		).toEqual(["COMMENT@1"]);
 	});
 
 	it("reads the hook-shim mark as code in a shell file alone", () => {

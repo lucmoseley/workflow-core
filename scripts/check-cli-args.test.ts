@@ -138,11 +138,12 @@ describe("check-cli-args", () => {
 		expect(run().status).toBe(1);
 	});
 
-	it("honours the opt-out marker only where it gives a reason", () => {
+	it("honours the opt-out marker only where it gives a reason or an issue pointer", () => {
 		script(
 			"wrap.js",
 			`/* cli-args-exempt: passes argv through to vitest untouched */\n${HAND_ROLLED}`,
 		);
+		script("pointer.js", `// cli-args-exempt: #4820\n${HAND_ROLLED}`);
 		expect(run().status).toBe(0);
 		script("bare.js", `/* cli-args-exempt: */\n${HAND_ROLLED}`);
 		const r = run();

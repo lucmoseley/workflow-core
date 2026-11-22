@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that design mode's on, off and status work on a checkout with no
- * `enabledPlugins` entry yet, write only the plugin's own key, and refuse an
- * unknown verb (#125).
- *
- * design-mode.sh finds .claude/settings.json through guard-root.sh's
- * gr_worktree_root(), which answers CLAUDE_PROJECT_DIR outside a linked
- * worktree of it, so a scratch project dir with no git repo of its own stands
- * in for the host checkout.
- *
- * The design-mode skill runs it: loosen a case and switching design mode fails
- * on a fresh checkout, or rewrites other keys in the repo's
- * `.claude/settings.json`.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -128,13 +114,9 @@ describe("usage", () => {
 });
 
 describe("a linked worktree (#5287)", () => {
-	/* The negative of "on succeeds and writes the key true": the same write,
-	 * run from a linked worktree. */
 	it("on writes the worktree's settings and leaves the main checkout clean", () => {
 		linkedTemplate.instantiate(projectDir);
 		const tree = cutWorktree(projectDir);
-		/* The harness names the main checkout as the project even for a
-		 * session in a linked worktree. */
 		const r = spawnSync(SCRIPT, ["on"], {
 			cwd: tree,
 			encoding: "utf8",

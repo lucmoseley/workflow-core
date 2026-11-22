@@ -1,34 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that an undeclared, stale or reverted edit to a vendored skill file
- * gates, that a declared one passes, and that the lock and upstream reports
- * say what they found (mantahostels#1809, mantahostels#3522).
- *
- * What is under test is the VERDICT: given a tree in a known state, does the
- * checker gate, and does its message name the file and the command that clears
- * it? The check modes reach it through the CLI, so the classification helpers
- * stay implementation.
- *
- * Every fixture hash is computed by the fixture: a hard-coded digest would test
- * the fixture's own bytes, not the checker. The one known-answer test is the
- * exception, and says why in place. Each tree is built in a temp directory on
- * `--root`, never this repo's `.agents/skills/`, whose real edits would move
- * the verdicts.
- *
- * The upstream-record cases (#2394) run the `--covered` limb cut from the
- * real `.husky/pre-commit` in a throwaway repo, not on `--root`: the limb
- * reads the staged blobs, so only a real index can tell a staged record from
- * one left in the worktree. A false pass lands a lock no licence check has
- * covered.
- *
- * The `--revendor --from` cases (#4802) each run git on a real clone, which is
- * most of this file's run time: the cases that only read the clone share one,
- * and a case that changes its clone builds its own.
- *
- * It is a hard gate in `.husky/pre-commit` on any commit staging a vendored
- * path: a false pass lands an undeclared edit, which the next re-pull reverts
- * silently, or an accidental edit that reads as approved.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -53,11 +23,8 @@ import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.join(__dirname, "check-vendored-skills.js");
 const REPO = path.join(__dirname, "..");
-/** The fix command a finding prints in this checkout (#2515). */
 const IN_REPO = "node scripts/check-vendored-skills.js";
-/** The fix command a finding prints in an adopter, the plugin root elsewhere. */
 const ADOPTER = `node "${SCRIPT}"`;
-/** process.env less any gate stand-down a developer has exported. */
 const ENV = Object.fromEntries(
 	Object.entries(process.env).filter(([k]) => !/^WFC_[A-Z0-9_]+_OFF$/.test(k)),
 );
@@ -78,29 +45,15 @@ interface Edit {
 }
 
 interface Fixture {
-	/** Files under .agents/skills/, path relative to that directory. */
 	disk: Record<string, string>;
-	/** What the manifest claims was vendored. Defaults to `disk` verbatim. */
 	vendored?: Record<string, string>;
 	edits?: Record<string, Edit>;
-	/** Skill names the lock lists. Defaults to the directories in `disk`. */
 	locked?: string[];
-	/** Omit the sidecar entirely. */
 	noSidecar?: boolean;
-	/**
-	 * Overrides for the lock's `computedHash`, by skill name. Unnamed skills get
-	 * the real folder hash of what `disk` wrote, so the lock agrees by default.
-	 */
 	lockHashes?: Record<string, string>;
-	/** Defaults to a section for the one source the lock names. */
 	notices?: string;
 }
 
-/**
- * `computeSkillFolderHash` again, independently of the checker's copy: the two
- * agreeing is the guarantee under test, so sharing one implementation would test
- * nothing (mantahostels#3522).
- */
 function folderHash(dir: string): string {
 	const files: { rel: string; content: Buffer }[] = [];
 	const walk = (cur: string) => {
@@ -181,7 +134,6 @@ interface Result {
 	stderr: string;
 }
 
-/** `cwd` unset runs from the suite's own, this checkout. */
 function run(root: string, args: string[] = [], cwd?: string): Result {
 	const r = runInProcess(SCRIPT, ["--root", root, "--json", ...args], { cwd });
 	const parsed = JSON.parse(r.stdout);
@@ -192,7 +144,6 @@ function run(root: string, args: string[] = [], cwd?: string): Result {
 	};
 }
 
-/** Runs without --json, so the human report is what comes back. */
 function runText(root: string, args: string[] = []) {
 	const r = runInProcess(SCRIPT, ["--root", root, ...args]);
 	return { code: r.status, out: `${r.stdout}${r.stderr}` };
@@ -391,7 +342,6 @@ describe("check-vendored-skills", () => {
 			const root = build(tree);
 			const r = run(root, [], root);
 			expect(r.tags).toEqual([tag]);
-			/* `stderr` holds the findings as JSON, so the quotes arrive escaped. */
 			expect(r.stderr).toContain(
 				JSON.stringify(`${ADOPTER} ${args}`).slice(1, -1),
 			);
@@ -446,13 +396,6 @@ describe("check-vendored-skills", () => {
 		expect(run(root).tags).not.toContain("NOTICE-MISSING");
 	});
 
-	/*
-	 * The known-answer vector for the port (mantahostels#3522). A fixture can only show this
-	 * file's transcription of `computeSkillFolderHash` agreeing with the
-	 * checker's, which a shared mistranscription passes. The repo's own lock was
-	 * written by the vendor installer, so it is the only value here neither copy
-	 * produced.
-	 */
 	it("reproduces the installer's own computedHash for every clean skill (mantahostels#3522)", () => {
 		const repo = path.join(__dirname, "..");
 		const lock = JSON.parse(
@@ -469,7 +412,6 @@ describe("check-vendored-skills", () => {
 			).map((rel: string) => rel.split("/")[2]),
 		);
 		const clean = Object.keys(lock).filter((n) => !edited.has(n));
-		// Non-vacuous only: every declared edit takes a skill off this list.
 		expect(clean.length).toBeGreaterThan(0);
 		for (const name of clean)
 			expect(
@@ -479,10 +421,6 @@ describe("check-vendored-skills", () => {
 			expect(folderHash(path.join(repo, ".agents/skills", name))).not.toBe(
 				lock[name].computedHash,
 			);
-		/* And the CHECKER's own copy against the same vector: a LOCK-HASH here is
-		 * the port drifting from upstream, not the tree. Tags are filtered rather
-		 * than compared, because a neighbour's undeclared edit is not this test's
-		 * business. */
 		expect(run(repo).tags.filter((t) => t === "LOCK-HASH")).toEqual([]);
 	});
 
@@ -584,13 +522,6 @@ describe("check-vendored-skills", () => {
 	});
 });
 
-/*
- * The --upstream re-pull pre-flight, driven through the CLI with `gh` stubbed
- * at WFC_GH: which repo and path each declared edit is fetched from, and how a
- * fetched body is classified.
- */
-
-/** A root whose one declared edit sits in a skill vendored from `source`. */
 function upstreamRoot(source: string) {
 	const root = build({
 		disk: { "a/SKILL.md": `${SKILL}Edited.\n` },
@@ -611,33 +542,20 @@ function upstreamRoot(source: string) {
 	return root;
 }
 
-/** The licence text `build`'s default notices section holds. */
 const LICENCE = "MIT License\n";
 
-/**
- * A `gh` for `stubGh`: its routes, keyed on the path fetched, and the file its
- * calls' arguments are appended to; with no `log`, no call is recorded.
- */
 interface Gh {
 	routes: Record<string, RouteAnswer>;
 	log?: string;
 }
 
-/** What `gh api <path> --jq .content` prints for a file holding `text`. */
 const content = (text: string) =>
 	printed(`${Buffer.from(text).toString("base64")}\n`);
 
-/** A `gh` failing every fetch with `stderr`. */
 const refusing = (stderr: string): Gh => ({ routes: { "*": refused(stderr) } });
 
-/** A `gh` failing every fetch as GitHub refuses a request it cannot process. */
 const GH_422: Gh = { routes: { "*": GH_VALIDATION_FAILED } };
 
-/**
- * A `gh` that answers every contents fetch with `body` and every licence
- * fetch with `licence`, and appends each call's arguments to `log`. A path
- * matching the `missing` glob 404s instead.
- */
 function answering(
 	body: string,
 	log: string,
@@ -669,10 +587,8 @@ function readEndpoints(log: string, kind: "contents" | "license") {
 		: [];
 }
 
-/** The repos/<owner>/<repo>/contents/<path> each logged call asked for. */
 const readContentsEndpoints = (log: string) => readEndpoints(log, "contents");
 
-/** upstreamRoot plus a declared added file, `a/EXTRA.md`. */
 function rootWithAddition() {
 	const root = upstreamRoot("mattpocock/skills");
 	const extra = ".agents/skills/a/EXTRA.md";
@@ -868,18 +784,9 @@ describe("check-vendored-skills --upstream, licences (#1951)", () => {
 	});
 });
 
-/*
- * The CLI's --upstream reporting of a failed fetch: the tags, the SKIP
- * condition and the 404 spelling (mantahostels#3025).
- */
-
 const stubGh = (root: string, { routes, log }: Gh) =>
 	stubGhRoutes(root, routes, { log }).gh;
 
-/**
- * `--upstream` over `root`, against the stub. Reads --json: the tag is what
- * classifies a row, and the human report prints the severity alone.
- */
 function runUpstream(root: string, gh: Gh, extra: string[] = []) {
 	const r = runInProcess(
 		SCRIPT,
@@ -896,7 +803,6 @@ function runUpstream(root: string, gh: Gh, extra: string[] = []) {
 	};
 }
 
-/** A `gh` answering every fetch as it does a path that is not there. */
 const GH_404: Gh = { routes: { "*": GH_NOT_FOUND } };
 
 describe("check-vendored-skills --upstream, over the CLI", () => {
@@ -936,7 +842,6 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
 				"*": refused("gh: could not resolve host"),
 			},
 		});
-		/* The second UNREADABLE is the licence fetch. */
 		expect([...r.tags].sort()).toEqual([
 			"UPSTREAM-GONE",
 			"UPSTREAM-UNREADABLE",
@@ -977,7 +882,6 @@ describe("check-vendored-skills --upstream, over the CLI", () => {
 		fs.writeFileSync(file, JSON.stringify(sidecar, null, "\t"));
 		const r = runUpstream(root, refusing("gh: could not resolve host"));
 		expect(r.outcome).not.toBe("SKIP");
-		/* The second UNREADABLE is the licence fetch. */
 		expect([...r.tags].sort()).toEqual([
 			"UPSTREAM-UNREADABLE",
 			"UPSTREAM-UNREADABLE",
@@ -1121,7 +1025,6 @@ describe("the pre-commit upstream-record gate (#2394)", () => {
 		`${JSON.stringify({ ranOn: "2026-10-22", sha256: { [LOCK]: sha256(lock), [NOTICES]: sha256(notices) }, licences: {} }, null, "\t")}\n`;
 	const Upstream = `${ADOPTER} --upstream`;
 
-	/** The limb, cut from the real hook, run over `root`'s index. */
 	function runLimb(root: string, env: Record<string, string> = {}) {
 		const r = spawnSync("sh", ["-e", "-c", cutGateScript("--covered")], {
 			cwd: root,
@@ -1131,7 +1034,6 @@ describe("the pre-commit upstream-record gate (#2394)", () => {
 		return { status: r.status, out: `${r.stdout}${r.stderr}` };
 	}
 
-	/** A repo whose index holds the manifest, as one vendoring skills does. */
 	const repo = (
 		staged: Record<string, string>,
 		committed: Record<string, string> = {},
@@ -1272,17 +1174,6 @@ describe("the pre-commit upstream-record gate (#2394)", () => {
 	});
 });
 
-/*
- * `--revendor --at <rev> --from <clone>` (#4802): a re-pull's record, read out
- * of a clone of the upstream repo. The clone is a real repository, because the
- * command reads blobs at a revision and only git can hold a tag apart from a
- * working tree.
- */
-
-/**
- * A repository standing in for a clone of `source`: `files` committed and
- * tagged `tag`, its `origin` naming the GitHub repo and never fetched.
- */
 function upstreamClone(
 	source: string,
 	files: Record<string, string>,
@@ -1325,10 +1216,6 @@ function upstreamClone(
 const readJson = (root: string, rel: string) =>
 	JSON.parse(fs.readFileSync(path.join(root, rel), "utf8"));
 
-/**
- * A tree vendoring `a` from mattpocock/skills, with a declared edit, and `z`
- * from emilkowalski/skills.
- */
 function twoSourceRoot() {
 	const root = build({
 		disk: { "a/SKILL.md": `${SKILL}Edited.\n`, "z/SKILL.md": "z body\n" },
@@ -1352,14 +1239,12 @@ function twoSourceRoot() {
 	return root;
 }
 
-/** What upstream ships for `a` at the pulled tag: SKILL.md moved, a file added. */
 const PULLED = {
 	"skills/engineering/a/SKILL.md": `${SKILL}Upstream's new line.\n`,
 	"skills/engineering/a/refs/NOTES.md": "notes\n",
 };
 
 describe("check-vendored-skills --revendor --from (#4802)", () => {
-	/** Upstream at the pulled tag, for the cases that only read it. */
 	let pulled: ReturnType<typeof upstreamClone>;
 	beforeAll(() => {
 		pulled = upstreamClone("mattpocock/skills", PULLED, "v9.9.9");

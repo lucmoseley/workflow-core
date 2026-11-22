@@ -69,7 +69,7 @@ const UTIL_PARSE_ARGS = /\butil\.parseArgs\s*\(/;
 const LAX_PARSE_ARGS = /\bstrict\s*:\s*false\b/;
 const COMMANDER = /require\(\s*["']commander["']\s*\)|from\s*["']commander["']/;
 const LAX_COMMANDER = /\ballowUnknownOption\s*\(/;
-const EXEMPT = /cli-args-exempt:\s*\w/;
+const EXEMPT = /cli-args-exempt:\s*[\w#]/;
 
 const WHY =
 	"read(s) the command line without a strict parser, so --help and an unknown flag fall through to the default action";

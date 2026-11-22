@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * Pins generate-plugin-tree.js's command line: it writes the release tree into
- * the directory named, ships the prose and hooks a guard reads at run time,
- * leaves the core's local standards file out, and refuses a shipped npm
- * require.
- *
- * It runs the CLI over a minimal fake repo in a temp dir, so what lands is
- * exactly what the fixture holds, and no change to this repo's tree moves a
- * test.
- *
- * Breaking it ships adopters a tree missing a file a hook needs, or one that
- * requires a package an install never brings (#4).
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -51,8 +38,6 @@ describe("generate-plugin-tree", () => {
 	});
 
 	it("ships the core prose and hooks a guard reads at run time", () => {
-		/* An adopter has no copy of any of these: without them a deny prints a
-		 * rule id and no text, and init finds no hook to rewrite (#5). */
 		write("docs/agents/rules/rule-x.txt", "text\n");
 		write("docs/effort-guide.md", "guide\n");
 		write("docs/code-standards-base.md", "base\n");
@@ -69,16 +54,12 @@ describe("generate-plugin-tree", () => {
 		]) {
 			expect(fs.existsSync(path.join(dir, "out", rel)), rel).toBe(true);
 		}
-		/* And no wider slice of docs/ than the four the guards read. */
 		expect(fs.existsSync(path.join(dir, "out/docs/operating-manual.md"))).toBe(
 			false,
 		);
 	});
 
 	it("leaves the core's local standards file behind (#967)", () => {
-		/* Every review route reads the base from the plugin and the local file
-		 * from the host, so a shipped local file would be read by no one and
-		 * mistaken for a template. That the base ships is asserted above. */
 		write("docs/code-standards.md", "the core's own choices\n");
 		expect(run("out").status).toBe(0);
 		expect(fs.existsSync(path.join(dir, "out/docs/code-standards.md"))).toBe(

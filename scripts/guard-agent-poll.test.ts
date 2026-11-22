@@ -1,17 +1,4 @@
 // @vitest-environment node
-/*
- * The guard-agent-poll core of guard-dispatch.js stops a session waiting by
- * looking on its Bash routes — a no-op command and a timed watch
- * (mantahostels#627, mantahostels#659). These are its boundary cases (§X11),
- * the dispatcher entry run on it alone: the payload on stdin, the TMPDIR its
- * window lives under, the real clock, the real window file and the real
- * core-path rewrite, each exit path once. Which call earns which verdict is
- * lib/agent-poll.test.ts's; the entry's payload faults and the throw policy
- * are guard-dispatch's own tests' (#3224).
- *
- * Every case gets its own TMPDIR, where the window lives, and its own
- * CLAUDE_CONFIG_DIR, because a fail-open is recorded (mantahostels#147).
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -74,8 +61,6 @@ describe("the guard, end to end", () => {
 	});
 
 	it("warns a fourth timed check as context, its watcher spelled at the plugin root in an install", () => {
-		// WFC_SCRIPT_ROOT stands in for an install: a core root with no
-		// package.json.
 		const install = path.join(dir, "install");
 		fs.mkdirSync(path.join(install, "scripts"), { recursive: true });
 		fs.writeFileSync(path.join(install, "scripts", "watch-artefact.js"), "");

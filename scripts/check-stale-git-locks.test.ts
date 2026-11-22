@@ -1,16 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-stale-git-locks.js names a git lock that has outlived any git
- * that could hold it, with its recovery, leaves it on disk, and stays quiet on
- * a young lock and on refs/arbiter/.
- *
- * Built for #1193. Every case runs against a scratch repo through
- * CLAUDE_PROJECT_DIR: a run against the founder's would read, and a bug could
- * remove, a live git's lock.
- *
- * It reports through `npm run status`: loosen a case and a lock a killed git
- * left blocks git work in silence, or a live git's lock is named for removal.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -52,7 +40,7 @@ describe("stale git locks (#1193)", () => {
 	it("names a stale logs/HEAD.lock with its recovery, and leaves it on disk", () => {
 		const at = lock("logs/HEAD.lock", 2 * HOUR);
 		const r = run();
-		expect(r.status).toBe(0); // WARN: a report, never a gate
+		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("STALE-GIT-LOCK");
 		expect(r.stderr).toContain("logs/HEAD.lock");
 		expect(r.stderr).toContain("pgrep -a git");
