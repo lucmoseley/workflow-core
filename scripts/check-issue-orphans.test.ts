@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-issue-orphans.js reports an issue whose body names the issue
- * it came out of but which was never linked as its sub-issue, and nothing
- * correctly standalone — including an issue whose body carries a `Standalone:`
- * line (#1615). No ticket found for the check itself: its first commit and its
- * subject's header cite only the fixture issues below.
- *
- * Runs with a stub `gh` injected via WFC_GH: no network, no auth,
- * and no dependence on this repo's own issue state — which is what the script
- * reports on and so cannot also be its fixture.
- *
- * The fixtures are the real cases. mantahostels#88 ("Split out of mantahostels#63", unlinked) is one of
- * the eight the 2 August 2026 sweep found; mantahostels#2 and mantahostels#80 are two of the four
- * correctly left standalone, and are here to hold the false-positive rate at
- * zero — a check that flagged them would be turned off.
- *
- * It runs daily in the repo-checks run as the backstop to place-new-issue.sh:
- * loosen a case and an unlinked issue sits outside every map, never offered by
- * /wayfinder's frontier and never scheduled.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -39,7 +19,6 @@ interface Issue {
 	pull_request?: object;
 }
 
-/** Stub `gh` returning these issues as one --slurp page. */
 const stubGh = (issues: Issue[], { failing = false } = {}) => {
 	const fixture = path.join(dir, "issues.json");
 	fs.writeFileSync(

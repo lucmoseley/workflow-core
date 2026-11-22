@@ -1,73 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-guard-test-isolation.js — a test that runs a guard must send the
- * guard's fail-open log somewhere private.
- *
- * Usage:
- *   node check-guard-test-isolation.js [--json] [--warn]
- *
- * Every bash guard records its fail-opens through lib/guard-log.sh
- * (mantahostels#147), and a Node entry through lib/entry-input.js's logger
- * (#2898, #2899), each appending to `<config dir>/projects/<repo>/guard-errors.log` — the first seat's
- * config dir where CLAUDE_CONFIG_DIR is a seat, CLAUDE_CONFIG_DIR itself where not.
- * A test that provokes a fail-open deliberately and lets the guard inherit the
- * developer's real CLAUDE_CONFIG_DIR writes one record into the live log per
- * suite run (mantahostels#1452). The convention answering it is one line in the test's env:
- * CLAUDE_CONFIG_DIR pointed at the case's temp directory.
- *
- * THE DISCRIMINATOR IS SPAWNING, NOT MENTIONING. A finding needs the path to
- * reach argv[0] of a spawnSync/spawn/execFileSync/execFile call — or the
- * script argument of a node spawn, or a runInProcess call's first — and needs
- * the script it names to log: a `….sh` sourcing lib/guard-log.sh, directly
- * or transitively, or a top-level `scripts/….js`
- * requiring lib/entry-input.js (transitively — lib/guard-entry.js does) or
- * lib/fail-open-logger.js, or calling arbiter-core.js's logError itself.
- * A bare "no CLAUDE_CONFIG_DIR" grep would not do: it flags test files that
- * name a guard in a string without ever executing one (lucmoseley/mantahostels#1468).
- *
- * INDIRECTION IS ASSUMED GUILTY. Some tests copy the guard into a temp tree and
- * spawn a local `guard` variable this file cannot resolve, so where a file binds
- * an identifier to a logging guard AND spawns something that is not a known
- * interpreter, it counts as spawning it — a false positive costing one env line
- * in a test that did not need it.
- *
- * SHARED HELPERS ARE READ TOO (#837). A non-test `scripts/**\/*.ts` that spawns
- * a guard its caller hands it names no guard of its own (#832). So a helper spawning an argv[0] it cannot resolve
- * is blamed for every logging guard named in a tracked test that imports it, and
- * must redirect CLAUDE_CONFIG_DIR itself: a caller passing it through some env
- * option is not something a call-site read can follow. For a helper the redirect
- * must be SET in code — a key or an assignment outside a comment — since a
- * helper that only reads a caller's override mentions the name without setting
- * it.
- *
- * A HELPER'S process.env REDIRECT COUNTS FOR ITS CALLERS. A test calling a
- * helper function that stubs process.env.CLAUDE_CONFIG_DIR — arbiter-testkit.ts's
- * freshSandbox — and spreading process.env into some spawn's env is
- * redirected without naming it. So is a test giving a spawn `env: <fn>(…)`,
- * where an imported helper's `<fn>` builds an env with a CLAUDE_CONFIG_DIR key
- * (mutation-hold-testkit.ts's `env`, #4943).
- *
- * NOT SEEN: a test that spawns a node script which itself invokes a guard, a
- * guard reached through a shell fragment (`sh -c`), a `.js` helper, a helper a
- * test reaches only through another helper (one import hop is followed), and a
- * guard an importing test names other than as a `"….sh"` or `"….js"` literal,
- * and a call or binding spelt inside a string, a template literal (its `${…}`
- * included) or a comment, which is read as a generated file's source; and a
- * lib's own logError call, which charges no entry requiring that lib; and, for
- * a test redirected through a helper, a spawn given a fresh env or run before
- * the helper's redirect takes effect. The first two would need the spawned
- * process traced, not the call site read; the third
- * is excluded because scripts/lib/*.js is production code as much as test
- * support, and its spawns of a caller-supplied argv[0] are not guard runs.
- *
- * FAIL, not WARN: the finding is a one-line fix in the test that caused it, and
- * the damage it prevents is invisible for as long as it takes someone to audit
- * the log by hand.
- *
- * IMPLICIT:  on every commit staging a scripts/ test file, TypeScript or shell file, refuses one where a test runs a fail-open-logging guard without redirecting CLAUDE_CONFIG_DIR.
- * JUSTIFIED: fail-safe — a checker that cannot enumerate or read the tracked set is BROKEN rather than green, since a silent pass here restores exactly the blind spot mantahostels#1452 was.
- * DEFEAT:    --warn caps findings below the gating line; an `isolation-exempt:` comment in the test file drops that file, and nothing validates the reason it gives.
- */
 
 const fs = require("node:fs");
 const path = require("node:path");
@@ -82,33 +13,23 @@ const { segmentTailMatches } = require("./lib/line-scan.js");
 
 /** @typedef {import("./lib/check.js").Ctx} Ctx */
 
-/** The comment that drops a file, with its reason: `isolation-exempt: <why>`. */
 const EXEMPT = /isolation-exempt:[ \t]*[A-Za-z0-9]/;
 
-/** argv[0] spellings that are an interpreter, never a guard. */
 const INTERPRETER =
 	/^(process\.execPath|"node"|"bash"|"sh"|"git"|"gh"|"npm"|"npx")$/;
 
-/** The interpreters whose first argument is the script run, as a Node entry is. */
 const NODE_INTERPRETER = /^(process\.execPath|"node")$/;
 
-/** A guard's file name in a string literal: a bash guard or a Node entry. */
 const GUARD_LITERAL = /"([\w./-]+\.(?:sh|js))"/;
 
-/** Tests of any JS form, and the shared `.ts` helpers they import (#837). */
 const isTestOrTsHelper = (/** @type {string} */ rel) =>
 	rel.endsWith(".ts") || isJsTestFile(rel);
 
 /**
- * Does `rel` log its fail-opens? A `….sh` reaches lib/guard-log.sh, a `….js`
- * lib/entry-input.js or lib/fail-open-logger.js, each directly or through a
- * lib it sources or requires. A top-level `….js` also logs where it takes
- * logError from the arbiter libs itself (#3046).
- *
  * @param {string} root
  * @param {string} rel
- * @param {Map<string, boolean>} cache accumulator: each file's answer is memoised here, which also breaks a source cycle
- * @param {Set<string>} [seen] accumulator: each file entered is added, so a cycle answers false
+ * @param {Map<string, boolean>} cache
+ * @param {Set<string>} [seen]
  * @returns {boolean}
  */
 function hasFailOpenLogging(root, rel, cache, seen = new Set()) {
@@ -136,21 +57,16 @@ function hasFailOpenLogging(root, rel, cache, seen = new Set()) {
 	return answer;
 }
 
-/** The loggers a Node entry's fail-opens go through, lib/guard-entry.js's
- * included. */
 const ENTRY_LOGGERS = [
 	"scripts/lib/entry-input.js",
 	"scripts/lib/fail-open-logger.js",
 ];
 
-/** The arbiter libs that export logError. */
 const LOG_ERROR_HOSTS = new Set([
 	"scripts/lib/arbiter-core.js",
 	"scripts/lib/arbiter-store.js",
 ]);
 
-/** Whether `text` requires an arbiter lib and calls logError outside a
- * comment or string. */
 const hasLogErrorCall = (
 	/** @type {string} */ rel,
 	/** @type {string} */ text,
@@ -165,13 +81,10 @@ const hasLogErrorCall = (
 };
 
 /**
- * Whether a file `rel` reaches along a `kind` edge logs its fail-opens
- * (hasFailOpenLogging).
  * @param {string} rel
  * @param {string} text
  * @param {"require" | "source"} kind
  * @param {{ root: string, cache: Map<string, boolean>, seen: Set<string> }} scan
- *   accumulator: `cache` and `seen` are hasFailOpenLogging's, filled as it goes
  */
 function hasLoggingDependency(rel, text, kind, { root, cache, seen }) {
 	for (const { to } of parseEdges(rel, text, { kinds: [kind] }))
@@ -179,11 +92,6 @@ function hasLoggingDependency(rel, text, kind, { root, cache, seen }) {
 	return false;
 }
 
-/**
- * `concision-backstop.sh` → `scripts/concision-backstop.sh`, or null where
- * no such file. A `….js` resolves only to a top-level entry: a name with a
- * directory other than scripts/ is a library, required rather than run.
- */
 function resolveGuard(/** @type {string} */ root, /** @type {string} */ name) {
 	const base = path.basename(name);
 	const dir = path.posix.dirname(name);
@@ -196,17 +104,6 @@ function resolveGuard(/** @type {string} */ root, /** @type {string} */ name) {
 	return candidates.find((rel) => fs.existsSync(path.join(root, rel))) ?? null;
 }
 
-/**
- * The logging guards `source` spawns, read off the call sites rather than run.
- * `guards` holds the guards named outright or, where an unresolvable argv[0] was
- * spawned while such a guard was in scope, every guard in scope. `opaque` is
- * whether any argv[0] was neither an interpreter nor a quoted literal — what
- * makes a helper answer for its importers' guards — and `opaqueNode` whether
- * every such argv[0] was a node run, which only a Node entry can be. A bound
- * identifier still counts: `opts.guard` matches a local `guard` without being
- * it. A literal such as "/bin/true" is a fixed program, never one a caller
- * hands in, so it is neither opaque nor indirection.
- */
 function spawnedGuards(
 	/** @type {string} */ root,
 	/** @type {string} */ source,
@@ -220,7 +117,6 @@ function spawnedGuards(
 	let opaque = false;
 	let opaqueDirect = false;
 	for (const m of source.matchAll(CALL)) {
-		/* A call spelt inside a string is a generated file's source, not a run. */
 		if (isInert(inert, m.index)) continue;
 		const { node, read } = readSpawn(m, { root, bound, cache });
 		for (const rel of read.named) named.add(rel);
@@ -233,28 +129,16 @@ function spawnedGuards(
 	return { guards, opaque, opaqueNode: opaque && !opaqueDirect };
 }
 
-/** Whether `index` falls inside one of `spans`, inertSpans's output. */
 const isInert = (
 	/** @type {[number, number][]} */ spans,
 	/** @type {number} */ index,
 ) => spans.some(([first, last]) => first <= index && index <= last);
 
-/* A spawn or in-process run: group 1 the callee; group 2 argv[0], everything
- * up to the first comma outside parentheses; group 3 a literal args array's
- * first element past any node flags but `-e`/`-p`, which for a node spawn is
- * the script run. */
 const CALL =
 	/\b(spawnSync|spawn|execFileSync|execFile|runInProcess|runInProcessAsync)\(\s*((?:[^,()]|\([^()]*\))*)(?:,\s*\[\s*(?:"-(?!e"|p"|-eval"|-print")[^"]*"\s*,\s*)*((?:[^,()\]]|\([^()]*\))*))?/g;
 
-/* What a node spawn runs where its args are no literal array: unknown, so
- * read as indirection. */
 const UNREAD_SCRIPT = "args";
 
-/**
- * One CALL match read as readCall reads it, and `node` where it runs node on a
- * script, so only a Node entry can be what it runs. `scan.cache` is an
- * accumulator, hasFailOpenLogging's.
- */
 function readSpawn(
 	/** @type {RegExpMatchArray} */ m,
 	/** @type {{root: string, bound: Map<string, string>, cache: Map<string, boolean>}} */ scan,
@@ -270,11 +154,9 @@ function readSpawn(
 	return { node, read };
 }
 
-/** `bound` cut to its Node entries: all a node run can be running. */
 const onlyEntries = (/** @type {Map<string, string>} */ bound) =>
 	new Map([...bound].filter(([, rel]) => rel.endsWith(".js")));
 
-/** What one spawn's argv[0] `arg` says — see spawnedGuards. */
 function readCall(
 	/** @type {string} */ arg,
 	/** @type {{root: string, bound: Map<string, string>, cache: Map<string, boolean>}} */ scan,
@@ -290,10 +172,6 @@ function readCall(
 	};
 }
 
-/**
- * Identifier -> the logging guard a `const`/`let` in `source` binds it to. A
- * name used as a subscript key, `x["guard-y.js"]`, binds nothing.
- */
 function boundGuards(
 	/** @type {string} */ root,
 	/** @type {string} */ source,
@@ -312,10 +190,6 @@ function boundGuards(
 	return bound;
 }
 
-/**
- * Null where argv[0] `arg` carries no guard-file literal; otherwise the logging
- * guard it names, as a list of one, or none.
- */
 function literalGuards(
 	/** @type {string} */ root,
 	/** @type {string} */ arg,
@@ -327,7 +201,6 @@ function literalGuards(
 	return rel && hasFailOpenLogging(root, rel, cache) ? [rel] : [];
 }
 
-/** The bound guards whose identifier argv[0] `arg` mentions. */
 function boundHits(
 	/** @type {string} */ arg,
 	/** @type {Map<string, string>} */ bound,
@@ -339,11 +212,6 @@ function boundHits(
 	return hits;
 }
 
-/**
- * Every logging guard `source` names in a `"….sh"` or `"….js"` literal,
- * spawned or not.
- * scripts/lib/ is left out: a library there is sourced, never handed over to run.
- */
 function namedGuards(
 	/** @type {string} */ root,
 	/** @type {string} */ source,
@@ -359,12 +227,6 @@ function namedGuards(
 	return out;
 }
 
-/**
- * The tracked `.ts` files in `known` that `rel`'s relative imports reach.
- * Residual: only a double-quoted specifier resolving as written or with `.ts`
- * appended is followed, so an `index.ts` directory import or a `.js`-suffixed
- * one leaves its helper unblamed.
- */
 function importsOf(
 	/** @type {string} */ rel,
 	/** @type {string} */ source,
@@ -384,36 +246,35 @@ function importsOf(
 	return out;
 }
 
-/**
- * Comments out, so a helper explaining CLAUDE_CONFIG_DIR is not read as setting
- * it. Residual: a `//` inside a string survives unless a quote or colon sits
- * right before it, so a URL-bearing string can swallow the rest of its line.
- */
-const stripComments = (/** @type {string} */ s) =>
-	// eslint-disable-next-line regexp/no-super-linear-move -- input is the host repo's own files, which its own writers control; a crafted one slows the check, nothing worse (#4642)
-	s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+const LINE_COMMENT = /(^|[^:"'`])\/\//;
 
-/** An env object's `CLAUDE_CONFIG_DIR` key, as written before its value. */
+const stripLineComment = (/** @type {string} */ line) => {
+	const m = LINE_COMMENT.exec(line);
+	return m
+		? line.slice(0, m.index + requiredGroup(m, 1, LINE_COMMENT).length)
+		: line;
+};
+
+const stripComments = (/** @type {string} */ s) =>
+	s
+		.replace(/\/\*[\s\S]*?\*\//g, "")
+		.split("\n")
+		.map(stripLineComment)
+		.join("\n");
+
 const CONFIG_DIR_KEY = String.raw`(?:\bCLAUDE_CONFIG_DIR|["']CLAUDE_CONFIG_DIR["'])\s*`;
-/** That key given a value — never typed. */
 const KEYS_CONFIG_DIR = new RegExp(
 	`${CONFIG_DIR_KEY}:(?!\\s*(?:string|undefined)\\b)`,
 	"g",
 );
-/** `CLAUDE_CONFIG_DIR` set as an env key, assigned or stubbed — never merely read or typed. */
 const SETS_CONFIG_DIR = new RegExp(
 	`${CONFIG_DIR_KEY}(?::(?!\\s*(?:string|undefined)\\b)|=(?!=))|\\[\\s*["']CLAUDE_CONFIG_DIR["']\\s*\\]\\s*=(?!=)|\\bstubEnv\\(\\s*["']CLAUDE_CONFIG_DIR["']\\s*,`,
 );
 
-/** `process.env.CLAUDE_CONFIG_DIR` stubbed through vitest, the one way a
- * helper may set it (check-test-env-writes.js). */
 const SETS_PROCESS_CONFIG_DIR = /\bstubEnv\(\s*["']CLAUDE_CONFIG_DIR["']\s*,/g;
 
-/** A function's name at its definition, group 1 or 2. */
 const DEFINED = /\bfunction\s+(\w+)|\bconst\s+(\w+)\s*=\s*(?:async\s*)?\(/g;
 
-/** The functions in helper `source` holding a `re` match: each match's
- * nearest enclosing definition, read as the last before it. */
 function definersOf(/** @type {string} */ source, /** @type {RegExp} */ re) {
 	const code = stripComments(source);
 	const defs = [...code.matchAll(DEFINED)];
@@ -426,10 +287,6 @@ function definersOf(/** @type {string} */ source, /** @type {RegExp} */ re) {
 	return out;
 }
 
-/** Whether test `source` reaches a redirect through a helper it imports:
- * calling a function that stubs process.env.CLAUDE_CONFIG_DIR while spreading
- * process.env into a spawn's env, or giving a spawn the env a function builds
- * with a CLAUDE_CONFIG_DIR key. */
 function redirectsThroughHelper(
 	/** @type {string} */ rel,
 	/** @type {string} */ source,
@@ -458,7 +315,6 @@ function redirectsThroughHelper(
 	});
 }
 
-/** Every tracked file's text, by path — BROKEN where one will not read. */
 function readSources(
 	/** @type {Ctx} */ ctx,
 	/** @type {string} */ root,
@@ -477,7 +333,6 @@ function readSources(
 	return sources;
 }
 
-/* helper -> the logging guards named by the tests importing it. */
 function handedGuards(
 	/** @type {{root: string, sources: Map<string, string>, helpers: Set<string>, cache: Map<string, boolean>}} */ scan,
 ) {
@@ -498,7 +353,6 @@ function handedGuards(
 	return handed;
 }
 
-/** The logging guards `rel` answers for, spawned or — for a helper — handed. */
 function guardsOf(
 	/** @type {string} */ rel,
 	/** @type {string} */ source,
@@ -506,7 +360,6 @@ function guardsOf(
 ) {
 	const spawned = spawnedGuards(scan.root, source, scan.cache);
 	const isHelper = scan.helpers.has(rel);
-	/* A helper binding a scripts/lib/ path is copying a library, not running it. */
 	const guards = new Set(
 		isHelper
 			? spawned.guards.filter(
@@ -521,7 +374,6 @@ function guardsOf(
 	return guards;
 }
 
-/** How `rel` is judged and reported — a shared helper is held to more. */
 function shapeOf(
 	/** @type {string} */ rel,
 	/** @type {string} */ source,
@@ -543,7 +395,6 @@ function shapeOf(
 			};
 }
 
-/** Fails `rel` and says why and how to fix it. */
 function reportUnisolated(
 	/** @type {Ctx} */ ctx,
 	/** @type {string} */ rel,
@@ -574,10 +425,6 @@ const SPEC = {
 	usage:
 		"node check-guard-test-isolation.js [--json] [--warn] [--root <dir>] [--against <rev>]",
 	valueFlags: ["--root"],
-	/* Whole-tree, not a pathspec: the finding is a relationship between a test
-	 * file and whatever guard it spawns, and spawnedGuards follows `source`
-	 * chains through scripts/lib — so the scan discovers its own scope
-	 * (scripts/lib/check.js §--against, mantahostels#1833). */
 	against: { profile: "guard-test-isolation", materialise: "tree" },
 	run(/** @type {any} */ ctx) {
 		const { root, files } = readTrackedScripts(ctx, isTestOrTsHelper);
@@ -607,14 +454,10 @@ const SPEC = {
 		}
 
 		const data = {
-			/* Counts helpers too (#837); the key is shared with
-			 * check-host-root-test-isolation.js's envelope, so it keeps its name. */
 			spawningTests: checked.length,
 			exempt: exempt.length,
 			scanned: files.length,
 		};
-		/* The exempt are named rather than folded into the claim: "all redirecting"
-		 * must not cover a file this check dropped. */
 		const tail =
 			exempt.length > 0
 				? `${exempt.length} exempt, the rest redirecting CLAUDE_CONFIG_DIR.`

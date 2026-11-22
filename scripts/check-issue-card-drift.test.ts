@@ -1,28 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-issue-card-drift.js reports an issue whose roadmap card
- * state disagrees with it, in both directions, without reading a closed child
- * ticket as its card being done (mantahostels#275, mantahostels#277).
- *
- * check-issue-card-drift.js shells out to `gh`, so every case here runs with a
- * stub `gh` injected via WFC_GH. That keeps the test hermetic —
- * no network, no auth, no dependence on this repo's actual issue state, which
- * is the very thing the script reports on and therefore cannot be a fixture.
- *
- * The roadmap is likewise a fixture, not docs/reference-roadmap.html: asserting
- * against the live roadmap would make these tests fail whenever a card's state
- * legitimately changes.
- *
- * The `state` case below is not hypothetical. The first draft of the script read
- * the card-state field as `s`; it is `state`. Every card silently read as
- * "(no state)", which would have reported every closed issue as drift. Nothing
- * in the script's own output looked wrong — it needed a card whose state was
- * known to catch it.
- *
- * It runs daily in the repo-checks run, report-only: loosen a case and an
- * issue closed outside /card-close leaves its card describing finished work
- * as outstanding, with no signal anywhere.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -37,7 +13,6 @@ const SCRIPT = path.resolve(__dirname, "check-issue-card-drift.js");
 let dir: string;
 let roadmap: string;
 
-/** Minimal roadmap carrying the same `const ITEMS = [...]` shape the real one has. */
 const roadmapHtml = (
 	cards: Array<{ id: string; state: string; m?: string }>,
 ) => `<!doctype html><html><body>
@@ -56,14 +31,12 @@ ${cards
 </script>
 </body></html>`;
 
-/** Drop a field gh was never asked for, the way gh itself would. */
 const without = (rows: unknown[], field: string) =>
 	rows.map((r) => {
 		const { [field]: _dropped, ...rest } = r as Record<string, unknown>;
 		return rest;
 	});
 
-/** Write a stub `gh` returning the given issue lists. */
 const stubGh = (
 	closed: unknown[],
 	open: unknown[],
@@ -74,19 +47,12 @@ const stubGh = (
 		["open", open],
 	] as const) {
 		fs.writeFileSync(path.join(dir, `${name}.json`), JSON.stringify(rows));
-		// gh returns only the fields --json names. Serving `parent` to a script
-		// that never asked for it would let the check keep passing these tests
-		// after dropping the field from its query — the mutation that first ran
-		// straight through this stub unnoticed.
 		fs.writeFileSync(
 			path.join(dir, `${name}.noparent.json`),
 			JSON.stringify(without(rows, "parent")),
 		);
 	}
 
-	// Match on the exact `--state <x>` pair: the `--json ...closedAt...` argument
-	// also contains the substring "closed", so a looser match sends the open
-	// query to the closed fixture.
 	const script = `#!/bin/sh
 case " $* " in
   *" --state closed "*) f=closed ;;
@@ -122,7 +88,6 @@ const issue = (
 	state: "X",
 	closedAt: "2026-07-01T00:00:00Z",
 	url: `http://example/${number}`,
-	// gh serves `parent` as an object, absent rather than null when there is none.
 	...(parent === undefined ? {} : { parent: { number: parent } }),
 	labels: labels.map((name) => ({ name })),
 });
@@ -137,9 +102,6 @@ afterEach(() => {
 
 describe("roadmap parsing", () => {
 	it("reads the card state field, not a same-shaped neighbour", () => {
-		// `done-card` is done; a closed issue against it is NOT drift. If the state
-		// field is misread, this reports drift and fails — the regression that
-		// prompted this test.
 		fs.writeFileSync(
 			roadmap,
 			roadmapHtml([{ id: "done-card", state: "done" }]),
@@ -219,11 +181,9 @@ describe("titles it will not guess at", () => {
 	it("reports an unparseable title instead of matching on text", () => {
 		const r = run([], stubGh([issue(3, "no separator here")], []));
 		expect(r.out).toContain("UNPARSEABLE TITLE");
-		expect(r.status).toBe(0); // reported, but not drift
+		expect(r.status).toBe(0);
 	});
 
-	// Only an unparented issue could have been a card's own issue, so a parented
-	// one is counted rather than listed — the 170-of-189 wall mantahostels#277 removed.
 	it("counts a parented unparseable title instead of listing it", () => {
 		const r = run(
 			[],
@@ -288,8 +248,6 @@ describe("child tickets are not their card", () => {
 		expect(r.status).toBe(0);
 	});
 
-	// The other half of the bargain: suppression keyed on parentage must not
-	// swallow the card's own issue, which is what the check exists to catch.
 	it("still flags an unparented issue against a card that is not done as CLOSED-BUT-NOT-DONE, naming the issue", () => {
 		const r = run([], stubGh([issue(9, "active-card — the card itself")], []));
 		expect(r.out).toContain("CLOSED-BUT-NOT-DONE");
@@ -317,8 +275,6 @@ describe("child tickets are not their card", () => {
 	});
 });
 
-// mantahostels#1173: a card's "—" and its own issue's takes:human label are one concept,
-// reported when they disagree, never blocked.
 describe('"—" / takes:human mismatch (mantahostels#1173)', () => {
 	beforeEach(() => {
 		fs.writeFileSync(
@@ -334,7 +290,7 @@ describe('"—" / takes:human mismatch (mantahostels#1173)', () => {
 		const r = run([], stubGh([], [issue(1, "dash-card — no label")]));
 		expect(r.out).toContain('"—" CARD, ISSUE NOT takes:human (1)');
 		expect(r.out).toContain("#1 dash-card");
-		expect(r.status).toBe(0); // reported, never blocked
+		expect(r.status).toBe(0);
 	});
 
 	it('does not flag a "—" card whose own issue carries takes:human', () => {
@@ -374,8 +330,6 @@ describe('"—" / takes:human mismatch (mantahostels#1173)', () => {
 		expect(r.out).not.toContain('"—" CARD, ISSUE NOT takes:human');
 	});
 
-	// A card id can carry more than one unparented issue in practice (a stale
-	// spin-off, a reopened one) — every one must be checked, not just one.
 	it('flags every unparented own issue on a "—" card, not just one, naming only the one lacking takes:human', () => {
 		const r = run(
 			[],

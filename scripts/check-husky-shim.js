@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-husky-shim.js — report a canonical checkout whose husky shim has lost
- * #3138's own-tree lookup (#3172), or whose core.hooksPath is off the absolute
- * path install-hooks.js pins, which leaves a fresh linked worktree no git hook
- * to run (#3819).
- *
- * Usage:  node scripts/check-husky-shim.js [--notify] [--json]
- *
- * husky rewrites `.husky/_/h` to its stock form every time it runs, so an
- * `npm install` where package.json predates #3138 (a main checkout behind
- * `origin/main`, #3106) silently sends every worktree's commit
- * and push back to the main checkout's hook copy (#3125). husky run bare
- * does that and writes core.hooksPath relative too (#3819).
- */
 
 const { runCheck } = require("./lib/check");
 const { gitCommonDir, gitOutcome } = require("./lib/git.js");

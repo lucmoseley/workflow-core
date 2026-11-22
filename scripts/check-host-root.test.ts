@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-host-root.js fails a core script that computes its own root
- * instead of using the host-root seam, in JS, shell and Python (#1), and
- * SKIPs a root that ships no plugin (#83).
- *
- * No case asserts that the LIVE tree is clean: that would put the gate in two
- * places, and an unrelated script's edit would fail this file instead of the
- * check. Every case plants its fault in a fixture root handed in with --root.
- *
- * Messages are asserted alongside tags, because a tag alone would survive the
- * message being rewritten into nonsense.
- *
- * It is a hard gate in .husky/pre-commit: loosen a case and a self-rooted
- * script lands, which installed as a plugin reads the plugin cache instead of
- * the adopter's repo.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -59,16 +43,10 @@ const run = (): Envelope =>
 const tags = (e: Envelope) => e.findings.map((f) => f.tag);
 const messages = (e: Envelope) => e.findings.map((f) => f.message).join("\n");
 
-/*
- * The shell fixtures below quote `${CLAUDE_PROJECT_DIR:-…}`, which a plain
- * string literal cannot hold without tripping the JS-template lint and which
- * the formatter un-escapes back out of a template. Composed instead.
- */
 const DOLLAR = "$";
 const seam = (fallback: string) => `${DOLLAR}{CLAUDE_PROJECT_DIR:-${fallback}}`;
 const HERE_WALK = '$(cd "$here/.." && pwd)';
 
-/** A file that trips nothing, so a fixture is never empty. */
 const clean = () =>
 	write(
 		"scripts/clean.js",
@@ -370,7 +348,6 @@ describe("nothing to scan", () => {
 	});
 
 	it("SKIPs an adopter's own self-rooting scripts (#83)", () => {
-		/* No plugin.json: these scripts never run from the plugin cache. */
 		expect(
 			inEmptyRoot((root) => {
 				fs.mkdirSync(path.join(root, "scripts"));
@@ -387,7 +364,6 @@ describe("nothing to scan", () => {
 	});
 
 	it("keys on the manifest the core really ships", () => {
-		/* Moved or renamed, it would turn the core's own gate into a SKIP. */
 		expect(
 			fs.existsSync(
 				path.resolve(__dirname, "..", ".claude-plugin", "plugin.json"),
@@ -435,7 +411,6 @@ describe("the mirror fault through a hook's cwd (#4259)", () => {
 	const { fileFaults } = require("./check-host-root.js") as {
 		fileFaults: (root: string, rel: string) => string[];
 	};
-	/** Registers `script` as a hook in the registration file `at`. */
 	const register = (script: string, at = "hooks/hooks.json") =>
 		write(
 			at,
@@ -454,7 +429,6 @@ describe("the mirror fault through a hook's cwd (#4259)", () => {
 				},
 			}),
 		);
-	/** Registers `scripts/hook.<ext>` as a hook, holding `body`. */
 	const hook = (ext: "js" | "sh", body: string, at?: string) => {
 		register(`scripts/hook.${ext}`, at);
 		write(`scripts/hook.${ext}`, body);
@@ -816,8 +790,6 @@ describe("--against HEAD (#917)", () => {
 		execFileSync("git", args, { cwd: dir, stdio: "pipe" });
 
 	const against = () => {
-		// Off, not inherited: a real Actions run sets it, and runCheck's
-		// ::error:: annotation would leak into `out` (mantahostels#2427).
 		const r = runInProcess(SCRIPT, ["--against", "HEAD"], {
 			cwd: dir,
 			env: { ...process.env, GITHUB_ACTIONS: "", CLAUDE_PROJECT_DIR: dir },

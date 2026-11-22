@@ -1,32 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-interop-latency.js — say so when the WSL↔Windows interop bridge is
- * degraded: answering, but slowly, and staying slow until `wsl --shutdown`
- * (#3564). docs/environment.md §9's third mode; its wedge probe,
- * lib/interop-probe.sh, reads such a bridge as healthy, since every call
- * returns inside its 12 s budget.
- *
- * Usage:  node scripts/check-interop-latency.js [--notify] [--json]
- *
- * THE READING is the policy query every `claude` start makes, timed, at the
- * probe's own seam, CLAUDE_INTEROP_REG. Two slow queries in a row read
- * DEGRADED.
- *
- * ON DETECTION it appends one evidence record to `.interop-degraded.jsonl`
- * under the host's .claude/tmp/markers: the two latencies, uptime, dmesg's
- * failed `hvs_probe` ring allocations by order, the vmbus device count,
- * Windows' CPU and Available MBytes counters, vmmemWSL's working set, and the
- * interop calls in flight. A reading that cannot be taken is null, never 0.
- * Each binary or tree is injected at a named var (§N7): WFC_DMESG,
- * WFC_TYPEPERF, WFC_VMBUS_DEVICES and WFC_PROC.
- *
- * FAILS OPEN, SILENTLY. No executable reg.exe — not WSL, or interop off — is
- * SKIP. A DEGRADED bridge is FAIL, so a plain run exits 1; under --notify it
- * exits 0 and prints the warning.
- *
- * IT NEVER RECOVERS ANYTHING — §9's rule for Guard 2: a false positive that
- * ran `wsl --shutdown` would kill every live session.
- */
 
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -48,28 +20,15 @@ const { readProcTable, readUptime } = require("./lib/proc-table.js");
 const { DAY_MS, appendRetained } = require("./lib/retained-jsonl.js");
 const { docPath } = require("./lib/script-path.js");
 
-/**
- * Per query: lib/interop-probe.sh's per-attempt budget, above the ~10 s vsock
- * stall, and above the slowest degraded query, 7.4 s (#3564). Its
- * CLAUDE_INTEROP_PROBE_TIMEOUT override is not read: that tunes the wedge
- * test, and a lower one here would cut a degraded reading short.
- */
+// measured 7.4 s slowest degraded query, ~10 s vsock stall, #3564
 const QUERY_BUDGET_MS = 12_000;
 
-/**
- * typeperf's one sample took 1.35 s on a healthy bridge (#3564); the rest is
- * room for a degraded bridge's 3.9–7.4 s per call. A guess beyond that.
- */
+// measured 1.35 s healthy, 3.9–7.4 s degraded, #3564
 const TYPEPERF_BUDGET_MS = 15_000;
 
-/**
- * A plain dmesg read of a 30 KB ring took 4 ms (#3564), and the kernel's ring
- * is 256 KB (CONFIG_LOG_BUF_SHIFT=18); the rest is a guessed margin for load.
- */
+// measured 4 ms for a 30 KB ring, #3564
 const DMESG_TIMEOUT_MS = 5000;
 
-/* 30 days, a guess: a month of incident evidence outlasts the restart that
- * ends each incident by far. */
 const RETAIN_MS = 30 * DAY_MS;
 
 const LOG = ".interop-degraded.jsonl";
@@ -85,7 +44,6 @@ function query() {
 	try {
 		fs.accessSync(reg, fs.constants.X_OK);
 	} catch {
-		// Not WSL, or interop off: the check SKIPs.
 		return null;
 	}
 	const start = process.hrtime.bigint();
@@ -96,12 +54,10 @@ function query() {
 	});
 	const s = Number(process.hrtime.bigint() - start) / 1e9;
 	const expired = r.error !== undefined && caught(r.error).code === "ETIMEDOUT";
-	// Any exit, 1 for the absent key included, is the bridge answering.
 	if (r.error && !expired) return null;
 	return { s, expired };
 }
 
-/** dmesg's failed `hvs_probe` allocations by order, or null where it will not read. */
 function readHvsProbeFailures() {
 	const r = spawnSync(process.env.WFC_DMESG || "dmesg", [], {
 		encoding: "utf8",
@@ -119,12 +75,10 @@ function readVmbusDevices() {
 			process.env.WFC_VMBUS_DEVICES || "/sys/bus/vmbus/devices",
 		).length;
 	} catch {
-		// Recorded as null: an unread count is not 0.
 		return null;
 	}
 }
 
-/** typeperf's one sample of COUNTERS; nulls where it will not run or answer. */
 function readWindowsCounters() {
 	const r = spawnSync(
 		process.env.WFC_TYPEPERF || "/mnt/c/Windows/System32/typeperf.exe",
