@@ -8,10 +8,10 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, beforeEach, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 // biome-ignore lint/suspicious/noExplicitAny: a CJS module has no types to import
-const { readJobRecordAt, readJobRecordIn }: any =
+const { isBackgroundJob, readJobDir, readJobRecordAt, readJobRecordIn }: any =
 	createRequire(__filename)("./job-paths.js");
 
 let tmp: string;
@@ -46,5 +46,22 @@ it("throws where the record will not read for any other cause", () => {
 	expect(readJobRecordAt(job)).toMatchObject({
 		state: "unreadable",
 		message: expect.stringContaining("EACCES"),
+	});
+});
+
+describe("isBackgroundJob and readJobDir (#5518)", () => {
+	it("reads a set job dir as a job, naming the dir", () => {
+		const env = { CLAUDE_JOB_DIR: "/jobs/abc" };
+		expect(isBackgroundJob(env)).toBe(true);
+		expect(readJobDir(env)).toBe("/jobs/abc");
+	});
+
+	it.each([
+		["a print-mode run", { CLAUDE_CODE_ENTRYPOINT: "sdk-cli" }],
+		["an empty job dir", { CLAUDE_JOB_DIR: "" }],
+		["no harness variables", {}],
+	])("reads %s as no job", (_, env) => {
+		expect(isBackgroundJob(env)).toBe(false);
+		expect(readJobDir(env)).toBeNull();
 	});
 });

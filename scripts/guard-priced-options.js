@@ -408,6 +408,7 @@ const {
 } = require("./lib/priced-options-ceiling");
 const stopGuard = require("./lib/stop-guard");
 const { parseStatus } = require("./lib/status-marker");
+const { isBackgroundJob } = require("./lib/job-paths");
 const { INVENTORY } = require("./lib/inventory-format");
 /** @typedef {import("./lib/status-marker").StatusReading} StatusReading */
 const { escapeRe, requiredGroup } = require("./lib/regex-group");
@@ -1934,7 +1935,7 @@ function formatReason(count, bad) {
  * @returns {StatusReading | null}
  */
 function jobStatus(message) {
-	return process.env.CLAUDE_JOB_DIR ? parseStatus(message) : null;
+	return isBackgroundJob(process.env) ? parseStatus(message) : null;
 }
 
 /**
