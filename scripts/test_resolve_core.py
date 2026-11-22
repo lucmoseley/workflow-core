@@ -407,7 +407,7 @@ def _resolver_input(which, root, config, install):
     }[which]
 
 
-@pytest.mark.parametrize("text", ["{", '{"version": NaN}'])
+@pytest.mark.parametrize("text", ["{", '{"version": NaN}', '{"version": -Infinity}'])
 @pytest.mark.parametrize("which", ["settings", "record", "plugin"])
 def test_fails_alike_naming_a_file_that_is_there_but_not_json(adopter, which, text):
     """#5504."""

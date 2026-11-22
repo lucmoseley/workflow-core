@@ -160,7 +160,7 @@ function readPin(root) {
 
 /**
  * #4150, #5504
- * @param {any} entries
+ * @param {unknown} entries
  * @param {string} root
  * @returns {{rows: any[], searched: string}}
  */
