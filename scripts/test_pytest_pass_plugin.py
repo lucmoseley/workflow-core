@@ -9,6 +9,11 @@ import pytest
 import pytest_pass_plugin as plugin
 
 
+@pytest.fixture(autouse=True)
+def nothing_told_yet(monkeypatch):
+    monkeypatch.setattr(plugin, "_told", set())
+
+
 class FakeReport:
     def __init__(self, nodeid):
         self.nodeid = nodeid
@@ -196,10 +201,14 @@ def test_a_scope_it_cannot_read_records_the_verdict_and_no_scope(
     assert any("SCOPE UNRECORDED" in line for line in reporter.lines)
 
 
-def test_an_unwritable_hand_off_never_raises(tmp_path, monkeypatch):
-    monkeypatch.setenv("WFC_PYTEST_SCOPE_OUT", str(tmp_path / "nodir" / "s.json"))
-    plugin.pytest_terminal_summary(
-        FakeTerminalReporter({}), 0, fake_config(corpus(tmp_path))
+def test_an_unwritable_hand_off_never_raises_and_says_so(tmp_path, monkeypatch):
+    out = tmp_path / "nodir" / "s.json"
+    monkeypatch.setenv("WFC_PYTEST_SCOPE_OUT", str(out))
+    reporter = FakeTerminalReporter({})
+    plugin.pytest_terminal_summary(reporter, 0, fake_config(corpus(tmp_path)))
+    assert any(
+        line.startswith(f"VERDICT UNWRITTEN — {out} holds no record")
+        for line in reporter.lines
     )
 
 
@@ -250,10 +259,12 @@ def test_an_unserialisable_scope_never_reaches_pytest_as_an_internalerror(
     out = tmp_path / "scope.json"
     monkeypatch.setenv("WFC_PYTEST_SCOPE_OUT", str(out))
     config = fake_config(tmp_path, args=(Path("scripts/test_a.py"),))
+    reporter = FakeTerminalReporter({})
 
-    plugin.pytest_terminal_summary(FakeTerminalReporter({}), 0, config)
+    plugin.pytest_terminal_summary(reporter, 0, config)
 
     assert not out.exists()
+    assert any(line.startswith("VERDICT UNWRITTEN") for line in reporter.lines)
 
 
 def test_a_non_numeric_exit_status_never_reaches_pytest_either(tmp_path, monkeypatch):
@@ -287,7 +298,9 @@ def test_sums_each_files_setup_call_and_teardown_into_the_hand_off(
     }
 
 
-def test_a_report_it_cannot_time_never_raises_and_times_nothing(tmp_path, monkeypatch):
+def test_a_report_it_cannot_time_never_raises_and_times_nothing(
+    tmp_path, monkeypatch, capsys
+):
     monkeypatch.setattr(plugin, "_file_seconds", {})
     out = tmp_path / "scope.json"
     monkeypatch.setenv("WFC_PYTEST_SCOPE_OUT", str(out))
@@ -299,6 +312,25 @@ def test_a_report_it_cannot_time_never_raises_and_times_nothing(tmp_path, monkey
     )
 
     assert json.loads(out.read_text())["fileSeconds"] == {}
+    told = capsys.readouterr().err.splitlines()
+    assert [line for line in told if line.startswith("TIMINGS SHORT")] == [
+        "TIMINGS SHORT (#1884) — a test phase went untimed: float() argument must "
+        "be a string or a real number, not 'NoneType'"
+    ]
+
+
+def test_a_stage_it_cannot_read_leaves_the_test_where_it_was_and_says_so(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr(plugin, "_inflight", {"test_a.py::one": "setup"})
+    monkeypatch.setattr(plugin, "_file_seconds", {})
+    plugin.pytest_runtest_logreport(FakePhaseReport("test_a.py::one", 0.1))
+
+    assert plugin._inflight == {"test_a.py::one": "setup"}
+    assert capsys.readouterr().err == (
+        "IN-FLIGHT STAGE UNTRACKED — a test's stage went unrecorded: "
+        "'FakePhaseReport' object has no attribute 'when'\n"
+    )
 
 
 @pytest.mark.parametrize("error", [ValueError, RuntimeError])
@@ -365,11 +397,19 @@ def test_an_xdist_worker_leaves_the_in_flight_file_to_the_controller(
     assert not out.exists()
 
 
-def test_an_unwritable_in_flight_file_never_raises(tmp_path, monkeypatch):
+def test_an_unwritable_in_flight_file_never_raises_and_says_so_once(
+    tmp_path, monkeypatch, capsys
+):
     monkeypatch.setattr(plugin, "_inflight", {})
-    monkeypatch.setenv("WFC_PYTEST_INFLIGHT_OUT", str(tmp_path / "no" / "such"))
+    out = tmp_path / "no" / "such"
+    monkeypatch.setenv("WFC_PYTEST_INFLIGHT_OUT", str(out))
     monkeypatch.delenv("PYTEST_XDIST_WORKER", raising=False)
     plugin.pytest_runtest_logstart("test_a.py::one", None)
+    plugin.pytest_runtest_logstart("test_a.py::two", None)
+
+    told = capsys.readouterr().err.splitlines()
+    assert len(told) == 1
+    assert told[0].startswith(f"IN-FLIGHT FILE UNWRITTEN — {out} is stale: ")
 
 
 def test_the_plugin_really_loads_and_reports_under_xdist(tmp_path):
