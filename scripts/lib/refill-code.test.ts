@@ -1,5 +1,6 @@
 // @vitest-environment node
 import { type ChildProcess, execFileSync } from "node:child_process";
+import { once } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -383,7 +384,7 @@ describe("control commands from a stale checkout (#4337)", () => {
 		expect(refused.stderr).toContain("usage:");
 	}
 
-	it("runs set, stop and status from the running loop's code", () => {
+	it("runs set, stop and status from the running loop's code", async () => {
 		plant((where) => {
 			const launch = launchProgram(where);
 			if ("error" in launch) throw new Error(launch.error);
@@ -391,9 +392,15 @@ describe("control commands from a stale checkout (#4337)", () => {
 		});
 		loopProc = keptSpawn("concurrent").spawn(
 			process.execPath,
-			["-e", "setInterval(() => {}, 1000)", pinned],
-			{ stdio: "ignore" },
+			[
+				"-e",
+				'process.stdout.write("up\\n"); setInterval(() => {}, 1000)',
+				pinned,
+			],
+			{ stdio: ["ignore", "pipe", "ignore"] },
 		);
+		// #5571
+		await once(loopProc.stdout as NodeJS.ReadableStream, "data");
 		fs.writeFileSync(
 			path.join(state, ".refill-loop.pid"),
 			String(loopProc.pid),
