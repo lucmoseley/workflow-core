@@ -200,7 +200,7 @@ describe("the composed rewrite", () => {
 					?.prelude,
 			);
 			expect(prelude).toMatch(
-				/hold the turn on `node .*watch-artefact\.js --no-artefact 120 --log <output_file>`/,
+				/hold the turn on `node .*watch-artefact\.js --no-artefact 120 530 --log <output_file>`/,
 			);
 			expect(prelude).toContain(
 				"in the foreground as `rule:job-holds-turn` says",
@@ -300,6 +300,9 @@ describe("a routed-away session with burn mode off (#4992)", () => {
 	});
 });
 
+// guess (#5520): room for node to start before `timeout` fires
+const NODE_START_S = 5;
+
 describe("the watch command", () => {
 	it("names the watcher that ships beside this file", () => {
 		const watcher = String(
@@ -317,6 +320,30 @@ describe("the watch command", () => {
 		expect(
 			watchCommand(FILE).endsWith(` ${FILE} 120 --log <output_file>`),
 		).toBe(true);
+	});
+
+	it("ends a job's watch on its own ceiling, with room for node to start, inside the rule's timeout", () => {
+		const job = String(
+			/hold the turn on `([^`]+)`/.exec(
+				String(
+					rewrite({ prompt: "Do it." }, { file: FILE, job: true })?.prelude,
+				),
+			)?.[1],
+		);
+		const ceiling = Number(
+			new RegExp(` ${FILE} 120 (\\d+) --log <output_file>$`).exec(job)?.[1],
+		);
+		const rule = fs.readFileSync(
+			path.join(__dirname, "../../docs/agents/rules/job-holds-turn.txt"),
+			"utf8",
+		);
+		const [, timeout, spelled] =
+			/timeout (\d+) node \S*watch-artefact\.js <its artefact> 120 (\d+)\s/.exec(
+				rule,
+			) ?? [];
+		expect(Number(spelled)).toBe(ceiling);
+		expect(ceiling).toBeGreaterThan(0);
+		expect(Number(timeout) - ceiling).toBeGreaterThanOrEqual(NODE_START_S);
 	});
 
 	it("quotes a path a shell would split, apostrophe included", () => {
