@@ -33,7 +33,7 @@ const treeOrHost = (ctx) =>
 	treeOr(ctx, {
 		root: ctx.root,
 		git: ctx.git,
-		readText: ctx.readText,
+		read: ctx.read,
 		repoRel: ctx.repoRel,
 	});
 

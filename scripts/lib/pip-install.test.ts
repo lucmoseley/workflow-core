@@ -10,6 +10,7 @@ import {
 	statsAnswer,
 } from "./pypi-registry-fake";
 import { readRuleText } from "./rule-text";
+import { treePortsFake } from "./tree-ports-fake";
 
 const { decide } = require("./pip-install.js") as {
 	decide: (command: string, ctx: object) => { deny: string } | null;
@@ -70,23 +71,17 @@ function harness(reg: Partial<PyPI> = {}, over: Over = {}) {
 	const files = over.files ?? FILES;
 	const ctx = kitContextFake({
 		log: (what: string) => logs.push(what),
-		tree: () => ({
-			root: "/repo",
-			git: (args: string[]) => {
-				calls.push(`git ${args.join(" ")}`);
-				const listed =
-					over.listed === undefined ? Object.keys(files) : over.listed;
-				return listed === null
-					? { ok: false, why: "not a git repository" }
-					: { ok: true, out: listed.map((f) => `${f}\0`).join("") };
-			},
-			readText: (rel: string) => {
-				const got = files[rel];
-				if (got instanceof Error) throw got;
-				return got ?? null;
-			},
-			repoRel: (f: string) => f,
-		}),
+		tree: () =>
+			treePortsFake(files, {
+				git: (args: string[]) => {
+					calls.push(`git ${args.join(" ")}`);
+					const listed =
+						over.listed === undefined ? Object.keys(files) : over.listed;
+					return listed === null
+						? { ok: false, why: "not a git repository" }
+						: { ok: true, out: listed.map((f) => `${f}\0`).join("") };
+				},
+			}),
 		pypi: (name: string): Get => {
 			calls.push(`pypi ${name}`);
 			return pypiAnswer(full);

@@ -1,10 +1,11 @@
 const path = require("node:path");
+const { throwUnreadable } = require("./file-read.js");
 const { relativeUnder } = require("./is-under.js");
 const { requiredGroup } = require("./regex-group.js");
 const { isRepoPathList } = require("./repo-path.js");
 
 /**
- * @typedef {{ readText: (rel: string) => string | null, isFile: (rel: string) => boolean, }} TreeReader
+ * @typedef {Pick<import("./guard-host-ports.js").TreePorts, "read"> & { isFile: (rel: string) => boolean }} TreeReader
  */
 
 const PER_CALL_EVENTS = [
@@ -123,7 +124,7 @@ const namedFiles = (root, port, text) =>
  * @returns {Record<string, unknown> | null}
  */
 function readJson(port, rel) {
-	const text = port.readText(rel);
+	const text = throwUnreadable(port.read(rel));
 	if (text === null) return null;
 	try {
 		const parsed = JSON.parse(text);
@@ -170,7 +171,9 @@ const registryModules = (root, port) =>
  * @param {string} registry
  */
 const rowsModules = (root, port, registry) =>
-	[...(port.readText(registry) ?? "").matchAll(STRING_LITERAL)].map((match) =>
+	[
+		...(throwUnreadable(port.read(registry)) ?? "").matchAll(STRING_LITERAL),
+	].map((match) =>
 		inTree(
 			root,
 			port,
@@ -208,7 +211,11 @@ function hotPathSet(root, port) {
 			perCallCommands(readJson(port, file)),
 		).flatMap((line) => namedFiles(root, port, line)),
 		...COMMIT_HOOKS.flatMap((hook) =>
-			namedFiles(root, port, uncommented(port.readText(hook) ?? "")),
+			namedFiles(
+				root,
+				port,
+				uncommented(throwUnreadable(port.read(hook)) ?? ""),
+			),
 		),
 		...registryModules(root, port),
 		...ROWS_REGISTRIES.flatMap((registry) => rowsModules(root, port, registry)),

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-const { readBytes, readTail, readText, readTreeText } = createRequire(
+const { readBytes, readTail, readText, throwUnreadable } = createRequire(
 	__filename,
 )("./file-read.js") as typeof import("./file-read.js");
 
@@ -84,31 +84,11 @@ describe("readTail", () => {
 	});
 });
 
-const tree = (read: (rel: string) => string | null) => ({ readText: read });
-
-describe("readTreeText", () => {
-	it("answers read, absent or unreadable off the tree port", () => {
-		expect(
-			readTreeText(
-				tree(() => "x"),
-				"a",
-			),
-		).toEqual({
-			state: "read",
-			data: "x",
-		});
-		expect(
-			readTreeText(
-				tree(() => null),
-				"a",
-			),
-		).toEqual({ state: "absent" });
-		const got = readTreeText(
-			tree(() => {
-				throw new Error("EISDIR");
-			}),
-			"a",
-		);
-		expect(got.state).toBe("unreadable");
+describe("throwUnreadable", () => {
+	it("gives a read's data, null for an absent file, and throws an unreadable one's error", () => {
+		fs.writeFileSync(path.join(dir, "a"), "x");
+		expect(throwUnreadable(readText(path.join(dir, "a")))).toBe("x");
+		expect(throwUnreadable(readText(path.join(dir, "nope")))).toBeNull();
+		expect(() => throwUnreadable(readText(dir))).toThrow();
 	});
 });
