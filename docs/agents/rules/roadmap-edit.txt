@@ -1,0 +1,3 @@
+THIS FILE IS THE ROADMAP: route every edit of `docs/reference-roadmap.html`
+through the `roadmap-edit` skill's loop — never hand-edit it. A write made
+inside that loop is the route; carry on.

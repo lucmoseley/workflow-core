@@ -1,0 +1,572 @@
+#!/usr/bin/env node
+/*
+ * reconcile-plugin.js — the SessionEnd actor for the adopter-upgrade
+ * mechanism (workflow-core#238, workflow-core#247). A session in the adopter records the pinned tag
+ * accepted, and the next session there runs the version the repo says it
+ * runs. Since workflow-core#5230 that session has usually run the install itself, so this
+ * actor's usual work is the walk.
+ *
+ * Usage:
+ *   node scripts/reconcile-plugin.js --session-end   the SessionEnd hook shape
+ *
+ * A PLUGIN-SCOPE `SessionEnd` ENTRY FIRES (workflow-core#247, which also lists the
+ * variables the hook's environment carries). An ABNORMAL exit fires nothing
+ * (scripts/proving-session.ts, `killed()`), which this design survives:
+ * nothing here records an accept as done, so a killed session costs a
+ * deferral rather than a dropped upgrade.
+ *
+ * WHERE THE FOUNDER READS THE OUTCOME. Where SessionEnd's own stdout lands is
+ * not established, so the record that is, is the run persisted through
+ * `lib/notify-report.js` and shown by `npm run status`
+ * (`replay-notify-reports.js --status`). A session start holds it back, since
+ * no starting session acts on a deferral (workflow-core#2038).
+ *
+ * THE HOOK'S 400s TIMEOUT (self-plugin/hooks/hooks.json) is three
+ * `materialise-plugin.js` `DEFAULT_TIMEOUT_MS` calls (120s each) plus slack.
+ * Raising that constant without raising this leaves the harness killing the
+ * hook mid-install.
+ *
+ * THAT BUDGET DOES NOT BOUND EVERYTHING THIS FILE DOES (workflow-core#249): a
+ * successful materialise also runs the migration walk, which
+ * `execSync`s each note's own `## Verify` shell command (arbitrary,
+ * unbounded) and can call `gh label create` per label over the network —
+ * and, on the half-way path, runs the whole walk TWICE (`walk-and-commit.js`'s
+ * own header). A harness kill mid-walk leaves the tree dirty with no commit,
+ * which then defers every later exit on the clean-tree precondition — with
+ * the consent left standing (below). Whether the walk wants its own,
+ * separate wall-clock ceiling is undecided; put it to the founder before
+ * raising this file's own timeout to cover it.
+ *
+ * THE ORDER OF THE STOPS, cheapest and most decisive first:
+ *   1. no pin, or a directory-sourced adopter  — nothing to reconcile
+ *   2. a decline for this repo+tag             — the founder said no
+ *   3. no pending consent for this repo+tag    — no session recorded the
+ *      accept, or the last walk already consumed it.
+ *   4. an install already at the pin makes no `claude` call, so the shared
+ *      supply is not rotated again (workflow-core#747), and goes straight to the walk —
+ *      deferring only on another Claude session whose cwd is this checkout,
+ *      under any config dir, since the walk's one commit is all it does and
+ *      that lands under those sessions' edits alone (workflow-core#5286).
+ *   5. any other Claude session under this config dir — defer. A
+ *      mid-session plugin rotation must not silence a neighbour's guards any
+ *      more than it may silence the founder's own. The daemon and its idle
+ *      spares hold no session and are not counted (workflow-core#4741).
+ * At the hook the first three stop silently. A hand run, which carries no
+ * CLAUDE_PLUGIN_ROOT, prints which one stopped it instead (workflow-core#4741).
+ *
+ * THE PIN IS NEVER WRITTEN. Nothing in this file opens the adopter's
+ * `.claude/settings.json` for writing; the committed pin stays the record of
+ * a decision somebody took (workflow-core#238).
+ *
+ * THE SUPPLY IS NEVER RESTORED afterwards. The install is already extracted
+ * to a version-keyed cache copy, so a neighbour's running plugin is
+ * untouched; restoring costs a fetch and only moves which adopter reads
+ * clean. Contention is REPORTED BY NAME before the rotation and the rotation
+ * happens anyway — this adopter asked.
+ *
+ * A FAILED `update` LEAVES THE CONSENT STANDING even though
+ * `materialisePlugin` reports `ok: true` for it. `update` is the one call
+ * that re-pulls an already-installed plugin, so a failure there means the
+ * rotated ref probably never reached the install — the gap is still open,
+ * and the next session should run the commands again rather than be told it
+ * closed.
+ *
+ * A SUCCESSFUL MATERIALISE ALSO RUNS THE MIGRATION WALK (workflow-core#249,
+ * `lib/walk-and-commit.js`), which — on a clean adopter tree — CAN MAKE ONE
+ * COMMIT IN THE FOUNDER'S OWN REPO, on this session's git identity, before he
+ * has looked at it. Never pushed, never more than one commit, and skipped
+ * (deferred to the next exit) rather than made against a tree that already
+ * carries uncommitted work of his own.
+ *
+ * THE WALKER IS THE NEW RELEASE'S OWN (workflow-core#682, ruled at workflow-core#680). Two limits
+ * accepted at workflow-core#680: the first bump onto a release carrying this is still
+ * walked by the previous reconciler, and the new walker runs under the OLD
+ * install's hook timeout, which the harness read at session start — a
+ * release raising that timeout gets it one bump late.
+ *
+ * FAILS OPEN AND QUIET on anything unexpected (workflow-core#247), naming the error on
+ * one line and stopping: a session END broken by this hook is worse than an
+ * upgrade missed, and the consent survives either way, so the next exit
+ * retries it.
+ */
+
+const { execFileSync } = require("node:child_process");
+const fs = require("node:fs");
+const { writeFd } = require("./lib/write-fd.js");
+const path = require("node:path");
+const {
+	isDeclined,
+	readPendingConsent,
+	clearPendingConsent,
+} = require("./lib/adopter-consent.js");
+const { parseOrCode } = require("./lib/cli-args");
+const { scriptPath } = require("./lib/script-path.js");
+const { isClaudeArgv0 } = require("./lib/claude-argv0.js");
+const {
+	isDaemon,
+	readProcCwd,
+	sparePairs,
+} = require("./lib/claude-sessions.js");
+const { claudeBin } = require("./lib/claude-bin.js");
+const { requiredGroup } = require("./lib/regex-group.js");
+const { hostRoot } = require("./lib/host-root.js");
+const { relativeUnder } = require("./lib/is-under.js");
+const { realKey } = require("./lib/deref.js");
+const { fixByHand, materialisePlugin } = require("./lib/materialise-plugin.js");
+const { writeReport } = require("./lib/notify-report.js");
+const {
+	findInstallRecord,
+	findPin,
+	readPluginState,
+	resolveConfigDir,
+} = require("./lib/plugin-state.js");
+const { walkAndCommit } = require("./lib/walk-and-commit.js");
+const { CHILD_MAX_BUFFER } = require("./lib/child-buffer.js");
+const { caught } = require("./lib/caught.js");
+const { readAncestorsOf } = require("./lib/proc-stat.js");
+const { readEnvironVar } = require("./lib/proc-environ.js");
+const { configDirFrom } = require("./lib/config-dir.js");
+
+const BUNDLED_WALKER = require.resolve("./lib/walk-and-commit.js");
+
+/* Overridable so the live-session count can be tested against a stub `ps` and
+ * a fixture /proc tree — WFC_PS here, WFC_PROC in lib/proc-root.js. */
+const PS_BIN = () => process.env.WFC_PS || "ps";
+/** A `ps -eo pid=,args=` line: the pid, argv[0], then the rest of argv. */
+const PS_LINE = /^(\d+)\s+(\S+)((?:\s.*)?)$/;
+
+/** @param {string} at @returns {any} a raw JSON parse, or null */
+function readJsonSafe(at) {
+	try {
+		return JSON.parse(fs.readFileSync(at, "utf8"));
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Every Claude session's pids, one list per session: argv[0] a Claude
+ * process's, less the daemon and each idle spare pair it keeps warm (workflow-core#4741),
+ * and a claimed pair folded into one session. Idle is admission's cwd test
+ * (`sparePairs`,
+ * workflow-core#2502), fed every row as admission feeds it; it reads a pair claimed
+ * wherever it cannot say, so a doubt defers. `ps -eo pid=,args=` rather than
+ * `comm=`, for the reason `lib/claude-argv0.js` states.
+ * @returns {string[][]}
+ */
+function readClaudeSessions() {
+	const out = execFileSync(PS_BIN(), ["-eo", "pid=,args="], {
+		encoding: "utf8",
+		maxBuffer: CHILD_MAX_BUFFER,
+	});
+	/** @type {{ pid: string, argv0: string, args: string }[]} */
+	const procs = [];
+	for (const line of out.split("\n")) {
+		const m = line.trim().match(PS_LINE);
+		if (!m) continue;
+		const argv0 = requiredGroup(m, 2, PS_LINE);
+		procs.push({
+			pid: requiredGroup(m, 1, PS_LINE),
+			argv0,
+			args: argv0 + requiredGroup(m, 3, PS_LINE),
+		});
+	}
+	const pairs = sparePairs(procs, (pid) => readProcCwd(pid));
+	const paired = new Set(pairs.flatMap((p) => p.pids));
+	return [
+		...pairs.filter((p) => !p.idle).map((p) => p.pids),
+		...procs
+			.filter(
+				({ pid, argv0, args }) =>
+					!paired.has(pid) && isClaudeArgv0(argv0) && !isDaemon(args),
+			)
+			.map(({ pid }) => [pid]),
+	];
+}
+
+/**
+ * The config dir a pid is running under, from its own environ. Null where
+ * that cannot be read — another user's process, or one that exited between
+ * the `ps` and this read — which the caller counts as a neighbour rather
+ * than assuming it is somebody else's: deferring costs one session's delay,
+ * and rotating under a live neighbour costs that neighbour its guards.
+ * @param {string} pid
+ * @returns {string|null}
+ */
+function readConfigDirOf(pid) {
+	const record = readEnvironVar(pid, "CLAUDE_CONFIG_DIR");
+	if (!record.ok) return null;
+	return configDirFrom(record.value);
+}
+
+/**
+ * This process and every ancestor of it.
+ *
+ * A SessionEnd hook is a CHILD of the session that is ending, and that
+ * session's own `claude` process is still alive while the hook runs — so
+ * without this the actor would count itself as the neighbour that stops it,
+ * and no upgrade would ever happen. `CLAUDE_PID` is folded in as well — the
+ * ending session's own pid, exported into the hook's environment — so a
+ * launcher shape that puts the session outside this process's ancestry is
+ * still excluded.
+ *
+ * RESIDUAL: a session that double-forks away from both is counted as a
+ * neighbour, and the actor then defers forever rather than acting wrongly.
+ * @param {string} pid
+ */
+function readOwnPids(pid) {
+	const seen = new Set([pid, ...readAncestorsOf(Number(pid)).map(String)]);
+	if (process.env.CLAUDE_PID) seen.add(String(process.env.CLAUDE_PID));
+	return seen;
+}
+
+/**
+ * Claude sessions running alongside this one that `isApart` cannot place
+ * elsewhere, each named by its pids, a claimed spare pair's joined by `+`.
+ * A session is apart only where every one of its pids is.
+ * @param {(pid: string) => boolean} isApart
+ * @param {string} [selfPid]
+ * @returns {{count: number, pids: string[]}}
+ */
+function countNeighbours(isApart, selfPid = String(process.pid)) {
+	const mine = readOwnPids(selfPid);
+	/** @type {string[]} */
+	const pids = [];
+	for (const session of readClaudeSessions()) {
+		if (session.some((pid) => mine.has(pid))) continue;
+		if (!session.every(isApart)) pids.push(session.join("+"));
+	}
+	return { count: pids.length, pids };
+}
+
+/**
+ * Sessions under the same config dir as this one.
+ * @param {string} configDir
+ */
+function countConfigNeighbours(configDir) {
+	const want = path.resolve(configDir);
+	return countNeighbours((pid) => {
+		const cfg = readConfigDirOf(pid);
+		return cfg !== null && path.resolve(cfg) !== want;
+	});
+}
+
+/**
+ * Sessions whose cwd is this checkout, under any config dir: `root` or a
+ * directory beneath it that no nested `.git` — a linked worktree's or a
+ * submodule's — makes a checkout of its own. A cwd that cannot be read
+ * counts.
+ * @param {string} root
+ */
+function countCheckoutNeighbours(root) {
+	const real = realKey(root);
+	return countNeighbours((pid) => {
+		const cwd = readProcCwd(pid);
+		if (cwd === null) return false;
+		if (relativeUnder(real, cwd) === null) return true;
+		for (let dir = cwd; dir !== real; dir = path.dirname(dir))
+			if (fs.existsSync(path.join(dir, ".git"))) return true;
+		return false;
+	});
+}
+
+/**
+ * The migration walker the fresh install ships, loaded in this process (workflow-core#682).
+ * Node's module cache keys on the absolute path, so everything that walker
+ * requires — `./upgrade-walk.js` and its siblings — loads from the same install.
+ * Falls back to this file's own bundled walker where the install carries
+ * none, as a release before workflow-core#249 does not, or where loading it throws.
+ *
+ * Residual: a rollback onto a release between workflow-core#679 and workflow-core#682 loads that
+ * release's walker, which takes `measureCore` rather than `claudeBin`, so
+ * the core's context-cost row is not seeded on that walk, and nothing says so.
+ * @param {string} installPath
+ * @returns {{walk: typeof walkAndCommit, from: string, fallback?: string}}
+ */
+function loadWalker(installPath) {
+	const at = path.join(installPath, "scripts", "lib", "walk-and-commit.js");
+	if (!fs.existsSync(at))
+		return { walk: walkAndCommit, from: BUNDLED_WALKER, fallback: `no ${at}` };
+	try {
+		const { walkAndCommit: walk } = require(at);
+		if (typeof walk !== "function")
+			throw new Error("it exports no walkAndCommit function");
+		return { walk, from: at };
+	} catch (err) {
+		return {
+			walk: walkAndCommit,
+			from: BUNDLED_WALKER,
+			fallback: `loading ${at} threw: ${caught(err).message.split("\n")[0]}`,
+		};
+	}
+}
+
+/**
+ * The whole actor; `main` is its one caller, and the tests drive it through
+ * `main` (workflow-core#1369). Every outside reading it makes is steered by the
+ * environment — the config dir and the consent store's cross-config-dir scan
+ * by CLAUDE_CONFIG_DIR and WFC_CLAUDE_CONFIG_A/B/C, the live count by
+ * WFC_PS/WFC_PROC, the `claude` it spawns by WFC_CLAUDE_BIN — so a test points
+ * each at a fixture and never touches the real registry (workflow-core#238 user story 48).
+ *
+ * `emit` receives each line THE MOMENT IT IS COMPOSED rather than at the
+ * return: the contention report is written before the rotation it describes,
+ * and a materialise that then hangs to the hook's timeout cannot swallow it.
+ *
+ * The migration walk (workflow-core#249) runs only after a materialise that actually
+ * succeeds, or with none where the install is already at the pin (workflow-core#747) —
+ * never on a failed or contended one, and never from or against
+ * `pluginRoot`, which is this session's OLD running bytes. Both the walker
+ * code and the notes it walks come from the install at the pin — re-read
+ * through `findInstallRecord` once `materialisePlugin` has returned ok, or the
+ * state read's own record where it was already there (workflow-core#682, `loadWalker`).
+ * Against the old bytes `upgrade()` would read the OLD
+ * `plugin.json` and note set and hit exit code 3 (pin ahead of installed) on
+ * every run; with only the old walker code, a new release's notes would be
+ * walked by the previous release's rules. Only plain data crosses that
+ * version seam: the walker builds its own helpers, `measureCore` among them.
+ * @param {{
+ *   root: string,
+ *   pluginRoot: string,
+ *   emit: (line: string) => void,
+ * }} at
+ * @returns {{action: string, lines: string[]}}
+ */
+function reconcile({ root, pluginRoot, emit }) {
+	const bin = claudeBin();
+	/** @type {string[]} */
+	const lines = [];
+	/** @param {string} line */
+	const say = (line) => {
+		lines.push(line);
+		emit(line);
+	};
+	const plugin = readJsonSafe(
+		path.join(pluginRoot, ".claude-plugin", "plugin.json"),
+	);
+	if (!plugin?.name) return { action: "no-plugin", lines };
+
+	const cfg = resolveConfigDir();
+	const state = readPluginState({ root, pluginRoot, configDir: cfg });
+	if (!state.pin) return { action: "no-pin", lines };
+	const tag = state.pin.ref;
+
+	if (isDeclined(root, tag)) return { action: "declined", lines };
+	if (!readPendingConsent(root, tag)) return { action: "no-consent", lines };
+
+	/* The install already matches the pin, so the supply is not this
+	 * adopter's to move: rotating it again only takes it off another
+	 * adopter's tag, and the next of those turns it back (workflow-core#738). */
+	if (state.installAtPin && state.installRecord) {
+		const here = countCheckoutNeighbours(root);
+		if (here.count > 0)
+			return defer(
+				"migration walk",
+				here,
+				`working in ${root}`,
+				"Its commit would land under their edits.",
+			);
+		say(
+			`${plugin.name}: already installed at ${tag} — the shared supply is left where it is.`,
+		);
+		return walkFrom(state.installRecord.installPath);
+	}
+
+	const live = countConfigNeighbours(cfg);
+	if (live.count > 0)
+		return defer(
+			"materialise",
+			live,
+			`live under ${cfg}`,
+			"Rotating now would silence their guards mid-session.",
+		);
+
+	/* The pin's url, which `readPluginState` does not carry back. A directory
+	 * source never reaches here — `state.pin` is null for one — so the url is
+	 * the only spelling to handle, and `#<ref>` is the CLI's own syntax for a
+	 * non-default tag on it, the same spelling `init-adopter.js` builds (workflow-core#75). */
+	const { source } = findPin(
+		readJsonSafe(path.join(root, ".claude", "settings.json")) ?? {},
+		plugin.name,
+	);
+	if (!source?.url) {
+		say(
+			`${plugin.name}: the pin for ${tag} names no url, so there is nothing to materialise from. The consent stands.`,
+		);
+		return { action: "unusable-source", lines };
+	}
+	const addSource = `${source.url}#${tag}`;
+	const pluginId = `${plugin.name}@${state.pin.marketplace}`;
+
+	if (state.contention)
+		say(
+			`${plugin.name}: the supply at ${state.supply.dir} sits on ${state.contention}, not this repo's pin ${tag} — ` +
+				"rotating it moves that ref for every adopter under this config dir. Rotating anyway: this repo asked.",
+		);
+
+	const result = materialisePlugin({
+		root,
+		claudeBin: bin,
+		addSource,
+		pluginId,
+		configDir: cfg,
+	});
+	if (!result.ok) {
+		say(
+			`${plugin.name}: materialising ${tag} FAILED — ${result.reason}. The consent stands, so the next session's exit retries. Finish by hand: ${fixByHand(result)}`,
+		);
+		return { action: "failed", lines };
+	}
+	if (result.updateFailed) {
+		say(
+			`${plugin.name}: ${tag} installed but the update after it FAILED — ${result.updateFailed}. ` +
+				`That is the call which re-pulls an already-installed plugin, so the gap is probably still open: the consent stands. Finish by hand: ${result.pluginUpdate.join(" ")}`,
+		);
+		return { action: "failed", lines };
+	}
+
+	say(`${plugin.name}: materialised ${tag} at session end.`);
+
+	/* THE CONSENT IS CLEARED ONLY ONCE THE WALK ALSO LANDS (`walkFrom`) —
+	 * never here. Once the gap closes, `check-plugin-gap.js`'s "third
+	 * reading" (materialised but not yet live: nothing owed) goes silent, so
+	 * a cleared consent is the only signal left that would make a later
+	 * SessionEnd retry a walk this one deferred or broke on.
+	 *
+	 * A PERMANENTLY REFUSING COMMIT (walk-and-commit.js condition 4) retries
+	 * EVERY SESSION END: hook refuses -> tree left dirty -> consent stands ->
+	 * next exit walks again, hits condition 1 on the still-dirty tree and
+	 * defers. It stops only once a human clears the tree by hand; nothing
+	 * here throttles the retry. */
+
+	/* The fresh install's own root, never `pluginRoot` — see this function's
+	 * JSDoc. `state.pin.marketplace` is this same materialise's own target,
+	 * so a miss here (no install record yet, an unexpected cache layout) is
+	 * reported and the walk simply skipped this run rather than guessed at. */
+	const record = findInstallRecord(
+		path.join(cfg, "plugins"),
+		plugin.name,
+		state.pin.marketplace,
+		root,
+	);
+	if (!record?.installPath) {
+		say(
+			`${plugin.name}: no fresh install record was found to walk from — the migration walk is skipped this run. The consent stands, so the next exit retries.`,
+		);
+		return { action: "materialised-walk-broken", lines };
+	}
+	return walkFrom(record.installPath);
+
+	/**
+	 * @param {string} what
+	 * @param {{count: number, pids: string[]}} neighbours
+	 * @param {string} where
+	 * @param {string} why
+	 * @returns {{action: string, lines: string[]}}
+	 */
+	function defer(what, { count, pids }, where, why) {
+		say(
+			`${plugin.name}: deferring the ${tag} ${what} — ${count} other Claude session(s) ${where} (pid ${pids.join(", ")}). ` +
+				`${why} The consent stands; this is retried at the next session's exit.`,
+		);
+		return { action: "deferred", lines };
+	}
+
+	/**
+	 * @param {string} installPath
+	 * @returns {{action: string, lines: string[]}}
+	 */
+	function walkFrom(installPath) {
+		const walker = loadWalker(installPath);
+		say(
+			walker.fallback
+				? `${plugin.name}: migration walk by this session's bundled walker, ${walker.from} — the fresh install's could not be used (${walker.fallback}).`
+				: `${plugin.name}: migration walk by the install's own walker, ${walker.from}.`,
+		);
+		const walked = walker.walk({
+			root,
+			pluginRoot: installPath,
+			out: say,
+			configDir: cfg,
+			claudeBin: bin,
+		});
+		if (walked.action !== "committed" && walked.action !== "up-to-date") {
+			say(
+				`${plugin.name}: the consent stands until the migration walk lands, so the next session's exit retries it too.`,
+			);
+			return {
+				action:
+					walked.action === "broken"
+						? "materialised-walk-broken"
+						: "materialised",
+				lines,
+			};
+		}
+
+		clearPendingConsent(root, tag);
+		say(`${plugin.name}: the next session in ${root} runs ${tag}.`);
+		return { action: "materialised", lines };
+	}
+}
+
+/** Outcomes that mean the founder is owed a look, not merely informed. */
+const WARNING_ACTIONS = new Set([
+	"failed",
+	"unusable-source",
+	"materialised-walk-broken",
+]);
+
+/** @type {Map<string, (pluginRoot: string) => string>} */
+const QUIET_STOPS = new Map([
+	[
+		"no-plugin",
+		(/** @type {string} */ pluginRoot) =>
+			`no .claude-plugin/plugin.json under ${pluginRoot}. Run by hand, set CLAUDE_PLUGIN_ROOT to the installed plugin's root.`,
+	],
+	["no-pin", () => "this repo pins no git-sourced plugin to reconcile."],
+	["declined", () => "this repo declined the pinned tag."],
+	["no-consent", () => "no consent is pending for this repo's pinned tag."],
+]);
+
+/** @param {string[]} argv */
+function main(argv) {
+	const parsed = parseOrCode(argv, {
+		usage: `usage: node ${scriptPath("reconcile-plugin.js")} --session-end`,
+		flags: { "--session-end": "boolean" },
+	});
+	if (typeof parsed === "number") return parsed;
+	const { flags } = parsed;
+	/** @type {string[]} */
+	const said = [];
+	const emit = (/** @type {string} */ line) => {
+		said.push(line);
+		writeFd(1, `${line}\n`);
+	};
+	try {
+		if (flags["--session-end"] !== true) return 0;
+		const root = hostRoot();
+		const byHand = process.env.CLAUDE_PLUGIN_ROOT === undefined;
+		const pluginRoot = process.env.CLAUDE_PLUGIN_ROOT ?? root;
+		const { action } = reconcile({ root, pluginRoot, emit });
+		const quiet = QUIET_STOPS.get(action);
+		if (byHand && quiet)
+			writeFd(2, `reconcile-plugin: stopped — ${quiet(pluginRoot)}\n`);
+		if (said.length > 0)
+			writeReport("reconcile-plugin", {
+				outcome: WARNING_ACTIONS.has(action) ? "WARN" : "OK",
+				text: said.join("\n"),
+			});
+		return 0;
+	} catch (err) {
+		emit(
+			`reconcile-plugin: stopped without materialising — ${caught(err).message}. The consent stands, so the next session's exit retries.`,
+		);
+		writeReport("reconcile-plugin", {
+			outcome: "BROKEN",
+			text: said.join("\n"),
+		});
+		return 0;
+	}
+}
+
+if (require.main === module) process.exit(main(process.argv.slice(2)));

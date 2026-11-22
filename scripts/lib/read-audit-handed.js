@@ -1,0 +1,263 @@
+/*
+ * read-audit-handed.js — the checkout paths a word hands a child process
+ * (workflow-core#4982): an argument, an environment variable's value or its standard
+ * input. The read audit's preload (lib/read-audit-preload.js) asks at the
+ * spawn, while the links a word goes through still stand.
+ *
+ * Spelt: the root's own absolute spelling anywhere in it, up to what ends a
+ * path. Resolved: the word, a piece of it, or a piece from its first `/`,
+ * `./` or `../` (`-C/tmp/link`, `-I../x`) that, read against the child's
+ * working directory with every link followed, lands under the root —
+ * `../../<root>/x` from outside, or a link to the checkout. A candidate
+ * holding no `/` is a path only where it stands in that directory. Glued,
+ * in a word but not in input text: from a short option or an `@file`
+ * (a piece opening `-` or `@`, not `--`), the piece from any later point of
+ * its first part, where that part's rest is a name the directory holds
+ * (`-Iin/x`, `-Iin`, `@in/x`, `in` a link), or `.` or `..` stuck to a short
+ * option (`-I..`) (workflow-core#4997). Residual: a path glued behind a long option or
+ * a plain value goes unsearched, so `--login` and `main` hand no `in`
+ * (workflow-core#5049); `--x=in/y` is still split at `=`.
+ */
+
+const fs = require("node:fs");
+const path = require("node:path");
+const { caught } = require("./caught.js");
+const { relativeUnder } = require("./is-under.js");
+const { PATH_MAX, toPosix } = require("./read-audit-paths.js");
+
+/**
+ * What handed a child a checkout path, as the preload logs it on the
+ * child's entry: an argument by its place after the program's name; a
+ * variable by its name, `standing` where the process that spawned the child
+ * holds the same value; the input of a sync spawn; the checkout's repository
+ * where git finds it from its directory, or in it under `--bare`. `p` is
+ * the repo-relative paths it names.
+ * @typedef {{by: "arg", at: number, p: string[]}
+ *   | {by: "env", name: string, standing: boolean, p: string[]}
+ *   | {by: "stdin", p: string[]}
+ *   | {by: "repo", p: string[]}} Hand
+ */
+
+/**
+ * An absolute path's real path, as first looked up, for a word the standing
+ * environment's value of a variable spells: it is looked up once until the
+ * process links, moves or removes a path (workflow-core#5050, workflow-core#5139).
+ * @typedef {Map<string, string|null>} Settled
+ */
+
+/**
+ * The cache, and the absolute words of the variable's standing value: only
+ * those are answered from it.
+ * @typedef {{cache: Settled, words: Set<string>}} Settling
+ */
+
+/* What ends a path inside a word. */
+const STOPS = /[\s"';:]/;
+
+/* What parts one path from the next: the stops, and what sets an option's
+ * value off its name or lists several. */
+const PARTS = /[\s"';:=,]+/;
+
+/* Taken as this module loads, before the preload wraps `fs`. */
+const realpath = fs.realpathSync;
+const lstat = fs.lstatSync;
+const NO_THROW = { throwIfNoEntry: false };
+
+/* Linux's NAME_MAX: a longer part is no name. */
+const NAME_MAX = 255;
+
+/** @param {string} root real path */
+function buildHanded(root) {
+	/** @param {string} abs */
+	const relOf = (abs) => {
+		const r = relativeUnder(root, abs);
+		return r === null ? null : toPosix(r) || ".";
+	};
+	/**
+	 * `abs` with its links followed, through the deepest part of it that
+	 * stands; null where `mustStand` and it does not, as given where it
+	 * cannot be read.
+	 * @param {string} abs
+	 * @param {boolean} mustStand
+	 */
+	const realOf = (abs, mustStand) => {
+		const got = tryRealpath(abs);
+		if (typeof got === "string") return got;
+		if (mustStand) return null;
+		return got === UNREADABLE ? abs : (realOfDeepest(abs) ?? abs);
+	};
+	/**
+	 * The repo-relative paths `word` spells by the root's absolute name.
+	 * @param {string} word
+	 * @returns {string[]}
+	 */
+	const spelt = (word) => {
+		/** @type {Set<string>} */
+		const out = new Set();
+		for (
+			let at = word.indexOf(root);
+			at >= 0;
+			at = word.indexOf(root, at + 1)
+		) {
+			const rest = word.slice(at + root.length).split(STOPS)[0] ?? "";
+			out.add(rest.replace(/^\/+/, "") || ".");
+		}
+		return [...out];
+	};
+	/**
+	 * What words name, resolved from one working directory, each name it
+	 * may hold looked up once. Input text is not searched for glued paths,
+	 * so a relative path stuck behind a prefix there (`-Iin/x` written down
+	 * a pipe) goes unseen.
+	 * @param {string} cwd the child's working directory, real path
+	 * @param {{text?: boolean}} [kind]
+	 */
+	const from = (cwd, { text = false } = {}) => {
+		/** @type {Map<string, boolean>} */
+		const known = new Map();
+		const isHeld = (/** @type {string} */ name) => {
+			let held = known.get(name);
+			if (held === undefined) {
+				try {
+					held = lstat(path.join(cwd, name), NO_THROW) !== undefined;
+				} catch {
+					held = false;
+				}
+				known.set(name, held);
+			}
+			return held;
+		};
+		const gluedBy = text ? null : isHeld;
+		/**
+		 * The repo-relative paths `word` names, spelt or resolved.
+		 * @param {string} word
+		 * @param {Settling} [settling] accumulator: its `cache`, where
+		 *   `word` is a variable's value whose standing words may be
+		 *   answered from an earlier lookup
+		 * @returns {string[]}
+		 */
+		return (word, settling) => {
+			const out = new Set(spelt(word));
+			for (const tried of candidates(word, gluedBy)) {
+				const real = realOfTried(cwd, tried, settling);
+				const r = real === null ? null : relOf(real);
+				if (r !== null) out.add(r);
+			}
+			return [...out];
+		};
+	};
+	/**
+	 * `tried` read against `cwd` as `realOf` answers it, off `settling`
+	 * where its words hold it.
+	 * @param {string} cwd
+	 * @param {string} tried
+	 * @param {Settling} [settling] accumulator: its `cache` filled with what
+	 *   is looked up
+	 */
+	const realOfTried = (cwd, tried, settling) => {
+		const abs = path.resolve(cwd, tried);
+		if (settling?.words.has(tried)) {
+			const { cache } = settling;
+			if (!cache.has(abs)) cache.set(abs, realOf(abs, false));
+			return cache.get(abs) ?? null;
+		}
+		const isBare = !tried.includes("/") && tried !== "." && tried !== "..";
+		return realOf(abs, isBare);
+	};
+	return { spelt, from };
+}
+
+/* A head that cannot be read, as against one that does not stand. */
+const UNREADABLE = Symbol("unreadable");
+
+/**
+ * @param {string} abs
+ * @returns {string|null|typeof UNREADABLE} null where it does not stand
+ */
+function tryRealpath(abs) {
+	try {
+		return realpath(abs);
+	} catch (e) {
+		const { code } = caught(e);
+		return code === "ENOENT" || code === "ENOTDIR" ? null : UNREADABLE;
+	}
+}
+
+/**
+ * `abs`, which does not stand whole, with its links followed through the
+ * deepest part of it that stands and the rest as spelt; null where a head
+ * cannot be read. A lookup fails at the first part that will not resolve,
+ * so every longer head fails with it and every shorter one stands: the
+ * deepest that stands is found by halving, not a lookup a part (workflow-core#5160).
+ * @param {string} abs
+ */
+function realOfDeepest(abs) {
+	const parts = abs.split(path.sep).slice(1);
+	let real = tryRealpath(path.sep);
+	let stands = 0;
+	let fails = parts.length;
+	while (typeof real === "string" && fails - stands > 1) {
+		const mid = (stands + fails) >> 1;
+		const got = tryRealpath(path.sep + parts.slice(0, mid).join(path.sep));
+		if (got === UNREADABLE) return null;
+		if (got === null) fails = mid;
+		else {
+			real = got;
+			stands = mid;
+		}
+	}
+	return typeof real === "string"
+		? path.join(real, ...parts.slice(stands))
+		: null;
+}
+
+/**
+ * The absolute paths `value` may name as a word, which a `Settling` answers.
+ * @param {string} value
+ */
+function absoluteWords(value) {
+	return new Set([...candidates(value, null)].filter(path.isAbsolute));
+}
+
+/**
+ * @param {string} word
+ * @param {((name: string) => boolean)|null} isHeld whether the working
+ *   directory holds a name; null where glued paths are not searched for
+ * @returns {Set<string>}
+ */
+function candidates(word, isHeld) {
+	/** @type {Set<string>} */
+	const out = new Set();
+	for (const piece of [word, ...word.split(PARTS)]) {
+		for (const from of [0, piece.indexOf("/"), piece.search(/\.\.?\//)]) {
+			const tried = from < 0 ? "" : piece.slice(from);
+			if (tried && tried.length <= PATH_MAX) out.add(tried);
+		}
+		if (isHeld === null || piece.length > PATH_MAX) continue;
+		for (const tried of glued(piece, isHeld)) out.add(tried);
+	}
+	return out;
+}
+
+/**
+ * @param {string} piece
+ * @param {(name: string) => boolean} isHeld
+ * @returns {string[]}
+ */
+function glued(piece, isHeld) {
+	const isShort = piece[0] === "-" && piece[1] !== "-";
+	if (!isShort && piece[0] !== "@") return [];
+	const slash = piece.indexOf("/");
+	const end = slash < 0 ? piece.length : slash;
+	/** @type {string[]} */
+	const out = [];
+	for (let at = Math.max(1, end - NAME_MAX); at < end; at++) {
+		const name = piece.slice(at, end);
+		const isDots = name === "." || name === "..";
+		const isCluster = isShort && at >= 2;
+		if (isDots ? isCluster : isHeld(name)) out.push(piece.slice(at));
+	}
+	return out;
+}
+
+module.exports = { absoluteWords, buildHanded };

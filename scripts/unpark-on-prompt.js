@@ -1,0 +1,43 @@
+#!/usr/bin/env node
+/*
+ * unpark-on-prompt.js — UserPromptSubmit hook. Takes `parked` off the issues
+ * this session parked when the founder types in it — his answer to the round,
+ * through `claude attach` — so the ticket returns to the frontier if the
+ * session hands it on (workflow-core#2000, spec workflow-core#1995).
+ *
+ * Reads the session's `.parked-` marker (lib/parked.js) and acts only where
+ * it lists an issue and the prompt is his typing (lib/founder-typing.js). An
+ * issue whose label write fails stays in the marker, for the next prompt to
+ * retry.
+ *
+ * IN NO §N3 FAMILY: it refuses nothing and checks nothing — it writes a
+ * label.
+ *
+ * FAILS OPEN: prints nothing and never blocks the prompt; any error leaves the
+ * label for claim-issue.js to clear.
+ */
+
+const path = require("node:path");
+const { ignoreFailure } = require("./lib/caught.js");
+const { isFounderTyping } = require("./lib/founder-typing");
+const hookMessage = require("./lib/hook-message");
+const { hostRoot } = require("./lib/host-root");
+const { trackerOf } = require("./lib/outstanding-line");
+const { readParkedBy, unparkIssues } = require("./lib/parked");
+const sessionId = require("./lib/session-id");
+const { guardDisabled } = require("./lib/workflow-core-config");
+
+function main() {
+	if (guardDisabled(path.basename(__filename), { root: hostRoot() })) return;
+	const payload = hookMessage.readPayload();
+	if (!isFounderTyping(payload)) return;
+	const sid = sessionId.fromPayload(payload);
+	if (!sid) return;
+	const parked = readParkedBy(sid);
+	const tracker = parked.length > 0 ? trackerOf() : null;
+	if (!tracker) return;
+	unparkIssues(tracker, sid, parked);
+}
+
+// Fail open (workflow-core#2000).
+ignoreFailure(main);

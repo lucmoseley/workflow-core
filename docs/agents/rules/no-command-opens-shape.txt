@@ -1,0 +1,1 @@
+**There is no "no command opens this" shape**: a scripted tracker whose queue has emptied closes, or moves to the command that owns what is left, and never sits under `takes:human` (mantahostels#3352).

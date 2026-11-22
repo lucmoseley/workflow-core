@@ -1,0 +1,39 @@
+- shell-scripting-and-hooks: Bash scripts, Claude Code hooks, git hooks.
+- node-and-python-cli-scripts: Node or Python command-line tools and scripts.
+- test-design-and-reliability: writing unit/integration tests, fixing flaky tests.
+- test-and-ci-performance: making suites or CI faster or lighter.
+- measurement-and-experiment-design: sizing an observation window, a soak or a before/after measurement; sample size, stopping rules and confidence bounds for a rate or a change.
+- capacity-planning-and-admission: sizing and admitting concurrent jobs or sessions against memory and CPU, and reading out utilisation and why work waits.
+- process-supervision-and-oom: keeping long-running processes alive on one machine: systemd units and timers, restart policy, graceful upgrades, and OOM ranking and recovery.
+- monitoring-and-alerting: detecting that a scheduled job, failover or alerting path failed, and how and when a person is told: heartbeats and dead-man switches, alert routing and severity, alert fatigue, and testing the alert path.
+- crash-and-os-incident-diagnosis: reading why a machine crashed, hung or reset: bug checks and crash-dump analysis, event-log and trace forensics, hardware-watchdog and unclean-shutdown resets, and pinning a cause across repeated incidents.
+- ci-and-repo-quality-gates: linters, pre-commit/CI gates, repo health checks, coding-standards enforcement.
+- dependency-and-release-management: npm/pip dependencies, plugin packaging, version pins, releases.
+- code-refactoring-and-architecture: restructuring code, module design, software architecture.
+- code-review-process: how code review is run, review agents and checklists.
+- llm-agent-design: agent orchestration, prompting, context management, agent permissions, multi-session coordination.
+- llm-evaluation: evaluators, critics, calibration and benchmarks of model output.
+- technical-documentation: developer docs, doc structure and governance, code comments.
+- prose-editing-and-style: technical editing, prose linting, voice and style analysis, ghostwriting.
+- business-correspondence: emails and letters to outside parties.
+- project-and-roadmap-management: roadmaps, planning, retrospectives, process changes.
+- web-frontend-development: building web UI, state management, static sites.
+- browser-testing-and-accessibility: Playwright or browser checks, rendering checks, accessibility audits.
+- web-hosting-and-saas-admin: hosting choice, SaaS subscriptions, accounts and access management.
+- web-scraping-and-data-pipelines: scraping, data extraction and transform scripts.
+- data-schema-and-validation: JSON schemas, data validation, fact registries.
+- brand-identity-design: logos, marks, brand palettes, identity systems.
+- ui-visual-design-and-design-systems: UI look, design tokens, prototypes.
+- motion-design-and-svg-animation: animation, motion, SVG engineering.
+- image-generation-and-photo-editing: generative image direction and APIs, photo retouching and curation, image quality checks.
+- design-research-and-reference-curation: design precedent, reference libraries, design learning.
+- design-critique-and-presentation: critique method, presenting design to a client.
+- market-and-customer-research: customer discovery, market validation, marketplace mechanics.
+- research-sourcing-and-provenance: auditing sources, provenance tracing, history research.
+- learning-curation: curating learning material for a person (tech or other).
+- interview-question-design: designing interview or survey questions.
+- information-architecture-and-content-migration: site structure, content models, moving content between sites.
+- exercise-programming: strength and cardio training routines, progression and volume, exercise selection, running, gym choice.
+- nutrition-and-diet-testing: diet, supplements, food-intolerance elimination and challenge protocols, meal and symptom logs.
+- posture-and-movement-assessment: posture, gait and body-proportion baselines, photo-based body measurement, musculoskeletal symptoms.
+- book-taste-scoring: scoring books against a reader's taste rubric: axis definitions, blind and informed records, reviewer evidence, recommendations.

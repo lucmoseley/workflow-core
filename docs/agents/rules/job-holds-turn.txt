@@ -1,0 +1,19 @@
+A BACKGROUND JOB NEVER ENDS ITS TURN ON `waiting:` (#5395). Claude Code lists
+a job whose turn has ended as completed, whatever its last line says. Hold
+the turn until what you launched reports, then end on `result:` or
+`needs input:`.
+
+Each wait is a FOREGROUND Bash call given `timeout: 600000`, or the tool
+moves it to the background at 120 s; 540 s leaves the call room under that
+600 s cap. Re-run a wait until what it waits on reports:
+
+- a subagent: every `Agent` call returns at once, so wait with
+  `timeout 540 node scripts/watch-artefact.js <its artefact> 120 530
+  --log <output_file>`, the launch result's `output_file`, until it exits
+  `DONE`; with no artefact (an exempt or remote agent), `--no-artefact` in
+  its place.
+  Several agents: one wait each, in turn.
+- a long Bash job: `scripts/bg-run.sh run <name> <command>` with
+  `run_in_background`, then `scripts/bg-run.sh wait <name> 540`.
+- queued commits: no wait; end on `result:`, naming them queued for the
+  lander, not on `main` (#5501).

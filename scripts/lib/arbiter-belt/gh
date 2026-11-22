@@ -1,0 +1,7 @@
+#!/bin/sh
+# arbiter-belt/gh — the arbiter sandbox's refuse-only `gh`, first on PATH
+# behind WFC_GH (#4089, #4103). stubOracles in lib/arbiter-testkit.ts prepends this
+# directory so a bare name that misses the var stops here, not at the real
+# binary. Tracked, so a detached child outliving its sandbox still reaches it.
+echo "arbiter sandbox: bare gh call off WFC_GH: $*" >&2
+exit 1
