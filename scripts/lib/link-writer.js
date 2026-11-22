@@ -130,7 +130,7 @@ async function resolveLocalRepo() {
  */
 const buildLoopRefusal = (link, path, home) =>
 	[
-		`refused — ${linkText(link, home)} would close a loop of open issues waiting on each other, so none of them could ever close:`,
+		`refused — ${linkText(link, home)} would close a loop of open issues waiting on each other:`,
 		`  ${linkText(link, home)}   (the new link)`,
 		...path.map((l) => `  ${linkText(l, home)}`),
 		"Block on the build unit that does the work, never on a spec or map that stays open for its own follow-ups;",
