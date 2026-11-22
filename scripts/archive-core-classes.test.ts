@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * The manual-sync archive folders in a fresh adopter (#428): `init` writes no
- * key for either, and the first file landing under one is covered by the
- * core's own CORE_CLASSES. Run inside an `init`-built throwaway repo because
- * the checkers read scope from `git ls-files` and the class from the adopter's
- * sidecar; this repo's own tree carries no archive file to exercise. A
- * loosened case here lets an adopter's first sync report go red on coverage.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -59,8 +51,6 @@ function run(name: string, ...args: string[]) {
 	return { status: r.status, out: `${r.stdout}${r.stderr}` };
 }
 
-/* Past the pairing grace window, so an uncovered file would FAIL rather than
- * WARN. */
 function land(rel: string, body: string) {
 	fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true });
 	fs.writeFileSync(path.join(dir, rel), body);

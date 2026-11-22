@@ -1,44 +1,4 @@
 #!/usr/bin/env node
-/*
- * audit-escape-lines.js — did the `Checked:`/`Unmeasured:` lines that got a
- * close question past the close-rivals check bear on the fact separating its
- * options, and did what a refused question's re-send found support each
- * figure's move? A vendor model judges each, in batch (#671 step 3, #4945).
- *
- * Usage:  node scripts/audit-escape-lines.js [--root <dir>] [--notify] [--json]
- *         node scripts/audit-escape-lines.js --judge [--root <dir>]
- *           [--transcripts <dir>] [--gap-ms <n>]
- *
- * WHY IT EXISTS. `guard-priced-options.js` reads that an escape line is there,
- * never what it says. #671 dropped the first-sight refusal and moved the
- * judging here, after the fact, where it refuses nothing. ITS FIRST JOB IS
- * THE BEFORE/AFTER: the `pre-660` window (#488 to #660, first-sight lines
- * passed unrefused) is the baseline the #671 loosening is kept or reversed
- * on, against the `660` and `671` windows; `1061` refuses every close
- * question once again, so its after-refusal lines are not #671's.
- *
- * THE JUDGE is Jev over the Vercel AI Gateway, the route, key and gitleaks
- * sweep `guard-jev-advisory.js` exports — nothing leaves unswept, and each
- * tool result an after-refusal item sends is cut to a head (#4945). ITS
- * FIRST-SIGHT ACCURACY rides on #667. AFTER REFUSAL IT DOES NOT DISCRIMINATE
- * (#5003). An outage or
- * malformed reply is logged and the item retried on a later run.
- *
- * `--judge` scans every seat's transcripts for this repo (`lib/escape-audit.js`
- * owns what counts), rewrites the items index, then asks about each item with
- * no answer yet: one call every `GAP_MS`, `ATTEMPTS` per item a run, the run
- * capped at `RUN_MS` and held by a lock file so two never overlap.
- *
- * The report (the default, read on `npm run status`) prints, per window and
- * first-sight/after-refusal, how many were judged and how many wait; first
- * sight the share judged to bear, after refusal the judge's held-out rates.
- * `--notify`, at session start, prints nothing (#2038).
- *
- * IN NO FAMILY (code-standards §N3, §G4): the report is a `check-*` in all
- * but name, through `runCheck`, but `--judge` is a long batch that prints
- * one JSON line and exits 1 on a thrown error, which no family's contract
- * covers.
- */
 
 const { spawnOutliving } = require("./lib/user-scope.js");
 const fs = require("node:fs");
@@ -57,19 +17,12 @@ const { ignoreFailure, orFallback } = require("./lib/caught.js");
 const CHECKER = "escape-audit";
 const ENV_SWITCH = "WFC_ESCAPE_AUDIT";
 
-/* A run's wall-time ceiling, the gap between calls, and the tries per item
- * per run: a failed item waits for the next run rather than hammering a
- * gateway that is down. All four figures here are chosen, not measured (#671). */
+// guess, #671
 const RUN_MS = 10 * 60_000;
 const GAP_MS = 2000;
 const ATTEMPTS = 2;
-/* Jev's own `ABORT_MS` is 3 s for a hook with a 15 s budget; a batch has
- * none, so it waits longer before calling a reply lost. */
 const ABORT_MS = 20_000;
-/* Four starts a day at most, against a store that grows by a handful of
- * rounds a day: often enough that a verdict lands the day its round does. */
 const KICK_MS = 6 * 60 * 60_000;
-/* A boolean question's own midpoint; no threshold study stands behind it. */
 const BEARS_AT = 0.5;
 
 const LOCK_NAME = ".escape-audit-lock";
@@ -78,13 +31,9 @@ const KICK_NAME = ".escape-audit-kicked";
 /**
  * @typedef {{ caught: number, of: number }} Rate
  * @typedef {{ unsupported: Rate, genuine: Rate, partial: Rate }} HeldOut
- *   on a held-out set: `unsupported` caught, `genuine` and `partial` passed
  */
 
 /**
- * What each sight is asked and sent. `key` names the question, and a verdict
- * row keyed to another is asked again; `heldOut` is its measured accuracy,
- * where one was measured.
  * @type {Record<import("./lib/escape-audit").Item["sight"], {key: string,
  *   question: Record<string, unknown>,
  *   message: (item: import("./lib/escape-audit").Item) => string,
@@ -139,8 +88,6 @@ const SIGHTS = {
 };
 
 /**
- * A verdict's outcome where it answers the question its item's sight is asked
- * now, else undefined. A row naming no question answers the first-sight one.
  * @param {import("./lib/escape-audit").Verdict | undefined} v
  * @param {import("./lib/escape-audit").Item["sight"]} sight
  */
@@ -153,7 +100,6 @@ function currentOutcome(v, sight) {
 }
 
 /**
- * Every top-level transcript under `dirs`, one copy of each.
  * @param {string[]} dirs
  * @returns {string[]}
  */
@@ -161,7 +107,6 @@ function readTranscripts(dirs) {
 	/** @type {string[]} */
 	const files = [];
 	for (const dir of dirs) {
-		// A seat with no sessions here has no directory (#671).
 		for (const f of orFallback(() => fs.readdirSync(dir), []))
 			if (f.endsWith(".jsonl")) files.push(path.join(dir, f));
 	}
@@ -169,10 +114,9 @@ function readTranscripts(dirs) {
 }
 
 /**
- * Ask the judge about one item's message: `bears`/`misses`, or throw.
  * @param {string} key
  * @param {{text: string, sight: import("./lib/escape-audit").Item["sight"]}} asked
- * @param {any} gw `guard-jev-advisory.js`'s `gateway` export
+ * @param {any} gw
  * @returns {Promise<{outcome: "bears" | "misses", probability: number}>}
  */
 async function ask(key, { text, sight }, gw) {
@@ -191,8 +135,6 @@ async function ask(key, { text, sight }, gw) {
 }
 
 /**
- * Every item in the transcripts, first copy of each key kept, and how many
- * transcripts would not read.
  * @param {string[]} dirs
  * @param {Parameters<typeof audit.itemsIn>[2]} deps
  * @returns {{unique: import("./lib/escape-audit").Item[], unreadable: number}}
@@ -206,7 +148,6 @@ function scanItems(dirs, deps) {
 		try {
 			text = fs.readFileSync(file, "utf8");
 		} catch {
-			/* counted into the index, which the report prints (#671) */
 			unreadable++;
 			continue;
 		}
@@ -220,16 +161,14 @@ function scanItems(dirs, deps) {
 /**
  * @typedef {object} JudgeRun
  * @property {string} root
- * @property {string} key the gateway key
+ * @property {string} key
  * @property {typeof import("./guard-jev-advisory").gateway} gw
  * @property {number} gapMs
- * @property {{asked: number, answered: number, failed: number}} counts across the whole run
+ * @property {{asked: number, answered: number, failed: number}} counts
  */
 
 /**
- * Judge one item and log its verdict: gitleaks' refusal where it has one,
- * else the judge's answer or why there is none.
- * @param {JudgeRun} run accumulator: counts.answered or counts.failed is bumped; the rest is read
+ * @param {JudgeRun} run
  * @param {import("./lib/escape-audit").Item} item
  */
 async function judgeItem(run, item) {
@@ -261,8 +200,7 @@ async function judgeItem(run, item) {
 }
 
 /**
- * Up to `ATTEMPTS` asks, every one after the run's first waiting `gapMs`.
- * @param {JudgeRun} run accumulator: counts.asked is bumped per ask; the rest is read
+ * @param {JudgeRun} run
  * @param {Parameters<typeof ask>[1]} asked
  * @returns {Promise<{outcome: import("./lib/escape-audit").Verdict["outcome"], probability: number | undefined}>}
  */
@@ -284,13 +222,10 @@ async function askWithRetries(run, asked) {
 }
 
 /**
- * The batch: scan, index, judge what is unanswered.
  * @param {{root: string, dirs: string[], gapMs?: number}} spec
  * @returns {Promise<{items: number, unreadable?: number, asked: number, answered: number, failed: number, reason?: string}>}
  */
 async function judge({ root, dirs, gapMs = GAP_MS }) {
-	/* Held while the run lives: `RUN_MS` between items and `ABORT_MS` on each
-	 * ask end a hung one (#4016). */
 	const markers = markersDir(root);
 	fs.mkdirSync(markers, { recursive: true });
 	const lock = pidLock(
@@ -340,21 +275,14 @@ async function judge({ root, dirs, gapMs = GAP_MS }) {
 	}
 }
 
-/**
- * Start a detached `--judge` where one is due, failing open.
- * @param {string} root
- */
+/** @param {string} root */
 function kick(root) {
 	if (["0", "false", "off"].includes(process.env[ENV_SWITCH] ?? "")) return;
 	const marker = path.join(markersDir(root), KICK_NAME);
-	// A marker never written means never kicked (#671).
 	const kicked = orFallback(() => fs.statSync(marker).mtimeMs, undefined);
 	if (kicked !== undefined && Date.now() - kicked < KICK_MS) return;
-	// A failed kick is retried by the next session start (#671).
 	ignoreFailure(() => {
 		fs.writeFileSync(marker, new Date().toISOString());
-		/* Outliving its session, so a short one's end does not kill the
-		 * judging (#4706). */
 		spawnOutliving(process.execPath, [__filename, "--judge", "--root", root], {
 			cwd: root,
 			stdio: "ignore",
@@ -363,7 +291,6 @@ function kick(root) {
 }
 
 /**
- * The standing's counts, one row per window and sight, for `sayRows` to print.
  * @param {import("./lib/escape-audit").IndexedItem[]} items
  * @param {Map<string, import("./lib/escape-audit").Verdict>} verdicts
  */
@@ -396,15 +323,10 @@ function tally(items, verdicts) {
 const USAGE =
 	"node audit-escape-lines.js [--root <dir>] [--notify] [--json] | --judge [--root <dir>] [--transcripts <dir>] [--gap-ms <n>]";
 
-/**
- * `--judge` runs the batch; anything else is the report.
- * @returns {Promise<void>}
- */
+/** @returns {Promise<void>} */
 async function main() {
 	const argv = process.argv.slice(2);
 	if (!argv.includes("--judge")) return report();
-	/* Shorthand, since check.declared-flags.test.ts reads `flags:` followed by
-	 * anything but an array as a runCheck declaration. */
 	/** @type {Record<string, import("./lib/cli-args").FlagType>} */
 	const flags = {
 		"--judge": "boolean",
@@ -428,7 +350,6 @@ async function main() {
 const pct = (r) => `${Math.round((100 * r.caught) / r.of)}%`;
 
 /**
- * One line per window and sight that holds anything.
  * @param {import("./lib/check").Ctx} ctx
  * @param {ReturnType<typeof tally>} rows
  */
@@ -446,8 +367,6 @@ function sayRows(ctx, rows) {
 }
 
 /**
- * The report's run: at session start only the batch kick, since no session
- * acts on the standing (#2038); by hand, read the stores and print it.
  * @param {import("./lib/check").Ctx} ctx
  * @returns {import("./lib/check").CheckResult | void}
  */
@@ -508,7 +427,6 @@ module.exports = { main };
 
 if (require.main === module)
 	main().catch((e) => {
-		/* Recorded as well, since a kicked run's stderr goes nowhere (#4016). */
 		logError("audit-escape-lines", e);
 		process.stderr.write(`audit-escape-lines: ${errMessage(e)}\n`);
 		process.exitCode = 1;

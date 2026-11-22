@@ -1,25 +1,4 @@
 #!/usr/bin/env node
-/*
- * answer-review-reversals.js — answer each unanswered `reverse <n>` comment
- * on a morning review issue open or closed in the last RECENTLY_CLOSED_MS
- * (#2017, spec #1995): lib/review-reversal.js reads the request, and this
- * files a `takes:implement` ticket in the entry's repo and replies with its
- * number. The review itself is scripts/file-morning-review.js's.
- *
- *   node scripts/answer-review-reversals.js [--dry-run]
- *
- * A delegated-decision entry's ticket is built from its ledger line; a
- * primitives-table entry's from the review line itself (#3465).
- *
- * Each filing is recorded before the reply, so a reply that fails is retried
- * without filing again; a filing that landed unrecorded is found on the entry's
- * tracker and recorded instead (#3828); a pid lock keeps a hand run and a loop
- * tick from both filing. Record and lock are one per tracker on this machine,
- * whichever checkout a run starts in.
- *
- * Joins no §N3 family: a run whose filing or reply failed on gh exits 1, so
- * the loop that runs it retries.
- */
 
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");
@@ -46,21 +25,14 @@ const { takesLabel } = require("./lib/takes-label.js");
 const USAGE = `usage: node ${scriptPath("answer-review-reversals.js")} [--dry-run]`;
 const REVERSAL_LABEL = takesLabel("implement");
 const DAY_MS = 24 * 60 * 60 * 1000;
-/* Untraced: a review closed within two days is still read for reversals, so
- * a request written just before the close, or while no loop ran, is answered. */
 const RECENTLY_CLOSED_MS = 2 * DAY_MS;
 const RECORD_EXTENSION = "jsonl";
 const LOCK_EXTENSION = "lock";
-/* Each program answerReversals runs in, as a holder is read by its command
- * line (#3815). Residual: a third program requiring it must be listed here, or
- * its live holder reads as stale and is taken over. */
 const ANSWERERS = [path.basename(__filename), "file-morning-review.js"];
 
 const io = scriptIo("answer-review-reversals");
 
 /**
- * What one run answering reversals carries: the review issue, each included
- * checkout by tracker, and the review tracker's record of reversals filed.
  * @typedef {{review: {repo: string, number: number, createdAt: string,
  *   entries: ReturnType<typeof review.parseEntries>},
  *   roots: Map<string, string>, filed: Map<string, string>, dryRun: boolean}} Run
@@ -70,8 +42,6 @@ const io = scriptIo("answer-review-reversals");
 const requestKey = (r) => `${r.commentUrl} ${r.n}`;
 
 /**
- * A review tracker's reversal record or lock: outside any checkout, as one's
- * own markers would give two checkouts two of each.
  * @param {string} tracker
  * @param {string} extension
  */
@@ -80,10 +50,7 @@ function buildReversalPath(tracker, extension) {
 	return refillPath(`review-reversals-${slug}.${extension}`);
 }
 
-/**
- * The tracker's record of reversals filed: `owner/name#n` by request.
- * @param {string} tracker
- */
+/** @param {string} tracker */
 function readFiled(tracker) {
 	/** @type {Map<string, string>} */
 	const filed = new Map();
@@ -100,8 +67,7 @@ function readFiled(tracker) {
 }
 
 /**
- * The reversal ticket for one listed entry, or why none can be built.
- * @param {string} root the entry's checkout
+ * @param {string} root
  * @param {Run["review"]} reviewIssue
  * @param {import("./lib/review-reversal.js").Request} request
  * @param {import("./lib/morning-review.js").Entry} listed
@@ -123,11 +89,6 @@ function buildTicket(root, reviewIssue, request, listed) {
 }
 
 /**
- * The ticket this request already produced on `repo`, open or closed, whatever
- * the local record says: a create can land and report failure, or outlive the
- * run that started it. Read from the review's filing on, as no ticket for it can
- * be older. Residual: a create still in flight is not found, and that run files
- * a second ticket.
  * @param {string} repo
  * @param {Run["review"]} reviewIssue
  * @param {import("./lib/review-reversal.js").Request} request
@@ -141,8 +102,6 @@ function findLandedTicket(repo, reviewIssue, request) {
 }
 
 /**
- * File one request's ticket in the entry's repo: the outcome to reply with,
- * or null where it failed on gh and is left for the next run.
  * @param {Run} run
  * @param {import("./lib/review-reversal.js").Request} request
  * @returns {import("./lib/review-reversal.js").Outcome | null}
@@ -213,10 +172,9 @@ function fileReversal(run, request) {
 }
 
 /**
- * Answer one `reverse <n>` request: file its ticket, then reply.
  * @param {Run} run
  * @param {import("./lib/review-reversal.js").Request} request
- * @returns {number} the exit code
+ * @returns {number}
  */
 function answerRequest(run, request) {
 	const outcome = fileReversal(run, request);
@@ -255,10 +213,6 @@ function answerRequest(run, request) {
 const buildQuotedFirstLine = (text) =>
 	review.quoted(text.split("\n").find((l) => l.trim()) ?? "no reason given");
 
-/**
- * Each included checkout by the tracker it files on. One whose config cannot
- * be read is named on stderr, and its entries are answered as filed nowhere.
- */
 function readRootsByTracker() {
 	/** @type {Map<string, string>} */
 	const roots = new Map();
@@ -273,8 +227,6 @@ function readRootsByTracker() {
 }
 
 /**
- * Answer every unanswered `reverse <n>` on the review issues open or closed
- * in the last RECENTLY_CLOSED_MS. The exit code, the worst of its requests'.
  * @param {string} tracker
  * @param {boolean} dryRun
  */
@@ -298,8 +250,6 @@ function answerReversals(tracker, dryRun) {
 		);
 		return 1;
 	}
-	/* A review closed between the two reads is in both, and one pass over it
-	 * reads the filed record once. */
 	const pending = [
 		...new Map(reviews.map((i) => [i.number, i])).values(),
 	].flatMap((i) => {

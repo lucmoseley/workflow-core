@@ -8159,7 +8159,6 @@
 		],
 		"scripts/dispatch-sessions.js": [
 			"scripts/admission.test.ts",
-			"scripts/allowance.test.ts",
 			"scripts/checker-registrations.test.ts",
 			"scripts/dispatch-sessions-allowance.test.ts",
 			"scripts/dispatch-sessions-bridge-budget.test.ts",

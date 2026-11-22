@@ -1,13 +1,4 @@
 // @vitest-environment node
-/*
- * new-repo.js stopped by a hook refusing the skeleton commit, then --resume
- * once it is fixed, through the new repo's real hook stack (#4297).
- * new-repo.test.ts's header says how a run is driven and what a loosened case
- * costs.
- *
- * Over the run-cost budget (base §X8 (5)): its one case is a run §X8 (2) keeps
- * on the real hook stack, which is most of its time.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -34,8 +25,6 @@ describe.skipIf(!HAS_GITLEAKS)(
 
 		it("stops, exit 2, on a hook refusing the skeleton commit, printing its output word for word, and --resume finishes once it is fixed", () => {
 			const s = builtThrough("plugin reads", false, undefined, golden);
-			/* A copied repo's own gate (#694 item 6), which the core's wiring
-			 * gate refuses until the manifest holds its row. */
 			const gate = path.join(s.clone, ".husky/pre-commit.local");
 			const rows = path.join(s.clone, ".claude/implicit-behaviours.json");
 			fs.writeFileSync(gate, "# shellcheck shell=sh\n:\n");

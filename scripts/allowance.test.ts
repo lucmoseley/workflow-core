@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * The thin CLI over lib/allowance.js — argv parsing, the stdin fallback and
- * the exit-code contract `dispatch-sessions.js` reads. The reader's own
- * arithmetic (staleness, kind matching, JSON-vs-text priority) is
- * lib/allowance.test.ts's. The contract is #293's and #294's; `--cap` is
- * #371's.
- *
- * Run in process through runInProcess (§X3), with `--config-dir` at a temp
- * directory holding a fabricated usage cache, so the founder's live allowance
- * is never read and the bars are figures this suite chose.
- *
- * Loosen a case and dispatch-sessions.js can size a launch off an
- * untrustworthy bar, starting sessions the allowance cannot carry.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -43,8 +29,6 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** A fresh seat cache of `bars`; an absent `sessionResetsAt` resets the
- * session bar one window after the stamp. */
 const writeCache = (
 	configDir: string,
 	bars: Bars,
@@ -157,9 +141,6 @@ describe("the allowance CLI's trust-drives-exit-code contract (#293, #294)", () 
 });
 
 describe("--cap (#371)", () => {
-	/** A `claude` whose `agents --json` answers `listing`, and a $10-mean
-	 * cost table: 4.7 points of the 5-hour bar a session, all of it landing
-	 * within an hour. */
 	const capEnv = (listing: AgentsAnswer) => {
 		const bin = writeClaudeStub(path.join(dir, "claude"), [
 			buildAgentsBranch(listing),
@@ -183,8 +164,6 @@ describe("--cap (#371)", () => {
 			HOME: dir,
 		};
 	};
-	/** `--cap` over a 94% session, 7% week cache, its session bar resetting
-	 * at `sessionResetsAt`, else one window out. */
 	const capRun = (
 		args: string[],
 		listing: AgentsAnswer,
@@ -250,15 +229,12 @@ describe("--cap (#371)", () => {
 	});
 
 	it("reads an empty listing as nothing running, not as unreadable", () => {
-		// Headroom 100 − 94 = 6: two 4.7-point members reach it.
 		const cap = capRun(thresholds, []);
 		expect(cap.error).toBeUndefined();
 		expect(cap).toMatchObject({ launch: 2, running: [] });
 	});
 
 	it("counts only the spend projected to land before the bar resets (#2925)", () => {
-		// Half an hour to the reset: half of each $10 lands before it, 2.35
-		// points. Headroom 6 − 2.35 for the running session leaves room for two.
 		const resetsAt = new Date(Date.now() + 1_800_000).toISOString();
 		const listing = [
 			buildListedRow({ sessionId: "s1", startedAt: Date.now() }),
@@ -268,7 +244,6 @@ describe("--cap (#371)", () => {
 		expect(soon.binding.runningPoints).toBeCloseTo(2.35, 1);
 		expect(soon.binding.perSessionPoints).toBeCloseTo(2.35, 1);
 		expect(soon.launch).toBe(2);
-		// A reset that does not parse counts all of it: 6 − 4.7 leaves one.
 		const unparsed = capRun(thresholds, listing, "soon");
 		expect(unparsed.binding.runningPoints).toBeCloseTo(4.7, 1);
 		expect(unparsed.launch).toBe(1);

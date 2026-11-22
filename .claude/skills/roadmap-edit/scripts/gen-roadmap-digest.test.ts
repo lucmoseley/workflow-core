@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * gen-roadmap-digest.js is the only thing that writes docs/roadmap-digest.md. Its
- * dangerous failure was writing nothing while exiting 0, so most of what follows
- * pins down when it is allowed to produce no file.
- *
- * No ticket found for the destination rule: its first commit names none.
- *
- * Spawned through roadmap-fixture's `run` over a fake roadmap in a temp
- * directory, so the real roadmap is never read and the real digest never
- * written.
- *
- * The generator runs in the roadmap-edit loop and inside .husky/pre-commit's
- * digest-render gate: loosen a case and a run that writes nothing can exit 0,
- * leaving the roadmap paired with a stale digest.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -52,9 +37,6 @@ afterAll(() => {
 });
 
 describe("output destination", () => {
-	// Regression: a stdout default lets a forgotten --out print 26k of digest,
-	// exit 0 and write nothing — leaving the roadmap HTML paired with a stale
-	// digest that only CI would catch.
 	it("refuses to run with no destination rather than printing", () => {
 		const r = run(SCRIPT, [fixture]);
 		expect(r.status).toBe(1);
@@ -124,19 +106,15 @@ describe("--out", () => {
 		expect(md).toContain("v5.0 · updated 1 July 2026, 10:00 · 2 cards");
 		expect(md).toContain("## Phase 0 — Phase zero");
 		expect(md).toContain("## Phase 1 — Phase one");
-		// alpha carries no m — the Opus 5.5 · medium default — so no code prints
 		expect(md).toContain("- `alpha` [open] Alpha card · needs: —");
 		expect(md).not.toContain("- `alpha` [open] Alpha card · needs: — ·");
 		expect(md).toContain(
 			"- `beta` [open] card beta · needs: alpha · max · mn: Research run",
 		);
-		// card bodies are deliberately absent — the digest is a map, not the territory
 		expect(md).not.toContain("Done when");
-		// inline HTML is stripped, not passed through
 		expect(md).not.toContain("<b>");
 	});
 
-	// Regression (#676).
 	it("names the effort guide as the core's copy, not a host-relative path", () => {
 		const r = run(SCRIPT, [fixture, "--stdout"]);
 		expect(r.status).toBe(0);
@@ -205,9 +183,6 @@ describe("large roadmap compaction", () => {
 });
 
 describe("the file claim a script takes for itself (mantahostels#99's signal 3)", () => {
-	// This script is invisible to the PreToolUse guard, which only sees
-	// Write/Edit/NotebookEdit, so it takes the claim itself, warned like a
-	// write when a live neighbour holds the file (#4249).
 	const arbiterScript = path.resolve(
 		SCRIPTS_DIR,
 		"../../../../scripts/session-arbiter.js",
@@ -230,7 +205,6 @@ describe("the file claim a script takes for itself (mantahostels#99's signal 3)"
 			CLAUDE_PROJECT_DIR: repo,
 		};
 
-		// The holder is this test process, which is by definition alive.
 		const stat = fs.readFileSync(`/proc/${process.pid}/stat`, "utf8");
 		fs.writeFileSync(
 			path.join(home, "sessions", `${process.pid}.json`),

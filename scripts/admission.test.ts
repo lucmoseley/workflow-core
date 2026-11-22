@@ -1,23 +1,4 @@
 // @vitest-environment node
-/*
- * Pins admission.js's slot count — the memory, CPU and allowance limbs, the
- * reserves it holds back, and its refusal when memory or the session count
- * cannot be read — and the exit code each verdict carries (mantahostels#1144,
- * the ticket that put the count in code).
- *
- * Synthetic fixtures throughout: a fake `/proc/meminfo`, a fake `ps` and a fake
- * `claude agents --json`, so the arithmetic is checked against figures this
- * suite chose rather than against whatever the machine happens to be doing —
- * which is the thing the script reports on and so cannot also be its fixture.
- *
- * /pick-next §5 and scripts/dispatch-sessions.js re-read this count before
- * every launch: loosen a case and a session can be admitted past the
- * machine's 10 GB cap, which freezes the machine, or a free slot held shut.
- *
- * Over the 10 s run-cost budget by its 117 program runs, each a spawn of
- * admission.js against a fresh fake machine; the arithmetic's own cases run
- * in process in lib/admission-figures.test.ts (#4263).
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -56,30 +37,18 @@ import { runInProcess } from "./lib/run-in-process";
 import { shellQuote } from "./lib/sh-quote.js";
 import { readLiveGateSeats } from "./lib/suite-queue";
 
-/* earlyoom's kill line, which every verdict holds free and `floorMb` reports (#337). */
 const FLOOR = 794;
 
-/** A rung's resting MB, read out of admission.js rather than copied (mantahostels#2715). */
 const rung = (n: 1 | 2 | 3) => SUITE_RESTING_MB[n];
 
 const SCRIPT = path.resolve(__dirname, "admission.js");
-/* The host draw every case declares unless it says otherwise (#2221): one
- * session's need at p95 is ceil(600k + 1.645 × 200 × √k), so 929, 1666, 2370
- * and 3058 MB for k of 1 to 4 with no live session. */
 const HOST_DRAW = { sessionMeanMb: 600, sessionSigmaMb: 200 };
-/* earlyoom's floor and the margin above it, off every budget (#2221). */
 const HELD = FLOOR + 300;
-/* The one spare pair every verdict reserves where `ps` lists no idle pair to
- * price it off (#2223): `IDLE_PAIR_MB` in lib/admission.js. */
 const PAIR = 106;
-/* A neighbour holding 640 MB, so the live draw still needs
- * ceil(600 + 329 − 640) = 289 MB for it. */
 const GROWN = "other@701";
-/** A pair PSS of `mb`, in the kB a `pss` fixture takes. */
 const mbKb = (mb: number) => mb * 1024;
 const GROWN_PSS = { "701": mbKb(640) };
 const SPARE_DIR = "/tmp/x/spare";
-/** `cwds` for `bg-spare` pids still sitting in it: their pairs read idle (#2502). */
 const idleAt = (...pids: string[]) =>
 	Object.fromEntries(pids.map((pid) => [pid, SPARE_DIR]));
 
@@ -90,8 +59,6 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-/** A `/proc/meminfo` reporting `mb` available, or one with no MemAvailable
- * line, and `swap` in MB where given, or no swap lines. */
 const meminfo = (
 	mb: number | null,
 	swap: { totalMb: number; freeMb: number } | null = null,
@@ -110,12 +77,9 @@ const meminfo = (
 	return p;
 };
 
-/** A fake `ps -eo comm=,args=` printing `lines`, or one that fails outright. */
 const ps = (lines: string[], { fails = false } = {}) =>
 	writePsStub(dir, lines, { fails });
 
-/** A fake `claude` whose `agents --json` lists `ids`, each at `cwd` and in its
- * `states` entry where it has one, or fails / lies. */
 const claude = (
 	ids: string[] | null,
 	{
@@ -157,45 +121,27 @@ interface Machine {
 	psFails?: boolean;
 	self?: string;
 	pss?: Record<string, number>;
-	/** Each descendant pid's parent, for the fake `/proc`'s `stat` files. */
 	parents?: Record<string, string>;
-	/** Each pid's cwd, for the fake `/proc`'s `cwd` symlinks. */
 	cwds?: Record<string, string>;
-	/** Each pid's environment, for the fake `/proc`'s `environ` files. */
 	environs?: Record<string, string[]>;
 	reaped?: Array<{ pss: number | null }> | null;
 	reapFails?: boolean;
 	reapRaw?: string;
-	/** argv past `--json` — `--launch` or `--load-only`. */
 	args?: string[];
-	/** false runs the text report, `json` then reading null. */
 	json?: boolean;
-	/** The host's config, HOST_DRAW unless given. */
 	hostConfig?: Record<string, unknown>;
-	/** The oracle's answer verbatim, in place of `sessions`. */
 	agentsRaw?: string;
-	/** load1 for the stand-in /proc/loadavg (#830); null names no such file. */
 	load?: number | null;
-	/** WFC_SESSION_CEILING (#2141); off unless given, so a case meets it only by asking. */
 	sessionCeiling?: string;
-	/** Lander queue markers (#2416), each carrying its charge (#3323), in the
-	 * case's own queue dir. */
 	landers?: Lander[];
-	/** Gate-seat queue markers (#5274), in the case's own queue dir. */
 	gates?: Gate[];
-	/** Each listed session's oracle `state`, by id; none where absent. */
 	states?: Record<string, string>;
-	/** Windows' free memory on a fresh memwatch reading; no memwatch unless given. */
 	windowsMb?: number;
-	/** The case's suite queue made unreadable for the run (#5301). */
 	queueUnreadable?: boolean;
 }
 
-/* This process as a lander holding a whole suite, at its charge (#3323). */
 const WHOLE_LANDER: Lander = { pid: process.pid, chargeMb: 1150 };
 
-/** The environment that stands the fake machine `m` up, for admission.js
- * run as a program and for lib/admission.js called in process alike. */
 const machineEnv = (m: Machine = {}) => {
 	const {
 		mb = 4000,
@@ -279,7 +225,6 @@ describe("slot arithmetic", () => {
 		});
 		expect(json.budgetMb).toBe(2000);
 		expect(json.drawNeedMb).toBe(289);
-		// ceil(3 × 600 + 1.645 × 200 × √3 − 640) = 1730 fits; 3 more need 2418
 		expect(json.slots).toBe(2);
 		expect(json.nextNeedMb).toBe(2418);
 		expect(json.admit).toBe(true);
@@ -307,7 +252,6 @@ describe("slot arithmetic", () => {
 			pss: { "701": mbKb(1000) },
 			hostConfig: { sessionMeanMb: 1000, sessionSigmaMb: 100 },
 		});
-		// ceil(2 × 1000 + 1.645 × 100 × √2 − 1000) = 1233 fits
 		expect(json.slots).toBe(1);
 		expect(json.reason).toMatch(
 			/; the live sessions' draw and 1 more need 1233 MB at p95/,
@@ -377,10 +321,7 @@ describe("the swap hold (#2690)", () => {
 });
 
 describe("the lander's suite reserve (#2416)", () => {
-	/* The lander's draw is the charge its marker carries (#3323). */
 	const LanderDraw = WHOLE_LANDER.chargeMb;
-	/* Sessions of 2000 MB beside one live at 640 MB PSS: two more need
-	 * ceil(6000 + 1.645 × 200 × √3 − 640) = 5930 MB, one more 3825 MB. */
 	const big = {
 		mb: 6000 + HELD + PAIR,
 		sessions: [SELF, GROWN],
@@ -439,7 +380,6 @@ describe("the lander's suite reserve (#2416)", () => {
 	});
 
 	it("holds nothing for a dead lander's marker", () => {
-		// Past 2^22, 64-bit Linux's pid_max ceiling, so no process holds it.
 		expect(
 			run({ ...big, landers: [{ ...WHOLE_LANDER, pid: 2 ** 22 + 1 }] }).json
 				.landerMb,
@@ -455,10 +395,7 @@ describe("the lander's suite reserve (#2416)", () => {
 });
 
 describe("the gate-seat reserve (#5274, spec #5273 §2)", () => {
-	/* A seat declaring no charge is held the whole-suite rung. */
 	const Undeclared = GATE_SEAT_DEFAULT_MB;
-	/* Sessions of 600 MB beside one live at 640 MB PSS, with room for the
-	 * whole rung and two more. */
 	const big = {
 		mb: Undeclared + 3000 + HELD + PAIR,
 		sessions: [SELF, GROWN],
@@ -563,11 +500,9 @@ describe("the gate-seat reserve (#5274, spec #5273 §2)", () => {
 	});
 
 	it("holds nothing for a dead gate seat's marker", () => {
-		// Past 2^22, 64-bit Linux's pid_max ceiling, so no process holds it.
 		expect(run({ ...big, gates: [{ pid: 2 ** 22 + 1 }] }).json.gateMb).toBe(0);
 	});
 
-	/* Positive pair: "holds the gateSeatMb charge the seat's marker carries" and "admits one fewer session while a lander's marker is live". */
 	it("holds both reserves' default charges, and says why, where the suite queue will not read (#5301)", () => {
 		const without = run(big).json;
 		const { json } = run({
@@ -607,18 +542,6 @@ describe("the gate-seat reserve (#5274, spec #5273 §2)", () => {
 });
 
 describe("daemon + spare-pool reservation", () => {
-	/*
-	 * One idle pair is reserved off the top before the draw is fitted, priced
-	 * at the idle pairs' PSS over their count (#2223), the daemon's own process
-	 * (`daemon run`) left out (#2283). A pair is idle while its `bg-spare` sits
-	 * in its claim socket's directory (#2502); a live session's own host,
-	 * matched on `--session-id` rather than `/spare/`, is no pair at all.
-	 *
-	 * `ps` here is `pid=,rss=,args=`; a pid with no fixture in `pss` has no
-	 * readable rollup, so the scan falls back to that process's RSS. With no
-	 * live session, 4000 MB less the floor, margin and one 106 MB pair leaves a
-	 * budget that fits 3 sessions (2370) and not 4 (3058).
-	 */
 	it("prices the reserved pair without the daemon process, shrinking the slot count (#2283)", () => {
 		const { json } = run({
 			mb: 4000,
@@ -630,9 +553,9 @@ describe("daemon + spare-pool reservation", () => {
 			],
 			cwds: idleAt("111"),
 		});
-		expect(json.reservedMb).toBe(590); // floor(605000 / 1024), the daemon's 223000 left out
-		expect(json.memory.pool.mb).toBe(808); // floor((605000 + 223000) / 1024), the daemon kept
-		expect(json.slots).toBe(2); // a 2316 MB budget fits 2 at 1666, not 3 at 2370
+		expect(json.reservedMb).toBe(590);
+		expect(json.memory.pool.mb).toBe(808);
+		expect(json.slots).toBe(2);
 	});
 
 	it("does not reserve a live session's own host, only the idle spare pool", () => {
@@ -646,11 +569,6 @@ describe("daemon + spare-pool reservation", () => {
 		expect(json.slots).toBe(3);
 	});
 
-	/*
-	 * The pool's processes are near-identical forks, so RSS counts their
-	 * shared pages once per process. PSS divides each shared page by its sharer
-	 * count and is what the reserve must use (mantahostels#1287).
-	 */
 	it("prices a process by its PSS, not its far larger RSS", () => {
 		const { json } = run({
 			mb: 4000,
@@ -661,7 +579,7 @@ describe("daemon + spare-pool reservation", () => {
 			pss: { "111": 200_000, "112": 200_000 },
 			cwds: idleAt("111", "112"),
 		});
-		expect(json.reservedMb).toBe(195); // floor(400000 / 1024) over 2 pairs, not 683
+		expect(json.reservedMb).toBe(195);
 	});
 
 	it("falls back to RSS for a process whose rollup cannot be read", () => {
@@ -671,17 +589,12 @@ describe("daemon + spare-pool reservation", () => {
 				"111 700000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
 				"112 700000 claude bg-spare --bg-spare /tmp/x/spare/def.claim.sock",
 			],
-			pss: { "111": 200_000 }, // 112 has no rollup
+			pss: { "111": 200_000 },
 			cwds: idleAt("111", "112"),
 		});
-		expect(json.reservedMb).toBe(439); // floor((200000 + 700000) / 1024) over 2 pairs
+		expect(json.reservedMb).toBe(439);
 	});
 
-	/*
-	 * #2223: the pool is resident, so free memory already excludes it;
-	 * reserving all of it charged it twice. One pair is what admission cannot
-	 * yet see, and the breakdown still shows the whole pool.
-	 */
 	it("reserves one idle pair, not the whole pool, which the breakdown still shows", () => {
 		const { json } = run({
 			mb: 4000,
@@ -692,14 +605,11 @@ describe("daemon + spare-pool reservation", () => {
 			],
 			cwds: idleAt("111", "112", "113"),
 		});
-		expect(json.reservedMb).toBe(292); // floor(900000 / 1024) over 3 pairs
+		expect(json.reservedMb).toBe(292);
 		expect(json.memory.pool.mb).toBe(878);
-		expect(json.slots).toBe(3); // a 2614 MB budget fits 3 at 2370
+		expect(json.slots).toBe(3);
 	});
 
-	/*
-	 * `docs/environment.md`: "Match `argv[0]` here too" (mantahostels#1287).
-	 */
 	it("ignores a non-claude process whose command line merely names /spare/ or `daemon run`", () => {
 		const { json } = run({
 			mb: 4000,
@@ -715,13 +625,6 @@ describe("daemon + spare-pool reservation", () => {
 		expect(json.slots).toBe(3);
 	});
 
-	/*
-	 * A CLAIMED spare is a session and keeps its `/spare/` path, so the pool
-	 * scan must not charge it as idle pre-warm — memory the session draw
-	 * already prices. Its `bg-spare` has left the claim socket's directory for
-	 * the job's cwd, whichever config dir it runs in and whether or not this
-	 * run's listing names it (#2502). `abc` is claimed, `def` idle.
-	 */
 	const claimedAndIdle = [
 		"111 300000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
 		"110 100000 claude bg-pty-host --bg-pty-host /tmp/x/spare/abc.pty.sock 200 50 --",
@@ -738,7 +641,6 @@ describe("daemon + spare-pool reservation", () => {
 			psLines: claimedAndIdle,
 			cwds: { "111": "/home/u/repo", ...idleAt("333") },
 		});
-		// Only the idle `def` pair: floor((300000 + 100000) / 1024).
 		expect(json.reservedMb).toBe(390);
 		expect(json.memory.pool.mb).toBe(390);
 	});
@@ -776,14 +678,10 @@ describe("daemon + spare-pool reservation", () => {
 			pss: { "111": 900_000, "333": 200_000, "444": 100_000 },
 			cwds: { "111": "/home/u/repo", ...idleAt("333", "444") },
 		});
-		// floor((200000 + 100000 + 100000 + 100000) / 1024) over 2 idle pairs
 		expect(json.reservedMb).toBe(244);
 	});
 
 	it("fails open to no reservation where the overhead scan cannot run", () => {
-		// A broken `ps` degrades only the process-count DISPLAY figure (procs.ok
-		// stays true), so this isolates the reservation failure from the
-		// memory/session fail-closed gate.
 		const { json, status } = run({
 			mb: 4000,
 			psFails: true,
@@ -794,13 +692,7 @@ describe("daemon + spare-pool reservation", () => {
 	});
 });
 
-/*
- * #3322: a claimed pair no listing names is a session admission cannot see,
- * most often another config dir's. It gets its own row, labelled by that
- * dir, and leaves everything else, so the rows still sum once.
- */
 describe("the unlisted row (#3322)", () => {
-	/* `abc` claimed, by pid 111 at /home/u/repo; `def` idle. */
 	const pairs = [
 		"111 300000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
 		"110 100000 claude bg-pty-host --bg-pty-host /tmp/x/spare/abc.pty.sock 200 50 --",
@@ -940,10 +832,6 @@ describe("the unlisted row (#3322)", () => {
 	});
 });
 
-/*
- * #2502: the spare shape is vendor internals, so the breakdown names a break
- * in it under the pool row, the verdict unmoved.
- */
 describe("spare shape drift (#2502)", () => {
 	const sock = (id: string, made: boolean) => {
 		const d = path.join(dir, "daemon", "spare");
@@ -994,13 +882,7 @@ describe("spare shape drift (#2502)", () => {
 	});
 });
 
-/*
- * #2221: admission fits the live sessions' aggregate draw at p95, each at its
- * own repo's mean and σ, less what they already hold, and keeps earlyoom's
- * 794 MB kill line and a 300 MB margin free on top.
- */
 describe("aggregate session draw (#2221)", () => {
-	/** A repo under `dir` whose config holds `config`. */
 	const repo = (name: string, config: Record<string, unknown> = {}) => {
 		const root = path.join(dir, name);
 		fs.mkdirSync(path.join(root, ".git"), { recursive: true });
@@ -1012,11 +894,6 @@ describe("aggregate session draw (#2221)", () => {
 		return root;
 	};
 
-	/**
-	 * The text report's live-draw line, with these sessions listed at these
-	 * cwds and states. `self` is this run's session id, listed idle unless it
-	 * is listed; an empty one leaves the id unset and lists nothing more.
-	 */
 	const readDrawLine = (listed: [string, string, string?][], self = SELF) => {
 		const agents: Record<string, string>[] = listed.map(
 			([sessionId, cwd, state = "working"]) => ({ sessionId, state, cwd }),
@@ -1042,8 +919,6 @@ describe("aggregate session draw (#2221)", () => {
 				["c", heavy],
 			]),
 		).toBe(
-			// no session lists a pid, so only the two heavy ones are charged:
-			// σ is √(300² + 300²)
 			"3 live session(s): mean 2000 MB + 1.645 × σ 424 MB − 0 MB they already hold; 2 with no process, charged in full, 1 more charged nothing until they wake",
 		);
 	});
@@ -1102,9 +977,8 @@ describe("aggregate session draw (#2221)", () => {
 		const machine = {
 			mb: 6000,
 			sessions: [SELF, "a@201", "b@202"],
-			pss: {}, // neither 201 nor 202 has a rollup
+			pss: {},
 		};
-		// ceil(2 × 600 + 1.645 × 200 × √2), nothing credited as held
 		expect(run(machine).json.drawNeedMb).toBe(1666);
 		expect(run({ ...machine, json: false }).stdout).toMatch(
 			/^live draw +2 live session\(s\): .*; 2 charged in full, memory unread$/m,
@@ -1118,12 +992,10 @@ describe("aggregate session draw (#2221)", () => {
 			pss: { "202": mbKb(250) },
 		});
 		expect(status).toBe(0);
-		// ceil(2 × 600 + 1.645 × 200 × √2 − 250): a, parked and retired by
-		// the daemon, is charged as one that will resume
 		expect(json.drawNeedMb).toBe(1416);
 		expect(json.memory.live).toMatchObject({
 			mb: 250,
-			noProcess: 2, // a, and this run's own session, listed here with no pid
+			noProcess: 2,
 			unknown: null,
 		});
 		const { stdout } = run({
@@ -1146,7 +1018,6 @@ describe("aggregate session draw (#2221)", () => {
 			sessions: [SELF, "a", "b", "c", "d", "e"],
 			pss: {},
 		};
-		// ceil(2 × 600 + 1.645 × 200 × √2): c, d and e add nothing until they wake
 		expect(run(machine).json.drawNeedMb).toBe(1666);
 		expect(run({ ...machine, json: false }).stdout).toMatch(
 			/^live draw +5 live session\(s\): mean 1200 MB \+ 1\.645 × σ 283 MB − 0 MB they already hold; 2 with no process, charged in full, 3 more charged nothing until they wake$/m,
@@ -1168,11 +1039,8 @@ describe("aggregate session draw (#2221)", () => {
 				"302": mbKb(50),
 				"401": mbKb(640),
 			},
-			// 301 and its child 302 are a's suite; 401 is b, nested under a
 			parents: { "301": "201", "302": "301", "401": "201" },
 		});
-		// a holds 300 + 100 + 500 + 50, b 640: ceil(1200 + 465.3 − 1590), a's
-		// running suite credited back here
 		expect(json.drawNeedMb).toBe(76);
 	});
 
@@ -1226,25 +1094,19 @@ describe("aggregate session draw (#2221)", () => {
 			agentsRaw: JSON.stringify([{ sessionId: SELF }, ...young]),
 			pss: Object.fromEntries(young.map((s) => [`${s.pid}`, mbKb(323)])),
 		});
-		// ceil(6000 + 1.645 × 200 × √10 − 3230) = 3811 fits 3868; one more
-		// needs 4462
 		expect(json.drawNeedMb).toBe(3811);
 		expect(json.slots).toBe(0);
 	});
 });
 
 describe("reclaimable pool (mantahostels#1288)", () => {
-	/*
-	 * `reclaimableMb` credits exactly what the reaper's own `--dry-run --json`
-	 * plan says it would reap, never re-deriving the gates itself.
-	 */
 	it("credits the reaper's reaped PSS into the slot count, and names it in the reason", () => {
 		const { json } = run({
-			mb: 2000 + HELD + PAIR, // 2 slots uncredited
-			reaped: [{ pss: 273 }, { pss: 236 }, { pss: 255 }, { pss: 313 }], // 1077 MB
+			mb: 2000 + HELD + PAIR,
+			reaped: [{ pss: 273 }, { pss: 236 }, { pss: 255 }, { pss: 313 }],
 		});
 		expect(json.reclaimedMb).toBe(1077);
-		expect(json.slots).toBe(4); // a 3077 MB budget fits 4 at 3058
+		expect(json.slots).toBe(4);
 		expect(json.reason).toMatch(/credited 1077 MB about to be reclaimed/);
 	});
 
@@ -1261,39 +1123,27 @@ describe("reclaimable pool (mantahostels#1288)", () => {
 
 	it("never credits a suite gate above the one-suite rung", () => {
 		const { json } = run({
-			mb: rung(2) - 1, // just under the two-suite rung
+			mb: rung(2) - 1,
 			reaped: [{ pss: 500 }],
 		});
 		expect(json.reclaimedMb).toBe(500);
-		/* Not 2: admission cannot know how many suites a launched session will
-		 * find running, so it cannot know which rung that session's pretest
-		 * reap will judge against (mantahostels#1930, #631). */
 		expect(json.suites).toBe(1);
 	});
 
 	it("credits the reclaim below the one-suite rung, where a first suite's pretest reap really fires", () => {
 		const { json } = run({
-			mb: rung(1) - 300 + PAIR, // under the one-suite rung, so pretest-reap runs
+			mb: rung(1) - 300 + PAIR,
 			reaped: [{ pss: 300 }],
 		});
 		expect(json.reclaimedMb).toBe(300);
-		expect(json.suites).toBe(1); // mb − the pair + reclaimed lands exactly on the rung
+		expect(json.suites).toBe(1);
 	});
 
 	it("still admits no suite where the reclaim cannot close the gap", () => {
 		const { json } = run({ mb: rung(1) - 1100, reaped: [{ pss: 100 }] });
-		expect(json.suites).toBe(0); // mb + reclaimed stays 1,000 MB under the rung
+		expect(json.suites).toBe(0);
 	});
 
-	/* The reap gates on the RAW MemAvailable figure; the reservation is
-	 * admission's own bookkeeping and no memory the reaper can see (mantahostels#1930).
-	 * rung(1) + 100 MB raw is at or above the one-suite rung, so a
-	 * first suite's pretest-reap.js returns without reaping, whatever the reserved figure
-	 * makes of it. This is the ONLY case covering `suiteCapacity`'s `rawMb >=
-	 * SUITE_RESTING_MB[1]` line, so its raw figure is derived off the rung
-	 * (mantahostels#2673). The 390 MB reservation below comes
-	 * from the fixed `pss: 400000` fixture, not from the rung, and must stay
-	 * short of the +100 margin or the case stops covering that line. */
 	it("refuses the credit where only the reservation puts the machine under the rung", () => {
 		const { json } = run({
 			mb: rung(1) + 100,
@@ -1304,18 +1154,15 @@ describe("reclaimable pool (mantahostels#1288)", () => {
 			cwds: idleAt("111"),
 			reaped: [{ pss: 400 }],
 		});
-		expect(json.reservedMb).toBe(390); // effective rung(1) - 290, under the rung
+		expect(json.reservedMb).toBe(390);
 		expect(json.reclaimedMb).toBe(400);
-		expect(json.suites).toBe(0); // a first suite's reap never fires at rung(1) + 100 MB raw
+		expect(json.suites).toBe(0);
 	});
 
 	it("never lets the credit buy a SECOND suite from under the rung", () => {
-		const mb = rung(1) - 700; // under the one-suite rung
-		const reaped = rung(2) - mb + 100; // mb + reaped clears the two-suite rung
+		const mb = rung(1) - 700;
+		const reaped = rung(2) - mb + 100;
 		const { json } = run({ mb, reaped: [{ pss: reaped }] });
-		/* mb + reaped clears the two-suite rung arithmetically, but the reap
-		 * never refuses — it prints and continues on a pool that stays short —
-		 * so the credit answers "may this run at all" only (mantahostels#1930). */
 		expect(json.suites).toBe(1);
 	});
 
@@ -1332,7 +1179,7 @@ describe("reclaimable pool (mantahostels#1288)", () => {
 	it("buys no suite from an unreadable reap plan, at a figure the credit could reach", () => {
 		const { json } = run({ mb: rung(1) - 800, reapFails: true });
 		expect(json.reclaimedMb).toBe(0);
-		expect(json.suites).toBe(0); // mb alone is under the one-suite rung
+		expect(json.suites).toBe(0);
 	});
 
 	it("fails closed to 0 where the reap plan carries no reaped list", () => {
@@ -1374,15 +1221,9 @@ describe("reclaimable pool (mantahostels#1288)", () => {
 });
 
 describe("session counting reads argv[0], never comm", () => {
-	/*
-	 * A BACKGROUNDED session re-execs a versioned binary whose `comm` is the
-	 * version string, so a `comm` matcher finds no session at all
-	 * (mantahostels#481).
-	 */
 	it("counts a backgrounded session whose comm is a version number", () => {
 		const { json } = run({
 			psLines: [
-				// `comm` here is `2.0.14`; only argv[0] says this is claude.
 				"2.0.14 /home/u/.local/share/claude/versions/2.0.14 --continue",
 				"node /usr/bin/node other.js",
 			],
@@ -1405,12 +1246,8 @@ describe("session counting reads argv[0], never comm", () => {
 });
 
 describe("test-suite bands", () => {
-	/* `mb` is what is left after the one pair a pool-less reading reserves. */
 	const suites = (mb: number) => run({ mb: mb + PAIR }).json.suites;
 
-	/* All three rungs measured at #1603. Four is unmeasured, so no amount of
-	 * memory buys more than the ladder's top rung, and mantahostels#462's
-	 * 3,000 MB four-suite allowance buys one. */
 	it("never allows four, which nothing has measured on this suite", () => {
 		expect(suites(3000)).toBe(1);
 		expect(suites(100_000)).toBe(3);
@@ -1426,16 +1263,11 @@ describe("test-suite bands", () => {
 	});
 });
 
-/** readRunningVitestSuites against a stub `ps` at `p`, the seam pretest-reap reads it through. */
 const readSuitesWithPs = (p: string) => {
 	vi.stubEnv("WFC_PS", p);
 	return readRunningVitestSuites();
 };
 
-/*
- * lib/suite-ladder.js's `runningSuites`, which guard-suite-concurrency.js
- * counts by too.
- */
 describe("the running vitest suite count", () => {
 	const read = (lines: string[]) => {
 		const r = readSuitesWithPs(ps(lines));
@@ -1522,8 +1354,6 @@ describe("readRunningVitestSuites", () => {
 		});
 	});
 
-	/* A `--changed` or full run's runner line names no file, so only the
-	 * weight its launch record carries can tell it from a whole suite. */
 	describe("weighs a runner by the weight its launch record carries, not its argv (#2931)", () => {
 		const procDirOf = (pid: number, launch: object | null) => {
 			const procDir = path.join(dir, "procDir");
@@ -1615,10 +1445,6 @@ describe("fails closed", () => {
 	});
 });
 
-/*
- * #830, reversing mantahostels#1979: a launch holds at load1 3 per core (#3223),
- * whatever memory is free.
- */
 describe("the CPU limb (#830)", () => {
 	const ceiling = 3 * os.cpus().length;
 
@@ -1664,7 +1490,6 @@ describe("the CPU limb (#830)", () => {
 			json: false,
 		});
 
-	/* dispatch-sessions.js keys its remedy off this line (#834). */
 	it("names the load on a `cpu load` line, saying when it is the only hold", () => {
 		const sole = text({ load: ceiling });
 		expect(sole.status).toBe(1);
@@ -1686,7 +1511,6 @@ describe("the CPU limb (#830)", () => {
 		expect(r.stdout).toMatch(/^cpu load\s+unknown/m);
 	});
 
-	/* So dispatch names the load remedy beside the memory one. */
 	it("names an overload on a memory refusal too", () => {
 		const r = text({ load: ceiling, mb: null });
 		expect(r.status).toBe(2);
@@ -1694,8 +1518,6 @@ describe("the CPU limb (#830)", () => {
 		expect(r.stderr).toMatch(/^cpu load\s+.*\(#830\)$/m);
 	});
 
-	/* What dispatch-sessions.js --force-memory runs, so the override keeps the
-	 * CPU limb armed (#834) — and reads nothing else, memory included. */
 	it("judges the load alone under --load-only", () => {
 		const held = text({ load: ceiling, mb: null, args: ["--load-only"] });
 		expect(held.status).toBe(1);
@@ -1709,7 +1531,6 @@ describe("the CPU limb (#830)", () => {
 	});
 });
 
-/* pick-next's verdict over those figures: its fallback and its wording. */
 describe("admissionFrom's own fallback and wording", () => {
 	const host = { meanMb: 600, sigmaMb: 200, declared: true };
 	const roomy = { ok: true as const, mb: 4000 + FLOOR };
@@ -1826,7 +1647,6 @@ describe("admissionFrom's own fallback and wording", () => {
 });
 
 describe("the Windows limbs, read off the machine (#4956)", () => {
-	/* The fixture's MemFree, 554820 kB. */
 	const GuestFree = 541;
 
 	it("charges the guest free memory a fresh Windows reading cannot back, and prints it", () => {
@@ -1903,11 +1723,6 @@ describe("buildWindowsLine (#4956)", () => {
 	});
 });
 
-/*
- * pick-next.js's ADMISSION block, `selectionAdmission`, in process (#4329):
- * the readings off the machine and the admission verdict over them, no reclaim
- * credited.
- */
 describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 	afterEach(() => vi.unstubAllEnvs());
 
@@ -1987,7 +1802,6 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 	});
 
 	it("charges a young neighbour the draw it has yet to reach (#2221)", () => {
-		// ceil(600 + 1.645 × 200 − 300 held) = 629 MB still to come.
 		const { admission } = machine({
 			sessions: [SELF, "a@601"],
 			pss: { "601": mbKb(300) },
@@ -2003,7 +1817,6 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 			psLines: [idleSpare],
 			cwds: idleAt("111"),
 		});
-		// floor(605000 / 1024) = 590 MB a pair, twice
 		expect(admission.reservedMb).toBe(1180);
 		expect(admission.reservedError).toBeNull();
 		expect(admission.freeSlots).toBeLessThan(Number(bare.admission.freeSlots));
@@ -2053,13 +1866,8 @@ describe("selectionAdmission, pick-next.js's readings and verdict", () => {
 	});
 });
 
-/*
- * #2141: the machine's sessions, counted as `bg-pty-host` processes, fill a
- * session ceiling of 1.5 per core whatever memory is free.
- */
 describe("the session ceiling (#2141)", () => {
 	const roomy = 20_000;
-	/* `n` session hosts, as `ps -eo pid=,rss=,args=` lists them. */
 	const hosts = (n: number) =>
 		Array.from(
 			{ length: n },
@@ -2084,7 +1892,6 @@ describe("the session ceiling (#2141)", () => {
 		expect(r.status).toBe(0);
 	});
 
-	/* `claude agents` lists one plan's sessions; the hosts are every plan's. */
 	it("counts hosts the session listing does not name", () => {
 		const r = run({
 			mb: roomy,
@@ -2096,7 +1903,6 @@ describe("the session ceiling (#2141)", () => {
 		expect(r.json.slots).toBe(1);
 	});
 
-	/* Counted all the same, the unit #2141's ceiling was fitted in (#2502). */
 	it("names how many of the hosts are an idle spare's", () => {
 		const r = run({
 			mb: roomy,
@@ -2139,7 +1945,6 @@ describe("the session ceiling (#2141)", () => {
 		expect(r.json.reason).not.toMatch(/#2141/);
 	});
 
-	/* dispatch-sessions.js keys its remedy off this line. */
 	it("holds — exit 1 — at the ceiling, on a `cpu sessions` line saying when it is the only hold", () => {
 		const text = (m: Machine) =>
 			run({
@@ -2203,7 +2008,6 @@ describe("the session ceiling (#2141)", () => {
 		);
 	});
 
-	/* --force-memory runs --load-only, so overriding memory keeps it armed. */
 	it("holds under --load-only too, and says when the count is unread", () => {
 		const held = run({
 			mb: null,
@@ -2257,7 +2061,6 @@ describe("text output stays a handful of figures", () => {
 			/^live draw\s+1 live session\(s\): mean 600 MB \+ 1\.645 × σ 200 MB − 0 MB they already hold; 1 with no process, charged in full$/,
 		);
 		expect(lines[4]).toMatch(/^reclaimable\s+0 MB about to be reaped$/);
-		// a 2906 MB budget holds the live draw and 2 more at 2370, not 3 at 3058
 		expect(lines[5]).toMatch(/^slots\s+2 — ADMIT/);
 		expect(lines[7]).toMatch(/^allowance\s+.*absent — admitting anyway/);
 	});
@@ -2278,15 +2081,7 @@ describe("text output stays a handful of figures", () => {
 	});
 });
 
-/*
- * mantahostels#2588. The re-read `dispatch-sessions.js` takes before each spawn sees the
- * spare pool as it stands, and none of the pair the daemon warms the moment
- * this launch claims its own — which is exactly the memory the NEXT member of
- * the set will find gone. `--launch` charges for it up front.
- */
 describe("the pending-spare reserve (mantahostels#2588)", () => {
-	/* Two idle pairs at 200,000 kB PSS each: 781 MB of pool, 390 MB a pair,
-	 * one of which is reserved without the flag. */
 	const twoIdlePairs = {
 		psLines: [
 			"111 700000 claude bg-spare --bg-spare /tmp/x/spare/abc.claim.sock",
@@ -2305,15 +2100,9 @@ describe("the pending-spare reserve (mantahostels#2588)", () => {
 
 	it("adds one pair's own price for --launch", () => {
 		const { json } = run({ mb: 8000, ...twoIdlePairs, args: ["--launch"] });
-		// floor(781 / 2), twice
 		expect(json.reservedMb).toBe(390 + 390);
 	});
 
-	/*
-	 * The pool may hold no idle pair at all — every spare claimed, or a machine
-	 * that has just started. The measured constant prices both the reserved
-	 * pair and the pending one then; a 0 would read as a free spare.
-	 */
 	it("falls back to the measured 106 MB where no idle pair is resident", () => {
 		const { json } = run({
 			mb: 8000,
@@ -2325,7 +2114,6 @@ describe("the pending-spare reserve (mantahostels#2588)", () => {
 	});
 
 	it("costs a slot, which is the whole point", () => {
-		/* A 3,300 MB budget, after the 390 MB pair reserved without the flag. */
 		const grown = {
 			mb: 3300 + 390 + HELD,
 			sessions: [SELF, GROWN],
@@ -2334,15 +2122,10 @@ describe("the pending-spare reserve (mantahostels#2588)", () => {
 		};
 		const without = run(grown);
 		const launching = run({ ...grown, args: ["--launch"] });
-		expect(without.json.slots).toBe(4); // the live draw and 4 more need 3096
-		expect(launching.json.slots).toBe(2); // 2910 MB left, less a pair per slot past the first
+		expect(without.json.slots).toBe(4);
+		expect(launching.json.slots).toBe(2);
 	});
 
-	/*
-	 * #2511: the dispatcher re-reads before each member of a batch, finding the
-	 * pairs the earlier members warmed resident, so `slots` N holds only where
-	 * the k-th slot pays for k pending pairs, the first in the reserve.
-	 */
 	it("charges each slot past the first its own pending pair (#2511)", () => {
 		const { json } = run({
 			mb: 3300 + 390 + HELD,
@@ -2352,21 +2135,14 @@ describe("the pending-spare reserve (mantahostels#2588)", () => {
 			args: ["--launch"],
 		});
 		expect(json.budgetMb).toBe(2910);
-		// the live draw and 3 more need 2418, which fits, but 2 more pairs do not
 		expect(json.nextNeedMb).toBe(2418 + 2 * 390);
 		expect(json.slots).toBe(2);
-		// 1730 for the live draw and 2 more, and one more pair
 		expect(json.reason).toMatch(
 			/the live sessions' draw and 2 more, with 1 more spare pair\(s\) at 390 MB, need 2120 MB/,
 		);
 	});
 });
 
-/*
- * The per-spawn allowance re-read (#293 ruling 3, #294). A `.claude.json`
- * fixture stands in for `$CLAUDE_CONFIG_DIR`'s real cache — the same shape
- * `scripts/lib/allowance.js` reads.
- */
 describe("the allowance re-read (#293, #294)", () => {
 	const cacheDir = () => {
 		const d = path.join(dir, "config");
@@ -2417,8 +2193,6 @@ describe("the allowance re-read (#293, #294)", () => {
 		expect(status).toBe(1);
 	});
 
-	/* #371 item 5: the 90/99 thresholds are the launcher's cap alone, so a set
-	 * the cap admitted is not refused member by member on the same reading. */
 	it("admits past the launcher's thresholds, and carries no allowance warning", () => {
 		const configDir = cacheDir();
 		writeCache(configDir, { session: 99, weeklyAll: 99 });
@@ -2446,8 +2220,6 @@ describe("the allowance re-read (#293, #294)", () => {
 		expect(json.admit).toBe(true);
 	});
 
-	/* #299: what `dispatch-sessions.js --force` passes. The allowance limb
-	 * goes; the memory limb, asserted on the second run, stays. */
 	it("--skip-allowance admits past a fresh breach, but still holds on memory", () => {
 		const configDir = cacheDir();
 		writeCache(configDir, { session: 100, weeklyAll: 100 });
@@ -2473,7 +2245,6 @@ describe("the allowance re-read (#293, #294)", () => {
 		);
 	});
 
-	/* The launcher's threshold vars do not reach this limb (#371 item 5). */
 	it("ignores WFC_DISPATCH_*_CEILING, which size the launcher's cap only", () => {
 		const configDir = cacheDir();
 		writeCache(configDir, { session: 80, weeklyAll: 3 });
@@ -2491,12 +2262,6 @@ describe("the allowance re-read (#293, #294)", () => {
 	});
 });
 
-/*
- * #589. The breakdown rides after the figures and before the hung-job section,
- * so every line a caller already parses stays byte-identical — the fixture's
- * `expected` was captured from admission.js before the breakdown existed. Its
- * figures move with the slot rule, as #2140's suite reserve moved them.
- */
 describe("the memory breakdown (#589)", () => {
 	interface Scenario {
 		args: string[];
@@ -2556,9 +2321,6 @@ describe("the memory breakdown (#589)", () => {
 		const m = JSON.parse(
 			runScenario(scenarios.admit, { json: true }).stdout,
 		).memory;
-		/* MemTotal 10,240,000 kB = 10,000 MB. Each session is its PAIR's PSS:
-		 * 400,000 + 80,000 and 420,000 + 80,000 kB working, 350,000 + 70,000 kB
-		 * finished. The pool is the daemon plus the idle pair: 410,000 kB. */
 		expect(m.totalMb).toBe(10_000);
 		expect(m.free).toEqual({ mb: 6000, unknown: null });
 		expect(m.live).toEqual({ count: 2, mb: 957, unknown: null });
@@ -2619,9 +2381,6 @@ describe("the memory breakdown (#589)", () => {
 	});
 
 	it("prints the verdict's own slot figures where the pool reserve exceeds free memory", () => {
-		/* Two pairs at 253 MB reserve 506 MB against 400 free; the verdict
-		 * counts from 0, and the reclaim, less the floor and margin, buys the
-		 * slots: one, a second paying for its own pending pair. */
 		const s = {
 			...scenarios.admit,
 			meminfo: scenarios.admit.meminfo.replace(
@@ -2644,7 +2403,6 @@ describe("the memory breakdown (#589)", () => {
 	});
 
 	it("names the overlap rather than printing everything else negative", () => {
-		/* A 5,000,000 kB session PSS: the rows above everything else pass MemTotal. */
 		const s = scenarios.admit;
 		const r = runScenario(
 			{ ...s, pss: { ...s.pss, "201": 5_000_000 } },

@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * new-repo.js --source: copying a source repo into the new one. Split from
- * new-repo.test.ts, whose header says how a run is driven and what a loosened
- * case costs (#3258).
- *
- * Over the run-cost budget (base §X8 (5)): its cases are whole runs of the
- * script, short of the skeleton commit or with the hooks off (#4297).
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -194,7 +186,6 @@ describe("new-repo.js copying a source repo", () => {
 			"v1",
 			"trunk",
 		]);
-		// Stop the run at the map, past the copy and short of the commit.
 		fs.writeFileSync(path.join(s.sb, "fail/issue-create"), "");
 		const r = s.resume();
 		expect(r.status, r.stdout).toBe(1);
@@ -214,7 +205,6 @@ describe("new-repo.js copying a source repo", () => {
 		fs.appendFileSync(ignore, ".husky/\n");
 		const r = s.resume();
 		expect(r.status, r.stdout).toBe(2);
-		// The appended `.husky/` is the line after every line those two end.
 		const line = `${SOURCE_IGNORE}${IGNORE_BLOCK}`.split("\n").length;
 		expect(r.stdout).toMatch(
 			new RegExp(
@@ -226,8 +216,6 @@ describe("new-repo.js copying a source repo", () => {
 			"Manual step: narrow or remove that line in ~/tides — a pattern hiding a parent directory, such as `.claude/`, defeats any negation\n",
 		);
 		const written = fs.readFileSync(ignore, "utf8");
-		// Every hidden path is negated, the hooks too, though no negation reaches them;
-		// the source repo's own pre-commit is tracked, so git hides it from nothing.
 		expect(written).toBe(
 			`${SOURCE_IGNORE}${IGNORE_BLOCK}.husky/\n${KEEP_BLOCK.replace(
 				"# --- end",
@@ -248,7 +236,6 @@ describe("new-repo.js copying a source repo", () => {
 		const copy = path.join(s.clone, "docs/source/AGENTS.source.md");
 		fs.mkdirSync(path.dirname(copy), { recursive: true });
 		fs.writeFileSync(copy, `${SOURCE_AGENTS}Kept: the tide notes.\n`);
-		// Stop the run at the map, past the step and short of the commit.
 		fs.writeFileSync(path.join(s.sb, "fail/issue-create"), "");
 		const r = s.resume();
 		expect(r.status, r.stdout).toBe(2);
@@ -278,7 +265,6 @@ describe("new-repo.js copying a source repo", () => {
 			sourceFiles: { "CLAUDE.md": { link: "AGENTS.md" } },
 		});
 		fs.mkdirSync(path.join(s.clone, ".husky"), { recursive: true });
-		// A copy already holding its shell directive (#1870).
 		fs.writeFileSync(
 			path.join(s.clone, ".husky/pre-commit.local"),
 			SET_ASIDE_HOOK,
@@ -301,7 +287,6 @@ describe("new-repo.js copying a source repo", () => {
 		expect(
 			fs.existsSync(path.join(s.clone, "docs/source/CLAUDE.source.md")),
 		).toBe(false);
-		// The core's hook, init's own, where the source repo's was.
 		expect(
 			fs.readFileSync(path.join(s.clone, ".husky/pre-commit"), "utf8"),
 		).not.toBe(SOURCE_HOOK);
