@@ -1,13 +1,10 @@
 // @vitest-environment node
-// code-edges loads: ./lib/host_root.py
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { shellQuote } from "./lib/sh-quote.js";
-
-const LIB = path.resolve(__dirname, "lib");
 
 let tmp: string;
 let repo: string;
@@ -92,8 +89,8 @@ const readAnswers = (cwd: string, declared: string | undefined) => {
 		"python3",
 		[
 			"-c",
-			"import sys; sys.path.insert(0, sys.argv[1]); from host_root import host_root; sys.stdout.write(host_root())",
-			LIB,
+			"import os, sys; sys.path.insert(0, os.path.dirname(sys.argv[1])); from host_root import host_root; sys.stdout.write(host_root())",
+			path.resolve(__dirname, "lib", "host_root.py"),
 		],
 		opts,
 	);
