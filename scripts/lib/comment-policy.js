@@ -830,12 +830,14 @@ function splitDirectives(unit, facts) {
  * @returns {boolean}
  */
 function isSourceNote(prose, facts) {
-	const unsourced = prose.filter(
-		(line) =>
-			!line.match(URLS)?.some((u) => !ISSUE_URL.test(u)) &&
-			!facts.deps?.test(line),
-	).length;
-	return prose.length <= 2 && unsourced < prose.length;
+	return (
+		prose.length <= 2 &&
+		prose.some(
+			(line) =>
+				line.match(URLS)?.some((u) => !ISSUE_URL.test(u)) ||
+				facts.deps?.test(line),
+		)
+	);
 }
 
 /**
