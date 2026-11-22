@@ -407,8 +407,6 @@ function checkCancelled(pass, key) {
 	pass.cancelled.push({ checker: name, startedAt: run.startedAt });
 	if (SELF_REPORTS_CANCELLATION.has(key)) return;
 	const opened = Date.parse(run.startedAt);
-	/* The CLI never enforces the `timeout` on an `async` hook entry:
-	 * https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/async-hook-timeout-enforcement.md */
 	pass.ctx.warn(
 		"CANCELLED",
 		`${name} was cut off mid-run — it opened at ${run.startedAt}` +

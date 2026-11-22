@@ -197,8 +197,8 @@ const CONFIG_NAMES = ["", "."].flatMap((dot) =>
 );
 const TEST_RUNNER = "vitest";
 const CORE_DEFAULT = { testRunner: TEST_RUNNER, coverageAnalysis: "perTest" };
-/* `vitest`'s threads pool fails a test calling `process.chdir()`; Stryker's `disableTypeChecks` drops file modes:
- * https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/disable-type-checks.ts */
+/* `vitest`'s threads pool fails a test calling `process.chdir()` and dies under an `execArgv` heap flag;
+ * Stryker's `disableTypeChecks` drops file modes: https://github.com/stryker-mutator/stryker-js/blob/v10.1.1/packages/instrumenter/src/disable-type-checks.ts */
 const POOL = "forks";
 const DISABLE_TYPE_CHECKS = false;
 

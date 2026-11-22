@@ -11,7 +11,9 @@ const { readSeatProjectDirs } = require("./project-dirs");
 const HOUR_MS = 36e5;
 const DAY_MS = 864e5;
 
+// guess, lucmoseley/mantahostels#1362: fitted against one event
 const MIN_DEAD_HOURS = 20;
+// guess, lucmoseley/mantahostels#1362: fitted against one event
 const FLANK_RATIO = 0.65;
 
 // lucmoseley/mantahostels#1362 guess
@@ -20,6 +22,7 @@ const FLANK_HOURS = 3;
 const TRAILING_DAYS = 7;
 const BUSY_HOURS = 24;
 
+// guess, lucmoseley/mantahostels#1362: the cut its research note enumerated fourteen candidates at
 const CANDIDATE_MIN_HOURS = 10;
 
 /** @param {string[]} [seats] @returns {string[]} */

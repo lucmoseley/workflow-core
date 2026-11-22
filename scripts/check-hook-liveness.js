@@ -1279,8 +1279,7 @@ function reportOwnPathFault(ctx, hookPath, fault) {
 
 const REAP_RUN_FILE = "wfc-reap-run.json";
 
-/* An `async: true` hook's `timeout` is inert:
- * https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/async-hook-timeout-enforcement.md */
+// guess, lucmoseley/mantahostels#2331: an async hook's timeout is inert, so no ceiling ends a run
 const REAP_INFLIGHT_MS = 300_000;
 
 /**

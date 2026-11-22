@@ -1,6 +1,3 @@
-/* Two hooks each returning `updatedInput` on one call race, the last to finish winning:
- * https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/hook-ordering-plugin-vs-native.md */
-
 const path = require("node:path");
 const { isBackgroundJob } = require("./job-paths.js");
 const { caught } = require("./caught.js");

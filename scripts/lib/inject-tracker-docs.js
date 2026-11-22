@@ -99,7 +99,7 @@ function takesReference(arg) {
 	return { repo: "", issue: bare?.[1] ?? "" };
 }
 
-// guess, #1164
+// guess, lucmoseley/mantahostels#1083: wide of the start/prompt pair's gap, narrow of a re-typed command
 const DEDUPE_WINDOW_S = 60;
 
 // guess, #5151

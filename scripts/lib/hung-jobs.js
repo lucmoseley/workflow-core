@@ -13,7 +13,7 @@ const { jobStatePath, jobStorePath, rosterPath } = require("./job-paths.js");
  * @typedef {{job: string, store: string, sessionId: string, intent: string | null, detail: string | null, cwd: string | null, pid: number | null, minutesQuiet: number, transcript: string | null, reason: string, rosterPath: string}} HungJob
  */
 
-// guess, lucmoseley/mantahostels#2588
+// guess, lucmoseley/mantahostels#2588: longer than any tool call or measured background-job wait
 const HUNG_AFTER_MINUTES = 240;
 
 // guess, lucmoseley/mantahostels#2588
