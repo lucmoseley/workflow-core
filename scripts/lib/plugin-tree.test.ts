@@ -593,6 +593,7 @@ describe("citation qualification (#396)", () => {
 		expect(render(tree)("scripts/a.js")).toContain(
 			"say('a form (cite as `#24 (gloss)`)')",
 		);
+		fs.rmSync(path.join(tmp, "out"), { recursive: true });
 		const prose = tree["scripts/a.js"].replace(
 			"bare-citation-exempt: #435",
 			"bare-citation-exempt: the citation form's own example",
