@@ -1,10 +1,10 @@
 # Config keys — adopter guide
 
-What `.claude/workflow-core.json` means where a key's type alone does not say. `scripts/lib/workflow-core-config.js` reads the file: `KNOWN_KEYS` lists every name it accepts, and the `Config` typedef gives each one's type.
+What `.claude/workflow-core.json` means where a key's type alone does not say. `scripts/lib/workflow-core-config.js` reads the file: `KNOWN_KEYS` lists every name it accepts, and the `Config` typedef types each key `readConfig()` returns.
 
 ## How a bad value reads
 
-A missing file reads as `{}`. A file that is not a JSON object, or that declares a `contract` this release does not read, makes `readConfig()` throw: most commands stop, and the resolvers below fall back to their defaults.
+A missing file reads as `{}`. A file that is not a JSON object, or that declares a `contract` this release does not read, makes `readConfig()` throw: the command reading it stops, `resolveKey` and `requireKey` included. Only the path-key resolvers, `readOutputStylePath()` and `declaresLadder()` catch it and fall back to their defaults.
 
 Anything else that is wrong becomes a warning, printed as `WARN <file>: …` unless the caller reads quietly. Two kinds also land in `faults`, which callers select by key and kind, never by the warning's wording:
 
