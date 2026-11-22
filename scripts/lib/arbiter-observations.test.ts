@@ -2,7 +2,7 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { assert, beforeEach, describe, expect, it } from "vitest";
 import {
 	AS_ROOT,
 	core,
@@ -33,11 +33,13 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 		)
 			.split("\n")
 			.filter(Boolean);
-	const readBlobContent = (blob: string) =>
-		execFileSync("git", ["cat-file", "-p", blob], {
+	const readBlobContent = (blob: string | null) => {
+		assert(blob);
+		return execFileSync("git", ["cat-file", "-p", blob], {
 			cwd: sb.repo,
 			encoding: "utf8",
 		});
+	};
 
 	beforeEach(() => {
 		execFileSync("git", ["init", "-q"], { cwd: sb.repo });
@@ -158,6 +160,7 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 
 			const r = store.release(rel, live(sb, "bob"));
 			expect(r.verdict).toBe("held-by-other");
+			assert(r.observed);
 			expect(r.observed.state).toBe("changed");
 			expect(r.observed.was).toBe(bob.blob);
 			expect(fs.existsSync(store.paths.observation(rel, "bob"))).toBe(false);
@@ -172,6 +175,7 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 
 			const r = store.release(rel, live(sb, "bob"));
 			expect(r.verdict).toBe("not-held");
+			assert(r.observed);
 			expect(r.observed.state).toBe("same");
 			expect(fs.existsSync(store.paths.observation(rel, "bob"))).toBe(false);
 			expect(readRefs()).toEqual([aliceRef]);
@@ -194,10 +198,9 @@ describe("a second writer's own content record on a detect-only path (mantahoste
 			store.acquire("scripts/other.js", live(sb, "carol"));
 			store.recordObservation("scripts/other.js", live(sb, "bob"));
 
-			expect(store.readObservedBy("bob").sort()).toEqual([
-				rel,
-				"scripts/other.js",
-			]);
+			const observedBy = store.readObservedBy("bob");
+			assert(observedBy);
+			expect(observedBy.sort()).toEqual([rel, "scripts/other.js"]);
 			expect(store.readObservedBy("alice")).toEqual([]);
 		});
 

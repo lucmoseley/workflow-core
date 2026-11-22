@@ -1,6 +1,6 @@
 const { isNpmRun, scriptOfNpmCommand } = require("./npm-options.js");
 const { JS_TEST_FILE, PY_COLLECTED_TEST } = require("./test-kind.js");
-const { unwrapArgv } = require("./shell-words.js");
+const { unwrapArgv } = require("./shell-parse.js");
 
 /**
  * @typedef {"npm-vitest" | "npm-watch" | "npm-py" | "wrapper" | "other"} LaunchKind

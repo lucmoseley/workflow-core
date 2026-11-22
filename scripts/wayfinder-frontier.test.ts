@@ -8,6 +8,7 @@ import { describe, expect, it } from "vitest";
 import {
 	AS_ROOT,
 	freshSandbox,
+	listedClaims,
 	registerSession,
 	SCRIPT,
 	store,
@@ -261,11 +262,7 @@ describe("wayfinder-frontier — the issues the frontier query may drop (mantaho
 		fakeClaude(["alice"]);
 		await asAlice();
 		expect(JSON.stringify(store.listIssueClaims())).toBe(before);
-		expect(
-			store
-				.listIssueClaims()
-				.claims.map((c: { sessionId: string }) => c.sessionId),
-		).not.toContain("alice");
+		expect(listedClaims().map((c) => c.sessionId)).not.toContain("alice");
 	});
 
 	it("refuses an unrecognised argument rather than printing the human format", async () => {

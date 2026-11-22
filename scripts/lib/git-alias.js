@@ -1,4 +1,3 @@
-// biome-ignore lint/suspicious/noImportCycles: shell-words.js requires shell-parse.js only inside runScript, once both have loaded (#4863).
 const { literal } = require("./shell-words.js");
 
 const UNREAD_ALIAS = "unread alias";

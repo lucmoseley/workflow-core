@@ -2,7 +2,7 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { assert, describe, expect, it } from "vitest";
 import {
 	freshSandbox,
 	issueClaims,
@@ -116,7 +116,7 @@ const assigned = () => readGhCalls().some((c) => c.startsWith("issue edit"));
 const readRecords = () =>
 	issueClaims
 		.readIssueClaims(530)
-		.map((e: { record: { sessionId: string } }) => e.record.sessionId)
+		.map((e) => e.record.sessionId)
 		.sort();
 
 const heldBy = (sessionId: string) =>
@@ -131,6 +131,7 @@ describe("a ticket another session holds", () => {
 	it("refuses a live holder with exit 2, naming the session and its claim time, and writes nothing", () => {
 		setUp();
 		const { record } = heldBy("sess-other");
+		assert(record);
 		const r = run(ME, [ME, "sess-other"]);
 		expect(r.status).toBe(2);
 		expect(r.stderr).toContain("held by live session sess-other");

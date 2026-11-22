@@ -32,7 +32,7 @@ const {
 	queuedRunnerPeakMb,
 	readSlotPlace,
 } = require("./lib/suite-queue.js");
-const { unwrapArgv } = require("./lib/shell-words.js");
+const { unwrapArgv } = require("./lib/shell-parse.js");
 const {
 	TSC_BUSY_EXIT,
 	TSC_NO_WAIT_ENV,

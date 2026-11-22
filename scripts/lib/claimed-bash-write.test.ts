@@ -3,7 +3,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 import { freshSandbox, live, store, storeAt } from "./arbiter-testkit";
 import { plan } from "./bash-write-plan.js";
 import { decide } from "./claimed-bash-write.js";
@@ -672,9 +672,9 @@ describe("the selection paths it notes (#1220)", () => {
 
 	it("records them on the selection ledger through the real store", () => {
 		run(`node -e "w('scripts/x.js')"`);
-		expect(
-			store.readSelectsBy("mine").map((r: { path: string }) => r.path),
-		).toContain("scripts/x.js");
+		const selects = store.readSelectsBy("mine");
+		assert(selects);
+		expect(selects.map((r) => r.path)).toContain("scripts/x.js");
 	});
 
 	it("notes nothing in a host whose test script never runs run-vitest.js (#1245)", () => {

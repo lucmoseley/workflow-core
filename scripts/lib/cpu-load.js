@@ -1,5 +1,11 @@
-const { escapeShield, parseCommand, unmask } = require("./shell-parse.js");
-const { literal, unwrap, wrapperScript } = require("./shell-words.js");
+const {
+	escapeShield,
+	parseCommand,
+	unmask,
+	unwrap,
+	wrapperScript,
+} = require("./shell-parse.js");
+const { literal } = require("./shell-words.js");
 const { trimEndRun } = require("./trim-run.js");
 
 const ZERO = BigInt(0);

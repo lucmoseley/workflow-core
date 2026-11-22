@@ -10,17 +10,13 @@ const {
 	spellSiblingTestsIfUntested,
 } = require("./registrations.js");
 const {
+	commitPathsArgs,
 	parseCommand,
 	unsetText,
 	walkCommands,
 	walkGit,
 } = require("./shell-parse.js");
-const {
-	commitPathsArgs,
-	commitPathsParse,
-	literal,
-	scanFlags,
-} = require("./shell-words.js");
+const { commitPathsParse, literal, scanFlags } = require("./shell-words.js");
 const { JS_TEST_FILE } = require("./test-kind.js");
 const { isUnder, relativeUnder } = require("./is-under.js");
 

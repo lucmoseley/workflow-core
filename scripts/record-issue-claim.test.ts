@@ -9,7 +9,7 @@ import {
 	core,
 	freshSandbox,
 	gitRepo,
-	issueClaims,
+	listedClaims,
 } from "./lib/arbiter-testkit";
 import {
 	buildBashPayload,
@@ -56,13 +56,7 @@ const fire = (
 		},
 	);
 
-const claims = () =>
-	(
-		issueClaims.listIssueClaims().claims as {
-			issue: number;
-			sessionId: string;
-		}[]
-	).map((c) => `${c.issue} ${c.sessionId}`);
+const claims = () => listedClaims().map((c) => `${c.issue} ${c.sessionId}`);
 
 const readFaults = () => readFailOpenLog(sb.home, sb.repo);
 

@@ -3,6 +3,7 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import { describe, expect, it } from "vitest";
+import type { LockRecord } from "./arbiter-records.js";
 import { proc } from "./arbiter-testkit";
 import { ignoreFailure } from "./caught.js";
 
@@ -84,17 +85,17 @@ describe("liveness — the production path the proving harness cannot reach", ()
 	});
 
 	it("a lock with no pid at all is breakable, not permanent", () => {
-		expect(proc.holderAlive({ sessionId: "ancient" })).toBe(false);
+		const ancient: Partial<LockRecord> = { sessionId: "ancient" };
+		expect(proc.holderAlive(ancient)).toBe(false);
 	});
 
 	it("a vanished job directory does NOT release a holder whose process lives", () => {
-		expect(
-			proc.holderAlive({
-				pid: process.pid,
-				procStart: proc.readProcStartOf(process.pid),
-				stateFile: "/nonexistent/gone.json",
-			}),
-		).toBe(true);
+		const orphaned = {
+			pid: process.pid,
+			procStart: proc.readProcStartOf(process.pid),
+			stateFile: "/nonexistent/gone.json",
+		};
+		expect(proc.holderAlive(orphaned)).toBe(true);
 	});
 });
 

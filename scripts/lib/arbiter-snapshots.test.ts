@@ -2,11 +2,12 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { assert, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	core,
 	finished,
 	freshSandbox,
+	listedLocks,
 	live,
 	noSessions,
 	store,
@@ -30,8 +31,7 @@ describe("the tier scan — a baseline for a write no hook ever sees (mantahoste
 			cwd: sb.repo,
 			encoding: "utf8",
 		});
-	const locks = () =>
-		store.listLocks().map((l: { path: string }) => l.path as string);
+	const locks = () => listedLocks().map((l) => l.path);
 
 	const bashWrote = (sessionId: string, rel: string, text: string) => {
 		const me = live(sb, sessionId);
@@ -55,12 +55,14 @@ describe("the tier scan — a baseline for a write no hook ever sees (mantahoste
 
 		const seen = store.observationState(auditScript, "alice");
 		expect(seen.state).toBe("same");
+		assert(seen.was);
 		expect(readBlobContent(seen.was)).toBe("alice's sed\n");
 
 		write(auditScript, "clobbered by a neighbour\n");
 		execFileSync("git", ["gc", "--prune=now", "-q"], { cwd: sb.repo });
 		const after = store.observationState(auditScript, "alice");
 		expect(after.state).toBe("changed");
+		assert(after.was);
 		expect(readBlobContent(after.was)).toBe("alice's sed\n");
 	});
 
@@ -72,9 +74,9 @@ describe("the tier scan — a baseline for a write no hook ever sees (mantahoste
 
 	it("covers the refusing tier too, where a `git restore` walks past the guard", () => {
 		expect(bashWrote("alice", guarded, "alice's sed\n")).toContain(guarded);
-		expect(readBlobContent(store.observationState(guarded, "alice").was)).toBe(
-			"alice's sed\n",
-		);
+		const { was } = store.observationState(guarded, "alice");
+		assert(was);
+		expect(readBlobContent(was)).toBe("alice's sed\n");
 	});
 
 	it("mints no lock on either tier, so nothing is refused on an inference (mantahostels#288)", () => {
