@@ -1,26 +1,13 @@
 diff --git a/scripts/check-issue-citations.js b/scripts/check-issue-citations.js
-index c5129cf250c2985afc2080b90e9d84728c927c2b..796023ad4d7323f68420f2c56cc3547bd453d122 100644
+index b48dc58d5b68003a4ddcc4f1e4c249d3e90da245..ca8a9bc136d90dd5d9533950280aa03d6e1bed43 100644
 --- a/scripts/check-issue-citations.js
 +++ b/scripts/check-issue-citations.js
-@@ -82,6 +82,35 @@ const HEADING = /^\s{0,3}#{1,6}\s/;
+@@ -15,6 +15,22 @@ const HEADING = /^\s{0,3}#{1,6}\s/;
  const CITED = /#\d+\s*(?:\([^)]*\))?/g;
  const REFERRING_PHRASE =
  	/\bthe\s+[\w'-]+(?:\s+[\w'-]+){0,3}\s+(ticket|decision|route|question|audit|check|clean|issue)\b/i;
-+/*
-+ * "Blocked by nothing." states there is no blocker (#1656, #2389): none,
-+ * nothing or no blocker(s), after the verb or, after Blocking or Blocks, a
-+ * one-word label ending in a colon ("**Blocking question:** none.", where
-+ * "Blocked by upstream: nothing" names its blocker), wrapped in emphasis, a
-+ * bracket, a backtick, a quote or a dash, and ending its clause at the line's
-+ * end or at . ; : , ( or a dash. So "Blocked by the scope ticket; nothing
-+ * else" and "Blocked by nothing but the scope ticket" still report, and so
-+ * does an absence whose sentence goes on to a referring phrase
-+ * with no number ("Blocked by nothing, except the scope ticket."). That phrase
-+ * test is as narrow here as above: "Blocked by nothing, except upstream" passes.
-+ */
 +const NO_BLOCKER = new RegExp(
-+	// eslint-disable-next-line regexp/no-super-linear-backtracking -- input is issue, comment, commit or reply text from the repo's own writers; a crafted one slows the hook, nothing worse (#4642)
-+	`${BLOCKER_LINE.source}(?:(?<!by)\\s+\\w+(?=[*_]*:))?[\\s:*_\`'"(\\[—–-]*` +
++	`${BLOCKER_LINE.source}(?:(?<!by)\\s+[^\\W_]+(?=[*_]*:))?[\\s:*_\`'"(\\[—–-]*` +
 +		`(?:none|nothing|no blockers?)\\b[*_\`'")\\]]*\\s*(?:$|([.;:,(—–-]))`,
 +	"i",
 +);
@@ -38,7 +25,7 @@ index c5129cf250c2985afc2080b90e9d84728c927c2b..796023ad4d7323f68420f2c56cc3547b
  
  /** @param {string} text */
  function numberlessBlockers(text) {
-@@ -90,7 +119,7 @@ function numberlessBlockers(text) {
+@@ -23,7 +39,7 @@ function numberlessBlockers(text) {
  		const line = raw.trim();
  		if (!line || HEADING.test(line)) continue;
  		if (!BLOCKER_LINE.test(line)) continue;
@@ -48,23 +35,10 @@ index c5129cf250c2985afc2080b90e9d84728c927c2b..796023ad4d7323f68420f2c56cc3547b
  			continue;
  		found.push(line.slice(0, 120));
 diff --git a/scripts/check-issue-citations.test.ts b/scripts/check-issue-citations.test.ts
-index 8a99d9899c04c3e1cde3af2a288935fe08064ecd..11d960d1af658c546b57b7788e438abcc183e4ef 100644
+index 67da706d42ffff8c18b7b82213cfc7acd2bb8687..8a3f5628442d9a3ecfdb71beff42f3aff62b9851 100644
 --- a/scripts/check-issue-citations.test.ts
 +++ b/scripts/check-issue-citations.test.ts
-@@ -10,8 +10,10 @@
-  * which is the thing the script reports on and so cannot also be its fixture.
-  *
-  * The exclusion cases are not hypothetical. `## Blocked by` is the section
-- * header /to-tickets emits on every ticket, "None — can start immediately" is
-- * how an unblocked ticket says so, and research tickets cite other projects'
-+ * header /to-tickets emits on every ticket, "None — can start immediately",
-+ * "Blocked by nothing: …", "**Blocked by nothing**, but …" and "**Blocking
-+ * question:** none." are how an unblocked ticket says so (fantasy-books carried
-+ * all four, #2389), and research tickets cite other projects'
-  * trackers constantly — each would swamp the report if it counted.
-  *
-  * It runs daily in the repo-checks run, report-only, and is the only check on
-@@ -183,13 +185,58 @@ describe("number-less blockers", () => {
+@@ -196,13 +196,58 @@ describe("number-less blockers", () => {
  		expect(r.out).toContain("OK:");
  	});
  
@@ -126,9 +100,9 @@ index 8a99d9899c04c3e1cde3af2a288935fe08064ecd..11d960d1af658c546b57b7788e438abc
 +	);
 +
  	it("flags a half-cited line as NO-NUMBER: one numbered blocker beside a described one", async () => {
- 		// mantahostels#26's real form. A bare `#\d+` test passes this and the described half
- 		// stays unfindable.
-@@ -202,6 +249,7 @@ describe("number-less blockers", () => {
+ 		const stub = stubGh([
+ 			{
+@@ -213,6 +258,7 @@ describe("number-less blockers", () => {
  		const r = await run([], stub);
  		expect(r.status).toBe(1);
  		expect(r.out).toContain("NO-NUMBER");

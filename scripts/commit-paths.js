@@ -190,8 +190,7 @@ const SLOW_GATES = /** @type {const} */ (["test", "mutation"]);
 /** @typedef {typeof SLOW_GATES[number]} SlowGate */
 
 /** The line in .husky/pre-commit above which sits every core gate but the slow ones (#1763). */
-const GATES_END =
-	"# ---- end of the gates commit-paths runs before its suite ----";
+const GATES_END = ": end of the gates commit-paths runs before its suite";
 
 /** @typedef {{index: string, messageFile: string, stamps: Record<SlowGate, string>, gates: string}} RunFiles */
 
