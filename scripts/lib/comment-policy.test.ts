@@ -331,6 +331,10 @@ describe("what is not a comment", () => {
 			),
 		).toEqual(["COMMENT@5"]);
 	});
+
+	it("reads a here-string as no heredoc, so the comments after it are judged", () => {
+		expect(tags('read -ra f <<<"$rest"\n# yes\n', "sh")).toEqual(["COMMENT@2"]);
+	});
 });
 
 describe("langOf", () => {
