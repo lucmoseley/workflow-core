@@ -103,6 +103,6 @@
 	"scripts/vitest-pass-reporter.ts": "23c6aa42852707a6",
 	"scripts/vitest-temp-root.ts": "2037170023bc9445",
 	"scripts/vitest-tree-watch.ts": "1439f5a2849bf887",
-	"scripts/watch-artefact.js": "fda54cb5935b51f9",
+	"scripts/watch-artefact.js": "835bde4434a68488",
 	"scripts/write-self-plugin-marker.sh": "652e4de936850c7c"
 }

@@ -5,7 +5,7 @@ const { caught } = require("./lib/caught.js");
 const { parseOrExit } = require("./lib/cli-args.js");
 const { readSubagentLogState } = require("./lib/subagent-log-state.js");
 
-// guess (#539): above the ~18-minute median wait of a waiting-stall forensic
+// guess (#539): above the ~18-minute median wait in the waiting-stall forensics note
 const DEFAULT_CEILING_S = 3600;
 // measured (#4034): about 0.5% of live agents first write later
 const DEFAULT_FIRST_WRITE_S = 600;
@@ -31,7 +31,7 @@ const LOG_ONLY_ADVICE = {
 };
 
 const USAGE = `usage: node ${__filename} <path> <interval-seconds> [ceiling-seconds] [--first-write <seconds>] [--log <agent-log>]
-       node ${__filename} --no-artefact <interval-seconds> [ceiling-seconds] --log <agent-log>`;
+       node ${__filename} --no-artefact <interval-seconds> <ceiling-seconds> --log <agent-log>`;
 
 /**
  * @param {string} message
@@ -148,11 +148,12 @@ function readArgs() {
 		if (flags["--first-write"] !== undefined)
 			refuse("--no-artefact has no first write to wait on");
 		const [rawInterval, rawCeiling] = positionals;
+		if (rawCeiling === undefined) refuse("--no-artefact needs a ceiling");
 		return {
 			logOnly: true,
 			log,
 			intervalMs: parseSeconds(rawInterval, "interval") * 1000,
-			ceilingMs: parseOptionalMs(rawCeiling, "ceiling", DEFAULT_CEILING_S),
+			ceilingMs: parseSeconds(rawCeiling, "ceiling") * 1000,
 		};
 	}
 	const [file, rawInterval, rawCeiling] = positionals;
