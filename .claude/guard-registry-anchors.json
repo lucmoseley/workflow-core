@@ -43,7 +43,7 @@
 	"scripts/claim-issue.js": "61b367396a1fd6d8",
 	"scripts/clear-rule-latch.sh": "bc98e32533329ef1",
 	"scripts/commit-msg-dispatch.js": "f9a1319d235b7d01",
-	"scripts/commit-paths.js": "f7b29db681ae6a73",
+	"scripts/commit-paths.js": "126fd649a8c4aacb",
 	"scripts/concision-backstop.sh": "629c92ea1afc9782",
 	"scripts/cutover-main-checkout.js": "11cb6c2bba3830fd",
 	"scripts/guard-automode-refusal.js": "c51cb5d5022b6207",

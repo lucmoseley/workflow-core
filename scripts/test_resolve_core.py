@@ -399,6 +399,56 @@ def test_resolves_a_root_with_an_exact_install_row_without_spawning_git(
     assert not called.exists()
 
 
+def _resolver_input(which, root, config, install):
+    return {
+        "settings": root / ".claude" / "settings.json",
+        "record": config / "plugins" / "installed_plugins.json",
+        "plugin": install / ".claude-plugin" / "plugin.json",
+    }[which]
+
+
+@pytest.mark.parametrize("text", ["{", '{"version": NaN}', '{"version": -Infinity}'])
+@pytest.mark.parametrize("which", ["settings", "record", "plugin"])
+def test_fails_alike_naming_a_file_that_is_there_but_not_json(adopter, which, text):
+    """#5504."""
+    root, config, install = adopter()
+    at = _resolver_input(which, root, config, install)
+    at.write_text(text)
+    out = agreed(root, {"CLAUDE_CONFIG_DIR": str(config)})
+    assert not out["ok"]
+    assert out["value"] == f"resolve-core: {at} is not JSON"
+
+
+@pytest.mark.parametrize("which", ["settings", "record", "plugin"])
+def test_fails_alike_naming_a_file_that_is_there_but_unreadable(adopter, which):
+    """#5504."""
+    root, config, install = adopter()
+    at = _resolver_input(which, root, config, install)
+    at.chmod(0)
+    try:
+        out = agreed(root, {"CLAUDE_CONFIG_DIR": str(config)})
+    finally:
+        at.chmod(0o644)
+    assert not out["ok"]
+    assert out["value"] == f"resolve-core: {at} cannot be read"
+
+
+def test_fails_alike_where_git_cannot_be_run(adopter, tmp_path, monkeypatch):
+    """#5504."""
+    root, config, _ = adopter()
+    _write_json(config / "plugins" / "installed_plugins.json", {"plugins": {}})
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "node").symlink_to(shutil.which("node"))
+    monkeypatch.setenv("PATH", str(bin_dir))
+    out = agreed(root, {"CLAUDE_CONFIG_DIR": str(config)})
+    assert out == {
+        "ok": False,
+        "value": "resolve-core: git cannot be run",
+        "warnings": [],
+    }
+
+
 def test_fails_alike_where_git_prints_fewer_than_two_lines(
     adopter, tmp_path, monkeypatch
 ):
