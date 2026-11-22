@@ -8,6 +8,8 @@
  * Usage:
  *   node scripts/watch-artefact.js <path> <interval-seconds> [ceiling-seconds]
  *     [--first-write <seconds>] [--log <agent-log>]
+ *   node scripts/watch-artefact.js --no-artefact <interval-seconds>
+ *     [ceiling-seconds] --log <agent-log>
  *
  * The interval, ceiling and first-write deadline accept fractions. The first check is the baseline;
  * each later one compares the size with the check before it. Prints one start
@@ -55,6 +57,12 @@
  * that will not read is judged on growth alone, said once on stderr. Without
  * a log, it cannot tell a stalled agent from a finished one.
  *
+ * `--no-artefact` WAITS ON THE LOG ALONE, for a dispatch with nothing to
+ * watch: an exempt type or a remote agent (#5515). It ends DONE once the log
+ * reads stopped and CEILING at the ceiling, and draws no STALLED or MISSING:
+ * with no artefact there is no growth to judge, and a log not yet written is
+ * an agent not yet started.
+ *
  * Joins no §N3 family: it is a tool an agent runs, not a check, guard,
  * generator or reporter, and its exit codes are its verdicts.
  */
@@ -82,8 +90,15 @@ const ADVICE = {
 	DONE: "the agent has stopped; read its report, or take over from its artefact where it sent none",
 };
 
+const LOG_ONLY_ADVICE = {
+	CEILING:
+		"the ceiling came before the agent's log read stopped; re-run the watch to keep waiting",
+	DONE: "the agent has stopped; read its report",
+};
+
 // This file's own path, which in an adopter is the plugin's, not `scripts/`.
-const USAGE = `usage: node ${__filename} <path> <interval-seconds> [ceiling-seconds] [--first-write <seconds>] [--log <agent-log>]`;
+const USAGE = `usage: node ${__filename} <path> <interval-seconds> [ceiling-seconds] [--first-write <seconds>] [--log <agent-log>]
+       node ${__filename} --no-artefact <interval-seconds> [ceiling-seconds] --log <agent-log>`;
 
 /**
  * @param {string} message
@@ -181,13 +196,24 @@ function readArgs() {
 	const { positionals, flags } = parseOrExit(process.argv.slice(2), {
 		usage: USAGE,
 		max: 3,
-		flags: { "--first-write": "value", "--log": "value" },
+		flags: {
+			"--first-write": "value",
+			"--log": "value",
+			"--no-artefact": "boolean",
+		},
 	});
-	const [file, rawInterval, rawCeiling] = positionals;
-	if (!file) refuse("no artefact path");
+	const logOnly = flags["--no-artefact"] === true;
+	if (logOnly && positionals.length > 2)
+		refuse("--no-artefact takes no artefact path");
+	const file = logOnly ? null : positionals[0];
+	if (file === "" || file === undefined) refuse("no artefact path");
+	const [rawInterval, rawCeiling] = positionals.slice(logOnly ? 0 : 1);
 	const intervalMs = parseSeconds(rawInterval, "interval") * 1000;
 	const log = flags["--log"];
 	if (log === true || log === "") refuse("--log names no agent log");
+	if (logOnly && log === undefined) refuse("--no-artefact needs --log");
+	if (logOnly && flags["--first-write"] !== undefined)
+		refuse("--no-artefact has no first write to wait on");
 	return {
 		file,
 		log,
@@ -204,8 +230,40 @@ function readArgs() {
 	};
 }
 
+/**
+ * @param {string} log
+ * @param {number} intervalMs
+ * @param {number} ceilingMs
+ */
+async function watchLogOnly(log, intervalMs, ceilingMs) {
+	const ceiling = Date.now() + ceilingMs;
+	const pollMs = Math.min(LOG_POLL_MS, intervalMs / 4);
+	writeFd(
+		2,
+		`watch-artefact: no artefact, reading the agent log ${log} every ${pollMs / 1000}s, DONE once it reads stopped, ceiling ${ceilingMs / 1000}s\n`,
+	);
+	/** @param {"DONE" | "CEILING"} verdict */
+	const finish = (verdict) => {
+		writeFd(1, `${verdict} ${log} — ${LOG_ONLY_ADVICE[verdict]}\n`);
+		process.exit(EXIT[verdict]);
+	};
+	let unreadSaid = false;
+	for (let at = Date.now(); at < ceiling; at += pollMs) {
+		await sleep(at - Date.now());
+		const read = readSubagentLogState(log);
+		if (read.state === "stopped") finish("DONE");
+		if (read.state === "unread" && !unreadSaid)
+			writeFd(2, `watch-artefact: ${read.why}; still reading it\n`);
+		unreadSaid ||= read.state === "unread";
+	}
+	await sleep(ceiling - Date.now());
+	finish("CEILING");
+}
+
 async function main() {
 	const { file, log, intervalMs, ceilingMs, firstWriteMs } = readArgs();
+	if (file === null)
+		return watchLogOnly(/** @type {string} */ (log), intervalMs, ceilingMs);
 
 	const start = Date.now();
 	const tracker = new SizeTrack(readSizeOf(file), firstWriteMs);

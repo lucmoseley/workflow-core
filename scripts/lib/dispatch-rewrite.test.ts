@@ -194,12 +194,17 @@ describe("the composed rewrite", () => {
 			},
 		);
 
-		it("tells an agent with no artefact to watch to hold the turn", () => {
+		it("hands an agent with no artefact a log-only foreground wait (#5515)", () => {
 			const prelude = String(
 				rewrite({ prompt: "Find it.", subagent_type: "Explore" }, { job: true })
 					?.prelude,
 			);
-			expect(prelude).toContain("hold the turn until this agent reports");
+			expect(prelude).toMatch(
+				/hold the turn on `node .*watch-artefact\.js --no-artefact 120 --log <output_file>`/,
+			);
+			expect(prelude).toContain(
+				"in the foreground as `rule:job-holds-turn` says",
+			);
 			expect(prelude).not.toContain("end the turn");
 		});
 	});

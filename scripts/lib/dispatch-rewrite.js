@@ -116,8 +116,7 @@ const [TIER_RULE = "", SEARCH_RULE = ""] = EMITTED.injectRules;
 /** Told where no artefact is watched: an exempt or remote agent. */
 const END_TURN =
 	"While this agent runs, end the turn: its completion notification wakes this session, so a poll learns nothing.";
-const HOLD_TURN =
-	"This session is a background job: hold the turn until this agent reports (`rule:job-holds-turn`).";
+const HOLD_TURN = `This session is a background job: hold the turn on \`node ${shellQuote(WATCHER)} --no-artefact 120 --log <output_file>\`, its \`<output_file>\` the one the launch result names, run in the foreground as \`rule:job-holds-turn\` says, until it exits \`DONE\`.`;
 
 /**
  * @param {unknown} input

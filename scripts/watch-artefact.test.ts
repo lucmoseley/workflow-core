@@ -321,6 +321,45 @@ describe("reading the agent's own log (#5421)", () => {
 		expect(r.stderr).toContain(`${log} holds no turn record`);
 	}, 15_000);
 
+	describe("on the log alone, for a dispatch with no artefact (#5515)", () => {
+		const watchLogOnly = (steps: [at: number, act: () => void][] = []) =>
+			watch(
+				[
+					"--no-artefact",
+					String(INTERVAL_S),
+					String(4.5 * INTERVAL_S),
+					"--log",
+					log,
+				],
+				steps,
+			);
+
+		it("ends DONE within one log poll of the log ending stopped", async () => {
+			writeFileSync(log, toolCall);
+			const r = await watchLogOnly([
+				[1, () => appendFileSync(log, toolResult + turnEnd)],
+			]);
+			expect(r.status).toBe(EXIT.DONE);
+			expect(r.stdout).toMatch(
+				new RegExp(`^DONE ${log} — the agent has stopped; read its report`),
+			);
+		}, 15_000);
+
+		it.each([
+			["a call in flight", () => writeFileSync(log, toolCall)],
+			["no log yet, never MISSING", () => rmSync(log, { force: true })],
+		])(
+			"ends CEILING on %s",
+			async (_name, write) => {
+				write();
+				const r = await watchLogOnly();
+				expect(r.status).toBe(EXIT.CEILING);
+				expect(r.stdout).toMatch(new RegExp(`^CEILING ${log} — `));
+			},
+			15_000,
+		);
+	});
+
 	it("says on its start line when no log is read", async () => {
 		const r = await watch([artefact, String(INTERVAL_S)]);
 		expect(r.stderr).toContain("on growth alone, no agent log");
@@ -334,6 +373,15 @@ describe("a bad invocation", () => {
 		["a non-numeric ceiling", ["x", "1", "soon"]],
 		["a zero first-write deadline", ["x", "1", "--first-write", "0"]],
 		["an empty agent log", ["x", "1", "--log="]],
+		["a log-only watch with no log", ["--no-artefact", "1"]],
+		[
+			"a log-only watch given a path",
+			["--no-artefact", "x", "1", "2", "--log", "l"],
+		],
+		[
+			"a log-only first-write deadline",
+			["--no-artefact", "1", "--log", "l", "--first-write", "5"],
+		],
 	])("refuses %s with exit 2, printing no verdict", async (_label, args) => {
 		const r = await runInProcessAsync(SCRIPT, args);
 		expect(r.status).toBe(EXIT.USAGE);
