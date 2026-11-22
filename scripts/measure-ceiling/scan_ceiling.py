@@ -49,10 +49,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "measure-burn"))
 import scan_burn as sb
 
 UTC = dt.timezone.utc
-# Asia/Singapore, which the reset messages are stamped in. Fixed +08:00 with no
-# DST since 1935, so an offset is exact and needs no tz database.
 SGT = dt.timezone(dt.timedelta(hours=8))
-# The plan's rolling usage window, the counter behind every block in the corpus.
 WINDOW_HOURS = 5
 RESET_RE = re.compile(r"resets?(?: at)? (\d{1,2})(?::(\d{2}))?\s*(am|pm)", re.I)
 
@@ -75,12 +72,6 @@ def text_of(rec):
 
 
 def reset_at(text, at):
-    """The instant the allowance returns, from the message's local wall time.
-
-    The message gives a time of day only, so this takes the next occurrence of
-    it strictly after the event — without which a 21:57 event resetting at
-    00:20 reads as 21 hours in the past rather than 2 hours ahead.
-    """
     m = RESET_RE.search(text or "")
     if not m:
         return None
@@ -94,16 +85,6 @@ def reset_at(text, at):
 
 
 def classify(rec, tally):
-    """The event a record represents, or None where it is not a 429 at all.
-
-    Three kinds, kept apart because they cost different things:
-      window-exhausted  the rolling 5-hour allowance is spent; blocks until reset
-      weekly-exhausted  the weekly counter is spent; blocks for far longer
-      request-rejected  momentary throughput rejection; no reset, frees in seconds
-
-    `tally` is the caller's accumulator: a 429 with no readable timestamp is
-    counted into it.
-    """
     if rec.get("error") != "rate_limit" and rec.get("apiErrorStatus") != 429:
         return None
     text = text_of(rec)
@@ -130,7 +111,6 @@ def classify(rec, tally):
 
 
 def dedupe(events):
-    """One event per request. A transcript repeats a record across its blocks."""
     seen, out = set(), []
     for e in events:
         key = (e["session"], e["rid"], e["at"])
@@ -142,12 +122,6 @@ def dedupe(events):
 
 
 def episodes(events):
-    """Exhaustion episodes: one per window, however many sessions walked into it.
-
-    Keyed on the reset instant the messages name — the identity of the window
-    itself. An event carrying no reset time (a throughput rejection) starts no
-    episode, because nothing says how long it blocked anything.
-    """
     by_reset = defaultdict(
         lambda: {
             "events": 0,
@@ -166,8 +140,6 @@ def episodes(events):
         g["kinds"].add(e["kind"])
         if g["start"] is None or e["at"] < g["start"]:
             g["start"] = e["at"]
-        # The session's last retry into this window, which is where its wait to
-        # resume is timed from.
         if e["at"] >= g["last"].get(e["session"], e["at"]):
             g["last"][e["session"]] = e["at"]
     out = []
@@ -187,7 +159,6 @@ def episodes(events):
 
 
 def merge(intervals):
-    """Overlapping [start, end) intervals collapsed, so nothing double-counts."""
     out = []
     for a, b in sorted(intervals):
         if out and a <= out[-1][1]:
@@ -202,11 +173,6 @@ def union_minutes(intervals):
 
 
 def blocked_by_day(intervals, tz=SGT):
-    """Blocked minutes per local calendar day, an interval split at midnight.
-
-    Local, not UTC: "how much of the *day* was lost" is a question about the
-    founder's day, and a UTC day cuts this one at 08:00 local.
-    """
     per = defaultdict(float)
     for a, b in merge(intervals):
         a, b = a.astimezone(tz), b.astimezone(tz)
@@ -222,26 +188,14 @@ def blocked_by_day(intervals, tz=SGT):
 
 @dataclass
 class Activity:
-    """What one sweep of the corpus knows besides the events themselves.
-
-    The five fields are read together by every caller, so they travel as one
-    record rather than as a parameter list five long.
-    """
-
-    turns: dict = field(default_factory=dict)  # sessionId -> [(when, model)]
-    skill: dict = field(default_factory=dict)  # sessionId -> attributionSkill
-    title: dict = field(default_factory=dict)  # sessionId -> session name
-    cost_by_day: dict = field(default_factory=dict)  # local day -> cost-equivalent
-    series: list = field(default_factory=list)  # [(when, cost-equivalent)] sorted
+    turns: dict = field(default_factory=dict)
+    skill: dict = field(default_factory=dict)
+    title: dict = field(default_factory=dict)
+    cost_by_day: dict = field(default_factory=dict)
+    series: list = field(default_factory=list)
 
 
 def active_spans(turns, tz=SGT):
-    """Each local day's working span: its first turn to its last.
-
-    The honest denominator for lost time. Hour buckets undercount it — an hour
-    with one turn and 58 idle minutes counts the same as a full one — but the
-    span is what "the day's work" means when asking what a block interrupted.
-    """
     per = {}
     for ts in turns.values():
         for at, _model in ts:
@@ -252,12 +206,6 @@ def active_spans(turns, tz=SGT):
 
 
 def overlap_minutes(intervals, spans):
-    """Minutes of blockage that landed inside a day's working span.
-
-    Blockage at 04:00 with nobody working is not lost work, so it does not
-    count here — it is still in the wall-clock figure, which is the other half
-    of the picture.
-    """
     total = 0.0
     for a, b in merge(intervals):
         for lo, hi in spans.values():
@@ -268,23 +216,11 @@ def overlap_minutes(intervals, spans):
 
 
 def window_cost(series, at, hours=WINDOW_HOURS):
-    """Cost-equivalent spent in the `hours` before `at`.
-
-    The counter that produced every block in this corpus is a *rolling* window,
-    so the quantity that matters at an exhaustion is the burst behind it, never
-    the calendar day's total.
-    """
     lo = at - dt.timedelta(hours=hours)
     return sum(c for t, c in series if lo < t <= at)
 
 
 def peak_burst_by_day(series, hours=WINDOW_HOURS, tz=SGT):
-    """Each local day's worst rolling window, by that window's end.
-
-    Stepped over the events themselves rather than a fixed grid: the maximum of
-    a rolling sum always ends at one of them, so this is exact and not a
-    sampling.
-    """
     series = sorted(series)
     peaks = defaultdict(float)
     lo = 0
@@ -300,7 +236,6 @@ def peak_burst_by_day(series, hours=WINDOW_HOURS, tz=SGT):
 
 
 def scan_file(path, tally):
-    """Ceiling events in one transcript, its skips counted into `tally`."""
     for rec in tc.records(path, tally, needle=('"rate_limit"', '"apiErrorStatus":429')):
         if rec.get("type") != "assistant":
             continue
@@ -311,30 +246,17 @@ def scan_file(path, tally):
 
 
 def transcripts():
-    """Every seat root's transcripts, one copy of each session."""
     for p, _is_sub, _owner in tc.one_copy_each():
         yield p
 
 
 def activity(tally):
-    """Per-session turn timestamps and attribution, for the denominators.
-    `tally` is the caller's accumulator: the skips are counted into it.
-
-    Answers what the events alone cannot: which hours the machine was working
-    at all (so a 3am block can be priced at nothing), and what each blocked
-    session was doing. A session the launch record marks overflow still counts
-    as working, but out of the cost figures: it bills a key, not a plan (#3696).
-    """
     turns = defaultdict(list)
     skill, title = {}, {}
     cost_by_day = defaultdict(float)
     series = []
     priced = []
     for path in transcripts():
-        # One billable unit per requestId, each field the MAX across that
-        # request's records — scripts/measure-burn/scan_burn.py's rule (mantahostels#1121),
-        # because a subagent transcript streams a rising output count across
-        # several records of one request.
         billed = {}
         for rec in tc.records(path, tally, needle='"timestamp"'):
             sid = rec.get("sessionId") or rec.get("session_id")
@@ -365,9 +287,6 @@ def activity(tally):
             if rec.get("attributionSkill"):
                 skill.setdefault(sid, rec["attributionSkill"])
         for r in billed.values():
-            # Opus 5 API list ratios, each cache write at its TTL's rate — a
-            # cost-equivalent, never a bill (mantahostels#829), put beside each
-            # day's blockage as a comparable volume figure.
             priced.append((r["sid"], r["ts"], sb.usd(r)))
     overflow = sb.overflow_sessions({sid for sid, _at, _c in priced if sid})
     for sid, at, c in priced:
@@ -378,12 +297,6 @@ def activity(tally):
 
 
 def account_owner():
-    """sessionId → the labels of the seats whose roots hold its transcripts.
-
-    Nothing in a transcript names the account; the seat root it sits under
-    does. A session resumed on another seat sits under both, and `owner_of`
-    leaves it unattributed rather than guess.
-    """
     owner = defaultdict(set)
     for _rel, path, _is_sub, sid in tc.transcript_files():
         seat = tc.seat_of(path)
@@ -406,9 +319,6 @@ def fmt_h(minutes):
 
 
 def report(events, act, owner, tally):
-    """The whole corpus, always: the denominators (active hours, the
-    working-day span, the burst series) are swept whole, so a windowed
-    numerator would misstate every share."""
     turns, skill, title = act.turns, act.skill, act.title
     cost_by_day, series = act.cost_by_day, act.series
     evs = dedupe(events)
@@ -466,8 +376,6 @@ def report(events, act, owner, tally):
         f"mean {sum(mins) / len(mins):.0f} min  max {mins[-1]:.0f} min"
     )
 
-    # Wall-clock overstates the loss: a block at 04:00 local blocks nothing.
-    # Active hours are the honest denominator.
     hours = {
         t.astimezone(SGT).strftime("%Y-%m-%d %H")
         for ts in turns.values()
@@ -529,8 +437,6 @@ def report(events, act, owner, tally):
     )
     print()
 
-    # Turns per day sit beside blockage deliberately: a quiet day is only
-    # evidence about capacity if the volume that day was comparable.
     turns_by_day = defaultdict(int)
     for ts in turns.values():
         for at, _m in ts:
@@ -562,8 +468,6 @@ def report(events, act, owner, tally):
         "  episode starts by local hour: "
         + "  ".join(f"{h:02d}:00 x{n}" for h, n in sorted(by_hour.items()))
     )
-    # Blocked *minutes* by hour of day, which the start histogram cannot show:
-    # a block beginning at 22:00 spends most of itself after midnight.
     mins_by_hour = defaultdict(float)
     for a, b in merge(spans):
         a = a.astimezone(SGT)
@@ -592,9 +496,6 @@ def report(events, act, owner, tally):
         "Cost-equivalent at Opus 5\n  list ratios (mantahostels#829) — a proxy for what "
         "the plan meters, which is unpublished."
     )
-    # The first block of a local day only. A later one in the same day sits
-    # behind hours the earlier block already suppressed, so its burst reads low
-    # for the wrong reason.
     first_of_day = {}
     for e in eps:
         d = e["start"].astimezone(SGT).date().isoformat()
@@ -650,11 +551,6 @@ def report(events, act, owner, tally):
         print(f"    · {t[:88]}")
     print()
 
-    # Did the work resume when the allowance came back, or was the session
-    # simply lost? Timed from each session's LAST retry into the window: a turn
-    # landing seconds after the first refusal is an in-flight request, and
-    # timing from the first refusal scores those as early resumptions — which
-    # is what a second account picking the work up would also look like.
     print("== What happened next ==")
     before = after = never = 0
     waits, early_models = [], defaultdict(int)

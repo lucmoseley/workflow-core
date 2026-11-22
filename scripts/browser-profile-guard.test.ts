@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * The browser-profile guard refuses only a command that would really open a
- * URL, not the same words in a heredoc body or a quoted argument (#1547), and
- * names the Chrome profile it derives from the session's own account (#5339).
- *
- * The fixtures pin the two undocumented stores the guard reads: `.claude.json`'s
- * `oauthAccount.emailAddress` and Chrome's `Local State` `.profile.info_cache`.
- */
 
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -39,7 +31,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/** A fresh directory holding `files`, each a path and its JSON or raw text. */
 const tree = (files: Record<string, unknown>): string => {
 	const root = path.join(dir, `f${fixtures++}`);
 	fs.mkdirSync(root, { recursive: true });
@@ -60,13 +51,10 @@ const account = (email: string) => ({
 });
 
 interface World {
-	/** `.claude.json`'s contents, or null for no file. */
 	claudeJson?: unknown;
-	/** One `Local State` per Windows user. */
 	stores?: unknown[];
 }
 
-/** Runs the guard on one command against a world's two stores. */
 const run = (
 	command: string,
 	{ claudeJson = account(ACCOUNT), stores = [store(INFO_CACHE)] }: World = {},
@@ -90,7 +78,6 @@ const run = (
 	});
 };
 
-/** The guard's refusal reason for one command, or "" where it allows. */
 const readReasonFor = (command: string, world: World = {}): string => {
 	const r = run(command, world);
 	expect(r.status).toBe(0);
@@ -99,7 +86,6 @@ const readReasonFor = (command: string, world: World = {}): string => {
 	return JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason;
 };
 
-/** The guard's verdict on one command: which refusal, or `allow`. */
 const verdict = (command: string) => {
 	const reason = readReasonFor(command);
 	if (!reason) return "allow";
@@ -380,7 +366,6 @@ describe("a payload with nothing to judge passes", () => {
 
 	it("names a missing jq on stderr as unjudged", () => {
 		const bin = tree({});
-		// PATH holds bash alone, so the guard finds no jq.
 		fs.symlinkSync("/bin/bash", path.join(bin, "bash"));
 		const r = spawnSync(path.join(bin, "bash"), [HOOK], {
 			input: JSON.stringify({ tool_input: { command: "npm login" } }),

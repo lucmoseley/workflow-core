@@ -1,10 +1,3 @@
-"""Lander events and the session queue wait while a lander suite runs.
-Counting rules: #2812 (the baseline)'s, unchanged.
-Usage: python3 -I lander.py <.lander.log> <runs.jsonl> <.suite-queue-exits.jsonl>
-Lander gate wait: each 'lander: gate opened after N s' line (the lander waits for a running suite).
-Overlap: each session queue wait [exit - waitS, exit] is cut into the seconds that fall while a
-lander full run (kind 'lander' in runs.jsonl) was live, and the seconds that do not."""
-
 import collections
 import json
 import re
@@ -52,7 +45,6 @@ def live_overlap(a, b):
     return s
 
 
-# union of lander-live time after t0
 union = 0.0
 cur = None
 for x, y in lr:

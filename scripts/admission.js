@@ -1,61 +1,4 @@
 #!/usr/bin/env node
-/*
- * admission.js — re-read the machine and say how many sessions may start now.
- *
- * The dispatch-time slot count `.claude/skills/pick-next` §5 calls for, in code
- * rather than in prose (mantahostels#1144; mantahostels#943 measured what the prose arithmetic cost).
- *
- * Usage:  node admission.js [--json] [--launch] [--skip-allowance]
- *         node admission.js --load-only
- *
- * `--skip-allowance` drops the allowance limb below, the memory limb staying
- * armed — what `dispatch-sessions.js --force` passes (#299).
- *
- * `--load-only` judges the CPU limb alone, the load and session ceilings both —
- * what `dispatch-sessions.js --force-memory` runs, so overriding memory never
- * disarms either (#834, #2141). Only `WFC_LOAD_CEILING=0` (or a 0 in `~/.claude/load-ceiling`) and
- * `WFC_SESSION_CEILING=0` turn them off.
- *
- * `--launch` reserves, on top of the one idle pair already reserved, the
- * spare pair the caller's next launch is about to make the daemon warm
- * (mantahostels#2588). A launcher re-reading admission before each spawn
- * otherwise sees only what previous members warmed and never what its own
- * member is about to cost — `poolReserve` in `lib/admission.js` has the
- * pricing. It charges each slot past the first its own pair, as the earlier
- * members' pairs are resident by the k-th member's re-read (#2511), so
- * `dispatch-sessions.js`'s per-member re-reads admit every slot the refill
- * loop's free-slot count, also passing it, finds (#2500).
- *
- * Exit codes:
- *   0  at least one slot
- *   1  HOLD — no slot, a fresh allowance reading is at 100% (#293
- *      ruling 3, #294; the backstop at #371 item 5), load1 is at or above
- *      the CPU ceiling (#830), which a `cpu load` line then names, or the live
- *      sessions fill the session ceiling (#2141), which a `cpu sessions` line
- *      names
- *   2  REFUSED — memory or the session count could not be read
- *
- * `--json`'s payload also carries `allowanceWarning` (string | null) — set
- * when the per-spawn allowance re-read found a stale or absent bar. That
- * never changes the exit code: unlike a breach, an untrustworthy reading only
- * warns and admits, since the only refresh is the 11-25s `/usage` call this
- * per-spawn path cannot afford (#293 ruling 3).
- *
- * `hungJobs` (mantahostels#2598) rides both output modes off the SAME `listedSessionIds()`
- * read this file already pays for — `lib/hung-jobs.js#findHungJobs` takes that
- * listing rather than calling `claude agents --json` again. It never changes
- * the exit code: a hung job is a courtesy the refusal text can use, not a
- * gate `verdict` does not already carry. `dispatch-sessions.js`'s roster
- * remedy reads the TEXT-mode rendering (`buildHungJobsText`, below) rather than
- * this field directly — it never passes `--json` — so the two are exercised
- * by separate tests, not one.
- *
- * Mutated at mantahostels#2598: dropping `hungJobs` from the `--json` payload, caught by
- * admission.test.ts's "includes hungJobs in --json even when empty" case.
- * Separately, dropping the TEXT-mode section `buildHungJobsText` renders is caught
- * by dispatch-sessions-reread.test.ts's "names a HUNG-JOB inline" case, which reads
- * dispatch-sessions.js's own relay of it rather than this file's `--json`.
- */
 
 const { writeFd } = require("./lib/write-fd.js");
 const { scriptPath } = require("./lib/script-path.js");
@@ -82,26 +25,10 @@ const { parseOrExit } = require("./lib/cli-args");
 const USAGE = `Usage: node ${scriptPath("admission.js")} [--json] [--launch] [--skip-allowance]
        node ${scriptPath("admission.js")} --load-only`;
 
-/*
- * A backstop at 100% on both bars, never the launcher's 90/99 thresholds:
- * those size the set once, in `dispatch-sessions.js`'s cap, and a set the cap
- * admitted must not be refused member by member on the same reading (#371
- * item 5).
- */
+// #371
 const ALLOWANCE_BACKSTOP = 100;
 
-/*
- * The per-spawn allowance re-read (#293 ruling 3). The session bar is
- * precisely the figure a set launch moves, and the pre-set gate spends its one
- * read before member one — so it cannot see what members two through seven
- * consume.
- *
- * Does NOT fail closed on a stale or absent reading: the only refresh is the
- * 11-25s `claude -p "/usage"` call, which this per-spawn path cannot afford,
- * so refusing here on an untrustworthy reading would strand every remaining
- * member of a set with no path to a better one. It warns and admits instead.
- * @returns {{ breach: string | null, warning: string | null }}
- */
+/** @returns {{ breach: string | null, warning: string | null }} */
 function allowanceCheck() {
 	const allowance = readAllowance();
 	/** @type {[string, "weekly_all" | "session"][]} */
@@ -113,7 +40,6 @@ function allowanceCheck() {
 	let breach = null;
 	for (const [label, key] of bars) {
 		const bar = allowance[key];
-		// A bar the account does not report holds nothing back (#3758).
 		if (bar.trust === "unreported") continue;
 		if (bar.trust !== "fresh") {
 			warnings.push(
@@ -132,14 +58,10 @@ function allowanceCheck() {
 	return { breach, warning: warnings.length > 0 ? warnings.join("; ") : null };
 }
 
-/* Unknown is never calm (mantahostels#1206): the limb fails open on it, so it says so. */
 const CPU_LOAD_UNKNOWN =
 	"cpu load           unknown — /proc/loadavg unreadable, so nothing is held on load";
 
 /**
- * The `cpu load` and `cpu sessions` lines for each CPU hold, which
- * `dispatch-sessions.js` keys its remedy off — and off `the only hold`, on the
- * last, for whether a memory or allowance remedy applies too.
  * @param {import("./lib/cpu-sample").LoadReading} load
  * @param {ReturnType<typeof readCpuSlots>} cpu
  * @param {boolean} only
@@ -168,9 +90,6 @@ function main() {
 	if (flags["--load-only"]) return cpuLimbOnly();
 	const json = flags["--json"] === true;
 	const spares = flags["--launch"] ? LAUNCH_SPARES : 0;
-	// One `claude agents --json` read, shared with the hung-job scan below
-	// (mantahostels#2598) — `dispatch-sessions.js`'s per-member re-read must not double it.
-	// Empty outside a session reads as nothing live (#2180).
 	const listed = admissionSessionIds();
 	const { overhead, host, live, load, cpu, verdict, memory } = machineAdmission(
 		{
@@ -180,14 +99,8 @@ function main() {
 			reserves: readReserves(),
 		},
 	);
-	/* Between the figures and the hung-job section, never after it:
-	 * `dispatch-sessions.js` reads from `^hung job(s)` to the end. */
 	const memoryText = `\n\n${buildMemoryBreakdownLines(memory).join("\n")}`;
 
-	// Runs even where `verdict` is itself refused — a warning is still worth
-	// surfacing on an unreadable memory read — unless the caller has overridden
-	// allowance, where a stale-reading warning is noise. Residual: `--json`'s
-	// `allowanceWarning` then reads null, as it does for a fresh reading.
 	const allowance = flags["--skip-allowance"]
 		? { breach: null, warning: null }
 		: allowanceCheck();
@@ -196,20 +109,8 @@ function main() {
 		verdict.reason = allowance.breach;
 	}
 
-	/*
-	 * A WORKING job that is alive but silent, off the SAME listing above — no
-	 * second oracle spawn. Silent where the listing itself failed (`listed.ids`
-	 * absent) or the job store would not open: this is a courtesy the refusal
-	 * text can use, never a second gate `verdict` does not already carry.
-	 */
 	const hungJobs = listed.ids && listed.pids ? readHungJobs(listed) : [];
 
-	/*
-	 * Built as one string and written with a single `writeFd`, never
-	 * `console.log` (§N6, `docs/code-standards-base.md`): node buffers a pipe's
-	 * writes and drops whatever is still buffered at `process.exit`, and
-	 * stdout is a pipe under dispatch.
-	 */
 	if (json) return writeJson({ verdict, hungJobs, allowance, memory });
 
 	if (!verdict.ok)
@@ -234,10 +135,7 @@ function main() {
  * @typedef {{breach: string | null, warning: string | null}} AllowanceRead
  */
 
-/**
- * `--load-only`: the CPU limb's lines alone, exit 1 only where it holds.
- * @returns {number}
- */
+/** @returns {number} */
 function cpuLimbOnly() {
 	const load = overloadReading();
 	const cpu = readCpuSlots();
@@ -250,17 +148,11 @@ function cpuLimbOnly() {
 	return load.overloaded || cpu.full ? 1 : 0;
 }
 
-/**
- * The `cpu sessions` line where the session count went unread; unknown is
- * never calm (mantahostels#1206).
- * @param {ReturnType<typeof readCpuSlots>} cpu
- */
+/** @param {ReturnType<typeof readCpuSlots>} cpu */
 const cpuSessionsUnknown = (cpu) =>
 	`cpu sessions       unknown — ${cpu.unknown}, so nothing is held on the session count`;
 
 /**
- * The hung jobs off the listing already read; none where the job store
- * would not open.
  * @param {Parameters<typeof findHungJobs>[1]} listed
  * @returns {ReturnType<typeof findHungJobs>}
  */
@@ -270,15 +162,10 @@ function readHungJobs(listed) {
 }
 
 /**
- * The `--json` report; exit 2 on an unreadable verdict, else 0 or 1.
  * @param {{verdict: Admission["verdict"], hungJobs: ReturnType<typeof findHungJobs>, allowance: AllowanceRead, memory: Admission["memory"]}} a
  * @returns {number}
  */
 function writeJson({ verdict, hungJobs, allowance, memory }) {
-	// `hungJobs` and `allowanceWarning` ride alongside `verdict` rather than
-	// inside it: `verdict` is `lib/admission.js#strictAdmission`'s own return
-	// shape, and widening it here would drift the two from what that lib's own
-	// tests assert.
 	writeFd(
 		1,
 		`${JSON.stringify({ ...verdict, hungJobs, allowanceWarning: allowance.warning, memory }, null, 2)}\n`,
@@ -288,25 +175,21 @@ function writeJson({ verdict, hungJobs, allowance, memory }) {
 }
 
 /**
- * The text-mode refusal where no verdict could be reached; always exit 2.
  * @param {{verdict: Extract<Admission["verdict"], {ok: false}>, load: Admission["load"], cpu: Admission["cpu"], memoryText: string, hungJobs: ReturnType<typeof findHungJobs>}} a
  * @returns {number}
  */
 function writeRefusal({ verdict, load, cpu, memoryText, hungJobs }) {
+	const cpuRemedy = buildCpuHoldLines(load, cpu, false)
+		.map((l) => `\n${l}`)
+		.join("");
 	writeFd(
 		2,
-		`ADMISSION REFUSED — ${verdict.error}\n  Start nothing on a guess: an over-admission freezes the machine.${
-			/* So dispatch names the CPU remedy beside the memory one. */
-			buildCpuHoldLines(load, cpu, false)
-				.map((l) => `\n${l}`)
-				.join("")
-		}${memoryText}\n${buildHungJobsText(hungJobs)}`,
+		`ADMISSION REFUSED — ${verdict.error}\n  Start nothing on a guess: an over-admission freezes the machine.${cpuRemedy}${memoryText}\n${buildHungJobsText(hungJobs)}`,
 	);
 	return 2;
 }
 
 /**
- * The text-mode report's figure lines, ahead of the memory breakdown.
  * @param {{verdict: Extract<Admission["verdict"], {ok: true}>, host: Admission["host"], live: Admission["live"], overhead: Admission["overhead"], spares: number, allowance: AllowanceRead}} a
  * @returns {string[]}
  */
@@ -324,8 +207,6 @@ function buildReportLines({
 		`live sessions      ${verdict.sessions} alongside this one`,
 		`session draw       ${buildSessionDrawLine(host)}`,
 		`live draw          ${buildLiveDrawLine(live)}`,
-		/* Silent at 0, so a caller not passing the flag reads exactly what it
-		 * always has. */
 		...(overhead.ok && overhead.pendingMb
 			? [
 					`pending spares     ${overhead.pendingMb} MB reserved for the ${spares} spare(s) this launch will warm, at ${overhead.perPairMb} MB a pair, and as much again for each slot past the first (#2511)`,
@@ -334,15 +215,12 @@ function buildReportLines({
 		`reclaimable        ${verdict.reclaimedMb} MB about to be reaped`,
 		...(windowsLine ? [`windows memory     ${windowsLine}`] : []),
 		`slots              ${verdict.slots} — ${verdict.admit ? "ADMIT" : "HOLD"}: ${verdict.reason}`,
-		/* dispatch-sessions.js relays the unknown line on its admit path. */
 		...(verdict.load.load1 === null ? [CPU_LOAD_UNKNOWN] : []),
 		...buildCpuHoldLines(
 			verdict.load,
 			verdict.cpu,
 			verdict.cpuIsSoleHold && !allowance.breach,
 		),
-		/* The suite figure may rest on the reclaim credit, which only the two npm
-		 * suite scripts collect — their pre-scripts run the reap (mantahostels#1930, #633). */
 		`test suites        ${verdict.suites} concurrent${
 			verdict.availableMb - verdict.reservedMb >= SUITE_GATE_MB
 				? ""
@@ -353,19 +231,11 @@ function buildReportLines({
 				? " — on the pretest reap `npm run test` and `test:changed` run; a build and a bare `vitest run` collect no credit"
 				: ""
 		}`,
-		/* Silent where there is nothing to say, so a clean run's output is
-		 * unchanged — same convention as the pending-spares line above. */
 		...(allowance.warning ? [`allowance          ${allowance.warning}`] : []),
 	];
 }
 
-/**
- * The hung-job section for the text-mode reports above — dispatch-sessions.js
- * reads this off `admission_out` directly rather than a second `check:ghost-jobs`
- * run (mantahostels#2598). Empty string where there is nothing to say, so a clean run's
- * output is unchanged.
- * @param {ReturnType<typeof findHungJobs>} hungJobs
- */
+/** @param {ReturnType<typeof findHungJobs>} hungJobs */
 function buildHungJobsText(hungJobs) {
 	if (hungJobs.length === 0) return "";
 	const lines = [
@@ -381,8 +251,6 @@ function buildHungJobsText(hungJobs) {
 	return `\n${lines.join("\n")}`;
 }
 
-/* The seam every neighbouring script uses: requiring this file runs nothing, so
- * `main` stays callable in-process. */
 if (require.main === module) process.exit(main());
 
 module.exports = { main };

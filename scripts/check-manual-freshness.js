@@ -1,65 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-manual-freshness.js — CI guard that the operating manual is still being
- * maintained against the roadmap.
- *
- * Usage:
- *   node check-manual-freshness.js [<manual.md> <roadmap.html>]
- *                                  [--allowlist <file>] [--notify]
- *   (defaults: docs/operating-manual.md docs/reference-roadmap.html
- *              scripts/manual-path-allowlist.json)
- *
- * --notify is the quiet path, wired to no live route: silent unless something
- * is actually drifting. It exists because
- * the 5-9 MINOR band is a WARN, and a WARN exits 0 — so
- * report-manual-staleness.js, which reads the exit code, files nothing for it.
- * Ruled at mantahostels#391; the issue still files at FAIL only.
- *
- * The manual (docs/operating-manual.md) is refreshed by the manual-sync skill
- * when it falls >=5 roadmap MINOR versions behind, on any roadmap MAJOR bump, or
- * at a phase transition — whichever comes first. Only the two mechanical
- * conditions are checked here; the phase-transition trigger is a human
- * judgement the script cannot see.
- *
- * Five assertions. The first four read the manual's two-anchor provenance stamp
- * and the corrections log directly beneath it; the fifth reads the whole file:
- *   1. Stamp shape — the line carries BOTH anchors (roadmap commit + reviewed-
- *      against repo SHA); both resolve to real commits; the roadmap commit
- *      actually touches the roadmap HTML.
- *      Both anchors, and the vX.Y beside the roadmap one, record what the last
- *      sync REVIEWED THROUGH, not what its prose was synthesised from — so a
- *      full roadmap-diff review that correctly makes no edit still advances
- *      them, and assertion 2 below is closeable by such a run. A clean run never
- *      freezes the roadmap anchor (mantahostels#1645), which would leave
- *      assertion 2 permanently unsatisfiable.
- *   2. Roadmap distance — WARN at >=5 MINOR behind, FAIL at >=10. Any MAJOR bump
- *      behind is a FAIL.
- *   3. Review latency — WARN if the reviewed-against commit is >14 days old,
- *      FAIL at >30.
- *   4. Corrections log — the "Corrections since last sync:" line exists; every
- *      entry on it cites a source; and no entry's recorded repo anchor has been
- *      left behind by an advanced stamp. A targeted correction (manual-sync's
- *      targeted-correction mode, settled at mantahostels#82) advances neither anchor, so a
- *      recorded anchor that no longer matches the stamp means a full sync ran
- *      and failed to clear the log.
- *   5. Cited paths — every path-like token in a code span resolves on disk
- *      (mantahostels#1149).
- *      Findings are WARN: only a FAIL files an issue (mantahostels#391). A path the manual
- *      cites by basename needs an allowlist entry naming the file it stands
- *      for; without one it reports as a miss.
- *
- * WARN findings never gate — a manual drifting toward its refresh window must
- * not fail CI on every push touching docs/ (mantahostels#155 — the checker family's
- * exit-code and severity model — consequence 5). An absent manual is a SKIP;
- * any other file that will not read is BROKEN, not a finding.
- * Requires full git history (CI: actions/checkout with fetch-depth: 0).
- *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), compares docs/operating-manual.md against the roadmap and reports a drift line.
- * JUSTIFIED: fail-safe — nothing refreshes the manual on any trigger, so it stays stale until a session is told it has drifted.
- * DEFEAT:    none; --notify is silent while the manual is current, and
- *            reachable only by a hand run passing the flag, never by a live
- *            route.
- */
 
 const fs = require("node:fs");
 
@@ -72,7 +11,6 @@ const { noop } = require("./lib/noop.js");
 const { execGit } = require("./lib/git.js");
 const { trimEndRun } = require("./lib/trim-run.js");
 
-/** Also read by report-manual-staleness.js, which skips on its absence too. */
 const MANUAL = "docs/operating-manual.md";
 
 const WARN_MINOR = 5;
@@ -116,54 +54,23 @@ function commitUnixDate(sha) {
 	}
 }
 
-// The corrections log sits directly under the provenance stamp. A targeted
-// correction lands one already-settled fact between full syncs, and each entry
-// records the repo anchor it was made against — which is what makes "a full sync
-// ran and did not clear the log" visible from the file alone.
 const LABEL = "**Corrections since last sync:**";
 const ENTRY =
 	/^- (?<date>\d{4}-\d{2}-\d{2}) · repo (?<anchor>[0-9a-f]{7,40}) · source (?<source>\S[^—]*?) — (?<what>\S.*)$/;
-// Bounding the search to the lines just after the stamp stops a later quotation
-// of the label — in a section explaining the mechanism, say — from being parsed
-// as the log itself.
 const LOG_WINDOW = 6;
 
-/* Assertion 5's allowlist, hand-written, in the shape
- * check-superseded-values.js's allowlists use. A missing file is an empty
- * allowlist rather than BROKEN: losing it can only ADD findings. A malformed
- * one is BROKEN.
- *
- * It sits beside this script rather than beside the manual because everything
- * under docs/ owes a doc-map Section A register entry, and this is one
- * checker's configuration, not a mapped document.
- */
 const ALLOWLIST_FILE = "scripts/manual-path-allowlist.json";
-/* Extensions the manual actually writes, plus the ones a citation of this repo
- * plausibly reaches for. */
 const EXT =
 	/\.(md|js|mjs|cjs|ts|tsx|jsx|json|html|css|sh|py|yml|yaml|txt|sql|toml|lock)$/;
-/* Path characters only, never leading with `-` or `/`. */
 const TOKEN = /^[A-Za-z0-9_@.][A-Za-z0-9_@.+-]*(\/[A-Za-z0-9_@.+-]+)*\/?$/;
 const INLINE_CODE = /`([^`\n]+)`/g;
 
-/* The manual's provenance stamp, and the roadmap's own version line. */
 const MANUAL_VERSION = /roadmap v(\d+)\.(\d+)/;
 const ROADMAP_SHA = /roadmap commit ([0-9a-f]{7,40})/;
 const REPO_SHA = /reviewed against repo at ([0-9a-f]{7,40})/;
 const ROADMAP_VERSION = /v(\d+)\.(\d+) · updated/;
-/* A mass rename must not paste an unbounded list into one report.
- * 5 is a first guess: no run has ever reported more than one miss. */
 const MAX_MISSES = 5;
 
-/* Only code spans are scanned: prose carries slashes that are not paths at all
- * — "product/market fit", "Chat / Code / Design" — and the manual writes every
- * real path in backticks.
- *
- * Every skip is a false negative, which is the safe direction on a hook that is
- * silent when the manual is current. Deliberately skipped: prose, fenced code
- * blocks, and a token carrying a character no path of this repo uses — a glob
- * (`docs/adr/*.md`), a route group (`app/(marketing)/page.tsx`), a `file.js:41`
- * line reference. */
 /**
  * @param {string} text
  * @returns {string[]}
@@ -179,11 +86,6 @@ function citedTokens(text) {
 	return out;
 }
 
-/* Path-like on two tests only: a known extension, or a trailing slash. A
- * bare `docs/agents/verification` is therefore skipped, and so is `and/or` —
- * a third test, "the first segment names a real directory", would also report
- * every conceptual slash-term whose head collides with a top-level directory
- * (`data/analytics`), and a false positive here is noise in every report. */
 /** @param {string} t */
 const pathLike = (t) => EXT.test(t) || t.endsWith("/");
 
@@ -201,11 +103,6 @@ const pathLike = (t) => EXT.test(t) || t.endsWith("/");
  * @returns {Detail}
  */
 function detailWriters(ctx) {
-	/* Detail lines carry no severity prefix: check.js owns the one `SEVERITY:`
-	 * line a run emits. These four are per-ASSERTION state, and prefixing them
-	 * printed `OK: stamp shape valid` inside a run whose outcome was FAIL — the
-	 * outcome vocabulary saying two different things in one stream. The label
-	 * says which assertion; the summary line says how the run ended. */
 	/**
 	 * @param {string} label
 	 * @param {string} msg
@@ -227,10 +124,6 @@ function detailWriters(ctx) {
 		ctx.warn("FRESHNESS", msg);
 		line(label, msg);
 	};
-	/* ctx.notify is false on both live routes — `npm run status`
-	 * (scripts/status-report.js's manual-freshness row) and
-	 * report-manual-staleness.js's in-process call — so these OK detail lines
-	 * always print there. */
 	/** @type {(label: string, msg: string) => void} */
 	const ok = ctx.notify ? noop : line;
 	return { line, fail, warn, ok };
@@ -246,15 +139,11 @@ const readOrBroken = (ctx, p, label) => {
 	try {
 		return fs.readFileSync(p, "utf8");
 	} catch (e) {
-		// Both files are tracked in the repo, so an unreadable one is BROKEN:
-		// no assertion below can be evaluated at all.
 		ctx.broken(`cannot read ${label} at ${p} — ${caught(e).message}`);
 	}
 };
 
 /**
- * Assertion 1: stamp shape. Returns what the stamp parsed to, each field
- * undefined where the stamp is not in the two-anchor format.
  * @param {Ctx} ctx
  * @param {Detail} detail
  * @param {string} manual
@@ -294,15 +183,12 @@ function assertStampShape(ctx, detail, manual, roadmapPath) {
 			"stamp shape",
 			`roadmap commit ${roadmapSha} does not touch ${roadmapPath} — wrong anchor`,
 		);
-	// Local, not the whole run's state: a later assertion's failure must not
-	// retract this one's clean line, nor this one's swallow a later one.
 	if (ctx.findings.length === 0)
 		detail.ok("stamp shape", `valid — roadmap ${roadmapSha}, repo ${repoSha}`);
 	return { mMajor, mMinor, repoSha };
 }
 
 /**
- * Assertion 2: roadmap distance.
  * @param {Detail} detail
  * @param {string} roadmap
  * @param {string} roadmapPath
@@ -345,7 +231,6 @@ function assertRoadmapDistance(detail, roadmap, roadmapPath, manualVersion) {
 }
 
 /**
- * Assertion 3: review latency, for a stamp whose repo commit resolves.
  * @param {Detail} detail
  * @param {string} repoSha
  */
@@ -374,8 +259,6 @@ function assertReviewLatency(detail, repoSha) {
 }
 
 /**
- * The index of the corrections-log label line, searched for in the window
- * just under the provenance stamp; -1 where it is absent.
  * @param {string[]} lines
  */
 function correctionsLabelIndex(lines) {
@@ -388,13 +271,10 @@ function correctionsLabelIndex(lines) {
 }
 
 /**
- * The `- ` entry lines under the label at `at`.
  * @param {string[]} lines
  * @param {number} at
  */
 function correctionsEntries(lines, at) {
-	// A blank line between a bold lead-in and its list is ordinary Markdown,
-	// so skip blanks rather than reading them as "the list ended".
 	const entries = [];
 	for (const raw of lines.slice(at + 1)) {
 		const line = raw.trim();
@@ -441,7 +321,6 @@ function correctionsEntryFault(line, repoSha) {
 			line
 		);
 	}
-	/* The pattern above names this group, so a match always carries it. */
 	const recorded = /** @type {string} */ (m.groups?.anchor);
 	if (repoSha && !recorded.startsWith(repoSha) && !repoSha.startsWith(recorded))
 		return (
@@ -453,7 +332,6 @@ function correctionsEntryFault(line, repoSha) {
 }
 
 /**
- * Assertion 4: corrections log.
  * @param {Detail} detail
  * @param {string} manual
  * @param {string | undefined} repoSha
@@ -471,8 +349,6 @@ function assertCorrectionsLog(detail, manual, repoSha) {
 		);
 		return;
 	}
-	// Local, not the run's whole finding list: an earlier assertion's failure
-	// must not swallow this one's clean line.
 	let clean = true;
 	/** @param {string | null} msg */
 	const bad = (msg) => {
@@ -496,7 +372,6 @@ function assertCorrectionsLog(detail, manual, repoSha) {
 }
 
 /**
- * Assertion 5's allowlist, token → the path it stands for.
  * @param {Ctx} ctx
  * @param {string} allowPath
  * @returns {Map<string, string | undefined>}
@@ -525,8 +400,6 @@ function loadAllowlist(ctx, allowPath) {
 }
 
 /**
- * The manual's cited paths that do not exist, how many were checked, and
- * which allowlist tokens the manual still cites.
  * @param {string} manual
  * @param {Map<string, string | undefined>} allow
  */
@@ -537,9 +410,6 @@ function resolveCitedPaths(manual, allow) {
 	for (const t of citedTokens(manual)) {
 		const allowed = allow.has(t);
 		if (allowed) allowUsed.add(t);
-		// An allowlisted token may still name a real file loosely — a basename,
-		// say. Checking the path it stands for is what keeps a rename visible
-		// rather than suppressed along with the token.
 		const target = allowed ? allow.get(t) : t;
 		if (target === undefined) continue;
 		if (!allowed && !pathLike(t)) continue;
@@ -551,7 +421,6 @@ function resolveCitedPaths(manual, allow) {
 }
 
 /**
- * Assertion 5: cited paths.
  * @param {Ctx} ctx
  * @param {Detail} detail
  * @param {string} manual
@@ -561,7 +430,6 @@ function assertCitedPaths(ctx, detail, manual) {
 	const allow = loadAllowlist(ctx, allowPath);
 	const { misses, checked, allowUsed } = resolveCitedPaths(manual, allow);
 
-	// A suppression that has stopped covering anything is named, not left to rot.
 	for (const t of allow.keys())
 		if (!allowUsed.has(t)) {
 			const msg = `${allowPath} allowlists "${t}", which the manual no longer cites`;
@@ -588,12 +456,6 @@ function assertCitedPaths(ctx, detail, manual) {
 	);
 }
 
-/*
- * Exported so report-manual-staleness.js's freshness() can call this SPEC's
- * run() directly, in-process, instead of shelling out to a second `node`
- * (mantahostels#2062) — the guard below is what makes requiring this file for that safe:
- * without it, every require would re-run runCheck and exit the caller.
- */
 const SPEC = {
 	name: "manual-freshness",
 	module: require("./lib/workflow-core-config.js").MANUAL_HALF,
@@ -606,9 +468,6 @@ const SPEC = {
 
 		const detail = detailWriters(ctx);
 
-		// An adopter's manual does not exist until its first manual-sync (#395 Q1).
-		/* The default path only: a path passed by hand that does not read is a
-		 * bad invocation, and stays BROKEN below. */
 		if (!ctx.args[0] && !fs.existsSync(manualPath))
 			ctx.skip(
 				`no operating manual at ${manualPath} yet — the first manual-sync writes it`,

@@ -1,26 +1,3 @@
-/*
- * Pins that the delivery mod forks deliver-to-session.js only inside a
- * main-loop turn, and there only when a watched store changes or its 10-minute
- * CI interval comes round, offers each non-empty report once as a row the
- * model reads, obeys its floor and its two loads, and reads no repo-wide
- * switch (#854, #856, #944, #1467, #3247).
- *
- * The mod's own seam (#849 §Testing Decisions, seam 2), run by
- * `claude plugin test .claude/skills/wfc-delivery`. The ordinary vitest suite
- * never collects it: `claude-code/testing` exists only under that runner.
- * The hooks `world()` registers stand for the engine.
- *
- * THE TEST'S `session.append` HOOK SEES EVERY ROW THE MOD APPENDS FROM
- * 2.1.293 ONLY (#896).
- *
- * `test`, not §X1's `it`: the kit exports no `it`.
- *
- * .husky/pre-push refuses a push touching the mod on a failure here
- * (scripts/run-mod-tests.js, #857), and ci.yml's `Mod tests` step reddens the
- * sweep on one (#1854); nothing else runs these tests. Loosen a case and a mod that drops, repeats or never fetches a report reaches every
- * adopter loading the plugin.
- */
-
 import type { On } from "claude-code";
 import { describe, expect, mock, test } from "claude-code/testing";
 import { register } from "../hooks/register";
@@ -33,21 +10,13 @@ const REPORT = "▸ ci-status\nmain is red at a1b2c3d";
 
 interface World {
 	version?: string;
-	/** What each `--reports` run prints, in order; then nothing. */
 	prints?: string[];
-	/** Which `--reports` runs (1-based) reject. */
 	failRuns?: number[];
-	/** What each `--ci` run prints, in order; then nothing. */
 	ciPrints?: string[];
-	/** Which `--ci` runs (1-based) time out. */
 	failCiRuns?: number[];
-	/** Which appends (1-based) reject. */
 	failAppends?: number[];
-	/** Which appends (1-based) a plugin above refuses. */
 	denyAppends?: number[];
-	/** Whether the repo carries the mod's own `.claude/skills/wfc-delivery/`. */
 	hasLocalCopy?: boolean;
-	/** Held open until the test releases it: the first `--reports` run. */
 	heldRun?: Promise<void>;
 }
 
@@ -63,18 +32,14 @@ function world(on: On, w: World = {}) {
 		mtime: { "/store": 1 } as Record<string, number>,
 		logs: [] as string[],
 		appendCalls: 0,
-		/** The text of each row appended, rejected and refused ones aside. */
 		rows: [] as string[],
-		/** Each path whose existence is asked, in order. */
 		exists: [] as string[],
-		/** Each `--paths` run, as `<plugin> <script> in <cwd> as <session id>`. */
 		scripts: [] as string[],
 		forks: () => seen.pathRuns + seen.reportRuns + seen.ciRuns,
 	};
 	const prints = [...(w.prints ?? [])];
 	const ciPrints = [...(w.ciPrints ?? [])];
 	const heldRuns = w.heldRun === undefined ? [] : [w.heldRun];
-	// A call on `$` is answered `{ value }`; `{ deny }` rejects the caller.
 	on("session.version", () => ({
 		value: { version: w.version ?? "2.1.289" } as never,
 	}));
@@ -90,10 +55,6 @@ function world(on: On, w: World = {}) {
 	on("turn.complete", (_$, e) => ({ text: e.answer }));
 	on("session.append", (_$, e, next) => {
 		seen.appendCalls++;
-		/* A hook that throws or breaks the envelope is skipped and the row kept,
-		 * so a rejection is had from the bottom, which takes text blocks only
-		 * (#896). Residual: a build whose bottom takes images stores these rows,
-		 * and the rejection tests fail rather than pass unforced. */
 		if (w.failAppends?.includes(seen.appendCalls))
 			return next({
 				...e,
@@ -168,8 +129,6 @@ function world(on: On, w: World = {}) {
 	return { clock, seen };
 }
 
-/* The load through the workflow-core plugin, beside the stand-alone load
- * under test (#944). */
 const HOSTED = { plugins: [{ name: "workflow-core", register }] };
 
 interface Kit {
@@ -241,7 +200,6 @@ describe("wfc-delivery, a thin loop over the delivery script (#854)", () => {
 		await clock.advance(TICK);
 		const forks = seen.forks();
 		await clock.advance(TICK * 5);
-		// The store once a tick, on the turn's start and six intervals.
 		expect(seen.stats).toBe(7);
 		expect(seen.forks()).toBe(forks);
 		seen.mtime["/store"] = 2;
@@ -326,7 +284,6 @@ describe("wfc-delivery, a thin loop over the delivery script (#854)", () => {
 		await start($);
 		await clock.advance(CI_INTERVAL + TICK);
 		expect(seen.ciTimeouts).toEqual([expect.any(Number)]);
-		// The script's 8 s gate plus its 15 s bound on the check.
 		expect(seen.ciTimeouts[0]).toBeGreaterThan(23_000);
 	});
 
@@ -453,9 +410,6 @@ describe("wfc-delivery after a lost hooks worker (#3251)", () => {
 		expect(kept).toEqual(["isTurnRunning true", "isTurnRunning false"]);
 	});
 
-	/* THE KIT CANNOT RELOAD A MODULE, so the fresh load is stood in for by a
-	 * test that never starts a turn, its host store holding what the lost
-	 * load's turn.start kept. */
 	test("a session.start that runs again mid-turn, with no new turn.start, still ticks", async ($, on) => {
 		const { clock, seen } = world(on);
 		on("state.get", () => ({ value: { value: true, version: 1 } as never }));

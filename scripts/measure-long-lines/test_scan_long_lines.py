@@ -1,15 +1,3 @@
-"""Pins that scan_long_lines reads main transcripts from every seat root and
-leaves subagent transcripts out (#375).
-
-The `seat_roots` fixture points `transcript_corpus`'s seats at temp config
-dirs, so a second seat can be staged and nothing reads the real corpus.
-
-CI's pytest step runs this file; the scanner
-gates nothing and is run by hand. Breaking it lets the cost of a long physical
-line (mantahostels#1431) be counted over one seat's sessions and understated
-without a word.
-"""
-
 import os
 import sys
 from collections import Counter
@@ -54,8 +42,6 @@ def test_candidate_that_will_not_read_is_skipped_and_counted(
             return real_open(path, *args, **kw)
         raise PermissionError("denied")
 
-    # The file turning unreadable between readable_text's open and this read
-    # is a race no fixture can time: any real denial fails the first open.
     monkeypatch.setattr(sll, "open", refuse, raising=False)
     tally = Counter()
     assert sll.candidates(10, tally)[0] == []
@@ -66,7 +52,6 @@ def test_candidate_that_will_not_read_is_skipped_and_counted(
 def test_unshown_revision_prices_at_todays_size_and_is_counted(
     tmp_path, monkeypatch, capsys
 ):
-    # A git that names a revision but will not show it.
     git = tmp_path / "git"
     git.write_text(
         '#!/bin/sh\ncase "$*" in *rev-list*) echo abc ;; *) exit 128 ;; esac\n'

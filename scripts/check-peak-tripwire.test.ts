@@ -1,9 +1,4 @@
 // @vitest-environment node
-/*
- * The check-peak-tripwire.js program (#5367), against a temp host's state
- * file, so each outcome is seen as `npm run status` sees it. Loosened, a
- * part-suite quietly back on the ladder reads as clean.
- */
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

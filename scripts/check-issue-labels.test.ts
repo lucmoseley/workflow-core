@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * Pins check-issue-labels.js's routing faults on open issues: a child missing
- * its parent's family, a `takes:` absent, duplicated, contradicted or stale, a
- * takes:human body that does not say what finishes it, and a gate line the
- * founder must discharge or that carries no basis, and a ticket left
- * `**Blocked` in a comment the shortlist cannot read. It is `takes:`'s only
- * reader (mantahostels#227); each later rule's ticket is on its describe block.
- *
- * Runs with a stub `gh` injected via WFC_GH: no network, no auth, and no
- * dependence on this repo's live tracker, which is what it reports on.
- *
- * It runs daily in the repo-checks run and in `npm run status`, and is the
- * sole control for issues filed by a script, the web UI or `gh api`: loosen a
- * case and an unrouted issue reaches nobody.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -53,25 +38,13 @@ interface Issue {
 	body?: string;
 	updated_at?: string;
 	repository_url?: string;
-	/** Overrides the URL `parent` builds, for a parent in another repo. */
 	parent_issue_url?: string;
-	/** Opt out of the default `takes:implement` the stub adds below. */
 	noTakes?: boolean;
-	/** Comment bodies, oldest first. */
 	comments?: string[];
-	/** The latest-comment read failing: `"fail"` an HTTP error, `"empty"` an empty page. */
 	latestRead?: "fail" | "empty";
-	/** What `/dependencies/blocked_by` answers, or `"fail"` for an HTTP error. */
 	blockers?: { number: number; state: string }[] | "fail";
 }
 
-/**
- * Stub `gh` returning these issues as one --slurp page.
- *
- * Every fixture issue gets a `takes:` unless it declares one or sets
- * `noTakes` — otherwise each fixture written for the label-family rules would
- * also trip the missing-`takes:` rule.
- */
 const rowOf = ({
 	labels,
 	parent,
@@ -90,7 +63,6 @@ const rowOf = ({
 		title: `t${i.number}`,
 		state: "open",
 		html_url: `http://example/${i.number}`,
-		/* As the REST rows always are; a case about staleness overrides it. */
 		updated_at: new Date().toISOString(),
 		labels: withTakes.map((name) => ({ name })),
 		parent_issue_url: parent ? `http://api/issues/${parent}` : null,
@@ -99,10 +71,6 @@ const rowOf = ({
 	};
 };
 
-/**
- * Each issue's comments and blocked_by routes: its LATEST comment alone, as a
- * `per_page=1` read of its last page answers, and its edges.
- */
 const threadRoutes = (issues: Issue[]) => {
 	const routes: Record<string, RouteAnswer> = {};
 	for (const i of issues) {
@@ -124,18 +92,11 @@ const threadRoutes = (issues: Issue[]) => {
 	return routes;
 };
 
-/** What an issue no route names answers: no sub-issue and no blocker. */
 const NO_EDGES: Record<string, RouteAnswer> = {
 	"*/sub_issues": subIssuesAnswer([]),
 	"*/dependencies/blocked_by": page("blockedByPage", []),
 };
 
-/**
- * `/sub_issues` of N answers with the fixture's own rows parented on N, open
- * and closed, unless `children` overrides it — with other repos' rows, or with
- * `"fail"` or `"unreachable"` for a failed read. `acme/lib#N` answers
- * `foreign[N]`'s state, or an HTTP error for `"fail"`.
- */
 const stubGh = (
 	issues: Issue[],
 	{
@@ -149,8 +110,6 @@ const stubGh = (
 ) => {
 	const rows = issues.map(rowOf);
 	const kidsOf: Record<number, SubIssuesAnswer> = {};
-	/* Rows built from `parent` only: a cross-repo parent URL is another repo's.
-	 * A pull request is no sub-issue, so /sub_issues never lists one. */
 	for (const r of rows)
 		if (
 			r.parent_issue_url?.startsWith("http://api/issues/") &&
@@ -173,7 +132,6 @@ const stubGh = (
 				: { kind: "issue", value: { number: Number(n), state }, slurp: true };
 	Object.assign(routes, NO_EDGES);
 	routes["repos/{owner}/{repo}/issues?*"] = page("issuesPage", rows);
-	/* Every argv line, so a test can assert what was NOT asked for. */
 	const callLog = path.join(dir, "calls.log");
 	return {
 		...stubGhRoutes(dir, routes, { log: callLog, failing, cited }),
@@ -187,10 +145,6 @@ const run = async (
 	extra: Record<string, string> = {},
 ) => {
 	const r = await runInProcessAsync(SCRIPT, args, {
-		/* GITHUB_ACTIONS off, deliberately: check.js puts an ::error:: on STDOUT
-		 * per finding when it is set, uncapped, so the --notify cap assertions
-		 * below passed locally and failed in Actions. Annotation behaviour is
-		 * check.test.ts's to cover. */
 		env: {
 			...process.env,
 			...stub?.env,
@@ -202,14 +156,11 @@ const run = async (
 	return {
 		status: r.status,
 		out: `${r.stdout}${r.stderr}`,
-		/* Separately, because --notify's contract is about stdout specifically:
-		 * that is the stream a SessionStart hook injects into the session. */
 		stdout: r.stdout,
 	};
 };
 
 const MAP: Issue = { number: 96, labels: ["wayfinder:map"] };
-/* Every passing takes:human body ends with the line #983 requires. */
 const CLOSE = "\n\n**Close when:** the hostel replies.";
 const OUTSIDE_BODY = `**Outside Claude Code:** email the hostel.${CLOSE}`;
 const { TITLE: DRAIN_QUEUE_TITLE } = require("./report-doc-map-budget");
@@ -252,10 +203,6 @@ describe("children of a wayfinder map", () => {
 		expect(r.out).toContain("OK");
 	});
 
-	/*
-	 * A child may carry category, takes: or kind labels and still be missing its
-	 * type — the check is "no member of this family", not "no labels at all".
-	 */
 	it("flags a child labelled only outside the wayfinder family, naming the issue and the label it carries", async () => {
 		const r = await run(
 			[],
@@ -266,10 +213,6 @@ describe("children of a wayfinder map", () => {
 		expect(r.out).toContain("carries: Tech & Stack");
 	});
 
-	/*
-	 * A spec is a structural node, not a step on the route, so it takes no
-	 * wayfinder type.
-	 */
 	it("exempts a spec sitting under a map", async () => {
 		const r = await run(
 			[],
@@ -351,10 +294,6 @@ describe("children of a spec", () => {
 	});
 });
 
-/*
- * `takes:` says which command opens the issue, and every open issue carries
- * exactly one (docs/agents/triage-labels.md §`takes:`; the reader is mantahostels#227).
- */
 describe("the takes: label", () => {
 	it("flags an open issue carrying no takes: at all", async () => {
 		const r = await run([], stubGh([{ number: 200, noTakes: true }]));
@@ -424,12 +363,6 @@ describe("a takes: contradicted by the issue's own kind", () => {
 		expect(r.out).toContain("#211");
 	});
 
-	/*
-	 * Deliberately not a fault: an oversized ticket really can need breaking up,
-	 * and provenance disagreeing with disposition is what the override rule
-	 * protects — "a `kind:ticket` can take `/wayfinder` when it turns out to hide
-	 * a decision".
-	 */
 	it("leaves takes:to-tickets on a ticket alone", async () => {
 		const r = await run(
 			[],
@@ -520,10 +453,6 @@ describe("a takes: contradicted by the issue's own kind", () => {
 		expect(r.status).toBe(0);
 	});
 
-	/*
-	 * The override rule: a `takes:` beats a `wayfinder:*` or `kind:` label that
-	 * merely disagrees with it — mantahostels#172 is `wayfinder:task` and takes /implement.
-	 */
 	it("leaves a wayfinder:task taking /implement alone", async () => {
 		const r = await run(
 			[],
@@ -554,7 +483,6 @@ describe("a takes:human body saying what finishes it (#983)", () => {
 		expect(r.out).toContain("(scripts/lib/rule-text.sh founder-deliverable)");
 	});
 
-	// WFC_SCRIPT_ROOT stands in for an install: a root with no package.json.
 	it("names the template at the plugin root in an install (#1248)", async () => {
 		const plugin = fs.mkdtempSync(path.join(os.tmpdir(), "labels-plugin-"));
 		try {
@@ -687,8 +615,6 @@ describe("a takes:human body naming its outside act", () => {
 	});
 });
 
-/* BARRED-NOT-IMPOSSIBLE (#140). Mirrors the guard's barred limb, for the
-   routes no PreToolUse hook sees — a script, GraphQL, the web UI. */
 describe("a takes:human whose Outside line names a prohibition", () => {
 	it("flags #131's original line as BARRED-NOT-IMPOSSIBLE, not NO-OUTSIDE-ACT, naming the issue", async () => {
 		const r = await run(
@@ -723,8 +649,6 @@ describe("a takes:human whose Outside line names a prohibition", () => {
 		expect(r.out).toContain("takes:implement");
 	});
 
-	/* The prohibition must be about an AGENT. One about the world is usually
-	   part of a real errand. */
 	it.each([
 		["a real act", "email the affiliate desk and ask for a partner key"],
 		[
@@ -754,7 +678,6 @@ describe("a takes:human whose Outside line names a prohibition", () => {
 	});
 });
 
-/* REPO-FILE-ACT (mantahostels#3555). */
 describe("a takes:human whose outside act produces a repo file", () => {
 	it("flags a tool and a repo path as REPO-FILE-ACT, not NO-OUTSIDE-ACT, naming the issue", async () => {
 		const r = await run(
@@ -840,8 +763,6 @@ describe("a takes:human whose outside act produces a repo file", () => {
 	});
 });
 
-/* NOT-A-FOUNDER-ACT (#1095), and every other Outside-line verdict, from the
-   table file-issue.test.ts reads too. */
 describe("a takes:human body against the shared table", () => {
 	it.each(HUMAN_BODIES)("$reason", async ({ body, verdict }) => {
 		const r = await run(
@@ -876,7 +797,6 @@ describe("a takes:human body against the shared table", () => {
 	});
 });
 
-/* AGENT-STEP (#4142 item 11, from #3874). */
 describe("a takes:human body handing the founder a `! gh ` step", () => {
 	const ghStep = "\n\nRun:\n\n```\n! gh workflow run founder-notice.yml\n```";
 
@@ -926,7 +846,6 @@ describe("a takes:human body handing the founder a `! gh ` step", () => {
 	});
 });
 
-/* HUMAN-UNREVIEWED (mantahostels#3358). */
 describe("a takes:human nobody has looked at", () => {
 	const daysAgo = (n: number) =>
 		new Date(Date.now() - n * 86_400_000).toISOString();
@@ -1003,11 +922,6 @@ describe("a takes:human nobody has looked at", () => {
 	});
 });
 
-/*
- * `takes:children` means every remaining action sits on the open sub-issues, so
- * it rots the moment the last one closes and nothing retires it
- * (docs/agents/triage-labels.md §`takes:`).
- */
 describe("a stale takes:children", () => {
 	it("flags a container whose last open child has closed, as STALE-CONTAINER, naming the issue", async () => {
 		const r = await run(
@@ -1043,10 +957,6 @@ describe("a stale takes:children", () => {
 		expect(r.out).not.toContain("UNMARKED-CONTAINER");
 	});
 
-	/*
-	 * The inverse, reported at lower confidence: an issue may hold real work of
-	 * its own alongside open children.
-	 */
 	it("warns without gating on open children and no takes:children, as UNMARKED-CONTAINER, naming the issue", async () => {
 		const r = await run(
 			[],
@@ -1071,8 +981,6 @@ describe("a stale takes:children", () => {
 		expect(r.out).not.toContain("UNMARKED-CONTAINER");
 	});
 
-	/* retire-stale-containers.js retags this one (mantahostels#1663), and this check goes on
-	 * reporting it meanwhile — the same division as STALE-CONTAINER above. */
 	it("still reports a ticketed takes:to-tickets spec", async () => {
 		const r = await run(
 			[],
@@ -1086,7 +994,6 @@ describe("a stale takes:children", () => {
 		expect(r.out).toContain("#234");
 	});
 
-	/* The open-issue list holds this repo's issues alone (#778). */
 	it("leaves a container whose only open child is in another repo", async () => {
 		const r = await run(
 			[],
@@ -1127,7 +1034,6 @@ describe("a stale takes:children", () => {
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("STALE-CONTAINER");
 		expect(r.out).toContain("#17");
-		/* Nor is local #17 looked up as #30's parent. */
 		expect(r.out).toContain("0 of them with a parent");
 	});
 
@@ -1247,11 +1153,6 @@ describe("reporting discipline", () => {
 		expect(r.out).toContain("WARN");
 	});
 
-	/*
-	 * --notify is built for a SessionStart hook, whose stdout every session
-	 * would pay for, so a clean run must cost nothing: the scan summary
-	 * goes to stderr on every other path and is withheld here.
-	 */
 	it("says nothing on stdout under --notify when every issue is labelled", async () => {
 		const r = await run(["--notify"], stubGh([{ number: 230 }]));
 		expect(r.status).toBe(0);
@@ -1263,10 +1164,6 @@ describe("reporting discipline", () => {
 		expect(r.stdout).toContain("230");
 	});
 
-	/*
-	 * --notify output is a function of the backlog, not a fixed string, so it
-	 * names the first few offenders and counts the rest (mantahostels#1148).
-	 */
 	const backlog = Array.from({ length: 40 }, (_, n) => ({
 		number: 500 + n,
 		noTakes: true,
@@ -1286,8 +1183,6 @@ describe("reporting discipline", () => {
 		expect(r.out).not.toContain("and 37 more");
 	});
 
-	/* The cap is per list, so the ceiling is 2 x NOTIFY_CAP plus fixed footers
-	 * (mantahostels#1148). */
 	it("holds stdout under 2 KB with faults of both kinds in the backlog", async () => {
 		const r = await run(
 			["--notify"],
@@ -1296,12 +1191,10 @@ describe("reporting discipline", () => {
 		expect(r.stdout.length).toBeLessThan(2048);
 	});
 
-	/* A WARN early in the scan must not take a slot from a FAIL (mantahostels#1148). */
 	it("names the gating faults before the warning ones under --notify", async () => {
 		const r = await run(
 			["--notify"],
 			stubGh([
-				/* Three UNMARKED-CONTAINER WARNs, scanned before the FAIL below. */
 				{ number: 400 },
 				{ number: 401, parent: 400 },
 				{ number: 402 },
@@ -1360,13 +1253,7 @@ describe("reporting discipline", () => {
 	});
 });
 
-/* The fetch shape, not the rules (mantahostels#1899). */
 describe("what it asks GitHub for", () => {
-	/**
-	 * A `gh` that answers per query rather than serving one fixture to all of
-	 * them — and REFUSES `state=all`, so a whole-tracker read fails the run
-	 * rather than passing on rows it should not have had.
-	 */
 	const stubByState = (issues: Issue[]) => {
 		const rows = issues.map(rowOf);
 		const closedWith = (label: string) =>
@@ -1611,8 +1498,6 @@ describe("a gate line with no basis (#577)", () => {
 	});
 
 	describe("whose basis only cites another issue (#5007)", () => {
-		/* The suites' seam shuts the cited read (vitest.setup.ts); these cases
-		 * test it. */
 		const CitedOn = { WFC_GATE_CITED: "" };
 		const Count =
 			"**Gate basis:** 4 weeks: baseline 27/449 attempts (6.0%, `jq`); pass = 0 refusals in 69 attempts a week";
@@ -1817,7 +1702,6 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 		expect(r.out).not.toContain("BLOCKED-UNREADABLE");
 	});
 
-	/* #3271: a marker naming its own repo is answered from the open list. */
 	const Here = "https://api.github.com/repos/acme/app";
 	it("judges an own-repo qualified prose blocker against the open list, reading nothing (#3271)", async () => {
 		const open = await flagged(
@@ -1845,7 +1729,6 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 		);
 	});
 
-	/* #3293: park-blocked.sh parks on the same line, through lib/issue-hold.js. */
 	it("stays silent where a Gated on line lacks its basis, as the shortlist skips on it", async () => {
 		const bare = Gate.split("\n")[0] ?? "";
 		expect((await flagged({ comments: [Blocked], body: bare })).fault).toBe(
@@ -1865,7 +1748,6 @@ describe("a ticket left Blocked in a comment alone (#2309)", () => {
 		).toBe(false);
 	});
 
-	/* #3111: #2862 was refused 12 times, each a comment of this shape alone. */
 	const Refused =
 		"**Refused attempt 12, 2026-10-26 17:18:** not quiet. `session_count()` = 9 against `--require-quiet=3`.";
 

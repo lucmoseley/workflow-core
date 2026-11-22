@@ -1,19 +1,3 @@
-"""Pins the two classifier defects mantahostels#1139 found in scan_docmap2.py (mantahostels#1082).
-
-Both mis-sorted genuine targeted reads of docs/doc-map.md into the
-"no content read" residue, which is what made mantahostels#1139's premise — 8 MB of
-bookkeeping — wrong by roughly half.
-
-The classifier is called directly on literal command strings taken from real
-sessions, since the defects live in how one command line is split and no
-transcript is needed to reach them.
-
-CI's pytest step runs this file; the scanner
-gates nothing and is run by hand. Loosen a case and the doc-map bookkeeping
-figure can drift back to the inflated one mantahostels#1139's premise rested
-on.
-"""
-
 import re
 import sys
 from pathlib import Path
@@ -28,8 +12,6 @@ def route(cmd):
     return classify(cmd, DOCMAP)[0]
 
 
-# Defect 1: splitting a pipeline on a bare '|' also splits inside a quoted
-# grep alternation, stranding the path in a fragment that leads with no verb.
 def test_quoted_grep_alternation_is_a_read():
     assert (
         route(
@@ -45,8 +27,6 @@ def test_quoted_grep_alternation_is_a_read():
     )
 
 
-# Defect 2: requiring the read verb to lead its segment drops any stage sitting
-# behind a shell keyword.
 def test_read_verb_behind_a_shell_keyword_is_a_read():
     assert (
         route(
@@ -58,7 +38,6 @@ def test_read_verb_behind_a_shell_keyword_is_a_read():
 
 
 def test_pipeline_stage_reading_a_script_is_not_a_file_read():
-    # `tail` here reads the script's stdout, not the file.
     assert (
         route("node scripts/check-doc-map.js docs/doc-map.md | tail -10")
         == "script_read"

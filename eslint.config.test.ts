@@ -1,18 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which files eslint.config.mjs's Next.js and React Hooks presets reach:
- * app/ and lib/ get their rules, scripts/ gets none of them, and a .tsx
- * parses. And that scripts/ outside its tests gets the two super-linear regex
- * rules, which name themselves on a finding (#4642).
- *
- * It asks ESLint's own calculateConfigForFile for each path rather than
- * linting a fixture, because a preset aimed at the wrong files fails silently:
- * the presets once ran against the Node scripts and no .tsx at all. Only the
- * parser case lints, an inline snippet.
- *
- * Breaking it lets that silence back: the React rules stop running on the
- * pages they were added for (mantahostels#999).
- */
 
 import { ESLint } from "eslint";
 import { describe, expect, it } from "vitest";
@@ -43,8 +29,6 @@ describe("eslint.config.mjs", () => {
 			const rules = await severities(file);
 			expect(rules["@next/next/no-html-link-for-pages"]).toBeGreaterThan(0);
 			expect(rules["react-hooks/exhaustive-deps"]).toBeGreaterThan(0);
-			// A lower bound, so a preset gaining rules passes and one silently
-			// losing them does not.
 			expect(Object.keys(rules).length).toBeGreaterThanOrEqual(38);
 		},
 	);

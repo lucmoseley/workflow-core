@@ -1,10 +1,5 @@
 // @vitest-environment node
 
-/* The hook shims an adopter commits (#1839). Each finds the core at run time
- * through the adopter's own scripts/lib/resolve-core.js and runs that core's
- * .husky/<hook>, so a pruned plugin version or a fresh clone never leaves a
- * hook pointing at nothing. */
-
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -19,8 +14,6 @@ const temps = registerTempCleanup();
 const ROOT = path.join(__dirname, "..");
 const KEY = "workflow-core@wc";
 
-/** A fake core at `dir`: plugin.json at `version`, and a body for every hook
- * that appends the root it was handed, then its stdin, to `log`. */
 function fakeCore(dir: string, version: string, log: string) {
 	fs.mkdirSync(path.join(dir, ".claude-plugin"), { recursive: true });
 	fs.writeFileSync(
@@ -38,14 +31,12 @@ function fakeCore(dir: string, version: string, log: string) {
 	return dir;
 }
 
-/** The prelude line sourcing hook-root.sh, which every core hook carries. */
 const sourcesHookRoot = (text: string) =>
 	text.split("\n").find((line) => line.includes("/scripts/lib/hook-root.sh"));
 const HOOK_ROOT_LINE = sourcesHookRoot(
 	fs.readFileSync(path.join(ROOT, ".husky", "pre-commit"), "utf8"),
 );
 
-/** A fake core whose every hook runs the real core's hook-root prelude. */
 function rootCore(dir: string, log: string) {
 	fakeCore(dir, "1.0.0", log);
 	fs.mkdirSync(path.join(dir, "scripts", "lib"), { recursive: true });
@@ -66,7 +57,6 @@ function rootCore(dir: string, log: string) {
 	return dir;
 }
 
-/** The adopter, pinned at v1.0.0, carrying what init writes for the hooks. */
 function buildAdopter() {
 	const { root: made, git } = newRepo("hook-shim-", temps);
 	const root = fs.realpathSync(made);
@@ -99,7 +89,6 @@ function buildAdopter() {
 	git("add", "--all");
 	git("-c", "core.hooksPath=/dev/null", "commit", "-qm", "skeleton");
 
-	/** Records `installPath` as this project's install. */
 	const record = (installPath: string) => {
 		fs.mkdirSync(path.join(config, "plugins"), { recursive: true });
 		fs.writeFileSync(
@@ -119,7 +108,6 @@ function buildAdopter() {
 		return { ...inherited, CLAUDE_CONFIG_DIR: config, ...extra };
 	};
 	let n = 0;
-	/** A commit from `cwd`, with what landed and what the hooks logged. */
 	const commit = (cwd = root, extra: Record<string, string> = {}) => {
 		fs.writeFileSync(path.join(cwd, `f${++n}.txt`), `${n}\n`);
 		const readHead = () =>
@@ -142,16 +130,11 @@ function buildAdopter() {
 	return { root, git, work, log, record, env, commit };
 }
 
-/** The tracked files the shim's run left changed. */
 const readStatus = (root: string) =>
 	execFileSync("git", ["status", "--porcelain", "--untracked-files=no"], {
 		cwd: root,
 	}).toString();
 
-/**
- * Commits at N, moves the install record to N+1 and deletes N, then commits
- * again: the deleted-version scenario, which `shim` may mutate.
- */
 function survivesPrune(shim?: (text: string, installed: string) => string) {
 	const a = buildAdopter();
 	const installed = fakeCore(
@@ -367,9 +350,6 @@ describe("an adopter's hook shims (#1839)", () => {
 	});
 });
 
-/* The spellings that reach a script in the host's own tree, which an adopter
- * running the hook from the plugin does not have. Each must go through
- * `${WFC_PLUGIN_ROOT:-…}` instead (#142, #442, #1614). */
 const HOST_ONLY = [
 	/\.\s+\.\/scripts\//,
 	/\b(?:node|bash|sh|python3)\s+scripts\//,
@@ -378,8 +358,6 @@ const HOST_ONLY = [
 ];
 
 describe("the core hooks an adopter's shims run (#1839)", () => {
-	/* Listed rather than taken from HOOKS, so a change to any hook selects this
-	 * file (base §X10); the first case holds the listing to HOOKS. */
 	const huskyHooks = fs
 		.readdirSync(path.join(ROOT, ".husky"))
 		.filter((h) => HOOKS.includes(h));

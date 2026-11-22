@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * new-repo.js --resume after a part-way copy, committing through the new
- * repo's real hook stack (#4297). new-repo.test.ts's header says how a run is
- * driven and what a loosened case costs.
- *
- * Over the run-cost budget (base §X8 (5)): its one case is a run §X8 (2) keeps
- * on the real hook stack, which is most of its time.
- */
 
 import fs from "node:fs";
 import path from "node:path";

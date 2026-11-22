@@ -1,10 +1,4 @@
 // @vitest-environment node
-/*
- * check-compaction-backstop.test.ts — the report the backstop is moved on
- * (#4410). Driven through the CLI over a stub `gh` and a throwaway git repo,
- * since a follow-up cites a unit by a commit sha `git log` must find. Broken,
- * the backstop is moved on wrong bins.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
@@ -45,7 +39,6 @@ const unit = (number: number, closedDaysAgo: number) => ({
 	number,
 	state: "closed",
 	closed_at: daysAgo(closedDaysAgo),
-	/* Filed with the spec's breakdown, before any sibling closed. */
 	created_at: daysAgo(closedDaysAgo + 20),
 	parent_issue_url: SPEC_URL,
 	labels: [{ name: "kind:ticket" }],
@@ -80,7 +73,6 @@ const cli = (routes: Parameters<typeof stubGhRoutes>[1], args: string[] = []) =>
 		cwd: repo,
 		env: { ...process.env, ...stubGhRoutes(dir, routes).env },
 	});
-/* The spec's sub-issues are its units as well as its follow-ups. */
 const run = (
 	closed: object[],
 	comments: Record<number, object[]>,
@@ -97,9 +89,6 @@ const bin = (report: { bins: { bin: string }[] }, label: string) =>
 	report.bins.find((b) => b.bin === label);
 
 describe("check-compaction-backstop.js", () => {
-	/* #101's first session wrote 5 then 6 (two hand-offs) and a second
-	 * session finished on 4 more, its close quoting the first's line; #102
-	 * never compacted. */
 	const closed = [unit(101, 10), unit(102, 8)];
 	const comments = {
 		101: [

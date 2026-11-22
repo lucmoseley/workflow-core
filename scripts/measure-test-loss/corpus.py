@@ -1,9 +1,3 @@
-"""corpus.py — the transcript walk, time helper and caps the test-loss scanners share (#2823).
-
-A project dir counts when its name names workflow-core or mantahostels (repo `wfc` or `mh`);
-every *.jsonl below it modified at or after the window start is read, as text only. The default
-roots are every seat's `projects` dir. A file that will not open, and a line that is not JSON, is counted into the caller's tally, never fatal."""
-
 import argparse
 import json
 import os
@@ -18,21 +12,14 @@ sys.path.insert(
 import transcript_corpus as tc
 from fail_open import tallied
 
-# #2812 (the baseline)'s window, each scanner's default.
 START = "2026-10-10T04:10:00Z"
 END = "2026-10-24T04:10:59Z"
-# #2812's foreground cap: the harness moves a foreground call to the background near 600 s, so a
-# longer row is a held prompt or a suspended session. #2821 reused it, untraced, as active.py's
-# gap cap.
 CAP_S = 1800
-# #2812's row identity: the path's last 60 characters hold the session id and the project slug's
-# tail, and a resume repeats a row whose command matches in its first 60. Both untraced.
 FILE_KEY_CHARS = 60
 CMD_KEY_CHARS = 60
 
 
 def epoch(iso):
-    """Seconds since the epoch for an ISO time ending in Z."""
     return datetime.fromisoformat(iso.replace("Z", "+00:00")).timestamp()
 
 
@@ -53,8 +40,6 @@ counts_line = tc.counts_line
 
 
 def transcripts(roots, t_start, tally, subagents=True):
-    """(repo, path) for each transcript under `roots` modified at or after `t_start`. A root or
-    file that cannot be listed or stat'd counts as unreadable (#2823)."""
     for root in roots:
         try:
             projects = sorted(os.listdir(root))
@@ -82,9 +67,8 @@ def transcripts(roots, t_start, tally, subagents=True):
                     yield repo, p
 
 
-def run_scanner(doc, scan_file, subagents=True):
-    """A scanner's CLI."""
-    ap = argparse.ArgumentParser(description=doc.splitlines()[0])
+def run_scanner(description, scan_file, subagents=True):
+    ap = argparse.ArgumentParser(description=description.splitlines()[0])
     ap.add_argument("out", help="JSONL file the rows are written to")
     ap.add_argument("roots", nargs="*", help="projects dirs (default: every seat's)")
     ap.add_argument(

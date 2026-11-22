@@ -1,21 +1,4 @@
 #!/usr/bin/env node
-/*
- * adopter-consent.js — CLI over lib/adopter-consent.js, for a live session to
- * record an upgrade's accept once it has run the install commands itself
- * (#5230), or the founder's decline (#238, #245).
- *
- * Usage:
- *   node scripts/adopter-consent.js decline <repo> <tag>
- *   node scripts/adopter-consent.js accept  <repo> <tag>
- *   node scripts/adopter-consent.js status  <repo> <tag>
- *
- * `repo` is the adopter root the session is running in (an absolute path is
- * fine and is what a session already has as its cwd); `tag` is the pin ref
- * named in check-plugin-gap.js's report.
- *
- * `accept` prints the line #238 user story 8 requires: the yes does not
- * materialise anything now.
- */
 
 const { parseOrCode } = require("./lib/cli-args.js");
 const { writeFd } = require("./lib/write-fd.js");

@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * Pins adopter-ci.js, the one job of an adopter's core-owned CI workflow
- * (#5347), by running it over fixture adopters.
- *
- * Breaking it lets a red command or check pass the adopter's CI, or lets one
- * failure hide the steps after it.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -21,9 +14,8 @@ import { parseJob, type Workflow } from "./lib/workflow-yaml-testkit";
 const { resolveCore } = require("./lib/resolve-core.js");
 
 const SCRIPT = path.resolve(__dirname, "adopter-ci.js");
-/* The one shipped check whose gate holds in these fixtures: a change to it
- * selects this file. */
 const PERMISSIONS_CHECK = "scripts/check-workflow-permissions.js";
+const actionsExpression = (expr: string) => `\${{ ${expr} }}`;
 
 const repoTemplate = defineTemplate((dir) => {
 	execFileSync("git", ["init", "-q"], { cwd: dir });
@@ -48,8 +40,6 @@ const config = (extra: object) =>
 	);
 const run = () => {
 	execFileSync("git", ["add", "-A"], { cwd: root });
-	/* The suite injects WFC_MODULES, which replaces the declared list the
-	 * gates read. */
 	const { WFC_MODULES: _, ...env } = process.env;
 	return runInProcess(SCRIPT, [], {
 		cwd: root,
@@ -117,7 +107,6 @@ describe("the shipped tree checks", () => {
 	});
 });
 
-/* The rendered job, parsed: the pin step's script and the core checkout. */
 const job = (
 	parseJob(renderCiWorkflow({ runner: "ubuntu-slim" })) as unknown as Workflow
 ).jobs.ci;
@@ -139,7 +128,6 @@ describe("the workflow's pin step and core checkout", () => {
 			url: "https://github.com/o/workflow-core.git",
 			ref,
 		});
-	/** A string is written verbatim; undefined writes no settings file. */
 	const runPinStep = (settings: unknown) => {
 		if (settings !== undefined)
 			write(
@@ -159,7 +147,6 @@ describe("the workflow's pin step and core checkout", () => {
 			output: fs.readFileSync(out, "utf8"),
 		};
 	};
-	/** The pin resolveCore() reads, off its failure in an empty config dir. */
 	const resolverPin = () => {
 		try {
 			resolveCore({
@@ -260,11 +247,11 @@ describe("the workflow's pin step and core checkout", () => {
 			steps.indexOf(coreCheckout ?? {}),
 		);
 		expect(coreCheckout?.with?.repository).toBe(
-			// biome-ignore lint/suspicious/noTemplateCurlyInString: an Actions expression, not a template
-			"${{ steps.core-pin.outputs.repo }}",
+			actionsExpression("steps.core-pin.outputs.repo"),
 		);
-		// biome-ignore lint/suspicious/noTemplateCurlyInString: an Actions expression, not a template
-		expect(coreCheckout?.with?.ref).toBe("${{ steps.core-pin.outputs.ref }}");
+		expect(coreCheckout?.with?.ref).toBe(
+			actionsExpression("steps.core-pin.outputs.ref"),
+		);
 		expect(coreCheckout?.with?.["persist-credentials"]).toBe(false);
 		expect(job?.env?.WORKFLOW_CORE_CHECKOUT).toBe(
 			`\${{ github.workspace }}/${coreCheckout?.with?.path}`,

@@ -1,40 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-host-root-test-isolation.js — a test that spawns a hostRoot()- or
- * gr_root-rooted script must redirect CLAUDE_PROJECT_DIR, or the child reads
- * and writes the developer's live checkout instead of its fixture (#160).
- *
- * Usage:
- *   node check-host-root-test-isolation.js [--json] [--warn]
- *
- * `lib/host-root.js`'s `hostRoot()` answers `CLAUDE_PROJECT_DIR` where it is
- * set, else the main checkout owning the spawn's cwd — which, uncontained, is
- * the real repo the test itself runs inside. A script rooted through it (directly
- * or via `lib/marker-root.js`) then reads and writes the live
- * `.claude/tmp/markers/` tree: marker latches, counters, the test-log store.
- * #154 was one instance, fixed at 757bfc1f by setting CLAUDE_PROJECT_DIR on
- * the child. `lib/guard-root.sh`'s `gr_root` is the shell twin, sourced
- * directly or through `lib/marker-root.sh` and `lib/guard-log.sh` (#3311).
- *
- * THE DISCRIMINATOR IS SPAWNING, NOT MENTIONING — the same convention
- * `check-guard-test-isolation.js` uses, and this file borrows its call-site
- * read. A finding needs the path to reach argv[0] of a
- * spawnSync/spawn/execFileSync/execFile call, and needs the script it names
- * to require lib/host-root.js, or call `gr_root` (transitively).
- *
- * NOT SEEN: a hook under `.husky/`, or one a spawned `git` fires; a child a
- * shell script runs with `bash "$here/x.sh"` rather than sources; a `source`
- * spelt through a variable (`. "$route_lib"`).
- *
- * FAIL, not WARN: the finding is a one-line fix in the test that caused it,
- * and the damage — a live marker store polluted by a test fixture — is
- * invisible until something reads that store for real (#154).
- *
- * IMPLICIT:  on every commit staging a scripts/ test or script, refuses one where a test spawns a hostRoot()- or gr_root-rooted script without redirecting CLAUDE_PROJECT_DIR.
- * JUSTIFIED: fail-safe — mirrors check-guard-test-isolation.js's rationale: a checker that cannot enumerate or read the tracked set is BROKEN rather than green.
- * DEFEAT:    --warn caps findings below the gating line; an `isolation-exempt:` comment in the test file drops that file, and nothing validates the reason it gives.
- */
-
 const fs = require("node:fs");
 const path = require("node:path");
 const { readTrackedScripts } = require("./lib/tracked-scripts.js");
@@ -44,38 +8,21 @@ const { runCheck, errMessage } = require("./lib/check.js");
 const { requiredGroup } = require("./lib/regex-group.js");
 const { segmentTailMatches } = require("./lib/line-scan.js");
 
-/** The comment that drops a file, with its reason: `isolation-exempt: <why>`. */
 const EXEMPT = /isolation-exempt:[ \t]*[A-Za-z0-9]/;
 
-/** argv[0] spellings that are an interpreter, never a script. */
 const INTERPRETER =
 	/^(process\.execPath|"node"|"bash"|"sh"|"git"|"gh"|"npm"|"npx")$/;
 
-/**
- * `lib/check.js` and `lib/workflow-core-config.js`: pulled in by nearly every
- * checker in the suite, and each requires host-root.js for a config/`--root`
- * read that never touches `.claude/tmp/markers/`. Following a require chain
- * through either would flag most of the suite for a class of damage none of
- * it can cause, so the walk below stops at them rather than following them.
- */
 const TRANSITIVITY_STOP = new Set([
 	"scripts/lib/check.js",
 	"scripts/lib/workflow-core-config.js",
 ]);
 
 /**
- * Does `rel` require `lib/host-root.js` or `lib/marker-root.js`, directly or
- * transitively through another `scripts/lib/*.js` it requires — `lib/hook-
- * block.js` and `lib/hook-record.js` both reach `markersDir()` this way,
- * without naming `marker-root.js` themselves in whatever spawns them (#160's
- * spec review, F1)? The walk stops at `TRANSITIVITY_STOP` and at anything
- * outside `scripts/lib/`, so a checker's own `require("./lib/check.js")`
- * never pulls in that file's own wide require graph.
- *
  * @param {string} root
  * @param {string} rel
- * @param {Map<string, boolean>} cache accumulator: each file's answer is memoised here, which also breaks a require cycle
- * @param {Set<string>} [seen] accumulator: each file entered is added, so a cycle answers false
+ * @param {Map<string, boolean>} cache
+ * @param {Set<string>} [seen]
  * @returns {boolean}
  */
 function rootsThroughHostRoot(root, rel, cache, seen = new Set()) {
@@ -109,10 +56,6 @@ function rootsThroughHostRoot(root, rel, cache, seen = new Set()) {
 	return answer;
 }
 
-/**
- * The `.js` files `rel`'s relative `require`s name (`text` is its source),
- * less `TRANSITIVITY_STOP`, in source order.
- */
 function relativeRequireTargets(
 	/** @type {string} */ rel,
 	/** @type {string} */ text,
@@ -128,13 +71,6 @@ function relativeRequireTargets(
 	return targets;
 }
 
-/**
- * Does shell `text` call `gr_root` or `gr_worktree_root`, outside a comment
- * and its own definition? Calling, not sourcing: a script that sources
- * lib/guard-root.sh for `gr_config_dir` alone never roots itself in the repo.
- * A call inside a string or a trailing comment still counts: a false FAIL,
- * never a false OK.
- */
 function callsGrRoot(/** @type {string} */ text) {
 	return text
 		.split("\n")
@@ -145,23 +81,8 @@ function callsGrRoot(/** @type {string} */ text) {
 		);
 }
 
-/**
- * lib/guard-root.sh defines the root functions and calls `gr_root` inside
- * `gr_worktree_root`; a script sourcing it roots itself only by calling one,
- * which `callsGrRoot` reads at the call site, so the walk never descends into
- * it. RESIDUAL: a new guard-root.sh function wrapping `gr_root` passes its
- * callers unflagged until `callsGrRoot`'s pattern names it.
- */
 const GR_SEAM = "scripts/lib/guard-root.sh";
 
-/**
- * The `scripts/lib/*.sh` files a shell script's `source`/`.` lines name, by
- * basename: the sourced path is spelt through a `$here`-style variable, so
- * the basename is all that can be read. Residual: a sourced file outside
- * `scripts/lib/`, or in a subdirectory of it, resolves to no file and is not
- * walked. Leading blanks stop at a line break, where `^` re-anchors anyway,
- * and the name opens where no `[\w-]` precedes it (#3383).
- */
 function sourcedLibTargets(/** @type {string} */ text) {
 	const sourced =
 		/^[^\S\n\r\u2028\u2029]*(?:source|\.)\s+\S*?(?<![\w-])([\w-]+\.sh)\b/gm;
@@ -170,14 +91,12 @@ function sourcedLibTargets(/** @type {string} */ text) {
 	);
 }
 
-/** A script path as written, anchored under `scripts/`. */
 function scriptsRel(/** @type {string} */ literal) {
 	return literal.startsWith("scripts/")
 		? literal
 		: `scripts/${path.basename(literal)}`;
 }
 
-/** Does `rel` exist and root itself through hostRoot() or gr_root? */
 function isHostRooted(
 	/** @type {string} */ root,
 	/** @type {string} */ rel,
@@ -189,11 +108,6 @@ function isHostRooted(
 	);
 }
 
-/**
- * The `const`/`let` bindings in `source` naming a host-root-rooted script,
- * identifier to script path — through one more binding where the path sits
- * in a constant (`const SCRIPT = path.join(ROOT, CHECKER)`, #3311).
- */
 function boundScripts(
 	/** @type {string} */ root,
 	/** @type {string} */ source,
@@ -220,10 +134,6 @@ function boundScripts(
 	return bound;
 }
 
-/**
- * The host-root-rooted scripts a test's spawn call sites name, read off the
- * call sites rather than run.
- */
 function spawnedScripts(
 	/** @type {string} */ root,
 	/** @type {string} */ source,
@@ -232,14 +142,6 @@ function spawnedScripts(
 	const bound = boundScripts(root, source, cache);
 
 	const named = new Set();
-	/* argv[0] and the first array element only: the two-token spawn shape
-	 * `spawn("node", [SCRIPT, ...])` / `spawn(process.execPath, [SCRIPT, ...])`.
-	 * No indirection-assumed-guilty limb here (unlike
-	 * check-guard-test-isolation.js's twin): this shape's argv[0] is near
-	 * always a plain interpreter, so a first array element this file cannot
-	 * resolve is routinely an unrelated command's own argument (`git`,
-	 * `["add", rel]`) rather than a disguised script path — flagging it would
-	 * cost a false positive on every such call, not just the guilty one. */
 	const spawnCall =
 		/\b(?:spawnSync|spawn|execFileSync|execFile)\(\s*(?!\s)((?:[^,()]|\([^()]*\))*),\s*\[\s*([^,\]]*)/g;
 	const scriptLiteral = /"([\w./-]+\.(?:js|sh))"/;
@@ -269,10 +171,6 @@ const SPEC = {
 	usage:
 		"node check-host-root-test-isolation.js [--json] [--warn] [--root <dir>] [--against <rev>]",
 	valueFlags: ["--root"],
-	/* Whole-tree, not a pathspec: the finding is a relationship between a test
-	 * file and whatever script it spawns, and spawnedScripts follows `require`
-	 * chains through scripts/lib — so the scan discovers its own scope
-	 * (scripts/lib/check.js §--against, mantahostels#1833). */
 	against: { profile: "host-root-test-isolation", materialise: "tree" },
 	run(/** @type {any} */ ctx) {
 		const { root, files } = readTrackedScripts(ctx, isJsTestFile);

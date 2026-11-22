@@ -1,52 +1,4 @@
 #!/usr/bin/env python3
-"""bench.py — run a set of hook commands in parallel as the harness does, N
-times, and report per-call CPU, sys, minor faults and wall: the second half of
-#2711's hook harness. Its paired mode is the latency gate every guard port is
-read by (#2733, #3216).
-
-  python3 scripts/measure-guard-port/hookset.py PreToolUse Bash 'ls -la' > hooks.txt
-  python3 scripts/measure-guard-port/bench.py hooks.txt PreToolUse Bash 'ls -la' 15
-  python3 scripts/measure-guard-port/bench.py --paired [--narrowed] [--reread] [--old-root DIR] [--new-root DIR] \
-      old.txt new.txt PreToolUse Bash 'ls -la'
-  python3 scripts/measure-guard-port/bench.py --paired --git <shape> [--reread] \
-      --old-root DIR --new-root DIR
-
-Each call starts every command under `/bin/sh -c` at once, writes one hook
-payload to each stdin, and waits for all; CPU and faults are the children's
-rusage across the call. The payload's session is a fake one (`bench-2783-0000`)
-whose transcript sits under `.claude/tmp/`, so no guard reads a live session.
-
-The paired mode runs one old call and one new call back to back, in an order
-a coin flip sets per pair, and reads the median of the new/old ratios for CPU
-and wall with a 95% percentile bootstrap interval: PASS when
-the upper bound is at most 1.03, FAIL when the lower bound is above it, else
-30 more pairs up to 90 and then INCONCLUSIVE, which is never a pass.
-`--reread` is the one re-read an INCONCLUSIVE gets: a single read of 720
-pairs with no earlier look, whose verdict is final (#4664). Its INCONCLUSIVE
-on wall alone (CPU PASS, or `--narrowed`) closes the gate as wall not resolved
-at 3%, no FAIL, never as a pass. Residual: nothing checks that a read is a first re-read, so one use per
-gate is the caller's. An
-always-on set passes on CPU and wall; `--narrowed` (an `if`-narrowed guard)
-passes on wall, CPU recorded beside it. Pairing cancels the load both calls
-share, so no load is refused (#3210). The read is REFUSED when a pair's deny
-counts differ, or when a hook leaves a detached child running, whose CPU the
-children's rusage cannot count. `--old-root` and `--new-root` run a side from
-another work tree (its `CLAUDE_PROJECT_DIR` and payload `cwd`), for a
-before/after read across commits; each defaults to the host root.
-
-`--git` times a git operation in place of a hook set (#5207): `commit` (a `-m`
-commit), `merge` (a `--no-ff` merge commit), `cherry-pick`, `rebase` (one
-commit) and `am` (one patch) are gated; `am-refused`, a patch gitleaks refuses,
-is read the same way but marked `"gated": false`. Each side runs as
-scripts/measure-guard-port/gitop.py describes. A pair whose
-exit codes differ is REFUSED. After the pairs, 15 more calls a side through
-wrapper hooks give each hook's median CPU, `hook_cpu_ms`, beside the ratios.
-
-Prints one JSON line, the machine state before and after beside the figures.
-Exits 0 on any finished read, its verdict included, so a harness branches on
-`.verdict`; 1 on a bad invocation.
-"""
-
 from __future__ import annotations
 
 import ctypes
@@ -71,34 +23,26 @@ from host_root import host_root
 from machine import machine_state
 
 SESSION = "bench-2783-0000"
-# The margin is house (#3232 Q1 (A)); the batch step and cap are untraced (#3216).
 MARGIN = 1.03
-# 30 to start is Kalibera & Jones's and Georges et al.'s count (#3210).
 FIRST, STEP, CAP = 30, 30, 90
-# House (#4664 Q1 (A)).
 REREAD = 720
-# Duet's replicate count; Kalibera & Jones's floor is 1,000 (#3210).
 RESAMPLES = 10_000
 PR_SET_CHILD_SUBREAPER = 36
-# include/linux/sched.h: set once a task starts exiting, before its fds close.
 PF_EXITING = 0x4
-# A child already exiting is gone in milliseconds; one still unwaitable after a
-# second is stuck, and counts as running (#3657).
 EXIT_WAIT_S = 1.0
-# The per-hook CPU phase's calls per side, each hook's figure their median: a
-# report, never gated (#5207). 15 is a guess, stated as one, sized to keep the
-# phase short beside the gated pairs; the spread of that median across repeat
-# runs would refine it.
 HOOK_CPU_CALLS = 15
+
+USAGE = """usage:
+  bench.py <hooks.txt> <event> <tool> <command> <n>
+  bench.py --paired [--narrowed] [--reread] [--old-root DIR] [--new-root DIR] \\
+      <old.txt> <new.txt> <event> <tool> <command>
+  bench.py --paired --git <shape> [--reread] --old-root DIR --new-root DIR
+
+Prints one JSON line. Exits 0 on any finished read, its verdict included;
+1 on a bad invocation."""
 
 
 def tool_call(event: str, tool: str, cmd: str) -> dict:
-    """The call's input, in the shape the tool's cores read their subject from,
-    and on PostToolUse the answer a recorder hashes: without one the echo
-    recorder stops before its work (#2787). `cmd` is the subject: a file
-    tool's path, a Skill's name, a dispatch's prompt, a fetch's URL, a search's
-    query; ListAgents takes none (#3176). Skill, Agent, Task and ListAgents
-    dispatch no PostToolUse hook, so their answer is empty."""
     if tool == "Bash":
         given = {"command": cmd, "description": "bench"}
         answer = {
@@ -177,7 +121,6 @@ def one_call(cmds: list[str], body: bytes, env: dict, root: str) -> dict:
             p.stdin.close()
         except BrokenPipeError as e:
             expected(e, "the hook exited before reading its stdin")
-        # Closed already: communicate() would flush it again.
         p.stdin = None
     denies = 0
     for p in ps:
@@ -198,14 +141,11 @@ def one_call(cmds: list[str], body: bytes, env: dict, root: str) -> dict:
 
 
 def become_subreaper() -> None:
-    """Make a hook's orphaned grandchildren this process's children."""
     if ctypes.CDLL(None, use_errno=True).prctl(PR_SET_CHILD_SUBREAPER, 1, 0, 0, 0):
-        # Without it an orphan goes to init and its CPU is lost unreported.
         raise OSError(ctypes.get_errno(), "prctl(PR_SET_CHILD_SUBREAPER) failed")
 
 
 def reap_orphans() -> int:
-    """Wait for every exited orphan, and count the ones still running."""
     while True:
         try:
             pid, _ = os.waitpid(-1, os.WNOHANG)
@@ -216,8 +156,6 @@ def reap_orphans() -> int:
             break
     me = str(os.getpid())
     running = 0
-    # The real /proc, never WFC_PROC's fake: these are the bench's own
-    # children (#3608).
     for d in Path("/proc").iterdir():
         if not d.name.isdigit():
             continue
@@ -228,13 +166,9 @@ def reap_orphans() -> int:
                 e, f"pid {d.name} exited since the listing, or is not ours to read"
             )
             continue
-        # The command name may hold spaces; the fields after its closing
-        # parenthesis start at the state (field 3).
         fields = stat[stat.rindex(")") + 2 :].split()
         if fields[1] != me:
             continue
-        # A child closes its pipes before it exits, so it can still be exiting
-        # after the reap above; its CPU counts only once it is waited for.
         if (fields[0] == "Z" or int(fields[6]) & PF_EXITING) and reaped(int(d.name)):
             continue
         running += 1
@@ -242,7 +176,6 @@ def reap_orphans() -> int:
 
 
 def reaped(pid: int) -> bool:
-    """Wait up to EXIT_WAIT_S for an exiting child, saying whether it went."""
     deadline = time.monotonic() + EXIT_WAIT_S
     while True:
         try:
@@ -277,9 +210,6 @@ def summarise(calls: list[dict]) -> dict:
 
 
 def ci_of_median(ratios: list[float], rng: random.Random) -> tuple[float, float]:
-    """The 95% percentile bootstrap interval of the median ratio. The median,
-    not Duet's geometric mean, so a load spike on one call of a pair does not
-    move it (#3210)."""
     meds = sorted(
         statistics.median(rng.choices(ratios, k=len(ratios))) for _ in range(RESAMPLES)
     )
@@ -303,7 +233,6 @@ def judge_pairs(
         m: metric_verdict([new[m] / old[m] for old, new in pairs], rng)
         for m in ("cpu", "wall")
     }
-    # #2733 gates an `if`-narrowed guard on its matching call's wait alone.
     gating = ["wall"] if narrowed else ["cpu", "wall"]
     verdicts = {out[m]["verdict"] for m in gating}
     out["verdict"] = (
@@ -360,7 +289,6 @@ def read_set(cmdfile: str) -> list[str]:
 
 
 def side(root: str, event: str, tool: str, cmd: str) -> tuple[bytes, dict]:
-    """One work tree's payload and hook environment."""
     tdir = Path(root, ".claude", "tmp", SESSION)
     tdir.mkdir(parents=True, exist_ok=True)
     transcript = tdir / "t.jsonl"
@@ -375,8 +303,6 @@ def side(root: str, event: str, tool: str, cmd: str) -> tuple[bytes, dict]:
 
 
 def run_git_paired(shape: str, old_root: str, new_root: str, reread: bool) -> dict:
-    """The paired read over one git operation, then each side's per-hook CPU."""
-    # A SIGTERM unwinds through the finally, so no fixture outlives the read.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(143))
     work = tempfile.mkdtemp(prefix="bench-git-", dir=tmp_dir())
     try:
@@ -438,7 +364,7 @@ def main(argv: list[str] | None = None) -> int:
                 roots[flag] = os.path.realpath(args.pop(0))
     if shape is not None:
         if args or narrowed or shape not in gitop.SHAPES:
-            print(__doc__, file=sys.stderr)
+            print(USAGE, file=sys.stderr)
             return 1
         become_subreaper()
         before = machine_state()
@@ -452,7 +378,7 @@ def main(argv: list[str] | None = None) -> int:
         sets = [read_set(args[0])]
         event, tool, cmd, n = args[1], args[2], args[3], int(args[4])
     else:
-        print(__doc__, file=sys.stderr)
+        print(USAGE, file=sys.stderr)
         return 1
     become_subreaper()
     before = machine_state()

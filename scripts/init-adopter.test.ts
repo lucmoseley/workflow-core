@@ -1007,7 +1007,6 @@ describe("init in a fresh repository", () => {
 			fs.readFileSync(path.join(dir, "docs/doc-map-classes.json"), "utf8"),
 		);
 		expect(sidecar["scripts/browse.py"]).toBeUndefined();
-		expect(body).toContain("DO NOT EDIT AN ADOPTER'S COPY");
 	});
 
 	it("copies in the resolver the hook shims run, byte-identical to the core's (#1839)", () => {
@@ -1024,9 +1023,9 @@ describe("init in a fresh repository", () => {
 		fs.writeFileSync(path.join(dir, "scripts/browse.py"), "clobbered\n");
 		const again = init(dir, "--founder", "A Founder", "--no-tracker");
 		expect(again.status).toBe(0);
-		expect(
-			fs.readFileSync(path.join(dir, "scripts/browse.py"), "utf8"),
-		).toContain("browse.py — render a page with a real browser");
+		expect(fs.readFileSync(path.join(dir, "scripts/browse.py"), "utf8")).toBe(
+			fs.readFileSync(path.join(CORE, "scripts/browse.py"), "utf8"),
+		);
 	});
 
 	it("leaves an adopter's .husky/pre-commit.local byte-identical on a re-run (#437)", () => {

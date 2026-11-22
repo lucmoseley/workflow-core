@@ -1,22 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-roadmap-valid.js FAILs a structurally invalid roadmap — in
- * the index against HEAD by default, in the working tree under --tree — and
- * only warns on a validator WARNING (mantahostels#698, mantahostels#697,
- * mantahostels#974).
- *
- * check-roadmap-valid.js reads the git index in its default mode and the working
- * tree under --tree, so it runs inside a throwaway repository rather than
- * against this one — staging or writing files here would fight the working tree
- * the suite is running in.
- *
- * Every assertion is on the process's exit code and its output, never on the
- * checker's internals.
- *
- * It is a hard gate in .husky/pre-commit and a daily repo-checks check: loosen
- * a case and a duplicate id, missing prerequisite or undrawable card state
- * reaches `main`.
- */
 
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -40,7 +22,6 @@ const gitIn = (cwd: string, ...args: string[]) =>
 	execFileSync("git", args, { cwd, encoding: "utf8" });
 const git = (...args: string[]) => gitIn(repo, ...args);
 
-/* A fresh repository with no commit in it yet. */
 const newRepo = (tag: string) => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), tag));
 	gitIn(dir, "init", "-q", ".");
@@ -52,14 +33,10 @@ const newRepo = (tag: string) => {
 const { EXPECTED_MAJOR } = createRequire(import.meta.url)(
 	"../.claude/skills/roadmap-edit/scripts/validate.js",
 );
-/* The core's own major, so a repin of EXPECTED_MAJOR moves every fixture. */
 const v = (minor: number) => `${EXPECTED_MAJOR}.${minor}`;
 
 type Card = Record<string, unknown>;
 
-/* Carries every field in the validator's KNOWN_ITEM_FIELDS pin, so a fixture is
- * clean by default: a card missing one raises a SCHEMA DRIFT warning, which
- * would make the "no findings" cases unreachable. */
 const card = (over: Card = {}): Card => ({
 	id: "seed",
 	p: 0,
@@ -76,10 +53,7 @@ const card = (over: Card = {}): Card => ({
 	span: 1,
 	focus: "yes",
 	why: "a direction under consideration, plus what it unlocks.",
-	// 31 words, one over mn's 30-word ceiling. capOk needs a genuinely
-	// over-ceiling field to exercise without itself going STALE.
 	mn: "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty twentyone twentytwo twentythree twentyfour twentyfive twentysix twentyseven twentyeight twentynine thirty thirtyone",
-	// Present so capOk isn't itself a SCHEMA DRIFT "known field unused" case.
 	capOk: { mn: 1 },
 	...over,
 });
@@ -96,8 +70,6 @@ const stageIn = (cwd: string, file: string, body: string) => {
 };
 const stage = (file: string, body: string) => stageIn(repo, file, body);
 
-/* The host pin goes last, so no case's `extra` drops it: the session's own
- * CLAUDE_PROJECT_DIR would otherwise name this checkout (#3327). */
 const run = (args: string[], cwd = repo, extra: NodeJS.ProcessEnv = {}) => {
 	const r = runInProcess(SCRIPT, args, {
 		cwd,
@@ -114,13 +86,11 @@ const check = (cwd = repo, extra: NodeJS.ProcessEnv = {}) =>
 const tree = (cwd = repo, extra: NodeJS.ProcessEnv = {}) =>
 	run(["--tree"], cwd, extra);
 
-/* Writes the working tree WITHOUT staging, which is what tree mode judges. */
 const put = (file: string, body: string, cwd = repo) => {
 	fs.mkdirSync(path.dirname(path.join(cwd, file)), { recursive: true });
 	fs.writeFileSync(path.join(cwd, file), body);
 };
 
-/* The phase-boundary checks run only where the host keeps a ladder (#748). */
 const CONFIG = ".claude/workflow-core.json";
 const keepsLadder = (extra: Record<string, unknown> = {}) =>
 	put(CONFIG, JSON.stringify({ capacityLadder: true, ...extra }));
@@ -185,10 +155,6 @@ describe("check-roadmap-valid", () => {
 		expect(r.stderr).toContain("seed");
 	});
 
-	/* The phase-boundary warning (mantahostels#1130). A validate-pN card flipping to done is
-	 * the roadmap's only machine-readable phase boundary, and a boundary
-	 * re-opens the agent-spend ladder. It is advisory: crossing one is the
-	 * commit doing right, so it must never gate. */
 	const withGate = (state: string, version: string) =>
 		roadmap(version, [card(), card({ id: "validate-p0", state })]);
 
@@ -201,7 +167,6 @@ describe("check-roadmap-valid", () => {
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("WARN");
 		expect(r.stderr).toContain("validate-p0 is newly done");
-		// The one instruction the warning exists to deliver.
 		expect(r.stderr).toContain("docs/capacity-procurement-ladder.md");
 		expect(r.stderr).toContain("1 phase boundary crossed");
 	});
@@ -259,8 +224,6 @@ describe("check-roadmap-valid", () => {
 		expect(r.stderr).not.toContain("newly done");
 	});
 
-	/* Fails open, and must say so: a baseline that stops parsing would otherwise
-	 * kill the boundary check silently and for good. */
 	it("prints a SKIPPED line when the baseline is not a roadmap", () => {
 		keepsLadder();
 		stage(HTML, "<!doctype html>not a roadmap at all");
@@ -272,9 +235,6 @@ describe("check-roadmap-valid", () => {
 	});
 
 	it("validates the very first commit of a repo, which has no HEAD at all", () => {
-		/* The bootstrap's own commit (#5): no HEAD to read is the same
-		 * no-baseline judgement as a HEAD holding no roadmap yet, not an
-		 * apparatus fault. */
 		const bare = newRepo("roadmap-valid-nobase-");
 		stageIn(bare, HTML, roadmap(v(1), [card()]));
 		const r = check(bare);
@@ -285,8 +245,6 @@ describe("check-roadmap-valid", () => {
 	});
 
 	it("is still BROKEN where HEAD exists and cannot be read", () => {
-		/* The repo HAS commits, so this is no first commit: a symbolic HEAD
-		 * naming a deleted branch is an apparatus fault and stays one (#5). */
 		const broken = newRepo("roadmap-valid-badhead-");
 		stageIn(broken, "README.md", "x\n");
 		spawnSync("git", ["commit", "-qm", "init"], { cwd: broken });
@@ -340,9 +298,6 @@ describe("check-roadmap-valid", () => {
 		expect(r.stderr).toContain("could not be parsed");
 	});
 
-	/* A rename out of the index is the deletion it is, never a SKIP: git
-	 * reports it as R, so a bare --name-only listed the new name alone and the
-	 * roadmap's move landed unvalidated (#1483). */
 	it("is BROKEN, not SKIPPED, when the roadmap is renamed away (#1483)", () => {
 		git("mv", "--", HTML, "docs/roadmap-old.html");
 		const r = check();
@@ -350,9 +305,6 @@ describe("check-roadmap-valid", () => {
 		expect(r.stderr).not.toContain("SKIP");
 	});
 
-	/* SKIP raises no finding and gates nothing. It still prints the family's one
-	 * summary line, which check.js owns (mantahostels#155, the ticket that settled the checker
-	 * family's exit-code and severity alphabet). */
 	it("SKIPs a commit that does not stage the roadmap", () => {
 		stage("docs/other.md", "unrelated\n");
 		const r = check();
@@ -362,8 +314,6 @@ describe("check-roadmap-valid", () => {
 		expect(r.stderr).not.toContain("WARN");
 	});
 
-	/* The module gate reads the host's config, still the pre-merge one in the
-	 * lander's merge, so a commit retiring the module was BROKEN there (#5405). */
 	describe("a commit deleting the roadmap", () => {
 		beforeEach(() => {
 			stage(HTML, roadmap(v(2), [card()]));
@@ -388,8 +338,6 @@ describe("check-roadmap-valid", () => {
 		});
 	});
 
-	/* mantahostels#179 (the pre-commit gate reading staged paths only) and mantahostels#298, the pair
-	 * that ruled index mode must never judge a neighbour's half-saved tree. */
 	it("judges the staged blob, not the working tree", () => {
 		stage(HTML, roadmap(v(2), [card()]));
 		fs.writeFileSync(
@@ -419,12 +367,6 @@ describe("check-roadmap-valid", () => {
 	});
 });
 
-/*
- * --tree (mantahostels#974).
- *
- * Every case below leaves a VALID roadmap staged and committed and puts the
- * interesting one in the tree alone.
- */
 describe("check-roadmap-valid --tree", () => {
 	it("FAILs a card-level error present only in the working tree, naming the card and its bad state and offering the roadmap-edit skill", () => {
 		put(HTML, roadmap(v(2), [card({ state: "nope" })]));
@@ -435,8 +377,6 @@ describe("check-roadmap-valid --tree", () => {
 		expect(r.stderr).toContain("roadmap-edit skill");
 	});
 
-	/* The mode runs under workflow_dispatch on any ref and locally over a dirty
-	 * tree, so it cannot name the branch it is judging. */
 	it("does not claim to be judging any particular ref", () => {
 		put(HTML, roadmap(v(2), [card({ state: "nope" })]));
 		const r = tree();
@@ -444,9 +384,6 @@ describe("check-roadmap-valid --tree", () => {
 		expect(r.stderr).not.toContain("on main");
 	});
 
-	/* Index mode SKIPs this exact tree, so a break that arrived by a --no-verify
-	 * commit is invisible to it and caught here. An auto-resolving merge was a
-	 * second such route until mantahostels#1679 put .husky/pre-merge-commit behind it. */
 	it("catches a break index mode SKIPs, nothing being staged", () => {
 		put(HTML, roadmap(v(2), [card({ needs: ["ghost"] })]));
 		expect(check().status).toBe(0);
@@ -471,8 +408,6 @@ describe("check-roadmap-valid --tree", () => {
 		expect(r.stderr).toContain("VERSION TRIPWIRE");
 	});
 
-	/* No parent, so no card list. "version unchanged" is the other baseline-only
-	 * finding, and it must not fire either: the tree is at HEAD's version. */
 	it("computes no added/removed list and no version-unchanged warning", () => {
 		put(HTML, roadmap(v(1), [card(), card({ id: "fresh" })]));
 		const r = tree();
@@ -540,11 +475,6 @@ describe("check-roadmap-valid --tree", () => {
 	});
 });
 
-/*
- * The durable half of the phase-boundary check (mantahostels#1377). Tree mode compares the
- * gate cards reading `done` against the ladder's Re-assessment log, which is
- * what records a boundary having been answered.
- */
 describe("check-roadmap-valid --tree · unrecorded phase boundaries", () => {
 	const ladderPath = "docs/capacity-procurement-ladder.md";
 
@@ -615,7 +545,6 @@ describe("check-roadmap-valid --tree · unrecorded phase boundaries", () => {
 		expect(r.stderr).toContain("1 unrecorded phase boundary");
 	});
 
-	/* A substring match would read validate-p10 as recording validate-p1. */
 	it("does not let a longer card id record a shorter one", () => {
 		put(ladderPath, ladder("- 2026-09-01 · validate-p10 · nothing moved."));
 		put(HTML, gate("done", "validate-p1"));
@@ -628,7 +557,6 @@ describe("check-roadmap-valid --tree · unrecorded phase boundaries", () => {
 		expect(tree().stderr).toContain("validate-p0 reads done");
 	});
 
-	/* The heading's own comment sits inside the section it introduces. */
 	it("does not let the log section's own comment record a card", () => {
 		put(
 			ladderPath,
@@ -639,8 +567,6 @@ describe("check-roadmap-valid --tree · unrecorded phase boundaries", () => {
 		expect(tree().stderr).toContain("validate-p0 reads done");
 	});
 
-	/* The log is a section, not the rest of the file: a later section naming a
-	 * gate card records nothing. */
 	it("reads only the log section, not what follows it", () => {
 		put(
 			ladderPath,
@@ -668,8 +594,6 @@ describe("check-roadmap-valid --tree · unrecorded phase boundaries", () => {
 		expect(r.stderr).toContain("validate-p0 reads done");
 	});
 
-	/* Tree mode stays green on this finding, so under Actions an annotation is
-	 * what reports it (mantahostels#1377); repo-checks reads it as a WARN. */
 	it("annotates the unrecorded boundary for Actions, on stdout", () => {
 		put(ladderPath, ladder("None yet."));
 		put(HTML, gate("done"));
@@ -709,7 +633,6 @@ describe("check-roadmap-valid --tree · unrecorded phase boundaries", () => {
 	});
 });
 
-/* The host config decides whether there is a ladder and where it sits (#401). */
 describe("check-roadmap-valid · the ladder the host config declares", () => {
 	const movedPath = "docs/machinery/capacity-procurement-ladder.md";
 	const defaultPath = "docs/capacity-procurement-ladder.md";
@@ -831,18 +754,9 @@ describe("check-roadmap-valid · the ladder the host config declares", () => {
 	});
 });
 
-/*
- * mantahostels#1649 relocated the roadmap-validity rule out of CLAUDE.md and into this
- * checker's failure (spec mantahostels#1641). Keyed by fragment id, never by a literal
- * copied out of the fragment — a second copy is the drift the store exists to
- * prevent.
- *
- * The checker runs from a throwaway repo, but lib/rule-text.js resolves the
- * store off its own __dirname, so it reads this repo's fragment either way.
- */
 describe("the relocated rule reaches the session whose commit fails", () => {
-	// biome-ignore lint/suspicious/noExplicitAny: CommonJS module under test
-	const { readRuleText } = require("./lib/rule-text") as any;
+	const { readRuleText } =
+		require("./lib/rule-text") as typeof import("./lib/rule-text");
 
 	it("index mode carries the whole rule on a structural error", () => {
 		stage(HTML, roadmap(v(2), [card({ state: "nope" })]));
@@ -858,10 +772,6 @@ describe("the relocated rule reaches the session whose commit fails", () => {
 		expect(r.stderr).toContain(readRuleText("roadmap-validity"));
 	});
 
-	/* A literal anchor, deliberately: every assertion above reads the fragment at
-	 * test time, so deleting a clause from the fragment changes both sides at once
-	 * and nothing fails. One clause quoted here is what makes a fragment mutation
-	 * detectable at all. */
 	it("routes the fix through a pathspec commit (#1732)", () => {
 		stage(HTML, roadmap(v(2), [card({ state: "nope" })]));
 		const { stderr } = check();

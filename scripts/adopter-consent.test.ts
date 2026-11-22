@@ -1,20 +1,4 @@
 // @vitest-environment node
-/*
- * adopter-consent.test.ts — the CLI over lib/adopter-consent.js (#245).
- *
- * Pins that each command writes or reads the record the lib reads back, what
- * it prints, and that bad usage exits 2.
- *
- * `main` is called in process with CLAUDE_CONFIG_DIR pointed at a temp
- * directory, so the founder's real consent store is never touched, and
- * `fs.writeSync` is spied on to read what the CLI prints and to which stream.
- *
- * A session runs this CLI to accept an upgrade it installed, or on the
- * founder's no; the
- * adopter's SessionStart check-plugin-gap.js and session-end
- * reconcile-plugin.js act on what it writes. Loosen a case and an accepted
- * upgrade is never applied, or a declined one is nagged about every session.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -50,18 +34,15 @@ describe("decline", () => {
 	});
 });
 
-/* Answers each write to stdout or stderr as wholly taken: writeFd counts a
- * 0-byte answer toward its stall ceiling (#1676). Any other fd is a file
- * write, which writeFileSync may route through writeSync, and goes through
- * for real. */
 const realWriteSync = fs.writeSync;
 const spyWrites = () =>
-	vi.spyOn(fs, "writeSync").mockImplementation((fd, data, ...rest) =>
-		fd === 1 || fd === 2
-			? Buffer.byteLength(data as string | Buffer)
-			: // biome-ignore lint/suspicious/noExplicitAny: passthrough to the real overloaded call
-				(realWriteSync as any)(fd, data, ...rest),
-	);
+	vi
+		.spyOn(fs, "writeSync")
+		.mockImplementation((fd, data, ...rest) =>
+			fd === 1 || fd === 2
+				? Buffer.byteLength(data as string | Buffer)
+				: Reflect.apply(realWriteSync, fs, [fd, data, ...rest]),
+		);
 
 describe("accept", () => {
 	it("writes a pending consent and tells the founder this session stays as-is", () => {

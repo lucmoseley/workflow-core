@@ -1,17 +1,3 @@
-"""Tests for scan_machine.py and sample_load.py — the machine-binding scan
-behind mantahostels#1127. Each test pins one distinction a figure in
-https://github.com/lucmoseley/workflow-core-tracker/blob/0a69e0d4be03/docs/research/machine-binding-constraints.md rests on, bar one that pins
-sample_load's `ps` to the §N7 seam (#1325).
-
-The parsers are fed literal earlyoom, `free` and `/proc` lines, transcripts
-and `/proc` files are written under `tmp_path`, and `ps` is a stub through
-`WFC_PS`, so nothing reads this machine's live state or real corpus.
-
-CI's pytest step runs this file; the scan gates
-nothing and is run by hand. Breaking it can misread a bystander kill as a lost
-session or MemFree as headroom, misdirecting the call on whether the 10 GB
-machine or the token allowance binds the work."""
-
 import datetime as dt
 import json
 import os
@@ -34,9 +20,6 @@ from scan_machine import (  # noqa: E402 - imported after HERE, which the sys.pa
 )
 
 
-# --- earlyoom parsing -------------------------------------------------------
-
-
 def test_parse_earlyoom_kill_reads_victim_and_rss():
     line = (
         "2026-08-18T15:00:04.123456+08:00 Luctop earlyoom[853]: sending SIGTERM "
@@ -50,11 +33,6 @@ def test_parse_earlyoom_kill_reads_victim_and_rss():
 
 
 def test_parse_earlyoom_kill_ignores_the_startup_banner():
-    """`sending SIGTERM when mem <= 8.00%` is configuration, not a kill.
-
-    Counting it inflates the kill tally roughly threefold — the banner is
-    printed on every earlyoom start, and this machine reboots often.
-    """
     line = (
         "2026-08-21T08:29:38.912679+08:00 Luctop earlyoom[1332]: sending SIGTERM "
         "when mem <=  8.00% and swap <= 100.00%,"
@@ -80,12 +58,6 @@ def test_parse_earlyoom_kill_ignores_unrelated_lines():
 
 
 def test_a_bystander_kill_is_not_a_lost_session():
-    """The recorder and `(sd-pam)` are collateral, not work the machine stopped.
-
-    They are killed at 1-3 MiB. Counting them as sessions doubles the tally
-    and would make the machine look like it stops work twice as often as it
-    does.
-    """
     small = parse_earlyoom_kill(
         "2026-08-19T02:00:00.0+08:00 L earlyoom[1]: sending SIGTERM to process 1 "
         'uid 1000 "memwatch.sh": badness 733, VmRSS 3 MiB',
@@ -100,11 +72,7 @@ def test_a_bystander_kill_is_not_a_lost_session():
     assert big.is_session is True
 
 
-# --- free(1) parsing --------------------------------------------------------
-
-
 def test_free_available_mb_reads_the_available_column():
-    """`available`, never `free` — `free` counts reclaimable cache as spent."""
     text = (
         "               total        used        free      shared  buff/cache   available\n"
         "Mem:            9924        6655         388           2        3144        3268\n"
@@ -114,7 +82,6 @@ def test_free_available_mb_reads_the_available_column():
 
 
 def test_free_available_mb_ignores_a_different_machine_total():
-    """A reading off the retired 7,924 MiB cap is not comparable."""
     text = "Mem:            7924        6000         100           2        1800        1500\n"
     assert free_available_mb(text, total_mb=9924) == []
 
@@ -122,9 +89,6 @@ def test_free_available_mb_ignores_a_different_machine_total():
 def test_free_available_mb_finds_every_reading_in_a_blob():
     text = "Mem: 9924 1 2 3 4 3268\nnoise\nMem: 9924 1 2 3 4 1016\n"
     assert free_available_mb(text) == [3268, 1016]
-
-
-# --- concurrency ------------------------------------------------------------
 
 
 def _t(h, m=0):
@@ -139,11 +103,6 @@ def test_concurrency_timeline_counts_overlapping_spans():
 
 
 def test_concurrency_timeline_is_time_weighted_not_sample_counted():
-    """One long quiet stretch must outweigh a brief burst.
-
-    Counting samples instead of seconds is what turns a 16-session peak that
-    lasted seconds into a claim that the machine runs 16 sessions.
-    """
     spans = [(_t(0), _t(10)), (_t(9), _t(9, 6))]
     tl = concurrency_timeline(spans)
     at_one = sum((b - a).total_seconds() for a, b, c in tl if c == 1)
@@ -155,28 +114,16 @@ def test_concurrency_timeline_handles_no_spans():
     assert concurrency_timeline([]) == []
 
 
-# --- summary helpers --------------------------------------------------------
-
-
 def test_percentiles_are_nearest_rank_not_interpolated():
     assert percentiles([1, 2, 3, 4, 5], [0.5]) == {0.5: 3}
 
 
 def test_threshold_shares_count_strictly_below():
-    """A reading exactly at the gate admits the suite; it is not a refusal."""
     shares = threshold_shares([2999, 3000, 3001], {"gate": 3000})
     assert shares["gate"] == (1, pytest.approx(1 / 3))
 
 
-# --- Actions billing --------------------------------------------------------
-
-
 def test_billed_minutes_rounds_each_job_up_separately():
-    """GitHub bills per job per started minute, so two 30s jobs cost 2, not 1.
-
-    Summing seconds first and rounding once halves the estimate for this
-    repo's CI, whose two jobs are both under a minute.
-    """
     assert billed_minutes([30, 30]) == 2
 
 
@@ -188,16 +135,7 @@ def test_billed_minutes_of_nothing_is_nothing():
     assert billed_minutes([]) == 0
 
 
-# --- the seams that produce the headline numbers ----------------------------
-
-
 def _free(avail):
-    """`free -m` output as a session actually records it — header row included.
-
-    The header matters: `Mem:` only starts a line because something precedes
-    it, and the extractor anchors on line start deliberately so a stray
-    "Mem:" inside prose cannot be read as a reading.
-    """
     return (
         "               total        used        free      shared  buff/cache   available\n"
         f"Mem:            9924        6655         388           2        3144        {avail}\n"
@@ -215,12 +153,6 @@ def _write_transcript(tmp_path, name, records):
 
 
 def test_headroom_readings_finds_free_output_inside_a_tool_result(tmp_path):
-    """The readings live inside JSON string fields, escaped, not as raw lines.
-
-    This is the seam the 1,207-reading headline comes from, and it is the one
-    place a transcript's `\\n` escaping has to be undone before the `free -m`
-    regex can match a line at all.
-    """
     from scan_machine import headroom_readings
 
     _write_transcript(
@@ -258,12 +190,6 @@ def test_headroom_readings_respects_the_since_cutoff(tmp_path):
 
 
 def test_headroom_readings_counts_one_reading_per_record_not_per_file(tmp_path):
-    """Two `free -m` calls in one session are two observations, not one.
-
-    Collapsing them would silently shrink n and, because a busy session runs
-    `free -m` more often, would drop exactly the crowded moments the
-    distribution exists to capture.
-    """
     from scan_machine import headroom_readings
 
     _write_transcript(
@@ -291,7 +217,7 @@ def test_scan_bash_commands_counts_tool_calls_by_local_day(tmp_path):
         "a.jsonl",
         [
             {
-                "timestamp": "2026-08-22T02:00:00.000Z",  # 10:00 SGT
+                "timestamp": "2026-08-22T02:00:00.000Z",
                 "message": {
                     "content": [
                         {"name": "Bash", "input": {"command": "npm run test"}},
@@ -306,7 +232,6 @@ def test_scan_bash_commands_counts_tool_calls_by_local_day(tmp_path):
 
 
 def test_scan_bash_commands_ignores_a_non_bash_block(tmp_path):
-    """A Read or Edit block carries no command and must not be counted."""
     from scan_machine import scan_bash_commands
 
     _write_transcript(
@@ -324,15 +249,7 @@ def test_scan_bash_commands_ignores_a_non_bash_block(tmp_path):
     assert scan_bash_commands(str(tmp_path), {"t": r"npm run test\b"}, Counter()) == {}
 
 
-# --- the live sampler -------------------------------------------------------
-
-
 def test_cpu_totals_excludes_iowait(tmp_path):
-    """A process blocked on disk is not one the cores are refusing to run.
-
-    Folding `iowait` into busy reads as CPU pressure that no extra core would
-    relieve — the opposite of what this measurement is for.
-    """
     from sample_load import cpu_totals
 
     p = tmp_path / "stat"
@@ -360,11 +277,6 @@ def test_available_mb_is_none_when_the_file_will_not_say(tmp_path):
 
 
 def test_count_claude_matches_the_versioned_binary_a_resumed_session_runs():
-    """`comm` is the version string for a backgrounded session (mantahostels#481).
-
-    Matching on the bare name alone finds no resumed session at all, so the
-    count silently loses one live session per resume.
-    """
     from sample_load import count_claude
 
     ps = "\n".join(
@@ -383,7 +295,6 @@ def test_count_claude_matches_the_versioned_binary_a_resumed_session_runs():
 
 
 def test_count_claude_leaves_out_the_daemons_unclaimed_spare():
-    """The unit is lib/claude_sessions.py's, which test_claude_sessions.py pins (#1798)."""
     from sample_load import count_claude
 
     spare = "/tmp/cc-daemon-1000/d/spare"
@@ -426,9 +337,6 @@ def test_the_default_corpus_spans_every_seat_root(seat_roots):
     ]
 
 
-# --- fail-open sites (#5487) ------------------------------------------------
-
-
 def test_a_kill_with_an_undatable_stamp_is_counted(capsys):
     line = (
         "Aug-18-15:00 Luctop earlyoom[853]: sending SIGTERM "
@@ -453,7 +361,6 @@ def test_a_truncated_gzip_syslog_is_skipped_and_counted(tmp_path, capsys):
 def test_a_transcript_that_will_not_open_is_skipped_and_counted(tmp_path, capsys):
     import scan_machine
 
-    # Listed as a transcript, but its target is gone.
     gone = str(tmp_path / "gone.jsonl")
     os.symlink(tmp_path / "missing", gone)
     tally = Counter()

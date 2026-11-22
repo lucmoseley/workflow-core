@@ -1,19 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-instruction-surface.js warns when the census's counts — hook
- * entries and their command text, skill directories, the always-loaded pool —
- * drift from the baseline, and names each guard whose behavioural verdict has
- * lost its evidence (mantahostels#1716, mantahostels#1771).
- *
- * The checker reads HEAD and ignores an uncommitted edit, falling back to disk
- * where git cannot answer: no repo, or a file not yet in HEAD — never a skill
- * or the settings file, read at the revision alone (#1977, #2052). So every fixture
- * is a bare directory except the "reading git rather than the working tree"
- * block's.
- *
- * It reports, never gates, in the daily repo-checks run. Loosen a case and a
- * new hook or a changed guard goes unreported, so nobody re-measures it.
- */
 
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -41,7 +26,6 @@ const write = (p: string, body: string) => {
 	fs.writeFileSync(path.join(dir, p), body);
 };
 
-/** A settings.json carrying `n` hook entries under one event. */
 const settings = (byEvent: Record<string, number>) => {
 	const hooks: Record<string, unknown[]> = {};
 	for (const [event, n] of Object.entries(byEvent))
@@ -63,7 +47,6 @@ const skill = (name: string, disabled = false) =>
 		`---\nname: ${name}\ndescription: does ${name}\n${disabled ? "disable-model-invocation: true\n" : ""}---\n\nbody\n`,
 	);
 
-/** The tree the default baseline below describes. */
 const buildTree = () => {
 	write("CLAUDE.md", "x".repeat(1000));
 	write("AGENTS.md", "y".repeat(500));
@@ -105,7 +88,6 @@ const baseline = (over: Record<string, unknown> = {}) => ({
 	...over,
 });
 
-/** Writes the baseline, filling in the digests the tree currently has. */
 const writeBaseline = (over: Record<string, unknown> = {}) => {
 	write(BASELINE, JSON.stringify(baseline(over), null, "\t"));
 	run("--rebaseline", "--no-claim");
@@ -152,9 +134,6 @@ const anchorLibCore = () => {
 };
 
 const run = (...args: string[]) => {
-	// Off, not inherited: a real Actions run sets it globally, and this
-	// suite runs inside one — runCheck's ::error:: annotation, added off
-	// this flag, would otherwise leak into `out` (mantahostels#2427).
 	const r = runInProcess(SCRIPT, ["--root", dir, ...args], {
 		env: { ...process.env, GITHUB_ACTIONS: "" },
 	});
@@ -316,8 +295,6 @@ describe("the mechanical counts", () => {
 
 		it("stays quiet on HOOK-COMMAND-NEW where the key is only a moved event", () => {
 			writeBaseline();
-			/* h1.sh moves PreToolUse → SessionStart, an event the baseline holds
-			 * no row for. */
 			write(
 				".claude/settings.json",
 				JSON.stringify(
@@ -396,8 +373,6 @@ describe("the mechanical counts", () => {
 
 		it("reports the extra wiring where a script both moves and gains one", () => {
 			writeBaseline();
-			/* h1.sh leaves PreToolUse for SessionStart AND picks up a Notification
-			 * entry. */
 			write(
 				".claude/settings.json",
 				JSON.stringify(
@@ -439,7 +414,6 @@ describe("the mechanical counts", () => {
 			expect(r.out).toMatch(/HOOK-COMMAND-NEW\s+Notification scripts\/h1\.sh/);
 		});
 
-		/** One PreToolUse Bash group holding `pre`, and a Stop group of one. */
 		const bashSettings = (pre: Record<string, unknown>[]) =>
 			JSON.stringify(
 				{
@@ -601,13 +575,7 @@ describe("the mechanical counts", () => {
 				),
 			);
 			const r = run();
-			// Without buildHookCommandLine() joining `command` and `args`,
-			// `readHookCommands` finds no `scripts/…` text in the bare `"node"`
-			// command, drops the entry, and liveCommandCount falls short of
-			// hooks.total.
 			expect(r.out).not.toMatch(/HOOK-COMMAND-COUNT/);
-			// The anchored text for h1 was `scripts/h1.sh`, so the now-joined
-			// `node scripts/h1.sh` reads as a live text change.
 			expect(r.out).toMatch(
 				/PreToolUse scripts\/h1\.sh.*was `scripts\/h1\.sh`, now `node scripts\/h1\.sh`/,
 			);
@@ -632,8 +600,6 @@ describe("the mechanical counts", () => {
 			path.join(dir, ".agents/skills/alpha"),
 			path.join(dir, ".claude/skills/alpha"),
 		);
-		/* Two own against one vendored, deliberately: a one-of-each tree cannot
-		 * tell the split from its own mirror image. */
 		skill("gamma");
 		writeBaseline();
 		const r = run("--json");
@@ -659,7 +625,7 @@ describe("the pool the rule inventory was taken over", () => {
 		const r = run();
 		expect(r.out).toMatch(/POOL-DRIFT/);
 		expect(r.out).toMatch(/CLAUDE\.md/);
-		expect(r.out).toMatch(/123/); // the inventory the drift puts in doubt
+		expect(r.out).toMatch(/123/);
 	});
 
 	it("takes the threshold from the command line", () => {
@@ -687,9 +653,6 @@ describe("the behavioural verdicts", () => {
 	});
 
 	it("prints the sufficiency half too, not the timing half alone", () => {
-		/* The census confirmed three guards `at need` and downgraded them on
-		 * sufficiency in the same table; a message quoting timing alone reads as
-		 * a guard that works. */
 		writeBaseline();
 		write("scripts/guard-one.sh", "#!/bin/sh\necho reworded\n");
 		expect(run().out).toMatch(/self-sufficient "yes"/);
@@ -1316,14 +1279,13 @@ describe("re-baselining", () => {
 
 			const after = run().out;
 			expect(after).not.toMatch(/HOOK-COMMAND-NEW/);
-			/* The unnamed stale row is untouched. */
 			expect(after).toMatch(/HOOK-COMMAND\s+PreToolUse scripts\/h0\.sh/);
 		});
 
 		it("re-anchors a named poolFiles row and leaves an unnamed one still drifted", () => {
 			writeBaseline();
-			write("CLAUDE.md", "x".repeat(1200)); // +20%, over the 10% threshold
-			write("AGENTS.md", "y".repeat(700)); // +40%, over the 10% threshold
+			write("CLAUDE.md", "x".repeat(1200));
+			write("AGENTS.md", "y".repeat(700));
 			const before = run().out;
 			expect(before).toMatch(/CLAUDE\.md is/);
 			expect(before).toMatch(/AGENTS\.md is/);
@@ -1368,7 +1330,6 @@ describe("re-baselining", () => {
 			expect(r.status).toBe(2);
 			expect(r.out).toMatch(/no row in the baseline/);
 			expect(r.out).toMatch(/scripts\/guard-onee\.sh/);
-			/* Refused before it wrote — the finding it named is still expired. */
 			expect(run().out).toMatch(/guard-one\.sh/);
 		});
 	});
@@ -1378,7 +1339,6 @@ describe("reading git rather than the working tree", () => {
 	const git = (...args: string[]) =>
 		execFileSync("git", args, { cwd: dir, encoding: "utf8" });
 
-	/* The default tree committed once, built once and copied (#5144). */
 	const committedTree = defineTemplate((at) => {
 		const own = dir;
 		dir = at;
@@ -1400,8 +1360,6 @@ describe("reading git rather than the working tree", () => {
 	});
 
 	it("counts the core's self-plugin and settings hooks at HEAD, not its working tree (#2442, #2572)", () => {
-		/* WFC_SCRIPT_ROOT makes `dir` the core, as the real checkout is to its
-		 * own scripts. */
 		const asCore = (...args: string[]) => {
 			const r = runInProcess(SCRIPT, ["--root", dir, ...args], {
 				env: { ...process.env, GITHUB_ACTIONS: "", WFC_SCRIPT_ROOT: dir },
@@ -1556,7 +1514,6 @@ describe("reading git rather than the working tree", () => {
 	const betaVendored = { distinct: 2, own: 1, vendored: 1, disabled: 1 };
 
 	it("follows a committed vendored link to its committed SKILL.md (#1977)", () => {
-		/* The repo's own shape: a relative link into .agents/skills. */
 		fs.mkdirSync(path.join(dir, ".agents/skills"), { recursive: true });
 		fs.renameSync(
 			path.join(dir, ".claude/skills/beta"),
@@ -1795,7 +1752,6 @@ describe("reading git rather than the working tree", () => {
 
 		it.each([
 			["cat-file", "git cat-file --batch of scripts/guard-two.sh"],
-			// The tree listing, which a hung git must never turn into a disk read.
 			["ls-tree", "git ls-tree HEAD"],
 		])(
 			"is BROKEN past its ceiling on a hung `%s`, naming the git read it killed (#2210, #3167)",
@@ -1804,9 +1760,6 @@ describe("reading git rather than the working tree", () => {
 				commit("anchor");
 				write("scripts/guard-two.sh", "#!/bin/sh\necho reworded\n");
 				commit("reword");
-				// Crosses the real clock: the kill is execFileSync's own timeout. A
-				// git that hangs on one word alone lets diff-tree through, so the
-				// read killed is one runTouched reaches only through rowsTouched.
 				const hung = writeFaultyGit({ words: [word] }, { sleep: 30 });
 				try {
 					const r = runInProcess(

@@ -33,13 +33,10 @@ from concurrent.futures import ThreadPoolExecutor
 import scan_rework as sr
 
 DAY = sr.DAY
-# Days. Any horizon past the corpus age truncates nothing; 10,000 is an arbitrary
-# figure far beyond it, not a derived one.
 UNBOUNDED = 10_000
 
 
 def lag_days(issue):
-    """`(first_rework_lag_or_None, exposure_days)` for one closed issue."""
     s = sr.signals(issue, UNBOUNDED)
     if s is None:
         return None
@@ -66,7 +63,6 @@ def lag_days(issue):
 
 
 def kaplan_meier(rows, max_day):
-    """Cumulative incidence of rework by day, censoring on exposure."""
     surv, out = 1.0, []
     for d in range(1, max_day + 1):
         at_risk = [
@@ -98,12 +94,9 @@ def main():
     ap.add_argument(
         "--sample",
         type=int,
-        # A guess at a sample big enough to read a tail from; 250 is what the
-        # mantahostels#1215 reading fetched.
         default=250,
         help="how many closed issues to fetch (0 for all)",
     )
-    # One fetch per core (8, docs/environment.md); a guess, gh's rate limit unmeasured.
     ap.add_argument("--workers", type=int, default=8)
     a = ap.parse_args()
     a.repo = a.repo or sr.config_tracker()

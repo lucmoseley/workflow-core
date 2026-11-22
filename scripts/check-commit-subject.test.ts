@@ -1,15 +1,4 @@
 // @vitest-environment node
-/*
- * .husky/commit-msg refuses a commit whose subject runs over 72 characters
- * (#2332, through scripts/lib/commit-subject.js). A case loosened here lets
- * a long subject land on one route while the others refuse it; a case
- * tightened refuses a revert, merge or fixup subject git wrote itself.
- *
- * Each case commits through the real hook in a throwaway repo, since the
- * routes differ in what git hands the hook: `-m` text, a `-F` file, or the
- * editor's file with git's `#` template block in it. The two unreadable-file
- * cases run the check in-process: no git route reaches them.
- */
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -30,8 +19,6 @@ const RULE = fs
 let dir: string;
 let hooks: string;
 
-// CLAUDE_PROJECT_DIR is the fixture, never a session's live checkout: the
-// rule text roots through lib/host-root.js (#3311).
 const git = (args: string[], env: NodeJS.ProcessEnv = {}) => {
 	const r = spawnSync("git", args, {
 		cwd: dir,
@@ -44,7 +31,6 @@ const readHead = () => git(["rev-parse", "HEAD"]).out.trim();
 
 const subject = (n: number, fill = "x") => `Add ${fill.repeat(n - 4)}`;
 
-/** Stages a fresh change, so every commit has something to record. */
 let change = 0;
 const stage = () => {
 	change += 1;

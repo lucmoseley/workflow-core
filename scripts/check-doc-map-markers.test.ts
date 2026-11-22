@@ -1,21 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-doc-map-markers.js finds every ⚠ marker in the doc map — §B
- * entries, Section A register rows and sidecar prose alike (mantahostels#649) —
- * names each where it sits, and ages a dated one to WARN past 14 days and FAIL
- * past 30 while an undated standing hazard never gates.
- *
- * Each case spawns the real script on a map written into its own temp dir, so
- * no case depends on this repo's live doc map.
- *
- * Ages are written relative to the real current date rather than pinned to a
- * fixed one, so no test seam has to exist in the script for a test to move the
- * clock.
- *
- * It runs as a step of .github/workflows/document-guards.yml on every scheduled
- * sweep: loosen a case and an unapplied propagation flag can sit past its
- * month with the sweep still green.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -43,27 +26,18 @@ const MONTHS = [
 	"Dec",
 ];
 
-/*
- * Fixture dates are reckoned on the WITA clock the script now ages against
- * (mantahostels#919), so `daysAgo(1)` really is one calendar day old whatever hour the
- * suite runs at — under UTC it was two for eight hours a day.
- */
 const WITA_OFFSET_MS = 8 * 3_600_000;
 
-/** The WITA calendar day `days` before today, as a Date. */
 const witaDate = (days: number) =>
 	new Date(Date.now() + WITA_OFFSET_MS - days * 86_400_000);
 
-/** A date `days` before today in WITA, written the way §B writes one. */
 const daysAgo = (days: number) => {
 	const d = witaDate(days);
 	return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 };
 
-/** The same day as `daysAgo`, written the way the sidecar writes one. */
 const isoDaysAgo = (days: number) => witaDate(days).toISOString().slice(0, 10);
 
-/** The map as the script parses it: `### B<n>` entries under a Section B heading. */
 const mapDoc = (...lines: string[]) =>
 	[
 		"# Doc map",
@@ -285,9 +259,6 @@ describe("a Section A register-row marker", () => {
 	});
 });
 
-/* mantahostels#2743 renders `Research runs` as a path list, so a listed file's `role` and
- * `route` prose is in the sidecar and nowhere in the map. The markers inside
- * it would otherwise leave the census the day it stopped being a table. */
 describe("a marker in a listed path's sidecar prose", () => {
 	const listedDoc = () =>
 		[
@@ -542,7 +513,6 @@ describe("ageing a dated marker", () => {
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.stderr).toContain("WARN:");
-		// Exactly 20 — both sides of the comparison now read the WITA calendar.
 		expect(r.stderr).toMatch(/B1\s+20 days/);
 	});
 
@@ -573,8 +543,6 @@ describe("ageing a dated marker", () => {
 		expect(r.stderr).toContain("OK:");
 	});
 
-	/* A marker may state when it was written and, separately, a date a reader
-	 * is told to act on — mantahostels#689's re-measure (mantahostels#1052). */
 	it("ages from the latest past date when a later one is an action date", () => {
 		write(
 			mapDoc(
@@ -590,9 +558,6 @@ describe("ageing a dated marker", () => {
 		expect(r.stderr).not.toContain("dated in the future");
 	});
 
-	/* Hiding a future date must not hide the staleness of the past one beside
-	 * it: the anchor is the latest date that is not in the future, not the
-	 * earliest date on the marker. */
 	it("still FAILs STALE when the past date beside an action date is old, naming the entry and its age", () => {
 		write(
 			mapDoc(
@@ -607,8 +572,6 @@ describe("ageing a dated marker", () => {
 		expect(r.stderr).toMatch(/B1\s+40 days/);
 	});
 
-	/* The typo case — 2027 written for 2026 — has no past date to fall back on,
-	 * and is what the FUTURE finding is for. */
 	it("FAILs a marker whose every date is in the future", () => {
 		write(
 			mapDoc(
@@ -629,9 +592,6 @@ describe("ageing a dated marker", () => {
 		expect(run().status).toBe(1);
 	});
 
-	/* Whole-day ages moved both walls a day later than the fractional UTC ages
-	 * they replaced, so the walls are pinned on both sides rather than left to
-	 * a fixture that happens to sit well clear of them. */
 	it.each([
 		[14, 0, "OK:"],
 		[15, 0, "WARN:"],
@@ -652,16 +612,11 @@ describe("ageing a dated marker", () => {
 	});
 
 	it("ages on the WITA clock, so a marker written today is nought days old", () => {
-		/* The regression mantahostels#919 filed: between 16:00 and 24:00 UTC the local date is
-		 * already tomorrow, so a marker dated off the clock every writer is told to
-		 * read was called FUTURE and reddened the build. A written date carries no
-		 * hour, so the age is whole days — never a fraction that invents one. */
 		write(mapDoc("### B1 · A figure", `- **⚠ Unapplied** at ${daysAgo(0)}.`));
 
 		const r = run();
 		expect(r.status).toBe(0);
 		expect(r.stderr).toMatch(/\s0 days/);
-		// No fractional age anywhere: "0.4 days" would be a UTC-clock reading.
 		expect(r.stderr).not.toMatch(/\d\.\d days/);
 		expect(r.stderr).not.toContain("dated in the future");
 	});
@@ -775,10 +730,6 @@ describe("the checker itself", () => {
 	});
 });
 
-/*
- * A date is not always a confirmation stamp (mantahostels#1357): a marker may state one as a
- * fact — a supersession, a corpus bound — which no work can ever clear.
- */
 describe("a date the marker states rather than confirms", () => {
 	const classedRow = (marker: string, cls: string) =>
 		`| \`docs/research/x.md\` | a run. ${marker} | \`${cls}\` | Never | \`docs/b.md\` (#123) |`;
@@ -908,21 +859,13 @@ describe("a date the marker states rather than confirms", () => {
 	});
 });
 
-/*
- * The same fact — a §B entry's Restated-in list being known incomplete — is
- * written twice while mantahostels#1450's migration runs: as a dated ⚠ marker in the map's
- * prose, and as `knownIncomplete` in docs/doc-map-restatements.json. Both age on
- * the same 14/30 thresholds, and the pair never reports twice (mantahostels#1471).
- */
 describe("a sidecar knownIncomplete date", () => {
-	/** Writes the restatement sidecar the checker reads beside the map. */
 	const sidecar = (entries: Record<string, unknown>) =>
 		fs.writeFileSync(
 			path.join(dir, "doc-map-restatements.json"),
 			JSON.stringify(entries),
 		);
 
-	/** A sidecar entry whose Restated-in list was known incomplete on `iso`. */
 	const known = (iso: string) => ({
 		paths: [{ path: "docs/a.md" }],
 		knownIncomplete: iso,
@@ -1035,7 +978,6 @@ describe("a sidecar knownIncomplete date", () => {
 		expect(out.markers[0].standing).toBe(false);
 		expect(out.markers[0].ageDays).toBe(40);
 		expect(out.findings.map((f: { tag: string }) => f.tag)).toEqual(["STALE"]);
-		// The row is prose; the date is not, so the remedy names the field.
 		expect(out.findings[0].message).toContain("knownIncomplete");
 	});
 

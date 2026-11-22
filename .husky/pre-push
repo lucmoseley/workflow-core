@@ -1,43 +1,14 @@
 #!/usr/bin/env sh
-# pre-push — the mods' plugin tests, the landing queue's two refusals and the
-# public code repo's refusal on a push (#857, #2409, #3074, #1954).
-#
-# Four checks on the commits being pushed:
-#
-# 1. Run each mod's `claude plugin test` where the range touches its folder
-#    (scripts/run-mod-tests.js's MODS), and refuse the push on a failing test
-#    (#857).
-# 2. Refuse a push to `main` of a sha the lander's green ledger does not hold
-#    (scripts/landing-push-gate.js).
-# 3. Refuse a push to a queue ref whose tree holds a guard-registry fault, an
-#    expired anchor among them, that `origin/main`'s tip does not
-#    (scripts/landing-registry-gate.js).
-# 4. Where `codeRepo` differs from `tracker`, refuse a push to the code repo of
-#    a sha that shares history with the tracker's, which would publish it
-#    (scripts/public-push-gate.js).
-#
-# git feeds the ref list on stdin, read once here and handed to each.
-#
-# It FIRES IN A WORKTREE TOO, deliberately: package.json's `prepare` pins
-# core.hooksPath absolute (mantahostels#344).
-#
-# This file and each checker run from the pushing tree, a linked worktree's own
-# copy, not the shared checkout core.hooksPath names, whose working copy holds
-# neighbours' half-written edits (#3125): scripts/install-hooks.js points the
-# shim at the tree git runs the hook in (#3138).
 
-set -e # an adopter's git runs this file itself, outside husky's errexit wrapper (#745)
-# The repo this hook runs in, not an inherited CLAUDE_PROJECT_DIR (#3307); skipped where the lib is missing.
+set -e
 # shellcheck source=scripts/lib/hook-root.sh
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-root.sh"
-# Every `node` and `bash` below under one wall-clock limit (#4187); unbounded where the lib is missing.
 # shellcheck source=scripts/lib/hook-bound.sh
 [ ! -r "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh" ] || . "${WFC_PLUGIN_ROOT:-$(dirname "$0")/..}/scripts/lib/hook-bound.sh"
 
 root="$(git rev-parse --show-toplevel 2>/dev/null)" || :
 refs="$(cat)"
 
-# Ahead of the mod tests, so a push it refuses spends none of their run.
 rc=0
 printf '%s\n' "$refs" | node "${WFC_PLUGIN_ROOT:-$root}/scripts/landing-push-gate.js" || rc=$?
 [ "$rc" -lt 2 ] || exit 1
@@ -51,11 +22,9 @@ printf '%s\n' "$refs" | node "${WFC_PLUGIN_ROOT:-$root}/scripts/public-push-gate
 [ "$rc" -lt 2 ] || exit 1
 
 rc=0
-# `command node`: each mod's tests run under the gate's own per-mod timeout, past any checker limit (#4187).
 printf '%s\n' "$refs" | command node "${WFC_PLUGIN_ROOT:-$root}/scripts/run-mod-tests.js" || rc=$?
 [ "$rc" -lt 2 ] || exit 1
 
-# Last, so a push this hook refuses logs nothing; it never refuses one (scripts/log-queue-push.js).
 printf '%s\n' "$refs" | node "${WFC_PLUGIN_ROOT:-$root}/scripts/log-queue-push.js" "$1" || :
 
 exit 0

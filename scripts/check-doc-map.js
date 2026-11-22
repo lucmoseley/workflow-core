@@ -1,359 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-doc-map.js — CI guard that docs/doc-map.md still covers the repo.
- *
- * Usage:
- *   node check-doc-map.js [<doc-map.md>] [--data-dir <dir>] [--root <dir>]
- *                          [--map-dirty]
- *   (default: docs/doc-map.md; data dir defaults to the map's own directory)
- *   --root relocates both defaults into a materialised tree — see the block
- *   below the assertion list.
- *   --map-dirty overrides assertion 11's own git check — see the note
- *   at assertion 11 below.
- *
- * doc-map.md Section A assigns every in-scope file an authority class — who may
- * edit it and by what route. That only works if it is complete: a document with
- * no register entry is a document the update routine will never consider, and
- * nothing else in the repo notices.
- *
- * Numbered 1..33: the numbers are cited by name across this repo and its
- * closed issues, so an assertion keeps its number (mantahostels#1665).
- *
- *   1. Coverage — every tracked file under the mapped scope matches at least one
- *      key in docs/doc-map-classes.json or lib/doc-map.js's CORE_CLASSES
- *      (#428). Uncovered files FAIL, naming
- *      register-doc.js and the command that clears it, unless the file itself
- *      landed within the pairing grace window (mantahostels#1785, `PAIRING_GRACE_MS` in
- *      lib/doc-map.js) — a split commit pair WARNs instead until the window
- *      expires. The SIDECAR is the coverage authority (mantahostels#1849), not §A's
- *      rows: §A is rendered from it (assertion 17), so a row is a projection
- *      and a projection cannot be the register. A sidecar that is absent or
- *      will not parse is BROKEN, on the restatement file's reasoning (mantahostels#591) —
- *      "cannot read the register" is never "everything is covered". Absent
- *      from a `--data-dir` copy, the tracked docs/doc-map-classes.json answers
- *      instead — `readMapTextAt`'s fallback (mantahostels#1191), said out loud where it fires.
- *      .husky/pre-commit stages the sidecar out with the map, so that caller
- *      does not take the fallback and a DELETED key is refused like any other
- *      fault: the direction gate needs the two readings to differ, and a single
- *      working-tree file read on both sides can never make them.
- *   2. No dead entries — every register path matches at least one tracked file.
- *      A path absent from the filesystem too — a genuine rename or delete —
- *      FAILs, so the map cannot quietly describe a repo that no longer exists,
- *      unless the register row itself is within the same grace window, which
- *      WARNs (mantahostels#1785). A path that exists on disk but is merely untracked WARNs
- *      regardless of age (mantahostels#1193): the register edit and the file's own commit
- *      are separate steps, so this is normal mid-ticket state, not drift, and
- *      it must not block an unrelated commit.
- *   4. Live routes — every path a Section C route sends the reader to exists.
- *      A dead one FAILs (mantahostels#212); one present on disk but merely untracked WARNs,
- *      on assertion 2's reasoning (mantahostels#1403). Stricter than assertion 2 in one
- *      place, deliberately: a GITIGNORED target FAILs here and WARNs there, the
- *      untracked set coming from `git ls-files --others --exclude-standard`
- *      rather than existsSync — nothing will ever commit an ignored file.
- *      Alongside it, the in-scope files no route
- *      reaches are listed and never gate: a hard fail would force a route onto
- *      every binary asset (mantahostels#22).
- *   5. Live restatements — every path in docs/doc-map-restatements.json, the
- *      data file Section B's restatement lists now live in, exists. A dead one
- *      FAILs (mantahostels#213); a missing or unloadable data file is BROKEN (mantahostels#591).
- *      Run from a plugin install, 4, 5 and 25 also accept a file the plugin
- *      root ships (#604).
- *   6. Distinct entry ids — no two `### B<n>` headings carry the same n. A
- *      duplicate FAILs (mantahostels#970), and is uncorrectable afterwards: ids are
- *      permanent (mantahostels#892) and four sidecars key off them.
- *   7. Dense route ids — the `### C<n>` headings run C1..C<highest> with no
- *      gap, no duplicate and no leading zero. A breach FAILs (mantahostels#1229).
- *   8. Distinct register keys — no key appears twice in
- *      docs/doc-map-classes.json's own bytes. A repeat FAILs (mantahostels#1402, moved off
- *      §A's rows at mantahostels#1849): a key is its arbiter region id (`A:<path>`,
- *      lib/doc-map-regions.js), so a repeat hands two entries one lock and puts
- *      their writers back in the contention the split ended. Read from the raw
- *      text, never the parsed object: `JSON.parse` keeps the last of a repeated
- *      key and drops the rest silently, so the fault is invisible to every
- *      reader that walks the parse — assertion 6's reason for counting raw §B
- *      headings.
- *   9. No stray entries — every `### B<n>` heading sits inside the Section B
- *      range. One appended past `## Section C` is named by id, and its words go
- *      uncounted in the §B word total scripts/report-doc-map-budget.js measures
- *      against the budget (mantahostels#1352). FAILs (mantahostels#1352, mantahostels#3525).
- *  10. A `Settled at` bullet on every entry. One carrying none FAILs (mantahostels#1458).
- *  11. Pointer-shape agreement (mantahostels#1474). A `Restated in` or `Supersedes` bullet
- *      matching none of the three fixed templates FAILs; a stated `<n>` unequal
- *      to its sidecar key's `paths` length FAILs; a pointer naming a key the
- *      sidecar does not hold FAILs, as does a `Supersedes` bullet with no key or
- *      a superseded key with no bullet. A `Retired vocabulary` bullet's
- *      free-text phrase count is held to the same rule (mantahostels#2293): a stated `<n>`
- *      unequal to its sidecar key's `phrases` length FAILs, and a bullet
- *      stating no count at all FAILs — but an entry the sidecar does not key is
- *      silent here. A fault WARNs rather than FAILs where docs/doc-map.md
- *      itself differs from HEAD
- *      (mantahostels#1193): a dirty map is a live session mid-edit, and the sidecar is
- *      written alongside it, so a disagreement is that step not having run
- *      yet. Against a clean map the same fault is still FAIL. `--map-dirty`
- *      exists because that git check cannot run against `<doc-map.md>` for
- *      every caller — see the comment where it is read, below.
- *      The templates themselves are in docs/doc-map.md §B's preamble.
- *  12. New ids above the mark — a `### B<n>` id ABSENT from HEAD's copy of the
- *      map must sit above the high-water mark, `highWaterMark` in
- *      docs/doc-map-high-water.json, the highest id ever removed, or FAIL
- *      (#2339): ids are permanent (mantahostels#892), so a reused one makes a
- *      stale reference resolve to the wrong entry. Added only, on assertion
- *      14's discriminator, and silent where HEAD holds no copy of the map.
- *  13. The mark holds — every id HEAD's map holds and this one does not sits
- *      at or below the mark, and the mark sits at or above HEAD's, or FAIL: a
- *      removal that leaves the mark below its id, or a lowered mark, lets a
- *      later commit reuse an id. A missing or unloadable mark file is BROKEN.
- *      Neither 12 nor 13 is softened by `--map-dirty`: the commit adding or
- *      removing an entry always has a dirty map.
- *  14. New-entry prose cap — a `### B<n>` id ABSENT from HEAD's copy of the map
- *      must carry 300 prose words or fewer, or FAIL (mantahostels#1384, on mantahostels#1350's ruling).
- *      Added only: an entry this commit merely edits is untouched, so a
- *      one-word correction to a fat entry still costs nothing — the on-touch
- *      scope mantahostels#1311 refused. It is the one
- *      assertion `--map-dirty` must NOT soften: the commit adding the entry is
- *      exactly the dirty-map case, so softening it would refuse nothing at all.
- *      Silent where HEAD holds no copy to compare against — a first commit on a
- *      fresh checkout — because "cannot tell which are new" is not "none are".
- *  15. Shed-ledger entry cap — every bullet in §Capture and placement §5's
- *      `Sheds paid, most recent first:` list EXCEPT the newest is at or under
- *      `LEDGER_ENTRY_CAP_BYTES`, or FAIL (mantahostels#1640). A tranche is written in
- *      full only while it
- *      is the newest; the tranche that displaces it compacts it to its issue
- *      number, its date, its net byte figure, what it did in one clause, and
- *      its named residual — plus, where the displaced entry carried a
- *      prediction, its verdict, a conditional sixth element sitting beside
- *      that residual, never inside it (mantahostels#1864).
- *      Like assertion 14 it is NOT softened by
- *      `--map-dirty`: the commit that lands a tranche is exactly the dirty-map
- *      case, so softening it would refuse nothing. The sibling
- *      `Rejected, with the residual reason:` list is out of scope — it is
- *      already in the shape this cap enforces. Silent where
- *      the stem line is absent, which is "not the doc map", not "no ledger".
- *  16. Trigger verdict on a pool-byte tranche — a commit that ADDS bytes to
- *      docs/doc-map.md §Capture and placement §4's whole-file always-loaded members
- *      must leave §5's ledger a NEW newest entry carrying a
- *      `**Trigger:**` verdict, or FAIL (mantahostels#1788). The verdict is the answer to
- *      the placement test's step 2 (§3): the trigger the rule binds behind, or
- *      the words recording that none exists. Like assertions 14 and 15 it is
- *      NOT softened by `--map-dirty`.
- *      Silent where no committed rev resolves, or where the map carries no
- *      ledger stem: "cannot tell whether this commit adds pool bytes" is not
- *      "it adds none". A git that will not answer is BROKEN (#3152, #3184). An entry is known by its label, its `#<n>` and one
- *      lowercase word directly after it, so a second tranche under one issue
- *      labels itself apart (`#<n> review`, #1739). Two residuals it cannot
- *      see: a parallel session's fresh entry satisfies your tranche, and
- *      relabelling HEAD's newest entry reads as a new one.
- *  17. §A render agreement — §A's bytes must be what
- *      generate-doc-map-section-a.js renders from docs/doc-map-classes.json.
- *      A hand-edited row FAILs (mantahostels#1863, on mantahostels#1808's ruling that §A becomes a
- *      projection), naming the paths whose rows differ and the regeneration
- *      command. NOT softened by `--map-dirty`, for assertion 14's reason.
- *      Silent, and said out loud, where §A carries no register table for the
- *      renderer to place rows into. An absent sidecar is BROKEN at load,
- *      above assertion 1 (mantahostels#1849).
- *  18. Role prose cap — a `role` override in the sidecar must carry 300 words
- *      or fewer, or FAIL (mantahostels#1863), in assertion 14's shape. Unlike 14 it is not
- *      added-only: §A's rows are generated, so an override is edited in the
- *      sidecar and there is no "first commit" to scope to. Also not softened
- *      by `--map-dirty`.
- *  19. Class vocabulary — every sidecar entry's `class` is one of the five
- *      documented tokens (docs/doc-map.md §Authority classes). A typo FAILs
- *      (mantahostels#1849), naming the path and the token, rather than minting a sixth
- *      value; `classQualifier` is where a dual-class judgement goes and is not
- *      checked against a vocabulary. It reads the raw parse, because
- *      `loadDocClasses` THROWS on this fault and a throw is BROKEN — apparatus,
- *      not a finding a session can fix. Assertions 17 and 18 are skipped and
- *      said to be skipped while one stands: there is nothing sound to render.
- *  20. Compaction verdict — where this commit compacts the entry that was §5's
- *      newest at HEAD, and HEAD's copy of it carried a `**Prediction` marker,
- *      the compacted form must carry a `**Verdict` marker OF ITS OWN with at
- *      least TRIGGER_VERDICT_MIN_WORDS words after it, or FAIL (mantahostels#1968, on
- *      mantahostels#1890's ruling). A marker reading `**Verdict on #<other>` is another
- *      entry's verdict written onto this one — the mantahostels#1966 breach — and is
- *      skipped rather than counted. The word count runs to the end of the line
- *      or to the next bold element, whichever comes first, so an empty verdict
- *      cannot borrow the residual's words. NOT softened by `--map-dirty`, for
- *      assertion 15's reason. Reads HEAD alone, never readParentRevs(): a
- *      second parent would NARROW this one, refusing a merge for a compaction
- *      the other branch committed. Three residuals are outside it deliberately — a
- *      missing prediction, a verdict that is STALE rather than absent, and a
- *      sixth element that is not a verdict.
- *  21. Stale over-cap marker — a §B entry carrying a top-level
- *      `- **Over cap by ruling (#n):**` bullet — an indented echo of those
- *      words is not a marker and is invisible to 21 and 22 alike (mantahostels#2058) —
- *      that now reads at or under the 300-word cap FAILs: the marker
- *      asserts the entry cannot reach the cap without dropping a claim, and a
- *      fallen entry makes that assertion stale. Read over every §B entry, not
- *      the over-cap ones, which a fallen entry has dropped out of. NOT softened
- *      by `--map-dirty`, despite what mantahostels#2058 asked: the marker goes stale in
- *      exactly the commit that drains the entry. Safe unsoftened because the
- *      fault sits in the `data` envelope, so checker-new-faults.js reads a
- *      fault already at HEAD as inherited and never refuses an unrelated
- *      commit.
- *  22. Over-cap entry growth — a §B entry carrying that same marker may not
- *      GROW against its baseline, which is HEAD PLUS a merge's other parent,
- *      largest count winning — never HEAD alone, unlike assertion 20
- *      above (mantahostels#2050's review, `readParentRevs()`). Two skips, both in
- *      `grownExemptEntries`'s own header: an entry back at or under the cap,
- *      which is assertion 21's, and an entry unmarked at the baseline, so the
- *      commit first writing the marker is not warned for writing it.
- *      WARN, never FAIL, so it stays out of
- *      `count`, out of the `data` envelope — where it would refuse a later
- *      commit by the back door — and out of the OK line it would contradict.
- *      .husky/pre-commit replays this block by name on a green run, since it
- *      otherwise prints the report only on a non-zero exit. Silent, and said to
- *      be silent, where HEAD holds no copy to compare against.
- *  23. Malformed over-cap marker — a §B line opening with the marker's words
- *      but failing its spelling, in an entry carrying no valid marker, WARNs
- *      (mantahostels#2124). WARN, never FAIL, on assertion 22's terms — the call site's own
- *      comment carries why.
- *      Replayed by .husky/pre-commit on a green run, as assertion 22's is. The
- *      probe catches a punctuation, emphasis, case or hyphen slip and NOT a
- *      misspelling of the words themselves — `EXEMPTION_MARKER_NEAR_MISS`'s
- *      own header holds that residual.
- *  24. Dropped over-cap marker — a §B entry the baseline marked, still over the
- *      cap, carrying no valid marker now WARNs (mantahostels#2227). Baseline is HEAD ALONE
- *      and NOT 22's `readParentRevs()`; `droppedExemptionMarkers`'s own header
- *      carries why, its three skips and its two residuals. WARN on 22's terms
- *      — out of `count`, out of the `data` envelope, replayed by
- *      .husky/pre-commit on a green run. Silent where HEAD holds no copy, and
- *      says so in its own line.
- *  25. Live Consumes references — every TYPED reference in a sidecar entry's
- *      `consumes` list resolves (mantahostels#2419). In assertion 4's shape and for its
- *      reasons: a `path` naming no tracked file and nothing on disk FAILs, one
- *      present on disk but untracked WARNs, and the whole block softens to
- *      WARN under `--map-dirty` on assertion 11's reasoning. A `glob` matching
- *      no tracked file FAILs; a `figure` naming no live §B id FAILs; an
- *      `issue` is checked for shape and NEVER resolved over the
- *      network; `external` and `note` are never resolved; an unknown `kind`
- *      FAILs. A `consumes` that is not a list is a shape fault rather than a
- *      skip. Reads the raw parse, as assertion 19 does, so a
- *      malformed reference is a named finding rather than a BROKEN run, and
- *      stands `loadDocClasses` down with it on assertion 19's reasoning.
- *  26. Pair-scope prefixes — a `consumes` gloss opening `with <other-ref>: `
- *      names the reference immediately before it in the same cell (mantahostels#2647),
- *      the form §A's preamble sets for a gloss covering the bare reference
- *      beside it. Only the prefix's referential integrity is checked — whether
- *      a gloss OUGHT to be pair-scoped is intent, and no assertion reads it.
- *      Never softened by `--map-dirty`; the reason is at the site.
- *  27. No line-number locators — no `L<n>` token (mantahostels#3151) and no `<file>:<n>`
- *      citation (mantahostels#3160) in a restatement path's `locator` or `gloss`, an
- *      entry's `note`, or a §B entry's own prose. Never softened by
- *      `--map-dirty`: a half-written entry carrying one is refused too.
- *  28. Live anchors — a `locator`'s straight-double-quoted phrase is held
- *      byte for byte in the file the path names (mantahostels#3151). A path assertion 5
- *      already reports is skipped here, and so is one the suffix match
- *      resolves to more than one file. Not softened by `--map-dirty`.
- *  29. Admission record — a `### B<n>` id ABSENT from HEAD's copy of the map
- *      must carry a conforming row in docs/doc-map-admissions.json, or FAIL
- *      (mantahostels#3225, on mantahostels#2888's design). The row names the settling issue, what the
- *      founder answered, and the permalink of the comment recording it; the
- *      checker reads presence and field shape OFFLINE and never fetches the
- *      URL. Added only, on assertion 14's discriminator: an entry already in
- *      HEAD was admitted before this commit. It is the second assertion
- *      `--map-dirty` must NOT soften, for 14's reason — the commit adding an
- *      entry always has a dirty map. Silent where HEAD holds no copy to
- *      compare against.
- *
- *  30. Sidecar canonical serialisation (mantahostels#3353) — docs/doc-map-classes.json's
- *      tracked bytes must equal its own parsed content reserialised the way
- *      register-doc.js writes it (top-level keys sorted, tab-indented,
- *      non-ASCII left unescaped, one trailing newline). Pins only the
- *      TOP-LEVEL key order and the file's own bytes: an entry's internal
- *      field order is unpinned, and a sidecar carrying a duplicate key (8's
- *      fault) can never pass this one either — JSON.parse silently drops the
- *      repeat, so no such file can equal its own reserialisation.
- *  31. Reader vocabulary (mantahostels#3412, ruled at mantahostels#3348) — every `.md` and `.html`
- *      sidecar key carries `reader`, one of `agent`, `human`, `both`, and no
- *      other key carries one. UNKNOWN-READER, MISSING-READER and
- *      READER-ON-NON-PROSE all FAIL off the raw parse, in assertion 19's
- *      shape, and an unknown token stands loadDocClasses down with 19.
- *      Never softened by `--map-dirty`: a sidecar value is a whole judgement.
- *  32. Page source (mantahostels#3412) — a documentation page key (`derived`, `.html`,
- *      `consumes` naming a `.md` path) FAILs where its source has no key of
- *      its own or is read by `agent` alone (docs/doc-pages.md §Which
- *      documents). Not softened by `--map-dirty`.
- *  33. Live section references (#805) — every `docs/doc-map.md §<name>`
- *      reference in a tracked file names a heading of the map, by the rules
- *      in `isLiveSectionRef` (lib/doc-map.js); an unresolved one FAILs, and so
- *      does a bare `§<n>` two `### <n>.` headings share. Skipped:
- *      `binary-asset` files, which hold no prose, and test files, whose
- *      strings are fixtures. Not softened by `--map-dirty`: a section the commit deletes
- *      is the fault. Residuals: a `§X preamble` wrapped onto a second line
- *      reads as plain `§X`; a reference running to its line's end passes on
- *      any words that open a heading's name (`§The`); the path is not seen
- *      prefixed `./` or `../`, possessive, inside a link or in bold; and
- *      .husky/pre-commit runs this checker only on a commit staging its
- *      mapped scope, so a dangling reference added under `scripts/` alone
- *      waits for the sweeps.
- *
- * WHERE IT RUNS — two places (mantahostels#390): .github/workflows/document-guards.yml,
- * on the four daily sweeps and on no push at all (mantahostels#910); and .husky/pre-commit
- * for a commit touching the mapped scope, silent on success and replaying the
- * whole report on failure.
- *
- * WHAT ASSERTION 5 READS: the `path` of every item in
- * docs/doc-map-restatements.json, keyed by entry id, so a dead path is still
- * named against the entry that owns it. Existence, never completeness (mantahostels#213) —
- * and a path left only in an entry's surviving prose is read by nothing
- * (mantahostels#590).
- * Section A's stale-copy pointers and the stamp table's `Cited by` column are
- * read by no assertion at all, deliberately: a file vanishing from a stale-copy
- * pointer is the drift resolving, not a fault.
- *
- * The bare-locator warning scopes to prose-held paths — Section A's rows and
- * Section C's routes. Write a locator with its filename, never bare: a
- * backticked line-list on its own holds a slash and reads as a dead path.
- *
- * The stamp line is still parsed, as the canary that the file handed in is the
- * map at all — it carries a version and a date, both judgements (mantahostels#845).
- *
- * Take a new entry id from
- * `node scripts/session-arbiter.js alloc-entry docs/doc-map.md`, which allocates
- * it atomically and claims the append slot with it (mantahostels#970) — assertion 6's
- * duplicate is uncorrectable once written.
- *
- * The unreached list is plain report text, not a WARN finding: as a WARN it would
- * annotate ~70 files on every green run and replace the OK line.
- *
- * The restatement census printed beside the unreached list is how far
- * assertion 5 reaches, and is report text for the same reason (mantahostels#280).
- *
- * One condition SKIPs the whole run: a conflicted index. Nothing asserts against
- * it because the file set is not final until the merge commits — a resolution
- * still adds and deletes. No hook reaches this state (git refuses a commit with
- * unmerged entries before pre-commit fires) and CI checks out clean, so the
- * caller is a person running this by hand mid-resolution (mantahostels#398, docs/doc-map.md §A).
- *
- * Scope is read from git, so untracked scratch files are ignored by design.
- * git is invoked via execFileSync with an argument array (no shell), in lib/doc-map.js.
- *
- * `--root <dir>` POINTS EVERY TREE READ BUT TWO AT A MATERIALISED COPY (mantahostels#1922).
- * What moves under it: the map and its data directory, the class
- * sidecar's fallback candidate, and the tracked enumeration, which walks the
- * root because an extraction carries no `.git` to ask. `.husky/pre-commit`
- * hands it a `git checkout-index` extraction of the INDEX.
- *
- * WHAT DELIBERATELY STAYS ON THE LIVE REPO UNDER --root, and its severity:
- * `entryPresentOnDisk` (assertion 2) and `readUntrackedFiles` (assertion 4). Both
- * are severity SOFTENERS and nothing else — they turn a FAIL into a WARN for a
- * path written but not yet staged (mantahostels#1193, mantahostels#1403) — and an extraction has no
- * untracked files at all, so resolving them against the root would answer
- * "absent" for every one and turn each softened WARN back into the refusal
- * those two tickets removed. The rev-keyed reads — readMapTextAt,
- * readParentRevs, pairingHalfAgeMs, buildFileAgeReader, the always-loaded pool's `cat-file --batch-check` and
- * the conflicted-index SKIP — ask the real repo too, and are about revisions
- * rather than about the worktree, so --root has nothing to say to them.
- *
- * NO `against` DECLARATION, unlike check-guard-registry.js and
- * check-guard-test-isolation.js: --against re-execs this file forwarding
- * POSITIONALS alone, and this checker's caller has a flag to pass —
- * --map-dirty, which asks about the real docs/doc-map.md and so cannot be
- * answered from any materialised tree. So scripts/lib/doc-map-gate.js
- * keeps comparing the two sides itself. The residual is that its baseline extraction
- * and check.js's `tree` materialiser are now two spellings of one idea, free to
- * drift (mantahostels#1922).
- */
 
 const { buildArbiterCommand } = require("./lib/build-arbiter-command.js");
 const fs = require("node:fs");
@@ -440,11 +85,7 @@ const {
 const { caught } = require("./lib/caught.js");
 const { withGitReadMemo } = require("./lib/git-read-memo.js");
 
-/**
- * How advice names a generator: its npm script in the core, the plugin's copy
- * in an adopter, whose package.json has no gen: scripts (#664).
- * @param {string} name `doc-map-section-a` for `gen:doc-map-section-a`
- */
+/** @param {string} name */
 const generatorCommand = (name) =>
 	inCheckout()
 		? `npm run gen:${name}`
@@ -452,9 +93,6 @@ const generatorCommand = (name) =>
 
 /**
  * @typedef {import("./lib/check").Ctx} Ctx
- *
- * A §C route path, or a §B restated-in path, that points at nothing.
- *
  * @typedef {{ route: string, path: string }} RoutePath
  */
 /**
@@ -462,8 +100,6 @@ const generatorCommand = (name) =>
  * @typedef {{ entry: string, path: string }} RestatedPath
  */
 /**
- * What every assertion below reads, settled before the first of them runs.
- *
  * @typedef {{
  *   ctx: Ctx,
  *   underRoot: (p: string) => string,
@@ -486,27 +122,8 @@ const generatorCommand = (name) =>
  * @typedef {ReturnType<typeof loadDocClasses> | null} Classes
  */
 
-/** A number standing alone, never part of an id like `B12`, `#34` or `p2-07`. */
 const FIGURE = /(?<![\w#-])\d+(?:\.\d+)?(?![\w-])/g;
 
-/*
- * Every fault this check raises has the same shape: gate on it, print it,
- * print its items, say what to do. Held as five copies, a block dropping
- * ctx.fail would gate nothing and one dropping ctx.say would print nothing
- * to a human, neither visible at the call site (mantahostels#221, the ticket that
- * collapsed them). It always FAILs: the unreached list below shares the
- * shape and stays hand-rolled precisely because it must not gate.
- *
- * `key` names the item list in the --json envelope; empty items are no
- * fault at all, so the guard lives here too. `severity` defaults to FAIL;
- * untracked-but-present entries, and a pointer fault against a dirty map,
- * pass "warn" instead (mantahostels#1193).
- *
- * The finding's identity is its tag and its items' sorted ids, so a gained
- * item reads as a new finding and the message's count never does (#1591). An
- * item's id is its printed line with every free-standing number masked — a
- * size, a count, a line number — unless `id` says otherwise.
- */
 /**
  * @template T
  * @param {Ctx} ctx
@@ -542,10 +159,7 @@ function reportFault(
 	ctx.say(`\n${resolveScriptPaths(advice)}`);
 }
 
-/**
- * `mm h nn m`, for a WARN's age and remaining-grace figures.
- * @param {number} ms
- */
+/** @param {number} ms */
 const humanDuration = (ms) => {
 	const totalMin = Math.max(0, Math.round(ms / 60_000));
 	const h = Math.floor(totalMin / 60);
@@ -554,12 +168,6 @@ const humanDuration = (ms) => {
 };
 
 /**
- * Splits an UNCOVERED/DEAD-ENTRY item list by the grace window (mantahostels#1785): an
- * item whose half is young WARNs, everything else — including an item
- * whose age git cannot answer — FAILs exactly as before. `dateItem` is
- * the half's dating, so this stays the one seam that turns an age into a
- * verdict; it does not date anything itself. The loop below never runs on an
- * empty `items`, so `dateItem` — and so git — is not invoked on a clean run.
  * @param {string[]} items
  * @param {(item: string) => number | null} dateItem
  */
@@ -579,9 +187,6 @@ const splitByGrace = (items, dateItem) => {
 
 /** @param {Ctx} ctx */
 function resolveLocations(ctx) {
-	/* An ABSOLUTE path is left alone: --root relocates the repo-relative
-	 * defaults, and a caller naming a temp copy outright has already said
-	 * which bytes it means. */
 	const rootFlag = ctx.value("--root");
 	const root = rootFlag ? path.resolve(rootFlag) : null;
 	const underRoot = (/** @type {string} */ p) =>
@@ -595,8 +200,6 @@ function resolveLocations(ctx) {
 
 /** @param {Ctx} ctx */
 function skipOnConflict(ctx) {
-	/* The SKIP the header comment describes: the second line of defence,
-	 * behind readTrackedFiles() listing a conflicted path once (mantahostels#398). */
 	const conflicted = readConflictedPaths();
 	if (conflicted.length > 0)
 		ctx.skip(
@@ -617,17 +220,12 @@ function readMap(ctx, mapPath) {
 	try {
 		text = fs.readFileSync(mapPath, "utf8");
 	} catch (e) {
-		// The map is tracked in the repo, so an unreadable one is BROKEN.
 		ctx.broken(`cannot read doc map at ${mapPath} — ${caught(e).message}`);
 	}
 
-	// The stamp doubles as a parse canary: no stamp means the file is not the map.
 	const stamp = text.match(/^v\d+\.\d+ · .+$/m);
 	if (!stamp) ctx.broken(`no version stamp ("vN.N · <date>") in ${mapPath}`);
 
-	// Section A rows only — Section B quotes paths in prose and would produce
-	// phantom entries. Assertions 2 and 4 still read these: a §A row naming a
-	// deleted file is §A's own fault, and §A is where a reader meets it.
 	const entries = registerPaths(text);
 
 	if (entries.length === 0)
@@ -640,20 +238,6 @@ function readMap(ctx, mapPath) {
  * @param {{ dataDir: string, underRoot: (p: string) => string }} where
  */
 function readClassSidecar(ctx, { dataDir, underRoot }) {
-	/*
-	 * THE REGISTER (mantahostels#1849): coverage is asked of these keys, never of §A's
-	 * rows, which assertion 17 renders from them. Absent or unparseable is
-	 * BROKEN on the restatement file's reasoning (mantahostels#591) — a checker that cannot
-	 * read its register must not report the tree covered.
-	 *
-	 * The data directory first, the tracked path second — `readMapTextAt`'s
-	 * fallback, for its reason (mantahostels#1191). The second answers a caller that
-	 * points `--data-dir` somewhere holding no sidecar at all. What the
-	 * fallback costs, and it is said out loud where it fires: WITHOUT --root
-	 * the bytes read are the working tree's, so a neighbour mid-edit can move
-	 * that verdict. Under --root it is relocated with everything else, so
-	 * .husky/pre-commit pays nothing for it (mantahostels#1922).
-	 */
 	const inDataDir = path.join(dataDir, CLASSES_FILE);
 	const candidates = [
 		...new Set([inDataDir, underRoot(`docs/${CLASSES_FILE}`)]),
@@ -703,17 +287,11 @@ function readClassSidecar(ctx, { dataDir, underRoot }) {
  * @param {string | null} root
  */
 function walkTree(ctx, root) {
-	// The whole tracked tree, not just SCOPE: a Section C route may send the
-	// reader to a file the register does not cover.
 	let allTracked;
 	try {
 		allTracked = readTrackedFiles(root);
 	} catch (e) {
 		const { message } = caught(e);
-		// git is this check's reading apparatus, not its subject: `ls-files` is how
-		// it enumerates the tracked set, exactly as readFileSync above is how it
-		// reads the map. SKIPping here exited 0, which turned the one CI gate on
-		// doc-map coverage green whenever git broke.
 		ctx.broken(
 			root
 				? `could not walk the materialised tree at ${root} — ${message}. No coverage conclusion drawn.`
@@ -721,11 +299,6 @@ function walkTree(ctx, root) {
 		);
 	}
 
-	/* Where a §C route, a §B restatement or a `consumes` may point: in a
-	 * plugin install the core's own scripts, skills and agent docs ship at
-	 * the plugin root, never in the host (#604). Existence only — coverage
-	 * and every content read stay the host's, so a quoted locator on a
-	 * plugin-only restatement goes unchecked here; the core checks its own. */
 	let resolvable = allTracked;
 	if (!inCheckout())
 		try {
@@ -736,10 +309,6 @@ function walkTree(ctx, root) {
 	return { allTracked, resolvable };
 }
 
-/* Matched through citationMatcher rather than fs.existsSync because a route
- * cites a document by whatever suffix reads well — `notes.md`, not
- * `docs/notes.md` — so only the matcher the hit test uses can say which
- * uncommitted file it means. */
 function untrackedMatcher() {
 	/** @type {string[] | null} */
 	let untrackedOnDisk = null;
@@ -750,18 +319,9 @@ function untrackedMatcher() {
 	return presentUntracked;
 }
 
-/**
- * Assertions 1 and 2: coverage of the tracked tree, and register rows naming
- * nothing tracked, each split by the pairing grace window.
- * @param {Run} r
- */
+/** @param {Run} r */
 function checkCoverage(r) {
 	const { ctx, tracked, entries, sidecarKeys, mapPath } = r;
-	/* Coverage is asked of the sidecar's keys (mantahostels#1849) and the core's
-	 * own CORE_CLASSES (#428); assertion 2's dead and untracked entries stay
-	 * §A's rows, whose grace window dates a row's birth out of the map's own
-	 * history (`pairingHalfAgeMs`). The two agree by
-	 * assertion 17, which FAILs a §A row the sidecar does not key. */
 	const covered = coverageMatchers(sidecarKeys);
 	const matchers = entries.map((e) => ({
 		entry: e,
@@ -770,9 +330,6 @@ function checkCoverage(r) {
 
 	const uncovered = tracked.filter((f) => !covered.some((test) => test(f)));
 	const missing = matchers.filter((m) => !tracked.some((f) => m.test(f)));
-	// A path git does not track can still be sitting on disk — normal
-	// mid-ticket state, not the rename-or-delete the FAIL below describes
-	// (mantahostels#1193). Only a path absent from the filesystem too is dead.
 	const dead = missing
 		.filter((m) => !entryPresentOnDisk(m.entry))
 		.map((m) => m.entry);
@@ -809,8 +366,6 @@ function checkCoverage(r) {
 		items: uncoveredSplit.inGrace.map((d) => d.item),
 		id: String,
 		line: (item) => {
-			// `item` is always a key of `uncoveredAge`: both come from the same
-			// `inGrace` list, one step apart.
 			const ageMs = /** @type {number} */ (uncoveredAge.get(item));
 			return (
 				`${item} (introduced ${humanDuration(ageMs)} ago, ` +
@@ -861,15 +416,9 @@ function checkCoverage(r) {
 	return { uncoveredSplit, deadSplit, untracked };
 }
 
-/**
- * Assertions 19, 31 and 32, off the sidecar's raw parse.
- * @param {Run} r
- */
+/** @param {Run} r */
 function checkSidecarVocabulary(r) {
 	const { ctx, classesJson } = r;
-	/* Assertion 19 (mantahostels#1849). Reported here, beside coverage, because it reads
-	 * the same raw parse; assertions 17 and 18 stand down below while it
-	 * holds a fault. */
 	const badClasses = badClassEntries(classesJson);
 	reportFault(ctx, {
 		tag: "UNKNOWN-CLASS",
@@ -887,8 +436,6 @@ function checkSidecarVocabulary(r) {
 			`  ${generatorCommand("doc-map-section-a")}`,
 	});
 
-	/* Assertion 31 (mantahostels#3412), off the same raw parse as 19; an unknown token
-	 * stands loadDocClasses down below with it. */
 	const badReaders = badReaderEntries(classesJson);
 	reportFault(ctx, {
 		tag: "UNKNOWN-READER",
@@ -920,7 +467,6 @@ function checkSidecarVocabulary(r) {
 			"many files and states no reader for any of them. Delete the field.",
 	});
 
-	/* Assertion 32 (mantahostels#3412). */
 	const badPages = pageSourceFaults(classesJson);
 	reportFault(ctx, {
 		tag: "PAGE-SOURCE",
@@ -957,7 +503,6 @@ function reportUntrackedEntries(ctx, untracked) {
 }
 
 /**
- * Sorts one route's paths into dead, untracked and reached.
  * @param {Run} r
  * @param {ReturnType<typeof parseRoutes>[number]} route
  * @returns {{dead: RoutePath[], untracked: RoutePath[], reached: string[]}}
@@ -978,10 +523,7 @@ function classifyRoutePaths(r, route) {
 	return sorted;
 }
 
-/**
- * Assertion 4.
- * @param {Run} r
- */
+/** @param {Run} r */
 function checkRoutes(r) {
 	const { ctx, text, mapPath } = r;
 	const routes = parseRoutes(text);
@@ -1022,10 +564,7 @@ function checkRoutes(r) {
 	return { routes, reached, deadRoutes, untrackedRoutes };
 }
 
-/**
- * The `### C<n>` ids in reading order, fenced blocks skipped.
- * @param {string} text
- */
+/** @param {string} text */
 function collectRouteIds(text) {
 	/** @type {string[]} */
 	const routeIds = [];
@@ -1042,24 +581,6 @@ function collectRouteIds(text) {
 	return routeIds;
 }
 
-/* Assertion 7 (mantahostels#1229). The one thing that notices a §C route being
- * deleted: coverage never gates (mantahostels#22) and the routes self-count is
- * re-derived from the map, so the generator writes the lower figure as
- * readily as the higher.
- *
- * The run is measured against the highest id, not the number of headings,
- * so a legitimate route above a gap is never itself accused. Ids are
- * compared as a set — §C's headings sit in reading order, not numeric
- * order.
- *
- * Accepted residual: everything above the highest surviving id is
- * invisible — deleting the top route, the top k, or all of §C passes.
- * Catching that needs a retired-route sidecar holding a high-water mark,
- * priced and declined at mantahostels#1229.
- *
- * Fenced blocks are skipped as assertion 6 skips them: this document
- * quotes its own formats.
- */
 /** @param {Run} r */
 function checkRouteIds(r) {
 	const { ctx, text, mapPath } = r;
@@ -1075,8 +596,6 @@ function checkRouteIds(r) {
 	for (const id of heldRouteIds)
 		if (routeIds.filter((other) => other === id).length > 1)
 			routeIdFaults.push({ id, why: "heads more than one route" });
-	// C0 and a leading zero both survive the run check — Number("C01") is 1 —
-	// yet neither is citable as the `§C<n>` every sidecar spells.
 	for (const id of heldRouteIds)
 		if (/^C0/.test(id))
 			routeIdFaults.push({
@@ -1125,22 +644,13 @@ function readRestatements(ctx, dataFile, figures) {
 	return restatementData;
 }
 
-/**
- * Assertion 5.
- * @param {Run} r
- */
+/** @param {Run} r */
 function checkRestatements(r) {
 	const { ctx, text, mapPath, dataDir, resolvable } = r;
-	/* Restatement paths come from the data file and from nowhere else (mantahostels#591):
-	 * a missing one is BROKEN, never a silent scan of zero paths, which reads
-	 * identically to a registry whose every path is live. */
 	const dataFile = path.join(dataDir, DATA_FILES.restatements);
 	const figures = parseEntries(text, FIGURE_ID);
 	const restatementData = readRestatements(ctx, dataFile, figures);
 
-	// Deliberately never added to `reached`: a figure's blast radius is not
-	// question-route coverage, and counting it would silence the unreached list
-	// for files no route names.
 	/** @type {RestatedPath[]} */
 	const deadRestatements = [];
 	assertDataIdsKnown(ctx, restatementData, figures, dataFile);
@@ -1173,11 +683,7 @@ function checkRestatements(r) {
 	};
 }
 
-/**
- * The fields of one restatement entry a line locator may sit in, each with
- * where the report says it sat.
- * @param {import("./lib/doc-map").RestatementEntry} entry
- */
+/** @param {import("./lib/doc-map").RestatementEntry} entry */
 function locatorFields(entry) {
 	/** @type {[string, string | undefined][]} */
 	const fields = [["note", entry.note]];
@@ -1193,14 +699,6 @@ function locatorFields(entry) {
  */
 function checkLineLocators(r, { restatementData, figures }) {
 	const { ctx } = r;
-	/* Assertions 27 and 28 (mantahostels#3151). */
-	// The lookarounds keep `CL4` and `L2-cache` out: a line reference is
-	// never letter-prefixed and never hyphenated. The other two limbs are
-	// the `<file>:<n>` citation (mantahostels#3160): a file with one of the extensions
-	// this repo cites, or any slash-bearing path (`.husky/pre-commit:12`),
-	// then a colon and a line or `<n>-<m>` range. A clock time, a `3:1`
-	// ratio and a bare `host.tld:port` never match; a `Node.js:20` version
-	// pin would, and none is written in §B.
 	const citedExt =
 		"md|py|sh|ts|tsx|js|mjs|cjs|json|jsonl|html|yml|yaml|css|csv|txt";
 	const lineToken = new RegExp(
@@ -1236,11 +734,9 @@ function checkLineLocators(r, { restatementData, figures }) {
 }
 
 /**
- * Each quoted phrase in one restatement path's locator that its file no
- * longer holds.
  * @param {Run} r
  * @param {{ id: string, item: import("./lib/doc-map").RestatementPath }} at
- * @param {Map<string, string>} anchorFileText accumulator: each file read is cached here by path
+ * @param {Map<string, string>} anchorFileText
  * @returns {{ entry: string, path: string, phrase: string }[]}
  */
 function collectDeadAnchors(r, { id, item }, anchorFileText) {
@@ -1264,7 +760,6 @@ function collectDeadAnchors(r, { id, item }, anchorFileText) {
 }
 
 /**
- * Assertion 28.
  * @param {Run} r
  * @param {Restatements} restatementData
  */
@@ -1294,8 +789,6 @@ function checkDeadAnchors(r, restatementData) {
 /** @param {Run} r */
 function checkSectionRefs(r) {
 	const { ctx, text, classesJson, allTracked, underRoot } = r;
-	/* Assertion 33 (#805). Off the raw sidecar, so a bad class token
-	 * (assertion 19) still leaves the exemptions readable. */
 	const refExempt = Object.entries(classesJson)
 		.filter(
 			([, v]) => /** @type {{ class?: unknown }} */ (v)?.class === BINARY_CLASS,
@@ -1310,7 +803,6 @@ function checkSectionRefs(r) {
 		try {
 			body = fs.readFileSync(underRoot(file), "utf8");
 		} catch {
-			// Tracked but absent from the tree holds no reference to check.
 			continue;
 		}
 		if (body.includes("doc-map.md")) refFiles.push({ file, text: body });
@@ -1333,7 +825,6 @@ function checkSectionRefs(r) {
 }
 
 /**
- * The restatement census and the unreached list: report text, never a fault.
  * @param {Run} r
  * @param {{
  *   restatementPaths: number,
@@ -1347,12 +838,6 @@ function reportCensus(
 	{ restatementPaths, figuresRestated, figures, reached },
 ) {
 	const { ctx, tracked } = r;
-	/* Report-only for the same reason as the unreached list; printed rather
-	 * than hand-counted because the prose quoting it went stale unnoticed
-	 * (mantahostels#280). Unguarded: the data file is mandatory and holds at least one
-	 * entry, and every key it holds must name a `### B<n>` heading, so a map
-	 * with no §B entries is BROKEN above rather than a run reaching here
-	 * with an empty denominator (mantahostels#591). */
 	ctx.say(
 		`\n${restatementPaths} restatement path(s) across ` +
 			`${figuresRestated} of ${figures.length} §B entries ` +
@@ -1372,17 +857,10 @@ function reportCensus(
 /** @param {Run} r */
 function checkDuplicateIds(r) {
 	const { ctx, text } = r;
-	/* Assertion 6 (mantahostels#970). parseEntries keys by id, so a duplicate would be
-	 * invisible to every reader that walks its output — the count is taken from
-	 * the raw headings for exactly that reason. */
 	/** @type {Map<string, string>} */
 	const seen = new Map();
 	/** @type {string[]} */
 	const duplicates = [];
-	// figureHeadings skips fenced blocks, as lib/doc-map-regions.js skips them
-	// for the allocator: this document quotes its own formats, and an example
-	// heading inside a fence would be failed here while the allocator hands
-	// its id out as free.
 	const headings = figureHeadings(text.split("\n"));
 	for (const { id, line } of headings) {
 		if (seen.has(id)) duplicates.push(`${id} — first as: ${seen.get(id)}`);
@@ -1408,9 +886,6 @@ function checkDuplicateIds(r) {
 /** @param {Run} r */
 function checkDuplicateKeys(r) {
 	const { ctx, classesText, classesFile } = r;
-	/* Assertion 8 (mantahostels#1402; moved off §A's rows onto the sidecar's own keys at
-	 * mantahostels#1849). §B's equivalent is assertion 6 above, and reads the raw text for
-	 * the same reason this does. */
 	const rowDuplicates = duplicateSidecarKeys(classesText);
 	reportFault(ctx, {
 		tag: "DUPLICATE-REGISTER-KEY",
@@ -1431,8 +906,6 @@ function checkDuplicateKeys(r) {
 /** @param {Run} r */
 function checkCanonicalSidecar(r) {
 	const { ctx, classesText, classesJson, classesFile } = r;
-	/* Assertion 30 (mantahostels#3353): re-derive the sidecar's canonical bytes from
-	 * its own parsed content, per register-doc.js's header, and diff. */
 	const canonicalClasses = `${JSON.stringify(
 		Object.fromEntries(
 			Object.keys(classesJson)
@@ -1444,9 +917,6 @@ function checkCanonicalSidecar(r) {
 	)}\n`;
 	const classesDrift = [];
 	if (classesText !== canonicalClasses) {
-		// Drop the trailing "" both splits produce from the files' own
-		// trailing newline — otherwise an identical trailing blank still
-		// counts as one differing line on top of the real drift.
 		const have = classesText.replace(/\n$/, "").split("\n");
 		const want = canonicalClasses.replace(/\n$/, "").split("\n");
 		let differing = 0;
@@ -1508,9 +978,6 @@ function checkStrays(ctx, headings) {
  * @param {Figure[]} figures
  */
 function checkSettledAt(ctx, figures) {
-	/* Assertion 10 (mantahostels#1458). parseEntries is whole-file and does not skip
-	 * fenced blocks, so a quoted example entry owes the bullet too — the
-	 * map's own fenced examples carry it. */
 	/** @type {string[]} */
 	const settledMissing = figures
 		.filter(
@@ -1535,9 +1002,6 @@ function checkSettledAt(ctx, figures) {
 	return settledMissing;
 }
 
-/* Assertion 11 (mantahostels#1474). The three templates §B's preamble states, and the
- * one optional suffix: the bare known-incomplete marker, kept in the
- * bullet so `check-doc-map-markers.js` still ages the entry (mantahostels#1471). */
 const pointerPaths =
 	/^- \*\*Restated in:\*\* (\d+) paths?, in `docs\/doc-map-restatements\.json`\.( ⚠ \*\*Restated-in is known incomplete\*\*\.)?$/;
 const pointerNone =
@@ -1550,15 +1014,6 @@ const pointerSupersedes =
  * @param {string} dataDir
  */
 function readSupersededData(ctx, dataDir) {
-	/* Key presence only, read straight off the JSON rather than through
-	 * loadSupersededNeedles: this assertion asks which entries the file keys,
-	 * and the file's *shape* is check-superseded-values.js's to police — two
-	 * checkers BROKENing on one file's schema is one owner too many.
-	 *
-	 * An ABSENT file is not an empty one: read as empty, every conforming
-	 * `Supersedes` pointer would fail as naming a key that is not there. So
-	 * the two `Supersedes` limbs are skipped instead, and the run says they
-	 * were. A file that will not parse is real corruption and is BROKEN. */
 	const supersededFile = path.join(dataDir, DATA_FILES.supersededNeedles);
 	/** @type {Record<string, unknown> | null} */
 	let supersededData = null;
@@ -1577,18 +1032,6 @@ function readSupersededData(ctx, dataDir) {
  * @param {string} dataDir
  */
 function readVocabData(ctx, dataDir) {
-	/* A §B entry's `Retired vocabulary` bullet states its phrase count in
-	 * prose; nothing compared it to the sidecar (mantahostels#2293). Read raw, the
-	 * superseded sidecar's reasoning just above: check-retired-vocabulary.js
-	 * owns this file's schema, and loadRetiredVocabulary's "holds no
-	 * entries" guard is right for that owner but wrong here — no vocabulary
-	 * retired yet is a legitimate empty file, not corruption (mantahostels#2324).
-	 * Only a file that will not parse is BROKEN here.
-	 *
-	 * Residual (mantahostels#2324): check-retired-vocabulary.js runs only on the
-	 * scheduled sweeps — unlike check-superseded-values.js, which also runs
-	 * in .husky/pre-commit. A vocab sidecar that parses but breaks that
-	 * script's schema is caught only on the next sweep, never at commit time. */
 	const vocabFile = path.join(dataDir, DATA_FILES.retiredVocabulary);
 	/** @type {Record<string, { phrases?: unknown[] }> | null} */
 	let vocabData = null;
@@ -1614,7 +1057,7 @@ function readVocabData(ctx, dataDir) {
 /**
  * @param {PointerScope} s
  * @param {string} line
- * @returns {string[]} the line's pointer faults
+ * @returns {string[]}
  */
 function restatedInFaults({ f, restatementData }, line) {
 	const m = line.match(pointerPaths);
@@ -1646,7 +1089,7 @@ function restatedInFaults({ f, restatementData }, line) {
 /**
  * @param {PointerScope} s
  * @param {string} line
- * @returns {string[]} the line's pointer faults
+ * @returns {string[]}
  */
 function supersedesFaults({ f, supersededData }, line) {
 	if (!pointerSupersedes.test(line))
@@ -1660,20 +1103,9 @@ function supersedesFaults({ f, supersededData }, line) {
 	return [];
 }
 
-/* Same question, asked once, of the Retired vocabulary bullet's own
- * prose count (mantahostels#2293) — free-text, unlike Restated in's three fixed
- * templates, so only the leading `<n> phrase(s)` is read rather than
- * the whole line matched against a template.
- *
- * Unlike an unkeyed `Restated in` pointer (FAILs), an entry the
- * sidecar does not key is silent here — `vocabPhrases` stays
- * undefined and neither branch below fires — because an uncovered
- * entry is check-retired-vocabulary.js's fault to raise, not this
- * one's. Residual: a §B entry whose retired-vocabulary key was
- * dropped from the sidecar keeps a stale count here unchecked. */
 /**
  * @param {PointerScope} s
- * @returns {string[]} the entry's phrase-count fault, if any
+ * @returns {string[]}
  */
 function vocabCountFaults({ f, vocabData }) {
 	const vocabText = parseRetiredVocabularyText(f.lines);
@@ -1692,7 +1124,7 @@ function vocabCountFaults({ f, vocabData }) {
 
 /**
  * @param {PointerScope} s
- * @returns {string[]} the entry's pointer faults
+ * @returns {string[]}
  */
 function figurePointerFaults(s) {
 	const { f, restatementData, supersededData } = s;
@@ -1726,8 +1158,6 @@ function figurePointerFaults(s) {
 }
 
 /**
- * Assertion 11's per-entry half: every §B entry's pointer bullets against
- * the sidecars they name.
  * @param {Run} r
  * @param {{ restatementData: Restatements, figures: Figure[] }} sources
  */
@@ -1753,28 +1183,14 @@ function checkPointerShapes(r, { restatementData, figures }) {
  * @param {string} mapPath
  */
 function isMapDirty(ctx, mapPath) {
-	// A dirty map is a live session mid-edit: its sidecars are written
-	// alongside it as the edit's last step, so a pointer fault
-	// here is that step not having run yet — not a broken commit (mantahostels#1193).
-	// Against a clean map the same fault is still FAIL: the committed
-	// sidecar genuinely disagrees with the committed map it describes.
-	//
-	// --map-dirty is how .husky/pre-commit says so (mantahostels#1191): it feeds this
-	// script a `$(mktemp -d)` copy of docs/doc-map.md, a path with no git
-	// identity of its own, so isDirty(mapPath) below would always read
-	// "clean" there regardless of the real file — the one route the FAIL
-	// this softens was ever hit on. Absent the flag, mapPath is presumed to
-	// be the real tracked path (true for every other caller, this script's
-	// own tests included).
 	return ctx.has("--map-dirty") || isDirty(mapPath);
 }
 
 /**
- * Assertion 11's whole-sidecar half, and what went unreconciled.
  * @param {Run} r
  * @param {Figure[]} figures
  * @param {ReturnType<typeof checkPointerShapes>} pointers
- * @returns {string[]} a pointer fault per superseded-needles key no entry holds
+ * @returns {string[]}
  */
 function reconcilePointerSidecars(
 	r,
@@ -1784,8 +1200,6 @@ function reconcilePointerSidecars(
 	const { ctx, mapPath } = r;
 	/** @type {string[]} */
 	const pointerFaults = [];
-	/* assertDataIdsKnown above covers the restatements sidecar; nothing else
-	 * here reads this one. */
 	if (supersededData) {
 		const held = new Set(figures.map((f) => f.id));
 		for (const id of Object.keys(supersededData))
@@ -1811,8 +1225,6 @@ function reconcilePointerSidecars(
 }
 
 /**
- * The high-water mark the data file holds; BROKEN where the file is missing or
- * does not hold one, as there is then nothing to check a new id against.
  * @param {Ctx} ctx
  * @param {string} markFile
  * @returns {number}
@@ -1838,10 +1250,7 @@ function readHighWaterMark(ctx, markFile) {
 	return mark;
 }
 
-/**
- * Assertions 12 and 13 (#2339).
- * @param {Run} r
- */
+/** @param {Run} r */
 function checkHighWaterMark(r) {
 	const { ctx, text, mapPath, dataDir } = r;
 	const markFile = path.join(dataDir, DATA_FILES.highWater);
@@ -1913,18 +1322,12 @@ function checkConsumes(r, { headings, mapDirty }) {
 		resolvable,
 		presentUntracked,
 	} = r;
-	/* Assertion 25 (mantahostels#2419). */
 	const consumes = consumesFaults(classesJson, {
 		tracked: resolvable,
 		presentUntracked,
 		liveFigures: new Set(headings.map((h) => h.id)),
 	});
 
-	/* A MALFORMED reference is not softened, and is split out to say so.
-	 * `--map-dirty` excuses a pointer whose target moved in a commit the
-	 * sidecar has not caught up with; softening a reference that is not a
-	 * reference would take a sidecar `loadDocClasses` refuses to load green
-	 * through pre-commit. */
 	const malformedConsumes = consumes.dead.filter((d) => d.shape);
 	const unresolvedConsumes = consumes.dead.filter((d) => !d.shape);
 
@@ -1977,13 +1380,6 @@ function checkConsumes(r, { headings, mapDirty }) {
 /** @param {Run} r */
 function checkPairScope(r) {
 	const { ctx, classesJson, classesFile } = r;
-	/* Assertion 26 (mantahostels#2647). NOT softened by `--map-dirty`, unlike the two
-	 * blocks above: mantahostels#1193's softening covers a pointer whose TARGET moved in
-	 * a commit the sidecar has not caught up with, and both ends of a
-	 * pair-scope prefix sit inside one sidecar cell, so `docs/doc-map.md`'s
-	 * dirtiness cannot produce this fault. Softening it would let the exact
-	 * defect through the one gate that catches it: reordering a cell dirties
-	 * the map, and pre-commit hands `--map-dirty` on that. */
 	const pairScope = pairScopeFaults(classesJson);
 	reportFault(ctx, {
 		tag: "PAIR-SCOPE",
@@ -2005,7 +1401,6 @@ function checkPairScope(r) {
 }
 
 /**
- * Assertion 11's report, softened against a dirty map.
  * @param {Run} r
  * @param {string[]} pointerFaults
  * @param {boolean} mapDirty
@@ -2041,14 +1436,6 @@ function reportPointerShape(r, pointerFaults, mapDirty) {
 /** @param {Run} r */
 function checkNewEntryCap(r) {
 	const { ctx, text, mapPath } = r;
-	/*
-	 * Assertion 14 (mantahostels#1384). The added-vs-edited discriminator is the id set of
-	 * HEAD's map against the one handed in — computed in lib/doc-map.js off
-	 * the same `sectionBEntryProseWords` counter both sides are measured by,
-	 * never a second parser (mantahostels#1311).
-	 *
-	 * NOT softened by mapDirty — see the header note on assertion 14.
-	 */
 	const newOverCapOrNull = newOverCapEntries(text, mapPath);
 	const newOverCap = newOverCapOrNull || [];
 	if (newOverCapOrNull === null)
@@ -2088,22 +1475,6 @@ function checkNewEntryCap(r) {
  */
 function checkAdmissions(r, figures) {
 	const { ctx, text, mapPath, dataDir } = r;
-	/*
-	 * Assertion 29 (mantahostels#3225, building mantahostels#2888's design). Read the sidecar RAW:
-	 * this file has no other consumer, so its schema has one owner and that
-	 * owner is here.
-	 *
-	 * An ABSENT file is read as empty and the faults fall out — a commit
-	 * adding an entry with no sidecar at all is exactly what this refuses.
-	 * But .husky/pre-commit runs this checker over `git checkout-index`,
-	 * so the same absence is what a session sees when it wrote the row and
-	 * committed the map by pathspec without staging the sidecar. That
-	 * session is told to add a row it already has, so the run names the
-	 * absent path rather than leaving the advice to mislead it. Only a file
-	 * that will not parse is BROKEN.
-	 *
-	 * NOT softened by mapDirty — see the header note on assertion 29.
-	 */
 	const admissionsFile = path.join(dataDir, DATA_FILES.admissions);
 	/** @type {Record<string, unknown> | null} */
 	let admissionsData = null;
@@ -2123,10 +1494,6 @@ function checkAdmissions(r, figures) {
 				"again.",
 		);
 
-	/* The issue numbers each entry's own `Settled at` bullet names, so the
-	 * row can be cross-checked against the entry it records. Parsed from
-	 * `figures` rather than in the lib, keeping the bullet's spelling in the
-	 * one place assertion 10 already reads it. */
 	/** @type {Record<string, number[]>} */
 	const settledIssues = {};
 	for (const f of figures) {
@@ -2192,23 +1559,6 @@ function checkAdmissions(r, figures) {
 /** @param {Run} r */
 function checkStaleMarkers(r) {
 	const { ctx, text } = r;
-	/*
-	 * Assertion 21 (mantahostels#2058). A §B entry's own `Over cap by ruling (#n)` marker
-	 * asserts it cannot reach 300 words without dropping a claim — an entry
-	 * that has since fallen at or under the cap makes that assertion stale.
-	 * `overCapEntries()` cannot see it: a fallen entry drops out of that list
-	 * entirely, which is why this reads `staleExemptionMarkers()` instead,
-	 * over every §B entry rather than the over-cap ones.
-	 *
-	 * NOT softened by mapDirty, despite what mantahostels#2058 asked for: the marker
-	 * goes stale in exactly the commit that drains the entry, which is a
-	 * dirty-map commit by construction — softening on that axis would warn
-	 * on the one commit responsible and only ever FAIL a later, unrelated
-	 * one. Safe to leave unsoftened because `staleMarkers` sits in the
-	 * `data` envelope below: checker-new-faults.js reads it as gate
-	 * material and a fault already at HEAD reads as inherited, so an
-	 * unrelated commit is never refused for a staleness it did not create.
-	 */
 	const staleMarkers = staleExemptionMarkers(text);
 	reportFault(ctx, {
 		tag: "STALE-OVER-CAP-MARKER",
@@ -2231,24 +1581,6 @@ function checkStaleMarkers(r) {
 /** @param {Run} r */
 function checkMalformedMarkers(r) {
 	const { ctx, text } = r;
-	/*
-	 * Assertion 23 (mantahostels#2124). A line reaching for the `Over cap by ruling
-	 * (#n)` marker and missing its spelling — the colon outside the bold,
-	 * the bold absent, the bullet indented — leaves the entry reading as
-	 * unexempted everywhere, with nothing anywhere saying so. Its author
-	 * believes the entry exempt; the drain queue still asks them to pay it
-	 * down, and assertion 22's no-growth gate, which runs on marked entries
-	 * alone, never reaches it.
-	 *
-	 * WARN, never FAIL, for assertion 22's reasons — out of `count` and out
-	 * of the `data` envelope — plus one of its own: the probe is lexical, so
-	 * an entry whose prose genuinely opens a bullet with those words would
-	 * be refused for saying something true. The direction of the fault
-	 * carries no exemption wrongly, only loses one, so a WARN is the whole
-	 * remedy needed. Replayed by `.husky/pre-commit` on a green run, like
-	 * assertion 22's: the commit writing the misspelling is the one that
-	 * needs to read it.
-	 */
 	const malformedMarkers = malformedExemptionMarkers(text);
 	reportFault(ctx, {
 		tag: "MALFORMED-OVER-CAP-MARKER",
@@ -2271,23 +1603,6 @@ function checkMalformedMarkers(r) {
 /** @param {Run} r */
 function checkGrownEntries(r) {
 	const { ctx, text, mapPath } = r;
-	/*
-	 * Assertion 22 (mantahostels#2050). A marked entry may not GROW — the rule, its
-	 * baseline and its two skips are in `grownExemptEntries`'s own header.
-	 *
-	 * WARN, never FAIL, so it stays out of `count` and out of the `data`
-	 * envelope below — checker-new-faults.js reads `data` as gate material,
-	 * which would make a WARN refuse a later commit by the back door. Out of
-	 * the OK line too, which prints on a green run and would contradict a
-	 * WARN above it.
-	 *
-	 * `--map-dirty` softens FAILs to WARNs and so cannot reach this one; the
-	 * commit that grows an entry has a dirty map by construction.
-	 *
-	 * A WARN is held by `.husky/pre-commit`, which prints the report only on
-	 * a non-zero exit — so the hook replays this block by name on a green
-	 * run, as it already does for the untracked-row blocks (mantahostels#1300).
-	 */
 	const grownOrNull = grownExemptEntries(text, mapPath);
 	const grown = grownOrNull || [];
 	if (grownOrNull === null)
@@ -2320,15 +1635,6 @@ function checkGrownEntries(r) {
 /** @param {Run} r */
 function checkDroppedMarkers(r) {
 	const { ctx, text, mapPath } = r;
-	/*
-	 * Assertion 24 (mantahostels#2227, option (A)).
-	 *
-	 * WARN, never FAIL, for assertion 22's reasons — out of `count` and out
-	 * of the `data` envelope, which checker-new-faults.js reads as gate
-	 * material — plus one of its own: un-marking a still-fat entry is a real
-	 * act, the ruling revisited and the entry sent back to the drain queue.
-	 * A FAIL would bar it with no escape hatch.
-	 */
 	const droppedOrNull = droppedExemptionMarkers(text, mapPath);
 	const dropped = droppedOrNull || [];
 	if (droppedOrNull === null)
@@ -2367,12 +1673,6 @@ function checkDroppedMarkers(r) {
 /** @param {Run} r */
 function checkLedgerCap(r) {
 	const { ctx, text, mapPath } = r;
-	/*
-	 * Assertion 15 (mantahostels#1640). Gated rather than left to the prose in §5 that
-	 * states it, which three concision passes failed to hold.
-	 *
-	 * NOT softened by mapDirty — see the header note on assertion 15.
-	 */
 	const overCapLedgerOrNull = overCapLedgerEntries(text);
 	const overCapLedger = overCapLedgerOrNull || [];
 	if (overCapLedgerOrNull === null)
@@ -2407,14 +1707,6 @@ function checkLedgerCap(r) {
 /** @param {Run} r */
 function checkTriggerVerdict(r) {
 	const { ctx, text, mapPath } = r;
-	/*
-	 * Assertion 16 (mantahostels#1788). A commit that adds pool bytes and writes NO entry
-	 * leaves the ledger's newest entry exactly as it found it, so a check
-	 * reading only the newest entry's text would pass every later tranche as
-	 * soon as one entry carried the marker.
-	 *
-	 * NOT softened by mapDirty — see the header note on assertion 16.
-	 */
 	const revs = readParentRevs();
 	const poolDelta = stagedPoolDelta(revs);
 	const ledgerEntries = shedLedgerEntries(text);
@@ -2470,15 +1762,6 @@ function checkTriggerVerdict(r) {
  */
 function checkCompactionVerdict(r, ledgerEntries) {
 	const { ctx, mapPath } = r;
-	/*
-	 * Assertion 20 (mantahostels#1968, on mantahostels#1890's ruling). Assertion 15 gates the
-	 * compacted entry's BYTES and cannot see whether the verdict those bytes
-	 * owe is present; assertion 16's trigger verdict is scoped to the newest
-	 * entry and never reaches a compaction.
-	 *
-	 * NOT softened by mapDirty: the commit landing a tranche IS the dirty-map
-	 * case.
-	 */
 	const compactionFaults =
 		ledgerEntries === null
 			? []
@@ -2524,11 +1807,6 @@ function loadClassesUnlessFaulted(
 	{ badClasses, badReaders, malformedConsumes },
 ) {
 	const { ctx, classesFile } = r;
-	/* The sidecar was read, parsed and vocabulary-checked above assertion 1.
-	 * loadDocClasses re-reads it for the rest of its shape, and its throw is
-	 * BROKEN — the drift assertion 19 has already ruled out is the one fault
-	 * of the set a session can fix, so skip the load while 19 stands rather
-	 * than replacing its FAIL with an abort. */
 	const classes =
 		badClasses.length > 0 ||
 		badReaders.unknown.length > 0 ||
@@ -2546,24 +1824,17 @@ function loadClassesUnlessFaulted(
 	return classes;
 }
 
-/** `t` above its `## Section B` heading, all of it where it has none. */
 const aboveSectionB = (/** @type {string} */ t) => {
 	const [above] = t.split(/^## Section B/m);
 	if (above === undefined)
 		throw new Error("splitting the map at Section B yielded no part");
 	return above;
 };
-/* A drift that changes no row's own text — a row in the wrong subsection, or two rows out of
- * sorted order — leaves this list empty and is reported by the count. */
 const parseRowLines = (/** @type {string} */ t) => {
 	const region = aboveSectionB(t).split(/^## Section A/m)[1] || "";
 	/** @type {Map<string, string>} */
 	const byPath = new Map();
 	for (const line of region.split("\n")) {
-		// Both shapes a §A register comes in: a table row, and a
-		// register-list line (mantahostels#2743). Reading only the first would let
-		// drift inside a listed subsection fall through to the coarse
-		// "row order or subsection placement differs" fault below.
 		const [rowPath] = registerRowPaths(line);
 		const listed = registerListPath(line);
 		if (rowPath !== undefined) byPath.set(rowPath, line);
@@ -2600,11 +1871,6 @@ function sectionAFaults(mapPath, text, renderedText) {
 	return renderFaults;
 }
 
-/*
- * Assertion 17 (mantahostels#1863). It reads the map text this run already holds, so a
- * §A row living only in the working tree is compared, not skipped —
- * mantahostels#551's trap.
- */
 /**
  * @param {Run} r
  * @param {Classes} classes
@@ -2648,8 +1914,6 @@ function checkSectionA(r, classes) {
  * @param {Classes} classes
  */
 function checkRoleCap(ctx, classes) {
-	/* Assertion 18 (mantahostels#1863). The 300-word cap on a surviving `role` override,
-	 * in assertion 14's shape. */
 	const overCapRoleList = classes ? overCapRoles(classes) : [];
 	reportFault(ctx, {
 		tag: "ROLE-OVER-CAP",
@@ -2672,22 +1936,10 @@ function checkRoleCap(ctx, classes) {
 
 /** @param {Ctx} ctx */
 function countFailItems(ctx) {
-	/* The summary count, read off the findings rather than hand-summed beside
-	 * them (mantahostels#3545): every finding here comes through reportFault, which
-	 * attaches its item list as the single array in the payload, so a new FAIL
-	 * counts itself and a WARN never counts. Three exclusions are deliberate
-	 * and fall out of that, all being WARNs: an in-grace UNCOVERED/DEAD-ENTRY
-	 * half (mantahostels#1785), an UNTRACKED-ENTRY, and a pointer fault against a
-	 * dirty map (mantahostels#1193). The summary reads as what refused the
-	 * commit; the exit comes from the severities (lib/check.js runCheck's
-	 * `worst()` fold, then exitFor). */
 	const failItemCount = ctx.findings.reduce((total, finding) => {
 		if (finding.severity !== "FAIL") return total;
 		const items = Object.values(finding).find((v) => Array.isArray(v));
 		if (items) return total + items.length;
-		/* Unreachable while reportFault is this file's only raiser, so reaching
-		 * it means the count is reading a shape nobody designed it for, where
-		 * counting the finding as one problem may under-report. */
 		ctx.say(
 			`${finding.tag} carries no item list — counted as one problem, and ` +
 				"the summary count may now under-report.",
@@ -2703,7 +1955,6 @@ runCheck({
 		"node check-doc-map.js [<doc-map.md>] [--data-dir <dir>] [--root <dir>]",
 	valueFlags: ["--data-dir", "--root"],
 	flags: ["--map-dirty"],
-	/* Read-only, so each distinct git read is spawned once per run (#4298). */
 	run: (/** @type {Ctx} */ ctx) => withGitReadMemo(() => runChecks(ctx)),
 });
 
@@ -2796,15 +2047,10 @@ function runChecks(ctx) {
 			`${seen.size} distinct §B entry ids, each with a \`Settled at\` bullet ` +
 			"and a sidecar-agreeing pointer; no id at or below the high-water mark reused, and none removed above it; " +
 			`no entry new since HEAD over the ${PROSE_CAP_WORDS}-word prose cap; ` +
-			// Silent where HEAD held no copy to compare against, the ledger
-			// clause's reasoning: an OK line claiming the record held, above a
-			// `ctx.say` that it went unchecked, contradicts.
 			(unrecordedOrNull === null
 				? ""
 				: "every entry new since HEAD carrying an admission row; ") +
 			"no stale over-cap marker" +
-			// Silent where there was no ledger to read: an OK line claiming the
-			// cap held, above a `ctx.say` that it went unchecked, contradicts.
 			(overCapLedgerOrNull === null
 				? ""
 				: "; every shed-ledger entry but the newest at or under " +
@@ -2825,14 +2071,6 @@ function runChecks(ctx) {
 		noun: "doc-map problem(s)",
 		count: failItemCount,
 		data: {
-			// Out-of-grace only (mantahostels#1785): lib/fault-profiles.js's `doc-map`
-			// profile diffs every item here as gate material — it has no
-			// `gating` predicate, unlike `findings` — so an in-grace item left
-			// in would be flagged "not in baseline" and refuse a commit the
-			// moment the doc map ALSO carries any unrelated, already-FAILing
-			// entry, exactly the split-commit-pair case grace exists to let
-			// through. The in-grace half is still reported, under its own
-			// UNCOVERED-GRACE/DEAD-ENTRY-GRACE tag in `findings`.
 			uncovered: uncoveredSplit.outOfGrace,
 			dead: deadSplit.outOfGrace,
 			untracked,

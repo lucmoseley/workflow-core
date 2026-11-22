@@ -27,7 +27,7 @@ export const WIRING = `  ${coreCall("command node", "scripts/mutation-hold-gate.
 export const HOLD_BLOCK = cutHookBlock('mh_why=""', "fi");
 export const TEST_GATE_OPEN = `if ! lander_batch && ! lander_tested && declared_cmd ${coreCall("node", "scripts/lib/test-gate.js")} commit`;
 export const GATES_END = HOOK.split("\n").find((l) =>
-	l.startsWith("# ---- end of the gates"),
+	l.startsWith(": end of the gates"),
 );
 export const COMMIT_PATHS = path.join(ROOT, "scripts/commit-paths.js");
 export const COMMIT_KEY = path.join(ROOT, "scripts/lib/commit-key.js");

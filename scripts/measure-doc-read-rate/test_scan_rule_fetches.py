@@ -1,15 +1,3 @@
-"""Pins how the rule-fetch scanner tells a `rule-text.sh` call from a mention,
-and a resolved id from a refused one, and what it counts as a guard's emission
-of a rule (mantahostels#2501).
-
-Each test writes a synthetic transcript; nothing here reads the real corpus.
-
-CI's pytest step runs this file; the scanner
-gates nothing and is run by hand. Loosen a case and the per-command rule index
-`scripts/inject-tracker-docs.js` injects is scored as delivering rules that
-sessions never fetched, or fetched and were refused.
-"""
-
 import json
 import os
 import sys
@@ -32,10 +20,6 @@ GUARD_TEXT = (
 
 @pytest.fixture(autouse=True)
 def store(tmp_path, monkeypatch):
-    """A three-rule store, so `resolved` means the fetcher would have answered,
-    and a guard routing one rule. guard_ids walks up two levels from the
-    store's parent, so the store is nested to put the guard where that walk
-    lands."""
     d = tmp_path / "docs" / "agents" / "rules"
     d.mkdir(parents=True)
     for rule in ("gh-cli-limits", "roadmap-gating", "card-close-route"):
@@ -48,7 +32,6 @@ def store(tmp_path, monkeypatch):
 
 
 def injection(cmd="wayfinder"):
-    """The attachment shape a hook injection takes in a transcript."""
     text = (
         f"You invoked /{cmd}, which reads or writes the issue tracker. "
         f"fetch the id below with `{FETCH} <id>`"
@@ -93,8 +76,6 @@ def test_a_bare_id_resolves(transcript):
 
 
 def test_the_prefixed_spelling_the_index_shows_resolves(transcript):
-    # Since 670224070 the fetcher strips one leading `rule:`, so a session
-    # copying the index's own spelling GETS the rule (mantahostels#2718).
     p = transcript("s", [injection(), bash(f"{FETCH} rule:gh-cli-limits")])
     row = srf.scan_file(p, Counter())
     assert row["called"] is True
@@ -103,9 +84,6 @@ def test_the_prefixed_spelling_the_index_shows_resolves(transcript):
 
 
 def test_a_doubly_prefixed_id_does_not_resolve(transcript):
-    # One prefix comes off, so `rule:rule:x` bares to `rule:x` and fails the
-    # fetcher's own id grammar. It names no id, so it refuses the call without
-    # putting anything in the `refused` column.
     p = transcript("s", [injection(), bash(f"{FETCH} rule:rule:gh-cli-limits")])
     row = srf.scan_file(p, Counter())
     assert row["called"] is True
@@ -121,8 +99,6 @@ def test_a_prefixed_id_naming_no_fragment_is_refused_under_its_bare_id(transcrip
 
 
 def test_a_session_that_retries_is_not_counted_as_lost(transcript):
-    # The first call carries a bad id, so it delivers neither; the second
-    # asks for the good one alone and gets it. `refused` nets the retry off.
     p = transcript(
         "s",
         [
@@ -149,8 +125,6 @@ def test_the_list_form_resolves_every_id_in_one_call(transcript):
 
 
 def test_a_redirection_is_not_read_as_a_rule_id(transcript):
-    # `2>&1` sits in the argument position and its leading token is a bare
-    # word, so without the metacharacter stop it would score as the id "2".
     p = transcript("s", [injection(), bash(f"{FETCH} gh-cli-limits 2>&1 | head")])
     assert srf.scan_file(p, Counter())["resolved"] == ["gh-cli-limits"]
 
@@ -171,8 +145,6 @@ def test_quoted_ids_resolve(transcript):
 
 
 def test_a_flag_is_not_a_rule_id(transcript):
-    # `called` stays True: whether the call was ANSWERED is this file's own
-    # question (mantahostels#3279).
     p = transcript("s", [injection(), bash(f"{FETCH} --ids")])
     row = srf.scan_file(p, Counter())
     assert row["called"] is True
@@ -185,7 +157,6 @@ def test_a_session_naming_no_tracker_command_is_not_a_session(transcript):
 
 
 def test_the_marker_is_taken_from_an_attachment_not_from_prose(transcript):
-    # An assistant turn quoting the marker would otherwise invent a session.
     quoting = {
         "type": "assistant",
         "timestamp": "2026-09-02T10:00:00.000Z",
@@ -198,8 +169,6 @@ def test_the_marker_is_taken_from_an_attachment_not_from_prose(transcript):
 
 
 def test_a_tool_result_carrying_the_text_back_is_not_a_fetch(transcript):
-    # The corpus false positive: a session that ran the fetcher gets the
-    # command echoed back in the result, so a whole-record grep double-counts.
     result = {
         "type": "user",
         "timestamp": "2026-09-02T10:02:00.000Z",
@@ -261,8 +230,6 @@ def test_one_bad_id_refuses_the_whole_list(transcript):
 
 
 def test_a_command_that_only_names_the_fetcher_is_not_a_call(transcript):
-    # `git log -- <path> <pathspec>` would otherwise score its trailing words
-    # as rule ids, and `cat`/`wc`/`sed` would inflate the `called` column.
     for command in (
         f"git log --oneline -- {FETCH} docs agents",
         f"cat {FETCH}",
@@ -281,9 +248,6 @@ def test_an_interpreter_in_front_of_the_fetcher_is_still_a_call(transcript):
 
 
 def test_a_sourced_or_sh_fetcher_call_is_not_a_call(transcript):
-    """`source`/`.` stop at the fetcher's `BASH_SOURCE[0] == $0` CLI guard
-    (`scripts/lib/rule-text.sh:115`) and `sh` — dash here — dies on the bashism
-    first, so none of them deliver any rule text."""
     for lead in ("source", ".", "sh"):
         p = transcript("s", [injection(), bash(f"{lead} {FETCH} gh-cli-limits")])
         row = srf.scan_file(p, Counter())
@@ -292,9 +256,6 @@ def test_a_sourced_or_sh_fetcher_call_is_not_a_call(transcript):
 
 
 def test_a_fetcher_line_inside_a_heredoc_is_not_a_call(transcript):
-    """`SEGMENT` splits on newlines, so a heredoc body line beginning with the
-    fetcher path lands in program position, and the repo writes issue bodies
-    exactly this way."""
     cmd = f"gh issue create --body-file - <<'BODY'\n{FETCH} gh-cli-limits\nBODY"
     p = transcript("s", [injection(), bash(cmd)])
     row = srf.scan_file(p, Counter())
@@ -303,7 +264,6 @@ def test_a_fetcher_line_inside_a_heredoc_is_not_a_call(transcript):
 
 
 def test_a_real_call_after_a_heredoc_still_counts(transcript):
-    """Stripping the body must not swallow the rest of the command."""
     cmd = (
         "gh issue comment 1 --body-file - <<'BODY'\n"
         f"see {FETCH}\n"
@@ -342,7 +302,6 @@ def test_a_call_later_in_a_pipeline_is_found(transcript):
 
 
 def emission(text):
-    """The attachment shape a `gp_rule` emission takes in a transcript."""
     return {
         "type": "attachment",
         "timestamp": "2026-09-02T10:01:30.000Z",
@@ -361,10 +320,6 @@ def test_a_truncated_emission_still_counts(transcript):
 
 
 def test_a_session_quoting_the_rule_back_is_not_an_emission(transcript):
-    # Only the hook's own attachment counts; an assistant turn restating a rule
-    # would otherwise score as having been handed it.
-    # The text carries `docs/agents/` so the record survives the prefilter and
-    # the attachment test is what actually rejects it.
     quoting = {
         "type": "assistant",
         "timestamp": "2026-09-02T10:01:30.000Z",
@@ -401,9 +356,6 @@ def test_the_default_corpus_counts_sessions_on_both_seat_roots(seat_roots):
         (r / f"{name}.jsonl").write_text(json.dumps(injection()) + "\n")
     sessions, _ = srf.scan_dir()
     assert len(sessions) == 2
-
-
-# --- fail-open sites (#5487) ---------------------------------------------------
 
 
 def test_an_unreadable_guard_reads_as_no_ids_and_says_so(tmp_path, capsys):

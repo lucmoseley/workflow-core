@@ -1,11 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which sites check-arbiter-commands.js finds spelling an arbiter command
- * by hand, and which text it leaves alone (#3990, #3992).
- *
- * .husky/pre-commit refuses on this checker, so loosening a case here lets the
- * next command print a path its shell splits or an install cannot run.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -15,7 +8,6 @@ import { runInProcess } from "./lib/run-in-process.js";
 
 const SCRIPT = path.resolve(__dirname, "check-arbiter-commands.js");
 
-/* A `$` of its own, so a fixture's `${word}` is text in the program it writes. */
 const DOLLAR = "$";
 
 let root: string;

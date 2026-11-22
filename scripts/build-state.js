@@ -1,16 +1,4 @@
 #!/usr/bin/env node
-/*
- * build-state.js — create or resume a build unit's state file (#4410).
- *
- *   node scripts/build-state.js <n> [--spec <parent>]
- *
- * Prints the file's path, then its content. A missing file is created in the
- * shape `lib/build-state.js` fixes, `spec` from `--spec`; an existing one is
- * left as it is.
- *
- * IN NO SCRIPT FAMILY (docs/code-standards-base.md §N3). Exit 0 printed, 1 the
- * file could not be read, parsed or written, 2 bad usage.
- */
 
 const fs = require("node:fs");
 const { scriptPath } = require("./lib/script-path.js");

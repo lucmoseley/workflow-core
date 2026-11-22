@@ -1,70 +1,32 @@
-/*
- * register.tsx, the wfc-liveness mod — while any subagent is live, a status line under the prompt
- * says how many are running and names each stalled one as a fact (#480,
- * #863, #865).
- *
- * A stall: a `running` subagent with no model step started for 5 minutes,
- * clocked from the tick that first listed it where no step was seen, and
- * from its return to `running` after any other status. Every other status is
- * shown by count alone and never judged (#863 §The stall rule, user story
- * 17).
- *
- * `/liveness` opens a pane with one row per listed agent, live or finished,
- * and closes it when run again; it never opens unasked (#866). The pane
- * draws the rows each tick writes to `$.state`, so its times move.
- *
- * Hooks `session.start`, `turn.step`, `turn.complete`, `ui.render` on its own
- * pane and `command.run` on its own command alone. It passes every step's
- * stream and result through untouched, and never tells the model, wakes the
- * session, or stops or messages an agent (#863 §Guard safety and failure).
- *
- * EVERYTHING LIVES INSIDE `register`. The tests stand for the load through
- * the workflow-core plugin by loading `register` again as an inline plugin,
- * which carries the function's own text and nothing around it (#944).
- */
-
 import type { AgentInfo, Register } from "claude-code";
 import type { LivenessRecord, LivenessRow } from "../types";
 
 export const register: Register = (on) => {
-	/* The build #851's go checks passed on; below it the mod is unproven and
-	 * starts nothing (#844 Q2). */
+	// measured, #851
 	const versionFloor = [2, 1, 289];
-	// #863 §Tick and §The stall rule.
+	// #863
 	const tickMs = 5000;
 	const stallMs = 5 * 60_000;
-	/* The engine prefixes the line with a glyph and the plugin name (#864's
-	 * drawing check), so a description is cut short; a guess, never measured. */
+	// guess, #864
 	const descriptionMaxChars = 32;
-	// The engine's own last tool of a subagent run, not a tool it runs (#864).
 	const handbackTool = "SubagentHandback";
 	const liveStatuses: ReadonlySet<string> = new Set([
 		"pending",
 		"running",
 		"waiting",
 	]);
-	/* Owners spelled out, not modName: the release render renames these literals
-	 * to the host plugin (#945). */
+	// #945
 	const recordsRef = { plugin: "wfc-liveness", key: "records" } as const;
 	const rowsRef = { plugin: "wfc-liveness", key: "rows" } as const;
 	const paneId = "liveness";
 	const modName = "wfc-liveness";
 	const configRelPath = ".claude/workflow-core.json";
 
-	/* Module memory, which a reload starts over: `session.start` restores the
-	 * records from `$.state`, where every change is saved. */
 	let isLive = false;
 	let records: Record<string, LivenessRecord> = {};
 	let cancelTick: (() => void) | undefined;
 	let saving: Promise<unknown> = Promise.resolve();
 
-	/* The helpers COPIED names in scripts/wfc-mods-copies.test.ts are copied in
-	 * the delivery mod, not shared: the tests' inline load, standing for the
-	 * plugin's, carries `register`'s own text alone (#944), and the engine
-	 * follows `$` across no import (#903 F3). That test fails where the copies
-	 * differ; a helper copied later is held only once it joins COPIED. */
-
-	/** True when `version` is at or above versionFloor; an unparseable one is below. */
 	const isAtFloor = (version: string): boolean => {
 		const parts = /^(\d+)\.(\d+)\.(\d+)/.exec(version)?.slice(1).map(Number);
 		if (!parts) return false;
@@ -79,8 +41,6 @@ export const register: Register = (on) => {
 	const messageOf = (err: unknown) =>
 		err instanceof Error ? err.message : String(err);
 
-	/** This mod's switch in the repo's config text, on where `mods` is absent;
-	 * throws where the text is not an object or `mods` not one of booleans. */
 	const isOnInConfig = (text: string): boolean => {
 		const parsed: unknown = JSON.parse(text);
 		if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
@@ -108,15 +68,11 @@ export const register: Register = (on) => {
 		isStalled: false,
 	});
 
-	/* A step's records are kept whether or not the list names its agent yet:
-	 * a subagent's first step starts about 2 s before it is listed (#864). */
 	const recordOf = (id: string): LivenessRecord => {
 		records[id] ??= blank();
 		return records[id];
 	};
 
-	/* Chained, so writes land in the order made, each carrying the records as
-	 * they stand when it runs. */
 	const save = (
 		write: () => Promise<unknown>,
 		debug: (text: string) => void,
@@ -141,7 +97,6 @@ export const register: Register = (on) => {
 			: `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 	};
 
-	/** To the tick's 5 s. */
 	const elapsedOf = (ms: number) => {
 		const seconds = Math.floor(ms / 1000);
 		if (seconds < 60) return `${seconds}s`;
@@ -171,8 +126,6 @@ export const register: Register = (on) => {
 		return `${count}; stalled: ${longest.map(stallText).join(", ")}`;
 	};
 
-	/** Moves `rec`'s clocks and listing on to `agent` as listed at `now`; true
-	 * where its first listing, status or description changed. */
 	const refreshRecord = (
 		rec: LivenessRecord,
 		agent: AgentInfo,
@@ -186,7 +139,6 @@ export const register: Register = (on) => {
 			rec.quietSince = now;
 			rec.phaseSince = now;
 		} else {
-			// A step seen before the first listing keeps its own time.
 			rec.quietSince ??= now;
 			rec.phaseSince ??= now;
 		}
@@ -224,15 +176,11 @@ export const register: Register = (on) => {
 		};
 	};
 
-	// Matches every cwd, so one module may hook `session.start` twice (#903 F2).
 	on("session.start", { cwd: /./ }, async ($, e, next) => {
 		isLive = false;
-		/* Closures over `$`, never helpers taking it: the engine follows `$`
-		 * into a function declared at the top of the file alone. */
 		const debug = (text: string) =>
 			$.ui.log(`${modName}: ${text}`, { to: "debug" });
 
-		/** Off only where the repo's `mods` key sets this mod false (#944). */
 		const isSwitchedOn = async () => {
 			const file = `${e.cwd}/${configRelPath}`;
 			try {
@@ -246,10 +194,6 @@ export const register: Register = (on) => {
 			}
 		};
 
-		/** Why this load starts nothing — the floor, then the repo's switch, then
-		 * the double-load guard (#944) — or undefined where it starts. The guard
-		 * reads the folder alone, so a repo that also loads the plugin and turns
-		 * the stand-alone copy off in its settings runs neither load. */
 		const whyNotStarted = async () => {
 			const { version } = await $.session.version();
 			if (!isAtFloor(version))
@@ -270,18 +214,13 @@ export const register: Register = (on) => {
 				return next(e);
 			}
 			const { value } = await $.state.get(recordsRef);
-			/* Copied, as what the host answers may be frozen, and filled out, as
-			 * a record an older load saved may lack a field (#866's `steps`). */
 			records = {};
 			for (const [id, rec] of Object.entries(value ?? {}))
 				records[id] = { ...blank(), ...JSON.parse(JSON.stringify(rec)) };
-			// null until this load first writes the line.
 			let shown: string | undefined | null = null;
 			let shownRows: string | null = null;
 			let isBusy = false;
 
-			/** Drops each agent listed once and gone since: the engine dropped
-			 * it. True where any was dropped. */
 			const dropUnlisted = (ids: Set<string>) => {
 				let isChanged = false;
 				for (const [id, rec] of Object.entries(records)) {
@@ -312,8 +251,6 @@ export const register: Register = (on) => {
 				}
 			};
 
-			/** One listed agent's record brought up to `now`, its stall announced
-			 * where one began or ended; true where the record changed. */
 			const track = (
 				agent: AgentInfo,
 				now: number,
@@ -333,8 +270,6 @@ export const register: Register = (on) => {
 				return true;
 			};
 
-			/** The status line and the pane's rows, each written only where it
-			 * changed. */
 			const publish = async (
 				listed: AgentInfo[],
 				stalls: Stall[],
@@ -361,7 +296,6 @@ export const register: Register = (on) => {
 				if (isBusy) return;
 				isBusy = true;
 				try {
-					// A teammate is no subagent, and one in a pane runs no loop here.
 					const listed = (await $.agent.list()).filter(
 						(agent) => agent.teammateId === undefined,
 					);
@@ -381,8 +315,6 @@ export const register: Register = (on) => {
 				}
 			};
 
-			/* Only a test re-raises `session.start` within one load; a reload
-			 * cancels the old load's timers itself. */
 			cancelTick?.();
 			const timer = $.clock.every(tickMs, tick);
 			cancelTick = () => timer.cancel();
@@ -391,7 +323,6 @@ export const register: Register = (on) => {
 				await $.command.register({
 					name: "liveness",
 					description: "Open or close a pane listing this session's subagents",
-					// Mid-turn is when it is wanted: a foreground agent holds the turn.
 					immediate: true,
 				});
 			} catch (err) {
@@ -405,7 +336,6 @@ export const register: Register = (on) => {
 
 	on("turn.step", async function* ($, e, next) {
 		const id = e.agentId;
-		// The main loop's steps, and every step until this load has started.
 		if (!isLive || id === undefined) return yield* next(e);
 		const debug = (text: string) =>
 			$.ui.log(`${modName}: ${text}`, { to: "debug" });
@@ -423,7 +353,6 @@ export const register: Register = (on) => {
 		let tools: string[] = [];
 		try {
 			const result = yield* next(e);
-			// A failure here costs the record, never the step (#863 §Guard safety).
 			try {
 				tools = result.toolUses
 					.map((use) => use.name)
@@ -433,7 +362,6 @@ export const register: Register = (on) => {
 			}
 			return result;
 		} finally {
-			// A failed stream still ends the step; its failure goes on up.
 			const rec = records[id];
 			if (rec) {
 				rec.isStepping = false;
@@ -460,8 +388,6 @@ export const register: Register = (on) => {
 		return next(e);
 	});
 
-	// paneId spelled out, and kept equal to it: `claude plugin validate` reads a
-	// matcher's literal alone, and no test catches the two drifting apart.
 	on(
 		"ui.render",
 		{ component: "Pane", requestId: "liveness" },
@@ -499,7 +425,6 @@ export const register: Register = (on) => {
 		},
 	);
 
-	// Answers its own command, so no model turn starts (#863 §Where it draws).
 	on("command.run", { command: "liveness" }, async ($) => {
 		const debug = (text: string) =>
 			$.ui.log(`${modName}: ${text}`, { to: "debug" });

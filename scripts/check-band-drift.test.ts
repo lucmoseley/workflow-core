@@ -1,24 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-band-drift.js files or refreshes one tracking issue only when
- * a band reading falls below half its baseline on a large enough sample, and
- * another only when the share at 70 among tops of 70 or more rises above 1.5
- * times its own,
- * which questions it reads across the seats, and that it never fails.
- *
- * Drives the real script through lib/run-in-process.js, CLAUDE_CONFIG_DIR and
- * its three WFC_CLAUDE_CONFIG_* siblings pointed at a sandbox so the founder's
- * own transcript corpus is never read, `gh` stubbed at WFC_GH and the
- * sanctioned body writer at WFC_ISSUE_BODY (#487).
- *
- * Every fixture figure is derived from lib/band-baseline.js, the script's own
- * baseline, so a re-measured baseline moves no test.
- *
- * It runs under `npm run status`, the only watch on agents narrowing their
- * bands or pricing at 70 to slip past guard-priced-options.js's close-rivals
- * check: loosen a case and that evasion goes unreported, or the founder is
- * sent a false alarm.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -61,28 +41,17 @@ afterEach(() => {
 	fs.rmSync(sandbox, { recursive: true, force: true });
 });
 
-/**
- * A transcript in the corpus, dated now and top-level unless `ageDays` or
- * `sidechain` says otherwise.
- */
 const transcript = (
 	texts: string[],
 	opts: { ageDays?: number; sidechain?: boolean; dir?: string } = {},
 ) => writeTranscript(opts.dir ?? corpus, texts, opts);
 
-/** How many of `n` band questions overlap, to land at `ratio` of baseline. */
 const overlapsAt = (n: number, ratio: number) =>
 	Math.round(n * BAND_BASELINE.overlapShare * ratio);
 
-/** How many of `n` passing tops sit at the line, at most `ratio` of
- * baseline's share. */
 const atLineAt = (n: number, ratio: number) =>
 	Math.floor((n * TOP_BASELINE.atLine * ratio) / TOP_BASELINE.passingTops);
 
-/*
- * A stub `gh` that records its argv and answers the three calls
- * lib/tracking-issue.js makes; `open` is what `issue list` says is open.
- */
 function stubGh(open: { number: number; title: string }[] = []) {
 	const log = path.join(sandbox, "gh-argv.log");
 	fs.writeFileSync(
@@ -144,7 +113,6 @@ const run = (
 
 const N = MIN_BAND_SAMPLE + 20;
 
-/** `n` band questions overlapping at the baseline rate: a steady reading. */
 const steady = (n: number) => bandQuestions(n, overlapsAt(n, 1));
 
 describe("readings at or above half the baseline", () => {
@@ -243,7 +211,7 @@ describe("what is read", () => {
 		transcript(times(5, WIDE_CLEAR), { sidechain: true });
 		const old = transcript(times(5, WIDE_CLEAR), { ageDays: 20 });
 		const s = Date.now() / 1000;
-		fs.utimesSync(old, s, s); // a fresh mtime must not admit old records
+		fs.utimesSync(old, s, s);
 		const r = run(stubGh());
 		expect(r.out).toContain(`OK: ${N} rival question(s)`);
 		expect(r.status).toBe(0);

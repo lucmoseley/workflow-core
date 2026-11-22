@@ -1,25 +1,4 @@
 // @vitest-environment node
-/*
- * Pins which issue-body edits check-clobbered-bodies.js reports as one
- * session's write erasing another's, and which honest edits it lets pass
- * (mantahostels#128, the ruling that a body write cannot be made conditional).
- *
- * check-clobbered-bodies.js reads one input — GitHub's record of every past
- * issue body — so every case here fakes it with a stub `gh` injected via
- * WFC_GH. Reading this repo's real issues would make the tests assert the very
- * thing the script reports on, so they would flip red the moment a real clobber
- * happened.
- *
- * The cases that matter are the NEGATIVE ones. A concision pass, a line edited
- * in place, a checkbox ticked, and a loss that was already put back each get a
- * case (the false positives they pin: mantahostels#302 for the reworded
- * restoration, mantahostels#141 for the other three).
- *
- * The script exits 1 on CLOBBERED alone, its one finding that gates in
- * scripts/lib/check.js's alphabet; nothing that runs it gates on that exit.
- * Loosen a case and a lost edit goes unreported, since GitHub tells both
- * writers they succeeded, or honest edits flood the report until it is ignored.
- */
 
 import fs from "node:fs";
 import os from "node:os";
@@ -33,9 +12,6 @@ const SCRIPT = path.resolve(__dirname, "check-clobbered-bodies.js");
 
 const hostRoot = withHostConfig({ tracker: "owner/repo" });
 
-/* Pins the script's clock to the fixtures' anchor: the script reads the real
- * wall clock otherwise, and the default 30-day --since window drifts past the
- * hardcoded 2026-08-01 revisions as real time passes them (mantahostels#2176). */
 const NOW = "2026-08-01T12:00:00Z";
 
 let dir: string;
@@ -47,8 +23,6 @@ afterEach(() => {
 	fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/* Substantial: the script ignores lines under 40 characters, which are headings
- * and bullets shared by every revision. */
 const L = (tag: string) =>
 	`- [${tag}](https://github.com/owner/repo/issues/1) — the ruling recorded for ${tag}`;
 
@@ -57,22 +31,12 @@ const body = (...ls: string[]) => ls.join("\n");
 interface Issue {
 	number: number;
 	title?: string;
-	/** Past bodies, OLDEST first — the fixture is written newest-first for us. */
 	revisions: { at: string; body: string }[];
-	/** Defaults to the newest revision, as GitHub itself reports it. */
 	current?: string;
 	lastEditedAt?: string;
-	/** Defaults to lastEditedAt — never earlier, as on GitHub. */
 	updatedAt?: string;
 }
 
-/* The stub answers the issue listing (sorted
- * when the query asks for UPDATED_AT), issues fetched by number (aliases
- * `i<N>: issue` selecting `lastEditedAt`; one not in the fixture is NOT_FOUND,
- * exiting 1 over the printed response as real gh does), a batched first page
- * of histories (the same aliases), and one issue's later history page (`-F n=`).
- * Cursors are offsets. `bump` moves one issue's `updatedAt` once the listing has been
- * called `after` times, as an update landing mid-listing does. */
 const STUB = `#!/usr/bin/env node
 const fs = require("node:fs");
 const [fixtureFile, callsFile] = [process.env.FIXTURE, process.env.CALLS];
@@ -123,14 +87,13 @@ if (query.includes("issues(")) {
 process.stdout.write(JSON.stringify({ data, ...(fx.errors ? { errors: fx.errors } : {}) }));
 `;
 
-/** A stub `gh` serving the issue list and each issue's revision history. */
 const stubGh = (
 	issues: Issue[],
 	{
 		failing = false,
 		graphqlError = false,
 		errorMessage = "Something went wrong",
-		listPage = 100, // the script's own `issues(first:100`
+		listPage = 100,
 		bump = undefined as
 			| { after: number; number: number; updatedAt: string }
 			| undefined,
@@ -156,7 +119,6 @@ const stubGh = (
 					userContentEdits: { totalCount: i.revisions.length },
 				};
 			}),
-			// GitHub returns newest first; the script reverses.
 			hist: Object.fromEntries(
 				issues.map((i) => [
 					i.number,
@@ -172,7 +134,6 @@ const stubGh = (
 	return {
 		...stub,
 		env: { ...stub.env, FIXTURE: fixture, CALLS: calls },
-		/** Every call the script made, in order. */
 		calls: (): { query: string; vars: Record<string, string> }[] =>
 			fs.existsSync(calls)
 				? fs
@@ -184,7 +145,6 @@ const stubGh = (
 	};
 };
 
-/** extraEnv is applied last, so it can override the pinned WFC_NOW. */
 const run = (
 	args: string[] = [],
 	stub?: StubGh,
@@ -202,9 +162,6 @@ const run = (
 	return { status: r.status, out: `${r.stdout}${r.stderr}` };
 };
 
-/* A clobber, in the shape the corpus showed: session one appends its entry,
- * session two — holding a copy fetched beforehand — writes its own entry over
- * the top, so entry one is gone and everything older survives. */
 const CLOBBER: Issue = {
 	number: 8,
 	title: "taglines — Positioning & taglines",
@@ -221,11 +178,9 @@ const CLOBBER: Issue = {
 	],
 };
 
-/* Long enough to carry a second 60-char window, which `L` above is not. */
 const LONG = (tag: string) =>
 	`${L(tag)}, with the working and the rejected alternative both set out at length`;
 
-/** The same clobber in long lines, against a given live body. */
 const longClobber = (restored: string): Issue => ({
 	number: 8,
 	title: "taglines — Positioning & taglines",
@@ -280,9 +235,6 @@ describe("a clobber", () => {
 	});
 
 	it("stops being reported when the restoration reworded the opening", () => {
-		/* A restoration prepends the issue number to the link text, as the
-		 * number-first citation rule requires, so the first 60 characters no
-		 * longer match: only the second window sees it (mantahostels#302). */
 		const reworded = LONG("session-one").replace(
 			"- [session-one]",
 			"- [#1 — session-one]",
@@ -293,9 +245,6 @@ describe("a clobber", () => {
 	});
 
 	it("goes quiet when a LONG lost line's second window recurs elsewhere — the accepted false negative", () => {
-		/* The price of the second window: a still-missing long line whose middle
-		 * 60 characters happen to reappear in some other line reads as restored,
-		 * and is never reported. Accepted at mantahostels#302. */
 		const lost = LONG("session-one");
 		const elsewhere = `an unrelated note quoting ${lost.slice(60, 120)} at length`;
 		const r = run([], stubGh([longClobber(elsewhere)]));
@@ -304,10 +253,7 @@ describe("a clobber", () => {
 	});
 
 	it("is still reported when a shorter lost line is merely quoted elsewhere", () => {
-		/* The second window is a whole 60 characters or nothing. A lost line with
-		 * no room for one falls back to the strict opening match, so a later note
-		 * quoting its tail does not read as the text being back. */
-		const lost = L("session-one"); // 106 chars: room for one window, not two
+		const lost = L("session-one");
 		const quoted = `a later note that happens to quote ${lost.slice(60)} in passing`;
 		const r = run(
 			[],
@@ -323,7 +269,6 @@ describe("a clobber", () => {
 	});
 
 	it("is still found when the clobbering write made the body LONGER", () => {
-		// The rule cannot lean on size in either direction.
 		const grown = {
 			...CLOBBER,
 			revisions: [
@@ -465,9 +410,6 @@ describe("ambiguous transitions", () => {
 	});
 
 	it("a removal whose only addition is a heading is not called a clobber", () => {
-		// Condition 4 asks whether C wrote anything of its own. A short heading or
-		// bullet is shared by every revision of every issue, so it establishes
-		// nothing.
 		const r = run(
 			[],
 			stubGh([
@@ -485,8 +427,6 @@ describe("ambiguous transitions", () => {
 	});
 
 	it("a removal that adds nothing is not called a clobber", () => {
-		// Condition 4: nothing was written over the top, so nobody's work was
-		// taken.
 		const r = run(
 			[],
 			stubGh([
@@ -505,7 +445,6 @@ describe("ambiguous transitions", () => {
 	});
 });
 
-/** CLOBBER, last edited in January: outside any window the fixtures open. */
 const OLD_CLOBBER: Issue = {
 	...CLOBBER,
 	lastEditedAt: "2026-01-01T00:00:00Z",
@@ -523,10 +462,6 @@ describe("scope", () => {
 		expect(all.out).toContain("CLOBBERED");
 	});
 
-	/* mantahostels#2176: proves the window reads the injected clock, not the real calendar
-	 * date. Paired with "is reported, and gates" above, the positive case a
-	 * wall-clock read would falsely flip once real time passed the fixture's
-	 * anchor by 30 days. */
 	it("closes the --since window as the injected clock, not real time, moves past it", () => {
 		const farFuture = run([], stubGh([CLOBBER]), {
 			WFC_NOW: "2027-01-01T00:00:00Z",
@@ -536,10 +471,6 @@ describe("scope", () => {
 		expect(farFuture.out).not.toContain("CLOBBERED");
 	});
 
-	/* mantahostels#2176: unlike the far-future case above, a NOW anchored before the fixture
-	 * keeps the window open under the injected clock forever — a wall-clock read
-	 * starts excluding this fixture once real time passes the fixture's own
-	 * anchor by 30 days. */
 	it("keeps the --since window open on an injected clock anchored before the fixture", () => {
 		const past = run([], stubGh([CLOBBER]), {
 			WFC_NOW: "2025-06-01T00:00:00Z",
@@ -548,17 +479,12 @@ describe("scope", () => {
 		expect(past.out).toContain("CLOBBERED");
 	});
 
-	/* mantahostels#2176: --all computes no cutoff at all, so a malformed WFC_NOW must not
-	 * stop it finding a real clobber. */
 	it("--all ignores a malformed WFC_NOW, which its unread cutoff never touches", () => {
 		const r = run(["--all"], stubGh([CLOBBER]), { WFC_NOW: "not-a-date" });
 		expect(r.status).toBe(1);
 		expect(r.out).toContain("CLOBBERED");
 	});
 
-	/* `npm run check:clobbers` hardcodes --all, so
-	 * `npm run check:clobbers -- --since 7` reads like a narrowed run. Refusing
-	 * beats silently sweeping everything under a flag that says otherwise. */
 	it("refuses --since and --all together rather than ignoring one", () => {
 		const r = run(["--all", "--since", "7"], stubGh([CLOBBER]));
 		expect(r.status).toBe(2);
@@ -580,8 +506,6 @@ describe("scope", () => {
 	});
 });
 
-/* #1600: the daily run names the issues of its last findings, so an unfixed
- * one stays reported once the window has moved past its issue. */
 describe("--rescan", () => {
 	it("reports a finding on an issue last edited before the window when it is named", () => {
 		const r = run(["--since", "2", "--rescan", "8"], stubGh([OLD_CLOBBER]));
@@ -646,8 +570,6 @@ describe("--rescan", () => {
 	});
 });
 
-/** `count` issues edited on `day`, a minute apart from 06:00, each with a
- *  clean two-revision history. */
 const cleanIssues = (count: number, from: number, day: string): Issue[] =>
 	Array.from({ length: count }, (_, k) => {
 		const at = `${day}T06:${String(k).padStart(2, "0")}:00Z`;
@@ -667,8 +589,6 @@ const batchCalls = (stub: ReturnType<typeof stubGh>) =>
 
 describe("fetching (#1628)", () => {
 	it("reads an issue whose history runs past one page in full", () => {
-		/* 45 revisions is three pages of 20: the clobber sits in the oldest, so
-		 * only a fetch that pages on finds it. */
 		const filler = Array.from({ length: 42 }, (_, k) => ({
 			at: `2026-08-01T07:${String(k).padStart(2, "0")}:00Z`,
 			body: body(L("older"), L("settled"), L("session-two"), `filler ${k}`),
@@ -683,8 +603,6 @@ describe("fetching (#1628)", () => {
 	});
 
 	it("stops a windowed listing at the first page reaching past the cutoff, and --all reads every page", () => {
-		/* Ten issues, two a page: the windowed pass stops on page 2, and its
-		 * second look from the top on page 1 (see the next case). */
 		const issues = [
 			...cleanIssues(3, 100, "2026-07-30"),
 			...cleanIssues(7, 200, "2026-01-01"),
@@ -705,8 +623,6 @@ describe("fetching (#1628)", () => {
 	});
 
 	it("still finds an issue whose update mid-listing moved it onto a page already read", () => {
-		/* #8 was edited 12 days ago; a comment after the first page jumps it to
-		 * the front, so the first pass never sees it. */
 		const moved = {
 			...CLOBBER,
 			revisions: CLOBBER.revisions.map((revision) => ({
@@ -742,7 +658,6 @@ describe("fetching (#1628)", () => {
 	});
 
 	it("splits a call whose estimated response passes 4 MB", () => {
-		// Estimated as live body × revisions: 1.1 MB × 2 each, so two cannot share.
 		const big = "x".repeat(1_100_000);
 		const stub = stubGh(
 			cleanIssues(3, 100, "2026-08-01").map((i) => ({
@@ -757,8 +672,6 @@ describe("fetching (#1628)", () => {
 	});
 
 	it("keeps every finding's key across batch boundaries, windowed and --all", () => {
-		/* Keys pinned from the per-issue fetch before #1628, on this fixture: a
-		 * clobber and a SUSPECT each side of the 25-issue boundary. */
 		const suspect = (n: number): Issue => ({
 			number: n,
 			revisions: [
@@ -797,8 +710,6 @@ describe("fetching (#1628)", () => {
 	});
 });
 
-/* #1700: a SUSPECT judged a deliberate rewrite stays reported under its own
- * tag, so the daily run can leave it off the standing issue. */
 describe("reviewed findings", () => {
 	const reviewedFile = () =>
 		path.join(hostRoot(), "docs", "clobber-reviewed.json");
@@ -823,7 +734,6 @@ describe("reviewed findings", () => {
 			{ at, body: body(L("a"), L("b"), L("new2"), L("later")) },
 		],
 	});
-	/* Last edited a month before NOW, so a 1-day window passes it. */
 	const passed = (n: number): Issue => ({
 		...suspect(n),
 		lastEditedAt: "2026-07-01T00:00:00Z",
@@ -868,7 +778,6 @@ describe("reviewed findings", () => {
 		]);
 	});
 
-	/* #4636: a CLOBBERED judged a deliberate rewrite settles the same way. */
 	const clobberAt = "2026-08-01T06:03:16Z";
 	it("reports a CLOBBERED whose identity the host reviewed as CLOBBERED-REVIEWED, naming the reason, and exits clean", () => {
 		review({ [`#8\t${clobberAt}`]: "rewrote the plan in plain words" });
@@ -946,9 +855,6 @@ describe("it cannot run", () => {
 	});
 
 	it("SKIPs a rate-limited sweep rather than calling itself broken", () => {
-		// GraphQL refuses a rate-limited caller on a 200 with an errors array, so
-		// gh exits 0 and stderr is empty. --all, the whole-history sweep, is the
-		// mode that provokes it.
 		const r = run(
 			["--all"],
 			stubGh([CLOBBER], {
@@ -966,8 +872,6 @@ describe("it cannot run", () => {
 		expect(r.out).toContain("BROKEN");
 	});
 
-	/* mantahostels#2176: a malformed clock fails loudly rather than falling back to
-	 * the real calendar date. */
 	it("is BROKEN on a WFC_NOW that is not a date", () => {
 		const r = run([], stubGh([CLOBBER]), { WFC_NOW: "not-a-date" });
 		expect(r.status).toBe(2);

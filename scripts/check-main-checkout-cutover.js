@@ -1,17 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-main-checkout-cutover.js — cut the main checkout over to the worktree
- * model at session start, where it still runs as one shared tree (#4688,
- * #5276).
- *
- * Usage:  node scripts/check-main-checkout-cutover.js [--notify] [--json]
- *
- * WFC_REPO_ROOT injects the repo.
- *
- * TIMEOUT:   its hook allows 300 s. Untraced: a cutover's land, fetch and
- *            levelling pass run once per repo, and 300 s is a guess at their
- *            ceiling; the cut-over fast path is one `git config` read.
- */
 
 const { runCheck } = require("./lib/check");
 const { caught } = require("./lib/caught.js");

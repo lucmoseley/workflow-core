@@ -430,9 +430,30 @@ function shQuoteEnd(source, i) {
 	const q = source.charAt(i);
 	const escapes = q === '"' || source.charAt(i - 1) === "$";
 	let j = i + 1;
-	while (j < source.length && source.charAt(j) !== q)
-		j += source.charAt(j) === "\\" && escapes ? 2 : 1;
+	while (j < source.length && source.charAt(j) !== q) {
+		if (q === '"' && source.startsWith("$(", j)) j = shSubstEnd(source, j + 2);
+		else j += source.charAt(j) === "\\" && escapes ? 2 : 1;
+	}
 	return j + 1;
+}
+
+/**
+ * @param {string} source
+ * @param {number} j
+ */
+function shSubstEnd(source, j) {
+	let depth = 1;
+	while (j < source.length) {
+		const c = source.charAt(j);
+		if (c === "\\") j += 2;
+		else if (c === "'" || c === '"') j = shQuoteEnd(source, j);
+		else if (c === "(") {
+			depth++;
+			j++;
+		} else if (c === ")" && --depth === 0) return j + 1;
+		else j++;
+	}
+	return j;
 }
 
 /**

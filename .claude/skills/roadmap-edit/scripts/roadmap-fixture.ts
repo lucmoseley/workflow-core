@@ -1,18 +1,3 @@
-/*
- * Test fixture builder for the roadmap-edit scripts.
- *
- * Both scripts parse reference-roadmap.html by slicing out the `const ITEMS`,
- * `const AREAS` and `const PHASES` literals and the docmeta version line, then
- * evaluating only those slices. A fixture therefore has to reproduce that exact
- * shape — the `\n];` array terminator especially, which is what the slicer looks
- * for — but nothing else about the page.
- *
- * Tests use these hermetic fixtures for behaviour. The shape a real roadmap
- * starts from is the adopter template's, which scripts/check-roadmap-pair.test.ts
- * and scripts/init-adopter-subjects.test.ts render through gen-roadmap-digest.js,
- * so a change to that structure still trips something.
- */
-
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { runInProcess } from "../../../../scripts/lib/run-in-process.js";
@@ -38,9 +23,6 @@ export interface Card {
 	capOk?: Record<string, number>;
 }
 
-/** `dw` defaults to a short placeholder so existing fixtures satisfy the
- *  non-done-cards-need-dw ERROR without every caller setting one; a test of
- *  that check itself overrides with `dw: undefined`. */
 export function card(over: Partial<Card> & { id: string }): Card {
 	return {
 		p: 0,
@@ -53,9 +35,6 @@ export function card(over: Partial<Card> & { id: string }): Card {
 	};
 }
 
-/** A structurally valid roadmap page containing exactly `cards`. */
-/** `stamp` defaults to a fixed date for determinism; validate.js checks it
- *  against the wall clock, so its tests pass one explicitly (see `witaStamp`). */
 export function roadmapHtml(
 	cards: Card[],
 	version = "v5.0",
@@ -84,22 +63,13 @@ export interface Run {
 	stderr: string;
 }
 
-/**
- * Run one of the scripts as a program. A non-zero exit is the behaviour under
- * test in most of these cases, so this never throws on it — assert on `status`.
- */
 export function run(script: string, args: string[]): Run {
 	return runInProcess(path.join(SCRIPTS_DIR, script), args, { cwd: REPO_ROOT });
 }
 
-/** A `witaStamp` offset over 24 hours back, so always an earlier WITA day. */
 export const EARLIER_DAY_MIN = -26 * 60;
-/** A `witaStamp` offset past validate.js's 10-minute allowance for a stamp
- *  ahead of the clock. */
 export const AHEAD_MIN = 3 * 60;
 
-/** A docmeta stamp `offsetMin` minutes from now (negative = past), in WITA and
- *  the en-GB form validate.js expects. Off the clock, so it can't age out. */
 export function witaStamp(offsetMin = 0): string {
 	const t = new Date(Date.now() + offsetMin * 60_000 + 8 * 60 * 60_000);
 	const months = [

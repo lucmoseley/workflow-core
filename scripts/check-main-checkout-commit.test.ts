@@ -1,12 +1,4 @@
 // @vitest-environment node
-/*
- * The pre-commit limb that refuses a commit in a cut-over main checkout
- * (#4248), run where .husky/pre-commit runs it: at the committing tree's top,
- * in a real main checkout and a linked worktree of it.
- *
- * Loosen it and a commit lands on the main checkout's `main` that the
- * levelling step's fast-forward cannot keep.
- */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";

@@ -1,67 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-plugin-gap.js — the SessionStart reporter for the adopter-upgrade
- * mechanism (#238, #243). Reads the four-record state through
- * `scripts/lib/plugin-state.js` and, where a gap is open, injects the exact
- * command that closes it and the id of `rule:adopter-materialise-sequence`
- * so a session composing advice fetches the sequence rather than invents it
- * (docs/agents/adopter-upgrade.md). Where the supply gap is open, also reads
- * user-scope `settings.json` (`scripts/lib/materialise-plugin.js`'s
- * `predictedRefConflict`) to predict the #258 cross-scope ref conflict, or
- * the #342 source-kind one, the SessionEnd materialiser would otherwise refuse
- * silently (#318).
- *
- * Usage:
- *   node scripts/check-plugin-gap.js --notify   the SessionStart hook shape
- *
- * NOT IN THE `check-*` FAMILY'S CONTRACT, AND THIS IS THE DEPARTURE §G4 ASKS
- * FOR (#251 item 7). §N3 routes a `check-*` name to `runCheck` and §N4's
- * five-outcome alphabet. This file uses neither, for two reasons that cannot
- * both be satisfied by that family:
- *   1. Its output is not a report for a screen. It is a `hookSpecificOutput`
- *      envelope whose `additionalContext` must reach the MODEL verbatim —
- *      an exact command a session will copy. `runCheck` owns stdout and has
- *      no route that emits that envelope; wrapping the text in a finding
- *      would put a severity tag through the middle of the command block.
- *   2. Its contract on error is the `guard-*` family's, not the `check-*`
- *      family's: fail open, silent, exit 0 (#238). A checker's BROKEN
- *      (exit 2) at SessionStart is a broken session start over a reporter
- *      that missed a gap. The name stays `check-` because it checks and
- *      never acts — `guard-` would promise a `PreToolUse` hook it is not.
- * The one place the alphabet does bind is a bad invocation, which §N4 rules
- * BROKEN rather than a finding: an argv with no `--notify` prints usage on
- * fd 2 and exits 2, because nothing was checked. `--notify` itself still
- * never exits non-zero, so only a hand run naming no mode reaches the 2.
- *
- * Silent (exit 0, no output; #238 user stories 3 and 9) where both gaps are
- * closed and the loaded plugin is the installed one, where the adopter is
- * directory-sourced, pinned to a branch or a SHA rather than a tag, or
- * unpinned, where no plugin manifest reads at the plugin root, or where the
- * founder has already declined this exact repo+tag through
- * `scripts/adopter-consent.js` (`scripts/lib/adopter-consent.js`, #245).
- * Where a gap does report, the session runs the commands itself (#5230), and
- * the report carries the exact `adopter-consent.js accept` command it records
- * after them, and the `decline` a founder's no takes.
- *
- * TWO EXCEPTIONS TO THAT SILENCE, each reported regardless of gap state:
- *   - `.claude/workflow-core.json`'s `stepsOwed` (#248), whenever it holds an
- *     undeclined entry. Read through `scripts/lib/steps-owed.js`, never
- *     through this file's own config reads, and printed with the exact
- *     `scripts/steps-owed.js` command that discharges each entry.
- *   - A `.husky/*` hook shim (#1839) where no core resolves (FAIL: the
- *     shim refuses, so the repo cannot commit). A hook written before #1839
- *     still names its plugin on a `WFC_PLUGIN_ROOT` line: one naming a
- *     directory that is gone is a FAIL (its first `.` of a script there
- *     aborts), and one naming another core than this session's
- *     `CLAUDE_PLUGIN_ROOT` a WARN (the git gates judge commits by another
- *     core than the guards) (#1168). Where `CLAUDE_PLUGIN_ROOT` is unset only
- *     the missing limb reports. workflow-core's own hooks are neither, so it
- *     is silent there.
- *
- * Not `async`: the reads are cheap (`plugin-state.js` is pure fs) and the
- * line must be in context before the session composes advice, unlike the
- * `notify-report.js` persist-and-replay checkers this repo also runs.
- */
 
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
@@ -116,19 +53,11 @@ function commandsFor(state, marketplace, pluginName) {
 }
 
 /**
- * The `stepsOwed` block alone — undeclined entries, each with the exact
- * `scripts/steps-owed.js` command that discharges it. `null` where the
- * array holds nothing to report (#248).
  * @param {string} root
  * @param {string} pluginRoot
  * @returns {string|null}
  */
 function buildOwedBlock(root, pluginRoot) {
-	/* A malformed `.claude/workflow-core.json` must not silence the
-	 * version-gap report below it — `readStepsOwed()` throws on unparseable
-	 * JSON. Caught here, at the source, rather than relying on the outer
-	 * fail-open in `main()`, which would swallow the whole report instead of
-	 * just this block. */
 	let owed;
 	try {
 		owed = readStepsOwed(root).filter((e) => !e.declined);
@@ -142,8 +71,6 @@ function buildOwedBlock(root, pluginRoot) {
 	];
 	for (const e of owed) {
 		lines.push(`  [${e.type}] (${e.tag}) ${e.text}`);
-		/* shellQuote, never JSON.stringify's double quotes, inside which a step
-		 * text's backticks and `$` run when pasted (#430). */
 		if (e.type === "choice")
 			lines.push(
 				`    node ${cli} decline ${shellQuote(e.tag)} ${shellQuote(e.text)}`,
@@ -164,12 +91,10 @@ function readVersionAt(root) {
 			).version,
 		undefined,
 	);
-	// With no readable manifest, the plugin cache names each root by its version.
 	return typeof version === "string" ? version : path.basename(root);
 }
 
 /**
- * Each core hook this adopter installs, with its text.
  * @param {string} root
  * @returns {{hook: string, text: string}[]}
  */
@@ -189,9 +114,6 @@ function installedHooks(root) {
 }
 
 /**
- * Each hook's `WFC_PLUGIN_ROOT` that is not `running`, bucketed by whether it
- * no longer exists or names another install; a skewed one only where a
- * running root is known.
  * @param {string} root
  * @param {string|null} running
  */
@@ -204,7 +126,6 @@ function hookRootsOffRunning(root, running) {
 	for (const { hook, text } of installedHooks(root)) {
 		const raw = hookRootOf(text);
 		if (raw === null) continue;
-		// as the hook's shell reads it, from the repo top a git hook runs in
 		const named = path.resolve(root, raw);
 		if (deref(named) === runningReal) continue;
 		const bucket = fs.existsSync(named) ? skewed : missing;
@@ -215,9 +136,6 @@ function hookRootsOffRunning(root, running) {
 }
 
 /**
- * The hooks whose `WFC_PLUGIN_ROOT` is missing or is not `runningRoot`, with
- * the `upgrade.js` command that re-points them (#1168). `null` where every
- * hook matches or carries no such line.
  * @param {string} root
  * @param {string|undefined} runningRoot
  * @returns {string|null}
@@ -250,8 +168,6 @@ function buildHookRootBlock(root, runningRoot) {
 }
 
 /**
- * The shims, where no core resolves for them, with resolve-core's reason and
- * the fix (#1839). `null` where none is a shim or a core resolves.
  * @param {string} root
  * @returns {string|null}
  */
@@ -260,10 +176,6 @@ function buildShimBlock(root) {
 		.filter(({ text }) => isHookShim(text))
 		.map(({ hook }) => hook);
 	if (shims.length === 0) return null;
-	/* Looked up as the shim does, from the repo's own cwd, so a linked worktree
-	 * resolves through its main checkout. The core's copy, not the adopter's:
-	 * the lookup is frozen, so both answer alike. Version drift is the gap
-	 * report's. */
 	const r = spawnSync(
 		process.execPath,
 		[
@@ -286,7 +198,6 @@ function buildShimBlock(root) {
 }
 
 /**
- * The plugin's manifest, or null where it will not read.
  * @param {string} pluginRoot
  */
 function readManifest(pluginRoot) {
@@ -300,7 +211,6 @@ function readManifest(pluginRoot) {
 }
 
 /**
- * The line saying a newer install awaits the next session, or null.
  * @param {any} state
  * @param {string} name
  * @returns {string|null}
@@ -314,8 +224,6 @@ function buildMaterialisedNotLiveLine(state, name) {
 }
 
 /**
- * The walk a pending consent still owes once the install is at the pin, or
- * null. A decline outranks it, as it does the gap report.
  * @param {string} root
  * @param {any} state
  * @param {string} name
@@ -332,14 +240,10 @@ function buildWalkOwedLine(root, state, name) {
 }
 
 /**
- * The lines predicting the rotation's refusal, or none.
  * @param {any} state
  * @returns {string[]}
  */
 function buildRefConflictLines(state) {
-	/* The same cross-scope ref conflict `materialisePlugin`'s
-	 * `predictedRefConflict` (#258) checks, read here too (#318). Predicted
-	 * only, re-checked every session. */
 	if (!state.gaps.supplyBehindPin || typeof state.pin.url !== "string")
 		return [];
 	const conflict = predictedRefConflict(
@@ -357,22 +261,16 @@ function buildRefConflictLines(state) {
 }
 
 /**
- * The rule fragments the report carries, each preceded by a blank line.
  * @param {boolean} supplyBehindPin
  * @returns {string[]}
  */
 function buildRuleLines(supplyBehindPin) {
 	/** @type {string[]} */
 	const lines = [];
-	/* A missing/empty fragment is caught elsewhere (check-guard-registry.js);
-	 * the gap and commands above still reach the session either way. */
 	ignoreFailure(() =>
 		lines.push("", readRuleText("adopter-materialise-sequence")),
 	);
 	if (supplyBehindPin) {
-		/* Only where the pin itself has moved: a session reading this report
-		 * may be the one about to advance it further, and the consent
-		 * boundary is about that write, never about closing the gap below it. */
 		ignoreFailure(() => lines.push("", readRuleText("adopter-pin-consent")));
 	}
 	return lines;
@@ -380,12 +278,9 @@ function buildRuleLines(supplyBehindPin) {
 
 /**
  * @param {{root: string, pluginRoot: string, runningRoot?: string}} at
- *   `runningRoot` is `CLAUDE_PLUGIN_ROOT`, absent where unset — never
- *   `pluginRoot`'s fallback to the host root
  * @returns {string|null}
  */
 function buildReport({ root, pluginRoot, runningRoot }) {
-	// the blocks that report whatever the gap state (header)
 	const standing =
 		[
 			buildShimBlock(root),
@@ -404,27 +299,18 @@ function buildReport({ root, pluginRoot, runningRoot }) {
 	if (!plugin?.name) return join(null);
 
 	const state = readPluginState({ root, pluginRoot });
-	// directory-sourced, branch- or SHA-pinned, or no pin resolved at all
 	if (!state.pin) return join(null);
 	if (!state.gaps.supplyBehindPin && !state.gaps.installBehindSupply)
-		/* Nothing is owed on the PIN here — the records agree and the only
-		 * thing behind is this process's own bytes, which end with it (#243) —
-		 * unless the walk the accept asked for has not landed (#5286). */
 		return join(
 			buildWalkOwedLine(root, state, plugin.name) ??
 				buildMaterialisedNotLiveLine(state, plugin.name),
 		);
-	// The founder already said no to this exact tag in this exact repo (#245)
-	// — a different tag, or the same tag in a different adopter, still reports.
 	if (isDeclined(root, state.pin.ref)) return join(null);
 
 	const lines = [];
 	const gaps = [];
 	if (state.gaps.supplyBehindPin) gaps.push("supply behind pin");
 	if (state.gaps.installBehindSupply) gaps.push("install behind supply");
-	/* Three records, each named as itself: a single "previously" label would
-	 * name the supply's ref, which is the previous version only in the
-	 * both-gaps case (#251 item 4). */
 	lines.push(
 		`${plugin.name}: ${gaps.join(", ")} — pin is ${state.pin.ref}, ` +
 			`supply is on ${state.supply.ref ?? "unresolved"}, ` +
@@ -453,9 +339,6 @@ function buildReport({ root, pluginRoot, runningRoot }) {
 
 /** @param {string[]} argv */
 function main(argv) {
-	/* Outside the try: a bad invocation is not a fail-open case. Nothing was
-	 * checked, so it is BROKEN in §N4's alphabet even though the rest of this
-	 * file departs from that family (see the header). */
 	if (!parseOrExit(argv, CLI).flags["--notify"]) {
 		writeFd(2, `${USAGE}\n`);
 		return 2;
@@ -472,11 +355,6 @@ function main(argv) {
 		);
 		return 0;
 	} catch {
-		/* Fails open, silent (#238). §N5's third limb — print where a human
-		 * reads the output — cannot be met here: this hook's only channel is
-		 * the model's context, and a line there on every broken read is the
-		 * noise #243 forbade. The swallow shows as a gap that stops being
-		 * named. */
 		return 0;
 	}
 }

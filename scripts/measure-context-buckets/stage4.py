@@ -1,10 +1,4 @@
 #!/usr/bin/env python3
-"""stage4.py — stage 4 of mantahostels#1081's context-bucket measurement: before/after
-concision-work split, per-day series, cost weighting, ranking.
-
-A stage of its own so the figures can be recut from stages 2 and 3's pickles
-without re-streaming the transcript corpus.
-"""
 
 import pickle
 import collections
@@ -84,14 +78,12 @@ def main():
         "(Note: sum-of-medians is not the median-of-sums; use as a directional summary only.)\n"
     )
 
-    # total cache-read per turn pre/post (observed, not reconstructed)
     pre_cr = [r[6] for r in pre]
     post_cr = [r[6] for r in post]
     log(
         f"Observed cache_read_input_tokens per turn: pre median={pctl(pre_cr, 0.5):,.0f} tok, post median={pctl(post_cr, 0.5):,.0f} tok, change={pctl(post_cr, 0.5) - pctl(pre_cr, 0.5):+,.0f} tok ({100 * (pctl(post_cr, 0.5) - pctl(pre_cr, 0.5)) / max(1, pctl(pre_cr, 0.5)):+.1f}%).\n"
     )
 
-    # per-day series for always_loaded(folded->fixed_preamble constant, so use hook_injected total instead), hook_injected, total cache-read
     log(
         "### Per-day median series: hook_injected (all 3 sub-buckets summed) and total cache-read-per-turn\n"
     )
@@ -119,7 +111,6 @@ def main():
         )
     log("")
 
-    # weighted cost-equivalent: Opus 5 list ratios fresh input/output/cache write/cache read = 15/75/18.75/1.50 per Mtok
     log(
         "### Weighted cost-equivalent (Opus 5 API list ratios: fresh input $15, output $75, cache write $18.75, cache read $1.50 per Mtok -- ANALYTICAL WEIGHTING, NOT MONEY)\n"
     )
@@ -148,7 +139,6 @@ def main():
         "CAVEAT: pre-window (22 Jul-14 Aug, 24 days) vs post-window (15-22 Aug, 8 days, LAST DAY PARTIAL) -- volume/day comparison, not a controlled before/after on identical workload. Turn-count and session-count also differ between windows; a raw per-turn median (table above) is the more apples-to-apples comparator than the per-day total.\n"
     )
 
-    # ---------------- Cheapest 20% to remove: ranking ----------------
     log(
         "### Cheapest-to-remove ranking (share of re-read total, largest first, correctness cost NOT judged)\n"
     )

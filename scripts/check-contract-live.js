@@ -1,28 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-contract-live.js — which live contract cases have skipped in every
- * scheduled sweep for over a week since they last ran live (#5408)?
- *
- * Usage:
- *   node check-contract-live.js [--reports <dir>] [--ledger <file>] [--json]
- *
- * `--reports <dir>` reads sweeps already downloaded, one
- * subdirectory per run id as `gh run download <id> -p 'vitest-report-*' -D
- * <dir>/<id>` leaves them.
- *
- * WARN, NEVER FAIL: the cause is a service outside the repo, and the finding
- * asks a person to look, not a commit to change.
- *
- * Only a finished sweep is folded, and the first unfinished one stops the
- * fold.
- *
- * Residual: a ledger begun while a case was already silent has no live run
- * for it, and counts it among the never-live cases.
- *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js), downloads each scheduled sweep's vitest reports not yet read, records each contract case's newest live run in `.claude/tmp/markers/contract-live-ledger.json`, and warns on each skipped in every sweep for over a week since.
- * JUSTIFIED: fail-safe — a contract case that skips on a silent service passes, and nothing else says it stopped checking (#5402).
- * DEFEAT:    convenience — --reports reads sweeps already downloaded, with no gh call; --ledger names another ledger.
- */
 
 const path = require("node:path");
 const fs = require("node:fs");
@@ -52,10 +28,7 @@ const WINDOW = `${WINDOW_MS / DAY_MS} days`;
 const day = (ms) => new Date(ms).toISOString().slice(0, 10);
 
 /**
- * The finished runs newer than `newestRun`, oldest first, up to the first
- * unfinished one; and whether the listing no longer reaches `newestRun`, so
- * sweeps between went unread.
- * @param {{ id: string, completed: boolean }[]} listed newest first
+ * @param {{ id: string, completed: boolean }[]} listed
  * @param {number} newestRun
  */
 function unread(listed, newestRun) {
@@ -71,11 +44,9 @@ function unread(listed, newestRun) {
 }
 
 /**
- * The ledger with every finished sweep newer than its newest folded in,
- * oldest first, and written back.
  * @param {import("./lib/check.js").Ctx} ctx
  * @param {string} ledgerFile
- * @param {string} reports a directory of sweeps already downloaded, or ""
+ * @param {string} reports
  */
 function foldNewSweeps(ctx, ledgerFile, reports) {
 	const read = readLedger(ledgerFile);

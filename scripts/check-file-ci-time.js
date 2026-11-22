@@ -1,28 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-file-ci-time.js — which test files' CI time is over the per-file
- * limit, judged on each file's median over the last three sweeps (#4292)?
- *
- * Usage:
- *   node check-file-ci-time.js [--reports <dir>] [--json]
- *
- * Reads each sweep's vitest reports (`scripts/lib/sweep-reports.js`, where
- * `--reports <dir>` names sweeps already downloaded). The judging, and which
- * sweeps and files it takes, is `scripts/lib/file-ci-time.js`; the limit is
- * FILE_LIMIT_MS in `scripts/lib/suite-ceiling.js`.
- *
- * FEWER THAN THREE SWEEPS READABLE IS A SKIP THAT SAYS IT JUDGED NOTHING,
- * never an OK.
- *
- * A FILE WHOSE MEDIAN IS OVER THE LIMIT FAILS (#4293, on #4283's 4 Nov
- * ruling). A file timed in fewer than three sweeps has no median, so one over
- * the limit in a sweep only warns.
- *
- * IMPLICIT:  on `npm run status` (scripts/status-report.js) and in the scheduled sweep (scheduled-checks.yml), fails on each test file whose median CI time over its last three sweeps is over the limit scripts/lib/suite-ceiling.js sets, downloading those sweeps' vitest reports, and so turns the sweep red.
- * JUSTIFIED: fail-safe — a file over the limit holds the whole suite over its 180 s target (#2729) and is otherwise counted only by hand.
- * DEFEAT:    convenience — --reports judges sweeps already downloaded, with no gh call.
- */
-
 const { runCheck } = require("./lib/check.js");
 const {
 	SWEEPS_JUDGED,

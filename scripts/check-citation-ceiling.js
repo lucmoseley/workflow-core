@@ -1,24 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-citation-ceiling.js — is the core's tracker within MARGIN of
- * qualify-citations.js's CITATION_CEILING? (#726)
- *
- * Usage:  node check-citation-ceiling.js [--json] [--require-remote]
- *         npm run status -- --only citation-ceiling
- *
- * WHAT CROSSING IT COSTS, silently. The release build qualifies a `#N` only up
- * to the ceiling, so a citation above it ships bare and names the adopter's own
- * issue #N; and lib/citation-tracker.js, whose BAND_MAX is the same number,
- * stops judging a mis-prefixed `mantahostels#N` above it.
- *
- * THE TRACKER'S TOP IS ITS NEWEST ISSUE OR PULL REQUEST, the two sharing one
- * number sequence and both being citable.
- *
- * SKIPS in an adopter and where `gh` cannot reach GitHub. The daily repo-checks
- * run judges it, not the sweep, whose token cannot read the private tracker
- * (#1963). --require-remote makes an unreachable GitHub BROKEN instead, for a
- * caller nobody reads a SKIP from (#263).
- */
 
 const { runCheck } = require("./lib/check");
 const { parseGhFailureReason, ghJson, raiseGhFailure } = require("./lib/gh");
@@ -28,10 +8,7 @@ const {
 	resolveKey,
 } = require("./lib/workflow-core-config.js");
 
-/*
- * Six days at the fastest week measured, ~160 issues a day (#5356), against
- * the daily repo-checks run.
- */
+// measured ~160 issues a day at the fastest week, #5356
 const MARGIN = 1000;
 
 runCheck({
@@ -76,8 +53,6 @@ runCheck({
 				"CITATION-CEILING",
 				`${where} — raise it in scripts/lib/qualify-citations.js, with its derivation, before a citation above it ships bare.`,
 				data,
-				/* Keyed on the ceiling, not the top, so a reading that moves the top
-				 * restates one standing finding rather than adding one (#1963). */
 				`CITATION-CEILING\t${CITATION_CEILING}`,
 			);
 		}

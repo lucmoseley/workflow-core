@@ -1,10 +1,3 @@
-"""Active session time, the denominator for blocked time, from the Claude Code transcripts.
-Counting rules: #2821 (the verification figure)'s, unchanged.
-Usage: python3 -I active.py <out.jsonl> [<projects-dir>...] [--start ISO] [--end ISO]
-Main-session transcripts only. Active time = the sum of gaps between consecutive timestamped
-entries, each capped at corpus.CAP_S, leaving out any gap that ends in a prompt the human typed.
-A gap counts in the window when it ends there. One row per transcript per UTC hour."""
-
 import os
 import re
 import sys
@@ -15,7 +8,6 @@ import corpus
 from corpus import epoch
 from fail_open import fail_open
 
-# A malformed timestamp is a skipped line, counted beside the unparsed ones (#2823).
 BAD_TIMESTAMP = "bad timestamps"
 
 
@@ -27,7 +19,6 @@ def human_prompt(r):
         if any(isinstance(x, dict) and x.get("type") == "tool_result" for x in c):
             return False
         c = " ".join(x.get("text", "") for x in c if isinstance(x, dict))
-    # the harness's own wrappers open within a prompt's first 400 characters (#2821, untraced)
     return not re.search(
         r"<task-notification>|<local-command|<command-name>|<system-reminder>",
         str(c)[:400],
@@ -64,4 +55,8 @@ def scan_file(path, repo, start, end, *, tally):
 
 
 if __name__ == "__main__":
-    corpus.run_scanner(__doc__, scan_file, subagents=False)
+    corpus.run_scanner(
+        "Active session time, the denominator for blocked time, from the Claude Code transcripts.",
+        scan_file,
+        subagents=False,
+    )

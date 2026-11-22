@@ -347,10 +347,17 @@ describe("what is not a comment", () => {
 		).toEqual(["COMMENT@5"]);
 	});
 
-	it("reads a here-string as no heredoc, so the comments after it are judged", () => {
-		expect(tags('x=$(jq -r . <<<"$payload")\n# yes\n', "sh")).toEqual([
-			"COMMENT@2",
-		]);
+	it("reads quotes nested in a command substitution inside a double quote (#5526)", () => {
+		expect(
+			tags(
+				`r="$(grep -F "\\"n\\":\\"$(esc "$n")\\"" f |\n  sed -n 's/"\\([^"]*\\)"/\\1/p')"\necho "a (#1) b" >>out\n# yes\n`,
+				"sh",
+			),
+		).toEqual(["COMMENT@4"]);
+	});
+
+	it("reads a here-string as no heredoc, so the comments after it are judged (#5526)", () => {
+		expect(tags('read -ra f <<<"$rest"\n# yes\n', "sh")).toEqual(["COMMENT@2"]);
 	});
 });
 

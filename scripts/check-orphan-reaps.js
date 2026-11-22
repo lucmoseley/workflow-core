@@ -1,19 +1,4 @@
 #!/usr/bin/env node
-/*
- * check-orphan-reaps.js — name every kill reap-orphan-hooks.js logged in the
- * last WINDOW_DAYS, on `npm run status` (#4342): a dead session's process, or
- * a hook run past its timeout, each with its argv and, for the first, its
- * session.
- *
- * Usage:  node scripts/check-orphan-reaps.js [--json]
- *
- * WHY A LOG READER: running the reaper itself here would kill from a
- * read-only surface.
- *
- * READ-ONLY: it reads `.orphan-hook-reaps.jsonl` under the canonical
- * checkout's markers and the machine's session-kill log
- * (lib/ended-sessions.js's sessionReapLog). No log yet is all-clear.
- */
 
 const { now, runCheck } = require("./lib/check");
 const { describeSession, sessionReapLog } = require("./lib/ended-sessions.js");
@@ -22,7 +7,6 @@ const { ARGV_SHOWN, reapLogPath } = require("./lib/orphan-hooks.js");
 const { DAY_MS } = require("./lib/retained-jsonl.js");
 const { repoRoot } = require("./lib/test-pass-marker.js");
 
-/* Untraced: a week spans a weekend away from the machine. */
 const WINDOW_DAYS = 7;
 
 runCheck({

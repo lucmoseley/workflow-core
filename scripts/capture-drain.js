@@ -1,28 +1,4 @@
 #!/usr/bin/env node
-/*
- * capture-drain.js — the machinery under the `capture-drain` skill: it finds
- * capture comments and marks one consumed. Every judgement the drain makes —
- * which document owns the fact, whether the repo already records it, whether to
- * skip it — belongs to the skill, and none of it is here.
- *
- * Usage:
- *   node capture-drain.js list [--all] [--json]
- *   node capture-drain.js mark <comment-id>
- *
- * `list` prints the undrained captures oldest first, which is drain order;
- * `--all` adds the drained ones. `mark` puts the consumed reaction on one
- * comment. A capture the drain deliberately SKIPS is never marked, so it stays
- * visibly undrained rather than being swept past (mantahostels#679).
- *
- * Marking is a reaction, never an edit to the comment text: a body edit is the
- * download-whole/upload-whole shape that loses a parallel session's writes
- * (mantahostels#640, on mantahostels#128's measurement).
- *
- * Exit codes: 0 on success, 2 on an unknown command, flag or argument, 1 on any
- * other bad invocation or a failed call. This is a
- * driven tool, not a member of the check-*.js family, so it has no SKIP/BROKEN
- * alphabet — the checker beside it, check-capture-drain.js, does.
- */
 
 const { gh, parseErrLine } = require("./lib/gh");
 const { scriptPath } = require("./lib/script-path.js");
@@ -109,7 +85,6 @@ const { command, flags, positionals } = parseOrExit(process.argv.slice(2), {
 	usage: USAGE,
 	commands: {
 		list: { usage: USAGE, flags: { "--all": "boolean", "--json": "boolean" } },
-		// mark counts its own ids, so its refusal can say how many it got.
 		mark: { usage: USAGE, max: Number.POSITIVE_INFINITY },
 	},
 });

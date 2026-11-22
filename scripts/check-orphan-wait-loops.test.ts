@@ -1,26 +1,4 @@
 // @vitest-environment node
-/*
- * Pins that check-orphan-wait-loops.js names a `while`/`until`-and-`sleep`
- * shell reparented to init past its age threshold, with its `kill`, and never
- * this session's own tree.
- *
- * Every test drives the real script end to end through lib/run-in-process.js,
- * against a synthetic /proc tree on WFC_PROC (lib/proc-fake.ts).
- *
- * The fixture shape is the ruling (mantahostels#2017): parent an init (pid 1, or
- * a `/init` at another pid, #3055), an argv carrying a `while`/`until` and a
- * `sleep`, and an elapsed time over the threshold. Nothing
- * here tests boundedness — a bounded loop exits on its own, so elapsed time does
- * that work from the sweep's vantage point.
- *
- * Running in-process is also what makes the own-tree cases testable at all: the
- * check's pid is this test's pid, so a fixture entry can be written for it and
- * for its parent before the run.
- *
- * It is a SessionStart `--notify` hook in .claude/settings.json: loosen a case
- * and a loose loop holds its slot and memory against the 10 GB cap unnamed, or
- * a wait still in progress is handed over to be killed.
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -47,7 +25,6 @@ afterEach(() => {
 	fixture.remove();
 });
 
-/** A process in the fixture tree: by default an orphaned wait loop 8 h old. */
 function proc(
 	pid: number,
 	{
@@ -66,7 +43,6 @@ function run(...args: string[]) {
 	return { ...res, out: `${res.stdout}${res.stderr}` };
 }
 
-/** The --json envelope, which is stdout's whole content in that mode. */
 function json(...args: string[]) {
 	const res = run("--json", ...args);
 	return JSON.parse(res.stdout) as {
@@ -91,12 +67,10 @@ describe("check-orphan-wait-loops", () => {
 		expect(out).toContain("pid 4242");
 		expect(out).toContain("kill 4242");
 		expect(out).toContain("sleep 3");
-		// WARN, never FAIL — it reports and a human decides (mantahostels#2017).
 		expect(status).toBe(0);
 	});
 
 	it("says nothing at all when the machine is clean", () => {
-		// An empty table: this case must not double as a test of any one criterion.
 		const { out, status } = run("--notify");
 
 		expect(out).toBe("");
@@ -144,10 +118,6 @@ describe("check-orphan-wait-loops", () => {
 		expect(json().orphanCount).toBe(0);
 	});
 
-	/* The `sleep` half of the predicate on its own. Without this fixture only
-	 * dropping the WHOLE predicate is caught, and widening the check to every
-	 * `while` orphan — a `while read` pipeline, a `while true` service — would
-	 * ship silently and flood the session start (mantahostels#2043). */
 	it("does not report a while loop that never sleeps (mantahostels#2043)", () => {
 		proc(4242, { argv: "/bin/bash -c while read l; do echo $l; done" });
 
@@ -193,14 +163,10 @@ describe("check-orphan-wait-loops", () => {
 		const envelope = json();
 
 		expect(envelope.outcome).toBe("SKIP");
-		// Named, so an empty table falling through to the uptime skip below fails here.
 		expect(envelope.summary).toContain("could not be enumerated");
 		expect(envelope.orphanCount).toBeUndefined();
 	});
 
-	/* hidepid=2 and a hardened container: the root lists pids and none of them
-	 * reads. An empty table here would be a false all-clear over a machine the
-	 * run never saw (mantahostels#2043). */
 	it("skips a root that lists processes of which none reads (mantahostels#2043)", () => {
 		for (const pid of [4242, 4243]) fs.mkdirSync(path.join(root, String(pid)));
 
@@ -243,8 +209,6 @@ describe("check-orphan-wait-loops", () => {
 		expect(out).not.toContain("source /a/very/long");
 	});
 
-	/* Deliberately unlike check-ghost-jobs.js, which stamps each ghost and
-	 * reports it once: a live orphan is a problem still happening (mantahostels#2017). */
 	it("re-reports the same loop on a second run (mantahostels#2017)", () => {
 		proc(4242);
 
@@ -252,9 +216,6 @@ describe("check-orphan-wait-loops", () => {
 		expect(run("--notify").out).toContain("pid 4242");
 	});
 
-	/* A session-scope watcher sits under `systemd --user` by design and waits on
-	 * its session's leader; the check reads that leader's pid and start time out
-	 * of the watcher's argv. */
 	describe("a session-scope watcher (#4670)", () => {
 		const Leader = 660_083;
 		const LeaderAgeS = 3600;
@@ -318,8 +279,6 @@ describe("check-orphan-wait-loops", () => {
 		expect(envelope.orphanCount).toBe(0);
 	});
 
-	/* The ancestor walk, not just the self case: the check's own parent shell is
-	 * an orphan matching every criterion, and is still not named (mantahostels#2043). */
 	it("never names an ancestor of its own process (mantahostels#2043)", () => {
 		const parent = 987_654;
 		proc(process.pid, {
